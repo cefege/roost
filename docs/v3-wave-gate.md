@@ -254,6 +254,43 @@ two different subsystems, one of which holds the RSA key material. **Sending one
 agent at a slice's failure count would have sent it to the wrong file for half
 the work.**
 
+## A fixture can hold a property that does not survive a merge
+
+`tests/auth_device_support/` exists for one reason: `Scratch::second_core()`
+opens a **second `CoordDb` on the same database file.** That is what makes the
+redemption race a real race instead of a pool-of-one serialisation, and it is
+why `two_simultaneous_browser_redemptions_leave_exactly_one_principal` is not
+vacuous — a read-then-write claim would pass it if both redemptions shared one
+connection.
+
+**If that fixture is folded into a shared one and `second_core` is lost in the
+merge, both race tests keep compiling, keep passing, and stop testing the
+property.** Nothing fails. That is the worst artefact in this programme: a green
+test that is now a tautology, produced not by a bad edit but by a *good* one.
+
+**So a fixture refactor has to be read as a change to every test that consumes
+it, not as a tidiness change** — and the property to look for is not "does it
+still compile" but **"what made this test able to fail at all, and is that still
+here?"** The rest of that fixture (a scratch dir, a booted core, an enrol
+helper) is ordinary and is what would be worth sharing.
+
+## "Never observed" is a fourth category, and it is not "failing"
+
+22 of one slice's tests **have never been observed in any state.** They are not
+"still broken" — they are an **absence**, and an absence contributes no signal to
+a second-cause analysis because there is no before.
+
+**So a failure map has four categories, not three:** 0-pass-fixture, failing,
+partially-green, and **never-observed.** The first three all have a before. The
+fourth has none, and the question for it is different in kind: **not "what is
+still red" but "what does the first successful compile surface?"** Those are
+different measurements, and counting a never-observed binary as a regression — or
+as a pass — is a category error.
+
+This is why a wave's first run of a new target is a *discovery* step and not a
+*measurement* step, and why "the suite ran for the first time in this crate's
+history" is a fact with no baseline attached.
+
 ## The count is not the deliverable, the shape is
 
 The full accounting of 100 failures, when sorted, has **exactly three shapes**:
