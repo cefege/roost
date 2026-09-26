@@ -179,6 +179,49 @@ file later, looking like new work. **Read the error list for the shape, not the
 count: one mistake in two files is one mistake, and the list shows you one of
 them.**
 
+## `--keep-going` turns a lower bound into a total
+
+The whole "an error list is a lower bound" rule above was true and **actionable
+in exactly one way**: cargo stops at the first failing target unless you tell it
+not to. The handoff said *13 errors, 1 warning, none in a file the previous lead
+edited*. Re-measured with `--keep-going --message-format short`:
+
+**56 distinct errors across 22 failing test targets, 17 source files. Zero in
+`src/`.** One error — `tests/push_fixture/transport.rs:172` — was failing eight
+test binaries on its own.
+
+**So "13" was not a smaller true number; it was the set the compiler happened to
+reach before it stopped.** Three numbers had circulated for the same state
+(13, 27, 1) and all three were artefacts of the flag.
+
+**The correction is the flag, not more care.** Any error count in a handoff is
+unusable until someone re-measured it, and the re-measurement is one argument. A
+number you inherited that cannot be reproduced with a flag is not a measurement;
+it is a memory of where the compiler stopped.
+
+## A binary that fails entirely is one defect, not N
+
+The first diagnosis of 100 failures across 25 binaries: **several binaries fail
+*entirely* — 7/7, 8/8, 9/9, 10/10 — and one at 1/11 and one at 1/7.** A binary
+where nothing passed is a **fixture that never came up**, not N independent
+defects. `pairing_confirmation` at 0/4 and `pairing_confirmation_authority` at
+0/8 are almost certainly one shared fixture failing, and they are the same class
+as the five missing `.await` calls and the test that seeded an empty database
+and passed anyway.
+
+**So the diagnostic order is: for every binary with a 0-pass count, find the
+shared fixture and read it before reading any individual test.** Reading the
+tests first is how a wave spends an hour on twelve independent defects that are
+one. Sort by *shape of failure* — all-fail, most-fail, one-fail — not by count,
+because the shape names the cause and the count does not.
+
+And the same rule applies to a mutation: **a run that stops at the first
+failure is a lower bound**, so mutation rows that "passed" because the run
+aborted earlier are not passes. The integrator ran its six rows on a
+**checksum-verified copy-and-restore harness** — back up, mutate, run, restore,
+verify by sha256 — because a Rust mutation must compile in place, and *an
+unverified restore is exactly the failure the copy rule exists to prevent*.
+
 ## The audit that cannot see the defect, and the noise you must discard
 
 A slice deleting a dead `FixedEntropy` block used a doc comment further down
