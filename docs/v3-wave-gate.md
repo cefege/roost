@@ -640,6 +640,43 @@ condition — a mutation reads as a suspiciously small removal, and that is a
 shape a reader can catch in one glance. **The dangerous artefact is not the
 mutation; it is a mutation that has been committed.**
 
+## The axis is the REVISION, and it is a property of neither side
+
+Four hypotheses. The first three assumed the missing rule was a **property** —
+of `held` (is it legacy?), of `update` (is it identified?), or of the pair (is
+held-legacy-and-update-identified?). The fourth found it is none of those:
+
+> **The axis is the revision, and it is not a property of either side.**
+
+- An identified frame at **revision 1** is a **brand-new occupant** numbering
+  its first report from scratch, and a new occupant legitimately takes over.
+- An identified frame at **revision 2 or above** is a **continuation** arriving
+  for a session a legacy agent still holds, and must be refused as `Stale`.
+
+Before the fix, both fell through to the same `return update.active`, **so the
+continuation silently took the session.**
+
+**So the general form, and it is the reason three property-shaped hypotheses all
+failed:**
+
+> **A missing condition is often a *relation* between two values, and a relation
+> is not discoverable by asking what either value is.** Asking "is `held` legacy?"
+> and "is `update` identified?" are both answerable from the code and both
+> insufficient; only *"how do these two relate along a third axis"* is the
+> question the predicate was actually failing.
+
+**And the failure mode of the three attempts is worth naming, because it is
+general:** *a tightening changes one side of a relation, and a direction is not a
+tightening.* Making the legacy branch stricter moved the boundary between the two
+cases without moving the boundary in the direction that separates them — so it
+passed one test and broke the other, every time, in a minute.
+
+**The fix is a pure addition — 34 lines added, 0 deleted — and the comment
+records both wrong attempts and why they were wrong.** That is the part that
+makes the next reader's minute unnecessary: *a tightening changes one side of a
+relation, and a direction is not a tightening*, written next to the line that
+finally works.
+
 ## Read the test BODY. An assertion message is a hypothesis about the setup.
 
 Three hypotheses were tried against one predicate. All three failed, and the
