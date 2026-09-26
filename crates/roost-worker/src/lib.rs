@@ -3,6 +3,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod agent_occupancy;
 pub mod backoff;
 pub mod channel_fsm;
 pub mod event_store;
