@@ -142,8 +142,7 @@ impl WorkerBoot {
         // endpoint is checked because every other field in the refusal is
         // reported next to it: an operator holding a bad coordinator URL needs
         // the fingerprint to know which machine is refusing to start.
-        let worker_key_path =
-            resolve_path(env, ENV_WORKER_KEY_PATH, support.join(WORKER_KEY_NAME));
+        let worker_key_path = resolve_path(env, ENV_WORKER_KEY_PATH, support.join(WORKER_KEY_NAME));
         let fingerprint = resolve_fingerprint(&worker_key_path)?;
         let coordinator_base = env
             .get(ENV_COORDINATOR_URL)

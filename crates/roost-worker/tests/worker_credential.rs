@@ -16,26 +16,26 @@ use std::os::unix::fs::PermissionsExt as _;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use roost_host::jwt_base::b64url_decode_to_utf8;
 use roost_worker::host::jwt::{
-    CREDENTIAL_LIFETIME, COORDINATOR_AUDIENCE, JOSE_ALGORITHM, load_worker_key,
+    COORDINATOR_AUDIENCE, CREDENTIAL_LIFETIME, JOSE_ALGORITHM, load_worker_key,
     read_existing_worker_key,
 };
 use roost_worker::runtime::credential::{CredentialSource, WorkerKeyCredential};
+use scratch::Scratch;
 use serde_json::Value;
 use sha2::Digest as _;
-use scratch::Scratch;
 
 /// A source over a key file inside `scratch`, freshly generated on first mint.
 fn source_in(scratch: &Scratch) -> (WorkerKeyCredential, std::path::PathBuf) {
     let key_path = scratch.path("coordinator_ed25519.key");
-    (
-        WorkerKeyCredential::new(key_path.clone()),
-        key_path,
-    )
+    (WorkerKeyCredential::new(key_path.clone()), key_path)
 }
 
 /// The decoded claims of a token.
 fn claims_of(token: &str) -> Value {
-    let payload = token.split('.').nth(1).expect("a compact JWS has a payload");
+    let payload = token
+        .split('.')
+        .nth(1)
+        .expect("a compact JWS has a payload");
     serde_json::from_str(&b64url_decode_to_utf8(payload).expect("a base64url payload"))
         .expect("the payload is JSON")
 }
@@ -48,7 +48,10 @@ fn header_of(token: &str) -> Value {
 }
 
 fn signature_of(token: &str) -> Signature {
-    let segment = token.split('.').nth(2).expect("a compact JWS has a signature");
+    let segment = token
+        .split('.')
+        .nth(2)
+        .expect("a compact JWS has a signature");
     let bytes = b64url_decode_to_utf8(segment).expect("a base64url signature");
     let raw: [u8; 64] = bytes
         .as_bytes()
@@ -124,7 +127,9 @@ fn a_credential_whose_bytes_were_touched_does_not_verify() {
     forged_bytes[63] ^= 0x01;
     let forged = Signature::from_bytes(&forged_bytes).expect("64 bytes are a signature");
     assert!(
-        verifier.verify(signing_input_of(&token).as_bytes(), &forged).is_err(),
+        verifier
+            .verify(signing_input_of(&token).as_bytes(), &forged)
+            .is_err(),
         "a token carrying a rewritten signature must not verify, or the \
          credential is whatever the last sender wrote"
     );
@@ -159,7 +164,9 @@ fn a_credential_whose_bytes_were_touched_does_not_verify() {
 fn a_key_another_user_can_read_is_refused_rather_than_signed_with() {
     let scratch = Scratch::new("mode");
     let (source, key_path) = source_in(&scratch);
-    source.mint().expect("the first dial signs with a private key");
+    source
+        .mint()
+        .expect("the first dial signs with a private key");
     let mode = std::fs::metadata(&key_path)
         .expect("the generated key file")
         .permissions()
@@ -173,7 +180,9 @@ fn a_key_another_user_can_read_is_refused_rather_than_signed_with() {
 
     std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o644))
         .expect("the mode can be widened by whoever owns the file");
-    let refused = source.mint().expect_err("a world-readable key is not a credential");
+    let refused = source
+        .mint()
+        .expect_err("a world-readable key is not a credential");
     let reason = refused.to_string();
     assert!(
         reason.contains("0644") && reason.contains("chmod 600"),
@@ -231,10 +240,7 @@ fn every_dial_signs_with_the_key_that_is_on_disk_at_that_moment() {
     );
     assert!(
         verifier_from_key_file(&key_path)
-            .verify(
-                signing_input_of(&first).as_bytes(),
-                &signature_of(&first)
-            )
+            .verify(signing_input_of(&first).as_bytes(), &signature_of(&first))
             .is_err(),
         "and the credential minted before the rotation does not verify under \
          the new key, so a source cannot pass this by signing with both"
@@ -253,7 +259,9 @@ fn a_machine_with_no_key_is_given_one_it_can_dial_with() {
         !key_path.exists(),
         "the fixture has to start with nothing installed, or this proves nothing"
     );
-    let token = source.mint().expect("a first dial installs a key and signs");
+    let token = source
+        .mint()
+        .expect("a first dial installs a key and signs");
     assert!(key_path.exists(), "first boot wrote the key it signed from");
 
     let key = read_existing_worker_key(&key_path).expect("the key it wrote is readable");
@@ -264,7 +272,10 @@ fn a_machine_with_no_key_is_given_one_it_can_dial_with() {
         "the identity in the token is the identity the key file derives"
     );
     assert_eq!(
-        source.fingerprint().expect("the dial can name itself").as_str(),
+        source
+            .fingerprint()
+            .expect("the dial can name itself")
+            .as_str(),
         key.fingerprint().as_str(),
         "the fingerprint on the dial path and the one in the token come from \
          the same file, so they cannot disagree"
@@ -326,8 +337,7 @@ AAAECeMuWaUJzYUVJGUWlHAwO40t2oE+TyGDWIAQiKQK0Fdqsa69g9mMzLRtkP3ddXyfE0
 lzDrmmsja65im/lI+R0rAAAAAAECAwQF
 -----END OPENSSH PRIVATE KEY-----
 ";
-    const V2_FINGERPRINT: &str =
-        "d9257f0e9d56763d44fa3821a2c6bb339841bbb4b521deee4426270fc0ffc1f4";
+    const V2_FINGERPRINT: &str = "d9257f0e9d56763d44fa3821a2c6bb339841bbb4b521deee4426270fc0ffc1f4";
 
     let scratch = Scratch::new("v2-key");
     let key_path = scratch.path("coordinator_ed25519.key");
@@ -337,7 +347,10 @@ lzDrmmsja65im/lI+R0rAAAAAAECAwQF
     let source = WorkerKeyCredential::new(&key_path);
 
     assert_eq!(
-        source.fingerprint().expect("a v2 key file is readable").as_str(),
+        source
+            .fingerprint()
+            .expect("a v2 key file is readable")
+            .as_str(),
         V2_FINGERPRINT,
         "the identity must be the one v2 derived from this exact file, or the \
          coordinator's authorized_keys row names a machine this worker is not"

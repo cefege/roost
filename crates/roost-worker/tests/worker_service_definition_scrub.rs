@@ -304,8 +304,7 @@ async fn a_name_that_is_not_an_environment_name_is_refused() {
     let path = written_definition(&scratch, "worker.plist", &launch_agent(), 0o600);
     let env = environment_over(&path, HostPlatform::MacOs);
     for bad in ["lower_case", "1LEADING_DIGIT", "WITH SPACE", "", "A=B"] {
-        let refused =
-            scrub_service_definition_env(&env, HostPlatform::MacOs, bad).await;
+        let refused = scrub_service_definition_env(&env, HostPlatform::MacOs, bad).await;
         assert_eq!(
             refused,
             Err(InstallError::NotAnEnvName {
@@ -344,14 +343,12 @@ async fn a_definition_that_is_not_there_is_reported_rather_than_assumed_clean() 
 fn a_platform_with_no_definition_is_refused_rather_than_pretending() {
     assert_eq!(
         ServiceDefinition::for_platform(HostPlatform::Windows),
-        Err(InstallError::UnsupportedPlatform {
-            platform: "win32"
-        }),
+        Err(InstallError::UnsupportedPlatform { platform: "win32" }),
         "v2 answered false here, which is indistinguishable from an erase that \
          worked on a file that was never checked"
     );
-    let refused = ServiceDefinition::for_platform(HostPlatform::Windows)
-        .expect_err("windows is not ported");
+    let refused =
+        ServiceDefinition::for_platform(HostPlatform::Windows).expect_err("windows is not ported");
     assert!(
         refused.to_string().contains("not ported"),
         "the refusal says why, not merely that: {refused}"
@@ -364,7 +361,10 @@ fn a_platform_with_no_definition_is_refused_rather_than_pretending() {
 #[test]
 fn the_two_one_shot_names_are_erased_by_the_same_rule() {
     assert_eq!(BOOTSTRAP_TOKEN_ENV, "ROOST_BOOTSTRAP_TOKEN");
-    assert_eq!(KEEPER_FORCE_LIVE_RETIRE_ENV, "ROOST_KEEPER_FORCE_LIVE_RETIRE");
+    assert_eq!(
+        KEEPER_FORCE_LIVE_RETIRE_ENV,
+        "ROOST_KEEPER_FORCE_LIVE_RETIRE"
+    );
     assert_ne!(
         BOOTSTRAP_TOKEN_ENV, KEEPER_FORCE_LIVE_RETIRE_ENV,
         "two one-shot values sharing a name would erase each other, and neither"

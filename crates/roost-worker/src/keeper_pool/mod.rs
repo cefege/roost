@@ -10,6 +10,16 @@
 //! that decided for itself would be a second answer to "is it safe to replace
 //! the thing holding this machine's terminals".
 
+mod channels;
+mod dispatch;
+mod error;
+mod pool;
+mod spawn_spec;
+
+pub use error::PoolError;
+pub use pool::{DISPATCH_IDLE, KeeperPool, Spawned};
+pub use spawn_spec::{PtyCommand, pty_command};
+
 use std::sync::Arc;
 
 use roost_keeper::frames::ChannelBinding as KeeperChannelBinding;

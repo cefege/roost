@@ -13,6 +13,7 @@
 //! it is named, and never named twice.
 
 pub mod agent_osc;
+pub mod binding;
 pub mod cell_scheduler;
 pub mod cell_sink;
 pub mod control_lanes;
@@ -23,6 +24,7 @@ pub mod keeper_admission;
 pub mod lifecycle;
 pub mod raw_metadata;
 pub mod resize;
+pub mod respawn;
 pub mod resume;
 pub mod retained_grid;
 pub mod ring;

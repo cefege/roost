@@ -252,9 +252,7 @@ fn environment_pairs(line: &str) -> Option<Vec<EnvironmentPair<'_>>> {
         let (end, next) = match list[cursor..].strip_prefix('"') {
             Some(quoted) => closing_quote(&list[cursor + 1..], cursor + 1)?,
             None => {
-                let offset = list[cursor..]
-                    .find(' ')
-                    .unwrap_or(list.len() - cursor);
+                let offset = list[cursor..].find(' ').unwrap_or(list.len() - cursor);
                 (cursor + offset, cursor + offset)
             }
         };

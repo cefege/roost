@@ -11,9 +11,18 @@
 //! leave a file handle open and a record stays plain data. A caller that wants
 //! a watcher stopped asks here.
 
+pub mod git_branch;
+pub mod identity;
 pub mod install;
 pub mod jwt;
 pub mod openssh_key;
+pub mod ports;
+pub mod pr_status;
+pub mod samples;
+pub mod sampling;
+pub mod shell_bootstrap;
+pub mod shell_spec_resolver;
+pub mod tool_path;
 
 use roost_protocol::wire::session::{PullRequestChecks, PullRequestState};
 
