@@ -10,3 +10,4 @@ pub mod link_barrier;
 pub mod link_dial;
 pub mod outbox;
 pub mod strays;
+pub mod stream_fence;
