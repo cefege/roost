@@ -666,6 +666,59 @@ the `rtx`-vs-mobilecheck-vs-bundled divergence earlier in this port, and the rul
 is the same: **when two sources of truth about an environment disagree, the
 answer is a third independent source, not a tiebreak between the two.**
 
+## The run that stopped early is a claim about the run, not the workspace
+
+`cargo clippy` reported two diagnostics, both unused imports in `roost-keeper`,
+and the integrator read that as *roost-coord is clean*.
+
+**It was not. The run stopped at the first failing crate, and `roost-keeper`
+sorts before `roost-coord`.** So *"only two lints remain in the workspace"* was
+true of what the compiler reached and false of the workspace.
+
+**This is the sixth instance of the `--keep-going` family, and it is the one
+place nobody expected it: `clippy` is not a test run, and the habit of reading a
+lint count as a verdict is as strong there as anywhere.** The family has now
+produced: a `13 errors` under-read, a `27 errors` under-read, six missed binaries
+from a truncated printout, a `97` from a `grep` that matched its own summary, a
+stale `581/38`, and **a clippy count that described the crates alphabetically
+before `roost-coord`.**
+
+**And the count went DOWN — from an inherited 8 to 7 — by discovering the run had
+stopped early rather than by fixing anything.** That is the useful shape of it:
+a better number arrived from a better question, not from more work.
+
+**The catch is the part worth naming: it went looking for a third reference point
+rather than because the number looked wrong.** A linter reporting two unused
+imports is not a suspicious number — it is exactly what a nearly-clean tree
+looks like. **The only thing that made it checkable was the rule that two
+sources disagreeing means looking for a third**, and the same agent had written
+it down an hour earlier.
+
+## A lint that is right is not always a mechanical fix
+
+Two of the seven remaining lints were deliberately not fixed, and the reasons
+are the point:
+
+- **`install_cloudflare_jwks` returns `Result<(), ()>`.** Clippy is right: `()`
+  is not an error type, and a caller cannot tell *why* an install failed.
+  **Replacing it means choosing an error type** — and the choice is a decision,
+  because the install runs once at boot and a `OnceLock::set` failure means a
+  *second* install, which is a programming fault rather than a runtime
+  condition. The right error type has to say that.
+- **`authority.rs`'s unneeded `Ok`/`?` pair.** Clippy is right that the pair is
+  redundant, and **which of the two to remove is a statement about whether that
+  function can fail.**
+
+> **A linter that reports a redundancy is pointing at a decision, not
+> necessarily at an edit.** `collapsible_if` is mechanical; `needless_question_mark`
+> is a question about whether the function can fail, and the lint does not know
+> which you meant.
+
+**So the remaining five are listed with exact locations rather than fixed in a
+hurry, so that nobody re-derives them** — and the two judgement calls are
+recorded as decisions, not as omissions, because a lint left unfixed with no
+stated reason is indistinguishable from a lint nobody ran.
+
 ## One missing paren in 151 literals, and 6 of the 7 are the idiom
 
 `claim_bootstrap_token`'s SQL literal had **one unclosed parenthesis** — the
