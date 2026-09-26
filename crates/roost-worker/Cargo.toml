@@ -9,6 +9,7 @@ description = "The worker service: sessions, the keeper client, the durable outb
 
 [dependencies]
 futures-util.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["net", "rt", "time"] }
 tokio-tungstenite = { workspace = true, features = ["connect", "handshake"] }

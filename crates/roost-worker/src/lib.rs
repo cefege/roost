@@ -8,6 +8,7 @@ pub mod channel_fsm;
 pub mod event_store;
 pub mod link_barrier;
 pub mod link_dial;
+pub mod local_door;
 pub mod outbox;
 pub mod strays;
 pub mod stream_fence;
