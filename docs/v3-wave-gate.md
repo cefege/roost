@@ -154,6 +154,22 @@ three files, seven of them in targets the run had never reached. The same
 applies to a lib count: a fix that unblocks a later check is a *moved* error,
 not a fixed one, so every residue count is a lower bound and never a total.
 
+**A test has a TIER, and the tier is not visible in its name.** A slice's
+capacity test calls `handle_agent_status_wait` directly. That covers the whole
+chain inside its slice — registry refusal → `wait_error` → `ConnectError` — and
+it would fail if the mapping were deleted or flipped. It does **not** observe
+that the generated Connect service and the connectrpc runtime carry that code and
+message to the client unchanged, and the test's name says "reaches the client",
+which is a wire claim it does not make.
+
+**So every gate row carries a tier, and a row that cannot state its tier is not
+finished.** Handler-tier: the handler is called directly. Wire-tier: a request
+goes through the generated `CoordinatorService` and its `RequestContext`, or
+through the listener. A slice that cannot construct a wire-tier harness names the
+row **unwritten** and says what would close it, rather than letting a handler-tier
+pass stand in for it — which is exactly what this one did, and its saying so is
+why the gap is visible at all.
+
 **And the masking runs the other way: a failing TEST target hides a lib error
 of the same shape.** A slice's test imported `PushNotificationTransport` from
 `push::dispatch`; its source file did the same. The error list named only the
