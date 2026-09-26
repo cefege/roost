@@ -490,6 +490,33 @@ test that dropped it was asserting the old, broken behaviour.
 holding the thing.** The fix is a `Vec` of handles kept alive to the assertion,
 not a corrected expectation.
 
+**And the rule was then made falsifiable rather than merely plausible.** Every
+test in the two affected files was classified by whether it *holds* or *drops*
+its waiters, and compared against the measured result:
+
+- **7 tests hold their waiters — all 7 pass.**
+- **3 tests drop them — all 3 fail**, and they are exactly the three named.
+
+**Zero exceptions in either direction. A perfect predictor across 10 tests is not
+something a coincidence produces**, and that is the difference between a rule
+that fits and a rule that is confirmed. A rule with no counterexample checked is
+a pattern; a rule with all 10 cases on the predicted side is a mechanism.
+
+**The counter-example is what makes it correct rather than nearly-correct.**
+`a_released_wait_is_not_leaked_when_the_subscriber_is_gone` **drops its waiters
+deliberately and asserts the slot IS released** — which is correct. So the
+refined rule is not *"never drop"*:
+
+> **What matters is whether the drop is deliberate, and whether the assertion is
+> about the state after the drop.** A handle dropped to make a resource go away,
+> followed by an assertion that it went away, is the test working. A handle
+> dropped because the return value was unused, followed by an assertion that it
+> is still there, is the test asserting the opposite of its own intent.
+
+That counterexample is also the thing that keeps the rule from being
+over-applied into "never discard a value", which would be wrong and would
+generate false findings.
+
 ## A test may be the thing that is out of step with the port
 
 One assertion was judged **wrong** and deliberately not edited: a push-scheduler
