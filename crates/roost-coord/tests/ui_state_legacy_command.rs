@@ -19,9 +19,9 @@ use roost_coord::ui_state::legacy_command::{
     canonical_legacy_ui_command, legacy_ui_command_session_ids,
 };
 use roost_proto as proto;
-use roost_proto::buffa::MessageField;
 use roost_proto::__buffa::oneof::layout_document_node::Node;
 use roost_proto::__buffa::oneof::ui_command::Command;
+use roost_proto::buffa::MessageField;
 
 fn select_tab(session_id: &str) -> proto::UiCommand {
     proto::UiCommand {
@@ -96,9 +96,8 @@ fn each_command_names_exactly_the_sessions_it_acts_on() {
 
 #[test]
 fn an_oversized_session_id_is_refused_before_any_lookup() {
-    let oversized = "x".repeat(
-        roost_protocol::layout::LAYOUT_DOCUMENT_MAX_SESSION_ID_UTF8_BYTES + 1,
-    );
+    let oversized =
+        "x".repeat(roost_protocol::layout::LAYOUT_DOCUMENT_MAX_SESSION_ID_UTF8_BYTES + 1);
     let refused = legacy_ui_command_session_ids(&select_tab(&oversized))
         .expect_err("an over-long session id is a malformed argument");
     assert_eq!(refused.code, ErrorCode::InvalidArgument);
@@ -114,7 +113,9 @@ fn apply_layout_is_not_canonicalisable_as_a_legacy_command() {
         ..Default::default()
     };
     assert!(
-        legacy_ui_command_session_ids(&apply).expect("an apply names no session").is_empty(),
+        legacy_ui_command_session_ids(&apply)
+            .expect("an apply names no session")
+            .is_empty(),
         "an apply's sessions are checked through its document instead"
     );
     let refused = canonical_legacy_ui_command(&apply)
@@ -215,9 +216,8 @@ fn a_document_with_a_non_portable_shape_is_refused_rather_than_guessed_at() {
     assert!(canonical_layout_document(&no_root).is_err());
 
     let mut oversized_key = leaf_document("session-a");
-    oversized_key.focused_leaf_key = "x".repeat(
-        roost_protocol::layout::LAYOUT_DOCUMENT_MAX_KEY_UTF8_BYTES + 1,
-    );
+    oversized_key.focused_leaf_key =
+        "x".repeat(roost_protocol::layout::LAYOUT_DOCUMENT_MAX_KEY_UTF8_BYTES + 1);
     assert!(
         canonical_layout_document(&oversized_key).is_err(),
         "the key bound is checked before the graph is walked"

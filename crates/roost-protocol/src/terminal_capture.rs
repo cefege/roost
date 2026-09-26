@@ -188,8 +188,8 @@ impl TerminalCaptureWorkerAck {
         recent: Option<TerminalCaptureFileRef>,
         answering_capture_id: &str,
     ) -> Self {
-        self.recent_worker_capture = recent
-            .filter(|capture| capture.capture_id != answering_capture_id);
+        self.recent_worker_capture =
+            recent.filter(|capture| capture.capture_id != answering_capture_id);
         self
     }
 }

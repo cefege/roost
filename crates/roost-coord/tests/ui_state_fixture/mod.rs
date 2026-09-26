@@ -22,9 +22,9 @@ use roost_coord::events::bus_messages::UiBusMsg;
 use roost_coord::services::CoordServices;
 use roost_coord::ui_state::UiStateRuntime;
 use roost_proto as proto;
-use roost_proto::buffa::MessageField;
 use roost_proto::__buffa::oneof::layout_document_node::Node;
 use roost_proto::__buffa::oneof::ui_command::Command;
+use roost_proto::buffa::MessageField;
 
 /// The session every persisted-session check resolves against.
 pub const SESSION_ID: &str = "11111111-1111-4111-8111-111111111111";
@@ -62,7 +62,9 @@ pub fn report_request(
         tab_id: tab_id.to_owned(),
         active_path: active_path.to_owned(),
         folder_key: "fingerprint:/tmp/project".to_owned(),
-        layout_document: document.map(MessageField::some).unwrap_or_else(MessageField::none),
+        layout_document: document
+            .map(MessageField::some)
+            .unwrap_or_else(MessageField::none),
         ..Default::default()
     }
 }
@@ -172,13 +174,19 @@ impl UiStateFixture {
 
     /// Move both owners' clock forward.
     pub fn advance(&self, millis: i64) {
-        let mut now = self.now_ms.lock().unwrap_or_else(|error| error.into_inner());
+        let mut now = self
+            .now_ms
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         *now += millis;
     }
 
     /// The instant the owners read as "now".
     pub fn now_ms(&self) -> i64 {
-        *self.now_ms.lock().unwrap_or_else(|error| error.into_inner())
+        *self
+            .now_ms
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
     }
 }
 
@@ -241,7 +249,9 @@ pub async fn collect_ui_bus<T>(
         .buses
         .ui_bus
         .subscribe(move |message: &UiBusMsg| {
-            sink.lock().expect("the bus sink lock").push(message.clone());
+            sink.lock()
+                .expect("the bus sink lock")
+                .push(message.clone());
         });
     let outcome = body.await;
     drop(subscription);

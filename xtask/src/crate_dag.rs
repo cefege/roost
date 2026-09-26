@@ -44,7 +44,12 @@ const ALLOWED: &[(&str, &[&str])] = &[
     // this", and the two would disagree on macOS.
     (
         "roost-keeper",
-        &["roost-protocol", "roost-host", "roost-platform", "roost-observability"],
+        &[
+            "roost-protocol",
+            "roost-host",
+            "roost-platform",
+            "roost-observability",
+        ],
     ),
     (
         "roost-worker",

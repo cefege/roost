@@ -11,9 +11,9 @@ use tokio::sync::oneshot;
 
 use super::{
     LayoutApplyLedger, LayoutApplyOwnerStats, LayoutApplyRequest, LayoutApplyTargetGuard,
-    PendingLayoutApply, PendingReservation, UI_LAYOUT_APPLY_MAX_PENDING, UI_LAYOUT_APPLY_TIMEOUT_MS,
-    UiLayoutApplyCapacityError, UiLayoutApplyOwner, UiLayoutApplyPublication, UiLayoutApplyResolution,
-    UiLayoutApplyTarget, target_gone,
+    PendingLayoutApply, PendingReservation, UI_LAYOUT_APPLY_MAX_PENDING,
+    UI_LAYOUT_APPLY_TIMEOUT_MS, UiLayoutApplyCapacityError, UiLayoutApplyOwner,
+    UiLayoutApplyPublication, UiLayoutApplyResolution, UiLayoutApplyTarget, target_gone,
 };
 use crate::ui_state::limits::{UI_STATE_MAX_TABS_PER_FINGERPRINT, UI_STATE_MAX_TABS_TOTAL};
 use crate::ui_state::rejected_reason::sanitized_rejected_reason;
@@ -161,12 +161,7 @@ impl UiLayoutApplyOwner {
             return false;
         }
         let key = source.registration_key();
-        if ledger
-            .targets
-            .get(&key)
-            .map(|current| &current.socket_id)
-            != Some(&source.socket_id)
-        {
+        if ledger.targets.get(&key).map(|current| &current.socket_id) != Some(&source.socket_id) {
             return false;
         }
         let Some(pending) = ledger.pending.remove(&result.correlation_id) else {
@@ -225,7 +220,9 @@ impl UiLayoutApplyOwner {
             .copied()
             .unwrap_or(0);
         if held <= 1 {
-            ledger.target_counts_by_fingerprint.remove(&target.fingerprint);
+            ledger
+                .target_counts_by_fingerprint
+                .remove(&target.fingerprint);
         } else {
             ledger
                 .target_counts_by_fingerprint

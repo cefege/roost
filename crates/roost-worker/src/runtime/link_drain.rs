@@ -97,6 +97,24 @@ pub(super) fn on_frame(loop_state: &mut LinkLoop, message: Message) -> Option<Li
                 "browser-command-refusal",
             );
         }
+        // Every other arm is one the worker's link does not act on yet. The
+        // union is complete so the wire is fixed, but the handlers are not:
+        // each belongs to the wave that gives it a real implementation.
+        //
+        // This is deliberately a LOGGED REFUSAL and not a wildcard `..`. The
+        // point of the arm is that a frame nobody handles is never silent —
+        // a frame that is neither executed nor refused leaves the browser's
+        // request to time out with no error anywhere. It is not an
+        // `RpcError` because that needs a `request_id` to be routed on, and
+        // inventing one would be worse than saying so: a coordinator that
+        // matched the refusal to the wrong request has failed a request that
+        // might otherwise have succeeded.
+        other => {
+            tracing::warn!(
+                kind = other.kind(),
+                "a downstream frame arrived that this worker build does not act on yet"
+            );
+        }
     }
     None
 }

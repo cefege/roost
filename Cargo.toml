@@ -79,6 +79,11 @@ ed25519-dalek = "3.0.0"
 base64 = "0.23.1"
 sha2 = "0.11.0"
 hex = "0.4.3"
+# Cloudflare Access front-door assertions are RS256 JWTs, and the coordinator
+# is the only place in the workspace that verifies one. `sha2` is the digest the
+# RSA signature is computed over; nothing else is needed, so the rest of the
+# crate's features stay off.
+rsa = { version = "0.9.10", default-features = false, features = ["sha2"] }
 
 # Serialization.
 libc = "0.2.177"

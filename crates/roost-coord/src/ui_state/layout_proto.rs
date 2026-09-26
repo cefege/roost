@@ -19,8 +19,8 @@ use roost_protocol::layout::document::{LayoutDirection, LayoutNodeKind};
 use roost_protocol::layout::{
     LAYOUT_DOCUMENT_MAX_BINDINGS, LAYOUT_DOCUMENT_MAX_DEPTH, LAYOUT_DOCUMENT_MAX_KEY_UTF8_BYTES,
     LAYOUT_DOCUMENT_MAX_NODES, LAYOUT_DOCUMENT_MAX_SESSION_ID_UTF8_BYTES,
-    LAYOUT_DOCUMENT_MAX_SLOTS, LayoutDocumentBinding, LayoutDocumentLeaf,
-    LayoutDocumentNode, LayoutDocumentSplit, LayoutDocumentV1, parse_layout_document_v1,
+    LAYOUT_DOCUMENT_MAX_SLOTS, LayoutDocumentBinding, LayoutDocumentLeaf, LayoutDocumentNode,
+    LayoutDocumentSplit, LayoutDocumentV1, parse_layout_document_v1,
 };
 use roost_protocol::validate::max_utf8_bytes;
 
@@ -34,8 +34,8 @@ pub fn canonical_layout_document(
 ) -> ProtocolResult<proto::LayoutDocumentV1> {
     preflight_proto_document(document)?;
     let mapped = layout_document_from_proto(document)?;
-    let checked = parse_layout_document_v1(&to_value(mapped)?)
-        .map_err(|error| invalid(error.to_string()))?;
+    let checked =
+        parse_layout_document_v1(&to_value(mapped)?).map_err(|error| invalid(error.to_string()))?;
     layout_document_to_proto(&checked)
 }
 

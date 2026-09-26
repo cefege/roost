@@ -8,11 +8,11 @@
 
 mod reservation;
 
+use roost_proto::UiApplyLayoutOutcome;
 use std::collections::BTreeMap;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use roost_proto::UiApplyLayoutOutcome;
 use tokio::sync::oneshot;
 
 /// How long a reserved apply waits for its target's acknowledgement.
@@ -64,7 +64,6 @@ fn target_gone(correlation_id: String) -> UiLayoutApplyResolution {
     }
 }
 
-
 /// Why an apply was refused before it was published.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UiLayoutApplyCapacityError;
@@ -115,10 +114,7 @@ impl PendingLayoutApply {
     /// `TargetGone` and the reservation is retired, which is the same thing a
     /// closed socket produces.
     pub async fn await_resolution(mut self) -> UiLayoutApplyResolution {
-        let receiver = self
-            .receiver
-            .take()
-            .unwrap_or_else(|| oneshot::channel().1);
+        let receiver = self.receiver.take().unwrap_or_else(|| oneshot::channel().1);
         let remaining = self.owner.remaining_ms(&self.correlation_id);
         match tokio::time::timeout(Duration::from_millis(remaining), receiver).await {
             Ok(Ok(resolution)) => resolution,
