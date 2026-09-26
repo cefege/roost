@@ -8,15 +8,28 @@ repository.workspace = true
 description = "The worker service: sessions, the keeper client, the durable outbox, the coordinator link, the local door, the WebRTC peer, and agent tracking. Never depends on roost-coord."
 
 [dependencies]
+anyhow.workspace = true
 futures-util.workspace = true
+roost-host.workspace = true
+roost-keeper.workspace = true
+roost-observability.workspace = true
+roost-platform.workspace = true
+roost-protocol.workspace = true
+tracing.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["net", "rt", "time"] }
+tokio = { workspace = true, features = [
+    "fs", "macros", "net", "process", "rt", "rt-multi-thread", "signal", "sync", "time",
+] }
 tokio-tungstenite = { workspace = true, features = ["connect", "handshake"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["net", "rt", "rt-multi-thread", "macros", "time"] }
 tokio-tungstenite = { workspace = true, features = ["handshake"] }
+
+[[bin]]
+name = "roost-worker"
+path = "src/bin/roost-worker.rs"
 
 [lints]
 workspace = true

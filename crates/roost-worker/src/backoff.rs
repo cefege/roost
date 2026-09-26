@@ -123,6 +123,22 @@ impl LinkHealth {
         }
     }
 
+    /// A socket is up, carrying the escalation ladder with it.
+    ///
+    /// Distinct from [`Self::opened`], which describes a link that has already
+    /// earned a clean slate. Opening a socket proves nothing at all -- a
+    /// coordinator that accepts the connection and drops it a millisecond later
+    /// opens one every time -- so the ladder must survive the open and be
+    /// reset only by the drop, once the link has stayed up long enough to show
+    /// it works. Resetting here instead is what turns a flapping coordinator
+    /// into an infinite 500ms redial that never escalates and never explains
+    /// itself.
+    pub fn mark_open(&mut self, now_uptime: Duration) {
+        self.has_opened = true;
+        self.uptime = Some(now_uptime);
+        self.since_last_frame = Duration::ZERO;
+    }
+
     /// Whether the link is stale enough to force-close and re-dial.
     ///
     /// A healthy open link never goes [`STALE_LINK_TIMEOUT`] without a

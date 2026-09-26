@@ -37,9 +37,14 @@ const ALLOWED: &[(&str, &[&str])] = &[
             "alacritty_terminal",
         ],
     ),
+    // `roost-platform` is here for ONE thing: `HostPlatform::as_str()` is the
+    // wire spelling of the platform (darwin/linux/win32), which is exactly the
+    // vocabulary the keeper contract's validator enumerates. Deriving it from
+    // `std::env::consts::OS` would be a second answer to "what platform is
+    // this", and the two would disagree on macOS.
     (
         "roost-keeper",
-        &["roost-protocol", "roost-host", "roost-observability"],
+        &["roost-protocol", "roost-host", "roost-platform", "roost-observability"],
     ),
     (
         "roost-worker",
@@ -52,10 +57,17 @@ const ALLOWED: &[(&str, &[&str])] = &[
             "roost-observability",
         ],
     ),
+    // `roost-proto` is here because a Connect service is IMPLEMENTED against
+    // the generated buffa messages: the request and response types, the
+    // `Encodable` impls, and the service trait all live there. The plan's
+    // original allowlist omitted this edge, which was an oversight rather than
+    // a decision -- the coordinator cannot implement a generated service
+    // without the generated types.
     (
         "roost-coord",
         &[
             "roost-host",
+            "roost-proto",
             "roost-protocol",
             "roost-platform",
             "roost-observability",

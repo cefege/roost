@@ -7,5 +7,32 @@ license.workspace = true
 repository.workspace = true
 description = "The coordinator service: SQLite state, auth, Connect RPC handlers, the Sync and worker WebSocket links, terminal hubs, and web push. Speaks the wire, never the terminal."
 
+[dependencies]
+anyhow.workspace = true
+axum = { workspace = true, features = ["http1", "json", "query", "tokio", "ws"] }
+base64.workspace = true
+connectrpc = { workspace = true, features = ["server", "axum"] }
+ed25519-dalek.workspace = true
+futures-util.workspace = true
+hex.workspace = true
+roost-host.workspace = true
+roost-observability.workspace = true
+roost-platform.workspace = true
+roost-proto.workspace = true
+roost-protocol.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+sqlx = { workspace = true, features = ["sqlite", "runtime-tokio", "macros", "migrate"] }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+roost-protocol.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
 [lints]
 workspace = true

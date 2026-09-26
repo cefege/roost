@@ -125,3 +125,12 @@ lto = true
 codegen-units = 1
 strip = true
 opt-level = "s"
+
+# A full debug profile produced 58 GB of artifacts for 14 crates, which filled
+# the disk mid-gate. Line tables keep panic backtraces naming a file and a line
+# while dropping the bulk of the debug info that nothing here reads.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.test]
+debug = "line-tables-only"

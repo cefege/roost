@@ -14,6 +14,13 @@ pub mod link_barrier;
 pub mod link_dial;
 pub mod local_door;
 pub mod outbox;
+pub mod runtime;
+
+// The crate-root contract a host depends on: `serve` blocks until the worker is
+// asked to stop, and `WorkerBoot` is the already-resolved configuration it
+// takes. Re-exported here so the CLI binds to a contract rather than to the
+// shape of the module tree behind it.
+pub use runtime::{serve, serve_until, WorkerBoot, WorkerOverrides};
 pub mod scrollback_read;
 pub mod strays;
 pub mod stream_fence;

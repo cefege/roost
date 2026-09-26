@@ -7,31 +7,30 @@ license.workspace = true
 repository.workspace = true
 description = "The keeper daemon: PTY ownership, per-channel byte rings, and the framed keeper socket protocol. Shipped as a separate binary so a coordinator deploy never disturbs a live PTY."
 
-[dependencies]
-libc.workspace = true
-portable-pty.workspace = true
-roost-platform.workspace = true
-roost-protocol.workspace = true
-roost-host.workspace = true
-sha2.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-thiserror.workspace = true
-tracing.workspace = true
-
-[dev-dependencies]
-libc.workspace = true
-
 [[bin]]
 name = "roost-keeper"
 path = "src/bin/roost-keeper.rs"
 
-# Cargo will not let a crate inherit `lints.workspace` AND add its own table,
-# so this crate restates the workspace lints and overrides the one value it
-# needs. The override makes cargo pass --allow rather than -F, which an inner
-# `#![allow]` could not undo: `forbid` is irrevocable.
+[dependencies]
+libc.workspace = true
+portable-pty.workspace = true
+roost-host.workspace = true
+roost-platform.workspace = true
+roost-protocol.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
 roost-protocol.workspace = true
 serde_json.workspace = true
 
 [lints.rust]
+# The workspace forbids `unsafe`; this crate is the one place that needs it,
+# because a PTY requires raw file descriptors and the controlling-TTY
+# handshake. Overriding the workspace value here makes cargo pass --allow
+# rather than -F, which an inner `#![allow]` could not undo: `forbid` is
+# irrevocable.
 unsafe_code = "allow"

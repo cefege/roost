@@ -9,3 +9,21 @@ description = "The UI-free client: Connect client, Sync state machine, store fol
 
 [lints]
 workspace = true
+
+[dependencies]
+roost-protocol = { workspace = true }
+# The two cell wire messages, because the SHARED chunk assembler takes
+# `PbCellGridChunk` and the frame fold takes `PbCellGridFrame`. roost-proto is
+# the wire crate, not a platform crate, so it costs this crate nothing on the
+# wasm32 gate. What may never appear here is a DOM crate: this dependency is the
+# whole reason the crate builds for the browser with no JS glue at all.
+roost-proto = { workspace = true }
+# One tracing event per state transition (CLAUDE.md coding standard 7). The core
+# is a library, so it emits `tracing` directly rather than initialising a
+# subscriber — roost-observability owns init and belongs to the binary that
+# links this crate.
+tracing = { workspace = true }
+
+[dev-dependencies]
+# Only to read the committed JSON vectors in protocol/conformance/cell-chunks/.
+serde_json = { workspace = true }
