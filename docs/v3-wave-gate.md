@@ -567,6 +567,31 @@ was edited afterwards the number does not ship. **Two runs agreeing is what make
 the corrected number trustworthy in its turn** — a single run of a tree that has
 just been edited is the same measurement error wearing a different hat.
 
+**The cleanest statement of the whole family, and the one to keep:**
+
+> **A number is a claim about a tree, not about a run — and the two come apart
+> silently.**
+
+Every instance was *correct about the thing it measured* and *wrong about the
+tree it was describing*. A `grep` that also matches the summary line is correct
+about how many lines matched. A suite run that finished before the last edit is
+correct about the suite. **The run is never wrong; the claim is.** That is why
+none of these were caught by re-running — re-running reproduces the run, and the
+run was never the problem.
+
+**So the guard is structural, not diligence: a published figure ships with the
+runs that agree, or it does not ship.** Not "check the number", but "the number
+cannot be written down without the evidence beside it" — which is why the fix is
+a file's byte count and two independent line counts sitting next to every
+figure, rather than a reminder to be careful. **A rule that requires remembering
+something is not a gate; a rule that makes the thing impossible to write alone
+is.**
+
+**And the check earns its cost only once someone declines to argue with it.** The
+integrator had a number, I had two agreeing runs, and it took the reading over
+its own — which is the only version of this that works. **A verification step
+whose result gets negotiated is not a verification step.**
+
 **So the general form of the trap: a counting command whose pattern also matches
 the report about the count.** `grep -c "test result"` is one line longer than the
 file it describes. The cheap guard is to print two independent counts beside each
