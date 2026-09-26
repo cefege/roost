@@ -25,8 +25,51 @@ use crate::services::deploy_journal::sha256_hex;
 /// keeper this build does not have.
 pub const RELEASE_PROGRAMS: [&str; 2] = ["roost", "roost-keeper"];
 
+/// The cargo packages those two programs are built from, which are NOT the
+/// names of the programs. The CLI's package is `roost-cli` and its binary is
+/// `roost`; cargo selects by package, so reusing [`RELEASE_PROGRAMS`] here
+/// makes every deploy exit 4 with "the release did not build" over a build that
+/// was never attempted, and the message points at the compiler rather than at
+/// the name that was wrong.
+pub const RELEASE_PACKAGES: [&str; 2] = ["roost-cli", "roost-keeper"];
+
 /// The directory name a release's executables live in inside the release root.
 const RELEASE_BIN_DIR: &str = "bin";
+
+/// Where cargo put the release it has just built.
+///
+/// `CARGO_TARGET_DIR` is read rather than assumed away, because every cargo
+/// invocation on a build machine sets it, and a release looked for under
+/// `<source>/target/release` on such a machine is a release that is not there —
+/// the same "did not build" refusal, from a build that succeeded. A relative
+/// override is resolved against the source root because that is the directory
+/// cargo is invoked in; an absolute one is used as given.
+pub fn release_profile_dir(
+    source_root: &Path,
+    triple: &str,
+    same_platform: bool,
+    target_dir_override: Option<&str>,
+) -> PathBuf {
+    let root = match target_dir_override
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(value) => {
+            let path = PathBuf::from(value);
+            if path.is_absolute() {
+                path
+            } else {
+                source_root.join(path)
+            }
+        }
+        None => source_root.join("target"),
+    };
+    if same_platform {
+        root.join("release")
+    } else {
+        root.join(triple).join("release")
+    }
+}
 
 /// The staged release, as the deploy command holds it once it is on disk.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,7 +139,7 @@ pub async fn build_release(
         "--manifest-path".to_string(),
         source_root.join("Cargo.toml").display().to_string(),
     ];
-    for package in RELEASE_PROGRAMS {
+    for package in RELEASE_PACKAGES {
         argv.push("--package".to_string());
         argv.push(package.to_string());
     }
@@ -116,11 +159,12 @@ pub async fn build_release(
             ),
         ));
     }
-    let profile_dir = if same_platform {
-        source_root.join("target/release")
-    } else {
-        source_root.join("target").join(triple).join("release")
-    };
+    let profile_dir = release_profile_dir(
+        source_root,
+        triple,
+        same_platform,
+        std::env::var("CARGO_TARGET_DIR").ok().as_deref(),
+    );
     let bin_dir = profile_dir.join(RELEASE_BIN_DIR);
     let mut missing: Vec<String> = Vec::new();
     for program in RELEASE_PROGRAMS {
