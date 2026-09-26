@@ -456,6 +456,60 @@ restored** — then said *pre-existing by construction, not by baseline
 measurement.* Declining to produce a number you could not obtain, and naming the
 attempt, is worth more than the number would have been.
 
+## A test that drops the handle asserts the opposite of the contract
+
+Three separate tests in one wave failed for the same reason, and it is a class
+with a name: **an RAII handle was discarded, and the test then asserted the
+resource was still held.**
+
+- a `subscribe()` helper calls `bus.subscribe(..)` and **discards the returned
+  `Subscription`.** Its `Drop` removes the listener, so the sink records nothing
+  — observed as `closing.len() == 0`. The assertions were correct; the test was
+  observing a torn-down subscription.
+- a capacity test loops `registry.register(request(i)).is_ok()` and **discards
+  the `AgentStatusWaiter`.** Its `Drop` deregisters immediately, so `total` never
+  accumulates and the global bound is never reached. **The test's own
+  bookkeeping was destroyed by RAII before the next assertion.**
+- two more tests fill a per-session bound in a loop that discards each waiter, so
+  every slot is released before the bound is probed and **neither refusal ever
+  occurs.**
+
+**A dropped binding is valid syntax, so every resolver-based check is blind to
+this by construction — and here the handle is not even a binding, it is a
+discarded `Ok` value nobody is required to use.** The compiler has nothing to say
+about a handle you chose not to keep.
+
+**The statement to carry: a test that drops the handle asserts the opposite of
+the contract.** That is sharper than "the test is wrong", because it explains
+*why*: the resource's whole lifetime is managed by the handle, so releasing the
+handle is releasing the thing under test. And the second one is a *consequence* of
+a semantics fix — once a pending waiter was made to actually hold its slot, a
+test that dropped it was asserting the old, broken behaviour.
+
+**So when a test fails with "the thing is not there", check whether the test is
+holding the thing.** The fix is a `Vec` of handles kept alive to the assertion,
+not a corrected expectation.
+
+## A test may be the thing that is out of step with the port
+
+One assertion was judged **wrong** and deliberately not edited: a push-scheduler
+test expected a notification for an `idle -> blocked` transition, and
+`classify_transition` awards `Blocked` only for `working -> blocked`. **The port
+matches v2 exactly** (`agent-status-push-scheduler.ts:98-104`) — so the test is
+out of step with the code, not the reverse.
+
+**An idle→blocked transition producing no push is defensible** — an idle agent is
+not mid-turn, and a blocked-notification requires a turn to be blocked in — **but
+the test was asserting a product decision nobody has made.** That is routed as a
+human call, not a mechanical fix, and it is recorded rather than edited: **the
+right move when the code and its reference agree and the test disagrees is to
+stop and ask which of the two is the requirement.**
+
+And a near-vacuous sibling was flagged rather than counted: one test builds a
+`PushTransitions` twice and asserts `is_enabled()` true and false — **a
+constructor predicate, not the allowlist's effect** — while its sibling does
+exercise the real path. Flagged so nobody counts it as allowlist coverage.
+
 ## A fixture can hold a property that does not survive a merge
 
 `tests/auth_device_support/` exists for one reason: `Scratch::second_core()`
