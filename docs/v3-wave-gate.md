@@ -179,6 +179,36 @@ file later, looking like new work. **Read the error list for the shape, not the
 count: one mistake in two files is one mistake, and the list shows you one of
 them.**
 
+## A handoff that needs two actors is not a request for one of them to go first
+
+A slice named a file in its report as something it would do *once the
+integrator placed the `mod` line* — because `auth/mod.rs` is integrator-owned.
+The integrator placed the line immediately. **`pub mod` naming a file that does
+not exist is a hard error for the whole crate**, so the coordinator was red for
+a while.
+
+The slice was right that `mod` placement is not its to decide, and the
+integrator was right that the declaration is not its to author, and **the design
+was wrong in both cases**: the request carried a build-breaking window inside
+it, and neither party could see the window from where they stood.
+
+**The rule: a handoff that needs two actors must not be phrased as a request
+for one of them to go first.** Either write the file and *then* ask for the
+declaration, or ask for the declaration and accept that the build stays red
+until the file lands — but never "do this once I do that", because that
+serialises two actions across a message boundary and leaves a window neither
+actor is watching.
+
+The same slice had already done it correctly three times in one report:
+`cf_access_keyring`, `db_statements` and `rpc_bootstrap` were all file-first,
+then asked. **It named the difference itself: it chose per-conversation instead
+of per-rule.** That is the shape to watch for — a convention that holds for most
+of the work and fails on the one case that crosses an ownership boundary.
+
+And the practical guard: a `mod` line whose file is not on disk is a build
+failure with no useful diagnostic, so **place declarations as the last step of
+a change, never as a response to a request.**
+
 ## The test that was asserting the lie
 
 `method_route_coverage.rs` carried
