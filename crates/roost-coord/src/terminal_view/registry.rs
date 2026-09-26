@@ -211,7 +211,7 @@ impl ViewRegistry {
             .map(|(key, record)| (key.clone(), session_of(record)))
             .collect();
         for (key, session_id) in &doomed {
-            self.machine().drop_record(key, false, 0);
+            self.machine().drop_record(key, false, 0, None);
             if let Some(session_id) = session_id.clone() {
                 outcome.changed.insert(session_id);
             }
@@ -261,7 +261,7 @@ impl ViewRegistry {
         watchers.dedup();
         if let Some(keys) = self.session_views.get(session_id).cloned() {
             for key in keys {
-                self.machine().drop_record(&key, false, 0);
+                self.machine().drop_record(&key, false, 0, None);
             }
         }
         self.session_views.remove(session_id);
@@ -313,7 +313,7 @@ impl ViewRegistry {
                     });
                 }
             }
-            self.machine().drop_record(&key, true, now_ms);
+            self.machine().drop_record(&key, true, now_ms, None);
             if let Some(session_id) = session_of(&record) {
                 outcome.changed.insert(session_id);
             }

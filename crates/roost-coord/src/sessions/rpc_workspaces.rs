@@ -14,8 +14,8 @@ use roost_proto::buffa::MessageField;
 use roost_protocol::wire::{SessionId, Workspace, WorkspaceDelta, WorkspaceId};
 use sqlx::AssertSqlSafe;
 
-use crate::coord_core::{Caller, CoordCore};
 use crate::auth::principal::require_account_device;
+use crate::coord_core::{Caller, CoordCore};
 use crate::rpc::service::{now_ms, ok_response};
 use crate::sessions::workspaces::{
     COLUMNS, Row, WorkspaceError, create_workspace, delete_workspace, detach_members, junction,
@@ -359,7 +359,6 @@ fn workspace_to_proto(workspace: &Workspace) -> roost_proto::Workspace {
         ..Default::default()
     }
 }
-
 
 fn dashboard(core: &CoordCore) -> Result<&str, ConnectError> {
     Ok(core.services.boot.require_tenant()?.dashboard_id.as_str())

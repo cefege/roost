@@ -130,12 +130,14 @@ async fn a_worker_cannot_approve_a_browser_from_a_remote_address() {
     let fixture = GateFixture::new("remote-approve").await;
     let caller = caller(worker(), false);
 
-    let (code, message) = refusal(roost_coord::auth::rpc_pairing::handle_pair_approve(
-        &fixture.core,
-        &caller,
-        approve_request(),
-    )
-    .await);
+    let (code, message) = refusal(
+        roost_coord::auth::rpc_pairing::handle_pair_approve(
+            &fixture.core,
+            &caller,
+            approve_request(),
+        )
+        .await,
+    );
 
     assert_eq!(
         code,
@@ -164,12 +166,14 @@ async fn a_worker_on_the_coordinator_host_is_admitted_as_an_approver() {
     let fixture = GateFixture::new("host-approve").await;
     let caller = caller(worker(), true);
 
-    let (code, message) = refusal(roost_coord::auth::rpc_pairing::handle_pair_approve(
-        &fixture.core,
-        &caller,
-        approve_request(),
-    )
-    .await);
+    let (code, message) = refusal(
+        roost_coord::auth::rpc_pairing::handle_pair_approve(
+            &fixture.core,
+            &caller,
+            approve_request(),
+        )
+        .await,
+    );
 
     assert_ne!(
         message,
@@ -192,12 +196,14 @@ async fn a_browser_is_an_approver_from_anywhere() {
     let fixture = GateFixture::new("remote-browser").await;
     let caller = caller(browser(), false);
 
-    let (code, message) = refusal(roost_coord::auth::rpc_pairing::handle_pair_approve(
-        &fixture.core,
-        &caller,
-        approve_request(),
-    )
-    .await);
+    let (code, message) = refusal(
+        roost_coord::auth::rpc_pairing::handle_pair_approve(
+            &fixture.core,
+            &caller,
+            approve_request(),
+        )
+        .await,
+    );
 
     assert_ne!(message, PairingRefusal::OnHostOnly.to_string());
     assert_eq!(code, PairingRefusal::AccountUnavailable.code());
@@ -212,24 +218,24 @@ async fn a_worker_cannot_list_or_deny_from_a_remote_address() {
     let fixture = GateFixture::new("remote-list-deny").await;
     let caller = caller(worker(), false);
 
-    let (list_code, list_message) = refusal(roost_coord::auth::rpc_pairing::handle_pair_list(
-        &fixture.core,
-        &caller,
-        roost_proto::PairListRequest::default(),
-    )
-    .await);
-    let (deny_code, deny_message) = refusal(roost_coord::auth::rpc_pairing::handle_pair_deny(
-        &fixture.core,
-        &caller,
-        deny_request(),
-    )
-    .await);
+    let (list_code, list_message) = refusal(
+        roost_coord::auth::rpc_pairing::handle_pair_list(
+            &fixture.core,
+            &caller,
+            roost_proto::PairListRequest::default(),
+        )
+        .await,
+    );
+    let (deny_code, deny_message) = refusal(
+        roost_coord::auth::rpc_pairing::handle_pair_deny(&fixture.core, &caller, deny_request())
+            .await,
+    );
 
     for (code, message, method) in [
         (list_code, list_message, "PairList"),
         (deny_code, deny_message, "PairDeny"),
     ] {
-            assert_eq!(
+        assert_eq!(
             code,
             ErrorCode::PermissionDenied,
             "{method} must refuse a remote machine"
@@ -290,8 +296,10 @@ async fn a_remote_worker_reading_approval_status_is_refused_as_unauthenticated()
 // on a non-async function is exactly the error it looks like it is.
 #[test]
 fn the_refusal_helper_reports_the_code_and_the_reason() {
-    let refused: ServiceResult<roost_proto::PairDenyResponse> =
-        Err(ConnectError::new(ErrorCode::PermissionDenied, "on-host only"));
+    let refused: ServiceResult<roost_proto::PairDenyResponse> = Err(ConnectError::new(
+        ErrorCode::PermissionDenied,
+        "on-host only",
+    ));
     let (code, message) = refusal(refused);
     assert_eq!(code, ErrorCode::PermissionDenied);
     assert_eq!(message, "on-host only");

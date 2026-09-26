@@ -8,8 +8,8 @@
 mod terminal_view_support;
 
 use terminal_view_support::{
-    FINGERPRINT, Harness, OTHER_SESSION, Recorded, Relayed, SESSION, VIEW, decisions, owner_state,
-    watching,
+    FINGERPRINT, Harness, OTHER_FINGERPRINT, OTHER_SESSION, Recorded, Relayed, SESSION, VIEW,
+    decisions, owner_state, watching,
 };
 
 use roost_proto::{TerminalViewStatus, WTerminalViewProjection};
@@ -193,8 +193,11 @@ fn an_owner_release_stops_the_sockets_watch() {
 fn a_view_state_from_a_worker_that_does_not_own_the_session_is_dropped() {
     let harness = Harness::new();
     let browser = harness.browser("socket-a", FINGERPRINT, &[SESSION]);
-    let stranger =
-        roost_protocol::wire::WorkerFp::try_from(terminal_view_support::WORKER_FP).unwrap();
+    // NOT the harness's own worker: `WORKER_FP` is the fingerprint the owner
+    // registered and owns the session with, so a frame from it is the owner's
+    // own answer and is entitled to reach the browser.
+    let stranger = roost_protocol::wire::WorkerFp::try_from(OTHER_FINGERPRINT)
+        .expect("a fingerprint the wire accepts");
 
     harness.hub.apply_owner_view_state(
         &stranger,

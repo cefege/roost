@@ -18,8 +18,8 @@ use connectrpc::{ConnectError, ErrorCode, ServiceResult};
 use roost_proto::{PushGetConfigRequest, PushGetConfigResponse, PushSubscribeRequest};
 use roost_proto::{PushSubscribeResponse, PushUnsubscribeRequest, PushUnsubscribeResponse};
 
-use crate::coord_core::{Caller, CoordCore};
 use crate::auth::principal::require_account_device;
+use crate::coord_core::{Caller, CoordCore};
 use crate::push::PushRuntime;
 use crate::push::endpoint_policy::{PushInputError, validate_endpoint, validate_key};
 use crate::push::subscription_store::{remove_subscription, store_subscription};

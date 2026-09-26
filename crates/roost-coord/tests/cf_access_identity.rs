@@ -21,13 +21,27 @@ use roost_coord::auth::cf_access::{
 use roost_coord::auth::jwt_verify::VerifyClock;
 use roost_host::{CoordConfig, CoordConfigInput};
 
-const TEAM: &str = "team.example";
-const AUDIENCE: &str = "roost-coord-aud";
+/// `CoordConfig::parse` validates BOTH of these before a request is ever
+/// verified (`roost-host/src/coord_config.rs:193` and `:216`): a team domain is
+/// one lowercase label under `.cloudflareaccess.com`, and an audience tag is 64
+/// lowercase hex characters. A string that merely LOOKS like a team domain
+/// makes `config()` panic on its own line, which reads as a product failure
+/// and is a harness defect -- so these are the shapes a real pair has.
+const TEAM: &str = "team.cloudflareaccess.com";
+const AUDIENCE: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const NOW_MS: i64 = 1_700_000_000_000;
 const KEY_ID: &str = "kid-1";
 
-/// The signature segment that means "this ring's key signed it".
+/// The signature SEGMENT that means "this ring's key signed it" -- the base64url
+/// form of [`SIGNED_BYTES`]. `parse_assertion` base64url-DECODES the third
+/// segment before handing it over (`cf_access.rs:179-184`), so a ring that
+/// compares this TEXT against those bytes refuses every assertion it published
+/// and every claim-level rejection in this file surfaces as `BadSignature`
+/// instead -- which is how a base64 mistake hides behind a signature failure.
 const SIGNED: &str = "c2lnbmF0dXJl";
+
+/// What [`SIGNED`] decodes to: the bytes `verify_rs256` actually receives.
+const SIGNED_BYTES: &[u8] = b"signature";
 
 /// A key ring with no mutable state: it publishes one key, and it accepts a
 /// signature only when the assertion carries the signed sentinel.
@@ -40,7 +54,7 @@ impl CloudflareJwks for SentinelRing {
     }
 
     fn verify_rs256(&self, _jwk: &str, _signing_input: &str, signature: &[u8]) -> bool {
-        signature == SIGNED.as_bytes()
+        signature == SIGNED_BYTES
     }
 }
 

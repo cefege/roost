@@ -17,9 +17,9 @@ use super::status::{ApprovalStatusFacts, StoredStatus, TerminalRequest};
 use super::{PairingError, PairingRefusal, sqlx_error};
 use crate::auth::cf_access::CloudflareAccessIdentity;
 use crate::coord_core::{Caller, CoordCore, ListenerTrust};
-use crate::middleware::caller_origin::{CallerOrigin, resolve_caller_origin};
 use crate::db::CoordDb;
 use crate::events::bus_messages::PairRequestDelta;
+use crate::middleware::caller_origin::{CallerOrigin, resolve_caller_origin};
 use crate::write_gate::SharedLease;
 
 /// What a caller is told when the exclusive keeper-update drain holds the gate.
@@ -52,7 +52,10 @@ pub(crate) fn lease(core: &CoordCore) -> Result<SharedLease, ConnectError> {
 pub(crate) fn caller_origin_of(context: &RequestContext) -> CallerOrigin {
     resolve_caller_origin(
         observed_trust(context),
-        context.peer_addr().map(|address| address.to_string()).as_deref(),
+        context
+            .peer_addr()
+            .map(|address| address.to_string())
+            .as_deref(),
         context
             .headers()
             .get("x-forwarded-for")
@@ -349,11 +352,7 @@ pub(crate) fn publish_pending(
 
 /// Report what a confirmation did: the bus notice, the log line, and the one
 /// authorization side effect a completed confirmation owes.
-pub(crate) fn report_confirmation(
-    core: &CoordCore,
-    ephemeral_id: &str,
-    result: &PairConfirmation,
-) {
+pub(crate) fn report_confirmation(core: &CoordCore, ephemeral_id: &str, result: &PairConfirmation) {
     if let Some(status) = result.terminal_status {
         tracing::info!(
             ephemeral_id,

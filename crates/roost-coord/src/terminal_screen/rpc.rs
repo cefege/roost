@@ -25,8 +25,8 @@ use roost_protocol::wire::control::global_search::{
     TerminalSearchGridEpoch, TerminalSearchId, TerminalSearchQuery, TerminalSearchRow,
 };
 
-use crate::coord_core::{Caller, CoordCore};
 use crate::auth::principal::require_account_device;
+use crate::coord_core::{Caller, CoordCore};
 use crate::terminal_screen::rpc_relay::{
     CancelSearchOnDrop, await_page, await_search, decode_cells_page, encode_search_response,
     error_text, request_id, send_browser_command, session_id,

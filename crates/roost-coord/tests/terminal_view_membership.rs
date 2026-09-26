@@ -9,8 +9,8 @@
 mod terminal_view_support;
 
 use terminal_view_support::{
-    decisions, watching, FINGERPRINT, Harness, OTHER_FINGERPRINT, OTHER_SESSION, OTHER_VIEW,
-    Recorded, SESSION, VIEW,
+    FINGERPRINT, Harness, OTHER_FINGERPRINT, OTHER_SESSION, OTHER_VIEW, Recorded, SESSION, VIEW,
+    decisions, watching,
 };
 
 use roost_proto::{TerminalViewCommand, TerminalViewStatus};
@@ -60,7 +60,10 @@ fn a_declaration_outside_the_trust_boundary_is_refused_by_name() {
     );
     harness.hub.handle_view_command(
         &browser.socket_id,
-        &command(UNADMITTED, 100, 40, 1, true),
+        &TerminalViewCommand {
+            session_id: UNADMITTED.to_owned(),
+            ..command(VIEW, 100, 40, 1, true)
+        },
         T0,
     );
     harness
@@ -262,6 +265,16 @@ fn a_released_claim_is_reclaimable_and_orders_revisions() {
         decisions(&browser.sink.states()).last().map(|s| s.0),
         Some(TerminalViewStatus::Rejected),
         "a same-revision ACTIVE declaration cannot revive a released claim"
+    );
+
+    // The refusal above took a CLAIM and left no record, and that is what makes
+    // the next declaration a reclaim rather than an update. With a live record
+    // there is nothing to reclaim, and the assertion below would be reading a
+    // "revision 9 updates revision 8" and calling it a reclaim.
+    assert_eq!(
+        harness.hub.view_stats(&harness.session),
+        roost_coord::terminal_view::ViewStats::default(),
+        "a refused same-revision declaration took no membership, only the claim it refused"
     );
 
     harness.view(&browser, VIEW, 100, 40, 9, true, T0 + 30);

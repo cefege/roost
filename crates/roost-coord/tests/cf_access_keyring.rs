@@ -4,25 +4,25 @@
 // ONE: a lock held across an await. `CloudflareJwks::jwk` is async, and a key
 // ring that keeps its map guard while it fetches is both `!Send` and a deadlock
 // against the next caller. The ring below puts a real `yield_now().await` INSIDE
-// the trait method -- where the defect lives -- and the tests then run several
+// the trait method -- where the defect lives -- and the tests then run eight
 // verifications concurrently, so "the second caller got there at all" is the
 // assertion rather than an incidental property.
 //
 // TWO: the RS256 path has never verified a signature unless a test signs one. A
 // signature-verification path that has not verified a signature is an unrun path.
-// These tests generate an RSA key locally, publish ITS OWN JWKS, sign a real
-// assertion with the matching private key, and assert that the production
+// These tests build an RSA key from two known primes, publish ITS OWN JWK, sign
+// a real assertion with the matching private key, and assert that the production
 // `RsaJwks` accepts it and refuses every near-miss. No network, no Cloudflare.
 //
-// THE RING IS INSTALLED ONCE AND ANSWERS FROM THE ASSERTION'S OWN BYTES, so
-// two tests in this binary cannot disagree about which ring they got. The
-// signature segment `c2lnbmF0dXJl` means "this ring's key signed it"; any other
-// segment is refused. There is no mutable flag, so no test order matters.
-
+// The ring is installed once and answers from the assertion's OWN bytes, so two
+// tests in this binary cannot disagree about which ring they got, and it counts
+// lookups PER `kid` so the two concurrent tests cannot read each other's.
+//
 // `expect` and `unwrap` are denied outside `#[cfg(test)]`, and an integration
 // test is its own crate rather than a module of one.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use axum::http::HeaderMap;
@@ -37,13 +37,36 @@ use rsa::sha2::Sha256;
 use rsa::signature::{SignatureEncoding, Signer};
 use rsa::{BigUint, RsaPrivateKey};
 
-const TEAM: &str = "team.example";
-const AUDIENCE: &str = "roost-coord-aud";
+/// `CoordConfig::parse` validates BOTH of these before a request is ever
+/// verified (`roost-host/src/coord_config.rs:193` and `:216`): a team domain is
+/// one lowercase label under `.cloudflareaccess.com`, and an audience tag is 64
+/// lowercase hex characters. A string that merely LOOKS like a team domain
+/// makes `config()` panic on its own line, which reads as a product failure
+/// and is a harness defect -- so these are the shapes a real pair has.
+const TEAM: &str = "team.cloudflareaccess.com";
+const AUDIENCE: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const KEY_ID: &str = "kid-local";
+/// A second published key, so each test in this binary reaches the ring under
+/// its OWN `kid`. Both tests are async and the harness runs them at the same
+/// time, so one shared counter would let either test read the other's eight
+/// lookups and fail for a reason that has nothing to do with the ring.
+const KEY_ID_RIVAL: &str = "kid-rival";
 const NOW_MS: i64 = 1_700_000_000_000;
 
-/// The signature segment that means "this ring's key signed it".
+/// The signature SEGMENT that means "this ring's key signed it" -- the base64url
+/// form of [`SIGNED_BYTES`]. `parse_assertion` base64url-DECODES the third
+/// segment before handing it over (`cf_access.rs:179-184`), so a ring that
+/// compares this TEXT against those bytes refuses every assertion it published
+/// and every test that needs a signature to verify fails as a bad signature.
 const SIGNED: &str = "c2lnbmF0dXJl";
+
+/// What [`SIGNED`] decodes to: the bytes `verify_rs256` actually receives.
+const SIGNED_BYTES: &[u8] = b"signature";
+
+/// Whether this ring publishes `kid`.
+fn publishes(kid: &str) -> bool {
+    kid == KEY_ID || kid == KEY_ID_RIVAL
+}
 
 /// A key ring that YIELDS inside `jwk()` and then answers from a table.
 ///
@@ -53,7 +76,19 @@ const SIGNED: &str = "c2lnbmF0dXJl";
 /// hang is the signal, and a hung test fails a gate as loudly as a failed
 /// assertion does.
 struct YieldingRing {
-    lookups: Mutex<usize>,
+    lookups: Mutex<HashMap<String, usize>>,
+}
+
+impl YieldingRing {
+    /// How many times this ring has been asked for `kid`.
+    fn lookups_for(&self, kid: &str) -> usize {
+        self.lookups
+            .lock()
+            .expect("the lookup counter")
+            .get(kid)
+            .copied()
+            .unwrap_or_default()
+    }
 }
 
 #[async_trait::async_trait]
@@ -63,20 +98,24 @@ impl CloudflareJwks for YieldingRing {
         // across a `.await` would bite.
         tokio::task::yield_now().await;
         let mut lookups = self.lookups.lock().expect("the lookup counter");
-        *lookups += 1;
-        Ok((kid == KEY_ID).then(|| format!(r#"{{"kid":"{kid}"}}"#)))
+        *lookups.entry(kid.to_owned()).or_default() += 1;
+        Ok(publishes(kid).then(|| format!(r#"{{"kid":"{kid}"}}"#)))
     }
 
     fn verify_rs256(&self, _jwk: &str, signing_input: &str, signature: &[u8]) -> bool {
         let _ = signing_input;
-        signature == SIGNED.as_bytes()
+        signature == SIGNED_BYTES
     }
 }
 
 /// The process's one ring, installed once.
 fn install_ring() -> Arc<YieldingRing> {
     static RING: std::sync::OnceLock<Arc<YieldingRing>> = std::sync::OnceLock::new();
-    let ring = RING.get_or_init(|| Arc::new(YieldingRing { lookups: Mutex::new(0) }));
+    let ring = RING.get_or_init(|| {
+        Arc::new(YieldingRing {
+            lookups: Mutex::new(HashMap::new()),
+        })
+    });
     let _already_installed = install_cloudflare_jwks(Arc::clone(ring) as Arc<dyn CloudflareJwks>);
     Arc::clone(ring)
 }
@@ -100,8 +139,8 @@ fn claims(email: &str, exp_secs: i64) -> String {
     )
 }
 
-fn header() -> String {
-    roost_host::b64url_encode(format!(r#"{{"alg":"RS256","kid":"{KEY_ID}"}}"#).as_bytes())
+fn header_for(kid: &str) -> String {
+    roost_host::b64url_encode(format!(r#"{{"alg":"RS256","kid":"{kid}"}}"#).as_bytes())
 }
 
 fn headers(assertion: &str) -> HeaderMap {
@@ -115,14 +154,18 @@ fn headers(assertion: &str) -> HeaderMap {
 
 /// An assertion the ring accepts.
 fn accepted_assertion(email: &str) -> String {
-    format!("{}.{}.{SIGNED}", header(), roost_host::b64url_encode(claims(email, NOW_MS / 1000 + 300).as_bytes()))
+    format!(
+        "{}.{}.{SIGNED}",
+        header_for(KEY_ID),
+        roost_host::b64url_encode(claims(email, NOW_MS / 1000 + 300).as_bytes())
+    )
 }
 
 /// The same assertion with a signature the ring will not vouch for.
 fn refused_assertion(email: &str) -> String {
     format!(
         "{}.{}.Zm9yZ2Vk",
-        header(),
+        header_for(KEY_ID_RIVAL),
         roost_host::b64url_encode(claims(email, NOW_MS / 1000 + 300).as_bytes())
     )
 }
@@ -133,7 +176,7 @@ fn refused_assertion(email: &str) -> String {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_verifications_all_cross_the_await_inside_the_key_ring() {
     let ring = install_ring();
-    let before = *ring.lookups.lock().expect("the lookup counter");
+    let before = ring.lookups_for(KEY_ID);
     let map = headers(&accepted_assertion("ops@example.com"));
 
     let mut tasks = Vec::new();
@@ -152,7 +195,7 @@ async fn concurrent_verifications_all_cross_the_await_inside_the_key_ring() {
         assert_eq!(identity.email(), "ops@example.com");
     }
     assert_eq!(
-        *ring.lookups.lock().expect("the lookup counter") - before,
+        ring.lookups_for(KEY_ID) - before,
         8,
         "every caller really did reach the key ring"
     );
@@ -174,9 +217,7 @@ async fn concurrent_verifications_against_an_unsigned_assertion_all_refuse_alike
     let outcomes: Vec<_> = futures_util::future::join_all((0..8).map(|_| {
         let map = map.clone();
         let resolved = resolved.clone();
-        async move {
-            verify_edge_identity(&resolved, &map, VerifyClock::at(NOW_MS)).await
-        }
+        async move { verify_edge_identity(&resolved, &map, VerifyClock::at(NOW_MS)).await }
     }))
     .await;
 
@@ -219,14 +260,10 @@ const PRIME_Q_ALT: &str = "16657826182786747677728115025911402530088647072166297
 778812394232891121945075144845356715714440266914865918449073954075459868160241";
 const PUBLIC_EXPONENT: u32 = 65537;
 
-/// A key built from two known primes, plus the modulus and exponent a JWKS for
-/// it would publish.
-///
-/// `RsaPublicKey`'s `n` and `e` are PRIVATE and the crate exposes no accessor
-/// for either, so a JWK cannot be assembled by reading a key back out. Building
-/// the key from known primes with `RsaPrivateKey::from_p_q` -- which computes
-/// `n = p*q` and `d` itself -- is how to KNOW the modulus rather than recover it.
-/// Verified at `rsa-0.9.10/src/key.rs:287`.
+/// A key built from two known primes, plus the modulus and exponent its JWK
+/// publishes. `RsaPublicKey`'s `n` and `e` are PRIVATE with no accessor, so a
+/// JWK cannot be read back out of a key; `RsaPrivateKey::from_p_q` computes
+/// `n = p*q` itself, which is how to KNOW the modulus. `rsa-0.9.10/src/key.rs:287`.
 fn test_key(p_decimal: &str, q_decimal: &str) -> (RsaPrivateKey, BigUint, BigUint) {
     let p = big_uint(p_decimal);
     let q = big_uint(q_decimal);
@@ -241,46 +278,47 @@ fn the_test_key() -> (RsaPrivateKey, BigUint, BigUint) {
     test_key(PRIME_P, PRIME_Q)
 }
 
-/// A decimal constant as a `BigUint`.
-///
-/// `parse_bytes` is the INHERENT constructor. `from_str_radix` is not one --
-/// `num-bigint-0.4.6/src/biguint.rs:622` documents it as "the function
-/// `from_str_radix` from the `Num` trait", and this crate does not depend on
-/// `num-traits`, so the name resolves to nothing here.
-///
-/// A `None` is acceptable and is not a runtime condition: the input is a constant
-/// in this file, so `None` means the CONSTANT is malformed, which is a defect to
-/// fix here rather than a value to branch on.
+/// A decimal constant as a `BigUint`. `parse_bytes` is the INHERENT constructor;
+/// `from_str_radix` is a `num_traits::Num` method and this crate does not depend
+/// on `num-traits`, so that name resolves to nothing here. A `None` is not a
+/// runtime condition: the input is a constant in this file.
 fn big_uint(decimal: &str) -> BigUint {
     BigUint::parse_bytes(decimal.as_bytes(), 10)
         .unwrap_or_else(|| panic!("PRIME_P/PRIME_Q must be decimal digits: {decimal}"))
 }
 
-/// The JWKS document Cloudflare would publish for this key.
-fn jwks_for(modulus: &BigUint, exponent: &BigUint) -> String {
+/// The JWK -- the single key object, NOT the `{"keys":[...]}` document.
+///
+/// `RsaJwks::verify_rs256` takes the key a `kid` NAMED: the gate pulls the
+/// entry out of the document with `jwk_in` and passes THAT. Handed the whole
+/// document, `key.get("n")` reads `None` and every verification refuses -- so a
+/// "must not verify" near-miss assertion passes for a reason that has nothing
+/// to do with the near-miss it is about, and only a "must verify" row can tell.
+fn jwk_for(modulus: &BigUint, exponent: &BigUint) -> String {
     let n = roost_host::b64url_encode(&modulus.to_bytes_be());
     let e = roost_host::b64url_encode(&exponent.to_bytes_be());
-    format!(
-        r#"{{"keys":[{{"kty":"RSA","alg":"RS256","use":"sig","kid":"{KEY_ID}","n":"{n}","e":"{e}"}}]}}"#
-    )
+    format!(r#"{{"kty":"RSA","alg":"RS256","use":"sig","kid":"{KEY_ID}","n":"{n}","e":"{e}"}}"#)
 }
 
 /// A real RS256 signature over a real `header.payload`.
 fn sign(signing_input: &str, private: &RsaPrivateKey) -> Vec<u8> {
-    let signature: Signature = SigningKey::<Sha256>::new(private.clone()).sign(signing_input.as_bytes());
+    let signature: Signature =
+        SigningKey::<Sha256>::new(private.clone()).sign(signing_input.as_bytes());
     signature.to_vec()
 }
 
-/// THE RSA PATH, EXERCISED. A locally generated key, a JWKS published from it, a
+/// THE RSA PATH, EXERCISED. A locally generated key, a JWK published from it, a
 /// real signature, and the production `RsaJwks` accepting it. This is the test
-/// that makes the signature path verified rather than merely written.
+/// that makes the signature path verified rather than merely written -- and the
+/// only row here that can, because the other two assert refusals and a codec
+/// that refuses everything satisfies both of them.
 #[test]
 fn the_production_key_ring_verifies_a_real_rs256_signature() {
     let (private, modulus, exponent) = the_test_key();
-    let jwk = jwks_for(&modulus, &exponent);
+    let jwk = jwk_for(&modulus, &exponent);
     let signing_input = format!(
         "{}.{}",
-        header(),
+        header_for(KEY_ID),
         roost_host::b64url_encode(claims("ops@example.com", NOW_MS / 1000 + 300).as_bytes())
     );
     let signature = sign(&signing_input, &private);
@@ -299,10 +337,10 @@ fn the_production_key_ring_verifies_a_real_rs256_signature() {
 #[test]
 fn the_production_key_ring_refuses_every_near_miss() {
     let (private, modulus, exponent) = the_test_key();
-    let jwk = jwks_for(&modulus, &exponent);
+    let jwk = jwk_for(&modulus, &exponent);
     let signing_input = format!(
         "{}.{}",
-        header(),
+        header_for(KEY_ID),
         roost_host::b64url_encode(claims("ops@example.com", NOW_MS / 1000 + 300).as_bytes())
     );
     let signature = sign(&signing_input, &private);
@@ -327,7 +365,11 @@ fn the_production_key_ring_refuses_every_near_miss() {
         "an empty signature must be refused"
     );
     assert!(
-        !ring.verify_rs256(r#"{"kid":"kid-local","n":"not base64url"}"#, &signing_input, &signature),
+        !ring.verify_rs256(
+            r#"{"kid":"kid-local","n":"not base64url"}"#,
+            &signing_input,
+            &signature
+        ),
         "a modulus the codec cannot read must be refused, not guessed at"
     );
     assert!(
@@ -351,7 +393,7 @@ fn a_signature_from_another_key_does_not_verify() {
     let (theirs, _, _) = test_key(PRIME_P_ALT, PRIME_Q_ALT);
     let signing_input = format!(
         "{}.{}",
-        header(),
+        header_for(KEY_ID),
         roost_host::b64url_encode(claims("ops@example.com", NOW_MS / 1000 + 300).as_bytes())
     );
     let their_signature = sign(&signing_input, &theirs);
@@ -359,7 +401,7 @@ fn a_signature_from_another_key_does_not_verify() {
 
     assert!(
         !ring.verify_rs256(
-            &jwks_for(&mine_modulus, &mine_exponent),
+            &jwk_for(&mine_modulus, &mine_exponent),
             &signing_input,
             &their_signature
         ),

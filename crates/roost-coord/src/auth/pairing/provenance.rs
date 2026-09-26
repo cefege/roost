@@ -28,8 +28,8 @@ use super::agent_table::first_case_insensitive;
 pub use super::agent_table::{UserAgentDescription, describe_user_agent};
 
 use crate::coord_core::ListenerTrust;
-use crate::middleware::caller_origin::CallerOrigin;
 use crate::events::persistence_input::truncate_persisted_utf8;
+use crate::middleware::caller_origin::CallerOrigin;
 
 /// The bound on any single user-agent or client-hint value written to a row.
 pub const MAX_PROVENANCE_UTF8_BYTES: usize = 512;
@@ -269,4 +269,3 @@ fn normalize(value: &str, max_bytes: usize) -> String {
         .collect();
     truncate_persisted_utf8(&stripped, max_bytes).to_string()
 }
-

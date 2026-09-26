@@ -18,15 +18,15 @@ use roost_host::{ProcessEnv, build_identity};
 use roost_proto as proto;
 
 use crate::auth::authorized_keys::fingerprint_of_raw_public_key;
-use crate::auth::principal::{device_refusal, require_account_device};
 use crate::auth::bootstrap_tokens::decode_ed25519_pubkey;
-use crate::auth::jwt_key_cache::JwtKeyCache;
-use crate::auth::principal::Principal;
 use crate::auth::db_statements::{
     AUTHORIZED_KEY, REVOKED_KEY, WORKER_ROW, begin, column1, column2, commit, exists1, exists2,
     insert_account_device, insert_authorized_key, internal, invalid_argument,
 };
+use crate::auth::jwt_key_cache::JwtKeyCache;
 use crate::auth::key_retirement::retire_principal;
+use crate::auth::principal::Principal;
+use crate::auth::principal::{device_refusal, require_account_device};
 use crate::coord_core::{Caller, CoordCore};
 use crate::rpc::service::{now_ms, ok_response};
 

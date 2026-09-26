@@ -15,8 +15,8 @@ use roost_coord::auth::pairing::provenance::{
     ClientDeviceType, MAX_GEO_UTF8_BYTES, MAX_PROVENANCE_UTF8_BYTES,
     capture_pair_request_provenance, describe_user_agent,
 };
-use roost_coord::middleware::caller_origin::{CallerOrigin, resolve_caller_origin};
 use roost_coord::coord_core::ListenerTrust;
+use roost_coord::middleware::caller_origin::{CallerOrigin, resolve_caller_origin};
 
 const CHROME_MAC: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 const EDGE_WINDOWS: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0";
@@ -227,10 +227,7 @@ fn the_bound_counts_bytes_and_never_splits_a_scalar() {
 /// resolved to nothing.
 #[test]
 fn an_unnamed_source_is_recorded_as_unknown() {
-    let captured = capture_pair_request_provenance(
-        &HeaderMap::new(),
-        &CallerOrigin::unknown(),
-    );
+    let captured = capture_pair_request_provenance(&HeaderMap::new(), &CallerOrigin::unknown());
     assert_eq!(captured.source_ip, "unknown");
     assert_eq!(captured.user_agent, None);
     assert_eq!(captured.client_browser, None);

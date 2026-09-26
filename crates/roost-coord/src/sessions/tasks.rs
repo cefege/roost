@@ -111,9 +111,15 @@ pub async fn handle_tasks_enqueue(
     );
     let _lease = lease(core)?;
     let claim_ttl_ms = claim_ttl_ms(request.claim_ttl_ms)?;
-    let row = insert_task(&core.services.db, &id, &dashboard_id, &request, claim_ttl_ms)
-        .await
-        .map_err(internal)?;
+    let row = insert_task(
+        &core.services.db,
+        &id,
+        &dashboard_id,
+        &request,
+        claim_ttl_ms,
+    )
+    .await
+    .map_err(internal)?;
     let task = publish(core, TaskBusMsgKind::Created, &row);
     tracing::info!(task = %id, "task enqueued");
     ok_response(proto::TasksEnqueueResponse {
@@ -249,7 +255,11 @@ async fn read_tasks(
     db: &CoordDb,
     state: Option<TaskState>,
 ) -> Result<Vec<StoredTaskRow>, sqlx::Error> {
-    let filter = if state.is_some() { " WHERE state = ?" } else { "" };
+    let filter = if state.is_some() {
+        " WHERE state = ?"
+    } else {
+        ""
+    };
     let sql = format!(
         "SELECT {TASK_COLUMNS} FROM tasks{filter} \
          ORDER BY enqueued_at_ms LIMIT {TASKS_LIST_MAX_ROWS}"
@@ -350,7 +360,6 @@ fn task_state_of(raw: &str) -> Result<TaskState, ConnectError> {
         )
     })
 }
-
 
 fn refusal(code: ErrorCode, reason: impl Into<String>) -> ConnectError {
     ConnectError::new(code, reason.into())

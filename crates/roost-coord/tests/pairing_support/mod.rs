@@ -16,8 +16,8 @@ use std::path::PathBuf;
 use roost_coord::auth::authorized_keys::fingerprint_of_raw_public_key;
 use roost_coord::auth::pairing::account::{PairRequestCreate, apply_approval, create_pair_request};
 use roost_coord::auth::pairing::confirmation::confirm_pair_request;
-use roost_coord::auth::pairing::rows::read_pair_request;
 use roost_coord::auth::pairing::provenance::PairRequestProvenance;
+use roost_coord::auth::pairing::rows::read_pair_request;
 use roost_coord::auth::pairing::secrets::pairing_secret_digest;
 use roost_coord::auth::pairing::status::ApprovalAuthority;
 use roost_coord::db::CoordDb;
@@ -34,8 +34,7 @@ pub const REQUESTER_KEY: [u8; 32] = [7; 32];
 
 /// A requester token that is not the request's own, for the refusal that says a
 /// token is the only proof of ownership.
-pub const OTHER_TOKEN: &str =
-    "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100";
+pub const OTHER_TOKEN: &str = "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100";
 
 /// The tenant topology the ceremony's `workers` rows are scoped to. The
 /// migration refuses an unscoped worker (`workers_require_dashboard_insert`),
@@ -145,7 +144,9 @@ impl CeremonyFixture {
         // the ceremony's own rules, and nothing a requester could assert.
         let provenance = PairRequestProvenance {
             source_ip: "10.0.0.4".to_string(),
-            client_device_type: Some(roost_coord::auth::pairing::provenance::ClientDeviceType::Desktop),
+            client_device_type: Some(
+                roost_coord::auth::pairing::provenance::ClientDeviceType::Desktop,
+            ),
             ..PairRequestProvenance::default()
         };
         let outcome = create_pair_request(

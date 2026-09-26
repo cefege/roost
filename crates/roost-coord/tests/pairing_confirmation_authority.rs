@@ -13,10 +13,10 @@ mod pairing_support;
 use pairing_support::{ACCOUNT, CODE, CeremonyFixture, HANDLE, NOW, REQUESTER_KEY, TOKEN, TTL};
 use roost_coord::auth::pairing::PairingRefusal;
 use roost_coord::auth::pairing::account::{PairRequestCreate, create_pair_request};
-use roost_coord::auth::pairing::rows::{LiveSelector, read_live_pair_request};
 use roost_coord::auth::pairing::authority::associate_paired_browser;
 use roost_coord::auth::pairing::provenance::PairRequestProvenance;
 use roost_coord::auth::pairing::rows::terminalize;
+use roost_coord::auth::pairing::rows::{LiveSelector, read_live_pair_request};
 use roost_coord::auth::pairing::secrets::pairing_secret_digest;
 use roost_coord::auth::pairing::status::{LiveRequest, TerminalRequest};
 

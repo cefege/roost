@@ -25,16 +25,16 @@ use std::time::Duration;
 use connectrpc::{ConnectError, ErrorCode, ServiceResult};
 use roost_observability::LogFields;
 use roost_proto as proto;
-use sqlx::Row;
 use roost_protocol::wire::agent_status::agent_status_identity;
 use roost_protocol::wire::{AgentStatus, AgentStatusSource, SessionId};
+use sqlx::Row;
 
 use crate::agents::config::{AgentLauncherConfig, get_agent_config, set_agent_config};
-use crate::auth::principal::require_account_device;
 use crate::agents::status_wait::{
     AgentStatusWaitError, AgentStatusWaitErrorKind, AgentStatusWaitOutcome, AgentStatusWaitRequest,
     AgentStatusWaiter,
 };
+use crate::auth::principal::require_account_device;
 use crate::coord_core::{Caller, CoordCore};
 use crate::rpc::service::ok_response;
 
@@ -294,7 +294,6 @@ fn internal(error: sqlx::Error) -> ConnectError {
     );
     ConnectError::new(ErrorCode::Internal, "agent status storage failed")
 }
-
 
 /// The Connect method each handler answers, and the function that answers it.
 ///

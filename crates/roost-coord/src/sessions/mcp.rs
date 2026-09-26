@@ -14,8 +14,8 @@ use roost_protocol::wire::{
 };
 use serde_json::{Map, Value};
 
-use crate::coord_core::{Caller, CoordCore};
 use crate::auth::principal::require_account_device;
+use crate::coord_core::{Caller, CoordCore};
 use crate::rpc::service::{now_ms, ok_response};
 use crate::sessions::mcp_store::{
     DELETE_RELAY, INSERT_RELAY, LIST_RELAYS, RELAY_HELD, StoredRelay, internal, invalid,
@@ -280,4 +280,3 @@ fn mint_relay_id() -> Result<McpRelayId, ConnectError> {
 fn relay_not_found() -> ConnectError {
     ConnectError::new(ErrorCode::NotFound, "not found")
 }
-

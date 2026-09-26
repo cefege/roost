@@ -20,9 +20,7 @@ use roost_protocol::viewport::{
 };
 use roost_protocol::wire::SessionId;
 
-pub use super::tombstone::{
-    TombstoneStore,
-};
+pub use super::tombstone::TombstoneStore;
 
 /// Distinct view records one session may hold, across every socket and device.
 pub const SESSION_VIEW_CAP: usize = 256;

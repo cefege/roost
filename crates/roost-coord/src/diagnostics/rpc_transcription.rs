@@ -22,8 +22,8 @@ use connectrpc::{ConnectError, ErrorCode, ServiceResult};
 use roost_proto as proto;
 use tracing::info;
 
-use crate::coord_core::{Caller, CoordCore};
 use crate::auth::principal::require_account_device;
+use crate::coord_core::{Caller, CoordCore};
 use crate::diagnostics::transcription::{self, ProviderProbe, TranscriptionStoreError};
 use crate::rpc::service::ok_response;
 
@@ -151,7 +151,6 @@ fn config_proto(config: transcription::TranscriptionConfig) -> proto::Transcript
         ..Default::default()
     }
 }
-
 
 /// A settings row that could not be read or written is the coordinator's fault,
 /// and the browser cannot fix it by retrying with a different key.

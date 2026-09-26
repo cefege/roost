@@ -17,8 +17,8 @@
 
 pub mod admission_layer;
 pub mod audit;
-pub mod audit_policy;
 pub mod audit_layer;
+pub mod audit_policy;
 pub mod caller_origin;
 pub mod rate_limit;
 pub mod rate_limit_layer;

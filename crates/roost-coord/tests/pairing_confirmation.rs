@@ -144,7 +144,9 @@ async fn a_wrong_requester_token_finds_nothing() {
     fixture.approved_request(NOW).await;
     let before_keys = fixture.authorized_keys().await;
 
-    let wrong = fixture.confirm_with_token(OTHER_TOKEN, CODE, NOW + 1_000).await;
+    let wrong = fixture
+        .confirm_with_token(OTHER_TOKEN, CODE, NOW + 1_000)
+        .await;
     let absent = confirm_pair_request(
         &fixture.database,
         "ffffffffffffffffffffffffffffffff",

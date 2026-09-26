@@ -100,7 +100,10 @@ impl TerminalViewSink for RecordingSink {
         };
         self.push(Recorded::State {
             session_id: session_id.to_owned(),
-            status: state.status.as_known().unwrap_or(TerminalViewStatus::Unspecified),
+            status: state
+                .status
+                .as_known()
+                .unwrap_or(TerminalViewStatus::Unspecified),
             effective_cols: state.effective_cols,
             effective_rows: state.effective_rows,
             stream_id: state.stream_id.clone(),

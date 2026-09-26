@@ -17,13 +17,18 @@ use roost_coord::sessions::rpc_workspaces::{
     handle_workspaces_create, handle_workspaces_delete, handle_workspaces_list,
     handle_workspaces_set_sessions, handle_workspaces_update,
 };
-use roost_protocol::wire::{WorkspaceDelta, WorkspaceId};
+use roost_protocol::wire::{SessionId, WorkspaceDelta, WorkspaceId};
 
 use workspaces_support::{SESSION_A, SESSION_B, WORKER_FP, WorkspacesFixture, device_caller};
 
 /// A workspace id back as the wire brand, for asserting a delta's payload.
 fn workspace_id(value: &str) -> WorkspaceId {
     WorkspaceId::try_from(value).expect("a workspace id the brand accepts")
+}
+
+/// A session id back as the wire brand, for asserting a delta's membership.
+fn session_id(value: &str) -> SessionId {
+    SessionId::try_from(value).expect("a session id the brand accepts")
 }
 
 /// Create a workspace and answer with its proto row.
@@ -59,7 +64,10 @@ async fn every_mutation_reaches_a_sync_subscriber() {
     fixture.enroll_session(SESSION_A, "/srv/one").await;
     fixture.enroll_session(SESSION_B, "/srv/two").await;
     let target = create(&fixture, "/srv/two", &[]).await;
-    let source = create(&fixture, "/srv/one", &[SESSION_A]).await;
+    // `source` holds a SECOND session, because a workspace the rewrite empties
+    // is collected by that same rewrite -- and a row the collector already
+    // deleted is not one the delete below can go on to delete.
+    let source = create(&fixture, "/srv/one", &[SESSION_A, SESSION_B]).await;
 
     handle_workspaces_update(
         &fixture.core,
@@ -139,16 +147,23 @@ async fn every_mutation_reaches_a_sync_subscriber() {
         other => panic!("expected a membership, got {other:?}"),
     }
     assert_eq!(
+        recorded[4],
+        WorkspaceDelta::SessionsSet {
+            id: workspace_id(&source.id),
+            session_ids: vec![session_id(SESSION_B)],
+            version: 0,
+        },
+        "the source the rewrite took one session FROM is announced as a membership change, not \
+         as a deletion: it still holds SESSION_B, so a subscriber that dropped the row here \
+         would lose a workspace the next re-fetch still lists"
+    );
+    assert_eq!(
         recorded[5],
         WorkspaceDelta::Deleted {
             id: workspace_id(&source.id),
         },
-        "the workspace the rewrite emptied is announced as deleted, not as emptied"
-    );
-    assert!(
-        matches!(&recorded[4], WorkspaceDelta::Deleted { id } if id.as_str() == source.id),
-        "the source the rewrite emptied is announced as deleted, after the target's own \
-         membership move: a subscriber applies them in the order they happened"
+        "and the delete that follows announces it gone -- after its own membership move, so a \
+         subscriber applies the two in the order they happened"
     );
 }
 
@@ -278,7 +293,8 @@ async fn a_mutation_is_refused_while_a_keeper_update_drains() {
 
     let created = create(&fixture, "/srv/one", &[]).await;
     assert_eq!(
-        created.name, "ws",
-        "the write lands once the drain is released"
+        created.name, "ws-/srv/one",
+        "the write lands once the drain is released, under the name `create` builds for this \
+         folder -- the same rule `every_mutation_reaches_a_sync_subscriber` pins at :111"
     );
 }

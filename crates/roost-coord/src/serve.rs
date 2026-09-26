@@ -208,8 +208,10 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
     // one stopped without waiting logs after its owner is gone. Passing `None`
     // here would be the unstoppable sweep, and is for tests only.
     let (pair_shutdown, pair_stopped) = tokio::sync::watch::channel(false);
-    let pair_retention =
-        crate::auth::pairing::spawn_pair_request_retention(Arc::clone(&state.services), pair_stopped);
+    let pair_retention = crate::auth::pairing::spawn_pair_request_retention(
+        Arc::clone(&state.services),
+        pair_stopped,
+    );
 
     let served = axum::serve(
         listener,

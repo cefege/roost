@@ -70,9 +70,13 @@ async fn every_method_refuses_a_caller_that_is_not_a_browser() {
         handle_agent_status_get(&fixture.core, caller, get_request(SESSION_IDS[0]))
             .await
             .map(|_| ()),
-        handle_agent_status_list(&fixture.core, caller, proto::AgentStatusListRequest::default())
-            .await
-            .map(|_| ()),
+        handle_agent_status_list(
+            &fixture.core,
+            caller,
+            proto::AgentStatusListRequest::default(),
+        )
+        .await
+        .map(|_| ()),
         handle_agent_status_wait(
             &fixture.core,
             caller,
@@ -80,9 +84,13 @@ async fn every_method_refuses_a_caller_that_is_not_a_browser() {
         )
         .await
         .map(|_| ()),
-        handle_agent_config_get(&fixture.core, caller, proto::AgentConfigGetRequest::default())
-            .await
-            .map(|_| ()),
+        handle_agent_config_get(
+            &fixture.core,
+            caller,
+            proto::AgentConfigGetRequest::default(),
+        )
+        .await
+        .map(|_| ()),
         handle_agent_config_set(
             &fixture.core,
             caller,

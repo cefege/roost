@@ -37,9 +37,9 @@ use crate::auth::pairing::account::{self, CreateOutcome, PairRequestCreate};
 use crate::auth::pairing::confirmation;
 use crate::auth::pairing::rows;
 use crate::auth::pairing::rpc_support::{
-    approver_or_on_host, caller_origin_of, deny_request, front_door_identity, lease,
-    list_pending, optional_fingerprint, publish_pending, publish_removed, read_status_facts,
-    read_under_token, report_confirmation,
+    approver_or_on_host, caller_origin_of, deny_request, front_door_identity, lease, list_pending,
+    optional_fingerprint, publish_pending, publish_removed, read_status_facts, read_under_token,
+    report_confirmation,
 };
 use crate::auth::pairing::secrets::{
     self, PAIR_REQUEST_TTL_MS, decode_ed25519_pubkey, normalize_pair_request_id,
@@ -163,8 +163,8 @@ pub async fn handle_pair_poll(
     // Expiry is answered from the read, never written here: this is a 1 Hz poll
     // from a browser that is waiting, and a poll that wrote would turn a
     // read-only question into a durable mutation on somebody else's cadence.
-    let stored = StoredStatus::parse(&row.status)
-        .map_err(|error| PairingError::from(error).into_error())?;
+    let stored =
+        StoredStatus::parse(&row.status).map_err(|error| PairingError::from(error).into_error())?;
     let status = match stored {
         StoredStatus::Pending | StoredStatus::VerificationRequired
             if row.expires_at_ms <= now_ms =>
@@ -345,17 +345,16 @@ pub async fn handle_pair_approval_status(
     // so the approver can tell a revoked key from a wrong method. A direct
     // on-host caller stays admitted, which is the whole point of an on-host
     // approval.
-    let fingerprint =
-        if caller.on_host {
-            optional_fingerprint(caller)
-        } else {
-            Some(
-                caller
-                    .principal
-                    .require_account_device()
-                    .map_err(|_| crate::auth::pairing::authentication_required())?,
-            )
-        };
+    let fingerprint = if caller.on_host {
+        optional_fingerprint(caller)
+    } else {
+        Some(
+            caller
+                .principal
+                .require_account_device()
+                .map_err(|_| crate::auth::pairing::authentication_required())?,
+        )
+    };
     let facts = read_status_facts(&core.services.db, ephemeral_id)
         .await
         .map_err(PairingError::into_error)?;

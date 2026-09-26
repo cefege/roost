@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use roost_protocol::wire::SessionId;
 
-use super::record::{TombstoneStore, ViewRecord};
+use super::record::{TombstoneStore, ViewIntent, ViewRecord};
 use super::registry::SocketRecord;
 use super::sink::SinkCall;
 
@@ -49,7 +49,28 @@ impl Machine<'_> {
     /// A missing record is not an error: the sweep walks a snapshot and a host
     /// callback can remove a record re-entrantly, and a second removal must not
     /// resurrect a tombstone the first one already wrote.
-    pub(super) fn drop_record(&mut self, key: &str, save: bool, now_ms: u64) {
+    ///
+    /// `claim` overrides the revision and intent the tombstone is written with,
+    /// and it is a parameter the port DROPPED. v2's
+    /// `terminal-view-registry-operations.ts:81-95` is
+    /// `remove(view, save, revision = view.revision, intent = view.intent)`, and
+    /// **BOTH release sites pass the command's values explicitly**
+    /// (`terminal-view-registry-commands.ts:114` reclaim and `:194` update)
+    /// while the sweep and revocation sites rely on the default.
+    ///
+    /// Collapsing that distinction wrote the tombstone with the PRE-release
+    /// revision and the PRE-release ACTIVE intent, which made the admission
+    /// guard `command.revision == old.revision && !intents_equal(..)`
+    /// unreachable for a release-created claim -- so a same-revision ACTIVE
+    /// declaration revived a released claim. `None` is the sweep's behaviour and
+    /// is correct there: a record-derived claim is the record's own.
+    pub(super) fn drop_record(
+        &mut self,
+        key: &str,
+        save: bool,
+        now_ms: u64,
+        claim: Option<(u64, ViewIntent)>,
+    ) {
         let Some(record) = self.views.remove(key) else {
             return;
         };
@@ -65,12 +86,13 @@ impl Machine<'_> {
             socket.views.remove(key);
         }
         if save {
+            let (revision, intent) = claim.unwrap_or((record.revision, record.intent.clone()));
             self.tombstones.retain(
                 now_ms,
                 key.to_owned(),
                 record.viewer_key.clone(),
-                record.revision,
-                record.intent.clone(),
+                revision,
+                intent,
             );
         }
     }

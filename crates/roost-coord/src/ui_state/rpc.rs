@@ -21,8 +21,8 @@ use connectrpc::{ConnectError, ErrorCode, ServiceResult};
 use roost_proto as proto;
 use roost_proto::__buffa::oneof::ui_command::Command;
 
-use crate::coord_core::{Caller, CoordCore};
 use crate::auth::principal::require_account_device;
+use crate::coord_core::{Caller, CoordCore};
 use crate::events::bus_messages::UiBusMsg;
 use crate::rpc::service::ok_response;
 use crate::ui_state::fence::{

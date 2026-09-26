@@ -146,10 +146,7 @@ impl std::fmt::Debug for OwnerRelay {
             .debug_struct("OwnerRelay")
             .field(
                 "sockets",
-                &self
-                    .sockets
-                    .lock()
-                    .map_or(0, |sockets| sockets.len()),
+                &self.sockets.lock().map_or(0, |sockets| sockets.len()),
             )
             .finish_non_exhaustive()
     }

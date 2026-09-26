@@ -236,7 +236,10 @@ impl TerminalViewHub {
                 // confirmed. `Unspecified` is the proto zero value, and it says
                 // what is true — this build does not know — instead of what
                 // would be convenient.
-                frame.status.as_known().unwrap_or(TerminalViewStatus::Unspecified),
+                frame
+                    .status
+                    .as_known()
+                    .unwrap_or(TerminalViewStatus::Unspecified),
                 frame.effective_cols,
                 frame.effective_rows,
                 &frame.reason,

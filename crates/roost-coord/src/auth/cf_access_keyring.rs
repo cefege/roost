@@ -19,14 +19,12 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use roost_host::b64url_decode;
 use rsa::pkcs1v15::{Signature, VerifyingKey};
+use rsa::sha2::Sha256;
 use rsa::signature::Verifier;
 use rsa::{BigUint, RsaPublicKey};
-use rsa::sha2::Sha256;
 use serde_json::Value;
 
-use crate::auth::cf_access::{
-    CloudflareJwks, JWKS_REFETCH_MIN_INTERVAL_MS, JWKS_TTL_MS,
-};
+use crate::auth::cf_access::{CloudflareJwks, JWKS_REFETCH_MIN_INTERVAL_MS, JWKS_TTL_MS};
 
 /// Cloudflare's key set over HTTPS, cached per issuer, and RSA-SHA256
 /// verification against it.

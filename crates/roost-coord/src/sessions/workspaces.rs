@@ -196,20 +196,38 @@ pub async fn update_workspace(
             ("color", request.color.as_deref()),
         ] {
             if let Some(value) = value {
-                separated.push(column).push(" = ").push_bind(value);
+                // `push_bind` on a `Separated` EMITS THE SEPARATOR FIRST
+                // (sqlx-core 0.9, `query_builder.rs:589`), and `push(" = ")`
+                // has already armed it. Written the 0.8 way this rendered
+                // `SET name,  = ?` and EVERY `update_workspace` was a
+                // `near ","` syntax error surfacing as `Internal` — the
+                // version guard never ran, so a stale write reported an
+                // internal fault instead of `FailedPrecondition`.
+                separated
+                    .push(column)
+                    .push_unseparated(" = ")
+                    .push_bind_unseparated(value);
             }
         }
         if let Some(position) = request.position {
-            separated.push("position = ").push_bind(i64::from(position));
+            separated
+                .push("position")
+                .push_unseparated(" = ")
+                .push_bind_unseparated(i64::from(position));
         }
-        separated.push("updated_at_ms = ").push_bind(now_ms);
-        separated.push("version = version + 1");
         separated
-            .push("WHERE id = ")
-            .push_bind(&request.id)
-            .push("AND version = ")
-            .push_bind(i64::try_from(request.if_version).unwrap_or(i64::MAX));
+            .push("updated_at_ms")
+            .push_unseparated(" = ")
+            .push_bind_unseparated(now_ms);
+        separated.push("version = version + 1");
     }
+    // The predicate goes on the QUERY BUILDER, not on `separated`. A
+    // `Separated` inserts a COMMA between its elements, so a `WHERE` pushed
+    // onto one renders `..., version = version + 1, WHERE id = ?` — a
+    // different syntax error from the same mistake.
+    update.push(" WHERE id = ").push_bind(&request.id);
+    update.push(" AND version = ");
+    update.push_bind(i64::try_from(request.if_version).unwrap_or(i64::MAX));
     update.push(" RETURNING ").push(COLUMNS);
     let row = update
         .build_query_as::<Row>()

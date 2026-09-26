@@ -13,8 +13,8 @@
 use sqlx::sqlite::SqliteRow;
 use sqlx::{QueryBuilder, Row, Sqlite};
 
-use super::PairingResult;
 use super::PairingRefusal;
+use super::PairingResult;
 use super::account::PairRequestCreate;
 use super::provenance::ClientDeviceType;
 use super::refuse;

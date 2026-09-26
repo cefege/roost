@@ -1,17 +1,11 @@
 // The fixture the auth-device tests drive: a migrated database with the
 // self-hosted tenant, a booted `CoordCore` over it, and a SECOND core on the
-// same file for the tests that need two connections rather than one.
+// same file. The second core is the point: `CoordDb` is a pool of ONE, so a
+// redemption race through one core is a race the pool serialised before it
+// started, and a claim that read-then-wrote would pass it.
 //
-// The second core is the point of this file. `CoordDb` is a pool of ONE (see
-// `db.rs`), so a redemption race driven through one core is a race the pool
-// serialised before it started, and a claim that read-then-wrote would pass it.
-// Two handles on one file are two real connections, which is the only way a
-// test can observe whether the claim decides single-use inside its statement or
-// before it.
-
-// `expect` and `unwrap` are denied outside `#[cfg(test)]`, and an integration
-// test is its own crate rather than a module of one, so the exemption has to be
-// stated here rather than inherited.
+// `expect` and `unwrap` are denied outside `#[cfg(test)]` and an integration test
+// is its own crate, so the exemption is stated here rather than inherited.
 #![allow(dead_code, clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::PathBuf;
@@ -91,8 +85,7 @@ impl Scratch {
     }
 
     /// A SECOND core on the same file: a second connection, so a race between
-    /// two redemptions is a race SQLite has to resolve rather than one the pool
-    /// queued.
+    /// two redemptions is one SQLite has to resolve rather than one the pool queued.
     pub async fn second_core(&self) -> CoordCore {
         open_core(&self.database_path, &self.root, |_| {}).await.0
     }
@@ -144,9 +137,8 @@ impl Scratch {
             .expect("a scalar")
     }
 
-    /// Enroll a paired browser: an authorized key and its account device. The
-    /// key bytes are derived from the fingerprint, so a test that later revokes
-    /// this device has a row holding the key it enrolled with.
+    /// Enroll a paired browser: an authorized key and its account device. The key
+    /// bytes are derived from the fingerprint, so a revoked device still has a row.
     pub async fn enroll_device(&self, fingerprint: &str, label: &str) {
         let public_key = public_key_for(fingerprint);
         self.exec(&format!(
@@ -241,6 +233,16 @@ pub fn browser_off_host(fingerprint: &str, account_id: &str) -> Caller {
     }
 }
 
+/// A machine that is not on the coordinator's host. `DevicesRevoke` admits an
+/// ON-HOST non-browser caller as `"on-host-recovery"`, so "a machine may not
+/// call the operator surface" is a statement about a REMOTE one.
+pub fn worker_off_host(fingerprint: &str) -> Caller {
+    Caller {
+        on_host: false,
+        ..worker(fingerprint)
+    }
+}
+
 fn caller(principal: Principal) -> Caller {
     Caller {
         principal,
@@ -251,8 +253,7 @@ fn caller(principal: Principal) -> Caller {
     }
 }
 
-/// The caller a public redemption arrives with: no credential, which is what
-/// `authRedeem*` is reached by.
+/// The caller a public redemption arrives with: no credential at all.
 pub fn anonymous() -> Caller {
     Caller {
         principal: Principal::LegacySelfHosted {
@@ -266,8 +267,7 @@ pub fn anonymous() -> Caller {
     }
 }
 
-/// A 32-byte public key derived from a label, so two tests never collide and the
-/// fingerprint computed from it is a real one.
+/// A 32-byte public key derived from a label, so no two tests collide.
 pub fn public_key_for(label: &str) -> [u8; 32] {
     let digest: [u8; 32] = <sha2::Sha256 as sha2::Digest>::digest(label.as_bytes()).into();
     digest
@@ -275,13 +275,10 @@ pub fn public_key_for(label: &str) -> [u8; 32] {
 
 /// The base64 a browser or worker would send for `label`'s key.
 ///
-/// `STANDARD_NO_PAD` is an ENCODER here, and the decode leniency question does
-/// not arise: encoding has no trailing bits to lose, and every base64 encoder
-/// emits the same string for the same bytes. The lenient DECODER -- the one that
-/// accepts trailing bits, which v2's `Buffer.from(x, "base64")` does and every
-/// shipped `STANDARD_*` engine documents it does NOT -- is the other half of the
-/// same value and it lives in `bootstrap_tokens::decode_ed25519_pubkey`, which
-/// builds its own engine for exactly that reason. One owner per direction.
+/// `STANDARD_NO_PAD` is an ENCODER here, and decode leniency does not arise:
+/// encoding has no trailing bits to lose. The lenient DECODER is the other half
+/// of the same value and it lives in `bootstrap_tokens::decode_ed25519_pubkey`.
+/// One owner per direction.
 pub fn pubkey_b64(label: &str) -> String {
     general_purpose::STANDARD_NO_PAD.encode(public_key_for(label))
 }
@@ -348,6 +345,11 @@ pub async fn mint_via_handler(
 
 /// Mint a grant straight against the state layer, for the tests that are about
 /// the token rather than about the RPC.
+///
+/// The instant is the coordinator's OWN clock. This fixture stamps synthetic
+/// ones elsewhere (`added_at = 1000`) because nothing compares them, but
+/// `claim_bootstrap_token` refuses a grant whose `expires_at_ms` is behind
+/// `now_ms` -- a literal here mints one that expired in 1970.
 pub async fn mint_grant(
     database: &CoordDb,
     tenancy: (&str, &str),
@@ -356,7 +358,13 @@ pub async fn mint_grant(
     minter: Option<&str>,
 ) -> String {
     roost_coord::auth::bootstrap_tokens::mint_bootstrap_token(
-        database, kind, label, tenancy.0, tenancy.1, minter, 2_000,
+        database,
+        kind,
+        label,
+        tenancy.0,
+        tenancy.1,
+        minter,
+        roost_coord::rpc::service::now_ms(),
     )
     .await
     .expect("a grant")
@@ -365,10 +373,15 @@ pub async fn mint_grant(
 
 /// Mint a grant nobody is accountable for, the way `roost quickstart` does.
 pub async fn mint_host_grant(database: &CoordDb, kind: BootstrapTokenKind, label: &str) -> String {
-    roost_coord::auth::bootstrap_tokens::mint_host_bootstrap_token(database, kind, label, 2_000)
-        .await
-        .expect("a host grant")
-        .token
+    roost_coord::auth::bootstrap_tokens::mint_host_bootstrap_token(
+        database,
+        kind,
+        label,
+        roost_coord::rpc::service::now_ms(),
+    )
+    .await
+    .expect("a host grant")
+    .token
 }
 
 /// Redeem a browser grant through the handler.

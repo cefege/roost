@@ -16,8 +16,8 @@ use roost_proto as proto;
 
 use auth_device_support::{
     ACCOUNT_DEVICE_COUNT, AUTHORIZED_KEY_COUNT, DEVICE_FP, PEER_FP, Scratch, UNSPENT_GRANT_COUNT,
-    WORKER_COUNT, browser, mint_grant, mint_via_handler, redeem_browser,
-    redeem_browser_via_handler, redeem_worker, redeem_worker_via_handler, worker,
+    WORKER_COUNT, WORKER_FP, mint_grant, mint_via_handler, redeem_browser,
+    redeem_browser_via_handler, redeem_worker, redeem_worker_via_handler, worker_off_host,
 };
 
 /// The one refusal every failed redemption gets, whatever predicate fired.
@@ -220,7 +220,10 @@ async fn a_minted_grant_is_stored_as_a_digest_and_never_as_its_bearer() {
 
 /// A grant outlives nothing: revoking the device that minted it takes the
 /// unspent grant with it, so a stolen token cannot outlive the trust that
-/// issued it.
+/// issued it. The REVOKING caller is the peer, not the minter:
+/// `DevicesRevoke` refuses a browser revoking itself
+/// (`rpc_devices.rs:146-148`, "use key rotation to revoke this device"), which
+/// is why this test enrols a second device at all.
 #[tokio::test]
 async fn revoking_a_minter_takes_its_unspent_grants_with_it() {
     let scratch = Scratch::new("minter-revoked").await;
@@ -231,7 +234,7 @@ async fn revoking_a_minter_takes_its_unspent_grants_with_it() {
 
     handle_devices_revoke(
         &scratch.core,
-        &browser(DEVICE_FP, &scratch.account_id),
+        &scratch.peer(),
         proto::DevicesRevokeRequest {
             fingerprint: DEVICE_FP.to_owned(),
             ..Default::default()
@@ -251,8 +254,10 @@ async fn revoking_a_minter_takes_its_unspent_grants_with_it() {
 }
 
 /// A machine may not call the operator surface: the same revoke a browser may
-/// run is refused for a worker principal, so a compromised machine cannot evict
-/// the fleet's browsers.
+/// run is refused for a REMOTE worker principal, so a compromised machine
+/// cannot evict the fleet's browsers. An on-host machine is deliberately
+/// allowed through as `"on-host-recovery"`, so the machine here is one that
+/// dialled in rather than one running beside the coordinator.
 #[tokio::test]
 async fn a_worker_may_not_revoke_a_paired_browser() {
     let scratch = Scratch::new("worker-revoke").await;
@@ -260,7 +265,7 @@ async fn a_worker_may_not_revoke_a_paired_browser() {
 
     let refused = handle_devices_revoke(
         &scratch.core,
-        &worker(auth_device_support::WORKER_FP),
+        &worker_off_host(WORKER_FP),
         proto::DevicesRevokeRequest {
             fingerprint: PEER_FP.to_owned(),
             ..Default::default()

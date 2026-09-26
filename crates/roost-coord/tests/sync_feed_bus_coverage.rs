@@ -31,10 +31,10 @@ use roost_coord::sync_ws::feed::ui::{UiViewer, ui_bus_frame};
 use roost_coord::sync_ws::feed::worker_frames::{worker_presence_frame, worker_routable_frame};
 use roost_coord::sync_ws::feed::{BUS_FRAME_ADAPTERS, FeedFrame};
 use roost_coord::sync_ws::frame_meta::{FeedLane, WEIGHTED_LANES};
-use roost_proto::buffa::Enumeration;
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
 use roost_proto::SyncDomain;
 use roost_proto::Task;
+use roost_proto::buffa::Enumeration;
 use roost_protocol::wire::{McpRelayDelta, McpStreamMessage};
 use serde_json::json;
 

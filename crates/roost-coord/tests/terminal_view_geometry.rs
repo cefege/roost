@@ -97,7 +97,13 @@ fn an_expired_lease_stops_pinning_the_pty() {
         "the geometry moved because the grace lapsed, not because the record went"
     );
 
+    // The survivor is a LIVE socket, so it heartbeats. A browser re-declares
+    // its view every TERMINAL_VIEW_HEARTBEAT_MS and that is the renewal; a
+    // claim left at T0 would reap at T0 + TERMINAL_VIEW_LEASE_MS alongside the
+    // dead one, and the count below would measure two lapsed leases instead of
+    // the one it names.
     let after_lease = died_at + TERMINAL_VIEW_LEASE_MS + 1;
+    harness.view(&wide, VIEW, 120, 50, 1, true, after_lease - 1);
     harness.hub.sweep(after_lease);
     let stats = harness.hub.view_stats(&harness.session);
     assert_eq!(

@@ -20,11 +20,11 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use roost_protocol::wire::agent_status::agent_status_identity;
 use roost_protocol::wire::{
     AgentOccupantId, AgentRuntimeState, AgentStatus, AgentStatusFields, AgentStatusIdentity,
     AgentStatusUpdate, StatusEpoch,
 };
-use roost_protocol::wire::agent_status::agent_status_identity;
 
 /// Fencing an epoch this many generations old cannot matter -- its occupants are
 /// long replaced -- while an unbounded retired set grows one session's order

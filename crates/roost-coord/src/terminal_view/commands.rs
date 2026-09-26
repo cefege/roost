@@ -13,8 +13,8 @@
 use roost_proto::{TerminalResyncCommand, TerminalViewCommand, TerminalViewStatus};
 use roost_protocol::viewport::{TERMINAL_SOCKET_VIEW_CAP, is_terminal_uuid};
 
-use super::machine::session_of;
 use super::machine::Machine;
+use super::machine::session_of;
 use super::record::{ViewRecord, intent_of, intents_equal, validate_view_command, view_key};
 use super::registry::MembershipOutcome;
 use super::sink::PendingReply;
@@ -270,7 +270,14 @@ impl Machine<'_> {
         outcome: &mut MembershipOutcome,
     ) {
         let session_id = self.views.get(key).and_then(session_of);
-        self.drop_record(key, true, now_ms);
+        // v2: `remove(current, true, command.revision, intent)` -- the RELEASE's
+        // revision and intent, not the record's. See `machine::drop_record`.
+        self.drop_record(
+            key,
+            true,
+            now_ms,
+            Some((command.revision, intent_of(command))),
+        );
         if let Some(session_id) = session_id {
             outcome.changed.insert(session_id.clone());
             outcome
