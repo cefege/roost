@@ -1490,6 +1490,49 @@ could revive a released claim, because the admission guard was unreachable for
 release-created claims. **A vacuous test is not merely wasted; it is a place
 where a real defect goes to hide.**
 
+## Two runs that DISAGREE are a finding, and both get published
+
+Two clean runs of one tree, six minutes apart:
+
+```
+run 1   612 passed / 7 failed / 3 ignored, 6 failing binaries   77,110 bytes
+run 2   613 passed / 6 failed / 3 ignored, 5 failing binaries   76,359 bytes
+```
+
+**One binary differs: `mcp_relays_registry` went 2 passed / 1 failed, then 3
+passed / 0 failed.** It asserts an order over relay ids, and those are random v4
+uuids from `randomblob` — so a prediction made from reading the code is now
+**measured rather than inferred, bracketed at roughly one in two.**
+
+> **The 6 is a floor, the 7 is a ceiling, and neither is the number.**
+
+**And this reframes the whole measurement rule, which until now had only ever
+paid by confirming.** Every previous instance was "measure twice, they agreed,
+now I know the value". **This time the value was in the disagreement**, because
+a single run cannot distinguish *"this test fails"* from *"this test is a coin"*:
+
+> **A test that passes sometimes is worse than one that always fails: it gets
+> filed as flaky infrastructure, and a non-deterministic pass is indistinguishable
+> from a non-deterministic machine.**
+
+**So the rule's final form has two clauses, and the second is the one that is
+easy to omit:**
+
+1. **A figure ships with the runs that agree — or with the runs that disagree,
+   both published.**
+2. **Publishing one run of a tree that turns out to be nondeterministic is the
+   same error as publishing a stale number: a claim about a run presented as a
+   claim about a tree.**
+
+**Because the honest figure here is a range, and a single number would have been
+a claim about one sample of a coin.** The amend was the right move and it is now
+the recorded behaviour: publish run 1, then amend when run 2 disagrees, and say
+in the body that the figure is a floor and a ceiling rather than a point.
+
+**And the corollary for a gate: a suite containing a nondeterministic test cannot
+be green or red, only *usually*.** The check is not "did it pass" but "did it
+pass twice", which is the same reason a row measured once is a claim about a run.
+
 ## A named limit is an ARTEFACT; a deleted test is not
 
 An injection test asserted something genuinely unreachable: the product's own
