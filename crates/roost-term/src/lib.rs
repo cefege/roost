@@ -18,6 +18,15 @@
 //! against). The ABI is the *emitter's* contract; v2's callers did not live
 //! inside it.
 //!
+//! **They are absent because the emulator behind the trait cannot offer them,
+//! so this trait will not grow them.** `alacritty_terminal` has no raw-byte
+//! entry, no reply queue and no per-cell-sync state. A caller that needs one
+//! builds it beside the core; it does not belong on a trait whose other
+//! implementors are the emitter's reader, which does not answer capability
+//! probes and should not have to pretend to. A reader who assumes the trait is
+//! merely incomplete will propose adding these four, which is the thing this
+//! header exists to prevent.
+//!
 //! The claim is under-stated rather than over-stated on purpose: a reader who
 //! is told a surface is incomplete spends thirty seconds checking, and a
 //! reader who is told it is complete and is not loses a wave.
