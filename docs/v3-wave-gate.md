@@ -640,6 +640,49 @@ condition — a mutation reads as a suspiciously small removal, and that is a
 shape a reader can catch in one glance. **The dangerous artefact is not the
 mutation; it is a mutation that has been committed.**
 
+## Two branches written identically, where only one of them has a reason
+
+A staleness predicate with three returns, and a mutation row proved the **last**
+one was guarded while the predicate still accepted a stale report:
+
+```
+:115  if agent_status_identity(&held.common).is_none() { return update.active; }
+:118  if !same_agent_status_occupant(...)            { return update.active; }
+:120  update.common.revision > held.common.revision
+```
+
+**Both early returns `return update.active` without comparing revisions at all.**
+And they are written identically.
+
+**`:118` is correct and deliberate, with a test pinning it:** a replacement
+occupant numbers its revisions from 1, so refusing it as stale would strand the
+session. **`a_replacement_occupant_is_not_a_stale_report_and_retires_the_previous_one`
+is exactly that test.**
+
+**`:115` has no such justification.** A held row with no identity is a *legacy*
+record, and on that path the function accepts any active update at any revision —
+including one at or below the held revision.
+
+> **The occupant-change branch has a reason and the legacy branch does not, and
+> they are written identically — which is precisely why the row could rule out
+> the third line and leave the defect standing.**
+
+**So the general form, and it is a review question rather than a code one:**
+
+> **When two branches are written the same way, ask what each one is FOR. If one
+> has a justification and its twin does not, the one without it is either a bug
+> or an undocumented decision — and it is indistinguishable from the other in a
+> diff, in a read, and to every tool that checks behaviour rather than intent.**
+
+A reader scanning the predicate sees two early returns and reads them as a pair.
+**The pair is the camouflage.** Two branches that differ in *why* must not be
+written identically, because identical code carrying different reasons is
+unreviewable — and the row that could have caught it was bounded to the line that
+*was* correct.
+
+**And the disposition is right: a behaviour change on a shipped path is named in
+the commit body, not made as a side effect of a test failing.**
+
 ## A row that BITES and a defect that PERSISTS are compatible, and the pair is the finding
 
 Three pre-registered rows, written long before this wave, all three bit — and
