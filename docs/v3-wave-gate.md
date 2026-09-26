@@ -26,6 +26,74 @@ unverified, and "unverified" is the honest state — not "probably fine".**
 | W6 | A keeper control credential is recognised whatever its case | `shell_spec.rs::is_keeper_control_key`: drop `to_ascii_uppercase()` | `a_keeper_control_credential_is_recognised_whatever_its_case` | **OBSERVED** in `734982d1`. **Re-run:** W1's credential cutover landed after that observation. |
 | W7 | A frame from `Box<dyn TerminalCore>` is byte-identical to one from `AlacrittyCore` | the `&dyn TerminalCore` widening in `roost-term` | no test yet — this row needs one written | unrun. A widening that silently changed frame bytes is exactly the defect nobody is looking for. |
 | W8 | A spawn's ack is correlated 1:1 with its request under concurrency | keeper pool dispatch | W4's ack-correlation test | unrun |
+| W9 | A read against a replaced grid epoch is REFUSED | `retained_grid.rs describe`, the `EpochBinding::new(...)` argument: replace `record.cell_emit.grid_epoch()` with a constant | `a_read_against_a_replaced_grid_epoch_is_refused` | **OBSERVED** (W2c) |
+| W10 | A page over the ceiling is CLAMPED, not refused | `retained_grid.rs describe`, the `total:` field: use `origin` without adding the retained count | `a_page_larger_than_the_ceiling_is_clamped_not_refused` | **OBSERVED** |
+| W11 | A row is spelled the way the browser already parses it | `retained_grid.rs cell_span_json`, the `fg` insert: skip it when `span.fg == 0`, which is what proto3 JSON does | `a_row_is_spelled_the_way_the_browser_already_parses_it` | **OBSERVED** |
+| W12 | An append advances the offset past what the window kept | `scrollback.rs append_pty_chunk`: do **the forbidden write by hand** — `record.scrollback.append(chunk)` plus a manual `head_seq += record.scrollback.len()` | `an_append_advances_the_offset_past_what_the_window_kept` | **OBSERVED**. **The best row in the file**: the mutation *is* the defect W-0's private `history_floor` exists to make unrepresentable, so this row proves the type-level guarantee still holds. |
+| W13 | The unhandled log stops at its cap and says it did | `scrollback.rs record_unhandled`, the cap comparison: `>=` to `>` | `the_unhandled_log_stops_at_its_cap_and_says_it_did` | **OBSERVED** |
+| W14 | A replay feeds the whole window and says whether it was saturated | `scrollback.rs replay_retained_into`: hard-code `evicted: false` | `a_replay_feeds_the_whole_window_and_says_whether_it_was_saturated` | **OBSERVED** |
+| W15 | An alt-screen toggle split across chunks is recognised once | `scrollback.rs scan_stream_state`, the `mode_carry` assignment: `Vec::new()` | `an_alt_screen_toggle_split_across_chunks_is_recognised_once` | **OBSERVED** |
+| W16 | A full page takes more than one slice | `scrollback_read.rs SCROLLBACK_SLICE_ROWS`: raise it to the page ceiling | `a_full_page_takes_more_than_one_slice` | **OBSERVED**. Without this a page silently stalls every other session once instead of in slices. |
+| W17 | A read stopped between slices leaves no half-taken page | `scrollback_read.rs walk_page`: move the `continue_read` check inside the inner row loop | `a_read_stopped_between_slices_leaves_no_half_taken_page` | **OBSERVED** |
+
+**The trap in W12, and why the row does not stop it.** W2c reached for the
+forbidden write — `record.scrollback.append` plus a manual `head_seq` bump —
+**twice**, and the reason was not carelessness and not a naming failure. The
+capture lane needs to advance the capability-probe carry without retaining
+anything; in v2 that was `answerQueries(rec, null, bytes)`, and in v3
+`TerminalCore` has no `write_raw`/`get_response`, so that call does not exist. It
+was therefore holding bytes, needed the tokenizer carry advanced, found that the
+only record method taking bytes was the *retention* method, and — correctly —
+concluded the carry and the offset must advance atomically. The one call that
+does that is `append_retained`, so it wanted to reach past it for the other half.
+Its own words: the argument is not wrong, which is what makes it dangerous.
+
+So a reader who needs to advance stream state without retaining will conclude
+the two must be atomic, find that `append_retained` is the only method that makes
+them atomic, and reach past it — feeling rigorous the whole way. **The mutation
+row does not prevent that. Only a missing method does**, and the missing method
+is `advance_stream_state`, which cannot land until the query tokenizer exists.
+Landing it earlier would be a `pub fn` with no production caller, which is the
+other thing this repo bans.
+
+What stopped W2c was not the rule. It was noticing that `head_seq` and the floor
+move together in one expression, so a second copy of it is a second answer to
+"when does the floor move" — a design argument, visible only from inside the
+file. The lead has since strengthened `append_retained`'s doc to say it is THE
+ONLY method that writes the ring or the offset, every lane's including the
+capture lane's. **That is not the fix; the seam is.** What it buys is that the
+next slice can tell "the method I want does not exist" from "the method I want
+is elsewhere" — the distinction W2c had to work out from first principles.
+
+**The transferable lesson is about how instructions are written, not about this
+bug.** A brief that said "never write the ring directly" would have produced
+compliance and no understanding, and the missing method would still be missing.
+An instruction that says *report the pull, not the rule* is what sent someone
+looking for the actual cause. The lead's own hypothesis here was confidently
+wrong, and offering it as a likely explanation would have buried the real one.
+If a later slice reports the same pull, ask for the cause, not for compliance.
+
+## Findings from the read-only audit of the ported crates
+
+The integrator ran a read-only audit of `roost-term`, `roost-keeper`,
+`roost-protocol`, `roost-host` and `roost-observability` for the four classes the
+wave's own findings demonstrated: a boundary that assumed it was closed, a
+derived `Default` producing a terminal state, a trust decision made by an
+omitted call, and an executor that silently inherited its caller's state.
+
+| Finding | Severity | Status |
+|---|---|---|
+| `FrameDecoder::push` bounds a frame length from above only, so a peer sending `00 00 00 00` gets an empty frame and `frame[0]` panics — unwinding the serve loop and `main`, destroying every PTY on the machine. Four bytes from any same-uid process. v2 refused it with a `RangeError` at `protocol-envelope.ts:114`; the port kept the indexing and lost the check, and `LengthMismatch` was declared for it and never constructed. | **CRITICAL** | **Fixed** on `v3` with a lower bound and a test per short length. |
+| The keeper applies `spec.env` verbatim with no admission check, while v2 refused a keeper control key in `isShellSpec` **and** again in `mergeEnvironment`. | CRITICAL | **Open.** A worker-side strip is now real, but v2 refused on both sides and the keeper side is the structural one. |
+| The keeper's local endpoint has no capability authentication at all; the socket's `0600` mode is the entire boundary. v2 required a verified capability before dispatching any frame, plus a byte cap, a timer and a connection cap. | HIGH | **Open.** Either fix it or record the deliberate drop in the keeper contract and a commit body. |
+| Two implementations of the keeper binary digest disagree, so survivor admission can never succeed. | HIGH | **Open.** The keeper-side one is correct; the worker's is not. |
+
+The audit also reported the keeper `env_clear` fix as absent. **That was a
+false positive**: the audit read `pty_channel.rs` while a mutation experiment
+had the line temporarily replaced, and the committed tree carries
+`command.env_clear()` at line 134. Recorded here because the hazard is real —
+**a read-only review of a tree that is being mutated will read the mutation.**
+Pin reviews to a commit hash, not to a working tree.
 
 ## Coordinator track — rate limiter (M2)
 
@@ -90,10 +158,33 @@ proof.
   behaves identically**, so this is a pre-existing product gap, not a port
   regression, and no reaper is being written during parity. Recorded here so the
   next person reads "a decision is waiting" rather than "a bug slipped through".
+- **`ShellSpecResolver` has a trait and no implementation.** Declared at
+   `session/spawn.rs:94`, consumed by two finished slices at
+  `session/lifecycle.rs:179` and `:217` as `Arc<dyn ShellSpecResolver>`. **This
+  is not a compile error — it is a seam that looks complete**, and the gate passes
+  over it unless something constructs one. A `SessionManager` that cannot resolve
+  a shell spec cannot spawn, and that failure surfaces as a browser unable to
+  open a terminal, a long way from this trait. Owner: the `W10SpecResolver`
+  slice.
+- **`TerminalCore` has no `write_raw` or `get_response`,** so the query
+  tokenizer cannot be ported, so `advance_stream_state` cannot land, so
+  `append_pty_chunk` stays misnamed for what it does. This is the second of the
+  wave's "a method is missing and the thing next to it has to be misused instead"
+  shape — W2c reached for the retention method because it was the only one taking
+  bytes, and reached for it twice. **The first instance of this shape was a
+  naming problem and the second is a missing-method problem, and the difference
+  matters:** the first is fixable in a header, the second only by porting the
+  query tokenizer. Owner: the worker track, at integration.
+- **The device-refusal helper is written MORE than three times.** S2's
+  correction: ten definitions now exist — seven byte-equivalent and
+  marker-bearing (collapse these), and three divergent (each needs a decision,
+  not a merge). The real owner is `auth/principal.rs::require_account_device`,
+  which cannot build a `ConnectError` and so is not a copy. `terminal_screen/rpc.rs`
+  answers `PermissionDenied` where v2's `auth-interceptor.ts:256-271` answers
+  `Unauthenticated` with a marker, which a browser reads as "refresh my session" —
+  fix that one first.
 - **`workers::rpc::account_device` omits the `x-roost-auth-layer` marker v2 sets.**
   The workers slice's file; lead-owned at integration.
-- **The device-refusal helper is written three times** (S2, A2, and one other).
-  De-duplicate at integration; the lead needs the three paths.
 - **`new_task_id` lives in `sessions::tasks`** and S1/S3 may have forked it. The
   integration commit hoists it to a shared coordinator id module. It is a
   deterministic composite of process epoch, boot time and a counter — no RNG, and
