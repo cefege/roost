@@ -73,6 +73,35 @@ looking for the actual cause. The lead's own hypothesis here was confidently
 wrong, and offering it as a likely explanation would have buried the real one.
 If a later slice reports the same pull, ask for the cause, not for compliance.
 
+**Sweep for the class, run by the integrator.** The pattern is a range or
+window whose upper end is derived from the **element's** size rather than from
+the **buffer's** length, checked from one side only. Grepped across every crate
+for `len() - x.len()`, `len() - N`, `..= x.len()`, `chunks_exact(` and
+`.windows(`. **No third instance.** The two candidates in source are both
+correct and worth recording why, because "correct" here means something a
+reader has to check rather than something they can see:
+
+- `roost-term/src/row_spans.rs:161` does `open = Some(spans.len() - 1)`
+  immediately after `spans.push(...)`, so the vector is provably non-empty.
+  The two `open` reads around it use `spans.get` / `get_mut`, not indexing.
+- `roost-protocol/.../stun_url.rs:162` and `sdp/candidate.rs:155` index
+  `bytes[0]` and `bytes[bytes.len() - 1]`, and `bytes[0]` would panic on an
+  empty slice — but `is_dns_label` returns early on `bytes.is_empty()` one
+  line above, so the guard exists and the arithmetic under it is right.
+
+Everything else the grep returns is `windows(N).any(...)` in **tests**, which
+is the correct use of a sliding window for substring search and is not the
+class. The one `chunks_exact(` in the tree is the CLI's own SSH argument walk,
+and it is there because the lead's predecessor used `windows(2)` there and got
+`(VALUE, "-o")` pairs instead of `-o VALUE` pairs.
+
+**The reason a sweep is worth running even when it finds nothing:** both real
+instances were found by *someone using the code* — one by a mutation, one by an
+audit — and neither by reading. A careful reader checks that a guard exists and
+that its arithmetic is right, and in both defects both of those were true. What
+a reader cannot check is whether the range *around* the guard was cut the way
+its author meant.
+
 ## Findings from the read-only audit of the ported crates
 
 The integrator ran a read-only audit of `roost-term`, `roost-keeper`,
