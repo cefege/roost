@@ -32,6 +32,7 @@ use crate::deploy::keeper_step::{self, KeeperPlan};
 use crate::deploy::machine_txn::TransactionKind;
 use crate::deploy::manifest::{ApplyManifest, ApplyOutcome, ApplyReport};
 use crate::deploy::release;
+use crate::deploy::release_stage;
 use crate::deploy::ssh;
 use crate::deploy::txn_session::{self, RemoteTransaction};
 use crate::deploy::{DeployArgs, apply_release::staging_dir};
@@ -91,7 +92,7 @@ pub async fn run(args: &DeployArgs) -> Result<ExitCode, CommandFailure> {
 
     let staged_dir = staging_dir(&home, &git_sha);
     let staged_text = staged_dir.display().to_string();
-    release::stage_over_ssh(&args.host, &staged, &staged_text).await?;
+    release_stage::stage_over_ssh(&args.host, &staged, &staged_text).await?;
     let staged_program = staged_dir
         .join(crate::deploy::apply_release::RELEASE_BIN_DIR)
         .join(crate::deploy::apply_release::ROOST_PROGRAM)

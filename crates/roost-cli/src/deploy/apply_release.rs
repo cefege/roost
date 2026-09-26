@@ -110,10 +110,14 @@ pub fn install_release(staged_bin: &Path, bin_dir: &Path) -> Result<(), String> 
     for program in [ROOST_PROGRAM, KEEPER_PROGRAM] {
         set_executable(&bin_dir.join(program))?;
     }
-    // The staged tree has been moved into place, so the scratch area it came
-    // from is now empty; removing it is what keeps a machine from accumulating
-    // one directory per deploy.
-    if let Some(scratch) = bin_dir.parent().and_then(Path::parent) {
+    // The staged tree has been moved into place, so the staging directory it
+    // came from is now empty; removing it is what keeps a machine from
+    // accumulating one directory per deploy. It is the staged SHA's OWN
+    // directory, not its parent: `remove_dir` on the non-empty parent fails and
+    // the error is discarded, so the old expression silently did nothing and
+    // every deploy left a `~/.roost-deploy/<sha>/` behind for the life of the
+    // account.
+    if let Some(scratch) = bin_dir.parent() {
         let _ = std::fs::remove_dir(scratch);
     }
     Ok(())

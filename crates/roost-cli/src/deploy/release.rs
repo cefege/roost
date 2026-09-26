@@ -15,8 +15,9 @@ use std::path::{Path, PathBuf};
 use roost_host::HostPlatform;
 
 use crate::command_error::CommandFailure;
+use crate::deploy::apply_release::{RELEASE_BIN_DIR, ROOST_PROGRAM};
 use crate::deploy::codes;
-use crate::deploy::ssh::{self, RemoteOutcome};
+use crate::deploy::ssh::RemoteOutcome;
 use crate::services::deploy_journal::sha256_hex;
 
 /// The two programs a release ships. A release without both is not a release:
@@ -33,8 +34,12 @@ pub const RELEASE_PROGRAMS: [&str; 2] = ["roost", "roost-keeper"];
 /// the name that was wrong.
 pub const RELEASE_PACKAGES: [&str; 2] = ["roost-cli", "roost-keeper"];
 
-/// The directory name a release's executables live in inside the release root.
-const RELEASE_BIN_DIR: &str = "bin";
+/// The directory, inside the target directory, where the two programs cargo
+/// produced are collected into the tree a release ships. `RELEASE_BIN_DIR` —
+/// the `bin` the INSTALLED layout uses — belongs to `apply_release`, and is
+/// imported rather than restated: two constants for one layout is how a build
+/// ends up looking for a binary in a directory the target never installs into.
+const RELEASE_STAGING_DIR: &str = "roost-release";
 
 /// Where cargo put the release it has just built.
 ///
@@ -165,10 +170,15 @@ pub async fn build_release(
         same_platform,
         std::env::var("CARGO_TARGET_DIR").ok().as_deref(),
     );
-    let bin_dir = profile_dir.join(RELEASE_BIN_DIR);
+    // Cargo writes a binary straight into the profile directory. A release does
+    // NOT ship that directory: it ships a tree whose only entry is `bin/`,
+    // because the target installs into `<release>/bin` and recomputes the
+    // manifest's digest over exactly those bytes. Reading cargo's flat output as
+    // if it were that tree is how a deploy finds no `roost` in a directory full
+    // of freshly linked ones.
     let mut missing: Vec<String> = Vec::new();
     for program in RELEASE_PROGRAMS {
-        if !bin_dir.join(program).is_file() {
+        if !profile_dir.join(program).is_file() {
             missing.push(program.to_string());
         }
     }
@@ -178,17 +188,60 @@ pub async fn build_release(
             format!(
                 "the release built for {triple} but {} missing from {}",
                 missing.join(" and "),
-                bin_dir.display()
+                profile_dir.display()
             ),
         ));
     }
-    let keeper_contract = read_keeper_contract(&bin_dir.join("roost"))?;
+    let bin_dir = assemble_release_tree(&profile_dir)?;
+    let keeper_contract = read_keeper_contract(&bin_dir.join(ROOST_PROGRAM))?;
     Ok(StagedRelease {
         digest: release_digest(&bin_dir)?,
         local_dir: bin_dir,
         git_sha: String::new(),
         keeper_contract,
     })
+}
+
+/// Collect the two programs cargo produced into the tree a release ships.
+///
+/// Public because this is the join between cargo's flat output and the release
+/// layout, and it is the one step of the build a test can run without a
+/// compiler: given a profile directory holding two files, what does a release
+/// ship?
+///
+/// The tree is `<profile>/roost-release/bin/`, and `local_dir` points at its
+/// `bin` — so [`stage_over_ssh`] tars the parent, ships a tree containing
+/// nothing but `bin/`, and never drags the profile's `deps/`, `build/` and
+/// `incremental/` to a machine that would have no use for them. It is inside
+/// the target directory on purpose: `cargo clean` then takes it with everything
+/// else it built.
+pub fn assemble_release_tree(profile_dir: &Path) -> Result<PathBuf, CommandFailure> {
+    let staging = profile_dir.join(RELEASE_STAGING_DIR);
+    let bin_dir = staging.join(RELEASE_BIN_DIR);
+    let _ = std::fs::remove_dir_all(&staging);
+    std::fs::create_dir_all(&bin_dir).map_err(|error| {
+        codes::refuse(
+            codes::BUILD_FAILED,
+            format!(
+                "cannot create the release tree at {}: {error}",
+                staging.display()
+            ),
+        )
+    })?;
+    for program in RELEASE_PROGRAMS {
+        let from = profile_dir.join(program);
+        let to = bin_dir.join(program);
+        std::fs::copy(&from, &to).map_err(|error| {
+            codes::refuse(
+                codes::BUILD_FAILED,
+                format!(
+                    "cannot collect {} into the release: {error}",
+                    from.display()
+                ),
+            )
+        })?;
+    }
+    Ok(bin_dir)
 }
 
 async fn run_cargo(argv: &[String], source_root: &Path) -> Result<RemoteOutcome, CommandFailure> {
@@ -317,69 +370,4 @@ fn collect(
         }
     }
     Ok(())
-}
-
-/// Put a staged release on the target at `remote_release_dir`.
-///
-/// tar over ssh rather than rsync, because the target is a POSIX box whose only
-/// guaranteed tools are the ones its own service manager needs, and because the
-/// payload is produced here rather than selected by path patterns on the far
-/// side: a release ships exactly the files this build produced, which is the
-/// property a release digest is about.
-///
-/// The directory is created under `umask 077` and staged into a temporary name
-/// beside it, so a release is either wholly there or wholly absent. A target
-/// that loses power mid-extract leaves the temporary directory, not a release
-/// directory holding half a binary.
-pub async fn stage_over_ssh(
-    host: &str,
-    release: &StagedRelease,
-    remote_release_dir: &str,
-) -> Result<(), CommandFailure> {
-    let tar = tar_stdin(release.local_dir.parent().unwrap_or(&release.local_dir))?;
-    let staging = format!("{remote_release_dir}.staging");
-    let command = format!(
-        "set -e; umask 077; root={root}; staging={staging}; \
-         mkdir -p \"$(dirname \"$root\")\"; rm -rf \"$staging\"; mkdir -p \"$staging\"; \
-         tar -C \"$staging\" -xf -; mv \"$staging\" \"$root\"",
-        root = roost_platform::posix_shell_quote(remote_release_dir),
-        staging = roost_platform::posix_shell_quote(&staging),
-    );
-    println!(">> stage {} on {host}", release.local_dir.display());
-    let outcome = ssh::exec_with_stdin(host, &command, tar).await?;
-    if !outcome.ok() {
-        return Err(codes::refuse(
-            codes::REMOTE_LOST,
-            format!(
-                "cannot stage the release at {remote_release_dir} on {host}\n{}",
-                outcome.detail()
-            ),
-        ));
-    }
-    Ok(())
-}
-
-fn tar_stdin(directory: &Path) -> Result<Vec<u8>, CommandFailure> {
-    let output = std::process::Command::new("tar")
-        .arg("-C")
-        .arg(directory)
-        .args(["-cf", "-", "."])
-        .stdin(std::process::Stdio::null())
-        .output()
-        .map_err(|error| {
-            codes::refuse(
-                codes::BUILD_FAILED,
-                format!("cannot run tar to stage the release: {error}"),
-            )
-        })?;
-    if !output.status.success() {
-        return Err(codes::refuse(
-            codes::BUILD_FAILED,
-            format!(
-                "tar could not read the built release: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            ),
-        ));
-    }
-    Ok(output.stdout)
 }

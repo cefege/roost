@@ -37,6 +37,7 @@ pub mod keeper_step;
 pub mod machine_txn;
 pub mod manifest;
 pub mod release;
+pub mod release_stage;
 pub mod remote_commands;
 pub mod retire;
 pub mod run;
