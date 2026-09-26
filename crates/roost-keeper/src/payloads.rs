@@ -71,17 +71,18 @@ impl KeeperFeature {
 /// for an additive tag, which is feature-negotiated instead.
 pub const KEEPER_PROTOCOL_VERSION: u32 = 3;
 
-/// The process identity a keeper proves at `Hello`. An absent digest can never
-/// prove equality, which is why this is carried separately from the negotiated
-/// version rather than standing in for it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct KeeperContractV1 {
-    pub protocol_version: u32,
-    /// The keeper binary's own version.
-    pub keeper_version: String,
-    /// A digest of the running binary, empty when it cannot be computed.
-    pub implementation_digest: String,
-}
+/// The process identity a keeper proves at `Hello`.
+///
+/// Re-exported from `roost-protocol` rather than restated. An earlier draft
+/// declared a `KeeperContractV1` HERE with the same name and a different shape:
+/// no `platform`, no `arch`, no `build_sha`, and a `String` digest where the
+/// protocol's is an `Option<String>`. Two shapes under one name means neither
+/// can check the other, and the wire validator never saw this one at all.
+///
+/// The protocol's copy also carries the reason the digest exists: a rebuild of
+/// IDENTICAL bytes may carry a different build sha and still be the keeper a
+/// live PTY belongs to, so `build_sha` is excluded from restart admission.
+pub use roost_protocol::keeper_update::KeeperContractV1;
 
 /// The client's `Hello`.
 ///

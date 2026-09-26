@@ -14,7 +14,9 @@ use crate::channel_history::ChannelHistory;
 use crate::codec::{CodecError, MuxFrame, MuxFrameType, write_sequence};
 use crate::frames::ExitFrame;
 use crate::history::HistoryRecords;
-use crate::payloads::{KEEPER_PROTOCOL_VERSION, KeeperContractV1, PtyInRejectReason, PtyInResult};
+use crate::payloads::{
+    KEEPER_PROTOCOL_VERSION, KeeperContractV1, KeeperFeature, PtyInRejectReason, PtyInResult,
+};
 use crate::pty_channel::PtyChannel;
 
 /// The keeper's own version, reported in the `Hello` contract. Overridden at
@@ -23,23 +25,38 @@ pub fn keeper_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
-/// A digest of the running binary, or empty when it cannot be computed.
+/// The SHA-256 of a keeper binary, lowercase hex, 64 characters.
 ///
-/// Deliberately empty rather than approximated: an absent digest can never be
-/// mistaken for a matching one, which is the property `Hello` depends on. A
-/// digest that looked right but was computed over the wrong bytes would let a
-/// worker conclude a keeper is the build it expects when it is not.
-pub fn implementation_digest() -> String {
-    std::env::current_exe()
-        .ok()
-        .and_then(|path| std::fs::read(path).ok())
-        .map(|bytes| {
-            use std::hash::{Hash, Hasher};
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            bytes.hash(&mut hasher);
-            format!("{:016x}", hasher.finish())
-        })
-        .unwrap_or_default()
+/// Three things this must be, and an earlier draft got all three wrong:
+///
+/// It is SHA-256 because `roost_protocol`'s contract validator calls
+/// `hex_of_len(digest, SHA256_DIGEST_LENGTH)` where that length is 64. A
+/// shorter digest can never validate against the wire contract.
+///
+/// It is a STABLE hash, not `DefaultHasher`. The whole point of the field is
+/// that two builds of one source produce the same digest, so a deploy is
+/// admitted as "same keeper binary, keep the PTYs". `DefaultHasher` is
+/// explicitly documented as not stable across toolchain releases, so a
+/// toolchain bump would read as "the keeper changed" and strand every live PTY
+/// on every machine — with no code change and no operator action.
+///
+/// It takes the binary PATH rather than reading `current_exe()`. In the
+/// keeper daemon those are the same file, but this function is also called
+/// from the `roost` binary to report a contract, and there `current_exe()` is
+/// `roost` — the digest would describe the wrong program.
+pub fn implementation_digest_of(binary: &std::path::Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    let bytes = std::fs::read(binary).ok()?;
+    // `LowerHex` is not implemented for sha2's array wrapper, so the digest is
+    // rendered byte by byte. Lowercase and two digits per byte is what
+    // `hex_of_len(.., 64)` accepts.
+    let digest = Sha256::digest(&bytes);
+    Some(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+/// The digest of the running keeper binary, when it can be read.
+pub fn implementation_digest() -> Option<String> {
+    implementation_digest_of(&std::env::current_exe().ok()?)
 }
 
 /// Every live channel the keeper owns.
@@ -72,6 +89,39 @@ impl std::fmt::Debug for Channel {
     }
 }
 
+/// Feature names in the order the wire validator requires.
+fn sorted_feature_names(features: &[KeeperFeature]) -> Vec<String> {
+    let mut names: Vec<String> = features.iter().map(|f| f.wire_name().to_string()).collect();
+    names.sort_unstable();
+    names.dedup();
+    names
+}
+
+/// The contract this keeper reports: the protocol's own shape, with the digest
+/// present only when the binary could actually be read.
+fn contract() -> KeeperContractV1 {
+    KeeperContractV1 {
+        protocol_version: KEEPER_PROTOCOL_VERSION,
+        // SORTED, because the protocol validator requires it
+        // (`validate_sorted_features`) and the declaration order of the enum is
+        // not alphabetical. Advertising them in enum order produced a contract
+        // the wire rejected outright.
+        supported_features: sorted_feature_names(&KeeperFeature::SUPPORTED),
+        required_features: sorted_feature_names(&KeeperFeature::REQUIRED),
+        implementation_digest: implementation_digest(),
+        // `as_str`, the wire spelling (darwin/linux/win32) — NOT
+        // `display_name`, which is for humans and which the validator rejects.
+        platform: roost_platform::HostPlatform::current()
+            .map(|platform| platform.as_str().to_string())
+            .unwrap_or_else(|| std::env::consts::OS.to_string()),
+        arch: std::env::consts::ARCH.to_string(),
+        // `roost_host` owns the build identity, including the dev stamp for
+        // an un-stamped build. Reading the env var again here would be a second
+        // answer to "what sha is this" and the two would disagree.
+        build_sha: roost_host::build_identity(&roost_host::ProcessEnv::new()).build_sha,
+    }
+}
+
 impl Default for Keeper {
     fn default() -> Self {
         Self::new()
@@ -82,11 +132,7 @@ impl Keeper {
     pub fn new() -> Self {
         Self {
             channels: HashMap::new(),
-            contract: KeeperContractV1 {
-                protocol_version: KEEPER_PROTOCOL_VERSION,
-                keeper_version: keeper_version(),
-                implementation_digest: implementation_digest(),
-            },
+            contract: self::contract(),
         }
     }
 
