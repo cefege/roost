@@ -640,6 +640,52 @@ condition — a mutation reads as a suspiciously small removal, and that is a
 shape a reader can catch in one glance. **The dangerous artefact is not the
 mutation; it is a mutation that has been committed.**
 
+## Read the test BODY. An assertion message is a hypothesis about the setup.
+
+Three hypotheses were tried against one predicate. All three failed, and the
+third failure is the useful one — because the two tests turned out to be **in
+direct conflict on the very shape the third hypothesis proposed**:
+
+- held **legacy** → update **identified** at **revision 1**, expecting **ACCEPT**
+- held **legacy** → update **identified** at **revision 6**, expecting **REFUSE**
+
+**Same relation, same direction, opposite expectations — distinguished only by
+the revision number, and nothing in the predicate says `1` is special.** So the
+missing rule is not the relation that was proposed; the relation is real and
+**insufficient**, and the defect **cannot be described accurately** until the
+axis is named.
+
+The agent had been **reading the assertion messages and inferring the setup from
+them** — and the test named *"a legacy frame yields permanently once an
+identified occupant is accepted"* is not exercising a legacy frame at all. **The
+name and the message were both describing something other than the body.**
+
+> **An assertion message is a hypothesis about the setup, not a description of
+> it. It is written to be readable on failure, which is a different purpose from
+> describing what the test does.**
+
+**So the read that resolves this is one test body, end to end** — and the
+generalisation of the whole class is now three instruments deep:
+
+- a **code-reading pass** cannot find it, because the code is right;
+- a **mutation row** cannot find it, because every line it can delete is correct;
+- an **inference from an assertion message** cannot find it either, which is the
+  new instance.
+
+**Only the test body carries the axis**, because the axis lives in the fixture.
+
+**And the stopping rule, which is the part worth keeping:**
+
+> **Three hypotheses failing in a row is evidence that the model is wrong, not
+> that the fourth guess will be right.** A fourth attempt would be a fourth guess
+> at a shape now demonstrated not to separate the cases.
+
+The agent said it had had *three opinions about a function it had not read end to
+end*, and asked for the read rather than taking it. **That is the whole
+discipline in one sentence**: the number of failed hypotheses is not diligence, and
+past a point the honest next step is a read rather than another edit. **A count of
+attempts is not evidence of care.**
+
 ## The defect was a MISSING RULE, not a wrong branch
 
 Two hypotheses aimed at the same line and both were wrong, because the line was
