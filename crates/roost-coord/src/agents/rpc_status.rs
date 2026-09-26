@@ -25,6 +25,7 @@ use std::time::Duration;
 use connectrpc::{ConnectError, ErrorCode, ServiceResult};
 use roost_observability::LogFields;
 use roost_proto as proto;
+use sqlx::Row;
 use roost_protocol::wire::agent_status::agent_status_identity;
 use roost_protocol::wire::{AgentStatus, AgentStatusSource, SessionId};
 
@@ -204,10 +205,14 @@ fn agent_status_view(status: &AgentStatus) -> proto::AgentStatusView {
         status_epoch: identity
             .as_ref()
             .map(|identity| identity.status_epoch.as_str().to_owned()),
+        // Both fields read the same borrow, so they are copied out before
+        // `identity` is consumed: `source` takes the Option by value.
         occupant_id: identity
             .as_ref()
             .map(|identity| identity.occupant_id.as_str().to_owned()),
-        source: identity.map(|identity| identity.source.as_str().to_owned()),
+        source: identity
+            .as_ref()
+            .map(|identity| identity.source.as_str().to_owned()),
         // The worker refuses a prompt proof from an occupant whose process is
         // gone, so a row retained only to carry its completion is not promptable.
         promptable: identity.is_some_and(|identity| {
@@ -237,15 +242,14 @@ async fn require_open_agent_status_session(
         .iter()
         .find(|candidate| candidate.as_str() == session_id)
         .ok_or_else(status_not_found)?;
-    SessionId::try_from(matched)
-        .map_err(|error| {
-            roost_observability::log::warn(
-                "agents.status",
-                "malformed_session_id",
-                LogFields::new().set("error", error.to_string()),
-            );
-            status_not_found()
-        })
+    SessionId::try_from(matched.as_str()).map_err(|error| {
+        roost_observability::log::warn(
+            "agents.status",
+            "malformed_session_id",
+            LogFields::new().set("error", error.to_string()),
+        );
+        status_not_found()
+    })
 }
 
 /// Every open session on this dashboard, in the database's own order.
@@ -263,7 +267,7 @@ async fn open_session_ids(
         .map_err(internal)?;
     Ok(rows
         .into_iter()
-        .filter_map(|row| row.get::<String, _>("id").into())
+        .map(|row| row.get::<String, _>("id"))
         .collect())
 }
 
@@ -278,11 +282,7 @@ fn wait_error(error: AgentStatusWaitError) -> ConnectError {
         AgentStatusWaitErrorKind::Capacity => ErrorCode::ResourceExhausted,
         AgentStatusWaitErrorKind::Canceled => ErrorCode::Canceled,
     };
-    let mut refuse = ConnectError::new(code, error.message());
-    if let AgentStatusWaitCapacity::Session = error.capacity() {
-        refuse = ConnectError::new(code, error.message());
-    }
-    refuse
+    ConnectError::new(code, error.message())
 }
 
 fn internal(error: sqlx::Error) -> ConnectError {
@@ -313,9 +313,24 @@ fn require_account_device(caller: &Caller) -> Result<&str, ConnectError> {
 /// CoordinatorService` block in `rpc/service_impl.rs`, so wiring this domain is
 /// reading this table rather than matching on names by hand.
 pub const METHOD_HANDLERS: &[(&str, &str)] = &[
-    ("AgentStatusGet", "agents::rpc_status::handle_agent_status_get"),
-    ("AgentStatusList", "agents::rpc_status::handle_agent_status_list"),
-    ("AgentStatusWait", "agents::rpc_status::handle_agent_status_wait"),
-    ("AgentConfigGet", "agents::rpc_status::handle_agent_config_get"),
-    ("AgentConfigSet", "agents::rpc_status::handle_agent_config_set"),
+    (
+        "AgentStatusGet",
+        "agents::rpc_status::handle_agent_status_get",
+    ),
+    (
+        "AgentStatusList",
+        "agents::rpc_status::handle_agent_status_list",
+    ),
+    (
+        "AgentStatusWait",
+        "agents::rpc_status::handle_agent_status_wait",
+    ),
+    (
+        "AgentConfigGet",
+        "agents::rpc_status::handle_agent_config_get",
+    ),
+    (
+        "AgentConfigSet",
+        "agents::rpc_status::handle_agent_config_set",
+    ),
 ];

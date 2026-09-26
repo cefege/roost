@@ -22,9 +22,10 @@
 use sqlx::{Sqlite, Transaction};
 
 use super::authority;
-use super::provenance::{ClientDeviceType, PairRequestProvenance};
+use super::provenance::PairRequestProvenance;
 use super::rows::{
-    LiveSelector, PairRequestRow, count_live, mark_expired, read_pair_request, terminalize,
+    LiveSelector, PairRequestRow, count_live, insert_request, mark_expired, read_pair_request,
+    terminalize,
 };
 use super::secrets::{MAX_PENDING_PAIR_REQUESTS, PAIRING_CEREMONY_VERSION};
 use super::status::{ApprovalAuthority, ApprovalOutcome, LiveRequest, TerminalRequest};
@@ -45,6 +46,26 @@ pub enum CreateOutcome {
     /// This id was live and has just expired. The caller refuses, and the bus
     /// drops it.
     Expired { expired_ids: Vec<String> },
+}
+
+impl CreateOutcome {
+    /// The ceremony handles this call terminalized, whichever of the three it was.
+    ///
+    /// AN ACCESSOR, NOT A FIELD, AND THAT IS THE POINT. `rustc` has no
+    /// `enum.field`: naming one is a `match` or a method, and a call site that
+    /// reaches for a field on `CreateOutcome` is a call site that does not
+    /// compile. This method is the one place that match lives, so the three
+    /// variants' shared field is a fact about the type rather than a shape
+    /// every caller has to know -- and a fourth variant added later cannot
+    /// silently change what a caller collects.
+    #[must_use]
+    pub fn expired_ids(&self) -> &[String] {
+        match self {
+            Self::Created { expired_ids }
+            | Self::Retry { expired_ids }
+            | Self::Expired { expired_ids } => expired_ids,
+        }
+    }
 }
 
 /// Everything one `PairCreate` needs, already validated by the handler.
@@ -120,8 +141,10 @@ async fn reconcile_existing(
             expired_ids: Vec::new(),
         });
     }
-    let expired = mark_expired(&mut *transaction, &existing, input.now_ms).await?;
-    Ok(CreateOutcome::Expired { expired_ids: expired })
+    let expired = mark_expired(&mut **transaction, &existing, input.now_ms).await?;
+    Ok(CreateOutcome::Expired {
+        expired_ids: expired,
+    })
 }
 
 /// A first create: refuse a revoked key, reclaim the dead, enforce the cap, and
@@ -161,60 +184,6 @@ async fn insert_fresh(
     Ok(CreateOutcome::Created {
         expired_ids: [expired, replaced].concat(),
     })
-}
-
-/// Apply the approval the state machine decided on, and report what it did.
-pub async fn apply_approval(
-    database: &CoordDb,
-    live: LiveRequest,
-    approval: &ApprovalAuthority,
-    verification_code_hash: &str,
-    now_ms: i64,
-) -> PairingResult<ApprovalOutcome> {
-    let identity = live.identity().clone();
-    match live.approve(approval, verification_code_hash, now_ms) {
-        ApprovalOutcome::Retry => Ok(ApprovalOutcome::Retry),
-        ApprovalOutcome::Refused(refusal) => Err(refuse(refusal)),
-        ApprovalOutcome::Expired => {
-            terminalize(
-                database.pool(),
-                LiveSelector::ById(identity.id),
-                TerminalRequest::Expired,
-                now_ms,
-            )
-            .await?;
-            Ok(ApprovalOutcome::Expired)
-        }
-        ApprovalOutcome::Approved { identity } => {
-            let changed = sqlx::query(
-                "UPDATE pair_requests \
-                    SET status = 'verification_required', ceremony_version = ?, \
-                        verification_code_hash = ?, verification_attempts = 0, \
-                        approved_by_fp = ?, approved_account_id = ? \
-                  WHERE id = ? AND status = 'pending' AND expires_at_ms > ? \
-                    AND ceremony_version = ?",
-            )
-            .bind(i64::from(PAIRING_CEREMONY_VERSION))
-            .bind(verification_code_hash)
-            .bind(&approval.approver_fingerprint)
-            .bind(&approval.account_id)
-            .bind(identity.id)
-            .bind(now_ms)
-            .bind(i64::from(PAIRING_CEREMONY_VERSION))
-            .execute(database.pool())
-            .await
-            .map_err(|error| super::sqlx_error("pairing.approve", error))?
-            .rows_affected();
-            if changed != 1 {
-                // The guard lost a race with the retention sweep or a
-                // concurrent deny. The row is no longer `pending`, so the
-                // approval did not happen, and saying so is the only honest
-                // answer.
-                return Err(refuse(PairingRefusal::NotPending));
-            }
-            Ok(ApprovalOutcome::Approved { identity })
-        }
-    }
 }
 
 /// Apply the approval the state machine decided on, and report what it did.

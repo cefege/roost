@@ -19,7 +19,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use roost_coord::coord_core::CoordCore;
-use roost_coord::coord_core::boot_facts::BootFacts;
 use roost_coord::services::CoordServices;
 use roost_coord::sessions::tasks::{
     handle_tasks_cancel, handle_tasks_enqueue, handle_tasks_list, handle_tasks_next_pending,
@@ -27,7 +26,7 @@ use roost_coord::sessions::tasks::{
 };
 use sqlx::AssertSqlSafe;
 use tasks_support::{
-    DEVICE_FP, OTHER_DEVICE_FP, TasksFixture, WORKER_FP, claim_next, device, machine,
+    DEVICE_FP, OTHER_DEVICE_FP, TasksFixture, WORKER_FP, claim_next, device, machine, message_of,
 };
 
 #[tokio::test]
@@ -43,8 +42,8 @@ async fn a_malformed_payload_is_refused_and_stores_nothing() {
     )
     .await
     .expect_err("a payload that is not JSON");
-    assert_eq!(refused.code(), connectrpc::ErrorCode::InvalidArgument);
-    assert!(refused.message().contains("invalid payloadJson"));
+    assert_eq!(refused.code, connectrpc::ErrorCode::InvalidArgument);
+    assert!(message_of(&refused).contains("invalid payloadJson"));
 
     let count: i64 = sqlx::query_scalar(AssertSqlSafe("SELECT COUNT(*) FROM tasks"))
         .fetch_one(fixture.database.pool())
@@ -210,7 +209,7 @@ async fn a_worker_credential_cannot_reach_the_queue() {
         .await
         .expect_err("a machine is not a browser"),
     ] {
-        assert_eq!(refused.code(), connectrpc::ErrorCode::Unauthenticated);
+        assert_eq!(refused.code, connectrpc::ErrorCode::Unauthenticated);
         assert_eq!(
             refused
                 .response_headers()
@@ -265,15 +264,22 @@ async fn an_unbooted_coordinator_refuses_an_enqueue_rather_than_guessing_a_dashb
     )
     .await
     .expect_err("an unbooted coordinator has no dashboard to scope the row to");
-    assert_eq!(refused.code(), connectrpc::ErrorCode::Internal);
-    assert!(refused.message().contains("coordinator booted without tenant"));
+    assert_eq!(refused.code, connectrpc::ErrorCode::Internal);
+    assert!(message_of(&refused).contains("coordinator booted without tenant"));
     let _ = std::fs::remove_dir_all(&root);
 }
 
 #[tokio::test]
 async fn two_devices_never_claim_the_same_task() {
     let fixture = TasksFixture::new("claim-race").await;
-    fixture.seed("11111111-1111-4111-8111-111111111111", "pending", 1_000, None).await;
+    fixture
+        .seed(
+            "11111111-1111-4111-8111-111111111111",
+            "pending",
+            1_000,
+            None,
+        )
+        .await;
 
     let mine = tokio::spawn({
         let core = fixture.core.clone();

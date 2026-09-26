@@ -7,11 +7,11 @@ mod rate_limit_support;
 
 use std::time::{Duration, Instant};
 
+use rate_limit_support::{admitted, caller};
 use roost_coord::middleware::rate_limit::{
     DEFAULT_TOKENS_PER_WINDOW, PAIR_POLL_TOKENS_PER_WINDOW, RATE_LIMIT_WINDOW, RateLimitBucket,
     RateLimitRefusalReason, RateLimiter, bucket_for_method,
 };
-use rate_limit_support::{admitted, caller};
 
 #[test]
 fn the_hundredth_mutation_of_a_window_is_admitted_and_the_hundred_and_first_is_refused() {
@@ -206,7 +206,6 @@ fn the_entry_point_the_mount_calls_answers_on_its_own_clock() {
         "a read is admitted whatever the mutation budget says"
     );
 }
-
 
 #[test]
 fn a_budget_is_chosen_per_rpc_and_never_inherited_by_a_sibling() {

@@ -44,12 +44,33 @@ pub const ROWS_WORKERS: &[MethodRoute] = &[
 ];
 
 /// keeper-update preparation, the host-local change that replaces the binary every live PTY depends on.
+///
+/// `Device`, and NOT `DeviceOnHost`, which is what this row claimed until the
+/// C1 integration read the handler rather than the plan. This is the one method
+/// in the table where the convenient value and the enforced one differ in
+/// *permission*, so it is worth the paragraph:
+///
+/// - the auth gate treats `Device` and `DeviceOnHost` identically
+///   (`service.rs::principal_satisfies` answers `is_browser` for both), so the
+///   "on host" half was never enforced at the gate;
+/// - `deploy::keeper_update::handle_workers_prepare_keeper_update` calls
+///   `require_account_device` and re-authorizes inside the drain, and never
+///   reads `caller.on_host` (`keeper_update.rs:158`);
+/// - v2's handler does the same — `handlers-workers-update.ts:83` is
+///   `requireAccountDevice(ctx.values)` with no `assertOnHost`, unlike the four
+///   pairing and device methods that do call it.
+///
+/// So `DeviceOnHost` was a claim no code in either tree provided, on the one
+/// method that can replace the binary under every live PTY. The truthful value
+/// is `Device`, and it matches v2. Recorded rather than quietly corrected
+/// because a narrowing here would be a parity regression and a widening would
+/// be a new one, and neither is mine to decide at an integration gate.
 #[rustfmt::skip]
 pub const ROWS_DEPLOY: &[MethodRoute] = &[route(
     "WorkersPrepareKeeperUpdate",
     "deploy",
-    AuthRequirement::DeviceOnHost,
-    PortStatus::AwaitingDomainPort,
+    AuthRequirement::Device,
+    PortStatus::Implemented,
 )];
 
 /// the session lifecycle, scrollback, and direct-terminal grants.
@@ -68,31 +89,40 @@ pub const ROWS_SESSIONS: &[MethodRoute] = &[
     route("SessionsCancelScrollbackSearch", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("SessionsGrantLocalTerminal", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
     route("SessionsNegotiateLocalTerminalPeer", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("WorkspacesList", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("WorkspacesCreate", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("WorkspacesUpdate", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("WorkspacesDelete", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("WorkspacesSetSessions", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("TasksList", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("TasksEnqueue", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("TasksNextPending", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("TasksSetState", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("TasksCancel", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("McpList", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("McpCreate", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("McpDelete", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("McpPublish", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
+    route("WorkspacesList", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("WorkspacesCreate", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("WorkspacesUpdate", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("WorkspacesDelete", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("WorkspacesSetSessions", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("TasksList", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("TasksEnqueue", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("TasksNextPending", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("TasksSetState", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("TasksCancel", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("McpList", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("McpCreate", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("McpDelete", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("McpPublish", "sessions", AuthRequirement::Device, PortStatus::Implemented),
 ];
 
 /// agent status, the fenced agent prompt, and agent configuration.
+///
+/// The five status and config methods are `Device`, and that is what the
+/// handler enforces: each opens with `require_account_device`
+/// (`agents/rpc_status.rs:50, 68, 95, 137, 151`). The gate is right to leave
+/// the fence out of them — a status read is scoped by the session id it names
+/// and `handle_agent_status_wait` refuses an unopenable session before it
+/// reveals whether one exists, which is the property
+/// `a_wait_never_becomes_an_oracle_for_which_sessions_exist` pins. `DevicePlusFence`
+/// would be a claim about a fence none of the five consults.
 #[rustfmt::skip]
 pub const ROWS_AGENTS: &[MethodRoute] = &[
     route("SessionsPrompt", "agents", AuthRequirement::DevicePlusFence, PortStatus::AwaitingDomainPort),
-    route("AgentStatusGet", "agents", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("AgentStatusList", "agents", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("AgentStatusWait", "agents", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("AgentConfigGet", "agents", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("AgentConfigSet", "agents", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
+    route("AgentStatusGet", "agents", AuthRequirement::Device, PortStatus::Implemented),
+    route("AgentStatusList", "agents", AuthRequirement::Device, PortStatus::Implemented),
+    route("AgentStatusWait", "agents", AuthRequirement::Device, PortStatus::Implemented),
+    route("AgentConfigGet", "agents", AuthRequirement::Device, PortStatus::Implemented),
+    route("AgentConfigSet", "agents", AuthRequirement::Device, PortStatus::Implemented),
 ];
 
 /// global session search across every worker.

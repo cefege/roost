@@ -19,9 +19,9 @@ use agent_fixture::{
     AgentFixture, OCCUPANT_B, OCCUPANT_C, SESSION_IDS, WORKER_A, session, status, worker,
 };
 use roost_coord::agents::status_push::{AgentStatusPushDelivery, PushTransitions};
-use roost_coord::push::dispatch::{
-    AgentPushTransition, NoTerminalViewers, PushDeliveryRequest, PushNotificationTransport,
-    PushTransportError,
+use roost_coord::push::dispatch::{AgentPushTransition, NoTerminalViewers};
+use roost_coord::push::transport::{
+    PushDeliveryRequest, PushNotificationTransport, PushTransportError,
 };
 use serde_json::{Value, json};
 
@@ -80,7 +80,10 @@ impl RecordingDelivery {
     }
 }
 
-async fn fixture_with_delivery(label: &str, enabled: bool) -> (AgentFixture, Arc<RecordingDelivery>) {
+async fn fixture_with_delivery(
+    label: &str,
+    enabled: bool,
+) -> (AgentFixture, Arc<RecordingDelivery>) {
     let fixture = AgentFixture::build(label, Arc::new(roost_coord::serve::now_ms), DEBOUNCE).await;
     let delivery = Arc::new(RecordingDelivery {
         enabled,
@@ -249,7 +252,11 @@ async fn a_status_that_moved_on_before_the_debounce_ends_sends_nothing() {
         json!({"revision": 3, "state": "blocked", "source": "screen", "active": false}),
     );
     tokio::time::sleep(DEBOUNCE * 3).await;
-    assert_eq!(delivery.notified(), Vec::new(), "a deleted row notifies nobody");
+    assert_eq!(
+        delivery.notified(),
+        Vec::new(),
+        "a deleted row notifies nobody"
+    );
 }
 
 #[tokio::test]

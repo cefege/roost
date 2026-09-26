@@ -71,9 +71,14 @@ impl TasksFixture {
         let core = CoordCore::new(Arc::clone(&services));
         let received = Arc::new(Mutex::new(Vec::new()));
         let sink = Arc::clone(&received);
-        services.buses.task_bus.subscribe(move |message: &TaskBusMsg| {
-            sink.lock().expect("the recording lock").push(message.clone());
-        });
+        services
+            .buses
+            .task_bus
+            .subscribe(move |message: &TaskBusMsg| {
+                sink.lock()
+                    .expect("the recording lock")
+                    .push(message.clone());
+            });
         Self {
             core,
             database,
@@ -88,9 +93,11 @@ impl TasksFixture {
         sqlx::query(AssertSqlSafe(format!(
             "INSERT INTO tasks (id, dashboard_id, state, payload_json, enqueued_at_ms, \
              claimed_at_ms, claimed_by, claim_ttl_ms) \
-             VALUES ('{id}', (SELECT id FROM dashboards LIMIT 1), '{state}', '{{}}', \
-             {enqueued_at_ms}, NULL, {}, 900000)"
+             VALUES (?1, (SELECT id FROM dashboards LIMIT 1), ?2, '{{}}', ?3, NULL, ?4, 900000)"
         )))
+        .bind(id)
+        .bind(state)
+        .bind(enqueued_at_ms)
         .bind(claimed_by)
         .execute(self.database.pool())
         .await
@@ -175,12 +182,21 @@ pub async fn claim_next(fixture: &TasksFixture) -> roost_proto::Task {
     .expect("a claimed task")
 }
 
+/// The text a refusal will show the client, as `mcp_relays.rs:183` spells it.
+/// `ConnectError::message` is an `Option<String>` FIELD, not a method, and this
+/// is the one place in the tree that unwraps it.
+pub fn message_of(error: &connectrpc::ConnectError) -> String {
+    error.message.clone().unwrap_or_default()
+}
+
 /// The `state` column of one stored row, read past the RPC layer.
 pub async fn stored_state(fixture: &TasksFixture, id: &str) -> String {
-    sqlx::query_scalar(AssertSqlSafe(format!("SELECT state FROM tasks WHERE id = '{id}'")))
-        .fetch_one(fixture.database.pool())
-        .await
-        .expect("the row")
+    sqlx::query_scalar(AssertSqlSafe(format!(
+        "SELECT state FROM tasks WHERE id = '{id}'"
+    )))
+    .fetch_one(fixture.database.pool())
+    .await
+    .expect("the row")
 }
 
 /// The queue as `TasksList` answers it, optionally narrowed to one state.

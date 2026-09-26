@@ -22,8 +22,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use roost_protocol::wire::{
     AgentOccupantId, AgentRuntimeState, AgentStatus, AgentStatusFields, AgentStatusIdentity,
-    AgentStatusUpdate, StatusEpoch, agent_status_identity,
+    AgentStatusUpdate, StatusEpoch,
 };
+use roost_protocol::wire::agent_status::agent_status_identity;
 
 /// Fencing an epoch this many generations old cannot matter -- its occupants are
 /// long replaced -- while an unbounded retired set grows one session's order
@@ -54,7 +55,13 @@ pub struct AgentStatusOrder {
     /// Whether an identified occupant has ever been accepted for this session.
     identified_accepted: bool,
     /// The highest legacy revision seen, so a legacy retry cannot rewind it.
-    legacy_revision: i64,
+    ///
+    /// `None` is "no legacy report has ever been accepted", which is NOT the
+    /// same as `Some(0)`. `AgentStatusFields::check` admits revision 0, and a
+    /// legacy deployment's FIRST report is revision 0 -- so a plain `i64`
+    /// defaulting to 0 refuses exactly the report that opens the sequence, and
+    /// a legacy session never becomes visible at all.
+    legacy_revision: Option<i64>,
     /// Retired epochs, oldest first. A `Vec` rather than a set because the
     /// eviction rule is positional (FIFO past [`MAX_RETIRED_EPOCHS`]) and a
     /// second membership structure would be a second answer to "is this
@@ -87,7 +94,10 @@ impl AgentStatusOrder {
             {
                 return false;
             }
-            if update.common.revision <= self.legacy_revision {
+            if self
+                .legacy_revision
+                .is_some_and(|highest| update.common.revision <= highest)
+            {
                 return false;
             }
             // A legacy deletion with nothing retained is a no-op, not a
@@ -113,7 +123,11 @@ impl AgentStatusOrder {
     /// Fold an ACCEPTED update into the order.
     pub fn record(&mut self, update: &AgentStatusUpdate) {
         let Some(identity) = agent_status_identity(&update.common) else {
-            self.legacy_revision = update.common.revision;
+            // `accepts` refused anything at or below the floor, so this
+            // assignment cannot lower it and needs no `max`. The one
+            // distinction is the first write: `None` becomes `Some(0)`, which
+            // is a revision that was accepted rather than a sentinel.
+            self.legacy_revision = Some(update.common.revision);
             return;
         };
         // Waiters advance on a real transition, so the change point moves only
@@ -153,7 +167,11 @@ impl AgentStatusOrder {
                 self.retire_occupant(&identity.status_epoch, &identity.occupant_id);
             }
             None => {
-                self.legacy_revision = self.legacy_revision.max(inactive_revision);
+                self.legacy_revision = Some(
+                    self.legacy_revision
+                        .unwrap_or(i64::MIN)
+                        .max(inactive_revision),
+                );
             }
         }
     }

@@ -17,7 +17,9 @@
 use connectrpc::{ConnectError, ErrorCode};
 
 pub mod account;
+pub mod agent_table;
 pub mod authority;
+pub mod confirm_row;
 pub mod confirmation;
 pub mod provenance;
 pub mod retention;
@@ -234,11 +236,20 @@ impl PairingError {
     }
 
     /// The error a handler returns for this failure.
+    ///
+    /// A fault's `detail` goes to the LOG and not to the peer. The detail names
+    /// this domain's own step and whatever SQLite said, which is exactly what a
+    /// 500's message should never contain and exactly what an operator needs;
+    /// the client gets a fixed literal, because a `ConnectError` built here
+    /// must never carry an internal error's text.
     #[must_use]
     pub fn into_error(self) -> ConnectError {
         match self.refusal {
             Some(refusal) => ConnectError::new(refusal.code(), refusal.to_string()),
-            None => ConnectError::new(ErrorCode::Internal, self.detail),
+            None => {
+                tracing::error!(error = %self.detail, "a pairing statement failed");
+                ConnectError::new(ErrorCode::Internal, PAIRING_FAULT_MESSAGE)
+            }
         }
     }
 }
@@ -269,8 +280,34 @@ pub(crate) fn refuse(reason: PairingRefusal) -> PairingError {
     PairingError::from(reason)
 }
 
+/// What a caller is told when a pairing statement fails for a non-refusal
+/// reason. The operator gets the detail from the log line `into_error` emits.
+const PAIRING_FAULT_MESSAGE: &str = "pairing internal error";
+
 /// A durable pairing statement that failed for a reason that is not a refusal.
 /// `step` names the statement, so a log line says which one broke.
 pub(crate) fn sqlx_error(step: &str, error: sqlx::Error) -> PairingError {
     PairingError::fault(format!("coord.{step}: {error}"))
+}
+
+/// The one refusal in this domain that is not a ceremony refusal: a caller
+/// with no browser credential reached a method that needs one.
+///
+/// NOT built from a `ProtocolError`, deliberately. `ProtocolError`'s `Display`
+/// is `"{field}: {reason}"`, so forwarding one puts an internal dotted path in
+/// front of a browser -- `auth.principal: authentication required` -- which is a
+/// different thing from the contract the spec states and the one a client
+/// matches on. The message and the marker header are `auth-and-pairing.md`'s:
+/// `Unauthenticated: authentication required` with `x-roost-auth-layer=device`,
+/// which is what lets a browser tell "log in again" from "this method needs a
+/// device credential".
+#[must_use]
+pub fn authentication_required() -> ConnectError {
+    use crate::auth::principal::{AUTH_LAYER_DEVICE, AUTH_LAYER_HEADER};
+    let mut error = ConnectError::new(ErrorCode::Unauthenticated, "authentication required");
+    error.response_headers_mut().insert(
+        axum::http::HeaderName::from_static(AUTH_LAYER_HEADER),
+        axum::http::HeaderValue::from_static(AUTH_LAYER_DEVICE),
+    );
+    error
 }

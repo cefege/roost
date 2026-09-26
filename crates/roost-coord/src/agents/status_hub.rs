@@ -20,8 +20,8 @@ use std::time::Duration;
 use roost_observability::LogFields;
 use roost_protocol::wire::agent_status::agent_status_identity;
 use roost_protocol::wire::{
-    AgentOccupantId, AgentRuntimeState, AgentStatus, AgentStatusFields, AgentStatusUpdate, SessionId,
-    StatusEpoch, WorkerFp,
+    AgentOccupantId, AgentRuntimeState, AgentStatus, AgentStatusFields, AgentStatusUpdate,
+    SessionId, StatusEpoch, WorkerFp,
 };
 use serde_json::Value;
 
@@ -105,10 +105,7 @@ impl AgentStatusHub {
 
     /// A hub whose clock and push debounce the caller supplies.
     #[must_use]
-    pub fn with_seams(
-        now_ms: Arc<dyn Fn() -> i64 + Send + Sync>,
-        push_delay: Duration,
-    ) -> Self {
+    pub fn with_seams(now_ms: Arc<dyn Fn() -> i64 + Send + Sync>, push_delay: Duration) -> Self {
         Self {
             state: Arc::new(HubState {
                 tables: Mutex::new(HubTables::default()),
@@ -248,7 +245,7 @@ impl AgentStatusHub {
         let waiter = self.state.waits.register(request)?;
         self.state
             .waits
-            .evaluate(&self.state, &waiter.request().session_id);
+            .evaluate(self.state.as_ref(), &waiter.request().session_id);
         Ok(waiter)
     }
 
@@ -286,7 +283,7 @@ impl AgentStatusHub {
             }
             previous
         };
-        self.state.waits.evaluate(&self.state, &session_id);
+        self.state.waits.evaluate(self.state.as_ref(), &session_id);
         buses.agent_status_bus.publish(update.clone());
         roost_observability::log::debug(
             "agents.status",
@@ -296,8 +293,16 @@ impl AgentStatusHub {
                 .set("active", update.active)
                 .set("revision", update.common.revision),
         );
-        let table: Arc<dyn CurrentAgentStatus> = Arc::clone(&self.state);
-        self.state.push.arm(table, previous.as_ref(), &update);
+        // `arm` takes the trait object by value and holds it for the life of
+        // the debounce. The coercion has to happen at the ARGUMENT: binding
+        // `Arc<HubState>` to a `Arc<dyn CurrentAgentStatus>` annotation and then
+        // cloning it produces the concrete type again, which is what the
+        // compiler is objecting to.
+        self.state.push.arm(
+            Arc::clone(&self.state) as Arc<dyn CurrentAgentStatus>,
+            previous.as_ref(),
+            &update,
+        );
         AgentStatusAcceptance::Accepted
     }
 
@@ -394,7 +399,7 @@ impl HubState {
         }
     }
 
-    fn lock<T>(&self, mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    fn lock<'q, T>(&self, mutex: &'q Mutex<T>) -> MutexGuard<'q, T> {
         mutex.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }

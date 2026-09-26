@@ -20,7 +20,8 @@ use agent_fixture::{
 };
 use connectrpc::ErrorCode;
 use roost_coord::agents::rpc_status::{
-    handle_agent_status_get, handle_agent_status_list, handle_agent_status_wait,
+    handle_agent_config_get, handle_agent_config_set, handle_agent_status_get,
+    handle_agent_status_list, handle_agent_status_wait,
 };
 use roost_proto as proto;
 use serde_json::json;
@@ -69,7 +70,7 @@ async fn every_method_refuses_a_caller_that_is_not_a_browser() {
         handle_agent_status_get(&fixture.core, caller, get_request(SESSION_IDS[0]))
             .await
             .map(|_| ()),
-        handle_agent_status_list(&fixture.core, caller, proto::AgentStatusListRequest {})
+        handle_agent_status_list(&fixture.core, caller, proto::AgentStatusListRequest::default())
             .await
             .map(|_| ()),
         handle_agent_status_wait(
@@ -79,7 +80,7 @@ async fn every_method_refuses_a_caller_that_is_not_a_browser() {
         )
         .await
         .map(|_| ()),
-        handle_agent_config_get(&fixture.core, caller, proto::AgentConfigGetRequest {})
+        handle_agent_config_get(&fixture.core, caller, proto::AgentConfigGetRequest::default())
             .await
             .map(|_| ()),
         handle_agent_config_set(
@@ -112,13 +113,11 @@ async fn a_retained_status_stays_readable_after_its_worker_route_goes_offline() 
         .byte_hub
         .evict_session(&session(SESSION_IDS[0]));
 
-    let response = handle_agent_status_get(
-        &fixture.core,
-        &fixture.caller,
-        get_request(SESSION_IDS[0]),
-    )
-    .await
-    .expect("a retained status");
+    let response =
+        handle_agent_status_get(&fixture.core, &fixture.caller, get_request(SESSION_IDS[0]))
+            .await
+            .expect("a retained status")
+            .body;
     let status = response.status.as_option().expect("a status view");
     assert_eq!(status.session_id, SESSION_IDS[0]);
     assert_eq!(status.state, "idle");
@@ -134,20 +133,14 @@ async fn a_retained_status_stays_readable_after_its_worker_route_goes_offline() 
 #[tokio::test]
 async fn a_missing_session_and_a_statusless_session_are_one_answer() {
     let fixture = AgentFixture::new("rpc-notfound").await;
-    let missing = handle_agent_status_get(
-        &fixture.core,
-        &fixture.caller,
-        get_request(SESSION_MISSING),
-    )
-    .await
-    .expect_err("a session that never existed");
-    let statusless = handle_agent_status_get(
-        &fixture.core,
-        &fixture.caller,
-        get_request(SESSION_IDS[2]),
-    )
-    .await
-    .expect_err("an open session with no agent");
+    let missing =
+        handle_agent_status_get(&fixture.core, &fixture.caller, get_request(SESSION_MISSING))
+            .await
+            .expect_err("a session that never existed");
+    let statusless =
+        handle_agent_status_get(&fixture.core, &fixture.caller, get_request(SESSION_IDS[2]))
+            .await
+            .expect_err("an open session with no agent");
     assert_eq!(missing.code, ErrorCode::NotFound);
     assert_eq!(missing.code, statusless.code);
     assert_eq!(
@@ -166,22 +159,20 @@ async fn a_closed_session_stops_answering_even_while_its_status_is_retained() {
             SESSION_IDS[0]
         ))
         .await;
-    let refused = handle_agent_status_get(
-        &fixture.core,
-        &fixture.caller,
-        get_request(SESSION_IDS[0]),
-    )
-    .await
-    .expect_err("a closed session");
+    let refused =
+        handle_agent_status_get(&fixture.core, &fixture.caller, get_request(SESSION_IDS[0]))
+            .await
+            .expect_err("a closed session");
     assert_eq!(refused.code, ErrorCode::NotFound);
 
     let listed = handle_agent_status_list(
         &fixture.core,
         &fixture.caller,
-        proto::AgentStatusListRequest {},
+        proto::AgentStatusListRequest::default(),
     )
     .await
-    .expect("a list");
+    .expect("a list")
+    .body;
     assert!(
         listed.statuses.is_empty(),
         "a retained status for a session that is no longer open is not published"
@@ -235,10 +226,11 @@ async fn the_list_answers_in_session_id_order_with_derived_promptability() {
     let listed = handle_agent_status_list(
         &fixture.core,
         &fixture.caller,
-        proto::AgentStatusListRequest {},
+        proto::AgentStatusListRequest::default(),
     )
     .await
-    .expect("a list");
+    .expect("a list")
+    .body;
     let rows: Vec<(&str, bool)> = listed
         .statuses
         .iter()
@@ -278,7 +270,8 @@ async fn a_wait_answers_with_the_outcome_the_client_asked_about() {
         wait_request(SESSION_IDS[0], &["working"], 30_000),
     )
     .await
-    .expect("a settled wait");
+    .expect("a settled wait")
+    .body;
     assert_eq!(matched.outcome, "matched");
 
     // Nothing will move this agent, so the client's own budget is the answer.
@@ -288,7 +281,8 @@ async fn a_wait_answers_with_the_outcome_the_client_asked_about() {
         wait_request(SESSION_IDS[0], &["blocked"], 1),
     )
     .await
-    .expect("a settled wait");
+    .expect("a settled wait")
+    .body;
     assert_eq!(timed_out.outcome, "timed_out");
     assert_eq!(
         fixture.hub().wait_count(),
@@ -347,9 +341,11 @@ async fn a_wait_that_outlives_its_subscriber_leaves_nothing_behind() {
             &fixture.caller,
             wait_request(SESSION_IDS[0], &["blocked"], 300_000),
         ));
-        let elapsed =
-            tokio::time::timeout(Duration::from_millis(50), &mut parked).await;
-        assert!(elapsed.is_err(), "the wait is still parked when the caller leaves");
+        let elapsed = tokio::time::timeout(Duration::from_millis(50), &mut parked).await;
+        assert!(
+            elapsed.is_err(),
+            "the wait is still parked when the caller leaves"
+        );
         assert_eq!(fixture.hub().wait_count(), 1, "and it is registered");
     }
     assert_eq!(
@@ -369,7 +365,8 @@ async fn an_occupant_can_only_be_read_while_it_is_still_the_retained_one() {
         json!({"revision": 1, "state": "working"}),
     );
     let epoch = roost_protocol::wire::StatusEpoch::try_from(EPOCH_A).expect("an epoch");
-    let occupant = roost_protocol::wire::AgentOccupantId::try_from(OCCUPANT_A).expect("an occupant");
+    let occupant =
+        roost_protocol::wire::AgentOccupantId::try_from(OCCUPANT_A).expect("an occupant");
     let replacement =
         roost_protocol::wire::AgentOccupantId::try_from(OCCUPANT_B).expect("an occupant");
     let held = session(SESSION_IDS[0]);
@@ -393,7 +390,9 @@ async fn an_occupant_can_only_be_read_while_it_is_still_the_retained_one() {
         json!({"revision": 1, "occupant_id": OCCUPANT_B}),
     );
     assert_eq!(
-        fixture.hub().retained_occupant_state(&held, &epoch, &occupant),
+        fixture
+            .hub()
+            .retained_occupant_state(&held, &epoch, &occupant),
         None,
         "a replaced occupant's state stops being the session's"
     );

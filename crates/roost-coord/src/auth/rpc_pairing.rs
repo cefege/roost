@@ -30,16 +30,15 @@
 //! code, a token, or a digest of either.
 
 use connectrpc::RequestContext;
-use connectrpc::{ConnectError, ErrorCode, Response, ServiceResult};
+use connectrpc::{Response, ServiceResult};
 
 use crate::auth::authorized_keys::fingerprint_of_raw_public_key;
 use crate::auth::pairing::account::{self, CreateOutcome, PairRequestCreate};
-use crate::auth::pairing::rows;
 use crate::auth::pairing::confirmation;
-use crate::auth::pairing::provenance::RequestOrigin;
+use crate::auth::pairing::rows;
 use crate::auth::pairing::rpc_support::{
-    approver_or_on_host, deny_request, front_door_identity, lease, list_pending, observed_trust,
-    optional_fingerprint, peer_address, publish_pending, publish_removed, read_status_facts,
+    approver_or_on_host, caller_origin_of, deny_request, front_door_identity, lease,
+    list_pending, optional_fingerprint, publish_pending, publish_removed, read_status_facts,
     read_under_token, report_confirmation,
 };
 use crate::auth::pairing::secrets::{
@@ -47,7 +46,7 @@ use crate::auth::pairing::secrets::{
     normalize_pair_requester_token, normalize_pair_verification_code, pairing_secret_digest,
 };
 use crate::auth::pairing::status::{ApprovalAuthority, ApprovalOutcome, StoredStatus};
-use crate::auth::pairing::{PairingRefusal, authority};
+use crate::auth::pairing::{PairingError, PairingRefusal, authority};
 use crate::coord_core::{Caller, CoordCore};
 
 /// The Connect method each handler answers, and the function that answers it.
@@ -75,20 +74,22 @@ pub async fn handle_pair_create(
     request: roost_proto::PairCreateRequest,
 ) -> ServiceResult<roost_proto::PairCreateResponse> {
     secrets::assert_pairing_ceremony_version(request.ceremony_version)
-        .map_err(PairingRefusal::into_error)?;
-    let ephemeral_id = normalize_pair_request_id(&request.ephemeral_id)
-        .map_err(PairingRefusal::into_error)?;
+        .map_err(PairingError::into_error)?;
+    let ephemeral_id =
+        normalize_pair_request_id(&request.ephemeral_id).map_err(PairingError::into_error)?;
     let requester_token = normalize_pair_requester_token(&request.requester_token)
-        .map_err(PairingRefusal::into_error)?;
+        .map_err(PairingError::into_error)?;
     let public_key =
-        decode_ed25519_pubkey(&request.ssh_pubkey_b64).map_err(PairingRefusal::into_error)?;
+        decode_ed25519_pubkey(&request.ssh_pubkey_b64).map_err(PairingError::into_error)?;
     let _lease = lease(core)?;
     let now_ms = crate::rpc::service::now_ms();
-    let origin = RequestOrigin::from_peer(observed_trust(context), peer_address(context));
+    let origin = caller_origin_of(context);
     let edge = front_door_identity(core, context, origin.on_host).await?;
     let requester_token_hash = pairing_secret_digest(requester_token);
-    let observed =
-        crate::auth::pairing::provenance::capture_pair_request_provenance(context.headers(), origin);
+    let observed = crate::auth::pairing::provenance::capture_pair_request_provenance(
+        context.headers(),
+        &origin,
+    );
     let input = PairRequestCreate {
         ephemeral_id,
         requester_token_hash: &requester_token_hash,
@@ -102,17 +103,32 @@ pub async fn handle_pair_create(
     };
     let creation = account::create_pair_request(&core.services.db, &input)
         .await
-        .map_err(PairingRefusal::into_error)?;
-    for removed in &creation.expired_ids {
+        .map_err(PairingError::into_error)?;
+    // Rust has no `enum.field`, so the expired set comes from
+    // `CreateOutcome::expired_ids` -- which is where that match belongs, once,
+    // rather than here in a caller that would have to be right about the shape
+    // of a type it does not own. All three outcomes carry a set, so all three
+    // owe the bus the same `removed` frames, and every id is reclaimed before
+    // the ceremony decides what this call was.
+    for removed in creation.expired_ids() {
         publish_removed(core, removed);
     }
-    if matches!(creation, CreateOutcome::Expired { .. }) {
-        return Err(PairingRefusal::Expired.into_error());
+    // Which of the three it was is the ceremony's answer, not a caller's: a
+    // retry and a fresh create are indistinguishable over the wire, and only
+    // the expiry is a refusal.
+    match &creation {
+        CreateOutcome::Expired { .. } => return Err(PairingRefusal::Expired.into_error()),
+        CreateOutcome::Retry { .. } => return Response::ok(created(ephemeral_id)),
+        CreateOutcome::Created { .. } => {}
     }
-    if matches!(creation, CreateOutcome::Retry { .. }) {
-        return Response::ok(created(ephemeral_id));
-    }
-    publish_pending(core, ephemeral_id, &request.label, now_ms, &observed, edge.as_ref());
+    publish_pending(
+        core,
+        ephemeral_id,
+        &request.label,
+        now_ms,
+        &observed,
+        edge.as_ref(),
+    );
     tracing::info!(
         ephemeral_id,
         label = %request.label,
@@ -132,11 +148,11 @@ pub async fn handle_pair_poll(
     request: roost_proto::PairPollRequest,
 ) -> ServiceResult<roost_proto::PairPollResponse> {
     secrets::assert_pairing_ceremony_version(request.ceremony_version)
-        .map_err(PairingRefusal::into_error)?;
-    let ephemeral_id = normalize_pair_request_id(&request.ephemeral_id)
-        .map_err(PairingRefusal::into_error)?;
+        .map_err(PairingError::into_error)?;
+    let ephemeral_id =
+        normalize_pair_request_id(&request.ephemeral_id).map_err(PairingError::into_error)?;
     let requester_token = normalize_pair_requester_token(&request.requester_token)
-        .map_err(PairingRefusal::into_error)?;
+        .map_err(PairingError::into_error)?;
     let now_ms = crate::rpc::service::now_ms();
     let row = read_under_token(
         &core.services.db,
@@ -147,9 +163,12 @@ pub async fn handle_pair_poll(
     // Expiry is answered from the read, never written here: this is a 1 Hz poll
     // from a browser that is waiting, and a poll that wrote would turn a
     // read-only question into a durable mutation on somebody else's cadence.
-    let stored = StoredStatus::parse(&row.status).map_err(PairingRefusal::into_error)?;
+    let stored = StoredStatus::parse(&row.status)
+        .map_err(|error| PairingError::from(error).into_error())?;
     let status = match stored {
-        StoredStatus::Pending | StoredStatus::VerificationRequired if row.expires_at_ms <= now_ms => {
+        StoredStatus::Pending | StoredStatus::VerificationRequired
+            if row.expires_at_ms <= now_ms =>
+        {
             StoredStatus::Expired
         }
         settled => settled,
@@ -188,22 +207,21 @@ pub async fn handle_pair_approve(
     request: roost_proto::PairApproveRequest,
 ) -> ServiceResult<roost_proto::PairApproveResponse> {
     secrets::assert_pairing_ceremony_version(request.ceremony_version)
-        .map_err(PairingRefusal::into_error)?;
-    let ephemeral_id = normalize_pair_request_id(&request.ephemeral_id)
-        .map_err(PairingRefusal::into_error)?;
+        .map_err(PairingError::into_error)?;
+    let ephemeral_id =
+        normalize_pair_request_id(&request.ephemeral_id).map_err(PairingError::into_error)?;
     let verification_code = normalize_pair_verification_code(&request.verification_code)
-        .map_err(PairingRefusal::into_error)?;
+        .map_err(PairingError::into_error)?;
     let _lease = lease(core)?;
     let approver = approver_or_on_host(caller)?;
     let now_ms = crate::rpc::service::now_ms();
-    let account_id =
-        authority::paired_browser_account_id(&core.services.db, approver)
-            .await
-            .map_err(PairingRefusal::into_error)?
-            .ok_or_else(|| PairingRefusal::AccountUnavailable.into_error())?;
-    let row = rows::read_pair_request(&core.services.db.pool(), ephemeral_id)
+    let account_id = authority::paired_browser_account_id(&core.services.db, approver)
         .await
-        .map_err(PairingRefusal::into_error)?
+        .map_err(PairingError::into_error)?
+        .ok_or_else(|| PairingRefusal::AccountUnavailable.into_error())?;
+    let row = rows::read_pair_request(core.services.db.pool(), ephemeral_id)
+        .await
+        .map_err(PairingError::into_error)?
         .ok_or_else(|| PairingRefusal::NotFound.into_error())?;
     if !row.speaks_current_ceremony() {
         return Err(PairingRefusal::CeremonyVersion.into_error());
@@ -226,7 +244,7 @@ pub async fn handle_pair_approve(
         now_ms,
     )
     .await
-    .map_err(PairingRefusal::into_error)?;
+    .map_err(PairingError::into_error)?;
     match outcome {
         ApprovalOutcome::Expired => {
             publish_removed(core, ephemeral_id);
@@ -240,12 +258,12 @@ pub async fn handle_pair_approve(
                 requester_fp = %fingerprint_of_raw_public_key(&row.public_key),
                 "a pair request is awaiting its verification code"
             );
-            Ok(approved())
+            Response::ok(approved())
         }
         // A retry is the same approval: the row is already
         // `verification_required`, and the bus dropped it from the pending list
         // on the call that moved it.
-        ApprovalOutcome::Retry => Ok(approved()),
+        ApprovalOutcome::Retry => Response::ok(approved()),
         ApprovalOutcome::Refused(refusal) => Err(refusal.into_error()),
     }
 }
@@ -258,13 +276,13 @@ pub async fn handle_pair_confirm(
     request: roost_proto::PairConfirmRequest,
 ) -> ServiceResult<roost_proto::PairConfirmResponse> {
     secrets::assert_pairing_ceremony_version(request.ceremony_version)
-        .map_err(PairingRefusal::into_error)?;
-    let ephemeral_id = normalize_pair_request_id(&request.ephemeral_id)
-        .map_err(PairingRefusal::into_error)?;
+        .map_err(PairingError::into_error)?;
+    let ephemeral_id =
+        normalize_pair_request_id(&request.ephemeral_id).map_err(PairingError::into_error)?;
     let requester_token = normalize_pair_requester_token(&request.requester_token)
-        .map_err(PairingRefusal::into_error)?;
+        .map_err(PairingError::into_error)?;
     let verification_code = normalize_pair_verification_code(&request.verification_code)
-        .map_err(PairingRefusal::into_error)?;
+        .map_err(PairingError::into_error)?;
     let _lease = lease(core)?;
     let now_ms = crate::rpc::service::now_ms();
     let result = confirmation::confirm_pair_request(
@@ -287,7 +305,7 @@ pub async fn handle_pair_confirm(
             }
         }
     })?;
-    report_confirmation(core, ephemeral_id, result);
+    report_confirmation(core, ephemeral_id, &result);
     Response::ok(roost_proto::PairConfirmResponse {
         ok: result.ok,
         ..Default::default()
@@ -300,8 +318,8 @@ pub async fn handle_pair_deny(
     caller: &Caller,
     request: roost_proto::PairDenyRequest,
 ) -> ServiceResult<roost_proto::PairDenyResponse> {
-    let ephemeral_id = normalize_pair_request_id(&request.ephemeral_id)
-        .map_err(PairingRefusal::into_error)?;
+    let ephemeral_id =
+        normalize_pair_request_id(&request.ephemeral_id).map_err(PairingError::into_error)?;
     approver_or_on_host(caller)?;
     let _lease = lease(core)?;
     deny_request(core, ephemeral_id, crate::rpc::service::now_ms()).await?;
@@ -320,26 +338,27 @@ pub async fn handle_pair_approval_status(
     request: roost_proto::PairApprovalStatusRequest,
 ) -> ServiceResult<roost_proto::PairApprovalStatusResponse> {
     secrets::assert_pairing_ceremony_version(request.ceremony_version)
-        .map_err(PairingRefusal::into_error)?;
-    let ephemeral_id = normalize_pair_request_id(&request.ephemeral_id)
-        .map_err(PairingRefusal::into_error)?;
+        .map_err(PairingError::into_error)?;
+    let ephemeral_id =
+        normalize_pair_request_id(&request.ephemeral_id).map_err(PairingError::into_error)?;
     // A remote caller without browser authority gets the device-auth marker,
     // so the approver can tell a revoked key from a wrong method. A direct
     // on-host caller stays admitted, which is the whole point of an on-host
     // approval.
-    let fingerprint = if caller.on_host {
-        optional_fingerprint(caller)
-    } else {
-        Some(
-            caller
-                .principal
-                .require_account_device()
-                .map_err(|error| ConnectError::new(ErrorCode::Unauthenticated, error.to_string()))?,
-        )
-    };
+    let fingerprint =
+        if caller.on_host {
+            optional_fingerprint(caller)
+        } else {
+            Some(
+                caller
+                    .principal
+                    .require_account_device()
+                    .map_err(|_| crate::auth::pairing::authentication_required())?,
+            )
+        };
     let facts = read_status_facts(&core.services.db, ephemeral_id)
         .await
-        .map_err(PairingRefusal::into_error)?;
+        .map_err(PairingError::into_error)?;
     let status = crate::auth::pairing::status::read_approval_status(
         facts.as_ref(),
         fingerprint,

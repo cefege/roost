@@ -75,7 +75,6 @@ impl Machine<'_> {
         }
     }
 
-
     /// Report whether the socket still holds any view of this session, so the
     /// host can start or stop feeding it that session's cells.
     ///
@@ -86,10 +85,9 @@ impl Machine<'_> {
         socket_id: &str,
         session_id: &SessionId,
     ) -> Option<SinkCall> {
-        let watching = self
-            .views
-            .values()
-            .any(|record| record.socket_id == socket_id && session_of(record).as_ref() == Some(session_id));
+        let watching = self.views.values().any(|record| {
+            record.socket_id == socket_id && session_of(record).as_ref() == Some(session_id)
+        });
         Some(SinkCall::Watching {
             socket_id: socket_id.to_owned(),
             session_id: session_id.clone(),

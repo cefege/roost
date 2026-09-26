@@ -28,7 +28,7 @@ use roost_proto::{
 };
 use roost_protocol::wire::{
     AgentId, AgentRuntimeState, AgentStatusFields, AgentStatusUpdate, ChannelId, HostMetrics,
-    McpRelayId, McpRelayKind, McpRelay, SessionEvent, SessionId, SessionKind, WorkerFp, WorkerOs,
+    McpRelay, McpRelayId, McpRelayKind, SessionEvent, SessionId, SessionKind, WorkerFp, WorkerOs,
     WorkerPresenceEvent, Workspace, WorkspaceDelta, WorkspaceId,
 };
 
@@ -272,12 +272,13 @@ impl FixedRoutes {
     }
 }
 
+// The route index the seam requires lives in `coord_core::seams`, beside the
+// `LiveChannel` its signature names -- the feed is a consumer of the terminal
+// domain's seam, not its owner, so it imports rather than re-declares.
+use roost_coord::coord_core::seams::{LiveChannel, WorkerRouteIndex};
+
 impl WorkerRouteIndex for FixedRoutes {
-    fn lookup_session_id(
-        &self,
-        worker_fp: &WorkerFp,
-        channel_id: &ChannelId,
-    ) -> Option<SessionId> {
+    fn lookup_session_id(&self, worker_fp: &WorkerFp, channel_id: &ChannelId) -> Option<SessionId> {
         (worker_fp == &self.fp && channel_id == &self.channel).then(|| self.session.clone())
     }
 

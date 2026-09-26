@@ -23,13 +23,12 @@
 
 use super::PairingResult;
 
-use super::rows::{self as rows, LiveSelector};
 use super::authority;
-use super::secrets::{PAIRING_CEREMONY_VERSION, PAIR_VERIFICATION_ATTEMPT_LIMIT};
-use super::status::{
-    ApprovedRequest, AttemptRecord, LiveRequest, RequestIdentity, StoredStatus, TerminalRequest,
-};
-use super::{PairingRefusal, provenance::UNKNOWN_SOURCE_IP, refuse};
+use super::confirm_row::{ConfirmableRow, read_confirmable};
+use super::rows::{self, LiveSelector};
+use super::secrets::PAIR_VERIFICATION_ATTEMPT_LIMIT;
+use super::status::{ApprovedRequest, AttemptRecord, TerminalRequest};
+use super::{PairingRefusal, refuse};
 use crate::auth::authorized_keys::fingerprint_of_raw_public_key;
 use crate::db::CoordDb;
 
@@ -119,7 +118,13 @@ async fn confirm_approved(
 
     let fingerprint = fingerprint_of_raw_public_key(&row.raw_public_key()?);
     if !authority_stands(database, &approved, &fingerprint).await? {
-        terminalize(database, &approved, TerminalRequest::VerificationFailed, now_ms).await?;
+        terminalize(
+            database,
+            &approved,
+            TerminalRequest::VerificationFailed,
+            now_ms,
+        )
+        .await?;
         return Err(refuse(PairingRefusal::AuthorityInvalid));
     }
 
@@ -131,7 +136,9 @@ async fn confirm_approved(
                 ok: false,
                 newly_authorized_fingerprint: None,
                 paired_browser: None,
-                terminal_status: record.exhausted.then_some(TerminalRequest::VerificationFailed),
+                terminal_status: record
+                    .exhausted
+                    .then_some(TerminalRequest::VerificationFailed),
             })
         }
     }
@@ -280,7 +287,13 @@ async fn record_attempt(
     .await
     .map_err(|error| super::sqlx_error("pairing.attempt", error))?;
     if record.exhausted {
-        terminalize(database, approved, TerminalRequest::VerificationFailed, now_ms).await?;
+        terminalize(
+            database,
+            approved,
+            TerminalRequest::VerificationFailed,
+            now_ms,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -300,117 +313,4 @@ async fn terminalize(
     )
     .await?;
     Ok(())
-}
-
-/// Read the request this confirmation may act on, under its requester token.
-///
-/// The token digest is a `WHERE` term rather than a comparison afterwards, so
-/// a row that exists under a different token is not read at all, and cannot
-/// influence what this call does or how long it takes to say so.
-async fn read_confirmable(
-    database: &CoordDb,
-    ephemeral_id: &str,
-    requester_token_hash: &str,
-) -> PairingResult<ConfirmableRow> {
-    let row = sqlx::query_as::<_, ConfirmableRow>(
-        "SELECT id, ephemeral_id, status, ceremony_version, expires_at_ms, label, \
-                requester_token_hash, public_key, approved_account_id, approved_by_fp, \
-                verification_code_hash, verification_attempts, user_agent, client_browser, \
-                client_os, client_device_type, source_ip, country_code, region, city, \
-                edge_identity \
-           FROM pair_requests \
-          WHERE ephemeral_id = ? AND requester_token_hash = ? AND requester_token_hash != ''",
-    )
-    .bind(ephemeral_id)
-    .bind(requester_token_hash)
-    .fetch_optional(database.pool())
-    .await
-    .map_err(|error| super::sqlx_error("pairing.confirm_read", error))?
-    .ok_or_else(|| refuse(PairingRefusal::NotFound))?;
-    if row.ceremony_version != i64::from(PAIRING_CEREMONY_VERSION) {
-        return Err(refuse(PairingRefusal::CeremonyVersion));
-    }
-    Ok(row)
-}
-
-/// A request the confirmation path needs in full, read under its token.
-#[derive(Debug, sqlx::FromRow)]
-struct ConfirmableRow {
-    id: i64,
-    ephemeral_id: String,
-    status: String,
-    ceremony_version: i64,
-    expires_at_ms: i64,
-    label: String,
-    requester_token_hash: String,
-    public_key: Vec<u8>,
-    approved_account_id: Option<String>,
-    approved_by_fp: Option<String>,
-    verification_code_hash: Option<String>,
-    verification_attempts: i64,
-    user_agent: Option<String>,
-    client_browser: Option<String>,
-    client_os: Option<String>,
-    client_device_type: Option<String>,
-    source_ip: Option<String>,
-    country_code: Option<String>,
-    region: Option<String>,
-    city: Option<String>,
-    edge_identity: Option<String>,
-}
-
-impl ConfirmableRow {
-    /// The live value this row is, or `None` because it is decided.
-    fn live(&self) -> Option<LiveRequest> {
-        match StoredStatus::parse(&self.status).ok()? {
-            StoredStatus::Pending => {
-                Some(LiveRequest::AwaitingApproval(self.identity()))
-            }
-            StoredStatus::VerificationRequired => {
-                Some(LiveRequest::AwaitingConfirmation(ApprovedRequest {
-                    identity: self.identity(),
-                    approved_account_id: self.approved_account_id.clone(),
-                    approved_by_fingerprint: self.approved_by_fp.clone(),
-                    verification_code_hash: self.verification_code_hash.clone(),
-                    verification_attempts: self.verification_attempts,
-                }))
-            }
-            _ => None,
-        }
-    }
-
-    fn identity(&self) -> RequestIdentity {
-        RequestIdentity {
-            id: self.id,
-            ephemeral_id: self.ephemeral_id.clone(),
-            expires_at_ms: self.expires_at_ms,
-        }
-    }
-
-    /// The stored key, or the refusal a wrong-length column is.
-    fn raw_public_key(&self) -> PairingResult<[u8; 32]> {
-        self.public_key.clone().try_into().map_err(|_| {
-            super::PairingError::fault(
-                "coord.pairing.confirm: stored pair_requests.public_key is not 32 bytes",
-            )
-        })
-    }
-
-    fn source_ip(&self) -> String {
-        self.source_ip
-            .clone()
-            .unwrap_or_else(|| UNKNOWN_SOURCE_IP.to_string())
-    }
-
-    fn client_browser(&self) -> String {
-        self.client_browser.clone().unwrap_or_default()
-    }
-
-    fn client_os(&self) -> String {
-        self.client_os.clone().unwrap_or_default()
-    }
-
-    fn client_device_type(&self) -> String {
-        self.client_device_type.clone().unwrap_or_default()
-    }
 }

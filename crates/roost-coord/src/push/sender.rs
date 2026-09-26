@@ -99,19 +99,59 @@ pub async fn send_push_to_subscriptions(
     if subscriptions.is_empty() || !options.current() {
         return PushDeliveryResult::default();
     }
-    // The options are cloned per attempt rather than captured by reference: the
-    // stream's closure is `FnMut`, and it must be able to hand each attempt its
-    // own copy of the fence. Cloning an `Arc` is a refcount bump, and the
-    // token slice is a `Copy` pointer.
-    let attempts = subscriptions
-        .iter()
-        .map(|subscription| deliver_one(pool, subscription, payload, options.clone(), transport));
-    futures_util::stream::iter(attempts)
-        .buffer_unordered(MAX_CONCURRENT_SENDS)
-        .fold(PushDeliveryResult::default(), |total, outcome| async move {
-            total.plus(outcome)
-        })
-        .await
+    // The options are cloned per attempt rather than captured by reference: each
+    // attempt must be able to re-check the fence with its own copy. Cloning an
+    // `Arc` is a refcount bump, and the token slice is a `Copy` pointer.
+    //
+    // A `FuturesUnordered` rather than a `.map(..).buffer_unordered(..)`
+    // stream, and the reason is specific. Each attempt borrows its own
+    // `&StoredSubscription`, so its type is `Future + 'a` for the borrow's
+    // lifetime `a`. Handed to `StreamExt::map` as a closure, the closure's
+    // RETURN type carries that lifetime, and a closure cannot be generic over a
+    // lifetime it was not written to be generic over — which is the whole of
+    // `implementation of FnOnce is not general enough`. Boxing to
+    // `Pin<Box<dyn Future + '_>>` does not help, because the `'_` is still the
+    // borrow. `FuturesUnordered` takes the future by `push` and never asks the
+    // producer to be general, so the borrow is fine.
+    //
+    // THE CEILING IS ENFORCED HERE AND NOT BY `FuturesUnordered`, which runs
+    // everything handed to it. Pushing all of the subscriptions up front is the
+    // obvious shape and it is wrong: a dashboard with two thousand stale
+    // subscriptions would open two thousand HTTPS round trips at once, which is
+    // the ceiling `MAX_CONCURRENT_SENDS` exists to hold (v2's fixed worker pool,
+    // `push-sender.ts:87-139`). So the set is filled to the ceiling and
+    // refilled one at a time as each attempt settles.
+    let mut in_flight = futures_util::stream::FuturesUnordered::new();
+    let mut remaining = subscriptions.iter();
+    for _ in 0..MAX_CONCURRENT_SENDS {
+        let Some(subscription) = remaining.next() else {
+            break;
+        };
+        let options = options.clone();
+        in_flight.push(Box::pin(deliver_one(
+            pool,
+            subscription,
+            payload,
+            options,
+            transport,
+        )));
+    }
+    let mut total = PushDeliveryResult::default();
+    while let Some(outcome) = in_flight.next().await {
+        total = total.plus(outcome);
+        let Some(subscription) = remaining.next() else {
+            continue;
+        };
+        let options = options.clone();
+        in_flight.push(Box::pin(deliver_one(
+            pool,
+            subscription,
+            payload,
+            options,
+            transport,
+        )));
+    }
+    total
 }
 
 /// Deliver to one subscription: deliver it, prune it, or record the failure.

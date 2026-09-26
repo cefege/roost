@@ -36,7 +36,7 @@ use crate::workers::send::{SendOutcome, current_routable_worker, send_frame_thro
 pub use self::identity::{KeeperIdentity, verify_worker_result, worker_outcome};
 pub use self::refusal::KeeperUpdateRefusal;
 pub use self::request::{
-    MAINTENANCE_ACTION, KeeperUpdateAction, KeeperUpdateAdmission, KeeperUpdateRequest,
+    KeeperUpdateAction, KeeperUpdateAdmission, KeeperUpdateRequest, MAINTENANCE_ACTION,
     decide_keeper_update, read_open_session_ids,
 };
 
@@ -117,19 +117,20 @@ async fn dispatch_preparation(
     let relay = &core.services.scrollback;
     let handle = current_routable_worker(&core.services.workers, worker_fp)
         .ok_or(KeeperUpdateRefusal::WorkerOffline)?;
-    let mut pending = relay.pending().create(
-        &request_id(),
-        Some(worker_fp.as_str()),
-        relay.now_ms(),
-    )?;
+    let mut pending =
+        relay
+            .pending()
+            .create(&request_id(), Some(worker_fp.as_str()), relay.now_ms())?;
     let frame = admission.to_frame(pending.request_id());
     if let SendOutcome::Refused(refusal) =
         send_frame_through(&core.services.workers, &handle, frame)
     {
         let message = refusal.to_string();
-        relay
-            .pending()
-            .reject_unavailable(pending.request_id(), &message, Some(worker_fp.as_str()));
+        relay.pending().reject_unavailable(
+            pending.request_id(),
+            &message,
+            Some(worker_fp.as_str()),
+        );
         return Err(ConnectError::new(ErrorCode::Unavailable, message));
     }
     tracing::info!(%worker_fp, "a keeper update preparation reached the worker");
@@ -167,7 +168,7 @@ pub async fn handle_workers_prepare_keeper_update(
         .services
         .write_gate()
         .acquire_exclusive()
-        .map_err(|error| ConnectError::new(ErrorCode::Unavailable, error.to_string()))?;
+        .map_err(|_| KeeperUpdateRefusal::DrainHeld)?;
     tracing::info!(
         %worker_fp,
         action = parsed.action.as_str(),

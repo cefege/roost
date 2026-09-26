@@ -57,11 +57,12 @@ pub async fn get_agent_config(
     database: &CoordDb,
     dashboard_id: &str,
 ) -> Result<AgentLauncherConfig, sqlx::Error> {
-    let rows =
-        sqlx::query("SELECT key, value FROM app_settings WHERE dashboard_id = ?1 AND key LIKE 'agent.%'")
-            .bind(dashboard_id)
-            .fetch_all(database.pool())
-            .await?;
+    let rows = sqlx::query(
+        "SELECT key, value FROM app_settings WHERE dashboard_id = ?1 AND key LIKE 'agent.%'",
+    )
+    .bind(dashboard_id)
+    .fetch_all(database.pool())
+    .await?;
     let mut config = AgentLauncherConfig::defaults();
     for row in rows {
         match row.get::<String, _>("key").as_str() {

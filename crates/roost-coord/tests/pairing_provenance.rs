@@ -12,19 +12,16 @@
 
 use axum::http::{HeaderMap, HeaderValue};
 use roost_coord::auth::pairing::provenance::{
-    ClientDeviceType, MAX_GEO_UTF8_BYTES, MAX_PROVENANCE_UTF8_BYTES, RequestOrigin,
+    ClientDeviceType, MAX_GEO_UTF8_BYTES, MAX_PROVENANCE_UTF8_BYTES,
     capture_pair_request_provenance, describe_user_agent,
 };
+use roost_coord::middleware::caller_origin::{CallerOrigin, resolve_caller_origin};
 use roost_coord::coord_core::ListenerTrust;
 
-const CHROME_MAC: &str =
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
-const EDGE_WINDOWS: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0";
-const SAFARI_IPHONE: &str =
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
-const IPAD_AGENT: &str =
-    "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/604.1";
+const CHROME_MAC: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+const EDGE_WINDOWS: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0";
+const SAFARI_IPHONE: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+const IPAD_AGENT: &str = "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/604.1";
 
 fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
     let mut map = HeaderMap::new();
@@ -37,18 +34,14 @@ fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
     map
 }
 
-fn direct(client_ip: &str) -> RequestOrigin<'_> {
-    RequestOrigin {
-        listener: ListenerTrust::DirectLoopback,
-        client_ip,
-    }
+/// A direct listener that saw this caller itself.
+fn direct(client_ip: &str) -> CallerOrigin {
+    CallerOrigin::local(client_ip)
 }
 
-fn forwarded(client_ip: &str) -> RequestOrigin<'_> {
-    RequestOrigin {
-        listener: ListenerTrust::Forwarded,
-        client_ip,
-    }
+/// A trusted proxy that asserted this caller as the first forwarded hop.
+fn forwarded(client_ip: &str) -> CallerOrigin {
+    resolve_caller_origin(ListenerTrust::Forwarded, Some("10.0.0.1"), Some(client_ip))
 }
 
 /// The compatibility table is ORDERED, and the order is the contract: an Edge
@@ -109,7 +102,7 @@ fn client_hints_win_and_grease_brands_are_ignored() {
             ("sec-ch-ua-platform", "\"macOS\""),
             ("sec-ch-ua-mobile", "?0"),
         ]),
-        direct("10.0.0.4"),
+        &direct("10.0.0.4"),
     );
     assert_eq!(captured.client_browser.as_deref(), Some("Chrome"));
     assert_eq!(captured.client_os.as_deref(), Some("macOS"));
@@ -128,11 +121,8 @@ fn an_unusable_mobile_hint_falls_back_to_the_user_agent() {
         ("maybe", Some(ClientDeviceType::Desktop)),
     ] {
         let captured = capture_pair_request_provenance(
-            &headers(&[
-                ("user-agent", CHROME_MAC),
-                ("sec-ch-ua-mobile", hint),
-            ]),
-            direct("10.0.0.4"),
+            &headers(&[("user-agent", CHROME_MAC), ("sec-ch-ua-mobile", hint)]),
+            &direct("10.0.0.4"),
         );
         assert_eq!(
             captured.client_device_type, expected,
@@ -147,10 +137,14 @@ fn an_unusable_mobile_hint_falls_back_to_the_user_agent() {
 /// actually saw.
 #[test]
 fn geo_headers_are_read_only_under_a_trusted_proxy() {
-    let geo = [("cf-ipcountry", "CA"), ("cf-region", "ON"), ("cf-ipcity", "Ottawa")];
+    let geo = [
+        ("cf-ipcountry", "CA"),
+        ("cf-region", "ON"),
+        ("cf-ipcity", "Ottawa"),
+    ];
     let mut direct_pairs = vec![("user-agent", CHROME_MAC)];
     direct_pairs.extend(geo);
-    let spoofed = capture_pair_request_provenance(&headers(&direct_pairs), direct("10.0.0.4"));
+    let spoofed = capture_pair_request_provenance(&headers(&direct_pairs), &direct("10.0.0.4"));
     assert_eq!(spoofed.country_code, None);
     assert_eq!(spoofed.region, None);
     assert_eq!(spoofed.city, None);
@@ -158,7 +152,8 @@ fn geo_headers_are_read_only_under_a_trusted_proxy() {
 
     let mut proxied_pairs = vec![("user-agent", CHROME_MAC)];
     proxied_pairs.extend(geo);
-    let attested = capture_pair_request_provenance(&headers(&proxied_pairs), forwarded("203.0.113.7"));
+    let attested =
+        capture_pair_request_provenance(&headers(&proxied_pairs), &forwarded("203.0.113.7"));
     assert_eq!(attested.country_code.as_deref(), Some("CA"));
     assert_eq!(attested.region.as_deref(), Some("ON"));
     assert_eq!(attested.city.as_deref(), Some("Ottawa"));
@@ -171,14 +166,18 @@ fn geo_headers_are_read_only_under_a_trusted_proxy() {
 #[test]
 fn a_country_must_be_two_letters() {
     let captured = capture_pair_request_provenance(
-        &headers(&[("cf-ipcountry", "usa"), ("cf-ipcountry ", "C"), ("cf-ipcountry", "")]),
-        forwarded("203.0.113.7"),
+        &headers(&[
+            ("cf-ipcountry", "usa"),
+            ("cf-ipcountry ", "C"),
+            ("cf-ipcountry", ""),
+        ]),
+        &forwarded("203.0.113.7"),
     );
     assert_eq!(captured.country_code, None);
 
     let lowercased = capture_pair_request_provenance(
         &headers(&[("cf-ipcountry", "de")]),
-        forwarded("203.0.113.7"),
+        &forwarded("203.0.113.7"),
     );
     assert_eq!(
         lowercased.country_code.as_deref(),
@@ -195,8 +194,11 @@ fn a_country_must_be_two_letters() {
 fn persisted_values_are_control_stripped_and_bounded() {
     let long_agent = "A".repeat(MAX_PROVENANCE_UTF8_BYTES * 3);
     let captured = capture_pair_request_provenance(
-        &headers(&[("user-agent", &long_agent), ("cf-ipcity", "Ottawa\r\nX-Injected: 1")]),
-        forwarded("10.0.0.4"),
+        &headers(&[
+            ("user-agent", &long_agent),
+            ("cf-ipcity", "Ottawa\r\nX-Injected: 1"),
+        ]),
+        &forwarded("10.0.0.4"),
     );
     let agent = captured.user_agent.expect("a bounded user agent");
     assert_eq!(agent.len(), MAX_PROVENANCE_UTF8_BYTES);
@@ -213,7 +215,7 @@ fn the_bound_counts_bytes_and_never_splits_a_scalar() {
     let multibyte = "é".repeat(MAX_PROVENANCE_UTF8_BYTES);
     let captured = capture_pair_request_provenance(
         &headers(&[("user-agent", &multibyte)]),
-        direct("10.0.0.4"),
+        &direct("10.0.0.4"),
     );
     let agent = captured.user_agent.expect("a bounded user agent");
     assert!(agent.len() <= MAX_PROVENANCE_UTF8_BYTES);
@@ -225,10 +227,10 @@ fn the_bound_counts_bytes_and_never_splits_a_scalar() {
 /// resolved to nothing.
 #[test]
 fn an_unnamed_source_is_recorded_as_unknown() {
-    let captured = capture_pair_request_provenance(&HeaderMap::new(), RequestOrigin::from_peer(
-        ListenerTrust::DirectLoopback,
-        None,
-    ));
+    let captured = capture_pair_request_provenance(
+        &HeaderMap::new(),
+        &CallerOrigin::unknown(),
+    );
     assert_eq!(captured.source_ip, "unknown");
     assert_eq!(captured.user_agent, None);
     assert_eq!(captured.client_browser, None);
