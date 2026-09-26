@@ -640,6 +640,52 @@ condition — a mutation reads as a suspiciously small removal, and that is a
 shape a reader can catch in one glance. **The dangerous artefact is not the
 mutation; it is a mutation that has been committed.**
 
+## The defect was a MISSING RULE, not a wrong branch
+
+Two hypotheses aimed at the same line and both were wrong, because the line was
+correct. What the failing test actually exercises:
+
+- held **legacy** at revision 5, update **identified** at revision 6 → expected
+  `Stale`, and the comment says why: *"once an identified occupant exists, a
+  legacy one can no longer answer for the session."*
+- walked through the predicate: the update is identified so the legacy-*update*
+  branch is skipped; `is_retired` false; `previous` is `Some` so the `else` is not
+  taken; and the *held* row is legacy, so `agent_status_identity(&held).is_none()`
+  is true → `return update.active` → `Accepted`.
+
+**So the line is on the path AND is correct — which is exactly why tightening it
+broke the other test.** The two tests pin **opposite directions through the same
+line**:
+
+| held | update | required |
+|---|---|---|
+| identified | legacy | **accept** |
+| legacy | identified | **refuse** |
+
+> **The predicate cannot tell those apart.** The occupant check is false for a
+> legacy held row, so two different rules fall through to the *same*
+> `return update.active`. **The rule that is missing is a *direction* test —
+> legacy-held versus identified-update — and it exists in none of the returns.**
+
+**So the general form, and this is the fourth distinct shape in one predicate:**
+
+> **Two branches are not "the same line twice". They are two different rules that
+> happen to share a return value, and the thing that distinguishes them is the
+> pair of tests that pin the pair of directions — not the code.**
+
+A code-reading pass cannot find this, because the code is right; a row cannot find
+it, because every line it can delete is correct; and a reviewer comparing two
+identical branches sees a pair. **Only asking "which direction does each test
+require?" exposes an absent condition**, and the answer is a *relation* between
+two values rather than a property of either.
+
+**And the disposition was right a third time: the change came back as evidence
+rather than as an edit**, with the note that it has now had two wrong hypotheses
+in this predicate and the change is *checkable against both pinned tests before
+it is written.* **That is the cheap test applied to a behaviour change** — a
+hypothesis that two existing tests can falsify in a minute should meet them
+before it meets the compiler.
+
 ## A fix a test caught is cheaper than a fix a reviewer caught
 
 One behaviour change was authorised on a two-line hypothesis — the legacy branch
