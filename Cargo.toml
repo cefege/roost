@@ -48,6 +48,12 @@ tokio-tungstenite = { version = "0.30.0", default-features = false }
 reqwest = { version = "0.13.5", default-features = false }
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 web-push = "0.11.0"
+# Streaming gzip for the backup writer. `flate2` is the simpler choice and
+# this is the boring one, but the backup reads a database file that can be
+# gigabytes and the whole point of the streaming shape is that a backup never
+# holds the file in memory. `async-compression` gives an async stream over
+# tokio `File`, so the writer is one pipeline and no `spawn_blocking`.
+async-compression = { version = "0.4.30", features = ["tokio", "gzip"] }
 portable-pty = "0.9.0"
 # Patched: see third_party/alacritty_terminal/ROOST-PATCHES.md. Upstream 0.26.0
 # reports how much history it RETAINS but not how much it has DISCARDED, and

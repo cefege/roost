@@ -8,6 +8,11 @@ repository.workspace = true
 description = "The coordinator service: SQLite state, auth, Connect RPC handlers, the Sync and worker WebSocket links, terminal hubs, and web push. Speaks the wire, never the terminal."
 
 [dependencies]
+# The push slice sends through the Web Push protocol; the maintenance slice
+# streams a database file through gzip. Both were workspace pins no member
+# declared, so neither resolved until here.
+web-push.workspace = true
+async-compression.workspace = true
 # The `Interceptor` trait is declared with `#[async_trait]`, so an impl of it must
 # carry the same attribute or the rewritten lifetimes disagree (E0195).
 async-trait = "0.1"
