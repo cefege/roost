@@ -8,6 +8,7 @@
 
 mod browser_command_support;
 use serde_json::json;
+use browser_command_support::every_kind;
 use browser_command_support::{
     EPOCH, FINGERPRINT, SESSION, command, dispatch, frame_of, harness, only};
 use roost_protocol::wire::control::ClientControlFrame;

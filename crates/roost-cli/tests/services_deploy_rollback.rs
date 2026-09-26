@@ -87,14 +87,6 @@ impl ScriptedManager {
         }
     }
 
-    /// The manager refuses every command, the way one answers a unit it will
-    /// not load at all.
-    fn refuses() -> Self {
-        Self {
-            refuse_commands: true,
-            ..Self::up()
-        }
-    }
 }
 
 impl ServiceManager for ScriptedManager {

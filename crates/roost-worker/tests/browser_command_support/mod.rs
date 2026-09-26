@@ -3,6 +3,12 @@
 // integration-test module is its own crate, so the exemption is here.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+// A shared test-support module is compiled once per test binary, and each
+// binary drives a different subset of it. An item unused by one binary is
+// not dead code -- the others use it -- and trimming it would make the
+// support module's surface depend on which test is compiling.
+#![allow(dead_code)]
+
 //! The browser-command dispatch surface: which command reaches which
 //! capability, what a command that cannot run is answered with, and what each
 //! command actually does once it is running.
@@ -33,7 +39,13 @@ pub mod scratch;
 
 pub use scratch::scratch_root;
 
-pub use dispatch::{command, dispatch, frame_of, only};
+// Each re-export below is used by SOME of the six test binaries that compile
+// this module, and by none of the others. The same reasoning as the
+// `dead_code` allowance above: a re-export unused by one binary is not an
+// unused import, and deleting it would make the support module's surface
+// depend on which test happens to be compiling.
+#[allow(unused_imports)]
+pub use dispatch::{base64_decode, command, dispatch, floor, frame_of, only};
 pub use fakes::{FakeDiagnostics, FakeGrid, FakePresence, FakeSearch, FakeSessions};
 
 
