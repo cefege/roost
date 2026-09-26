@@ -27,7 +27,9 @@ const STRUCTURAL_EXEMPTIONS: &[(&str, &str)] = &[(
 /// nor snapshotted, so it cannot accumulate a baseline entry and later be
 /// compared against one.
 fn is_exempt(path: &str) -> bool {
-    STRUCTURAL_EXEMPTIONS.iter().any(|(exempt, _)| *exempt == path)
+    STRUCTURAL_EXEMPTIONS
+        .iter()
+        .any(|(exempt, _)| *exempt == path)
 }
 
 fn describe(observed: usize, allowed: usize) -> String {

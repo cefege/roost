@@ -19,7 +19,10 @@ use sqlx::sqlite::SqlitePool;
 use crate::coord_core::Caller;
 
 /// The tab this request is fenced to, or the refusal that names the fence.
-pub fn require_tab_fence<'caller>(caller: &'caller Caller, method: &str) -> Result<&'caller str, ConnectError> {
+pub fn require_tab_fence<'caller>(
+    caller: &'caller Caller,
+    method: &str,
+) -> Result<&'caller str, ConnectError> {
     match caller.tab_id.as_deref() {
         Some(tab_id) if !tab_id.is_empty() => Ok(tab_id),
         _ => Err(ConnectError::new(
@@ -45,9 +48,8 @@ pub fn require_bounded_ui_text(
             format!("invalid {field}"),
         ));
     }
-    max_utf8_bytes(field, value, max_bytes).map_err(|_| {
-        ConnectError::new(ErrorCode::InvalidArgument, format!("invalid {field}"))
-    })
+    max_utf8_bytes(field, value, max_bytes)
+        .map_err(|_| ConnectError::new(ErrorCode::InvalidArgument, format!("invalid {field}")))
 }
 
 /// Refuse a request that names a session with no `sessions` row.
@@ -82,18 +84,12 @@ pub async fn require_persisted_sessions(
         .fetch_all(pool)
         .await
         .map_err(|error| ConnectError::new(ErrorCode::Internal, error.to_string()))?;
-    let found: Vec<String> = rows
-        .iter()
-        .map(|row| row.get::<String, _>("id"))
-        .collect();
+    let found: Vec<String> = rows.iter().map(|row| row.get::<String, _>("id")).collect();
     if distinct
         .iter()
         .any(|session_id| !found.iter().any(|held| held == session_id))
     {
-        return Err(ConnectError::new(
-            ErrorCode::NotFound,
-            "session not found",
-        ));
+        return Err(ConnectError::new(ErrorCode::NotFound, "session not found"));
     }
     Ok(())
 }
@@ -127,7 +123,10 @@ pub async fn labels_for_fingerprints(
         .await
         .map_err(|error| ConnectError::new(ErrorCode::Internal, error.to_string()))?;
     for row in rows {
-        labels.insert(row.get::<String, _>("fingerprint"), row.get::<String, _>("label"));
+        labels.insert(
+            row.get::<String, _>("fingerprint"),
+            row.get::<String, _>("label"),
+        );
     }
     Ok(labels)
 }

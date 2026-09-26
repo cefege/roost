@@ -91,11 +91,10 @@ fn the_ttl_and_both_caps_are_the_numbers_the_contract_states() {
 #[test]
 fn a_heartbeat_refreshes_an_existing_tab_without_consuming_an_identity() {
     let now = Arc::new(Mutex::new(0_i64));
-    let owner = owner_with_now(Arc::clone(&now)).with_identity_rate_limiter(Arc::new(
-        BudgetedLimiter {
+    let owner =
+        owner_with_now(Arc::clone(&now)).with_identity_rate_limiter(Arc::new(BudgetedLimiter {
             remaining: AtomicUsize::new(1),
-        },
-    ));
+        }));
 
     owner
         .report(

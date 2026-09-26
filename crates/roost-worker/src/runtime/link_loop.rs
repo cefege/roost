@@ -84,8 +84,8 @@ pub struct WorkerIdentity {
     pub worker_fp: WorkerFp,
     /// The version reported in the hello.
     pub version: String,
-    /// The activation identity. Not yet on the wire: `force_hello` in the
-    /// `link_serve` module names the missing hello fields.
+    /// The activation identity, sent with the hello so a coordinator can tell
+    /// a restarted worker from the one it was talking to.
     pub process_epoch: String,
 }
 

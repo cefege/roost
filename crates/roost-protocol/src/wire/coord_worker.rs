@@ -6,19 +6,32 @@
 //! wrapped control frame downstream. The browser never dials a worker, so the
 //! coordinator is the only thing that decides which worker runs what.
 //!
-//! The two nested payloads are validated through their own admission path, not
-//! re-checked field by field here: a `SessionEvent` is a durable log record and
-//! a `ClientControlFrame` is a command, and a relay that let either past its own
-//! rules would be a second, looser contract for the same value.
+//! `upstream` and `downstream` are the two arms of the union; every arm the
+//! protobuf `CoordWorkerUp` / `CoordWorkerDown` oneofs declare is present here
+//! exactly once, and `proto_adapters::coord_worker_proto` maps between the two
+//! vocabularies. An arm whose payload already has a domain owner in this crate
+//! (`SessionEvent`, `ClientControlFrame`, `CellGridFrame`, `AgentStatus`,
+//! `ChannelId`) names that owner rather than a parallel struct; an arm with no
+//! owner yet carries the generated protobuf message, which is the single
+//! source of truth for that shape until a track gives it one.
+//!
+//! The two nested payloads that DO have a domain owner are validated through
+//! it, not re-checked field by field here: a `SessionEvent` is a durable log
+//! record and a `ClientControlFrame` is a command, and a relay that let either
+//! past its own rules would be a second, looser contract for the same value.
+mod downstream;
+mod payloads;
+mod upstream;
 
-use serde::{Deserialize, Serialize};
+pub use downstream::CoordWorkerDownstream;
+pub use payloads::{
+    AgentStatusFrame, Binary, EventAck, InputResult, RefreshJwt, TerminalInputStatus,
+    TerminalMetadata, TerminalSnapshotRequest, TerminalStreamFailureKind, TerminalStreamResult,
+    TerminalStreamStatus, TerminalWritePhase, UpdateProgress,
+};
+pub use upstream::CoordWorkerUpstream;
+
 use serde_json::Value;
-
-use crate::validate::nonnegative;
-use crate::wire::brand::{TraceId, WorkerFp};
-use crate::wire::control::ClientControlFrame;
-use crate::wire::event::SessionEvent;
-use crate::{ProtocolError, ProtocolResult};
 
 /// The sole protocol marker accepted for worker WebSocket authentication. The
 /// JWT follows as the second requested subprotocol and is never put in the
@@ -32,165 +45,10 @@ pub const WORKER_AUTH_SUBPROTOCOL: &str = "roost-worker-auth";
 /// stays so the two directions cannot be confused by a reader of a log.
 pub use crate::wire::control::{DIR_FROM_PTY, DIR_TO_PTY};
 
-/// A frame travelling from the worker to the coordinator.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind")]
-pub enum CoordWorkerUpstream {
-    /// The first frame after the socket opens, answered with `hello-ack`.
-    #[serde(rename = "hello")]
-    Hello {
-        worker_fp: WorkerFp,
-        version: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        trace_id: Option<TraceId>,
-    },
-    /// The keepalive reply to a downstream `ping`; the coordinator reads the
-    /// round trip as liveness.
-    #[serde(rename = "pong")]
-    Pong {
-        ts: i64,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        trace_id: Option<TraceId>,
-    },
-    /// One record of the session event log, in order. The coordinator appends it
-    /// in the same transaction its projections use, so an event is never
-    /// visible to a reader before the rows it implies.
-    #[serde(rename = "event")]
-    Event {
-        event: SessionEvent,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        trace_id: Option<TraceId>,
-    },
-    /// The reply to a downstream `browser-command`, correlated by the
-    /// coordinator's own `request_id` so the reply reaches the browser that
-    /// asked rather than whichever browser asked next.
-    #[serde(rename = "rpc-ok")]
-    RpcOk {
-        request_id: String,
-        data: Value,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        trace_id: Option<TraceId>,
-    },
-    #[serde(rename = "rpc-error")]
-    RpcError {
-        request_id: String,
-        message: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        trace_id: Option<TraceId>,
-    },
-}
-
-/// A frame travelling from the coordinator to the worker.
-// The `browser-command` arm relays a whole control frame, the rest carry a few
-// scalars. Boxing the relayed frame would add an allocation to every keystroke
-// path a browser command takes, which is the opposite of what the size
-// difference is warning about.
-#[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind")]
-pub enum CoordWorkerDownstream {
-    /// The immediate reply to `hello`, and the barrier that says the link is
-    /// ready to carry commands.
-    #[serde(rename = "hello-ack")]
-    HelloAck {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        trace_id: Option<TraceId>,
-    },
-    #[serde(rename = "ping")]
-    Ping {
-        ts: i64,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        trace_id: Option<TraceId>,
-    },
-    /// A browser's control frame, routed here for execution at the worker.
-    /// `browser_id` and `viewer_id` are opaque to the worker — it does not
-    /// learn who is watching — and are carried so multi-viewer presence needs
-    /// no second channel later. The worker must echo `request_id` in whatever
-    /// it replies, which is how the reply finds its way home.
-    #[serde(rename = "browser-command")]
-    BrowserCommand {
-        browser_id: String,
-        viewer_id: String,
-        request_id: String,
-        frame: ClientControlFrame,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        trace_id: Option<TraceId>,
-    },
-}
-
-impl CoordWorkerUpstream {
-    /// The wire spelling of this frame's discriminant.
-    pub fn kind(&self) -> &'static str {
-        match self {
-            Self::Hello { .. } => "hello",
-            Self::Pong { .. } => "pong",
-            Self::Event { .. } => "event",
-            Self::RpcOk { .. } => "rpc-ok",
-            Self::RpcError { .. } => "rpc-error",
-        }
-    }
-
-    /// Decode and check one upstream frame. `value` is the already-decoded
-    /// JSON.
-    pub fn parse(value: Value) -> ProtocolResult<Self> {
-        // The event goes through its own admission path first: a frame is not a
-        // way to append a record the durable log would have refused.
-        if let (Some("event"), Some(event)) = (kind_of(&value), value.get("event")) {
-            SessionEvent::parse(event.clone())?;
-        }
-        let frame: Self = serde_json::from_value(value)
-            .map_err(|error| ProtocolError::new("coord_worker_upstream", error.to_string()))?;
-        frame.check()?;
-        Ok(frame)
-    }
-
-    /// The rules a constructed value can be held to, beyond the shapes their
-    /// own types already enforce.
-    pub fn check(&self) -> ProtocolResult<()> {
-        match self {
-            Self::Pong { ts, .. } => nonnegative("pong.ts", *ts),
-            _ => Ok(()),
-        }
-    }
-}
-
-impl CoordWorkerDownstream {
-    /// The wire spelling of this frame's discriminant.
-    pub fn kind(&self) -> &'static str {
-        match self {
-            Self::HelloAck { .. } => "hello-ack",
-            Self::Ping { .. } => "ping",
-            Self::BrowserCommand { .. } => "browser-command",
-        }
-    }
-
-    /// Decode and check one downstream frame. `value` is the already-decoded
-    /// JSON.
-    pub fn parse(value: Value) -> ProtocolResult<Self> {
-        // The wrapped control frame goes through its own admission path first,
-        // strict keys included: relaying a browser command is not permission to
-        // relay a frame the browser could not have sent the worker directly.
-        if let (Some("browser-command"), Some(frame)) = (kind_of(&value), value.get("frame")) {
-            ClientControlFrame::parse(frame.clone())?;
-        }
-        let frame: Self = serde_json::from_value(value)
-            .map_err(|error| ProtocolError::new("coord_worker_downstream", error.to_string()))?;
-        frame.check()?;
-        Ok(frame)
-    }
-
-    /// The rules a constructed value can be held to, beyond the shapes their
-    /// own types already enforce.
-    pub fn check(&self) -> ProtocolResult<()> {
-        match self {
-            Self::Ping { ts, .. } => nonnegative("ping.ts", *ts),
-            Self::BrowserCommand { frame, .. } => frame.check(),
-            Self::HelloAck { .. } => Ok(()),
-        }
-    }
-}
-
-fn kind_of(value: &Value) -> Option<&str> {
+/// The discriminant every frame of either direction carries, read off a
+/// decoded JSON value before serde gets to see it. Kept beside the unions so
+/// the "is this the frame I expected" question is asked in one place.
+pub(crate) fn kind_of(value: &Value) -> Option<&str> {
     value.get("kind").and_then(Value::as_str)
 }
 
@@ -215,6 +73,7 @@ mod tests {
                 "event",
                 json!({
                     "kind": "event",
+                    "client_seq": 1,
                     "event": {
                         "kind": "opened",
                         "session_id": SESSION,
