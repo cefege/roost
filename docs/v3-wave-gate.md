@@ -640,6 +640,48 @@ condition — a mutation reads as a suspiciously small removal, and that is a
 shape a reader can catch in one glance. **The dangerous artefact is not the
 mutation; it is a mutation that has been committed.**
 
+## A fix a test caught is cheaper than a fix a reviewer caught
+
+One behaviour change was authorised on a two-line hypothesis — the legacy branch
+of a staleness predicate returned `update.active` unconditionally, and a row had
+already bounded its *neighbour*, so the defect "must" be there.
+
+**It compiled, and the very next run said otherwise in under a minute.** A test
+named `a_legacy_frame_yields_permanently_once_an_identified_occupant_is_accepted`
+failed with `left: Stale, right: Accepted` — i.e. the branch **is** deliberate and
+**already had a test pinning it**, exactly like the sibling. The change was
+reverted, `git status` clean, the binary back to its prior count.
+
+**And the original failure was still there with the change in place** — so the
+hypothesis was not merely wrong, it was wrong *and* irrelevant, which is the
+cheapest possible way to be wrong.
+
+**What it bought is a tighter bound, not a fix.** Of four returns, three are now
+ruled out: one by a mutation row, one by a passing test, one by the test that just
+failed. **The search area went from "the predicate" to two lines**, and
+*"one disproved fix is enough for a day"* is the right stopping rule.
+
+**So the rule, which applies to every behaviour change on a shipped path:**
+
+> **A fix that a test catches is worth having, and a fix that survives review is
+> worth more. The first outcome is information; the second is a liability.**
+
+The general shape: **a hypothesis cheap enough to test in a minute should be
+tested in a minute, not argued in a review.** The cost of being wrong here was
+one reverted line and one run. The cost of the same wrongness argued rather than
+tested is a shipped behaviour change nobody can distinguish from the fix.
+
+**And the identical-branch rule needed its other half, which is the better half:**
+
+> Two branches written the same way whose *reasons* differ are indistinguishable
+> from correct code — **and two branches written the same way whose rules are
+> both deliberate are indistinguishable from a wrong copy.**
+
+**The thing that distinguishes them is the test each one owns, not the code.**
+Here both early returns turned out to be deliberate, each with a test naming it,
+and the defect was in neither. **Identical code is not a smell on its own; the
+question is whether each copy is pinned by a test that says which rule it is.**
+
 ## Two branches written identically, where only one of them has a reason
 
 A staleness predicate with three returns, and a mutation row proved the **last**
