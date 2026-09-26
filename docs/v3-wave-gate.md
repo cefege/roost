@@ -640,6 +640,46 @@ condition — a mutation reads as a suspiciously small removal, and that is a
 shape a reader can catch in one glance. **The dangerous artefact is not the
 mutation; it is a mutation that has been committed.**
 
+## A row that confirms a fix is the strongest shape a row has
+
+The staleness fix went in and **the same row was re-run on the green tree**:
+`update.common.revision > held.common.revision` → `true` still fails
+`a_late_report_never_displaces_a_fresh_one` with `left: Accepted, right: Stale`.
+Restores checksum-verified on both runs.
+
+> **The row ruled the line out on the broken predicate and confirms the fix on
+> the good one — and the second run is the one that says the fix did not merely
+> move the failure somewhere else.**
+
+**Three verdicts, in increasing strength, and they are not interchangeable:**
+
+| verdict | what it establishes |
+|---|---|
+| **BIT on a red test** | the guard is load-bearing, and *nothing* about isolation |
+| **BIT on a green test** | the guard is load-bearing and the test isolates it |
+| **BIT on green, before and after a fix** | the guard is load-bearing, the test isolates it, **and the fix did not relocate the failure** |
+
+**The third is the one that closes a defect rather than describing one**, and it
+costs one extra run. A fix that moves a failure from one assertion to another in
+the same binary passes a naive "is it green now" check; **a row that bit before
+and after is the only thing in the set that distinguishes a fix from a
+relocation.**
+
+**And the bracket did what a bracket is for.** The third hypothesis was
+necessary-and-insufficient — it fixed the case it was written for and broke the
+other — and that is not a failure, it is **the answer located between two
+bounds**: the rule, plus the dimension the two test bodies share. The dimension
+turned out to be a number in a fixture, not a relation between values.
+
+> **You do not need a fourth guess after a necessary-and-insufficient result. You
+> need one read, and the bracket has already told you where.**
+
+Three dead ends were recorded in the commit body with the test that killed each,
+and **all three were model errors rather than typos**: every line they touched
+was correct, and every line the row can delete is correct. **A dead end that
+touched only correct lines was a wrong model, not a wrong edit** — which is the
+cheapest possible dead end and the most informative one.
+
 ## The axis is the REVISION, and it is a property of neither side
 
 Four hypotheses. The first three assumed the missing rule was a **property** —
