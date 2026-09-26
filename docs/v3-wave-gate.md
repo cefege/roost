@@ -172,6 +172,38 @@ hand-audit is not. That is the general form of a lesson worth keeping —
 **when a class of mistake is findable by a pattern, write the pattern down as a
 check instead of telling people to look harder.**
 
+## Two rules from a racing pair that found each other's bugs
+
+**An adjacent, in-scope, type-checking vocabulary is the most dangerous thing
+on the shelf.** F6 was commissioned to stop `resize()` collapsing distinct
+refusals into one I/O string — and the implementation written to stop it typed
+the refusal with `PtyInRejectReason` (the **input** code set, five values, 1..5)
+instead of `ResizeRejectReason` (nine codes). **Byte 4, `resize_error`, decodes
+as `ChildExited`,** so a caller takes the input-recovery path for a resize that
+failed as something else. It compiled. Three tests written against it by its
+author would have passed.
+
+**The check is not "does it type-check". It is: does this type's value set match
+what the wire byte on this path actually carries** — and the reference is the
+protocol's own table (`protocol-terminal.ts:19-48`, `:50-60`), never the nearest
+enum in the crate. Two enums of the same shape with different numbers are
+indistinguishable to the compiler and completely distinguishable to a user.
+
+**A test whose expected value equals the requested value is not a test of a
+query.** `terminal_state` resized to 132x43 and then asserting 132x43 asserts
+what was asked for, so a client that echoes the request straight back passes it.
+**The discriminating case is a stale sequence:** `apply_resize` returns the
+applied sequence unchanged, so a lower-sequence request is acknowledged with the
+*first* geometry — and an echoing client cannot produce that answer. If the
+expected value could be produced by doing nothing, it is not a test.
+
+**What caught it was a fresh reader asking what the wire carries** — the same
+move as the read-only audit that found F5, and the reason the F5/F6 brief is
+framed as a question about TypeScript callers rather than as a list of methods
+to add. Two agents who raced, coordinated, and produced a better result than
+either would have alone is worth more than a clean hand-off between agents that
+never overlapped.
+
 ## Worker track
 
 | # | Property | File and exact edit | Test that must fail | State |
