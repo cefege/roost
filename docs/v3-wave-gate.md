@@ -408,6 +408,20 @@ conclusion — "it is not observable here" — was a reasonable guess and would
 have been wrong**, and the reason it was wrong is a structural property of the
 channel rather than anything in the test.
 
+**And the two rules are the same instrument, which took two agents and a
+longer argument than it should have.** The F1 control — *the loss test must
+still pass, so the mutation moved order and nothing else* — and the hygiene rule
+— *establish the tree's state before the measurement, not after* — are one idea:
+**a measurement is only as good as the state it was taken against.** The loss
+test passing is what made a red order-test readable; a clean `git status` is
+what made 131 quotable. In both cases the cheap control is the same move, and in
+both cases its absence costs the whole result rather than degrading it.
+
+The framing that makes it stick: **reporting your own contamination is a
+confession; a `git status` before the run is a control.** One is a statement
+about the past, the other is an instrument for the future, and only the second
+prevents the next occurrence.
+
 ## Announce the mutation AND ITS CONTROL
 
 A mutation experiment is a claim: *this edit breaks this property and nothing
