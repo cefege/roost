@@ -14,6 +14,25 @@ Run each mutation, observe the named failure, restore, observe the pass. Record
 the result beside the row. **A row that has never been observed failing is
 unverified, and "unverified" is the honest state — not "probably fine".**
 
+**Two standing rules for running any row on this list.**
+
+1. **Mutate a copy, never the shared worktree.** Copy the file byte-for-byte into
+   a scratch directory, mutate the copy, run the real suite against it, re-sync
+   afterwards. Two agents in this programme independently mutated in place and
+   both paid: one had a read-only audit read a file mid-mutation and report a
+   fixed security defect as **absent**, which cost a slice's credibility for
+   nothing; the other had a stale poll report three already-restored files as
+   still mutated, which cost a cycle and nearly cost a sibling's confidence.
+   **The people most likely to mutate in place are the ones most confident they
+   will remember to restore**, which is why this is a default rather than good
+   practice. A copy is its own pin: there is nothing to coordinate and nothing to
+   reconcile.
+2. **A mutation proves a test bites. It does not prove the surrounding code
+   compiles.** A slice's scratch crate gave `ChannelId` a stand-in carrying a
+   `Display` the real type lacks, so ten `%channel_id` sites compiled in the copy
+   and would not have compiled in the tree. Mutation evidence and compile
+   evidence are different claims, and a gate needs both.
+
 ## Worker track
 
 | # | Property | File and exact edit | Test that must fail | State |
