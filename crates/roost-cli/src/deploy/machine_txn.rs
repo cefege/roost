@@ -115,6 +115,10 @@ pub struct MachineTransaction {
     path: PathBuf,
     record: MachineTransactionRecord,
     released: bool,
+    /// The kernel lock that actually serialises the machine. Dropping this file
+    /// releases it, which is what makes a holder that dies for any reason leave
+    /// the machine free without anybody having to notice.
+    gate: std::fs::File,
 }
 
 impl MachineTransaction {
@@ -132,7 +136,21 @@ impl MachineTransaction {
                 cause: format!("{}: {error}", parent.display()),
             })?;
         }
-        let pool = open(lock_file).await?;
+        // The kernel lock is taken FIRST and is the only thing that serialises
+        // the machine. It used to be the database's own exclusive transaction,
+        // which cannot work: a row written inside an uncommitted transaction is
+        // invisible to every other connection, so the apply on the far side —
+        // the one process whose job is to check that a transaction is held —
+        // could neither read the row nor connect, and every deploy was refused
+        // with "no machine transaction is held" at exactly the moment one was.
+        let gate = take_kernel_lock(lock_file)?;
+        let pool = match open(lock_file, std::time::Duration::ZERO).await {
+            Ok(pool) => pool,
+            Err(error) => {
+                drop(gate);
+                return Err(error);
+            }
+        };
         let record = MachineTransactionRecord {
             kind,
             journal_path: journal_path.display().to_string(),
@@ -142,57 +160,49 @@ impl MachineTransaction {
         };
         let encoded = serde_json::to_string(&record)
             .map_err(|error| unusable(lock_file, sqlx::Error::Protocol(error.to_string())))?;
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS active_machine_transaction (\
-               singleton INTEGER PRIMARY KEY CHECK (singleton = 1),\
-               record_json TEXT NOT NULL)",
-        )
-        .execute(&pool)
-        .await
-        .map_err(|error| unusable(lock_file, error))?;
-        // `busy_timeout = 0` is what makes a contended take fail instead of
-        // wait: the second deploy is refused while the first still holds it,
-        // which is the only ordering that keeps a rollback point meaningful.
-        sqlx::query("BEGIN EXCLUSIVE")
+        let written = async {
+            sqlx::query(
+                "CREATE TABLE IF NOT EXISTS active_machine_transaction (\
+                   singleton INTEGER PRIMARY KEY CHECK (singleton = 1),\
+                   record_json TEXT NOT NULL)",
+            )
             .execute(&pool)
             .await
-            .map_err(|error| {
-                if is_busy(&error) {
-                    TransactionError::Busy { holder: None }
-                } else {
-                    unusable(lock_file, error)
-                }
-            })?;
-        let held: Option<String> = sqlx::query_scalar(
-            "SELECT record_json FROM active_machine_transaction WHERE singleton = 1",
-        )
-        .fetch_optional(&pool)
-        .await
-        .ok()
-        .flatten();
-        if let Some(existing) = held {
-            let _ = sqlx::query("ROLLBACK").execute(&pool).await;
-            return Err(TransactionError::Busy {
-                holder: decode_record(lock_file, &existing)
-                    .ok()
-                    .map(|record| format!("({record:?})")),
-            });
+            .map_err(|error| unusable(lock_file, error))?;
+            // A row left by a holder that died is stale by definition — the
+            // kernel lock is what says so — and this take has just proved it is
+            // gone. Overwriting is therefore the whole recovery.
+            sqlx::query("DELETE FROM active_machine_transaction WHERE singleton = 1")
+                .execute(&pool)
+                .await
+                .map_err(|error| unusable(lock_file, error))?;
+            sqlx::query(
+                "INSERT INTO active_machine_transaction (singleton, record_json) VALUES (1, ?)",
+            )
+            .bind(&encoded)
+            .execute(&pool)
+            .await
+            .map_err(|error| unusable(lock_file, error))?;
+            // COMMITTED, not left open. This is the whole point: the record has
+            // to be readable by the apply while the lock is still held.
+            sqlx::query("COMMIT")
+                .execute(&pool)
+                .await
+                .map_err(|error| unusable(lock_file, error))?;
+            Ok::<(), TransactionError>(())
         }
-        if let Err(error) = sqlx::query(
-            "INSERT INTO active_machine_transaction (singleton, record_json) VALUES (1, ?)",
-        )
-        .bind(&encoded)
-        .execute(&pool)
-        .await
-        {
-            let _ = sqlx::query("ROLLBACK").execute(&pool).await;
-            return Err(unusable(lock_file, error));
+        .await;
+        if let Err(error) = written {
+            drop(gate);
+            drop(pool);
+            return Err(error);
         }
         Ok(Self {
             pool,
             path: lock_file.to_path_buf(),
             record,
             released: false,
+            gate,
         })
     }
 
@@ -222,6 +232,9 @@ impl MachineTransaction {
             .await
             .map_err(|error| unusable(&self.path, error))?;
         self.pool.close().await;
+        // Released last, and released by the kernel either way: dropping the
+        // file is enough, so a holder that unwinds still gives the machine back.
+        drop(self.gate);
         Ok(())
     }
 }
@@ -236,7 +249,7 @@ pub async fn active_transaction(
     if !lock_file.exists() {
         return Ok(None);
     }
-    let pool = open(lock_file).await?;
+    let pool = open(lock_file, READER_BUSY_TIMEOUT).await?;
     let held: Option<String> = sqlx::query_scalar(
         "SELECT record_json FROM active_machine_transaction WHERE singleton = 1",
     )
@@ -251,11 +264,59 @@ pub async fn active_transaction(
     }
 }
 
-async fn open(lock_file: &Path) -> Result<SqlitePool, TransactionError> {
+/// Take the machine's kernel lock, or report who holds it.
+///
+/// A separate file from the database, because the database's own locking is
+/// exactly what cannot be relied on here: the record has to be readable by
+/// another process while the lock is held, and a SQLite write transaction
+/// makes it unreadable. `flock` gives the two properties at once — a second
+/// taker is refused immediately, and the kernel drops it when the holder dies
+/// however it dies.
+fn take_kernel_lock(lock_file: &Path) -> Result<std::fs::File, TransactionError> {
+    let gate_path = gate_path(lock_file);
+    let gate = std::fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(&gate_path)
+        .map_err(|error| TransactionError::Unusable {
+            path: gate_path.clone(),
+            cause: error.to_string(),
+        })?;
+    match gate.try_lock() {
+        Ok(()) => Ok(gate),
+        Err(_) => Err(TransactionError::Busy {
+            // Best effort, and honest about being so: the record may be
+            // mid-write. Naming the holder is a courtesy, refusing the take is
+            // the guarantee, and the guarantee does not depend on the read.
+            holder: None,
+        }),
+    }
+}
+
+/// The file the machine's kernel lock lives in, beside the record it guards.
+pub fn gate_path(lock_file: &Path) -> PathBuf {
+    let mut name = lock_file.file_name().unwrap_or_default().to_os_string();
+    name.push(".hold");
+    lock_file.with_file_name(name)
+}
+
+/// How long a READER waits for a commit that is in flight.
+///
+/// The take path waits for nothing — a second deploy is refused while the first
+/// holds the machine, and that is the ordering that keeps a rollback point
+/// meaningful. A reader is different: a commit landing under it is not a
+/// contention to refuse, it is the holder arriving, and treating that as "no
+/// transaction is held" refuses a legitimate deploy for a few milliseconds.
+const READER_BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// `busy` is how long this connection waits for a lock before reporting one.
+async fn open(lock_file: &Path, busy: std::time::Duration) -> Result<SqlitePool, TransactionError> {
     let options = SqliteConnectOptions::new()
         .filename(lock_file)
         .create_if_missing(true)
-        .busy_timeout(std::time::Duration::ZERO)
+        .busy_timeout(busy)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Delete)
         .synchronous(sqlx::sqlite::SqliteSynchronous::Full);
     SqlitePoolOptions::new()
