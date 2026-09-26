@@ -342,10 +342,3 @@ fn unusable(path: &Path, error: sqlx::Error) -> TransactionError {
         cause: error.to_string(),
     }
 }
-
-fn is_busy(error: &sqlx::Error) -> bool {
-    matches!(
-        error,
-        sqlx::Error::Database(database) if database.code().as_deref() == Some("SQLITE_BUSY")
-    )
-}
