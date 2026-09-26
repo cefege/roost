@@ -672,6 +672,46 @@ of them by default.** So the third category is named explicitly: it goes in as a
 accident** — because adding a check nobody decided on is how a documented
 limitation becomes an undocumented behaviour change.
 
+## THE GUARD-ESCAPE VERDICT: it does not hang, and that is the answer
+
+The class had been open since before this wave: **the only test in the
+programme that can see a lock held across an `await`** had never been executed.
+The verdict, in the three terms fixed in advance:
+
+- **HANG — NO. This is the load-bearing result.** All eight concurrent callers
+  completed; each crossed the real `yield_now().await` inside
+  `CloudflareJwks::jwk` and each received a verified identity. **If a lock were
+  held across the await, the second of eight callers would block and the test
+  would never have finished.** It finished in 0.14s.
+- **FAIL inside the concurrency body — YES**, at the assertion *"every caller
+  really did reach the key ring"*, `left: 16, right: 8`.
+- **PASS — no.** So there is no clean pass, and the class is not closed by a
+  green tick.
+
+**And the failure is the test's own instrument, not the product.** The fixture's
+counter is `*lookups.entry(kid).or_default() += 2;` — **two per lookup** — while
+the assertion expects **one per caller**. Eight callers × 2 = 16, exactly. The
+arithmetic disagreed with itself.
+
+**So: the class is closed on the no-hang evidence, and the assertion is wrong.**
+Those are separate claims and both are recorded.
+
+**And a residual race the per-`kid` fix did not close:** the ring is a
+process-wide `OnceLock`, and the counter was keyed by `kid` to stop two
+concurrent tests reading each other — but **three other tests in the same binary
+also use `KEY_ID`**, and the `before`/`after` delta only isolates them if none of
+them increments *during* this test. With four worker threads, that is a real
+window. **Keying a counter to the thing the assertion is about is necessary and
+not sufficient; a counter shared across concurrently-run tests needs the tests
+to be serialised, or the counter to be per-test rather than per-subject.**
+
+**And the route to any of this was three failed runs, none of which was the
+answer.** The first panicked in the test's own `config()` on a team domain; the
+second was behind that on an audience length; only the third reached the
+concurrency body. **A test that cannot construct its own inputs will tell you
+about its inputs for as long as you let it, and never about the thing it was
+written to check.**
+
 ## The input that does not say what the test's own name says
 
 This has now appeared **four times independently, in three unrelated areas**,
