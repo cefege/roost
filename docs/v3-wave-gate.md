@@ -179,6 +179,41 @@ file later, looking like new work. **Read the error list for the shape, not the
 count: one mistake in two files is one mistake, and the list shows you one of
 them.**
 
+## Making the table agree with the gate by recording LESS
+
+The integrator narrowed `MiscDbExportUrl` from `DeviceOnHost` to `Device` after
+finding that the gate enforces no locality. That made the table *consistent with
+the code* — and it was **a parity narrowing, which is the same defect as a row
+that over-claims, pointing the other way.** v2 is `requireAccountDevice` **AND**
+an unguarded `assertOnHost`; a device *and* on-host is precisely what
+`DeviceOnHost` means. Recording `Device` because the gate cannot tell them apart
+discards a real requirement so that a reader's check passes.
+
+**The two correct sentences are different and only one of them is useful:**
+"the variant is meaningless" and "the requirement is real in v2 and the gate does
+not enforce it." The first invites deletion; the second is what a reader needs.
+
+And v2's five `assertOnHost` sites are **two shapes, not one**:
+
+- **unguarded `assertOnHost(...)`** — a credentialed device *and* on-host. One
+  site. This is `DeviceOnHost`.
+- **`if (!caller) assertOnHost(...)`** — on-host as an **uncredentialed
+  fallback**, admitting a caller holding no key at all. Four sites: pairing ×3
+  and the devices revoke.
+
+`principal_satisfies` can express neither: the first is an extra restriction on
+a caller it has already admitted, and the second admits a caller with no
+credential, which the gate only builds for a request that carried one.
+**Flattening two shapes into one lost the fallback reading that four rows depend
+on** — the same flattening risk as a shared-crate parallel implementation, one
+level up, in a *record* rather than in code.
+
+**A parity question belongs in a commit body as a named decision, not in a diff
+at an integration gate** — and a third sentence was available and unsupported:
+"`Device` is correct because on-host is out of scope for the port." Only
+"`Device` is correct because v2 asserts no locality here" is a claim the
+evidence supports, and choosing between them is the whole job.
+
 ## A handoff that needs two actors is not a request for one of them to go first
 
 A slice named a file in its report as something it would do *once the
