@@ -204,6 +204,42 @@ to add. Two agents who raced, coordinated, and produced a better result than
 either would have alone is worth more than a clean hand-off between agents that
 never overlapped.
 
+## Two more, from the last error standing and from a defect a sweep caught
+
+**A correct definition does not imply a correct expression.** The final
+compile error of the C1 wave was `E0609: no field expired_ids on type
+CreateOutcome`, and the slice's showing was *true at every point*: the type was
+defined once, the field was on all three variants, and there was one access
+site. **None of that was the problem, because Rust does not let you name a
+field on an enum at all.** `&creation.expired_ids` is not a field access that
+happens to be missing; it is a field access *the language does not have* — only
+a `match` knows which variant's field you meant.
+
+So the failure is a different shape from every other error this wave: **the
+API was correct and the form of the use was not**, which is why no amount of
+re-reading the neighbour's definition could ever have found it. The same shape
+as the parse error that reported "1 error left": **evidence that was true,
+describing a different object than the one that was broken.** Both are worth
+remembering as a pair — a true statement can be about the wrong thing, and the
+fix is to ask what object the evidence is actually about.
+
+**A constant that stops being referenced is a behaviour that stopped
+happenin, and the unused-import warning is the only thing in the toolchain that
+says so.** Replacing `buffer_unordered(MAX_CONCURRENT_SENDS)` with a
+`FuturesUnordered` to clear an `FnOnce` error silently deleted the concurrency
+ceiling: `FuturesUnordered` runs everything handed to it, and every subscription
+was pushed up front. A dashboard with two thousand stale subscriptions would have
+opened two thousand HTTPS round trips at once, which is exactly what the constant
+exists to prevent and what v2's fixed worker pool holds. **The compiler could
+not see it.** The only evidence in the entire build was that the import had
+become unused.
+
+This is a much better argument for treating warnings as gate failures than
+"clippy is strict": a warning is frequently the sole signal that a *limit* is no
+longer being applied, because a limit is the kind of thing that compiles
+perfectly well without it. **The imports you stop using are the behaviour you
+stopped having.**
+
 ## Worker track
 
 | # | Property | File and exact edit | Test that must fail | State |
