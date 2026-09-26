@@ -8,7 +8,14 @@ repository.workspace = true
 description = "The worker service: sessions, the keeper client, the durable outbox, the coordinator link, the local door, the WebRTC peer, and agent tracking. Never depends on roost-coord."
 
 [dependencies]
+futures-util.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, features = ["net", "rt", "time"] }
+tokio-tungstenite = { workspace = true, features = ["connect", "handshake"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["net", "rt", "rt-multi-thread", "macros", "time"] }
+tokio-tungstenite = { workspace = true, features = ["handshake"] }
 
 [lints]
 workspace = true

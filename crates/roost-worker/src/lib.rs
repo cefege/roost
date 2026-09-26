@@ -5,4 +5,5 @@
 
 pub mod backoff;
 pub mod event_store;
+pub mod link_dial;
 pub mod outbox;
