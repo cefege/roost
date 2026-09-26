@@ -1490,6 +1490,35 @@ could revive a released claim, because the admission guard was unreachable for
 release-created claims. **A vacuous test is not merely wasted; it is a place
 where a real defect goes to hide.**
 
+## A named limit is an ARTEFACT; a deleted test is not
+
+An injection test asserted something genuinely unreachable: the product's own
+entry point takes a typed `&HeaderMap`, so **a peer cannot deliver a CRLF in a
+header value at all** — the test had been written as if the builder were the
+product, and the builder *is* the same typed layer.
+
+**The unreachable case is replaced by a comment naming the limit, and the test
+asserts the reachable half.** The general form:
+
+> **A test that asserts something the system cannot express is not a weak test,
+> it is a test about a different system.** Writing it as a skip loses the
+> information; writing it as a named limit in the file keeps it.
+
+**And the honest version of the same thing, which cost a second wrong guess to
+establish:** the reachable half was sought by trying candidate control characters
+— DEL, then the C1 range — and **both are refused too.** There is no reachable
+header control character at this layer, and that is a *finding*, not a failure
+to find one.
+
+> **Asserting that the builder refuses proves `http`'s behaviour, not this
+> product's.** What remains as this product's behaviour is the byte bound — which
+> used to be a silent drop.
+
+**So the discipline when a test turns out to assert the unreachable: name the
+limit, then ask what the product's OWN behaviour is in that area, and test
+that.** The second question is the one that found the real defect here, and it
+is the question a "skip" would have prevented anyone from asking.
+
 ## A property that ABSENCE also satisfies is not a property
 
 A test named *"the bound counts bytes and never splits a scalar"* was green
