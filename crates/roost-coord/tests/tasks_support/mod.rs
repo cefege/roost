@@ -39,7 +39,8 @@ pub struct TasksFixture {
     /// The database handle, for the rows a test asserts on directly.
     pub database: CoordDb,
     received: Arc<Mutex<Vec<TaskBusMsg>>>,
-    root: std::path::PathBuf,
+    root: std::path::PathBuf,    /// Held, not dropped: see the constructor.
+    subscription: roost_coord::events::bus::Subscription<TaskBusMsg>,
 }
 
 impl TasksFixture {
@@ -71,7 +72,15 @@ impl TasksFixture {
         let core = CoordCore::new(Arc::clone(&services));
         let received = Arc::new(Mutex::new(Vec::new()));
         let sink = Arc::clone(&received);
-        services
+        // **THE HANDLE IS THE SUBSCRIPTION.** `subscribe` returns a
+        // `Subscription<T>` whose `Drop` removes the listener, so a fixture that
+        // discards the returned value is subscribed to nothing — and it reads as
+        // a bus that delivers to nobody. Three `tasks_queue` tests failed with
+        // zero deltas for exactly this reason while `tasks_refusals`, which
+        // does not subscribe, was 10/0 on the same module. **A test that
+        // drops the handle of the thing it is observing is not weak, it is
+        // unobserved.**
+        let subscription = services
             .buses
             .task_bus
             .subscribe(move |message: &TaskBusMsg| {
@@ -84,6 +93,7 @@ impl TasksFixture {
             database,
             received,
             root,
+            subscription,
         }
     }
 
