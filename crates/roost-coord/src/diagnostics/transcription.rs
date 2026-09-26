@@ -344,7 +344,12 @@ fn mask(key: &str) -> String {
 /// The reachability call: a plain authenticated GET, so it passes for any key
 /// that can transcribe, which is the only question the Test button asks.
 fn deepgram_projects_probe(client: reqwest::Client) -> impl Fn(String) -> ProbeFuture {
+    // The sender is `Fn` and the future is `'static`, so it can neither move its
+    // capture into the future nor borrow one. An `Arc` satisfies both, and a
+    // clone is a pointer bump: `reqwest::Client` already reference-counts.
+    let client = Arc::new(client);
     move |key: String| {
+        let client = Arc::clone(&client);
         Box::pin(async move {
             let response = client
                 .get(DEEPGRAM_PROJECTS_URL)
@@ -378,7 +383,7 @@ fn transport_reason(error: &reqwest::Error) -> String {
 }
 
 /// A probe sender for a client that could not be built, so the operator is told
-/// why instead of being handed a probe that never runs.
+/// why rather than handed a probe that never runs.
 fn unusable_probe(reason: String) -> impl Fn(String) -> ProbeFuture {
     move |_key: String| {
         let reason = reason.clone();
@@ -389,5 +394,7 @@ fn unusable_probe(reason: String) -> impl Fn(String) -> ProbeFuture {
 /// A lock that recovers from a poisoned mutex. Nothing guarded here is left
 /// half-written by a panic, and the alternative is a dead coordinator.
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }

@@ -19,13 +19,14 @@ use roost_proto as proto;
 use sqlx::{Sqlite, Transaction};
 
 use crate::auth::authorized_keys::fingerprint_of_raw_public_key;
+use crate::auth::principal::{device_refusal, require_account_device};
 use crate::auth::bootstrap_tokens::decode_ed25519_pubkey;
 use crate::auth::jwt_key_cache::JwtKeyCache;
 use crate::auth::principal::Principal;
-use crate::auth::rpc_bootstrap::{
+use crate::auth::db_statements::{
     AUTHORIZED_KEY, Bind, REVOKED_KEY, WORKER_ROW, begin, column1, column2, commit, exists1,
     exists2, insert_account_device, insert_authorized_key, internal, invalid_argument,
-    require_account_device, require_device, run,
+    run,
 };
 use crate::coord_core::{Caller, CoordCore};
 use crate::rpc::service::{now_ms, ok_response};
@@ -36,7 +37,10 @@ use crate::rpc::service::{now_ms, ok_response};
 /// CoordinatorService` block in `rpc/service_impl.rs`, so wiring this domain is
 /// reading a table rather than matching on names by hand.
 pub const METHOD_HANDLERS: &[(&str, &str)] = &[
-    ("AuthCoordIdentity", "auth::rpc_devices::handle_auth_coord_identity"),
+    (
+        "AuthCoordIdentity",
+        "auth::rpc_devices::handle_auth_coord_identity",
+    ),
     ("AuthLogout", "auth::rpc_devices::handle_auth_logout"),
     ("DevicesList", "auth::rpc_devices::handle_devices_list"),
     ("DevicesRevoke", "auth::rpc_devices::handle_devices_revoke"),
@@ -48,8 +52,7 @@ pub const METHOD_HANDLERS: &[(&str, &str)] = &[
 
 /// `CoordinatorService.AuthCoordIdentity` -- what this coordinator is.
 ///
-/// Public, and deliberately: a browser reads it before it holds any credential,
-/// which is why the build stamp and the public URL are the only fields filled.
+/// Public, and deliberately: a browser reads it before it holds any credential.
 /// The stamp is the binary's own, not a `git rev-parse` per request, so it
 /// cannot name a commit the running code is not.
 pub async fn handle_auth_coord_identity(
@@ -72,10 +75,9 @@ pub async fn handle_auth_coord_identity(
 
 /// `CoordinatorService.DevicesList` -- the paired browsers, newest first.
 ///
-/// Workers are filtered OUT rather than reported as devices: a machine is not a
-/// browser, it is in `WorkersList`, and a fleet that lists a worker under
-/// "devices" teaches an operator to revoke it here -- which `DevicesRevoke`
-/// refuses, with a message pointing at `WorkersDelete`.
+/// Workers are filtered OUT: a machine is in `WorkersList`, and a fleet that
+/// lists one under "devices" teaches an operator to revoke it here -- which
+/// `DevicesRevoke` refuses, pointing at `WorkersDelete` instead.
 pub async fn handle_devices_list(
     core: &CoordCore,
     caller: &Caller,
@@ -88,11 +90,11 @@ pub async fn handle_devices_list(
     )
     .fetch_all(core.services.db.pool())
     .await
-    .map_err(|error| internal(format!("devices list: {error}")))?;
+    .map_err(|error| internal("devices list", &error))?;
     let workers = sqlx::query_as::<_, (String,)>("SELECT fp FROM workers")
         .fetch_all(core.services.db.pool())
         .await
-        .map_err(|error| internal(format!("devices list: {error}")))?;
+        .map_err(|error| internal("devices list", &error))?;
     let worker_fps: HashSet<&str> = workers.iter().map(|(fp,)| fp.as_str()).collect();
 
     let devices = rows
@@ -140,7 +142,7 @@ pub async fn handle_devices_revoke(
     request: proto::DevicesRevokeRequest,
 ) -> ServiceResult<proto::DevicesRevokeResponse> {
     if !caller.principal.is_browser() && !caller.on_host {
-        return Err(require_device());
+        return Err(device_refusal());
     }
     if caller.principal.is_browser() && caller.fingerprint() == request.fingerprint {
         return Err(invalid_argument("use key rotation to revoke this device"));
@@ -156,7 +158,9 @@ pub async fn handle_devices_revoke(
         return Err(ConnectError::new(ErrorCode::NotFound, "device not found"));
     }
     if exists1(&mut transaction, WORKER_ROW, &fingerprint).await? {
-        return Err(invalid_argument("workers must be deleted through WorkersDelete"));
+        return Err(invalid_argument(
+            "workers must be deleted through WorkersDelete",
+        ));
     }
     retire_principal(
         &mut transaction,
@@ -216,21 +220,31 @@ pub async fn handle_devices_rotate_current(
     // The account is re-read rather than taken from the principal: a legacy
     // self-hosted key has none, and an account device whose row has gone must
     // not silently rejoin an account it no longer belongs to.
-    let account_id: Option<String> = match &caller.principal {
-        Principal::AccountDevice { account_id, .. } => column2(
-            &mut transaction,
-            "SELECT account_id FROM account_devices WHERE fingerprint = ? AND account_id = ?",
-            (current.as_str(), account_id.as_str()),
-        )
-        .await?,
-        _ => column1(
-            &mut transaction,
-            "SELECT account_id FROM account_devices WHERE fingerprint = ?",
-            current.as_str(),
-        )
-        .await?,
-    };
-    insert_authorized_key(&mut transaction, &fingerprint, &public_key, &request.label, now).await?;
+    let account_id: Option<String> =
+        match &caller.principal {
+            Principal::AccountDevice { account_id, .. } => column2(
+                &mut transaction,
+                "SELECT account_id FROM account_devices WHERE fingerprint = ? AND account_id = ?",
+                (current.as_str(), account_id.as_str()),
+            )
+            .await?,
+            _ => {
+                column1(
+                    &mut transaction,
+                    "SELECT account_id FROM account_devices WHERE fingerprint = ?",
+                    current.as_str(),
+                )
+                .await?
+            }
+        };
+    insert_authorized_key(
+        &mut transaction,
+        &fingerprint,
+        &public_key,
+        &request.label,
+        now,
+    )
+    .await?;
     if let Some(account_id) = account_id {
         insert_account_device(&mut transaction, &fingerprint, &account_id, now).await?;
     }
@@ -348,7 +362,10 @@ async fn retire_principal(
         transaction,
         "DELETE FROM bootstrap_tokens WHERE used_at_ms IS NULL \
          AND (minted_by_fp = ? OR (? <> 0 AND minted_by_fp IS NULL))",
-        &[Bind::Text(Some(fingerprint)), Bind::Int(i64::from(sweep_host_grants))],
+        &[
+            Bind::Text(Some(fingerprint)),
+            Bind::Int(i64::from(sweep_host_grants)),
+        ],
     )
     .await?;
     run(

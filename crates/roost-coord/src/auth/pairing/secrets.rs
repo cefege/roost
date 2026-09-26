@@ -24,9 +24,9 @@
 //! holds afterwards is the hex digest, and the only way a digest leaves is
 //! bound to a SQL statement.
 
-use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig};
-use base64::alphabet;
 use base64::Engine as _;
+use base64::alphabet;
+use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig};
 use sha2::Digest as _;
 
 use super::{PairingRefusal, PairingResult};
@@ -109,7 +109,9 @@ pub fn normalize_pair_requester_token(value: &str) -> PairingResult<&str> {
 /// character that would have to be normalized, and normalization is how a
 /// six-digit code becomes a code space an attacker can enumerate.
 pub fn normalize_pair_verification_code(value: &str) -> PairingResult<&str> {
-    if value.len() == PAIR_VERIFICATION_CODE_LENGTH && value.bytes().all(|byte| byte.is_ascii_digit()) {
+    if value.len() == PAIR_VERIFICATION_CODE_LENGTH
+        && value.bytes().all(|byte| byte.is_ascii_digit())
+    {
         Ok(value)
     } else {
         Err(super::refuse(PairingRefusal::InvalidVerificationCode))
@@ -193,7 +195,9 @@ fn to_key(bytes: &[u8]) -> PairingResult<[u8; 32]> {
 fn decode_base64_lenient(value: &str) -> Option<Vec<u8>> {
     let config = GeneralPurposeConfig::new()
         .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent);
-    GeneralPurpose::new(&alphabet::STANDARD, config).decode(value).ok()
+    GeneralPurpose::new(&alphabet::STANDARD, config)
+        .decode(value)
+        .ok()
 }
 
 /// Lowercase hex, and nothing else.

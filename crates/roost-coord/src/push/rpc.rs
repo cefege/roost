@@ -19,6 +19,7 @@ use roost_proto::{PushGetConfigRequest, PushGetConfigResponse, PushSubscribeRequ
 use roost_proto::{PushSubscribeResponse, PushUnsubscribeRequest, PushUnsubscribeResponse};
 
 use crate::coord_core::{Caller, CoordCore};
+use crate::auth::principal::require_account_device;
 use crate::push::PushRuntime;
 use crate::push::endpoint_policy::{PushInputError, validate_endpoint, validate_key};
 use crate::push::subscription_store::{remove_subscription, store_subscription};
@@ -131,20 +132,6 @@ fn push_runtime(core: &CoordCore) -> Result<&PushRuntime, ConnectError> {
     })
 }
 
-/// Refuse anything that is not a browser, with the marker header a client
-/// needs to tell "log in again" from "this method needs a device credential"
-/// (`auth-interceptor.ts:265-271`).
-fn require_account_device(caller: &Caller) -> Result<&str, ConnectError> {
-    caller.principal.require_account_device().map_err(|_| {
-        let mut error = ConnectError::new(ErrorCode::Unauthenticated, "authentication required");
-        error.response_headers_mut().insert(
-            axum::http::HeaderName::from_static(crate::auth::principal::AUTH_LAYER_HEADER),
-            axum::http::HeaderValue::from_static(crate::auth::principal::AUTH_LAYER_DEVICE),
-        );
-        error
-    })
-}
-
 /// Map a refused input onto its Connect status.
 ///
 /// Three statuses and no more, because each one tells the browser something
@@ -163,8 +150,15 @@ fn refuse_input(error: PushInputError) -> ConnectError {
         // A statement failure is the coordinator's fault, not the caller's, and
         // reporting it as `InvalidArgument` would send a browser into a retry
         // loop against a database that is already unhappy.
-        PushInputError::Store(_) => {
-            return ConnectError::new(ErrorCode::Internal, error.to_string());
+        PushInputError::Store(cause) => {
+            // The store's own text names a table and a constraint, and it would
+            // reach the browser. The detail goes to the log; the client gets a
+            // sentence.
+            tracing::error!(error = %cause, "push.subscription_store_failed");
+            return ConnectError::new(
+                ErrorCode::Internal,
+                "the coordinator could not store this push subscription",
+            );
         }
     };
     ConnectError::new(code, error.to_string())

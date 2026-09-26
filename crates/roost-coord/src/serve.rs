@@ -184,15 +184,34 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
         boot.config.audit_retention_days,
     );
 
-    axum::serve(
+    // Boot step 9, the pair-request half: a sweep that reclaims a request whose
+    // deadline passed while this coordinator was DOWN. It runs before its first
+    // sleep, so the reclaim is at boot rather than a minute later -- a live
+    // pair request past its expiry is a credential until something notices.
+    //
+    // The SENDER is held here and the receiver is what the sweep consumes, and
+    // the stop is two halves rather than one: dropping the sender tells a sweep
+    // blocked in `changed()` to return, and `stop()` then waits out the tick
+    // already in flight. A sweep that cannot be stopped is a leak with a name;
+    // one stopped without waiting logs after its owner is gone. Passing `None`
+    // here would be the unstoppable sweep, and is for tests only.
+    let (pair_shutdown, pair_stopped) = tokio::sync::watch::channel(false);
+    let pair_retention =
+        crate::auth::pairing::spawn_pair_request_retention(Arc::clone(&state.services), pair_stopped);
+
+    let served = axum::serve(
         listener,
         mounted
             .router
             .into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown_signal())
-    .await
-    .context("coordinator listener")
+    .await;
+
+    drop(pair_shutdown);
+    pair_retention.stop().await;
+
+    served.context("coordinator listener")
 }
 
 /// The terminal collaborators a booted coordinator hands the workers domain.

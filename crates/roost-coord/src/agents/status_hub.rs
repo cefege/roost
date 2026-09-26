@@ -20,8 +20,8 @@ use std::time::Duration;
 use roost_observability::LogFields;
 use roost_protocol::wire::agent_status::agent_status_identity;
 use roost_protocol::wire::{
-    AgentOccupantId, AgentRuntimeState, AgentStatus, AgentStatusFields, AgentStatusUpdate, SessionId,
-    StatusEpoch, WorkerFp,
+    AgentOccupantId, AgentRuntimeState, AgentStatus, AgentStatusUpdate, SessionId, StatusEpoch,
+    WorkerFp,
 };
 use serde_json::Value;
 
@@ -30,40 +30,43 @@ use crate::agents::status_push::{
     AGENT_STATUS_PUSH_DELAY, AgentStatusPushDelivery, AgentStatusPushSchedule, CurrentAgentStatus,
 };
 use crate::agents::status_wait::{
-    AGENT_STATUS_WAIT_MAX_TIMEOUT_MS, AgentStatusWaitError, AgentStatusWaitRegistry,
-    AgentStatusWaitRequest, AgentStatusWaitView, AgentStatusWaiter,
+    AgentStatusWaitError, AgentStatusWaitRegistry, AgentStatusWaitRequest, AgentStatusWaitView,
+    AgentStatusWaiter,
 };
+mod close;
+
 use crate::coord_core::CoordCore;
 use crate::events::bus_domains::Buses;
 /// The ceiling a synthesized revision is held to, so it survives a JSON peer.
-const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
+pub(super) const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
 
-/// What the hub did with one worker status frame.
+/// What the hub did with one worker status frame. Each arm is a DIFFERENT
+/// refusal, and the log line naming it is how an operator tells a worker
+/// protocol violation from a worker that is merely late.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentStatusAcceptance {
     /// Applied, and published.
     Accepted,
-    /// Not a status this coordinator can hold; nothing changed.
+    /// Not a status this coordinator can hold.
     Invalid,
     /// A newer report already won; the frame was dropped.
     Stale,
-    /// No session is bound to that id, so nothing may be claimed for it.
+    /// No session is bound to that id.
     UnknownSession,
-    /// The frame came from a worker that does not own that session.
+    /// The frame came from a worker that does not own the session.
     WrongWorker,
 }
 
-/// The retained tables, all of which only the hub mutates.
+/// The retained tables, which only the hub mutates.
 #[derive(Default)]
 struct HubTables {
-    /// The live status of every session that has one, in session-id order. A
-    /// `BTreeMap` because THE ORDER IS PART OF THE ANSWER: a client that
-    /// re-fetches and a client that applies broadcasts must converge, and the
-    /// cheapest guarantee is one place the order can come from.
+    /// The live status of every session, in session-id order. A `BTreeMap`
+    /// because THE ORDER IS PART OF THE ANSWER: a client that re-fetches and a
+    /// client that applies broadcasts must converge.
     active: BTreeMap<SessionId, AgentStatus>,
-    /// Per-session admission order, kept on past the status it fences.
+    /// Per-session admission order, kept past the status it fences.
     order: BTreeMap<SessionId, AgentStatusOrder>,
-    /// When each session closed, until no wait could still be pinned to it.
+    /// When each session closed, until no wait could be pinned to it.
     tombstones: BTreeMap<SessionId, i64>,
 }
 
@@ -105,10 +108,7 @@ impl AgentStatusHub {
 
     /// A hub whose clock and push debounce the caller supplies.
     #[must_use]
-    pub fn with_seams(
-        now_ms: Arc<dyn Fn() -> i64 + Send + Sync>,
-        push_delay: Duration,
-    ) -> Self {
+    pub fn with_seams(now_ms: Arc<dyn Fn() -> i64 + Send + Sync>, push_delay: Duration) -> Self {
         Self {
             state: Arc::new(HubState {
                 tables: Mutex::new(HubTables::default()),
@@ -124,7 +124,7 @@ impl AgentStatusHub {
         self.state.push.install_delivery(delivery);
     }
 
-    /// Validate and retain one status frame from an authenticated worker link.
+    /// Validate and retain one frame from an authenticated worker link.
     pub fn accept_worker_status(
         &self,
         core: &CoordCore,
@@ -172,15 +172,6 @@ impl AgentStatusHub {
         self.apply(&core.services.buses, update)
     }
 
-    /// A session closed: fence it, release its waits, and publish the
-    /// synthetic deletion that retires the occupant it held.
-    ///
-    /// Takes the buses rather than the whole core, because the only place a
-    /// session closes is the event publisher, which already holds exactly this.
-    pub fn note_session_closed(&self, buses: &Buses, session_id: &SessionId) {
-        self.close_session(buses, session_id);
-    }
-
     /// A session reopened: drop the close fence, but NOT the retired occupant,
     /// which stays fenced so a reconnect cannot resurrect it.
     pub fn note_session_opened(&self, session_id: &SessionId) {
@@ -200,9 +191,8 @@ impl AgentStatusHub {
         tables.tombstones.clear();
     }
 
-    /// Every retained status, in session-id order. The list RPC and a new Sync
-    /// subscriber's seed both read THIS, which is what makes a re-fetch and a
-    /// broadcast agree.
+    /// Every retained status, in session-id order. The list RPC and a Sync
+    /// seed both read THIS, which is what makes a re-fetch and a broadcast agree.
     #[must_use]
     pub fn snapshot(&self) -> Vec<AgentStatus> {
         self.state
@@ -223,8 +213,7 @@ impl AgentStatusHub {
             .cloned()
     }
 
-    /// The retained state of one exact pinned occupant, for a pre-prompt
-    /// activity check.
+    /// The retained state of one exact pinned occupant, for a pre-prompt check.
     #[must_use]
     pub fn retained_occupant_state(
         &self,
@@ -239,8 +228,7 @@ impl AgentStatusHub {
     }
 
     /// Register a bounded wait. It is registered BEFORE it is evaluated, so a
-    /// change landing between the client's last read and this call is not
-    /// missed.
+    /// change landing between the client's last read and this call is not missed.
     pub fn wait_for_agent_status(
         &self,
         request: AgentStatusWaitRequest,
@@ -248,7 +236,7 @@ impl AgentStatusHub {
         let waiter = self.state.waits.register(request)?;
         self.state
             .waits
-            .evaluate(&self.state, &waiter.request().session_id);
+            .evaluate(self.state.as_ref(), &waiter.request().session_id);
         Ok(waiter)
     }
 
@@ -258,8 +246,8 @@ impl AgentStatusHub {
         self.state.waits.waiter_count()
     }
 
-    /// The one mutation point: validate against the retained order, then
-    /// publish, wake the waits, and arm the push debounce.
+    /// The one mutation point: validate against the retained order, then publish,
+    /// wake the waits, and arm the push debounce.
     fn apply(&self, buses: &Buses, update: AgentStatusUpdate) -> AgentStatusAcceptance {
         let session_id = update.common.session_id.clone();
         let previous = {
@@ -286,7 +274,7 @@ impl AgentStatusHub {
             }
             previous
         };
-        self.state.waits.evaluate(&self.state, &session_id);
+        self.state.waits.evaluate(self.state.as_ref(), &session_id);
         buses.agent_status_bus.publish(update.clone());
         roost_observability::log::debug(
             "agents.status",
@@ -294,50 +282,29 @@ impl AgentStatusHub {
             LogFields::new()
                 .set("session_id", session_id.as_str())
                 .set("active", update.active)
-                .set("revision", update.common.revision),
+                .set("rev", update.common.revision),
         );
-        let table: Arc<dyn CurrentAgentStatus> = Arc::clone(&self.state);
-        self.state.push.arm(table, previous.as_ref(), &update);
+        // `arm` takes the trait object by value and holds it for the life of
+        // the debounce. The coercion has to happen at the ARGUMENT: binding
+        // `Arc<HubState>` to a `Arc<dyn CurrentAgentStatus>` annotation and then
+        // cloning it produces the concrete type again, which is what the
+        // compiler is objecting to.
+        self.state.push.arm(
+            Arc::clone(&self.state) as Arc<dyn CurrentAgentStatus>,
+            previous.as_ref(),
+            &update,
+        );
         AgentStatusAcceptance::Accepted
     }
 
-    /// A session closed. Waiters are released FIRST, so a client learns its
-    /// session is gone rather than that its occupant was replaced.
-    fn close_session(&self, buses: &Buses, session_id: &SessionId) {
-        self.state.sweep_tombstones();
-        self.state
-            .lock(&self.state.tables)
-            .tombstones
-            .insert(session_id.clone(), (self.state.now_ms)());
-        self.state.waits.close_session(session_id);
-        self.state.push.cancel(session_id);
-        let current = self
-            .state
-            .lock(&self.state.tables)
-            .active
-            .remove(session_id);
-        let Some(current) = current else {
-            return;
-        };
-        let inactive = AgentStatusUpdate {
-            common: AgentStatusFields {
-                revision: current
-                    .common
-                    .revision
-                    .saturating_add(1)
-                    .min(MAX_SAFE_INTEGER),
-                updated_at: (self.state.now_ms)().max(current.common.updated_at),
-                ..current.common.clone()
-            },
-            active: false,
-        };
-        self.state
-            .lock(&self.state.tables)
-            .order
-            .entry(session_id.clone())
-            .or_default()
-            .record_close(&current, inactive.common.revision);
-        buses.agent_status_bus.publish(inactive);
+    /// A session closed: fence it, release its waits, and publish the synthetic
+    /// deletion that retires the occupant it held.
+    ///
+    /// Takes the buses rather than the core, because the only place a session
+    /// closes is the event publisher, which already holds exactly this. The
+    /// policy itself lives in `close.rs`.
+    pub fn note_session_closed(&self, buses: &Buses, session_id: &SessionId) {
+        self.state.close_session(buses, session_id);
     }
 }
 
@@ -365,36 +332,7 @@ impl AgentStatusWaitView for HubState {
 }
 
 impl HubState {
-    /// Drop close fences nothing may consult any more. A closed session's fence
-    /// and its admission order expire together; kept forever instead, both maps
-    /// would gain one entry per closed session for the life of the process.
-    fn sweep_tombstones(&self) {
-        let expired_at_or_before = (self.now_ms)() - AGENT_STATUS_WAIT_MAX_TIMEOUT_MS as i64;
-        let mut swept = 0_u64;
-        {
-            let mut tables = self.lock(&self.tables);
-            let stale: Vec<SessionId> = tables
-                .tombstones
-                .iter()
-                .filter(|(_, closed_at_ms)| **closed_at_ms <= expired_at_or_before)
-                .map(|(session_id, _)| session_id.clone())
-                .collect();
-            for session_id in stale {
-                tables.tombstones.remove(&session_id);
-                tables.order.remove(&session_id);
-                swept += 1;
-            }
-        }
-        if swept > 0 {
-            roost_observability::log::info(
-                "agents.status",
-                "tombstones_swept",
-                LogFields::new().set("count", swept),
-            );
-        }
-    }
-
-    fn lock<T>(&self, mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    fn lock<'q, T>(&self, mutex: &'q Mutex<T>) -> MutexGuard<'q, T> {
         mutex.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }

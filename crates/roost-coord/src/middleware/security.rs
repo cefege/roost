@@ -80,8 +80,10 @@ pub fn security_options_for_config(config: &roost_host::CoordConfig) -> Security
     let mut cors_allowed_origins = vec![roost_host::DEFAULT_WORKER_LOCAL_UI_ORIGIN.to_owned()];
     cors_allowed_origins.extend(config.cors_allowed_origins.iter().cloned());
 
-    let mut connect_origins: Vec<String> =
-        TRANSCRIPTION_ORIGINS.iter().map(|origin| (*origin).to_owned()).collect();
+    let mut connect_origins: Vec<String> = TRANSCRIPTION_ORIGINS
+        .iter()
+        .map(|origin| (*origin).to_owned())
+        .collect();
     for declared in [
         config.public_url.as_deref(),
         config.web_public_url.as_deref(),
@@ -171,18 +173,20 @@ pub fn build_csp(relaxed: bool, connect_origins: &[String]) -> String {
 /// too (`security.ts:65-67`): a cache that stored one response without them
 /// would hand a later origin a decision made for an earlier one.
 pub fn apply_cors(headers: &mut HeaderMap, request_origin: Option<&str>, allowed: &[String]) {
-    if let Some(origin) = request_origin.filter(|origin| allowed.iter().any(|it| it == origin)) {
-        if let (Ok(origin), Ok(exposed)) = (
-            HeaderValue::from_str(origin),
+    if let Some(allowed) = request_origin.filter(|origin| allowed.iter().any(|it| it == origin))
+        && let Ok(origin) = HeaderValue::from_str(allowed)
+    {
+        headers.insert(axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
+        headers.insert(
+            axum::http::header::ACCESS_CONTROL_EXPOSE_HEADERS,
             HeaderValue::from_static(X_ROOST_AUTH_LAYER),
-        ) {
-            headers.insert(axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
-            headers.insert(axum::http::header::ACCESS_CONTROL_EXPOSE_HEADERS, exposed);
-        }
+        );
     }
     headers.insert(
         axum::http::header::VARY,
-        HeaderValue::from_static("origin, access-control-request-method, access-control-request-headers"),
+        HeaderValue::from_static(
+            "origin, access-control-request-method, access-control-request-headers",
+        ),
     );
     headers.insert(
         axum::http::header::ACCESS_CONTROL_ALLOW_METHODS,

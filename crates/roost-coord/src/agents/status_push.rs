@@ -24,31 +24,28 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use roost_observability::LogFields;
+use roost_protocol::wire::agent_status::agent_status_identity;
 use roost_protocol::wire::{
     AgentOccupantId, AgentRuntimeState, AgentStatus, AgentStatusUpdate, SessionId, StatusEpoch,
-    agent_status_identity,
 };
 
 use crate::agents::status_order::same_agent_status_occupant;
 use crate::push::dispatch::{
-    ActiveTerminalViewers, AgentPushTransition, PushNotificationTransport, PushTransition,
-    fire_push_for_transition,
+    ActiveTerminalViewers, AgentPushTransition, PushTransition, fire_push_for_transition,
 };
+// `push::transport`'s own type; `dispatch` imports it privately.
+use crate::push::transport::PushNotificationTransport;
 
 /// How long a transition is held before a phone is told about it: one second
-/// (`agent-status-push-scheduler.ts:41`).
-///
-/// A blocked agent republishes its status as its message and authority source
-/// change, and a reconnect republishes a finished one, so without a debounce one
-/// turn would produce several notifications. It is a DEBOUNCE, not a grace
-/// period: the state is broadcast the moment it is accepted, so widening this
-/// window would not make the answer fresher -- it would only make a phone that
-/// was shut when the agent finished learn about it later.
+/// (`agent-status-push-scheduler.ts:41`). A blocked agent republishes as its
+/// message and authority source change, and a reconnect republishes a finished
+/// one, so without a debounce one turn produces several notifications. It is a
+/// DEBOUNCE, not a grace period: the state is broadcast the moment it is
+/// accepted, so widening this window would not make the answer fresher.
 pub const AGENT_STATUS_PUSH_DELAY: Duration = Duration::from_millis(1_000);
 
-/// What the schedule must be able to re-read to decide an armed notification is
-/// still the truth. Answered by the status hub's own table, so the schedule
-/// never keeps a second copy of the state it is fencing.
+/// What the schedule must re-read to decide an armed notification is still the
+/// truth: the status hub's own table, so no second copy of the fenced state.
 pub trait CurrentAgentStatus: Send + Sync {
     /// The status retained for `session_id` right now, if any.
     fn current(&self, session_id: &SessionId) -> Option<AgentStatus>;
@@ -84,8 +81,8 @@ pub struct PushTransitions {
 
 impl PushTransitions {
     /// A delivery over the pool, the operator's origin allowlist, the terminal
-    /// viewers -- so a device already looking at the terminal is not told twice
-    /// -- and the Web Push transport.
+    /// viewers (so a device watching the terminal is not told twice), and the
+    /// Web Push transport.
     #[must_use]
     pub fn new(
         pool: sqlx::SqlitePool,
@@ -142,7 +139,7 @@ impl std::fmt::Debug for PushTransitions {
 
 /// One accepted transition, waiting out the debounce.
 #[derive(Debug, Clone)]
-struct PendingPush {
+pub struct PendingPush {
     /// The session the notification is about; the armed table is keyed by it.
     session_id: SessionId,
     status_epoch: StatusEpoch,
@@ -173,8 +170,8 @@ struct ScheduleState {
 /// The coordinator's push schedule: at most one armed transition per session.
 ///
 /// `Clone` shares, because the task that settles an arm must read the same armed
-/// table the hub writes. A schedule that cloned its table would find nothing
-/// armed when it woke and would silently never notify anybody.
+/// table the hub writes; a schedule that cloned its table would find nothing
+/// armed when it woke and would never notify anybody.
 #[derive(Clone)]
 pub struct AgentStatusPushSchedule {
     state: Arc<ScheduleState>,
@@ -275,8 +272,8 @@ impl AgentStatusPushSchedule {
         armed.next_generation
     }
 
-    /// The debounce has elapsed: send only if this arm is still the armed one
-    /// and the retained row still says what it said when it was armed.
+    /// The debounce elapsed: send only if this arm is still the armed one and
+    /// the retained row still says what it said when it was armed.
     fn settle(
         &self,
         current: &Arc<dyn CurrentAgentStatus>,
@@ -317,17 +314,21 @@ impl AgentStatusPushSchedule {
         };
         let fence_pending = pending.clone();
         let fence_current = Arc::clone(current);
+        // `deliver` takes a `'static` closure, so the session id is copied in
+        // rather than borrowed: the browser's tab outlives this call and the
+        // future must not hold a pointer into this frame.
+        let fence_session_id: SessionId = session_id.clone();
         delivery.deliver(
             &transition,
             Arc::new(move || {
                 fence_current
-                    .current(session_id)
+                    .current(&fence_session_id)
                     .is_some_and(|status| matches_current(&fence_pending, &status))
             }),
         );
     }
 
-    fn lock<T>(&self, mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    fn lock<'q, T>(&self, mutex: &'q Mutex<T>) -> MutexGuard<'q, T> {
         mutex.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
@@ -370,8 +371,7 @@ fn carried_still_holds(pending: &PendingPush, next: &AgentStatusUpdate) -> bool 
     let Some(identity) = agent_status_identity(&next.common) else {
         return false;
     };
-    if identity.status_epoch != pending.status_epoch
-        || identity.occupant_id != pending.occupant_id
+    if identity.status_epoch != pending.status_epoch || identity.occupant_id != pending.occupant_id
     {
         return false;
     }

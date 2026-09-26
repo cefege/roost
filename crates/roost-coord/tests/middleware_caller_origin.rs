@@ -49,8 +49,14 @@ fn a_trusted_proxy_supplies_the_address_from_the_first_forwarded_entry() {
 #[test]
 fn a_traversed_proxy_disqualifies_on_host_even_from_a_loopback_peer() {
     let proxied = resolve_caller_origin(ListenerTrust::Forwarded, Some("127.0.0.1"), Some(""));
-    assert!(!proxied.on_host, "a present header proves a proxy was traversed");
-    assert_eq!(proxied.client_ip, "127.0.0.1", "a blank entry asserts no address");
+    assert!(
+        !proxied.on_host,
+        "a present header proves a proxy was traversed"
+    );
+    assert_eq!(
+        proxied.client_ip, "127.0.0.1",
+        "a blank entry asserts no address"
+    );
 
     let untouched = resolve_caller_origin(ListenerTrust::Forwarded, Some("127.0.0.1"), None);
     assert!(

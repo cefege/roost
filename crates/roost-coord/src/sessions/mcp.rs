@@ -6,9 +6,6 @@
 //! `core.services.buses.mcp_bus`. The rows are the domain's only state, so this
 //! module holds none and is reached entirely through `core.services`.
 
-use std::io::Read as _;
-use std::time::Duration;
-
 use connectrpc::{ConnectError, ErrorCode, ServiceResult};
 use roost_proto as proto;
 use roost_proto::buffa::MessageField;
@@ -16,10 +13,14 @@ use roost_protocol::wire::{
     McpRelay, McpRelayDelta, McpRelayEvent, McpRelayId, McpRelayKind, McpStreamMessage,
 };
 use serde_json::{Map, Value};
-use sqlx::Row as _;
 
 use crate::coord_core::{Caller, CoordCore};
+use crate::auth::principal::require_account_device;
 use crate::rpc::service::{now_ms, ok_response};
+use crate::sessions::mcp_store::{
+    DELETE_RELAY, INSERT_RELAY, LIST_RELAYS, RELAY_HELD, StoredRelay, internal, invalid,
+    removed_id, within_store_deadline,
+};
 
 /// `CoordinatorService.McpList` — every relay this dashboard holds.
 ///
@@ -48,36 +49,6 @@ pub async fn handle_mcp_list(
         relays,
         ..Default::default()
     })
-}
-
-/// One `mcp_relays` row, exactly as the column holds it.
-#[derive(Debug, sqlx::FromRow)]
-struct StoredRelay {
-    id: String,
-    label: String,
-    kind: String,
-    config_json: String,
-    created_at_ms: i64,
-}
-
-impl StoredRelay {
-    /// The wire relay a row answers with, from the column's bytes unparsed: v2
-    /// never looks at the config, and a registry that can fail to list because
-    /// one hand-edited row's JSON is malformed is not a registry.
-    fn into_proto(self) -> Result<proto::McpRelay, ConnectError> {
-        // A negative instant cannot come from `now_ms`; it refuses rather than
-        // wrapping to a number no date has, which is what a cast would ship.
-        let at = u64::try_from(self.created_at_ms)
-            .map_err(|_| internal(format!("negative created_at_ms on relay {}", self.id)))?;
-        Ok(proto::McpRelay {
-            id: self.id,
-            label: self.label,
-            kind: self.kind,
-            config_json: self.config_json,
-            created_at_ms: at,
-            ..Default::default()
-        })
-    }
 }
 
 /// `CoordinatorService.McpCreate` — register a relay and announce it.
@@ -118,15 +89,18 @@ pub async fn handle_mcp_create(
         .bind(row.created_at_ms)
         .bind(dashboard);
     within_store_deadline("McpCreate", insert.execute(core.services.db.pool())).await?;
-    core.services.buses.mcp_bus.publish(McpStreamMessage::Delta(McpRelayDelta::Created {
-        relay: McpRelay {
-            id: id.clone(),
-            label: row.label.clone(),
-            kind,
-            config,
-            created_at_ms: row.created_at_ms,
-        },
-    }));
+    core.services
+        .buses
+        .mcp_bus
+        .publish(McpStreamMessage::Delta(McpRelayDelta::Created {
+            relay: McpRelay {
+                id: id.clone(),
+                label: row.label.clone(),
+                kind,
+                config,
+                created_at_ms: row.created_at_ms,
+            },
+        }));
     tracing::info!(relay_id = %id, kind = kind.as_str(), dashboard, "mcp: relay registered");
     ok_response(proto::McpCreateResponse {
         relay: MessageField::some(row.into_proto()?),
@@ -158,18 +132,32 @@ pub async fn handle_mcp_delete(
         .bind(id.as_str())
         .bind(dashboard)
         .fetch_optional(core.services.db.pool());
-    let removed = within_store_deadline("McpDelete", delete)
-        .await?
-        .map(removed_id)
-        .transpose()?;
+    let removed = within_store_deadline("McpDelete", delete).await?;
+    // A `sqlx::Error` here means the store answered with a row whose `id` column
+    // could not be read as text. The detail goes to the log and the browser gets
+    // a fixed literal: a blanket `From<sqlx::Error> for ConnectError` would let
+    // every SQL error reach a caller as a message, which is the class the lead
+    // has been closing all wave.
+    let removed = match removed.map(removed_id).transpose() {
+        Ok(removed) => removed,
+        Err(error) => {
+            tracing::error!(%error, "mcp delete: the removed row's id was unreadable");
+            return Err(internal(
+                "mcp delete: the store returned an unreadable row".to_owned(),
+            ));
+        }
+    };
     let Some(removed) = removed else {
         return Err(relay_not_found());
     };
     let removed = McpRelayId::try_from(removed)
         .map_err(|error| internal(format!("mcp delete: removed id is not a uuid: {error}")))?;
-    core.services.buses.mcp_bus.publish(McpStreamMessage::Delta(McpRelayDelta::Deleted {
-        id: removed.clone(),
-    }));
+    core.services
+        .buses
+        .mcp_bus
+        .publish(McpStreamMessage::Delta(McpRelayDelta::Deleted {
+            id: removed.clone(),
+        }));
     tracing::info!(relay_id = %removed, dashboard, "mcp: relay removed");
     ok_response(proto::McpDeleteResponse {
         ok: true,
@@ -210,11 +198,14 @@ pub async fn handle_mcp_publish(
         return Err(relay_not_found());
     }
     let ts = now_ms();
-    core.services.buses.mcp_bus.publish(McpStreamMessage::Event(McpRelayEvent {
-        relay_id: id.clone(),
-        payload,
-        ts,
-    }));
+    core.services
+        .buses
+        .mcp_bus
+        .publish(McpStreamMessage::Event(McpRelayEvent {
+            relay_id: id.clone(),
+            payload,
+            ts,
+        }));
     tracing::info!(
         relay_id = %id,
         dashboard,
@@ -238,84 +229,9 @@ pub const METHOD_HANDLERS: &[(&str, &str)] = &[
     ("McpPublish", "sessions::mcp::handle_mcp_publish"),
 ];
 
-/// How long one MCP statement may hold a caller before the call is refused.
-///
-/// [`crate::db::BUSY_TIMEOUT`] and not a number of this module's own. The
-/// coordinator keeps ONE connection (`db.rs`), so every domain's mutation waits
-/// on the same lock, and the crate has decided what that wait is worth: "above
-/// the write gate's own hold time, so a mutation queued behind an exclusive
-/// keeper-update drain waits rather than failing". A second, smaller number here
-/// would be a second answer to that question, and the one a caller observed would
-/// be whichever was smaller — a browser would start seeing MCP failures during a
-/// deploy drain that workspaces and tasks ride out.
-///
-/// The timer wraps the whole statement, acquisition included, so the bound is on
-/// the CALLER's wait rather than on a phase of it, and it turns a wedged store
-/// from a request that never returns into a bounded refusal a browser can retry.
-const STORE_DEADLINE: Duration = crate::db::BUSY_TIMEOUT;
-
-/// Two statuses, because each tells the browser something different:
-/// `Unavailable` means "the coordinator's own state did not answer; come back",
-/// which a browser retries, and `Internal` means a statement failed, which it
-/// does not. One status would either send a browser into a retry loop against a
-/// broken database or make a retryable wait look permanent.
-async fn within_store_deadline<T>(
-    method: &'static str,
-    work: impl Future<Output = Result<T, sqlx::Error>>,
-) -> Result<T, ConnectError> {
-    match tokio::time::timeout(STORE_DEADLINE, work).await {
-        Ok(Ok(value)) => Ok(value),
-        Ok(Err(error)) => Err(internal(error.to_string())),
-        Err(_elapsed) => {
-            tracing::error!(
-                method,
-                deadline_ms = STORE_DEADLINE.as_millis(),
-                "mcp: the store did not answer inside the busy timeout; refusing rather than holding the caller"
-            );
-            Err(ConnectError::new(
-                ErrorCode::Unavailable,
-                format!(
-                    "the coordinator store did not answer {method} within {}ms",
-                    STORE_DEADLINE.as_millis()
-                ),
-            ))
-        }
-    }
-}
-
-/// The caller's own mistake — the one status worth separating from the
-/// coordinator's, because the browser fixes it rather than retrying it.
-fn invalid(reason: String) -> ConnectError {
-    ConnectError::new(ErrorCode::InvalidArgument, reason)
-}
-
-/// A coordinator that is misassembled or whose store failed: both the
-/// deployment's fault, neither the caller's to retry.
-fn internal(reason: String) -> ConnectError {
-    ConnectError::new(ErrorCode::Internal, reason)
-}
-
 /// The dashboard every relay read and write is scoped to.
 fn dashboard_id(core: &CoordCore) -> Result<&str, ConnectError> {
     Ok(core.services.boot.require_tenant()?.dashboard_id.as_str())
-}
-
-const LIST_RELAYS: &str = "SELECT id, label, kind, config_json, created_at_ms FROM mcp_relays \
-                           WHERE dashboard_id = ?1 ORDER BY created_at_ms, id";
-const INSERT_RELAY: &str = "INSERT INTO mcp_relays \
-                            (id, label, kind, config_json, created_at_ms, dashboard_id) \
-                            VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
-const DELETE_RELAY: &str =
-    "DELETE FROM mcp_relays WHERE id = ?1 AND dashboard_id = ?2 RETURNING id";
-const RELAY_HELD: &str = "SELECT id FROM mcp_relays WHERE id = ?1 AND dashboard_id = ?2";
-
-/// The `RETURNING id` column of a removed relay, as text.
-///
-/// The statement bound the id, so what comes back is what was bound; branding it
-/// is the caller's job, and a row answering with anything else is reported
-/// rather than papered over.
-fn removed_id(row: sqlx::sqlite::SqliteRow) -> Result<String, sqlx::Error> {
-    row.try_get("id")
 }
 
 /// The relay's configuration, as the object the stream carries. An array, a
@@ -344,35 +260,18 @@ fn parse_relay_kind(raw: &str) -> Result<McpRelayKind, ConnectError> {
 /// reached this check after resolving the row, where a malformed id was a 500;
 /// here it is the caller's own argument, so it is `InvalidArgument`.
 fn parse_relay_id(raw: &str) -> Result<McpRelayId, ConnectError> {
-    McpRelayId::try_from(raw)
-        .map_err(|error| invalid(format!("invalid relay id {raw:?}: {error}")))
+    McpRelayId::try_from(raw).map_err(|error| invalid(format!("invalid relay id {raw:?}: {error}")))
 }
 
-/// A fresh relay id: 16 bytes of CSPRNG entropy, version and variant set so the
-/// value is the shape `crypto.randomUUID()` produced in v2.
+/// A fresh relay id: sixteen random bytes, rendered.
 ///
-/// `/dev/urandom` is the entropy source `push::vapid::P256KeypairGenerator`
-/// already uses, for the same reason (Linux and macOS only, both ship the
-/// device). It is a second spelling of one facility and the hoist that removes it
-/// is the lead's edit; it lives here because this is the only minted id in the
-/// sessions domain today.
+/// The entropy source and the version-nibble forcing both live in
+/// `coord_core::ids`; this opened `/dev/urandom` a second time and spelled the
+/// grouping a second time, which is the shape the wave keeps paying for.
 fn mint_relay_id() -> Result<McpRelayId, ConnectError> {
-    let mut bytes = [0_u8; 16];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut source| source.read_exact(&mut bytes))
+    let bytes = crate::coord_core::ids::draw::<16>()
         .map_err(|error| internal(format!("mcp create: no entropy source: {error}")))?;
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    // The 8-4-4-4-12 grouping, cut from the rendered hex rather than assembled
-    // byte by byte.
-    let rendered = hex::encode(bytes);
-    let groups = [0, 8, 12, 16, 20, 32];
-    let id = groups
-        .windows(2)
-        .map(|ends| &rendered[ends[0]..ends[1]])
-        .collect::<Vec<_>>()
-        .join("-");
-    parse_relay_id(&id)
+    parse_relay_id(&crate::coord_core::ids::render_v4(bytes))
 }
 
 /// The one refusal for a relay this coordinator cannot resolve, for the delete
@@ -382,16 +281,3 @@ fn relay_not_found() -> ConnectError {
     ConnectError::new(ErrorCode::NotFound, "not found")
 }
 
-/// Refuse anything that is not a browser, with the marker header a client needs
-/// to tell "log in again" from "this method needs a device credential"
-/// (`auth-interceptor.ts:265-271`).
-fn require_account_device(caller: &Caller) -> Result<&str, ConnectError> {
-    caller.principal.require_account_device().map_err(|_| {
-        let mut error = ConnectError::new(ErrorCode::Unauthenticated, "authentication required");
-        error.response_headers_mut().insert(
-            axum::http::HeaderName::from_static(crate::auth::principal::AUTH_LAYER_HEADER),
-            axum::http::HeaderValue::from_static(crate::auth::principal::AUTH_LAYER_DEVICE),
-        );
-        error
-    })
-}

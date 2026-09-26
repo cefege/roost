@@ -106,7 +106,9 @@ impl OwnerIndex {
     }
 
     fn data(&self) -> MutexGuard<'_, OwnerData> {
-        self.data.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.data
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Register an owner-mode connection, superseding any earlier one.
@@ -227,7 +229,8 @@ impl OwnerIndex {
             return false;
         }
         let changed = data.rows.get(&session_id) != Some(&row);
-        data.owner_sessions.insert(session_id.clone(), worker_fp.clone());
+        data.owner_sessions
+            .insert(session_id.clone(), worker_fp.clone());
         data.rows.insert(session_id, row);
         changed
     }
@@ -236,19 +239,6 @@ impl OwnerIndex {
     #[must_use]
     pub fn row(&self, session_id: &SessionId) -> Option<OwnerRow> {
         self.data().rows.get(session_id).cloned()
-    }
-
-    /// Every published row, for a diagnostic sweep.
-    #[must_use]
-    pub fn rows(&self) -> Vec<(SessionId, OwnerRow)> {
-        let mut rows: Vec<(SessionId, OwnerRow)> = self
-            .data()
-            .rows
-            .iter()
-            .map(|(session_id, row)| (session_id.clone(), row.clone()))
-            .collect();
-        rows.sort_by(|left, right| left.0.cmp(&right.0));
-        rows
     }
 
     /// Forget a session's owner binding and its row.

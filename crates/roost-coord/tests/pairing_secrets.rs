@@ -3,6 +3,11 @@
 //! encodings a browser may send, and the one digest every pairing secret is
 //! stored under.
 //!
+//! Every refusal below is asserted as the TYPED [`PairingRefusal`], never as a
+//! message. A test that matches a message passes when two different refusals
+//! happen to render the same words, which is exactly the failure a ceremony
+//! cannot have.
+//!
 //! The digest test is the one that matters beyond this crate. It pins the
 //! primitive so a port cannot quietly change what a stored secret is, because
 //! every already-created pair request is bound to the digest its browser
@@ -12,20 +17,25 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_coord::auth::pairing::secrets::{
-    PAIR_REQUESTER_TOKEN_HEX_LEN, PAIR_REQUEST_ID_HEX_LEN, PAIR_VERIFICATION_CODE_LENGTH,
-    PAIR_VERIFICATION_ATTEMPT_LIMIT, assert_pairing_ceremony_version, decode_ed25519_pubkey,
-    normalize_pair_request_id, normalize_pair_requester_token, normalize_pair_verification_code,
-    pairing_secret_digest,
+    PAIR_REQUEST_ID_HEX_LEN, PAIR_REQUESTER_TOKEN_HEX_LEN, PAIR_VERIFICATION_ATTEMPT_LIMIT,
+    PAIR_VERIFICATION_CODE_LENGTH, PAIRING_CEREMONY_VERSION, assert_pairing_ceremony_version,
+    decode_ed25519_pubkey, normalize_pair_request_id, normalize_pair_requester_token,
+    normalize_pair_verification_code, pairing_secret_digest,
 };
-use roost_coord::auth::pairing::PairingRefusal;
+use roost_coord::auth::pairing::{PairingError, PairingRefusal};
 
 const VALID_ID: &str = "00112233445566778899aabbccddeeff";
 const VALID_TOKEN: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
 
+/// The typed refusal a ceremony step answered with.
+fn refusal_of(error: PairingError) -> Option<PairingRefusal> {
+    error.refusal()
+}
+
 /// A stored pairing secret is the lowercase hex of its SHA-256, and never the
-/// secret. The vector is the SHA-256 of the empty-adjacent literal `abc`, so a
-/// port that swapped in a different primitive fails here rather than at the
-/// first pairing attempt on a user's install.
+/// secret. The vector is the SHA-256 of `abc`, so a port that swapped in a
+/// different primitive fails here rather than at the first pairing attempt on a
+/// user's install.
 #[test]
 fn a_pairing_secret_is_stored_as_its_sha256_hex() {
     assert_eq!(
@@ -33,6 +43,11 @@ fn a_pairing_secret_is_stored_as_its_sha256_hex() {
         "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     );
     assert_eq!(pairing_secret_digest("abc").len(), 64);
+    assert_eq!(
+        pairing_secret_digest("abc"),
+        pairing_secret_digest("abc"),
+        "the digest is a function of the secret alone, not of the clock"
+    );
     assert_ne!(
         pairing_secret_digest("abc"),
         pairing_secret_digest("abd"),
@@ -54,15 +69,15 @@ fn a_request_id_is_thirty_two_lowercase_hex_characters() {
     for refused in [
         "",
         "00",
-        &VALID_ID[..31],
-        &format!("{VALID_ID}0"),
-        &VALID_ID.to_uppercase(),
+        "00112233445566778899aabbccddeef",
+        "00112233445566778899aabbccddeeff0",
+        "00112233445566778899AABBCCDDEEFF",
         &"g".repeat(32),
         "0011 2233 4455 6677 8899 aabb ccdd eeff",
     ] {
         assert_eq!(
-            normalize_pair_request_id(refused).unwrap_err().reason,
-            PairingRefusal::InvalidRequestId.to_string(),
+            refusal_of(normalize_pair_request_id(refused).unwrap_err()),
+            Some(PairingRefusal::InvalidRequestId),
             "{refused:?} must not be a request id"
         );
     }
@@ -73,19 +88,18 @@ fn a_request_id_is_thirty_two_lowercase_hex_characters() {
 /// request it is polling.
 #[test]
 fn a_requester_token_is_sixty_four_lowercase_hex_characters() {
-    assert_eq!(normalize_pair_requester_token(VALID_TOKEN).unwrap(), VALID_TOKEN);
+    assert_eq!(
+        normalize_pair_requester_token(VALID_TOKEN).unwrap(),
+        VALID_TOKEN
+    );
     assert_eq!(PAIR_REQUESTER_TOKEN_HEX_LEN, 64);
-    assert_eq!(
-        normalize_pair_requester_token(VALID_ID).unwrap_err().reason,
-        PairingRefusal::InvalidRequesterToken.to_string(),
-        "a 32-character value is an id, not a token"
-    );
-    assert_eq!(
-        normalize_pair_requester_token(&VALID_TOKEN.to_uppercase())
-            .unwrap_err()
-            .reason,
-        PairingRefusal::InvalidRequesterToken.to_string()
-    );
+    for refused in [VALID_ID, &VALID_TOKEN.to_uppercase(), &"z".repeat(64)] {
+        assert_eq!(
+            refusal_of(normalize_pair_requester_token(refused).unwrap_err()),
+            Some(PairingRefusal::InvalidRequesterToken),
+            "{refused:?} must not be a requester token"
+        );
+    }
 }
 
 /// A verification code is exactly six ASCII digits, and a malformed one is an
@@ -96,12 +110,23 @@ fn a_requester_token_is_sixty_four_lowercase_hex_characters() {
 fn a_verification_code_is_exactly_six_ascii_digits() {
     assert_eq!(PAIR_VERIFICATION_CODE_LENGTH, 6);
     for accepted in ["000000", "999999", "012345"] {
-        assert_eq!(normalize_pair_verification_code(accepted).unwrap(), accepted);
-    }
-    for refused in ["", "12345", "1234567", "12345a", "123 456", "+12345", "１２３４５６"] {
         assert_eq!(
-            normalize_pair_verification_code(refused).unwrap_err().reason,
-            PairingRefusal::InvalidVerificationCode.to_string(),
+            normalize_pair_verification_code(accepted).unwrap(),
+            accepted
+        );
+    }
+    for refused in [
+        "",
+        "12345",
+        "1234567",
+        "12345a",
+        "123 456",
+        "+12345",
+        "１２３４５６",
+    ] {
+        assert_eq!(
+            refusal_of(normalize_pair_verification_code(refused).unwrap_err()),
+            Some(PairingRefusal::InvalidVerificationCode),
             "{refused:?} must not be a verification code"
         );
     }
@@ -112,9 +137,14 @@ fn a_verification_code_is_exactly_six_ascii_digits() {
 /// `InvalidArgument` unchanged loops forever; a browser that reloads recovers.
 #[test]
 fn a_foreign_ceremony_version_asks_the_client_to_reload() {
-    assert!(assert_pairing_ceremony_version(1).is_ok());
+    assert_eq!(PAIRING_CEREMONY_VERSION, 1);
+    assert!(assert_pairing_ceremony_version(PAIRING_CEREMONY_VERSION).is_ok());
     let error = assert_pairing_ceremony_version(2).unwrap_err();
-    assert_eq!(error.reason, "pairing client must reload");
+    assert_eq!(
+        refusal_of(error.clone()),
+        Some(PairingRefusal::CeremonyVersion)
+    );
+    assert_eq!(error.to_string(), "pairing client must reload");
     assert_eq!(
         PairingRefusal::CeremonyVersion.code(),
         connectrpc::ErrorCode::FailedPrecondition
@@ -151,20 +181,23 @@ fn a_malformed_public_key_is_refused_and_never_padded() {
     wrong_length.extend_from_slice(&16u32.to_be_bytes());
     wrong_length.extend_from_slice(&[0x11; 16]);
     assert_eq!(
-        decode_ed25519_pubkey(&roost_host::b64url_encode(&wrong_length))
-            .unwrap_err()
-            .reason,
-        PairingRefusal::InvalidPublicKey.to_string()
+        refusal_of(decode_ed25519_pubkey(&roost_host::b64url_encode(&wrong_length)).unwrap_err()),
+        Some(PairingRefusal::InvalidPublicKey)
     );
 
     let short = roost_host::b64url_encode(&[0x22u8; 16]);
     assert_eq!(
-        decode_ed25519_pubkey(&short).unwrap_err().reason,
-        PairingRefusal::InvalidPublicKey.to_string(),
+        refusal_of(decode_ed25519_pubkey(&short).unwrap_err()),
+        Some(PairingRefusal::InvalidPublicKey),
         "a 16-byte key must not be padded into a 32-byte one"
     );
-    assert!(decode_ed25519_pubkey("not base64 !!!").is_err());
-    assert!(decode_ed25519_pubkey("").is_err());
+    for refused in ["not base64 !!!", "", "AAAA"] {
+        assert_eq!(
+            refusal_of(decode_ed25519_pubkey(refused).unwrap_err()),
+            Some(PairingRefusal::InvalidPublicKey),
+            "{refused:?} must not be a public key"
+        );
+    }
 }
 
 /// The attempt bound is five, and it is the same bound the confirmation path

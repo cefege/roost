@@ -17,9 +17,14 @@ use roost_coord::sessions::rpc_workspaces::{
     handle_workspaces_create, handle_workspaces_delete, handle_workspaces_list,
     handle_workspaces_set_sessions, handle_workspaces_update,
 };
-use roost_protocol::wire::WorkspaceDelta;
+use roost_protocol::wire::{WorkspaceDelta, WorkspaceId};
 
 use workspaces_support::{SESSION_A, SESSION_B, WORKER_FP, WorkspacesFixture, device_caller};
+
+/// A workspace id back as the wire brand, for asserting a delta's payload.
+fn workspace_id(value: &str) -> WorkspaceId {
+    WorkspaceId::try_from(value).expect("a workspace id the brand accepts")
+}
 
 /// Create a workspace and answer with its proto row.
 async fn create(
@@ -75,6 +80,7 @@ async fn every_mutation_reaches_a_sync_subscriber() {
             id: target.id.clone(),
             if_version: 1,
             session_ids: vec![SESSION_A.to_owned()],
+            ..Default::default()
         },
     )
     .await
@@ -85,13 +91,18 @@ async fn every_mutation_reaches_a_sync_subscriber() {
         roost_proto::WorkspacesDeleteRequest {
             id: source.id.clone(),
             if_version: 0,
+            ..Default::default()
         },
     )
     .await
     .expect("a deleted workspace");
 
     let recorded = fixture.recorded();
-    assert_eq!(recorded.len(), 6, "two creates, an update, a rewrite, a delete");
+    assert_eq!(
+        recorded.len(),
+        6,
+        "two creates, an update, a rewrite, a delete"
+    );
     let WorkspaceDelta::Created { workspace } = &recorded[0] else {
         panic!("a create publishes a full row, so a subscriber needs no second query");
     };
@@ -105,7 +116,10 @@ async fn every_mutation_reaches_a_sync_subscriber() {
         WorkspaceDelta::Updated { workspace } => {
             assert_eq!(workspace.id.as_str(), target.id);
             assert_eq!(workspace.color.as_deref(), Some("amber"));
-            assert_eq!(workspace.version, 1, "the delta carries the version the write produced");
+            assert_eq!(
+                workspace.version, 1,
+                "the delta carries the version the write produced"
+            );
         }
         other => panic!("expected an update, got {other:?}"),
     }
@@ -116,7 +130,10 @@ async fn every_mutation_reaches_a_sync_subscriber() {
             version,
         } => {
             assert_eq!(id.as_str(), target.id);
-            assert_eq!(session_ids.iter().map(|id| id.as_str()).collect::<Vec<_>>(), [SESSION_A]);
+            assert_eq!(
+                session_ids.iter().map(|id| id.as_str()).collect::<Vec<_>>(),
+                [SESSION_A]
+            );
             assert_eq!(*version, 2);
         }
         other => panic!("expected a membership, got {other:?}"),
@@ -124,7 +141,7 @@ async fn every_mutation_reaches_a_sync_subscriber() {
     assert_eq!(
         recorded[5],
         WorkspaceDelta::Deleted {
-            id: source.id.parse().expect("a workspace id"),
+            id: workspace_id(&source.id),
         },
         "the workspace the rewrite emptied is announced as deleted, not as emptied"
     );
@@ -164,7 +181,10 @@ async fn a_delta_and_the_list_agree_field_for_field() {
     assert_eq!(workspace.name, created.name);
     assert_eq!(workspace.folder_path, created.folder_path);
     assert_eq!(workspace.position, i64::from(created.position));
-    assert_eq!(workspace.version, i64::from(created.version));
+    assert_eq!(
+        workspace.version,
+        i64::try_from(created.version).expect("a version that fits i64")
+    );
     assert_eq!(
         workspace
             .session_ids
@@ -194,7 +214,10 @@ async fn a_write_that_changed_nothing_publishes_nothing() {
     )
     .await
     .expect("the existing row");
-    assert_eq!(again.body.workspace.into_option().expect("a row").id, first.id);
+    assert_eq!(
+        again.body.workspace.into_option().expect("a row").id,
+        first.id
+    );
     assert_eq!(
         fixture.recorded().len(),
         1,
@@ -213,7 +236,12 @@ async fn a_write_that_changed_nothing_publishes_nothing() {
     )
     .await
     .expect_err("a stale version");
-    assert!(refused.message.unwrap_or_default().contains("version mismatch"));
+    assert!(
+        refused
+            .message
+            .unwrap_or_default()
+            .contains("version mismatch")
+    );
     assert_eq!(
         fixture.recorded().len(),
         1,
@@ -249,5 +277,8 @@ async fn a_mutation_is_refused_while_a_keeper_update_drains() {
     drop(drain);
 
     let created = create(&fixture, "/srv/one", &[]).await;
-    assert_eq!(created.name, "ws", "the write lands once the drain is released");
+    assert_eq!(
+        created.name, "ws",
+        "the write lands once the drain is released"
+    );
 }

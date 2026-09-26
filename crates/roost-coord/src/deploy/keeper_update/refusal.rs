@@ -73,19 +73,19 @@ impl KeeperUpdateRefusal {
     #[must_use]
     pub fn reason(self) -> (&'static str, ErrorCode) {
         use ErrorCode::{
-            DataLoss, FailedPrecondition, Internal, InvalidArgument, NotFound, Unavailable,
-            Unauthenticated,
+            DataLoss, FailedPrecondition, Internal, InvalidArgument, NotFound, Unauthenticated,
+            Unavailable,
         };
         match self {
-            Self::MalformedWorkerFingerprint => {
-                ("worker fingerprint is invalid", InvalidArgument)
-            }
-            Self::ForceLiveWithoutMaintenance => {
-                ("keeper force-live requires the maintenance path", InvalidArgument)
-            }
-            Self::MaintenanceWithJournal => {
-                ("keeper maintenance cannot carry a journaled update", InvalidArgument)
-            }
+            Self::MalformedWorkerFingerprint => ("worker fingerprint is invalid", InvalidArgument),
+            Self::ForceLiveWithoutMaintenance => (
+                "keeper force-live requires the maintenance path",
+                InvalidArgument,
+            ),
+            Self::MaintenanceWithJournal => (
+                "keeper maintenance cannot carry a journaled update",
+                InvalidArgument,
+            ),
             Self::JournaledUpdateRequired => {
                 ("journaled keeper update is required", InvalidArgument)
             }
@@ -96,15 +96,18 @@ impl KeeperUpdateRefusal {
             Self::MalformedOpenSessionProof => {
                 ("coordinator open-session proof is malformed", DataLoss)
             }
-            Self::CoordinatorReadFailed => {
-                ("coordinator could not read a row this decision rests on", Internal)
-            }
-            Self::MaintenanceBlockedByLiveSessions => {
-                ("keeper maintenance blocked by live sessions", FailedPrecondition)
-            }
-            Self::ReplacementBlockedByLiveSessions => {
-                ("keeper replacement blocked by live sessions", FailedPrecondition)
-            }
+            Self::CoordinatorReadFailed => (
+                "coordinator could not read a row this decision rests on",
+                Internal,
+            ),
+            Self::MaintenanceBlockedByLiveSessions => (
+                "keeper maintenance blocked by live sessions",
+                FailedPrecondition,
+            ),
+            Self::ReplacementBlockedByLiveSessions => (
+                "keeper replacement blocked by live sessions",
+                FailedPrecondition,
+            ),
             Self::WorkerNotFound => ("worker not found", NotFound),
             Self::AuthenticationRequired => ("authentication required", Unauthenticated),
             Self::DrainHeld => ("coordinator keeper update preparation is held", Unavailable),
@@ -113,9 +116,10 @@ impl KeeperUpdateRefusal {
                 Internal,
             ),
             Self::MalformedWorkerProof => ("worker returned malformed keeper proof", DataLoss),
-            Self::ProofForDifferentAction => {
-                ("worker returned keeper proof for a different action", DataLoss)
-            }
+            Self::ProofForDifferentAction => (
+                "worker returned keeper proof for a different action",
+                DataLoss,
+            ),
             Self::MalformedKeeperIdentity => {
                 ("worker returned malformed keeper identity", DataLoss)
             }

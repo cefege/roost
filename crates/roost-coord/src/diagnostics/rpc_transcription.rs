@@ -23,9 +23,8 @@ use roost_proto as proto;
 use tracing::info;
 
 use crate::coord_core::{Caller, CoordCore};
-use crate::diagnostics::transcription::{
-    self, ProviderProbe, TranscriptionStoreError,
-};
+use crate::auth::principal::require_account_device;
+use crate::diagnostics::transcription::{self, ProviderProbe, TranscriptionStoreError};
 use crate::rpc::service::ok_response;
 
 /// `CoordinatorService.TranscriptionGetConfig` -- the settings, never the key.
@@ -85,14 +84,12 @@ pub async fn handle_transcription_grant_token(
         .await
         .map_err(|error| refuse_handoff(&error))?
         .ok_or_else(|| {
-            ConnectError::new(
-                ErrorCode::FailedPrecondition,
-                "Deepgram not configured",
-            )
+            ConnectError::new(ErrorCode::FailedPrecondition, "Deepgram not configured")
         })?;
     ok_response(proto::TranscriptionGrantTokenResponse {
         access_token: key,
         expires_in: 0,
+        ..Default::default()
     })
 }
 
@@ -115,15 +112,25 @@ pub async fn handle_transcription_test(
         return ok_response(proto::TranscriptionTestResponse {
             ok: false,
             error: "No Deepgram key saved".to_owned(),
+            ..Default::default()
         });
     };
 
-    let outcome = core.services.telemetry.transcription.probe_provider(key).await;
+    let outcome = core
+        .services
+        .telemetry
+        .transcription
+        .probe_provider(key)
+        .await;
     let (ok, error) = match &outcome {
         ProviderProbe::Reachable { .. } => (true, String::new()),
         other => (false, other.failure_reason().unwrap_or_default()),
     };
-    ok_response(proto::TranscriptionTestResponse { ok, error })
+    ok_response(proto::TranscriptionTestResponse {
+        ok,
+        error,
+        ..Default::default()
+    })
 }
 
 /// The tenant whose dashboard every transcription row is stamped with.
@@ -141,21 +148,10 @@ fn config_proto(config: transcription::TranscriptionConfig) -> proto::Transcript
         deepgram_configured: config.deepgram_configured,
         deepgram_key_masked: config.deepgram_key_masked,
         deepgram_language: config.deepgram_language,
+        ..Default::default()
     }
 }
 
-/// Refuse anything that is not a browser, with the marker header a client needs
-/// to tell "log in again" from "this method needs a device credential".
-fn require_account_device(caller: &Caller) -> Result<&str, ConnectError> {
-    caller.principal.require_account_device().map_err(|_| {
-        let mut error = ConnectError::new(ErrorCode::Unauthenticated, "authentication required");
-        error.response_headers_mut().insert(
-            axum::http::HeaderName::from_static(crate::auth::principal::AUTH_LAYER_HEADER),
-            axum::http::HeaderValue::from_static(crate::auth::principal::AUTH_LAYER_DEVICE),
-        );
-        error
-    })
-}
 
 /// A settings row that could not be read or written is the coordinator's fault,
 /// and the browser cannot fix it by retrying with a different key.

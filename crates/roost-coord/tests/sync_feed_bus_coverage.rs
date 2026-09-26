@@ -22,9 +22,8 @@ use roost_coord::events::bus_messages::{
     TaskBusMsg, TaskBusMsgKind, UiBusMsg, WorkerRoutableSet,
 };
 use roost_coord::sync_ws::feed::frames::{
-    agent_status_frame,
-    audit_frame, mcp_frame, pair_frame, session_message_frame, session_title_frame, task_frame,
-    workspace_frame,
+    agent_status_frame, audit_frame, mcp_frame, pair_frame, session_message_frame,
+    session_title_frame, task_frame, workspace_frame,
 };
 use roost_coord::sync_ws::feed::last_activity::last_activity_frame;
 use roost_coord::sync_ws::feed::presence::session_presence_frame;
@@ -32,6 +31,7 @@ use roost_coord::sync_ws::feed::ui::{UiViewer, ui_bus_frame};
 use roost_coord::sync_ws::feed::worker_frames::{worker_presence_frame, worker_routable_frame};
 use roost_coord::sync_ws::feed::{BUS_FRAME_ADAPTERS, FeedFrame};
 use roost_coord::sync_ws::frame_meta::{FeedLane, WEIGHTED_LANES};
+use roost_proto::buffa::Enumeration;
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
 use roost_proto::SyncDomain;
 use roost_proto::Task;
@@ -80,8 +80,10 @@ fn every_bus_in_the_coordinator_has_a_producer() {
     );
     record(
         "mcp_bus",
-        mcp_frame(&McpStreamMessage::Delta(McpRelayDelta::Updated { relay: relay() }))
-            .expect("a relay's free-form config always serialises"),
+        mcp_frame(&McpStreamMessage::Delta(McpRelayDelta::Updated {
+            relay: relay(),
+        }))
+        .expect("a relay's free-form config always serialises"),
     );
     record("agent_status_bus", agent_status_frame(&agent_status()));
     record(
@@ -182,22 +184,28 @@ fn every_bus_in_the_coordinator_has_a_producer() {
 
     // Thirteen buses that all landed on one lane would satisfy every assertion
     // above and still deliver nothing: a browser hydrates seven domains.
-    let domains: BTreeSet<SyncDomain> = produced
+    //
+    // The set is keyed on `proto_name` rather than on the domain value itself.
+    // `SyncDomain` is generated and derives `Clone, Copy, PartialEq, Eq, Hash,
+    // Debug` — deliberately NOT `Ord` — and a generated type is not ours to
+    // derive onto, so the ordering the set needs comes from the wire name
+    // `buffa::Enumeration` already exposes. It also puts the variant name in
+    // the failure message, which a discriminant would not.
+    let domains: BTreeSet<&'static str> = produced
         .iter()
-        .filter_map(|(_, _, domain, _)| *domain)
+        .filter_map(|(_, _, domain, _)| domain.as_ref().map(Enumeration::proto_name))
         .collect();
     assert_eq!(
         domains,
         BTreeSet::from([
-            SyncDomain::Terminal,
-            SyncDomain::Workers,
-            SyncDomain::Workspaces,
-            SyncDomain::Tasks,
-            SyncDomain::Mcp,
-            SyncDomain::Pair,
-            SyncDomain::Audit,
+            SyncDomain::Terminal.proto_name(),
+            SyncDomain::Workers.proto_name(),
+            SyncDomain::Workspaces.proto_name(),
+            SyncDomain::Tasks.proto_name(),
+            SyncDomain::Mcp.proto_name(),
+            SyncDomain::Pair.proto_name(),
+            SyncDomain::Audit.proto_name(),
         ]),
         "each of the seven hydrated domains is reachable from at least one bus"
     );
 }
-

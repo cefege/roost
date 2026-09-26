@@ -22,6 +22,7 @@ use roost_proto as proto;
 use roost_proto::__buffa::oneof::ui_command::Command;
 
 use crate::coord_core::{Caller, CoordCore};
+use crate::auth::principal::require_account_device;
 use crate::events::bus_messages::UiBusMsg;
 use crate::rpc::service::ok_response;
 use crate::ui_state::fence::{
@@ -254,20 +255,6 @@ pub async fn handle_ui_apply_layout(
         correlation_id: resolution.correlation_id,
         reason: resolution.reason,
         ..Default::default()
-    })
-}
-
-/// Refuse anything that is not a browser, with the marker header a client needs
-/// to tell "log in again" from "this method needs a device credential"
-/// (`auth-interceptor.ts:265-271`).
-fn require_account_device(caller: &Caller) -> Result<&str, ConnectError> {
-    caller.principal.require_account_device().map_err(|_| {
-        let mut error = ConnectError::new(ErrorCode::Unauthenticated, "authentication required");
-        error.response_headers_mut().insert(
-            axum::http::HeaderName::from_static(crate::auth::principal::AUTH_LAYER_HEADER),
-            axum::http::HeaderValue::from_static(crate::auth::principal::AUTH_LAYER_DEVICE),
-        );
-        error
     })
 }
 

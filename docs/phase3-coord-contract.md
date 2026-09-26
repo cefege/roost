@@ -875,16 +875,43 @@ is a socket whose credential outlived its ceiling. See §9.
 `apps/coord/src/middleware/rate-limit.ts`.
 
 - Bucket key: `route path` + `NUL` + client address. **The route list is by
-  exact RPC name, 44 entries** (`:16-64`) — not a prefix, because *"Prior shape
+  exact RPC name, 32 entries** — not a prefix, because *"Prior shape
   used prefix `/roost.v1.CoordinatorService/Workspaces` which matched
   WorkspacesList (called on every SPA bootstrap + visibilitychange focus
   refresh), eating the same 100/min bucket as create/update/delete
   mutations."* (`:7-14`)
+
+  **32, and the count is a trap worth stating: 31 quoted string literals plus
+  the `PAIR_POLL_ROUTE` constant (`:15`), which appears as an identifier and is
+  therefore missed by anything that counts quotes.** Three numbers have
+  circulated for this one line — 44 (an earlier draft of this section), 31
+  (the quote count) and 32 (the measured one) — and the port's
+  `middleware/rate_limit.rs::RATE_LIMITED_METHODS` is 32 for the same reason:
+  31 literals plus `PAIR_POLL_METHOD`. The two lists are entry for entry the
+  same set; `sessions/tasks.rs::RATE_LIMITED_METHODS`'s neighbours explain each
+  exclusion (`TasksNextPending` is a worker poll, `WorkersRegister` and
+  `WorkersHeartbeat` are fixed cadences, `UiReportState` must keep admitting
+  an existing tab's bounded heartbeats, `TranscriptionGetConfig` and
+  `UiListStates` are reads).
 - Window 60,000 ms; 100 tokens per window for every listed route; **600 for
   `PairPoll` only** (`:66-67`).
-- `RATE_LIMIT_MAX_BUCKETS = 10_000`, with LRU maintenance by insertion order:
-  *"A full map of live buckets fails closed rather than evicting an active limit
-  and giving a churning caller a fresh budget."* (`:99-104`)
+- `RATE_LIMIT_MAX_BUCKETS = 10_000`. **v2 maintains capacity by LRU on
+  insertion order** — *"Map insertion order is kept in least-recently-used
+  order so capacity maintenance examines cold entries first"* (`:96-99`) — and
+  *"A full map of live buckets fails closed rather than evicting an active
+  limit and giving a churning caller a fresh budget."* (`:99-104`)
+
+  **The port does NOT use LRU, and deliberately so.**
+  `middleware/rate_limit.rs:225` reaches capacity and then runs
+  `buckets.retain(|_, bucket| now < bucket.reset_at)`, which drops what has
+  *expired* and keeps every window still inside its 60 s. **Same guarantee, a
+  different mechanism — and the port's is the stronger one here:** a window
+  that is live but cold is a limit v2 would treat as evictable and the port
+  treats as occupying a slot, so a churning caller cannot have its budget
+  dropped by admitting a colder window. The refusal at
+  `rate_limit.rs:228` is reached only when the *survivors* alone fill the
+  ceiling, which is the fail-closed behaviour the v2 comment describes. The
+  mechanism is not an LRU and this section must not describe it as one.
 - `GET`, `HEAD` and `OPTIONS` are exempt (`:237-239`).
 - Over the limit: `429`, `{"error":"rate limit exceeded"}`,
   `retry-after: max(1, ceil(remainingMs/1000))` (`:186-196`).

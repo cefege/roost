@@ -20,7 +20,6 @@
 //! instead of minting a second identity. It is the same guarantee with a wider
 //! scope, and it needs no promise to hold.
 
-use std::io::Read;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -110,11 +109,7 @@ const MAX_DRAWS: usize = 8;
 impl VapidKeyGenerator for P256KeypairGenerator {
     fn generate(&self) -> Result<VapidKeys, VapidError> {
         for _ in 0..MAX_DRAWS {
-            let mut scalar = [0_u8; PRIVATE_KEY_BYTES];
-            let mut source = std::fs::File::open("/dev/urandom")
-                .map_err(|error| VapidError::GenerationFailed(error.to_string()))?;
-            source
-                .read_exact(&mut scalar)
+            let scalar = crate::coord_core::ids::draw::<PRIVATE_KEY_BYTES>()
                 .map_err(|error| VapidError::GenerationFailed(error.to_string()))?;
             let private_key = roost_host::b64url_encode(&scalar);
             let Ok(builder) = web_push::VapidSignatureBuilder::from_base64_no_sub(&private_key)

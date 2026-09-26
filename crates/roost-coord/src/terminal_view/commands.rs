@@ -12,24 +12,22 @@
 
 use roost_proto::{TerminalResyncCommand, TerminalViewCommand, TerminalViewStatus};
 use roost_protocol::viewport::{TERMINAL_SOCKET_VIEW_CAP, is_terminal_uuid};
-use roost_protocol::wire::SessionId;
 
-use super::record::{
-    SESSION_VIEW_CAP, ViewRecord, intent_of, intents_equal, validate_view_command, view_key,
-};
 use super::machine::session_of;
-use super::registry::{Machine, MembershipOutcome};
+use super::machine::Machine;
+use super::record::{ViewRecord, intent_of, intents_equal, validate_view_command, view_key};
+use super::registry::MembershipOutcome;
 use super::sink::PendingReply;
 
 /// Why a declaration that renames a live handle is refused.
-const SESSION_MOVED: &str = "a terminal view cannot change sessions";
+pub(super) const SESSION_MOVED: &str = "a terminal view cannot change sessions";
 
 /// The authenticated socket a command arrived on, resolved once so every
 /// refusal answers the caller and never the record's previous owner.
-struct Caller {
-    socket_id: String,
-    viewer_key: String,
-    fingerprint: String,
+pub(super) struct Caller {
+    pub(super) socket_id: String,
+    pub(super) viewer_key: String,
+    pub(super) fingerprint: String,
 }
 
 impl Machine<'_> {
@@ -132,7 +130,11 @@ impl Machine<'_> {
         outcome: &mut MembershipOutcome,
     ) {
         if !current.parked {
-            outcome.refuse(&caller.socket_id, command, "view is owned by another live socket");
+            outcome.refuse(
+                &caller.socket_id,
+                command,
+                "view is owned by another live socket",
+            );
             return;
         }
         if command.revision < current.revision {
@@ -171,7 +173,9 @@ impl Machine<'_> {
         }
         if let Some(session_id) = session_id.clone() {
             outcome.changed.insert(session_id.clone());
-            outcome.calls.extend(self.sync_watching(&caller.socket_id, &session_id));
+            outcome
+                .calls
+                .extend(self.sync_watching(&caller.socket_id, &session_id));
         }
         tracing::info!(
             session_id = %current.intent.session_id,
@@ -255,96 +259,6 @@ impl Machine<'_> {
         outcome.answer_view(&current, TerminalViewStatus::Accepted, "");
     }
 
-    /// A declaration for a handle this viewer key has never held, or whose
-    /// retained claim has lapsed.
-    fn admit(
-        &mut self,
-        caller: &Caller,
-        command: &TerminalViewCommand,
-        key: String,
-        now_ms: u64,
-        outcome: &mut MembershipOutcome,
-    ) {
-        let intent = intent_of(command);
-        if let Some(old) = self.tombstones.get(&key).cloned() {
-            if command.revision < old.revision
-                || (command.revision == old.revision && !intents_equal(&old.intent, &intent))
-            {
-                outcome.refuse(
-                    &caller.socket_id,
-                    command,
-                    "stale or conflicting terminal view revision",
-                );
-                return;
-            }
-            if old.intent.session_id != command.session_id {
-                outcome.refuse(&caller.socket_id, command, SESSION_MOVED);
-                return;
-            }
-            if command.revision == old.revision && !command.active {
-                outcome.accept_inactive(&caller.socket_id, command);
-                return;
-            }
-            self.tombstones.remove(&key);
-        }
-        if !command.active {
-            self.tombstones.retain(
-                now_ms,
-                key,
-                caller.viewer_key.clone(),
-                command.revision,
-                intent,
-            );
-            outcome.accept_inactive(&caller.socket_id, command);
-            return;
-        }
-        if self.view_count(&caller.socket_id) >= TERMINAL_SOCKET_VIEW_CAP {
-            outcome.refuse(
-                &caller.socket_id,
-                command,
-                "terminal socket view capacity exceeded",
-            );
-            return;
-        }
-        let Ok(session_id) = SessionId::try_from(command.session_id.clone()) else {
-            return;
-        };
-        if self.session_count(&session_id) >= SESSION_VIEW_CAP {
-            outcome.refuse(
-                &caller.socket_id,
-                command,
-                "terminal session view capacity exceeded",
-            );
-            return;
-        }
-        let record = ViewRecord {
-            key: key.clone(),
-            view_id: command.view_id.clone(),
-            viewer_key: caller.viewer_key.clone(),
-            fingerprint: caller.fingerprint.clone(),
-            socket_id: caller.socket_id.clone(),
-            intent,
-            revision: command.revision,
-            deadline_ms: ViewRecord::lease_deadline(now_ms),
-            parked: false,
-            parked_at_ms: 0,
-            constrains: true,
-        };
-        self.views.insert(key.clone(), record.clone());
-        self.session_views
-            .entry(session_id.clone())
-            .or_default()
-            .insert(key.clone());
-        if let Some(socket) = self.sockets.get_mut(&caller.socket_id) {
-            socket.views.insert(key);
-        }
-        outcome.changed.insert(session_id.clone());
-        outcome
-            .calls
-            .extend(self.sync_watching(&caller.socket_id, &session_id));
-        outcome.answer_view(&record, TerminalViewStatus::Accepted, "");
-    }
-
     /// Drop a record on an explicit inactive declaration, keeping the claim so
     /// the same tab can reclaim the handle at a new size.
     fn release(
@@ -359,7 +273,9 @@ impl Machine<'_> {
         self.drop_record(key, true, now_ms);
         if let Some(session_id) = session_id {
             outcome.changed.insert(session_id.clone());
-            outcome.calls.extend(self.sync_watching(socket_id, &session_id));
+            outcome
+                .calls
+                .extend(self.sync_watching(socket_id, &session_id));
         }
         outcome.accept_inactive(socket_id, command);
     }
@@ -367,7 +283,7 @@ impl Machine<'_> {
 
 impl MembershipOutcome {
     /// Refuse a command on the socket that sent it.
-    fn refuse(&mut self, socket_id: &str, command: &TerminalViewCommand, reason: &str) {
+    pub(super) fn refuse(&mut self, socket_id: &str, command: &TerminalViewCommand, reason: &str) {
         self.replies.push(PendingReply::Command {
             socket_id: socket_id.to_owned(),
             view_id: command.view_id.clone(),
@@ -381,7 +297,7 @@ impl MembershipOutcome {
 
     /// Acknowledge a view the socket released, carrying no geometry: there is
     /// nothing left for it to paint.
-    fn accept_inactive(&mut self, socket_id: &str, command: &TerminalViewCommand) {
+    pub(super) fn accept_inactive(&mut self, socket_id: &str, command: &TerminalViewCommand) {
         self.replies.push(PendingReply::Command {
             socket_id: socket_id.to_owned(),
             view_id: command.view_id.clone(),

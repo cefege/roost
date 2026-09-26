@@ -157,7 +157,10 @@ pub enum FeedRefusal {
 /// indistinguishable from a coordinator with no browsers connected.
 /// `tests/sync_feed_bus_coverage.rs` drives every row of it.
 pub const BUS_FRAME_ADAPTERS: &[(&str, &str)] = &[
-    ("session_bus", "sync_ws::feed::frames::session_message_frame"),
+    (
+        "session_bus",
+        "sync_ws::feed::frames::session_message_frame",
+    ),
     ("workspace_bus", "sync_ws::feed::frames::workspace_frame"),
     ("task_bus", "sync_ws::feed::frames::task_frame"),
     ("mcp_bus", "sync_ws::feed::frames::mcp_frame"),
