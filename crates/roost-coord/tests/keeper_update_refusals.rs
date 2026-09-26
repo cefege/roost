@@ -285,3 +285,24 @@ async fn a_tombstoned_worker_is_not_preparable() {
     assert_eq!(refusal.message.as_deref(), Some("worker not found"));
     assert_eq!(refusal.code, ErrorCode::NotFound);
 }
+
+#[tokio::test]
+async fn throwaway_probe_why_the_fixture_journal_is_refused() {
+    let raw = keeper_support::journal("replace-empty");
+    let value: serde_json::Value = serde_json::from_str(&raw).expect("the fixture emits JSON");
+    match roost_protocol::keeper_update::JournaledKeeperUpdateV1::parse(&value) {
+        Ok(_) => println!("PROBE with_bun_abi: PARSES CLEAN"),
+        Err(error) => println!("PROBE with_bun_abi: {error:?}"),
+    }
+    let mut stripped = value.clone();
+    for key in ["source_contract", "target_contract"] {
+        stripped[key]
+            .as_object_mut()
+            .expect("both contracts are objects")
+            .remove("bun_abi");
+    }
+    match roost_protocol::keeper_update::JournaledKeeperUpdateV1::parse(&stripped) {
+        Ok(_) => println!("PROBE without_bun_abi: PARSES CLEAN"),
+        Err(error) => println!("PROBE without_bun_abi: {error:?}"),
+    }
+}
