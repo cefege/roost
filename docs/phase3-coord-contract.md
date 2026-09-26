@@ -2055,10 +2055,24 @@ code rather than reading a comment:
 - `commands.rs:171` already reads `SyncClientFrame.ack_delivery_seq` and calls
   `session.apply_ack`. The acknowledgement path was never missing.
 
-**STILL IGNORED, and still not diagnosed: two send-queue tests.** They now get
-strictly further than before -- previously they failed at the first send because
-nothing ever queued -- and fail at a later assertion instead. Their gap is
-their own; see the `#[ignore]` reasons in `tests/sync_v2_send_queue.rs`.
+**STILL IGNORED: two send-queue tests, narrowed but not diagnosed.** Both are
+announcement-fence questions, a different defect from 12.8 and a much smaller
+one. What is established:
+
+- The meta fix moved them forward: `a_cell_is_fenced_behind_its_announcement`
+  now gets a `Send` back where it previously got none.
+- The head selection is CORRECT: it steps past an ineligible cell to reach its
+  own announcement, and collects only eligible frames as heads.
+- `is_eligible` requires the session to be in `announced_sessions`, which
+  `apply_delivered_lifecycle` populates on DELIVERY, not on enqueue.
+
+So the cell is only eligible if SESSION_A is already announced when the test's
+`hydrated_terminal()` returns. **If it is, the test premise is false rather
+than the product wrong** -- the helper hydrates the terminal domain, and if that
+path announces the covered session, the cell is legitimately free to go first.
+The next thing to check is whether `handle_domain_ready` announces the sessions
+it admits. Do NOT fix the fence by making the cell wait unconditionally: a cell
+for a session whose announcement already went out must not be held for ever.
 
 ### 12.8b KNOWN GAP (superseded -- see 12.8)
 
