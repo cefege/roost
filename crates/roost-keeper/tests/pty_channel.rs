@@ -245,3 +245,43 @@ fn two_channels_are_independent_processes() {
     // blocking read here would wedge every other channel behind this one.
     assert_eq!(second.read_output(4096), None);
 }
+
+/// A PTY gets the spec's environment and NOTHING else — in particular not the
+/// keeper's own.
+///
+/// This is the whole security property, and it is invisible from the worker
+/// side: the worker strips `ROOST_KEEPER_*` from `spec.env`, so a test that
+/// only inspects the spec sees a clean environment while the child still
+/// inherits the credential from the spawning process. `CommandBuilder` wraps
+/// `std::process::Command`, which inherits by default, so the defence exists
+/// only because `PtyChannel::spawn` calls `env_clear` — and this test is what
+/// notices when someone removes it.
+///
+/// Both halves are asserted, because either alone is satisfiable by the wrong
+/// code: clearing without applying the spec gives a child with no environment
+/// at all, and applying the spec over an inherited one leaks.
+#[test]
+fn a_pty_inherits_nothing_from_the_keeper_but_gets_the_whole_spec() {
+    // A variable the test process certainly has, which the spec below does not
+    // name. Anything the child sees of it was inherited rather than asked for.
+    let inherited = std::env::var("PATH").expect("the test runner has a PATH");
+    let spec = ShellSpec {
+        program: "/bin/sh".into(),
+        args: vec!["-c".into(), "env".into()],
+        env: vec![("ROOST_ENV_PROOF".into(), "present".into())],
+        cwd: None,
+    };
+    let mut channel = PtyChannel::spawn(1, &spec, 80, 24).expect("the pty opens");
+    let seen = read_until(&mut channel, b"ROOST_ENV_PROOF");
+    let text = String::from_utf8_lossy(&seen).into_owned();
+
+    assert!(
+        text.contains("ROOST_ENV_PROOF=present"),
+        "the spec's own environment must reach the child; got: {text}"
+    );
+    assert!(
+        !text.lines().any(|line| line.starts_with("PATH=")),
+        "a PTY inherited the keeper's PATH, which the spec never named; \
+         the child must have only what it was given. Keeper PATH was {inherited:?}"
+    );
+}
