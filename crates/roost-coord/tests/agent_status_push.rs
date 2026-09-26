@@ -154,18 +154,33 @@ async fn only_a_block_and_a_finished_turn_reach_a_phone() {
     tokio::time::sleep(DEBOUNCE * 3).await;
     assert_eq!(delivery.notified().len(), 1, "no turn completed");
 
+    // Blocked straight out of IDLE is not a block: the threshold is the
+    // working -> blocked EDGE, and an agent that was interrupted and came back
+    // to ask again has not crossed it. `classifyTransition` in v2's
+    // `agent-status-push-scheduler.ts` says the same, and the SPA's
+    // "needs your input" toast follows it.
     retain(&fixture, json!({"revision": 6, "state": "blocked"}));
+    tokio::time::sleep(DEBOUNCE * 3).await;
+    assert_eq!(
+        delivery.notified().len(),
+        1,
+        "only the working -> blocked edge is a block"
+    );
+
+    retain(&fixture, json!({"revision": 7, "state": "working"}));
+    retain(&fixture, json!({"revision": 8, "state": "blocked"}));
     tokio::time::sleep(DEBOUNCE * 3).await;
     assert_eq!(delivery.notified().len(), 2);
     assert_eq!(delivery.notified()[1].0, "blocked");
+    assert_eq!(delivery.notified()[1].1, 8);
     retain(
         &fixture,
-        json!({"revision": 7, "state": "idle", "completed_revision": 7}),
+        json!({"revision": 9, "state": "idle", "completed_revision": 9}),
     );
     tokio::time::sleep(DEBOUNCE * 3).await;
     assert_eq!(delivery.notified().len(), 3);
     assert_eq!(delivery.notified()[2].0, "done");
-    assert_eq!(delivery.notified()[2].1, 7);
+    assert_eq!(delivery.notified()[2].1, 9);
 }
 
 #[tokio::test]

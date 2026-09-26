@@ -27,6 +27,8 @@ pub const SERVICE: &str = "roost.v1.CoordinatorService";
 pub const KILL: &str = "SessionsKill";
 pub const CALLER: &str = "fp-device-1";
 pub const DASHBOARD: &str = "dash_audit_test";
+pub const ORGANIZATION: &str = "org_audit_test";
+pub const ACCOUNT: &str = "acct_audit_test";
 
 /// A coordinator with a migrated database, a tenant, and a bus this test owns.
 pub struct AuditFixture {
@@ -60,11 +62,14 @@ impl AuditFixture {
         let database = roost_coord::db::open(&root.join("coord.db"))
             .await
             .expect("a migrated database");
+        if booted {
+            Self::seed_tenancy(&database).await;
+        }
         let boot = if booted {
             BootFacts {
                 tenant: Some(SelfHostedTenant {
-                    account_id: "acct_audit_test".to_string(),
-                    organization_id: "org_audit_test".to_string(),
+                    account_id: ACCOUNT.to_string(),
+                    organization_id: ORGANIZATION.to_string(),
                     dashboard_id: DASHBOARD.to_string(),
                 }),
                 ..BootFacts::default()
@@ -85,6 +90,50 @@ impl AuditFixture {
             published,
             _subscription: subscription,
         }
+    }
+
+    /// The tenancy the boot facts name, as the schema stores it.
+    ///
+    /// `audit_log.dashboard_id` REFERENCES `dashboards(id)` and
+    /// `dashboards.organization_id` REFERENCES `organizations(id)`, with
+    /// `PRAGMA foreign_keys` on (`src/db.rs:77`). A coordinator booted from a
+    /// real bootstrap token satisfies this for free, because the token itself
+    /// references the dashboard; a fixture that invents a `dashboard_id` out of
+    /// thin air does not, and then every write that carries a scope answers
+    /// `WriteFailed { error: "FOREIGN KEY constraint failed" }` instead of
+    /// `Written`. Seeded only for a booted fixture, so the unbooted one really
+    /// does have no tenancy to scope a row to.
+    async fn seed_tenancy(database: &CoordDb) {
+        sqlx::query(
+            "INSERT INTO accounts (id, email_normalized, status, created_at_ms) \
+             VALUES (?, ?, 'active', 1)",
+        )
+        .bind(ACCOUNT)
+        .bind("audit-test@example.invalid")
+        .execute(database.pool())
+        .await
+        .expect("the audit account inserts");
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name, status, created_at_ms) \
+             VALUES (?, ?, ?, 'active', 1)",
+        )
+        .bind(ORGANIZATION)
+        .bind("audit-test-org")
+        .bind("Audit Test Organization")
+        .execute(database.pool())
+        .await
+        .expect("the audit organization inserts");
+        sqlx::query(
+            "INSERT INTO dashboards (id, organization_id, slug, name, status, created_at_ms) \
+             VALUES (?, ?, ?, ?, 'active', 1)",
+        )
+        .bind(DASHBOARD)
+        .bind(ORGANIZATION)
+        .bind("audit-test-dashboard")
+        .bind("Audit Test Dashboard")
+        .execute(database.pool())
+        .await
+        .expect("the audit dashboard inserts");
     }
 
     /// Every row's id, path, caller, status and dashboard scope, in id order.

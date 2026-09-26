@@ -22,8 +22,9 @@ use roost_coord::agents::rpc_status::handle_agent_status_wait;
 use roost_coord::agents::status_wait::{
     AGENT_STATUS_WAIT_MAX_GLOBAL, AGENT_STATUS_WAIT_MAX_PER_SESSION,
     AGENT_STATUS_WAIT_MAX_TIMEOUT_MS, AgentStatusWaitCapacity, AgentStatusWaitErrorKind,
-    AgentStatusWaitOutcome, AgentStatusWaitRegistry, AgentStatusWaitRequest,
+    AgentStatusWaitOutcome, AgentStatusWaitRegistry, AgentStatusWaitRequest, AgentStatusWaiter,
 };
+
 use roost_proto as proto;
 use serde_json::json;
 
@@ -228,18 +229,24 @@ async fn a_replaced_occupant_ends_a_wait_as_changed() {
 async fn a_session_runs_out_of_wait_slots_before_the_coordinator_does() {
     let fixture = AgentFixture::new("wait-capacity").await;
     retain(&fixture, json!({"revision": 1}));
-    for _ in 0..AGENT_STATUS_WAIT_MAX_PER_SESSION {
-        fixture
-            .hub()
-            .wait_for_agent_status(wait_request(&["blocked"], None))
-            .expect("an admitted wait");
-    }
+    // The waiters are HELD, not created and forgotten. A waiter releases its
+    // slot when it is dropped, so a loop that discarded each one registered
+    // them one at a time and the bound below was never reached.
+    let held: Vec<_> = (0..AGENT_STATUS_WAIT_MAX_PER_SESSION)
+        .map(|_| {
+            fixture
+                .hub()
+                .wait_for_agent_status(wait_request(&["blocked"], None))
+                .expect("an admitted wait")
+        })
+        .collect();
     let refused = fixture
         .hub()
         .wait_for_agent_status(wait_request(&["blocked"], None))
         .expect_err("the per-session bound is a refusal");
     assert_eq!(refused.kind(), AgentStatusWaitErrorKind::Capacity);
     assert_eq!(refused.capacity(), Some(AgentStatusWaitCapacity::Session));
+    drop(held);
     fixture.hub().stop();
 }
 
@@ -259,10 +266,20 @@ async fn the_coordinator_bounds_total_waits_across_sessions() {
         )
         .expect("a valid wait")
     };
-    // 32 sessions' worth of waiters is exactly the global bound.
+    // 32 sessions' worth of waiters is exactly the global bound. The admitted
+    // waiters are COLLECTED: `register(..).is_ok()` consumed each one, and a
+    // consumed waiter deregisters on drop, so the registry was empty between
+    // every registration and the bound never bound anything.
+    let mut held: Vec<AgentStatusWaiter> = Vec::new();
     for index in 0..=(AGENT_STATUS_WAIT_MAX_GLOBAL / AGENT_STATUS_WAIT_MAX_PER_SESSION) {
         let outcome = (0..AGENT_STATUS_WAIT_MAX_PER_SESSION)
-            .map(|_| registry.register(request(index)).is_ok())
+            .map(|_| match registry.register(request(index)) {
+                Ok(waiter) => {
+                    held.push(waiter);
+                    true
+                }
+                Err(_) => false,
+            })
             .fold(true, |all, admitted| all && admitted);
         if index == AGENT_STATUS_WAIT_MAX_GLOBAL / AGENT_STATUS_WAIT_MAX_PER_SESSION {
             assert!(!outcome, "the global bound refuses the last session");
@@ -273,6 +290,7 @@ async fn the_coordinator_bounds_total_waits_across_sessions() {
     assert_eq!(registry.waiter_count(), AGENT_STATUS_WAIT_MAX_GLOBAL);
     registry.cancel_all();
     assert_eq!(registry.waiter_count(), 0, "stopping releases every wait");
+    drop(held);
 }
 
 #[tokio::test]
@@ -351,12 +369,17 @@ async fn a_malformed_wait_is_refused_before_it_is_registered() {
 async fn a_capacity_refusal_reaches_the_client_as_resource_exhausted() {
     let fixture = AgentFixture::new("wait-wire-capacity").await;
     retain(&fixture, json!({"revision": 1, "state": "working"}));
-    for _ in 0..AGENT_STATUS_WAIT_MAX_PER_SESSION {
-        fixture
-            .hub()
-            .wait_for_agent_status(wait_request(&["blocked"], None))
-            .expect("an admitted wait");
-    }
+    // Held for the same reason as in the per-session bound test above: a
+    // discarded waiter is a released slot, so these 32 must all still be
+    // registered when the handler below is asked for a 33rd.
+    let held: Vec<_> = (0..AGENT_STATUS_WAIT_MAX_PER_SESSION)
+        .map(|_| {
+            fixture
+                .hub()
+                .wait_for_agent_status(wait_request(&["blocked"], None))
+                .expect("an admitted wait")
+        })
+        .collect();
     // The client is told to stop asking, not that its request was malformed:
     // an `InvalidArgument` here would be a client that retries forever, because
     // nothing about the request it sent is wrong.
@@ -381,6 +404,7 @@ async fn a_capacity_refusal_reaches_the_client_as_resource_exhausted() {
         Some("agent status wait capacity exhausted"),
         "the client is told the limit it hit"
     );
+    drop(held);
     fixture.hub().stop();
     assert_eq!(fixture.hub().wait_count(), 0);
 }

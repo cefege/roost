@@ -19,16 +19,23 @@ use agent_fixture::{
     legacy_status, session, status, worker,
 };
 use roost_coord::agents::status_hub::AgentStatusAcceptance;
+use roost_coord::events::bus::Subscription;
 use roost_protocol::wire::AgentStatusUpdate;
 use serde_json::json;
 
 /// Every update the hub published, in publication order.
 type Published = Arc<Mutex<Vec<AgentStatusUpdate>>>;
 
-fn subscribe(fixture: &AgentFixture) -> Published {
+/// Attach a publication sink to the agent status bus.
+///
+/// The `Subscription` comes back WITH the sink and the caller keeps it, because
+/// dropping the handle is the only way to unsubscribe: a sink whose handle was
+/// discarded at the end of this statement records nothing, and every assertion
+/// built on it passes without ever having observed a broadcast.
+fn subscribe(fixture: &AgentFixture) -> (Published, Subscription<AgentStatusUpdate>) {
     let published: Published = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&published);
-    fixture
+    let subscription = fixture
         .core
         .services
         .buses
@@ -38,7 +45,7 @@ fn subscribe(fixture: &AgentFixture) -> Published {
                 .expect("the publication sink")
                 .push(update.clone());
         });
-    published
+    (published, subscription)
 }
 
 fn retained(fixture: &AgentFixture) -> Vec<String> {
@@ -215,7 +222,7 @@ async fn a_claim_from_a_worker_that_does_not_own_the_session_is_refused() {
 #[tokio::test]
 async fn a_close_retires_the_occupant_and_a_reopen_does_not_unretire_it() {
     let fixture = AgentFixture::new("close").await;
-    let published = subscribe(&fixture);
+    let (published, _subscription) = subscribe(&fixture);
     accepted(&fixture, WORKER_A, SESSION_IDS[0], json!({"revision": 8}));
     fixture
         .hub()
@@ -274,7 +281,7 @@ async fn a_close_retires_the_occupant_and_a_reopen_does_not_unretire_it() {
 #[tokio::test]
 async fn the_list_order_and_the_broadcast_order_are_one_answer_after_a_reordering() {
     let fixture = AgentFixture::new("order").await;
-    let published = subscribe(&fixture);
+    let (published, _subscription) = subscribe(&fixture);
     // Insert in an order that is deliberately not the answer's order.
     for (index, session_id) in SESSION_IDS.iter().enumerate() {
         let worker_fp = if index == 2 { WORKER_B } else { WORKER_A };

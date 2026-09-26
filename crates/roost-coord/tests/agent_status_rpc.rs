@@ -15,7 +15,7 @@ mod agent_fixture;
 use std::time::Duration;
 
 use agent_fixture::{
-    AgentFixture, EPOCH_A, OCCUPANT_A, OCCUPANT_B, SESSION_IDS, SESSION_MISSING, WORKER_A,
+    AgentFixture, EPOCH_A, OCCUPANT_A, OCCUPANT_B, SESSION_IDS, SESSION_MISSING, WORKER_A, WORKER_B,
     legacy_status, session, status, worker,
 };
 use connectrpc::ErrorCode;
@@ -163,7 +163,7 @@ async fn a_closed_session_stops_answering_even_while_its_status_is_retained() {
     retain(&fixture, WORKER_A, SESSION_IDS[0], json!({"revision": 2}));
     fixture
         .exec(&format!(
-            "UPDATE sessions SET status = 'closed', closed_at_ms = 2000 WHERE id = '{}'",
+            "UPDATE sessions SET status = 'closed', closed_at = 2000 WHERE id = '{}'",
             SESSION_IDS[0]
         ))
         .await;
@@ -190,8 +190,9 @@ async fn a_closed_session_stops_answering_even_while_its_status_is_retained() {
 #[tokio::test]
 async fn the_list_answers_in_session_id_order_with_derived_promptability() {
     let fixture = AgentFixture::new("rpc-list").await;
-    // Filled in an order that is not the answer's order.
-    retain(&fixture, WORKER_A, SESSION_IDS[2], json!({"revision": 9}));
+    // Session three is worker B's in the fixture's route table, so worker A
+    // claiming it is refused rather than retained.
+    retain(&fixture, WORKER_B, SESSION_IDS[2], json!({"revision": 9}));
     // A worker deployed before durable observation reports no identity at all.
     fixture.hub().accept_worker_status(
         &fixture.core,

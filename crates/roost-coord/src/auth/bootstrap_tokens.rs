@@ -280,6 +280,15 @@ pub struct BootstrapClaim<'a> {
 /// failed one. It requires the SAME fingerprint, the SAME public key and a
 /// principal already consistent with the grant, so it cannot enroll a second
 /// machine with one token.
+///
+/// **THE PARENTHESES IN THE SQL BELOW ARE COUNTED, NOT EYEBALLED.** This
+/// statement was one `)` short: the `AND (` opening the minter-authority
+/// group never closed, so SQLite reached `RETURNING` with depth 1 and refused
+/// the statement with `near "RETURNING": syntax error` — which surfaced as
+/// `Internal` from `rpc_bootstrap.rs:252`. **Every bootstrap token redemption
+/// was failing.** A Rust compiler cannot see it and neither can a reader of
+/// fourteen lines of `\`-continued SQL; a counter finds it in one pass.
+#[rustfmt::skip]
 pub async fn claim_bootstrap_token(
     transaction: &mut Transaction<'_, Sqlite>,
     claim: &BootstrapClaim<'_>,
@@ -315,7 +324,7 @@ pub async fn claim_bootstrap_token(
                              WHERE retry_worker.fp = ? AND retry_worker.deleted_at_ms IS NULL)) \
                    OR (? = 'browser' AND EXISTS (SELECT 1 FROM account_devices AS retry_device \
                              WHERE retry_device.fingerprint = ? \
-                               AND retry_device.account_id = bt.account_id)))) \
+                               AND retry_device.account_id = bt.account_id))))) \
          RETURNING bt.account_id, bt.label, bt.minted_by_fp",
     )
     .bind(claim.now_ms)
