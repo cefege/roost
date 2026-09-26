@@ -1490,6 +1490,40 @@ could revive a released claim, because the admission guard was unreachable for
 release-created claims. **A vacuous test is not merely wasted; it is a place
 where a real defect goes to hide.**
 
+## A property that ABSENCE also satisfies is not a property
+
+A test named *"the bound counts bytes and never splits a scalar"* was green
+while the bound **dropped** over-long values instead of truncating them.
+
+**A dropped value satisfies "never splits a scalar" trivially — there is no
+scalar left to split.** The test could not fail, and it was reporting a property
+it was not checking.
+
+> **A test whose name describes a property that *absence* would also satisfy is a
+> test that can pass vacuously** — and the tell is in the name, not the
+> assertion.
+
+The general form, and it applies well beyond truncation:
+
+**Some properties are only meaningful when the value exists.** "Never splits a
+scalar", "is never empty of its prefix", "preserves order" — each of these is
+about the *content* of something, and each is trivially true of nothing. **So a
+test for one of those properties must also assert that the subject is present**,
+or it is asserting a tautology about absence.
+
+**And this one had a second defect hiding behind the first, which is why it is
+worth two paragraphs.** The drop was not only for over-long values:
+`HeaderValue::to_str` returns `Err` for anything outside **visible ASCII**, so
+**every provenance value carrying a non-ASCII client name was silently
+dropped** — not just values over the bound. The fix reads the bytes directly and
+decodes lossily.
+
+**A boundary implemented with a strict parser is a boundary that drops
+everything the parser rejects, and the parser's rules are usually about the
+wire format rather than about this field's purpose.** So the diagnostic question
+for any bounded capture is: **which inputs does the reader refuse, and is a
+refusal the right answer for a field a human reads?**
+
 ## A shared failure CLASS is as unreliable as a shared module
 
 A cluster of three was filed as three absences. Reading the panic **messages**
