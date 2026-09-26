@@ -53,6 +53,29 @@ unverified, and "unverified" is the honest state — not "probably fine".**
    two real errors in its files. `wc -c` on the artifact before believing a grep
    over it costs one second, and an empty artifact is a finding about the
    command, not about the code.
+5. **A staleness claim must be shown, not asserted.** The naive rule — "if an
+   owner says a diagnostic is stale, they are right" — is unfalsifiable and
+   inverts into the failure it was meant to prevent: a number nobody can check is
+   a number presented as a result. The falsifiable version costs one line:
+
+   > An owner may report a diagnostic as stale **only by showing what the current
+   > tree says** — the definition, or the file:line, read after the last fix
+   > landed. "I looked and it is fine" is a claim; "here is the definition, and
+   > here is why the access compiles" is evidence. An owner who cannot show
+   > either re-applies the fix and lets the next compile settle it.
+
+   This was earned: a downstream artefact reads as a *precise, field-level*
+   error — naming a field, a type and a line — and is **less** trustworthy for
+   being precise. Precision about a symbol is not evidence about a symbol.
+6. **Know what your checks cannot see, and say so.** A slice that ran three
+   negative controls and proved each one catches an injected defect still had
+   none of them able to see a one-line *type* error: the parse check is blind
+   because a type error is valid syntax, the arity audit because no bind is
+   involved, the generated-message audit because no literal is involved. **"My
+   checks are calibrated" is not "my checks cover this."** A control proves a
+   check bites on the class it was aimed at; it says nothing about the classes
+   it was not aimed at. The honest report states both, and the classes nobody
+   covered belong to whoever runs the compiler.
 
 ## Worker track
 
