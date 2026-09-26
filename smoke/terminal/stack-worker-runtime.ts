@@ -3,6 +3,12 @@
 // One checkout parameter lets an upgrade run relaunch the same worker identity from a new release.
 // A smoke entrypoint may inject an in-process test seam; packaged binaries always run `worker`.
 
+import {
+	resolveSmokeStackExecutables,
+	smokeStackDescription,
+	workerRuntimeOverrides,
+} from "./stack-executables.ts";
+
 import { execFileSync, spawn } from "node:child_process";
 import { openSync } from "node:fs";
 import { join } from "node:path";
