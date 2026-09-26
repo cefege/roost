@@ -540,7 +540,38 @@ adopted was a *mechanism* rather than a promise: derive the map from a file,
 print the file's byte size, its `Running` count and its `test result` count
 beside the number being reported, and **let the agreement be the check**.
 
-**## A stale number in a COMMIT BODY is worse than one in a chat message
+**## Transfer a rule as the failures, not as the caution
+
+Four fresh agents were about to be given the measurement rule. The instruction
+that was going to work is not "be careful with numbers" — it is **the five
+specific ways the number went wrong in this tree**:
+
+`13 errors`, `27 errors`, a `97 binaries` from a `grep` that also matched its own
+summary line, six binaries lost to a truncated printout, and a stale `581/38`
+that two clean runs falsified.
+
+> **An agent told only "be careful with numbers" will be careful. An agent told
+> the five ways it went wrong here will recognise the sixth.**
+
+**A general caution produces generic caution, which is indistinguishable from
+compliance and does not survive a surprising situation.** A specific failure
+produces recognition, because the agent now has a *shape* to match against — and
+the shapes here are not alike: a count that stopped early, a count that included
+the summary, a count that was cut off, and a count that was true when taken. An
+agent shown those four shapes will notice a fifth that shares none of their
+mechanics.
+
+**So the rule for handing a hard-won lesson to a fresh agent: name the
+instances, not the principle.** The principle is the *result* of the instances
+and it is strictly weaker to hand over on its own.
+
+**And the corollary, for classifying a known class:** when an agent is given a
+class that is already diagnosed, it must be told that **finding a thing that is
+not the class is a finding, and a loud one — because a mis-attributed class is
+worse than an undiagnosed one.** A mis-attribution makes the real defect look
+explained, and the class's own name is what makes it believable.
+
+## A stale number in a COMMIT BODY is worse than one in a chat message
 
 A commit landed claiming **581 passed / 38 failed across 15 failing binaries.**
 Two independent runs of the committed tree, from clean, both give:
