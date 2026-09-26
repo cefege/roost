@@ -168,6 +168,40 @@ fn a_record_starts_on_the_primary_screen_with_nothing_shipped() {
     assert!(session.ports.is_none());
 }
 
+/// A record is born ABLE TO BE ATTACHED and able to end exactly once.
+///
+/// `ChannelFsm` derives `Default` over `Option<ChannelState>`, and `None` is
+/// the RETIRED state — `send` refuses every event from it. A record built with
+/// `ChannelFsm::default()` therefore cannot be attached, and can never be
+/// closed, which is the one end the FSM exists to guarantee. No test caught
+/// that until a slice tried to attach to its own record and was refused, so it
+/// is pinned here now.
+#[test]
+fn a_new_record_can_be_attached_and_ends_exactly_once() {
+    use roost_worker::channel_fsm::{ChannelEvent, ChannelState};
+
+    let mut session = record(64);
+    assert_eq!(session.fsm.state(), Some(ChannelState::Spawned));
+
+    let attached = session
+        .fsm
+        .send(ChannelEvent::Attach)
+        .expect("a spawned channel accepts an attach");
+    assert_eq!(attached.to, ChannelState::Attached);
+
+    let closed = session
+        .fsm
+        .close(Some(0))
+        .expect("an attached channel accepts a close");
+    assert_eq!(closed.to, ChannelState::Closed);
+    assert!(session.fsm.is_closed());
+
+    // The second close is REFUSED rather than silently accepted, which is the
+    // exactly-once guarantee: two `closed` events is a session the coordinator
+    // records as ended, ended again.
+    assert!(session.fsm.close(Some(0)).is_err());
+}
+
 /// Replacing an agent clears the evidence the dead process left, and keeps the
 /// half-read sequence the new one may have started.
 ///

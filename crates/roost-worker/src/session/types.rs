@@ -200,6 +200,11 @@ impl SessionRecord {
             identity,
             fsm: ChannelFsm::default(),
             close_reservation,
+            // NOT `default()`: `ChannelFsm`'s `Default` is the RETIRED state
+            // (`None`), and `send` refuses every event from there. A record
+            // born that way cannot be attached and can never be closed, which
+            // is the exactly-once end the FSM exists to guarantee.
+            fsm: ChannelFsm::new(),
             scrollback,
             git_branch: None,
             git_remote: None,

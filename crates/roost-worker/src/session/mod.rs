@@ -21,5 +21,6 @@ pub mod ring;
 pub mod scrollback;
 pub mod sinks;
 pub mod snapshot_cursor;
+pub mod spawn;
 pub mod stream_scan;
 pub mod types;
