@@ -612,6 +612,60 @@ an unread verdict, and do not promote a symptom to a cause. What is left is to
 re-run the experiment with a fresh agent — and separately, to read the dead
 agent's transcript for the *leads* it gathered, which are evidence and were never
 claimed as conclusions.
+## A first fix that does not move the number is a FORK, not a verdict
+
+`bootstrap_single_use` was **3 passed / 5 failed** after a real defect was
+fixed. A real defect: **one unclosed parenthesis in `claim_bootstrap_token`'s SQL
+— every bootstrap token redemption was failing.** The fix was correct and it moved
+nothing, because there were **two** defects in one statement and the first hid
+the second: `RETURNING bt.account_id` names the alias in a clause where SQLite
+requires the bare column, failing with `no such column: bt.account_id`.
+
+**8 passed / 0 failed** once both were fixed.
+
+> **A first fix that does not move the number is a fork, not a verdict — it names
+> the two places the cause could be, and picking one without evidence is how a
+> real fix gets reported as your fix.**
+
+The earlier formulation was *"a fix that does not move its predicted number is
+either incomplete or was never the cause"*, which is a diagnosis. **The
+operational form is a fork**: there are now two live hypotheses, the statement
+and the path around it, and the next move is to distinguish them rather than to
+declare the first one sufficient. **"I fixed a real bug" and "I fixed your bug"
+are different claims, and a partially-green result is exactly where they come
+apart.**
+
+**And the corollary that makes this expensive: those two tests were never a race
+test.** They assert on `accepted` and reported `left 0, right 1` — *both*
+redemptions refused — while the other three said in prose *"the first
+redemption: Internal"*. The first redemption failed, so there was no concurrency
+to investigate. **They have been counted as atomicity evidence in every summary
+so far and they are not.** A test failing for a reason other than its stated
+reason is worse than one that has never run, because it is counted.
+
+## Two references disagreeing is the evidence: find a third
+
+The `RETURNING` failure was explained three ways in turn, and **the wrong ones
+were falsified by running minimal cases rather than by reasoning:**
+
+1. *"the alias is not visible inside a subquery"* — **false**; a minimal
+   `UPDATE t AS bt … WHERE EXISTS (SELECT 1 … o.fk = bt.account_id)` succeeds.
+2. *"the whole statement is malformed"* — **false** on the real schema; the
+   exact extracted statement runs against all 27 tables, and the only failure is
+   `RETURNING`. The system `sqlite3` here is **3.34.1 and cannot parse `RETURNING`
+   at all** — it landed in 3.35 — so that was a version artefact.
+3. *"the error is in the RETURNING clause"* — **confirmed**.
+
+> **Two references disagreeing with each other is not a problem to resolve by
+> picking one. It is a third reference point you have not looked for yet.**
+
+The system `sqlite3` and the bundled one disagreed, **and the disagreement was
+the evidence** — because a version artefact and a real defect produce the same
+diagnostic until something independent breaks the tie. This is the same shape as
+the `rtx`-vs-mobilecheck-vs-bundled divergence earlier in this port, and the rule
+is the same: **when two sources of truth about an environment disagree, the
+answer is a third independent source, not a tiebreak between the two.**
+
 ## One missing paren in 151 literals, and 6 of the 7 are the idiom
 
 `claim_bootstrap_token`'s SQL literal had **one unclosed parenthesis** — the
