@@ -254,6 +254,38 @@ two different subsystems, one of which holds the RSA key material. **Sending one
 agent at a slice's failure count would have sent it to the wrong file for half
 the work.**
 
+## Before fanning out over a shared fixture, count its consumers exactly
+
+Two agents were about to be pointed at `tests/agent_fixture/` and
+`tests/pairing_support/`, and the convergence risk was real: three agents
+editing one fixture with no owner. It was closed by counting, not by grepping a
+sample — **`agent_fixture` has exactly five consumers and `pairing_support`
+exactly two, with no `#[path]` indirection on either**, so the search is complete
+rather than a sample.
+
+**And the count buys a second fact that decides the sequencing: neither fixture
+is load-bearing for anything currently green.** If it were, fixing it would break
+a passing test and the agent would have to reason about a regression it did not
+cause. **A shared fixture whose every consumer is already failing is the safest
+thing in the tree to hand to an agent** — the blast radius is the set of things
+that are already broken.
+
+## A fixture fix is not done when the count rises
+
+The number of passing tests is a **proxy** for the cause being gone, and the
+second cause under a fixture is the one that gets read as *"still broken"* and
+attributed to the agent who just fixed the first.
+
+**A fixture killing 35 tests can easily have been hiding three more, and an agent
+told to reach 35/35 who stops there has not finished.** The completion criterion
+is the cause, not the count: after the fix, the re-measured map must be **read**,
+and any binary that moved less than expected is a *finding about the second
+cause*, not a rounding error.
+
+**This is the same rule as "establish the tree's state before the measurement,
+not after"** — a count taken across a fix is two measurements, and reading it as
+one is how a wave reports progress it did not make.
+
 ## The audit that cannot see the defect, and the noise you must discard
 
 A slice deleting a dead `FixedEntropy` block used a doc comment further down
