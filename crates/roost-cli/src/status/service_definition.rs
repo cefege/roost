@@ -140,8 +140,20 @@ fn parse_launch_agent_keys(definition: &str) -> InstalledEnvironment {
         };
         let name = &after_key[..close];
         let tail = &after_key[close + "</key>".len()..];
-        let Some(value_start) = tail.find("<string>") else {
-            break;
+        // A key's value is the `<string>` that follows it DIRECTLY. A key whose
+        // next element is a nested `<dict>` or `<array>` — `EnvironmentVariables`
+        // above all — has no scalar value of its own, and taking the first
+        // `<string>` inside that nested element both reads it under the wrong
+        // name and consumes it, so every variable inside the dictionary is then
+        // invisible. On a macOS install that is every variable: a deploy could
+        // not reuse a prior install's coordinator URL, and `roost status` could
+        // not resolve the bind it was about to probe.
+        let value_start = match tail.find("<string>") {
+            Some(offset) if tail[..offset].trim().is_empty() => offset,
+            _ => {
+                rest = tail;
+                continue;
+            }
         };
         let after_value = &tail[value_start + "<string>".len()..];
         // The value runs to the next `<`, which is what the TypeScript regex

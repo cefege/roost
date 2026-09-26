@@ -15,7 +15,7 @@ use roost_cli::{Cli, Command};
 /// Every subcommand the crate's dispatcher answers, in the order `--help`
 /// prints them. The list is the contract `docs/phase6-cli-contract.md`
 /// documents; a command added here must be documented there in the same change.
-const SUBCOMMANDS: [&str; 12] = [
+const SUBCOMMANDS: [&str; 18] = [
     "coord",
     "worker",
     "keeper",
@@ -23,11 +23,17 @@ const SUBCOMMANDS: [&str; 12] = [
     "doctor",
     "version",
     "logs",
+    "deploy",
+    "keeper-refresh",
     "state",
     "reset",
     "skill",
     "test",
     "__keeper-contract",
+    "__remote-facts",
+    "__remote-evidence",
+    "__remote-transaction",
+    "__remote-apply",
 ];
 
 #[test]
@@ -43,6 +49,22 @@ fn every_documented_subcommand_parses_with_no_arguments() {
                 "/tmp/mux-keeper.sock".to_string(),
             ],
             "logs" => vec!["roost".to_string(), name.to_string(), "coord".to_string()],
+            "deploy" => vec![
+                "roost".to_string(),
+                name.to_string(),
+                "host.test".to_string(),
+            ],
+            "keeper-refresh" => vec![
+                "roost".to_string(),
+                name.to_string(),
+                "host.test".to_string(),
+            ],
+            "__remote-transaction" => vec![
+                "roost".to_string(),
+                name.to_string(),
+                "--kind".to_string(),
+                "deploy".to_string(),
+            ],
             _ => vec!["roost".to_string(), name.to_string()],
         };
         let cli = Cli::try_parse_from(&argv)
@@ -53,10 +75,21 @@ fn every_documented_subcommand_parses_with_no_arguments() {
 
 #[test]
 fn an_unknown_subcommand_is_refused_rather_than_guessed() {
-    assert!(Cli::try_parse_from(["roost", "deploy"]).is_err());
-    // The v2 spelling is gone on purpose: a deploy that silently became
-    // something else would be worse than one that says it does not exist.
-    assert!(Cli::try_parse_from(["roost", "cutover"]).is_err());
+    // The v2 spellings that are deliberately gone: a command that silently
+    // became something else would be worse than one that says it does not exist.
+    for gone in [
+        "cutover",
+        "__windows-updater-broker",
+        "quickstart",
+        "push",
+        "api",
+        "dev",
+    ] {
+        assert!(
+            Cli::try_parse_from(["roost", gone]).is_err(),
+            "{gone} must not parse: it is not in the tree"
+        );
+    }
 }
 
 #[test]
@@ -157,4 +190,137 @@ fn the_keeper_contract_probe_is_hidden_but_still_addressable() {
             .get_subcommands()
             .any(|sub| sub.get_name() == "__keeper-contract")
     );
+}
+
+/// The deploy argument names are the contract's, verbatim. A rename here breaks
+/// a wrapper script and a coordinator's catch-up invocation, and neither has a
+/// Rust test that would notice.
+#[test]
+fn deploy_takes_exactly_the_documented_flags() {
+    let cli = Cli::try_parse_from([
+        "roost",
+        "deploy",
+        "studio",
+        "--label",
+        "studio",
+        "--reachable-addr",
+        "studio.example.test:4113",
+        "--source-root",
+        "/srv/roost",
+        "--expected-sha",
+        "b1d1836a00000000000000000000000000000000",
+        "--expected-manifest-sha256",
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "--coordinator-release",
+        "--force-live",
+    ])
+    .unwrap();
+    let Command::Deploy(args) = cli.command else {
+        panic!("expected deploy");
+    };
+    assert_eq!(args.host, "studio");
+    assert_eq!(args.label.as_deref(), Some("studio"));
+    assert_eq!(
+        args.reachable_addr.as_deref(),
+        Some("studio.example.test:4113")
+    );
+    assert_eq!(
+        args.source_root.as_deref(),
+        Some(std::path::Path::new("/srv/roost"))
+    );
+    assert_eq!(
+        args.expected_sha.as_deref(),
+        Some("b1d1836a00000000000000000000000000000000")
+    );
+    assert!(args.expected_manifest_sha256.is_some());
+    assert!(!args.allow_unpublished_local);
+    assert!(args.coordinator_release);
+    assert!(args.force_live);
+}
+
+/// Every flag is optional except the host, so a plain `roost deploy <host>` is a
+/// complete invocation rather than a prompt waiting for an answer.
+#[test]
+fn a_bare_deploy_is_a_complete_invocation() {
+    let cli = Cli::try_parse_from(["roost", "deploy", "studio"]).unwrap();
+    let Command::Deploy(args) = cli.command else {
+        panic!("expected deploy");
+    };
+    assert_eq!(args.host, "studio");
+    assert!(args.label.is_none() && args.source_root.is_none() && !args.force_live);
+}
+
+/// The flags that authorize something destructive are spelled the way the
+/// contract spells them. A `--force-live` that did not exist would leave
+/// `--force-live=true` refused, which is the right failure and only if the name
+/// is this one.
+#[test]
+fn the_destructive_flags_are_the_documented_spellings() {
+    for command in ["deploy", "keeper-refresh"] {
+        let mut argv = vec!["roost", command, "studio"];
+        if command == "keeper-refresh" {
+            argv.push("--yes");
+        }
+        argv.push("--force-live");
+        let cli = Cli::try_parse_from(&argv).unwrap();
+        let force_live = match cli.command {
+            Command::Deploy(args) => args.force_live,
+            Command::KeeperRefresh(args) => args.force_live,
+            other => panic!("expected deploy or keeper-refresh, got {}", other.name()),
+        };
+        assert!(force_live, "{command} --force-live must set its own flag");
+    }
+}
+
+/// `keeper-refresh` refuses to parse without `--yes` at the argument level? No:
+/// it refuses at the command level with exit 2, so the flag has to be accepted
+/// and the refusal has to be the command's own.
+#[test]
+fn keeper_refresh_takes_yes_and_force_live() {
+    let cli = Cli::try_parse_from(["roost", "keeper-refresh", "studio", "--yes"]).unwrap();
+    let Command::KeeperRefresh(args) = cli.command else {
+        panic!("expected keeper-refresh");
+    };
+    assert_eq!(args.host, "studio");
+    assert!(args.yes);
+    assert!(!args.force_live);
+
+    let cli = Cli::try_parse_from(["roost", "keeper-refresh", "studio", "--yes", "--force-live"])
+        .unwrap();
+    let Command::KeeperRefresh(args) = cli.command else {
+        panic!("expected keeper-refresh");
+    };
+    assert!(args.yes && args.force_live);
+}
+
+/// The target-side subcommands are hidden, because an operator never types them:
+/// a deploy addresses them by string over ssh. A visible one invites a human to
+/// run a mutation by hand, which is precisely what the machine transaction exists
+/// to prevent.
+#[test]
+fn the_target_side_commands_are_hidden_but_still_addressable() {
+    let command = Cli::command();
+    for hidden in [
+        "__remote-facts",
+        "__remote-evidence",
+        "__remote-transaction",
+        "__remote-apply",
+    ] {
+        let subcommand = command
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == hidden)
+            .unwrap_or_else(|| panic!("{hidden} must be a subcommand"));
+        assert!(
+            subcommand.is_hide_set(),
+            "{hidden} must stay hidden: it is addressed by a deploy, not by a person"
+        );
+    }
+    // …and none of the operator-facing commands is hidden.
+    for visible in ["deploy", "keeper-refresh"] {
+        let subcommand = command
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == visible)
+            .unwrap_or_else(|| panic!("{visible} must be a subcommand"));
+        assert!(!subcommand.is_hide_set(), "{visible} must be visible");
+    }
 }

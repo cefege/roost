@@ -18,6 +18,7 @@
 
 pub mod command_error;
 pub mod daemon;
+pub mod deploy;
 pub mod doctor;
 pub mod ops;
 pub mod overlay_env;
@@ -32,6 +33,10 @@ use clap::{Parser, Subcommand};
 
 use crate::command_error::CommandFailure;
 use crate::daemon::{CoordArgs, KeeperArgs, WorkerArgs};
+use crate::deploy::remote_commands::{
+    RemoteApplyArgs, RemoteEvidenceArgs, RemoteFactsArgs, RemoteTransactionArgs,
+};
+use crate::deploy::{DeployArgs, KeeperRefreshArgs};
 use crate::doctor::DoctorArgs;
 use crate::ops::keeper_contract::KeeperContractArgs;
 use crate::ops::logs::LogsArgs;
@@ -73,6 +78,18 @@ pub enum Command {
     Version(VersionArgs),
     /// Tail a service's logs.
     Logs(LogsArgs),
+    /// Deploy this build to one machine's worker over ssh.
+    Deploy(DeployArgs),
+    /// Shut a machine's keeper down empty, keeping its worker installed.
+    KeeperRefresh(KeeperRefreshArgs),
+    #[command(name = "__remote-facts", hide = true)]
+    RemoteFacts(RemoteFactsArgs),
+    #[command(name = "__remote-evidence", hide = true)]
+    RemoteEvidence(RemoteEvidenceArgs),
+    #[command(name = "__remote-transaction", hide = true)]
+    RemoteTransaction(RemoteTransactionArgs),
+    #[command(name = "__remote-apply", hide = true)]
+    RemoteApply(RemoteApplyArgs),
     /// Print a STATE.md snapshot of this checkout.
     State(StateArgs),
     /// Stop the local services and delete the coordinator database.
@@ -97,6 +114,12 @@ impl Command {
             Command::Doctor(_) => "doctor",
             Command::Version(_) => "version",
             Command::Logs(_) => "logs",
+            Command::Deploy(_) => "deploy",
+            Command::KeeperRefresh(_) => "keeper-refresh",
+            Command::RemoteFacts(_) => "__remote-facts",
+            Command::RemoteEvidence(_) => "__remote-evidence",
+            Command::RemoteTransaction(_) => "__remote-transaction",
+            Command::RemoteApply(_) => "__remote-apply",
             Command::State(_) => "state",
             Command::Reset(_) => "reset",
             Command::Skill(_) => "skill",
@@ -117,6 +140,12 @@ pub async fn dispatch(cli: Cli) -> Result<ExitCode, CommandFailure> {
         Command::Doctor(args) => doctor::run(&args).await,
         Command::Version(args) => ops::version::run(&args),
         Command::Logs(args) => ops::logs::run(&args),
+        Command::Deploy(args) => deploy::run::run(&args).await,
+        Command::KeeperRefresh(args) => deploy::keeper_refresh::run(&args).await,
+        Command::RemoteFacts(args) => deploy::remote_commands::facts(&args),
+        Command::RemoteEvidence(args) => deploy::remote_commands::evidence(&args),
+        Command::RemoteTransaction(args) => deploy::remote_commands::transaction(&args).await,
+        Command::RemoteApply(args) => deploy::remote_commands::apply(&args).await,
         Command::State(args) => ops::state::run(&args),
         Command::Reset(args) => ops::reset::run(&args),
         Command::Skill(args) => ops::skill::run(&args),

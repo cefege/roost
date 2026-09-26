@@ -27,6 +27,14 @@ pub const ENV_PATH: &str = "PATH";
 /// when the operator set one; a worker derives a reachable address otherwise.
 pub const ENV_REACHABLE_ADDR: &str = "ROOST_REACHABLE_ADDR";
 
+/// The name this machine is enrolled under, as the rest of the fleet sees it.
+///
+/// Deliberately not `roost-host`'s `ROOST_WORKER_AGENT_LABEL`, which overrides
+/// the service identity the platform reads: this one names the machine to the
+/// fleet and that one names the unit, and an install that conflated them would
+/// rename a machine by renaming a service.
+pub const ENV_WORKER_LABEL: &str = "ROOST_WORKER_LABEL";
+
 /// The origins allowed to call this worker's loopback door.
 pub const ENV_WORKER_LOCAL_UI_ALLOWED_ORIGINS: &str = "ROOST_WORKER_LOCAL_UI_ALLOWED_ORIGINS";
 

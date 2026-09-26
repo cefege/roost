@@ -52,6 +52,83 @@ fn probe_command(label: &str, platform: HostPlatform) -> Vec<String> {
     }
 }
 
+/// The command that makes the service manager REPORT its state, rather than
+/// answer whether the unit exists.
+///
+/// This exists because the two are not the same question and only one of them
+/// is honest. `systemctl show` exits 0 for a unit it has never heard of, and
+/// `launchctl print` fails identically for a job that was never loaded and for
+/// a launchd this command cannot reach — so on their own both read as "not
+/// running" when the truth is "cannot tell". A deploy's staging decision turns
+/// on that difference, so the reachability question is asked separately and the
+/// two answers are never collapsed.
+pub fn service_state_command(label: &str, platform: HostPlatform) -> Vec<String> {
+    match platform {
+        HostPlatform::Linux => vec![
+            "systemctl".to_string(),
+            "--user".to_string(),
+            "show".to_string(),
+            systemd_unit_name(label),
+        ],
+        HostPlatform::MacOs => vec![
+            "launchctl".to_string(),
+            "print".to_string(),
+            format!("gui/{}/{}", current_uid(), label),
+        ],
+        HostPlatform::Windows => Vec::new(),
+    }
+}
+
+/// The launchd domain query that answers whether launchd was reachable at all.
+/// It succeeds whether or not the job is loaded, which is the whole point: it
+/// separates "unloaded" from "no launchd here".
+pub fn launchd_domain_query() -> Vec<String> {
+    vec![
+        "launchctl".to_string(),
+        "print-disabled".to_string(),
+        format!("gui/{}", current_uid()),
+    ]
+}
+
+/// Whether a service manager's report says the service is running with a live
+/// main process.
+///
+/// A pid is required as well as a state, and not as a formality: a service
+/// manager that reports `active` for a job whose process exited leaves a
+/// definition that reads correct and a machine with no worker behind it, and
+/// `roost push` in v2 rolled a whole fleet back over exactly that.
+pub fn service_is_running(report: &str, platform: HostPlatform) -> bool {
+    let line = |name: &str| -> Option<String> {
+        report.lines().find_map(|line| {
+            let (key, value) = line.split_once('=')?;
+            (key.trim() == name).then(|| value.trim().to_string())
+        })
+    };
+    match platform {
+        HostPlatform::Linux => {
+            line("ActiveState").as_deref() == Some("active")
+                && line("SubState").as_deref() == Some("running")
+                && line("MainPID").is_some_and(|pid| {
+                    !pid.is_empty() && pid != "0" && pid.bytes().all(|byte| byte.is_ascii_digit())
+                })
+        }
+        HostPlatform::MacOs => {
+            let field = |name: &str| -> Option<String> {
+                report.lines().find_map(|line| {
+                    let (key, value) = line.split_once('=')?;
+                    (key.trim() == name).then(|| value.trim().to_string())
+                })
+            };
+            field("state").as_deref() == Some("running")
+                && field("active count").as_deref() == Some("1")
+                && field("pid").is_some_and(|pid| {
+                    !pid.is_empty() && pid != "0" && pid.bytes().all(|byte| byte.is_ascii_digit())
+                })
+        }
+        HostPlatform::Windows => false,
+    }
+}
+
 /// The uid a launchd per-user domain is addressed by, shared with the install
 /// paths in `crate::services::service_argv` so a job is bootstrapped into the
 /// same domain it is probed in. `libc::getuid` is an `unsafe` call and this
