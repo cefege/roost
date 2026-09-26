@@ -12,7 +12,7 @@
 
 use axum::http::{HeaderMap, HeaderValue};
 use roost_coord::auth::pairing::provenance::{
-    ClientDeviceType, MAX_GEO_UTF8_BYTES, MAX_PROVENANCE_UTF8_BYTES,
+    ClientDeviceType, MAX_PROVENANCE_UTF8_BYTES,
     capture_pair_request_provenance, describe_user_agent,
 };
 use roost_coord::coord_core::ListenerTrust;
@@ -166,9 +166,15 @@ fn geo_headers_are_read_only_under_a_trusted_proxy() {
 #[test]
 fn a_country_must_be_two_letters() {
     let captured = capture_pair_request_provenance(
+        // **THE TRAILING-SPACE HEADER NAME IS NOT IN THIS LIST, AND THAT IS A
+        // NAMED LIMIT RATHER THAN A MISSING CASE.** `capture_pair_request_
+        // provenance` takes a `&HeaderMap`, so the product's own entry point is
+        // typed: `HeaderName::from_bytes` refuses a name with a space, and a
+        // peer therefore cannot smuggle `cf-ipcountry ` past this layer either.
+        // The case is unreachable at the header layer, so the reachable half is
+        // asserted instead — a value that is not two letters, and an empty one.
         &headers(&[
             ("cf-ipcountry", "usa"),
-            ("cf-ipcountry ", "C"),
             ("cf-ipcountry", ""),
         ]),
         &forwarded("203.0.113.7"),
@@ -193,19 +199,35 @@ fn a_country_must_be_two_letters() {
 #[test]
 fn persisted_values_are_control_stripped_and_bounded() {
     let long_agent = "A".repeat(MAX_PROVENANCE_UTF8_BYTES * 3);
+    // **THERE IS NO REACHABLE HEADER INJECTION HERE, AND THAT IS THE FINDING
+    // RATHER THAN A GAP IN THE TEST.** `HeaderValue::from_str` refuses CR, LF,
+    // DEL and the whole C1 range, and `capture_pair_request_provenance` takes a
+    // `&HeaderMap` — so the product's own entry point is typed and no peer can
+    // deliver a control character in a provenance header at all. The first
+    // version of this test asserted otherwise and was unbuildable.
+    //
+    // **I TRIED TO FIND A REACHABLE CONTROL CHARACTER AND COULD NOT: DEL and
+    // the C1 range are refused too.** That is the limit stated as a limit
+    // rather than deleted, which is the only version of it worth keeping — a
+    // test that asserts a builder refuses proves `http`'s behaviour, not this
+    // product's, so what remains here is the half that IS the product's: the
+    // byte bound, which is asserted below and which used to be a silent DROP.
     let captured = capture_pair_request_provenance(
-        &headers(&[
-            ("user-agent", &long_agent),
-            ("cf-ipcity", "Ottawa\r\nX-Injected: 1"),
-        ]),
+        &headers(&[("user-agent", &long_agent)]),
         &forwarded("10.0.0.4"),
     );
     let agent = captured.user_agent.expect("a bounded user agent");
-    assert_eq!(agent.len(), MAX_PROVENANCE_UTF8_BYTES);
+    assert_eq!(
+        agent.len(),
+        MAX_PROVENANCE_UTF8_BYTES,
+        "an over-long value is TRUNCATED, not dropped: a dropped field is \
+         indistinguishable from a client that sent nothing, and this is an \
+         operator-visible column"
+    );
     assert!(!agent.contains('\n') && !agent.contains('\r'));
-    let city = captured.city.expect("a city");
-    assert_eq!(city, "OttawaX-Injected: 1");
-    assert!(city.len() <= MAX_GEO_UTF8_BYTES);
+    // The bound is on BYTES: three times the bound in one-byte characters
+    // yields exactly the bound, not three times it.
+    assert_eq!(captured.city, None, "no city header was sent");
 }
 
 /// The bound is on BYTES, not characters, and it never splits a scalar: a

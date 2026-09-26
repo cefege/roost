@@ -249,8 +249,24 @@ fn non_empty(headers: &HeaderMap, name: &str) -> Option<String> {
 }
 
 /// A header's value, control-stripped and truncated to its byte bound.
+///
+/// **THIS TRUNCATES. IT DOES NOT DROP.** The bytes are read directly and lossily
+/// decoded rather than through `HeaderValue::to_str`, which returns `Err` for
+/// anything outside visible ASCII and silently dropped every provenance value
+/// carrying a non-ASCII client name. **A dropped value is the worst possible
+/// answer for a field an operator reads: absence is indistinguishable from
+/// "the client sent nothing."** A truncated value says "this client, and it was
+/// long".
+///
+/// The bound is counted in BYTES and never splits a scalar, which is what
+/// `the_bound_counts_bytes_and_never_splits_a_scalar` names. **Note that a
+/// DROPPED value satisfies that test vacuously** — it cannot split a scalar
+/// because there is no scalar left — so the test only became load-bearing when
+/// this stopped dropping.
 fn read_bounded(headers: &HeaderMap, name: &str, max_bytes: usize) -> Option<String> {
-    non_empty(headers, name).map(|value| normalize(&value, max_bytes))
+    let value = headers.get(name)?;
+    let normalized = normalize(&String::from_utf8_lossy(value.as_bytes()), max_bytes);
+    (!normalized.is_empty()).then_some(normalized)
 }
 
 /// Strip control characters, then truncate on a UTF-8 boundary.
