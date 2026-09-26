@@ -179,6 +179,40 @@ file later, looking like new work. **Read the error list for the shape, not the
 count: one mistake in two files is one mistake, and the list shows you one of
 them.**
 
+## The test that was asserting the lie
+
+`method_route_coverage.rs` carried
+`the_on_host_gate_is_exactly_the_export_url_and_nothing_else`, asserting that the
+`DeviceOnHost` set was exactly `{MiscDbExportUrl, WorkersPrepareKeeperUpdate}`,
+with the comment *"host-local changes a remote device has no business
+authorising"*.
+
+**It was green precisely because it agreed with the table, and it never asked
+the gate.** The test restated the claim under test instead of checking it, so a
+variant that nothing enforced was documented by a test that enforced nothing
+either. Two rows claimed a locality the auth gate does not implement —
+`principal_satisfies` answers `is_browser` for `Device` and `DeviceOnHost`
+alike.
+
+It is replaced by `no_row_claims_a_locality_the_auth_gate_does_not_enforce`,
+which asserts the **empty** set and then names where each method's locality
+really lives: the export is checked at `http/listener.rs:248`, and the keeper
+update has no locality check in v2 either.
+
+**The general form, and it is the worst instance of the verification ceiling in
+this programme: a test that restates the claim under test is worse than no
+test.** It occupies the slot where a real check would go, and it is *more*
+believable than an absence because it has assertions in it. The question to ask
+of any coverage contract is **"what would this test print if the thing it names
+stopped being true?"** — and this one would print the same thing.
+
+Note also what was done with the now-unused variant: `DeviceOnHost` is kept,
+with a doc saying it cannot be enforced and why, because expressing it needs an
+on-host caller with no credential and the gate only builds a `Caller` for a
+request that carried one. Deciding whether to build that caller is a **parity**
+question — dropping v2's credential-less device-recovery path — and it belongs
+in a commit body as a named decision, not in a diff at an integration gate.
+
 ## An auth level that is recorded but not enforced
 
 `DevicesRevoke` is `DeviceOnHost` in v2 and in the port — an on-host caller with
