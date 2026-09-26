@@ -501,7 +501,7 @@ a shortfall, the cause is something neither scan covers* — a dropped `.await`
 leaving a seed empty, which no static scan can see, or a `Drop` that discards an
 error. **Those need a run to see, not a grep.**
 
-## A test that drops the handle asserts the opposite of the contract
+**So the rule has two halves, and the second is the one that catches defects:**## A test that drops the handle asserts the opposite of the contract
 
 Three separate tests in one wave failed for the same reason, and it is a class
 with a name: **an RAII handle was discarded, and the test then asserted the
