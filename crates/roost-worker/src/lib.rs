@@ -8,6 +8,7 @@ pub mod attachment_transfer;
 pub mod backoff;
 pub mod boot_keeper;
 pub mod channel_fsm;
+pub mod diag_snapshot;
 pub mod event_store;
 pub mod link_barrier;
 pub mod link_dial;
