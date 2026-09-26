@@ -240,6 +240,13 @@ impl SessionRecord {
     /// offset of the chunk's END, so a caller can stamp the upstream frame
     /// without a second lookup.
     ///
+    /// THE ONLY method that writes the ring or the offset. Not "the live
+    /// lane's append" — every lane's, including the capture lane, which
+    /// retains without feeding a frozen core. `head_seq` and the floor move
+    /// together in one expression here precisely so that no caller has to know
+    /// they are related; a second writer reproduces that expression and the
+    /// second answer is invisible from outside the file.
+    ///
     /// The offset advances by the CHUNK's length, not by what the ring
     /// retained. That is the whole reason the two numbers live apart: an
     /// absolute history address must keep meaning the same thing after the
