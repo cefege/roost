@@ -49,7 +49,9 @@ impl BackupFixture {
     /// night had run.
     async fn seed_archive(&self, tag: &str) -> PathBuf {
         let path = self.directory().join(format!("coord_v2.{tag}.db.gz"));
-        tokio::fs::create_dir_all(self.directory()).await.expect("a backups dir");
+        tokio::fs::create_dir_all(self.directory())
+            .await
+            .expect("a backups dir");
         tokio::fs::write(&path, format!("previous archive {tag}"))
             .await
             .expect("a seeded archive");
@@ -70,7 +72,11 @@ impl Drop for BackupFixture {
 }
 
 fn mode_of(path: &Path) -> u32 {
-    std::fs::metadata(path).expect("the path exists").permissions().mode() & 0o777
+    std::fs::metadata(path)
+        .expect("the path exists")
+        .permissions()
+        .mode()
+        & 0o777
 }
 
 async fn read_bytes(path: &Path) -> Vec<u8> {
@@ -89,7 +95,9 @@ async fn an_archive_is_a_gzip_of_the_database_under_a_name_that_sorts_by_time() 
 
     assert_eq!(
         record.path,
-        fixture.directory().join("coord_v2.2024-02-29T12-34-56-789.db.gz"),
+        fixture
+            .directory()
+            .join("coord_v2.2024-02-29T12-34-56-789.db.gz"),
         "the name is the UTC instant with the filename-unsafe characters replaced"
     );
     let raw = read_bytes(&record.path).await;
@@ -123,7 +131,13 @@ async fn the_uncompressed_snapshot_never_outlives_the_backup() {
 
     let leftovers: Vec<String> = std::fs::read_dir(fixture.directory())
         .expect("the backups dir")
-        .map(|entry| entry.expect("a dir entry").file_name().to_string_lossy().into_owned())
+        .map(|entry| {
+            entry
+                .expect("a dir entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
         .filter(|name| name.contains("snapshot") || name.ends_with(".tmp"))
         .collect();
     assert!(
@@ -168,10 +182,14 @@ async fn a_write_that_cannot_start_leaves_the_previous_archive_byte_for_byte() {
         .await
         .expect("a staging path that is a directory");
 
-    let failure = run_backup_at(&fixture.database, BackupReason::Scheduled, FIXED_MS)
-        .await
-        .expect_err("the second backup cannot write");
-
+    let outcome = run_backup_at(&fixture.database, BackupReason::Scheduled, FIXED_MS).await;
+    assert!(
+        outcome.is_err(),
+        "the backup published {} even though its staging path could not be written, so \
+         the previous archive under that name has already been overwritten",
+        published.path.display()
+    );
+    let failure = outcome.expect_err("checked above");
     assert!(
         failure.to_string().contains("i/o"),
         "the failure names the write: {failure}"
@@ -198,9 +216,18 @@ async fn a_write_that_fails_mid_stream_leaves_the_previous_archive_byte_for_byte
     std::os::unix::fs::symlink("/dev/full", fixture.staging_path(&backup_tag(FIXED_MS)))
         .expect("a staging path that cannot be written");
 
-    let failure = run_backup_at(&fixture.database, BackupReason::PreMigration, FIXED_MS)
-        .await
-        .expect_err("the second backup runs out of room mid-stream");
+    let outcome = run_backup_at(&fixture.database, BackupReason::PreMigration, FIXED_MS).await;
+    assert!(
+        outcome.is_err(),
+        "the backup published {} even though its staging path could not be written, so \
+         the previous archive under that name has already been overwritten",
+        published.path.display()
+    );
+    let failure = outcome.expect_err("checked above");
+    assert!(
+        failure.to_string().contains("i/o"),
+        "the failure names the write: {failure}"
+    );
 
     assert_eq!(
         read_bytes(&published.path).await,
@@ -220,10 +247,11 @@ async fn a_failed_first_backup_publishes_nothing_at_all() {
         .await
         .expect("a staging path that is a directory");
 
-    run_backup_at(&fixture.database, BackupReason::Scheduled, FIXED_MS)
-        .await
-        .expect_err("the write cannot start");
-
+    let outcome = run_backup_at(&fixture.database, BackupReason::Scheduled, FIXED_MS).await;
+    assert!(
+        outcome.is_err(),
+        "a backup that could not stage its archive published one anyway"
+    );
     assert!(
         list_archives(&fixture.directory()).await.is_empty(),
         "a backup that failed has published no archive under any name"
@@ -235,12 +263,12 @@ async fn a_failed_first_backup_publishes_nothing_at_all() {
 #[tokio::test]
 async fn the_prune_keeps_exactly_the_keep_count_and_drops_the_oldest() {
     let fixture = BackupFixture::new("prune").await;
-    for night in 0..=MAX_BACKUPS {
+    for night in 0..=MAX_BACKUPS as i64 {
         fixture
-            .seed_archive(&backup_tag(FIXED_MS - (i64::from(night) + 1) * 86_400_000))
+            .seed_archive(&backup_tag(FIXED_MS - (night + 1) * 86_400_000))
             .await;
     }
-    let oldest = backup_tag(FIXED_MS - (i64::from(MAX_BACKUPS) + 1) * 86_400_000);
+    let oldest = backup_tag(FIXED_MS - (MAX_BACKUPS as i64 + 1) * 86_400_000);
 
     run_backup_at(&fixture.database, BackupReason::Scheduled, FIXED_MS)
         .await
@@ -270,18 +298,21 @@ async fn the_prune_keeps_exactly_the_keep_count_and_drops_the_oldest() {
 #[tokio::test]
 async fn a_prune_that_cannot_finish_does_not_fail_the_backup() {
     let fixture = BackupFixture::new("prune-fails").await;
-    for night in 0..MAX_BACKUPS {
+    for night in 0..MAX_BACKUPS as i64 {
         fixture
-            .seed_archive(&backup_tag(FIXED_MS - (i64::from(night) + 1) * 86_400_000))
+            .seed_archive(&backup_tag(FIXED_MS - (night + 1) * 86_400_000))
             .await;
     }
     // The oldest entry is a directory, so removing it fails. v2 catches that
     // per entry and keeps going (`backup.ts:78-84`); the consequence that
     // matters is the one outside the loop: the backup is still a success.
-    let unremovable = fixture
-        .directory()
-        .join(format!("coord_v2.{}.db.gz", backup_tag(FIXED_MS - 90 * 86_400_000)));
-    tokio::fs::create_dir_all(&unremovable).await.expect("an unremovable entry");
+    let unremovable = fixture.directory().join(format!(
+        "coord_v2.{}.db.gz",
+        backup_tag(FIXED_MS - 90 * 86_400_000)
+    ));
+    tokio::fs::create_dir_all(&unremovable)
+        .await
+        .expect("an unremovable entry");
     tokio::fs::write(unremovable.join("occupied"), b"x")
         .await
         .expect("a non-empty directory");
@@ -298,7 +329,10 @@ async fn a_prune_that_cannot_finish_does_not_fail_the_backup() {
         "only the entries that could be removed were: {:?}",
         archives
     );
-    assert!(archives.contains(&unremovable), "the failed entry is left alone");
+    assert!(
+        archives.contains(&unremovable),
+        "the failed entry is left alone"
+    );
 }
 
 // ── the name ───────────────────────────────────────────────────────────────

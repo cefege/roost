@@ -38,7 +38,10 @@ use roost_coord::events::bus_messages::SessionBusMessage;
 /// subscriptions: dropping this one is what unsubscribes.
 fn watch_session_bus(
     fixture: &EventFixture,
-) -> (Arc<Mutex<Vec<SessionBusMessage>>>, Subscription<SessionBusMessage>) {
+) -> (
+    Arc<Mutex<Vec<SessionBusMessage>>>,
+    Subscription<SessionBusMessage>,
+) {
     let seen: Arc<Mutex<Vec<SessionBusMessage>>> = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&seen);
     let observed = Arc::clone(&fixture.observed);

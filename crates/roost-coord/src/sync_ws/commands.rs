@@ -22,8 +22,8 @@
 
 use std::collections::BTreeSet;
 
-use roost_proto::buffa::Message;
 use roost_proto::__buffa::oneof::sync_client_frame::Command;
+use roost_proto::buffa::Message;
 use roost_proto::{
     FirehoseFrame, InputCommand, SyncClientFrame, SyncDomain, SyncDomainReadyCommand,
     SyncDomainSubscriptionCommand, TerminalInputRouteClaim, TerminalResyncCommand,
@@ -33,8 +33,8 @@ use roost_proto::{
 use crate::sync_ws::admission::EnqueueOutcome;
 use crate::sync_ws::control_frames::ResetNotice;
 use crate::sync_ws::frame_meta::is_lazy_domain;
-use crate::sync_ws::snapshot_registry::SnapshotTokenRegistry;
 use crate::sync_ws::session::SyncV2Session;
+use crate::sync_ws::snapshot_registry::SnapshotTokenRegistry;
 
 /// What a Sync socket is allowed to do, resolved at upgrade.
 #[derive(Debug, Clone, Default)]
@@ -231,9 +231,7 @@ fn handle_domain_ready(
             .collect();
         session.announced_sessions.clear();
         session.pending_session_announcements.clear();
-        session
-            .announced_sessions
-            .extend(admitted.iter().cloned());
+        session.announced_sessions.extend(admitted.iter().cloned());
         admitted_sessions = Some(admitted);
     }
     if let Some(state) = session.domain_mut(domain) {
@@ -300,13 +298,12 @@ fn set_lazy_domain_subscription(
         subscribed = subscribe,
         "the audit domain's subscription changed"
     );
-    CommandOutcome::AuditSubscription { subscribed: subscribe }
+    CommandOutcome::AuditSubscription {
+        subscribed: subscribe,
+    }
 }
 
-fn layout_result(
-    context: &ClientContext,
-    result: &UiApplyLayoutResult,
-) -> CommandOutcome {
+fn layout_result(context: &ClientContext, result: &UiApplyLayoutResult) -> CommandOutcome {
     match (&context.tab_id, context.read_only, &context.viewer_key) {
         (Some(tab_id), false, Some(_)) => CommandOutcome::LayoutResult {
             tab_id: tab_id.clone(),

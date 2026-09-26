@@ -50,8 +50,10 @@ use sqlx::sqlite::SqliteConnection;
 
 use crate::db::CoordDb;
 use crate::events::agent_conversation_recovery::AgentConversationRecoveryError;
-use crate::events::append_publication::{LivePublication, PublicationResolution, resolve_publication};
 use crate::events::append_input::{prepare_event, release_reservation, reserve_publication_slot};
+use crate::events::append_publication::{
+    LivePublication, PublicationResolution, resolve_publication,
+};
 use crate::events::append_transaction::{CommittedState, run_in_transaction};
 use crate::events::bus_domains::Buses;
 use crate::events::pending_publications::PendingPublicationStore;
@@ -218,7 +220,11 @@ pub trait LiveEffects: Send + Sync {
     /// `authenticated_worker_fp` is `None` for a coordinator-side producer, and
     /// `None` must bind nothing: inferring the worker from the route cache could
     /// bind on a worker that has already been replaced.
-    fn index_durable_channel(&self, event: &SessionEvent, authenticated_worker_fp: Option<&WorkerFp>);
+    fn index_durable_channel(
+        &self,
+        event: &SessionEvent,
+        authenticated_worker_fp: Option<&WorkerFp>,
+    );
 
     /// Kill a PTY the coordinator force-closed while its worker was offline.
     fn kill_orphan_pty(&self, worker_fp: &WorkerFp, session_id: &str);
@@ -232,8 +238,10 @@ pub trait LiveEffects: Send + Sync {
 pub type AtomicExtraWork<'a> = Box<
     dyn for<'connection> FnMut(
             &'connection mut SqliteConnection,
-        ) -> BoxFuture<'connection, Result<(), Box<dyn std::error::Error + Send + Sync>>>
-        + Send
+        ) -> BoxFuture<
+            'connection,
+            Result<(), Box<dyn std::error::Error + Send + Sync>>,
+        > + Send
         + 'a,
 >;
 

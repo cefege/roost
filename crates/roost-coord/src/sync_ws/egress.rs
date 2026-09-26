@@ -25,8 +25,8 @@
 //! and a dropped frame DO close, and those are the caller's to observe, because
 //! only the caller can see a write fail.
 
-use roost_proto::buffa::Message;
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
+use roost_proto::buffa::Message;
 use roost_proto::{FirehoseFrame, SyncDomain};
 
 use crate::sync_ws::frame_meta::SyncFrameMeta;

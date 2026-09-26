@@ -85,14 +85,11 @@ impl Caller {
     /// caller, which would turn a deployment mistake into an authorization
     /// bypass.
     pub fn from_context(context: &RequestContext) -> ProtocolResult<&Self> {
-        context
-            .extensions()
-            .get::<Self>()
-            .ok_or_else(|| {
-                ProtocolError::new(
-                    "rpc.caller",
-                    "no caller on the request: the auth interceptor is not mounted",
-                )
-            })
+        context.extensions().get::<Self>().ok_or_else(|| {
+            ProtocolError::new(
+                "rpc.caller",
+                "no caller on the request: the auth interceptor is not mounted",
+            )
+        })
     }
 }

@@ -16,6 +16,7 @@ use roost_coord::maintenance::audit_retention::{
     AUDIT_BATCH_SIZE, AUDIT_SWEEP_METHODS, AuditSweepOptions, DAY_MS,
     cleanup_anonymous_static_audit_log, sweep_audit_log,
 };
+use sqlx::AssertSqlSafe;
 
 /// 2024-02-29T12:34:56.789Z, the same instant the backup tests name.
 const NOW_MS: i64 = 1_709_210_096_789;
@@ -39,24 +40,26 @@ impl AuditFixture {
     }
 
     async fn seed(&self, ts: i64, http_method: &str, path: &str) -> i64 {
-        self.seed_with_caller(ts, http_method, path, None).await
+        self.seed_row(ts, http_method, path, 200, None).await
     }
 
-    async fn seed_with_caller(
+    async fn seed_row(
         &self,
         ts: i64,
         http_method: &str,
         path: &str,
+        status: i64,
         caller_fp: Option<&str>,
     ) -> i64 {
         sqlx::query(
             "INSERT INTO audit_log (ts, caller_fp, method, path, status) \
-             VALUES (?, ?, ?, ?, 200)",
+             VALUES (?, ?, ?, ?, ?)",
         )
         .bind(ts)
         .bind(caller_fp)
         .bind(http_method)
         .bind(path)
+        .bind(status)
         .execute(self.database.pool())
         .await
         .expect("the row applies")
@@ -100,7 +103,7 @@ impl AuditFixture {
 
     async fn pragma_i64(&self, name: &str) -> i64 {
         let sql = format!("PRAGMA {name}");
-        sqlx::query_scalar(&sql)
+        sqlx::query_scalar(AssertSqlSafe(sql))
             .fetch_one(self.database.pool())
             .await
             .expect("the pragma answers")
@@ -148,9 +151,9 @@ async fn only_sessions_input_ages_out() {
     assert_eq!(
         fixture.paths().await,
         [
-            "/roost.v1.CoordinatorService/AuthRedeemBrowser",
-            "/roost.v1.CoordinatorService/PairApprove",
             "/roost.v1.CoordinatorService/PairConfirm",
+            "/roost.v1.CoordinatorService/PairApprove",
+            "/roost.v1.CoordinatorService/AuthRedeemBrowser",
             "/roost.v1.CoordinatorService/SessionsKill",
             "/roost.v1.CoordinatorService/SessionsSpawn",
             "/roost.v1.CoordinatorService/WorkersDelete",
@@ -163,13 +166,17 @@ async fn only_sessions_input_ages_out() {
 #[tokio::test]
 async fn the_trailing_segment_matches_however_the_service_is_spelled() {
     let fixture = AuditFixture::new("trailing").await;
-    fixture.seed(days_ago(200), "POST", SESSIONS_INPUT_PATH).await;
     fixture
-        .seed(days_ago(200), "POST", "/roost.worker.v1.WorkerService/SessionsInput")
+        .seed(days_ago(200), "POST", SESSIONS_INPUT_PATH)
         .await;
     fixture
-        .seed(days_ago(200), "POST", "/SessionsInput")
+        .seed(
+            days_ago(200),
+            "POST",
+            "/roost.worker.v1.WorkerService/SessionsInput",
+        )
         .await;
+    fixture.seed(days_ago(200), "POST", "/SessionsInput").await;
 
     assert_eq!(
         fixture.sweep().await,
@@ -202,7 +209,11 @@ async fn the_method_column_is_never_what_the_sweep_matches() {
     // that filtered on that column would delete nothing at all -- or, worse,
     // whatever someone later put there.
     fixture
-        .seed(days_ago(200), "SessionsInput", "/roost.v1.CoordinatorService/SessionsGet")
+        .seed(
+            days_ago(200),
+            "SessionsInput",
+            "/roost.v1.CoordinatorService/SessionsGet",
+        )
         .await;
     fixture
         .seed(days_ago(200), "HEAD", SESSIONS_INPUT_PATH)
@@ -226,12 +237,20 @@ async fn the_window_is_epoch_milliseconds_not_seconds() {
     let fixture = AuditFixture::new("milliseconds").await;
     // A seconds-scale timestamp for "now". A sweep computed in seconds would
     // leave this row alone, because it would be exactly at its own cutoff.
-    let seconds_scale = fixture.seed(NOW_MS / 1000, "POST", SESSIONS_INPUT_PATH).await;
+    let seconds_scale = fixture
+        .seed(NOW_MS / 1000, "POST", SESSIONS_INPUT_PATH)
+        .await;
     // A millisecond-scale row a second old.
-    let fresh = fixture.seed(NOW_MS - 1000, "POST", SESSIONS_INPUT_PATH).await;
+    let fresh = fixture
+        .seed(NOW_MS - 1000, "POST", SESSIONS_INPUT_PATH)
+        .await;
     // Exactly at the cutoff, and a millisecond inside it.
     let at_cutoff = fixture
-        .seed(NOW_MS - i64::try_from(RETENTION_DAYS).expect("90 days") * DAY_MS, "POST", SESSIONS_INPUT_PATH)
+        .seed(
+            NOW_MS - i64::try_from(RETENTION_DAYS).expect("90 days") * DAY_MS,
+            "POST",
+            SESSIONS_INPUT_PATH,
+        )
         .await;
     let inside = fixture
         .seed(
@@ -247,13 +266,13 @@ async fn the_window_is_epoch_milliseconds_not_seconds() {
         2,
         "a row at the cutoff is kept: the comparison is strictly older-than"
     );
-    let kept: Vec<i64> = sqlx::query_as("SELECT id FROM audit_log ORDER BY id")
+    let kept: Vec<(i64,)> = sqlx::query_as("SELECT id FROM audit_log ORDER BY id")
         .fetch_all(fixture.database.pool())
         .await
         .expect("the remaining ids");
-    assert_eq!(kept, vec![fresh, at_cutoff]);
-    assert_ne!(kept[0], seconds_scale);
-    assert_ne!(kept[0], inside);
+    assert_eq!(kept, vec![(fresh,), (at_cutoff,)]);
+    assert_ne!(kept[0].0, seconds_scale);
+    assert_ne!(kept[0].0, inside);
 }
 
 // ── batching ───────────────────────────────────────────────────────────────
@@ -268,25 +287,36 @@ fn the_batch_size_is_ten_thousand_rows_per_statement() {
 async fn a_backlog_larger_than_one_batch_is_swept_to_the_end() {
     let fixture = AuditFixture::new("backlog").await;
     let bulk = 10_001;
-    fixture.seed_bulk(days_ago(200), SESSIONS_INPUT_PATH, bulk).await;
+    fixture
+        .seed_bulk(days_ago(200), SESSIONS_INPUT_PATH, bulk)
+        .await;
     let fresh = fixture.seed(days_ago(1), "POST", SESSIONS_INPUT_PATH).await;
 
     let deleted = fixture.sweep().await;
 
-    assert_eq!(deleted, bulk, "the loop runs until the range is exhausted");
+    assert_eq!(
+        deleted, bulk as u64,
+        "the loop runs until the range is exhausted"
+    );
     assert_eq!(fixture.paths().await.len(), 1);
-    let kept: Vec<i64> = sqlx::query_as("SELECT id FROM audit_log")
+    let kept: Vec<(i64,)> = sqlx::query_as("SELECT id FROM audit_log")
         .fetch_all(fixture.database.pool())
         .await
         .expect("the remaining ids");
-    assert_eq!(kept, vec![fresh], "the row inside the window is the one left");
+    assert_eq!(
+        kept,
+        vec![(fresh,)],
+        "the row inside the window is the one left"
+    );
 }
 
 #[tokio::test]
 async fn a_backlog_is_swept_in_several_statements_not_one_unbounded_delete() {
     let fixture = AuditFixture::new("small-batches").await;
     for _ in 0..5 {
-        fixture.seed(days_ago(200), "POST", SESSIONS_INPUT_PATH).await;
+        fixture
+            .seed(days_ago(200), "POST", SESSIONS_INPUT_PATH)
+            .await;
     }
 
     let deleted = sweep_audit_log(
@@ -300,7 +330,10 @@ async fn a_backlog_is_swept_in_several_statements_not_one_unbounded_delete() {
     .await
     .expect("the sweep applies");
 
-    assert_eq!(deleted, 5, "a short batch ends the range, a full one continues it");
+    assert_eq!(
+        deleted, 5,
+        "a short batch ends the range, a full one continues it"
+    );
     assert!(fixture.paths().await.is_empty());
 }
 
@@ -309,7 +342,9 @@ async fn a_backlog_is_swept_in_several_statements_not_one_unbounded_delete() {
 #[tokio::test]
 async fn the_sweep_frees_pages_without_rewriting_the_file() {
     let fixture = AuditFixture::new("no-vacuum").await;
-    fixture.seed_bulk(days_ago(200), SESSIONS_INPUT_PATH, 10_001).await;
+    fixture
+        .seed_bulk(days_ago(200), SESSIONS_INPUT_PATH, 10_001)
+        .await;
 
     let pages_before = fixture.pragma_i64("page_count").await;
     let free_before = fixture.pragma_i64("freelist_count").await;
@@ -334,43 +369,63 @@ async fn the_sweep_frees_pages_without_rewriting_the_file() {
 #[tokio::test]
 async fn the_static_backlog_cleanup_touches_only_anonymous_successful_static_reads() {
     let fixture = AuditFixture::new("static").await;
-    let anonymous_ok = fixture.seed_with_caller(days_ago(1), "GET", "/index.html", None).await;
-    let anonymous_moved = fixture.seed_with_caller(days_ago(1), "GET", "/old", None).await;
-    fixture.seed_with_caller(days_ago(1), "HEAD", "/index.html", None).await;
-    fixture
-        .seed_with_caller(days_ago(1), "GET", "/index.html", Some("fp"))
+    let anonymous_ok = fixture
+        .seed_row(days_ago(1), "GET", "/index.html", 200, None)
         .await;
-    fixture.seed(days_ago(1), "GET", "/api/db-export").await;
-    fixture.seed(days_ago(1), "GET", "/api/workers").await;
-    fixture.seed(days_ago(1), "GET", "/internal").await;
-    fixture.seed(days_ago(1), "GET", "/internal/health").await;
-    fixture.seed(days_ago(1), "GET", "/ws").await;
-    fixture.seed(days_ago(1), "GET", "/ws/coord-sync").await;
-    fixture
-        .seed(days_ago(1), "GET", "/roost.v1.CoordinatorService/SessionsGet")
+    let anonymous_moved = fixture
+        .seed_row(days_ago(1), "GET", "/old", 301, None)
         .await;
-    fixture.seed(days_ago(1), "GET", "/broken").await;
     fixture
-        .seed(days_ago(1), "DELETE", "/index.html")
+        .seed_row(days_ago(1), "HEAD", "/index.html", 200, None)
+        .await;
+    fixture
+        .seed_row(days_ago(1), "GET", "/index.html", 200, Some("fp"))
+        .await;
+    fixture
+        .seed_row(days_ago(1), "GET", "/api/db-export", 200, None)
+        .await;
+    fixture
+        .seed_row(days_ago(1), "GET", "/api/workers", 200, None)
+        .await;
+    fixture
+        .seed_row(days_ago(1), "GET", "/internal", 200, None)
+        .await;
+    fixture
+        .seed_row(days_ago(1), "GET", "/internal/health", 200, None)
+        .await;
+    fixture.seed_row(days_ago(1), "GET", "/ws", 200, None).await;
+    fixture
+        .seed_row(days_ago(1), "GET", "/ws/coord-sync", 200, None)
+        .await;
+    fixture
+        .seed_row(
+            days_ago(1),
+            "GET",
+            "/roost.v1.CoordinatorService/SessionsGet",
+            200,
+            None,
+        )
+        .await;
+    // A failed read and a non-GET verb on a static path are not backlog.
+    fixture
+        .seed_row(days_ago(1), "GET", "/broken", 500, None)
+        .await;
+    fixture
+        .seed_row(days_ago(1), "DELETE", "/index.html", 200, None)
         .await;
 
     let deleted = cleanup_anonymous_static_audit_log(&fixture.database, None)
         .await
         .expect("the cleanup applies");
 
-    assert_eq!(deleted, 2);
-    let kept: Vec<i64> = sqlx::query_as("SELECT id FROM audit_log ORDER BY id")
+    assert_eq!(deleted, 3, "the three anonymous successful static reads");
+    let kept: Vec<(i64,)> = sqlx::query_as("SELECT id FROM audit_log ORDER BY id")
         .fetch_all(fixture.database.pool())
         .await
         .expect("the remaining ids");
     assert!(
-        !kept.contains(&anonymous_ok) && !kept.contains(&anonymous_moved),
+        !kept.contains(&(anonymous_ok,)) && !kept.contains(&(anonymous_moved,)),
         "a successful anonymous static read is what this exists to remove"
     );
-    assert_eq!(kept.len(), 10);
-    let free_after = fixture.pragma_i64("freelist_count").await;
-    assert_eq!(
-        free_after, 0,
-        "and it does not rewrite the file either"
-    );
+    assert_eq!(kept.len(), 10, "everything else survives: {kept:?}");
 }

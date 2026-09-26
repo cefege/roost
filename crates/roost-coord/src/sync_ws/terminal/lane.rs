@@ -9,9 +9,7 @@
 use roost_proto::{FirehoseFrame, SyncDomain};
 
 use crate::sync_ws::ack_window::BackpressureReason;
-use crate::sync_ws::domain_table::{
-    TERMINAL_LANE_MAX_DELTA_BYTES, TERMINAL_LANE_MAX_DELTA_FRAMES,
-};
+use crate::sync_ws::domain_table::{TERMINAL_LANE_MAX_DELTA_BYTES, TERMINAL_LANE_MAX_DELTA_FRAMES};
 use crate::sync_ws::frame_meta::SyncFrameMeta;
 use crate::sync_ws::retained_frame::{OwnedFrame, RetainedFrame, SharedCellFrame};
 use crate::sync_ws::session::{SessionClose, SyncV2Session};
@@ -84,7 +82,10 @@ impl SyncV2Session {
     /// the outstanding rebaseline are retired, and the first part of the new
     /// baseline may pass other sessions' deltas once.
     pub fn begin_terminal_stream(&mut self, session_id: &str, stream_id: &str) -> bool {
-        if self.terminal_lane(session_id).is_some_and(|lane| lane.stream_id == stream_id) {
+        if self
+            .terminal_lane(session_id)
+            .is_some_and(|lane| lane.stream_id == stream_id)
+        {
             return false;
         }
         if !self.terminal_sessions.contains_key(session_id) {
@@ -181,7 +182,11 @@ impl SyncV2Session {
         if lane.stream_id != stream_id {
             return false;
         }
-        if lane.cursor.as_ref().is_some_and(SnapshotCursor::is_mid_baseline) {
+        if lane
+            .cursor
+            .as_ref()
+            .is_some_and(SnapshotCursor::is_mid_baseline)
+        {
             if let Some(lane) = self.terminal_sessions.get_mut(session_id) {
                 lane.rebaseline_pending = true;
             }
@@ -335,7 +340,11 @@ impl SyncV2Session {
     /// The log line is emitted only on the FIRST request for a session, because
     /// a lane under pressure asks repeatedly and one line per request is how a
     /// log becomes unreadable exactly when it is needed.
-    pub(in crate::sync_ws) fn request_scoped_rebaseline(&mut self, session_id: &str, reason: &'static str) {
+    pub(in crate::sync_ws) fn request_scoped_rebaseline(
+        &mut self,
+        session_id: &str,
+        reason: &'static str,
+    ) {
         let already_pending = self
             .terminal_lane(session_id)
             .is_some_and(|lane| lane.rebaseline_pending);

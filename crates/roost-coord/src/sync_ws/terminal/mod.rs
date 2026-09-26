@@ -22,6 +22,6 @@ pub mod snapshot;
 pub use cursor::{SnapshotCursor, TerminalLane};
 pub use lane::TerminalDeltaOutcome;
 pub use snapshot::{
-    CellGridSnapshotPlanError, NoTerminalSnapshotHub, ProtocolCellSnapshot,
-    TerminalSnapshotCursor, TerminalSnapshotHub, TerminalSnapshotSource,
+    CellGridSnapshotPlanError, NoTerminalSnapshotHub, ProtocolCellSnapshot, TerminalSnapshotCursor,
+    TerminalSnapshotHub, TerminalSnapshotSource,
 };

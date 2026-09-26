@@ -26,11 +26,14 @@ pub mod events;
 pub mod http;
 pub mod http_admission;
 pub mod maintenance;
+pub mod push;
 pub mod rpc;
 pub mod serve;
 pub mod services;
 pub mod sync_ws;
+pub mod terminal_screen;
 pub mod worker_link;
+pub mod workers;
 pub mod write_gate;
 
 pub use serve::{CoordBoot, serve};

@@ -5,9 +5,9 @@
 //! coordinator database is measured in gigabytes, and anything that reads a
 //! file whole to compress it holds the whole file on the heap while doing it.
 
+use async_compression::tokio::write::GzipEncoder;
 use std::io::Error as IoError;
 use std::path::Path;
-use async_compression::tokio::write::GzipEncoder;
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncWriteExt, BufReader, BufWriter};
 
@@ -44,7 +44,8 @@ pub async fn gzip_file_to_path(
 }
 
 async fn compress_file(source: &Path, destination: &Path) -> Result<GzipFileResult, IoError> {
-    let mut input = BufReader::with_capacity(GZIP_FILE_CHUNK_BYTES, tokio::fs::File::open(source).await?);
+    let mut input =
+        BufReader::with_capacity(GZIP_FILE_CHUNK_BYTES, tokio::fs::File::open(source).await?);
     let destination_file = OpenOptions::new()
         .write(true)
         .create(true)
@@ -69,5 +70,8 @@ async fn compress_file(source: &Path, destination: &Path) -> Result<GzipFileResu
     output.flush().await?;
     let bytes_out = output.get_ref().metadata().await?.len();
 
-    Ok(GzipFileResult { bytes_in, bytes_out })
+    Ok(GzipFileResult {
+        bytes_in,
+        bytes_out,
+    })
 }

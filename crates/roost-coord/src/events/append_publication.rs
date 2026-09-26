@@ -66,10 +66,8 @@ impl CommittedEventPublication {
     fn retained(&self, dashboard_id: &str) -> Result<RetainedPublication, AppendError> {
         Ok(RetainedPublication {
             event_kind: self.event.kind_name().to_owned(),
-            event_id: i64::try_from(self.event_id).map_err(|_| {
-                AppendError::EventIdOutOfRange {
-                    id: i64::try_from(self.event_id).unwrap_or(i64::MAX),
-                }
+            event_id: i64::try_from(self.event_id).map_err(|_| AppendError::EventIdOutOfRange {
+                id: i64::try_from(self.event_id).unwrap_or(i64::MAX),
             })?,
             event_json: self.event_json.clone(),
             dashboard_id: dashboard_id.to_owned(),
@@ -90,13 +88,12 @@ impl CommittedEventPublication {
         claimed: &RetainedPublication,
         worker_fp: &WorkerFp,
     ) -> Result<Self, AppendError> {
-        let event: SessionEvent =
-            serde_json::from_str(&claimed.event_json).map_err(|error| {
-                AppendError::UndecodableRetained {
-                    event_id: claimed.event_id,
-                    reason: error.to_string(),
-                }
-            })?;
+        let event: SessionEvent = serde_json::from_str(&claimed.event_json).map_err(|error| {
+            AppendError::UndecodableRetained {
+                event_id: claimed.event_id,
+                reason: error.to_string(),
+            }
+        })?;
         let event_id =
             u64::try_from(claimed.event_id).map_err(|_| AppendError::EventIdOutOfRange {
                 id: claimed.event_id,
@@ -249,9 +246,10 @@ fn publish_committed_event(
         return Ok(());
     }
     live_effects.index_durable_channel(&effect.event, effect.authenticated_worker_fp.as_ref());
-    buses
-        .session_bus
-        .publish(SessionBusMessage::committed(effect.event.clone(), effect.event_id));
+    buses.session_bus.publish(SessionBusMessage::committed(
+        effect.event.clone(),
+        effect.event_id,
+    ));
     for id in &effect.cascade_orphan_ids {
         buses
             .workspace_bus
@@ -290,10 +288,7 @@ fn retain(
     Ok(())
 }
 
-fn release(
-    store: &mut Option<&mut PendingPublicationStore>,
-    reservation: Option<Reservation>,
-) {
+fn release(store: &mut Option<&mut PendingPublicationStore>, reservation: Option<Reservation>) {
     let (Some(store), Some(reservation)) = (store.as_deref_mut(), reservation) else {
         return;
     };

@@ -70,16 +70,12 @@ pub async fn project_agent_conversation_reference(
             reference
                 .check()
                 .map_err(|error| AgentConversationRecoveryError::InvalidReference(error.reason))?;
-            Some(
-                serde_json::to_string(reference)
-                    .map_err(AgentConversationRecoveryError::Encode)?,
-            )
+            Some(serde_json::to_string(reference).map_err(AgentConversationRecoveryError::Encode)?)
         }
         None => None,
     };
-    let sequence = i64::try_from(client_seq).map_err(|_| {
-        AgentConversationRecoveryError::InvalidWorkerSequence
-    })?;
+    let sequence = i64::try_from(client_seq)
+        .map_err(|_| AgentConversationRecoveryError::InvalidWorkerSequence)?;
     sqlx::query(
         "UPDATE sessions \
             SET agent_reference_json = ?, agent_reference_client_seq = ? \

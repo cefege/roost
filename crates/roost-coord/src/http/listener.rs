@@ -99,9 +99,8 @@ pub fn build_router(state: Arc<ListenerState>) -> Router {
     // from that. So the gate is built here and the whole service is mounted as
     // the axum fallback, which is exactly what `Router::into_axum_router` does
     // internally (`ConnectRpcService::new(..)` then `fallback_service`).
-    let server = roost_proto::roost::v1::CoordinatorServiceServer::from_arc(Arc::clone(
-        &state.service,
-    ));
+    let server =
+        roost_proto::roost::v1::CoordinatorServiceServer::from_arc(Arc::clone(&state.service));
     let gate = crate::rpc::auth_gate::auth_gate(
         crate::coord_core::CoordCore::new(Arc::clone(&state.services)),
         state.service.config.jwt_max_age_secs,

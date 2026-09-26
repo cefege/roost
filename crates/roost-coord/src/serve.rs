@@ -25,8 +25,8 @@ use anyhow::Context as _;
 use roost_host::CoordConfig;
 use roost_platform::HostPlatform;
 
-use crate::http::listener::{ListenerState, build_router, resolve_bind};
 use crate::coord_core::CoordCore;
+use crate::http::listener::{ListenerState, build_router, resolve_bind};
 use crate::rpc::service::CoordinatorServiceImpl;
 use crate::services::CoordServices;
 

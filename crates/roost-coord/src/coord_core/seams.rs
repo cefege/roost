@@ -47,11 +47,7 @@ pub struct LiveChannel {
 /// an error.
 pub trait WorkerRouteIndex: Send + Sync {
     /// The session a worker's channel currently carries, if the index has it.
-    fn lookup_session_id(
-        &self,
-        worker_fp: &WorkerFp,
-        channel_id: &ChannelId,
-    ) -> Option<SessionId>;
+    fn lookup_session_id(&self, worker_fp: &WorkerFp, channel_id: &ChannelId) -> Option<SessionId>;
 
     /// Atomically make `live` this worker's entire channel index, dropping every
     /// key and route-cache entry of that worker not in it.
@@ -158,10 +154,7 @@ impl CoordTerminal {
 
     /// The seams a real terminal hub provides.
     #[must_use]
-    pub fn new(
-        routes: Arc<dyn WorkerRouteIndex>,
-        views: Arc<dyn TerminalViewLifecycle>,
-    ) -> Self {
+    pub fn new(routes: Arc<dyn WorkerRouteIndex>, views: Arc<dyn TerminalViewLifecycle>) -> Self {
         Self { routes, views }
     }
 }

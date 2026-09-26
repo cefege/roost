@@ -109,12 +109,8 @@ pub async fn load_admission_facts(
     // offline force-close must still be consumed, or it permanently blocks the
     // worker's ordered durable replay.
     if event.kind_name() == PRIVATE_SESSION_EVENT_KIND {
-        facts.worker_has_prior_opened = worker_has_durable_opened(
-            connection,
-            caller.as_str(),
-            session_id.as_str(),
-        )
-        .await?;
+        facts.worker_has_prior_opened =
+            worker_has_durable_opened(connection, caller.as_str(), session_id.as_str()).await?;
     }
     Ok(facts)
 }
@@ -192,7 +188,8 @@ async fn session_row_owners(
     if announced_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let mut query = QueryBuilder::<sqlx::Sqlite>::new("SELECT id, worker_fp FROM sessions WHERE id IN (");
+    let mut query =
+        QueryBuilder::<sqlx::Sqlite>::new("SELECT id, worker_fp FROM sessions WHERE id IN (");
     {
         let mut separated = query.separated(", ");
         for id in announced_ids {

@@ -52,7 +52,14 @@ impl std::fmt::Debug for EventLog {
             .debug_struct("EventLog")
             .field("database", &self.database.path())
             .field("buses", &self.buses)
-            .field("retained_publications", &self.pending_publications.lock().map(|store| store.len()).unwrap_or(0))
+            .field(
+                "retained_publications",
+                &self
+                    .pending_publications
+                    .lock()
+                    .map(|store| store.len())
+                    .unwrap_or(0),
+            )
             .finish_non_exhaustive()
     }
 }

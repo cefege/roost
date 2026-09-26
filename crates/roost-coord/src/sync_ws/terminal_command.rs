@@ -49,8 +49,10 @@ pub(in crate::sync_ws) fn terminal_command_gate(
             Some(claim.domain_generation),
             terminal_refusal(session, context.read_only, claim.domain_generation),
         ),
-        Command::DomainReady(_) | Command::DomainSubscribe(_)
-        | Command::DomainUnsubscribe(_) | Command::UiApplyLayoutResult(_) => {
+        Command::DomainReady(_)
+        | Command::DomainSubscribe(_)
+        | Command::DomainUnsubscribe(_)
+        | Command::UiApplyLayoutResult(_) => {
             return CommandOutcome::Nothing;
         }
     };
@@ -94,8 +96,12 @@ fn terminal_command_of(command: &Command) -> Option<TerminalCommand> {
         Command::TerminalView(view) => Some(TerminalCommand::View(view.as_ref().clone())),
         Command::TerminalResync(resync) => Some(TerminalCommand::Resync(resync.as_ref().clone())),
         Command::Input(input) => Some(TerminalCommand::Input(input.as_ref().clone())),
-        Command::InputRouteClaim(claim) => Some(TerminalCommand::RouteClaim(claim.as_ref().clone())),
-        Command::TerminalTransportProbe(probe) => Some(TerminalCommand::TransportProbe(probe.as_ref().clone())),
+        Command::InputRouteClaim(claim) => {
+            Some(TerminalCommand::RouteClaim(claim.as_ref().clone()))
+        }
+        Command::TerminalTransportProbe(probe) => {
+            Some(TerminalCommand::TransportProbe(probe.as_ref().clone()))
+        }
         Command::DomainReady(_)
         | Command::DomainSubscribe(_)
         | Command::DomainUnsubscribe(_)
@@ -119,9 +125,10 @@ fn refusal_frame(command: &Command, reason: &str) -> Option<FirehoseFrame> {
             &claim.worker_epoch,
             reason,
         )),
-        Command::TerminalTransportProbe(probe) => {
-            Some(transport_probe_refusal_frame(&probe.request_id, &probe.worker_fp))
-        }
+        Command::TerminalTransportProbe(probe) => Some(transport_probe_refusal_frame(
+            &probe.request_id,
+            &probe.worker_fp,
+        )),
         Command::TerminalView(_) | Command::TerminalResync(_) => None,
         Command::DomainReady(_)
         | Command::DomainSubscribe(_)

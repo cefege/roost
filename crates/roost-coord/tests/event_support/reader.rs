@@ -108,4 +108,3 @@ impl SyncReader {
         let _ = self.questions.send(Question::Stop);
     }
 }
-

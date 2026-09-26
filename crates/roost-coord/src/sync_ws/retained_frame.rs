@@ -17,8 +17,8 @@
 
 use std::sync::Arc;
 
-use roost_proto::buffa::Message;
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
+use roost_proto::buffa::Message;
 use roost_proto::{FirehoseFrame, PbCellGridChunk, PbCellGridFrame, SyncDomain};
 use roost_protocol::cell::frame_chunk_validation::CELL_GRID_COORD_FANOUT_STAMP_MAX;
 

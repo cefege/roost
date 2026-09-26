@@ -124,12 +124,11 @@ async fn require_owner_membership(
     organization_id: &str,
     account_id: &str,
 ) -> ProtocolResult<()> {
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "SELECT organization_id, account_id FROM organization_memberships LIMIT 2",
-    )
-    .fetch_all(&mut **transaction)
-    .await
-    .map_err(|error| refuse(&format!("organization memberships: {error}")))?;
+    let rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT organization_id, account_id FROM organization_memberships LIMIT 2")
+            .fetch_all(&mut **transaction)
+            .await
+            .map_err(|error| refuse(&format!("organization memberships: {error}")))?;
     if rows.len() != 1 || rows[0].0 != organization_id || rows[0].1 != account_id {
         return Err(refuse("organization owner membership is incomplete"));
     }
@@ -153,12 +152,11 @@ async fn require_admin_membership(
     dashboard_id: &str,
     account_id: &str,
 ) -> ProtocolResult<()> {
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "SELECT dashboard_id, account_id FROM dashboard_memberships LIMIT 2",
-    )
-    .fetch_all(&mut **transaction)
-    .await
-    .map_err(|error| refuse(&format!("dashboard memberships: {error}")))?;
+    let rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT dashboard_id, account_id FROM dashboard_memberships LIMIT 2")
+            .fetch_all(&mut **transaction)
+            .await
+            .map_err(|error| refuse(&format!("dashboard memberships: {error}")))?;
     if rows.len() != 1 || rows[0].0 != dashboard_id || rows[0].1 != account_id {
         return Err(refuse("dashboard admin membership is incomplete"));
     }
@@ -181,22 +179,20 @@ async fn inspect_or_create(
     transaction: &mut Transaction<'_, Sqlite>,
     now_ms: i64,
 ) -> ProtocolResult<SelfHostedTenant> {
-    let accounts: Vec<(String, String)> =
-        sqlx::query_as("SELECT id, status FROM accounts LIMIT 2")
-            .fetch_all(&mut **transaction)
-            .await
-            .map_err(|error| refuse(&format!("accounts: {error}")))?;
+    let accounts: Vec<(String, String)> = sqlx::query_as("SELECT id, status FROM accounts LIMIT 2")
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(|error| refuse(&format!("accounts: {error}")))?;
     let organizations: Vec<(String, String)> =
         sqlx::query_as("SELECT id, status FROM organizations LIMIT 2")
             .fetch_all(&mut **transaction)
             .await
             .map_err(|error| refuse(&format!("organizations: {error}")))?;
-    let dashboard_rows: Vec<(String, String, String)> = sqlx::query_as(
-        "SELECT id, organization_id, status FROM dashboards LIMIT 2",
-    )
-    .fetch_all(&mut **transaction)
-    .await
-    .map_err(|error| refuse(&format!("dashboards: {error}")))?;
+    let dashboard_rows: Vec<(String, String, String)> =
+        sqlx::query_as("SELECT id, organization_id, status FROM dashboards LIMIT 2")
+            .fetch_all(&mut **transaction)
+            .await
+            .map_err(|error| refuse(&format!("dashboards: {error}")))?;
 
     if accounts.len() > 1 {
         return Err(refuse("multiple accounts"));

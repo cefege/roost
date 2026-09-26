@@ -14,10 +14,10 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use roost_coord::sync_ws::commands::{
-    handle_client_frame, ClientContext, CommandOutcome, TerminalCommand,
-};
 use roost_coord::sync_ws::admission::EnqueueOutcome;
+use roost_coord::sync_ws::commands::{
+    ClientContext, CommandOutcome, TerminalCommand, handle_client_frame,
+};
 use roost_coord::sync_ws::domain_table::DomainGenerations;
 use roost_coord::sync_ws::session::SyncV2Session;
 use roost_coord::sync_ws::snapshot_registry::SnapshotTokenRegistry;
@@ -47,11 +47,7 @@ fn context() -> ClientContext {
 }
 
 /// Close the terminal domain's snapshot fence with a real one-time token.
-fn hydrate_terminal(
-    session: &mut SyncV2Session,
-    tokens: &mut SnapshotTokenRegistry,
-    token: &str,
-) {
+fn hydrate_terminal(session: &mut SyncV2Session, tokens: &mut SnapshotTokenRegistry, token: &str) {
     let socket_id = session.socket_id.clone();
     let mut covered = BTreeSet::new();
     covered.insert(SESSION_A.to_owned());
@@ -303,4 +299,3 @@ fn a_route_claim_refusal_is_definite_even_for_a_read_only_socket() {
     assert_eq!(result.request_id, "route-1");
     assert!(result.reason.contains("cannot write terminal input"));
 }
-

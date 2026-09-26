@@ -78,7 +78,10 @@ impl SnapshotCursor {
     }
 
     /// A cursor at the start of a baseline.
-    pub(in crate::sync_ws) fn of_snapshot(stream_id: &str, source: Arc<dyn TerminalSnapshotCursor>) -> Self {
+    pub(in crate::sync_ws) fn of_snapshot(
+        stream_id: &str,
+        source: Arc<dyn TerminalSnapshotCursor>,
+    ) -> Self {
         Self {
             source: Some(source),
             ..Self::of_stream(stream_id)
@@ -98,7 +101,6 @@ impl SnapshotCursor {
     pub(in crate::sync_ws) fn is_mid_baseline(&self) -> bool {
         self.source.is_some() && self.index > 0 && self.index < self.part_count()
     }
-
 }
 
 /// One session's terminal lane.
@@ -174,4 +176,3 @@ impl SnapshotCursor {
         self.delta_bytes = 0;
     }
 }
-

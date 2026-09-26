@@ -53,7 +53,9 @@ impl AuthGate {
     /// The bearer token offered on this request, if any.
     fn offered_token(context: &RequestContext) -> Option<String> {
         let raw = context.headers().get(AUTHORIZATION)?.to_str().ok()?;
-        let token = raw.strip_prefix("Bearer ").or_else(|| raw.strip_prefix("bearer "))?;
+        let token = raw
+            .strip_prefix("Bearer ")
+            .or_else(|| raw.strip_prefix("bearer "))?;
         let token = token.trim();
         (!token.is_empty()).then(|| token.to_owned())
     }

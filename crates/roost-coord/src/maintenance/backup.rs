@@ -103,8 +103,21 @@ pub async fn run_backup_at(
 
     prepare_backup_dir(&directory).await?;
 
-    let published = publish_archive(database, &snapshot_path, &staging_path, &archive_path, reason).await;
-    if published.is_err() {
+    let published = publish_archive(
+        database,
+        &snapshot_path,
+        &staging_path,
+        &archive_path,
+        reason,
+    )
+    .await;
+    if let Err(error) = &published {
+        tracing::error!(
+            path = %archive_path.display(),
+            reason = reason.as_str(),
+            error = %error,
+            "backup failed"
+        );
         // The staging file never earns its real name, so removing it is the
         // whole cleanup. The real name is NOT touched: it holds some earlier
         // archive, and v2's catch deletes that too (`backup.ts:68-69`), which
@@ -173,7 +186,7 @@ async fn stage_and_rename(
 /// A prune failure is logged and skipped. A full disk, a permission change or
 /// an unremovable file must not turn an archive that was written and verified
 /// into a reported backup failure (`backup.ts:74-86`).
-pub async fn prune_backups(directory: &Path) {
+async fn prune_backups(directory: &Path) {
     let archives = list_archives(directory).await;
     let excess = archives.len().saturating_sub(MAX_BACKUPS);
     for archive in archives.into_iter().take(excess) {
@@ -207,7 +220,7 @@ pub async fn list_archives(directory: &Path) -> Vec<PathBuf> {
 
 /// Whether the newest archive is older than a day, so the first scheduled run
 /// fires immediately rather than a day after boot (`backup.ts:99-103`).
-pub async fn backup_is_stale(directory: &Path) -> bool {
+async fn backup_is_stale(directory: &Path) -> bool {
     let archives = list_archives(directory).await;
     let Some(newest) = archives.last() else {
         return true;

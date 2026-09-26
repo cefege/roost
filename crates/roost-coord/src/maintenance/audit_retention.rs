@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use crate::db::CoordDb;
 use crate::serve::now_ms;
+use sqlx::{QueryBuilder, Sqlite};
 
 /// One day. The retention window is counted in these, the sweep runs once per
 /// one, and `backup` schedules on the same value -- one definition so the
@@ -72,29 +73,9 @@ pub async fn sweep_audit_log(
     let days = i64::try_from(options.retention_days).unwrap_or(i64::MAX);
     let cutoff = now.saturating_sub(days.saturating_mul(DAY_MS));
 
-    // Bounded batches, not one unbounded DELETE: a first run against a large
-    // backlog must not hold the write lock for its whole duration on a live
-    // coordinator. The LIMIT rides on a subselect, and `audit_log_ts` turns
-    // `ts < ?` into a bounded index range scan (`audit-retention.ts:105-118`).
-    let path_filter = AUDIT_SWEEP_METHODS
-        .iter()
-        .map(|_| "path LIKE ?")
-        .collect::<Vec<_>>()
-        .join(" OR ");
-    let statement = format!(
-        "DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log \
-         WHERE ts < ? AND ({path_filter}) ORDER BY ts LIMIT ?)"
-    );
-    let mut query = sqlx::query(&statement).bind(cutoff);
-    for method in AUDIT_SWEEP_METHODS {
-        query = query.bind(format!("%/{method}"));
-    }
-    let mut query = query.bind(batch_size);
-
     let mut deleted = 0_u64;
     loop {
-        let outcome = query.execute(database.pool()).await?;
-        let changed = outcome.rows_affected();
+        let changed = run_batch(cutoff, batch_size, database.pool()).await?;
         deleted += changed;
         // A short batch means the cutoff range is exhausted.
         if i64::try_from(changed).unwrap_or(i64::MAX) < batch_size {
@@ -115,6 +96,39 @@ pub async fn sweep_audit_log(
     Ok(deleted)
 }
 
+/// Delete one batch: rows older than `cutoff`, on a swept path, oldest first,
+/// capped at `batch_size`.
+async fn run_batch(
+    cutoff: i64,
+    batch_size: i64,
+    pool: &sqlx::SqlitePool,
+) -> Result<u64, sqlx::Error> {
+    // Bounded batches, not one unbounded DELETE: a first run against a large
+    // backlog must not hold the write lock for its whole duration on a live
+    // coordinator. The LIMIT rides on a subselect, and `audit_log_ts` turns
+    // `ts < ?` into a bounded index range scan (`audit-retention.ts:105-118`).
+    let mut statement = QueryBuilder::<Sqlite>::new(
+        "DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log WHERE ts < ",
+    );
+    statement.push_bind(cutoff).push(" AND (");
+    for (index, method) in AUDIT_SWEEP_METHODS.iter().enumerate() {
+        if index > 0 {
+            statement.push(" OR ");
+        }
+        statement
+            .push("path LIKE ")
+            .push_bind(format!("%/{method}"));
+    }
+    statement
+        .push(") ORDER BY ts LIMIT ")
+        .push_bind(batch_size)
+        .push(")");
+    // A statement per batch rather than one reused: `build()` consumes the
+    // builder, and the loop over a multi-million-row backlog is the point of
+    // the batching.
+    Ok(statement.build().execute(pool).await?.rows_affected())
+}
+
 /// Remove the pre-hardening backlog of anonymous successful SPA/static reads.
 /// Returns the count.
 ///
@@ -126,24 +140,24 @@ pub async fn cleanup_anonymous_static_audit_log(
     batch_size: Option<i64>,
 ) -> Result<u64, sqlx::Error> {
     let limit = batch_size.unwrap_or(AUDIT_BATCH_SIZE);
-    let mut query = sqlx::query(
-        "DELETE FROM audit_log WHERE id IN (\
-           SELECT id FROM audit_log \
-           WHERE caller_fp IS NULL \
-             AND method IN ('GET', 'HEAD') \
-             AND status >= 200 AND status < 400 \
-             AND path <> '/api/db-export' \
-             AND path NOT LIKE '/api/%' \
-             AND path <> '/internal' AND path NOT LIKE '/internal/%' \
-             AND path <> '/ws' AND path NOT LIKE '/ws/%' \
-             AND path NOT LIKE '/roost.%' \
-           ORDER BY id LIMIT ?)",
-    )
-    .bind(limit);
-
     let mut deleted = 0_u64;
     loop {
-        let outcome = query.execute(database.pool()).await?;
+        let outcome = sqlx::query(
+            "DELETE FROM audit_log WHERE id IN (\
+               SELECT id FROM audit_log \
+               WHERE caller_fp IS NULL \
+                 AND method IN ('GET', 'HEAD') \
+                 AND status >= 200 AND status < 400 \
+                 AND path <> '/api/db-export' \
+                 AND path NOT LIKE '/api/%' \
+                 AND path <> '/internal' AND path NOT LIKE '/internal/%' \
+                 AND path <> '/ws' AND path NOT LIKE '/ws/%' \
+                 AND path NOT LIKE '/roost.%' \
+               ORDER BY id LIMIT ?)",
+        )
+        .bind(limit)
+        .execute(database.pool())
+        .await?;
         let changed = outcome.rows_affected();
         deleted += changed;
         if i64::try_from(changed).unwrap_or(i64::MAX) < limit {

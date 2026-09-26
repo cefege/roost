@@ -26,10 +26,11 @@ use roost_proto::SyncDomain;
 
 use super::ack_window::{AckWindow, BackpressureReason, WindowStats};
 use super::domain_table::{
-    domain_at_slot, domain_slot, is_lazy_slot, DomainGenerations, DomainState, AGGREGATE_MAX_RETAINED_BYTES,
-    AGGREGATE_MAX_RETAINED_FRAMES, DOMAIN_SLOTS, NONTERMINAL_MAX_RETAINED_BYTES,
-    NONTERMINAL_MAX_RETAINED_FRAMES, TERMINAL_CELL_MAX_RETAINED_BYTES,
-    TERMINAL_CELL_MAX_RETAINED_FRAMES, TERMINAL_MAX_RETAINED_BYTES, TERMINAL_MAX_RETAINED_FRAMES,
+    AGGREGATE_MAX_RETAINED_BYTES, AGGREGATE_MAX_RETAINED_FRAMES, DOMAIN_SLOTS, DomainGenerations,
+    DomainState, NONTERMINAL_MAX_RETAINED_BYTES, NONTERMINAL_MAX_RETAINED_FRAMES,
+    TERMINAL_CELL_MAX_RETAINED_BYTES, TERMINAL_CELL_MAX_RETAINED_FRAMES,
+    TERMINAL_MAX_RETAINED_BYTES, TERMINAL_MAX_RETAINED_FRAMES, domain_at_slot, domain_slot,
+    is_lazy_slot,
 };
 
 use super::retained_frame::{AggregateCharge, OwnedFrame, RetainedFrame};
@@ -115,11 +116,7 @@ pub struct SyncV2Session {
 impl SyncV2Session {
     /// A socket's state, with one fresh generation per domain.
     #[must_use]
-    pub fn new(
-        socket_id: String,
-        generations: Arc<DomainGenerations>,
-        flow_control: bool,
-    ) -> Self {
+    pub fn new(socket_id: String, generations: Arc<DomainGenerations>, flow_control: bool) -> Self {
         let domains = std::array::from_fn(|slot| DomainState {
             domain: domain_at_slot(slot),
             generation: generations.allocate(),
@@ -219,7 +216,8 @@ impl SyncV2Session {
 
     /// Whether the terminal domain has closed its snapshot/live gap.
     pub fn terminal_domain_ready(&self) -> bool {
-        self.domain(SyncDomain::Terminal).is_some_and(|state| state.ready)
+        self.domain(SyncDomain::Terminal)
+            .is_some_and(|state| state.ready)
     }
 
     /// The cumulative-ACK window's counters, for the close signal.
@@ -267,8 +265,8 @@ impl SyncV2Session {
                 NONTERMINAL_MAX_RETAINED_BYTES,
             )
         };
-        let over_half = retained_frames + 1 > frame_limit
-            || retained_bytes + estimated_bytes > byte_limit;
+        let over_half =
+            retained_frames + 1 > frame_limit || retained_bytes + estimated_bytes > byte_limit;
         let over_cells = terminal_cell
             && (self.terminal_cell_retained_frames + 1 > TERMINAL_CELL_MAX_RETAINED_FRAMES
                 || self.terminal_cell_retained_bytes + estimated_bytes
@@ -304,14 +302,16 @@ impl SyncV2Session {
         self.queued_bytes = self.queued_bytes.saturating_sub(charge.estimated_bytes);
         if charge.terminal {
             self.terminal_retained_frames = self.terminal_retained_frames.saturating_sub(1);
-            self.terminal_retained_bytes =
-                self.terminal_retained_bytes.saturating_sub(charge.estimated_bytes);
+            self.terminal_retained_bytes = self
+                .terminal_retained_bytes
+                .saturating_sub(charge.estimated_bytes);
         }
         if charge.terminal_cell {
             self.terminal_cell_retained_frames =
                 self.terminal_cell_retained_frames.saturating_sub(1);
-            self.terminal_cell_retained_bytes =
-                self.terminal_cell_retained_bytes.saturating_sub(charge.estimated_bytes);
+            self.terminal_cell_retained_bytes = self
+                .terminal_cell_retained_bytes
+                .saturating_sub(charge.estimated_bytes);
         }
     }
 
@@ -331,7 +331,9 @@ impl SyncV2Session {
 
     /// Whether the window will admit one more frame of `encoded_bytes`.
     pub fn may_send(&self, encoded_bytes: u64, now_ms: u64) -> Result<(), SessionClose> {
-        self.window.may_send(encoded_bytes, now_ms).map_err(Into::into)
+        self.window
+            .may_send(encoded_bytes, now_ms)
+            .map_err(Into::into)
     }
 
     /// Record a frame the socket accepted, consuming its delivery sequence.

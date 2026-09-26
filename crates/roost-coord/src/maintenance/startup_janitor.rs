@@ -73,7 +73,11 @@ pub async fn run_startup_janitor(database: &CoordDb) -> JanitorReport {
     })
     .await;
 
-    let outcomes = [deleted_sessions, pruned_workspace_sessions, pruned_orphan_workspaces];
+    let outcomes = [
+        deleted_sessions,
+        pruned_workspace_sessions,
+        pruned_orphan_workspaces,
+    ];
     let report = JanitorReport {
         deleted_sessions: outcomes[0].rows,
         pruned_workspace_sessions: outcomes[1].rows,

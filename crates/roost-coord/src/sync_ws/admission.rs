@@ -17,8 +17,10 @@
 use roost_proto::{FirehoseFrame, SyncDomain};
 
 use crate::sync_ws::ack_window::BackpressureReason;
-use crate::sync_ws::control_frames::{control_frame, ResetNotice};
-use crate::sync_ws::domain_table::{domain_slot, DOMAIN_MAX_QUEUED_BYTES, DOMAIN_MAX_QUEUED_FRAMES};
+use crate::sync_ws::control_frames::{ResetNotice, control_frame};
+use crate::sync_ws::domain_table::{
+    DOMAIN_MAX_QUEUED_BYTES, DOMAIN_MAX_QUEUED_FRAMES, domain_slot,
+};
 use crate::sync_ws::frame_meta::{FeedLane, SyncFrameMeta};
 use crate::sync_ws::retained_frame::{OwnedFrame, RetainedFrame};
 use crate::sync_ws::session::{SessionClose, SyncV2Session};
@@ -133,11 +135,7 @@ impl SyncV2Session {
                 Ok(())
             }
             Some(refusal) => {
-                if refusal
-                    == (QueueRefusal::Overflow {
-                        rebaseline: true,
-                    })
-                {
+                if refusal == (QueueRefusal::Overflow { rebaseline: true }) {
                     // v2 asks the hub from inside the queue admission, and the
                     // ask is what makes the drop recoverable: a fresh canonical
                     // full for the session replaces the cells this frame was
@@ -186,7 +184,8 @@ impl SyncV2Session {
             let byte_count = self.queued_bytes + estimated_bytes;
             let half = if domain_id == SyncDomain::Terminal {
                 (
-                    self.terminal_retained_frames + 1 > crate::sync_ws::domain_table::TERMINAL_MAX_RETAINED_FRAMES,
+                    self.terminal_retained_frames + 1
+                        > crate::sync_ws::domain_table::TERMINAL_MAX_RETAINED_FRAMES,
                     self.terminal_retained_bytes + estimated_bytes
                         > crate::sync_ws::domain_table::TERMINAL_MAX_RETAINED_BYTES,
                 )
@@ -274,11 +273,7 @@ impl SyncV2Session {
     }
 
     /// Ask the hub for a canonical full for the session this frame was about.
-    fn request_rebaseline_for(
-        &mut self,
-        meta: &SyncFrameMeta,
-        hub: &mut dyn TerminalSnapshotHub,
-    ) {
+    fn request_rebaseline_for(&mut self, meta: &SyncFrameMeta, hub: &mut dyn TerminalSnapshotHub) {
         if let Some(session_id) = meta.session_id.as_deref() {
             let socket_id = self.socket_id.clone();
             hub.request_rebaseline(&socket_id, session_id);
@@ -307,7 +302,8 @@ impl SyncV2Session {
             state.queue.insert(state.seed_insert_index, item);
             state.seed_insert_index += 1;
         } else if meta.attach_snapshot || meta.terminal_state {
-            let insert_index = terminal_priority_insert_index(&state.queue, meta.session_id.as_deref());
+            let insert_index =
+                terminal_priority_insert_index(&state.queue, meta.session_id.as_deref());
             state.queue.insert(insert_index, item);
             if insert_index < state.seed_insert_index {
                 state.seed_insert_index += 1;

@@ -22,8 +22,8 @@
 
 use std::sync::Arc;
 
-use roost_protocol::cell::frame_chunks::CellGridSnapshotSource;
 use roost_protocol::cell::frame_chunks::CellGridSnapshotPart;
+use roost_protocol::cell::frame_chunks::CellGridSnapshotSource;
 
 use crate::sync_ws::retained_frame::SharedCellFrame;
 
@@ -88,13 +88,11 @@ impl ProtocolCellSnapshot {
     /// Plan `frame` into a source, refusing anything that is not a complete
     /// full before a byte of it is shared.
     pub fn plan(frame: &roost_proto::PbCellGridFrame) -> Result<Self, CellGridSnapshotPlanError> {
-        let source = roost_protocol::cell::frame_chunks::create_cell_grid_snapshot_source(
-            frame,
-            true,
-        )
-        .map_err(|error| CellGridSnapshotPlanError {
-            reason: error.to_string(),
-        })?;
+        let source =
+            roost_protocol::cell::frame_chunks::create_cell_grid_snapshot_source(frame, true)
+                .map_err(|error| CellGridSnapshotPlanError {
+                    reason: error.to_string(),
+                })?;
         Ok(Self { source })
     }
 

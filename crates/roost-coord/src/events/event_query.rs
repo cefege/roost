@@ -107,9 +107,7 @@ where
 /// Zero is the right answer for an empty log and for a log whose newest rows are
 /// all private: the cutoff's job is to name the last event a browser may already
 /// have received, and a private event is not one.
-pub async fn get_event_max_id<'executor, E>(
-    executor: E,
-) -> Result<u64, EventQueryError>
+pub async fn get_event_max_id<'executor, E>(executor: E) -> Result<u64, EventQueryError>
 where
     E: Executor<'executor, Database = sqlx::Sqlite>,
 {
@@ -156,13 +154,13 @@ where
     for row in rows {
         let row_id: i64 = row.get(0);
         let payload_json: String = row.get(1);
-        let id = u64::try_from(row_id).map_err(|_| EventQueryError::UnusableRowId { id: row_id })?;
-        let event: SessionEvent = serde_json::from_str(&payload_json).map_err(|error| {
-            EventQueryError::Undecodable {
+        let id =
+            u64::try_from(row_id).map_err(|_| EventQueryError::UnusableRowId { id: row_id })?;
+        let event: SessionEvent =
+            serde_json::from_str(&payload_json).map_err(|error| EventQueryError::Undecodable {
                 id,
                 reason: error.to_string(),
-            }
-        })?;
+            })?;
         page.push(StoredEvent { id, event });
     }
     Ok(page)

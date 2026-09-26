@@ -12,23 +12,22 @@
 // IS the failure, which is why `unwrap_used` is denied in product code.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use roost_coord::sync_ws::commands::{handle_client_frame, ClientContext, CommandOutcome};
+use roost_coord::sync_ws::commands::{ClientContext, CommandOutcome, handle_client_frame};
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-
+use roost_coord::sync_ws::domain_table::DomainGenerations;
 use roost_coord::sync_ws::domain_table::TERMINAL_LANE_MAX_DELTA_FRAMES;
 use roost_coord::sync_ws::egress::FlushStep;
 use roost_coord::sync_ws::retained_frame::SharedCellFrame;
-use roost_coord::sync_ws::domain_table::DomainGenerations;
 use roost_coord::sync_ws::session::SyncV2Session;
 use roost_coord::sync_ws::snapshot_registry::SnapshotTokenRegistry;
 use roost_coord::sync_ws::terminal::snapshot::{
     TerminalSnapshotCursor, TerminalSnapshotHub, TerminalSnapshotSource,
 };
-use roost_proto::buffa::MessageField;
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
 use roost_proto::__buffa::oneof::sync_client_frame::Command as ClientCommand;
+use roost_proto::buffa::MessageField;
 use roost_proto::{
     FirehoseFrame, PbCellGridFrame, SyncClientFrame, SyncDomain, SyncDomainReadyCommand,
 };
@@ -42,7 +41,6 @@ const SNAPSHOT_B: &str = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 fn generations() -> Arc<DomainGenerations> {
     Arc::new(DomainGenerations::new(1_000))
 }
-
 
 fn cell_frame(session_id: &str, marker: &str, seq: u64) -> FirehoseFrame {
     FirehoseFrame {
@@ -80,13 +78,8 @@ fn context() -> ClientContext {
     }
 }
 
-
 /// Close the terminal domain's snapshot fence with a real one-time token.
-fn hydrate_terminal(
-    session: &mut SyncV2Session,
-    tokens: &mut SnapshotTokenRegistry,
-    token: &str,
-) {
+fn hydrate_terminal(session: &mut SyncV2Session, tokens: &mut SnapshotTokenRegistry, token: &str) {
     let socket_id = session.socket_id.clone();
     let mut covered = BTreeSet::new();
     covered.insert(SESSION_A.to_owned());
@@ -158,7 +151,9 @@ impl TerminalSnapshotCursor for CannedCursor {
     }
 
     fn materialize(&self, part_index: u32) -> Option<SharedCellFrame> {
-        self.parts.get(usize::try_from(part_index).unwrap_or(usize::MAX)).cloned()
+        self.parts
+            .get(usize::try_from(part_index).unwrap_or(usize::MAX))
+            .cloned()
     }
 }
 
@@ -282,26 +277,19 @@ fn a_terminal_lane_rebaselines_rather_than_buffering_past_its_delta_bound() {
     let source = CannedSnapshotSource {
         parts: vec![chunk_part(SESSION_A, "BASE", 0, 1)],
     };
-    assert!(session.replace_terminal_snapshot(
-        SESSION_A,
-        STREAM_A,
-        &source,
-        SNAPSHOT_A,
-        1_000,
-        &mut hub
-    ));
+    assert!(
+        session
+            .replace_terminal_snapshot(SESSION_A, STREAM_A, &source, SNAPSHOT_A, 1_000, &mut hub)
+    );
     // The baseline is queued but never sent, so every delta has to be buffered.
     for index in 0..TERMINAL_LANE_MAX_DELTA_FRAMES + 1 {
         let delta = cell_frame(SESSION_A, "delta", u64::try_from(index).unwrap_or_default());
-        let outcome = session.enqueue_terminal_delta(
-            SESSION_A,
-            STREAM_A,
-            &delta,
-            1_000,
-            &mut hub,
-        );
+        let outcome = session.enqueue_terminal_delta(SESSION_A, STREAM_A, &delta, 1_000, &mut hub);
         if index < TERMINAL_LANE_MAX_DELTA_FRAMES {
-            assert_eq!(outcome, roost_coord::sync_ws::terminal::TerminalDeltaOutcome::Queued);
+            assert_eq!(
+                outcome,
+                roost_coord::sync_ws::terminal::TerminalDeltaOutcome::Queued
+            );
         } else {
             assert_ne!(
                 outcome,

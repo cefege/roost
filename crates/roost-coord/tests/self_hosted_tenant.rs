@@ -104,8 +104,10 @@ async fn a_second_account_is_refused_rather_than_served() {
         .await
         .expect("the first run creates the topology");
     fixture
-        .exec("INSERT INTO accounts (id, email_normalized, status, created_at_ms) \
-              VALUES ('acct_other', 'other@roost.invalid', 'active', 1)")
+        .exec(
+            "INSERT INTO accounts (id, email_normalized, status, created_at_ms) \
+              VALUES ('acct_other', 'other@roost.invalid', 'active', 1)",
+        )
         .await;
 
     let refusal = ensure_self_hosted_tenant(&fixture.database, 2_000)
@@ -130,8 +132,10 @@ async fn a_second_organization_is_refused_before_ownership_is_considered() {
         .await
         .expect("the first run creates the topology");
     fixture
-        .exec("INSERT INTO organizations (id, slug, name, status, created_at_ms) \
-              VALUES ('org_other', 'other', 'Other', 'active', 1)")
+        .exec(
+            "INSERT INTO organizations (id, slug, name, status, created_at_ms) \
+              VALUES ('org_other', 'other', 'Other', 'active', 1)",
+        )
         .await;
     fixture
         .exec(&format!(

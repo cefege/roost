@@ -10,7 +10,6 @@
 //! `tests/jwt_parity.rs` can prove the primitive against tokens v2's own signer
 //! produced, with no database and no clock in the way.
 
-pub mod self_hosted_tenant;
 pub mod authenticate;
 pub mod authorized_keys;
 pub mod jwt_claims;
@@ -18,3 +17,4 @@ pub mod jwt_crypto;
 pub mod jwt_key_cache;
 pub mod jwt_verify;
 pub mod principal;
+pub mod self_hosted_tenant;

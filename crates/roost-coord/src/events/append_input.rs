@@ -97,10 +97,14 @@ pub(crate) fn reserve_publication_slot(
 
 /// Release a reservation whose append never reached the commit.
 pub(crate) fn release_reservation(options: &AppendOptions<'_>, caller: &Caller) {
-    let (Some(Reservation { worker_fp, client_seq }), Some(store)) = (
-        caller.reservation(),
-        options.pending_publications.as_ref(),
-    ) else {
+    let (
+        Some(Reservation {
+            worker_fp,
+            client_seq,
+        }),
+        Some(store),
+    ) = (caller.reservation(), options.pending_publications.as_ref())
+    else {
         return;
     };
     store

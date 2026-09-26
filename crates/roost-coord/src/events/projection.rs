@@ -190,7 +190,10 @@ pub fn session_to_row<'a>(session: &'a Session, dashboard_id: &'a str) -> Sessio
         closed_at: session.closed_at,
         custom_title: session.custom_title.as_deref(),
         git_branch: session.git_branch.as_deref(),
-        git_remote: session.git_remote.as_ref().and_then(|remote| remote.as_deref()),
+        git_remote: session
+            .git_remote
+            .as_ref()
+            .and_then(|remote| remote.as_deref()),
         pr_number: session.pr_number,
         pr_state: session.pr_state.map(PullRequestState::as_str),
         pr_checks: session.pr_checks.map(PullRequestChecks::as_str),
@@ -228,16 +231,12 @@ where
 pub fn session_from_row(row: &StoredSessionRow) -> Result<Session, ProjectionError> {
     Ok(Session {
         id: brand("sessions.id", &row.id, |value| SessionId::try_from(value))?,
-        worker_fp: brand(
-            "sessions.worker_fp",
-            &row.worker_fp,
-            |value| WorkerFp::try_from(value),
-        )?,
-        channel: ChannelId::try_from(row.channel).map_err(|error| {
-            ProjectionError::StoredRow {
-                field: "sessions.channel",
-                reason: error.reason,
-            }
+        worker_fp: brand("sessions.worker_fp", &row.worker_fp, |value| {
+            WorkerFp::try_from(value)
+        })?,
+        channel: ChannelId::try_from(row.channel).map_err(|error| ProjectionError::StoredRow {
+            field: "sessions.channel",
+            reason: error.reason,
         })?,
         kind: closed_enum("sessions.kind", &row.kind, |value| {
             SessionKind::from_str(value)
@@ -308,10 +307,13 @@ fn optional_brand<T>(
     value: Option<&str>,
     build: impl Fn(&str) -> Result<T, roost_protocol::ProtocolError>,
 ) -> Result<Option<T>, ProjectionError> {
-    value.map(build).transpose().map_err(|error| ProjectionError::StoredRow {
-        field,
-        reason: error.reason,
-    })
+    value
+        .map(build)
+        .transpose()
+        .map_err(|error| ProjectionError::StoredRow {
+            field,
+            reason: error.reason,
+        })
 }
 
 fn closed_enum<T>(
@@ -330,8 +332,11 @@ fn optional_closed_enum<T>(
     value: Option<&str>,
     build: impl Fn(&str) -> Result<T, roost_protocol::ProtocolError>,
 ) -> Result<Option<T>, ProjectionError> {
-    value.map(build).transpose().map_err(|error| ProjectionError::StoredRow {
-        field,
-        reason: error.reason,
-    })
+    value
+        .map(build)
+        .transpose()
+        .map_err(|error| ProjectionError::StoredRow {
+            field,
+            reason: error.reason,
+        })
 }

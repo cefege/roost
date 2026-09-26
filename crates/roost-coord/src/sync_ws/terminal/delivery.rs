@@ -111,7 +111,11 @@ impl SyncV2Session {
     /// A source that cannot produce the part is a caller bug rather than a
     /// client-visible fault, and the lane stays BLOCKED so it is retried when a
     /// real source is installed, rather than being advanced past a hole.
-    pub(in crate::sync_ws) fn materialize_cursor_part(&mut self, session_id: &str, now_ms: u64) -> Option<RetainedFrame> {
+    pub(in crate::sync_ws) fn materialize_cursor_part(
+        &mut self,
+        session_id: &str,
+        now_ms: u64,
+    ) -> Option<RetainedFrame> {
         let cell: SharedCellFrame = {
             let cursor = self.terminal_lane(session_id)?.cursor.as_ref()?;
             let source = cursor.source.as_ref()?;
@@ -120,7 +124,10 @@ impl SyncV2Session {
         self.retain_cursor_part(session_id, cell, now_ms)
     }
 
-    pub(in crate::sync_ws) fn take_cursor_materialization(&mut self, session_id: &str) -> Option<RetainedFrame> {
+    pub(in crate::sync_ws) fn take_cursor_materialization(
+        &mut self,
+        session_id: &str,
+    ) -> Option<RetainedFrame> {
         self.terminal_sessions
             .get_mut(session_id)?
             .cursor
@@ -129,7 +136,11 @@ impl SyncV2Session {
             .take()
     }
 
-    pub(in crate::sync_ws) fn restore_cursor_materialization(&mut self, session_id: &str, part: RetainedFrame) {
+    pub(in crate::sync_ws) fn restore_cursor_materialization(
+        &mut self,
+        session_id: &str,
+        part: RetainedFrame,
+    ) {
         if let Some(cursor) = self
             .terminal_sessions
             .get_mut(session_id)
@@ -139,7 +150,10 @@ impl SyncV2Session {
         }
     }
 
-    pub(in crate::sync_ws) fn take_pending_state(&mut self, session_id: &str) -> Option<(String, RetainedFrame)> {
+    pub(in crate::sync_ws) fn take_pending_state(
+        &mut self,
+        session_id: &str,
+    ) -> Option<(String, RetainedFrame)> {
         let lane = self.terminal_sessions.get_mut(session_id)?;
         if lane.pending_states.is_empty() {
             return None;
@@ -149,13 +163,20 @@ impl SyncV2Session {
         Some((stream_id, state))
     }
 
-    pub(in crate::sync_ws) fn restore_pending_state(&mut self, session_id: &str, state: RetainedFrame) {
+    pub(in crate::sync_ws) fn restore_pending_state(
+        &mut self,
+        session_id: &str,
+        state: RetainedFrame,
+    ) {
         if let Some(lane) = self.terminal_sessions.get_mut(session_id) {
             lane.pending_states.insert(0, state);
         }
     }
 
-    pub(in crate::sync_ws) fn take_delta_tail_head(&mut self, session_id: &str) -> Option<RetainedFrame> {
+    pub(in crate::sync_ws) fn take_delta_tail_head(
+        &mut self,
+        session_id: &str,
+    ) -> Option<RetainedFrame> {
         let cursor = self
             .terminal_sessions
             .get_mut(session_id)?

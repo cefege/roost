@@ -133,7 +133,9 @@ impl EventFixture {
         ));
         std::fs::create_dir_all(&directory).expect("the fixture directory is creatable");
         let path = directory.join("coord.db");
-        let writer = open_database(&path).await.expect("the fixture database opens");
+        let writer = open_database(&path)
+            .await
+            .expect("the fixture database opens");
         seed_tenancy(&writer).await;
         let reader = SyncReader::open(&path);
         Self {
@@ -313,7 +315,8 @@ pub fn opened_event(session: &SessionId, worker_fp: &WorkerFp, channel: i64) -> 
     SessionEvent::Opened {
         session_id: session.clone(),
         worker_fp: worker_fp.clone(),
-        channel: roost_protocol::wire::ChannelId::try_from(channel).expect("the fixture channel fits"),
+        channel: roost_protocol::wire::ChannelId::try_from(channel)
+            .expect("the fixture channel fits"),
         session_kind: roost_protocol::wire::SessionKind::Shell,
         cwd: "/tmp".to_owned(),
         ts: 1,

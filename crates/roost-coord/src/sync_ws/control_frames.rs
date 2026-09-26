@@ -75,12 +75,14 @@ pub fn subscribed_frame(
 ) -> FirehoseFrame {
     let announced = generations
         .iter()
-        .map(|(domain, generation, subscribed)| roost_proto::SyncDomainGeneration {
-            domain: (*domain).into(),
-            generation: *generation,
-            subscribed: *subscribed,
-            __buffa_unknown_fields: Default::default(),
-        })
+        .map(
+            |(domain, generation, subscribed)| roost_proto::SyncDomainGeneration {
+                domain: (*domain).into(),
+                generation: *generation,
+                subscribed: *subscribed,
+                __buffa_unknown_fields: Default::default(),
+            },
+        )
         .collect();
     control_frame(FirehoseFrame {
         frame: Some(Frame::Subscribed(Box::new(SyncSubscribedFrame {
@@ -155,10 +157,7 @@ pub fn input_route_refusal_frame(
 /// correlator treats an empty epoch as explicitly unsuccessful, and a probe that
 /// went unanswered would leave it waiting (`sync-ws-v2-commands.ts:236-251`).
 #[must_use]
-pub fn transport_probe_refusal_frame(
-    request_id: &str,
-    worker_fp: &str,
-) -> FirehoseFrame {
+pub fn transport_probe_refusal_frame(request_id: &str, worker_fp: &str) -> FirehoseFrame {
     control_frame(FirehoseFrame {
         frame: Some(Frame::TerminalTransportProbeResult(Box::new(
             TerminalTransportProbeResult {

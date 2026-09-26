@@ -113,7 +113,6 @@ async fn a_dedupe_after_a_lost_publication_publishes_the_retained_effect() {
     fixture.close();
 }
 
-
 #[tokio::test]
 async fn a_dedupe_with_a_different_payload_is_refused_as_a_protocol_violation() {
     let fixture = EventFixture::new("mismatch").await;
@@ -149,7 +148,6 @@ async fn a_dedupe_with_a_different_payload_is_refused_as_a_protocol_violation() 
     assert!(session_published(&seen).is_empty());
     fixture.close();
 }
-
 
 #[tokio::test]
 async fn a_closed_event_orphans_its_workspace_and_publishes_the_deletion() {
@@ -215,7 +213,6 @@ async fn a_closed_event_orphans_its_workspace_and_publishes_the_deletion() {
     assert_eq!(remaining, 0, "the orphaned workspace row is gone");
     fixture.close();
 }
-
 
 #[tokio::test]
 async fn a_snapshot_never_resurrects_a_force_closed_session() {
@@ -287,7 +284,6 @@ async fn a_snapshot_never_resurrects_a_force_closed_session() {
     fixture.close();
 }
 
-
 #[tokio::test]
 async fn a_deferred_reap_waits_for_the_callers_readiness_barrier() {
     let fixture = EventFixture::new("deferred-reap").await;
@@ -333,7 +329,6 @@ async fn a_deferred_reap_waits_for_the_callers_readiness_barrier() {
     );
     fixture.close();
 }
-
 
 #[tokio::test]
 async fn a_snapshot_over_the_cap_is_refused_before_anything_is_written() {
@@ -386,7 +381,6 @@ async fn assign_workspace(
     .await
     .expect("the assignment commits");
 }
-
 
 /// A well-formed session id per index, for the oversized snapshot. Only the shape
 /// matters here: the append is refused before any of them is stored.

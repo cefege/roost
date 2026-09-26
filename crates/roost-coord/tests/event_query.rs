@@ -75,7 +75,10 @@ async fn a_backfill_returns_events_in_order_above_the_cursor() {
     commit_events(&fixture, &worker, &session, 4).await;
     let log = event_log(&fixture);
 
-    let all = log.get_events_since(0, None).await.expect("the backfill runs");
+    let all = log
+        .get_events_since(0, None)
+        .await
+        .expect("the backfill runs");
     assert_eq!(
         all.iter().map(|stored| stored.id).collect::<Vec<_>>(),
         vec![1, 2, 3, 4],
@@ -91,7 +94,12 @@ async fn a_backfill_returns_events_in_order_above_the_cursor() {
         vec![3, 4],
         "`id > since_id` is strict: the cursor's own event is not repeated"
     );
-    assert!(log.get_events_since(4, None).await.expect("it runs").is_empty());
+    assert!(
+        log.get_events_since(4, None)
+            .await
+            .expect("it runs")
+            .is_empty()
+    );
     fixture.close();
 }
 
@@ -141,10 +149,7 @@ async fn one_recovery_interval_is_closed_at_the_cutoff_and_open_at_the_cursor() 
     // The seam: the live lane carries what was published after the cutoff, and the
     // backfill carries the closed interval below it. `cursor < id <= cutoff` is
     // what makes a reconnect read every event exactly once across that seam.
-    let interval = log
-        .get_events_through(2, 4, None)
-        .await
-        .expect("it runs");
+    let interval = log.get_events_through(2, 4, None).await.expect("it runs");
     assert_eq!(
         interval.iter().map(|stored| stored.id).collect::<Vec<_>>(),
         vec![3, 4],
@@ -156,12 +161,15 @@ async fn one_recovery_interval_is_closed_at_the_cutoff_and_open_at_the_cursor() 
         .get_events_through(2, 4, Some(1))
         .await
         .expect("it runs");
-    assert_eq!(first.iter().map(|stored| stored.id).collect::<Vec<_>>(), vec![3]);
-    let rest = log
-        .get_events_through(3, 4, None)
-        .await
-        .expect("it runs");
-    assert_eq!(rest.iter().map(|stored| stored.id).collect::<Vec<_>>(), vec![4]);
+    assert_eq!(
+        first.iter().map(|stored| stored.id).collect::<Vec<_>>(),
+        vec![3]
+    );
+    let rest = log.get_events_through(3, 4, None).await.expect("it runs");
+    assert_eq!(
+        rest.iter().map(|stored| stored.id).collect::<Vec<_>>(),
+        vec![4]
+    );
     fixture.close();
 }
 
@@ -178,13 +186,14 @@ async fn a_reconnect_reads_every_event_exactly_once_across_the_seam() {
     // than at whatever was durable when the client last spoke.
     let live: Arc<Mutex<Vec<u64>>> = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&live);
-    let _subscription = fixture.buses.session_bus.subscribe(move |message: &SessionBusMessage| {
-        if let Some(id) = message.event_id {
-            sink.lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .push(id);
-        }
-    });
+    let _subscription = fixture
+        .buses
+        .session_bus
+        .subscribe(move |message: &SessionBusMessage| {
+            if let Some(id) = message.event_id {
+                sink.lock().unwrap_or_else(PoisonError::into_inner).push(id);
+            }
+        });
 
     // The client is current through event 1. Three more commit before the cutoff,
     // and three after it.

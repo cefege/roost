@@ -29,7 +29,11 @@ use roost_protocol::wire::{SessionEvent, SessionId};
 /// so a helper that dropped it would return a bus nobody is listening to.
 fn counting_bus(
     capacity: usize,
-) -> (BoundedBus<u32>, Arc<Mutex<Vec<u32>>>, roost_coord::events::bus::Subscription<u32>) {
+) -> (
+    BoundedBus<u32>,
+    Arc<Mutex<Vec<u32>>>,
+    roost_coord::events::bus::Subscription<u32>,
+) {
     let bus = BoundedBus::new(capacity);
     let seen: Arc<Mutex<Vec<u32>>> = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&seen);
@@ -79,11 +83,16 @@ fn subscribing_does_not_replay_the_ring() {
             .push(*message);
     });
     assert!(
-        late.lock().unwrap_or_else(PoisonError::into_inner).is_empty(),
+        late.lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_empty(),
         "a new subscriber received history it never asked for"
     );
     bus.publish(3_u32);
-    assert_eq!(*late.lock().unwrap_or_else(PoisonError::into_inner), vec![3]);
+    assert_eq!(
+        *late.lock().unwrap_or_else(PoisonError::into_inner),
+        vec![3]
+    );
 }
 
 #[test]
@@ -190,8 +199,14 @@ fn a_clone_is_another_handle_on_the_same_bus() {
             .push(*message);
     });
     bus.publish(5_u32);
-    assert_eq!(*seen.lock().unwrap_or_else(PoisonError::into_inner), vec![5]);
-    assert_eq!(*extra.lock().unwrap_or_else(PoisonError::into_inner), vec![5]);
+    assert_eq!(
+        *seen.lock().unwrap_or_else(PoisonError::into_inner),
+        vec![5]
+    );
+    assert_eq!(
+        *extra.lock().unwrap_or_else(PoisonError::into_inner),
+        vec![5]
+    );
     assert_eq!(
         bus.subscriber_count(),
         2,
@@ -209,8 +224,8 @@ fn the_session_bus_carries_the_committed_event_and_its_durable_id() {
             .unwrap_or_else(PoisonError::into_inner)
             .push(message.clone());
     });
-    let session =
-        SessionId::try_from("00000000-0000-4000-8000-000000000001").expect("a UUID is a session id");
+    let session = SessionId::try_from("00000000-0000-4000-8000-000000000001")
+        .expect("a UUID is a session id");
     let event = SessionEvent::Closed {
         session_id: session,
         exit_code: Some(0),
@@ -218,7 +233,9 @@ fn the_session_bus_carries_the_committed_event_and_its_durable_id() {
         trace_id: None,
     };
 
-    buses.session_bus.publish(SessionBusMessage::committed(event, 42));
+    buses
+        .session_bus
+        .publish(SessionBusMessage::committed(event, 42));
 
     let delivered = seen.lock().unwrap_or_else(PoisonError::into_inner);
     assert_eq!(delivered.len(), 1);

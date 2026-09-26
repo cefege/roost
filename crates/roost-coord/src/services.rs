@@ -23,8 +23,11 @@
 use std::sync::Arc;
 
 use crate::auth::jwt_key_cache::JwtKeyCache;
+use crate::coord_core::worker_handle::WorkerRegistry;
 use crate::db::CoordDb;
+use crate::events::bus_domains::Buses;
 use crate::events::pending_publications::PendingPublicationStore;
+use crate::terminal_screen::scrollback_relay::ScrollbackRelay;
 use crate::write_gate::WriteGate;
 
 /// The coordinator's process-wide state.
@@ -44,17 +47,45 @@ pub struct CoordServices {
     /// await, and `tokio` is not a dependency of this crate's sync surface.
     /// Every critical section is synchronous, so nothing is held across one.
     pub pending_publications: Arc<std::sync::Mutex<PendingPublicationStore>>,
+    /// The thirteen in-process broadcast buses, built once so every transport
+    /// and handler publishes into the same set.
+    ///
+    /// Here rather than a crate-root static for the reason the module header
+    /// states: two bus sets in one process are two answers to "who is online
+    /// right now", and only one of them would ever be published.
+    pub buses: Arc<Buses>,
+    /// Every worker's live socket, by fingerprint, and the generation fence.
+    ///
+    /// Shared state rather than a collaborator: a handle is replaced on every
+    /// hello and every reconnect, so there is no object to hand out at
+    /// construction -- which is why `coord_core::seams` puts this direction in
+    /// shared state too. An `Arc` because more than one owner holds it.
+    pub workers: Arc<WorkerRegistry>,
+    /// The scrollback relay: the browser-to-worker correlation table and the
+    /// cancel tombstone ledger the three scrollback RPCs share.
+    ///
+    /// Process state rather than per-request state for the reason this file's
+    /// header states -- nothing in this crate reaches for a global -- and for
+    /// the one v2 got wrong: its `pending-rpcs` table was a module-level
+    /// `Map`, so a `search_id` cancelled in one test could retire another
+    /// test's search. It holds the SAME `Arc<WorkerRegistry>` as `workers`, so
+    /// a route and its correlation namespace cannot drift apart.
+    pub scrollback: ScrollbackRelay,
 }
 
 impl CoordServices {
     /// Build the process state over an already-migrated database.
     #[must_use]
     pub fn new(db: CoordDb) -> Self {
+        let workers = Arc::new(WorkerRegistry::new());
         Self {
             db,
             write_gate: WriteGate::new(),
             jwt_keys: JwtKeyCache::new(),
             pending_publications: Arc::new(std::sync::Mutex::new(PendingPublicationStore::new())),
+            buses: Buses::shared(),
+            scrollback: ScrollbackRelay::new(Arc::clone(&workers)),
+            workers,
         }
     }
 

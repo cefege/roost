@@ -309,12 +309,12 @@ async fn workspace_ids_for_session(
     for row in rows {
         let id: String = row.get(0);
         if seen.iter().all(|kept| kept.as_str() != id) {
-            seen.push(WorkspaceId::try_from(id).map_err(|error| {
-                ProjectionError::StoredRow {
+            seen.push(
+                WorkspaceId::try_from(id).map_err(|error| ProjectionError::StoredRow {
                     field: "workspace_sessions.workspace_id",
                     reason: error.reason,
-                }
-            })?);
+                })?,
+            );
         }
     }
     Ok(seen)

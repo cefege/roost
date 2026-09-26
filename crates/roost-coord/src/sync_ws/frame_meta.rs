@@ -16,9 +16,9 @@
 //! presence delta. A lane is therefore consulted round-robin with a cursor
 //! rather than compared.
 
-use roost_proto::SyncDomain;
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
 use roost_proto::__buffa::oneof::session_event_proto::Kind;
+use roost_proto::SyncDomain;
 
 /// The ordering classes a Sync v2 frame can occupy on one socket.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -136,7 +136,10 @@ pub fn frame_meta_for(frame: &Frame) -> SyncFrameMeta {
             read_legacy_session_payload(&event.payload_json, &mut meta);
             meta
         }
-        Frame::SessionEvent(event) => event.kind.as_ref().map_or_else(SyncFrameMeta::control, session_event_meta),
+        Frame::SessionEvent(event) => event
+            .kind
+            .as_ref()
+            .map_or_else(SyncFrameMeta::control, session_event_meta),
         Frame::SessionPresence(presence) => session_keyed_meta(Some(&presence.session_id)),
         Frame::TerminalTitle(title) => session_keyed_meta(Some(&title.session_id)),
         Frame::LastActivity(activity) => session_keyed_meta(Some(&activity.session_id)),
@@ -197,8 +200,7 @@ fn session_event_meta(kind: &Kind) -> SyncFrameMeta {
         }
         Kind::Snapshot(snapshot) => {
             let mut meta = session_keyed_meta(None);
-            meta.announces =
-                snapshot.sessions.iter().map(|row| row.id.clone()).collect();
+            meta.announces = snapshot.sessions.iter().map(|row| row.id.clone()).collect();
             meta
         }
         _ => session_keyed_meta(kind_session_id(kind).as_deref()),

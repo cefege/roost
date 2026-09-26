@@ -19,9 +19,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use roost_proto::SyncDomain;
 
+use super::domain_table::{LOW_LANE_MAX_AGE_MS, domain_slot};
 use super::frame_meta::{FeedLane, WEIGHTED_LANES};
 use super::retained_frame::RetainedFrame;
-use super::domain_table::{domain_slot, LOW_LANE_MAX_AGE_MS};
 use super::session::SyncV2Session;
 
 /// One frame the scheduler has chosen, named by where it sits rather than by
@@ -60,7 +60,11 @@ impl SyncV2Session {
     /// Two passes, in this order, and the order is the policy: an overdue
     /// non-cell frame first, then the weighted round robin, then the oldest
     /// frame as a floor for a lane the round robin does not cover.
-    pub(in crate::sync_ws) fn select_candidate(&mut self, now_ms: u64, ack_seq: u64) -> Option<Selection> {
+    pub(in crate::sync_ws) fn select_candidate(
+        &mut self,
+        now_ms: u64,
+        ack_seq: u64,
+    ) -> Option<Selection> {
         let Self {
             domains,
             announced_sessions,
@@ -85,11 +89,7 @@ impl SyncV2Session {
                 ) {
                     continue;
                 }
-                heads.push((
-                    Candidate { slot, index },
-                    item.meta.lane,
-                    item.queued_at_ms,
-                ));
+                heads.push((Candidate { slot, index }, item.meta.lane, item.queued_at_ms));
                 break;
             }
         }
@@ -196,7 +196,11 @@ impl SyncV2Session {
     /// view-state is the answer to a command that is still outstanding and
     /// dropping it would leave the client waiting; it is true once the session
     /// itself is gone, where the answer no longer means anything.
-    pub(in crate::sync_ws) fn remove_terminal_queued(&mut self, session_id: &str, include_semantic: bool) {
+    pub(in crate::sync_ws) fn remove_terminal_queued(
+        &mut self,
+        session_id: &str,
+        include_semantic: bool,
+    ) {
         self.drain_terminal_queue(|item| {
             item.meta.session_id.as_deref() == Some(session_id)
                 && item.meta.lane == FeedLane::Cell
@@ -279,8 +283,8 @@ pub(in crate::sync_ws) fn terminal_priority_insert_index(
     let mut insert_index = queue.len();
     for index in (0..queue.len()).rev() {
         let item = &queue[index];
-        let same_session = item.meta.session_id.is_some()
-            && item.meta.session_id.as_deref() == session_id;
+        let same_session =
+            item.meta.session_id.is_some() && item.meta.session_id.as_deref() == session_id;
         if same_session || item.frame.is_snapshot() {
             return index + 1;
         }

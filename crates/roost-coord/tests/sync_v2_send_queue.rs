@@ -14,18 +14,18 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use roost_coord::sync_ws::commands::{handle_client_frame, ClientContext, CommandOutcome};
-use roost_coord::sync_ws::domain_table::{DOMAIN_MAX_QUEUED_FRAMES, LOW_LANE_MAX_AGE_MS};
 use roost_coord::sync_ws::admission::EnqueueOutcome;
-use roost_coord::sync_ws::egress::FlushStep;
-use roost_coord::sync_ws::frame_meta::{frame_meta_for, FeedLane, SyncFrameMeta};
+use roost_coord::sync_ws::commands::{ClientContext, CommandOutcome, handle_client_frame};
 use roost_coord::sync_ws::domain_table::DomainGenerations;
+use roost_coord::sync_ws::domain_table::{DOMAIN_MAX_QUEUED_FRAMES, LOW_LANE_MAX_AGE_MS};
+use roost_coord::sync_ws::egress::FlushStep;
+use roost_coord::sync_ws::frame_meta::{FeedLane, SyncFrameMeta, frame_meta_for};
 use roost_coord::sync_ws::session::SyncV2Session;
 use roost_coord::sync_ws::snapshot_registry::SnapshotTokenRegistry;
 use roost_coord::sync_ws::terminal::snapshot::{NoTerminalSnapshotHub, TerminalSnapshotHub};
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
-use roost_proto::__buffa::oneof::sync_client_frame::Command as ClientCommand;
 use roost_proto::__buffa::oneof::session_event_proto::Kind;
+use roost_proto::__buffa::oneof::sync_client_frame::Command as ClientCommand;
 use roost_proto::{
     FirehoseFrame, OpenedEvt, PbCellGridFrame, PbCellRow, PbCellSpan, SessionEventProto,
     SyncClientFrame, SyncDomain, SyncDomainReadyCommand,
@@ -181,7 +181,11 @@ fn the_queue_drops_one_frame_and_resets_the_domain_rather_than_growing() {
         .domain_generation(SyncDomain::Workers)
         .expect("a domain exists");
     for index in 0..DOMAIN_MAX_QUEUED_FRAMES {
-        let frame = cell_frame(SESSION_A, "marker", u64::try_from(index).unwrap_or_default());
+        let frame = cell_frame(
+            SESSION_A,
+            "marker",
+            u64::try_from(index).unwrap_or_default(),
+        );
         let meta = SyncFrameMeta {
             domain: Some(SyncDomain::Workers),
             lane: FeedLane::Nonterminal,
@@ -189,7 +193,9 @@ fn the_queue_drops_one_frame_and_resets_the_domain_rather_than_growing() {
             ..SyncFrameMeta::default()
         };
         assert!(
-            session.enqueue_frame(&frame, Some(&meta), 1_000, &mut hub).is_queued(),
+            session
+                .enqueue_frame(&frame, Some(&meta), 1_000, &mut hub)
+                .is_queued(),
             "frame {index} of the domain's own budget must be admitted"
         );
     }
@@ -199,7 +205,10 @@ fn the_queue_drops_one_frame_and_resets_the_domain_rather_than_growing() {
         panic!("a full non-terminal domain resets instead of growing");
     };
     assert_eq!(notice.domain, SyncDomain::Workers);
-    assert_ne!(notice.generation, generation, "a reset mints a new generation");
+    assert_ne!(
+        notice.generation, generation,
+        "a reset mints a new generation"
+    );
     assert!(!notice.terminal_sessions_dropped);
 }
 
@@ -237,7 +246,9 @@ fn a_cell_is_fenced_behind_its_announcement_until_the_acknowledgement_lands() {
     ));
 
     // Once the client acknowledges the announcement, the cell flows.
-    session.apply_ack(first.delivery_seq, 1_000).expect("a valid ack");
+    session
+        .apply_ack(first.delivery_seq, 1_000)
+        .expect("a valid ack");
     let second = session.take_next_sendable(1_000, &mut hub);
     let FlushStep::Send(second) = second else {
         panic!("an acknowledged announcement unfences the session's cells");
@@ -256,11 +267,13 @@ fn the_aged_out_lane_outranks_a_streaming_terminal() {
     session.enqueue_frame(&cell, Some(&meta_of(&cell)), 1_000, &mut hub);
     // A title for the same session is eligible immediately.
     let title = FirehoseFrame {
-        frame: Some(Frame::TerminalTitle(Box::new(roost_proto::TerminalTitleFrame {
-            session_id: SESSION_A.to_owned(),
-            title: "vim".to_owned(),
-            __buffa_unknown_fields: Default::default(),
-        }))),
+        frame: Some(Frame::TerminalTitle(Box::new(
+            roost_proto::TerminalTitleFrame {
+                session_id: SESSION_A.to_owned(),
+                title: "vim".to_owned(),
+                __buffa_unknown_fields: Default::default(),
+            },
+        ))),
         ..FirehoseFrame::default()
     };
     session.enqueue_frame(&title, Some(&meta_of(&title)), 1_000, &mut hub);
@@ -269,7 +282,10 @@ fn the_aged_out_lane_outranks_a_streaming_terminal() {
     let FlushStep::Send(immediate) = immediate else {
         panic!("the eligible non-cell frame must be selected");
     };
-    assert!(matches!(immediate.frame.frame, Some(Frame::TerminalTitle(_))));
+    assert!(matches!(
+        immediate.frame.frame,
+        Some(Frame::TerminalTitle(_))
+    ));
 
     // A cell for an ANNOUNCED session that has waited past the age bound is
     // overtaken by a non-cell frame queued behind it.
@@ -278,11 +294,13 @@ fn the_aged_out_lane_outranks_a_streaming_terminal() {
     let cell2 = cell_frame(SESSION_A, "LATE", 2);
     session.enqueue_frame(&cell2, Some(&meta_of(&cell2)), 2_000, &mut hub);
     let late_title = FirehoseFrame {
-        frame: Some(Frame::LastActivity(Box::new(roost_proto::LastActivityFrame {
-            session_id: SESSION_A.to_owned(),
-            ts_ms: 1.0,
-            __buffa_unknown_fields: Default::default(),
-        }))),
+        frame: Some(Frame::LastActivity(Box::new(
+            roost_proto::LastActivityFrame {
+                session_id: SESSION_A.to_owned(),
+                ts_ms: 1.0,
+                __buffa_unknown_fields: Default::default(),
+            },
+        ))),
         ..FirehoseFrame::default()
     };
     session.enqueue_frame(&late_title, Some(&meta_of(&late_title)), 2_000, &mut hub);
@@ -295,5 +313,9 @@ fn the_aged_out_lane_outranks_a_streaming_terminal() {
         matches!(next.frame.frame, Some(Frame::LastActivity(_))),
         "the aged-out non-cell lane outranks a fenced cell"
     );
-    assert_eq!(roost_coord::sync_ws::domain_table::DOMAIN_SLOTS, 7, "one slot per Sync domain");
+    assert_eq!(
+        roost_coord::sync_ws::domain_table::DOMAIN_SLOTS,
+        7,
+        "one slot per Sync domain"
+    );
 }

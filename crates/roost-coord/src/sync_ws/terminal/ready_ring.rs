@@ -76,13 +76,13 @@ impl SyncV2Session {
     /// `mark` put it back at the END of the ring: a lane that has just been
     /// pumped and failed must not be retried ahead of lanes that have been
     /// waiting longer.
-    pub(in crate::sync_ws) fn take_ready_lane(&mut self, preferred: Option<&str>) -> Option<String> {
+    pub(in crate::sync_ws) fn take_ready_lane(
+        &mut self,
+        preferred: Option<&str>,
+    ) -> Option<String> {
         let session_id = match preferred {
             Some(preferred) => {
-                if !self
-                    .terminal_lane(preferred)
-                    .is_some_and(|lane| lane.ready)
-                {
+                if !self.terminal_lane(preferred).is_some_and(|lane| lane.ready) {
                     return None;
                 }
                 preferred.to_owned()
@@ -260,7 +260,10 @@ impl SyncV2Session {
         let (stream_id, index) = self
             .terminal_lane(session_id)
             .and_then(|lane| lane.cursor.as_ref())
-            .map_or_else(|| (String::new(), 0), |cursor| (cursor.stream_id.clone(), cursor.index));
+            .map_or_else(
+                || (String::new(), 0),
+                |cursor| (cursor.stream_id.clone(), cursor.index),
+            );
         let attach_snapshot = attach_priority && materialized.frame.is_snapshot();
         let meta = SyncFrameMeta {
             domain: Some(SyncDomain::Terminal),

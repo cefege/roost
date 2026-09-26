@@ -53,7 +53,7 @@ impl SnapshotTokenRegistry {
     }
 
     /// Register one live socket and return its registration handle.
- ///
+    ///
     /// A re-registration of the same socket id replaces the binding, which is
     /// what a socket that reconnected under a new identity must get, and the
     /// handle it returns is what makes the OLD socket's eventual teardown a
@@ -110,7 +110,11 @@ impl SnapshotTokenRegistry {
         if binding.fingerprint != fingerprint {
             return false;
         }
-        if binding.tokens.insert(token.to_owned(), session_ids).is_none() {
+        if binding
+            .tokens
+            .insert(token.to_owned(), session_ids)
+            .is_none()
+        {
             binding.order.push(token.to_owned());
         }
         while binding.order.len() > MAX_TOKENS_PER_SOCKET {

@@ -23,7 +23,9 @@
 
 use std::sync::Arc;
 
-use roost_protocol::wire::{AgentStatusUpdate, McpStreamMessage, WorkerPresenceEvent, WorkspaceDelta};
+use roost_protocol::wire::{
+    AgentStatusUpdate, McpStreamMessage, WorkerPresenceEvent, WorkspaceDelta,
+};
 
 use crate::events::bus::BoundedBus;
 use crate::events::bus_messages::{

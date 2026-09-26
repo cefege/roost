@@ -120,7 +120,9 @@ pub(crate) async fn run_in_transaction(
     }
 
     if let Some(extra_work) = options.extra_work.as_mut() {
-        extra_work(connection).await.map_err(AppendError::ExtraWork)?;
+        extra_work(connection)
+            .await
+            .map_err(AppendError::ExtraWork)?;
     }
 
     state.event_json = serde_json::to_string(&state.event)?;

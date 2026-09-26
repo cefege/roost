@@ -40,6 +40,6 @@ pub mod upgrade_admission;
 
 pub use admission::EnqueueOutcome;
 pub use control_frames::ResetNotice;
-pub use egress::{FlushStep, SendableFrame};
 pub use domain_table::DomainGenerations;
+pub use egress::{FlushStep, SendableFrame};
 pub use session::{SessionClose, SyncV2Session};
