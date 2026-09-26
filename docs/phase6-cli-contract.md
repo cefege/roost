@@ -457,6 +457,124 @@ admission decision made from the output would be about the wrong bytes. Exits 1
 when no `roost-keeper` binary sits beside this one: a keeper contract describes
 a keeper this release does not ship.
 
+
+---
+
+## `roost deploy <host>`
+
+```
+roost deploy <host> [--label LABEL] [--reachable-addr ADDR]
+                  [--source-root DIR] [--expected-sha SHA]
+                  [--expected-manifest-sha256 HEX]
+                  [--allow-unpublished-local] [--coordinator-release]
+                  [--force-live]
+```
+
+The one command in this crate that replaces the binary every live PTY on a
+machine depends on. Its order is the safety property and is stated once, in
+`crates/roost-cli/src/deploy/run.rs`: prove what is being shipped, probe the
+target, **ask the coordinator whether the target's keeper may be carried across
+BEFORE the target's definition is replaced**, and only then touch the machine.
+The keeper question is asked early and acted on early because its answer decides
+whether the machine may be touched at all; the definition is replaced last
+because that is the only step that is hard to put back on its own.
+
+`--force-live` authorizes the new worker to **destroy every PTY** held by a
+keeper it cannot adopt, for that deploy only, and prints a three-line warning
+before doing it. It is one-shot on both sides: the definition carries it only
+when the flag was given, and the next deploy strips it.
+
+### The guard map
+
+`docs/FAILURE-INDEX.md` records **thirteen** entries whose symptom is a deploy
+that misbehaves on a real machine. Each one was a shipped defect, and each one
+is a place where being wrong is **silent** — the deploy reports success, or
+refuses a machine that was healthy, and nothing raises. There is no literal
+"Deployment journals" heading in the index; twelve of them live under **"Worker,
+keeper and host"** and one under **"Product boundaries and process"**. This
+table is the mapping from each entry to the code that satisfies it and the test
+that holds it, so a future reader can tell which lines are load-bearing.
+
+The three entries in that same section that are **not** here are terminal
+rendering, session adoption and viewport-resize defects; they belong to the
+worker and the browser, and no step of a deploy can produce them.
+
+Paths are relative to the repository root; tests to `crates/roost-cli/tests/`.
+
+| FAILURE-INDEX entry | The code that satisfies it | The guard |
+| --- | --- | --- |
+| A worker throttled by its own cgroup looks healthy | `crates/roost-cli/src/services/memory_limits.rs` — `ResourceLimits::{coordinator, worker}` derive the ceilings from the host's own `MemTotal` rather than from constants; `services/systemd_unit.rs::render_systemd_unit` emits `MemoryHigh=` always, `MemoryMax=` only for the coordinator, and `OOMPolicy=continue` for the worker | `services_definition_text.rs` — `the_linux_worker_unit_keeps_its_keeper_out_of_the_cgroup_kill` |
+| Quoting a systemd path directive because quoting is "safer" | Writer: `services/systemd_unit.rs::render_systemd_unit` via `raw_path_value` — `WorkingDirectory=`, `StandardOutput=`, `StandardError=` are emitted **raw**; `ExecStart=` and `Environment=` stay quoted. Reader: `deploy/installed.rs::systemd_working_directory` reads the raw value and reverses only the writer's own `%%` | `services_definition_text.rs` — `the_linux_coordinator_unit_names_its_binary_its_paths_and_its_limits`, `a_linux_unit_is_accepted_by_systemd_itself_when_the_tool_is_present`; `deploy_installed_release.rs` — `a_working_directory_is_read_raw` |
+| A fresh macOS account has no LaunchAgents directory | `services/install.rs::ensure_service_directories` creates the data directory, the log directory **and the definition's own parent**; `deploy/apply.rs::apply` calls it before anything is staged into that parent | `services_install_idempotence.rs` — `the directories a service needs are created before the first definition` |
+| A remote deploy hands the target the deploying box's identity | `deploy/identity_env.rs::DEPLOY_IDENTITY_ENV_FLAGS` names the identity keys and the flag that supplies each; `resolve_deploy_env_value` takes an explicit `EnvTarget` and gives an identity key **no ambient fallback at all** for `EnvTarget::Remote`; `resolve_remote_deploy_identity` refuses with exit 6 when the deploying shell exported that key and nothing else resolved it | `deploy_remote_identity.rs` — `an_identity_key_never_resolves_from_the_deploying_shell`, `an_ambient_identity_export_refuses_and_names_the_flag`, `an_unresolvable_identity_with_nothing_exported_is_allowed` |
+| Roost cannot upgrade the integration asset Roost installed | **Not in this command's path, and not yet ported.** The asset installer lives in the worker (`agents/{install,manifests}.rs`, Track W slice W7b) and v3 has no agent-integration installer, so a v3 deploy installs no integration asset and cannot produce the symptom. Recorded here so the absence is not read as coverage — the guard has to land with that slice, and it is `hasIntegrationOwnership` accepting the marker as a whitespace-delimited token on **any** `//` line, never a positional window | not yet — see the Track W agents installer |
+| A one-shot deploy flag stops at the installer process | `deploy/identity_env.rs::worker_install_environment` strips `ROOST_BOOTSTRAP_TOKEN` **and** `KEEPER_FORCE_LIVE_RETIRE_ENV` from the prior install; `deploy/invocation.rs::definition_environment` inserts the retire grant only when `--force-live` was actually given, so a value reaches the service only when the definition carries it | `deploy_remote_identity.rs` — `a_deploy_never_carries_a_one_shot_grant_forward`; `services_definition_text.rs` — `a_one_shot_grant_is_never_carried_into_a_definition` |
+| Repairing a dead worker demands that the dead worker be running | `deploy/admission.rs::keeper_admission_staging` returns the coordinator's refusal as a **claim about the registry**, and `deploy/keeper_step.rs::decide` is what decides it — against `deploy/target_evidence.rs::installed_service_verdict`. The one probe is `target_worker_evidence_command`: it corroborates darwin with a `launchctl print-disabled` domain query, refuses when `pgrep` is absent, and a keeper **socket file** decides nothing (it outlives the keeper that made it) | `deploy_keeper_admission.rs` — `a_stale_row_over_a_target_running_nothing_stages`, `a_stale_row_over_a_running_worker_still_refuses`, `a_keeper_holding_channels_refuses_even_with_the_worker_stopped`, `an_unknown_never_stages`, `a_keeper_socket_file_decides_nothing`, `the_darwin_probe_distinguishes_an_unreachable_launchd` |
+| A rollback proof no release can satisfy wedges every later deploy | `deploy/apply.rs::apply` calls the already-ported `services::deploy_transaction::resolve_interrupted_deploy` **before it writes anything**, so the definition this deploy replaces is one the machine can actually run | `services_deploy_recovery.rs` — `a_deploy_left_in_flight_is_resolved_before_the_next_one_starts`, `a_journal_whose_shape_this_build_does_not_know_is_refused_rather_than_ignored` |
+| Settlement retires the prior release with a command only a worktree accepts | `deploy/retire.rs::plan_retirement` asks git (`registered_worktrees`, `git worktree list --porcelain`) and otherwise removes the directory outright. The release-root confinement and the symlink refusal run **before** the worktree question, because they are what makes a plain recursive removal safe | `deploy_installed_release.rs` — `a_staged_prior_release_is_retired_without_being_a_worktree`, `retirement_is_confined_to_the_release_root` |
+| A retired release's dist leaves every page a 404 while the API still answers | `deploy/identity_env.rs::NEVER_CARRIED_FORWARD` drops `ROOST_WEB_DIST_PATH` from every prior install, and `deploy/invocation.rs::definition_environment` never inserts it, so a carried value can never name the release the next settlement deletes. `status/report.rs::SpaStatus` keeps `serves` and `web_dist_present` as separate facts and `status/collect.rs` HEADs the coordinator's own root | `status_output_shape.rs` — the three `spa: MISSING` variants |
+| An installer inherits a sibling service's dist path from the shell that ran it | The v2 shell installers do not exist in v3, so the hole they had is closed structurally: a definition is rendered from a `ServiceSpec` by `services/systemd_unit.rs` / `services/launchd_plist.rs`, and the environment it carries is `deploy/apply_release.rs::install_environment` — the target's own `HOME` and `PATH` plus the manifest's **decided** values. There is no route by which an ambient `ROOST_WEB_DIST_PATH` reaches a worker definition | `deploy_remote_identity.rs` — `a_deploy_never_carries_a_one_shot_grant_forward` (the dist key is on the same never-carried list) |
+| Moving a keeper-imported file makes every live keeper unadoptable | `deploy/admission.rs::direct_keeper_update_admission` delegates to `roost_protocol::keeper_update::keeper_update_admission`, which compares the implementation digest the **running** keeper reports against the one the release ships. `deploy/release.rs::read_keeper_contract` reads that contract from the **staged bytes** rather than from this process, because in this process `roost-keeper` is whatever release the CLI was built from | `deploy_keeper_classification.rs` — `a_different_keeper_binary_is_unadoptable_only_while_it_holds_channels`, `a_keeper_that_cannot_name_its_binary_is_unproven`, `the_same_keeper_binary_is_preservable` |
+| Coordinator-started worker deploys exit 7 from a detached release worktree | `deploy/identity.rs::coordinator_release_git_sha_or_die`, selected by `deploy/invocation.rs::prove_identity` when `--coordinator-release` is given. The authority is the **installed service definition**: it must name this checkout as the release directory, stamp the expected build, and the clean HEAD there must match | `deploy_coordinator_release.rs` — `a_detached_coordinator_release_at_its_installed_sha_is_admitted`, `a_checkout_that_is_not_the_installed_release_is_refused`, `an_installed_build_that_is_not_the_required_one_is_refused`, `a_dirty_release_tree_is_refused`, `a_definition_that_stamps_no_build_is_refused` |
+
+**One row is deliberately empty.** "Roost cannot upgrade the integration asset"
+is the only entry on this list with no Rust behind it, and it is recorded that
+way rather than quietly dropped: a row that is present and says "not yet, and
+here is where" is a promise the repo can keep, and a row that is absent is the
+failure mode this table exists to prevent.
+
+### What a release is
+
+A release is a directory whose **only** entry is `bin/`, and whose `bin/`
+contains **only** `roost` and `roost-keeper`. Three separate facts depend on
+that shape:
+
+- `stage_over_ssh` tars `local_dir.parent()`, so what ships is the release
+  root — `deps/`, `build/` and `incremental/` must never be inside it.
+- The target unpacks to `<staging>` and installs `staging/bin` into
+  `<release_root>/<sha>/bin`, so `bin/` is where the programs have to be.
+- The target recomputes the manifest's `release_digest` over exactly those
+  bytes, so the deploying box's digest and the target's must be taken over the
+  same two files and nothing else.
+
+Cargo does not produce that shape — it writes each binary straight into the
+profile directory — so `deploy::release::assemble_release_tree` is the explicit
+join between the two, and `RELEASE_BIN_DIR` has exactly one owner,
+`deploy::apply_release`. Two constants for one layout is how a deploy ends up
+reporting that a release it had just linked is missing.
+
+**Observed, not asserted.** With that layout wrong, `roost deploy` exited **4**
+with `the release built for x86_64-unknown-linux-gnu but roost and
+roost-keeper missing from .../target/release/bin` — over a build that had
+succeeded, in a tree where every test was green. The command had never
+succeeded on any invocation.
+
+### The keeper admission environment
+
+`roost_keeper::PtyChannel::spawn` no longer inherits the keeper's environment
+into every PTY (`command.env_clear()`, `v3` commit `1002ae87`). That fix is
+deliberately **not** paired with a `PATH`/`HOME`/`TMPDIR`/`SHELL`/`TERM`
+allowlist: the keeper applies exactly what the spec carries, and
+`resolve_shell_spec` decides what that is. Admission logic therefore cannot
+assume a PTY inherits anything from the keeper, and must not reason as though
+`ROOST_KEEPER_CAPABILITY` were present in a shell — it is in the keeper's own
+environment, and it is exactly the value that must not leak.
+
+---
+
+## `roost keeper-refresh <host>`
+
+```
+roost keeper-refresh <host> [--yes] [--force-live]
+```
+
+Shuts a target's keeper down **empty**, under the coordinator's fence: the
+whole point of the command is that the keeper is asked to give up its channels
+and is not killed holding them. The exit codes are the shared ones in
+`crates/roost-cli/src/deploy/codes.rs` — 2 is the only one v2 reserved for this
+command, and the rest are shared with `roost deploy` and `roost push` so that a
+wrapper can tell "refused, and do not retry" from "failed, try again" without
+knowing which of the three it is talking to.
 ---
 
 ## Not in the tree yet
@@ -466,12 +584,15 @@ slice**. They are recorded here so whoever implements them has the v2 contract
 to port, and so nobody discovers their absence at runtime. Nothing in the tree
 pretends to be one of them: a missing subcommand is a usage error, not a stub.
 
+`roost deploy <host>` and `roost keeper-refresh <host>` **were** on this list and
+have moved above, with their argument table, their guard map and their observed
+exit codes. They are the two commands that change another machine, so they are
+documented next to the deploy guards rather than in a list of what is missing.
+
 | Command | v2 arguments | v2 exit codes | Notes |
 | --- | --- | --- | --- |
 | `roost quickstart` | `--coordinator-url URL`, `--dry-run` | 1, plus the deploy codes it calls | Installs coord + worker, waits for health, prints a status readout, opens a paired browser. Never prints or logs the one-shot grant. |
-| `roost deploy <host>` | `--label`, `--reachable-addr`, `--source-root`, `--expected-sha`, `--expected-manifest-sha256`, `--allow-unpublished-local`, `--coordinator-release`, `--force-live` | 1 usage, 2 ssh/unreachable, 3 no remote runtime, 4 build failure, 5 keeper not adoptable, 6 no coordinator URL, 7 identity unproved, 8 settlement, 9 lease lost | `--force-live` authorizes the new worker to **destroy every PTY** held by a keeper it cannot adopt, for that deploy only, and prints a three-line warning before doing it. |
 | `roost push` | none | 1, 2, 5, 7, 8 | One journaled fleet transaction with a single decision boundary; rolls the whole fleet back on any failure before the finalizing checkpoint. |
-| `roost keeper-refresh <host>` | `--yes`, `--force-live` | 2 | The only command that printed bare JSON on stdout in v2. |
 | `roost add-machine` | `--platform macos\|linux`, `--label` | 1 | Mints a one-shot worker token and prints a copy-pasteable enrollment command. The URL comes from the **installed coordinator definition**, never from derivation. |
 | `roost join` | none; needs `ROOST_COORDINATOR_URL` + `ROOST_BOOTSTRAP_TOKEN` | 7 on a dirty tree | Installs and registers this machine's worker. |
 | `roost update` | none | 1 | POSIX atomic self-replace. |

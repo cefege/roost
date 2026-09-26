@@ -14,6 +14,265 @@ Run each mutation, observe the named failure, restore, observe the pass. Record
 the result beside the row. **A row that has never been observed failing is
 unverified, and "unverified" is the honest state — not "probably fine".**
 
+**Two standing rules for running any row on this list.**
+
+1. **Mutate a copy, never the shared worktree.** Copy the file byte-for-byte into
+   a scratch directory, mutate the copy, run the real suite against it, re-sync
+   afterwards. Two agents in this programme independently mutated in place and
+   both paid: one had a read-only audit read a file mid-mutation and report a
+   fixed security defect as **absent**, which cost a slice's credibility for
+   nothing; the other had a stale poll report three already-restored files as
+   still mutated, which cost a cycle and nearly cost a sibling's confidence.
+   **The people most likely to mutate in place are the ones most confident they
+   will remember to restore**, which is why this is a default rather than good
+   practice. A copy is its own pin: there is nothing to coordinate and nothing to
+   reconcile.
+2. **A mutation proves a test bites. It does not prove the surrounding code
+   compiles.** A slice's scratch crate gave `ChannelId` a stand-in carrying a
+   `Display` the real type lacks, so ten `%channel_id` sites compiled in the copy
+   and would not have compiled in the tree. Mutation evidence and compile
+   evidence are different claims, and a gate needs both.
+3. **`FnOnce is not general enough` is a producer problem, not a closure or a
+   boxing problem.** The integrator guessed "missing `Pin<Box<_>>` in two places"
+   and was wrong: boxing to `Pin<Box<dyn Future<Output = …> + Send + '_>>`
+   compiles and does not fix it, because the `'_` is still the borrow. **A box
+   does not erase a lifetime written into a closure's own return type.** The
+   cause is that each attempt borrows its own subscription, so the future is
+   `Future + 'a` for that borrow, and a closure cannot be generic over a
+   lifetime it was not written to be generic over. The two escapes are to hand
+   the future to something that **takes futures by value** —
+   `FuturesUnordered`, `JoinSet`, an explicit `Vec` of boxed `'static` futures
+   — or to make the future `'static` by giving it owned data. Binning it as
+   "add a box" is the trap, because a box looks like the answer and is not.
+4. **A per-file claim needs evidence produced by a command whose output
+   actually contains it.** A slice reported "zero diagnostics in my files" from
+   `cargo check … 2>&1 > /tmp/file` — the redirections in the wrong order, so
+   stderr (where every diagnostic goes) went to the pipe and the file it then
+   grepped held stdout, which for `cargo check` is nearly empty. **The claim was
+   a grep over a file that never contained the diagnostics.** The same slice had
+   two real errors in its files. `wc -c` on the artifact before believing a grep
+   over it costs one second, and an empty artifact is a finding about the
+   command, not about the code.
+5. **A staleness claim must be shown, not asserted.** The naive rule — "if an
+   owner says a diagnostic is stale, they are right" — is unfalsifiable and
+   inverts into the failure it was meant to prevent: a number nobody can check is
+   a number presented as a result. The falsifiable version costs one line:
+
+   > An owner may report a diagnostic as stale **only by showing what the current
+   > tree says** — the definition, or the file:line, read after the last fix
+   > landed. "I looked and it is fine" is a claim; "here is the definition, and
+   > here is why the access compiles" is evidence. An owner who cannot show
+   > either re-applies the fix and lets the next compile settle it.
+
+   This was earned: a downstream artefact reads as a *precise, field-level*
+   error — naming a field, a type and a line — and is **less** trustworthy for
+   being precise. Precision about a symbol is not evidence about a symbol.
+6. **Know what your checks cannot see, and say so.** A slice that ran three
+   negative controls and proved each one catches an injected defect still had
+   none of them able to see a one-line *type* error: the parse check is blind
+   because a type error is valid syntax, the arity audit because no bind is
+   involved, the generated-message audit because no literal is involved. **"My
+   checks are calibrated" is not "my checks cover this."** A control proves a
+   check bites on the class it was aimed at; it says nothing about the classes
+   it was not aimed at. The honest report states both, and the classes nobody
+   covered belong to whoever runs the compiler.
+
+## Two patterns the C1 wave produced, worth carrying forward
+
+**An edit landing on one side of a boundary and not the other.** Every
+compile error in the last two rounds of the coordinator integration, and both
+of the field errors before them, was this and nothing else: a struct field that
+moved while its literal did not, a signature that changed while its callers
+kept the old arity, a return type that was declared rather than derived from
+what the body returns, an alphabet that is not an engine. **None is a design
+problem and none is subtle.** Each is found by reading the *current* text of the
+other side, which is the thing people skip because they remember what they
+wrote. A slice reported stopping its own trust in its memory of its own files
+and reading them instead — that is the whole mitigation.
+
+**Reusing a library constant can be a behaviour change dressed as a refactor.**
+Every shipped `base64::engine::general_purpose::STANDARD_*` is documented *does
+not allow trailing bits when decoding*, while v2's `Buffer.from(x, "base64")`
+does allow them. Building the engine over `base64::alphabet::STANDARD`
+preserves v2's accepted inputs; passing a shipped `STANDARD` engine back into
+the constructor would have quietly narrowed what the coordinator accepts. The
+compiler forced the question by rejecting the call — the engine is a
+`GeneralPurpose` and the constructor wants an `&Alphabet` — and the answer was
+not "pick the other spelling" but "check what each one does with the inputs".
+**The general form: before reusing a dependency's ready-made value, check what
+the version being replaced did, because a constant carries behaviour and the
+type system will not tell you which behaviour you inherited.**
+
+## The defect a shared crate with parallel writers produces most
+
+**A parallel implementation of something that already had an owner — and it is
+findable by searching for the *concept*, not the symbol.**
+
+Four instances in one day, across three tracks:
+
+1. A worker slice wrote its own `SnapshotPart` when the protocol crate already
+   had one. It deleted its own rather than keep a second value.
+2. The device-refusal helper exists **ten** times in the coordinator; seven are
+   byte-equivalent and collapsible, three have genuinely diverged.
+3. A pairing slice wrote `RequestOrigin` — structurally identical to M1's
+   `CallerOrigin`, which had landed first. **It had already drifted on the one
+   rule that matters**: its version had no notion of `X-Forwarded-For` at all
+   and read `x-roost-remote-addr` as the client address, so a pairing request
+   arriving through a front door would have recorded **the proxy's address as
+   the requester's** — in exactly the field an operator reads beside the device
+   they are approving. It also disagreed on whether a bracketed `[::1]` is
+   loopback.
+4. The auth slice asked whether a `SecureKeyStore` trait should exist at all
+   rather than assuming the plan's shape was reachable.
+
+**Why they are missed.** A slice searches for a *name* — `ListenerTrust`,
+`CallerOrigin`, `SnapshotPart` — finds the type it was told about, and never
+asks whether the concept is already owned. The reasoning that produces the
+duplicate is always the same and always reasonable: *I was given this type and
+this behaviour, so I will model it here, where I need it.*
+
+**The check, which is cheap and was not run in any of the four cases:** before
+writing a type that carries a behaviour, grep the crate for the *behaviour* —
+what decides it, not what it is called. In case 3 the search that would have
+caught it is `resolve_caller_origin` or `is_loopback_peer`, neither of which
+contains the word "origin" in the shape a search for it would take.
+
+**When a duplicate is found, cut over — do not wrap.** The pairing slice deleted
+`RequestOrigin`, `from_peer`, `is_loopback` and `UNKNOWN_SOURCE_IP` outright and
+made its helper a three-line delegation. A wrapper around a second
+implementation is the same fork with an extra layer, and the layer is where the
+next person stops looking.
+
+## A compiler's error list across test binaries is a lower bound, and one
+## generated-message shape is worth a mechanical sweep rather than a lesson
+
+**A build that fails one test target can stop before checking the others**, so
+the diagnostics a test run reports are not the set of errors in the test tree —
+they are the set the compiler reached. A slice was handed two `E0063`s in one
+file; sweeping its own six files found **nine** literals of that shape across
+three files, seven of them in targets the run had never reached. The same
+applies to a lib count: a fix that unblocks a later check is a *moved* error,
+not a fixed one, so every residue count is a lower bound and never a total.
+
+**The shape: `__buffa_unknown_fields`.** buffa generates that field on every
+message, and a struct literal naming only the fields you can see is missing it.
+It is invisible to every check that reads the `.proto` or the visible field
+list, because the field is *added by the generator* — which is why a careful
+hand-audit cannot find it and nine of fourteen literals were wrong.
+
+**The fix is `..Default::default()`, not `__buffa_unknown_fields: None`.** The
+generated types derive `Default`, and a literal that names the generated field
+is an edit waiting for the next proto change — which then reads as a real
+failure rather than as the generator having moved.
+
+**And because it is mechanical, it should be a check rather than a habit:** a
+two-line sweep for every `roost_proto::<Message> { … }` literal that does not
+end in `..Default::default()` or a `MessageField` is exhaustive where a
+hand-audit is not. That is the general form of a lesson worth keeping —
+**when a class of mistake is findable by a pattern, write the pattern down as a
+check instead of telling people to look harder.**
+
+## Two rules from a racing pair that found each other's bugs
+
+**An adjacent, in-scope, type-checking vocabulary is the most dangerous thing
+on the shelf.** F6 was commissioned to stop `resize()` collapsing distinct
+refusals into one I/O string — and the implementation written to stop it typed
+the refusal with `PtyInRejectReason` (the **input** code set, five values, 1..5)
+instead of `ResizeRejectReason` (nine codes). **Byte 4, `resize_error`, decodes
+as `ChildExited`,** so a caller takes the input-recovery path for a resize that
+failed as something else. It compiled. Three tests written against it by its
+author would have passed.
+
+**The check is not "does it type-check". It is: does this type's value set match
+what the wire byte on this path actually carries** — and the reference is the
+protocol's own table (`protocol-terminal.ts:19-48`, `:50-60`), never the nearest
+enum in the crate. Two enums of the same shape with different numbers are
+indistinguishable to the compiler and completely distinguishable to a user.
+
+**A test whose expected value equals the requested value is not a test of a
+query.** `terminal_state` resized to 132x43 and then asserting 132x43 asserts
+what was asked for, so a client that echoes the request straight back passes it.
+**The discriminating case is a stale sequence:** `apply_resize` returns the
+applied sequence unchanged, so a lower-sequence request is acknowledged with the
+*first* geometry — and an echoing client cannot produce that answer. If the
+expected value could be produced by doing nothing, it is not a test.
+
+**What caught it was a fresh reader asking what the wire carries** — the same
+move as the read-only audit that found F5, and the reason the F5/F6 brief is
+framed as a question about TypeScript callers rather than as a list of methods
+to add. Two agents who raced, coordinated, and produced a better result than
+either would have alone is worth more than a clean hand-off between agents that
+never overlapped.
+
+## Two more, from the last error standing and from a defect a sweep caught
+
+**A correct definition does not imply a correct expression.** The final
+compile error of the C1 wave was `E0609: no field expired_ids on type
+CreateOutcome`, and the slice's showing was *true at every point*: the type was
+defined once, the field was on all three variants, and there was one access
+site. **None of that was the problem, because Rust does not let you name a
+field on an enum at all.** `&creation.expired_ids` is not a field access that
+happens to be missing; it is a field access *the language does not have* — only
+a `match` knows which variant's field you meant.
+
+So the failure is a different shape from every other error this wave: **the
+API was correct and the form of the use was not**, which is why no amount of
+re-reading the neighbour's definition could ever have found it. The same shape
+as the parse error that reported "1 error left": **evidence that was true,
+describing a different object than the one that was broken.** Both are worth
+remembering as a pair — a true statement can be about the wrong thing, and the
+fix is to ask what object the evidence is actually about.
+
+**A constant that stops being referenced is a behaviour that stopped
+happenin, and the unused-import warning is the only thing in the toolchain that
+says so.** Replacing `buffer_unordered(MAX_CONCURRENT_SENDS)` with a
+`FuturesUnordered` to clear an `FnOnce` error silently deleted the concurrency
+ceiling: `FuturesUnordered` runs everything handed to it, and every subscription
+was pushed up front. A dashboard with two thousand stale subscriptions would have
+opened two thousand HTTPS round trips at once, which is exactly what the constant
+exists to prevent and what v2's fixed worker pool holds. **The compiler could
+not see it.** The only evidence in the entire build was that the import had
+become unused.
+
+This is a much better argument for treating warnings as gate failures than
+"clippy is strict": a warning is frequently the sole signal that a *limit* is no
+longer being applied, because a limit is the kind of thing that compiles
+perfectly well without it. **The imports you stop using are the behaviour you
+stopped having.**
+
+## What lock-free verification cannot see, stated by the slice that ran it
+
+Five errors in a coordinator test fixture, fixed at the end of a wave whose
+entire method was lock-free checks. **They are three classes, and only two of
+them are the class everybody expects.**
+
+1. **A stale name** — a definition that moved and its import that did not. A
+   compiler finds this by shape, and so does an import audit. Fix it by
+   re-reading the current signature, **never by aliasing**: a second spelling
+   of one function is the fork this port keeps paying for.
+2. **An unbound variable** — a value used in a struct literal that was never
+   bound anywhere in the function. A compiler finds this by shape; **no static
+   audit finds it at all**, because there is no declaration to be missing. One
+   of these had been in the file since it was written.
+3. **A wrong receiver** — a fixture method called as a free function, with the
+   import still present so the name resolves. **An import audit cannot see it,
+   because the check it performs — does this name resolve? — passes.** Only a
+   reader sees that the thing resolved to the wrong shape. Arity audits do not
+   help either: they count arguments, not receivers.
+
+**The number that matters: five audits over those nine files, every one reported
+clean, on a tree containing an unbound variable.** That is the honest ceiling of
+the method, and it is worth stating in a slice's own report rather than only in
+an integrator's — "my checks cover syntax, binds and literals, and type
+correctness is outside all three" was the sentence that generalised it.
+
+**A fourth, smaller instance in the same file, and it is an attribute making a
+claim the code does not support:** `#[tokio::test]` on a function with zero
+`.await` and no I/O. The test is now `#[test]`. **Attaching a runtime to a test
+that does no I/O is the same mistake as naming a field on an enum** — the
+annotation asserts an asynchrony the code does not have, and a reader who
+believes it will be confused by why the test is instant.
+
 ## Worker track
 
 | # | Property | File and exact edit | Test that must fail | State |
@@ -149,6 +408,28 @@ omitted call, and an executor that silently inherited its caller's state.
 | The keeper applies `spec.env` verbatim with no admission check, while v2 refused a keeper control key in `isShellSpec` **and** again in `mergeEnvironment`. | CRITICAL | **Open.** A worker-side strip is now real, but v2 refused on both sides and the keeper side is the structural one. |
 | The keeper's local endpoint has no capability authentication at all; the socket's `0600` mode is the entire boundary. v2 required a verified capability before dispatching any frame, plus a byte cap, a timer and a connection cap. | HIGH | **Open.** Either fix it or record the deliberate drop in the keeper contract and a commit body. |
 | Two implementations of the keeper binary digest disagree, so survivor admission can never succeed. | HIGH | **Open.** The keeper-side one is correct; the worker's is not. |
+| `keeper_client.rs:295 wait_for_reply` pulls from `self.events` and **discards any frame that does not match** (`:310`) — and `self.events` is not a reply channel. `client_io.rs:42` routes only `SpawnAck`/`SpawnErr` to the pending-spawn map; `PtyOut` goes into the same channel at `:73`, and `server.rs:259-263` proves the interleaving is real. **Every PTY byte the keeper emits between a client request and its reply is lost permanently, with no log and no counter.** A drag-resize is ~60 requests/second. v2's `keeper-pool-lifecycle.ts:194-303` is one `dispatchFrom` loop routing every frame by tag, with output and reply paths disjoint. | **CRITICAL — data loss** | **FIXED and PROVEN.** `wait_for_reply` and `wait_for_any_input_result` now **defer** a non-answer rather than dropping it, and `next_event` drains the deferred queue **before** the socket in arrival order — a frame deferred now arrived before what is on the wire, so reading the socket first would move the hole to the head of the stream. Poisoned locks recovered, not propagated. Proof: `pty_output_written_before_a_control_ack_is_not_lost` (real client, real socket, real handshake, `PtyOut` flushed before the `ResizeAck`, asserting the **exact bytes** — a liveness check would pass against a client that drops the frame and returns a later one) and `output_deferred_by_a_wait_precedes_whatever_arrived_after_it` (the property the fix introduces). **Mutation: `wait_for_reply` dropping the non-answer again fails both, 0 passed / 2 failed.** |
+| `KeeperClient` is missing the client half of six frames its own daemon already serves: `GetHistoryRecords`, `GetHistory`, `GetTerminalState`, `ResizeStatus`, `KillChild`, `Shutdown`/`ShutdownIfEmpty`. The tag table is complete (all 34) and the daemon implements every one, so this is client-only. **A worker restarting against a surviving keeper cannot read the history it is supposed to adopt, nor learn the geometry the keeper applied.** `FAILURE-INDEX.md:354` names the user-visible form: history gone after worker restart, pane freezes. | **CRITICAL** | **Open; blocks worker adoption (W2b/W4).** The `KeeperChannels` seam is right — the client underneath it cannot ask. |
+| `resize()` discards the `ResizeAck` payload (the **applied** seq and geometry) and collapses nine reject reasons into `ClientError::Io("the keeper refused the resize of channel N")`. v2's `KeeperResizeResult` distinguishes ack/reject/unknown and `session-terminal-txn.ts:188-222` maps all three. Today `resize()` blocks until its ten-second deadline — **with the discard bug open, that entire deadline is spent losing output.** Two findings compounding on one call site. | HIGH | **Open.** Fixing the discard does not fix this. |
+| `TerminalCore` has no `synchronized_output` / `synchronized_output_generation`, so DECSET 2026 withholding cannot be ported and the two rescue ceilings in `stream_fence.rs` are unreachable. **The dangerous workaround is to omit the gate**, which makes every full-screen TUI repaint in visible steps instead of atomically. | HIGH | **Open.** Do not "fix" by always passing. |
+| `TerminalCore` has no unhandled-sequence reader. v2 reached *past* its own ABI for one — a `WeakMap` plus a raw memory read at hand-computed offsets — so a port reading only the trait concludes "v2 did not use this", which is wrong. `terminal.unhandled_sequence` therefore has no producer. | MEDIUM | **Open.** Telemetry gap: the "wrong in Roost, fine in iTerm" class is unanswerable. |
+| `TerminalCore` has no `get_resource_state`, so `terminal.hyperlink_saturated` has no producer. At the core's fixed OSC 8 table capacity, new links render as dead plain text with nothing logged. | MEDIUM | **Open.** |
+| `browser_commands::OWNERS` marks `list-skills` and `git-diff` `Absent`; v2 does the same quietly, and no caller exists. v3 answers `rpc-error` where v2 answered silence. | LOW | **Open.** Harmless today; silence becomes a registered-but-unanswered request if a browser ever sends one. The legacy-drop rule says every dropped path is named in a commit body, and nothing names these two. |
+
+**The question that found all of these, and the reason it works:** *what does a
+TypeScript caller reach for that this trait does not offer?* It is a question
+about the TypeScript, not the Rust — and it is the only one that can find an
+omission, because **a trait cannot be audited for what it omits.** Eleven
+surfaces were fully enumerated with **no difference** — `ClientControlFrame` 23
+variants 1:1, `SessionEvent` 13 variants 1:1, both link unions a superset of
+v2's, all seven brand types with `check`/`TryFrom`/`Display`, all 34 keeper
+tags, `CoordConfig` and `roost_host::paths` 1:1 — which is what makes the two
+`roost-keeper` defects isolated rather than symptomatic.
+
+It also **narrowed** a finding of mine: `write_raw`/`get_response` is one
+omission plus one shape constraint, not three, and the per-chunk `afterChunk`
+hook is a latency artifact of the WASM build rather than a semantic
+requirement. I would have spent a method on it.
 
 The audit also reported the keeper `env_clear` fix as absent. **That was a
 false positive**: the audit read `pty_channel.rs` while a mutation experiment
