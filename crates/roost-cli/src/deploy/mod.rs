@@ -16,7 +16,7 @@
 //!
 //! **Which lines here are load-bearing is written down, not left to be
 //! inferred.** `docs/phase6-cli-contract.md` § "The guard map" maps each of the
-//! fourteen `docs/FAILURE-INDEX.md` entries whose symptom is a misbehaving
+//! thirteen `docs/FAILURE-INDEX.md` entries whose symptom is a misbehaving
 //! deploy to the function that satisfies it and the test that holds it. Read that
 //! table before changing anything in this group: a step here that looks like
 //! ceremony is usually the guard for a defect that already shipped.
