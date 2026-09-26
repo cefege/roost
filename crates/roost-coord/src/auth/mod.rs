@@ -16,5 +16,6 @@ pub mod jwt_claims;
 pub mod jwt_crypto;
 pub mod jwt_key_cache;
 pub mod jwt_verify;
+pub mod pairing;
 pub mod principal;
 pub mod self_hosted_tenant;

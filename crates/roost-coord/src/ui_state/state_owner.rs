@@ -123,10 +123,7 @@ impl UiStateOwner {
 
     /// The same owner, admitting new identities through `limiter`.
     #[must_use]
-    pub fn with_identity_rate_limiter(
-        mut self,
-        limiter: Arc<dyn IdentityRateLimiter>,
-    ) -> Self {
+    pub fn with_identity_rate_limiter(mut self, limiter: Arc<dyn IdentityRateLimiter>) -> Self {
         self.identity_rate_limiter = limiter;
         self
     }
@@ -224,6 +221,8 @@ impl UiStateOwner {
         // map is still structurally valid: every mutation here is a whole entry
         // swap, so recovering the guard loses nothing and keeps one bad report
         // from blinding the UI surface for the life of the process.
-        self.reports.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.reports
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }

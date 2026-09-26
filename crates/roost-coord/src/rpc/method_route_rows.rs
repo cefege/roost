@@ -34,11 +34,11 @@ const fn route(
 /// the worker registry: registration, heartbeat, rename, delete, deploy.
 #[rustfmt::skip]
 pub const ROWS_WORKERS: &[MethodRoute] = &[
-    route("WorkersList", "workers", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("WorkersRegister", "workers", AuthRequirement::Worker, PortStatus::AwaitingDomainPort),
-    route("WorkersHeartbeat", "workers", AuthRequirement::Worker, PortStatus::AwaitingDomainPort),
-    route("WorkersRename", "workers", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("WorkersDelete", "workers", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
+    route("WorkersList", "workers", AuthRequirement::Device, PortStatus::Implemented),
+    route("WorkersRegister", "workers", AuthRequirement::Worker, PortStatus::Implemented),
+    route("WorkersHeartbeat", "workers", AuthRequirement::Worker, PortStatus::Implemented),
+    route("WorkersRename", "workers", AuthRequirement::Device, PortStatus::Implemented),
+    route("WorkersDelete", "workers", AuthRequirement::Device, PortStatus::Implemented),
     route("WorkersDeployStart", "workers", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
     route("WorkersDeployOutput", "workers", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
 ];
@@ -63,9 +63,9 @@ pub const ROWS_SESSIONS: &[MethodRoute] = &[
     route("SessionsInput", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
     route("SessionsCursorPos", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
     route("SessionsAssignWorkspace", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("SessionsGetScrollbackCells", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("SessionsSearchScrollback", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("SessionsCancelScrollbackSearch", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
+    route("SessionsGetScrollbackCells", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("SessionsSearchScrollback", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("SessionsCancelScrollbackSearch", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("SessionsGrantLocalTerminal", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
     route("SessionsNegotiateLocalTerminalPeer", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
     route("WorkspacesList", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
@@ -171,20 +171,27 @@ pub const ROWS_RPC: &[MethodRoute] = &[
 ];
 
 /// ui-cc typed state and layout application, both fenced to one socket generation.
+///
+/// ALL FOUR CARRY THE FENCE, not only the apply: `UiReportState`, `UiListStates`
+/// and `UiDispatch` each call `require_tab_fence` before they read or write the
+/// retained state (`apps/coord/src/ui-state/handlers-ui.ts`), and an apply
+/// reserved against a socket that is not the one the caller holds is applied by
+/// a tab that no longer owns it. The column records the requirement the
+/// handler enforces, not the one that would have been convenient.
 #[rustfmt::skip]
 pub const ROWS_UI_STATE: &[MethodRoute] = &[
-    route("UiReportState", "ui_state", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("UiListStates", "ui_state", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("UiDispatch", "ui_state", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("UiApplyLayout", "ui_state", AuthRequirement::DevicePlusFence, PortStatus::AwaitingDomainPort),
+    route("UiReportState", "ui_state", AuthRequirement::DevicePlusFence, PortStatus::Implemented),
+    route("UiListStates", "ui_state", AuthRequirement::DevicePlusFence, PortStatus::Implemented),
+    route("UiDispatch", "ui_state", AuthRequirement::DevicePlusFence, PortStatus::Implemented),
+    route("UiApplyLayout", "ui_state", AuthRequirement::DevicePlusFence, PortStatus::Implemented),
 ];
 
 /// web push subscriptions, per authenticated browser fingerprint.
 #[rustfmt::skip]
 pub const ROWS_PUSH: &[MethodRoute] = &[
-    route("PushGetConfig", "push", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("PushSubscribe", "push", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("PushUnsubscribe", "push", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
+    route("PushGetConfig", "push", AuthRequirement::Device, PortStatus::Implemented),
+    route("PushSubscribe", "push", AuthRequirement::Device, PortStatus::Implemented),
+    route("PushUnsubscribe", "push", AuthRequirement::Device, PortStatus::Implemented),
 ];
 
 /// Every per-domain table, in the order `method_route` concatenates them.

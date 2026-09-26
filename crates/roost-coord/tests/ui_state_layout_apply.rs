@@ -85,7 +85,9 @@ async fn a_result_settles_its_reservation_once_and_a_duplicate_settles_nothing()
     let now = Arc::new(Mutex::new(0_i64));
     let owner = owner_with_clock(Arc::clone(&now));
     let base = target("fingerprint-a", "tab-a", "socket-a");
-    let _guard = owner.register_target(base.clone()).expect("a target registers");
+    let _guard = owner
+        .register_target(base.clone())
+        .expect("a target registers");
 
     let reserved = reserve(&owner, &base).expect("the reservation is admitted");
     let correlation_id = reserved.publication.correlation_id.clone();
@@ -112,7 +114,9 @@ async fn a_result_from_any_other_fence_is_refused_and_the_reservation_survives()
     let now = Arc::new(Mutex::new(0_i64));
     let owner = owner_with_clock(Arc::clone(&now));
     let base = target("fingerprint-a", "tab-a", "socket-a");
-    let _guard = owner.register_target(base.clone()).expect("a target registers");
+    let _guard = owner
+        .register_target(base.clone())
+        .expect("a target registers");
     let reserved = reserve(&owner, &base).expect("the reservation is admitted");
     let correlation_id = reserved.publication.correlation_id.clone();
 
@@ -144,7 +148,11 @@ async fn a_result_from_any_other_fence_is_refused_and_the_reservation_survives()
             "{unprovable:?} is not an outcome a target may prove"
         );
     }
-    assert_eq!(owner.stats().pending, 1, "the reservation is still awaiting");
+    assert_eq!(
+        owner.stats().pending,
+        1,
+        "the reservation is still awaiting"
+    );
 
     assert!(owner.accept_result(&base, &applied(&correlation_id)));
     assert_eq!(
@@ -158,7 +166,9 @@ async fn a_reservation_nobody_answers_is_dropped_when_its_deadline_passes() {
     let now = Arc::new(Mutex::new(0_i64));
     let owner = owner_with_clock(Arc::clone(&now));
     let base = target("fingerprint-a", "tab-a", "socket-a");
-    let _guard = owner.register_target(base.clone()).expect("a target registers");
+    let _guard = owner
+        .register_target(base.clone())
+        .expect("a target registers");
     let reserved = reserve(&owner, &base).expect("the reservation is admitted");
 
     *now.lock().expect("the test clock") += UI_LAYOUT_APPLY_TIMEOUT_MS - 1;
@@ -184,7 +194,9 @@ async fn the_caller_of_an_unanswered_apply_is_told_the_target_is_gone() {
     let now = Arc::new(Mutex::new(0_i64));
     let owner = owner_with_clock(Arc::clone(&now));
     let base = target("fingerprint-a", "tab-a", "socket-a");
-    let _guard = owner.register_target(base.clone()).expect("a target registers");
+    let _guard = owner
+        .register_target(base.clone())
+        .expect("a target registers");
     let reserved = reserve(&owner, &base).expect("the reservation is admitted");
 
     *now.lock().expect("the test clock") += UI_LAYOUT_APPLY_TIMEOUT_MS;
@@ -226,14 +238,13 @@ async fn a_rejected_answer_carries_a_bounded_control_free_reason() {
     let now = Arc::new(Mutex::new(0_i64));
     let owner = owner_with_clock(Arc::clone(&now));
     let base = target("fingerprint-a", "tab-a", "socket-a");
-    let _guard = owner.register_target(base.clone()).expect("a target registers");
+    let _guard = owner
+        .register_target(base.clone())
+        .expect("a target registers");
     let raw = format!(" rejected\n\u{0}{}", "x".repeat(400));
     let reserved = reserve(&owner, &base).expect("the reservation is admitted");
 
-    assert!(owner.accept_result(
-        &base,
-        &rejected(&reserved.publication.correlation_id, &raw)
-    ));
+    assert!(owner.accept_result(&base, &rejected(&reserved.publication.correlation_id, &raw)));
     let resolution: UiLayoutApplyResolution = reserved.pending.await_resolution().await;
     assert_eq!(resolution.outcome, UiApplyLayoutOutcome::Rejected);
     let reason = resolution.reason.expect("a rejection carries a reason");
@@ -260,7 +271,9 @@ async fn a_replaced_socket_settles_the_old_reservation_and_keeps_the_new_one() {
     let now = Arc::new(Mutex::new(0_i64));
     let owner = owner_with_clock(Arc::clone(&now));
     let base = target("fingerprint-a", "tab-a", "socket-a");
-    let old_guard = owner.register_target(base.clone()).expect("a target registers");
+    let old_guard = owner
+        .register_target(base.clone())
+        .expect("a target registers");
     let old_reservation = reserve(&owner, &base).expect("the reservation is admitted");
 
     let replacement = target("fingerprint-a", "tab-a", "socket-new");
@@ -312,16 +325,10 @@ async fn the_same_tab_id_on_another_device_cannot_receive_or_answer_an_apply() {
         "the reservation is pinned to the requested device's socket"
     );
     assert!(
-        !owner.accept_result(
-            &attacker,
-            &applied(&reserved.publication.correlation_id)
-        ),
+        !owner.accept_result(&attacker, &applied(&reserved.publication.correlation_id)),
         "a colliding tab id on another device cannot answer"
     );
-    assert!(owner.accept_result(
-        &victim,
-        &applied(&reserved.publication.correlation_id)
-    ));
+    assert!(owner.accept_result(&victim, &applied(&reserved.publication.correlation_id)));
 }
 
 #[test]

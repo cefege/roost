@@ -21,15 +21,18 @@
 //! `protocol/proto/roost/v1/coordinator.proto`, which is also what
 //! `tests/method_route_coverage.rs` asserts the route table against.
 //!
-//! WIRED METHODS ARE NOT UNREACHABLE BEHIND A NAMED `Unimplemented`. Eight arms
-//! are wired: the five worker methods (`WorkersList`, `WorkersRegister`,
-//! `WorkersHeartbeat`, `WorkersRename`, `WorkersDelete`) and the three scrollback
+//! WIRED METHODS ARE NOT UNREACHABLE BEHIND A NAMED `Unimplemented`. Fifteen
+//! arms are wired: the five worker methods (`WorkersList`, `WorkersRegister`,
+//! `WorkersHeartbeat`, `WorkersRename`, `WorkersDelete`), the three scrollback
 //! methods (`SessionsGetScrollbackCells`, `SessionsSearchScrollback`,
-//! `SessionsCancelScrollbackSearch`). Each resolves its caller through
-//! [`caller_of`](super::service::caller_of) and hands the owned request to its
-//! domain handler, so wiring a method means naming its handler here, and the
-//! refusal a wired method still answers with -- no caller on the request -- stays
-//! a named `Unimplemented` rather than becoming an anonymous success.
+//! `SessionsCancelScrollbackSearch`), the four UI methods (`UiReportState`,
+//! `UiListStates`, `UiDispatch`, `UiApplyLayout`) and the three push methods
+//! (`PushGetConfig`, `PushSubscribe`, `PushUnsubscribe`). Each resolves its
+//! caller through [`caller_of`](super::service::caller_of) and hands the owned
+//! request to its domain handler, so wiring a method means naming its handler
+//! here, and the refusal a wired method still answers with -- no caller on the
+//! request -- stays a named `Unimplemented` rather than becoming an anonymous
+//! success.
 
 use std::future::Future;
 
@@ -44,9 +47,13 @@ use super::service::{
     misc_health_reply, now_ms, sync_moved_stream,
 };
 
+use crate::push::rpc::{handle_push_get_config, handle_push_subscribe, handle_push_unsubscribe};
 use crate::terminal_screen::rpc::{
     handle_sessions_cancel_scrollback_search, handle_sessions_get_scrollback_cells,
     handle_sessions_search_scrollback,
+};
+use crate::ui_state::rpc::{
+    handle_ui_apply_layout, handle_ui_dispatch, handle_ui_list_states, handle_ui_report_state,
 };
 use crate::workers::rpc::{
     handle_workers_delete, handle_workers_heartbeat, handle_workers_list, handle_workers_register,
@@ -868,67 +875,88 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn ui_report_state<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, UiReportStateRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, UiReportStateRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<UiReportStateResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<UiReportStateResponse>("UiReportState")
+        async move {
+            let caller = caller_of(&ctx, "UiReportState")?;
+            handle_ui_report_state(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn ui_list_states<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, UiListStatesRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, UiListStatesRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<UiListStatesResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<UiListStatesResponse>("UiListStates")
+        async move {
+            let caller = caller_of(&ctx, "UiListStates")?;
+            handle_ui_list_states(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn ui_dispatch<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, UiDispatchRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, UiDispatchRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<UiDispatchResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<UiDispatchResponse>("UiDispatch")
+        async move {
+            let caller = caller_of(&ctx, "UiDispatch")?;
+            handle_ui_dispatch(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn ui_apply_layout<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, UiApplyLayoutRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, UiApplyLayoutRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<UiApplyLayoutResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<UiApplyLayoutResponse>("UiApplyLayout")
+        async move {
+            let caller = caller_of(&ctx, "UiApplyLayout")?;
+            handle_ui_apply_layout(&self.core, caller, r.to_owned_message()).await
+        }
     }
     // ── push ────────────────────────────────────────────────────────────
 
     fn push_get_config<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, PushGetConfigRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, PushGetConfigRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<PushGetConfigResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<PushGetConfigResponse>("PushGetConfig")
+        async move {
+            let caller = caller_of(&ctx, "PushGetConfig")?;
+            handle_push_get_config(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn push_subscribe<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, PushSubscribeRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, PushSubscribeRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<PushSubscribeResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<PushSubscribeResponse>("PushSubscribe")
+        async move {
+            let caller = caller_of(&ctx, "PushSubscribe")?;
+            handle_push_subscribe(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn push_unsubscribe<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, PushUnsubscribeRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, PushUnsubscribeRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<PushUnsubscribeResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<PushUnsubscribeResponse>("PushUnsubscribe")
+        async move {
+            let caller = caller_of(&ctx, "PushUnsubscribe")?;
+            handle_push_unsubscribe(&self.core, caller, r.to_owned_message()).await
+        }
     }
     // ── rpc ─────────────────────────────────────────────────────────────
 

@@ -170,10 +170,13 @@ fn refuse_input(error: PushInputError) -> ConnectError {
     ConnectError::new(code, error.to_string())
 }
 
-/// The Connect method each handler answers, for the single delegation pass in
-/// `rpc/service_impl.rs`.
-pub const METHODS: &[(&str, &str)] = &[
-    ("PushGetConfig", "handle_push_get_config"),
-    ("PushSubscribe", "handle_push_subscribe"),
-    ("PushUnsubscribe", "handle_push_unsubscribe"),
+/// The Connect method each handler answers, and the function that answers it.
+///
+/// The integrator's list: every row is one arm of the single `impl
+/// CoordinatorService` block in `rpc/service_impl.rs`, so wiring a domain is
+/// reading this table rather than matching on names by hand.
+pub const METHOD_HANDLERS: &[(&str, &str)] = &[
+    ("PushGetConfig", "push::rpc::handle_push_get_config"),
+    ("PushSubscribe", "push::rpc::handle_push_subscribe"),
+    ("PushUnsubscribe", "push::rpc::handle_push_unsubscribe"),
 ];

@@ -2149,3 +2149,64 @@ this?", and a weak answer is a bug in the list.
 The general question — whether 400 should count `#[cfg(test)]` lines at all
 — is deferred to the Phase 7 size-policy review, where the measurement can
 be taken over the whole tree rather than argued from one file.
+
+### 12.12 BootFacts, and one runtime per domain
+
+Two rules the domain slices share, both recorded because both are invisible
+from a single domain's file and both are the kind of thing a reader
+re-derives wrongly.
+
+**Boot facts live in one struct, and a missing one is a wiring fault.**
+`coord_core::boot_facts::BootFacts` carries the tenancy scope, the resolved
+config, the process epoch and the boot instant, and it is a field on
+`CoordServices` (`services.rs`), filled by `serve` through
+`CoordServices::booted`. A handler reads it at call time as
+`core.services.boot.require_tenant()` or `require_config()`; a fact the
+process never established is refused as `ConnectError` `Internal` reading
+`coordinator booted without <fact>`.
+
+The refusal is the rule, and the reason is that every default would be a
+belief. A coordinator built by `CoordServices::new` sits on a real migrated
+database with a real dashboard in it; a handler that defaulted the tenant to
+"none" or the config to `CoordConfig::default()` would answer a browser with
+a statement about the deployment that the deployment never made — and the
+`push_allowed_origins: []` default in particular is how a deployment that
+meant to enable Push comes to look like one that chose not to.
+`tests/boot_facts.rs` pins that a populated database does not make the fact
+present, because that is the case a default would silently get wrong.
+
+`CoordServices::new` keeps its signature and builds `BootFacts::unbooted()`.
+That is not a second answer to "what is the tenancy scope": it is the state a
+test and an in-process caller are in, and a handler that needs a fact from it
+is refused rather than answered. `serve` is the only production caller of
+`CoordServices::booted`.
+
+**One field per domain on `CoordServices`, built by a zero-argument `new()`.**
+The twelve fields are `ui_state`, `pairing`, `sessions`, `agents`,
+`attachments`, `search`, `deploy`, `rate_limit`, `telemetry`, `feed`,
+`byte_hub` and `views`. A domain's runtime is reachable as
+`core.services.<domain>` and nowhere else, and its `new()` takes no
+arguments — anything it needs from configuration is read at call time from
+`core.services.boot`.
+
+The zero-argument rule is what makes a config change visible without a
+restart: a constructor argument freezes its value at the moment the process
+started, which for `ROOST_COORDINATOR_PUSH_ALLOWED_ORIGINS` would mean a
+config change needed a coordinator restart to take effect. A slice may ADD
+FIELDS to its runtime and keep `new()` zero-argument; if a slice finds itself
+wanting a constructor parameter, the value it wants is a boot fact, and the
+fix is to add the fact rather than the parameter.
+
+The one-field rule is the same anti-fork rule as §12.11's single service
+impl, applied to state: two instances of a domain's runtime is two answers to
+one question, and only one of them would ever be published to. It is why
+`ui_state` moved from a handler parameter to `core.services.ui_state` — a
+handler that took the runtime as an argument could be called with a runtime
+that is not the coordinator's, and the caller would have no way to tell.
+
+**The handler shape every domain uses.** A Connect method is
+`pub async fn handle_<snake_name>(core: &CoordCore, caller: &Caller,
+request: roost_proto::<Name>Request) -> ServiceResult<roost_proto::<Name>Response>`,
+and each domain's `rpc.rs` exports
+`pub const METHOD_HANDLERS: &[(&str, &str)]` so the single delegation pass in
+`service_impl.rs` is mechanical rather than a hunt.

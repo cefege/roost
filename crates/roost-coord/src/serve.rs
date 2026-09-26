@@ -26,7 +26,10 @@ use roost_host::CoordConfig;
 use roost_platform::HostPlatform;
 
 use crate::coord_core::CoordCore;
+use crate::coord_core::boot_facts::BootFacts;
+use crate::coord_core::seams::{CoordTerminal, WorkerRouteIndex};
 use crate::http::listener::{ListenerState, build_router, resolve_bind};
+use crate::push::PushRuntime;
 use crate::rpc::service::CoordinatorServiceImpl;
 use crate::services::CoordServices;
 
@@ -110,9 +113,30 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
         "startup janitor complete"
     );
 
-    let services = Arc::new(CoordServices::new(database));
+    // The boot facts are filled from what boot already established -- the
+    // tenancy scope the invariant above just enforced, the config the caller
+    // resolved, and this process's identity. Every handler reads them from
+    // `core.services.boot` rather than carrying its own copy, so a fact cannot
+    // be right in one domain and absent in another.
+    let boot_facts = BootFacts {
+        tenant: Some(tenant.clone()),
+        config: Some(Arc::new(boot.config.clone())),
+        process_epoch: process_epoch.clone(),
+        boot_ms,
+    };
+    let services = Arc::new(CoordServices::booted(database, boot_facts));
 
-    let core = CoordCore::new(Arc::clone(&services));
+    // The push runtime is built from the tenancy scope and the operator's
+    // allowlist, both of which are boot-order facts: a push surface with no
+    // dashboard has nowhere to scope a subscription row, and an empty
+    // allowlist is how the operator switches the whole surface off.
+    let push = PushRuntime::new(
+        tenant.dashboard_id.clone(),
+        boot.config.push_allowed_origins.clone(),
+    );
+
+    let terminal = terminal_seams(&services);
+    let core = CoordCore::with_terminal_and_push(Arc::clone(&services), terminal, push);
 
     let service = Arc::new(CoordinatorServiceImpl::new(
         core,
@@ -161,6 +185,22 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
     .with_graceful_shutdown(shutdown_signal())
     .await
     .context("coordinator listener")
+}
+
+/// The terminal collaborators a booted coordinator hands the workers domain.
+///
+/// The byte hub is the real route index. The view hub is a real object but has
+/// no production `TerminalViewLifecycle` yet, and `NoTerminalSeams` is this
+/// crate's documented answer for a seam that has no collaborator -- a type
+/// that answers `None` for a geometry it has never seen, rather than a hub that
+/// claims no session is being watched when the registry behind it was never
+/// consulted.
+fn terminal_seams(services: &CoordServices) -> CoordTerminal {
+    let routes: std::sync::Arc<dyn WorkerRouteIndex> = services.byte_hub.clone();
+    CoordTerminal::new(
+        routes,
+        std::sync::Arc::new(crate::coord_core::NoTerminalSeams),
+    )
 }
 
 /// The platform's termination signal, or a never-completing future elsewhere.

@@ -5,11 +5,13 @@
 // written, reviewed and tested without reading the service impl, and adding a
 // per-process singleton does not widen the one file every domain also edits.
 
+pub mod boot_facts;
 pub mod caller;
 pub mod core;
 pub mod seams;
 pub mod worker_handle;
 
+pub use boot_facts::BootFacts;
 pub use caller::{Caller, ListenerTrust};
 pub use core::CoordCore;
 pub use seams::{

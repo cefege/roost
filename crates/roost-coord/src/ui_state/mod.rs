@@ -24,10 +24,10 @@ use crate::ui_state::state_owner::UiStateOwner;
 
 /// The UI state one coordinator process holds.
 ///
-/// Built once beside the other process singletons and shared, so the RPC that
-/// reserves an apply and the Sync ingress that settles it are looking at one
-/// table. Two instances would be two answers to "is that tab still there", and
-/// only one of them would ever be published to.
+/// A field on `CoordServices` (`ui_state`), reached as `core.services.ui_state`,
+/// so the RPC that reserves an apply and the Sync ingress that settles it are
+/// looking at one table. Two instances would be two answers to "is that tab
+/// still there", and only one of them would ever be published to.
 #[derive(Debug, Clone)]
 pub struct UiStateRuntime {
     states: UiStateOwner,

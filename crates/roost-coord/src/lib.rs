@@ -19,19 +19,27 @@
 
 #![forbid(unsafe_code)]
 
+pub mod agents;
+pub mod attachments;
 pub mod auth;
 pub mod coord_core;
 pub mod db;
+pub mod deploy;
+pub mod diagnostics;
 pub mod events;
 pub mod http;
 pub mod http_admission;
 pub mod maintenance;
+pub mod middleware;
 pub mod push;
 pub mod rpc;
+pub mod search;
 pub mod serve;
 pub mod services;
+pub mod sessions;
 pub mod sync_ws;
 pub mod terminal_screen;
+pub mod terminal_view;
 pub mod ui_state;
 pub mod worker_link;
 pub mod workers;

@@ -20,8 +20,8 @@ use roost_coord::ui_state::rpc::{
     handle_ui_dispatch, handle_ui_list_states, handle_ui_report_state,
 };
 use roost_proto as proto;
-use roost_proto::buffa::MessageField;
 use roost_proto::__buffa::oneof::ui_command::Command;
+use roost_proto::buffa::MessageField;
 use ui_state_fixture::{
     FOREIGN_SESSION_ID, SESSION_ID, UiStateFixture, browser_fingerprint, collect_ui_bus,
     layout_document, report_request, select_tab_command,
@@ -34,7 +34,6 @@ async fn report_list_and_dispatch_refuse_a_request_that_carried_no_tab_id() {
 
     let report = handle_ui_report_state(
         &fixture.core,
-        &fixture.runtime,
         &caller,
         report_request("tab-1", "/s/one", None),
     )
@@ -42,28 +41,33 @@ async fn report_list_and_dispatch_refuse_a_request_that_carried_no_tab_id() {
     .expect_err("a report with no tab id is refused");
     assert_eq!(report.code, ErrorCode::FailedPrecondition);
     assert!(
-        report.message.as_deref().unwrap_or_default().contains("tab fence"),
+        report
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("tab fence"),
         "the refusal must name the fence it is missing: {}",
         report.message.as_deref().unwrap_or_default()
     );
 
     let list = handle_ui_list_states(
         &fixture.core,
-        &fixture.runtime,
         &caller,
         proto::UiListStatesRequest::default(),
     )
     .await
     .expect_err("a list with no tab id is refused");
     assert!(
-        list.message.as_deref().unwrap_or_default().contains("tab fence"),
+        list.message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("tab fence"),
         "UiListStates must refuse the same way: {}",
         list.message.as_deref().unwrap_or_default()
     );
 
     let dispatch = handle_ui_dispatch(
         &fixture.core,
-        &fixture.runtime,
         &caller,
         proto::UiDispatchRequest {
             target_tab_id: "tab-1".to_owned(),
@@ -74,7 +78,11 @@ async fn report_list_and_dispatch_refuse_a_request_that_carried_no_tab_id() {
     .await
     .expect_err("a dispatch with no tab id is refused");
     assert!(
-        dispatch.message.as_deref().unwrap_or_default().contains("tab fence"),
+        dispatch
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("tab fence"),
         "UiDispatch must refuse the same way: {}",
         dispatch.message.as_deref().unwrap_or_default()
     );
@@ -94,7 +102,6 @@ async fn a_report_is_retained_listed_and_published_under_the_callers_own_fingerp
     let (response, messages) = collect_ui_bus(&fixture, async {
         handle_ui_report_state(
             &fixture.core,
-            &fixture.runtime,
             &caller,
             report_request("tab-1", "/s/one", Some(layout_document(SESSION_ID))),
         )
@@ -115,7 +122,6 @@ async fn a_report_is_retained_listed_and_published_under_the_callers_own_fingerp
 
     let listed = handle_ui_list_states(
         &fixture.core,
-        &fixture.runtime,
         &caller,
         proto::UiListStatesRequest::default(),
     )
@@ -142,7 +148,6 @@ async fn a_reported_tab_id_never_borrows_another_devices_fingerprint() {
     let fixture = UiStateFixture::new("identity").await;
     handle_ui_report_state(
         &fixture.core,
-        &fixture.runtime,
         &fixture.caller('a'),
         report_request("tab-1", "/s/one", None),
     )
@@ -150,7 +155,6 @@ async fn a_reported_tab_id_never_borrows_another_devices_fingerprint() {
     .expect("the first report is admitted");
     handle_ui_report_state(
         &fixture.core,
-        &fixture.runtime,
         &fixture.caller('b'),
         report_request("tab-1", "/s/two", None),
     )
@@ -158,7 +162,11 @@ async fn a_reported_tab_id_never_borrows_another_devices_fingerprint() {
     .expect("the second report is admitted");
 
     let entries = fixture.runtime.states().list();
-    assert_eq!(entries.len(), 2, "the same tab id on two devices is two reports");
+    assert_eq!(
+        entries.len(),
+        2,
+        "the same tab id on two devices is two reports"
+    );
     assert_eq!(entries[0].fingerprint, browser_fingerprint('a'));
     assert_eq!(entries[1].fingerprint, browser_fingerprint('b'));
 }
@@ -169,7 +177,6 @@ async fn a_report_naming_a_session_with_no_row_is_refused_and_retains_nothing() 
     let (result, messages) = collect_ui_bus(&fixture, async {
         handle_ui_report_state(
             &fixture.core,
-            &fixture.runtime,
             &fixture.caller('a'),
             report_request("tab-1", "/s/one", Some(layout_document(FOREIGN_SESSION_ID))),
         )
@@ -195,7 +202,6 @@ async fn a_report_cannot_impersonate_another_browser_by_naming_its_tab() {
     let fixture = UiStateFixture::new("impersonate").await;
     handle_ui_report_state(
         &fixture.core,
-        &fixture.runtime,
         &fixture.caller('a'),
         report_request("tab-1", "/s/one", None),
     )
@@ -203,21 +209,20 @@ async fn a_report_cannot_impersonate_another_browser_by_naming_its_tab() {
     .expect("the first report is admitted");
 
     // The attacker's request is otherwise well formed; only the fence is wrong.
-    let attacker = ui_state_fixture::browser_caller(
-        &browser_fingerprint('b'),
-        &fixture.account_id,
-        None,
-    );
+    let attacker =
+        ui_state_fixture::browser_caller(&browser_fingerprint('b'), &fixture.account_id, None);
     let refused = handle_ui_report_state(
         &fixture.core,
-        &fixture.runtime,
         &attacker,
         report_request("tab-1", "/s/hijacked", None),
     )
     .await
     .expect_err("a report with no tab fence is refused whatever it names");
     assert_eq!(refused.code, ErrorCode::FailedPrecondition);
-    assert_eq!(fixture.runtime.states().list()[0].state.active_path, "/s/one");
+    assert_eq!(
+        fixture.runtime.states().list()[0].state.active_path,
+        "/s/one"
+    );
 }
 
 #[tokio::test]
@@ -226,7 +231,6 @@ async fn an_oversized_report_field_is_refused_before_anything_is_retained() {
     let oversized = "x".repeat(roost_coord::ui_state::limits::UI_TAB_ID_MAX_UTF8_BYTES + 1);
     let refused = handle_ui_report_state(
         &fixture.core,
-        &fixture.runtime,
         &fixture.caller('a'),
         report_request(&oversized, "/", None),
     )
@@ -242,7 +246,6 @@ async fn a_dispatch_publishes_the_canonical_command_and_counts_listeners() {
     let (response, messages) = collect_ui_bus(&fixture, async {
         handle_ui_dispatch(
             &fixture.core,
-            &fixture.runtime,
             &fixture.caller('a'),
             proto::UiDispatchRequest {
                 target_tab_id: "tab-1".to_owned(),
@@ -279,7 +282,6 @@ async fn a_dispatch_naming_an_unpersisted_session_publishes_nothing() {
     let (result, messages) = collect_ui_bus(&fixture, async {
         handle_ui_dispatch(
             &fixture.core,
-            &fixture.runtime,
             &fixture.caller('a'),
             proto::UiDispatchRequest {
                 target_tab_id: "tab-1".to_owned(),
@@ -308,7 +310,6 @@ async fn a_dispatch_refuses_apply_layout_and_an_empty_command() {
     let (refused, messages) = collect_ui_bus(&fixture, async {
         handle_ui_dispatch(
             &fixture.core,
-            &fixture.runtime,
             &fixture.caller('a'),
             proto::UiDispatchRequest {
                 target_tab_id: "tab-1".to_owned(),
@@ -329,7 +330,6 @@ async fn a_dispatch_refuses_apply_layout_and_an_empty_command() {
 
     let empty = handle_ui_dispatch(
         &fixture.core,
-        &fixture.runtime,
         &fixture.caller('a'),
         proto::UiDispatchRequest::default(),
     )

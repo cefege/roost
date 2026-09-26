@@ -26,9 +26,11 @@
 pub mod ack_window;
 pub mod admission;
 pub mod commands;
+pub mod commands_layout;
 pub mod control_frames;
 pub mod domain_table;
 pub mod egress;
+pub mod feed;
 pub mod frame_meta;
 pub mod retained_frame;
 pub mod send_queue;
