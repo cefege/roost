@@ -254,6 +254,33 @@ two different subsystems, one of which holds the RSA key material. **Sending one
 agent at a slice's failure count would have sent it to the wrong file for half
 the work.**
 
+## The count is not the deliverable, the shape is
+
+The full accounting of 100 failures, when sorted, has **exactly three shapes**:
+
+| shape | count | what it wants |
+|---|---|---|
+| two shared fixtures, 0-pass | **47** | read one file, find one cause |
+| partially-green binaries with a known module | ~24 | individual assertions |
+| individual assertions in otherwise-green binaries | ~29 | individual attention |
+
+**"A binary that moved less than its shape promised has told you something."**
+The failure mode is an agent reporting a clean number while a binary that should
+have moved 9/9 moved 4/9 — and the count conceals exactly the information that
+matters, because 4/9 still *looks* like progress.
+
+So the deliverable of a fix is a **shape**, and the diagnostic is a
+**discrepancy between the count and the shape that count was supposed to have**:
+- a 0-pass binary that still has failures is a *second cause underneath*;
+- a partially-green binary that moved nothing is a *cause nobody has looked at*;
+- a number in the wrong group that changed at all is *drift*, and drift is a
+  finding, not noise.
+
+**47 + 53 = 100, and the three groups are disjoint by construction** — which is
+what makes the wave routable at all. A failure count sorted by owner would have
+overlapped: one slice's two binaries sit in two different groups, because one
+declares a shared fixture and the other declares none and still fails 11 of 12.
+
 ## Before fanning out over a shared fixture, count its consumers exactly
 
 Two agents were about to be pointed at `tests/agent_fixture/` and
