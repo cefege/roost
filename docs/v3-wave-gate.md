@@ -330,6 +330,57 @@ asserted in order. One frame cannot distinguish; two can. And the property to
 check when a test does not bite is not "is it running" first but "is it
 discriminating" — a test can be present, collected, executed, and unable to fail.
 
+## F1's proof, complete — and what it took to get there
+
+Both halves of the keeper's PTY-loss fix are now pinned, **each with a control
+that distinguishes "this property moved" from "something else broke":**
+
+| Half | Mutation | Observed |
+|---|---|---|
+| **loss** — the output is handed over at all | `defer` set to drop | both F1 tests fail, `left: []` |
+| **order** — the output is handed over in arrival order | `pop_back` instead of `pop_front` | the order test fails with `left: ["third","second","first"]` **while the loss test passes** |
+
+**The control did its job on the run where it was needed.** Both going red would
+have meant the patch was two mutations and the result would have said nothing
+about ordering — which is exactly what happened on the first attempt at the
+order mutation, and exactly what announcing the control is designed to catch.
+
+**The durable form of the rule is not "report your own contamination" — it is
+"establish the tree's state BEFORE the measurement, not after".** A lead filed a
+green suite and noticed a sibling's open mutation only afterwards, and the
+second run may have straddled the restore. Both numbers were discarded and the
+sibling's `git status`-founded account was taken instead, because it quoted a
+check and the other quoted a recollection.
+
+Self-naming on the second pass is real and it is worth less than never filing
+the number. **A measurement taken on a tree whose state was not established
+first is not a contaminated measurement, it is an unattributed one** — and the
+cheapest defence is a `git status` before the run, which costs a second and
+discards nothing.
+
+**And the order test was already discriminating, which I had wrong.** I said it
+needed two deferred frames to have teeth, on the principle that one frame is
+indistinguishable under `pop_front` and `pop_back`. The fixture sends **three**,
+ so the principle is satisfied — the lead corrected my framing rather than
+letting it be recorded as a gap that needed closing.
+
+**The refutation that settled whether the deferral path is exercised at all is
+the best argument in this file.** The hypothesis was that the fake wrote the
+chunks and the ack in one burst and the chunks might never be deferred. The
+decisive answer: **the three `PtyOut` frames and the `ResizeAck` go into one
+ordered channel with the answer last, so `wait_for_reply` must consume all three
+before it sees the ack — it is not a race, it is a single ordered channel with
+the answer last.** And the observed vector settles it independently: under the
+hypothesis the drain would read `["first","second","third"]` under *both*
+`pop_front` and `pop_back`. **A reversed vector is only producible if the frames
+went through the deferred queue** — you cannot get third-second-first out of a
+channel that was never reversed.
+
+**Which means the property is observable through this API, and a test that
+cannot distinguish is a question about the test rather than about the design.**
+That is worth stating because the opposite conclusion — "it is not observable
+here" — would have been a reasonable guess and would have been wrong.
+
 ## Announce the mutation AND ITS CONTROL
 
 A mutation experiment is a claim: *this edit breaks this property and nothing
