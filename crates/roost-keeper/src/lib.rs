@@ -11,6 +11,8 @@ pub mod client_connect;
 pub mod client_error;
 pub mod client_frames;
 pub mod client_io;
+pub mod client_queries;
+pub mod client_resize;
 pub mod codec;
 pub mod frames;
 pub mod history;

@@ -162,10 +162,10 @@ fn pty_output(client: &KeeperClient, want: usize) -> Vec<String> {
     let mut bodies = Vec::new();
     let deadline = std::time::Instant::now() + Duration::from_millis(2_000);
     while std::time::Instant::now() < deadline && bodies.len() < want {
-        if let Some(frame) = client.next_event(Duration::from_millis(200)) {
-            if frame.frame_type == MuxFrameType::PtyOut {
-                bodies.push(String::from_utf8_lossy(&frame.payload).into_owned());
-            }
+        if let Some(frame) = client.next_event(Duration::from_millis(200))
+            && frame.frame_type == MuxFrameType::PtyOut
+        {
+            bodies.push(String::from_utf8_lossy(&frame.payload).into_owned());
         }
     }
     bodies

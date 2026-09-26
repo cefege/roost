@@ -138,21 +138,6 @@ fn a_sequenced_write_to_an_unknown_channel_is_rejected() {
     }
 }
 
-/// A resize is acknowledged with the geometry the keeper actually applied.
-#[test]
-fn a_resize_is_acknowledged_with_the_applied_geometry() {
-    let temp = TempDir::new("resize");
-    let _keeper = Keeper::start(&temp);
-
-    let client = connect(temp.socket()).expect("a handshake");
-    client
-        .spawn(1, cat(), 80, 24)
-        .expect("the spawn is acknowledged");
-    client
-        .resize(1, 1, 132, 43)
-        .expect("the resize is acknowledged");
-}
-
 /// The channel list is how a resuming worker finds what survived it.
 #[test]
 fn the_channel_list_names_the_surviving_channels() {

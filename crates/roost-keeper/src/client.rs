@@ -14,7 +14,7 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::client_error::ClientError;
 use crate::client_io::{PendingSpawn, Shared};
@@ -237,36 +237,10 @@ impl KeeperClient {
             .ok_or_else(|| ClientError::Io("the input result did not decode".into()))
     }
 
-    /// Ask the keeper to resize a channel, acknowledged.
-    pub fn resize(
-        &self,
-        channel_id: u16,
-        seq: u64,
-        cols: u16,
-        rows: u16,
-    ) -> Result<(), ClientError> {
-        let payload = crate::payloads::ResizeRequest { seq, cols, rows }
-            .encode()
-            .map_err(|err| ClientError::Io(err.to_string()))?;
-        let tag = self.request_tag(
-            MuxFrameType::ResizeRequest,
-            MuxFrameType::ResizeAck,
-            channel_id,
-            &payload,
-        )?;
-        match tag {
-            MuxFrameType::ResizeAck => Ok(()),
-            MuxFrameType::ResizeReject => Err(ClientError::Io(format!(
-                "the keeper refused the resize of channel {channel_id}"
-            ))),
-            other => Err(ClientError::Io(format!(
-                "unexpected resize reply {other:?}"
-            ))),
-        }
-    }
-
-    /// Hold a frame a control wait consumed, so the worker still receives it.
-
+    /// Write one frame to the socket, whole or not at all.
+    ///
+    /// A partial frame would desynchronise the keeper's decoder for every frame
+    /// after it, so a short write is an error rather than a retry.
     pub(crate) fn write(&self, frame: &MuxFrame) -> Result<(), ClientError> {
         let mut socket = self
             .write_half

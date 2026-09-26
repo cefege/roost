@@ -4,12 +4,23 @@
 //! and wait paths, and by the worker through `next_event`. Depends only on
 //! `KeeperClient`'s own fields and the codec's frame type — and on nothing here.
 
+use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
 
 use super::client::KeeperClient;
 use crate::client_connect::HELLO_TIMEOUT;
 use crate::client_error::ClientError;
 use crate::codec::{MuxFrame, MuxFrameType};
+
+/// How a bounded wait ended. A value rather than an error because the resize
+/// family must tell a wedged keeper from a departed one, and v2 drives a
+/// different recovery from each: the first is a timeout to be asked about with
+/// `ResizeStatus`, the second is a resize that will never be answered.
+pub(crate) enum WaitEnded {
+    Answered(MuxFrame),
+    TimedOut,
+    Disconnected,
+}
 
 impl KeeperClient {
     /// Hold a frame a control wait consumed, so the worker still receives it.
@@ -53,21 +64,6 @@ impl KeeperClient {
         self.wait_for_reply(expected, channel_id, HELLO_TIMEOUT)
     }
 
-    pub(crate) fn request_tag(
-        &self,
-        frame_type: MuxFrameType,
-        expected: MuxFrameType,
-        channel_id: u16,
-        payload: &[u8],
-    ) -> Result<MuxFrameType, ClientError> {
-        let frame = MuxFrame::new(frame_type, channel_id, payload.to_vec())
-            .map_err(|err| ClientError::Io(err.to_string()))?;
-        self.write(&frame)?;
-        Ok(self
-            .wait_for_reply(expected, channel_id, Duration::from_secs(10))?
-            .frame_type)
-    }
-
     /// Wait for the answer to a control frame.
     ///
     /// A timeout here is a wedged keeper, not a slow one: the control frames
@@ -79,65 +75,87 @@ impl KeeperClient {
         channel_id: u16,
         timeout: Duration,
     ) -> Result<MuxFrame, ClientError> {
+        self.wait_as_result(channel_id, timeout, &[expected])
+    }
+
+    /// Ask a question whose payload is empty and keep the answer's bytes.
+    pub(crate) fn request_empty(
+        &self,
+        frame_type: MuxFrameType,
+        expected: MuxFrameType,
+        channel_id: u16,
+        timeout: Duration,
+    ) -> Result<MuxFrame, ClientError> {
+        let frame = MuxFrame::new(frame_type, channel_id, Vec::new())
+            .map_err(|err| ClientError::Io(err.to_string()))?;
+        self.write(&frame)?;
+        self.wait_for_reply(expected, channel_id, timeout)
+    }
+
+    /// Wait for whichever of the given tags the keeper chose.
+    ///
+    /// One wait over a SET of tags because a single write can have several
+    /// legal answers, and a caller that waited for one of them would time out on
+    /// the others — which are the interesting cases.
+    pub(crate) fn wait_for_any(
+        &self,
+        channel_id: u16,
+        timeout: Duration,
+        accepted: &[MuxFrameType],
+    ) -> WaitEnded {
         let deadline = Instant::now() + timeout;
-        while Instant::now() < deadline {
+        loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
-            let frame = self.events.recv_timeout(remaining).map_err(|_| {
-                ClientError::SpawnNotAcknowledged {
-                    path: self.path.clone(),
-                    timeout,
-                }
-            })?;
-            if frame.frame_type == expected && frame.channel_id == channel_id {
-                return Ok(frame);
+            if remaining.is_zero() {
+                return WaitEnded::TimedOut;
             }
-            // Not the answer. It is PTY output, an exit or a pong, and it
-            // belongs to the worker -- dropping it here is how terminal output
-            // disappears during a resize drag.
-            self.defer(frame);
+            match self.events.recv_timeout(remaining) {
+                Ok(frame)
+                    if frame.channel_id == channel_id && accepted.contains(&frame.frame_type) =>
+                {
+                    return WaitEnded::Answered(frame);
+                }
+                // Not the answer. It is PTY output, an exit or a pong, and it
+                // belongs to the worker -- dropping it here is how terminal
+                // output disappears during a resize drag.
+                Ok(frame) => self.defer(frame),
+                Err(RecvTimeoutError::Timeout) => return WaitEnded::TimedOut,
+                Err(RecvTimeoutError::Disconnected) => return WaitEnded::Disconnected,
+            }
         }
-        Err(ClientError::SpawnNotAcknowledged {
-            path: self.path.clone(),
-            timeout,
-        })
     }
 
     /// Wait for whichever of the three input results the keeper chose.
-    ///
-    /// Separate from `wait_for_reply` because a single write has THREE legal
-    /// answers — ack, reject, ambiguous — and a caller that waited for one tag
-    /// would time out on the other two, which are the interesting cases.
     pub(crate) fn wait_for_any_input_result(
         &self,
         channel_id: u16,
         timeout: Duration,
     ) -> Result<MuxFrame, ClientError> {
-        let deadline = Instant::now() + timeout;
-        while Instant::now() < deadline {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            let frame = self.events.recv_timeout(remaining).map_err(|_| {
-                ClientError::SpawnNotAcknowledged {
+        use MuxFrameType as T;
+        self.wait_as_result(
+            channel_id,
+            timeout,
+            &[T::PtyInAck, T::PtyInReject, T::PtyInAmbiguous],
+        )
+    }
+
+    /// A wait with no better cause to report, reported as the one error this
+    /// protocol has always reported — so a disconnect during a plain control
+    /// round trip does not change the message an operator reads.
+    pub(crate) fn wait_as_result(
+        &self,
+        channel_id: u16,
+        timeout: Duration,
+        accepted: &[MuxFrameType],
+    ) -> Result<MuxFrame, ClientError> {
+        match self.wait_for_any(channel_id, timeout, accepted) {
+            WaitEnded::Answered(frame) => Ok(frame),
+            WaitEnded::TimedOut | WaitEnded::Disconnected => {
+                Err(ClientError::SpawnNotAcknowledged {
                     path: self.path.clone(),
                     timeout,
-                }
-            })?;
-            if frame.channel_id == channel_id
-                && matches!(
-                    frame.frame_type,
-                    MuxFrameType::PtyInAck
-                        | MuxFrameType::PtyInReject
-                        | MuxFrameType::PtyInAmbiguous
-                )
-            {
-                return Ok(frame);
+                })
             }
-            // Not one of the three answers. Same reason as `wait_for_reply`:
-            // this is the worker's output, not this call's business.
-            self.defer(frame);
         }
-        Err(ClientError::SpawnNotAcknowledged {
-            path: self.path.clone(),
-            timeout,
-        })
     }
 }

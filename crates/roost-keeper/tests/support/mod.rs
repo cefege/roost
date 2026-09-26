@@ -15,6 +15,8 @@ use roost_keeper::frames::{ShellSpec, SpawnRequest};
 use roost_keeper::keeper::Keeper;
 use roost_keeper::payloads::{PtyInRequest, ResizeRequest};
 
+pub mod daemon;
+
 pub const DEADLINE: Duration = Duration::from_secs(10);
 
 /// A shell that echoes its input, so a round trip is observable.
