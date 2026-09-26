@@ -612,6 +612,31 @@ an unread verdict, and do not promote a symptom to a cause. What is left is to
 re-run the experiment with a fresh agent — and separately, to read the dead
 agent's transcript for the *leads* it gathered, which are evidence and were never
 claimed as conclusions.
+## A mutation row run against a RED baseline is uninterpretable
+
+The keeper rows were run, and the results were discarded and re-run — because
+the baseline the rows were measured against was **not green**. Four tests in the
+binaries under mutation were already failing for an unrelated reason.
+
+**With a red baseline, a row's outcome is ambiguous in every direction:**
+
+- the named test failed — but it was already failing, so the mutation proved
+  nothing;
+- the named test passed — but so did it before, so the row is unproven;
+- a neighbouring test moved — and there is no way to attribute it.
+
+**So the precondition is a green baseline for exactly the binaries the rows
+name, established and recorded before the first mutation** — the same
+"establish the tree's state before the measurement, not after" rule, applied to
+the instrument rather than to the subject.
+
+**And this is the same class as the mutation window itself:** a measurement taken
+over a tree that is known to be in a transient state is a measurement of the
+transient. The window announcement stops siblings *misreading* the transient;
+the green baseline stops the *experiment itself* from being run on one. **The
+first is hygiene for other agents, the second is a precondition for the result
+to mean anything, and the second is the one that costs you the whole run.**
+
 ## A first fix that does not move the number is a FORK, not a verdict
 
 `bootstrap_single_use` was **3 passed / 5 failed** after a real defect was
