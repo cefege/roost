@@ -65,7 +65,10 @@ impl LinkWire for NameCodec {
 
     fn decode_downstream(&self, bytes: &[u8]) -> Result<CoordWorkerDownstream, WireError> {
         match bytes {
-            b"hello-ack" => Ok(CoordWorkerDownstream::HelloAck { trace_id: None }),
+            b"hello-ack" => Ok(CoordWorkerDownstream::HelloAck {
+                capabilities: Vec::new(),
+                trace_id: None,
+            }),
             other => Err(WireError::Undecodable {
                 reason: format!("this test's server never sends {other:?}"),
             }),

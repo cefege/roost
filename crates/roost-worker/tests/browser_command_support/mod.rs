@@ -2,7 +2,6 @@
 // module. `expect` is denied outside `#[cfg(test)]`, and an
 // integration-test module is its own crate, so the exemption is here.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
-
 // A shared test-support module is compiled once per test binary, and each
 // binary drives a different subset of it. An item unused by one binary is
 // not dead code -- the others use it -- and trimming it would make the
@@ -23,10 +22,10 @@ use std::sync::{Arc, Mutex};
 
 pub use roost_host::{HostPlatform, MapEnv};
 use roost_protocol::wire::brand::SessionId;
+use roost_worker::browser_commands::Deps;
 use roost_worker::browser_commands::attachments::SessionAttachments;
 pub use roost_worker::browser_commands::file_commands::LocalFiles;
 use roost_worker::browser_commands::search::Searches;
-use roost_worker::browser_commands::Deps;
 
 pub mod dispatch;
 pub mod fakes;
@@ -47,7 +46,6 @@ pub use scratch::scratch_root;
 #[allow(unused_imports)]
 pub use dispatch::{base64_decode, command, dispatch, floor, frame_of, only};
 pub use fakes::{FakeDiagnostics, FakeGrid, FakePresence, FakeSearch, FakeSessions};
-
 
 // Re-exported so a test binary can name the collaborators it drives without
 // importing four modules to reach them.

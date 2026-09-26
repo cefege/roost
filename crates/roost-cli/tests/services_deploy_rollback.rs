@@ -86,7 +86,6 @@ impl ScriptedManager {
             ..Self::up()
         }
     }
-
 }
 
 impl ServiceManager for ScriptedManager {

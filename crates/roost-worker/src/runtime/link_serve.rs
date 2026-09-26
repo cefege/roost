@@ -91,14 +91,23 @@ async fn force_hello(loop_state: &mut LinkLoop, link: &mut Link) -> Option<LinkE
             ));
         }
     }
-    // UNIMPLEMENTED: send `capabilities` and `process_epoch` with the
-    // hello. The proto's `WHello` has both (fields 3 and 4) and v2 sent both,
-    // but the ported `CoordWorkerUpstream::Hello` carries only `worker_fp`,
-    // `version` and `trace_id`, so the capability set a coordinator negotiates
-    // from is not on the wire yet.
+    // `process_epoch` is wired for real: the boot config has minted it and
+    // `LinkLoopState` already carries it, and v2 sent it, so omitting it was a
+    // parity gap rather than a missing feature.
+    //
+    // `capabilities` is the remaining half and stays UNIMPLEMENTED. An empty
+    // vec encodes to zero bytes, because a proto3 repeated field with no
+    // entries is absent — so the bytes on the wire are identical to a build
+    // that has no such field, and this change is a no-op for a coordinator
+    // rather than a newly-incompatible hello. The list is W-2's: advertising a
+    // capability the worker cannot yet serve is a worse failure than admitting
+    // none, and every `browser_commands::Deps` implementation is still a test
+    // fake.
     let hello = CoordWorkerUpstream::Hello {
         worker_fp: loop_state.identity.worker_fp.clone(),
         version: loop_state.identity.version.clone(),
+        capabilities: Vec::new(),
+        process_epoch: loop_state.identity.process_epoch.clone(),
         trace_id: None,
     };
     let bytes = match loop_state.wire.encode_upstream(&hello) {
