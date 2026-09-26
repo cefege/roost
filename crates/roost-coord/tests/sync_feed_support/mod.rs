@@ -12,6 +12,17 @@
 //! has not answered `DomainReady` is not `ready`, and an unready domain is
 //! never selected, so a test that skips this sees `Idle` for reasons that have
 //! nothing to do with what it is testing.
+//!
+//! WHY EVERY ITEM HERE IS `pub` AND ALLOWED TO LOOK UNUSED. One fixture module
+//! serves three test binaries -- the bus-coverage audit, the §12.8 queue/drain
+//! test, and the volatile-adapter tests -- and each binary compiles the whole
+//! module while calling a subset of it. `dead_code` would therefore fire on
+//! items that ARE used, by a sibling binary, and there is no way to say "used
+//! somewhere else" to the compiler. This is the same shape as
+//! `event_support/mod.rs` and `workers_support/mod.rs`, which carry the same
+//! allowance for the same reason: a fixture set is shared by construction, and
+//! an item's caller is the binary, not the module.
+#![allow(dead_code)]
 
 use std::sync::Arc;
 
@@ -28,7 +39,7 @@ use roost_proto::{
 };
 use roost_protocol::wire::{
     AgentId, AgentRuntimeState, AgentStatusFields, AgentStatusUpdate, ChannelId, HostMetrics,
-    McpRelayId, McpRelayKind, McpRelay, SessionEvent, SessionId, SessionKind, WorkerFp, WorkerOs,
+    McpRelay, McpRelayId, McpRelayKind, SessionEvent, SessionId, SessionKind, WorkerFp, WorkerOs,
     WorkerPresenceEvent, Workspace, WorkspaceDelta, WorkspaceId,
 };
 
@@ -272,12 +283,13 @@ impl FixedRoutes {
     }
 }
 
+// The route index the seam requires lives in `coord_core::seams`, beside the
+// `LiveChannel` its signature names -- the feed is a consumer of the terminal
+// domain's seam, not its owner, so it imports rather than re-declares.
+use roost_coord::coord_core::seams::{LiveChannel, WorkerRouteIndex};
+
 impl WorkerRouteIndex for FixedRoutes {
-    fn lookup_session_id(
-        &self,
-        worker_fp: &WorkerFp,
-        channel_id: &ChannelId,
-    ) -> Option<SessionId> {
+    fn lookup_session_id(&self, worker_fp: &WorkerFp, channel_id: &ChannelId) -> Option<SessionId> {
         (worker_fp == &self.fp && channel_id == &self.channel).then(|| self.session.clone())
     }
 

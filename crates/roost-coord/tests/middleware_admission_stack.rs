@@ -169,7 +169,11 @@ async fn the_export_route_refuses_a_caller_a_front_door_forwarded() {
     )
     .await;
 
-    let forwarded = fixture.request("GET", "/api/db-export", &[("X-Forwarded-For", "203.0.113.9")]);
+    let forwarded = fixture.request(
+        "GET",
+        "/api/db-export",
+        &[("X-Forwarded-For", "203.0.113.9")],
+    );
     assert_eq!(forwarded.status, 403);
     assert_eq!(forwarded.body, r#"{"error":"on-host only"}"#);
 

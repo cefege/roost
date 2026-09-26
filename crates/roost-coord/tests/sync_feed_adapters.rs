@@ -31,7 +31,7 @@ use roost_coord::sync_ws::terminal::snapshot::NoTerminalSnapshotHub;
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
 use roost_proto::__buffa::oneof::mcp_stream_message_proto::Kind as McpKind;
 use roost_proto::__buffa::oneof::worker_presence_proto::Kind as PresenceKind;
-use roost_proto::{McpStreamMessageProto, WorkerPresenceProto, WorkerRoutableFrame};
+use roost_proto::{McpStreamMessageProto, WorkerPresenceProto};
 use roost_protocol::wire::{
     McpRelayEvent, McpRelayId, McpStreamMessage, SessionEvent, WorkerPresenceEvent,
 };
@@ -39,7 +39,7 @@ use serde_json::json;
 
 use sync_feed_support::{
     RELAY_A, SESSION_A, WORKER_A, WORKER_B, acknowledge, cell_frame, closed_message,
-    hydrated_terminal, oneof_of, opened_message, session, worker,
+    hydrated_terminal, oneof_of, opened_message, session, worker, worker_registration,
 };
 
 #[test]
@@ -51,7 +51,9 @@ fn a_frame_queued_and_then_drained_still_carries_its_meta() {
     assert_eq!(opened.meta().announces, vec![SESSION_A.to_owned()]);
     assert_eq!(opened.meta().lane, FeedLane::Session);
     assert!(
-        opened.enqueue_into(&mut session, 1_000, &mut hub).is_queued(),
+        opened
+            .enqueue_into(&mut session, 1_000, &mut hub)
+            .is_queued(),
         "a session-lane frame this socket subscribed to must be queued -- not \
          refused, and not sent as an unsequenced control"
     );
@@ -71,9 +73,11 @@ fn a_frame_queued_and_then_drained_still_carries_its_meta() {
             .as_ref()
             .expect("the test's cell carries a oneof"),
     );
-    assert!(session
-        .enqueue_frame(&cell, Some(&cell_meta), 1_000, &mut hub)
-        .is_queued());
+    assert!(
+        session
+            .enqueue_frame(&cell, Some(&cell_meta), 1_000, &mut hub)
+            .is_queued()
+    );
     assert!(
         matches!(
             session.take_next_sendable(1_000, &mut hub),
@@ -109,7 +113,11 @@ fn a_cell_for_a_session_that_was_closed_never_goes_out() {
     let mut hub = NoTerminalSnapshotHub;
 
     let opened = session_message_frame(&opened_message()).expect("an opened event is public");
-    assert!(opened.enqueue_into(&mut session, 1_000, &mut hub).is_queued());
+    assert!(
+        opened
+            .enqueue_into(&mut session, 1_000, &mut hub)
+            .is_queued()
+    );
     let FlushStep::Send(announcement) = session.take_next_sendable(1_000, &mut hub) else {
         panic!("the announcement must go out first");
     };
@@ -118,7 +126,11 @@ fn a_cell_for_a_session_that_was_closed_never_goes_out() {
 
     let close = session_message_frame(&closed_message()).expect("a close is public");
     assert_eq!(close.meta().closes, vec![SESSION_A.to_owned()]);
-    assert!(close.enqueue_into(&mut session, 1_000, &mut hub).is_queued());
+    assert!(
+        close
+            .enqueue_into(&mut session, 1_000, &mut hub)
+            .is_queued()
+    );
     let FlushStep::Send(delivered) = session.take_next_sendable(1_000, &mut hub) else {
         panic!("the close must go out");
     };
@@ -127,9 +139,11 @@ fn a_cell_for_a_session_that_was_closed_never_goes_out() {
 
     let cell = cell_frame();
     let cell_meta = SyncFrameMeta::cell(SESSION_A);
-    assert!(session
-        .enqueue_frame(&cell, Some(&cell_meta), 1_000, &mut hub)
-        .is_queued());
+    assert!(
+        session
+            .enqueue_frame(&cell, Some(&cell_meta), 1_000, &mut hub)
+            .is_queued()
+    );
     assert!(
         matches!(session.take_next_sendable(1_000, &mut hub), FlushStep::Idle),
         "a cell queued for a session whose close has been delivered describes \
@@ -148,14 +162,20 @@ fn an_mcp_relay_event_carries_its_payload_as_json_text() {
     }))
     .expect("a JSON payload always serialises");
     match oneof_of(&frame) {
-        Frame::McpMsg(McpStreamMessageProto {
-            kind: Some(McpKind::Event(event)),
-            ..
-        }) => {
-            assert_eq!(event.relay_id, RELAY_A);
-            assert_eq!(event.payload_json, payload.to_string());
-        }
-        other => panic!("a relay event must produce an event arm, got {other:?}"),
+        // The oneof holds a `Box` for every message arm, so the payload is
+        // destructured through the box rather than through Deref sugar that
+        // would hide where the allocation is.
+        Frame::McpMsg(message) => match *message {
+            McpStreamMessageProto {
+                kind: Some(McpKind::Event(event)),
+                ..
+            } => {
+                assert_eq!(event.relay_id, RELAY_A);
+                assert_eq!(event.payload_json, payload.to_string());
+            }
+            other => panic!("a relay event must produce an event arm, got {other:?}"),
+        },
+        other => panic!("a relay event must produce an mcp arm, got {other:?}"),
     }
 }
 
@@ -164,19 +184,22 @@ fn a_worker_frame_carries_the_machine_record_a_heartbeat_omits() {
     let registered =
         worker_presence_frame(&worker_registration()).expect("a registration always projects");
     match oneof_of(&registered) {
-        Frame::WorkerPresence(WorkerPresenceProto {
-            kind: Some(PresenceKind::Registered(record)),
-            ..
-        }) => {
-            assert_eq!(record.fp, WORKER_A);
-            assert_eq!(record.os, "linux");
-            assert!(
-                record.host_metrics.as_option().is_some(),
-                "a registration is the only frame that carries the machine's \
-                 whole record, samples included"
-            );
-        }
-        other => panic!("a registration must produce a registered presence, got {other:?}"),
+        Frame::WorkerPresence(message) => match *message {
+            WorkerPresenceProto {
+                kind: Some(PresenceKind::Registered(record)),
+                ..
+            } => {
+                assert_eq!(record.fp, WORKER_A);
+                assert_eq!(record.os, "linux");
+                assert!(
+                    record.host_metrics.as_option().is_some(),
+                    "a registration is the only frame that carries the machine's \
+                     whole record, samples included"
+                );
+            }
+            other => panic!("a registration must produce a registered presence, got {other:?}"),
+        },
+        other => panic!("a registration must produce a presence arm, got {other:?}"),
     }
 
     let heartbeat = worker_presence_frame(&WorkerPresenceEvent::Heartbeat {
@@ -187,18 +210,21 @@ fn a_worker_frame_carries_the_machine_record_a_heartbeat_omits() {
     })
     .expect("a heartbeat always projects");
     match oneof_of(&heartbeat) {
-        Frame::WorkerPresence(WorkerPresenceProto {
-            kind: Some(PresenceKind::Heartbeat(beat)),
-            ..
-        }) => {
-            assert_eq!(beat.worker_fp, WORKER_A);
-            assert_eq!(beat.last_seen_ms, 1_700_000_001_000);
-            assert!(
-                beat.host_metrics.as_option().is_none(),
-                "a heartbeat is a presence signal and nothing more"
-            );
-        }
-        other => panic!("a heartbeat must produce a heartbeat presence, got {other:?}"),
+        Frame::WorkerPresence(message) => match *message {
+            WorkerPresenceProto {
+                kind: Some(PresenceKind::Heartbeat(beat)),
+                ..
+            } => {
+                assert_eq!(beat.worker_fp, WORKER_A);
+                assert_eq!(beat.last_seen_ms, 1_700_000_001_000);
+                assert!(
+                    beat.host_metrics.as_option().is_none(),
+                    "a heartbeat is a presence signal and nothing more"
+                );
+            }
+            other => panic!("a heartbeat must produce a heartbeat presence, got {other:?}"),
+        },
+        other => panic!("a heartbeat must produce a presence arm, got {other:?}"),
     }
 
     let removal = worker_presence_frame(&WorkerPresenceEvent::Removed {
@@ -206,11 +232,14 @@ fn a_worker_frame_carries_the_machine_record_a_heartbeat_omits() {
     })
     .expect("a removal always projects");
     match oneof_of(&removal) {
-        Frame::WorkerPresence(WorkerPresenceProto {
-            kind: Some(PresenceKind::RemovedFp(fp)),
-            ..
-        }) => assert_eq!(fp, WORKER_A),
-        other => panic!("a removal must produce a removed presence, got {other:?}"),
+        Frame::WorkerPresence(message) => match *message {
+            WorkerPresenceProto {
+                kind: Some(PresenceKind::RemovedFp(fp)),
+                ..
+            } => assert_eq!(fp, WORKER_A),
+            other => panic!("a removal must produce a removed presence, got {other:?}"),
+        },
+        other => panic!("a removal must produce a presence arm, got {other:?}"),
     }
 }
 
@@ -224,14 +253,14 @@ fn the_routable_set_is_narrowed_to_the_machines_this_socket_may_see() {
         &visible,
     );
     match oneof_of(&frame) {
-        Frame::WorkerRoutable(WorkerRoutableFrame { fps, snapshot_id, .. }) => {
+        Frame::WorkerRoutable(frame) => {
             assert_eq!(
-                fps,
+                frame.fps,
                 vec![WORKER_A.to_owned()],
                 "a worker-owned socket is shown its own reachability and nothing else"
             );
             assert!(
-                snapshot_id.is_empty(),
+                frame.snapshot_id.is_empty(),
                 "an empty snapshot id is the live full-set replacement, as \
                  opposed to a chunked retained seed"
             );

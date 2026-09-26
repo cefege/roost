@@ -6,10 +6,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use roost_coord::terminal_view::{OwnerViewTransport, RelayIdentity};
-use roost_proto::{
-    FirehoseFrame, TerminalResyncCommand, TerminalViewCommand, TerminalViewStatus,
-};
+use roost_coord::terminal_view::{OwnerViewTransport, RelayIdentity, TerminalViewSink};
+use roost_proto::{FirehoseFrame, TerminalResyncCommand, TerminalViewCommand, TerminalViewStatus};
 use roost_protocol::wire::{SessionId, WorkerFp};
 
 /// One host effect a socket was asked to perform.
@@ -102,7 +100,7 @@ impl TerminalViewSink for RecordingSink {
         };
         self.push(Recorded::State {
             session_id: session_id.to_owned(),
-            status: state.status,
+            status: state.status.as_known().unwrap_or(TerminalViewStatus::Unspecified),
             effective_cols: state.effective_cols,
             effective_rows: state.effective_rows,
             stream_id: state.stream_id.clone(),

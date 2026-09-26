@@ -9,8 +9,8 @@
 mod terminal_view_support;
 
 use terminal_view_support::{
-    decisions, watching, Harness, Recorded, FINGERPRINT, OTHER_FINGERPRINT, OTHER_SESSION, OTHER_VIEW,
-    SESSION, VIEW,
+    decisions, watching, FINGERPRINT, Harness, OTHER_FINGERPRINT, OTHER_SESSION, OTHER_VIEW,
+    Recorded, SESSION, VIEW,
 };
 
 use roost_proto::{TerminalViewCommand, TerminalViewStatus};
@@ -21,7 +21,13 @@ const T0: u64 = 1_000_000;
 /// The harness's session, as a command field.
 const SESSION_ID: &str = SESSION;
 
-fn command(view_id: &str, cols: u32, rows: u32, revision: u64, active: bool) -> TerminalViewCommand {
+fn command(
+    view_id: &str,
+    cols: u32,
+    rows: u32,
+    revision: u64,
+    active: bool,
+) -> TerminalViewCommand {
     TerminalViewCommand {
         view_id: view_id.to_owned(),
         session_id: SESSION_ID.to_owned(),
@@ -64,11 +70,11 @@ fn a_declaration_outside_the_trust_boundary_is_refused_by_name() {
     let reasons: Vec<(TerminalViewStatus, u32, u32)> = decisions(&browser.sink.states());
     assert_eq!(reasons.len(), 3, "every refusal answers: {reasons:?}");
     assert!(
-        reasons
-            .iter()
-            .all(|(status, cols, rows)| *status == TerminalViewStatus::Rejected
+        reasons.iter().all(
+            |(status, cols, rows)| *status == TerminalViewStatus::Rejected
                 && *cols == 0
-                && *rows == 0),
+                && *rows == 0
+        ),
         "a refused command carries no geometry: {reasons:?}"
     );
     assert_eq!(
@@ -212,11 +218,19 @@ fn a_revoked_device_loses_its_membership_and_its_claims() {
     harness.view(&revoked, VIEW, 60, 20, 1, true, T0);
     harness.view(&survivor, VIEW, 120, 50, 1, true, T0);
     harness.release(&revoked, VIEW, 2, T0 + 10);
-    assert_eq!(harness.effective(T0 + 10), Some((120, 50)), "released already");
+    assert_eq!(
+        harness.effective(T0 + 10),
+        Some((120, 50)),
+        "released already"
+    );
 
     // Re-admit at a small size, then revoke without an explicit release.
     harness.view(&revoked, VIEW, 40, 20, 3, true, T0 + 20);
-    assert_eq!(harness.effective(T0 + 20), Some((40, 50)), "clipped again");
+    assert_eq!(
+        harness.effective(T0 + 20),
+        Some((40, 20)),
+        "clipped again on both axes"
+    );
 
     harness.hub.remove_fingerprint(FINGERPRINT, T0 + 30);
 
@@ -287,6 +301,39 @@ fn closing_a_session_releases_its_records_and_claims() {
     );
 }
 
+/// A session close tells every socket that held it to stop being fed it.
+/// Dropping the records shrinks the socket's own record set silently, so
+/// without this a browser keeps a live terminal feed for a session that no
+/// longer exists.
+#[test]
+fn a_closed_session_tells_its_sockets_to_stop_watching() {
+    let harness = Harness::unowned();
+    let first = harness.browser("socket-a", FINGERPRINT, &[SESSION]);
+    let second = harness.browser("socket-b", OTHER_FINGERPRINT, &[SESSION]);
+    harness.view(&first, VIEW, 100, 40, 1, true, T0);
+    harness.view(&second, OTHER_VIEW, 120, 50, 1, true, T0);
+    assert_eq!(
+        watching(&first.sink.effects()).last(),
+        Some(&(SESSION_ID.to_owned(), true)),
+        "both sockets started watching"
+    );
+
+    harness.hub.close_session(&harness.session, T0 + 10);
+
+    for socket in [&first, &second] {
+        assert_eq!(
+            watching(&socket.sink.effects()).last(),
+            Some(&(SESSION_ID.to_owned(), false)),
+            "every socket that held the session was told to stop"
+        );
+    }
+    assert_eq!(
+        harness.hub.view_stats(&harness.session),
+        roost_coord::terminal_view::ViewStats::default(),
+        "and no record survived the close"
+    );
+}
+
 /// A resync is served only for a live record the socket actually owns; a
 /// stranger's resync is silently dropped rather than answered.
 #[test]
@@ -305,8 +352,12 @@ fn a_resync_is_served_only_for_the_records_its_socket_owns() {
         __buffa_unknown_fields: Default::default(),
     };
 
-    harness.hub.handle_resync(&stranger.socket_id, &resync, T0 + 10);
-    harness.hub.handle_resync(&owner.socket_id, &resync, T0 + 10);
+    harness
+        .hub
+        .handle_resync(&stranger.socket_id, &resync, T0 + 10);
+    harness
+        .hub
+        .handle_resync(&owner.socket_id, &resync, T0 + 10);
 
     assert!(
         !stranger
@@ -317,7 +368,8 @@ fn a_resync_is_served_only_for_the_records_its_socket_owns() {
         "a resync for another socket's handle is dropped"
     );
     assert_eq!(
-        owner.sink
+        owner
+            .sink
             .effects()
             .iter()
             .filter(|effect| matches!(effect, Recorded::Resynced(_)))

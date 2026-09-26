@@ -213,7 +213,6 @@ impl AgentStatusWaitRegistry {
     }
 }
 
-
 /// Take a waiter's one-shot sender, leaving the slot empty.
 fn take_sender(entry: &WaiterEntry) -> Option<oneshot::Sender<WaitSettlement>> {
     entry.sender.lock().ok().and_then(|mut slot| slot.take())
@@ -249,7 +248,9 @@ impl AgentStatusWaiter {
         if let Some(entry) = self.entry.take() {
             self.registry.remove(&self.request.session_id, &entry);
         }
-        receiver.await.unwrap_or(Err(AgentStatusWaitError::canceled()))
+        receiver
+            .await
+            .unwrap_or(Err(AgentStatusWaitError::canceled()))
     }
 }
 

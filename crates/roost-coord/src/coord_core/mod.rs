@@ -8,6 +8,7 @@
 pub mod boot_facts;
 pub mod caller;
 pub mod core;
+pub mod ids;
 pub mod seams;
 pub mod worker_handle;
 

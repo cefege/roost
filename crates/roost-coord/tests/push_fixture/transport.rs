@@ -167,19 +167,29 @@ impl FakeTransport {
 impl PushNotificationTransport for FakeTransport {
     fn send<'a>(
         &'a self,
-        request: &'a PushDeliveryRequest,
+        request: &PushDeliveryRequest,
     ) -> Pin<Box<dyn Future<Output = Result<(), PushTransportError>> + Send + 'a>> {
+        // The trait keeps the two lifetimes SEPARATE on purpose (transport.rs:127),
+        // so the returned future is tied to `&self` alone. Reading the request inside
+        // the block would capture a second borrow the box cannot promise, so the
+        // fields the record needs are taken first -- the owned-data escape, and the
+        // same shape `push_sender_bounds.rs:266` already uses.
+        let endpoint = request.endpoint.clone();
+        let body = request.body.clone();
+        let topic = request.topic.clone();
+        let ttl_secs = request.ttl.as_secs();
+        let timeout_ms = request.timeout.as_millis();
         Box::pin(async move {
             self.enter().await;
             self.deliveries
                 .lock()
                 .expect("the delivery log")
                 .push(RecordedDelivery {
-                    endpoint: request.endpoint.clone(),
-                    body: request.body.clone(),
-                    topic: request.topic.clone(),
-                    ttl_secs: request.ttl.as_secs(),
-                    timeout_ms: request.timeout.as_millis(),
+                    endpoint,
+                    body,
+                    topic,
+                    ttl_secs,
+                    timeout_ms,
                 });
             self.in_flight.fetch_sub(1, Ordering::SeqCst);
             match &self.fail_with {

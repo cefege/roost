@@ -20,10 +20,11 @@ async fn the_default_agent_is_shared_and_a_blank_selection_falls_back() {
     let fresh = handle_agent_config_get(
         &fixture.core,
         &fixture.caller,
-        proto::AgentConfigGetRequest {},
+        proto::AgentConfigGetRequest::default(),
     )
     .await
-    .expect("a fresh install's configuration");
+    .expect("a fresh install's configuration")
+    .body;
     assert_eq!(fresh.selected, "omp");
     assert_eq!(fresh.custom_command, "");
     assert!(!fresh.auto_launch);
@@ -39,7 +40,8 @@ async fn the_default_agent_is_shared_and_a_blank_selection_falls_back() {
         },
     )
     .await
-    .expect("a stored configuration");
+    .expect("a stored configuration")
+    .body;
     assert_eq!(stored.selected, "custom");
     assert_eq!(stored.custom_command, "aider --model gpt");
     assert!(stored.auto_launch);
@@ -47,10 +49,11 @@ async fn the_default_agent_is_shared_and_a_blank_selection_falls_back() {
     let read_back = handle_agent_config_get(
         &fixture.core,
         &fixture.caller,
-        proto::AgentConfigGetRequest {},
+        proto::AgentConfigGetRequest::default(),
     )
     .await
-    .expect("the stored configuration");
+    .expect("the stored configuration")
+    .body;
     assert_eq!(read_back.selected, "custom");
 
     let blank = handle_agent_config_set(
@@ -64,7 +67,8 @@ async fn the_default_agent_is_shared_and_a_blank_selection_falls_back() {
         },
     )
     .await
-    .expect("a blank selection");
+    .expect("a blank selection")
+    .body;
     assert_eq!(
         blank.selected, "omp",
         "a blank agent id would render a launch button with no command"

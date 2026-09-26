@@ -26,6 +26,7 @@ use roost_protocol::wire::control::global_search::{
 };
 
 use crate::coord_core::{Caller, CoordCore};
+use crate::auth::principal::require_account_device;
 use crate::terminal_screen::rpc_relay::{
     CancelSearchOnDrop, await_page, await_search, decode_cells_page, encode_search_response,
     error_text, request_id, send_browser_command, session_id,
@@ -232,16 +233,6 @@ pub async fn handle_sessions_cancel_scrollback_search(
 /// The relay this handler reads its process state from.
 fn relay(core: &CoordCore) -> Result<&ScrollbackRelay, ConnectError> {
     Ok(&core.services.scrollback)
-}
-
-/// Every method here reads a session's history, so every method here needs an
-/// account device rather than a worker key or a legacy one.
-fn require_account_device(caller: &Caller) -> Result<(), ConnectError> {
-    caller
-        .principal
-        .require_account_device()
-        .map(|_| ())
-        .map_err(|error| ConnectError::new(ErrorCode::PermissionDenied, error.to_string()))
 }
 
 fn branded_id(search_id: &str) -> Result<TerminalSearchId, ConnectError> {

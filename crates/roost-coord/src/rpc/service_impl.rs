@@ -47,7 +47,37 @@ use super::service::{
     misc_health_reply, now_ms, sync_moved_stream,
 };
 
+use crate::agents::rpc_status::{
+    handle_agent_config_get, handle_agent_config_set, handle_agent_status_get,
+    handle_agent_status_list, handle_agent_status_wait,
+};
+use crate::auth::rpc_bootstrap::{
+    handle_auth_mint_bootstrap, handle_auth_redeem_browser, handle_auth_redeem_worker,
+};
+use crate::auth::rpc_devices::{
+    handle_auth_logout, handle_devices_list, handle_devices_revoke, handle_devices_rotate_current,
+};
+use crate::auth::rpc_pairing::{
+    handle_pair_approval_status, handle_pair_approve, handle_pair_confirm, handle_pair_create,
+    handle_pair_deny, handle_pair_list, handle_pair_poll,
+};
+use crate::deploy::keeper_update::handle_workers_prepare_keeper_update;
+use crate::diagnostics::rpc_transcription::{
+    handle_transcription_get_config, handle_transcription_grant_token,
+    handle_transcription_set_config, handle_transcription_test,
+};
 use crate::push::rpc::{handle_push_get_config, handle_push_subscribe, handle_push_unsubscribe};
+use crate::sessions::mcp::{
+    handle_mcp_create, handle_mcp_delete, handle_mcp_list, handle_mcp_publish,
+};
+use crate::sessions::rpc_workspaces::{
+    handle_workspaces_create, handle_workspaces_delete, handle_workspaces_list,
+    handle_workspaces_set_sessions, handle_workspaces_update,
+};
+use crate::sessions::tasks::{
+    handle_tasks_cancel, handle_tasks_enqueue, handle_tasks_list, handle_tasks_next_pending,
+    handle_tasks_set_state,
+};
 use crate::terminal_screen::rpc::{
     handle_sessions_cancel_scrollback_search, handle_sessions_get_scrollback_cells,
     handle_sessions_search_scrollback,
@@ -155,12 +185,15 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn workers_prepare_keeper_update<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, WorkersPrepareKeeperUpdateRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, WorkersPrepareKeeperUpdateRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<WorkersPrepareKeeperUpdateResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<WorkersPrepareKeeperUpdateResponse>("WorkersPrepareKeeperUpdate")
+        async move {
+            let caller = caller_of(&ctx, "WorkersPrepareKeeperUpdate")?;
+            handle_workers_prepare_keeper_update(&self.core, caller, r.to_owned_message()).await
+        }
     }
     // ── sessions ────────────────────────────────────────────────────────
 
@@ -354,163 +387,214 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn agent_status_get<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AgentStatusGetRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentStatusGetRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<AgentStatusGetResponse> + Send + use<'a>>>
     + Send {
-        delegated_reply::<AgentStatusGetResponse>("AgentStatusGet")
+        async move {
+            let caller = caller_of(&ctx, "AgentStatusGet")?;
+            handle_agent_status_get(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn agent_status_list<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AgentStatusListRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentStatusListRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<AgentStatusListResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<AgentStatusListResponse>("AgentStatusList")
+        async move {
+            let caller = caller_of(&ctx, "AgentStatusList")?;
+            handle_agent_status_list(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn agent_status_wait<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AgentStatusWaitRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentStatusWaitRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<AgentStatusWaitResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<AgentStatusWaitResponse>("AgentStatusWait")
+        async move {
+            let caller = caller_of(&ctx, "AgentStatusWait")?;
+            handle_agent_status_wait(&self.core, caller, r.to_owned_message()).await
+        }
     }
     // ── sessions ────────────────────────────────────────────────────────
 
     fn workspaces_list<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, WorkspacesListRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, WorkspacesListRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<WorkspacesListResponse> + Send + use<'a>>>
     + Send {
-        delegated_reply::<WorkspacesListResponse>("WorkspacesList")
+        async move {
+            let caller = caller_of(&ctx, "WorkspacesList")?;
+            handle_workspaces_list(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn workspaces_create<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, WorkspacesCreateRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, WorkspacesCreateRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<WorkspacesCreateResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<WorkspacesCreateResponse>("WorkspacesCreate")
+        async move {
+            let caller = caller_of(&ctx, "WorkspacesCreate")?;
+            handle_workspaces_create(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn workspaces_update<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, WorkspacesUpdateRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, WorkspacesUpdateRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<WorkspacesUpdateResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<WorkspacesUpdateResponse>("WorkspacesUpdate")
+        async move {
+            let caller = caller_of(&ctx, "WorkspacesUpdate")?;
+            handle_workspaces_update(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn workspaces_delete<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, WorkspacesDeleteRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, WorkspacesDeleteRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<WorkspacesDeleteResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<WorkspacesDeleteResponse>("WorkspacesDelete")
+        async move {
+            let caller = caller_of(&ctx, "WorkspacesDelete")?;
+            handle_workspaces_delete(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn workspaces_set_sessions<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, WorkspacesSetSessionsRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, WorkspacesSetSessionsRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<WorkspacesSetSessionsResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<WorkspacesSetSessionsResponse>("WorkspacesSetSessions")
+        async move {
+            let caller = caller_of(&ctx, "WorkspacesSetSessions")?;
+            handle_workspaces_set_sessions(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn tasks_list<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, TasksListRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, TasksListRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<TasksListResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<TasksListResponse>("TasksList")
+        async move {
+            let caller = caller_of(&ctx, "TasksList")?;
+            handle_tasks_list(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn tasks_enqueue<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, TasksEnqueueRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, TasksEnqueueRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<TasksEnqueueResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<TasksEnqueueResponse>("TasksEnqueue")
+        async move {
+            let caller = caller_of(&ctx, "TasksEnqueue")?;
+            handle_tasks_enqueue(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn tasks_next_pending<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, TasksNextPendingRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, TasksNextPendingRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<TasksNextPendingResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<TasksNextPendingResponse>("TasksNextPending")
+        async move {
+            let caller = caller_of(&ctx, "TasksNextPending")?;
+            handle_tasks_next_pending(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn tasks_set_state<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, TasksSetStateRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, TasksSetStateRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<TasksSetStateResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<TasksSetStateResponse>("TasksSetState")
+        async move {
+            let caller = caller_of(&ctx, "TasksSetState")?;
+            handle_tasks_set_state(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn tasks_cancel<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, TasksCancelRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, TasksCancelRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<TasksCancelResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<TasksCancelResponse>("TasksCancel")
+        async move {
+            let caller = caller_of(&ctx, "TasksCancel")?;
+            handle_tasks_cancel(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn mcp_list<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, McpListRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, McpListRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<McpListResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<McpListResponse>("McpList")
+        async move {
+            let caller = caller_of(&ctx, "McpList")?;
+            handle_mcp_list(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn mcp_create<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, McpCreateRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, McpCreateRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<McpCreateResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<McpCreateResponse>("McpCreate")
+        async move {
+            let caller = caller_of(&ctx, "McpCreate")?;
+            handle_mcp_create(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn mcp_delete<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, McpDeleteRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, McpDeleteRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<McpDeleteResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<McpDeleteResponse>("McpDelete")
+        async move {
+            let caller = caller_of(&ctx, "McpDelete")?;
+            handle_mcp_delete(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn mcp_publish<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, McpPublishRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, McpPublishRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<McpPublishResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<McpPublishResponse>("McpPublish")
+        async move {
+            let caller = caller_of(&ctx, "McpPublish")?;
+            handle_mcp_publish(&self.core, caller, r.to_owned_message()).await
+        }
     }
     // ── auth ────────────────────────────────────────────────────────────
 
@@ -526,133 +610,166 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn auth_mint_bootstrap<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AuthMintBootstrapRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AuthMintBootstrapRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<AuthMintBootstrapResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<AuthMintBootstrapResponse>("AuthMintBootstrap")
+        async move {
+            let caller = caller_of(&ctx, "AuthMintBootstrap")?;
+            handle_auth_mint_bootstrap(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn auth_redeem_worker<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AuthRedeemWorkerRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AuthRedeemWorkerRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<AuthRedeemWorkerResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<AuthRedeemWorkerResponse>("AuthRedeemWorker")
+        async move {
+            let caller = caller_of(&ctx, "AuthRedeemWorker")?;
+            handle_auth_redeem_worker(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn auth_redeem_browser<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AuthRedeemBrowserRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AuthRedeemBrowserRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<AuthRedeemBrowserResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<AuthRedeemBrowserResponse>("AuthRedeemBrowser")
+        async move {
+            let caller = caller_of(&ctx, "AuthRedeemBrowser")?;
+            handle_auth_redeem_browser(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn auth_logout<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AuthLogoutRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AuthLogoutRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<AuthLogoutResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<AuthLogoutResponse>("AuthLogout")
+        async move {
+            let caller = caller_of(&ctx, "AuthLogout")?;
+            handle_auth_logout(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn pair_create<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, PairCreateRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, PairCreateRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<PairCreateResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<PairCreateResponse>("PairCreate")
+        async move { handle_pair_create(&self.core, &ctx, r.to_owned_message()).await }
     }
 
     fn pair_poll<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, PairPollRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, PairPollRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<PairPollResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<PairPollResponse>("PairPoll")
+        async move { handle_pair_poll(&self.core, &ctx, r.to_owned_message()).await }
     }
 
     fn pair_list<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, PairListRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, PairListRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<PairListResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<PairListResponse>("PairList")
+        async move {
+            let caller = caller_of(&ctx, "PairList")?;
+            handle_pair_list(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn pair_approve<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, PairApproveRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, PairApproveRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<PairApproveResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<PairApproveResponse>("PairApprove")
+        async move {
+            let caller = caller_of(&ctx, "PairApprove")?;
+            handle_pair_approve(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn pair_confirm<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, PairConfirmRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, PairConfirmRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<PairConfirmResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<PairConfirmResponse>("PairConfirm")
+        async move { handle_pair_confirm(&self.core, &ctx, r.to_owned_message()).await }
     }
 
     fn pair_deny<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, PairDenyRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, PairDenyRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<PairDenyResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<PairDenyResponse>("PairDeny")
+        async move {
+            let caller = caller_of(&ctx, "PairDeny")?;
+            handle_pair_deny(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn pair_approval_status<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, PairApprovalStatusRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, PairApprovalStatusRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<PairApprovalStatusResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<PairApprovalStatusResponse>("PairApprovalStatus")
+        async move {
+            let caller = caller_of(&ctx, "PairApprovalStatus")?;
+            handle_pair_approval_status(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn devices_list<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, DevicesListRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, DevicesListRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<DevicesListResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<DevicesListResponse>("DevicesList")
+        async move {
+            let caller = caller_of(&ctx, "DevicesList")?;
+            handle_devices_list(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn devices_revoke<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, DevicesRevokeRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, DevicesRevokeRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<DevicesRevokeResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<DevicesRevokeResponse>("DevicesRevoke")
+        async move {
+            let caller = caller_of(&ctx, "DevicesRevoke")?;
+            handle_devices_revoke(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn devices_rotate_current<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, DevicesRotateCurrentRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, DevicesRotateCurrentRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<DevicesRotateCurrentResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<DevicesRotateCurrentResponse>("DevicesRotateCurrent")
+        async move {
+            let caller = caller_of(&ctx, "DevicesRotateCurrent")?;
+            handle_devices_rotate_current(&self.core, caller, r.to_owned_message()).await
+        }
     }
     // ── rpc ─────────────────────────────────────────────────────────────
 
@@ -817,59 +934,77 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn transcription_get_config<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, TranscriptionGetConfigRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, TranscriptionGetConfigRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<TranscriptionConfig> + Send + use<'a>>> + Send
     {
-        delegated_reply::<TranscriptionConfig>("TranscriptionGetConfig")
+        async move {
+            let caller = caller_of(&ctx, "TranscriptionGetConfig")?;
+            handle_transcription_get_config(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn transcription_set_config<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, TranscriptionSetConfigRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, TranscriptionSetConfigRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<TranscriptionConfig> + Send + use<'a>>> + Send
     {
-        delegated_reply::<TranscriptionConfig>("TranscriptionSetConfig")
+        async move {
+            let caller = caller_of(&ctx, "TranscriptionSetConfig")?;
+            handle_transcription_set_config(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn transcription_grant_token<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, TranscriptionGrantTokenRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, TranscriptionGrantTokenRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<TranscriptionGrantTokenResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<TranscriptionGrantTokenResponse>("TranscriptionGrantToken")
+        async move {
+            let caller = caller_of(&ctx, "TranscriptionGrantToken")?;
+            handle_transcription_grant_token(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn transcription_test<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, TranscriptionTestRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, TranscriptionTestRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<TranscriptionTestResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<TranscriptionTestResponse>("TranscriptionTest")
+        async move {
+            let caller = caller_of(&ctx, "TranscriptionTest")?;
+            handle_transcription_test(&self.core, caller, r.to_owned_message()).await
+        }
     }
     // ── agents ──────────────────────────────────────────────────────────
 
     fn agent_config_get<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AgentConfigGetRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentConfigGetRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<AgentConfig> + Send + use<'a>>> + Send
     {
-        delegated_reply::<AgentConfig>("AgentConfigGet")
+        async move {
+            let caller = caller_of(&ctx, "AgentConfigGet")?;
+            handle_agent_config_get(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn agent_config_set<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AgentConfigSetRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentConfigSetRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<AgentConfig> + Send + use<'a>>> + Send
     {
-        delegated_reply::<AgentConfig>("AgentConfigSet")
+        async move {
+            let caller = caller_of(&ctx, "AgentConfigSet")?;
+            handle_agent_config_set(&self.core, caller, r.to_owned_message()).await
+        }
     }
     // ── ui_state ────────────────────────────────────────────────────────
 

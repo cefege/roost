@@ -9,8 +9,8 @@ mod workspaces_support;
 
 use connectrpc::ErrorCode;
 use roost_coord::sessions::rpc_workspaces::{
-    handle_workspaces_create, handle_workspaces_delete, handle_workspaces_set_sessions,
-    handle_workspaces_update, handle_workspaces_list,
+    handle_workspaces_create, handle_workspaces_delete, handle_workspaces_list,
+    handle_workspaces_set_sessions, handle_workspaces_update,
 };
 
 use workspaces_support::{SESSION_A, WORKER_FP, WorkspacesFixture, device_caller, machine_caller};
@@ -41,7 +41,6 @@ async fn create(fixture: &WorkspacesFixture, folder: &str, sessions: &[&str]) ->
 #[tokio::test]
 async fn a_folder_that_already_has_a_workspace_is_not_created_twice() {
     let fixture = WorkspacesFixture::new("dedupe").await;
-    fixture.enroll_session(SESSION_A, "/srv/one").await;
     let first = create(&fixture, "/srv/one", &[]).await;
     let again = handle_workspaces_create(
         &fixture.core,
@@ -61,8 +60,14 @@ async fn a_folder_that_already_has_a_workspace_is_not_created_twice() {
     .into_option()
     .expect("a workspace in the response");
     assert_eq!(again.id, first);
-    assert_eq!(again.name, "ws-/srv/one", "the existing row's name is not rewritten");
-    assert_eq!(fixture.scalar_i64("SELECT COUNT(*) FROM workspaces").await, 1);
+    assert_eq!(
+        again.name, "ws-/srv/one",
+        "the existing row's name is not rewritten"
+    );
+    assert_eq!(
+        fixture.scalar_i64("SELECT COUNT(*) FROM workspaces").await,
+        1
+    );
 }
 
 /// A session's realpath is the folder its pane opened, and it outranks the path
@@ -125,6 +130,7 @@ async fn a_stale_version_is_refused_and_writes_nothing() {
         roost_proto::WorkspacesDeleteRequest {
             id: workspace.clone(),
             if_version: 7,
+            ..Default::default()
         },
     )
     .await
@@ -138,13 +144,18 @@ async fn a_stale_version_is_refused_and_writes_nothing() {
             id: workspace.clone(),
             if_version: 7,
             session_ids: Vec::new(),
+            ..Default::default()
         },
     )
     .await
     .expect_err("a stale version");
     assert_eq!(moved.code, ErrorCode::FailedPrecondition);
 
-    assert_eq!(fixture.junction_rows(&workspace).await, 1, "no membership moved");
+    assert_eq!(
+        fixture.junction_rows(&workspace).await,
+        1,
+        "no membership moved"
+    );
     assert_eq!(
         fixture
             .scalar_i64(&format!(
@@ -194,7 +205,6 @@ async fn an_update_with_no_fields_still_bumps_the_version() {
 /// The five methods are account-device methods, and a machine is not one.
 #[tokio::test]
 async fn a_machine_may_not_manage_workspaces() {
-    use workspaces_support::machine_caller;
     let fixture = WorkspacesFixture::new("auth").await;
     let refused = handle_workspaces_list(
         &fixture.core,

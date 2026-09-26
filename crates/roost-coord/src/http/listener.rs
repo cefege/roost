@@ -200,9 +200,18 @@ pub fn build_router(state: Arc<ListenerState>) -> MountedListener {
         .fallback_service(connect)
         .with_state(state)
         .layer(axum::middleware::from_fn_with_state(audit, audit_layer))
-        .layer(axum::middleware::from_fn_with_state(services, rate_limit_layer))
-        .layer(axum::middleware::from_fn_with_state(security, security_layer))
-        .layer(axum::middleware::from_fn_with_state(trust, caller_origin_layer))
+        .layer(axum::middleware::from_fn_with_state(
+            services,
+            rate_limit_layer,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            security,
+            security_layer,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            trust,
+            caller_origin_layer,
+        ))
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(&admission),
             admission_gate,

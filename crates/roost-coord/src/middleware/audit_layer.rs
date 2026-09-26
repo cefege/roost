@@ -20,6 +20,13 @@
 //! WebSocket upgrade is not a request/response pair at all -- its lifetime is
 //! the socket, and the refusal that matters is the one the upgrade's own
 //! admission module logs with the caller's fingerprint.
+//!
+//! ONE CALL IS DELIBERATELY ABSENT. v2 also records a bounded telemetry label
+//! for a response that persists no row (`recordAuditTelemetry`,
+//! `security.ts:147-149`), and that call belongs in this layer, immediately
+//! after the `should_persist_non_connect_audit` check. It is not here because
+//! `diagnostics::telemetry` owns no such function yet; a stubbed counter would
+//! read as a real one, and a missing one is visible in review.
 
 use std::sync::Arc;
 
@@ -29,10 +36,8 @@ use axum::response::Response;
 
 use crate::coord_core::CoordCore;
 use crate::http::listener::{CONNECT_PATH_PREFIX, DB_EXPORT_PATH};
-use crate::middleware::audit::{
-    AuditOutcome, AuditRecord, NonConnectSurface, record_request,
-    should_persist_non_connect_audit,
-};
+use crate::middleware::audit::{AuditRecord, record_request};
+use crate::middleware::audit_policy::{NonConnectSurface, should_persist_non_connect_audit};
 use crate::sync_ws::upgrade_admission::SYNC_WS_PATH;
 use crate::worker_link::upgrade_admission::WORKER_WS_PATH_PREFIX;
 
@@ -69,7 +74,10 @@ impl AuditMount {
     /// The mount for a listener with this process state and this build.
     #[must_use]
     pub fn new(core: Arc<CoordCore>, spa_available: bool) -> Self {
-        Self { core, spa_available }
+        Self {
+            core,
+            spa_available,
+        }
     }
 }
 
@@ -132,7 +140,7 @@ pub async fn audit_layer(
     tracing::debug!(
         target: AUDIT_TARGET,
         ?outcome,
-        path,
+        path = %path,
         status,
         "non-Connect request audited"
     );

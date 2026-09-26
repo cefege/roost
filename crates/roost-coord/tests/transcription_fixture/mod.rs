@@ -114,11 +114,7 @@ impl TranscriptionFixture {
 
     /// The probe's state, as an observer sees it.
     pub fn probe_state(&self) -> ProviderProbe {
-        self.core
-            .services
-            .telemetry
-            .transcription
-            .provider_probe()
+        self.core.services.telemetry.transcription.provider_probe()
     }
 
     /// Store a key under a dashboard that is not this coordinator's.

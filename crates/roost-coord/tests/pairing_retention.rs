@@ -10,9 +10,7 @@
 
 use std::path::PathBuf;
 
-use roost_coord::auth::pairing::retention::{
-    PAIR_REQUEST_TOMBSTONE_MS, sweep_pair_requests,
-};
+use roost_coord::auth::pairing::retention::{PAIR_REQUEST_TOMBSTONE_MS, sweep_pair_requests};
 use roost_coord::db::CoordDb;
 use sqlx::AssertSqlSafe;
 
@@ -46,17 +44,32 @@ impl RetentionFixture {
     /// decided row older than the tombstone window, and one decided row inside
     /// it.
     async fn seed(&self) {
-        self.insert(OVERDUE_PENDING, "pending", NOW - 1_000, Some("digest-a"), 0);
+        // EVERY insert is awaited. `insert` is async, so a bare call builds a
+        // future and drops it: the fixture seeds nothing, and every assertion
+        // below then fails on a row that was never there rather than on
+        // anything about the sweep.
+        self.insert(OVERDUE_PENDING, "pending", NOW - 1_000, Some("digest-a"), 0)
+            .await;
         self.insert(
             OVERDUE_VERIFYING,
             "verification_required",
             NOW - 1_000,
             Some("digest-b"),
             2,
-        );
-        self.insert(LIVE_PENDING, "pending", NOW + 600_000, None, 0);
-        self.insert(OLD_TOMBSTONE, "denied", NOW - PAIR_REQUEST_TOMBSTONE_MS - 1, None, 0);
-        self.insert(FRESH_TOMBSTONE, "completed", NOW - 1_000, None, 0);
+        )
+        .await;
+        self.insert(LIVE_PENDING, "pending", NOW + 600_000, None, 0)
+            .await;
+        self.insert(
+            OLD_TOMBSTONE,
+            "denied",
+            NOW - PAIR_REQUEST_TOMBSTONE_MS - 1,
+            None,
+            0,
+        )
+        .await;
+        self.insert(FRESH_TOMBSTONE, "completed", NOW - 1_000, None, 0)
+            .await;
     }
 
     async fn insert(
@@ -132,19 +145,21 @@ impl Drop for RetentionFixture {
 #[tokio::test]
 async fn the_sweep_expires_every_overdue_live_request() {
     let fixture = RetentionFixture::new("expire").await;
-    let outcome = sweep_pair_requests(&fixture.database, NOW).await.expect("a sweep");
+    let outcome = sweep_pair_requests(&fixture.database, NOW)
+        .await
+        .expect("a sweep");
 
     let mut expired = outcome.expired.clone();
     expired.sort();
     assert_eq!(
         expired,
-        vec![
-            OVERDUE_PENDING.to_string(),
-            OVERDUE_VERIFYING.to_string()
-        ],
+        vec![OVERDUE_PENDING.to_string(), OVERDUE_VERIFYING.to_string()],
         "both overdue phases must terminalize, and the live one must not"
     );
-    assert_eq!(fixture.status_of(OVERDUE_PENDING).await.as_deref(), Some("expired"));
+    assert_eq!(
+        fixture.status_of(OVERDUE_PENDING).await.as_deref(),
+        Some("expired")
+    );
     assert_eq!(
         fixture.status_of(OVERDUE_VERIFYING).await.as_deref(),
         Some("expired")
@@ -163,11 +178,16 @@ async fn the_sweep_expires_every_overdue_live_request() {
 #[tokio::test]
 async fn an_expired_request_keeps_no_code_digest() {
     let fixture = RetentionFixture::new("digest").await;
-    sweep_pair_requests(&fixture.database, NOW).await.expect("a sweep");
+    sweep_pair_requests(&fixture.database, NOW)
+        .await
+        .expect("a sweep");
 
     for handle in [OVERDUE_PENDING, OVERDUE_VERIFYING] {
         let (hash, attempts) = fixture.code_hash_of(handle).await.expect("a surviving row");
-        assert_eq!(hash, None, "{handle} expired and still carries a code digest");
+        assert_eq!(
+            hash, None,
+            "{handle} expired and still carries a code digest"
+        );
         assert!(
             attempts <= roost_coord::auth::pairing::secrets::PAIR_VERIFICATION_ATTEMPT_LIMIT,
             "{handle} must not carry an attempt count above the bound"
@@ -181,7 +201,9 @@ async fn an_expired_request_keeps_no_code_digest() {
 #[tokio::test]
 async fn the_sweep_reclaims_only_tombstones_older_than_a_day() {
     let fixture = RetentionFixture::new("tombstone").await;
-    let outcome = sweep_pair_requests(&fixture.database, NOW).await.expect("a sweep");
+    let outcome = sweep_pair_requests(&fixture.database, NOW)
+        .await
+        .expect("a sweep");
 
     assert_eq!(outcome.deleted, 1, "exactly one row is past the window");
     assert!(
@@ -200,8 +222,12 @@ async fn the_sweep_reclaims_only_tombstones_older_than_a_day() {
 #[tokio::test]
 async fn a_settled_sweep_reclaims_nothing_on_a_second_pass() {
     let fixture = RetentionFixture::new("idempotent").await;
-    sweep_pair_requests(&fixture.database, NOW).await.expect("a first sweep");
-    let second = sweep_pair_requests(&fixture.database, NOW).await.expect("a second sweep");
+    sweep_pair_requests(&fixture.database, NOW)
+        .await
+        .expect("a first sweep");
+    let second = sweep_pair_requests(&fixture.database, NOW)
+        .await
+        .expect("a second sweep");
 
     assert!(second.expired.is_empty(), "nothing is overdue any more");
     assert_eq!(second.deleted, 0, "the tombstone is already gone");

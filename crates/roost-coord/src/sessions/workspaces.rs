@@ -1,15 +1,12 @@
-//! The workspace tree: the row and its one projection, the order a client sees,
-//! the membership a write moves, and the cascade a delete performs.
-//!
-//! Owned by the workspaces slice. `rpc_workspaces.rs` is the only caller, and it
-//! owns the write whose ORDER is the request's own semantics.
+//! The workspace tree: the row, the order a client sees, the membership a write
+//! moves, the cascade a delete performs. `rpc_workspaces.rs` is the only caller.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use roost_platform::same_worker_folder;
-use roost_protocol::wire::{SessionId, WorkerFp, Workspace, WorkspaceId};
 use roost_protocol::ProtocolError;
-use sqlx::{FromRow, SqliteConnection};
+use roost_protocol::wire::{SessionId, WorkerFp, Workspace, WorkspaceId};
+use sqlx::{AssertSqlSafe, FromRow, SqliteConnection};
 
 use crate::db::CoordDb;
 
@@ -18,13 +15,30 @@ use crate::db::CoordDb;
 pub(crate) const COLUMNS: &str =
     "id, worker_fp, name, folder_path, color, position, version, created_at_ms, updated_at_ms";
 
+/// What one create produced, and whether it inserted a row. The flag is not
+/// decoration: a create is idempotent per `(worker, folder)`, so a second browser
+/// opening the same folder must get the SAME id back with its version intact, and
+/// only a row that was actually written is published.
+///
+/// THE WORKSPACE IS THE WIRE TYPE, not the proto one: `WorkspaceDelta`'s
+/// `created`/`updated` arms carry `wire::Workspace`, and returning the proto
+/// message here would force a second projection. `rpc_workspaces::
+/// workspace_to_proto` is the single one, and it reads this value.
+#[derive(Debug, Clone)]
+pub struct CreatedWorkspace {
+    /// The stored row, as the tree holds it.
+    pub workspace: Workspace,
+    /// False when an existing row for the folder was returned unchanged.
+    pub created: bool,
+}
+
 /// Why a workspace read or write could not be completed.
 #[derive(Debug, thiserror::Error)]
 pub enum WorkspaceError {
     /// The statement failed, or the transaction could not commit.
     #[error("sqlite: {0}")]
     Sqlite(#[from] sqlx::Error),
-    /// A bound id list could not be encoded.
+    /// A bound id list could not be encoded; no id list is ever spliced into SQL.
     #[error("id list: {0}")]
     IdList(#[from] serde_json::Error),
     /// A stored value is not legal; the message names the field.
@@ -55,30 +69,32 @@ pub(crate) struct Row {
     pub(crate) updated_at_ms: i64,
 }
 
-/// Every workspace, in the order a client sees them.
-///
-/// THE ORDER AND THE VALUES COME FROM ONE QUERY AND ONE PROJECTION, because a
-/// client that re-fetches the list and one that applies a broadcast delta must
-/// not disagree. `position` alone is not total, so the id breaks the tie.
+/// Every workspace, in the order a client sees them. ONE query and ONE
+/// projection answer it, so a client that re-fetches and one that applies a
+/// delta cannot disagree; `position` alone is not total, so the id breaks the tie.
 pub async fn list_workspaces(database: &CoordDb) -> Result<Vec<Workspace>, WorkspaceError> {
     let mut connection = database.pool().acquire().await?;
-    let rows: Vec<Row> = sqlx::query_as(&format!(
+    let rows: Vec<Row> = sqlx::query_as(AssertSqlSafe(format!(
         "SELECT {COLUMNS} FROM workspaces ORDER BY position, id"
-    ))
+    )))
     .fetch_all(&mut *connection)
     .await?;
     let ids: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
     let membership = junction(&mut connection, &ids).await?;
     rows.into_iter()
-        .map(|row| project(&row, membership.get(&row.id).map_or(Vec::new, |(_, m)| m.clone())))
+        .map(|row| {
+            let members = membership
+                .get(&row.id)
+                .map_or_else(Vec::new, |e| e.1.clone());
+            project(&row, members)
+        })
         .collect()
 }
 
-/// Add a workspace, or answer with the one already at that folder.
-///
-/// The dedupe scan runs INSIDE the insert transaction, and that is load-bearing:
-/// `same_worker_folder` folds `/tmp` onto `/private/tmp`, and two concurrent
-/// creates for one folder must serialise behind SQLite's write lock.
+/// Add a workspace, or answer with the one already at that folder. The dedupe
+/// scan runs INSIDE the insert transaction because `same_worker_folder` folds
+/// `/tmp` onto `/private/tmp`: two creates for one folder must serialise behind
+/// SQLite's write lock, not each slip past an already-committed SELECT.
 pub(crate) async fn create_workspace(
     database: &CoordDb,
     request: &roost_proto::WorkspacesCreateRequest,
@@ -108,9 +124,9 @@ pub(crate) async fn create_workspace(
         .filter(|cwd| !cwd.is_empty())
         .cloned()
         .unwrap_or_else(|| request.folder_path.clone());
-    let existing = sqlx::query_as::<_, Row>(&format!(
+    let existing = sqlx::query_as::<_, Row>(AssertSqlSafe(format!(
         "SELECT {COLUMNS} FROM workspaces WHERE worker_fp = ?"
-    ))
+    )))
     .bind(&request.worker_fp)
     .fetch_all(&mut *transaction)
     .await?
@@ -138,11 +154,11 @@ pub(crate) async fn create_workspace(
     )
     .fetch_one(&mut *transaction)
     .await?;
-    let row = sqlx::query_as::<_, Row>(&format!(
+    let row = sqlx::query_as::<_, Row>(AssertSqlSafe(format!(
         "INSERT INTO workspaces (id, dashboard_id, worker_fp, name, folder_path, color, position, \
                 version, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?) \
          RETURNING {COLUMNS}"
-    ))
+    )))
     .bind(&id)
     .bind(dashboard_id)
     .bind(&request.worker_fp)
@@ -164,9 +180,7 @@ pub(crate) async fn create_workspace(
 }
 
 /// Rewrite the named fields and bump the version, conditioned on `if_version`.
-///
-/// The version is bumped even when the request named no field: the call claimed
-/// a write, and a client that re-reads must see that its claim was spent.
+/// The version moves even when the request named no field: the call claimed a write.
 pub async fn update_workspace(
     database: &CoordDb,
     request: &roost_proto::WorkspacesUpdateRequest,
@@ -186,9 +200,7 @@ pub async fn update_workspace(
             }
         }
         if let Some(position) = request.position {
-            separated
-                .push("position = ")
-                .push_bind(i64::from(position));
+            separated.push("position = ").push_bind(i64::from(position));
         }
         separated.push("updated_at_ms = ").push_bind(now_ms);
         separated.push("version = version + 1");
@@ -198,12 +210,10 @@ pub async fn update_workspace(
             .push("AND version = ")
             .push_bind(i64::try_from(request.if_version).unwrap_or(i64::MAX));
     }
-    update
-        .push_unseparated(" RETURNING ")
-        .push_unseparated(COLUMNS);
+    update.push(" RETURNING ").push(COLUMNS);
     let row = update
-        .build()
-        .fetch_optional::<Row>(&mut *transaction)
+        .build_query_as::<Row>()
+        .fetch_optional(&mut *transaction)
         .await?
         .ok_or(WorkspaceError::VersionMismatch)?;
     let session_ids = members_of(&mut transaction, &request.id).await?;
@@ -232,16 +242,16 @@ pub async fn delete_workspace(
     Ok(WorkspaceId::try_from(workspace_id)?)
 }
 
-/// The membership a delete takes with it: READ IT, then unclaim it, and only then
-/// may the caller delete the row.
+/// The membership a delete takes with it: READ IT, unclaim it, and only then may
+/// the caller delete the row. All in one transaction, so a version claim that
+/// loses rolls the detach back with it.
 ///
 /// THE JUNCTION READ COMES FIRST, because `workspace_sessions` cascades away with
 /// the workspace row: read after the delete and there is nothing to read, and the
-/// sessions the workspace held keep a `sessions.workspace_id` naming a row that no
-/// longer exists -- the half-deleted tree. The same rule in the other direction is
-/// why `events::projection_writes::cascade_closed_session` captures the owning
-/// workspaces before it deletes a session. The whole thing is one transaction, so
-/// a version claim that loses rolls the detach back with it.
+/// sessions the workspace held keep a `sessions.workspace_id` naming a row that
+/// no longer exists -- the half-deleted tree. The same rule in the other
+/// direction is why `cascade_closed_session` captures the owning workspaces
+/// before it deletes a session.
 pub(crate) async fn detach_members(
     connection: &mut SqliteConnection,
     workspace_id: &str,
@@ -251,34 +261,30 @@ pub(crate) async fn detach_members(
 }
 
 /// Clear the column for exactly these sessions, guarded on BOTH the id it names
-/// and the workspace going away, so a session the column already attributes to a
-/// different workspace is not stolen out of it. The membership is an argument
-/// rather than a read, because one caller must read it before a statement that
-/// cascades it away.
+/// and the workspace going away, so a session the column already attributes
+/// elsewhere is not stolen out of it. The membership is an argument rather than
+/// a read, because one caller must read it before a statement cascades it away.
 pub(crate) async fn unclaim(
     connection: &mut SqliteConnection,
     workspace_id: &str,
     members: &[SessionId],
 ) -> Result<(), WorkspaceError> {
     let ids: Vec<String> = members.iter().map(|id| id.as_str().to_owned()).collect();
-    if ids.is_empty() {
-        return Ok(());
-    }
     sqlx::query(
         "UPDATE sessions SET workspace_id = NULL WHERE workspace_id = ? \
          AND id IN (SELECT value FROM json_each(?))",
     )
     .bind(workspace_id)
-    .bind(id_list(&ids)?)
+    .bind(serde_json::to_string(&ids)?)
     .execute(&mut *connection)
     .await?;
     Ok(())
 }
 
-/// Point `session_ids` at `workspace_id` on BOTH representations. A session
-/// belongs to one workspace, so this MOVES it: every prior junction row goes
-/// first, then the new ones are written, and the column follows -- the two are one
-/// fact the browser reads twice, so writing only the junction double-counts.
+/// Point `session_ids` at `workspace_id` on BOTH representations, because a
+/// session belongs to one workspace and the two rows are one fact the browser
+/// reads twice: writing only the junction double-counts a session as a member
+/// and as an orphan. So this MOVES it: sweep, insert, then the column.
 pub(crate) async fn set_membership(
     connection: &mut SqliteConnection,
     workspace_id: &str,
@@ -289,8 +295,10 @@ pub(crate) async fn set_membership(
     if session_ids.is_empty() {
         return Ok(());
     }
-    let ids = id_list(session_ids)?;
-    sqlx::query("DELETE FROM workspace_sessions WHERE session_id IN (SELECT value FROM json_each(?))")
+    let ids = serde_json::to_string(session_ids)?;
+    sqlx::query(
+        "DELETE FROM workspace_sessions WHERE session_id IN (SELECT value FROM json_each(?))",
+    )
     .bind(&ids)
     .execute(&mut *connection)
     .await?;
@@ -314,12 +322,6 @@ pub(crate) async fn set_membership(
     Ok(())
 }
 
-/// One statement per id list instead of one per id, never interpolated.
-pub(crate) fn id_list(ids: &[String]) -> Result<String, WorkspaceError> {
-    Ok(serde_json::to_string(ids)?)
-}
-
-/// The sessions that exist, and the folder each one opened.
 pub(crate) async fn session_cwds(
     connection: &mut SqliteConnection,
     session_ids: &[String],
@@ -327,16 +329,15 @@ pub(crate) async fn session_cwds(
     Ok(sqlx::query_as::<_, (String, String)>(
         "SELECT id, cwd FROM sessions WHERE id IN (SELECT value FROM json_each(?))",
     )
-    .bind(id_list(session_ids)?)
+    .bind(serde_json::to_string(session_ids)?)
     .fetch_all(&mut *connection)
     .await?
     .into_iter()
     .collect())
 }
 
-/// The junction rows of many workspaces in one statement, keyed by workspace,
-/// each with its row's `version` -- which is what a `sessions-set` delta carries
-/// beside the membership, so the two come from one join rather than two reads.
+/// The junction rows of many workspaces in one statement, each with its row's
+/// `version` -- what a `sessions-set` delta carries beside the membership.
 pub(crate) async fn junction(
     connection: &mut SqliteConnection,
     workspace_ids: &[String],
@@ -348,7 +349,7 @@ pub(crate) async fn junction(
          WHERE s.workspace_id IN (SELECT value FROM json_each(?)) \
          ORDER BY s.workspace_id, s.session_id",
     )
-    .bind(id_list(workspace_ids)?)
+    .bind(serde_json::to_string(workspace_ids)?)
     .fetch_all(&mut *connection)
     .await?
     {
@@ -358,17 +359,21 @@ pub(crate) async fn junction(
     Ok(grouped)
 }
 
-/// One workspace's members, in the junction's own order.
 pub(crate) async fn members_of(
     connection: &mut SqliteConnection,
     workspace_id: &str,
 ) -> Result<Vec<SessionId>, WorkspaceError> {
     junction(connection, std::slice::from_ref(&workspace_id.to_owned()))
         .await
-        .map(|grouped| grouped.remove(workspace_id).map_or_else(Vec::new, |(_, ids)| ids))
+        .map(|mut grouped| {
+            grouped
+                .remove(workspace_id)
+                .map_or_else(Vec::new, |(_, ids)| ids)
+        })
 }
 
-/// THE row projection: the list, every response and every delta are built here.
+/// THE row projection: the list, every response and every delta are built here,
+/// which is what makes "the same source" true rather than claimed.
 pub(crate) fn project(row: &Row, session_ids: Vec<SessionId>) -> Result<Workspace, WorkspaceError> {
     Ok(Workspace {
         id: WorkspaceId::try_from(row.id.clone())?,
@@ -384,7 +389,7 @@ pub(crate) fn project(row: &Row, session_ids: Vec<SessionId>) -> Result<Workspac
     })
 }
 
-/// The distinct values in first-seen order: a session listed twice is one member.
+/// The distinct values, in first-seen order: a session listed twice is one row.
 pub(crate) fn unique(values: &[String]) -> Vec<String> {
     let mut seen = BTreeSet::new();
     values

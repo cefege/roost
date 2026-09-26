@@ -9,11 +9,11 @@ mod rate_limit_support;
 use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 
+use rate_limit_support::{admitted, caller};
 use roost_coord::middleware::rate_limit::{
     DEFAULT_TOKENS_PER_WINDOW, RATE_LIMIT_WINDOW, RateLimitCaller, RateLimitRefusalReason,
     RateLimiter,
 };
-use rate_limit_support::{admitted, caller};
 
 #[test]
 fn a_reconnecting_caller_finds_the_budget_it_left_and_another_caller_finds_its_own() {

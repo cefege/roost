@@ -19,9 +19,9 @@ use roost_proto::__buffa::oneof::pair_request_delta_proto::Kind as PairKind;
 use roost_proto::__buffa::oneof::task_delta_proto::Kind as TaskKind;
 use roost_proto::__buffa::oneof::workspace_delta_proto::Kind as WorkspaceKind;
 use roost_proto::{
-    AgentStatusFrame, AuditRow as PbAuditRow, FirehoseFrame, McpRelayEvent,
-    McpStreamMessageProto, PairCompleted, PairRequest, PairRequestDeltaProto, TaskDeltaProto,
-    TerminalTitleFrame, Workspace as PbWorkspace, WorkspaceDeltaProto, WorkspaceSessionsSet,
+    AgentStatusFrame, AuditRow as PbAuditRow, FirehoseFrame, McpRelayEvent, McpStreamMessageProto,
+    PairCompleted, PairRequest, PairRequestDeltaProto, TaskDeltaProto, TerminalTitleFrame,
+    Workspace as PbWorkspace, WorkspaceDeltaProto, WorkspaceSessionsSet,
 };
 use roost_protocol::wire::{
     AgentStatusUpdate, McpRelayDelta, McpStreamMessage, WorkspaceDelta, event_to_proto,
@@ -67,7 +67,10 @@ pub fn workspace_frame(delta: &WorkspaceDelta) -> FeedFrame {
             version,
         } => WorkspaceKind::SessionsSet(Box::new(WorkspaceSessionsSet {
             workspace_id: id.as_str().to_owned(),
-            session_ids: session_ids.iter().map(|id| id.as_str().to_owned()).collect(),
+            session_ids: session_ids
+                .iter()
+                .map(|id| id.as_str().to_owned())
+                .collect(),
             version: as_u64(*version),
             ..WorkspaceSessionsSet::default()
         })),
@@ -231,7 +234,10 @@ pub fn agent_status_frame(status: &AgentStatusUpdate) -> FeedFrame {
             completed_revision: as_u64(common.completed_revision),
             updated_at: as_f64(common.updated_at),
             active: status.active,
-            status_epoch: common.status_epoch.as_ref().map(|epoch| epoch.as_str().to_owned()),
+            status_epoch: common
+                .status_epoch
+                .as_ref()
+                .map(|epoch| epoch.as_str().to_owned()),
             occupant_id: common.occupant_id.as_ref().map(|id| id.as_str().to_owned()),
             source: common.source.map(|source| source.as_str().to_owned()),
             occupant_exited: common.occupant_exited,
@@ -277,7 +283,9 @@ fn workspace_to_proto(workspace: &roost_protocol::wire::Workspace) -> PbWorkspac
 
 /// A relay row as the message a browser renders, with its free-form config
 /// carried as the JSON text the wire field is declared as.
-fn relay_to_proto(relay: &roost_protocol::wire::McpRelay) -> Result<roost_proto::McpRelay, FeedRefusal> {
+fn relay_to_proto(
+    relay: &roost_protocol::wire::McpRelay,
+) -> Result<roost_proto::McpRelay, FeedRefusal> {
     Ok(roost_proto::McpRelay {
         id: relay.id.as_str().to_owned(),
         label: relay.label.clone(),
@@ -288,11 +296,7 @@ fn relay_to_proto(relay: &roost_protocol::wire::McpRelay) -> Result<roost_proto:
     })
 }
 
-fn json_text(
-    field: &'static str,
-    value: &impl serde::Serialize,
-) -> Result<String, FeedRefusal> {
+fn json_text(field: &'static str, value: &impl serde::Serialize) -> Result<String, FeedRefusal> {
     serde_json::to_string(value)
         .map_err(|error| roost_protocol::ProtocolError::new(field, error.to_string()).into())
 }
-

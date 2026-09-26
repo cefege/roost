@@ -16,7 +16,6 @@ mod transcription_fixture;
 
 use std::sync::Arc;
 
-use roost_coord::coord_core::Caller;
 use roost_coord::diagnostics::rpc_transcription::{
     handle_transcription_set_config, handle_transcription_test,
 };
@@ -63,7 +62,10 @@ async fn a_provider_that_refuses_reaches_a_terminal_failure_carrying_its_reason(
     let test = test(&fixture).await;
 
     assert!(!test.ok);
-    assert_eq!(test.error, REFUSED, "the provider's own words, not a summary");
+    assert_eq!(
+        test.error, REFUSED,
+        "the provider's own words, not a summary"
+    );
 
     let settled = fixture.probe_state();
     assert!(
@@ -128,12 +130,7 @@ async fn a_probe_is_pending_while_the_provider_has_not_answered() {
     let caller = fixture.browser();
     let core = fixture.core.clone();
     let in_flight = tokio::spawn(async move {
-        handle_transcription_test(
-            &core,
-            &caller,
-            proto::TranscriptionTestRequest::default(),
-        )
-        .await
+        handle_transcription_test(&core, &caller, proto::TranscriptionTestRequest::default()).await
     });
     // The provider announces that it was called; until it does, nothing below
     // can tell a probe that started from one that never will.
@@ -201,6 +198,7 @@ async fn a_cleared_key_starts_no_new_probe_and_keeps_the_last_one_reported() {
         proto::TranscriptionSetConfigRequest {
             deepgram_key: Some(String::new()),
             deepgram_language: "en".to_owned(),
+            ..Default::default()
         },
     )
     .await
@@ -238,6 +236,7 @@ async fn store_key(fixture: &TranscriptionFixture) {
         proto::TranscriptionSetConfigRequest {
             deepgram_key: Some(STORED_KEY.to_owned()),
             deepgram_language: "en".to_owned(),
+            ..Default::default()
         },
     )
     .await

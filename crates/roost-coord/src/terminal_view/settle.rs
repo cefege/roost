@@ -10,9 +10,9 @@ use std::sync::MutexGuard;
 use roost_protocol::viewport::{TerminalGeometry, minimum_terminal_geometry};
 use roost_protocol::wire::{SessionId, WorkerFp};
 
+use super::TerminalViewHub;
 use super::registry::{MembershipOutcome, ViewRegistry};
 use super::sink::{PendingReply, SinkCall, view_state_frame};
-use super::TerminalViewHub;
 
 impl TerminalViewHub {
     /// Recompute a session's effective geometry, reporting the size it now runs
@@ -57,14 +57,13 @@ impl TerminalViewHub {
     }
 
     /// Perform the effects the membership machine decided.
-    pub(super) fn deliver(
-        &self,
-        replies: &[PendingReply],
-        calls: &[SinkCall],
-        now_ms: u64,
-    ) {
+    pub(super) fn deliver(&self, replies: &[PendingReply], calls: &[SinkCall], now_ms: u64) {
         for call in calls {
-            let Some(socket) = self.locked().socket(call_socket(call)) else {
+            // The guard is a named local, not a scrutinee temporary: a
+            // `let ... else` drops its scrutinee's temporaries at the end of
+            // the statement, which would leave this borrow dangling.
+            let registry = self.locked();
+            let Some(socket) = registry.socket(call_socket(call)) else {
                 continue;
             };
             match call {
@@ -92,12 +91,15 @@ impl TerminalViewHub {
                         %session_id,
                         "a terminal view lease lapsed; closing the socket that stopped heartbeating"
                     );
-                    socket.sink.live_view_expired(&socket.id, view_id, session_id);
+                    socket
+                        .sink
+                        .live_view_expired(&socket.id, view_id, session_id);
                 }
             }
         }
         for reply in replies {
-            let Some(socket) = self.locked().socket(reply.socket_id()) else {
+            let registry = self.locked();
+            let Some(socket) = registry.socket(reply.socket_id()) else {
                 continue;
             };
             let frame = match reply {
@@ -109,7 +111,9 @@ impl TerminalViewHub {
                     status,
                     reason,
                     ..
-                } => view_state_frame(view_id, session_id, *revision, *active, "", *status, 0, 0, reason),
+                } => view_state_frame(
+                    view_id, session_id, *revision, *active, "", *status, 0, 0, reason,
+                ),
                 PendingReply::View {
                     view_id,
                     session_id,
@@ -121,19 +125,10 @@ impl TerminalViewHub {
                     let geometry = SessionId::try_from(session_id.clone())
                         .ok()
                         .and_then(|id| self.session_geometry(&id, now_ms));
-                    let (cols, rows) = geometry.map_or((0, 0), |geometry| {
-                        (geometry.cols, geometry.rows)
-                    });
+                    let (cols, rows) =
+                        geometry.map_or((0, 0), |geometry| (geometry.cols, geometry.rows));
                     view_state_frame(
-                        view_id,
-                        session_id,
-                        *revision,
-                        true,
-                        "",
-                        *status,
-                        cols,
-                        rows,
-                        reason,
+                        view_id, session_id, *revision, true, "", *status, cols, rows, reason,
                     )
                 }
             };

@@ -32,8 +32,23 @@ fn is_exempt(path: &str) -> bool {
         .any(|(exempt, _)| *exempt == path)
 }
 
+/// The violation message, and it names the FORMATTER because that is what put
+/// the file over.
+///
+/// A slice can pack lines deliberately to fit the cap, and the count is then a
+/// number that holds only until someone runs `cargo fmt` -- which the gate
+/// itself runs. Re-packing is a losing game against a formatter: the gate fails
+/// it, no reviewer wants it, and the next `cargo fmt` silently undoes it with a
+/// commit in between claiming the file was fine. So the rule is: the cap is
+/// measured on the FORMATTED count, and a file over it is SPLIT by concept,
+/// never re-packed. Saying so in the message is the difference between a slice
+/// learning that from the tool and learning it from a review.
 fn describe(observed: usize, allowed: usize) -> String {
-    format!("{observed} lines (cap {LINE_CAP}, baseline {allowed}) — split before growing")
+    format!(
+        "{observed} lines after `cargo fmt` (cap {LINE_CAP}, baseline {allowed}) \
+         — split by concept; do NOT re-pack lines to fit, the formatter will undo it \
+         and the gate runs `cargo fmt --check`"
+    )
 }
 
 fn spec() -> RatchetSpec {

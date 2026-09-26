@@ -133,10 +133,26 @@ struct RelaySocketState {
 }
 
 /// The owner-mode relay, and the transport its writes go through.
-#[derive(Debug)]
 pub struct OwnerRelay {
     transport: RwLock<Arc<dyn OwnerViewTransport>>,
     sockets: Mutex<BTreeMap<String, RelaySocketState>>,
+}
+
+impl std::fmt::Debug for OwnerRelay {
+    /// The transport is a trait object, so there is nothing of it to print; a
+    /// log line needs how many sockets this relay is still holding for.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("OwnerRelay")
+            .field(
+                "sockets",
+                &self
+                    .sockets
+                    .lock()
+                    .map_or(0, |sockets| sockets.len()),
+            )
+            .finish_non_exhaustive()
+    }
 }
 
 impl Default for OwnerRelay {

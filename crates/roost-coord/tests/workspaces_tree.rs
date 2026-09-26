@@ -2,11 +2,11 @@
 // collects, and the order those two do their work in.
 //
 // The cascade order is the subject, not a detail. `workspace_sessions` cascades
-// away with the workspace row, so every read that decides what a delete must
-// detach has to happen BEFORE the delete, and every read that decides which
-// workspaces a rewrite must collect has to happen AFTER it. Both directions are
-// pinned here by name, because a reordering is silent: the transaction still
-// commits, and the tree is still consistent in the way nothing can see.
+// away with the workspace row, so the read that decides what a delete must detach
+// has to happen BEFORE the delete, and the read that decides which workspaces a
+// rewrite must collect has to happen AFTER it. A reordering of either is silent:
+// the transaction still commits, and what it costs is a membership nobody owns
+// rather than an error anybody sees.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -67,6 +67,7 @@ async fn deleting_a_workspace_leaves_no_dangling_membership() {
         roost_proto::WorkspacesDeleteRequest {
             id: doomed.clone(),
             if_version: 0,
+            ..Default::default()
         },
     )
     .await
@@ -81,7 +82,11 @@ async fn deleting_a_workspace_leaves_no_dangling_membership() {
         0,
         "the parent row is gone"
     );
-    assert_eq!(fixture.junction_rows(&doomed).await, 0, "its junction cascaded away");
+    assert_eq!(
+        fixture.junction_rows(&doomed).await,
+        0,
+        "its junction cascaded away"
+    );
     for session_id in [SESSION_A, SESSION_B] {
         assert_eq!(
             fixture.session_workspace_id(session_id).await,
@@ -111,8 +116,10 @@ async fn a_failed_delete_leaves_no_half_deleted_tree() {
     fixture.enroll_session(SESSION_B, "/srv/one").await;
     let doomed = create(&fixture, "/srv/one", &[SESSION_A, SESSION_B]).await;
     fixture
-        .exec("CREATE TRIGGER refuse_workspace_delete BEFORE DELETE ON workspaces \
-               BEGIN SELECT RAISE(ABORT, 'delete refused'); END")
+        .exec(
+            "CREATE TRIGGER refuse_workspace_delete BEFORE DELETE ON workspaces \
+               BEGIN SELECT RAISE(ABORT, 'delete refused'); END",
+        )
         .await;
 
     let refused = handle_workspaces_delete(
@@ -121,6 +128,7 @@ async fn a_failed_delete_leaves_no_half_deleted_tree() {
         roost_proto::WorkspacesDeleteRequest {
             id: doomed.clone(),
             if_version: 0,
+            ..Default::default()
         },
     )
     .await
@@ -136,7 +144,11 @@ async fn a_failed_delete_leaves_no_half_deleted_tree() {
         1,
         "the workspace is still there"
     );
-    assert_eq!(fixture.junction_rows(&doomed).await, 2, "its membership is intact");
+    assert_eq!(
+        fixture.junction_rows(&doomed).await,
+        2,
+        "its membership is intact"
+    );
     for session_id in [SESSION_A, SESSION_B] {
         assert_eq!(
             fixture.session_workspace_id(session_id).await,
@@ -144,9 +156,10 @@ async fn a_failed_delete_leaves_no_half_deleted_tree() {
             "{session_id} is still grouped: the detach rolled back with the delete"
         );
     }
-    assert!(
-        fixture.recorded().is_empty(),
-        "a refused write publishes nothing"
+    assert_eq!(
+        fixture.recorded().len(),
+        1,
+        "only the create announced anything: a refused delete publishes nothing"
     );
 }
 
@@ -173,6 +186,7 @@ async fn a_workspace_that_still_holds_a_session_is_not_collected() {
             id: target.clone(),
             if_version: 0,
             session_ids: vec![SESSION_A.to_owned()],
+            ..Default::default()
         },
     )
     .await
@@ -218,6 +232,7 @@ async fn a_workspace_that_loses_its_last_session_is_collected() {
             id: target.clone(),
             if_version: 0,
             session_ids: vec![SESSION_A.to_owned()],
+            ..Default::default()
         },
     )
     .await
@@ -249,6 +264,7 @@ async fn a_workspace_that_loses_its_last_session_is_collected() {
             id: target.clone(),
             if_version: 1,
             session_ids: Vec::new(),
+            ..Default::default()
         },
     )
     .await
@@ -300,8 +316,22 @@ async fn the_list_orders_by_position_then_by_id() {
     )
     .await
     .expect("a reordered workspace");
+    // The tied pair's ids are rewritten so that id order and insertion order
+    // DISAGREE. Without that, a store that ordered by `position` alone would
+    // agree with this test about half the time, and a mutation experiment needs
+    // a detector that fails every time.
+    for (id, replacement) in [
+        (&first, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"),
+        (&third, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+    ] {
+        fixture
+            .exec(&format!(
+                "UPDATE workspaces SET id = '{replacement}' WHERE id = '{id}'"
+            ))
+            .await;
+    }
 
-    let listed: Vec<String> = handle_workspaces_list(
+    let listed: Vec<(u32, String)> = handle_workspaces_list(
         &fixture.core,
         &device_caller(),
         roost_proto::WorkspacesListRequest::default(),
@@ -311,9 +341,25 @@ async fn the_list_orders_by_position_then_by_id() {
     .body
     .workspaces
     .into_iter()
-    .map(|workspace| workspace.id)
+    .map(|workspace| (workspace.position, workspace.id))
     .collect();
-    let mut expected = vec![first, second, third];
-    expected.sort();
-    assert_eq!(listed, expected, "position first, then the id that breaks the tie");
+    let mut by_key = listed.clone();
+    by_key.sort();
+    assert_eq!(
+        listed, by_key,
+        "the answer is sorted by (position, id), whatever the ids happen to be"
+    );
+    assert_eq!(
+        listed
+            .iter()
+            .map(|(position, _)| *position)
+            .collect::<Vec<_>>(),
+        vec![0, 0, 1],
+        "`first` and `third` are tied at 0 and `second` was never moved"
+    );
+    assert_eq!(listed[2].1, second, "the untied row sorts last");
+    assert_eq!(
+        listed[0].1, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "of two rows on one position, the lower id sorts first -- not the earlier one"
+    );
 }

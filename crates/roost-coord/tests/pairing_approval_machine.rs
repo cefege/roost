@@ -9,8 +9,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_coord::auth::pairing::status::{
-    ApprovalAuthority, ApprovalOutcome, ApprovalStatusFacts, ApprovedRequest, AttemptRecord,
-    LiveRequest, RequestIdentity, StoredStatus, TerminalRequest, read_approval_status,
+    ApprovalAuthority, ApprovalOutcome, ApprovalStatusFacts, ApprovedRequest, LiveRequest,
+    RequestIdentity, StoredStatus, TerminalRequest, read_approval_status,
 };
 use roost_coord::auth::pairing::{PairingRefusal, secrets::PAIR_VERIFICATION_ATTEMPT_LIMIT};
 
@@ -128,7 +128,8 @@ fn a_second_approval_only_retries_the_approval_that_already_happened() {
 /// `is_expired_at` before it decides anything.
 #[test]
 fn expiry_outranks_a_stored_live_status() {
-    let outcome = LiveRequest::AwaitingApproval(identity(NOW)).approve(&authority(), CODE_HASH, NOW);
+    let outcome =
+        LiveRequest::AwaitingApproval(identity(NOW)).approve(&authority(), CODE_HASH, NOW);
     assert!(matches!(outcome, ApprovalOutcome::Expired));
     assert!(LiveRequest::AwaitingApproval(identity(NOW)).is_expired_at(NOW));
     assert!(!LiveRequest::AwaitingApproval(identity(NOW + 1)).is_expired_at(NOW));
@@ -157,18 +158,27 @@ fn a_decided_request_never_becomes_live_again() {
 /// report a longer series than the one that ended.
 #[test]
 fn the_attempt_series_ends_at_the_bound_and_saturates() {
-    let mut record = AttemptRecord {
-        attempts: 0,
-        exhausted: false,
-    };
-    for attempt in 1..PAIR_VERIFICATION_ATTEMPT_LIMIT {
-        record = approved(attempt, Some(CODE_HASH)).next_attempt();
-        assert_eq!(record.attempts, attempt);
-        assert!(!record.exhausted, "attempt {attempt} must not end the series");
+    // `next_attempt` is relative to the count ALREADY STORED, so a row holding
+    // `n` wrong answers hands back `n + 1`. Reading that as an absolute count
+    // is how an off-by-one gets shipped twice: once in the port and once in the
+    // test that was written to match it.
+    for stored in 0..PAIR_VERIFICATION_ATTEMPT_LIMIT - 1 {
+        let record = approved(stored, Some(CODE_HASH)).next_attempt();
+        assert_eq!(
+            record.attempts,
+            stored + 1,
+            "a row holding {stored} wrong answers must hand back {}",
+            stored + 1
+        );
+        assert!(
+            !record.exhausted,
+            "after {stored} of {PAIR_VERIFICATION_ATTEMPT_LIMIT} the series must still be open"
+        );
     }
-    record = approved(PAIR_VERIFICATION_ATTEMPT_LIMIT - 1, Some(CODE_HASH)).next_attempt();
-    assert_eq!(record.attempts, PAIR_VERIFICATION_ATTEMPT_LIMIT);
-    assert!(record.exhausted);
+    let final_attempt =
+        approved(PAIR_VERIFICATION_ATTEMPT_LIMIT - 1, Some(CODE_HASH)).next_attempt();
+    assert_eq!(final_attempt.attempts, PAIR_VERIFICATION_ATTEMPT_LIMIT);
+    assert!(final_attempt.exhausted);
     let past = approved(PAIR_VERIFICATION_ATTEMPT_LIMIT + 9, Some(CODE_HASH)).next_attempt();
     assert_eq!(past.attempts, PAIR_VERIFICATION_ATTEMPT_LIMIT);
 }
@@ -193,7 +203,8 @@ fn the_status_read_discloses_nothing_to_a_foreign_caller() {
         PairingRefusal::NotFound
     );
     let absent = read_approval_status(None, Some(&"bb".repeat(32)), false, now).unwrap_err();
-    let foreign = read_approval_status(Some(&live), Some(&"bb".repeat(32)), false, now).unwrap_err();
+    let foreign =
+        read_approval_status(Some(&live), Some(&"bb".repeat(32)), false, now).unwrap_err();
     assert_eq!(absent, foreign);
 }
 

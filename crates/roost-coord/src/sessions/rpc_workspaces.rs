@@ -5,22 +5,22 @@
 //!
 //! EVERY MUTATION LEASES FROM THE ONE WRITE GATE, in the handler rather than the
 //! interceptor because a handler is the only place a test can hold the gate and
-//! watch a mutation be refused (`workers/rpc.rs`).
-//!
-//! A WRITE COMMITS BEFORE IT PUBLISHES. A delta that precedes the state it
-//! describes hands a browser a workspace its next re-fetch contradicts, so the
-//! tree never publishes and one place decides both.
+//! watch a mutation be refused. A WRITE COMMITS BEFORE IT PUBLISHES: a delta
+//! that precedes the state it describes hands a browser a workspace its next
+//! re-fetch contradicts, so the tree never publishes and one place decides both.
 
 use connectrpc::{ConnectError, ErrorCode, ServiceResult};
 use roost_proto::buffa::MessageField;
 use roost_protocol::wire::{SessionId, Workspace, WorkspaceDelta, WorkspaceId};
+use sqlx::AssertSqlSafe;
 
 use crate::coord_core::{Caller, CoordCore};
+use crate::auth::principal::require_account_device;
 use crate::rpc::service::{now_ms, ok_response};
 use crate::sessions::workspaces::{
-    COLUMNS, Row, WorkspaceError, create_workspace, delete_workspace,
-    detach_members, id_list, junction, list_workspaces, members_of, project, session_cwds,
-    set_membership, unclaim, unique, update_workspace,
+    COLUMNS, Row, WorkspaceError, create_workspace, delete_workspace, detach_members, junction,
+    list_workspaces, members_of, project, session_cwds, set_membership, unclaim, unique,
+    update_workspace,
 };
 use crate::write_gate::SharedLease;
 
@@ -28,10 +28,22 @@ use crate::write_gate::SharedLease;
 ///
 /// The integrator's list: every row is one arm of `rpc/service_impl.rs`.
 pub const METHOD_HANDLERS: [(&str, &str); 5] = [
-    ("WorkspacesList", "sessions::rpc_workspaces::handle_workspaces_list"),
-    ("WorkspacesCreate", "sessions::rpc_workspaces::handle_workspaces_create"),
-    ("WorkspacesUpdate", "sessions::rpc_workspaces::handle_workspaces_update"),
-    ("WorkspacesDelete", "sessions::rpc_workspaces::handle_workspaces_delete"),
+    (
+        "WorkspacesList",
+        "sessions::rpc_workspaces::handle_workspaces_list",
+    ),
+    (
+        "WorkspacesCreate",
+        "sessions::rpc_workspaces::handle_workspaces_create",
+    ),
+    (
+        "WorkspacesUpdate",
+        "sessions::rpc_workspaces::handle_workspaces_update",
+    ),
+    (
+        "WorkspacesDelete",
+        "sessions::rpc_workspaces::handle_workspaces_delete",
+    ),
     (
         "WorkspacesSetSessions",
         "sessions::rpc_workspaces::handle_workspaces_set_sessions",
@@ -51,8 +63,8 @@ pub enum OtherMembership {
     Deleted { id: WorkspaceId },
 }
 
-/// What a membership rewrite decided. `workspace` is the target as it stands: one
-/// the rewrite emptied carries no members, because the collector deleted it.
+/// What a rewrite decided. `workspace` is the target as it stands: one the
+/// rewrite emptied carries no members, because the collector deleted it.
 #[derive(Debug, Clone)]
 pub struct RewrittenMembership {
     pub workspace: Workspace,
@@ -172,7 +184,9 @@ pub async fn handle_workspaces_delete(
     let deleted = delete_workspace(&core.services.db, id.as_str(), request.if_version)
         .await
         .map_err(refuse)?;
-    let delta = WorkspaceDelta::Deleted { id: deleted.clone() };
+    let delta = WorkspaceDelta::Deleted {
+        id: deleted.clone(),
+    };
     publish(core, delta);
     tracing::info!(workspace_id = %deleted, "workspace deleted with its membership");
     ok_response(roost_proto::WorkspacesDeleteResponse {
@@ -199,10 +213,8 @@ pub async fn handle_workspaces_set_sessions(
     for other in &outcome.others {
         publish(core, other.delta());
     }
-    if !outcome.others.is_empty() {
-        let touched = outcome.others.len();
-        tracing::info!(workspace_id = %outcome.workspace.id, touched, "membership rewritten");
-    }
+    let touched = outcome.others.len();
+    tracing::info!(workspace_id = %outcome.workspace.id, touched, "membership rewritten");
     ok_response(roost_proto::WorkspacesSetSessionsResponse {
         workspace: MessageField::some(workspace_to_proto(&outcome.workspace)),
         ..Default::default()
@@ -213,11 +225,12 @@ pub async fn handle_workspaces_set_sessions(
 /// last one. The order is the correctness of the collector:
 ///
 /// 1. the claim, so a stale `if_version` aborts before anything moved;
-/// 2. the rewrite of the junction, which is what empties a workspace;
-/// 3. THEN the emptiness read, because emptiness is a function of the junction --
-///    read it before the rewrite and a workspace that still holds a session reads
-///    as empty, so the collector deletes a live parent and cascades its
-///    membership away;
+/// 2. the rewrite of the junction, which is what decides who is empty;
+/// 3. THEN the emptiness read, because emptiness is a function of the junction and
+///    the junction is only rewritten in step 2: read it one step earlier and the
+///    TARGET reads as empty -- it has not received its new members yet -- so the
+///    collector deletes a live parent and cascades away the very membership this
+///    call just wrote, leaving its sessions pointing at a row that is gone;
 /// 4. then the column, so nothing is left naming a workspace this call deleted --
 ///    from the junction read taken BEFORE step 2, because by now it has cascaded.
 async fn rewrite_membership(
@@ -227,10 +240,10 @@ async fn rewrite_membership(
     now_ms: i64,
 ) -> Result<RewrittenMembership, WorkspaceError> {
     let mut transaction = core.services.db.pool().begin().await?;
-    let target = sqlx::query_as::<_, Row>(&format!(
+    let target = sqlx::query_as::<_, Row>(AssertSqlSafe(format!(
         "UPDATE workspaces SET updated_at_ms = {now_ms}, version = version + 1 \
          WHERE id = ? AND version = ? RETURNING {COLUMNS}"
-    ))
+    )))
     .bind(&request.id)
     .bind(i64::try_from(request.if_version).unwrap_or(i64::MAX))
     .fetch_optional(&mut *transaction)
@@ -251,7 +264,7 @@ async fn rewrite_membership(
         "SELECT DISTINCT workspace_id FROM workspace_sessions \
          WHERE session_id IN (SELECT value FROM json_each(?)) AND workspace_id != ?",
     )
-    .bind(id_list(&members)?)
+    .bind(serde_json::to_string(&members)?)
     .bind(&request.id)
     .fetch_all(&mut *transaction)
     .await?
@@ -264,7 +277,14 @@ async fn rewrite_membership(
         .bind(&request.id)
         .execute(&mut *transaction)
         .await?;
-    set_membership(&mut transaction, &request.id, dashboard_id, &members, now_ms).await?;
+    set_membership(
+        &mut transaction,
+        &request.id,
+        dashboard_id,
+        &members,
+        now_ms,
+    )
+    .await?;
     let survivors = junction(&mut transaction, &affected).await?;
     let emptied: Vec<String> = affected
         .iter()
@@ -280,7 +300,7 @@ async fn rewrite_membership(
     }
     if !emptied.is_empty() {
         sqlx::query("DELETE FROM workspaces WHERE id IN (SELECT value FROM json_each(?))")
-            .bind(id_list(&emptied)?)
+            .bind(serde_json::to_string(&emptied)?)
             .execute(&mut *transaction)
             .await?;
     }
@@ -311,17 +331,12 @@ async fn rewrite_membership(
     })
 }
 
-
-
-
-/// A committed write's delta, to every live Sync socket's workspace lane.
 fn publish(core: &CoordCore, delta: WorkspaceDelta) {
     core.services.buses.workspace_bus.publish(delta);
 }
 
-/// The tree's value as the browser's `Workspace` message, field for field. One
-/// function, because two projections is a pair that agrees until someone adds a
-/// field to one of them.
+/// The tree's value as the browser's `Workspace` message. One function: two
+/// projections agree only until someone adds a field to one of them.
 fn workspace_to_proto(workspace: &Workspace) -> roost_proto::Workspace {
     roost_proto::Workspace {
         id: workspace.id.as_str().to_owned(),
@@ -345,19 +360,7 @@ fn workspace_to_proto(workspace: &Workspace) -> roost_proto::Workspace {
     }
 }
 
-/// A device is required even on the read: the list is dashboard-local state.
-fn require_account_device(caller: &Caller) -> Result<&str, ConnectError> {
-    caller.principal.require_account_device().map_err(|_| {
-        let mut error = ConnectError::new(ErrorCode::Unauthenticated, "authentication required");
-        error.response_headers_mut().insert(
-            axum::http::HeaderName::from_static(crate::auth::principal::AUTH_LAYER_HEADER),
-            axum::http::HeaderValue::from_static(crate::auth::principal::AUTH_LAYER_DEVICE),
-        );
-        error
-    })
-}
 
-/// The tenancy scope every row and junction this domain writes carries.
 fn dashboard(core: &CoordCore) -> Result<&str, ConnectError> {
     Ok(core.services.boot.require_tenant()?.dashboard_id.as_str())
 }
@@ -369,7 +372,7 @@ fn lease(core: &CoordCore) -> Result<SharedLease, ConnectError> {
         .map_err(|error| ConnectError::new(ErrorCode::Unavailable, error.to_string()))
 }
 
-/// A workspace id a caller named, branded before it reaches a query or a delta.
+/// A workspace id a caller named, branded before it reaches a query.
 fn workspace_id(value: &str) -> Result<WorkspaceId, ConnectError> {
     WorkspaceId::try_from(value)
         .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))

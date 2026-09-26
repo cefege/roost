@@ -25,6 +25,8 @@ use anyhow::Context as _;
 use roost_host::CoordConfig;
 use roost_platform::HostPlatform;
 
+use crate::auth::cf_access::{cloudflare_access_configured, install_cloudflare_jwks};
+use crate::auth::cf_access_keyring::RsaJwks;
 use crate::coord_core::CoordCore;
 use crate::coord_core::boot_facts::BootFacts;
 use crate::coord_core::seams::{CoordTerminal, WorkerRouteIndex};
@@ -124,6 +126,16 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
         process_epoch: process_epoch.clone(),
         boot_ms,
     };
+
+    // The Access key ring is installed ONCE, here, and only when Access is
+    // configured. Without this line the gate is still fail-closed — an absent
+    // ring refuses every assertion rather than believing one — but a FRONTED
+    // coordinator refuses every pairing request it was built to authenticate,
+    // with nothing anywhere saying the ring was never installed.
+    if cloudflare_access_configured(&boot.config) {
+        install_cloudflare_jwks(Arc::new(RsaJwks::default()))
+            .map_err(|()| anyhow::anyhow!("the Access key ring was already installed"))?;
+    }
     let services = Arc::new(CoordServices::booted(database, boot_facts));
 
     // The push runtime is built from the tenancy scope and the operator's
@@ -184,15 +196,34 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
         boot.config.audit_retention_days,
     );
 
-    axum::serve(
+    // Boot step 9, the pair-request half: a sweep that reclaims a request whose
+    // deadline passed while this coordinator was DOWN. It runs before its first
+    // sleep, so the reclaim is at boot rather than a minute later -- a live
+    // pair request past its expiry is a credential until something notices.
+    //
+    // The SENDER is held here and the receiver is what the sweep consumes, and
+    // the stop is two halves rather than one: dropping the sender tells a sweep
+    // blocked in `changed()` to return, and `stop()` then waits out the tick
+    // already in flight. A sweep that cannot be stopped is a leak with a name;
+    // one stopped without waiting logs after its owner is gone. Passing `None`
+    // here would be the unstoppable sweep, and is for tests only.
+    let (pair_shutdown, pair_stopped) = tokio::sync::watch::channel(false);
+    let pair_retention =
+        crate::auth::pairing::spawn_pair_request_retention(Arc::clone(&state.services), pair_stopped);
+
+    let served = axum::serve(
         listener,
         mounted
             .router
             .into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown_signal())
-    .await
-    .context("coordinator listener")
+    .await;
+
+    drop(pair_shutdown);
+    pair_retention.stop().await;
+
+    served.context("coordinator listener")
 }
 
 /// The terminal collaborators a booted coordinator hands the workers domain.

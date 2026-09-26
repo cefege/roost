@@ -229,7 +229,14 @@ impl TerminalViewSink for NoTerminalViewSink {
         false
     }
 
-    fn resync_socket(&self, _socket_id: &str, _session_id: &SessionId, _grid_epoch: &str, _seq: u64) {}
+    fn resync_socket(
+        &self,
+        _socket_id: &str,
+        _session_id: &SessionId,
+        _grid_epoch: &str,
+        _seq: u64,
+    ) {
+    }
 
     fn live_view_expired(&self, _socket_id: &str, _view_id: &str, _session_id: &SessionId) {}
 

@@ -10,7 +10,7 @@
 
 use crate::diagnostics::transcription::TranscriptionRuntime;
 
- /// The telemetry one coordinator process collects.
+/// The telemetry one coordinator process collects.
 #[derive(Debug, Default)]
 pub struct Telemetry {
     /// Settings → Voice: the stored Deepgram key and dictation language, and
@@ -21,13 +21,13 @@ pub struct Telemetry {
     /// one is the same defect as two sets of counters.
     pub transcription: TranscriptionRuntime,
 }
- 
- impl Telemetry {
-     /// A process that has counted nothing yet.
-     #[must_use]
-     pub fn new() -> Self {
+
+impl Telemetry {
+    /// A process that has counted nothing yet.
+    #[must_use]
+    pub fn new() -> Self {
         Self {
             transcription: TranscriptionRuntime::new(),
         }
-     }
- }
+    }
+}

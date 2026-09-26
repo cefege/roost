@@ -7,6 +7,15 @@
 // handler: a refusal that is really decided by an outer layer, and the headers
 // an inner one adds, are both invisible to a unit test of either layer alone.
 //
+// `tower::ServiceExt::oneshot` would serve the layer chain just as well -- the
+// layers sit on the `Router`, not on the socket -- and it would be simpler. It
+// cannot carry a PEER ADDRESS, and two of these tests turn on one:
+// `the_export_route_refuses_a_caller_a_front_door_forwarded` tells a loopback
+// peer with no `X-Forwarded-For` (on-host, answered) from the same loopback
+// peer with one (refused `on-host only`), and the only thing that separates
+// them is the `ConnectInfo<SocketAddr>` extension a real connection supplies.
+// Under `oneshot` that test would still compile and would assert nothing.
+//
 // `unwrap`/`expect` are denied outside `#[cfg(test)]`, and an integration test is
 // its own crate rather than a module of one, so the exemption is stated here.
 // Each of the four binaries uses part of this fixture and none uses all of it,
@@ -32,8 +41,8 @@ use roost_host::{CoordConfig, CoordConfigInput};
 /// admits without being told about it.
 pub const WORKER_LOCAL_UI_ORIGIN: &str = roost_host::DEFAULT_WORKER_LOCAL_UI_ORIGIN;
 
-/// A host that is not this coordinator, in either spelling a `Host` header
-/// takes.
+/// A host that is not this coordinator. A gate on a loopback bind refuses it
+/// outright; a gate behind a routable bind leaves that job to the front door.
 pub const FOREIGN_HOST: &str = "attacker.example.com";
 
 /// How this fixture's coordinator is configured.
@@ -49,6 +58,12 @@ pub struct FixtureConfig {
     pub web_public_url: Option<String>,
     /// Whether an SPA build is available to serve.
     pub spa_available: bool,
+    /// The bind the operator configured, which decides whether the admission
+    /// gate claims this listener at all: a routable interface has a front door
+    /// doing that gate instead. `None` is the loopback ephemeral bind every
+    /// other fixture uses, and the socket is loopback either way -- only the
+    /// configured bind string differs, which is what the gate reads.
+    pub bind: Option<String>,
 }
 
 impl Default for FixtureConfig {
@@ -59,6 +74,7 @@ impl Default for FixtureConfig {
             cors_allowed_origins: Vec::new(),
             web_public_url: None,
             spa_available: false,
+            bind: None,
         }
     }
 }
@@ -86,8 +102,12 @@ impl ListenerFixture {
             .expect("a migrated database");
         // `:0` is the case the admission gate's pre-bind window exists for: the
         // configured port is not the port the listener gets.
+        let bind = config
+            .bind
+            .clone()
+            .unwrap_or_else(|| "127.0.0.1:0".to_owned());
         let resolved = CoordConfig::parse(CoordConfigInput {
-            bind: Some("127.0.0.1:0".to_owned()),
+            bind: Some(bind),
             db_path: Some(database_path.clone()),
             authorized_keys_path: Some(root.join("authorized_keys")),
             log_dir: Some(root.join("logs")),
@@ -259,20 +279,28 @@ fn parse(raw: &[u8]) -> HttpResponse {
 }
 
 /// Read a chunked body, so a test asserting on a body never reads framing.
+///
+/// Every bound here comes from the BUFFER, never from the chunk's own claimed
+/// size: a size is a number a peer wrote, and a chunk that claims more bytes
+/// than the body holds must end this decode rather than slice past the end of
+/// it. Clamping the upper end alone is not enough, because the start of the
+/// chunk is derived from the same claim.
 fn decode_chunked(body: &[u8]) -> String {
     let mut decoded = Vec::new();
     let mut rest = body;
     while let Some(end) = rest.windows(2).position(|window| window == b"\r\n") {
-        let size = String::from_utf8_lossy(&rest[..end]);
-        let size = usize::from_str_radix(size.trim().split(';').next().unwrap_or("0"), 16)
-            .expect("a chunk size");
-        if size == 0 {
+        let claimed = String::from_utf8_lossy(&rest[..end]);
+        let Ok(size) = usize::from_str_radix(claimed.trim().split(';').next().unwrap_or("0"), 16)
+        else {
+            break;
+        };
+        let start = (end + 2).min(rest.len());
+        let stop = start.saturating_add(size).min(rest.len());
+        if size == 0 || stop <= start {
             break;
         }
-        let chunk_start = end + 2;
-        let chunk_end = chunk_start + size;
-        decoded.extend_from_slice(&rest[chunk_start..chunk_end.min(rest.len())]);
-        rest = &rest[(chunk_end + 2).min(rest.len())..];
+        decoded.extend_from_slice(&rest[start..stop]);
+        rest = &rest[(stop + 2).min(rest.len())..];
     }
     String::from_utf8_lossy(&decoded).into_owned()
 }

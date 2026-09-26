@@ -20,8 +20,8 @@ use roost_protocol::wire::SessionId;
 
 use super::machine::{Machine, session_of};
 use super::record::{
-    GeometrySet, Tombstone, ViewInput, ViewRecord, ViewStats, active_fingerprints, geometry_set,
-    project_inputs, project_viewers, view_constrains, view_key,
+    GeometrySet, TombstoneStore, ViewInput, ViewRecord, ViewStats, active_fingerprints,
+    geometry_set, project_inputs, project_viewers, view_constrains,
 };
 use super::sink::{PendingReply, SinkCall, TerminalViewSink};
 
@@ -39,6 +39,38 @@ pub struct SocketRegistration {
     pub session_ids: BTreeSet<String>,
     /// Where the socket's view-state frames go.
     pub sink: Arc<dyn TerminalViewSink>,
+}
+
+/// Hand-written, because the sink is a trait object and a derived `Debug`
+/// would have to print it.
+///
+/// A log line needs what a reader can act on — which socket, which tab, how
+/// many sessions and how many views — and a sink is a transport whose
+/// internals say nothing about the state that produced this line. The same
+/// reason `ByteHub`'s own `Debug` prints counts rather than frames.
+impl std::fmt::Debug for SocketRegistration {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SocketRegistration")
+            .field("socket_id", &self.socket_id)
+            .field("viewer_key", &self.viewer_key)
+            .field("caller_fingerprint", &self.caller_fingerprint)
+            .field("sessions", &self.session_ids.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for SocketRecord {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SocketRecord")
+            .field("id", &self.id)
+            .field("viewer_key", &self.viewer_key)
+            .field("fingerprint", &self.fingerprint)
+            .field("allowed_sessions", &self.allowed_sessions.len())
+            .field("views", &self.views.len())
+            .finish_non_exhaustive()
+    }
 }
 
 /// One registered socket, with the view keys it currently owns.
@@ -209,10 +241,24 @@ impl ViewRegistry {
         ids
     }
 
-
     /// A session closed: no record and no retained claim of it survives.
     pub fn close_session(&mut self, session_id: &SessionId) -> MembershipOutcome {
         let mut outcome = MembershipOutcome::default();
+        // Every socket that held a view of this session must be told to stop
+        // being fed it. Dropping the records shrinks `socket.views` silently,
+        // and a socket left watching a session that no longer exists keeps a
+        // live terminal feed for a dead one -- which is why this collects
+        // watchers BEFORE the records go.
+        let mut watchers: Vec<String> = self
+            .session_views
+            .get(session_id)
+            .into_iter()
+            .flatten()
+            .filter_map(|key| self.views.get(key))
+            .map(|record| record.socket_id.clone())
+            .collect();
+        watchers.sort();
+        watchers.dedup();
         if let Some(keys) = self.session_views.get(session_id).cloned() {
             for key in keys {
                 self.machine().drop_record(&key, false, 0);
@@ -220,6 +266,13 @@ impl ViewRegistry {
         }
         self.session_views.remove(session_id);
         self.tombstones.remove_session(session_id.as_str());
+        for socket_id in watchers {
+            outcome.calls.push(SinkCall::Watching {
+                socket_id,
+                session_id: session_id.clone(),
+                watching: false,
+            });
+        }
         tracing::info!(%session_id, "terminal view membership released for a closed session");
         outcome
     }
@@ -318,30 +371,6 @@ impl ViewRegistry {
     #[must_use]
     pub fn socket(&self, socket_id: &str) -> Option<&SocketRecord> {
         self.sockets.get(socket_id)
-    }
-
-    /// The record one viewer key holds for one view id.
-    #[must_use]
-    pub fn record(&self, viewer_key: &str, view_id: &str) -> Option<&ViewRecord> {
-        self.views.get(&view_key(viewer_key, view_id))
-    }
-
-    /// The retained claim one viewer key left for one view id.
-    #[must_use]
-    pub fn tombstone(&self, viewer_key: &str, view_id: &str) -> Option<&Tombstone> {
-        self.tombstones.get(&view_key(viewer_key, view_id))
-    }
-
-    /// How many records membership holds, for a diagnostic line.
-    #[must_use]
-    pub fn record_count(&self) -> usize {
-        self.views.len()
-    }
-
-    /// How many retained claims the store holds.
-    #[must_use]
-    pub fn tombstone_count(&self) -> usize {
-        self.tombstones.len()
     }
 
     /// The mutable view the command machine works through.

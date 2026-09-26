@@ -27,6 +27,7 @@
 //! PTY two geometries, which is `docs/FAILURE-INDEX.md`, "A session stays
 //! clipped to a viewer that is no longer looking".
 
+mod admit;
 mod commands;
 mod machine;
 mod owner;
@@ -43,7 +44,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use roost_proto::{
-    TerminalResyncCommand, TerminalViewCommand, TerminalViewStateFrame, WTerminalViewProjection,
+    TerminalResyncCommand, TerminalViewCommand, TerminalViewStateFrame, TerminalViewStatus,
+    WTerminalViewProjection,
 };
 use roost_protocol::viewport::{TERMINAL_VIEW_SWEEP_MS, TerminalGeometry};
 use roost_protocol::wire::{SessionId, WorkerFp};
@@ -113,12 +115,7 @@ impl TerminalViewHub {
     /// One view command from a Sync socket.
     ///
     /// An owned session is relayed; every other session is decided here.
-    pub fn handle_view_command(
-        &self,
-        socket_id: &str,
-        command: &TerminalViewCommand,
-        now_ms: u64,
-    ) {
+    pub fn handle_view_command(&self, socket_id: &str, command: &TerminalViewCommand, now_ms: u64) {
         let Some(owner) = self.owner_of(command.session_id.as_str()) else {
             let outcome = self
                 .locked()
@@ -138,12 +135,7 @@ impl TerminalViewHub {
     }
 
     /// One resync request from a Sync socket.
-    pub fn handle_resync(
-        &self,
-        socket_id: &str,
-        command: &TerminalResyncCommand,
-        now_ms: u64,
-    ) {
+    pub fn handle_resync(&self, socket_id: &str, command: &TerminalResyncCommand, now_ms: u64) {
         if let Some(owner) = self.owner_of(command.session_id.as_str()) {
             let Some(socket) = self.locked().socket(socket_id).cloned() else {
                 return;
@@ -210,18 +202,19 @@ impl TerminalViewHub {
                 frame.effective_rows,
             );
         }
-        let (watching, attached) =
-            self.relay
-                .track(socket_id, &session_id, &frame.view_id, member);
+        let (watching, attached) = self
+            .relay
+            .track(socket_id, &session_id, &frame.view_id, member);
         socket.sink.set_watching(socket_id, &session_id, watching);
         // Only the decision that ATTACHES a socket may seed it: a lease
         // heartbeat re-declares the same view every few seconds, and seeding on
         // those would push a duplicate full on every beat.
         let seeded = attached && socket.sink.seed_socket(socket_id, &session_id);
         if attached && !seeded && previously_expected.as_deref() == Some(frame.stream_id.as_str()) {
-            socket
-                .sink
-                .invalidate(&session_id, "owner view attached without a replica baseline");
+            socket.sink.invalidate(
+                &session_id,
+                "owner view attached without a replica baseline",
+            );
         }
         socket.sink.enqueue_terminal_state(
             socket_id,
@@ -231,7 +224,19 @@ impl TerminalViewHub {
                 frame.revision,
                 frame.active,
                 &frame.stream_id,
-                frame.status,
+                // A generated enum field arrives wrapped in `EnumValue<E>`,
+                // which has no `Deref` and no `From<EnumValue<E>> for E`: the
+                // only way back to the enum is `as_known`.
+                //
+                // NEVER default this to `Accepted` to make the field total. A
+                // build that cannot read the owner's decision must not tell a
+                // browser its view was admitted: the client acts on an accepted
+                // status by applying whatever cells arrive next, so an
+                // invented acceptance is a permission this build never
+                // confirmed. `Unspecified` is the proto zero value, and it says
+                // what is true — this build does not know — instead of what
+                // would be convenient.
+                frame.status.as_known().unwrap_or(TerminalViewStatus::Unspecified),
                 frame.effective_cols,
                 frame.effective_rows,
                 &frame.reason,
@@ -283,7 +288,11 @@ impl TerminalViewHub {
     /// The size a session's PTY runs at: the per-axis minimum of the viewers
     /// that currently constrain it, or `None` while nothing has ever watched it.
     #[must_use]
-    pub fn session_geometry(&self, session_id: &SessionId, now_ms: u64) -> Option<TerminalGeometry> {
+    pub fn session_geometry(
+        &self,
+        session_id: &SessionId,
+        now_ms: u64,
+    ) -> Option<TerminalGeometry> {
         let held = self.locked_effective().get(session_id).copied();
         match held {
             Some(geometry) => Some(geometry),

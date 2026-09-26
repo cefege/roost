@@ -44,8 +44,14 @@ impl KeeperIdentity {
     fn read(payload: &Value) -> Self {
         Self {
             keeper_pid: payload.get("keeper_pid").and_then(Value::as_u64),
-            keeper_epoch: payload.get("keeper_epoch").and_then(Value::as_str).map(str::to_owned),
-            binding_digest: payload.get("binding_digest").and_then(Value::as_str).map(str::to_owned),
+            keeper_epoch: payload
+                .get("keeper_epoch")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            binding_digest: payload
+                .get("binding_digest")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
         }
     }
 
@@ -53,10 +59,18 @@ impl KeeperIdentity {
     fn validate(&self) -> Result<(), KeeperUpdateRefusal> {
         let malformed = KeeperUpdateRefusal::MalformedKeeperIdentity;
         let pid = self.keeper_pid.ok_or(malformed)?;
-        integer_in_range("keeper_pid", i64::try_from(pid).unwrap_or(i64::MAX), 1, MAX_SAFE_INTEGER)
-            .map_err(|_| malformed)?;
-        uuid("keeper_epoch", self.keeper_epoch.as_deref().ok_or(malformed)?)
-            .map_err(|_| malformed)?;
+        integer_in_range(
+            "keeper_pid",
+            i64::try_from(pid).unwrap_or(i64::MAX),
+            1,
+            MAX_SAFE_INTEGER,
+        )
+        .map_err(|_| malformed)?;
+        uuid(
+            "keeper_epoch",
+            self.keeper_epoch.as_deref().ok_or(malformed)?,
+        )
+        .map_err(|_| malformed)?;
         hex_of_len(
             "binding_digest",
             self.binding_digest.as_deref().ok_or(malformed)?,

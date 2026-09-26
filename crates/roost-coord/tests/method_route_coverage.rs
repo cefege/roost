@@ -24,9 +24,11 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+use roost_coord::auth::principal::Principal;
 use roost_coord::rpc::method_route::{
     AuthRequirement, MethodRoute, PortStatus, all_method_routes, auth_requirement, owning_domain,
 };
+use roost_coord::rpc::service::principal_satisfies;
 
 const PROTO: &str = include_str!("../../../protocol/proto/roost/v1/coordinator.proto");
 
@@ -215,22 +217,70 @@ fn only_the_worker_lifecycle_and_its_own_recovery_list_take_a_worker_credential(
 }
 
 #[test]
-fn the_on_host_gate_is_exactly_the_export_url_and_nothing_else() {
-    // `MiscDbExportUrl` is the only method whose authorization includes on-host,
-    // because the export route's whole authorization IS on-host: no rate limit, no
-    // extra token (`apps/coord/src/rpc/handlers-system.ts:113-119`).
+fn the_on_host_requirement_matches_v2_and_the_gate_does_not_yet_enforce_it() {
+    // The table records what each method REQUIRES. The gate is a separate
+    // question, and for one row the two answers differ — so this test asserts
+    // both, and the gap is the finding rather than a thing to paper over.
+    //
+    // v2 has FIVE `assertOnHost` call sites (`middleware/caller-origin.ts:53`),
+    // and they are TWO DIFFERENT SHAPES which a port must not conflate:
+    //
+    //   * UNGUARDED `assertOnHost(...)` — a device key AND on-host. One site:
+    //     `handlers-system.ts:115`, on `MiscDbExportUrl`.
+    //   * `if (!caller) assertOnHost(...)` — on-host as an UNCREDENTIALED
+    //     FALLBACK, so an operator who has lost their only device can still
+    //     recover it. Four sites: pairing ×3 and `handlers-devices.ts:72`.
+    //
+    // `principal_satisfies` (`service.rs:216`) answers `is_browser` for
+    // `Device` and `DeviceOnHost` alike, so it expresses NEITHER shape. The
+    // first needs an extra restriction on a caller it has already admitted; the
+    // second admits a caller with no credential at all, and `AuthGate::admit`
+    // only inserts a `Caller` for a request that carried one.
+    //
+    // So: one row carries the requirement, and the gate does not enforce it.
     let mut on_host: Vec<&str> = all_method_routes()
         .iter()
         .filter(|route| route.auth == AuthRequirement::DeviceOnHost)
         .map(|route| route.method)
         .collect();
     on_host.sort_unstable();
-    // Two, not one: the export URL, and the keeper-update preparation that
-    // replaces the binary every live PTY depends on. Both are host-local
-    // changes a remote device has no business authorising.
     assert_eq!(
         on_host,
-        vec!["MiscDbExportUrl", "WorkersPrepareKeeperUpdate"]
+        vec!["MiscDbExportUrl"],
+        "one method asserts on-host in v2, and it is this one (`handlers-system.ts:115`, unguarded)"
+    );
+
+    // The keeper update is the CONTRAST and the reason the set has one member:
+    // it is host-local in the sense that it changes the binary every live PTY
+    // depends on, and v2 asserts NO locality for it —
+    // `handlers-workers-update.ts:83` is a bare `requireAccountDevice`, and
+    // `assertOnHost` appears at none of its five sites. Recording `Device`
+    // here is not a narrowing: it is what v2 enforces.
+    assert_eq!(
+        auth_requirement("WorkersPrepareKeeperUpdate"),
+        Some(AuthRequirement::Device),
+        "a browser key from anywhere prepares a keeper update, in v2 and here alike"
+    );
+
+    // THE KNOWN GAP, ASSERTED AGAINST THE REAL GATE. This is the half that
+    // makes the test worth more than the one it replaced: it asks the gate
+    // what it does, rather than restating what the table says. **The day
+    // someone adds a locality check, this assertion fails** — which is the
+    // signal that `MiscDbExportUrl`'s row has become true and the comment on
+    // the enum can be shortened.
+    //
+    // The export BODY is separately refused on-host at `http/listener.rs:248`,
+    // so what a remote browser can obtain today is a path string, not the
+    // database. That is the whole of the current exposure.
+    let browser = Principal::AccountDevice {
+        fingerprint: "aa".repeat(32),
+        label: "laptop".to_owned(),
+        account_id: "acct-1".to_owned(),
+    };
+    assert_eq!(
+        principal_satisfies(Some(&browser), AuthRequirement::DeviceOnHost),
+        principal_satisfies(Some(&browser), AuthRequirement::Device),
+        "THE GATE DOES NOT DISTINGUISH DeviceOnHost FROM Device. If this assertion fails, the gate grew a locality check and the row above is now enforced rather than merely recorded."
     );
 }
 

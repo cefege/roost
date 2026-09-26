@@ -15,6 +15,7 @@
 //! next and is the one slice that edits it again.
 
 pub mod mcp;
+pub mod mcp_store;
 pub mod rpc_workspaces;
 pub mod tasks;
 pub mod workspaces;

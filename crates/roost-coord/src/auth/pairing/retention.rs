@@ -32,8 +32,8 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use super::rows::{self, LiveSelector};
-use super::status::TerminalRequest;
 use super::sqlx_error;
+use super::status::TerminalRequest;
 use crate::db::CoordDb;
 use crate::events::bus_messages::PairRequestDelta;
 use crate::maintenance::audit_retention::DAY_MS;

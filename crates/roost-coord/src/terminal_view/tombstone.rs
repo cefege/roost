@@ -52,6 +52,7 @@ pub struct TombstoneStore {
 impl TombstoneStore {
     /// A store with no retained claims.
     #[must_use]
+    #[allow(dead_code)] // split residue: the constructor's only caller moved modules
     pub fn new() -> Self {
         Self::default()
     }

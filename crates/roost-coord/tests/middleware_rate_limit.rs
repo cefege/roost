@@ -80,10 +80,15 @@ async fn a_preflight_does_not_spend_the_budget_it_precedes() {
 async fn the_websocket_upgrades_are_never_charged() {
     let fixture = ListenerFixture::start("sockets", FixtureConfig::default()).await;
     let sync = "/ws/coord-sync";
-    let worker = "/ws/coord-worker/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    let worker =
+        "/ws/coord-worker/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     for _ in 0..(DEFAULT_TOKENS_PER_WINDOW * 2) {
         assert_ne!(fixture.get(sync).status, 429, "the Sync socket was charged");
-        assert_ne!(fixture.get(worker).status, 429, "the worker link was charged");
+        assert_ne!(
+            fixture.get(worker).status,
+            429,
+            "the worker link was charged"
+        );
     }
 }

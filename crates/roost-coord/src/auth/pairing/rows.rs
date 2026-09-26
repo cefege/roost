@@ -6,17 +6,20 @@
 //! together: the riskiest pairing bug is a projection whose columns do not
 //! match the transition that writes them.
 //!
-//! THE SELECTION IS A CLOSED SET. [`LiveSelector`] has one variant per way
-//! this domain names a set of rows, and every variant contributes a `&'static
-//! str` it chose. That is what lets [`terminalize`] assemble a statement no
-//! request can influence -- an interpolated selector would put the ceremony's
-//! write path one SQL-injection bug away from being the ceremony.
+//! THE SELECTION IS A CLOSED SET. Every [`LiveSelector`] variant contributes a
+//! `&'static str` it chose, which is what lets [`terminalize`] assemble a
+//! statement no request can influence.
 
 use sqlx::sqlite::SqliteRow;
 use sqlx::{QueryBuilder, Row, Sqlite};
 
-use super::status::{ApprovedRequest, LiveRequest, RequestIdentity, StoredStatus, TerminalRequest};
 use super::PairingResult;
+use super::PairingRefusal;
+use super::account::PairRequestCreate;
+use super::provenance::ClientDeviceType;
+use super::refuse;
+use super::secrets::{MAX_PENDING_PAIR_REQUESTS, PAIRING_CEREMONY_VERSION};
+use super::status::{ApprovedRequest, LiveRequest, RequestIdentity, StoredStatus, TerminalRequest};
 
 /// A live request as `PairCreate` or `PairApprove` found it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,15 +71,15 @@ impl PairRequestRow {
     pub fn live(&self) -> Option<LiveRequest> {
         match self.status {
             StoredStatus::Pending => Some(LiveRequest::AwaitingApproval(self.identity())),
-            StoredStatus::VerificationRequired => Some(LiveRequest::AwaitingConfirmation(
-                ApprovedRequest {
+            StoredStatus::VerificationRequired => {
+                Some(LiveRequest::AwaitingConfirmation(ApprovedRequest {
                     identity: self.identity(),
                     approved_account_id: self.approved_account_id.clone(),
                     approved_by_fingerprint: self.approved_by_fp.clone(),
                     verification_code_hash: self.verification_code_hash.clone(),
                     verification_attempts: self.verification_attempts,
-                },
-            )),
+                }))
+            }
             _ => None,
         }
     }
@@ -121,15 +124,13 @@ pub async fn terminalize<'a, E>(
 where
     E: sqlx::Executor<'a, Database = Sqlite>,
 {
-    let mut statement =
-        QueryBuilder::<Sqlite>::new("UPDATE pair_requests SET status = ");
+    let mut statement = QueryBuilder::<Sqlite>::new("UPDATE pair_requests SET status = ");
     statement.push_bind(terminal.as_wire());
     statement.push(", decided_at_ms = ");
     statement.push_bind(now_ms);
     statement.push(", verification_code_hash = NULL");
     push_selection(&mut statement, selector);
-    statement
-        .push(" AND status IN ('pending', 'verification_required') RETURNING ephemeral_id");
+    statement.push(" AND status IN ('pending', 'verification_required') RETURNING ephemeral_id");
     let rows: Vec<SqliteRow> = statement
         .build()
         .fetch_all(executor)
@@ -143,8 +144,7 @@ where
         .collect()
 }
 
-/// The `WHERE` fragment a selector contributes, with the live-phase guard.
-fn push_selection(statement: &mut QueryBuilder<'static, Sqlite>, selector: LiveSelector) {
+fn push_selection(statement: &mut QueryBuilder<Sqlite>, selector: LiveSelector) {
     match selector {
         LiveSelector::ById(id) => {
             statement.push(" WHERE id = ");
@@ -181,22 +181,13 @@ pub async fn mark_expired<'a, E>(
 where
     E: sqlx::Executor<'a, Database = Sqlite>,
 {
-    terminalize(executor, LiveSelector::ById(row.id), TerminalRequest::Expired, now_ms).await
-}
-
-/// How many requests are live right now.
-pub async fn count_live<'a, E>(executor: E) -> PairingResult<i64>
-where
-    E: sqlx::Executor<'a, Database = Sqlite>,
-{
-    let row = sqlx::query_as::<_, (i64,)>(
-        "SELECT COUNT(*) FROM pair_requests \
-          WHERE status IN ('pending', 'verification_required')",
+    terminalize(
+        executor,
+        LiveSelector::ById(row.id),
+        TerminalRequest::Expired,
+        now_ms,
     )
-    .fetch_one(executor)
     .await
-    .map_err(|error| super::sqlx_error("pairing.count", error))?;
-    Ok(row.0)
 }
 
 /// How many requests are live right now.
@@ -253,7 +244,12 @@ where
     .bind(&input.provenance.user_agent)
     .bind(&input.provenance.client_browser)
     .bind(&input.provenance.client_os)
-    .bind(input.provenance.client_device_type.map(ClientDeviceType::as_wire))
+    .bind(
+        input
+            .provenance
+            .client_device_type
+            .map(ClientDeviceType::as_wire),
+    )
     .bind(input.provenance.source_ip())
     .bind(&input.provenance.country_code)
     .bind(&input.provenance.region)
@@ -272,4 +268,132 @@ where
         return Err(refuse(PairingRefusal::TooManyLiveRequests));
     }
     Ok(())
+}
+
+/// Read one live request by the ceremony's own handle, or `None`.
+///
+/// `pending` and `verification_required` are the only statuses a second
+/// `PairCreate` has to reconcile against: a terminal row can never be revived,
+/// Read one request by its ceremony handle, WHETHER IT IS LIVE OR DECIDED.
+///
+/// The decided rows matter, and this is the whole reason it is a separate
+/// function from [`read_live_pair_request`]. Two callers must be able to tell
+/// "no such id" from "this id is already decided":
+///
+/// - `create_pair_request` answers a re-create of a decided id with
+///   `FailedPrecondition: pair request is already terminal`
+///   (`pairing-account.ts:66`). Scoped to live rows, the same id reads as
+///   absent, the insert runs, and `ephemeral_id`'s UNIQUE index rejects it --
+///   so the browser gets a 500 for something that is a normal, expected
+///   progression.
+/// - `handle_pair_approve` answers a decided id with
+///   `FailedPrecondition: pair request is not pending`
+///   (`pairing-account.ts:229-231`). Scoped to live rows it would say
+///   `NotFound` instead, which tells the operator their approval vanished.
+///
+/// The idempotent replay of a LIVE request -- the case that motivated the
+/// narrower read -- is `CreateOutcome::Retry`, and this function returns it.
+pub async fn read_pair_request<'a, E>(
+    executor: E,
+    ephemeral_id: &str,
+) -> PairingResult<Option<PairRequestRow>>
+where
+    E: sqlx::Executor<'a, Database = Sqlite>,
+{
+    let row = sqlx::query_as::<_, PairRequestColumns>(
+        "SELECT id, ephemeral_id, status, ceremony_version, expires_at_ms, label, \
+                requester_token_hash, public_key, approved_account_id, approved_by_fp, \
+                verification_code_hash, verification_attempts \
+           FROM pair_requests WHERE ephemeral_id = ?",
+    )
+    .bind(ephemeral_id)
+    .fetch_optional(executor)
+    .await
+    .map_err(|error| super::sqlx_error("pairing.read", error))?;
+    Ok(match row {
+        Some(columns) => Some(columns.into_row()?),
+        None => None,
+    })
+}
+
+/// Read one request by its ceremony handle, but ONLY if it is still live.
+///
+/// Exactly one caller wants the narrower question: `PairDeny` scopes its own
+/// `WHERE` to the two live states and answers `NotFound` for anything else
+/// (`handlers-pairing.ts:329-334`). A decided request is not something an
+/// approver denies, it is something they are told is gone.
+pub async fn read_live_pair_request<'a, E>(
+    executor: E,
+    ephemeral_id: &str,
+) -> PairingResult<Option<PairRequestRow>>
+where
+    E: sqlx::Executor<'a, Database = Sqlite>,
+{
+    let row = sqlx::query_as::<_, PairRequestColumns>(
+        "SELECT id, ephemeral_id, status, ceremony_version, expires_at_ms, label, \
+                requester_token_hash, public_key, approved_account_id, approved_by_fp, \
+                verification_code_hash, verification_attempts \
+           FROM pair_requests \
+          WHERE ephemeral_id = ? AND status IN ('pending', 'verification_required')",
+    )
+    .bind(ephemeral_id)
+    .fetch_optional(executor)
+    .await
+    .map_err(|error| super::sqlx_error("pairing.read_live", error))?;
+    Ok(match row {
+        Some(columns) => Some(columns.into_row()?),
+        None => None,
+    })
+}
+
+/// The `pair_requests` columns the ceremony reads, in the reads' own order.
+///
+/// A named projection rather than a bare tuple, because `sqlx` maps
+/// positionally and twelve anonymous `Option<String>`s are twelve ways to end
+/// up comparing a status against a digest. The conversion is separate from the
+/// fetch because two columns are not `Decode`: `status` must be a spelling this
+/// coordinator recognises, and `public_key` must never be zero-padded.
+#[derive(Debug, sqlx::FromRow)]
+struct PairRequestColumns {
+    id: i64,
+    ephemeral_id: String,
+    status: String,
+    ceremony_version: i64,
+    expires_at_ms: i64,
+    label: String,
+    requester_token_hash: String,
+    public_key: Vec<u8>,
+    approved_account_id: Option<String>,
+    approved_by_fp: Option<String>,
+    verification_code_hash: Option<String>,
+    verification_attempts: i64,
+}
+
+impl PairRequestColumns {
+    /// The decoded row, refusing the two column types that cannot be decoded
+    /// safely by the database layer.
+    fn into_row(self) -> PairingResult<PairRequestRow> {
+        // A stored key of the wrong length is a database fault, not a missing
+        // row: reading it as absent would turn a repairable migration bug into
+        // "this request cannot be confirmed", with nothing to act on.
+        let public_key: [u8; 32] = self.public_key.try_into().map_err(|_| {
+            super::PairingError::fault(
+                "coord.pairing.read: stored pair_requests.public_key is not 32 bytes",
+            )
+        })?;
+        Ok(PairRequestRow {
+            id: self.id,
+            ephemeral_id: self.ephemeral_id,
+            status: StoredStatus::parse(&self.status)?,
+            ceremony_version: self.ceremony_version,
+            expires_at_ms: self.expires_at_ms,
+            label: self.label,
+            requester_token_hash: self.requester_token_hash,
+            public_key,
+            approved_account_id: self.approved_account_id,
+            approved_by_fp: self.approved_by_fp,
+            verification_code_hash: self.verification_code_hash,
+            verification_attempts: self.verification_attempts,
+        })
+    }
 }

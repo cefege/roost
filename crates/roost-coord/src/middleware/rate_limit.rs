@@ -271,9 +271,7 @@ fn charge(bucket: &mut Bucket, window: Duration, now: Instant) -> Option<RateLim
     Some(RateLimitRefusal {
         bucket: bucket.rate,
         reason: RateLimitRefusalReason::Budget,
-        retry_after_seconds: seconds_in(
-            bucket.reset_at.saturating_duration_since(now).min(window),
-        ),
+        retry_after_seconds: seconds_in(bucket.reset_at.saturating_duration_since(now).min(window)),
         first_in_window,
     })
 }
@@ -365,10 +363,7 @@ impl RateLimiter {
     /// could leave broken, and propagating that panic into every later request
     /// would turn one bad thread into an outage.
     fn with_table<R>(&self, body: impl FnOnce(&mut BucketTable) -> R) -> R {
-        let mut guard = self
-            .table
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
+        let mut guard = self.table.lock().unwrap_or_else(PoisonError::into_inner);
         body(&mut guard)
     }
 }

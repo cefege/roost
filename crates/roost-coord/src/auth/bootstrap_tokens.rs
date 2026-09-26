@@ -1,4 +1,3 @@
-
 //! Ported from `apps/coord/src/auth/bootstrap-tokens.ts`. A bootstrap token is
 //! how a fresh machine or a fresh browser joins a fleet without a pairing
 //! ceremony, which is exactly why it is scoped, time-bounded and redeemable
@@ -22,8 +21,8 @@
 
 use std::io::Read as _;
 
-use base64::prelude::{Engine as _, general_purpose};
-use connectrpc::{ConnectError, ErrorCode};
+use base64::Engine as _;
+use base64::engine::general_purpose;
 use roost_protocol::{ProtocolError, ProtocolResult};
 use sha2::Digest as _;
 use sqlx::{Sqlite, Transaction};
@@ -124,13 +123,21 @@ pub fn decode_ed25519_pubkey(encoded: &str) -> Option<[u8; PUBLIC_KEY_BYTES]> {
     // One decoder, deliberately lenient about alphabet and padding: a browser
     // sends URL-safe, a file import sends standard, and refusing either fails an
     // enrollment that has a perfectly good key.
+    // `GeneralPurpose::new` takes the raw `Alphabet`, not a `GeneralPurpose`:
+    // the shipped `STANDARD` engine is a `GeneralPurpose`, so passing it back
+    // into the constructor is a type error rather than a reuse. The shipped
+    // `STANDARD_*` engines also all refuse trailing bits, which `Buffer.from(x,
+    // "base64")` accepts, so the engine has to be built here to stay lenient in
+    // both directions.
     const DECODER: general_purpose::GeneralPurpose = general_purpose::GeneralPurpose::new(
-        &general_purpose::STANDARD,
+        &base64::alphabet::STANDARD,
         general_purpose::GeneralPurposeConfig::new()
             .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent)
             .with_decode_allow_trailing_bits(true),
     );
-    let raw = DECODER.decode(encoded.replace('-', "+").replace('_', "/")).ok()?;
+    let raw = DECODER
+        .decode(encoded.replace('-', "+").replace('_', "/"))
+        .ok()?;
     if raw.len() == PUBLIC_KEY_BYTES {
         return <[u8; PUBLIC_KEY_BYTES]>::try_from(raw).ok();
     }
@@ -139,7 +146,7 @@ pub fn decode_ed25519_pubkey(encoded: &str) -> Option<[u8; PUBLIC_KEY_BYTES]> {
 
 /// The key bytes out of an OpenSSH wire document, or `None` if it is not one.
 fn ssh_wire_key(raw: &[u8]) -> Option<[u8; PUBLIC_KEY_BYTES]> {
-    let type_end = 4.checked_add(SSH_ED25519_TYPE.len())?;
+    let type_end = 4usize.checked_add(SSH_ED25519_TYPE.len())?;
     if raw.len() < type_end + 4 + PUBLIC_KEY_BYTES
         || u32::from_be_bytes(raw[..4].try_into().ok()?) as usize != SSH_ED25519_TYPE.len()
         || &raw[4..type_end] != SSH_ED25519_TYPE
@@ -197,7 +204,7 @@ pub async fn mint_bootstrap_token(
          created_at_ms, expires_at_ms, used_at_ms, used_by_fp, minted_by_fp) \
          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)",
     )
-    .bind(&token_hash)
+    .bind(token_hash.as_str())
     .bind(account_id)
     .bind(dashboard_id)
     .bind(kind.as_str())
@@ -227,7 +234,8 @@ pub async fn mint_host_bootstrap_token(
     label: &str,
     now_ms: i64,
 ) -> ProtocolResult<MintedBootstrapToken> {
-    let tenant = crate::auth::self_hosted_tenant::ensure_self_hosted_tenant(database, now_ms).await?;
+    let tenant =
+        crate::auth::self_hosted_tenant::ensure_self_hosted_tenant(database, now_ms).await?;
     mint_bootstrap_token(
         database,
         kind,
@@ -241,6 +249,7 @@ pub async fn mint_host_bootstrap_token(
 }
 
 /// What a redemption presents against a grant.
+#[derive(Debug)]
 pub struct BootstrapClaim<'a> {
     /// The digest of the bearer the caller presented.
     pub token_hash: &'a str,
@@ -329,67 +338,19 @@ pub async fn claim_bootstrap_token(
     .await
     .map_err(|error| refuse(format!("claim bootstrap token: {error}")))?;
 
-    Ok(row.map(|(account_id, label, minted_by_fp)| BootstrapTokenClaim {
-        account_id,
-        label,
-        minted_by_fp,
-    }))
+    Ok(
+        row.map(|(account_id, label, minted_by_fp)| BootstrapTokenClaim {
+            account_id,
+            label,
+            minted_by_fp,
+        }),
+    )
 }
 
 /// One wording for every refusal in this module. A redeemed-but-refused token
 /// is `None`, and the handler turns that into a single `Unauthenticated`
 /// regardless of which predicate fired: telling a caller WHICH condition its
 /// token failed turns a probe into an oracle for the account's state.
-fn refuse(reason: &str) -> ProtocolError {
+fn refuse(reason: String) -> ProtocolError {
     ProtocolError::new("auth.bootstrap_tokens", reason)
-}
-
-/// One bound parameter, so a caller can say what a column actually holds
-/// instead of rendering an integer into a string and hoping SQLite forgives it.
-pub(crate) enum Bind<'a> {
-    /// A text column, or SQL `NULL`.
-    Text(Option<&'a str>),
-    /// A 32-byte Ed25519 public key.
-    Bytes(&'a [u8]),
-    /// An epoch-millisecond or row-count column.
-    Int(i64),
-}
-
-pub(crate) async fn begin(database: &CoordDb) -> Result<Transaction<'_, Sqlite>, ConnectError> {
-    database
-        .pool()
-        .begin()
-        .await
-        .map_err(|error| {
-            ConnectError::new(ErrorCode::Internal, format!("begin: {error}"))
-        })
-}
-
-pub(crate) async fn commit(transaction: Transaction<'_, Sqlite>) -> Result<(), ConnectError> {
-    transaction
-        .commit()
-        .await
-        .map_err(|error| {
-            ConnectError::new(ErrorCode::Internal, format!("commit: {error}"))
-        })
-}
-
-/// Run a statement with typed binds.
-pub(crate) async fn run(
-    transaction: &mut Transaction<'_, Sqlite>,
-    sql: &str,
-    binds: &[Bind<'_>],
-) -> Result<(), ConnectError> {
-    let mut query = sqlx::query(sql);
-    for bind in binds {
-        query = match bind {
-            Bind::Text(value) => query.bind(value),
-            Bind::Bytes(value) => query.bind(*value),
-            Bind::Int(value) => query.bind(*value),
-        };
-    }
-    query
-        .execute(&mut **transaction)
-        .await
-        .map_err(|error| ConnectError::new(ErrorCode::Internal, error.to_string()))
 }

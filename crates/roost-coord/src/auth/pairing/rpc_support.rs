@@ -10,16 +10,21 @@
 
 use connectrpc::{ConnectError, ErrorCode, RequestContext};
 
-use super::rows::{self, LiveSelector};
 use super::confirmation::PairConfirmation;
 use super::provenance::PairRequestProvenance;
+use super::rows::{self, LiveSelector};
 use super::status::{ApprovalStatusFacts, StoredStatus, TerminalRequest};
-use super::{PairingRefusal, sqlx_error};
+use super::{PairingError, PairingRefusal, sqlx_error};
 use crate::auth::cf_access::CloudflareAccessIdentity;
 use crate::coord_core::{Caller, CoordCore, ListenerTrust};
+use crate::middleware::caller_origin::{CallerOrigin, resolve_caller_origin};
 use crate::db::CoordDb;
 use crate::events::bus_messages::PairRequestDelta;
 use crate::write_gate::SharedLease;
+
+/// What a caller is told when the exclusive keeper-update drain holds the gate.
+/// One message for both variants: a client cannot act on which one it was.
+const WRITE_GATE_HELD_MESSAGE: &str = "coordinator keeper update preparation in progress";
 
 /// A shared write lease, or the refusal the write gate throws.
 ///
@@ -31,15 +36,35 @@ pub(crate) fn lease(core: &CoordCore) -> Result<SharedLease, ConnectError> {
     core.services
         .write_gate()
         .acquire_shared()
-        .map_err(|error| ConnectError::new(ErrorCode::Unavailable, error.to_string()))
+        // A FIXED LITERAL, not `WriteGateError`'s Display. Both of its variants
+        // mean the same thing to a client, and forwarding another module's error
+        // text puts this domain's wire messages at the mercy of a type it does
+        // not own -- and every internal error here renders as `"{field}: {reason}"`.
+        .map_err(|_| ConnectError::new(ErrorCode::Unavailable, WRITE_GATE_HELD_MESSAGE))
+}
+
+/// The caller's origin for this request, as the origin layer resolved it.
+///
+/// DELEGATES to `middleware::caller_origin::resolve_caller_origin`. That
+/// resolver owns the rule that matters: under a trusted proxy, the mere PRESENCE
+/// of `X-Forwarded-For` proves a proxy was traversed, which disqualifies the
+/// request from on-host authority even when the address behind it is loopback.
+pub(crate) fn caller_origin_of(context: &RequestContext) -> CallerOrigin {
+    resolve_caller_origin(
+        observed_trust(context),
+        context.peer_addr().map(|address| address.to_string()).as_deref(),
+        context
+            .headers()
+            .get("x-forwarded-for")
+            .and_then(|value| value.to_str().ok()),
+    )
 }
 
 /// The trust profile the listener under this request claims.
 ///
-/// Read from the request context rather than configured per call, so a
-/// coordinator whose config changed without a restart still decides locality
-/// the way the transport that accepted the socket decided it.
-pub(crate) fn observed_trust(context: &RequestContext) -> ListenerTrust {
+/// Read from the header the listener sets, never sniffed: a caller that could
+/// choose its own trust profile could choose to be trusted.
+fn observed_trust(context: &RequestContext) -> ListenerTrust {
     match context
         .headers()
         .get("x-roost-listener-trust")
@@ -50,32 +75,12 @@ pub(crate) fn observed_trust(context: &RequestContext) -> ListenerTrust {
     }
 }
 
-/// The peer address the transport saw, or `None` when it saw none.
-///
-/// The header the listener sets wins over the socket peer, because under a
-/// trusted proxy the socket peer is the proxy and the header is the address the
-/// front door authenticated -- which is the address an operator has to see next
-/// to the device they are approving.
-pub(crate) fn peer_address(context: &RequestContext) -> Option<String> {
-    let declared = context
-        .headers()
-        .get("x-roost-remote-addr")
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|address| !address.is_empty());
-    declared
-        .map(str::to_string)
-        .or_else(|| context.peer_addr().map(|address| address.to_string()))
-}
-
 /// Whether this caller may act as an approver, and which fingerprint to record.
 ///
-/// Two ways in, and the order matters. A browser key is authority wherever it
-/// connected from; a direct on-host caller is authority only when it presented
-/// no key at all, because a worker or a revoked key that reached the loopback
-/// listener is exactly the case the on-host gate exists to keep out. A
-/// non-browser principal on a remote listener is refused by the auth gate before
-/// it ever gets here.
+/// A browser key is authority wherever it connected from; a direct on-host
+/// caller is authority only when it presented no key at all, because a worker
+/// or a revoked key that reached the loopback listener is exactly the case the
+/// on-host gate exists to keep out.
 pub(crate) fn approver_or_on_host(caller: &Caller) -> Result<Option<&str>, ConnectError> {
     if caller.principal.is_browser() {
         return Ok(Some(caller.fingerprint()));
@@ -109,11 +114,11 @@ pub(crate) async fn front_door_identity(
     if on_host {
         return Ok(None);
     }
-    let config = core
-        .services
-        .boot
-        .require_config()
-        .map_err(|error| ConnectError::new(ErrorCode::Internal, error.to_string()))?;
+    // `require_config` already answers with a `ConnectError`, and it is a
+    // better one than anything re-wrapping could produce: it carries the
+    // status, and re-encoding it through `to_string()` would both drop its
+    // headers and fold the code into the message as `internal: <reason>`.
+    let config = core.services.boot.require_config()?;
     crate::auth::cf_access::verify_edge_identity(
         config,
         context.headers(),
@@ -161,7 +166,7 @@ pub(crate) async fn read_under_token(
     .fetch_optional(database.pool())
     .await
     .map_err(|error| sqlx_error("pairing.poll", error))
-    .map_err(PairingRefusal::into_error)?;
+    .map_err(PairingError::into_error)?;
     row.map(|(status, expires_at_ms)| PollRow {
         status,
         expires_at_ms,
@@ -189,7 +194,7 @@ pub(crate) async fn list_pending(
     .fetch_all(database.pool())
     .await
     .map_err(|error| sqlx_error("pairing.list", error))
-    .map_err(PairingRefusal::into_error)?;
+    .map_err(PairingError::into_error)?;
     Ok(rows.into_iter().map(PendingColumns::into_proto).collect())
 }
 
@@ -272,21 +277,21 @@ pub(crate) async fn deny_request(
     ephemeral_id: &str,
     now_ms: i64,
 ) -> Result<(), ConnectError> {
-    let row = rows::read_pair_request(&core.services.db.pool(), ephemeral_id)
+    let row = rows::read_live_pair_request(core.services.db.pool(), ephemeral_id)
         .await
-        .map_err(PairingRefusal::into_error)?
+        .map_err(PairingError::into_error)?
         .ok_or_else(|| PairingRefusal::NotFound.into_error())?;
     if !row.status.is_live() {
         return Err(PairingRefusal::NotPending.into_error());
     }
     let removed = rows::terminalize(
-        &core.services.db.pool(),
+        core.services.db.pool(),
         LiveSelector::ById(row.id),
         TerminalRequest::Denied,
         now_ms,
     )
     .await
-    .map_err(PairingRefusal::into_error)?;
+    .map_err(PairingError::into_error)?;
     if removed.is_empty() {
         return Err(PairingRefusal::NotPending.into_error());
     }
@@ -295,9 +300,12 @@ pub(crate) async fn deny_request(
 
 /// Publish a request leaving the pending set.
 pub(crate) fn publish_removed(core: &CoordCore, ephemeral_id: &str) {
-    core.services.buses.pair_bus.publish(PairRequestDelta::Removed {
-        ephemeral_id: ephemeral_id.to_string(),
-    });
+    core.services
+        .buses
+        .pair_bus
+        .publish(PairRequestDelta::Removed {
+            ephemeral_id: ephemeral_id.to_string(),
+        });
 }
 
 /// Publish a new pending request, with descriptors and nothing else.
@@ -341,7 +349,11 @@ pub(crate) fn publish_pending(
 
 /// Report what a confirmation did: the bus notice, the log line, and the one
 /// authorization side effect a completed confirmation owes.
-pub(crate) fn report_confirmation(core: &CoordCore, ephemeral_id: &str, result: PairConfirmation) {
+pub(crate) fn report_confirmation(
+    core: &CoordCore,
+    ephemeral_id: &str,
+    result: &PairConfirmation,
+) {
     if let Some(status) = result.terminal_status {
         tracing::info!(
             ephemeral_id,

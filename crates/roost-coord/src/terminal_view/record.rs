@@ -15,12 +15,14 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use roost_proto::TerminalViewCommand;
 use roost_protocol::viewport::{
-    TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS, TERMINAL_VIEW_PARK_GRACE_MS, TerminalGeometry,
-    is_terminal_geometry, is_terminal_uuid, minimum_terminal_geometry,
+    TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS, TERMINAL_VIEW_LEASE_MS, TERMINAL_VIEW_PARK_GRACE_MS,
+    TerminalGeometry, is_terminal_geometry, is_terminal_uuid, minimum_terminal_geometry,
 };
 use roost_protocol::wire::SessionId;
 
-pub use super::tombstone::{PROCESS_TOMBSTONE_CAP, Tombstone, TombstoneStore, VIEWER_TOMBSTONE_CAP};
+pub use super::tombstone::{
+    TombstoneStore,
+};
 
 /// Distinct view records one session may hold, across every socket and device.
 pub const SESSION_VIEW_CAP: usize = 256;
@@ -96,9 +98,7 @@ pub fn validate_view_command(
     if command.active && !is_terminal_geometry(&claimed) {
         return Some("terminal geometry is outside 1..256");
     }
-    if !command.active
-        && (command.cols > TERMINAL_MAX_COLS || command.rows > TERMINAL_MAX_ROWS)
-    {
+    if !command.active && (command.cols > TERMINAL_MAX_COLS || command.rows > TERMINAL_MAX_ROWS) {
         return Some("inactive terminal geometry is outside 0..256");
     }
     None
@@ -150,7 +150,11 @@ pub fn view_constrains(record: &ViewRecord, now_ms: u64) -> bool {
     if record.deadline_ms <= now_ms {
         return false;
     }
-    !record.parked || now_ms < record.parked_at_ms.saturating_add(TERMINAL_VIEW_PARK_GRACE_MS)
+    !record.parked
+        || now_ms
+            < record
+                .parked_at_ms
+                .saturating_add(TERMINAL_VIEW_PARK_GRACE_MS)
 }
 
 /// The geometry decision input for one session: `live` are the records that

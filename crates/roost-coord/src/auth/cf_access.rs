@@ -5,16 +5,15 @@
 //! principal -- see [`CloudflareAccessIdentity`]. `install_cloudflare_jwks` is
 //! the one wiring line `serve` owes this file.
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 use axum::http::HeaderMap;
 use roost_host::{CoordConfig, b64url_decode};
-use rsa::{BigUint, RsaPublicKey, pkcs1v15::VerifyingKey, signature::Verifier};
 use serde_json::Value;
-use sha2::Sha256;
 
 use crate::auth::jwt_verify::VerifyClock;
+
+pub use crate::auth::cf_access_keyring::RsaJwks;
 
 /// The header a Cloudflare Access assertion arrives in.
 pub const ACCESS_ASSERTION_HEADER: &str = "cf-access-jwt-assertion";
@@ -28,7 +27,7 @@ pub const ACCESS_CLOCK_SKEW_MS: i64 = 60_000;
 
 pub const JWKS_TTL_MS: i64 = 15 * 60_000;
 
-/// The floor between two refetches caused by an absent `kid`. Without it,
+/// The floor between two refetches caused by an absent `kid`: without it,
 /// anyone who knows a `kid` is missing picks this coordinator's request rate.
 pub const JWKS_REFETCH_MIN_INTERVAL_MS: i64 = 60_000;
 
@@ -112,105 +111,6 @@ pub trait CloudflareJwks: Send + Sync {
 /// and RSA-SHA256 verification against it. The cache lives here because the key
 /// set is the network's: a gate that rebuilt it per request would be one
 /// Cloudflare slowdown from refusing every pairing.
-#[derive(Debug, Default)]
-pub struct RsaJwks {
-    client: reqwest::Client,
-    issuers: Mutex<HashMap<String, IssuerKeys>>,
-}
-
-#[derive(Debug, Default)]
-struct IssuerKeys {
-    document: Value,
-    fetched_at_ms: i64,
-    last_refetch_ms: i64,
-}
-
-#[async_trait::async_trait]
-impl CloudflareJwks for RsaJwks {
-    async fn jwk(&self, issuer: &str, kid: &str) -> Result<Option<String>, String> {
-        let now_ms = crate::rpc::service::now_ms();
-        let keys = self.issuer_keys(issuer);
-        let (cached, fetched_at_ms, last_refetch_ms) = (
-            jwk_in(&keys.document, kid),
-            keys.fetched_at_ms,
-            keys.last_refetch_ms,
-        );
-        drop(keys);
-        if let Some(jwk) = cached {
-            return Ok(Some(jwk));
-        }
-        // Inside the TTL a missing `kid` may refetch but not inside the floor.
-        if now_ms - fetched_at_ms < JWKS_TTL_MS
-            && now_ms - last_refetch_ms < JWKS_REFETCH_MIN_INTERVAL_MS
-        {
-            return Ok(None);
-        }
-        let body = self
-            .client
-            .get(format!("{issuer}/cdn-cgi/access/certs"))
-            .send()
-            .await
-            .and_then(reqwest::Response::error_for_status)
-            .map_err(|error| error.to_string())?
-            .text()
-            .await
-            .map_err(|error| error.to_string())?;
-        let document: Value =
-            serde_json::from_str(&body).map_err(|error| format!("jwks is not json: {error}"))?;
-        if document.get("keys").and_then(Value::as_array).is_none() {
-            return Err("jwks has no keys array".to_owned());
-        }
-        let mut keys = self.issuer_keys(issuer);
-        keys.document = document;
-        keys.fetched_at_ms = now_ms;
-        keys.last_refetch_ms = now_ms;
-        tracing::debug!(issuer, "cf_access.jwks_fetched");
-        Ok(jwk_in(&keys.document, kid))
-    }
-
-    fn verify_rs256(&self, jwk: &str, signing_input: &str, signature: &[u8]) -> bool {
-        let key: Value = serde_json::from_str(jwk).unwrap_or(Value::Null);
-        let member = |name: &str| {
-            key.get(name)
-                .and_then(Value::as_str)
-                .and_then(|value| b64url_decode(value).ok())
-        };
-        // A JWK member is unpadded URL-safe base64, so the token codec fits.
-        let (Some(modulus), Some(exponent)) = (member("n"), member("e")) else {
-            return false;
-        };
-        RsaPublicKey::from_components(
-            BigUint::from_bytes_be(&modulus),
-            BigUint::from_bytes_be(&exponent),
-        )
-        .is_ok_and(|public_key| {
-            VerifyingKey::<Sha256>::new(public_key)
-                .verify(signing_input.as_bytes(), signature)
-                .is_ok()
-        })
-    }
-}
-
-impl RsaJwks {
-    fn issuer_keys(&self, issuer: &str) -> std::sync::MutexGuard<'_, IssuerKeys> {
-        self.issuers
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .entry(issuer.to_owned())
-            .or_default()
-    }
-}
-
-/// The JWK a `kid` names. An entry without a usable `kid` is skipped rather than
-/// failing the document: one malformed key must not take the door down.
-fn jwk_in(document: &Value, kid: &str) -> Option<String> {
-    let entry = document
-        .get("keys")?
-        .as_array()?
-        .iter()
-        .find(|entry| entry.get("kid").and_then(Value::as_str) == Some(kid))?;
-    serde_json::to_string(entry).ok()
-}
 
 fn configured(config: &CoordConfig) -> Option<(&str, &str)> {
     let domain = config.cf_access_team_domain.as_deref()?;
@@ -223,17 +123,16 @@ pub fn cloudflare_access_configured(config: &CoordConfig) -> bool {
     configured(config).is_some()
 }
 
-/// Install the process's Access key ring, once, at boot. Until it is called, a
-/// coordinator that HAS Access configured refuses every assertion rather than
-/// believe a header nobody checked.
+/// Install the process's Access key ring, once, at boot. Until it is called a
+/// coordinator with Access configured refuses every assertion rather than
+/// believe one.
 pub fn install_cloudflare_jwks(jwks: Arc<dyn CloudflareJwks>) -> Result<(), ()> {
     KEY_RING.set(jwks).map_err(|_| ())
 }
 
 static KEY_RING: OnceLock<Arc<dyn CloudflareJwks>> = OnceLock::new();
 
-/// The verified edge identity of one request, or why there is not one: `Ok(None)`
-/// is Access switched off, `Err(reason)` is THIS request failing to verify.
+/// The verified edge identity of one request, or why there is not one.
 pub async fn verify_edge_identity(
     config: &CoordConfig,
     headers: &HeaderMap,
@@ -269,7 +168,6 @@ struct ParsedAssertion {
     kid: String,
 }
 
-/// Split and screen an assertion, before anything is fetched or trusted.
 fn parse_assertion(assertion: &str) -> Result<ParsedAssertion, AccessRejection> {
     let parts: Vec<&str> = assertion.split('.').collect();
     let [header_part, payload_part, signature_part] = parts.as_slice() else {
@@ -286,10 +184,15 @@ fn parse_assertion(assertion: &str) -> Result<ParsedAssertion, AccessRejection> 
     );
     // Exactly `RS256`: `none` and symmetric algorithms are refused before a key
     // is looked up.
-    let header: Value =
-        serde_json::from_slice(&header).map_err(|_| AccessRejection::Malformed)?;
-    let alg = header.get("alg").and_then(Value::as_str).unwrap_or_default();
-    let kid = header.get("kid").and_then(Value::as_str).unwrap_or_default();
+    let header: Value = serde_json::from_slice(&header).map_err(|_| AccessRejection::Malformed)?;
+    let alg = header
+        .get("alg")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let kid = header
+        .get("kid")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     if alg != "RS256" || kid.is_empty() {
         return Err(AccessRejection::Malformed);
     }
@@ -305,16 +208,14 @@ fn parse_assertion(assertion: &str) -> Result<ParsedAssertion, AccessRejection> 
 
 /// The email and subject of an assertion whose signature already verified. The
 /// refusal order is v2's (`cf-access.ts:227-254`) and each step is a distinct
-/// reason. Claims are read out of the JSON object, so a claim of the WRONG TYPE
-/// refuses like an absent one rather than as a parse error.
+/// reason. A claim of the WRONG TYPE refuses like an absent one.
 fn validate_claims(
     payload: &[u8],
     domain: &str,
     audience: &str,
     now_ms: i64,
 ) -> Result<(String, String), AccessRejection> {
-    let claims: Value =
-        serde_json::from_slice(payload).map_err(|_| AccessRejection::BadClaims)?;
+    let claims: Value = serde_json::from_slice(payload).map_err(|_| AccessRejection::BadClaims)?;
     let text = |name: &str| claims.get(name).and_then(Value::as_str).unwrap_or_default();
     if text("iss") != issuer_of(domain) {
         return Err(AccessRejection::BadIssuer);
@@ -327,15 +228,21 @@ fn validate_claims(
     if !audience_matches {
         return Err(AccessRejection::BadAudience);
     }
+    // `claim_instant_ms` returns MILLISECONDS because that is the unit a JWT
+    // instant is compared against; the clock is converted to that unit ONCE
+    // here, so no comparison mixes an integer millisecond instant with a float
+    // one and the skew is a single named value rather than three casts.
+    let now = now_ms as f64;
+    let skew = ACCESS_CLOCK_SKEW_MS as f64;
     let instant = |name: &str| claim_instant_ms(claims.get(name).and_then(Value::as_f64));
-    if instant("exp")? <= now_ms - ACCESS_CLOCK_SKEW_MS {
+    if instant("exp")? <= now - skew {
         return Err(AccessRejection::Expired);
     }
-    if instant("iat")? > now_ms + ACCESS_CLOCK_SKEW_MS {
+    if instant("iat")? > now + skew {
         return Err(AccessRejection::BadClaims);
     }
     if let Some(not_before) = claims.get("nbf").and_then(Value::as_f64)
-        && claim_instant_ms(Some(not_before))? > now_ms + ACCESS_CLOCK_SKEW_MS
+        && claim_instant_ms(Some(not_before))? > now + skew
     {
         return Err(AccessRejection::BadClaims);
     }
@@ -358,7 +265,10 @@ fn claim_instant_ms(seconds: Option<f64>) -> Result<f64, AccessRejection> {
         .filter(|value| value.is_finite())
         .ok_or(AccessRejection::BadClaims)?;
     let millis = finite * 1_000.0;
-    millis.is_finite().then_some(millis).ok_or(AccessRejection::BadClaims)
+    millis
+        .is_finite()
+        .then_some(millis)
+        .ok_or(AccessRejection::BadClaims)
 }
 
 /// Whether a string may be recorded as an identity, whatever it claims to be.
@@ -384,9 +294,7 @@ pub fn is_reportable_identity_text(value: &str) -> bool {
     })
 }
 
-/// An address a pairing request may record: [`is_reportable_identity_text`]
-/// plus one `@`, both sides non-empty and whitespace-free, within
-/// [`MAX_ACCESS_EMAIL_UTF8_BYTES`]. `sub` is NOT held to this.
+/// An address a pairing request may record: [`is_reportable_identity_text`] plus one `@`,
 #[must_use]
 pub fn is_reportable_email(value: &str) -> bool {
     if !is_reportable_identity_text(value) || value.len() > MAX_ACCESS_EMAIL_UTF8_BYTES {
@@ -396,5 +304,9 @@ pub fn is_reportable_email(value: &str) -> bool {
         return false;
     };
     let whitespace_free = |part: &str| part.chars().all(|c| !c.is_whitespace());
-    !local.is_empty() && !domain.is_empty() && !domain.contains('@') && whitespace_free(local) && whitespace_free(domain)
+    !local.is_empty()
+        && !domain.is_empty()
+        && !domain.contains('@')
+        && whitespace_free(local)
+        && whitespace_free(domain)
 }

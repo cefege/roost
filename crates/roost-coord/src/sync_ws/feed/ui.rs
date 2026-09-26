@@ -75,12 +75,7 @@ pub fn ui_bus_frame(message: &UiBusMsg, viewer: &UiViewer) -> Option<FeedFrame> 
         UiBusMsg::Command {
             target_tab_id,
             command,
-        } => Frame::UiCommand(Box::new(ui_command_frame(
-            target_tab_id,
-            command,
-            "",
-            "",
-        ))),
+        } => Frame::UiCommand(Box::new(ui_command_frame(target_tab_id, command, "", ""))),
         UiBusMsg::Apply {
             target_tab_id,
             target_socket_id,
