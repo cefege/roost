@@ -501,7 +501,54 @@ a shortfall, the cause is something neither scan covers* — a dropped `.await`
 leaving a seed empty, which no static scan can see, or a `Drop` that discards an
 error. **Those need a run to see, not a grep.**
 
-**So the rule has two halves, and the second is the one that catches defects:**## A test that drops the handle asserts the opposite of the contract
+**So the rule has two halves, and the second is the one that catches defects:**## Both kills were one defect: a value of the wrong SHAPE at a boundary that cannot reject it
+
+The two 0-pass fixture groups produced **two production defects, and they share a
+cause**:
+
+- 32 hex characters where a 64-hex branded type is checked;
+- `i64` where the column is `TEXT`.
+
+**Both are the right type in the wrong place, and the compiler enforces
+neither** — one is a valid string, the other a valid integer, and both are
+wrong only at a specific boundary that cannot tell.
+
+**A panic in a fixture and an empty result set from a live query are the same
+defect in different clothes.** And the silent one is the one that ships:
+`LiveSelector::ById` matched zero rows and returned a **valid empty set**, which
+to every caller is indistinguishable from the right answer. The loud one — a
+panic in a test constructor — is the one that gets found, because a test that
+cannot run is impossible to ignore.
+
+**So the diagnostic question is "what is this boundary unable to reject", not
+"is this value valid".** A brand type is only as good as the construction that
+enforces it, and a constructor that panics on bad input is a boundary that
+*does* reject — which is why the fixture failure was the good news.
+
+**And a fully implemented, fully tested method can still never run once.**
+`settle()` deregistered the waiter before awaiting: `WaiterEntry` owns the
+`oneshot::Sender`, `remove()` dropped the registry's `Arc`, the local one died
+before the `.await`, and **every `AgentStatusWait` not already satisfied
+returned `Canceled` instantly.** Nothing about that is subtle, nothing about it
+would have been caught by a compile, and a method can be implemented, tested at
+the seams either side of it, and still have never executed.
+
+## A bounded read presented as a total is the `--keep-going` error again
+
+A published per-binary breakdown **missed six binaries** — three
+`workspaces_*` tests, all failing, all in the run — because the printout was
+truncated at 130 lines and the tail was reported without checking what the cut
+had removed. The conclusion survived (they are individual assertions, not
+fixture cases) but **a number that was published was an under-read**, and this
+is the same family as measuring without `--keep-going`: a limit in the tool
+silently became a limit in the claim.
+
+**So the rule generalises past cargo: when a result is bounded — by `head`, by
+a terminal, by a page — the number is a lower bound until someone has read the
+part that was cut off.** Truncation is not a display concern; it is a claim
+about what was examined, and the claim is what gets cited later.
+
+## A test that drops the handle asserts the opposite of the contract
 
 Three separate tests in one wave failed for the same reason, and it is a class
 with a name: **an RAII handle was discarded, and the test then asserted the
