@@ -308,6 +308,43 @@ the file sit *inside* a directory while the module name stays flat, and both
 fixture agents should converge on this shape if their consumers number more than
 one.
 
+## The defect the fixture blamed, and the one it hid
+
+Two binaries, 12 tests, **0 passes**, sharing one module. The rule sent the agent
+to `tests/pairing_support/mod.rs` first. **The fixture was correct.** The defect
+was in `src/`: `pair_requests.id` is `TEXT` in both migrations and in v2
+(`pairing-account.ts:139` inserts an ephemeral id), while **five Rust
+declarations typed it `i64`.**
+
+**And the shape rule is what found it.** Had the reading been *"0-pass binary,
+blame the fixture"*, this would still be broken in production today — the fixture
+is what the tests *call*, and it is the callee that is wrong.
+
+Two consequences, and **they are different defects from one wrong type**:
+
+- every `read_pair_request` — PairCreate's retry path, PairApprove — **errors
+  out**, loudly.
+- every `LiveSelector::ById` terminalize **binds an integer against a
+  TEXT-affinity column and matches zero rows**, silently.
+
+**The second is the dangerous one: the query is valid, it returns an empty set,
+and nothing says that is wrong.** A compile cannot see it. A green suite built on
+a fixture that never ran could not see it. **The only reason it surfaced is that
+the tests ran at all and failed loudly** — which is the whole argument for
+executing a new target before believing anything about it.
+
+The fix went the right way: **the Rust types change, not the schema.** v2 parity
+is the schema's job, and making a wrong Rust type compile by changing the schema
+would trade a visible type error for an invisible migration divergence from the
+port of record.
+
+**And the standing question after a type fix lands: did the mask hide a second
+cause?** A binary that moves less than its shape promised has told you something.
+The same applies to the silent half: **if a selector is supposed to match rows
+and a test passes because it matched none, that is a green-but-vacuous test** —
+and the question is the one from `Scratch::second_core()`: *what made this test
+able to fail at all, and is that still here?*
+
 ## A fixture can hold a property that does not survive a merge
 
 `tests/auth_device_support/` exists for one reason: `Scratch::second_core()`
