@@ -1,14 +1,47 @@
 //! The coordinator's HTTP listener: the Connect mount, the two WebSocket
-//! upgrades, the export route, and the order they are tried in.
+//! upgrades, the export route, the middleware stack in front of all of it, and
+//! the order they are tried in.
 //!
 //! Owned by the coordinator. `serve` builds one and hands it to the runtime; the
-//! admission DECISIONS it enforces live in `worker_link::upgrade_admission` and
-//! `sync_ws::upgrade_admission`, and the SQL lives in `db`.
+//! upgrade DECISIONS live in `http::upgrade`, the Host/Origin gate's decisions
+//! live in `http_admission`, and the SQL lives in `db`.
 //!
-//! THE ORDER IS THE CONTRACT (`apps/coord/src/bun-coordinator-listeners.ts:314-352`):
-//! the Host/Origin admission gate runs first and before any upgrade, then the two
-//! WebSocket upgrades, then the retired Connect `Sync`, then Connect itself, then
-//! the export route, then the namespace misses, then the SPA.
+//! THE ORDER IS THE CONTRACT (`apps/coord/src/bun-coordinator-listeners.ts:314-352`).
+//! Outside in:
+//!
+//! 1. `middleware::admission_layer` -- the Host/Origin gate. Outermost, and
+//!    around the whole router rather than around the two upgrade routes alone,
+//!    because v2 runs it first thing in the fetch handler: a request it refuses
+//!    must not reach Connect either, or the same DNS-rebinding request is one
+//!    RPC path removed from a refused one.
+//! 2. `middleware::caller_origin` -- the caller's real address and on-host
+//!    authority, resolved once for everything below. It reads a forwarded
+//!    header, so it has to sit where that header is still only a claim -- and
+//!    above the limiter, whose key is the address it resolves.
+//! 3. `middleware::security` -- the CORS preflight and the response headers.
+//!    Above the limiter because a browser sends a preflight before every
+//!    non-simple request, and v2 answers `OPTIONS` before it checks a budget
+//!    (`coord-factory.ts:161-163`): charging the preflight would halve every
+//!    real caller's budget.
+//! 4. `middleware::rate_limit_layer` -- one request budget per client, spent by
+//!    Connect paths only.
+//! 5. `middleware::audit_layer` -- one audit row per non-Connect response.
+//! 6. The two WebSocket upgrades, then the retired Connect `Sync`, then Connect
+//!    itself, then the export route, then the namespace misses, then the SPA.
+//!
+//! `Router::layer` wraps what is already there, so the LAST layer applied is
+//! the OUTERMOST one, and the mounting order in [`build_router`] is the reverse
+//! of the list above on purpose. Reordering it to read the way this comment
+//! reads is exactly the mistake this comment exists to prevent: putting
+//! admission below the security layer decorates a refusal with CORS headers and
+//! makes a refused origin look answerable, putting it below `caller_origin`
+//! lets an unauthenticated prober spend rate-limit budget and write audit rows,
+//! and putting the limiter above `caller_origin` charges every request to the
+//! proxy's address rather than the caller's.
+//!
+//! These six things stay in ONE file for that reason. The order is the
+//! contract, and a contract split across two files is mounted in the wrong
+//! sequence by the next person who edits either half.
 //!
 //! WHY THE SYNC GUARD SITS BEFORE CONNECT RATHER THAN INSIDE A HANDLER. The
 //! handler stub alone is not enough: a throwing stub still lets Connect open a
@@ -20,10 +53,9 @@
 //! TLS IS NEVER TERMINATED HERE. "The coordinator serves plaintext on its
 //! loopback bind; the operator's front door owns TLS"
 //! (`bun-coordinator-listeners.ts:4-5`). That is why the export URL is hard-coded
-//! `http://127.0.0.1:<port>/api/db-export` and why a declared public origin must
-//! be HTTPS.
+//! `http://127.0.0.1:<port>/api/db-export`, why a declared public origin must be
+//! HTTPS, and why HSTS follows `trust_proxy` rather than the request's scheme.
 
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::Router;
@@ -31,9 +63,18 @@ use axum::extract::{Request, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 
+use crate::coord_core::CoordCore;
+use crate::http::upgrade::{sync_upgrade, worker_upgrade};
+use crate::middleware::admission_layer::{AdmissionLayer, admission_gate};
+use crate::middleware::audit_layer::{AuditMount, audit_layer};
+use crate::middleware::caller_origin::{
+    ON_HOST_ONLY, caller_origin_layer, from_extensions, listener_trust,
+};
+use crate::middleware::rate_limit_layer::rate_limit_layer;
+use crate::middleware::security::{security_layer, security_options_for_config};
+use crate::rpc::auth_gate::AuthGate;
 use crate::rpc::service::CoordinatorServiceImpl;
 use crate::sync_ws::upgrade_admission::{SYNC_AUTH_SUBPROTOCOL, SYNC_WS_PATH};
-use crate::worker_link::upgrade_admission::WORKER_WS_PATH_PREFIX;
 
 /// The RPC path prefix every Connect method lives under.
 pub const CONNECT_PATH_PREFIX: &str = "/roost.v1.CoordinatorService/";
@@ -81,14 +122,42 @@ pub struct ListenerState {
     pub spa_available: bool,
 }
 
-/// Build the listener's router.
+/// The router, plus the one thing about it that only the bind knows.
+///
+/// The admission gate's allowlist names the RESOLVED port, so the gate cannot be
+/// finished until the listener knows which port the OS gave it. `serve` binds,
+/// reads `local_addr`, and calls [`MountedListener::publish_bound_port`]; until
+/// it does, the gate answers `503 listener unavailable` to everything, on both
+/// WebSocket routes as much as on Connect.
+#[derive(Debug, Clone)]
+pub struct MountedListener {
+    /// The router to serve.
+    pub router: Router,
+    admission: Arc<AdmissionLayer>,
+}
+
+impl MountedListener {
+    /// Tell the admission gate which port the listener actually bound.
+    ///
+    /// NOT THE SAME INSTANT AS THE BIND, and the gap is the point: a socket is
+    /// bound before its address has been read, and a request arriving in that
+    /// gap must be refused rather than answered from a guess. Moving this call
+    /// up next to the bind reopens exactly that hole, and it is the obvious
+    /// "simplification" this method must never become.
+    pub fn publish_bound_port(&self, port: u16) {
+        self.admission.publish_bound_port(port);
+    }
+}
+
+/// Build the listener's router, middleware stack included.
 ///
 /// The Connect service is mounted as a **fallback** rather than as a set of
 /// per-method routes, so a method the proto declares but this crate has not
 /// delegated still resolves to a real handler and answers `Unimplemented` with
 /// the owning domain named -- rather than 404-ing as an unknown path, which
 /// would tell a caller its method does not exist.
-pub fn build_router(state: Arc<ListenerState>) -> Router {
+#[must_use]
+pub fn build_router(state: Arc<ListenerState>) -> MountedListener {
     // `Router` has no interceptor hook -- `with_interceptor` exists only on
     // `Service<D>` -- so the generated server is mounted directly to put the
     // auth gate in front of every method. Without it the route table's
@@ -101,21 +170,45 @@ pub fn build_router(state: Arc<ListenerState>) -> Router {
     // internally (`ConnectRpcService::new(..)` then `fallback_service`).
     let server =
         roost_proto::roost::v1::CoordinatorServiceServer::from_arc(Arc::clone(&state.service));
-    let gate = crate::rpc::auth_gate::auth_gate(
-        crate::coord_core::CoordCore::new(Arc::clone(&state.services)),
+    let core = Arc::new(CoordCore::new(Arc::clone(&state.services)));
+    // The gate's locality rule is chosen from the same boot setting the caller's
+    // origin profile is, so the two can never disagree about whether a
+    // connection is direct.
+    let trust = listener_trust(state.service.config.trust_proxy);
+    let gate = Arc::new(AuthGate::new(
+        CoordCore::new(Arc::clone(&state.services)),
         state.service.config.jwt_max_age_secs,
-    );
+        trust,
+    ));
     let connect = axum::Router::new().fallback_service(
         connectrpc::service::ConnectRpcService::new(server).with_interceptor_arc(gate),
     );
 
-    Router::new()
+    let admission = Arc::new(AdmissionLayer::from_config(&state.service.config));
+    let security = Arc::new(security_options_for_config(&state.service.config));
+    let audit = AuditMount::new(Arc::clone(&core), state.spa_available);
+    let services = Arc::clone(&state.services);
+
+    // Reverse order, outermost first; see the module header. Each layer is
+    // added to the router, so the LAST one added is the first one a request
+    // meets.
+    let router = Router::new()
         .route(SYNC_WS_PATH, get(sync_upgrade))
         .route("/ws/coord-worker/{fingerprint}", get(worker_upgrade))
         .route(DB_EXPORT_PATH, get(db_export).head(db_export))
         .route(RETIRED_SYNC_PATH, axum::routing::post(retired_sync))
         .fallback_service(connect)
         .with_state(state)
+        .layer(axum::middleware::from_fn_with_state(audit, audit_layer))
+        .layer(axum::middleware::from_fn_with_state(services, rate_limit_layer))
+        .layer(axum::middleware::from_fn_with_state(security, security_layer))
+        .layer(axum::middleware::from_fn_with_state(trust, caller_origin_layer))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&admission),
+            admission_gate,
+        ));
+
+    MountedListener { router, admission }
 }
 
 /// The retired Connect `Sync`, refused before Connect opens a stream.
@@ -131,175 +224,32 @@ async fn retired_sync() -> Response {
         .into_response()
 }
 
-/// The worker upgrade. The decision is in `worker_link::upgrade_admission`; this
-/// only applies it.
-async fn worker_upgrade(
-    State(state): State<Arc<ListenerState>>,
-    axum::extract::Path(fingerprint): axum::extract::Path<String>,
-    request: Request,
-) -> Response {
-    let path = format!("{WORKER_WS_PATH_PREFIX}{fingerprint}");
-    let offered = offered_protocols(&request);
-    let query = request
-        .uri()
-        .query()
-        .map_or_else(String::new, str::to_string);
-    let upgrade = request.headers().get(axum::http::header::UPGRADE);
-
-    // A request that is not an upgrade at all is an HTTP request to a WebSocket
-    // path, and 400 says exactly that. Anything else would be a lie: the path
-    // exists, the method does not.
-    if upgrade.and_then(|value| value.to_str().ok()) != Some("websocket") {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            [(
-                axum::http::header::CONTENT_TYPE,
-                "text/plain; charset=utf-8",
-            )],
-            "upgrade required",
-        )
-            .into_response();
-    }
-
-    let credential = offered.get(1).cloned();
-    let caller = match credential.as_deref() {
-        Some(token) => crate::auth::authenticate::Authenticator {
-            database: &state.services.db,
-            keys: &state.services.jwt_keys,
-            clock: crate::auth::jwt_verify::VerifyClock::at(crate::rpc::service::now_ms()),
-            jwt_max_age_secs: state.service.config.jwt_max_age_secs,
-        }
-        .authenticate(token)
-        .await
-        .ok(),
-        None => None,
-    };
-    let decision = crate::worker_link::upgrade_admission::admit_worker_upgrade(
-        &crate::worker_link::upgrade_admission::WorkerUpgradeRequest {
-            path,
-            query,
-            offered_protocols: offered,
-            caller: caller.as_ref().map(|caller| {
-                crate::worker_link::upgrade_admission::VerifiedWorkerCaller {
-                    fingerprint: caller.fingerprint.clone(),
-                    key_generation: caller.key_generation,
-                    label: caller.label.clone(),
-                }
-            }),
-        },
-        caller
-            .as_ref()
-            .is_some_and(|caller| caller.principal.is_worker()),
-        caller.as_ref().map(|caller| caller.key_generation),
-    );
-    match decision {
-        crate::worker_link::upgrade_admission::UpgradeDecision::Refused(refusal) => (
-            axum::http::StatusCode::from_u16(refusal.status())
-                .unwrap_or(axum::http::StatusCode::UNAUTHORIZED),
-            [(
-                axum::http::header::CONTENT_TYPE,
-                "text/plain; charset=utf-8",
-            )],
-            refusal.body(),
-        )
-            .into_response(),
-        crate::worker_link::upgrade_admission::UpgradeDecision::Admitted { .. } => {
-            // Admitted without a credential cannot happen: the credential check
-            // is inside the decision, and a `None` caller is always a refusal.
-            (
-                axum::http::StatusCode::UNAUTHORIZED,
-                [(
-                    axum::http::header::CONTENT_TYPE,
-                    "text/plain; charset=utf-8",
-                )],
-                "unauthorized",
-            )
-                .into_response()
-        }
-    }
-}
-
-/// The Sync upgrade. The decision is in `sync_ws::upgrade_admission`.
-async fn sync_upgrade(State(state): State<Arc<ListenerState>>, request: Request) -> Response {
-    let offered = offered_protocols(&request);
-    let credential = offered.get(1).cloned();
-    let caller = match credential.as_deref() {
-        Some(token) => crate::auth::authenticate::Authenticator {
-            database: &state.services.db,
-            keys: &state.services.jwt_keys,
-            clock: crate::auth::jwt_verify::VerifyClock::at(crate::rpc::service::now_ms()),
-            jwt_max_age_secs: state.service.config.jwt_max_age_secs,
-        }
-        .authenticate(token)
-        .await
-        .ok(),
-        None => None,
-    };
-    let decision = crate::sync_ws::upgrade_admission::admit_sync_upgrade(
-        &crate::sync_ws::upgrade_admission::SyncUpgradeRequest {
-            path: request.uri().path().to_string(),
-            origin: header_string(&request, axum::http::header::ORIGIN),
-            host: header_string(&request, axum::http::header::HOST).unwrap_or_default(),
-            offered_protocols: offered,
-            caller: caller.as_ref().map(|caller| {
-                crate::sync_ws::upgrade_admission::VerifiedSyncCaller {
-                    fingerprint: caller.fingerprint.clone(),
-                    label: caller.label.clone(),
-                }
-            }),
-            tab: None,
-            since: None,
-            flow: None,
-            sync_v: None,
-        },
-        &crate::sync_ws::upgrade_admission::OriginPolicy {
-            public_url: state.service.config.public_url.clone(),
-            web_public_url: state.service.config.web_public_url.clone(),
-            cors_allowed_origins: state.service.config.cors_allowed_origins.clone(),
-            worker_local_ui_origin: roost_host::DEFAULT_WORKER_LOCAL_UI_ORIGIN.to_string(),
-            loopback_bind: Some(state.service.config.bind.clone()),
-            relaxed_csp: state.service.config.relaxed_csp,
-        },
-        match caller.as_ref().map(|caller| &caller.principal) {
-            // An absent credential is already a refusal by the time this runs;
-            // naming it a browser here would be a second, weaker answer.
-            None => crate::sync_ws::upgrade_admission::PrincipalKind::AccountDevice,
-            Some(principal) if principal.is_worker() => {
-                crate::sync_ws::upgrade_admission::PrincipalKind::Worker(
-                    principal.fingerprint().to_string(),
-                )
-            }
-            Some(_) => crate::sync_ws::upgrade_admission::PrincipalKind::AccountDevice,
-        },
-    );
-    match decision {
-        crate::sync_ws::upgrade_admission::SyncUpgradeDecision::Refused(refusal) => (
-            axum::http::StatusCode::from_u16(refusal.status())
-                .unwrap_or(axum::http::StatusCode::BAD_REQUEST),
-            [(
-                axum::http::header::CONTENT_TYPE,
-                "text/plain; charset=utf-8",
-            )],
-            refusal.body(),
-        )
-            .into_response(),
-        crate::sync_ws::upgrade_admission::SyncUpgradeDecision::Admitted { .. } => (
-            axum::http::StatusCode::UNAUTHORIZED,
-            [(
-                axum::http::header::CONTENT_TYPE,
-                "text/plain; charset=utf-8",
-            )],
-            "unauthorized",
-        )
-            .into_response(),
-    }
-}
-
 /// The on-host database export.
-async fn db_export(State(state): State<Arc<ListenerState>>, _request: Request) -> Response {
-    // The on-host gate is the whole authorization for this route: no rate limit,
-    // no extra token. `MiscDbExportUrl`, which is how a caller discovers the
-    // path, requires a device principal AND on-host.
+async fn db_export(State(state): State<Arc<ListenerState>>, request: Request) -> Response {
+    // The on-host gate is the whole authorization for this route: no rate limit
+    // and no second token. `MiscDbExportUrl`, which is how a caller discovers
+    // this path, requires a device principal AND on-host, so a caller that is
+    // not on this host is refused here rather than answered.
+    match from_extensions(request.extensions()) {
+        Some(origin) if origin.on_host => {}
+        Some(origin) => {
+            tracing::warn!(
+                client_ip = %origin.client_ip,
+                listener = ?origin.listener,
+                "db-export refused for a caller that did not arrive on this host"
+            );
+            return on_host_refusal();
+        }
+        None => {
+            // Every request that reached a handler passed the caller-origin
+            // layer, so an absent profile is a wiring fault. It fails closed:
+            // this route's answer is a whole database.
+            tracing::error!(
+                "db-export has no resolved caller origin: the caller-origin layer is not mounted"
+            );
+            return on_host_refusal();
+        }
+    }
     if !state.services.db.path().exists() {
         return (axum::http::StatusCode::NOT_FOUND, "").into_response();
     }
@@ -311,44 +261,14 @@ async fn db_export(State(state): State<Arc<ListenerState>>, _request: Request) -
         .into_response()
 }
 
-fn offered_protocols(request: &Request) -> Vec<String> {
-    request
-        .headers()
-        .get("sec-websocket-protocol")
-        .and_then(|value| value.to_str().ok())
-        .map(|raw| raw.split(',').map(str::trim).map(str::to_string).collect())
-        .unwrap_or_default()
-}
-
-fn header_string(request: &Request, name: axum::http::HeaderName) -> Option<String> {
-    request
-        .headers()
-        .get(name)
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_string)
-}
-
-/// Resolve a bind string into a socket address, refusing anything unparseable.
-///
-/// Refusing here rather than falling back to a default is deliberate: a
-/// mistyped bind that silently became `127.0.0.1:4113` would start a second
-/// coordinator on the same port, and the error the operator sees would be
-/// `address in use` rather than the bind they wrote.
-pub fn resolve_bind(bind: &str) -> Result<SocketAddr, BindError> {
-    bind.parse::<SocketAddr>().map_err(|error| BindError {
-        bind: bind.to_string(),
-        reason: error.to_string(),
-    })
-}
-
-/// A bind that could not be resolved.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("ROOST_COORDINATOR_BIND {bind} is not a host:port address: {reason}")]
-pub struct BindError {
-    /// The bind as written.
-    pub bind: String,
-    /// Why it could not be resolved.
-    pub reason: String,
+/// The refusal the export route gives a caller that is not on this host.
+fn on_host_refusal() -> Response {
+    (
+        axum::http::StatusCode::FORBIDDEN,
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        format!(r#"{{"error":"{ON_HOST_ONLY}"}}"#),
+    )
+        .into_response()
 }
 
 /// The subprotocol marker the coordinator echoes on a successful Sync upgrade.

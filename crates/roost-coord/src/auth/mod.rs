@@ -22,4 +22,5 @@ pub mod pairing;
 pub mod principal;
 pub mod rpc_devices;
 pub mod rpc_pairing;
+pub mod rpc_bootstrap;
 pub mod self_hosted_tenant;

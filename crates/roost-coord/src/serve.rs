@@ -28,7 +28,7 @@ use roost_platform::HostPlatform;
 use crate::coord_core::CoordCore;
 use crate::coord_core::boot_facts::BootFacts;
 use crate::coord_core::seams::{CoordTerminal, WorkerRouteIndex};
-use crate::http::listener::{ListenerState, build_router, resolve_bind};
+use crate::http::listener::{ListenerState, build_router};
 use crate::push::PushRuntime;
 use crate::rpc::service::CoordinatorServiceImpl;
 use crate::services::CoordServices;
@@ -78,7 +78,7 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
     let boot_ms = now_ms();
     let process_epoch = process_epoch();
 
-    let bind = resolve_bind(&boot.config.bind)
+    let bind = crate::http::bind::resolve_bind(&boot.config.bind)
         .with_context(|| format!("coordinator bind {}", boot.config.bind))?;
 
     // The listener's admission gate needs the RESOLVED port, and `:0` only
@@ -159,13 +159,19 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
     // Cloned: the maintenance schedulers below need the same services, and a
     // backup scheduled before the port is accepting would compete with the very
     // startup it protects.
-    let router = build_router(Arc::clone(&state));
+    let mounted = build_router(Arc::clone(&state));
     let listener = tokio::net::TcpListener::bind(bind)
         .await
         .with_context(|| format!("coordinator listen on {bind}"))?;
     let local = listener
         .local_addr()
         .with_context(|| "coordinator local address".to_string())?;
+    // The admission gate's allowlist names the RESOLVED port, so it cannot be
+    // built until the OS has reported which port this bind got. Between the
+    // bind and this line the gate answers `503 listener unavailable` to every
+    // request rather than guessing a port -- and `local.port()` is 0 only for
+    // the instant between the two.
+    mounted.publish_bound_port(local.port());
     tracing::info!(bind = %local, uptime_ms = now_ms().saturating_sub(boot_ms), "coordinator listening");
 
     // Boot step 9 (contract §1.1): maintenance, scheduled AFTER the listener.
@@ -180,7 +186,9 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
 
     axum::serve(
         listener,
-        router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        mounted
+            .router
+            .into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown_signal())
     .await
