@@ -183,13 +183,13 @@ impl MachineTransaction {
             .execute(&pool)
             .await
             .map_err(|error| unusable(lock_file, error))?;
-            // COMMITTED, not left open. This is the whole point: the record has
-            // to be readable by the apply while the lock is still held.
-            sqlx::query("COMMIT")
-                .execute(&pool)
-                .await
-                .map_err(|error| unusable(lock_file, error))?;
-            Ok::<(), TransactionError>(())
+            // No explicit transaction, and that is the point. Autocommit makes
+            // the row durable and VISIBLE to every other connection the moment
+            // it is written, which is what the apply on the far side reads — and
+            // it is the opposite of the open `BEGIN EXCLUSIVE` this used to use,
+            // which held the row invisible for the whole deploy. The
+            // serialisation is the kernel lock taken above, not a database
+            // transaction, so nothing is lost by committing early.
         }
         .await;
         if let Err(error) = written {
@@ -216,8 +216,10 @@ impl MachineTransaction {
         &self.record
     }
 
-    /// Give the machine back: remove the row and commit, which is what releases
-    /// the kernel lock.
+    /// Give the machine back: remove the row, then drop the kernel lock.
+    ///
+    /// The row goes first and autocommits, so a machine never carries a record
+    /// saying "held" while nothing holds it.
     pub async fn release(mut self) -> Result<(), TransactionError> {
         if self.released {
             return Ok(());
@@ -227,10 +229,9 @@ impl MachineTransaction {
             .execute(&self.pool)
             .await
             .map_err(|error| unusable(&self.path, error))?;
-        sqlx::query("COMMIT")
-            .execute(&self.pool)
-            .await
-            .map_err(|error| unusable(&self.path, error))?;
+        // Autocommits, so the row is gone before the kernel lock is dropped.
+        // The order matters: a machine whose record says "held" while nothing
+        // holds it is the state this whole change exists to remove.
         self.pool.close().await;
         // Released last, and released by the kernel either way: dropping the
         // file is enough, so a holder that unwinds still gives the machine back.
