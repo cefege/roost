@@ -133,6 +133,12 @@ impl ChannelId {
     }
 }
 
+impl fmt::Display for ChannelId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}", self.0)
+    }
+}
+
 impl TryFrom<i64> for ChannelId {
     type Error = ProtocolError;
 
