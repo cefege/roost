@@ -59,6 +59,8 @@ export type TerminalTestStackOptions = {
   localFirst?: boolean;
   /** Exact compiled `roost` binary used for worker processes instead of source Bun. */
   workerExecutable?: string;
+  /** Exact compiled `roost` binary used for the coordinator instead of source Bun. */
+  coordExecutable?: string;
   terminalPeer?: TerminalPeerSmokeOptions;
 };
 

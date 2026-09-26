@@ -7,6 +7,7 @@ pub mod agent_occupancy;
 pub mod attachment_transfer;
 pub mod backoff;
 pub mod boot_keeper;
+pub mod browser_commands;
 pub mod channel_fsm;
 pub mod diag_snapshot;
 pub mod event_store;
@@ -20,7 +21,7 @@ pub mod runtime;
 // asked to stop, and `WorkerBoot` is the already-resolved configuration it
 // takes. Re-exported here so the CLI binds to a contract rather than to the
 // shape of the module tree behind it.
-pub use runtime::{serve, serve_until, WorkerBoot, WorkerOverrides};
+pub use runtime::{WorkerBoot, WorkerOverrides, serve, serve_until};
 pub mod scrollback_read;
 pub mod strays;
 pub mod stream_fence;

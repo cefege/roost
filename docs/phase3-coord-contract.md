@@ -525,7 +525,11 @@ is public on both lanes.
 ### 3.8 The reads
 
 Three durable reads over the single global `events` stream, all excluding the
-private kind (`apps/coord/src/events/event-query.ts`):
+private kind. v2 has them in one 60-line file
+(`apps/coord/src/events/event-query.ts`); here they are
+`events/event_query.rs` behind the `EventLog` facade in `events/event_log.rs`,
+because the queries, the row type and the error type are three things a
+reviewer reads separately:
 
 | Read | Window | Limit | Used for |
 | --- | --- | ---: | --- |
@@ -535,6 +539,31 @@ private kind (`apps/coord/src/events/event-query.ts`):
 
 There is **no** retention on the `events` table. That is a deliberate gap in v2,
 not an oversight this port should quietly close.
+
+### 3.9 The buses are THIRTEEN, not twelve
+
+v2 builds thirteen per-domain buses. An early brief for this port listed
+twelve and omitted **`titleBus`** (`Buses::title_bus`, 256 entries,
+`{session_id, title}`), which `terminal-title-hub.ts` publishes and the Sync
+firehose consumes. Dropping it would have lost OSC 0/2 terminal-title
+fan-out with nothing failing, so the list is corrected here rather than in a
+comment on the code.
+
+There is **no per-subscriber queue and therefore no per-subscriber drop**.
+`publish` calls each listener synchronously. A consumer that cannot keep up
+is slow inside its own socket queue, where the per-socket frame budget and
+its close code already live (§7.4, §8.3) — never in the bus. The only drops
+are the ring evicting its oldest entry, and a listener that throws, which is
+caught per listener so one broken frame builder cannot cost every other
+browser its event.
+
+The listener list is snapshotted under the lock and the callbacks run after
+it is released, because holding a mutex across a subscriber callback is a
+lock-order cycle waiting for the first hub that fans out into another bus —
+`agent-status-hub` subscribes to `sessionBus` and publishes to
+`agentStatusBus` today. The visible consequence, and it is **not a bug**: a
+listener that unsubscribes during a fan-out still receives that one message,
+and never receives one after its subscription is gone.
 
 ---
 
@@ -1830,6 +1859,19 @@ identical to it (every table's `PRAGMA table_info`, `foreign_key_list`,
 | `events/admission.rs` | the twelve event-admission rules as pure decisions over facts |
 | `events/visibility.rs` | the one public/private predicate |
 | `events/pending_publications.rs` | the coordinator's bounded publication claim, and the byte-for-byte dedupe comparison |
+| `events/append.rs` | `append_event`, `AppendOptions`, `LiveEffects`, and the result and error types |
+| `events/append_transaction.rs` | the transaction body, in §3.1's order |
+| `events/append_input.rs` | normalisation and truncation applied *before* the commit |
+| `events/append_publication.rs` | the post-commit publish, PRIVATE to the module and unreachable from a handler |
+| `events/projection.rs` | the session row shape, and the stored-enum reads that name their own column |
+| `events/projection_writes.rs` | the projection statements: cascade, snapshot, insert, delete, fold, membership |
+| `events/admission_facts.rs` | the database reads that fill `AdmissionFacts` |
+| `events/bus.rs` | `BoundedBus<T>`, its bounded ring, and per-listener panic isolation |
+| `events/bus_messages.rs` | the bus payload types, split from the bus itself |
+| `events/bus_domains.rs` | the **thirteen** bus singletons at v2's bounds |
+| `events/event_query.rs` | the three durable reads and `StoredEvent` |
+| `events/event_log.rs` | the `EventLog` facade every domain is handed |
+| `events/agent_conversation_recovery.rs` | the conversation-reference projection the event transaction needs |
 | `worker_link/upgrade_admission.rs` | the worker's five-step upgrade order and its four refusals |
 | `worker_link/announced_types.rs` | the barrier's bounds, phases, drop vocabulary and socket-wide budget |
 | `worker_link/announced_barrier.rs` | the barrier machine: announce, enqueue, commit, fail, expire |
@@ -1862,3 +1904,137 @@ identical to it (every table's `PRAGMA table_info`, `foreign_key_list`,
 | `tests/event_admission.rs` | all twelve admission rules, their order, the oracle property, and the visibility predicate |
 | `tests/upgrade_admission.rs` | both upgrade state machines: every refusal, every status, the origin-before-credential order, the query ban |
 | `tests/transport_windows.rs` | the announced-channel barrier, the ACK window, the rate window, and the socket-wide budget |
+
+## 12. Wave 0 — the seams that had to exist before any domain slice
+
+Recorded here because every domain brief depends on them, and because the
+reasoning is the part a later reader needs, not just the shape.
+
+### 12.1 Method ownership wins the two composition roots
+
+v2's `makeSessionHandlers` (`sessions/handlers-sessions.ts:66-335`) is not one
+domain. It is fifteen methods folding in four other folders' handler groups —
+scrollback, local-terminal grant, terminal-peer and global-search — plus
+`bindSyncSessionSnapshot` and the input-control lane. `makeWorkerHandlers`
+(`workers/handlers-workers.ts`) likewise folds in the deploy handlers, even
+though the route table gives `WorkersPrepareKeeperUpdate` to `deploy` and the
+other two deploy methods to `workers`.
+
+**The sessions domain owns all fifteen delegations in `service_impl.rs`** and
+calls the other domains' `handle_*` functions with `&CoordCore`. Folder
+ownership was the alternative and it buys nothing: the methods still funnel
+through one `impl` block, and it multiplies the number of agents editing that
+file. The cost is that sessions links last, which matters only at link time, so
+every other domain still builds and lands in parallel first.
+
+### 12.2 `service_impl.rs` is edited once, by the integrator
+
+One file, one `impl CoordinatorService` block, all 103 methods — and Rust
+forbids splitting a trait implementation across blocks (E0119) even when the
+method names are disjoint, so there is no per-domain `service_*.rs` and there
+cannot be one. Every domain slice therefore delivers a
+`pub async fn handle_<snake_name>(core, caller, req) -> ServiceResult<Resp>` per
+Connect method plus a method-name-to-function list, and **does not apply the
+delegation**. The integrator writes the `impl` arms in one pass. Concurrent
+edits to a 1069-line file by several agents is a merge conflict, not a
+fan-out.
+
+### 12.3 `CoordCore` is the shared handle, and it is not in the service impl
+
+`CoordinatorServiceImpl` holds only `config`, `process_epoch`, `boot_ms` and
+`git_sha`, which is correct: it should not own domain state. But with no handle
+to `CoordServices`, a handler cannot reach the database, the write gate or the
+key cache at all. `coord_core::CoordCore { services: Arc<CoordServices> }` is
+that handle, and the impl carries one `core` field. Adding a per-process
+singleton now widens `CoordCore` rather than the one file every domain also
+edits.
+
+`coord_core::Caller` wraps the existing `auth::principal::Principal` — it does
+not restate it — and adds only the facts an identity cannot carry: the tab, the
+peer address as the listener saw it, whether that peer is on this host, and how
+much the transport vouches for the address. **A missing `Caller` is a wiring
+fault, not an anonymous caller**: it means the interceptor is not mounted, and
+reading it as anonymous would turn a deployment mistake into an authorization
+bypass.
+
+### 12.4 The auth gate is mounted through the generated server
+
+`write_gate::method_holds_lease`, `method_audit_skips_success`,
+`method_never_persists_audit` and `should_persist_method_audit` were ported with
+**no caller**, so the route table's `AuthRequirement` column was documentation
+rather than enforcement. `connectrpc::Router` has no interceptor hook —
+`with_interceptor` exists only on `Service<D>` — so `http/listener.rs` mounts
+`CoordinatorServiceServer::from_arc(..).with_interceptor_arc(..)` directly
+instead of going through the router.
+
+`ListenerTrust` exists because a request that arrived through a reverse proxy is
+only as local as the proxy's header claims. Treating a forwarded peer as
+loopback would let a remote caller claim `on_host` by setting a header.
+
+### 12.5 The bus and the event append are prerequisites, not slices
+
+`events/` had admission, visibility and pending-publication recovery and nothing
+else: no append, no projection, no event-log read, no `BoundedBus`. Nine of the
+thirteen remaining domains publish through a bus, so this lands first and
+blocks them all. The ordering contract in §3.1 is not a suggestion — insert
+with `ON CONFLICT (worker_fp, client_seq) DO NOTHING`, then project, then
+publish strictly after commit.
+### 12.6 The Sync v2 session's outbound seams, as built
+
+Two sealed traits the terminal and feed slices implement rather than call across.
+
+**`terminal::snapshot::TerminalSnapshotHub`** —
+`request_rebaseline(&mut self, socket_id: &str, session_id: &str) -> bool`, with
+`NoTerminalSnapshotHub` as the always-false value.
+
+**`terminal::snapshot::{TerminalSnapshotSource, TerminalSnapshotCursor}`** — the
+second seam, and the one that makes the first usable. `replace_terminal_snapshot`
+takes a `&dyn TerminalSnapshotSource`, and the SOURCE mints the cursor:
+`create_cursor(snapshot_id) -> Option<Arc<dyn TerminalSnapshotCursor>>`, where the
+cursor answers `part_count()` and `materialize(index) -> Option<SharedCellFrame>`.
+`ProtocolCellSnapshot` is the production implementation and it plans through
+`roost-protocol`, so it cannot drift from the worker's planner.
+
+**`snapshot_id` is a PARAMETER, not minted by the hub.** The id namespace belongs
+to the RPC that issued the snapshot; a hub that minted one would be a second
+answer to "which snapshot is this".
+
+### 12.7 `CommandOutcome` has NINE variants
+
+A sketch of five was wrong. The built set, which the feed and terminal slices
+brief against:
+
+`Nothing` · `Acknowledged { released }` · `DomainReady { domain, admitted_sessions }`
+· `AuditSubscription { subscribed }` · `LayoutResult { tab_id, result }` ·
+`Terminal(TerminalCommand)` · `Refusal(FirehoseFrame)` · `ResetTerminal(ResetNotice)`
+· `Invalid`
+
+The two that were not named before, and both are load-bearing:
+
+- **`LayoutResult`** — a `ui_apply_layout_result` goes back to the layout-apply
+  owner and **never** to the terminal sink.
+- **`Invalid`** — the socket closes 1008. Three things produce it: a frame from
+  THIS socket carrying neither an ack nor a command; a `domain` enum value this
+  build does not know; and a frame whose bytes are not the canonical encoding of
+  what it decoded to. `is_canonical_client_frame` is the transport's gate, and
+  the third case is why that check exists — a frame that parses but does not
+  round-trip is not a frame this transport will act on.
+
+`FLUSH_BATCH_FRAMES` is 64, and `has_sendable_work(now_ms, ack_seq)` is the flush
+loop's yield contract: send up to 64, then check, then yield.
+
+### 12.8 KNOWN GAP: the terminal fan-out loop does not work
+
+`tests/sync_v2_session.rs` ships **three `#[ignore]`d tests that FAIL**. The reason
+is in the attribute and it is specific: a terminal lane is pumped once and never
+again, so the second baseline part is never queued. The pump that queues it is
+`terminal/ready_ring.rs::pump_lane`.
+
+**This is a real defect — not a flaky test, not a naming problem.** The other six
+tests in that file pass, which is exactly what makes it dangerous: the file looks
+green while the path that carries a PTY's bytes to two browsers in order is not
+covered. Every assertion in the ignored tests is correct against v2 and fails
+against the port.
+
+**The phase gate does not cover the terminal fan-out, and nothing may report it as
+covered until `pump_lane` is fixed and the three tests are un-ignored.**

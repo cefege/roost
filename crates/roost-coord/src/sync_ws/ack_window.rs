@@ -147,6 +147,31 @@ impl AckWindow {
         self.last_sent_seq.saturating_add(1)
     }
 
+    /// The highest cumulative acknowledgement this window has accepted.
+    #[must_use]
+    pub fn acknowledged(&self) -> u64 {
+        self.highest_ack_seq
+    }
+
+    /// Whether one more frame of `encoded_bytes` fits the count and byte bounds,
+    /// ignoring the age deadline.
+    ///
+    /// THIS IS NOT `may_send`, and the difference is the contract. `may_send`
+    /// also passes the age deadline, and a Sync v2 egress turn that found the
+    /// deadline passed would have to choose between closing and stalling. v2
+    /// resolves that by never checking the age on the send path at all -- the
+    /// delivery timer owns it and closes the socket -- so the v2 scheduler
+    /// STALLS on a full window and lets the timer close on a stalled one
+    /// (`sync-ws-v2-egress.ts:277-290`).
+    #[must_use]
+    pub fn has_room(&self, encoded_bytes: u64) -> bool {
+        if !self.enabled {
+            return true;
+        }
+        self.records.len() < MAX_UNACKED_FRAMES
+            && self.unacked_bytes.saturating_add(encoded_bytes) <= MAX_UNACKED_BYTES
+    }
+
     /// The current counters, for a log line or a `signal`.
     #[must_use]
     pub fn stats(&self, now_ms: u64) -> WindowStats {

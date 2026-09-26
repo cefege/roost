@@ -99,42 +99,38 @@ export function resolveSmokeStackExecutables(
 	};
 }
 
-/**
- * Whether the coordinator knob is actually WIRED.
- *
- * It is resolved and validated — a bad value is still refused here — but the
- * coordinator side is not launched from it yet. Saying so is the point: a knob
- * that resolves and is then ignored would let someone believe a run exercised
- * the Rust coordinator when it exercised the TypeScript one.
- */
-export const COORDINATOR_EXECUTABLE_WIRED = false;
-
-/** Whether this run drives the Rust WORKER. */
+/** Whether this run drives a RUST binary on either side. */
 export function isMixedStack(stack: SmokeStackExecutables): boolean {
-	return stack.workerExecutable !== null;
+	return stack.workerExecutable !== null || stack.coordExecutable !== null;
 }
 
 /**
  * A one-line description of the stack, printed before the stack starts.
  *
  * This is what makes a mixed-stack run legible in CI output: a failing spec
- * that ran against a Rust worker and a TypeScript coordinator is a different
- * bug from one that ran against the TypeScript pair, and the log line is the
- * only place that distinction is recorded.
+ * that ran against a Rust coordinator and a Rust worker is a different bug
+ * from one that ran against the TypeScript pair, and the log line is the only
+ * place that distinction is recorded.
  */
 export function smokeStackDescription(stack: SmokeStackExecutables): string {
 	const worker = stack.workerExecutable ? `rust(${stack.workerExecutable})` : "typescript";
-	let coord: string;
-	if (!stack.coordExecutable) {
-		coord = "typescript";
-	} else if (COORDINATOR_EXECUTABLE_WIRED) {
-		coord = `rust(${stack.coordExecutable})`;
-	} else {
-		// Set but ignored. Said out loud, because a description claiming
-		// otherwise would let a passing run be read as coverage it never had.
-		coord = `typescript(${SMOKE_COORD_EXECUTABLE_ENV} set but NOT wired)`;
-	}
+	const coord = stack.coordExecutable ? `rust(${stack.coordExecutable})` : "typescript";
 	return `smoke stack: coordinator=${coord} worker=${worker}`;
+}
+
+/**
+ * The coordinator launch overrides implied by the environment.
+ *
+ * A packaged binary REPLACES the TypeScript entrypoint and receives the
+ * ordinary `coord` subcommand, the same rule the worker side follows. An
+ * empty object for the default keeps the caller's spread a no-op rather than
+ * a branch.
+ */
+export function coordinatorRuntimeOverrides(stack: SmokeStackExecutables): {
+	coordExecutable?: string;
+} {
+	if (!stack.coordExecutable) return {};
+	return { coordExecutable: stack.coordExecutable };
 }
 
 /**

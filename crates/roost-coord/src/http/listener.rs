@@ -89,9 +89,26 @@ pub struct ListenerState {
 /// the owning domain named -- rather than 404-ing as an unknown path, which
 /// would tell a caller its method does not exist.
 pub fn build_router(state: Arc<ListenerState>) -> Router {
-    let connect = connectrpc::Router::new()
-        .add_service(state.service.clone())
-        .into_axum_router();
+    // `Router` has no interceptor hook -- `with_interceptor` exists only on
+    // `Service<D>` -- so the generated server is mounted directly to put the
+    // auth gate in front of every method. Without it the route table's
+    // `AuthRequirement` column is documentation rather than enforcement.
+    //
+    // `Router::add_service` only registers an `Arc<S>` where `S` is a generated
+    // service, and the interceptor lives on `ConnectRpcService` -- one layer out
+    // from that. So the gate is built here and the whole service is mounted as
+    // the axum fallback, which is exactly what `Router::into_axum_router` does
+    // internally (`ConnectRpcService::new(..)` then `fallback_service`).
+    let server = roost_proto::roost::v1::CoordinatorServiceServer::from_arc(Arc::clone(
+        &state.service,
+    ));
+    let gate = crate::rpc::auth_gate::auth_gate(
+        crate::coord_core::CoordCore::new(Arc::clone(&state.services)),
+        state.service.config.jwt_max_age_secs,
+    );
+    let connect = axum::Router::new().fallback_service(
+        connectrpc::service::ConnectRpcService::new(server).with_interceptor_arc(gate),
+    );
 
     Router::new()
         .route(SYNC_WS_PATH, get(sync_upgrade))

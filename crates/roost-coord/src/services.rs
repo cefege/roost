@@ -38,7 +38,12 @@ pub struct CoordServices {
     pub jwt_keys: JwtKeyCache,
     /// Bounded, same-process recovery for committed events whose live
     /// publication lost a connection-generation race.
-    pub pending_publications: Arc<PendingPublicationStore>,
+    ///
+    /// A `std::sync::Mutex`, not a `tokio::sync::one`: the append path claims
+    /// and clears publications from a critical section that must not span an
+    /// await, and `tokio` is not a dependency of this crate's sync surface.
+    /// Every critical section is synchronous, so nothing is held across one.
+    pub pending_publications: Arc<std::sync::Mutex<PendingPublicationStore>>,
 }
 
 impl CoordServices {
@@ -49,7 +54,7 @@ impl CoordServices {
             db,
             write_gate: WriteGate::new(),
             jwt_keys: JwtKeyCache::new(),
-            pending_publications: Arc::new(PendingPublicationStore::new()),
+            pending_publications: Arc::new(std::sync::Mutex::new(PendingPublicationStore::new())),
         }
     }
 

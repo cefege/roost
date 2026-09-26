@@ -1646,9 +1646,10 @@ expected SHA, took its `rollback-prior` branch and restored the previous release
 commit instead of "succeeding" onto a dead one; a deploy path that trusted "the unit file was written" would
 have reported success against a coordinator that was never running.
 
-**Guard** — `apps/roost-cli/tests/systemd-unit-quoting.test.ts` — generates both units through each installer's
-`write-plist` verb and runs `systemd-analyze --user verify` on them, so a re-quoted path directive fails in CI
-rather than on the first `roost push`.
+**Guard** — `crates/roost-cli/tests/services_definition_text.rs` — renders both roles' units from one spec and
+asserts the path directives are emitted RAW (`WorkingDirectory=` and `StandardOutput=` carry no quotes) while
+`ExecStart=` and `Environment=` are quoted, then hands the coordinator's unit to `systemd-analyze --user verify`
+where that tool exists, so a re-quoted path directive fails in CI rather than on the first `roost push`.
 
 ### A fresh macOS account has no LaunchAgents directory
 
@@ -1664,9 +1665,10 @@ install fails whenever the plist parent has not already been created.
 its data and log directories before staging. The coordinator and worker installers
 share that first-install invariant.
 
-**Guard** — `apps/roost-cli/tests/install-plist-write.test.ts` removes the fake
-`Library/LaunchAgents` directory and proves both installers recreate it before
-publishing a mode-0600 plist.
+**Guard** — `crates/roost-cli/tests/services_install_idempotence.rs` — "the directories a service needs are
+created before the first definition" resolves a spec against a tree with no `LaunchAgents` directory and proves
+`ensure_service_directories` creates the data directory, the log directory and the definition's own parent before
+anything is staged into it.
 
 ### A remote deploy hands the target the deploying box's identity
 
@@ -1765,13 +1767,12 @@ deploy strips an installed value anyway (`workerInstallEnvironmentValues`). The 
 destroys BEFORE requesting the shutdown — `keeper_binding_channel_ids` / `spawning_channels`, `null` when the
 survivor could not enumerate them, which is why the authorization was needed at all.
 
-**Guard** — `apps/roost-cli/tests/deploy-keeper-force-live-authorization.test.ts` — drives the real
-`install.sh write-plist` with the composed environment and pins that the definition carries the flag alongside
-values reused from a prior install, that `loadWorkerConfig` then reads it as armed, and that after the boot
-spends it neither the definition, the following deploy's environment, nor the reinstalled definition carries it;
-`apps/worker/tests/keeper-legacy-retire.test.ts` — an authorized boot logs the discarded bindings before the
-retirement, spends its own authorization, and the same survivor still yields `KEEPER_IDENTITY_UNPROVEN` without
-the flag.
+**Guard** — `crates/roost-cli/tests/services_definition_text.rs` — "a one-shot grant is never carried into a
+definition" resolves a worker spec with both grants set and pins that neither reaches the rendered definition,
+while a caller that arms one through `ServiceSpec::with_setting` gets it, so the flag has to be installed
+deliberately for one deploy; `crates/roost-worker/tests/boot_keeper.rs` — an authorized boot logs the discarded
+bindings before the retirement, spends its own authorization, and the same survivor still yields
+`KEEPER_IDENTITY_UNPROVEN` without the flag.
 
 ### Repairing a dead worker demands that the dead worker be running
 

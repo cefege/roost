@@ -1,11 +1,13 @@
 //! The single `CoordinatorService` implementation's shared half: the type, the
 //! replies it can already give, and the honest answer for the rest.
 //!
-//! Owned by the coordinator's RPC layer. The per-domain `impl` blocks live in
-//! the sibling `service_*.rs` files; together they are ONE implementation of the
-//! generated trait, which is the point of the shape. Rust requires every method,
-//! so a missing delegation is a compile error -- not the silent 501 that a
-//! second `router.service()` call produced in v2
+//! Owned by the coordinator's RPC layer. ALL 103 methods live in ONE
+//! `impl CoordinatorService` block in the sibling `service_impl.rs`, because Rust
+//! forbids splitting a trait implementation across blocks (E0119) even when the
+//! method names are disjoint. There is no per-domain `service_*.rs` and there
+//! cannot be one; a domain slice's methods are wired in by a single integration
+//! pass. Rust requires every method, so a missing delegation is a compile error
+//! -- not the silent 501 that a second `router.service()` call produced in v2
 //! (`apps/coord/src/rpc/router.ts:114-118`).
 //!
 //! WHY THE UNPORTED METHODS RETURN A NAMED `Unimplemented` RATHER THAN A STUB.
@@ -26,15 +28,20 @@ use connectrpc::{ConnectError, Encodable, ErrorCode, Response, ServiceResult, Sp
 
 use super::method_route::{AuthRequirement, all_method_routes};
 use crate::auth::principal::{AUTH_LAYER_DEVICE, AUTH_LAYER_HEADER, Principal};
+use crate::coord_core::CoordCore;
 
 /// The one `CoordinatorService` implementation.
 ///
-/// Holds what the handlers need that is not a request: the resolved config, the
-/// process epoch, and the boot instant `MiscHealth` reports. Domain state is
-/// reached through the coordinator's services struct rather than owned here, so
-/// this stays a name rather than a second place state lives.
+/// Holds what the handlers need that is not a request: the shared process
+/// state, the resolved config, the process epoch, and the boot instant
+/// `MiscHealth` reports. Domain state lives behind [`CoordCore`] rather than
+/// here, so this stays a name rather than a second place state lives -- adding
+/// a per-process singleton must not widen the file every domain slice also
+/// has to edit.
 #[derive(Debug)]
 pub struct CoordinatorServiceImpl {
+    /// The per-process state every domain handler is handed.
+    pub core: CoordCore,
     /// The resolved, validated coordinator configuration.
     pub config: roost_host::CoordConfig,
     /// A fresh identity per process, so a log line can distinguish a restart
@@ -54,12 +61,14 @@ impl CoordinatorServiceImpl {
     /// validation would be a second answer to the same question.
     #[must_use]
     pub fn new(
+        core: CoordCore,
         config: roost_host::CoordConfig,
         process_epoch: String,
         boot_ms: i64,
         git_sha: String,
     ) -> Self {
         Self {
+            core,
             config,
             process_epoch,
             boot_ms,

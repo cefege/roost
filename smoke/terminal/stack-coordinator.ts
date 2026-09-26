@@ -11,11 +11,24 @@ import {
   stopChild,
   waitFor,
 } from "./stack-runtime.ts";
+import { coordinatorRuntimeOverrides, resolveSmokeStackExecutables } from "./stack-executables.ts";
+import { ensureSmokeStackBinary } from "./stack-rust-binaries.ts";
 
 const COORD_START_TIMEOUT_MS = 20_000;
 
+/**
+ * How the coordinator child is launched. A packaged binary replaces the
+ * TypeScript entrypoint; an empty runtime is the TypeScript launch.
+ */
+export interface TerminalCoordinatorRuntime {
+  /** Exact compiled `roost` binary. It receives the ordinary `coord` subcommand. */
+  coordExecutable?: string;
+}
+
 export interface CoordinatorControlOptions {
   bunExecutable: string;
+  /** Exact compiled `roost` binary; absent resolves ROOST_SMOKE_COORD_EXECUTABLE. */
+  coordExecutable?: string;
   /** Checkout the coordinator runs from; an upgrade run swaps it. */
   sourceRoot: string;
   root: string;
@@ -57,12 +70,19 @@ export interface CoordinatorControl {
 export async function startCoordinatorControl(
   options: CoordinatorControlOptions,
 ): Promise<CoordinatorControl> {
-  let child: RunningService | undefined = launch(options, options.initialBind ?? "127.0.0.1:0");
+  const runtime: TerminalCoordinatorRuntime = options.coordExecutable
+    ? { coordExecutable: options.coordExecutable }
+    : coordinatorRuntimeOverrides(resolveSmokeStackExecutables());
+  // A stale binary would make this run prove an older build than the tree it
+  // claims to test, so the build belongs here rather than in a
+  // remember-to-build-first note nobody reads.
+  ensureSmokeStackBinary(runtime.coordExecutable, options.sourceRoot);
+  let child: RunningService | undefined = launch(options, runtime, options.initialBind ?? "127.0.0.1:0");
   // The first launch may use a reserved port; startup logging supplies the resolved
   // bind, which restarts replay verbatim because browsers and clients already dialed it.
   const baseUrl = await waitFor("coordinator startup", COORD_START_TIMEOUT_MS, () => {
-    const match = /"msg":"listening"[^\n]*"bind":"([^"]+)"/.exec(logTail(options.logPath));
-    return match ? `http://${match[1]}` : undefined;
+    const bound = listeningBind(logTail(options.logPath));
+    return bound ? `http://${bound}` : undefined;
   }).catch(async (error) => {
     // A child that outlived its own failed boot would hold the port and the
     // coordinator database for every later run in the same job.
@@ -79,7 +99,7 @@ export async function startCoordinatorControl(
     },
     start: async () => {
       if (child) return;
-      child = launch(options, bind);
+      child = launch(options, runtime, bind);
       await waitFor("coordinator startup", COORD_START_TIMEOUT_MS, () =>
         options.probeReady().then(() => true),
       ).catch((error) => {
@@ -89,9 +109,41 @@ export async function startCoordinatorControl(
   };
 }
 
-function launch(options: CoordinatorControlOptions, bind: string): RunningService {
+/**
+ * The bind a coordinator reported while starting, or undefined.
+ *
+ * Read as JSON rather than matched as text because the two implementations
+ * differ in both key order and message key: the TypeScript line leads with
+ * `msg`, while the Rust formatter sorts the caller's `bind` ahead of the rest
+ * and carries the message under `message`. A regex written for one shape
+ * silently never matches the other, which reads as a coordinator that never
+ * boots even though it is listening.
+ */
+export function listeningBind(logText: string): string | undefined {
+  for (const line of logText.split("\n")) {
+    let event: unknown;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (typeof event !== "object" || event === null) continue;
+    const { msg, message, bind } = event as { msg?: unknown; message?: unknown; bind?: unknown };
+    const text = typeof msg === "string" ? msg : message;
+    if (typeof text !== "string" || !text.includes("listening")) continue;
+    if (typeof bind === "string") return bind;
+  }
+  return undefined;
+}
+
+function launch(
+  options: CoordinatorControlOptions,
+  runtime: TerminalCoordinatorRuntime,
+  bind: string,
+): RunningService {
   return startCoordinatorService({
     bunExecutable: options.bunExecutable,
+    coordExecutable: runtime.coordExecutable,
     sourceRoot: options.sourceRoot,
     root: options.root,
     home: options.home,

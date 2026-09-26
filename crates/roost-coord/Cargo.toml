@@ -8,6 +8,9 @@ repository.workspace = true
 description = "The coordinator service: SQLite state, auth, Connect RPC handlers, the Sync and worker WebSocket links, terminal hubs, and web push. Speaks the wire, never the terminal."
 
 [dependencies]
+# The `Interceptor` trait is declared with `#[async_trait]`, so an impl of it must
+# carry the same attribute or the rewritten lifetimes disagree (E0195).
+async-trait = "0.1"
 anyhow.workspace = true
 axum = { workspace = true, features = ["http1", "json", "query", "tokio", "ws"] }
 base64.workspace = true

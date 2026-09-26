@@ -12,6 +12,7 @@
 //! names behind a list, which is exactly what the no-metaprogramming rule exists
 //! to prevent.
 
+pub mod auth_gate;
 pub mod method_route;
 pub mod method_route_rows;
 pub mod service;

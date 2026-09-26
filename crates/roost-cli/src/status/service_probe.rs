@@ -52,11 +52,13 @@ fn probe_command(label: &str, platform: HostPlatform) -> Vec<String> {
     }
 }
 
-/// `launchctl print` addresses a per-user domain, so the uid is part of the
-/// query. `libc::getuid` is a safe call in the `libc` crate: it has no
-/// preconditions and needs no `unsafe` block, which is why this crate keeps
-/// `#![forbid(unsafe_code)]` and still names the real uid.
-fn current_uid() -> u32 {
+/// The uid a launchd per-user domain is addressed by, shared with the install
+/// paths in `crate::services::service_argv` so a job is bootstrapped into the
+/// same domain it is probed in. `libc::getuid` is an `unsafe` call and this
+/// crate forbids `unsafe`, so the uid is read from a file the account owns
+/// instead. Every account has a home directory, and its owner is the account
+/// running this command.
+pub fn current_uid() -> u32 {
     use std::os::unix::fs::MetadataExt;
     // `libc::getuid` is an `unsafe` call and this crate forbids `unsafe`, so
     // the uid is read from a file the account owns instead. Every account has a

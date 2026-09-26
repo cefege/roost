@@ -5,7 +5,6 @@
 
 import {
 	resolveSmokeStackExecutables,
-	smokeStackDescription,
 	workerRuntimeOverrides,
 } from "./stack-executables.ts";
 
@@ -22,6 +21,7 @@ import {
   type RunningService,
 } from "./stack-runtime.ts";
 
+import { ensureSmokeStackBinary } from "./stack-rust-binaries.ts";
 const WORKER_READY_TIMEOUT_MS = 30_000;
 
 export type TerminalWorkerPeerPortRange = {
@@ -67,15 +67,22 @@ export function createTerminalWorkerStarter(
   sourceRoot: string = REPOSITORY_ROOT,
   runtime: TerminalWorkerRuntime = {},
 ): (config: TerminalWorkerStartConfig) => RunningService {
-  if (runtime.workerExecutable && runtime.sourceEntrypoint) {
+  // An explicit runtime (a peer-fault entrypoint, a qualified packaged worker)
+  // is the caller's decision and wins; an empty one takes the environment's
+  // knob, which is the same rule the coordinator side follows.
+  const selected: TerminalWorkerRuntime = runtime.workerExecutable || runtime.sourceEntrypoint
+    ? runtime
+    : workerRuntimeOverrides(resolveSmokeStackExecutables());
+  if (selected.workerExecutable && selected.sourceEntrypoint) {
     throw new Error("a packaged worker cannot use a source smoke entrypoint");
   }
-  const command = runtime.workerExecutable ?? bunExecutable;
-  const args = runtime.workerExecutable
+  ensureSmokeStackBinary(selected.workerExecutable, sourceRoot);
+  const command = selected.workerExecutable ?? bunExecutable;
+  const args = selected.workerExecutable
     ? ["worker"]
     : [
-      runtime.sourceEntrypoint ?? "apps/worker/src/main.ts",
-      ...(runtime.sourceEntrypointArgs ?? []),
+      selected.sourceEntrypoint ?? "apps/worker/src/main.ts",
+      ...(selected.sourceEntrypointArgs ?? []),
     ];
   return (config) => {
     const workerLog = openSync(config.logPath, "a");

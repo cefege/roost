@@ -48,6 +48,7 @@ async function runUnit(): Promise<void> {
     "apps/web/src/",
     "apps/roost-cli/tests/",
     "smoke/bun_smoke.test.ts",
+    "smoke/stack-executables.test.ts",
   ], {
     // Web sources gate smoke hooks behind VITE_ROOST_SMOKE at build time; unit
     // tests arm them via the runtime flag alone, so declare the build flag here too.

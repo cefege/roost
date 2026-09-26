@@ -199,12 +199,12 @@ impl WorkerBoot {
 }
 
 fn check_endpoint(base: &str, fingerprint: &str) -> Result<(), BootConfigError> {
-    CoordinatorEndpoint::new(base, fingerprint).map(|_| ()).map_err(|error| {
-        BootConfigError::BadCoordinatorUrl {
+    CoordinatorEndpoint::new(base, fingerprint)
+        .map(|_| ())
+        .map_err(|error| BootConfigError::BadCoordinatorUrl {
             value: base.to_string(),
             reason: error.to_string(),
-        }
-    })
+        })
 }
 
 /// An environment value when it is set and not empty, else the default.

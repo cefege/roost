@@ -20,6 +20,7 @@
 #![forbid(unsafe_code)]
 
 pub mod auth;
+pub mod coord_core;
 pub mod db;
 pub mod events;
 pub mod http;

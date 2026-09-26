@@ -12,6 +12,7 @@ import { loadWorkerKey } from "../../apps/worker/src/host/jwt.ts";
 import {
   REPOSITORY_ROOT,
   authorizeTerminalTestApiKey,
+  cleanInstallResources,
   logTail,
   stopChild,
   stopDeployedWorker,
@@ -29,6 +30,7 @@ import type { DelayedWorkerLink } from "./delayed-worker-link.ts";
 import { createFixtureWorkerStarter, type PtyFixtureWorkerStartOptions } from "./stack-fixture-worker.ts";
 import { createLocalUiOrigins } from "./stack-local-ui.ts";
 import { startCoordinatorControl, type CoordinatorControl } from "./stack-coordinator.ts";
+import { resolveSmokeStackExecutables, smokeStackDescription } from "./stack-executables.ts";
 import {
   startDirectInputHold,
   type DirectInputHold,
@@ -134,37 +136,7 @@ export async function startTerminalTestStack(
   const stop = async () => {
     const errors: string[] = [];
     try {
-      const cleanInstallResources = async (installClient: AuthorizedApiClient): Promise<void> => {
-        const { sessions } = await installClient.sessionsList({ status: "all" }).catch((error) => {
-          errors.push(`list sessions: ${String(error)}`);
-          return { sessions: [] };
-        });
-        await Promise.all(sessions.map((session) => installClient.sessionsKill({ sessionId: session.id }).catch((error) => {
-          errors.push(`kill session ${session.id}: ${String(error)}`);
-        })));
-        const { workspaces } = await installClient.workspacesList({}).catch((error) => {
-          errors.push(`list workspaces: ${String(error)}`);
-          return { workspaces: [] };
-        });
-        for (const workspace of workspaces) {
-          for (let attempt = 0; attempt < 2; attempt++) {
-            const current = await installClient.workspacesList({}).then((result) =>
-              result.workspaces.find((item) => item.id === workspace.id),
-            ).catch((error) => {
-              errors.push(`read workspace ${workspace.id}: ${String(error)}`);
-              return undefined;
-            });
-            if (!current) break;
-            try {
-              await installClient.workspacesDelete({ id: current.id, ifVersion: current.version });
-              break;
-            } catch (error) {
-              if (attempt === 1) errors.push(`delete workspace ${current.id}: ${String(error)}`);
-            }
-          }
-        }
-      };
-      if (client) await cleanInstallResources(client);
+      if (client) await cleanInstallResources(client, errors);
     } finally {
       await directInputHold?.stop().catch((error) => errors.push(`stop direct input hold: ${String(error)}`));
       await peerFaultControl?.stop().catch((error) => errors.push(`stop terminal peer fault control: ${String(error)}`));
@@ -194,9 +166,14 @@ export async function startTerminalTestStack(
     if (errors.length > 0) throw new Error(`terminal stack cleanup failed:\n${errors.join("\n")}`);
   };
 
+  // Printed before anything is spawned: a spec that failed against a packaged
+  // binary and one that failed against the TypeScript source are different
+  // bugs, and this line is the only record of which ran.
+  console.log(smokeStackDescription(resolveSmokeStackExecutables()));
+
   try {
     if (terminalPeer?.enableFaults) {
-      if (options.workerExecutable) {
+      if (options.workerExecutable || resolveSmokeStackExecutables().workerExecutable) {
         throw new Error("terminal peer fault controls require a source worker");
       }
       if (process.platform === "win32") {
@@ -225,6 +202,7 @@ export async function startTerminalTestStack(
     await coordinatorLocalUi?.release();
     coordinator = await startCoordinatorControl({
       bunExecutable,
+      coordExecutable: options.coordExecutable,
       sourceRoot: coordRelease.sourceRoot,
       root,
       home,

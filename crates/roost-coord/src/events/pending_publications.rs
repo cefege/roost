@@ -21,13 +21,14 @@
 //! now.
 //!
 //! PROCESS MEMORY ONLY, AND THAT IS CORRECT. A crash discards every retained
-//! effect. What it costs is the live push, not the fact: the worker still holds
 //! the entry unacked, replays the same `client_seq`, the INSERT deduplicates, and
 //! the worker gets its ACK. The browser recovers the event from the durable
 //! `events` table through the Sync feed. The only cross-process state in this
 //! whole mechanism is the SQLite unique index.
 
 use std::collections::HashMap;
+
+use roost_protocol::wire::WorkspaceId;
 
 use crate::events::visibility::kind_is_public;
 
@@ -73,6 +74,16 @@ pub struct RetainedPublication {
     pub event_json: String,
     /// The dashboard this event was scoped to.
     pub dashboard_id: String,
+    /// Workspaces a `closed` orphaned, republished when the claim publishes.
+    ///
+    /// v2's `CommittedEventPublication` carries these
+    /// (`pending-event-publications.ts:24-30`) and the claim path republishes
+    /// them. Without them a claim would publish the session event and silently
+    /// drop the workspace deletion, and a browser that missed the live delta
+    /// would keep a workspace in its sidebar that no longer exists.
+    pub cascade_orphan_ids: Vec<WorkspaceId>,
+    /// Sessions a snapshot found force-closed, reaped when the claim publishes.
+    pub snapshot_reap_ids: Vec<String>,
 }
 
 impl RetainedPublication {
@@ -88,10 +99,12 @@ impl RetainedPublication {
 }
 
 /// What a claim attempt found.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClaimOutcome {
-    /// The retained effect was handed over for publication.
-    Claimed,
+    /// The retained effect was handed over for publication, and it is handed over
+    /// **whole**: the claimer publishes from this value rather than re-deriving
+    /// one, so what reaches the bus is the bytes the first delivery committed.
+    Claimed(RetainedPublication),
     /// There is nothing to publish: a dedupe with no retained effect, which is
     /// the ordinary path after a crash.
     Nothing,
@@ -206,8 +219,9 @@ impl PendingPublicationStore {
         if effect.event_json != replay_event_json {
             return ClaimOutcome::PayloadMismatch;
         }
+        let claimed = effect.clone();
         slot.state = SlotState::Claimed;
-        ClaimOutcome::Claimed
+        ClaimOutcome::Claimed(claimed)
     }
 
     /// Release a slot after a successful publish, or when there is nothing to

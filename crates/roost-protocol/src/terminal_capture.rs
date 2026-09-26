@@ -1,13 +1,18 @@
-//! The limits on a terminal capture request, including the browser evidence cap.
+//! The limits on a terminal capture request, the vocabulary its answer uses,
+//! and the shape of that answer.
 //!
 //! One table, so a limit cannot drift between the layer that produces evidence
 //! and the layer that refuses it: the worker's recorder, the coordinator's
 //! bridge and the storage writer all read these numbers from here. The bundle
 //! shapes and the validation of a bundle's contents live with the recorder and
-//! the coordinator; this file is the bounds they agree on.
+//! the coordinator; this file is the bounds and the answer they agree on.
+//!
+//! The answer vocabulary lives here rather than in the worker because the
+//! coordinator narrows a worker's reply against the SAME literals: a code only
+//! the worker can name is a capture the coordinator treats as a worker failure.
 
-/// Every bound the recorders, the bridge and the storage writer enforce.
-///
+use serde::{Deserialize, Serialize};
+
 /// Byte and entry limits are `usize` because they are compared against a
 /// buffer or a collection length; millisecond limits are `u64` because they are
 /// compared against a clock delta the caller supplies.
@@ -89,6 +94,104 @@ pub const TERMINAL_CAPTURE_EVIDENCE_MAX_CHARS: usize =
 /// Whether browser evidence is within its cap, counted in UTF-8 bytes.
 pub fn has_at_most_browser_evidence_bytes(value: &str) -> bool {
     value.len() <= TERMINAL_CAPTURE_LIMITS.browser_evidence_bytes
+}
+
+/// What a capture is doing, as the worker reports it.
+///
+/// A closed set on purpose: the coordinator rebuilds a worker's answer from
+/// the fields it recognizes and treats an unfamiliar value as a worker
+/// failure, so a status invented on one side and not the other is a capture
+/// nobody can download rather than a warning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalCaptureStatus {
+    Recording,
+    Captured,
+    Stopped,
+    /// A capture that froze evidence but could not write the whole bundle.
+    Partial,
+    Error,
+}
+
+/// Every way a capture can fail, and nothing else.
+///
+/// A capture failure never carries a validation or parser message, because
+/// those quote the terminal text they failed on: an exception message from a
+/// grid walk is a piece of somebody's screen, and this vocabulary crosses a
+/// trust boundary into an operator-visible download.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalCaptureErrorCode {
+    InvalidArgument,
+    PermissionDenied,
+    SessionUnknown,
+    WorkerOffline,
+    WorkerTimeout,
+    WorkerFailed,
+    LeaseConflict,
+    LeaseExpired,
+    LeaseAbsent,
+    ResourceExhausted,
+    EvidenceTooLarge,
+    EvidenceMalformed,
+    CaptureInFlight,
+    RateLimited,
+    CaptureExpired,
+    StorageFailed,
+    Internal,
+}
+
+/// A capture the worker froze, named so an operator can download it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalCaptureFileRef {
+    pub capture_id: String,
+    pub path: String,
+    pub byte_length: u64,
+    pub status: TerminalCaptureStatus,
+}
+
+/// The worker's answer to one capture command.
+///
+/// Spelled in the worker's own wire case, which is snake_case; the coordinator
+/// rebuilds its camelCase projection from the fields it recognizes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalCaptureWorkerAck {
+    pub status: TerminalCaptureStatus,
+    pub path: Option<String>,
+    pub byte_length: Option<u64>,
+    pub error: Option<TerminalCaptureErrorCode>,
+    pub expires_at_ms: Option<u64>,
+    /// The last incident the WORKER froze on its own, so a capture the browser
+    /// never asked for is still downloadable. The capture being answered is
+    /// excluded: echoing it there would claim the worker independently found
+    /// an incident the operator requested.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recent_worker_capture: Option<TerminalCaptureFileRef>,
+}
+
+impl TerminalCaptureWorkerAck {
+    /// A failure answer, carrying no path and no length.
+    pub fn failed(error: TerminalCaptureErrorCode) -> Self {
+        Self {
+            status: TerminalCaptureStatus::Error,
+            path: None,
+            byte_length: None,
+            error: Some(error),
+            expires_at_ms: None,
+            recent_worker_capture: None,
+        }
+    }
+
+    /// Name the last incident the worker froze, unless it is this one.
+    pub fn with_recent_worker_capture(
+        mut self,
+        recent: Option<TerminalCaptureFileRef>,
+        answering_capture_id: &str,
+    ) -> Self {
+        self.recent_worker_capture = recent
+            .filter(|capture| capture.capture_id != answering_capture_id);
+        self
+    }
 }
 
 #[cfg(test)]

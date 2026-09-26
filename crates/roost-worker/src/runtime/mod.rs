@@ -38,11 +38,10 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 
-
+use crate::link_dial::CoordinatorEndpoint;
 use boot_order::{BootSequence, Readiness, StepId};
 use credential::UnavailableCredential;
 use keeper_boot::KeeperBootOutcome;
-use crate::link_dial::CoordinatorEndpoint;
 use link_loop::{LinkLoop, WorkerIdentity};
 use link_wire::UnavailableWire;
 use snapshot_source::NoSnapshot;

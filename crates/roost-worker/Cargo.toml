@@ -9,12 +9,14 @@ description = "The worker service: sessions, the keeper client, the durable outb
 
 [dependencies]
 anyhow.workspace = true
+base64.workspace = true
 futures-util.workspace = true
 roost-host.workspace = true
 roost-keeper.workspace = true
 roost-observability.workspace = true
 roost-platform.workspace = true
 roost-protocol.workspace = true
+serde_json.workspace = true
 tracing.workspace = true
 sha2.workspace = true
 thiserror.workspace = true

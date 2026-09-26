@@ -21,6 +21,7 @@ pub mod daemon;
 pub mod doctor;
 pub mod ops;
 pub mod overlay_env;
+pub mod services;
 pub mod status;
 pub mod utc_clock;
 pub mod wall_clock;

@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { resolveLocalEndpoint } from "../../packages/host/src/local-endpoint.ts";
 import { shutdownKeeperAuthenticated } from "../../apps/worker/src/keeper/keeper-probe.ts";
+import type { AuthorizedApiClient } from "../../apps/roost-cli/src/api.ts";
 
 export const REPOSITORY_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -155,8 +156,83 @@ async function stopDeployedWorker(pid: number | undefined): Promise<void> {
   }
 }
 
+/**
+ * Delete every session and workspace the coordinator still holds, the way an
+ * uninstall would, collecting each refusal instead of stopping at the first.
+ *
+ * The stack owns this rather than a spec because rows left behind make the
+ * NEXT spec's row assertions depend on spec order, and the failure then names
+ * the wrong test. A version mismatch is retried against a fresh read: the
+ * delete is conditional on the version it was handed, so a concurrent write
+ * makes the first attempt fail without anything being wrong.
+ */
+export async function cleanInstallResources(
+  installClient: AuthorizedApiClient,
+  errors: string[],
+): Promise<void> {
+  const { sessions } = await installClient.sessionsList({ status: "all" }).catch((error) => {
+    errors.push(`list sessions: ${String(error)}`);
+    return { sessions: [] };
+  });
+  await Promise.all(sessions.map((session) => installClient.sessionsKill({ sessionId: session.id }).catch((error) => {
+    errors.push(`kill session ${session.id}: ${String(error)}`);
+  })));
+  const { workspaces } = await installClient.workspacesList({}).catch((error) => {
+    errors.push(`list workspaces: ${String(error)}`);
+    return { workspaces: [] };
+  });
+  for (const workspace of workspaces) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const current = await installClient.workspacesList({}).then((result) =>
+        result.workspaces.find((item) => item.id === workspace.id),
+      ).catch((error) => {
+        errors.push(`read workspace ${workspace.id}: ${String(error)}`);
+        return undefined;
+      });
+      if (!current) break;
+      try {
+        await installClient.workspacesDelete({ id: current.id, ifVersion: current.version });
+        break;
+      } catch (error) {
+        if (attempt === 1) errors.push(`delete workspace ${current.id}: ${String(error)}`);
+      }
+    }
+  }
+}
+
+/**
+ * The process a coordinator child runs as, and the arguments it receives.
+ *
+ * A packaged `roost` binary gets the ordinary `coord` subcommand; the default
+ * runs the checkout's entrypoint under bun. Those are the only two shapes, and
+ * naming them in one place is what lets a run say which one it used instead of
+ * implying it.
+ */
+export interface CoordinatorLaunchPlan {
+  readonly command: string;
+  readonly args: readonly string[];
+}
+
+/**
+ * The coordinator launch plan implied by an explicit binary.
+ *
+ * Absent the binary this is exactly the TypeScript launch the suite has always
+ * used, down to the relative entrypoint resolved against the source root.
+ */
+export function coordinatorLaunchPlan(config: {
+  bunExecutable: string;
+  coordExecutable?: string;
+}): CoordinatorLaunchPlan {
+  if (!config.coordExecutable) {
+    return { command: config.bunExecutable, args: ["apps/coord/src/main.ts"] };
+  }
+  return { command: config.coordExecutable, args: ["coord"] };
+}
+
 export interface CoordinatorServiceConfig {
   bunExecutable: string;
+  /** The exact compiled `roost` binary; it receives the ordinary `coord` subcommand. */
+  coordExecutable?: string;
   /** Checkout the coordinator process runs from; a release upgrade swaps it. */
   sourceRoot: string;
   root: string;
@@ -183,9 +259,10 @@ export interface CoordinatorServiceConfig {
 
 export function startCoordinatorService(config: CoordinatorServiceConfig): RunningService {
   const coordLog = openSync(config.logPath, "a");
+  const plan = coordinatorLaunchPlan(config);
   return {
     logPath: config.logPath,
-    child: spawn(config.bunExecutable, ["apps/coord/src/main.ts"], {
+    child: spawn(plan.command, [...plan.args], {
       cwd: config.sourceRoot,
       env: childEnvironment(config.home, config.tmpDir, {
         ROOST_COORDINATOR_BIND: config.bind,

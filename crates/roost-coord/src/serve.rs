@@ -26,6 +26,7 @@ use roost_host::CoordConfig;
 use roost_platform::HostPlatform;
 
 use crate::http::listener::{ListenerState, build_router, resolve_bind};
+use crate::coord_core::CoordCore;
 use crate::rpc::service::CoordinatorServiceImpl;
 use crate::services::CoordServices;
 
@@ -84,9 +85,27 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
     let database = crate::db::open(&boot.config.db_path)
         .await
         .with_context(|| format!("coordinator database {}", boot.config.db_path.display()))?;
+    // Boot step 6 (contract §1.1): the self-hosted tenant invariant, BEFORE the
+    // listener exists. A mis-scoped database must never bind a port, so a throw
+    // here is the correct outcome rather than a late failure. Steps 3 (the
+    // pre-migration backup), 5 (the authorized-keys import) and 7 (the startup
+    // janitor) are still unimplemented and are named in the module header.
+    let tenant = crate::auth::self_hosted_tenant::ensure_self_hosted_tenant(&database, boot_ms)
+        .await
+        .with_context(|| "self-hosted tenant invariant")?;
+    tracing::info!(
+        account_id = %tenant.account_id,
+        organization_id = %tenant.organization_id,
+        dashboard_id = %tenant.dashboard_id,
+        "self-hosted tenant ready"
+    );
+
     let services = Arc::new(CoordServices::new(database));
 
+    let core = CoordCore::new(Arc::clone(&services));
+
     let service = Arc::new(CoordinatorServiceImpl::new(
+        core,
         boot.config.clone(),
         process_epoch,
         boot_ms,

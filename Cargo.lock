@@ -2141,6 +2141,7 @@ dependencies = [
  "anyhow",
  "clap",
  "connectrpc",
+ "hex",
  "reqwest",
  "roost-coord",
  "roost-host",
@@ -2152,6 +2153,7 @@ dependencies = [
  "roost-worker",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "sqlx",
  "thiserror 2.0.21",
  "tokio",
@@ -2173,6 +2175,7 @@ name = "roost-coord"
 version = "3.0.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "base64 0.23.1",
  "connectrpc",
@@ -2286,12 +2289,14 @@ name = "roost-worker"
 version = "3.0.0"
 dependencies = [
  "anyhow",
+ "base64 0.23.1",
  "futures-util",
  "roost-host",
  "roost-keeper",
  "roost-observability",
  "roost-platform",
  "roost-protocol",
+ "serde_json",
  "sha2 0.11.0",
  "thiserror 2.0.21",
  "tokio",

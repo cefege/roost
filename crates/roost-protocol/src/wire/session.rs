@@ -27,6 +27,19 @@ pub enum SessionKind {
     Shell,
 }
 
+impl std::str::FromStr for SessionKind {
+    type Err = ProtocolError;
+
+    fn from_str(value: &str) -> ProtocolResult<Self> {
+        [SessionKind::Shell]
+            .into_iter()
+            .find(|kind| kind.as_str() == value)
+            .ok_or_else(|| {
+                ProtocolError::new("session_kind", format!("unknown session kind {value:?}"))
+            })
+    }
+}
+
 impl SessionKind {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -40,6 +53,19 @@ impl SessionKind {
 pub enum SessionStatus {
     Open,
     Closed,
+}
+
+impl std::str::FromStr for SessionStatus {
+    type Err = ProtocolError;
+
+    fn from_str(value: &str) -> ProtocolResult<Self> {
+        [SessionStatus::Open, SessionStatus::Closed]
+            .into_iter()
+            .find(|status| status.as_str() == value)
+            .ok_or_else(|| {
+                ProtocolError::new("session_status", format!("unknown session status {value:?}"))
+            })
+    }
 }
 
 impl SessionStatus {
@@ -62,6 +88,24 @@ pub enum PullRequestState {
     Draft,
 }
 
+impl std::str::FromStr for PullRequestState {
+    type Err = ProtocolError;
+
+    fn from_str(value: &str) -> ProtocolResult<Self> {
+        [
+            PullRequestState::Open,
+            PullRequestState::Merged,
+            PullRequestState::Closed,
+            PullRequestState::Draft,
+        ]
+        .into_iter()
+        .find(|state| state.as_str() == value)
+        .ok_or_else(|| {
+            ProtocolError::new("pr_state", format!("unknown pull request state {value:?}"))
+        })
+    }
+}
+
 impl PullRequestState {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -80,6 +124,24 @@ pub enum PullRequestChecks {
     Failing,
     Pending,
     None,
+}
+
+impl std::str::FromStr for PullRequestChecks {
+    type Err = ProtocolError;
+
+    fn from_str(value: &str) -> ProtocolResult<Self> {
+        [
+            PullRequestChecks::Passing,
+            PullRequestChecks::Failing,
+            PullRequestChecks::Pending,
+            PullRequestChecks::None,
+        ]
+        .into_iter()
+        .find(|checks| checks.as_str() == value)
+        .ok_or_else(|| {
+            ProtocolError::new("pr_checks", format!("unknown pull request checks {value:?}"))
+        })
+    }
 }
 
 impl PullRequestChecks {

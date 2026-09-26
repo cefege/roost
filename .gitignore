@@ -9,6 +9,9 @@ dist/
 coordinator_v2.db*
 bun.lockb.bak
 target/
+# Per-agent isolated build dirs, so parallel agents never contend on the
+# shared cargo lock. Build output, never source.
+target-*/
 __pycache__/
 *.pyc
 .venv/
