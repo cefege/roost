@@ -672,6 +672,42 @@ of them by default.** So the third category is named explicitly: it goes in as a
 accident** — because adding a check nobody decided on is how a documented
 limitation becomes an undocumented behaviour change.
 
+## The input that does not say what the test's own name says
+
+This has now appeared **four times independently, in three unrelated areas**,
+which makes it a class rather than a coincidence:
+
+- a test named `a_wrong_requester_token_finds_nothing` called a helper that
+  **hardcoded the correct token**, so "wrong" was a *successful* confirmation;
+- `workspaces_sync_delta` asserted `created.name == "ws"` ten lines above a
+  builder that produces `format!("ws-{folder}")` — provable without running it;
+- a trust-boundary test passed `UNADMITTED` (documented as a SESSION uuid) as a
+  **view id**, so validation passed, the declaration was admitted, and **the
+  `!allowed` arm was never reached — the test was exercising nothing**;
+- a "stranger" identity built from the same `WORKER_FP` the harness registers
+  the owner with, so the stranger **was** the owner.
+
+**The general form: a test's input builder and its name are written separately,
+and nothing checks that the builder produces what the name claims.** The name is
+the specification; the builder is the fixture; a test is honest only when the two
+agree, and **the assertion cannot detect the disagreement** — it either passes
+vacuously or fails for a reason the name does not describe.
+
+**So the check is mechanical and belongs before the run: read the test's input
+builder and compare it to the test's name and doc comment.** A name naming a
+*wrong*, *stranger*, *expired*, *revoked* or *foreign* value is a claim that the
+fixture is distinguishing it, and a builder that cannot distinguish it is a
+vacuous test. **This is the last thing a compiler, a linter, and a reviewer
+skimming the assertions will ever catch — it is only visible in the gap between
+the signature and the setup.**
+
+And the corollary that makes it a real risk rather than a style note: **four of
+these were found by reading inputs, not assertions, and one of the four was
+hiding a genuine product defect behind it** — a same-revision ACTIVE declaration
+could revive a released claim, because the admission guard was unreachable for
+release-created claims. **A vacuous test is not merely wasted; it is a place
+where a real defect goes to hide.**
+
 ## A test that drops the handle asserts the opposite of the contract
 
 Three separate tests in one wave failed for the same reason, and it is a class
