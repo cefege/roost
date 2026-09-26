@@ -77,8 +77,9 @@ pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result
     install_observability();
     let mut sequence = BootSequence::new();
     // Never advanced in this build. The two steps that would advance it are the
-    // session reconcile and the snapshot provider, and both need a session layer
-    // this crate does not have yet — see the TODO at the call site.
+    // session reconcile and the snapshot provider, and both need the session
+    // MANAGER — the record, its sinks and the launch contract are in
+    // `crate::session`, and the thing that owns a set of them is not.
     let readiness = Readiness::default();
     tracing::info!(
         fingerprint = %boot.fingerprint,
@@ -137,11 +138,13 @@ pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result
         "boot: keeper admitted"
     );
 
-    // UNIMPLEMENTED: the local door, the session manager, agent tracking and
-    // the heartbeat, in v2's order between here and the link. The local door
-    // comes before the link in v2 and must here too: a browser on this machine
-    // reaches its own PTYs through the door, and it has to keep doing that while
-    // the coordinator is unreachable.
+    // UNIMPLEMENTED: the local door (`crate::door` over `crate::local_door`'s
+    // policy), the session manager (`crate::session`, plus the
+    // `keeper_pool` connection it drives), agent tracking (`crate::agents`)
+    // and the heartbeat, in v2's order between here and the link. The local
+    // door comes before the link in v2 and must here too: a browser on this
+    // machine reaches its own PTYs through the door, and it has to keep doing
+    // that while the coordinator is unreachable.
 
     // 3. The coordinator link, after the keeper rather than before it, because
     //    the keeper is what holds the terminals and a coordinator outage must not
@@ -167,13 +170,15 @@ pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result
         "boot: the coordinator link is starting"
     );
 
-    // UNIMPLEMENTED: reconcile the coordinator's open-session set against
-    // the local one, activate the snapshot provider, and only then advance
-    // `readiness` through `Readiness::advance`. Both need the link to be live and
-    // a session layer to reconcile, so until they exist those two steps are
-    // refused rather than skipped — see `BOOT_ORDER`. `serve_until` deliberately
-    // does not call `Readiness::advance(ReadyStep::Reconciled)`: a worker that
-    // announces readiness it cannot back is worse than one that never does.
+    // UNIMPLEMENTED: reconcile the coordinator's open-session set against the
+    // local one, activate the snapshot provider, and only then advance
+    // `readiness` through `Readiness::advance`. Both need the link to be live
+    // and a session MANAGER to reconcile — the record and its vocabulary are in
+    // `crate::session`, and the thing that owns a set of them is not — so until
+    // they exist those two steps are refused rather than skipped — see
+    // `BOOT_ORDER`. `serve_until` deliberately does not call
+    // `Readiness::advance(ReadyStep::Reconciled)`: a worker that announces
+    // readiness it cannot back is worse than one that never does.
     let reason = link.run(stop.subscribe()).await;
 
     tracing::info!(

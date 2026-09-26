@@ -25,6 +25,19 @@ tokio = { workspace = true, features = [
 ] }
 tokio-tungstenite = { workspace = true, features = ["connect", "handshake"] }
 
+# The six W-1 slices reach for these, and each was a workspace pin that no
+# member declared, so none of them resolved until this wave. `roost-term` is
+# the terminal core the session record holds; `sqlx` is the durable session
+# event store; `str0m` is the peer's transport; `axum` is the door's server;
+# `regex` is the scrollback matcher; `ed25519-dalek` signs the worker's
+# coordinator credential.
+axum = { workspace = true, features = ["http1", "json", "query", "tokio", "ws"] }
+ed25519-dalek.workspace = true
+regex.workspace = true
+roost-term.workspace = true
+sqlx = { workspace = true, features = ["sqlite", "runtime-tokio", "macros", "migrate"] }
+str0m.workspace = true
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["net", "rt", "rt-multi-thread", "macros", "time"] }
 tokio-tungstenite = { workspace = true, features = ["handshake"] }

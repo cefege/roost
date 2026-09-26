@@ -2,11 +2,10 @@
 //! file, and the digest probe that lets an upload skip its bytes.
 
 mod browser_command_support;
-use serde_json::json;
 use browser_command_support::{
-    DIGEST, FINGERPRINT, OTHER_SESSION, SESSION, command, dispatch, frame_of, harness, only};
-
-
+    DIGEST, FINGERPRINT, OTHER_SESSION, SESSION, command, dispatch, frame_of, harness, only,
+};
+use serde_json::json;
 
 /// THE ATTACHMENT DIRECTORY IS THE BASE PLUS THE SESSION'S OWN ID, and a
 /// listing is newest first with the worker's own state excluded.
