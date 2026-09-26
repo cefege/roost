@@ -612,6 +612,34 @@ an unread verdict, and do not promote a symptom to a cause. What is left is to
 re-run the experiment with a fresh agent — and separately, to read the dead
 agent's transcript for the *leads* it gathered, which are evidence and were never
 claimed as conclusions.
+## The checksum proves YOU restored. It says nothing about anyone else.
+
+The per-row harness printed sha256 before and after every mutation and required
+them equal — and **two mutations were still found sitting in a live tree**, left
+by an agent that was hard-aborted between applying an edit and running the row.
+
+**Both were identified only by reading their diffs** (`delete the
+&& !open_session_ids.is_empty()`; `delete reauthorize_device(...)`) and reverted
+by hand, and **neither was detectable from the harness**, because the harness
+had no way to know a second writer existed.
+
+> **The checksum proves *you* restored correctly. It says nothing about whether
+> *anyone else* touched the file, and in a shared worktree those are different
+> questions.**
+
+So the sound check is the conjunction, and only the first half was enforced:
+**the digest was equal at both ends AND no one else wrote the file in
+between.** A per-row harness owns the first; **only the absence of concurrent
+writers owns the second**, and the cheapest proxy for that is a mutation window
+that is announced and *kept* — because a dead agent in an unannounced window
+leaves a tree that looks edited on purpose.
+
+**And the practical rescue, which is worth more than the rule: a mutation is
+recognisable from its diff.** A deleted guard, a deleted call, a deleted
+condition — a mutation reads as a suspiciously small removal, and that is a
+shape a reader can catch in one glance. **The dangerous artefact is not the
+mutation; it is a mutation that has been committed.**
+
 ## The first complete mutation rows — and the two that did not behave
 
 Six rows, run with both directions and a checksum-verified restore, against a
