@@ -32,7 +32,19 @@ unverified, and "unverified" is the honest state — not "probably fine".**
    `Display` the real type lacks, so ten `%channel_id` sites compiled in the copy
    and would not have compiled in the tree. Mutation evidence and compile
    evidence are different claims, and a gate needs both.
-3. **A per-file claim needs evidence produced by a command whose output
+3. **`FnOnce is not general enough` is a producer problem, not a closure or a
+   boxing problem.** The integrator guessed "missing `Pin<Box<_>>` in two places"
+   and was wrong: boxing to `Pin<Box<dyn Future<Output = …> + Send + '_>>`
+   compiles and does not fix it, because the `'_` is still the borrow. **A box
+   does not erase a lifetime written into a closure's own return type.** The
+   cause is that each attempt borrows its own subscription, so the future is
+   `Future + 'a` for that borrow, and a closure cannot be generic over a
+   lifetime it was not written to be generic over. The two escapes are to hand
+   the future to something that **takes futures by value** —
+   `FuturesUnordered`, `JoinSet`, an explicit `Vec` of boxed `'static` futures
+   — or to make the future `'static` by giving it owned data. Binning it as
+   "add a box" is the trap, because a box looks like the answer and is not.
+4. **A per-file claim needs evidence produced by a command whose output
    actually contains it.** A slice reported "zero diagnostics in my files" from
    `cargo check … 2>&1 > /tmp/file` — the redirections in the wrong order, so
    stderr (where every diagnostic goes) went to the pipe and the file it then
