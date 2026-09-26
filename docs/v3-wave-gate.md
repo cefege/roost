@@ -222,6 +222,38 @@ aborted earlier are not passes. The integrator ran its six rows on a
 verify by sha256 — because a Rust mutation must compile in place, and *an
 unverified restore is exactly the failure the copy rule exists to prevent*.
 
+## The map, and the negative results that make it usable
+
+Sorting the 100 failures by shape put **47 of them in two files**:
+
+| module | binaries | tests | passes |
+|---|---|---|---|
+| `tests/agent_fixture/` | 5 (`agent_config_rpc`, `agent_status_ordering`, `agent_status_push`, `agent_status_rpc`, `agent_status_wait`) | 35 | **0** |
+| `tests/pairing_support/` | 2 (`pairing_confirmation`, `pairing_confirmation_authority`) | 12 | **0** |
+
+**The other four shared-module groups are explicitly NOT fixture problems**, and
+that is the part that makes the map worth more than the count:
+
+- `tests/terminal_view_support/` — 3 binaries, 1–2 failures each (6/1, 9/2,
+  9/1). Most tests pass, so the module works and these are real assertions.
+- `tests/tasks_support/` — `tasks_queue` has 3 failures while
+  `tasks_refusals` is 8/0. **The shared module is fine.**
+- `tests/mcp_relays_support/` — `mcp_relays_authority` 1, the other three mcp
+  binaries fully green. A split-and-refactor survived intact.
+- `tests/keeper_update_support/` — 3, 1, 0. Not a fixture problem.
+
+**"They share a module" is the obvious guess and it is wrong in four of six
+cases.** A negative result is worth as much as a positive one here, because the
+wrong guess costs an hour and a positive one is visible on its own.
+
+And the asymmetry inside one slice that changed the instruction: of A2's two
+binaries, `bootstrap_single_use` (1/7) declares `auth_device_support` and is
+therefore a shared-fixture case — but **`cf_access_identity` declares no module
+at all and still fails 11 of 12.** So "A2's failures" is two unrelated causes in
+two different subsystems, one of which holds the RSA key material. **Sending one
+agent at a slice's failure count would have sent it to the wrong file for half
+the work.**
+
 ## The audit that cannot see the defect, and the noise you must discard
 
 A slice deleting a dead `FixedEntropy` block used a doc comment further down
