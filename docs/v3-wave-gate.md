@@ -540,6 +540,33 @@ adopted was a *mechanism* rather than a promise: derive the map from a file,
 print the file's byte size, its `Running` count and its `test result` count
 beside the number being reported, and **let the agreement be the check**.
 
+**## A stale number in a COMMIT BODY is worse than one in a chat message
+
+A commit landed claiming **581 passed / 38 failed across 15 failing binaries.**
+Two independent runs of the committed tree, from clean, both give:
+
+```
+584 passed / 35 failed / 3 ignored, 14 failing binaries
+```
+
+**Reproduced twice, identical — so the committed figure is stale, not flaky.**
+It was measured before the last edits landed, and the commit body — the durable
+artefact every future reader consults — states it as the tree's result.
+
+**The rule sharpens from "do not quote a stale number" to: the commit body's
+numbers are part of the commit, and a number measured before the final edit is a
+false claim about committed code.** The stale-figure family has now produced:
+a `13 errors` under-read, a `27 errors` under-read, a `97 binaries` off-by-one
+from a `grep` that also matched the summary, six missed binaries from a
+truncated printout, and now this — and **every one of them was correct when
+measured and wrong when published.**
+
+**The guard is cheap and it is the same one that caught the `97`:** a figure
+quoted in a commit body is measured on the tree at that commit, and if anything
+was edited afterwards the number does not ship. **Two runs agreeing is what makes
+the corrected number trustworthy in its turn** — a single run of a tree that has
+just been edited is the same measurement error wearing a different hat.
+
 **So the general form of the trap: a counting command whose pattern also matches
 the report about the count.** `grep -c "test result"` is one line longer than the
 file it describes. The cheap guard is to print two independent counts beside each
