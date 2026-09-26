@@ -308,6 +308,38 @@ the file sit *inside* a directory while the module name stays flat, and both
 fixture agents should converge on this shape if their consumers number more than
 one.
 
+## Some properties need a PAIR of mutations, and running them alone proves nothing
+
+Two of six mutation rows from one slice were explicitly **paired**, and the
+reasoning is the reusable part:
+
+- **M2 (delete the drain guard) + M3 (delete the emptiness condition).**
+  *Together they are the property; separately neither is.* M2 also names a test
+  that **must still pass** — and if it also fails, **the test pair is not
+  isolating the drain, the second test is worthless, and that is reported
+  rather than adjusted.**
+- **M4 (delete the drain acquisition) + M5 (delete the stale-credential
+  re-read).** M4's failure is expected to hit *two* tests: the first shows the
+  property, the second shows what a second concurrent update would do with the
+  gate open.
+
+**So a mutation row is not only "this edit must fail this test" — it is some
+edits with a named must-still-pass, and the must-still-pass is what proves the
+test is isolating the property rather than merely failing.** Deleting the guard
+and seeing both tests go red tells you the guard was load-bearing. Deleting it
+and seeing one go red and one stay green tells you the second test is actually
+pinning the *absence* of the refusal.
+
+**And the row must name a must-still-pass even when there isn't one**, so that
+"the mutation changed nothing" is a distinguishable outcome from "the mutation
+changed everything". A row that can only fail has not specified what it is
+checking.
+
+The other half is the report shape: **if a mutation passes when it should fail,
+that is a finding about the test, and the slice that wrote it would rather hear
+it than have it absorbed.** "This edit broke nothing" is not a failed experiment;
+it is a measurement that the property is unpinned.
+
 ## The defect the fixture blamed, and the one it hid
 
 Two binaries, 12 tests, **0 passes**, sharing one module. The rule sent the agent
