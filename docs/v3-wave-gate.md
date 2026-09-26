@@ -179,6 +179,48 @@ file later, looking like new work. **Read the error list for the shape, not the
 count: one mistake in two files is one mistake, and the list shows you one of
 them.**
 
+## An auth level that is recorded but not enforced
+
+`DevicesRevoke` is `DeviceOnHost` in v2 and in the port — an on-host caller with
+**no credential at all** may revoke a device, because the operator who has lost
+their only device is exactly who needs that path. The row records
+`DeviceOnHost` correctly.
+
+**`principal_satisfies` treats `DeviceOnHost` identically to `Device`: it checks
+the principal and not the locality.** So the recorded level is a claim the
+enforcement does not make, which is the specific failure the route-row contract
+exists to prevent — a security document that reads correctly and describes code
+that does something narrower. The handler implements v2's rule anyway, so it is
+correct the moment a variant expresses it, and the credential-less path is
+currently unreachable in Shape A because every handler takes a `&Caller` and the
+gate only inserts one for a request that carried a credential.
+
+**The general form, and it is the one to check at every row flip: a row that
+records a level nothing enforces is worse than a row that records `Device`,
+because it buys the reviewer the assurance the code does not have.** Ask what
+distinguishes the variants at the point of the check, not at the point of the
+declaration.
+
+## Two majors of one crate in one build
+
+The workspace pins `sha2 = "0.11.0"`. `rsa 0.9.10` depends on `sha2 0.10.6`
+and re-exports it as `rsa::sha2`. `VerifyingKey::<D>` is generic over
+`Digest + AssociatedOid` **from digest 0.10**, so the workspace's `Sha256` is
+rejected by a bound rather than by a name.
+
+**This is invisible until the bound fires, and it fires in the CALLER, not in the
+dependency declaration** — so the error names a type the reader believes is the
+one they imported. The keyring uses `rsa::sha2::Sha256`, and the RSA test
+signs with the same one, because **a test that signs with a different digest
+than the code verifies with cannot pass for the right reason.** That is the
+fixture rule again, one layer down: the fixture must compute its expectation the
+way the *peer* does, and here the peer is a different major of the same crate.
+
+**When a generic bound rejects a type from a workspace-pinned crate, check the
+resolved version before you check your own code.** `cargo tree -i <crate>` is the
+command, and the answer is frequently that the crate you imported and the crate
+your dependency compiled against are not the same crate.
+
 **The shape: `__buffa_unknown_fields`.** buffa generates that field on every
 message, and a struct literal naming only the fields you can see is missing it.
 It is invisible to every check that reads the `.proto` or the visible field
