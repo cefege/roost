@@ -422,6 +422,40 @@ confession; a `git status` before the run is a control.** One is a statement
 about the past, the other is an instrument for the future, and only the second
 prevents the next occurrence.
 
+
+## Sixty files that existed in one working tree
+
+The worker's entire W-1 wave — **53 new files and 7 modified, every slice's
+output** — sat uncommitted for hours. Only the module skeleton and the lead's own
+seams had ever been committed. A lead came within one `git checkout` of losing
+all of it, clearing a mutation it had itself applied; the only reason that was
+survivable is that the file it would have restored happened to be backed up in
+`/tmp`.
+
+**It is committed now, with a body that says plainly that it does not compile**
+and carries the measured triage, so nobody reads the push as a working state.
+That is the correct form for committing a red tree: **the commit is a recovery
+point, and its body is the warning label.**
+
+The defence is not discipline. It is a snapshot that costs nothing:
+
+```
+snap=$(git stash create "wave snapshot")   # a commit object; HEAD and the
+git branch -f <track>-wip "$snap"          # working tree are untouched
+git push -u origin <track>-wip
+```
+
+`git stash create` makes a commit object out of the dirty tree **without moving
+HEAD and without touching a single file** — which is why it is safe to run while
+agents are writing, and why it is strictly better than `git stash`, `git add -A`
+or a branch checkout, all of which change what is on disk.
+
+**Snapshot before any destructive command, not after.** An hour of integration
+is worth one `git stash create`, and the whole cost of the near-miss was that
+nobody had run it since the last slice landed. Two tracks lost work to
+uncommitted trees tonight — one to a budget cutoff, one to a `git checkout` — and
+both were avoidable for the price of a command that does not modify anything.
+
 ## Announce the mutation AND ITS CONTROL
 
 A mutation experiment is a claim: *this edit breaks this property and nothing
