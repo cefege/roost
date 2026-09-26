@@ -20,6 +20,16 @@
 //! Every signature is transcribed from the `service CoordinatorService` block in
 //! `protocol/proto/roost/v1/coordinator.proto`, which is also what
 //! `tests/method_route_coverage.rs` asserts the route table against.
+//!
+//! WIRED METHODS ARE NOT UNREACHABLE BEHIND A NAMED `Unimplemented`. Eight arms
+//! are wired: the five worker methods (`WorkersList`, `WorkersRegister`,
+//! `WorkersHeartbeat`, `WorkersRename`, `WorkersDelete`) and the three scrollback
+//! methods (`SessionsGetScrollbackCells`, `SessionsSearchScrollback`,
+//! `SessionsCancelScrollbackSearch`). Each resolves its caller through
+//! [`caller_of`](super::service::caller_of) and hands the owned request to its
+//! domain handler, so wiring a method means naming its handler here, and the
+//! refusal a wired method still answers with -- no caller on the request -- stays
+//! a named `Unimplemented` rather than becoming an anonymous success.
 
 use std::future::Future;
 
@@ -30,58 +40,87 @@ use roost_proto::roost::v1::CoordinatorService;
 use roost_proto::*;
 
 use super::service::{
-    CoordinatorServiceImpl, db_export_url, delegated_reply, delegated_stream, misc_health_reply,
-    now_ms, sync_moved_stream,
+    CoordinatorServiceImpl, caller_of, db_export_url, delegated_reply, delegated_stream,
+    misc_health_reply, now_ms, sync_moved_stream,
 };
 
+use crate::terminal_screen::rpc::{
+    handle_sessions_cancel_scrollback_search, handle_sessions_get_scrollback_cells,
+    handle_sessions_search_scrollback,
+};
+use crate::workers::rpc::{
+    handle_workers_delete, handle_workers_heartbeat, handle_workers_list, handle_workers_register,
+    handle_workers_rename,
+};
+
+// `async fn` is not an option on any arm here: the generated trait declares
+// `-> impl Future<Output = ...> + Send`, and an `async fn` desugars to an opaque
+// with no `+ Send`, which does not match. The `async move` block is the same
+// future, written so the bound is present.
+#[allow(clippy::manual_async_fn)]
 impl CoordinatorService for CoordinatorServiceImpl {
     // ── workers ─────────────────────────────────────────────────────────
 
     fn workers_list<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, WorkersListRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, WorkersListRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<WorkersListResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<WorkersListResponse>("WorkersList")
+        async move {
+            let caller = caller_of(&ctx, "WorkersList")?;
+            handle_workers_list(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn workers_register<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, WorkersRegisterRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, WorkersRegisterRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<WorkersRegisterResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<WorkersRegisterResponse>("WorkersRegister")
+        async move {
+            let caller = caller_of(&ctx, "WorkersRegister")?;
+            handle_workers_register(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn workers_heartbeat<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, WorkersHeartbeatRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, WorkersHeartbeatRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<WorkersHeartbeatResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<WorkersHeartbeatResponse>("WorkersHeartbeat")
+        async move {
+            let caller = caller_of(&ctx, "WorkersHeartbeat")?;
+            handle_workers_heartbeat(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn workers_rename<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, WorkersRenameRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, WorkersRenameRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<WorkersRenameResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<WorkersRenameResponse>("WorkersRename")
+        async move {
+            let caller = caller_of(&ctx, "WorkersRename")?;
+            handle_workers_rename(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn workers_delete<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, WorkersDeleteRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, WorkersDeleteRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<WorkersDeleteResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<WorkersDeleteResponse>("WorkersDelete")
+        async move {
+            let caller = caller_of(&ctx, "WorkersDelete")?;
+            handle_workers_delete(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn workers_deploy_start<'a>(
@@ -205,34 +244,43 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn sessions_get_scrollback_cells<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsGetScrollbackCellsRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsGetScrollbackCellsRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<SessionsGetScrollbackCellsResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<SessionsGetScrollbackCellsResponse>("SessionsGetScrollbackCells")
+        async move {
+            let caller = caller_of(&ctx, "SessionsGetScrollbackCells")?;
+            handle_sessions_get_scrollback_cells(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn sessions_search_scrollback<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsSearchScrollbackRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsSearchScrollbackRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<SessionsSearchScrollbackResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<SessionsSearchScrollbackResponse>("SessionsSearchScrollback")
+        async move {
+            let caller = caller_of(&ctx, "SessionsSearchScrollback")?;
+            handle_sessions_search_scrollback(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn sessions_cancel_scrollback_search<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsCancelScrollbackSearchRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsCancelScrollbackSearchRequest>,
     ) -> impl Future<
         Output = ServiceResult<
             impl Encodable<SessionsCancelScrollbackSearchResponse> + Send + use<'a>,
         >,
     > + Send {
-        delegated_reply::<SessionsCancelScrollbackSearchResponse>("SessionsCancelScrollbackSearch")
+        async move {
+            let caller = caller_of(&ctx, "SessionsCancelScrollbackSearch")?;
+            handle_sessions_cancel_scrollback_search(&self.core, caller, r.to_owned_message()).await
+        }
     }
     // ── search ──────────────────────────────────────────────────────────
 
@@ -601,11 +649,6 @@ impl CoordinatorService for CoordinatorServiceImpl {
     }
     // ── rpc ─────────────────────────────────────────────────────────────
 
-    // `async fn` is not an option here: the generated trait declares
-    // `-> impl Future<Output = ...> + Send`, and an `async fn` desugars to an
-    // opaque with no `+ Send`, which does not match. The `async move` block is
-    // the same future, written so the bound is present.
-    #[allow(clippy::manual_async_fn)]
     fn misc_health<'a>(
         &'a self,
         _ctx: RequestContext,
@@ -615,7 +658,6 @@ impl CoordinatorService for CoordinatorServiceImpl {
         async move { Response::ok(misc_health_reply(self, now_ms())) }
     }
 
-    #[allow(clippy::manual_async_fn)]
     fn misc_db_export_url<'a>(
         &'a self,
         _ctx: RequestContext,

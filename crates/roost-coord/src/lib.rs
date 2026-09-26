@@ -32,6 +32,7 @@ pub mod serve;
 pub mod services;
 pub mod sync_ws;
 pub mod terminal_screen;
+pub mod ui_state;
 pub mod worker_link;
 pub mod workers;
 pub mod write_gate;

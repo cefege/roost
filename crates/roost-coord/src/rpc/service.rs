@@ -22,13 +22,17 @@
 //! `MiscHealth` and `MiscDbExportUrl` ARE answered, because they are the two the
 //! transport layer in this crate depends on: the first is the readiness signal a
 //! load balancer and `roost status` both read, and the second is the only
-//! discoverable path to the export snapshot this crate's listener serves.
+//! discoverable path to the export snapshot this crate's listener serves. The
+//! five worker methods and the three scrollback methods are answered by their
+//! domain handlers, and reach them through [`caller_of`].
 
-use connectrpc::{ConnectError, Encodable, ErrorCode, Response, ServiceResult, Spec};
+use connectrpc::{
+    ConnectError, Encodable, ErrorCode, RequestContext, Response, ServiceResult, Spec,
+};
 
 use super::method_route::{AuthRequirement, all_method_routes};
 use crate::auth::principal::{AUTH_LAYER_DEVICE, AUTH_LAYER_HEADER, Principal};
-use crate::coord_core::CoordCore;
+use crate::coord_core::{Caller, CoordCore};
 
 /// The one `CoordinatorService` implementation.
 ///
@@ -127,15 +131,44 @@ pub async fn reply_error<Out: Encodable<Out> + Send + 'static>(
 pub async fn delegated_reply<Out: Encodable<Out> + Send + 'static>(
     method: &str,
 ) -> ServiceResult<Out> {
+    reply_error::<Out>(delegated_error(method)).await
+}
+
+/// The refusal [`delegated_reply`] returns, in sync form.
+///
+/// Split out because a method that IS wired still has to refuse by name when it
+/// cannot resolve its caller, and it reaches the same table to do it.
+#[must_use]
+pub fn delegated_error(method: &str) -> ConnectError {
     let status = all_method_routes()
         .iter()
         .find(|route| route.method == method)
         .map(|route| route.status);
-    let error = match status {
+    match status {
         Some(super::method_route::PortStatus::UnwiredInV2) => unimplemented_in_v2(method),
         _ => unimplemented_for_domain(method),
-    };
-    reply_error::<Out>(error).await
+    }
+}
+
+/// The caller the auth interceptor stored, or the method's own refusal.
+///
+/// A wired method must not fall through as an anonymous caller: `Err` here
+/// means the interceptor is not mounted, which is a wiring fault, and answering
+/// a request with no identity would turn that deployment mistake into an
+/// authorization bypass. So the refusal is the same named `Unimplemented` the
+/// method answers with when its domain is absent -- the client cannot tell the
+/// two apart, and the log line below is where the real cause is named.
+pub fn caller_of<'a>(
+    context: &'a RequestContext,
+    method: &str,
+) -> Result<&'a Caller, ConnectError> {
+    Caller::from_context(context).map_err(|_| {
+        tracing::error!(
+            method,
+            "refusing a wired method: the auth interceptor stored no caller"
+        );
+        delegated_error(method)
+    })
 }
 
 /// The `ConnectError` for a call whose principal is not allowed.

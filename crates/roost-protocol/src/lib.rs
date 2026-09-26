@@ -29,6 +29,7 @@ pub mod layout;
 pub mod local_ui_door;
 pub mod proto_adapters;
 pub mod terminal_capture;
+pub mod ui_state;
 pub mod terminal_input;
 pub mod terminal_peer;
 pub mod terminal_search;
