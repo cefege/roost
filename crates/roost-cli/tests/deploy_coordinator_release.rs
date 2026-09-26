@@ -79,8 +79,17 @@ fn installed_coordinator_unit(release: &Path, build: &str) -> String {
     )
 }
 
-fn write_unit(root: &Path, text: &str) -> PathBuf {
-    let path = root.join("roost3-coord.service");
+/// The installed definition, written BESIDE the release rather than inside it.
+///
+/// Inside would dirty the checkout, and the proof would then refuse for a
+/// reason that has nothing to do with what it is proving — which is exactly
+/// what the dirty-tree refusal below is for, and exactly the sort of thing a
+/// test that put its fixture in the wrong place would report as a product bug.
+fn write_unit(label: &str, text: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("roost-coord-unit-{label}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("roost3-coord.service");
     std::fs::write(&path, text).unwrap();
     path
 }
@@ -101,7 +110,7 @@ async fn prove(
 #[tokio::test]
 async fn a_detached_coordinator_release_at_its_installed_sha_is_admitted() {
     let (release, sha) = detached_release("admit");
-    let unit = write_unit(&release, &installed_coordinator_unit(&release, &sha));
+    let unit = write_unit("admit", &installed_coordinator_unit(&release, &sha));
     let proved = prove(&release, &sha, &unit)
         .await
         .expect("a detached release at its installed SHA is admissible");
@@ -130,7 +139,10 @@ async fn a_checkout_that_is_not_the_installed_release_is_refused() {
         std::env::temp_dir().join(format!("roost-coord-release-other-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&other);
     std::fs::create_dir_all(&other).unwrap();
-    let unit = write_unit(&release, &installed_coordinator_unit(&release, &sha));
+    let unit = write_unit(
+        "wrong-checkout",
+        &installed_coordinator_unit(&release, &sha),
+    );
     let failure = prove(&other, &sha, &unit)
         .await
         .expect_err("a checkout that is not the installed release must refuse");
@@ -153,7 +165,7 @@ async fn a_checkout_that_is_not_the_installed_release_is_refused() {
 async fn an_installed_build_that_is_not_the_required_one_is_refused() {
     let (release, sha) = detached_release("wrong-build");
     let unit = write_unit(
-        &release,
+        "wrong-build",
         &installed_coordinator_unit(&release, &format!("{sha}0")),
     );
     let failure = prove(&release, &sha, &unit)
@@ -174,7 +186,7 @@ async fn an_installed_build_that_is_not_the_required_one_is_refused() {
 #[tokio::test]
 async fn a_dirty_release_tree_is_refused() {
     let (release, sha) = detached_release("dirty");
-    let unit = write_unit(&release, &installed_coordinator_unit(&release, &sha));
+    let unit = write_unit("dirty", &installed_coordinator_unit(&release, &sha));
     std::fs::write(release.join("uncommitted"), "x\n").unwrap();
     let failure = prove(&release, &sha, &unit)
         .await
@@ -195,7 +207,7 @@ async fn a_dirty_release_tree_is_refused() {
 async fn a_definition_that_stamps_no_build_is_refused() {
     let (release, sha) = detached_release("no-stamp");
     let unit = write_unit(
-        &release,
+        "no-stamp",
         &format!(
             "[Unit]\nDescription=Roost coordinator\n\n[Service]\n\
              WorkingDirectory={}\nExecStart=\"{}/bin/roost\" coord\n",
