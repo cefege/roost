@@ -14,20 +14,42 @@
 // fleet-visible outage, and that reasoning does not reach a test.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+#[path = "credential_support/scratch.rs"]
+mod scratch;
+
 use roost_host::{HostPlatform, MapEnv, supported_host_platform};
 use roost_worker::runtime::boot::{
     BootConfigError, ENV_COORDINATOR_URL, ENV_KEEPER_EXECUTABLE, ENV_KEEPER_SOCKET,
-    ENV_WORKER_FINGERPRINT, KEEPER_PID_NAME, KEEPER_SOCKET_NAME, WORKER_KEY_NAME, WorkerBoot,
-    WorkerOverrides,
+    KEEPER_PID_NAME, KEEPER_SOCKET_NAME, WORKER_KEY_NAME, WorkerBoot, WorkerOverrides,
 };
 use roost_worker::runtime::boot_order::{BOOT_ORDER, BootSequence, Readiness, ReadyStep, StepId};
+use scratch::Scratch;
 
-const FINGERPRINT: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+/// A worker's environment, and the scratch home it resolves into.
+///
+/// Resolution derives the identity from the key file and creates one when the
+/// machine has none, so a fixture whose home cannot be written into tests the
+/// wrong refusal. The scratch outlives the environment because the environment
+/// names a path inside it.
+struct Fixture {
+    _scratch: Scratch,
+    env: MapEnv,
+}
 
-fn environment() -> MapEnv {
-    MapEnv::new()
-        .with("HOME", "/home/tester")
-        .with(ENV_WORKER_FINGERPRINT, FINGERPRINT)
+impl Fixture {
+    fn new() -> Self {
+        let scratch = Scratch::new("boot-order");
+        let env = MapEnv::new().with("HOME", scratch.path("home").display().to_string());
+        Self {
+            _scratch: scratch,
+            env,
+        }
+    }
+
+    fn with(mut self, key: &str, value: &str) -> Self {
+        self.env = self.env.with(key, value);
+        self
+    }
 }
 
 fn platform() -> HostPlatform {
@@ -88,26 +110,14 @@ fn the_sequence_records_steps_in_the_order_they_complete() {
 /// probed. The refusal is the point; what is refused is incidental.
 #[test]
 fn a_configuration_is_refused_before_anything_is_started() {
-    let missing =
-        WorkerBoot::resolve(&MapEnv::new().with("HOME", "/home/tester"), platform()).unwrap_err();
-    assert_eq!(
-        missing,
-        BootConfigError::MissingFingerprint,
-        "a worker with no identity would dial as nobody, and the coordinator \
-         cannot route a dial it cannot attribute"
-    );
-
-    let malformed = WorkerBoot::resolve(
-        &MapEnv::new()
-            .with("HOME", "/home/tester")
-            .with(ENV_WORKER_FINGERPRINT, "not-hex"),
-        platform(),
-    )
-    .unwrap_err();
-    assert_eq!(malformed, BootConfigError::BadFingerprint);
-
+    // A worker with no key is given one and boots; the identity refusals that
+    // used to live here are now the key's, and they are tested against a real
+    // key file in `worker_boot_identity.rs`. What is left is a bad base, which
+    // must still be a boot refusal rather than a reconnect loop.
     let bad_url = WorkerBoot::resolve(
-        &environment().with(ENV_COORDINATOR_URL, "coordinator.example:4113"),
+        &Fixture::new()
+            .with(ENV_COORDINATOR_URL, "coordinator.example:4113")
+            .env,
         platform(),
     )
     .unwrap_err();
@@ -116,6 +126,11 @@ fn a_configuration_is_refused_before_anything_is_started() {
         "a base with no scheme is refused at boot rather than becoming a \
          reconnect loop an operator has to debug: {bad_url:?}"
     );
+
+    // And the same environment with nothing wrong resolves, which is what
+    // makes the refusal above a refusal rather than an accident of the fixture.
+    WorkerBoot::resolve(&Fixture::new().env, platform())
+        .expect("an identity derived from a key it was given is not a refusal");
 }
 
 /// v2 put reconciliation, the snapshot provider and readiness in one function
@@ -168,7 +183,7 @@ fn readiness_advances_only_through_the_three_steps_in_order() {
 /// bare run and an installed service reach the same files.
 #[test]
 fn the_keeper_and_key_paths_default_to_the_installer_layout() {
-    let boot = WorkerBoot::resolve(&environment(), platform()).expect("a resolvable worker");
+    let boot = WorkerBoot::resolve(&Fixture::new().env, platform()).expect("a resolvable worker");
     let data = boot
         .keeper_socket
         .parent()
@@ -191,10 +206,11 @@ fn the_keeper_and_key_paths_default_to_the_installer_layout() {
 fn an_override_is_applied_and_then_re_checked() {
     let platform = platform();
     let mut boot = WorkerBoot::resolve(
-        &environment()
+        &Fixture::new()
             .with(ENV_COORDINATOR_URL, "https://coord.example")
             .with(ENV_KEEPER_SOCKET, "/run/roost/mux.sock")
-            .with(ENV_KEEPER_EXECUTABLE, "/opt/roost/roost-keeper"),
+            .with(ENV_KEEPER_EXECUTABLE, "/opt/roost/roost-keeper")
+            .env,
         platform,
     )
     .expect("a resolvable worker");
@@ -216,16 +232,18 @@ fn an_override_is_applied_and_then_re_checked() {
         std::path::PathBuf::from("/opt/roost/roost-keeper")
     );
 
+    // The identity is not overlayable, so the overlay's own check is shown on
+    // the one field it can still smuggle: a base resolution accepted is a base
+    // resolution checked again after the overlay, not before it.
     let refused = boot
         .apply(WorkerOverrides {
-            fingerprint: Some("still not hex".to_string()),
+            coordinator: Some("no-scheme-at-all".to_string()),
             ..WorkerOverrides::default()
         })
         .unwrap_err();
-    assert_eq!(
-        refused,
-        BootConfigError::BadFingerprint,
-        "the overlay is checked after it is applied, not before"
+    assert!(
+        matches!(refused, BootConfigError::BadCoordinatorUrl { .. }),
+        "the overlay is checked after it is applied, not before: {refused:?}"
     );
 }
 
@@ -233,8 +251,9 @@ fn an_override_is_applied_and_then_re_checked() {
 /// the coordinator cannot tell a worker from its own restart.
 #[test]
 fn each_activation_gets_its_own_process_epoch() {
-    let first = WorkerBoot::resolve(&environment(), platform()).expect("a resolvable worker");
-    let second = WorkerBoot::resolve(&environment(), platform()).expect("a resolvable worker");
+    let fixture = Fixture::new();
+    let first = WorkerBoot::resolve(&fixture.env, platform()).expect("a resolvable worker");
+    let second = WorkerBoot::resolve(&fixture.env, platform()).expect("a resolvable worker");
     assert_ne!(
         first.process_epoch, second.process_epoch,
         "the coordinator tells one worker process from the next incarnation by \

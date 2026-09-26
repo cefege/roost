@@ -6,13 +6,21 @@
 //! from `serve`. A service manager hands a worker an environment and a command
 //! line, and the only acceptable moment to refuse is before anything has been
 //! started — before a socket is bound, a keeper is probed, or a frame is
-//! written. So resolution is a pure function of an environment, it runs first,
-//! and `serve` receives a value that has already been checked.
+//! written. So resolution runs first, and `serve` receives a value that has
+//! already been checked.
+//!
+//! The identity is DERIVED, not configured: the fingerprint is the SHA-256 of
+//! the public key in the worker's own key file, so a worker and the key the
+//! coordinator has an `authorized_keys` row for cannot disagree. Deriving it
+//! is the one thing resolution reads from disk, and the first boot on a machine
+//! with no key generates one — the install step, and it happens here because
+//! there is nowhere earlier to put it and nowhere later that a refusal is still
+//! cheap.
 //!
 //! Every path here comes from a `roost-host` path function. This file decides
 //! which file lives where; it does not decide where a file lives.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use roost_host::{
@@ -22,21 +30,15 @@ use roost_host::{
 use roost_platform::KEEPER_FORCE_LIVE_RETIRE_ENV;
 use roost_protocol::wire::WorkerFp;
 
+use crate::host::jwt::load_worker_key;
 use crate::link_dial::CoordinatorEndpoint;
 
 /// The coordinator URL, when the environment does not name one.
 pub const ENV_COORDINATOR_URL: &str = "ROOST_COORDINATOR_URL";
 
-/// This worker's registry fingerprint, as 64 lowercase hex characters.
-///
-/// v2 derived the fingerprint from the worker's own key file. The key signing
-/// that would derive it is not ported yet, so the identity is configured
-/// rather than computed — which is also what makes it checkable before boot: a
-/// wrong fingerprint is refused here instead of producing a coordinator that
-/// rejects every dial for a reason the worker cannot see.
-pub const ENV_WORKER_FINGERPRINT: &str = "ROOST_WORKER_FINGERPRINT";
-
-/// The ed25519 private key the coordinator credential is signed from.
+/// The ed25519 private key this worker's identity and its coordinator
+/// credential both come from. Nothing else names a worker's identity, which is
+/// why it is the only file resolution must be able to create.
 pub const ENV_WORKER_KEY_PATH: &str = "ROOST_WORKER_KEY_PATH";
 
 /// The Unix socket the keeper listens on.
@@ -67,12 +69,10 @@ pub enum BootConfigError {
     DataDir(String),
     #[error("{value} is not a usable coordinator URL: {reason}")]
     BadCoordinatorUrl { value: String, reason: String },
-    #[error(
-        "the worker fingerprint is not configured, and the worker cannot derive one without its key"
-    )]
-    MissingFingerprint,
     #[error("the worker fingerprint is not 64 lowercase hex characters")]
     BadFingerprint,
+    #[error("the worker key at {path} is unusable: {reason}")]
+    WorkerKey { path: PathBuf, reason: String },
     #[error("the keeper force-live-retire authorization must be exactly 0 or 1, not {value:?}")]
     BadForceLiveRetire { value: String },
 }
@@ -85,8 +85,6 @@ pub enum BootConfigError {
 pub struct WorkerOverrides {
     /// The coordinator base URL, overriding [`ENV_COORDINATOR_URL`].
     pub coordinator: Option<String>,
-    /// The registry fingerprint, overriding [`ENV_WORKER_FINGERPRINT`].
-    pub fingerprint: Option<String>,
     /// The keeper socket, overriding [`ENV_KEEPER_SOCKET`].
     pub keeper_socket: Option<String>,
     /// The keeper executable, overriding [`ENV_KEEPER_EXECUTABLE`].
@@ -140,7 +138,13 @@ impl WorkerBoot {
             .map_err(|error| BootConfigError::DataDir(error.to_string()))?;
         let logs = worker_log_dir(env, platform)
             .map_err(|error| BootConfigError::DataDir(error.to_string()))?;
-        let fingerprint = resolve_fingerprint(env)?;
+        // The key file decides the identity, and it is resolved before the
+        // endpoint is checked because every other field in the refusal is
+        // reported next to it: an operator holding a bad coordinator URL needs
+        // the fingerprint to know which machine is refusing to start.
+        let worker_key_path =
+            resolve_path(env, ENV_WORKER_KEY_PATH, support.join(WORKER_KEY_NAME));
+        let fingerprint = resolve_fingerprint(&worker_key_path)?;
         let coordinator_base = env
             .get(ENV_COORDINATOR_URL)
             .filter(|value| !value.is_empty())
@@ -154,7 +158,7 @@ impl WorkerBoot {
             keeper_socket: resolve_path(env, ENV_KEEPER_SOCKET, support.join(KEEPER_SOCKET_NAME)),
             keeper_pid_file: resolve_path(env, ENV_KEEPER_PID_FILE, support.join(KEEPER_PID_NAME)),
             keeper_executable: resolve_keeper_executable(env)?,
-            worker_key_path: resolve_path(env, ENV_WORKER_KEY_PATH, support.join(WORKER_KEY_NAME)),
+            worker_key_path,
             log_dir: logs,
             worker_version: reported_version(&build_identity(env)),
             process_epoch: new_process_epoch(),
@@ -219,14 +223,18 @@ fn resolve_path(env: &dyn EnvSource, name: &str, default: PathBuf) -> PathBuf {
     }
 }
 
-fn resolve_fingerprint(env: &dyn EnvSource) -> Result<WorkerFp, BootConfigError> {
-    let Some(value) = env
-        .get(ENV_WORKER_FINGERPRINT)
-        .filter(|value| !value.is_empty())
-    else {
-        return Err(BootConfigError::MissingFingerprint);
-    };
-    WorkerFp::try_from(value).map_err(|_| BootConfigError::BadFingerprint)
+/// The fingerprint of the key at `key_path`, which is the whole of a worker's
+/// identity: SHA-256 of the public key, rendered by the one renderer in the
+/// workspace. A machine with no key is given one here, because a worker that
+/// has never been installed has no other way to become itself, and this runs
+/// before anything is bound.
+fn resolve_fingerprint(key_path: &Path) -> Result<WorkerFp, BootConfigError> {
+    load_worker_key(key_path)
+        .map(|key| key.fingerprint().clone())
+        .map_err(|error| BootConfigError::WorkerKey {
+            path: key_path.to_path_buf(),
+            reason: error.to_string(),
+        })
 }
 
 /// A fresh per-activation identity.

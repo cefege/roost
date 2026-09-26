@@ -1,5 +1,5 @@
-//! The credential the coordinator link dials with, and the honest absence of
-//! one. Called by the link loop once per dial, because every dial mints afresh.
+//! The credential the coordinator link dials with. Called by the link loop once
+//! per dial, because every dial mints afresh.
 //!
 //! A credential is never URL material: it travels as the second requested
 //! WebSocket subprotocol, and `link_dial::dial_request` is what keeps it that
@@ -11,11 +11,27 @@
 //! on a schedule; the per-dial mint here is strictly simpler and strictly
 //! harder to get wrong, at the cost of one signature per reconnect.
 
+use std::path::{Path, PathBuf};
+
+use roost_protocol::wire::WorkerFp;
+
+use crate::host::jwt::{
+    COORDINATOR_AUDIENCE, CREDENTIAL_LIFETIME, WorkerKeyError, load_worker_key,
+};
+
 /// Why no credential could be produced for a dial.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CredentialError {
     #[error("no coordinator credential could be minted: {reason}")]
     Unavailable { reason: String },
+}
+
+impl From<WorkerKeyError> for CredentialError {
+    fn from(error: WorkerKeyError) -> Self {
+        Self::Unavailable {
+            reason: error.to_string(),
+        }
+    }
 }
 
 /// A source of short-lived coordinator credentials.
@@ -28,29 +44,59 @@ pub trait CredentialSource: Send + Sync {
     fn mint(&self) -> Result<String, CredentialError>;
 }
 
-/// The source the service installs, which cannot mint yet.
+/// The source the service installs: the worker's own key, read per dial.
 ///
-/// A worker that cannot mint does not dial and does not pretend to. Every
-/// attempt is recorded as a non-open dial by the reconnect ladder, so the
-/// worker stays a visible, escalating, obviously-unauthenticated daemon rather
-/// than a worker that opens a link nobody can trust.
-///
-/// UNIMPLEMENTED: sign an EdDSA JWT with `aud: "roost-coordinator"` from
-/// the worker's OpenSSH ed25519 private key, which is the port of
-/// `apps/worker/src/host/jwt.ts`. The pieces that already exist and should be
-/// used rather than rewritten: `roost_host::jwt_base::b64url_encode` for the
-/// signing input, `roost_protocol::fingerprint::fingerprint_hex` for the
-/// registry fingerprint this worker dials as (SHA-256 of the public key), and
-/// the key file `WorkerBoot` already resolved. It belongs here rather than at a
-/// call site so that every dial goes through it and none of them can skip it.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct UnavailableCredential;
+/// The key FILE is read per dial too, and that is the one piece of state this
+/// source does not hold. A cached key would be one signature cheaper per
+/// reconnect and would keep signing with a key the operator has rotated out —
+/// and the rotation is the moment where a stale credential is least
+/// diagnosable, because the coordinator's answer is an unknown `kid` for a
+/// worker that was working a minute ago. The file is a kilobyte.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkerKeyCredential {
+    key_path: PathBuf,
+}
 
-impl CredentialSource for UnavailableCredential {
+impl WorkerKeyCredential {
+    /// A source that signs from the key at `key_path`.
+    ///
+    /// The path is `WorkerBoot::worker_key_path`, which is where the boot
+    /// sequence already derived this worker's fingerprint from, so the identity
+    /// in the dial and the identity in the token cannot come from two places.
+    #[must_use]
+    pub fn new(key_path: impl Into<PathBuf>) -> Self {
+        Self {
+            key_path: key_path.into(),
+        }
+    }
+
+    /// The key file this source signs from.
+    #[must_use]
+    pub fn key_path(&self) -> &Path {
+        &self.key_path
+    }
+
+    /// The identity a dial from this source presents, without minting.
+    ///
+    /// A dial that cannot name itself should not be attempted: the coordinator
+    /// routes on the fingerprint in the path, so a link whose token and whose
+    /// path disagree is refused before the first frame.
+    pub fn fingerprint(&self) -> Result<WorkerFp, CredentialError> {
+        load_worker_key(&self.key_path)
+            .map(|key| key.fingerprint().clone())
+            .map_err(CredentialError::from)
+    }
+}
+
+impl CredentialSource for WorkerKeyCredential {
     fn mint(&self) -> Result<String, CredentialError> {
-        Err(CredentialError::Unavailable {
-            reason: "worker key signing is not ported yet, so no JWT can be signed for the dial"
-                .to_string(),
-        })
+        let key = load_worker_key(&self.key_path)?;
+        tracing::debug!(
+            key_path = %self.key_path.display(),
+            fingerprint = %key.fingerprint(),
+            "link: signing a coordinator credential for this dial"
+        );
+        key.mint_credential(COORDINATOR_AUDIENCE, CREDENTIAL_LIFETIME)
+            .map_err(CredentialError::from)
     }
 }
