@@ -417,6 +417,21 @@ test passing is what made a red order-test readable; a clean `git status` is
 what made 131 quotable. In both cases the cheap control is the same move, and in
 both cases its absence costs the whole result rather than degrading it.
 
+**And the sharpest argument for the whole discipline, which is what a mutation
+bought rather than what it proved.** A terminal-view slice removed an `unused
+mut` by restructuring, and the restructure exposed a real defect: `drop_record`
+removed a key from `socket.views` silently, so **a session that closed while
+browsers had it open left every one of those sockets still watching it**, and the
+Sync driver went on delivering cells for a session that no longer existed.
+
+The defect was in code no test covered and no review had questioned, and it
+surfaced because a lint's removal forced the shape to change.
+
+**So a mutation's return is not only that a test bites. It is that changing one
+line of a covered file re-shapes its neighbours, and the neighbours are where
+the unexamined behaviour is.** A mutation that fails to compile is telling you
+something about the shape; one that passes is telling you the shape held.
+
 The framing that makes it stick: **reporting your own contamination is a
 confession; a `git status` before the run is a control.** One is a statement
 about the past, the other is an instrument for the future, and only the second
