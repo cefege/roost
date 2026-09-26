@@ -12,10 +12,14 @@
 
 pub mod authenticate;
 pub mod authorized_keys;
+pub mod bootstrap_tokens;
+pub mod cf_access;
 pub mod jwt_claims;
 pub mod jwt_crypto;
 pub mod jwt_key_cache;
 pub mod jwt_verify;
 pub mod pairing;
 pub mod principal;
+pub mod rpc_devices;
+pub mod rpc_pairing;
 pub mod self_hosted_tenant;

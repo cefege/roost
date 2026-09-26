@@ -10,6 +10,8 @@
 //! `new()` takes nothing and must keep taking nothing: anything the domain
 //! needs from configuration is read at call time from `core.services.boot`.
 
+pub mod keeper_update;
+
 /// The deploy state one coordinator process holds.
 #[derive(Debug, Default)]
 pub struct DeployRuntime;

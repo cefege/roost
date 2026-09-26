@@ -7,6 +7,15 @@
 //!
 //! `new()` takes nothing and must keep taking nothing: anything the domain
 //! needs from configuration is read at call time from `core.services.boot`.
+//!
+//! AG1 owns the five status and config files below; AG2 owns `prompt_control`
+//! and `rpc_prompt` and is the one slice that edits this file again.
+
+pub mod config;
+pub mod rpc_status;
+pub mod status_hub;
+pub mod status_order;
+pub mod status_wait;
 
 /// The agent state one coordinator process holds.
 #[derive(Debug, Default)]
