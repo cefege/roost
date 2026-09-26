@@ -533,6 +533,47 @@ returned `Canceled` instantly.** Nothing about that is subtle, nothing about it
 would have been caught by a compile, and a method can be implemented, tested at
 the seams either side of it, and still have never executed.
 
+**And the rule bit its author within a day, in the direction that flattered
+him.** A published "97 binaries" came from `grep -c "^test result"` — which
+**also matches the trailing summary line**, so the real figure was 96. The fix
+adopted was a *mechanism* rather than a promise: derive the map from a file,
+print the file's byte size, its `Running` count and its `test result` count
+beside the number being reported, and **let the agreement be the check**.
+
+**So the general form of the trap: a counting command whose pattern also matches
+the report about the count.** `grep -c "test result"` is one line longer than the
+file it describes. The cheap guard is to print two independent counts beside each
+other and require them to agree — because a single count has no way to be wrong
+visibly.
+
+## "They share a module" is now wrong four times out of six
+
+| cluster | shared | one cause? |
+|---|---|---|
+| `agent_fixture` | 5 binaries | **yes** — one 32-hex constant, and two product bugs under it |
+| `pairing_support` | 2 binaries | **yes** — `i64` against a `TEXT` column, and two more under it |
+| `terminal_view_support` | 3 binaries | **no** — four subjects, four mechanisms, 24 tests pass |
+| `tasks_support` | 2 binaries | **no** — `tasks_refusals` is 8/0 |
+| `mcp_relays_support` | 4 binaries | **no** — three of four fully green |
+| `keeper_update_support` | 3 binaries | **no** |
+
+**Two of six, and both of those turned out to be product defects rather than
+fixture defects.** So the guess is wrong four times in six *and* the times it is
+right are the ones that matter most — which is the worst possible ratio, because
+it makes the guess feel reliable right up until it costs an hour.
+
+**Which is why a triage wave must not route by sharing.** Read the shared module
+first because a fixture cause is *possible* there, not because it is *likely* —
+and then be ready for the negative. **Four unrelated assertions in a working
+module is a completely ordinary result**, and reporting it as such is a finding,
+not a failure to find something.
+
+**And the one that generalises past fixtures: a test whose expectation
+contradicts its own input builder, ten lines apart, is a missing test rather than
+a weak one.** `assert name == "ws"` sitting above a `create` helper that builds
+`format!("ws-{folder}")` is not a weak assertion; it is an assertion that could
+never have held, and it is provable from the test's own file without running it.
+
 ## A bounded read presented as a total is the `--keep-going` error again
 
 A published per-binary breakdown **missed six binaries** — three
