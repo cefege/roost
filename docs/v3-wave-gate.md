@@ -589,6 +589,46 @@ a terminal, by a page — the number is a lower bound until someone has read the
 part that was cut off.** Truncation is not a display concern; it is a claim
 about what was examined, and the claim is what gets cited later.
 
+## A fixture can violate TWO rules and only ever show you the first
+
+A test's configuration was refused. It violated **two** validation rules, and
+they are checked in order:
+
+- a team domain must be exactly one lowercase label under `.cloudflareaccess.com`
+  — the test's literal was `team.example`;
+- **behind it**, an audience must be exactly 64 lowercase hex characters — and
+  *both* test files' audience was the 14-character `roost-coord-aud`.
+
+**Any fix that corrected only the domain would have failed on the next line,
+with a different message.** So the fixture costs a cycle no matter how the first
+fix goes, and **the panic message never names the rule that was actually
+violated** — it names the first one checked.
+
+**So the rule: when a validation failure is fixed, read the validator's ORDER,
+not just its first message.** A validator that checks A then B is a fixture that
+violating either one produces the same-looking failure twice, and the second
+attempt looks like the first fix not having worked. The crate's own unit test
+held the good values, which is the fastest reference and the one a fixer skips
+because the test file is what is already wrong.
+
+**Same species as the `i64`-for-`TEXT` finding one layer out: a value that must
+satisfy a constraint the error does not state.**
+
+## Two tests sharing a process-wide counter produce a random result, not a flake
+
+Two async tests in one binary shared **one process-wide lookup counter**, and the
+harness runs tests concurrently — so each could read the other's eight lookups.
+
+**That is not a defect in the product; it is a test whose result would have been
+random.** And a random result is worse than a flake: once it surfaces it is
+reported as *flaky* and filed as an infrastructure problem, because a
+non-deterministic pass looks exactly like a non-deterministic infrastructure.
+
+Fixed by counting **per `kid`**, with each test using its own. **The general form:
+a process-wide counter shared by concurrently-run tests is a shared mutable
+global with a test-shaped costume, and the fix is to key the count to whatever
+the assertion is actually about** — not to remove the counter.
+
 ## A test that drops the handle asserts the opposite of the contract
 
 Three separate tests in one wave failed for the same reason, and it is a class
