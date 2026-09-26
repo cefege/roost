@@ -1490,6 +1490,58 @@ could revive a released claim, because the admission guard was unreachable for
 release-created claims. **A vacuous test is not merely wasted; it is a place
 where a real defect goes to hide.**
 
+## A test that drops the handle of the thing it is OBSERVING is not weak, it is unobserved
+
+`BoundedBus::subscribe` returns a `Subscription<T>`, and `impl Drop for
+Subscription` **removes the listener**. The fixture wrote:
+
+```rust
+services.buses.task_bus.subscribe(move |message| { ... });
+Self { core, database, received, root }
+```
+
+— **discarding the handle, so the listener was deregistered in the same statement
+that registered it.** Every publication after that reached a bus with no
+subscriber. **Nothing in `src/` was wrong; the bus was connected the whole time.**
+
+**And the three failures read exactly like a product bug:** three independent
+handlers, zero deliveries, same module, `left: []` where `[Created, State, State]`
+was expected. That is why it was routed to a product diagnosis first.
+
+> **"Three handlers, zero deliveries, same module" is a wiring fact before it is
+> a logic fact — and here the wiring was correct and the OBSERVER was broken.**
+
+**A reader who starts at `publish` and works outwards finds a correct call chain
+and then has to guess. A reader who starts at the connection finds it in one
+pass.** Two things made it one pass rather than an hour, and both are diagnostic:
+
+- **the failures were *zero* rather than wrong** — no ordering argument and no
+  shape argument explains a total absence, and *absence is a different symptom
+  class from mismatch*;
+- **`tasks_refusals` is 8/8 on the same module**, which is a fact about the
+  *fixture* rather than about the bus.
+
+**And the line worth keeping, because it generalises the whole dropped-handle
+class:**
+
+> **A test that drops the handle of the thing it is observing is not weak, it is
+> UNOBSERVED.** `assert_eq!` on an empty vector reads exactly like an assert that
+> passed — and so does an assert on a bus nobody is subscribed to.
+
+**The failure mode is not a wrong answer. It is the absence of the observer, and
+an absence is indistinguishable from a pass until something else fails.** That is
+the same shape as the fixture that seeded an empty database and passed, and the
+same shape as the vacuous green at `sync_feed_adapters:53`. **All three are one
+class: a test whose subject is missing asserts nothing and reports success.**
+
+**And the row's promotion is the closing of the loop.** C11 was BIT against red
+and honestly labelled as unisolated. With the bus connected, **the same row with
+the same edit now says what it could not before** — the removed call is the only
+difference between two deltas and three, so **the assertion isolates the publish
+call.** The earlier BIT was real, the caveat was real, and fixing the *fixture*
+is what converted the first into evidence. **A row measured against red is not a
+failed row; it is a row waiting for its baseline.**
+
 ## A test that drops the handle asserts the opposite of the contract
 
 Three separate tests in one wave failed for the same reason, and it is a class
