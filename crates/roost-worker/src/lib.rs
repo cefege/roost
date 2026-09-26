@@ -4,6 +4,7 @@
 #![forbid(unsafe_code)]
 
 pub mod backoff;
+pub mod channel_fsm;
 pub mod event_store;
 pub mod link_barrier;
 pub mod link_dial;
