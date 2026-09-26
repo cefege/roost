@@ -640,6 +640,48 @@ condition — a mutation reads as a suspiciously small removal, and that is a
 shape a reader can catch in one glance. **The dangerous artefact is not the
 mutation; it is a mutation that has been committed.**
 
+## A row that BITES and a defect that PERSISTS are compatible, and the pair is the finding
+
+Three pre-registered rows, written long before this wave, all three bit — and
+**every one of them fired on a test that was already red for a second reason**:
+
+- **C5 BIT** on `status_order.rs:120`, and the live staleness failure is a
+  *different* test entirely. So **C5 biting rules `:120` out as the cause**, and
+  the defect is in one of the two earlier early-returns in `accepts`. The row
+  bounded the last of three; the defect is in the first two.
+- **C10 BIT**, failing at `:53` while the same test is currently red at `:81` —
+  the meta defect is genuinely guarded, and the live failure is something else
+  in the same test.
+- **C11 BIT**, but measured against red, and correctly labelled as such: the
+  verdict is real and **the isolation is not established**.
+
+> **A test whose row bites and which is also red is failing twice over, and the
+> row cannot tell you which failure you are looking at.**
+
+And the finding that generalises past this wave:
+
+> **The gate's instrumentation is working and the failure set has grown
+> underneath it.** The rows are not stale — the tests have acquired a second
+> cause.
+
+**This is a different problem from stale rows, and running the rows one at a
+time and recording BIT would never have shown it.** Three BITs that look like
+three successes are, together, three tests with an unexamined second defect each.
+**The pair — a row that bites plus a failure that persists — is strictly more
+informative than either alone**, because one bounds what the guard covers and the
+other says what is still uncovered.
+
+**And the labelling rules this forced, all three of which are now standard:**
+
+- **A mutation that does not compile is INCONCLUSIVE, not "did not bite".** They
+  are different verdicts: "did not bite" is a claim about the test, and a
+  compile error is a claim about the edit.
+- **A row measured against a red baseline is BIT-with-unestablished-isolation**,
+  and must be labelled that way rather than folded into a pass.
+- **When a row bites a red test, the row's job changes.** It is no longer
+  answering "is this test sensitive"; it is answering "what else is wrong with
+  it", and the second question is the one the wave needed answered.
+
 ## The row that already exists for this defect is cheaper than diagnosing it
 
 Three `tasks_queue` failures were read as **three individual assertions** by the
