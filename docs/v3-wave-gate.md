@@ -143,6 +143,35 @@ made its helper a three-line delegation. A wrapper around a second
 implementation is the same fork with an extra layer, and the layer is where the
 next person stops looking.
 
+## A compiler's error list across test binaries is a lower bound, and one
+## generated-message shape is worth a mechanical sweep rather than a lesson
+
+**A build that fails one test target can stop before checking the others**, so
+the diagnostics a test run reports are not the set of errors in the test tree —
+they are the set the compiler reached. A slice was handed two `E0063`s in one
+file; sweeping its own six files found **nine** literals of that shape across
+three files, seven of them in targets the run had never reached. The same
+applies to a lib count: a fix that unblocks a later check is a *moved* error,
+not a fixed one, so every residue count is a lower bound and never a total.
+
+**The shape: `__buffa_unknown_fields`.** buffa generates that field on every
+message, and a struct literal naming only the fields you can see is missing it.
+It is invisible to every check that reads the `.proto` or the visible field
+list, because the field is *added by the generator* — which is why a careful
+hand-audit cannot find it and nine of fourteen literals were wrong.
+
+**The fix is `..Default::default()`, not `__buffa_unknown_fields: None`.** The
+generated types derive `Default`, and a literal that names the generated field
+is an edit waiting for the next proto change — which then reads as a real
+failure rather than as the generator having moved.
+
+**And because it is mechanical, it should be a check rather than a habit:** a
+two-line sweep for every `roost_proto::<Message> { … }` literal that does not
+end in `..Default::default()` or a `MessageField` is exhaustive where a
+hand-audit is not. That is the general form of a lesson worth keeping —
+**when a class of mistake is findable by a pattern, write the pattern down as a
+check instead of telling people to look harder.**
+
 ## Worker track
 
 | # | Property | File and exact edit | Test that must fail | State |
