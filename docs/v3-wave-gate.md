@@ -254,6 +254,60 @@ two different subsystems, one of which holds the RSA key material. **Sending one
 agent at a slice's failure count would have sent it to the wrong file for half
 the work.**
 
+## Establish the rule by running it, because the naive version breaks correct code
+
+The 2018+ `use` rule looks like a one-liner and is not. A slice established it
+**by running rustc on four minimal cases rather than by reading the edition
+guide** — and it did so precisely because the obvious statement of the rule is
+false:
+
+A `use` declaration's first segment resolves against **what is in scope in the
+module holding the declaration.**
+
+| site | result |
+|---|---|
+| bare `use sibling::x;` at the **crate root** | compiles |
+| bare `use sibling::{A, B};` inside a **function** of a root-level module | compiles |
+| bare `use sibling::x;` inside a **child** module | **E0432** — needs `crate::` or `super::` |
+| `crate::sibling::x;` | compiles |
+
+**The discriminator is the module's position, not the name — and the rule "bare
+first segment in a child module is wrong" is wrong.** There is a live site
+(`deploy/keeper_update/refusal.rs:75`) with a function-scoped
+`use ErrorCode::{…}` where `ErrorCode` is imported at that module's own top
+level. **A blanket sweep would have rewritten it to a `crate::ErrorCode` that
+does not exist**, and the coordinator came within one edit of exactly that. The
+four rustc cases are the reason that site survived.
+
+**So the question per site is "is this name in scope *here*", never "am I in a
+child module"** — and the reason to run minimal cases rather than read the guide
+is that a rule is only worth writing down once you have tried to write the short
+version and watched it break something that works.
+
+**One diagnostic, two unrelated fixes.** The same wave produced two different
+E0432 causes at once: a private `use X as Y` where the consumers needed a
+re-export, and a `#[path = "…"] mod renamed;` whose *child* then wrote
+`use real_name::…`. Same diagnostic, unrelated causes, **both live in the same
+fixture simultaneously.** A count that rises when you fix one says nothing about
+the other.
+
+## A shared test module must live in a subdirectory
+
+Every `.rs` file directly under `tests/` compiles as **its own test binary**. A
+shared module placed there becomes a binary that links nothing — it passes by
+constructing an empty suite.
+
+**So a shared fixture with more than one consumer must live in a
+subdirectory**, declared by each consumer as:
+
+    #[path = "keeper_update_support/mod.rs"] mod keeper_support;
+
+and it reaches a sibling fixture with `use crate::workers_support::{…}`. The
+path attribute and the directory are the same fact: the attribute is what lets
+the file sit *inside* a directory while the module name stays flat, and both
+fixture agents should converge on this shape if their consumers number more than
+one.
+
 ## A fixture can hold a property that does not survive a merge
 
 `tests/auth_device_support/` exists for one reason: `Scratch::second_core()`
