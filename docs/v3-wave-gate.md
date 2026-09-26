@@ -456,6 +456,51 @@ restored** — then said *pre-existing by construction, not by baseline
 measurement.* Declining to produce a number you could not obtain, and naming the
 attempt, is worth more than the number would have been.
 
+## A check that quietly stopped looking is worse than one that is noisy
+
+The noise rule already on record: *a sweep that is mostly noise is a false
+assurance — discard it.* This is the **more dangerous** version, and it came from
+an agent falsifying its own prediction rather than waiting to be right.
+
+A scan of seed SQL against the migration flagged 2 candidates. Both were hand
+checked and both were false positives — **artifacts of the scanner splitting on
+commas inside `--` comments.** So the scanner was hardened. And the hardened
+version **stopped splitting wrongly and began missing statements: 1 checked
+instead of all.**
+
+**So the instrument was discarded rather than reported, and the number that
+stood behind was the FIRST scan's: 19 modules, 2 candidates, 2 hand-verified
+false positives, no real unknown-column defect in any shared fixture.**
+
+**A tool that gets louder is easy to notice and a tool that gets quieter is
+not.** A noisy check produces output you can dismiss; a check that has silently
+stopped covering its input produces a clean result indistinguishable from a real
+one, and a clean result is exactly what a gate wants to hear. **The signature is
+a count that changed for a reason nobody asked about** — here, "1 checked
+instead of all", which is the only thing in the report that would have given it
+away.
+
+**So the rule has two halves, and the second is the one that catches defects:**
+
+- a check that is **noisy** is discarded, because it cannot be acted on;
+- a check whose **coverage changed** is discarded, because its result now
+  describes a different set of inputs than the one you asked about.
+
+And the standing number is named as *"the first scan's"*, with the caveat
+attached, rather than a single confident figure. **An agent that narrows its own
+claim and says which run it is standing behind has produced a more usable fact
+than one that reports the best number it obtained.**
+
+The same agent's static sweep of the other class — every `pub const … : &str`
+across all 19 fixture modules, validated against its brand rule — returned
+**19 fingerprint-shaped constants, 27 UUID-shaped, 0 violations**, and
+`agent_fixture` was the only fixture in the crate that could not satisfy
+`WorkerFp::check`. **The defect existed exactly once.** And with both shapes
+checked, its prediction stayed falsifiable rather than settled: *if the run shows
+a shortfall, the cause is something neither scan covers* — a dropped `.await`
+leaving a seed empty, which no static scan can see, or a `Drop` that discards an
+error. **Those need a run to see, not a grep.**
+
 ## A test that drops the handle asserts the opposite of the contract
 
 Three separate tests in one wave failed for the same reason, and it is a class
