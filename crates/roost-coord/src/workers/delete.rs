@@ -154,10 +154,13 @@ pub fn best_effort_cleanup(step: &str, worker_fp: &WorkerFp, work: impl FnOnce()
 pub fn released_sessions(persisted: &[String], volatile: &[SessionId]) -> Vec<SessionId> {
     let mut released: Vec<SessionId> = Vec::with_capacity(persisted.len() + volatile.len());
     for session_id in persisted {
-        if let Ok(session_id) = SessionId::try_from(session_id.as_str()) {
-            if !released.contains(&session_id) {
-                released.push(session_id);
-            }
+        // A durable row whose id is not a uuid is a row no terminal can address;
+        // it is left out of the notification rather than coerced into one.
+        let Ok(session_id) = SessionId::try_from(session_id.as_str()) else {
+            continue;
+        };
+        if !released.contains(&session_id) {
+            released.push(session_id);
         }
     }
     for session_id in volatile {

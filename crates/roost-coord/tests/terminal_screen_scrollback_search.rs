@@ -380,9 +380,10 @@ async fn a_search_after_a_consumed_cancel_is_a_new_search() {
         }),
         Some(worker.as_str()),
     );
-    second
+    let served = second
         .await
         .expect("the handler task finished")
         .expect("the new search is served")
         .body;
+    assert_eq!(served.stop_reason, roost_proto::SearchStopReason::Complete);
 }

@@ -1,12 +1,12 @@
-//! Web Push transport delivery: the 404/410 prune, the isolation of every
-//! other failure, and the four-send concurrency ceiling.
+//! Web Push delivery outcomes: which failure prunes a subscription and which
+//! one is merely recorded.
 //!
-//! These are the three rules `push-sender.ts` exists to hold, and each is a
-//! decision a tidier port loses silently. A prune that also fires on a 500
+//! This is half of what `push-sender.ts` decides; the concurrency ceiling and
+//! the supersession fence are in `push_sender_bounds.rs`. The split is along
+//! the rule rather than along the file: a prune that also fires on a 500
 //! unsubscribes a whole fleet the first time a push provider has a bad
-//! afternoon; an un-isolated failure drops sixteen notifications because the
-//! first one failed; an unbounded fan-out turns one busy transition into a
-//! self-inflicted outage.
+//! afternoon, and an un-isolated failure drops sixteen notifications because
+//! the first one failed.
 
 // A test that cannot say what it expected is not a test. `expect` is denied
 // outside `#[cfg(test)]`, and an integration test is its own crate, so the
@@ -15,45 +15,43 @@
 
 mod push_fixture;
 
-use std::sync::Arc;
-use std::time::Duration;
-
 use push_fixture::FakeTransport;
-use push_fixture::{PUSH_ORIGIN, PushFixture, viewer_fp};
+use push_fixture::{PUSH_ORIGIN, PushFixture};
 use roost_coord::push::sender::{
     PushDeliveryOptions, PushDeliveryResult, send_push_to_subscriptions,
 };
 use roost_coord::push::subscription_store::StoredSubscription;
-use roost_coord::push::transport::{
-    MAX_CONCURRENT_SENDS, PushTransportError, REQUEST_TIMEOUT, TTL_SECONDS,
-};
+use roost_coord::push::transport::PushTransportError;
+
+/// One stored subscription, seeded into the database AND returned as the row
+/// the sender will be handed.
+///
+/// The two halves have to be the same row. A test that seeds one endpoint and
+/// delivers another exercises nothing: the sender's `DELETE` names the endpoint
+/// it was asked about, finds no row, and the seeded row survives -- which looks
+/// exactly like "410 did not prune" and is not.
+async fn one_seeded_subscription(fixture: &PushFixture, endpoint: &str) -> StoredSubscription {
+    fixture
+        .seed_subscription(&fixture.dashboard_id, &fixture.fp(), endpoint)
+        .await;
+    StoredSubscription {
+        dashboard_id: fixture.dashboard_id.clone(),
+        viewer_fp: fixture.fp(),
+        endpoint: endpoint.to_owned(),
+        p256dh: "abc".to_owned(),
+        auth: "def".to_owned(),
+        created_at_ms: 1_000,
+    }
+}
 
 /// Nine stored subscriptions, so the batch is wider than the ceiling.
-fn wide_batch(count: usize) -> Vec<StoredSubscription> {
-    (0..count)
-        .map(|index| StoredSubscription {
-            dashboard_id: "dash".to_owned(),
-            viewer_fp: viewer_fp('a'),
-            endpoint: format!("{PUSH_ORIGIN}/subscription-{index}"),
-            p256dh: "abc".to_owned(),
-            auth: "def".to_owned(),
-            created_at_ms: index as i64,
-        })
-        .collect()
-}
 
 #[tokio::test]
 async fn a_410_prunes_the_subscription_and_reports_it_as_expired() {
     let fixture = PushFixture::new("prune-410").await;
     let fp = fixture.fp();
-    fixture
-        .seed_subscription(
-            &fixture.dashboard_id,
-            &fp,
-            &format!("{PUSH_ORIGIN}/expired-secret"),
-        )
-        .await;
-    let batch = wide_batch(1);
+    let batch =
+        vec![one_seeded_subscription(&fixture, &format!("{PUSH_ORIGIN}/expired-secret")).await];
     let transport = FakeTransport::failing(PushTransportError::with_status(410, "Gone"));
 
     let result = send_push_to_subscriptions(
@@ -83,14 +81,8 @@ async fn a_410_prunes_the_subscription_and_reports_it_as_expired() {
 async fn a_404_prunes_too_because_providers_do_not_distinguish_it_from_410() {
     let fixture = PushFixture::new("prune-404").await;
     let fp = fixture.fp();
-    fixture
-        .seed_subscription(
-            &fixture.dashboard_id,
-            &fp,
-            &format!("{PUSH_ORIGIN}/gone-secret"),
-        )
-        .await;
-    let batch = wide_batch(1);
+    let batch =
+        vec![one_seeded_subscription(&fixture, &format!("{PUSH_ORIGIN}/gone-secret")).await];
     let transport = FakeTransport::failing(PushTransportError::with_status(404, "Not Found"));
 
     let result = send_push_to_subscriptions(
@@ -115,15 +107,13 @@ async fn every_other_status_is_recorded_and_the_row_survives() {
         let fixture = PushFixture::new(&format!("keep-{status}")).await;
         let fp = fixture.fp();
         let endpoint = format!("{PUSH_ORIGIN}/alive-{status}");
-        fixture
-            .seed_subscription(&fixture.dashboard_id, &fp, &endpoint)
-            .await;
+        let batch = vec![one_seeded_subscription(&fixture, &endpoint).await];
         let transport =
             FakeTransport::failing(PushTransportError::with_status(status, "not a dead token"));
 
         let result = send_push_to_subscriptions(
             fixture.database().pool(),
-            &wide_batch(1),
+            &batch,
             r#"{"test":true}"#,
             PushDeliveryOptions::default(),
             transport.as_ref(),
@@ -152,14 +142,12 @@ async fn a_failure_with_no_status_at_all_is_isolated_rather_than_pruning() {
     let fixture = PushFixture::new("keep-timeout").await;
     let fp = fixture.fp();
     let endpoint = format!("{PUSH_ORIGIN}/timed-out");
-    fixture
-        .seed_subscription(&fixture.dashboard_id, &fp, &endpoint)
-        .await;
+    let batch = vec![one_seeded_subscription(&fixture, &endpoint).await];
     let transport = FakeTransport::failing(PushTransportError::without_status("request timed out"));
 
     let result = send_push_to_subscriptions(
         fixture.database().pool(),
-        &wide_batch(1),
+        &batch,
         r#"{"test":true}"#,
         PushDeliveryOptions::default(),
         transport.as_ref(),
@@ -174,15 +162,11 @@ async fn a_failure_with_no_status_at_all_is_isolated_rather_than_pruning() {
 #[tokio::test]
 async fn one_failing_endpoint_does_not_cost_the_batch_the_others() {
     let fixture = PushFixture::new("isolate").await;
-    let batch = wide_batch(9);
-    for subscription in &batch {
-        fixture
-            .seed_subscription(
-                &fixture.dashboard_id,
-                &subscription.viewer_fp,
-                &subscription.endpoint,
-            )
-            .await;
+    let mut batch = Vec::new();
+    for index in 0..9 {
+        batch.push(
+            one_seeded_subscription(&fixture, &format!("{PUSH_ORIGIN}/subscription-{index}")).await,
+        );
     }
     let transport = FakeTransport::failing(PushTransportError::with_status(500, "provider down"));
 
@@ -203,205 +187,4 @@ async fn one_failing_endpoint_does_not_cost_the_batch_the_others() {
         9,
         "a 500 must not delete a single row"
     );
-}
-
-#[tokio::test]
-async fn at_most_four_deliveries_are_in_flight_at_once() {
-    let fixture = PushFixture::new("ceiling").await;
-    let batch = wide_batch(9);
-    // The gate holds every attempt open until the test says go, so the peak is
-    // whatever the sender actually started rather than whatever a sleep
-    // happened to observe.
-    let (transport, release) = FakeTransport::gated();
-
-    let deliveries = tokio::spawn({
-        let batch = batch.clone();
-        let transport = Arc::clone(&transport);
-        let pool = fixture.database().pool().clone();
-        async move {
-            send_push_to_subscriptions(
-                &pool,
-                &batch,
-                r#"{"test":true}"#,
-                PushDeliveryOptions::default(),
-                &*transport,
-            )
-            .await
-        }
-    });
-
-    // Wait until the ceiling is saturated, then let it go.
-    let mut saturated = Vec::new();
-    for _ in 0..200 {
-        saturated.push(transport.peak_in_flight());
-        if transport.peak_in_flight() >= MAX_CONCURRENT_SENDS {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-    assert_eq!(
-        transport.peak_in_flight(),
-        MAX_CONCURRENT_SENDS,
-        "the sender must saturate its four slots, not fewer"
-    );
-    release.send(true).expect("the gate receiver is still held");
-    let result = deliveries.await.expect("the batch completes");
-
-    assert_eq!(
-        result,
-        PushDeliveryResult {
-            delivered: 9,
-            expired: 0,
-            failed: 0
-        },
-        "a bounded batch still delivers everything"
-    );
-    assert_eq!(
-        transport.peak_in_flight(),
-        MAX_CONCURRENT_SENDS,
-        "the ceiling is four, and the ninth send waits for a slot"
-    );
-    assert_eq!(transport.attempted(), 9);
-}
-
-#[tokio::test]
-async fn a_batch_narrower_than_the_ceiling_still_delivers_everything() {
-    let fixture = PushFixture::new("narrow").await;
-    let batch = wide_batch(2);
-    let transport = FakeTransport::accepting();
-
-    let result = send_push_to_subscriptions(
-        fixture.database().pool(),
-        &batch,
-        r#"{"test":true}"#,
-        PushDeliveryOptions::default(),
-        transport.as_ref(),
-    )
-    .await;
-
-    assert_eq!(result.delivered, 2);
-    assert_eq!(
-        transport.peak_in_flight(),
-        2,
-        "two subscriptions cannot use four slots"
-    );
-}
-
-#[tokio::test]
-async fn every_request_carries_the_ttl_the_ceiling_and_the_deduplication_topic() {
-    let fixture = PushFixture::new("request-shape").await;
-    let batch = wide_batch(1);
-    let transport = FakeTransport::accepting();
-
-    send_push_to_subscriptions(
-        fixture.database().pool(),
-        &batch,
-        r#"{"sessionId":"s"}"#,
-        PushDeliveryOptions {
-            deduplication_token: Some("dedup-token-value"),
-            is_current: None,
-        },
-        transport.as_ref(),
-    )
-    .await;
-
-    let recorded = transport.deliveries();
-    assert_eq!(recorded.len(), 1);
-    assert_eq!(recorded[0].ttl_secs, u64::from(TTL_SECONDS));
-    assert_eq!(recorded[0].timeout_ms, REQUEST_TIMEOUT.as_millis());
-    assert_eq!(
-        recorded[0].topic.as_deref(),
-        Some("dedup-token-value"),
-        "the RFC 8030 topic is what replaces a stale notification"
-    );
-    assert_eq!(recorded[0].body, r#"{"sessionId":"s"}"#);
-}
-
-#[tokio::test]
-async fn a_superseded_transition_sends_nothing_at_all() {
-    let fixture = PushFixture::new("superseded").await;
-    let batch = wide_batch(9);
-    let transport = FakeTransport::accepting();
-
-    let result = send_push_to_subscriptions(
-        fixture.database().pool(),
-        &batch,
-        r#"{"test":true}"#,
-        PushDeliveryOptions {
-            deduplication_token: None,
-            is_current: Some(Arc::new(|| false)),
-        },
-        transport.as_ref(),
-    )
-    .await;
-
-    assert_eq!(result, PushDeliveryResult::default());
-    assert_eq!(
-        transport.attempted(),
-        0,
-        "a transition that stopped being current must not reach the network"
-    );
-}
-
-#[tokio::test]
-async fn a_transition_superseded_mid_batch_stops_further_sends() {
-    let fixture = PushFixture::new("superseded-mid").await;
-    let batch = wide_batch(64);
-    let (transport, release) = FakeTransport::gated();
-    let flag = Arc::new(std::sync::atomic::AtomicBool::new(true));
-    let fence: Arc<dyn Fn() -> bool + Send + Sync> = {
-        let flag = Arc::clone(&flag);
-        Arc::new(move || flag.load(std::sync::atomic::Ordering::SeqCst))
-    };
-
-    let deliveries = tokio::spawn({
-        let batch = batch.clone();
-        let transport = Arc::clone(&transport);
-        let pool = fixture.database().pool().clone();
-        async move {
-            send_push_to_subscriptions(
-                &pool,
-                &batch,
-                r#"{"test":true}"#,
-                PushDeliveryOptions {
-                    deduplication_token: None,
-                    is_current: Some(Arc::clone(&fence)),
-                },
-                &*transport,
-            )
-            .await
-        }
-    });
-
-    while transport.peak_in_flight() < MAX_CONCURRENT_SENDS {
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-    // The transition is superseded while the first four are still in flight.
-    flag.store(false, std::sync::atomic::Ordering::SeqCst);
-    release.send(true).expect("the gate receiver is held");
-    let _ = deliveries.await.expect("the batch completes");
-
-    assert!(
-        transport.attempted() < 64,
-        "the fence must stop the remaining sends: {} of 64 attempted",
-        transport.attempted()
-    );
-}
-
-#[tokio::test]
-async fn an_empty_batch_sends_nothing_and_never_touches_the_transport() {
-    let fixture = PushFixture::new("empty").await;
-    let transport = FakeTransport::accepting();
-
-    let result = send_push_to_subscriptions(
-        fixture.database().pool(),
-        &[],
-        r#"{"test":true}"#,
-        PushDeliveryOptions::default(),
-        transport.as_ref(),
-    )
-    .await;
-
-    assert_eq!(result, PushDeliveryResult::default());
-    assert_eq!(transport.attempted(), 0);
 }

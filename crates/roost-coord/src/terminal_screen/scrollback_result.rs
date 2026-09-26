@@ -59,7 +59,7 @@ pub fn validate_search_request(
     before_row: Option<u64>,
 ) -> Result<ValidatedSearch, ConnectError> {
     let search_id_len = search_id.chars().count();
-    if search_id_len < 1 || search_id_len > TERMINAL_SEARCH_ID_MAX_LENGTH {
+    if !(1..=TERMINAL_SEARCH_ID_MAX_LENGTH).contains(&search_id_len) {
         return Err(invalid(format!(
             "scrollback search search_id must contain 1 to {TERMINAL_SEARCH_ID_MAX_LENGTH} characters"
         )));
@@ -74,12 +74,12 @@ pub fn validate_search_request(
             "scrollback search query must contain at most {TERMINAL_SEARCH_QUERY_MAX_CODE_POINTS} Unicode code points"
         )));
     }
-    if max_rows < 1 || max_rows > TERMINAL_SEARCH_MAX_ROWS {
+    if !(1..=TERMINAL_SEARCH_MAX_ROWS).contains(&max_rows) {
         return Err(invalid(format!(
             "scrollback search max_rows must be between 1 and {TERMINAL_SEARCH_MAX_ROWS}"
         )));
     }
-    if max_matches < 1 || max_matches > TERMINAL_SEARCH_MAX_MATCHES {
+    if !(1..=TERMINAL_SEARCH_MAX_MATCHES).contains(&max_matches) {
         return Err(invalid(format!(
             "scrollback search max_matches must be between 1 and {TERMINAL_SEARCH_MAX_MATCHES}"
         )));
@@ -248,7 +248,7 @@ fn parse_matches(
     if raw.len() > max_matches {
         return Err(malformed());
     }
-    raw.iter().map(|entry| parse_match(entry)).collect()
+    raw.iter().map(parse_match).collect()
 }
 
 fn parse_match(entry: &serde_json::Value) -> Result<SearchMatch, ConnectError> {

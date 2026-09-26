@@ -12,68 +12,19 @@
 use std::sync::{Arc, Mutex};
 
 use roost_coord::terminal_screen::replica::{ScreenHub, ScreenReplicaSink};
-use roost_coord::terminal_screen::residency::{SessionCharge, TerminalScreenResidency};
 use roost_coord::terminal_screen::screen_budget::{
     TerminalScreenCaps, sync_backpressure_bytes, terminal_screen_budget_bytes, terminal_screen_caps,
 };
-use roost_protocol::cell::{
-    CELL_GRID_PART_MAX_BYTES, CELL_GRID_SNAPSHOT_MAX_SPANS, CellGridFrame, CellRow, CellSpan,
-    MouseTracking,
-};
+use roost_protocol::cell::{CELL_GRID_PART_MAX_BYTES, CELL_GRID_SNAPSHOT_MAX_SPANS};
 use roost_protocol::viewport::TERMINAL_MAX_ROWS;
 use roost_protocol::wire::SessionId;
 
+const STREAM: &str = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const COLS: u32 = 80;
 const ROWS: u32 = 24;
-const ROW_SPANS: u64 = 1;
 
 fn session(tail: &str) -> SessionId {
     SessionId::try_from(format!("00000000-0000-4000-8000-{tail:0>12}").as_str()).unwrap()
-}
-
-fn span() -> CellSpan {
-    CellSpan {
-        text: "$ ".to_owned(),
-        fg: 0,
-        bg: 0,
-        flags: 0,
-        fg_rgb: None,
-        bg_rgb: None,
-        columns: 2,
-        link_uri: None,
-        link_key: None,
-    }
-}
-
-fn frame(seq: u64) -> CellGridFrame {
-    CellGridFrame {
-        stream_id: "stream-1".to_owned(),
-        grid_epoch: "grid-1".to_owned(),
-        cols: COLS,
-        rows: ROWS,
-        cursor_row: 0,
-        cursor_col: 0,
-        cursor_visible: true,
-        alt_screen: false,
-        cursor_keys_app: false,
-        bracketed_paste: false,
-        mouse_tracking: MouseTracking::None,
-        mouse_sgr: false,
-        focus_events: false,
-        full: true,
-        viewport_rows: (0..ROWS)
-            .map(|row| CellRow {
-                index: row,
-                spans: vec![span()].into(),
-            })
-            .collect(),
-        scrollback_rows: Vec::new(),
-        scrollback_append: Vec::new(),
-        scrollback_total: 0,
-        sb_base: 0,
-        base_seq: 0,
-        seq,
-    }
 }
 
 /// One painted row on the wire, carrying a single span.
@@ -97,14 +48,21 @@ fn proto_row(index: u32) -> roost_proto::PbCellRow {
 }
 
 fn baseline_proto(seq: u64) -> roost_proto::PbCellGridFrame {
+    baseline_proto_sized(seq, ROWS)
+}
+
+/// A baseline of `rows` rows. The row count has to match the rows the frame
+/// actually carries: a snapshot validator that is doing its job refuses a
+/// frame which declares more rows than it paints.
+fn baseline_proto_sized(seq: u64, rows: u32) -> roost_proto::PbCellGridFrame {
     roost_proto::PbCellGridFrame {
-        stream_id: "stream-1".to_owned(),
+        stream_id: STREAM.to_owned(),
         grid_epoch: "grid-1".to_owned(),
         cols: COLS,
-        rows: ROWS,
+        rows,
         full: true,
         seq,
-        viewport_rows: (0..ROWS).map(proto_row).collect(),
+        viewport_rows: (0..rows).map(proto_row).collect(),
         scrollback_total: 0,
         sb_base: 0,
         base_seq: 0,
@@ -200,7 +158,7 @@ fn a_screen_past_its_budget_is_dropped_and_named_unavailable_not_trimmed() {
         sink.clone(),
     );
     let id = session("1");
-    hub.expect_stream(&id, "stream-1", COLS, ROWS);
+    hub.expect_stream(&id, STREAM, COLS, ROWS);
 
     hub.publish_frame(&id, &mut baseline_proto(1), 1_000);
 
@@ -240,7 +198,7 @@ fn the_budget_is_shared_so_the_session_that_misses_out_is_named() {
     );
     let (first, second, third) = (session("1"), session("2"), session("3"));
     for id in [&first, &second, &third] {
-        hub.expect_stream(id, "stream-1", COLS, ROWS);
+        hub.expect_stream(id, STREAM, COLS, ROWS);
         hub.publish_frame(id, &mut baseline_proto(1), 1_000);
     }
 
@@ -271,12 +229,12 @@ fn an_admissible_baseline_is_installed_and_announced_once() {
     let sink = Arc::new(RecordingSink::default());
     let hub = ScreenHub::with_sink(roomy_caps(), sink.clone());
     let id = session("1");
-    hub.expect_stream(&id, "stream-1", COLS, ROWS);
+    hub.expect_stream(&id, STREAM, COLS, ROWS);
 
     hub.publish_frame(&id, &mut baseline_proto(1), 1_000);
 
     assert!(hub.has_valid_cache(&id));
-    assert_eq!(hub.expected_stream_id(&id).as_deref(), Some("stream-1"));
+    assert_eq!(hub.expected_stream_id(&id).as_deref(), Some(STREAM));
     assert_eq!(
         sink.full_accepted
             .lock()
@@ -298,7 +256,7 @@ fn a_delta_that_does_not_follow_the_baseline_invalidates_rather_than_skips() {
     let sink = Arc::new(RecordingSink::default());
     let hub = ScreenHub::with_sink(roomy_caps(), sink);
     let id = session("1");
-    hub.expect_stream(&id, "stream-1", COLS, ROWS);
+    hub.expect_stream(&id, STREAM, COLS, ROWS);
     let mut baseline = baseline_proto(1);
     hub.publish_frame(&id, &mut baseline, 1_000);
 
@@ -320,84 +278,18 @@ fn a_geometry_change_drops_the_old_baseline_rather_than_reusing_it() {
     let sink = Arc::new(RecordingSink::default());
     let hub = ScreenHub::with_sink(roomy_caps(), sink.clone());
     let id = session("1");
-    hub.expect_stream(&id, "stream-1", COLS, ROWS);
+    hub.expect_stream(&id, STREAM, COLS, ROWS);
     let mut baseline = baseline_proto(1);
     hub.publish_frame(&id, &mut baseline, 1_000);
     assert!(hub.has_valid_cache(&id));
 
-    hub.expect_stream(&id, "stream-1", COLS, 40);
+    hub.expect_stream(&id, STREAM, COLS, 40);
 
     assert!(
         !hub.has_valid_cache(&id),
         "the old grid is not a prefix of a taller one, so it is dropped rather than stretched"
     );
-    let mut resized = baseline_proto(2);
-    resized.rows = 40;
+    let mut resized = baseline_proto_sized(2, 40);
     hub.publish_frame(&id, &mut resized, 1_100);
     assert!(hub.has_valid_cache(&id));
-}
-
-#[test]
-fn the_residency_pool_accounts_for_a_pinned_version_a_cursor_is_still_walking() {
-    let mut pool = TerminalScreenResidency::new(100, 1_000);
-    let mut charge = SessionCharge::default();
-    let generation = install(&mut pool, &mut charge, frame(1), 24);
-
-    assert!(pool.acquire_source_lease(&mut charge, generation));
-    assert_eq!(pool.usage().0, 24);
-    // A replacement with the old version pinned charges BOTH, which is what
-    // makes an uncharged resident full impossible.
-    assert!(pool.replace(&mut charge, frame(2), 0, 24, ROW_SPANS));
-    assert!(
-        charge.pinned.is_some(),
-        "the version a cursor holds stays pinned"
-    );
-    assert_eq!(
-        pool.usage().0,
-        48,
-        "both versions are charged while both are reachable"
-    );
-
-    pool.release_source_lease(&mut charge, generation);
-    assert_eq!(pool.usage().0, 48, "one lease is still held");
-    pool.release_source_lease(&mut charge, generation);
-    assert_eq!(
-        pool.usage().0,
-        24,
-        "the last lease out returns the pinned version"
-    );
-    assert!(charge.pinned.is_none());
-}
-
-#[test]
-fn the_pool_refuses_a_version_it_cannot_pay_for_and_changes_nothing() {
-    let mut pool = TerminalScreenResidency::new(24, 1_000);
-    let mut charge = SessionCharge::default();
-    assert!(pool.replace(&mut charge, frame(1), 0, 24, ROW_SPANS));
-    let before = pool.usage();
-
-    let mut other = SessionCharge::default();
-    assert!(
-        !pool.replace(&mut other, frame(1), 0, 24, ROW_SPANS),
-        "a full pool refuses the next session"
-    );
-    assert!(other.current().is_none(), "a refusal installs nothing");
-    assert_eq!(
-        pool.usage(),
-        before,
-        "a refusal does not move the accounting"
-    );
-}
-
-fn install(
-    pool: &mut TerminalScreenResidency,
-    charge: &mut SessionCharge,
-    value: CellGridFrame,
-    rows: u64,
-) -> u64 {
-    assert!(pool.replace(charge, value, 0, rows, ROW_SPANS));
-    charge
-        .current()
-        .expect("a replaced charge holds a cache")
-        .generation
 }

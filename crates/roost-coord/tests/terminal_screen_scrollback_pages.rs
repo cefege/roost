@@ -81,11 +81,14 @@ async fn a_page_request_reaches_the_worker_as_a_bounded_window() {
         ),
         "the worker's rpc-ok settles the page"
     );
-    let response = handle
-        .await
-        .expect("the handler task finished")
-        .expect("the page is served")
-        .body;
+    let outcome = handle.await.expect("the handler task finished");
+    let response = match outcome {
+        Ok(response) => response.body,
+        Err(error) => panic!(
+            "the page is served, refused with {:?}: {error}",
+            error.message
+        ),
+    };
     assert_eq!(
         response
             .rows

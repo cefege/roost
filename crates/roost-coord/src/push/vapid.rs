@@ -59,7 +59,17 @@ pub enum VapidError {
 /// The same shape `web-push`'s `generateVAPIDKeys` returns, so a row written by
 /// v2 is readable here and a row written here is readable there: the public
 /// half is the uncompressed P-256 point, the private half is the raw scalar.
+///
+/// THE JSON FIELD NAMES ARE `publicKey` AND `privateKey`, camelCase, and they
+/// are a WIRE COMPATIBILITY CONTRACT, not a style choice. v2 stores
+/// `JSON.stringify({publicKey, privateKey})` (`vapid.ts:38`), so a row written
+/// by v2 must deserialize here. Rust's default would be `public_key` and the
+/// row would parse into a struct of two absent fields, which `from_str` reports
+/// as a missing field rather than as a shape mismatch -- so the failure would
+/// present as "stored VAPID keypair is invalid" on a database that is perfectly
+/// fine.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VapidKeys {
     /// The uncompressed public point, base64url. This is what `PushGetConfig`
     /// hands the browser.
@@ -256,24 +266,7 @@ async fn read_row(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    use super::{
-        P256KeypairGenerator, VAPID_SETTING_KEY, VapidError, VapidKeyGenerator, VapidKeys,
-    };
-
-    /// A generator that counts, so a test can prove how many identities were
-    /// minted rather than only how many rows exist.
-    struct CountingGenerator {
-        draws: AtomicUsize,
-    }
-
-    impl VapidKeyGenerator for CountingGenerator {
-        fn generate(&self) -> Result<VapidKeys, VapidError> {
-            self.draws.fetch_add(1, Ordering::SeqCst);
-            P256KeypairGenerator.generate()
-        }
-    }
+    use super::{P256KeypairGenerator, VAPID_SETTING_KEY, VapidKeyGenerator};
 
     #[test]
     fn a_generated_keypair_is_base64url_and_the_public_half_is_an_uncompressed_point() {

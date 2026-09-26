@@ -11,6 +11,8 @@
 //! move that comparison to the transport and make every new status a change in
 //! two files.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::time::Duration;
 
 /// The `web-push` `WebPushClient` this trait's production half delegates to.
@@ -111,10 +113,20 @@ pub struct PushDeliveryRequest {
 ///
 /// `Send + Sync` because the sender holds one transport behind `&dyn` and runs
 /// four attempts at a time.
-#[async_trait::async_trait]
+///
+/// The method returns a BOXED future rather than being an `async fn`. An
+/// `async fn` in a trait desugars to a higher-ranked future over every input
+/// lifetime, and the sender holds the transport as `&dyn`, so composing them
+/// makes the whole call non-`'static` and unusable from a spawned task. The box
+/// is the price of the trait object, paid once per delivery -- and one
+/// `web-push` HTTPS round trip costs orders of magnitude more than the
+/// allocation.
 pub trait PushNotificationTransport: Send + Sync {
     /// Deliver `request`, or say why not.
-    async fn send(&self, request: &PushDeliveryRequest) -> Result<(), PushTransportError>;
+    fn send<'a>(
+        &'a self,
+        request: &'a PushDeliveryRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<(), PushTransportError>> + Send + 'a>>;
 }
 
 #[cfg(test)]

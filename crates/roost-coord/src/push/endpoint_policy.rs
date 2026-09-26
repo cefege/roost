@@ -187,7 +187,7 @@ pub fn validate_endpoint(
         return Err(PushInputError::Unavailable);
     }
     let origin = endpoint_origin(endpoint).ok_or(PushInputError::InvalidEndpoint)?;
-    if !allowed_origins.iter().any(|allowed| *allowed == origin) {
+    if !allowed_origins.contains(&origin) {
         return Err(PushInputError::InvalidEndpoint);
     }
     Ok(origin)

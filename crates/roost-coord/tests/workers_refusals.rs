@@ -6,6 +6,11 @@
 // looking for a bootstrap token when the real answer is that they deleted the
 // machine an hour ago. Each test here asserts the code AND the fact.
 
+// `expect` and `unwrap` are denied outside `#[cfg(test)]`, and an integration
+// test is its own crate rather than a module of one, so the exemption has to be
+// stated here rather than inherited.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 mod workers_support;
 
 use connectrpc::ErrorCode;
@@ -112,10 +117,12 @@ async fn an_unsupported_platform_is_refused() {
     );
     assert_eq!(
         fixture
-            .scalar_i64(&format!("SELECT os FROM workers WHERE fp = '{WORKER_FP}'"))
+            .scalar_i64(&format!(
+                "SELECT last_seen_ms FROM workers WHERE fp = '{WORKER_FP}'"
+            ))
             .await,
-        0,
-        "the stored platform is untouched, and 'linux' is not 0 so this row is the old one"
+        1_000,
+        "a refused register does not stamp the row as heard from"
     );
 }
 

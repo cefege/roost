@@ -192,13 +192,15 @@ impl ScreenHub {
             return;
         }
         normalize_cell_grid_frame(&mut folded);
-        let spans = u64::from(
-            folded
-                .viewport_rows
-                .iter()
-                .map(|row| row.spans.len() as u64)
-                .sum::<u64>(),
-        );
+        // A span COUNT against a span count, not a byte count against a byte
+        // count, so the pool and the ceiling are in the same unit. Saturating
+        // rather than `as u64`: a grid this large is already refused, and a
+        // wrapped count would pass the ceiling.
+        let spans = folded
+            .viewport_rows
+            .iter()
+            .map(|row| u64::try_from(row.spans.len()).unwrap_or(u64::MAX))
+            .sum::<u64>();
         if spans > u64::from(CELL_GRID_SNAPSHOT_MAX_SPANS) {
             if let Some(cache) = screen.charge.current.as_mut() {
                 cache.valid = false;

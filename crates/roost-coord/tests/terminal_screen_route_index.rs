@@ -1,14 +1,16 @@
-//! The workers-facing half of the byte hub: the three `WorkerRouteIndex`
-//! methods, the atomicity of a replacement, and what a retirement names.
+//! The three `WorkerRouteIndex` methods: lookup, the exact replacement a
+//! worker's snapshot performs, and what a retirement names.
 //!
 //! These are the properties the workers domain depends on and cannot see from
 //! its own side: a hello's exact snapshot, a delete's route sweep, and a frame
 //! dispatch's lookup. The atomicity assertion is the one that would be
 //! impossible to write against a per-key implementation, which is the whole
-//! reason `byte-hub.ts` was split on this seam.
+//! reason `byte-hub.ts` was split on this seam. What arrives on a route is
+//! `terminal_screen_byte_hub.rs`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -239,6 +241,8 @@ fn a_replacement_is_atomic_for_a_concurrent_reader() {
     }];
     hub.replace_worker_channel_index(&worker(WORKER_A), &old_index);
 
+    let old_whole = BTreeMap::from([(channel(1), old_session.clone())]);
+    let new_whole = BTreeMap::from([(channel(2), new_session.clone())]);
     let observed = Arc::new(AtomicUsize::new(0));
     let stop = Arc::new(AtomicUsize::new(0));
     let readers: Vec<_> = (0..4)
@@ -246,18 +250,16 @@ fn a_replacement_is_atomic_for_a_concurrent_reader() {
             let hub = hub.clone();
             let observed = Arc::clone(&observed);
             let stop = Arc::clone(&stop);
-            let old_session = old_session.clone();
-            let new_session = new_session.clone();
+            let old_whole = old_whole.clone();
+            let new_whole = new_whole.clone();
             std::thread::spawn(move || {
                 while stop.load(Ordering::Relaxed) == 0 {
-                    let first = hub.lookup_session_id(&worker(WORKER_A), &channel(1));
-                    let second = hub.lookup_session_id(&worker(WORKER_A), &channel(2));
-                    // The pair must always be one whole index: channel 1 or
-                    // channel 2, never neither and never both.
+                    let whole = hub.worker_routes(&worker(WORKER_A));
+                    // One whole index per read, so a half-applied replacement
+                    // would show as a third shape rather than as a plausible one.
                     assert!(
-                        (first == Some(old_session.clone()) && second.is_none())
-                            || (first.is_none() && second == Some(new_session.clone())),
-                        "a reader saw a half-replaced index: {first:?} / {second:?}"
+                        whole == old_whole || whole == new_whole,
+                        "a reader saw a half-replaced index: {whole:?}"
                     );
                     observed.fetch_add(1, Ordering::Relaxed);
                 }
@@ -364,60 +366,5 @@ fn a_reconciled_worker_is_marked_and_a_reconnect_reopens_the_window() {
     assert!(
         !hub.is_worker_channel_index_reconciled(&worker(WORKER_A)),
         "a fresh hello re-primes the index, so the worker is not reconciled until its snapshot lands"
-    );
-}
-
-#[test]
-fn a_frame_on_an_unbound_channel_is_dropped_and_a_sustained_burst_is_raised() {
-    let sink = Arc::new(RecordingSink::default());
-    let hub = hub(&sink);
-    let mut frame = roost_proto::PbCellGridFrame::default();
-
-    let mut outcomes = Vec::new();
-    for step in 0..60 {
-        outcomes.push(hub.publish_cell_grid(&worker(WORKER_A), channel(5), &mut frame, step * 100));
-    }
-
-    assert!(
-        outcomes.iter().all(|outcome| *outcome
-            == roost_coord::terminal_screen::byte_hub::PublishOutcome::DroppedUnmapped),
-        "a channel nothing resolves never reaches a replica"
-    );
-}
-
-#[test]
-fn a_frame_whose_session_disagrees_with_its_route_is_refused_not_relayed() {
-    let sink = Arc::new(RecordingSink::default());
-    let hub = hub(&sink);
-    let routed = session(&uuid("1"));
-    let stranger = session(&uuid("2"));
-    hub.replace_worker_channel_index(
-        &worker(WORKER_A),
-        &[LiveChannel {
-            session_id: routed.clone(),
-            channel_id: channel(1),
-        }],
-    );
-    hub.screens().expect_stream(&routed, "stream-1", 80, 24);
-    let mut frame = roost_proto::PbCellGridFrame {
-        session_id: stranger.as_str().to_owned(),
-        stream_id: "stream-1".to_owned(),
-        cols: 80,
-        rows: 24,
-        full: true,
-        ..Default::default()
-    };
-
-    let outcome = hub.publish_cell_grid(&worker(WORKER_A), channel(1), &mut frame, 1_000);
-
-    assert_eq!(
-        outcome,
-        roost_coord::terminal_screen::byte_hub::PublishOutcome::DroppedMismatchedSession {
-            session_id: routed.clone()
-        }
-    );
-    assert!(
-        !hub.screens().has_valid_cache(&routed),
-        "the replica is invalidated rather than fed a frame belonging to another session"
     );
 }

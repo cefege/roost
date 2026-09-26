@@ -194,10 +194,12 @@ impl ScreenHub {
             return;
         };
         let screen = sessions.entry(session_id.clone()).or_default();
-        if let Some(expected) = &screen.expected {
-            if expected.stream_id == stream_id && expected.cols == cols && expected.rows == rows {
-                return;
-            }
+        if let Some(expected) = &screen.expected
+            && expected.stream_id == stream_id
+            && expected.cols == cols
+            && expected.rows == rows
+        {
+            return;
         }
         screen.chunks.reset();
         screen.hold.clear();

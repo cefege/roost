@@ -7,6 +7,11 @@
 // that is consumed and a socket that goes away are four transport events, and
 // only the last one is reachable from a Connect method.
 
+// `expect` and `unwrap` are denied outside `#[cfg(test)]`, and an integration
+// test is its own crate rather than a module of one, so the exemption has to be
+// stated here rather than inherited.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 mod workers_support;
 
 use std::sync::{Arc, Mutex};
@@ -58,7 +63,7 @@ async fn a_second_generation_fences_the_first() {
     assert!(second.is_routable(), "the new generation is routable");
 
     // The handle a handler resolved before the swap cannot write.
-    let through_stale = send_frame_through(&fixture.registry(), &first, a_browser_command());
+    let through_stale = send_frame_through(fixture.registry(), &first, a_browser_command());
     assert!(
         matches!(
             through_stale,
@@ -79,7 +84,7 @@ async fn a_second_generation_fences_the_first() {
     assert_eq!(first_socket.count(), 0, "and it stays that way");
 
     // The current generation takes the frame.
-    let through_current = send_frame(&fixture.registry(), &browser_fp(), a_browser_command());
+    let through_current = send_frame(fixture.registry(), &browser_fp(), a_browser_command());
     assert!(through_current.is_admitted(), "{through_current:?}");
     assert_eq!(second_socket.count(), 1);
     assert_eq!(first_socket.count(), 0);
@@ -102,7 +107,7 @@ async fn a_retired_generation_is_dead_to_everyone() {
         list_routable_fps(fixture.registry()).is_empty(),
         "a retired worker is not routable"
     );
-    let refused = send_frame(&fixture.registry(), &browser_fp(), a_browser_command());
+    let refused = send_frame(fixture.registry(), &browser_fp(), a_browser_command());
     assert_eq!(
         refused,
         SendOutcome::Refused(SendRefusal::NoRoutableGeneration {
@@ -132,7 +137,7 @@ async fn a_fenced_credential_leaves_the_routable_set() {
         "generation {} is fenced and must not be offered to a browser",
         handle.connection_generation
     );
-    let refused = send_frame(&fixture.registry(), &browser_fp(), a_browser_command());
+    let refused = send_frame(fixture.registry(), &browser_fp(), a_browser_command());
     assert!(
         matches!(
             refused,
@@ -163,7 +168,7 @@ async fn a_claimed_generation_is_not_routable_until_its_snapshot_commits() {
     );
     assert!(!handle.is_ready(), "a claim is not readiness");
     assert!(list_routable_fps(fixture.registry()).is_empty());
-    assert!(!send_frame(&fixture.registry(), &browser_fp(), a_browser_command()).is_admitted());
+    assert!(!send_frame(fixture.registry(), &browser_fp(), a_browser_command()).is_admitted());
 
     assert!(mark_generation_ready(
         &fixture.core.services.buses,
@@ -171,7 +176,7 @@ async fn a_claimed_generation_is_not_routable_until_its_snapshot_commits() {
         &handle
     ));
     assert_eq!(list_routable_fps(fixture.registry()), vec![browser_fp()]);
-    assert!(send_frame(&fixture.registry(), &browser_fp(), a_browser_command()).is_admitted());
+    assert!(send_frame(fixture.registry(), &browser_fp(), a_browser_command()).is_admitted());
     assert!(
         !mark_generation_ready(&fixture.core.services.buses, fixture.registry(), &handle),
         "a duplicate snapshot does not republish the worker"

@@ -45,10 +45,20 @@ impl ScrollbackWindow {
         self.end_row.saturating_sub(self.start_row)
     }
 
-    /// Whether a worker answer covered the window, ignoring the floor.
+    /// Whether a worker answer stayed INSIDE the requested range.
+    ///
+    /// A page that comes back SHORT is legal, and is not this method's
+    /// business: the worker clamps at whatever history it still retains, and
+    /// names that clamp in `history_floor` precisely so a caller can stop
+    /// paging and say which floor it hit. Refusing a short page would make the
+    /// floor undecodable -- the one case it exists to describe.
+    ///
+    /// A page that comes back LONGER is the defect: rows past the exclusive
+    /// end the caller named are rows this request did not ask about, and a
+    /// browser numbering them against its own cursor would skip history.
     #[must_use]
     pub fn is_served_by(self, start_row: u64, end_row: u64) -> bool {
-        start_row <= self.start_row && end_row >= self.end_row
+        end_row <= self.end_row && start_row <= end_row
     }
 }
 

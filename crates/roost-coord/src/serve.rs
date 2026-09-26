@@ -100,6 +100,16 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
         "self-hosted tenant ready"
     );
 
+    // Boot step 7 (contract §1.1): the startup janitor, after the tenancy
+    // invariant and before the singletons. It DELETES closed sessions and never
+    // touches an open row -- a live terminal must not be deleted by a janitor --
+    // and it reports rather than erroring, so no context wrapper belongs here.
+    let janitor = crate::maintenance::startup_janitor::run_startup_janitor(&database).await;
+    tracing::info!(
+        deleted_sessions = janitor.deleted_sessions,
+        "startup janitor complete"
+    );
+
     let services = Arc::new(CoordServices::new(database));
 
     let core = CoordCore::new(Arc::clone(&services));
@@ -122,7 +132,10 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
         spa_available: boot.config.web_dist_path.is_some(),
     });
 
-    let router = build_router(state);
+    // Cloned: the maintenance schedulers below need the same services, and a
+    // backup scheduled before the port is accepting would compete with the very
+    // startup it protects.
+    let router = build_router(Arc::clone(&state));
     let listener = tokio::net::TcpListener::bind(bind)
         .await
         .with_context(|| format!("coordinator listen on {bind}"))?;
@@ -130,6 +143,16 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
         .local_addr()
         .with_context(|| "coordinator local address".to_string())?;
     tracing::info!(bind = %local, uptime_ms = now_ms().saturating_sub(boot_ms), "coordinator listening");
+
+    // Boot step 9 (contract §1.1): maintenance, scheduled AFTER the listener.
+    // v2's ordering note is "the listeners must start before maintenance and
+    // signal wiring" -- a backup that ran before the port was accepting would
+    // compete with the very startup it is meant to protect.
+    crate::maintenance::backup::spawn_scheduled_backups(state.services.db.clone());
+    crate::maintenance::audit_retention::spawn_audit_retention(
+        state.services.db.clone(),
+        boot.config.audit_retention_days,
+    );
 
     axum::serve(
         listener,

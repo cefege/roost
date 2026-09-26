@@ -7,6 +7,11 @@
 // in `workers_refusals.rs`; this file is about the rows, the presence and the
 // routable set the five methods produce.
 
+// `expect` and `unwrap` are denied outside `#[cfg(test)]`, and an integration
+// test is its own crate rather than a module of one, so the exemption has to be
+// stated here rather than inherited.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 mod workers_support;
 
 use roost_coord::workers::rpc::{
@@ -53,7 +58,7 @@ async fn the_five_methods_round_trip_and_the_list_projects_the_row() {
     assert_eq!(registered.label, "build-box");
     assert_eq!(registered.os, "linux");
     assert_eq!(registered.git_sha.as_deref(), Some("abc123"));
-    assert_eq!(registered.last_seen_ms > 0, true, "the beat is stamped");
+    assert!(registered.last_seen_ms > 0, "the beat is stamped");
     assert_eq!(
         registered.registered_at_ms, 1_000,
         "enrollment time is not a beat"

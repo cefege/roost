@@ -226,7 +226,7 @@ pub async fn fire_push_for_transition(
         &targets,
         &body,
         PushDeliveryOptions {
-            deduplication_token: Some(&deduplication_token),
+            deduplication_token: Some(deduplication_token.clone()),
             is_current: Some(Arc::clone(is_current)),
         },
         transport,
@@ -264,7 +264,7 @@ fn select_targets(
         let Some(origin) = endpoint_origin(&subscription.endpoint) else {
             continue;
         };
-        if allowed_origins.iter().any(|allowed| *allowed == origin) {
+        if allowed_origins.contains(&origin) {
             targets.push(subscription.clone());
         }
     }
@@ -303,8 +303,7 @@ fn session_title(cwd: &str, custom_title: Option<&str>) -> String {
         return title.to_owned();
     }
     cwd.split(['/', '\\'])
-        .filter(|segment| !segment.is_empty())
-        .next_back()
+        .rfind(|segment| !segment.is_empty())
         .unwrap_or(cwd)
         .to_owned()
 }

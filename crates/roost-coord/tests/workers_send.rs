@@ -6,6 +6,11 @@
 // frame -- a send that is silently dropped and a send that is refused look the
 // same on the wire, and only one of them is safe to retry.
 
+// `expect` and `unwrap` are denied outside `#[cfg(test)]`, and an integration
+// test is its own crate rather than a module of one, so the exemption has to be
+// stated here rather than inherited.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 mod workers_support;
 
 use std::sync::Arc;

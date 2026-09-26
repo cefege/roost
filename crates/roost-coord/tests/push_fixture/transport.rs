@@ -5,8 +5,10 @@
 //! on the two rules that are easy to lose in a tidier port -- that only 404 and
 //! 410 prune, and that no more than four sends overlap -- without a network.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, dead_code)]
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -39,6 +41,8 @@ pub struct FakeTransport {
     peak_in_flight: AtomicUsize,
     /// The gate every attempt parks on, when this transport holds.
     gate: Option<tokio::sync::watch::Receiver<bool>>,
+    /// Set when the transport opens its own gate at a saturation count.
+    auto_release: Option<AutoRelease>,
     /// The status to fail with. Every attempt fails the same way, which is
     /// what the pruning and the isolation tests each need.
     fail_with: Option<PushTransportError>,
@@ -57,15 +61,31 @@ impl FakeTransport {
         Arc::new(Self::new(Some(error), None))
     }
 
-    /// A transport that parks every attempt until the returned handle says go.
+    /// A transport that parks every attempt until `release` says go.
     ///
-    /// A test drives it by setting the watch to `true`; until then the attempts
-    /// sit in flight, which is how the concurrency ceiling becomes observable
-    /// without a sleep.
+    /// The gate is what makes the concurrency ceiling observable without a
+    /// sleep: with every attempt held open, whatever has been STARTED is what
+    /// is in flight, so a test can read the peak deterministically instead of
+    /// racing a timer.
     #[must_use]
     pub fn gated() -> (Arc<Self>, tokio::sync::watch::Sender<bool>) {
         let (sender, receiver) = tokio::sync::watch::channel(false);
         (Arc::new(Self::new(None, Some(receiver))), sender)
+    }
+
+    /// A transport that releases itself once `saturation` attempts overlap.
+    ///
+    /// This is what lets a concurrency test run WITHOUT spawning: the batch is
+    /// awaited in place, the gate lets the first `saturation` attempts pile up
+    /// and then opens, and the peak the batch reached is the peak the sender
+    /// allowed. A test that had to observe the peak mid-flight would need a
+    /// spawned task, and a spawned task over a borrowed transport does not
+    /// compile.
+    #[must_use]
+    pub fn self_releasing(saturation: usize) -> Arc<Self> {
+        let (sender, receiver) = tokio::sync::watch::channel(false);
+        let release = Arc::new(std::sync::Mutex::new(Some(sender)));
+        Arc::new(Self::releasing(None, Some(receiver), saturation, release))
     }
 
     fn new(
@@ -77,6 +97,27 @@ impl FakeTransport {
             in_flight: AtomicUsize::new(0),
             peak_in_flight: AtomicUsize::new(0),
             gate,
+            auto_release: None,
+            fail_with,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn releasing(
+        fail_with: Option<PushTransportError>,
+        gate: Option<tokio::sync::watch::Receiver<bool>>,
+        saturation: usize,
+        release: Arc<Mutex<Option<tokio::sync::watch::Sender<bool>>>>,
+    ) -> Self {
+        Self {
+            deliveries: Mutex::new(Vec::new()),
+            in_flight: AtomicUsize::new(0),
+            peak_in_flight: AtomicUsize::new(0),
+            gate,
+            auto_release: Some(AutoRelease {
+                saturation,
+                release,
+            }),
             fail_with,
         }
     }
@@ -103,6 +144,14 @@ impl FakeTransport {
     async fn enter(&self) {
         let now = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
         self.peak_in_flight.fetch_max(now, Ordering::SeqCst);
+        if let Some(auto) = &self.auto_release
+            && now >= auto.saturation
+        {
+            let sender = auto.release.lock().ok().and_then(|mut slot| slot.take());
+            if let Some(sender) = sender {
+                let _ = sender.send(true);
+            }
+        }
         if let Some(gate) = &self.gate {
             let mut gate = gate.clone();
             while !*gate.borrow_and_update() {
@@ -115,26 +164,36 @@ impl FakeTransport {
     }
 }
 
-#[async_trait::async_trait]
 impl PushNotificationTransport for FakeTransport {
-    async fn send(&self, request: &PushDeliveryRequest) -> Result<(), PushTransportError> {
-        self.enter().await;
-        self.deliveries
-            .lock()
-            .expect("the delivery log")
-            .push(RecordedDelivery {
-                endpoint: request.endpoint.clone(),
-                body: request.body.clone(),
-                topic: request.topic.clone(),
-                ttl_secs: request.ttl.as_secs(),
-                timeout_ms: request.timeout.as_millis(),
-            });
-        self.in_flight.fetch_sub(1, Ordering::SeqCst);
-        match &self.fail_with {
-            Some(error) => Err(error.clone()),
-            None => Ok(()),
-        }
+    fn send<'a>(
+        &'a self,
+        request: &'a PushDeliveryRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<(), PushTransportError>> + Send + 'a>> {
+        Box::pin(async move {
+            self.enter().await;
+            self.deliveries
+                .lock()
+                .expect("the delivery log")
+                .push(RecordedDelivery {
+                    endpoint: request.endpoint.clone(),
+                    body: request.body.clone(),
+                    topic: request.topic.clone(),
+                    ttl_secs: request.ttl.as_secs(),
+                    timeout_ms: request.timeout.as_millis(),
+                });
+            self.in_flight.fetch_sub(1, Ordering::SeqCst);
+            match &self.fail_with {
+                Some(error) => Err(error.clone()),
+                None => Ok(()),
+            }
+        })
     }
+}
+
+/// The gate a self-releasing transport opens once it has saturated.
+struct AutoRelease {
+    saturation: usize,
+    release: Arc<Mutex<Option<tokio::sync::watch::Sender<bool>>>>,
 }
 
 /// A VAPID generator that counts draws and mints a distinct identity each time.

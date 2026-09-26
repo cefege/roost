@@ -6,7 +6,10 @@
 //! invariant, a real `authorized_keys` row the `push_subscriptions` foreign key
 //! has to resolve against -- is written once and is the same in all of them.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+// The fixture is compiled into every `push_*.rs` test binary and each uses a
+// different subset of it, so an item unused by ONE of them is not dead. These
+// are the crate-wide exemptions the other shared test fixtures use.
+#![allow(clippy::unwrap_used, clippy::expect_used, dead_code, unused_imports)]
 
 mod transport;
 
@@ -72,7 +75,6 @@ pub fn production_generator() -> Arc<dyn VapidKeyGenerator> {
 }
 
 impl PushFixture {
-
     /// A fixture with `PUSH_ORIGIN` as its only allowed origin.
     pub async fn new(label: &str) -> Self {
         Self::build(label, vec![PUSH_ORIGIN.to_owned()], production_generator()).await
@@ -168,6 +170,33 @@ impl PushFixture {
                 row.try_get("auth").expect("auth"),
             )
         })
+    }
+
+    /// Add a second browser device: the `authorized_keys` and `account_devices`
+    /// rows a subscription's foreign keys resolve against.
+    ///
+    /// Needed whenever a test wants a SECOND device to hold subscriptions --
+    /// `push_subscriptions.viewer_fp` references `authorized_keys`, so a row for
+    /// a fingerprint with no key row is refused by the foreign key.
+    pub async fn seed_device(&self, account_id: &str, fp: &str) {
+        sqlx::query(
+            "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) \
+             VALUES (?1, ?2, 'second', 1000)",
+        )
+        .bind(fp)
+        .bind(vec![1_u8; 32])
+        .execute(self.database().pool())
+        .await
+        .expect("the second device key row");
+        sqlx::query(
+            "INSERT INTO account_devices (fingerprint, account_id, added_at_ms, last_seen_at_ms) \
+             VALUES (?1, ?2, 1000, 1000)",
+        )
+        .bind(fp)
+        .bind(account_id)
+        .execute(self.database().pool())
+        .await
+        .expect("the second account device row");
     }
 
     /// Insert a subscription row directly, for the delivery tests that need a

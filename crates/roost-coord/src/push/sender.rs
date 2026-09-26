@@ -40,10 +40,10 @@ pub struct PushDeliveryResult {
 
 /// The optional fences one dispatch runs under.
 #[derive(Clone, Default)]
-pub struct PushDeliveryOptions<'a> {
+pub struct PushDeliveryOptions {
     /// The RFC 8030 topic: a later delivery with the same token replaces an
     /// undelivered one instead of stacking a second notification behind it.
-    pub deduplication_token: Option<&'a str>,
+    pub deduplication_token: Option<String>,
     /// Whether the transition that triggered this dispatch is still the current
     /// one.
     ///
@@ -63,7 +63,7 @@ pub struct PushDeliveryOptions<'a> {
 /// Written by hand because the fence is a closure: a derived rendering would
 /// have to print it, and what a reader needs is whether one is installed, not
 /// what it captures.
-impl std::fmt::Debug for PushDeliveryOptions<'_> {
+impl std::fmt::Debug for PushDeliveryOptions {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("PushDeliveryOptions")
@@ -73,7 +73,7 @@ impl std::fmt::Debug for PushDeliveryOptions<'_> {
     }
 }
 
-impl PushDeliveryOptions<'_> {
+impl PushDeliveryOptions {
     /// Whether the transition is still current. Absent means yes.
     fn current(&self) -> bool {
         self.is_current
@@ -93,7 +93,7 @@ pub async fn send_push_to_subscriptions(
     pool: &SqlitePool,
     subscriptions: &[StoredSubscription],
     payload: &str,
-    options: PushDeliveryOptions<'_>,
+    options: PushDeliveryOptions,
     transport: &dyn PushNotificationTransport,
 ) -> PushDeliveryResult {
     if subscriptions.is_empty() || !options.current() {
@@ -123,7 +123,7 @@ async fn deliver_one(
     pool: &SqlitePool,
     subscription: &StoredSubscription,
     payload: &str,
-    options: PushDeliveryOptions<'_>,
+    options: PushDeliveryOptions,
     transport: &dyn PushNotificationTransport,
 ) -> PushDeliveryResult {
     if !options.current() {
@@ -135,7 +135,7 @@ async fn deliver_one(
         auth: subscription.auth.clone(),
         body: payload.to_owned(),
         ttl: Duration::from_secs(u64::from(TTL_SECONDS)),
-        topic: options.deduplication_token.map(str::to_owned),
+        topic: options.deduplication_token.clone(),
         timeout: REQUEST_TIMEOUT,
     };
 

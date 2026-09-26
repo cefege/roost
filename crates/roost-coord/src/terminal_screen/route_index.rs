@@ -17,11 +17,7 @@ use std::sync::Arc;
 
 use roost_protocol::wire::{ChannelId, SessionId, WorkerFp};
 
-/// A single drop is the benign open-race; a sustained burst means real loss.
-const UNMAPPED_DROP_THRESHOLD: u32 = 50;
-const UNMAPPED_DROP_WINDOW_MS: i64 = 5_000;
-/// Hard cap, so a pathological many-channel burst stays O(1) to record.
-const UNMAPPED_DROP_MAX_ENTRIES: usize = 1_024;
+use crate::terminal_screen::unmapped_drop::UnmappedDropDetector;
 
 /// One `(worker, channel)` route that stopped resolving.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,12 +62,6 @@ pub struct CachedRoute {
     pub channel_id: ChannelId,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct UnmappedDrop {
-    count: u32,
-    first_ms: i64,
-}
-
 /// The index itself, mutated through `&mut self`.
 ///
 /// Its holder owns the lock, which is what lets a replacement be one critical
@@ -88,8 +78,7 @@ pub struct RouteIndex {
     session_to_worker: HashMap<SessionId, CachedRoute>,
     /// Workers whose exact boot/reconcile snapshot has been applied.
     reconciled: HashSet<WorkerFp>,
-    unmapped_drops: BTreeMap<(WorkerFp, ChannelId), UnmappedDrop>,
-    last_sweep_ms: i64,
+    unmapped_drops: UnmappedDropDetector,
     retirement: Arc<dyn RouteRetirementSink>,
 }
 
@@ -118,8 +107,7 @@ impl RouteIndex {
             session_to_keys: HashMap::new(),
             session_to_worker: HashMap::new(),
             reconciled: HashSet::new(),
-            unmapped_drops: BTreeMap::new(),
-            last_sweep_ms: 0,
+            unmapped_drops: UnmappedDropDetector::new(),
             retirement,
         }
     }
@@ -186,7 +174,7 @@ impl RouteIndex {
             .entry(session_id.clone())
             .or_default()
             .insert((worker_fp.clone(), channel_id));
-        self.unmapped_drops.remove(&(worker_fp.clone(), channel_id));
+        self.unmapped_drops.clear(worker_fp, channel_id);
     }
 
     /// Prime from the durable rows on a worker `hello`, so a coordinator that
@@ -247,7 +235,7 @@ impl RouteIndex {
         if sessions.is_empty() {
             self.routes.remove(worker_fp);
         }
-        self.unmapped_drops.remove(&(worker_fp.clone(), channel_id));
+        self.unmapped_drops.clear(worker_fp, channel_id);
     }
 
     /// Drop every route a session was bound under, so a rebind cannot leave the
@@ -309,8 +297,7 @@ impl RouteIndex {
                 .entry(session_id.clone())
                 .or_default()
                 .insert((worker_fp.clone(), *channel_id));
-            self.unmapped_drops
-                .remove(&(worker_fp.clone(), *channel_id));
+            self.unmapped_drops.clear(worker_fp, *channel_id);
         }
         // A route-cache entry can exist with no channel key of its own -- the
         // pre-reconcile database fallback caches one -- so the cache needs its
@@ -351,58 +338,23 @@ impl RouteIndex {
     }
 
     /// Record a frame that arrived on a channel nothing resolves to.
-    ///
-    /// A single drop is the benign open-race: the first PTY byte can beat the
-    /// `opened` event that binds its channel. A SUSTAINED burst on one key is a
-    /// mapping that never bound, which is real output loss, so it is raised.
     pub fn record_unmapped_drop(
         &mut self,
         worker_fp: &WorkerFp,
         channel_id: ChannelId,
         now_ms: i64,
     ) {
-        let key = (worker_fp.clone(), channel_id);
-        if !self.unmapped_drops.is_empty() && now_ms - self.last_sweep_ms >= UNMAPPED_DROP_WINDOW_MS
-        {
-            self.last_sweep_ms = now_ms;
-            let cutoff = now_ms - UNMAPPED_DROP_WINDOW_MS;
-            self.unmapped_drops.retain(|_, rec| rec.first_ms <= cutoff);
-        }
-        while self.unmapped_drops.len() >= UNMAPPED_DROP_MAX_ENTRIES {
-            let Some(oldest) = self
-                .unmapped_drops
-                .iter()
-                .min_by_key(|(_, rec)| rec.first_ms)
-                .map(|(key, _)| key.clone())
-            else {
-                break;
-            };
-            self.unmapped_drops.remove(&oldest);
-        }
-        let entry = self.unmapped_drops.entry(key).or_insert(UnmappedDrop {
-            count: 0,
-            first_ms: now_ms,
-        });
-        if now_ms - entry.first_ms > UNMAPPED_DROP_WINDOW_MS {
-            *entry = UnmappedDrop {
-                count: 0,
-                first_ms: now_ms,
-            };
-        }
-        entry.count += 1;
-        if entry.count > UNMAPPED_DROP_THRESHOLD {
-            tracing::warn!(
-                worker_fp = %worker_fp,
-                channel_id = channel_id.as_u32(),
-                drops = entry.count,
-                window_ms = UNMAPPED_DROP_WINDOW_MS,
-                "terminal bytes are dropping on an unbound channel"
-            );
-        }
+        self.unmapped_drops.record(worker_fp, channel_id, now_ms);
     }
 
     /// A channel that just bound or published is no longer dropping.
     pub fn clear_unmapped_drop(&mut self, worker_fp: &WorkerFp, channel_id: ChannelId) {
-        self.unmapped_drops.remove(&(worker_fp.clone(), channel_id));
+        self.unmapped_drops.clear(worker_fp, channel_id);
+    }
+
+    /// How many channels the drop detector is currently watching.
+    #[must_use]
+    pub fn watched_unmapped_channels(&self) -> usize {
+        self.unmapped_drops.watched_channels()
     }
 }

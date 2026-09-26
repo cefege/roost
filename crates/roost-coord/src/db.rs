@@ -44,6 +44,11 @@ pub enum DbError {
     /// partial migration can surface and is never recoverable in place.
     #[error("migration {name} failed: {reason}")]
     MigrationFailed { name: String, reason: String },
+    /// The pre-migration backup could not be taken, so the migration did not
+    /// run. Its own variant because it is NOT a migration failure: the
+    /// migration is fine, the thing that protects it is not.
+    #[error("pre-migration backup failed, so no migration ran: {0}")]
+    PreMigrationBackup(String),
 }
 
 /// How long a statement waits for a write lock before giving up.
@@ -58,6 +63,9 @@ pub const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 /// Migrations run before this returns, so nothing above this line ever observes
 /// a schema that is one migration behind.
 pub async fn open(path: &Path) -> Result<CoordDb, DbError> {
+    // Captured before the connect, which creates the file: this is the gate
+    // the pre-migration backup hangs on.
+    let existed = path.exists();
     let options = sqlx::sqlite::SqliteConnectOptions::new()
         .filename(path)
         .create_if_missing(true)
@@ -93,6 +101,28 @@ pub async fn open(path: &Path) -> Result<CoordDb, DbError> {
         pool,
         path: path.to_path_buf(),
     };
+
+    // Boot step 3 (contract §1.1): the pre-migration backup, and ONLY if the
+    // file already existed -- v2 gates it on `existsSync(cfg.dbPath)` at
+    // `main.ts:60`, and backing up a file that does not exist yet is theatre.
+    // `existed` is captured BEFORE connecting because the connect creates it.
+    //
+    // A failure here STOPS the open. v2 passes this as a hook into
+    // `runMigrations` (`main.ts:64`), so a backup that cannot be taken fails
+    // the migration with it -- which is the right direction: if there is no
+    // recoverable copy, a destructive migration must not proceed.
+    //
+    // v2 hooks it per migration; v3 has one squashed `0001_init.sql`, so once
+    // before the set is the same number of backups for the same number of
+    // schema changes.
+    if existed {
+        crate::maintenance::backup::run_backup(
+            &database,
+            crate::maintenance::backup::BackupReason::PreMigration,
+        )
+        .await
+        .map_err(|error| DbError::PreMigrationBackup(error.to_string()))?;
+    }
     database.migrate().await?;
     Ok(database)
 }

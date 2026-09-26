@@ -114,6 +114,24 @@ impl ByteHub {
         self.cells.lock().ok()?.get(session_id).cloned()
     }
 
+    /// Every route this worker currently carries, read under ONE lock.
+    ///
+    /// Two `resolve` calls are two reads and can straddle a replacement, which
+    /// is correct -- a replacement is atomic per lookup, because the trait
+    /// answers one key per call. Reading a worker's WHOLE index at once is the
+    /// only read that can be checked against a whole-index replacement, and it
+    /// is what a caller reconciling against a snapshot needs.
+    #[must_use]
+    pub fn worker_routes(
+        &self,
+        worker_fp: &WorkerFp,
+    ) -> std::collections::BTreeMap<ChannelId, SessionId> {
+        self.routes
+            .lock()
+            .map(|routes| routes.worker_routes(worker_fp))
+            .unwrap_or_default()
+    }
+
     /// The route a session last resolved to, for the keystroke path.
     #[must_use]
     pub fn cached_route(&self, session_id: &SessionId) -> Option<CachedRoute> {

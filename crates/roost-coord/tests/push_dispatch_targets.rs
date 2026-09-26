@@ -6,24 +6,43 @@
 //! a caller passes until it does, and it means "nobody is viewing".
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+//!
+//! Who a dispatch notifies: the devices watching the session are suppressed,
+//! the devices that are gone or disabled are not, and a subscription whose
+//! origin left the allowlist is dropped rather than delivered to.
+//!
+//! The supersession fences are in `push_dispatch_fences.rs`; this half is
+//! about target resolution, which happens before any fence matters.
 
 mod push_fixture;
 
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use push_fixture::{PUSH_ORIGIN, PushFixture, seed_open_session, viewer_fp};
 use roost_coord::push::dispatch::{
     ActiveTerminalViewers, AgentPushTransition, NoTerminalViewers, PushTransition,
     fire_push_for_transition,
 };
-use roost_coord::push::vapid::P256KeypairGenerator;
 use roost_protocol::wire::{AgentOccupantId, SessionId, StatusEpoch};
 use serde_json::Value;
 
 const STATUS_EPOCH: &str = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const OCCUPANT_ID: &str = "11111111-aaaa-4aaa-8aaa-111111111111";
+
+/// A viewer set that always answers with `fingerprints`.
+struct FixedViewers(HashSet<String>);
+
+impl ActiveTerminalViewers for FixedViewers {
+    fn active_viewer_fingerprints(&self, _session_id: &str) -> HashSet<String> {
+        self.0.clone()
+    }
+}
+
+/// The fence a transition that is still the current one runs under.
+fn always_current() -> Arc<dyn Fn() -> bool + Send + Sync> {
+    Arc::new(|| true)
+}
 
 /// A transition for [`push_fixture::SESSION_ID`] at the given revision.
 fn transition(kind: PushTransition, revision: u64) -> AgentPushTransition {
@@ -33,25 +52,6 @@ fn transition(kind: PushTransition, revision: u64) -> AgentPushTransition {
         status_epoch: StatusEpoch::try_from(STATUS_EPOCH).expect("a status epoch"),
         occupant_id: AgentOccupantId::try_from(OCCUPANT_ID).expect("an occupant id"),
         revision,
-    }
-}
-
-/// The fence a transition that is still the current one runs under.
-fn always_current() -> Arc<dyn Fn() -> bool + Send + Sync> {
-    Arc::new(|| true)
-}
-
-/// The fence a transition that has been superseded runs under.
-fn never_current() -> Arc<dyn Fn() -> bool + Send + Sync> {
-    Arc::new(|| false)
-}
-
-/// A viewer set that always answers with `fingerprints`.
-struct FixedViewers(HashSet<String>);
-
-impl ActiveTerminalViewers for FixedViewers {
-    fn active_viewer_fingerprints(&self, _session_id: &str) -> HashSet<String> {
-        self.0.clone()
     }
 }
 
@@ -177,6 +177,7 @@ async fn a_device_already_watching_the_session_is_not_notified() {
             .await;
     }
     let transport = push_fixture::FakeTransport::accepting();
+    let current = always_current();
     let viewers = FixedViewers(HashSet::from([watching.clone()]));
 
     fire_push_for_transition(
@@ -307,6 +308,7 @@ async fn a_subscription_whose_origin_left_the_allowlist_is_dropped_not_delivered
         )
         .await;
     let transport = push_fixture::FakeTransport::accepting();
+    let current = always_current();
 
     // The operator removed `retired.example` from the allowlist after this row
     // was written. Re-validating at send time is the whole reason the dispatch
@@ -362,153 +364,5 @@ async fn a_closed_session_produces_no_notification() {
     assert!(
         transport.deliveries().is_empty(),
         "a session closed between the transition and the query must not be announced"
-    );
-}
-
-#[tokio::test]
-async fn a_custom_title_wins_over_the_directory_leaf() {
-    let fixture = PushFixture::new("dispatch-title").await;
-    seed_open_session(&fixture, "/work/project").await;
-    fixture
-        .exec(&format!(
-            "UPDATE sessions SET custom_title = 'Release run' WHERE id = '{}'",
-            push_fixture::SESSION_ID
-        ))
-        .await;
-    fixture
-        .seed_subscription(
-            &fixture.dashboard_id,
-            &fixture.fp(),
-            &format!("{PUSH_ORIGIN}/title"),
-        )
-        .await;
-    let transport = push_fixture::FakeTransport::accepting();
-    let current = always_current();
-
-    fire_push_for_transition(
-        fixture.database().pool(),
-        &transition(PushTransition::Blocked, 1),
-        &[PUSH_ORIGIN.to_owned()],
-        &NoTerminalViewers,
-        &current,
-        transport.as_ref(),
-    )
-    .await;
-
-    let payload: Value =
-        serde_json::from_str(&transport.deliveries()[0].body).expect("the payload is JSON");
-    assert_eq!(payload["title"], "Release run");
-}
-
-#[tokio::test]
-async fn two_revisions_of_one_transition_get_different_deduplication_tokens() {
-    // The RFC 8030 topic replaces an undelivered notification carrying the SAME
-    // token. Two revisions are two facts, so a shared token would let the
-    // second silently replace the first instead of arriving alongside it.
-    let fixture = PushFixture::new("dispatch-token").await;
-    seed_open_session(&fixture, "/work/project").await;
-    fixture
-        .seed_subscription(
-            &fixture.dashboard_id,
-            &fixture.fp(),
-            &format!("{PUSH_ORIGIN}/token"),
-        )
-        .await;
-    let transport = push_fixture::FakeTransport::accepting();
-
-    for revision in 1..=2 {
-        fire_push_for_transition(
-            fixture.database().pool(),
-            &transition(PushTransition::Blocked, revision),
-            &[PUSH_ORIGIN.to_owned()],
-            &NoTerminalViewers,
-            &current,
-            transport.as_ref(),
-        )
-        .await;
-    }
-
-    let tokens: Vec<String> = transport
-        .deliveries()
-        .iter()
-        .map(|delivery| {
-            serde_json::from_str::<Value>(&delivery.body).expect("the payload is JSON")["deduplicationToken"]
-                .as_str()
-                .expect("a token")
-                .to_owned()
-        })
-        .collect();
-    assert_eq!(tokens.len(), 2);
-    assert_ne!(
-        tokens[0], tokens[1],
-        "two revisions are two notifications, not one replaced"
-    );
-}
-
-#[tokio::test]
-async fn a_transition_that_is_already_superseded_sends_nothing() {
-    let fixture = PushFixture::new("dispatch-superseded").await;
-    seed_open_session(&fixture, "/work/project").await;
-    fixture
-        .seed_subscription(
-            &fixture.dashboard_id,
-            &fixture.fp(),
-            &format!("{PUSH_ORIGIN}/stale"),
-        )
-        .await;
-    let transport = push_fixture::FakeTransport::accepting();
-    let superseded = never_current();
-
-    fire_push_for_transition(
-        fixture.database().pool(),
-        &transition(PushTransition::Blocked, 1),
-        &[PUSH_ORIGIN.to_owned()],
-        &NoTerminalViewers,
-        &superseded,
-        transport.as_ref(),
-    )
-    .await;
-
-    assert!(transport.deliveries().is_empty());
-}
-
-#[tokio::test]
-async fn an_empty_allowlist_sends_nothing_at_all() {
-    let fixture = PushFixture::new("dispatch-no-origins").await;
-    seed_open_session(&fixture, "/work/project").await;
-    fixture
-        .seed_subscription(
-            &fixture.dashboard_id,
-            &fixture.fp(),
-            &format!("{PUSH_ORIGIN}/unconfigured"),
-        )
-        .await;
-    let transport = push_fixture::FakeTransport::accepting();
-    let current = always_current();
-
-    fire_push_for_transition(
-        fixture.database().pool(),
-        &transition(PushTransition::Blocked, 1),
-        &[],
-        &NoTerminalViewers,
-        &current,
-        transport.as_ref(),
-    )
-    .await;
-
-    assert!(transport.deliveries().is_empty());
-}
-
-#[tokio::test]
-async fn the_no_viewers_value_reports_nobody_as_watching() {
-    // Until the terminal domain lands, every dispatch takes this value. It has
-    // to mean "nobody is viewing" and not "everyone is": the alternative would
-    // silently suppress every push in the fleet.
-    let views = NoTerminalViewers.active_viewer_fingerprints(push_fixture::SESSION_ID);
-    assert!(views.is_empty(), "no hub means nobody is watching");
-    let _ = (
-        Arc::new(AtomicUsize::new(0)),
-        P256KeypairGenerator,
-        Ordering::SeqCst,
     );
 }

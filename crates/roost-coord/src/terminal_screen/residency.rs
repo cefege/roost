@@ -214,11 +214,12 @@ impl TerminalScreenResidency {
     /// Give a lease back. The last one out un-pins the version and returns it
     /// to the pool.
     pub fn release_source_lease(&mut self, state: &mut SessionCharge, generation: u64) {
-        if let Some(current) = state.current.as_mut() {
-            if current.generation == generation && current.source_lease_count > 0 {
-                current.source_lease_count -= 1;
-                return;
-            }
+        if let Some(current) = state.current.as_mut()
+            && current.generation == generation
+            && current.source_lease_count > 0
+        {
+            current.source_lease_count -= 1;
+            return;
         }
         let Some(pinned) = state.pinned.as_ref() else {
             return;

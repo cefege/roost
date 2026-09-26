@@ -284,7 +284,7 @@ async fn the_prune_keeps_exactly_the_keep_count_and_drops_the_oldest() {
     assert!(
         !archives
             .iter()
-            .any(|path| path.ends_with(&format!("coord_v2.{oldest}.db.gz"))),
+            .any(|path| path.ends_with(format!("coord_v2.{oldest}.db.gz"))),
         "the oldest archive is the one that goes"
     );
     assert!(

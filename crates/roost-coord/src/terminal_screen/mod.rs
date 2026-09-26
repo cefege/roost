@@ -21,6 +21,7 @@ pub mod scrollback_relay;
 pub mod scrollback_result;
 pub mod scrollback_window;
 pub mod search_ledger;
+pub mod unmapped_drop;
 
 pub use byte_hub::ByteHub;
 pub use replica::{NoScreenReplicaSink, ScreenHub, ScreenReplicaSink};

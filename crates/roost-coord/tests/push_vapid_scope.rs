@@ -17,16 +17,21 @@ mod push_fixture;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use push_fixture::{CountingGenerator, PushFixture, viewer_fp};
-use roost_coord::push::PushRuntime;
+use push_fixture::{CountingGenerator, PushFixture};
 use roost_coord::push::rpc::handle_push_get_config;
-use roost_coord::push::vapid::{VAPID_SETTING_KEY, VapidKeyStore};
+use roost_coord::push::vapid::VAPID_SETTING_KEY;
 use roost_proto::PushGetConfigRequest;
 use sqlx::Row as _;
 
 /// Every `push.vapid` row in the database, with its scope.
+///
+/// `ORDER BY dashboard_id` is not cosmetic. Two of the tests below assert on a
+/// POSITION in this list, and SQLite returns rows in whatever order the query
+/// plan produces -- which is not insertion order and is not stable across
+/// schema changes. The NULL row sorts first (SQLite orders NULL before every
+/// value), so position 0 is the coordinator-global row whenever it exists.
 async fn vapid_rows(fixture: &PushFixture) -> Vec<(Option<String>, String)> {
-    sqlx::query("SELECT dashboard_id, value FROM app_settings WHERE key = ?1")
+    sqlx::query("SELECT dashboard_id, value FROM app_settings WHERE key = ?1 ORDER BY dashboard_id")
         .bind(VAPID_SETTING_KEY)
         .fetch_all(fixture.database().pool())
         .await
@@ -40,6 +45,18 @@ async fn vapid_rows(fixture: &PushFixture) -> Vec<(Option<String>, String)> {
             )
         })
         .collect()
+}
+
+/// The value in the coordinator-global (NULL-scoped) row, if there is one.
+///
+/// Selected BY SCOPE rather than by position, so a test that cares about the
+/// global row says so and cannot be fooled by row order.
+async fn global_vapid_value(fixture: &PushFixture) -> Option<String> {
+    vapid_rows(fixture)
+        .await
+        .into_iter()
+        .find(|(scope, _)| scope.is_none())
+        .map(|(_, value)| value)
 }
 
 #[tokio::test]
@@ -87,13 +104,15 @@ async fn a_per_dashboard_vapid_row_is_neither_read_nor_written() {
     );
     let rows = vapid_rows(&fixture).await;
     assert_eq!(rows.len(), 2, "the tenant row is left alone, not adopted");
-    assert_eq!(
-        rows[0].0, None,
-        "the global row is the one that was written"
+    assert!(
+        global_vapid_value(&fixture)
+            .await
+            .is_some_and(|value| value.contains(&keys.public_key)),
+        "the NULL-scoped row is the one that was written, and it is this coordinator's"
     );
-    assert_eq!(
-        rows[1].0.as_deref(),
-        Some(fixture.dashboard_id.as_str()),
+    assert!(
+        rows.iter()
+            .any(|(scope, _)| scope.as_deref() == Some(fixture.dashboard_id.as_str())),
         "an existing tenant row is not this code's to overwrite"
     );
 }
@@ -276,15 +295,10 @@ async fn the_push_get_config_path_creates_the_global_row_and_no_other() {
 
     assert!(response.body.available);
     assert_eq!(draws.load(Ordering::SeqCst), 1);
-    let rows = vapid_rows(&fixture).await;
-    assert_eq!(rows.len(), 1);
-    assert_eq!(
-        rows[0].0, None,
-        "written to the global scope by the RPC path too"
-    );
+    let stored = global_vapid_value(&fixture).await;
     assert!(
-        rows[0].1.contains(&response.body.vapid_public_key_b64),
-        "and it is the key the browser was handed"
+        stored.is_some_and(|value| value.contains(&response.body.vapid_public_key_b64)),
+        "written to the NULL-scoped row, and it is the key the browser was handed"
     );
 }
 
@@ -350,24 +364,4 @@ async fn a_runtime_with_no_tenancy_scope_reports_a_wiring_fault_not_a_disabled_p
             .contains("tenancy scope"),
         "the message must say what is missing: {error}"
     );
-}
-
-#[tokio::test]
-async fn a_runtime_minted_for_a_test_shares_one_identity_across_its_handlers() {
-    // The store is a value on the runtime, so two handlers built over the same
-    // runtime see one identity rather than one each.
-    let runtime = PushRuntime::with_keypair_generator(
-        "dash".to_owned(),
-        vec![push_fixture::PUSH_ORIGIN.to_owned()],
-        Arc::new(roost_coord::push::vapid::P256KeypairGenerator),
-    );
-    let store = runtime.vapid_keys().clone();
-    assert!(
-        std::ptr::eq(
-            store as *const VapidKeyStore,
-            runtime.vapid_keys() as *const VapidKeyStore
-        ),
-        "the runtime hands out its one store, not a copy per call"
-    );
-    let _ = viewer_fp('a');
 }

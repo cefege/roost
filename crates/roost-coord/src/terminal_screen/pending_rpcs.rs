@@ -311,9 +311,9 @@ impl PendingRpcs {
 }
 
 fn deliver(entry: &Arc<PendingEntry>, outcome: PendingOutcome) {
-    if let Ok(mut sender) = entry.sender.lock() {
-        if let Some(open) = sender.take() {
-            let _ = open.send(outcome);
-        }
+    if let Ok(mut sender) = entry.sender.lock()
+        && let Some(open) = sender.take()
+    {
+        let _ = open.send(outcome);
     }
 }

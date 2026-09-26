@@ -196,7 +196,7 @@ pub async fn handle_sessions_cancel_scrollback_search(
     let relay = relay(core)?;
     require_account_device(caller)?;
     let search_id_len = req.search_id.chars().count();
-    if search_id_len < 1 || search_id_len > TERMINAL_SEARCH_ID_MAX_LENGTH {
+    if !(1..=TERMINAL_SEARCH_ID_MAX_LENGTH).contains(&search_id_len) {
         return Err(ConnectError::new(
             ErrorCode::InvalidArgument,
             format!(

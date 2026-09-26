@@ -160,10 +160,10 @@ impl WorkerRegistry {
     /// generations for one fingerprint, and the old one can still write to a PTY
     /// the new one has already rebound.
     pub fn insert(&self, handle: Arc<WorkerHandle>) {
-        if let Ok(mut handles) = self.handles.write() {
-            if let Some(previous) = handles.insert(handle.worker_fp.clone(), handle) {
-                previous.revoke();
-            }
+        if let Ok(mut handles) = self.handles.write()
+            && let Some(previous) = handles.insert(handle.worker_fp.clone(), handle)
+        {
+            previous.revoke();
         }
     }
 
@@ -231,10 +231,10 @@ impl WorkerRegistry {
     /// Drop a worker's socket, so every outstanding handle for it stops
     /// reaching anything.
     pub fn retire(&self, worker_fp: &WorkerFp) {
-        if let Ok(mut handles) = self.handles.write() {
-            if let Some(previous) = handles.remove(worker_fp) {
-                previous.revoke();
-            }
+        if let Ok(mut handles) = self.handles.write()
+            && let Some(previous) = handles.remove(worker_fp)
+        {
+            previous.revoke();
         }
     }
 }
