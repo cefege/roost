@@ -612,6 +612,51 @@ an unread verdict, and do not promote a symptom to a cause. What is left is to
 re-run the experiment with a fresh agent — and separately, to read the dead
 agent's transcript for the *leads* it gathered, which are evidence and were never
 claimed as conclusions.
+## The first complete mutation rows — and the two that did not behave
+
+Six rows, run with both directions and a checksum-verified restore, against a
+baseline established *after* the fixtures were fixed to green. The results are
+worth more than the count, because **two of the six are findings about the
+tests**:
+
+| row | verdict | what it means |
+|---|---|---|
+| **M2** | **BIT**, and **the pair separated** | the outside-drain test went red, the inside-drain test stayed green — the tests are isolating the property, not merely failing |
+| **M4** | **BIT** on both named tests | plus three handler tests beyond its two named, noted rather than absorbed |
+| **M6** | **BIT** with a clean control | the first attempt left a stray brace — the *harness's* encoding error, not the row's — and was corrected and re-run |
+| **M1** | **DID NOT BITE — zero delta** | the same three tests failed with the same messages before and after the edit |
+| **M3** | **the named tests did not move** | the property is actually pinned by a *different* binary |
+| **M2 vs M4** | **perfectly orthogonal** | the guard tests stay green under M4 and the acquisition tests stay green under M2 |
+
+**M1 is the most valuable row in the set, and it is a row that failed.** Its
+named test passes with the guard deleted, so **the test does not test the
+property** — the row stays open, and no rewording until it bites.
+
+**And M3 is the other one: its named tests live in the wrong binary.** The row
+named a test in one binary and the property is actually pinned by another. That
+is not a broken row, it is a row that found where the coverage really is — and
+**a row whose named test does not move is telling you where the assertion
+lives, not that the code is safe.**
+
+The general form, and it is the reason both directions are mandatory:
+
+> **A row that bites proves a test is sensitive. A row that does not bite proves
+> where the sensitivity is not — and the second answer is the one that changes
+> what you write next.**
+
+## A shared-contract field the FIXTURE stopped sending
+
+The four keeper failures shared one refusal — *"journaled keeper update is
+malformed"* — and the cause was the fixture, not the product: **it still sent
+`bun_abi`**, a field the admission contract deliberately omits. **The fixture is
+the stale side of a decision the code had already made correctly.**
+
+That is worth stating precisely because it is the *third* time in this port that
+a v2 field's removal was correct and something else had not caught up. **A
+divergence is not always a defect in the port** — sometimes it is a caller that
+never learned the field went away, and the test fixture is the caller that
+finds it first.
+
 ## A mutation row run against a RED baseline is uninterpretable
 
 The keeper rows were run, and the results were discarded and re-run — because
