@@ -143,7 +143,7 @@ pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result
     // retirement has done its work. A value left in the unit re-authorizes
     // destroying every PTY on each later restart, and this is the only moment
     // at which the authorisation is known to have been spent.
-    host::install::spend_keeper_force_live_retire_authorization(&ProcessEnv::new()).await;
+    crate::host::install::spend_keeper_force_live_retire_authorization(&ProcessEnv::new()).await;
 
     // UNIMPLEMENTED: the local door (`crate::door` over `crate::local_door`'s
     // policy), the session manager (`crate::session`, plus the
