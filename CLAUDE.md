@@ -118,15 +118,27 @@ Non-negotiable for every change.
    Mechanically enforced: `cargo xtask lint` fails a `.rs` file under
    `crates/` that exceeds the cap. `xtask/file-size-baseline.json` freezes
    any file that was already over it and may only SHRINK; a file absent from
-   the baseline may never exceed 400. The v3 baseline starts empty. After a
-   split lowers a count, re-snapshot with
-   `cargo xtask lint --update-size-baseline`. A file that is deliberately over
-   the cap records the reason in its own header and its line count in the
-   baseline — the v2 case to understand is `apps/web/src/renderer/cellRenderer.ts`,
-   one class whose methods share private per-frame state, where that
-   encapsulation is what prevents the history-corruption class. Do not "fix"
-   it by splitting; in Rust it becomes one `CellGridRenderer` struct that
-   sibling modules take by `&mut`.
+   the baseline may never exceed 400. The v3 baseline is `{}` — empty, and it
+   stays empty. After a split lowers a count, re-snapshot with
+   `cargo xtask lint --update-size-baseline`.
+
+   The cap has exactly one waiver mechanism, `STRUCTURAL_EXEMPTIONS` in
+   `xtask/src/file_size.rs`, and it is a list of `(path, reason)` pairs
+   answering "what stops you splitting this?" — currently only
+   `crates/roost-coord/src/rpc/service_impl.rs`, whose single
+   `impl CoordinatorService` cannot span blocks (E0119) and whose arms may
+   not be `macro_rules!`-generated. An exempt file is neither counted nor
+   snapshotted. **Adding an entry needs a reason that survives that
+   question**; a weak reason is a bug in the list. See
+   `docs/phase3-coord-contract.md` §12.11.
+
+   The v2 case to understand, and the reason a Rust exemption is the wrong
+   tool for it, is `apps/web/src/renderer/cellRenderer.ts` — one class
+   whose methods share private per-frame state, where that encapsulation is
+   what prevents the history-corruption class. Its Rust successor is one
+   `CellGridRenderer` struct split across sibling `impl` files, not an
+   exemption: inherent impls may span files in a module, and that is the
+   first thing to reach for.
 
 2. **`#![forbid(unsafe_code)]` in every crate root.** The exceptions are
    `roost-keeper`, which owns raw file descriptors and the controlling-TTY

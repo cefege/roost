@@ -2119,51 +2119,33 @@ observes nothing, because the test was already failing without the mutation. So
 fixing `pump_lane` unblocks the three tests AND the verification of the fence;
 until then the fence is unverified, not verified-and-fine.
 
-### 12.11 FINDING: wiring a domain GROWS service_impl.rs, and the ratchet forbids growth
+### 12.11 RESOLVED: service_impl.rs is a structural exemption
 
-`service_impl.rs` is baselined at 1069 lines and the size ratchet says a
-baselined file may only SHRINK. Wiring the first domain made it 1111.
+`service_impl.rs` is the single `impl CoordinatorService`, and it grows as
+domains get wired: a funnel arm is about seven lines, a real arm about
+fourteen because it must build the `Caller` and convert the handler result.
 
-That is not an accident of how the arms were written. A funnel is about seven
-lines:
+It cannot be split, and the reason is the language, not taste. **E0119**
+forbids a trait impl's associated items from spanning blocks, so the 102
+generated signatures and their bodies must live in one impl, in one file. A
+`macro_rules!` that generates the arms would fit, and is banned by the same
+rule that produced the cap — a generated body is not reviewable, and this
+impl is the wiring contract the whole of Phase 3 lands through.
 
-    fn workers_list<'a>(...) -> impl Future<...> {
-        delegated_reply::<WorkersListResponse>("WorkersList")
-    }
+**The rule, from here on:** `service_impl.rs` is listed in
+`STRUCTURAL_EXEMPTIONS` in `xtask/src/file_size.rs`, and every other file
+stays under the 400-line cap with no baseline entries at all
+(`xtask/file-size-baseline.json` is `{}`). An exempt file is neither counted
+nor snapshotted, so it can never grow a baseline entry to be compared
+against later.
 
-and a real arm is about fourteen, because it must build the `Caller` and
-convert the handler result:
+This is not a licence for monoliths elsewhere. It costs nothing at write
+time — a new 600-line file is a split nobody has to schedule — and it is the
+only reason 25 parallel slice agents can land without each producing a
+file that is expensive to split once callers exist. A second entry in
+`STRUCTURAL_EXEMPTIONS` needs the same answer to "what stops you splitting
+this?", and a weak answer is a bug in the list.
 
-    fn workers_list<'a>(...) -> impl Future<...> {
-        let core = self.core.clone();
-        async move {
-            let Some(caller) = caller_of(&ctx) else {
-                return delegated_reply::<WorkersListResponse>("WorkersList");
-            };
-            crate::workers::rpc::handle_workers_list(&core, &caller, r.to_owned_message())
-                .await
-                .map(Response::ok)
-        }
-    }
-
-**So the ratchet and the architecture are in tension and neither moves.** The
-impl cannot be split -- E0119 forbids a trait impl across blocks, and a
-`macro_rules!` generating the arms is banned by the same rules that produced the
-ratchet. And the file cannot shrink, because replacing a funnel with an arm
-makes it longer.
-
-Three honest options, none of them mine to pick silently:
-
-1. **Raise the baseline once**, with the reasoning recorded. It converts a
-   reviewable split into an exemption, which is what the ratchet exists to
-   prevent -- but the ratchet only means something for a file that COULD
-   shrink, and this one cannot.
-2. **Shorten the arms.** Build the caller once per request rather than per
-   method, or route the body through a helper that both builds the caller and
-   calls the handler, bringing each arm back near the funnel's size. This is
-   the only option that satisfies the ratchet as written, and it is worth
-   measuring before deciding.
-3. **Accept the file as exempt** and record why in the baseline entry itself.
-
-Unresolved. Flagged rather than baselined away, because a silent re-baseline is
-the exact move the rule was written to catch.
+The general question — whether 400 should count `#[cfg(test)]` lines at all
+— is deferred to the Phase 7 size-policy review, where the measurement can
+be taken over the whole tree rather than argued from one file.

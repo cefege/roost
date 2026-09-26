@@ -45,6 +45,11 @@ connectrpc-build = "0.9.0"
 buffa = "0.9.2"
 sqlx = { version = "0.9.0", default-features = false }
 tokio-tungstenite = { version = "0.30.0", default-features = false }
+# Coordinator middleware: the admission layer, the security-header layer, and
+# the CORS layer are three axum layers around the same router, and
+# `tower_http` is where they live. Pinned here so no track blocks a wave on the
+# integrator for a crate that is already part of the axum story.
+tower-http = { version = "0.6.9", default-features = false, features = ["cors", "set-header"] }
 reqwest = { version = "0.13.5", default-features = false }
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 web-push = "0.11.0"
