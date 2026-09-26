@@ -672,45 +672,49 @@ of them by default.** So the third category is named explicitly: it goes in as a
 accident** — because adding a check nobody decided on is how a documented
 limitation becomes an undocumented behaviour change.
 
-## THE GUARD-ESCAPE VERDICT: it does not hang, and that is the answer
+## THE GUARD-ESCAPE CLASS IS CLOSED
 
-The class had been open since before this wave: **the only test in the
-programme that can see a lock held across an `await`** had never been executed.
-The verdict, in the three terms fixed in advance:
+Open since before this wave: **the only test in the programme that can see a
+lock held across an `await` had never been executed.** The verdict, in the three
+terms fixed in advance, and how each resolved:
 
-- **HANG — NO. This is the load-bearing result.** All eight concurrent callers
-  completed; each crossed the real `yield_now().await` inside
+- **HANG — NO, and that was the load-bearing observation.** All eight concurrent
+  callers completed; each crossed the real `yield_now().await` inside
   `CloudflareJwks::jwk` and each received a verified identity. **If a lock were
   held across the await, the second of eight callers would block and the test
-  would never have finished.** It finished in 0.14s.
-- **FAIL inside the concurrency body — YES**, at the assertion *"every caller
-  really did reach the key ring"*, `left: 16, right: 8`.
-- **PASS — no.** So there is no clean pass, and the class is not closed by a
-  green tick.
+  would never have finished.** It finished in 0.11s.
+- **FAIL inside the concurrency body — YES, once**, at *"every caller really did
+  reach the key ring"*, `left: 16, right: 8`.
+- **PASS — no, on that run.** The test failed on its own arithmetic: the
+  fixture's counter is `+= 2` per call while the assertion expected one per
+  caller. Eight callers × 2 is 16, exactly. **The instrument and the expectation
+  disagreed with each other, not with the product.**
 
-**And the failure is the test's own instrument, not the product.** The fixture's
-counter is `*lookups.entry(kid).or_default() += 2;` — **two per lookup** — while
-the assertion expects **one per caller**. Eight callers × 2 = 16, exactly. The
-arithmetic disagreed with itself.
+**After naming the constant, the test passes: 5 passed / 0 failed.** So the
+class is closed on the no-hang evidence *and* on a green run, and the fix between
+them was the test's own arithmetic.
 
-**So: the class is closed on the no-hang evidence, and the assertion is wrong.**
-Those are separate claims and both are recorded.
+**The route took three failed runs, and none of the first two was the answer.**
+The first panicked in the test's own `config()` on a team domain; the second was
+behind that on an audience length; only the third reached the concurrency body.
+**A test that cannot construct its own inputs will tell you about its inputs for
+as long as you let it, and never about the thing it was written to check** —
+which is the same shape as the vacuous-fixture class, arriving from the
+opposite direction.
 
-**And a residual race the per-`kid` fix did not close:** the ring is a
-process-wide `OnceLock`, and the counter was keyed by `kid` to stop two
-concurrent tests reading each other — but **three other tests in the same binary
-also use `KEY_ID`**, and the `before`/`after` delta only isolates them if none of
-them increments *during* this test. With four worker threads, that is a real
-window. **Keying a counter to the thing the assertion is about is necessary and
-not sufficient; a counter shared across concurrently-run tests needs the tests
-to be serialised, or the counter to be per-test rather than per-subject.**
+**And the fix is a general rule, because the failure is general:** a counter that
+moves by N per call must be asserted as `CALLERS * LOOKUPS_PER_CALL` in terms of
+a **named constant**, never as a bare number that happens to be right for one of
+them. Here the bare `8` was wrong by exactly the per-call factor, and it had
+been sitting in a test nobody had run.
 
-**And the route to any of this was three failed runs, none of which was the
-answer.** The first panicked in the test's own `config()` on a team domain; the
-second was behind that on an audience length; only the third reached the
-concurrency body. **A test that cannot construct its own inputs will tell you
-about its inputs for as long as you let it, and never about the thing it was
-written to check.**
+**A residual race the per-`kid` fix did not close, recorded rather than
+silently accepted:** the ring is a process-wide `OnceLock` and three other tests
+in the same binary also use `KEY_ID`, so the `before`/`after` delta isolates them
+only if none increments *during* this test. **Keying a counter to what the
+assertion is about is necessary and not sufficient** — a counter shared across
+concurrently-run tests needs the tests serialised, or the counter per-test
+rather than per-subject.
 
 ## The input that does not say what the test's own name says
 
