@@ -102,6 +102,39 @@ that its arithmetic is right, and in both defects both of those were true. What
 a reader cannot check is whether the range *around* the guard was cut the way
 its author meant.
 
+**The pattern is wider than I first wrote it, and a third instance turned up in
+the coordinator wave.** The general form is **a range end computed from a
+claimed or element-derived size, sitting next to a guard computed from the real
+buffer length.** Three instances, all found by someone *using* the code:
+
+1. `roost-keeper` `FrameDecoder::push` — a frame's claimed length bounded from
+   above only. **Fixed.**
+2. `roost-worker` `stream_scan.rs::find` — `haystack[from..=haystack.len() -
+   needle.len()]`, so a needle in the final `needle.len()` bytes was never
+   found and an alt-screen toggle ending a chunk went unrecognised. Found by a
+   mutation, not a read.
+3. `roost-coord` `tests/middleware_support/mod.rs:286` —
+   `&rest[chunk_start..chunk_end.min(rest.len())]`, where `chunk_end` came from
+   a hex size **the peer wrote in the chunk header**. Clamping the upper end is
+   not enough when the lower end is derived from the same claim. Test-only, so
+   it could not affect a deployment, but it is the shape. **Fixed.**
+
+**Two refinements, both from the people who found them, and both wider than my
+original grep:**
+
+- **`.min(len())` on one end of a range is not a bound** when the other end comes
+  from the same claimed size. That is instance 3, and my original pattern would
+  not have caught it — it has neither `len() - N` nor `..=`.
+- **The combination matters, not either arm.** Instance 2 was caught only by
+  `..=` *together with* `len() -`. A reader should keep both.
+
+**And the one that is not about ranges at all**, from the same wave: a peer-
+supplied value parsed with `.expect()`. `usize::from_str_radix(..).expect("a
+chunk size")` two lines below instance 3 is the same mistake in a different
+costume — a parse of untrusted input treated as impossible. In a decode path
+that is a panic on a malformed message, and the fix is to end the decode, not to
+unwind.
+
 ## Findings from the read-only audit of the ported crates
 
 The integrator ran a read-only audit of `roost-term`, `roost-keeper`,
