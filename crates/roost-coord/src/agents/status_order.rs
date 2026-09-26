@@ -111,6 +111,40 @@ impl AgentStatusOrder {
         let Some(held) = previous else {
             return update.active;
         };
+        // **THE AXIS IS THE REVISION, AND IT IS NOT A PROPERTY OF EITHER SIDE.**
+        // `held` being LEGACY and `update` being IDENTIFIED is a RELATION, and
+        // the relation alone does not decide: an identified frame at revision
+        // 1 is a BRAND-NEW OCCUPANT numbering its first report from scratch,
+        // and a new occupant legitimately takes over (that is why
+        // `same_agent_status_occupant` returning false yields `update.active`
+        // below). An identified frame at revision 2 or above is a CONTINUATION
+        // arriving for a session a legacy agent still holds, and must be
+        // refused as Stale.
+        //
+        // Before this line, both fell through to the same
+        // `return update.active`, so the continuation silently took the
+        // session. The two directions are pinned by two named tests and this
+        // line is written against that pair:
+        //
+        //   `a_legacy_frame_yields_permanently_once_an_identified_occupant_is_
+        //    accepted`                    legacy held, IDENTIFIED at rev 1
+        //                                                 -> Accepted
+        //   `the_list_answers_in_session_id_order_with_derived_
+        //    promptability`               legacy held, IDENTIFIED at rev 6
+        //                                                 -> Stale
+        //
+        // **Two earlier attempts to fix this by TIGHTENING the legacy branch
+        // below were both wrong, and each died in under a minute on the first
+        // test, because a tightening changes one side of a relation and a
+        // direction is not a tightening.** A third attempt that dropped the
+        // revision test fixed the second case and broke the first: necessary
+        // and insufficient, which is what pointed at the missing dimension.
+        if agent_status_identity(&held.common).is_none()
+            && agent_status_identity(&update.common).is_some()
+            && update.common.revision > 1
+        {
+            return false;
+        }
         if agent_status_identity(&held.common).is_none() {
             return update.active;
         }
