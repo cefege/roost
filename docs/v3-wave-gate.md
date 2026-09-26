@@ -32,6 +32,15 @@ unverified, and "unverified" is the honest state — not "probably fine".**
    `Display` the real type lacks, so ten `%channel_id` sites compiled in the copy
    and would not have compiled in the tree. Mutation evidence and compile
    evidence are different claims, and a gate needs both.
+3. **A per-file claim needs evidence produced by a command whose output
+   actually contains it.** A slice reported "zero diagnostics in my files" from
+   `cargo check … 2>&1 > /tmp/file` — the redirections in the wrong order, so
+   stderr (where every diagnostic goes) went to the pipe and the file it then
+   grepped held stdout, which for `cargo check` is nearly empty. **The claim was
+   a grep over a file that never contained the diagnostics.** The same slice had
+   two real errors in its files. `wc -c` on the artifact before believing a grep
+   over it costs one second, and an empty artifact is a finding about the
+   command, not about the code.
 
 ## Worker track
 
@@ -168,6 +177,28 @@ omitted call, and an executor that silently inherited its caller's state.
 | The keeper applies `spec.env` verbatim with no admission check, while v2 refused a keeper control key in `isShellSpec` **and** again in `mergeEnvironment`. | CRITICAL | **Open.** A worker-side strip is now real, but v2 refused on both sides and the keeper side is the structural one. |
 | The keeper's local endpoint has no capability authentication at all; the socket's `0600` mode is the entire boundary. v2 required a verified capability before dispatching any frame, plus a byte cap, a timer and a connection cap. | HIGH | **Open.** Either fix it or record the deliberate drop in the keeper contract and a commit body. |
 | Two implementations of the keeper binary digest disagree, so survivor admission can never succeed. | HIGH | **Open.** The keeper-side one is correct; the worker's is not. |
+| `keeper_client.rs:295 wait_for_reply` pulls from `self.events` and **discards any frame that does not match** (`:310`) — and `self.events` is not a reply channel. `client_io.rs:42` routes only `SpawnAck`/`SpawnErr` to the pending-spawn map; `PtyOut` goes into the same channel at `:73`, and `server.rs:259-263` proves the interleaving is real. **Every PTY byte the keeper emits between a client request and its reply is lost permanently, with no log and no counter.** A drag-resize is ~60 requests/second, so during a resize drag every frame of output is a candidate for deletion. Reached from `hello`, `list_channels`, `resize`, `write_input_sequenced`. v2's `keeper-pool-lifecycle.ts:194-303` is one `dispatchFrom` loop routing every frame by tag, with the output and reply paths disjoint. | **CRITICAL — data loss** | **Open, and it blocks the worker gate.** Fix is structural: the demux has to come back, or every control frame must carry the output it displaced. **Prove it first** — a keeper/client pair over a real `UnixStream`, `ResizeRequest`, fake PTY emits a chunk before the `ResizeAck`, assert the chunk reaches `next_event`. |
+| `KeeperClient` is missing the client half of six frames its own daemon already serves: `GetHistoryRecords`, `GetHistory`, `GetTerminalState`, `ResizeStatus`, `KillChild`, `Shutdown`/`ShutdownIfEmpty`. The tag table is complete (all 34) and the daemon implements every one, so this is client-only. **A worker restarting against a surviving keeper cannot read the history it is supposed to adopt, nor learn the geometry the keeper applied.** `FAILURE-INDEX.md:354` names the user-visible form: history gone after worker restart, pane freezes. | **CRITICAL** | **Open; blocks worker adoption (W2b/W4).** The `KeeperChannels` seam is right — the client underneath it cannot ask. |
+| `resize()` discards the `ResizeAck` payload (the **applied** seq and geometry) and collapses nine reject reasons into `ClientError::Io("the keeper refused the resize of channel N")`. v2's `KeeperResizeResult` distinguishes ack/reject/unknown and `session-terminal-txn.ts:188-222` maps all three. Today `resize()` blocks until its ten-second deadline — **with the discard bug open, that entire deadline is spent losing output.** Two findings compounding on one call site. | HIGH | **Open.** Fixing the discard does not fix this. |
+| `TerminalCore` has no `synchronized_output` / `synchronized_output_generation`, so DECSET 2026 withholding cannot be ported and the two rescue ceilings in `stream_fence.rs` are unreachable. **The dangerous workaround is to omit the gate**, which makes every full-screen TUI repaint in visible steps instead of atomically. | HIGH | **Open.** Do not "fix" by always passing. |
+| `TerminalCore` has no unhandled-sequence reader. v2 reached *past* its own ABI for one — a `WeakMap` plus a raw memory read at hand-computed offsets — so a port reading only the trait concludes "v2 did not use this", which is wrong. `terminal.unhandled_sequence` therefore has no producer. | MEDIUM | **Open.** Telemetry gap: the "wrong in Roost, fine in iTerm" class is unanswerable. |
+| `TerminalCore` has no `get_resource_state`, so `terminal.hyperlink_saturated` has no producer. At the core's fixed OSC 8 table capacity, new links render as dead plain text with nothing logged. | MEDIUM | **Open.** |
+| `browser_commands::OWNERS` marks `list-skills` and `git-diff` `Absent`; v2 does the same quietly, and no caller exists. v3 answers `rpc-error` where v2 answered silence. | LOW | **Open.** Harmless today; silence becomes a registered-but-unanswered request if a browser ever sends one. The legacy-drop rule says every dropped path is named in a commit body, and nothing names these two. |
+
+**The question that found all of these, and the reason it works:** *what does a
+TypeScript caller reach for that this trait does not offer?* It is a question
+about the TypeScript, not the Rust — and it is the only one that can find an
+omission, because **a trait cannot be audited for what it omits.** Eleven
+surfaces were fully enumerated with **no difference** — `ClientControlFrame` 23
+variants 1:1, `SessionEvent` 13 variants 1:1, both link unions a superset of
+v2's, all seven brand types with `check`/`TryFrom`/`Display`, all 34 keeper
+tags, `CoordConfig` and `roost_host::paths` 1:1 — which is what makes the two
+`roost-keeper` defects isolated rather than symptomatic.
+
+It also **narrowed** a finding of mine: `write_raw`/`get_response` is one
+omission plus one shape constraint, not three, and the per-chunk `afterChunk`
+hook is a latency artifact of the WASM build rather than a semantic
+requirement. I would have spent a method on it.
 
 The audit also reported the keeper `env_clear` fix as absent. **That was a
 false positive**: the audit read `pty_channel.rs` while a mutation experiment
