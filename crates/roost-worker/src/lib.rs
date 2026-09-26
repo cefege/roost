@@ -6,6 +6,7 @@
 pub mod agent_occupancy;
 pub mod attachment_transfer;
 pub mod backoff;
+pub mod boot_keeper;
 pub mod channel_fsm;
 pub mod event_store;
 pub mod link_barrier;
