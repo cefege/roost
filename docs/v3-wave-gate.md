@@ -571,6 +571,67 @@ not the class is a finding, and a loud one — because a mis-attributed class is
 worse than an undiagnosed one.** A mis-attribution makes the real defect look
 explained, and the class's own name is what makes it believable.
 
+## One missing paren in 151 literals, and 6 of the 7 are the idiom
+
+`claim_bootstrap_token`'s SQL literal had **one unclosed parenthesis** — the
+`AND (` opening the minter-authority group never closed. SQLite reached
+`RETURNING` at depth 1 and refused with `near "RETURNING": syntax error`, and the
+RPC reported `Internal`.
+
+**Every bootstrap token redemption was failing**, and no compiler can see it,
+nor can a reader of fourteen lines of backslash-continued SQL.
+
+**The class sweep is the part that generalises: of 151 SQL string literals, 7 are
+unbalanced — and 6 are the deliberate "the `)` arrives from a `QueryBuilder::push`"
+idiom. Exactly one is real.** So the sweep did not find one bug in 151 places; it
+found **a defect and a convention that look identical to a paren-counter**, and
+the only way to tell them apart was to read each one. **The negative results are
+what close a class**, and here the six idiom sites are what prove the seventh is
+a defect rather than the same deliberate shape.
+
+**And the fix did not move the number it was predicted to move** — still 3 passed
+/ 5 failed, all five redemption tests. So the missing paren was real **and
+incomplete**: either a second problem in the statement or a second statement on
+the path.
+
+> **A fix that does not move the number it was predicted to move is either
+> incomplete or was never the cause — and the report must say which.**
+
+That sentence is the whole discipline in one line. "I fixed a real bug" and "I
+fixed your bug" are different claims, and a green-looking partial result is
+exactly where they come apart.
+
+## A test that passes half the time is worse than one that always fails
+
+`the_registry_answers_in_the_order_it_declares` asserts an order over relay ids
+that are **random v4 uuids from SQLite's `randomblob`**. It passed at the
+previous gate, fails now, with nothing in its files changed.
+
+**A test that passes sometimes is worse than one that always fails, because it
+gets filed as flaky infrastructure — a non-deterministic pass is
+indistinguishable from a non-deterministic machine.** An always-failing test is
+diagnosed in a minute; a sometimes-passing one is argued about for a week.
+
+And the sharp part: **the same suspicion was falsified elsewhere.** Random-uuid
+ordering was suspected in `workspaces_tree` and *disproved* at `:323-332`, which
+rewrites tied ids to fixed values. **The suspicion was wrong in one place and
+right in another, and only running it says which** — which is why a hunch has to
+travel as a hunch, per site, and never as a pattern.
+
+## A diff cannot distinguish "found nothing" from "found something and named it"
+
+An agent working under a brief that forbids it from editing `src/` produces a
+diff in which **a product defect is indistinguishable from no work at all.** I
+read a clean-looking diff, concluded "this wave found no product defect", and was
+wrong — the wave found the paren defect, named the file, and stopped at the
+boundary, exactly as briefed.
+
+**So: "the agent changed nothing" and "the agent found the cause and named it"
+are identical in a diff, and only the report distinguishes them.** The lesson is
+the mirror of the one above: **a diff is evidence about files, never about
+findings**, and a conclusion drawn from an unchanged file list is a claim about
+files being mistaken for a claim about the work.
+
 ## A stale number in a COMMIT BODY is worse than one in a chat message
 
 A commit landed claiming **581 passed / 38 failed across 15 failing binaries.**
