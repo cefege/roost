@@ -179,6 +179,47 @@ file later, looking like new work. **Read the error list for the shape, not the
 count: one mistake in two files is one mistake, and the list shows you one of
 them.**
 
+## The audit that cannot see the defect, and the noise you must discard
+
+A slice deleting a dead `FixedEntropy` block used a doc comment further down
+as its end boundary, **and the four prime constants sat between the block and
+the marker.** It deleted a larger slice than it had read. It then verified the
+names it *expected* to disappear were gone — **and did not check what had gone
+with them.**
+
+**The recovery is the reusable part.** It re-derived the constants **out of the
+file**, not from memory, and checked each is byte-identical to the integer it
+had generated. That last check matters because each 309-digit constant is
+wrapped across four lines with `\` continuations: **a transcription slip would
+still have parsed as a prime**, and would have made
+`a_signature_from_another_key_does_not_verify` assert that a key differs from a
+key it is identical to. The mutation would have compiled, run, and passed —
+**a green test asserting the opposite of its name.**
+
+**Then it established the limit of its own instruments, which is the finding:**
+
+> A dropped binding is **valid syntax**, so `rustfmt --emit stdout` is blind to
+> it by construction — and so are cross-module import resolution and dangling
+> `pub mod` detection, because all three are about *declaration and
+> resolution*, not about *use*. A third sweep was written, found to be pure
+> noise (it matches prose in doc comments, SQL inside string literals, and
+> methods on imported types), and **discarded rather than reported.**
+
+**No static audit in that set can catch this class. What catches it is reading
+what a deletion removed — a review step, not a script.** And the discipline is
+the same one as a signature change: **look at the other side of the edit, not
+only the side you meant to touch.**
+
+Two rules, both cheap:
+
+- **A sweep that is mostly noise is not a finding — it is a false assurance.**
+  Discarding it is the correct result and belongs in the report, because "I
+  looked for this class and cannot see it statically" is information a gate can
+  act on, and "here is a check that fires on 400 doc comments" is not.
+- **For a test whose fixture is a large constant, the fixture must be
+  byte-verified against its source of truth.** A constant that is 98% digits and
+  2% transcription is a prime that is not the one you meant.
+
 ## Making the table agree with the gate by recording LESS
 
 The integrator narrowed `MiscDbExportUrl` from `DeviceOnHost` to `Device` after
