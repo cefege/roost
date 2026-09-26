@@ -71,9 +71,22 @@ async fn a_preserved_keeper_is_reported_with_the_identity_that_holds_the_ptys() 
         CoordWorkerDownstream::KeeperUpdatePrepare(body) => {
             assert_eq!(body.direction, "source");
             assert!(body.coordinator_open_session_ids.is_empty());
+            // Compared as VALUES, not as bytes. The coordinator re-renders the
+            // journal through the parsed struct, so the key order it emits is
+            // that struct's declaration order and not the fixture's. Byte
+            // equality would pin an ordering the product never promised; this
+            // assertion exists to prove the envelope survived the round trip.
+            let sent: serde_json::Value = serde_json::from_str(
+                body.journaled_update_json
+                    .as_deref()
+                    .expect("an admitted preserve carries its journal"),
+            )
+            .expect("the re-rendered journal is JSON");
+            let supplied: serde_json::Value =
+                serde_json::from_str(&journal("preserve")).expect("the fixture emits JSON");
             assert_eq!(
-                body.journaled_update_json.as_deref(),
-                Some(journal("preserve").as_str()),
+                sent, supplied,
+                "the worker receives the journal it was sent"
             );
         }
         other => panic!("a keeper update goes out as its own frame, not {other:?}"),

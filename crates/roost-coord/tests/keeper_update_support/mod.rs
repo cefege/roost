@@ -60,7 +60,11 @@ pub fn journal(action: &str) -> String {
             "supported_features": ["events-v1"],
             "required_features": [],
             "implementation_digest": implementation,
-            "bun_abi": "1.2.3",
+            // No `bun_abi`: the v1 proto message still carries it, but v3's
+            // admission contract deliberately does not model it (a v3 keeper
+            // is not a Bun process) and refuses unknown fields. Adding it
+            // here makes every journaled test fail as "malformed" before it
+            // reaches the decision under test.
             "platform": "linux",
             "arch": "x64",
             "build_sha": "deadbeef",
