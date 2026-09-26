@@ -240,6 +240,39 @@ longer being applied, because a limit is the kind of thing that compiles
 perfectly well without it. **The imports you stop using are the behaviour you
 stopped having.**
 
+## What lock-free verification cannot see, stated by the slice that ran it
+
+Five errors in a coordinator test fixture, fixed at the end of a wave whose
+entire method was lock-free checks. **They are three classes, and only two of
+them are the class everybody expects.**
+
+1. **A stale name** — a definition that moved and its import that did not. A
+   compiler finds this by shape, and so does an import audit. Fix it by
+   re-reading the current signature, **never by aliasing**: a second spelling
+   of one function is the fork this port keeps paying for.
+2. **An unbound variable** — a value used in a struct literal that was never
+   bound anywhere in the function. A compiler finds this by shape; **no static
+   audit finds it at all**, because there is no declaration to be missing. One
+   of these had been in the file since it was written.
+3. **A wrong receiver** — a fixture method called as a free function, with the
+   import still present so the name resolves. **An import audit cannot see it,
+   because the check it performs — does this name resolve? — passes.** Only a
+   reader sees that the thing resolved to the wrong shape. Arity audits do not
+   help either: they count arguments, not receivers.
+
+**The number that matters: five audits over those nine files, every one reported
+clean, on a tree containing an unbound variable.** That is the honest ceiling of
+the method, and it is worth stating in a slice's own report rather than only in
+an integrator's — "my checks cover syntax, binds and literals, and type
+correctness is outside all three" was the sentence that generalised it.
+
+**A fourth, smaller instance in the same file, and it is an attribute making a
+claim the code does not support:** `#[tokio::test]` on a function with zero
+`.await` and no I/O. The test is now `#[test]`. **Attaching a runtime to a test
+that does no I/O is the same mistake as naming a field on an enum** — the
+annotation asserts an asynchrony the code does not have, and a reader who
+believes it will be confused by why the test is instant.
+
 ## Worker track
 
 | # | Property | File and exact edit | Test that must fail | State |
