@@ -190,6 +190,7 @@ impl MachineTransaction {
             // which held the row invisible for the whole deploy. The
             // serialisation is the kernel lock taken above, not a database
             // transaction, so nothing is lost by committing early.
+            Ok::<(), TransactionError>(())
         }
         .await;
         if let Err(error) = written {

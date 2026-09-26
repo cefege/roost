@@ -185,9 +185,12 @@ async fn the_kernel_lock_is_a_separate_file_from_the_record() {
     let journal = dir.join("deploy-journal.json");
     std::fs::write(&journal, b"{}").unwrap();
     let gate = gate_path(&lock_file);
-
+    // `starts_with` would be wrong here: it compares path COMPONENTS, and
+    // `…sqlite.hold` is not a component of `…sqlite`. "Beside it" is a shared
+    // parent, and that is the property that matters — the gate is derived from
+    // the lock file rather than being a fixed name in a fixed directory.
+    assert_eq!(gate.parent(), lock_file.parent(), "and it sits beside it");
     assert_ne!(gate, lock_file, "the gate is not the database");
-    assert!(gate.starts_with(&lock_file), "and it sits beside it");
     assert!(
         !gate.exists(),
         "and it is not created until somebody takes the machine"

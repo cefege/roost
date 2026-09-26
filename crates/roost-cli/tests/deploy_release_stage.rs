@@ -19,8 +19,13 @@ use std::process::Command;
 use roost_cli::deploy::release_stage::staging_command;
 
 /// Run the generated staging command for real, with a tar of `tree` on stdin.
-fn run_stage(remote_release_dir: &Path, tree: &[(&str, &str)]) -> bool {
-    let staging = tree_path(tree);
+///
+/// `label` names the source tree, and it has to be distinct per test: the
+/// harness runs these in parallel inside one process, so a shared source
+/// directory is four tests writing over each other and every assertion after
+/// the first is reading somebody else's bytes.
+fn run_stage(label: &str, remote_release_dir: &Path, tree: &[(&str, &str)]) -> bool {
+    let staging = tree_path(label, tree);
     let tar = Command::new("tar")
         .arg("-C")
         .arg(&staging)
@@ -44,8 +49,8 @@ fn run_stage(remote_release_dir: &Path, tree: &[(&str, &str)]) -> bool {
     output.status.success()
 }
 
-fn tree_path(tree: &[(&str, &str)]) -> PathBuf {
-    let root = tempdir("tree");
+fn tree_path(label: &str, tree: &[(&str, &str)]) -> PathBuf {
+    let root = tempdir(&format!("tree-{label}"));
     std::fs::create_dir_all(root.join("bin")).unwrap();
     for (name, body) in tree {
         std::fs::write(root.join(name), body).unwrap();
@@ -56,11 +61,11 @@ fn tree_path(tree: &[(&str, &str)]) -> PathBuf {
 /// A first deploy: the destination does not exist and the release lands.
 #[test]
 fn a_release_lands_when_the_destination_is_absent() {
-    let source = tree_path(&[("bin/roost", "first"), ("bin/roost-keeper", "first-keeper")]);
-    let home = tempdir("home");
+    let home = tempdir("home-first");
     let destination = home.join(".roost-deploy").join("b1d1836a");
     assert!(
         run_stage(
+            "first",
             &destination,
             &[("bin/roost", "first"), ("bin/roost-keeper", "first-keeper")]
         ),
@@ -74,7 +79,6 @@ fn a_release_lands_when_the_destination_is_absent() {
         !destination.join(&format!("b1d1836a.staging")).exists(),
         "the temporary directory is renamed into place, not left beside it"
     );
-    let _ = std::fs::remove_dir_all(&source);
     let _ = std::fs::remove_dir_all(&home);
 }
 
@@ -83,12 +87,12 @@ fn a_release_lands_when_the_destination_is_absent() {
 /// run to twice.
 #[test]
 fn a_re_deploy_replaces_the_destination_instead_of_nesting_inside_it() {
-    let home = tempdir("home");
+    let home = tempdir("home-redeploy");
     let destination = home.join(".roost-deploy").join("b1d1836a");
     let payload = || [("bin/roost", "first"), ("bin/roost-keeper", "first-keeper")];
 
     assert!(
-        run_stage(&destination, &payload()),
+        run_stage("redeploy-a", &destination, &payload()),
         "the first deploy succeeds"
     );
     // The leftover: something is already sitting at the destination.
@@ -98,6 +102,7 @@ fn a_re_deploy_replaces_the_destination_instead_of_nesting_inside_it() {
     // re-run after a failed apply looks like.
     assert!(
         run_stage(
+            "redeploy-b",
             &destination,
             &[
                 ("bin/roost", "second"),
@@ -126,7 +131,7 @@ fn a_re_deploy_replaces_the_destination_instead_of_nesting_inside_it() {
 /// cleared, not appended to: a release is wholly there or wholly absent.
 #[test]
 fn a_half_extracted_temporary_directory_does_not_contaminate_the_release() {
-    let home = tempdir("home");
+    let home = tempdir("home-torn");
     let destination = home.join(".roost-deploy").join("b1d1836a");
     let leftover = home.join(".roost-deploy").join("b1d1836a.staging");
     std::fs::create_dir_all(leftover.join("bin")).unwrap();
@@ -134,6 +139,7 @@ fn a_half_extracted_temporary_directory_does_not_contaminate_the_release() {
 
     assert!(
         run_stage(
+            "torn",
             &destination,
             &[("bin/roost", "clean"), ("bin/roost-keeper", "clean-keeper")]
         ),
@@ -155,6 +161,7 @@ fn a_destination_with_a_space_is_quoted_and_lands_intact() {
     let destination = home.join(".roost-deploy").join("b1d1836a");
     assert!(
         run_stage(
+            "spaced",
             &destination,
             &[
                 ("bin/roost", "spaced"),
