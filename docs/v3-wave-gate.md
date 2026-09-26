@@ -273,6 +273,63 @@ that does no I/O is the same mistake as naming a field on an enum** — the
 annotation asserts an asynchrony the code does not have, and a reader who
 believes it will be confused by why the test is instant.
 
+## The test that was testing an empty database, and the class nothing can see
+
+Five `insert` calls in a fixture were missing `.await`. `insert` is async, so
+each call built a future and dropped it: **the fixture seeded nothing, and
+every assertion in that file was checking rows that were never there.** The
+file compiled, passed review, and passed five of its author's own audits.
+
+**This is worse than having no test**, because a missing test is visible in
+review and a test that asserts against an empty fixture looks exactly like
+coverage. It would have passed CI, and its failure mode is a sweep that never
+ran being indistinguishable from a sweep that ran and reclaimed nothing.
+
+**Nothing in the lock-free toolkit can see it.** Not the parse check — a dropped
+future is valid syntax. Not the reference audit — the name resolves. Not the
+arity audit — the arguments are right; the call is simply never made. The
+diagnostic is about a value's *use*, not its shape, so it is the one class
+where a compiler is not merely faster than a script but categorically
+different. **"Compiling is not passing" is usually about assertions; here it was
+about the fixture, and the assertions were fine.**
+
+The corollary for a gate: **a test binary that has never been executed has an
+unverified fixture.** Type-checking proves the file parses and the names
+resolve; it proves nothing about whether the rows a test asserts on were ever
+written. That is a distinct claim from "the tests pass", and a gate that
+reports the first must not imply the second.
+
+**And the neighbouring finding, which is about error messages rather than
+tests.** A fully-qualified `account::LiveSelector::ById` produced
+`E0603 private` — a *misleading* error, because `LiveSelector` had moved to
+`rows` and the stale prefix made a public enum read as private. **An error that
+names the wrong cause is worse than one that names nothing, because it sends
+you to change a visibility that was never wrong.** The same shape as the enum
+field access: the evidence is about a real thing, and the thing is not the
+thing that is broken.
+
+**"The binary compiles" is not "the fixture works", and the gap between them is
+where a test becomes a lie.** Of eight test binaries in one slice, two were
+clean only *after* the compile found real defects in them — and one of those was
+a fixture that seeded nothing. So the compilation of a test binary is not
+confirmation that its fixture works; **it is confirmation that its fixture
+type-checks.** A test suite in that state is *nominally* sound and *unexecuted*,
+which is a third claim, distinct from both "green" and "broken", and a gate
+reporting it should say which of the three it has.
+
+**And the row that did not bite, which is the sharpest instance of this rule in
+the wave.** A mutation inverted F1's arrival-order drain — `next_event` popping
+the *newest* deferred frame instead of the oldest — and **the entire keeper suite
+passed**, including the test written to pin exactly that. One deferred frame is
+indistinguishable under `pop_front` and `pop_back`, because a single element is
+its own head, so the test could not have caught it at any strength.
+
+**The fix is the same shape as every other discriminating test in this file: the
+expected value must be one a wrong client cannot produce.** Two deferred frames,
+asserted in order. One frame cannot distinguish; two can. And the property to
+check when a test does not bite is not "is it running" first but "is it
+discriminating" — a test can be present, collected, executed, and unable to fail.
+
 ## Worker track
 
 | # | Property | File and exact edit | Test that must fail | State |
