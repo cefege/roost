@@ -381,6 +381,33 @@ cannot distinguish is a question about the test rather than about the design.**
 That is worth stating because the opposite conclusion — "it is not observable
 here" — would have been a reasonable guess and would have been wrong.
 
+## The first green ported-crate suite, and what it does not prove
+
+`cargo test -p roost-keeper --no-fail-fast` on the restored tree — **131 passed
+/ 0 failed, 22 binaries, one uncontended run**, with the crate's `git status`
+verified clean immediately before and after. **This is the keeper's number, not
+the worker's**: the worker crate does not link, and a reader who sees 131 green
+will otherwise assume the track is further along than it is.
+
+**Why the ordering property is observable at all, which is the part worth
+keeping.** The doubt was that whether `wait_for_reply` consumes the chunks
+before the ack might be a race — and that if the reader won, the deferred
+queue would be empty and `next_event` would read `events` in arrival order
+regardless of the drain. It is not a race: the three `PtyOut` frames and the
+`ResizeAck` enter **one** ordered channel with the answer last, so
+`wait_for_reply` must consume all three whichever thread wins.
+
+**And the observed vector settles it independently of the argument.** Under the
+empty-queue hypothesis the drain comes from `events` in *arrival* order and
+yields `["first","second","third"]` under `pop_front` **and** `pop_back`. You
+cannot produce `["third","second","first"]` from a channel nobody reversed.
+
+So the property is observable through this API and is pinned, rather than being
+asserted by a test that could not have distinguished it. **The opposite
+conclusion — "it is not observable here" — was a reasonable guess and would
+have been wrong**, and the reason it was wrong is a structural property of the
+channel rather than anything in the test.
+
 ## Announce the mutation AND ITS CONTROL
 
 A mutation experiment is a claim: *this edit breaks this property and nothing
