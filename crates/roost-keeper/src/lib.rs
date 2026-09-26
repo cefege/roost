@@ -9,6 +9,7 @@ pub mod channel_history;
 pub mod client;
 pub mod client_connect;
 pub mod client_error;
+pub mod client_frames;
 pub mod client_io;
 pub mod codec;
 pub mod frames;

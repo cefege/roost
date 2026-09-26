@@ -35,12 +35,12 @@ pub use crate::client_connect::{CONNECT_RETRY_TIMEOUT, DEADLINE_TICK, HELLO_TIME
 
 /// A connected keeper.
 pub struct KeeperClient {
-    path: PathBuf,
+    pub(crate) path: PathBuf,
     write_half: Mutex<UnixStream>,
     shared: Arc<Mutex<Shared>>,
     /// Frames the keeper sent that were not answers to a request: PTY output,
     /// exits, pongs. The worker drains this.
-    events: Receiver<MuxFrame>,
+    pub(crate) events: Receiver<MuxFrame>,
     /// Frames a control wait pulled off `events` that were not the answer, held
     /// until the worker asks for them.
     ///
@@ -52,7 +52,7 @@ pub struct KeeperClient {
     /// round-trip, and a resize drag is sixty round-trips a second. v2 kept the
     /// two paths disjoint by routing every frame by tag in a single loop; here
     /// the disjointness is this buffer.
-    deferred: Mutex<VecDeque<MuxFrame>>,
+    pub(crate) deferred: Mutex<VecDeque<MuxFrame>>,
     /// Set on drop so the reader thread stops. A reader that only noticed a
     /// closed socket would block in `read` until the KEEPER closed its end,
     /// which is exactly the case where nothing else is going to happen.
@@ -266,135 +266,8 @@ impl KeeperClient {
     }
 
     /// Hold a frame a control wait consumed, so the worker still receives it.
-    ///
-    /// Never blocks and never drops: a poisoned lock is recovered rather than
-    /// propagated, because losing the buffer loses terminal output, and a panic
-    /// in a neighbouring task is not a reason to lose bytes.
-    fn defer(&self, frame: MuxFrame) {
-        match self.deferred.lock() {
-            Ok(mut held) => held.push_back(frame),
-            Err(poisoned) => poisoned.into_inner().push_back(frame),
-        }
-    }
 
-    /// Take a frame the keeper sent that was not a reply.
-    ///
-    pub fn next_event(&self, wait: Duration) -> Option<MuxFrame> {
-        // Deferred first, in arrival order. A frame a control wait consumed
-        // arrived before the one now waiting on the socket, so reading the
-        // socket first would reorder the stream the worker is parsing.
-        let held = match self.deferred.lock() {
-            Ok(mut held) => held.pop_front(),
-            Err(poisoned) => poisoned.into_inner().pop_front(),
-        };
-        if held.is_some() {
-            return held;
-        }
-        self.events.recv_timeout(wait).ok()
-    }
-
-    fn request<T: serde::Serialize>(
-        &self,
-        frame_type: MuxFrameType,
-        expected: MuxFrameType,
-        channel_id: u16,
-        body: &T,
-    ) -> Result<MuxFrame, ClientError> {
-        let frame = MuxFrame::json(frame_type, channel_id, body)
-            .map_err(|err| ClientError::Io(err.to_string()))?;
-        self.write(&frame)?;
-        self.wait_for_reply(expected, channel_id, HELLO_TIMEOUT)
-    }
-
-    fn request_tag(
-        &self,
-        frame_type: MuxFrameType,
-        expected: MuxFrameType,
-        channel_id: u16,
-        payload: &[u8],
-    ) -> Result<MuxFrameType, ClientError> {
-        let frame = MuxFrame::new(frame_type, channel_id, payload.to_vec())
-            .map_err(|err| ClientError::Io(err.to_string()))?;
-        self.write(&frame)?;
-        Ok(self
-            .wait_for_reply(expected, channel_id, Duration::from_secs(10))?
-            .frame_type)
-    }
-
-    /// Wait for the answer to a control frame.
-    ///
-    /// A timeout here is a wedged keeper, not a slow one: the control frames
-    /// involved do no work beyond bookkeeping, and the only ones that can take
-    /// real time are covered by their own dedicated paths.
-    fn wait_for_reply(
-        &self,
-        expected: MuxFrameType,
-        channel_id: u16,
-        timeout: Duration,
-    ) -> Result<MuxFrame, ClientError> {
-        let deadline = Instant::now() + timeout;
-        while Instant::now() < deadline {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            let frame = self.events.recv_timeout(remaining).map_err(|_| {
-                ClientError::SpawnNotAcknowledged {
-                    path: self.path.clone(),
-                    timeout,
-                }
-            })?;
-            if frame.frame_type == expected && frame.channel_id == channel_id {
-                return Ok(frame);
-            }
-            // Not the answer. It is PTY output, an exit or a pong, and it
-            // belongs to the worker -- dropping it here is how terminal output
-            // disappears during a resize drag.
-            self.defer(frame);
-        }
-        Err(ClientError::SpawnNotAcknowledged {
-            path: self.path.clone(),
-            timeout,
-        })
-    }
-
-    /// Wait for whichever of the three input results the keeper chose.
-    ///
-    /// Separate from `wait_for_reply` because a single write has THREE legal
-    /// answers — ack, reject, ambiguous — and a caller that waited for one tag
-    /// would time out on the other two, which are the interesting cases.
-    fn wait_for_any_input_result(
-        &self,
-        channel_id: u16,
-        timeout: Duration,
-    ) -> Result<MuxFrame, ClientError> {
-        let deadline = Instant::now() + timeout;
-        while Instant::now() < deadline {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            let frame = self.events.recv_timeout(remaining).map_err(|_| {
-                ClientError::SpawnNotAcknowledged {
-                    path: self.path.clone(),
-                    timeout,
-                }
-            })?;
-            if frame.channel_id == channel_id
-                && matches!(
-                    frame.frame_type,
-                    MuxFrameType::PtyInAck
-                        | MuxFrameType::PtyInReject
-                        | MuxFrameType::PtyInAmbiguous
-                )
-            {
-                return Ok(frame);
-            }
-            // Not one of the three answers. Same reason as `wait_for_reply`:
-            // this is the worker's output, not this call's business.
-            self.defer(frame);
-        }
-        Err(ClientError::SpawnNotAcknowledged {
-            path: self.path.clone(),
-            timeout,
-        })
-    }
-
-    fn write(&self, frame: &MuxFrame) -> Result<(), ClientError> {
+    pub(crate) fn write(&self, frame: &MuxFrame) -> Result<(), ClientError> {
         let mut socket = self
             .write_half
             .lock()
