@@ -221,7 +221,7 @@ pub async fn apply_approval(
             .bind(verification_code_hash)
             .bind(&approval.approver_fingerprint)
             .bind(&approval.account_id)
-            .bind(identity.id)
+            .bind(&identity.id)
             .bind(now_ms)
             .bind(i64::from(PAIRING_CEREMONY_VERSION))
             .execute(database.pool())

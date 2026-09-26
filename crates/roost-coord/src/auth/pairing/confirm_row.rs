@@ -41,7 +41,7 @@ pub(crate) async fn read_confirmable(
 /// A request the confirmation path needs in full, read under its token.
 #[derive(Debug, sqlx::FromRow)]
 pub(crate) struct ConfirmableRow {
-    pub(crate) id: i64,
+    pub(crate) id: String,
     pub(crate) ephemeral_id: String,
     pub(crate) status: String,
     pub(crate) ceremony_version: i64,
@@ -83,7 +83,7 @@ impl ConfirmableRow {
 
     pub(crate) fn identity(&self) -> RequestIdentity {
         RequestIdentity {
-            id: self.id,
+            id: self.id.clone(),
             ephemeral_id: self.ephemeral_id.clone(),
             expires_at_ms: self.expires_at_ms,
         }

@@ -123,7 +123,13 @@ impl AgentStatusWaitRegistry {
     pub fn close_session(&self, session_id: &SessionId) {
         let entries = {
             let mut tables = self.lock();
-            tables.by_session.remove(session_id).unwrap_or_default()
+            let entries = tables.by_session.remove(session_id).unwrap_or_default();
+            // These waiters leave the registry here, so their slots are
+            // released here too. Without this the global bound is consumed by
+            // every session that ever closed with a wait outstanding, and a
+            // long-lived coordinator stops admitting waits entirely.
+            tables.total = tables.total.saturating_sub(entries.len());
+            entries
         };
         for entry in entries {
             self.settle_detached(&entry, Ok(AgentStatusWaitOutcome::SessionClosed));
@@ -240,14 +246,18 @@ impl AgentStatusWaiter {
     }
 
     /// Wait for the outcome.
+    ///
+    /// The waiter STAYS REGISTERED for as long as it is pending. Every exit
+    /// that ends a wait already releases its slot — `resolve` on a match,
+    /// `close_session` on a close, `cancel_all` on a stop — and this function's
+    /// own `Drop` releases it when the client goes away mid-wait. Deregistering
+    /// HERE would be wrong twice over: it frees the slot while the wait is
+    /// still occupying it, so the per-session and global bounds would bound
+    /// nothing at the RPC layer; and it drops this waiter's last
+    /// `Arc<WaiterEntry>`, which owns the one-shot sender, closing the very
+    /// channel the `await` below is listening on.
     pub async fn settle(mut self) -> Result<AgentStatusWaitOutcome, AgentStatusWaitError> {
         let receiver = self.receiver.take().unwrap_or_else(closed_receiver);
-        // The waiter leaves the registry here as well as in `Drop`: an outcome
-        // is a real answer and must be released whether or not the client is
-        // still listening.
-        if let Some(entry) = self.entry.take() {
-            self.registry.remove(&self.request.session_id, &entry);
-        }
         receiver
             .await
             .unwrap_or(Err(AgentStatusWaitError::canceled()))

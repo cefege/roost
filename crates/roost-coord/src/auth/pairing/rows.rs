@@ -25,7 +25,12 @@ use super::status::{ApprovedRequest, LiveRequest, RequestIdentity, StoredStatus,
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PairRequestRow {
     /// `pair_requests.id`, the surrogate key the transitions write through.
-    pub id: i64,
+    ///
+    /// TEXT, not a rowid: v2 stores the ceremony handle in both columns
+    /// (`pairing-account.ts:139`), and the migration is `id TEXT PRIMARY KEY`.
+    /// An integer here cannot read a real row, and binds an integer against a
+    /// TEXT-affinity column, which matches none.
+    pub id: String,
     /// The ceremony's opaque handle.
     pub ephemeral_id: String,
     /// The stored status, decoded.
@@ -55,7 +60,7 @@ impl PairRequestRow {
     #[must_use]
     pub fn identity(&self) -> RequestIdentity {
         RequestIdentity {
-            id: self.id,
+            id: self.id.clone(),
             ephemeral_id: self.ephemeral_id.clone(),
             expires_at_ms: self.expires_at_ms,
         }
@@ -95,7 +100,7 @@ impl PairRequestRow {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LiveSelector {
     /// One row by surrogate key.
-    ById(i64),
+    ById(String),
     /// Every live row whose deadline has passed at or before the bound.
     ExpiredBy(i64),
     /// Every live row for one public key.
@@ -183,7 +188,7 @@ where
 {
     terminalize(
         executor,
-        LiveSelector::ById(row.id),
+        LiveSelector::ById(row.id.clone()),
         TerminalRequest::Expired,
         now_ms,
     )
@@ -355,7 +360,7 @@ where
 /// coordinator recognises, and `public_key` must never be zero-padded.
 #[derive(Debug, sqlx::FromRow)]
 struct PairRequestColumns {
-    id: i64,
+    id: String,
     ephemeral_id: String,
     status: String,
     ceremony_version: i64,

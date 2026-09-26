@@ -286,7 +286,7 @@ pub(crate) async fn deny_request(
     }
     let removed = rows::terminalize(
         core.services.db.pool(),
-        LiveSelector::ById(row.id),
+        LiveSelector::ById(row.id.clone()),
         TerminalRequest::Denied,
         now_ms,
     )

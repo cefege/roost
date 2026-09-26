@@ -7,6 +7,9 @@
 //! would make one half's "authorizes nothing" assertion pass for the wrong
 //! reason.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+// Each of the two binaries gets its own copy of this module and exercises a
+// different half of it, so a helper one binary never calls is not dead.
+#![allow(dead_code)]
 
 use std::path::PathBuf;
 
@@ -29,6 +32,17 @@ pub const ACCOUNT: &str = "acct-1";
 pub const APPROVER: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 pub const REQUESTER_KEY: [u8; 32] = [7; 32];
 
+/// A requester token that is not the request's own, for the refusal that says a
+/// token is the only proof of ownership.
+pub const OTHER_TOKEN: &str =
+    "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100";
+
+/// The tenant topology the ceremony's `workers` rows are scoped to. The
+/// migration refuses an unscoped worker (`workers_require_dashboard_insert`),
+/// so a fixture that names a machine has to name the dashboard it belongs to.
+pub const ORGANIZATION: &str = "org-1";
+pub const DASHBOARD: &str = "dash-1";
+
 pub struct CeremonyFixture {
     /// The migrated database every assertion reads.
     pub database: CoordDb,
@@ -48,13 +62,38 @@ impl CeremonyFixture {
         fixture
     }
 
-    /// One active account and one approving device: the minimum a pairing
-    /// ceremony needs to name an authority.
+    /// One active account, the deployment it belongs to, and one approving
+    /// device: the minimum a pairing ceremony needs to name an authority.
+    ///
+    /// The organization, dashboard and membership are here because the schema
+    /// scopes every `workers` row to a dashboard, and two of the ceremony's
+    /// refusals are "this key is a machine". A fixture that could not write a
+    /// worker row could not reach either of them.
     pub async fn seed_account(&self) {
-        self.exec(
+        self.exec(&format!(
             "INSERT INTO accounts (id, email_normalized, status, created_at_ms) \
-             VALUES ('acct-1', 'owner@example.invalid', 'active', 0)",
-        )
+             VALUES ('{ACCOUNT}', 'owner@example.invalid', 'active', 0)"
+        ))
+        .await;
+        self.exec(&format!(
+            "INSERT INTO organizations (id, slug, name, status, created_at_ms) \
+             VALUES ('{ORGANIZATION}', 'org-1', 'org-1', 'active', 0)"
+        ))
+        .await;
+        self.exec(&format!(
+            "INSERT INTO organization_memberships (organization_id, account_id, role, created_at_ms) \
+             VALUES ('{ORGANIZATION}', '{ACCOUNT}', 'owner', 0)"
+        ))
+        .await;
+        self.exec(&format!(
+            "INSERT INTO dashboards (id, organization_id, slug, name, status, created_at_ms) \
+             VALUES ('{DASHBOARD}', '{ORGANIZATION}', 'dash-1', 'dash-1', 'active', 0)"
+        ))
+        .await;
+        self.exec(&format!(
+            "INSERT INTO dashboard_memberships (dashboard_id, account_id, role, created_at_ms) \
+             VALUES ('{DASHBOARD}', '{ACCOUNT}', 'admin', 0)"
+        ))
         .await;
         self.exec(&format!(
             "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) \
@@ -64,6 +103,30 @@ impl CeremonyFixture {
         self.exec(&format!(
             "INSERT INTO account_devices (fingerprint, account_id, added_at_ms, last_seen_at_ms) \
              VALUES ('{APPROVER}', '{ACCOUNT}', 0, 0)"
+        ))
+        .await;
+    }
+
+    /// Register a machine under the given fingerprint, scoped to the
+    /// dashboard. A key that is a worker's identity never becomes a device,
+    /// and that is only observable if a worker row exists to collide with.
+    pub async fn register_worker(&self, fingerprint: &str) {
+        self.exec(&format!(
+            "INSERT INTO workers (fp, label, os, registered_at_ms, last_seen_ms, dashboard_id) \
+             VALUES ('{fingerprint}', 'a machine', 'linux', 0, 0, '{DASHBOARD}')"
+        ))
+        .await;
+    }
+
+    /// Put a fingerprint on the revocation list, the way `DevicesRevoke` does.
+    ///
+    /// `revoked_by_fp` and `reason` are `NOT NULL` in the migration, so a
+    /// two-column insert is not a sparser revocation -- it is a statement that
+    /// never applies.
+    pub async fn revoke_key(&self, fingerprint: &str) {
+        self.exec(&format!(
+            "INSERT INTO authorized_key_revocations (fingerprint, revoked_at_ms, revoked_by_fp, reason) \
+             VALUES ('{fingerprint}', 0, 'on-host-recovery', 'device-revoked')"
         ))
         .await;
     }
@@ -126,10 +189,25 @@ impl CeremonyFixture {
     }
 
     pub async fn confirm(&self, code: &str, now_ms: i64) -> Result<bool, String> {
+        self.confirm_with_token(TOKEN, code, now_ms).await
+    }
+
+    /// The confirmation with the requester token under the caller's control.
+    ///
+    /// The requester token is the only proof a requester owns its request, so
+    /// the refusal that matters can only be written against a token that is
+    /// not the right one. A helper that hardcoded the token made that
+    /// untestable.
+    pub async fn confirm_with_token(
+        &self,
+        token: &str,
+        code: &str,
+        now_ms: i64,
+    ) -> Result<bool, String> {
         confirm_pair_request(
             &self.database,
             HANDLE,
-            &pairing_secret_digest(TOKEN),
+            &pairing_secret_digest(token),
             &pairing_secret_digest(code),
             now_ms,
         )

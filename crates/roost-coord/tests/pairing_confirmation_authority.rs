@@ -100,13 +100,8 @@ async fn a_requester_key_revoked_after_approval_authorizes_nothing() {
     fixture.approved_request(NOW).await;
     let before_keys = fixture.authorized_keys().await;
     fixture
-        .exec(&format!(
-            "INSERT INTO authorized_key_revocations (fingerprint, revoked_at_ms) \
-             VALUES ('{}', 0)",
-            fixture.fingerprint_of_requester().await
-        ))
+        .revoke_key(&fixture.fingerprint_of_requester().await)
         .await;
-
     let error = fixture.confirm(CODE, NOW + 1_000).await.unwrap_err();
     assert_eq!(error, PairingRefusal::AuthorityInvalid.to_string());
     assert_eq!(fixture.authorized_keys().await, before_keys);
@@ -121,12 +116,7 @@ async fn a_worker_key_never_becomes_a_device() {
     let fixture = CeremonyFixture::new("worker-key").await;
     fixture.approved_request(NOW).await;
     let requester_fp = fixture.fingerprint_of_requester().await;
-    fixture
-        .exec(&format!(
-            "INSERT INTO workers (fp, label, os, registered_at_ms, last_seen_ms) \
-             VALUES ('{requester_fp}', 'a machine', 'linux', 0, 0)"
-        ))
-        .await;
+    fixture.register_worker(&requester_fp).await;
     let before_keys = fixture.authorized_keys().await;
 
     let error = fixture.confirm(CODE, NOW + 1_000).await.unwrap_err();
@@ -193,12 +183,7 @@ async fn a_denied_request_confirms_nothing() {
 async fn associating_a_worker_key_is_refused_by_name() {
     let fixture = CeremonyFixture::new("association").await;
     let fingerprint = fixture.fingerprint_of_requester().await;
-    fixture
-        .exec(&format!(
-            "INSERT INTO workers (fp, label, os, registered_at_ms, last_seen_ms) \
-             VALUES ('{fingerprint}', 'a machine', 'linux', 0, 0)"
-        ))
-        .await;
+    fixture.register_worker(&fingerprint).await;
 
     let error = associate_paired_browser(&fixture.database, &fingerprint, ACCOUNT, NOW)
         .await

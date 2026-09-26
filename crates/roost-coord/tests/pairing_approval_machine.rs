@@ -20,7 +20,7 @@ const CODE_HASH: &str = "digest-of-the-code-the-approver-chose";
 
 fn identity(expires_at_ms: i64) -> RequestIdentity {
     RequestIdentity {
-        id: 7,
+        id: HANDLE.to_string(),
         ephemeral_id: HANDLE.to_string(),
         expires_at_ms,
     }

@@ -27,9 +27,15 @@ use serde_json::{Value, json};
 use sqlx::AssertSqlSafe;
 
 /// The worker that owns three of the four sessions.
-pub const WORKER_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+///
+/// Sixty-four lowercase hex characters, because a worker fingerprint is the
+/// SHA-256 hex of an ed25519 pubkey and `WorkerFp` refuses anything else. A
+/// shorter constant here is a fixture that cannot be built: `route_rows`
+/// brands both workers, so every test in every `agent_*.rs` binary panicked in
+/// `AgentFixture::build` before it asserted anything.
+pub const WORKER_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 /// The worker that owns the fourth, so a cross-worker claim is testable.
-pub const WORKER_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+pub const WORKER_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
 /// Four open sessions, deliberately NOT in the order a test reports them in.
 pub const SESSION_IDS: [&str; 4] = [

@@ -121,7 +121,9 @@ impl TerminalRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestIdentity {
     /// `pair_requests.id`, the surrogate key the transitions write through.
-    pub id: i64,
+    ///
+    /// TEXT, matching the migration; see `rows::PairRequestRow::id`.
+    pub id: String,
     /// The ceremony's opaque handle; the value the bus and every log line use.
     pub ephemeral_id: String,
     /// When the request stops being redeemable.

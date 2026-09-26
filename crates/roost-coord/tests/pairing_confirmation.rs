@@ -12,7 +12,7 @@
 
 mod pairing_support;
 
-use pairing_support::{CODE, CeremonyFixture, HANDLE, NOW, TOKEN};
+use pairing_support::{CODE, CeremonyFixture, HANDLE, NOW, OTHER_TOKEN, TOKEN};
 use roost_coord::auth::pairing::confirmation::confirm_pair_request;
 use roost_coord::auth::pairing::secrets::{PAIR_VERIFICATION_ATTEMPT_LIMIT, pairing_secret_digest};
 use roost_coord::auth::pairing::status::TerminalRequest;
@@ -144,7 +144,7 @@ async fn a_wrong_requester_token_finds_nothing() {
     fixture.approved_request(NOW).await;
     let before_keys = fixture.authorized_keys().await;
 
-    let wrong = fixture.confirm(CODE, NOW + 1_000).await;
+    let wrong = fixture.confirm_with_token(OTHER_TOKEN, CODE, NOW + 1_000).await;
     let absent = confirm_pair_request(
         &fixture.database,
         "ffffffffffffffffffffffffffffffff",

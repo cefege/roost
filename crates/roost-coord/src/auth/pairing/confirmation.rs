@@ -282,7 +282,7 @@ async fn record_attempt(
           AND status = 'verification_required'",
     )
     .bind(record.attempts)
-    .bind(approved.identity().id)
+    .bind(&approved.identity().id)
     .execute(database.pool())
     .await
     .map_err(|error| super::sqlx_error("pairing.attempt", error))?;
@@ -307,7 +307,7 @@ async fn terminalize(
 ) -> PairingResult<()> {
     rows::terminalize(
         database.pool(),
-        LiveSelector::ById(approved.identity().id),
+        LiveSelector::ById(approved.identity().id.clone()),
         terminal,
         now_ms,
     )
