@@ -7,6 +7,14 @@ This document is a contract, not a description. A change to an output shape or
 an exit code is a breaking change for whatever was written against it, and the
 change has to be made here in the same commit that makes it in the code.
 
+**Status of the sections below.** `deploy` and `keeper-refresh` are implemented
+and their exit codes are as written here. Three things are named rather than
+implied, because a contract that reads as measured when it was not is worse than
+one that admits it: the **observed** exit-code table is not yet measured against a
+real target, the FAILURE-INDEX guard mapping further down is derived from the
+index and the code rather than from a run, and the SSH dry-run has not happened.
+Nothing in this document was weakened to make a gate pass.
+
 **Where the shapes come from, in priority order.**
 
 1. **`docs/FAILURE-INDEX.md`.** 99 entries, 13 of which name the CLI, its flags
@@ -469,9 +477,7 @@ pretends to be one of them: a missing subcommand is a usage error, not a stub.
 | Command | v2 arguments | v2 exit codes | Notes |
 | --- | --- | --- | --- |
 | `roost quickstart` | `--coordinator-url URL`, `--dry-run` | 1, plus the deploy codes it calls | Installs coord + worker, waits for health, prints a status readout, opens a paired browser. Never prints or logs the one-shot grant. |
-| `roost deploy <host>` | `--label`, `--reachable-addr`, `--source-root`, `--expected-sha`, `--expected-manifest-sha256`, `--allow-unpublished-local`, `--coordinator-release`, `--force-live` | 1 usage, 2 ssh/unreachable, 3 no remote runtime, 4 build failure, 5 keeper not adoptable, 6 no coordinator URL, 7 identity unproved, 8 settlement, 9 lease lost | `--force-live` authorizes the new worker to **destroy every PTY** held by a keeper it cannot adopt, for that deploy only, and prints a three-line warning before doing it. |
 | `roost push` | none | 1, 2, 5, 7, 8 | One journaled fleet transaction with a single decision boundary; rolls the whole fleet back on any failure before the finalizing checkpoint. |
-| `roost keeper-refresh <host>` | `--yes`, `--force-live` | 2 | The only command that printed bare JSON on stdout in v2. |
 | `roost add-machine` | `--platform macos\|linux`, `--label` | 1 | Mints a one-shot worker token and prints a copy-pasteable enrollment command. The URL comes from the **installed coordinator definition**, never from derivation. |
 | `roost join` | none; needs `ROOST_COORDINATOR_URL` + `ROOST_BOOTSTRAP_TOKEN` | 7 on a dirty tree | Installs and registers this machine's worker. |
 | `roost update` | none | 1 | POSIX atomic self-replace. |
@@ -479,6 +485,224 @@ pretends to be one of them: a missing subcommand is a usage error, not a stub.
 | `roost dev` | none | 0 | Three dev servers with SIGINT fan-out. |
 | `roost cutover` | `--force` | 2, 3 | **Deliberately dropped.** It migrated `coordinator.db` → `coordinator_v2.db`, and v3 is a fresh install that must never open a v2 database. |
 | `roost __windows-updater-broker` | none | — | **Deliberately dropped.** v3 ships Linux and macOS only. |
+
+
+---
+
+## `roost deploy <host>`
+
+Replace one machine's release and restart its worker, over ssh. The only command
+in this binary that changes a *different* machine, and the only one where a bug
+ends somebody's shells rather than a request.
+
+```
+roost deploy <host> [--label L] [--reachable-addr A] [--source-root DIR]
+                    [--expected-sha SHA] [--expected-manifest-sha256 HEX]
+                    [--coordinator-release] [--force-live]
+```
+
+| Argument | Meaning |
+| --- | --- |
+| `<host>` | The target: a host this machine can ssh to, or `user@host`. |
+| `--label L` | The name the target enrolls under. Never taken from this shell's environment for a remote host — see the identity rule below. |
+| `--reachable-addr A` | The address the rest of the fleet reaches the target at. Same rule. |
+| `--source-root DIR` | The checkout to build the release from. Defaults to the checkout this binary was built from. |
+| `--expected-sha SHA` | The build this deploy is required to install: a second, independent check on the build identity. |
+| `--expected-manifest-sha256 HEX` | The release digest this deploy is required to install. |
+| `--coordinator-release` | Prove the build against the installed coordinator's own release rather than against an upstream tip. What a coordinator-started deploy uses. |
+| `--force-live` | Authorize the new worker to **destroy every PTY** a keeper it cannot adopt holds, for this deploy only. |
+
+`--allow-unpublished-local` was removed from the shipped surface: it is
+restricted to the localhost quickstart path, which is `roost quickstart`'s flag,
+and a deploy that accepts it would let a command that mutates a remote machine
+ship a commit that exists nowhere else.
+
+### The order, because the order is the safety property
+
+1. Prove what is being shipped, **before building** (exit 7).
+2. Prove the target answers, **before building** (exit 2).
+3. Read the target's platform and architecture, and build the release for them
+   (exit 3, 4).
+4. Read the target's own installed definition for its coordinator URL and its
+   identity (exit 6).
+5. Ask the coordinator whether the target's keeper may be carried across, and
+   act on that answer — **before anything on the target is touched** (exit 5).
+6. Take the target's machine transaction, swap the definition, activate, prove
+   the service is up, settle, retire the prior release.
+7. Prove the keeper converged, against a baseline recorded at step 5.
+
+Steps 5 and 6 are the pair that matters. Every keeper refusal happens before the
+definition is replaced, so a machine whose keeper cannot be safely carried
+across is left exactly as it was.
+
+### The identity rule
+
+`ROOST_WORKER_LABEL` and `ROOST_REACHABLE_ADDR` name **one machine**, and the
+process holding this shell's environment is the box running `roost deploy`, not
+the target. A deploy that adopted an ambient value installs the *deploying*
+box's label and reachable address on the target: the coordinator then lists two
+workers under one name, and because a reachable address is what a browser builds
+a machine's location from, the wrong machine is addressable under the right name.
+Both values resolved, so the deploy looks complete.
+
+So those two keys resolve from `--label` / `--reachable-addr` or from the
+target's own installed definition, and from nowhere else. An ambient export over
+a target with no prior install is a **refusal (exit 6) naming the flag**,
+because guessing which machine the operator meant is how a fleet gets mislabelled.
+Every other `ROOST_*` key keeps its ambient fallback; it describes the fleet, not
+one box.
+
+### Exit codes
+
+The 4–9 range is reserved for the install/deploy group precisely so that `deploy`
+and `push` cannot drift apart. **5 means a keeper was not adopted in either
+command**, and a wrapper that reads 5 from one and 1 from the other is a wrapper
+that retries the destruction of somebody's shells.
+
+| Code | Meaning | Raised by |
+| --- | --- | --- |
+| 1 | The operator's own invocation is wrong: no host, a malformed `--label`, a `--source-root` that is not a path. | `deploy` |
+| 2 | The target could not be reached, or answered nothing. **Also** clap's code for a rejected flag, so 2 is both "usage error" and "ssh failed", exactly as in v2. | `deploy`, clap |
+| 3 | The target has no runtime that can run the release: not Linux or macOS, or an architecture v3 does not ship. | `deploy` |
+| 4 | The release this deploy would ship could not be built here, or its digest is not the one that was required. | `deploy` |
+| 5 | A keeper could not be adopted safely, and the deploy **stopped without touching it**. | `deploy` |
+| 6 | The target has no coordinator URL and no prior install to reuse one from; or an ambient identity key would have mislabelled the machine. | `deploy` |
+| 7 | The build identity could not be proved: a dirty tree, an unpushed commit, or a checkout that is not the release it claims to be. | `deploy` |
+| 8 | The definition was replaced and the release could not be settled after that. The target's journal is retained and the next deploy resolves it. | `deploy` |
+| 9 | A remote process died, or the target's machine transaction was lost, while the deploy held it. | `deploy` |
+
+### stdout
+
+Progress goes to **stderr**; the one line an operator asked for goes to **stdout**.
+A deploy that fails halfway has still changed a machine, and a script that reads
+stdout must never be able to mistake a partial run for a settled one.
+
+---
+
+## `roost keeper-refresh <host>`
+
+Shut a machine's keeper down **empty**, leaving its worker installed. Narrower
+and more destructive than `deploy`, and the narrowness is the design: it replaces
+no release, so a refresh that goes wrong leaves a machine whose worker is still
+installed and whose keeper is simply gone. The next deploy starts a fresh empty
+keeper and nothing about the failure is permanent.
+
+```
+roost keeper-refresh <host> --yes [--force-live]
+```
+
+| Argument | Meaning |
+| --- | --- |
+| `<host>` | The target: a host this machine can ssh to, or `user@host`. |
+| `--yes` | **Required.** This command exists to destroy PTYs and an operator should have to say so on the command line. |
+| `--force-live` | Authorize the destruction of live PTYs, not merely of an empty keeper. |
+
+The target's machine transaction is held for the whole operation even though
+nothing is installed, because a keeper shutdown racing a deploy is the case where
+a deploy rolls back to a definition whose keeper no longer exists.
+
+**`--force-live` requires a fresh keeper proof from the coordinator.** Destroying
+live channels requires knowing *which* channels, and a stale or absent
+observation is not that. The warning names the keeper pid, epoch and channel
+count before the destruction is requested.
+
+**Keeper maintenance is coordinator-fenced**: the coordinator drains every
+channel-creating command and then asks the authenticated worker to perform one
+deliberate shutdown. It cannot be done by asking a machine directly, and a
+command that tried would be racing every session the fleet is holding open.
+
+### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | The keeper is down. |
+| 1 | The refresh did not happen: the worker is stale, no keeper runtime was proven, the coordinator refused, or no coordinator could be reached. |
+| 2 | A usage error: no host, or `--yes` absent. |
+
+This is the only reserved code this command uses, and that is deliberate. The
+4–9 range is shared with `deploy` and `push`, and a command with no reserved
+meaning for a failure uses 1 — inventing a fifth reading of, say, 9 between two
+commands is exactly what the reservation exists to prevent.
+
+---
+
+## The hidden target-side commands
+
+`roost __remote-facts`, `__remote-evidence`, `__remote-transaction` and
+`__remote-apply` are **not part of the product surface**. They are hidden from
+`--help` and they are the only way a deploy can change a remote machine.
+
+**Why they exist.** Everything that decides *what should happen* to a target runs
+on the deploying box: is its build identity proved, may its keeper be carried
+across, where does its identity come from. Everything that decides *what the
+target's own files say* runs on the target. Each side answers with a value the
+other cannot misread, and the boundary between them is a manifest and a report
+rather than a shared guess about where a machine keeps its state. A deploying box
+that derived the target's release root from its own idea of the target's home
+would be right until an operator moved `ROOST_VERSIONS_DIR` — and then it would
+install the new release somewhere the retired one never lived.
+
+| Command | Question | Answers with |
+| --- | --- | --- |
+| `__remote-facts` | what is installed here? | one line of JSON: platform, home, worker label, definition path, release root, service directory, installed program, and every `ROOST_*` the installed definition carries |
+| `__remote-evidence` | may a release be staged? | the evidence markers, from one probe command |
+| `__remote-transaction --kind deploy\|keeper-refresh` | hold this machine still | a line, then it blocks on stdin until released |
+| `__remote-apply` | install the release this manifest names | one line of JSON, the report |
+
+**What the hiding carries.** A deploy addresses these by string over ssh, the
+same way it addresses `__keeper-contract`. None of them is something a person
+should ever type, and the reasons are specific rather than aesthetic:
+
+- `__remote-apply` **refuses unless a machine transaction is held**, so the only
+  way to reach it is through a deploy that took the lock. An operator running it
+  by hand would be doing an unsynchronized mutation of a live machine, and the
+  command is built to refuse exactly that.
+- `__remote-transaction` holds a machine still for an unbounded time. A person
+  who found it in a help listing and ran it would wedge every later deploy and
+  every keeper refresh on that machine until they noticed.
+- `__remote-facts` and `__remote-evidence` are read-only, but they print the
+  target's own install layout. A product surface should not advertise a command
+  whose output describes another machine's filesystem to whoever can run the
+  binary.
+
+If you find one of these in a `--help` listing, that is a bug in this document's
+author or in the `hide` attribute, not a new feature.
+
+**`__remote-apply` takes its manifest on stdin and answers on stdout, one line
+each.** The manifest is versioned and the target refuses a schema it does not
+have rather than reading the fields it recognises. The report is versioned the
+same way, and a deploying box refuses a report whose vocabulary it does not
+know — a report that parsed into "settled" because a field was unknown is the one
+failure this pair of documents exists to prevent.
+
+---
+
+## The FAILURE-INDEX guards behind `roost deploy`
+
+The failure index has no section called "Deployment journals"; that phrase is in
+the plan, not the document. The deploy-relevant entries live under **"Worker,
+keeper and host"**, with one under **"Product boundaries and process"**. All
+thirteen are mapped to the code that satisfies them, because a deploy path with
+no named guard behind it is the thing this project has already been bitten by.
+
+There is no literal heading to grep, so this table is the index for it.
+
+| FAILURE-INDEX entry | The code that satisfies it |
+| --- | --- |
+| Repairing a dead worker demands that the dead worker be running | `deploy/admission.rs`: the refusal is returned as a claim about the **coordinator's registry**, and `deploy/target_evidence.rs` + `deploy/keeper_step.rs::decide` decide it against the **target's own probe**. A stale row over a machine running nothing stages; a running worker, a keeper holding channels, an unreachable service manager and a missing `pgrep` all refuse. |
+| …a keeper socket file is not evidence | `target_worker_evidence_command` never tests the socket file. It outlives the keeper that created it, so it can neither prove nor disprove anything the process counts do not. |
+| …an unreachable service manager reads like a stopped one | darwin corroborates with `launchctl print-disabled`, a query that succeeds either way; linux needs none, because `systemctl show` already exits 0 for a unit it has never heard of. `status/service_probe.rs::service_state_command`. |
+| …`pgrep -f` sees this deploy's own ssh command line | The keeper socket name's first character is bracketed into a character class and its regex metacharacters escaped, so the pattern cannot match the text that carries it. |
+| A remote deploy hands the target the deploying box's identity | `deploy/identity_env.rs`: `DEPLOY_IDENTITY_ENV_FLAGS` + `resolve_remote_deploy_identity`. An identity key has no ambient fallback; an ambient export over a fresh target is exit 6 naming the flag. |
+| A one-shot deploy flag stops at the installer process | `--force-live` travels in the manifest environment and reaches the definition through the spec's own settings path, while `worker_install_environment` strips `ROOST_BOOTSTRAP_TOKEN` and `ROOST_KEEPER_FORCE_LIVE_RETIRE` from **every** prior install. A definition that still carried the retire authorization would re-authorize destroying live channels on every later restart. |
+| A rollback proof no release can satisfy wedges every later deploy | `deploy/apply.rs` calls the already-ported `resolve_interrupted_deploy` **before it writes anything**, and refuses rather than overwriting a retained journal. The roll-forward resolution belongs to `services/deploy_journal.rs`, which already owns it. |
+| Settlement retires the prior release with a command only a worktree accepts | `deploy/retire.rs::plan_retirement` asks `git worktree list --porcelain` whether the path is a registered worktree and removes the directory outright when it is not — behind the symlink refusal and the release-root confinement, which are the guards that make a recursive removal safe at all. |
+| Quoting a systemd path directive because quoting is "safer" | `deploy/installed.rs::systemd_working_directory` reads `WorkingDirectory=` **raw** and reverses only the writer's own `%%` doubling. It never unquotes: a quoted value is quoted in the unit. |
+| …writing a definition is not activating it | `services/deploy_transaction.rs` + `PlatformServiceManager::await_active`, reused rather than reimplemented. A definition that loads but does not start is a failed deploy. |
+| A retired release's dist leaves every page a 404 while the API still answers | `identity_env::NEVER_CARRIED_FORWARD` drops `ROOST_WEB_DIST_PATH` (and `ROOST_EXEC_BIN` / `ROOST_WORKDIR`) from every prior install. A worker deploy stamps no dist at all. |
+| Moving a keeper-imported file makes every live keeper unadoptable | `admission::direct_keeper_update_admission` delegates to `roost_protocol::keeper_update::keeper_update_admission`, so a digest difference is unadoptable **only while channels exist** and is replaceable the moment the keeper is provably empty. |
+| Coordinator-started worker deploys exit 7 from a detached release worktree | `identity::coordinator_release_git_sha_or_die` proves the source checkout **is** the installed coordinator release, at the build the installed definition stamps, instead of asking a detached worktree for a publishable upstream. Selected by `--coordinator-release`. |
+
 
 ---
 

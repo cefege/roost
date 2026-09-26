@@ -875,16 +875,37 @@ is a socket whose credential outlived its ceiling. See §9.
 `apps/coord/src/middleware/rate-limit.ts`.
 
 - Bucket key: `route path` + `NUL` + client address. **The route list is by
-  exact RPC name, 44 entries** (`:16-64`) — not a prefix, because *"Prior shape
+  exact RPC name, 32 entries** — not a prefix, because *"Prior shape
   used prefix `/roost.v1.CoordinatorService/Workspaces` which matched
   WorkspacesList (called on every SPA bootstrap + visibilitychange focus
   refresh), eating the same 100/min bucket as create/update/delete
   mutations."* (`:7-14`)
+  **The count is 32 in both implementations and set equality holds.** This line
+  has now carried three different numbers, so the arithmetic is written out:
+  v2's set literal `rate-limit.ts:16-64` holds 31 quoted
+  `"/roost.v1.CoordinatorService/…"` strings **plus** `PAIR_POLL_ROUTE`, a
+  `const` declared at `:15` and entered as a bare identifier at `:23` — 32
+  members. The port's `RATE_LIMITED_METHODS` (`middleware/rate_limit.rs:51`)
+  holds 31 quoted strings **plus** `PAIR_POLL_METHOD` at `:57`, which is both a
+  `pub const` and an element of the list — 32.
+  Counting quoted strings finds 31 in both files, and finds 31 *identically* in
+  both, which is what makes it so persuasive: the one entry spelled as a
+  constant rather than a literal is invisible to that method, and two
+  measurements agreeing with each other is not evidence when they share a blind
+  spot. `"PairPoll"` never appears as a string literal on either side.
 - Window 60,000 ms; 100 tokens per window for every listed route; **600 for
   `PairPoll` only** (`:66-67`).
-- `RATE_LIMIT_MAX_BUCKETS = 10_000`, with LRU maintenance by insertion order:
-  *"A full map of live buckets fails closed rather than evicting an active limit
-  and giving a churning caller a fresh budget."* (`:99-104`)
+- `RATE_LIMIT_MAX_BUCKETS = 10_000`, and a full map **fails closed** rather
+  than handing a churning caller a fresh budget: *"A full map of live buckets
+  fails closed rather than evicting an active limit and giving a churning caller
+  a fresh budget."* (`:99-104`).
+  **The maintenance is NOT LRU by insertion order in the port**, and the earlier
+  wording said so. v2 evicted the oldest-inserted bucket; the port
+  (`rate_limit.rs:225-228`) retains only buckets whose `reset_at` is still in
+  the future, so what it drops is what has already expired and the fail-closed
+  refusal is reached only when the survivors alone fill the ceiling. Same
+  guarantee, different mechanism — and a reader deciding whether the port
+  preserved v2's behaviour needs to know that is where the difference is.
 - `GET`, `HEAD` and `OPTIONS` are exempt (`:237-239`).
 - Over the limit: `429`, `{"error":"rate limit exceeded"}`,
   `retry-after: max(1, ceil(remainingMs/1000))` (`:186-196`).
