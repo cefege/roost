@@ -640,6 +640,58 @@ condition — a mutation reads as a suspiciously small removal, and that is a
 shape a reader can catch in one glance. **The dangerous artefact is not the
 mutation; it is a mutation that has been committed.**
 
+## The row that already exists for this defect is cheaper than diagnosing it
+
+Three `tasks_queue` failures were read as **three individual assertions** by the
+map that classified them. They are **one product cause**: three independent
+handlers, **zero deliveries**, same module, different tests. `left: []` where
+`[Created, State, State]` is expected — not a wrong delta, not a wrong order, **no
+deltas at all**. That is a bus that is not connected.
+
+**And the mutation row for it was written months ago and has never been run.**
+`C11` — *delete the `publish` call in `handle_tasks_set_state`*, must fail
+`a_task_change_reaches_a_sync_subscriber` — is **precisely** the row that catches
+this class. The same is true of `C5` for the staleness defect below.
+
+> **Before diagnosing a defect by hand, check whether a row already exists for
+> it. A row is a cheaper experiment than a reading, it has a pre-registered
+> prediction, and it produces a control the reading cannot.**
+
+**The corollary, and it is the sharper half: a defect whose row has never been
+run is a defect that has never been *bounded*.** The row does not only confirm
+the cause — **it states how much of the surface that one `publish` call owns**,
+which is information no amount of reading the failure would give you.
+
+## Four product candidates, two of them the shape that has destroyed contracts
+
+Of 14 remaining failures, four are product candidates rather than test defects:
+
+- **A staleness check that accepts a stale report.** `left: Accepted, right:
+  Stale` — a report that should be refused is accepted. **This is the most
+  consequential single failure in the list, because it is the difference between
+  the last word and the first**, and it is the same `status_order::accepts`
+  predicate `C5`'s row guards.
+- **A busy store reported as `Internal` where `Unavailable` is expected.** The
+  test's own message is the argument: *"the call is retryable, so it is neither
+  the caller's fault nor a statement failure."* **A busy store is a
+  `Unavailable`, and reporting it as `Internal` tells an operator the coordinator
+  is broken when it is merely saturated.** A caller that treats `Internal` as
+  non-retryable will not retry a request that should be retried.
+- **The unconnected bus** above.
+- **A deletion that leaves the row present and misordered** — the same family as
+  the staleness defect, in the same ordering logic.
+
+**All four are the same shape: a boundary that reports the wrong thing, so the
+observable the contract promised is simply absent.** Something upstream errors, or
+does not run, and the error either disappears or is reported as the wrong kind.
+**This is the third occurrence of that shape in this port** and the second today.
+
+**And the discipline that produced them: the agent refused to classify the four
+it had not read**, pointing out that the map's "individual assertions" label was
+wrong about `tasks_queue` too. **A classification is not inherited — it is
+re-earned per cluster**, and a map's verdict on a cluster nobody has opened is a
+guess with a number on it.
+
 ## The first complete mutation rows — and the two that did not behave
 
 Six rows, run with both directions and a checksum-verified restore, against a
