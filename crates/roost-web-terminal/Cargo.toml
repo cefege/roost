@@ -9,3 +9,37 @@ description = "The imperative web-sys terminal renderer plus its input, IME, mou
 
 [lints]
 workspace = true
+
+[dependencies]
+roost-client-core = { workspace = true }
+roost-protocol = { workspace = true }
+wasm-bindgen = { workspace = true }
+
+# The renderer touches the DOM directly and deliberately: one cell row is one
+# element, and a virtual tree over it would put a diff between the replica and
+# the painted grid on every frame. The features are exactly the surfaces the
+# renderer owns — text, selection, input, IME composition, mouse, and the
+# observer that turns a container's box into a PTY geometry.
+[dependencies.web-sys]
+workspace = true
+features = [
+  "CompositionEvent",
+  "CssStyleDeclaration",
+  "Document",
+  "DomRect",
+  "Element",
+  "Event",
+  "EventTarget",
+  "HtmlElement",
+  "InputEvent",
+  "KeyboardEvent",
+  "MouseEvent",
+  "Node",
+  "Performance",
+  "Range",
+  "ResizeObserver",
+  "Selection",
+  "Text",
+  "WheelEvent",
+  "Window",
+]

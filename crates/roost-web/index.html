@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en" data-density="dense">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-visual" />
+    <meta name="theme-color" content="#0d0d0d" />
+    <title>{app_title}</title>
+    <!-- The manifest, the icons and the two font preloads arrive with the static
+         assets they name; a preload for a file that is not there yet is a 404 on
+         every load, so they are not listed until the files are. Terminal cols and
+         rows come from the measured cell, and the preloads exist to remove the
+         window where fallback metrics publish the wrong initial view geometry. -->
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body, #main {
+        height: 100%;
+        background: var(--surface-0);
+        color: var(--text-hi);
+        font-family: var(--md-font);
+      }
+      /* One policy for the whole app: nothing overscrolls. A drag that reaches
+         the end of a list or of terminal scrollback stops there — no
+         rubber-band, no pull-to-refresh, and no chaining into an ancestor
+         scroller. A touch gesture the terminal owns can no longer be stolen by
+         the browser mid-drag and turned into a page pull. */
+      * { overscroll-behavior-y: none; }
+      /* The workbench shell owns 100svh and every list scrolls inside it, so the
+         document must never acquire a scroll range of its own: `height: 100%`
+         resolves against the LARGE viewport on mobile while the shell is sized
+         in svh, which otherwise leaves ~one toolbar height of real page scroll. */
+      html, body { overflow: hidden; }
+    </style>
+  </head>
+  <body>
+    <div id="main"></div>
+  </body>
+</html>

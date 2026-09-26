@@ -1,0 +1,51 @@
+# Dioxus 0.7 build configuration for the Roost web client.
+# Read by `dx build`/`dx serve`; `dx` is not required to compile the crate.
+
+[application]
+name = "roost-web"
+out_dir = "dist"
+# Everything Dioxus serves statically is under `assets/`, so the CSS copied
+# byte-for-byte out of v2 and the fonts, icons, manifest and service worker
+# that land beside it in later waves are served by ONE rule rather than two.
+public_dir = "assets"
+
+[web.app]
+title = "Roost"
+# v2's Vite build set no `base`, so every URL is root-absolute. The coordinator
+# serves the SPA from the origin root and a non-root base would 404 every
+# router path the Playwright specs navigate to.
+base_path = "/"
+
+# The eleven stylesheets v2 imports eagerly, in v2's import order, which is
+# load-bearing: `theme-vars.css` declares every token the rest `var()` into,
+# `md/tokens.css` pulls `md/controls.css` through its own `@import`, and
+# `gamepad.css` has to come after `tv.css` or the coarse-pointer overrides win.
+# `md/icon.css`, `md/overlays.css` and `pairing/Onboarding.css` are NOT here:
+# v2 reached them through lazy chunks, and here the component that owns each
+# one attaches it when it mounts.
+[web.resource]
+style = [
+  "/styles/theme-vars.css",
+  "/components/Settings/md/tokens.css",
+  "/styles/sidebar.css",
+  "/styles/voice-input.css",
+  "/styles/settings-dense.css",
+  "/styles/drive.css",
+  "/styles/workbench-shell.css",
+  "/styles/workbench-sidebar.css",
+  "/styles/workbench-tabs.css",
+  "/styles/tv.css",
+  "/styles/gamepad.css",
+]
+
+# The coordinator serves the built assets pre-compressed, and the CSS is ~180 KB
+# of it, so the release build emits .gz/.br beside every asset.
+pre_compress = true
+
+[web.wasm_opt]
+# `-Oz`. The wasm carries the cell renderer and the protobuf codecs, and the
+# coordinator gzips what it serves, so size is the cheaper axis.
+level = "z"
+# Keeps the name section, so a panic in the Playwright oracle names the Rust
+# function that panicked without a browser extension.
+keep_names = true

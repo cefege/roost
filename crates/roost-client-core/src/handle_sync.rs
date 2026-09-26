@@ -167,16 +167,23 @@ fn fold_into_candidate<F>(
             },
             TerminalSession::new(session_id, worker_fp),
         );
+        store.note_change();
     }
-    let Some(replica) = store.routes.staged_replica_mut(session_id) else {
-        return;
+    let (painted_before, painted_after, baseline_ready) = {
+        let Some(replica) = store.routes.staged_replica_mut(session_id) else {
+            return;
+        };
+        replica.bind_generation(token);
+        let before = replica.frame_revision();
+        let _ = fold(replica);
+        (before, replica.frame_revision(), replica.baseline_ready())
     };
-    replica.bind_generation(token);
-    let _ = fold(replica);
-    let baseline_ready = replica.baseline_ready();
     store
         .routes
         .mark_candidate_baseline(session_id, baseline_ready);
+    if painted_after != painted_before {
+        store.note_change();
+    }
 }
 
 /// Apply everything the pre-hydration queue held, in arrival order.
@@ -186,6 +193,7 @@ fn fold_into_candidate<F>(
 /// coordinator sequenced them in is lost.
 pub fn hydrate(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
     store.hydrated = true;
+    store.note_change();
     for held in store.sync.take_retained() {
         // Deliberately not generation gated: the frame was accepted before the
         // redial, and the coordinator will not send it again.
@@ -204,6 +212,7 @@ fn apply_frame(
     match frame {
         SyncFrame::Subscribed { domains, .. } => {
             store.sync.install_subscribed(generation, domains);
+            store.note_change();
             // Subscribe to exactly the domains the coordinator did not report as
             // already subscribed. Asking for a set other than the announced one
             // is how a client ends up with a terminal domain it never subscribed
@@ -237,15 +246,16 @@ fn apply_frame(
                     snapshot_token: snapshot_token.clone(),
                 })),
                 Err(reason) => {
+                    store
+                        .sync
+                        .reset_domain(generation, *domain, *domain_generation);
+                    store.note_change();
                     tracing::warn!(
                         target: "sync",
                         domain = domain.as_str(),
                         reason,
                         "domain_ready refused"
                     );
-                    store
-                        .sync
-                        .reset_domain(generation, *domain, *domain_generation);
                 }
             }
         }
@@ -257,6 +267,7 @@ fn apply_frame(
             store
                 .sync
                 .reset_domain(generation, *domain, *domain_generation);
+            store.note_change();
             tracing::info!(
                 target: "sync",
                 domain = domain.as_str(),
@@ -269,9 +280,11 @@ fn apply_frame(
             // The cursor advances in the SAME step that applied the event, so it
             // can never name an event the store has not applied.
             store.sync.watermark.note(*event_id);
+            store.note_change();
         }
         SyncFrame::SessionsSnapshot { sessions } => {
             store.sessions.apply_snapshot(sessions.clone());
+            store.note_change();
         }
         SyncFrame::CellGrid {
             session_id,
@@ -284,7 +297,15 @@ fn apply_frame(
                 return;
             };
             replica.bind_generation(&token);
+            let painted_before = replica.frame_revision();
             let _ = replica.admit_frame(cell, false, &token, now_ms);
+            // A host learns that a pane changed from the STORE revision and
+            // reads how far the replica moved from `frame_revision`, so the
+            // store revision has to move too — otherwise the notification that
+            // would tell it to look never arrives.
+            if replica.frame_revision() != painted_before {
+                store.note_change();
+            }
         }
         SyncFrame::CellGridChunk { session_id, chunk } => {
             let Some(token) = store.sync.terminal_token() else {
@@ -294,7 +315,11 @@ fn apply_frame(
                 return;
             };
             replica.bind_generation(&token);
+            let painted_before = replica.frame_revision();
             let _ = replica.admit_chunk(chunk, &token, now_ms);
+            if replica.frame_revision() != painted_before {
+                store.note_change();
+            }
         }
         SyncFrame::ViewState { .. } | SyncFrame::InputResult { .. } => {
             crate::handle_terminal::handle_correlated_result(store, frame, now_ms, out);
@@ -310,6 +335,7 @@ pub fn handle_rpc_result(store: &mut Store, result: &RpcResult) {
     match result {
         RpcResult::CoordIdentity { account_id, .. } => {
             store.account_id = Some(account_id.clone());
+            store.note_change();
         }
         RpcResult::SessionsList {
             sessions,
@@ -317,6 +343,7 @@ pub fn handle_rpc_result(store: &mut Store, result: &RpcResult) {
             ..
         } => {
             store.sessions.apply_snapshot(sessions.clone());
+            store.note_change();
             // Recorded against the CURRENT terminal domain generation: a token
             // issued for an older generation is not a token for this one, and
             // `domain_ready` would refuse it and reset the domain.

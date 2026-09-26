@@ -9,3 +9,64 @@ description = "The Dioxus 0.7 web application: routes, components, and static as
 
 [lints]
 workspace = true
+
+[lib]
+# The `dx serve`/`dx build` entry is a library with a `#[wasm_bindgen(start)]`
+# bootstrap, because Dioxus mounts the virtual dom from `main` and the panic
+# hook has to be installed before the first component renders.
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# The Playwright oracle's backdoor. Installed by the U-3 slice and by nothing
+# else: a release build without this feature contains no `__smoke` string, which
+# is the Phase 5 gate `grep -c __smoke dist/…` reads.
+smoke = []
+
+[dependencies]
+roost-client-core = { workspace = true }
+roost-protocol = { workspace = true }
+roost-web-terminal = { workspace = true }
+js-sys = { workspace = true }
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# `web` because the whole crate is a browser app; `router` because the route
+# table in `src/routes.rs` is the URL contract the Playwright specs drive.
+[dependencies.dioxus]
+workspace = true
+features = ["web", "router"]
+
+[dependencies.web-sys]
+workspace = true
+features = [
+  "AbortController",
+  "AbortSignal",
+  "BinaryType",
+  "CloseEvent",
+  "Crypto",
+  "CryptoKey",
+  "CryptoKeyPair",
+  "DomException",
+  "ErrorEvent",
+  "Headers",
+  "IdbDatabase",
+  "IdbFactory",
+  "IdbOpenDbRequest",
+  "IdbRequest",
+  "IdbTransaction",
+  "IdbVersionChangeEvent",
+  "MessageEvent",
+  "Navigator",
+  "Request",
+  "RequestInit",
+  "RequestMode",
+  "Response",
+  "Storage",
+  "SubtleCrypto",
+  "Url",
+  "Window",
+  "WebSocket",
+]

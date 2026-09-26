@@ -34,8 +34,13 @@ pub fn handle_sweep(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
 
     let session_ids: Vec<String> = store.terminal.keys().cloned().collect();
     for session_id in session_ids {
-        if let Some(replica) = store.terminal_mut_if_present(&session_id) {
-            replica.sweep(now_ms);
+        let dropped = store
+            .terminal_mut_if_present(&session_id)
+            .is_some_and(|replica| replica.sweep(now_ms));
+        if dropped {
+            // `sweep` reports that it dropped a stalled partial, which clears
+            // the in-flight flag and may latch a repair behind it.
+            store.note_change();
         }
         request_repair_if_due(store, &session_id, now_ms, out);
         republish_due_views(store, &session_id, now_ms, out);
@@ -43,12 +48,18 @@ pub fn handle_sweep(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
 
     // Held input. A batch that waited out its admission is REFUSED, not sent:
     // nothing left the client, so refusing it cannot lose a keystroke.
+    let mut refused_any = false;
     for outcome in store.input.sweep_held(now_ms) {
+        refused_any = true;
         tracing::info!(
             target: "terminal",
             input_seq = outcome.input_seq(),
             "held terminal input refused at its admission timeout"
         );
+    }
+
+    if refused_any {
+        store.note_change();
     }
 }
 

@@ -41,7 +41,10 @@ pub use platform::{Clock, KeyValueStore, MemoryClock, MemoryKeyValueStore};
 pub use search::{FindMatch, PageRefusal, RawMatch, SearchPage};
 pub use sessions::{SessionPlane, WireEvent, WireSession};
 pub use store::Store;
-pub use sync::{DomainToken, SyncDial, SyncDomain, SyncFrame, SyncState};
+pub use sync::{
+    DomainToken, SYNC_AUTH_REVOKED_CLOSE_CODE, SYNC_BACKPRESSURE_CLOSE_CODE,
+    SYNC_GENERATION_RETIRED_CLOSE_CODE, SyncDial, SyncDomain, SyncFrame, SyncState,
+};
 pub use terminal::{
     Admission, DirectCarrier, FoldTarget, FrameFoldFailure, FrameFoldOutcome, HistoryRange,
     InputOutcome, InputPhase, InputRouter, PromotionCandidate, PromotionRefusal, RouteRegistry,

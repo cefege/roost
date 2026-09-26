@@ -79,6 +79,20 @@ pub struct TerminalSession {
     pub wire_grid_epoch: Option<String>,
     /// The last sequence seen on the wire.
     pub wire_seq: Option<u64>,
+    /// How many frames have been APPLIED to this replica.
+    ///
+    /// A renderer repaints when this moved, and it is per session rather than
+    /// one store-wide counter because the coordinator delivers a frame per pane
+    /// per tick: on a four-pane board a store-wide counter repaints all four for
+    /// each of the four. This is the "repaint generation" v2 froze into history
+    /// when it inferred scrolled-off rows from scrollback growth — the reason
+    /// that class of bug exists is that the inference had no counter to consult.
+    ///
+    /// It moves only where the CANONICAL grid moves: a full that replaced the
+    /// replica, and a delta that extended it. A refused frame, a chunk still
+    /// assembling, and a dropped stalled partial all change the replica's
+    /// bookkeeping and none of them change a cell.
+    frame_revision: u64,
 }
 
 impl TerminalSession {
@@ -95,6 +109,7 @@ impl TerminalSession {
             wire_stream_id: None,
             wire_grid_epoch: None,
             wire_seq: None,
+            frame_revision: 0,
         }
     }
 
@@ -112,6 +127,10 @@ impl TerminalSession {
     /// The stream id the replica is fenced to.
     pub fn expected_stream_id(&self) -> Option<&str> {
         self.target.expected_stream_id.as_deref()
+    }
+    /// How many frames have been applied to this replica.
+    pub fn frame_revision(&self) -> u64 {
+        self.frame_revision
     }
 
     /// The pane geometry the replica is fenced to.
@@ -229,6 +248,7 @@ impl TerminalSession {
                 self.latch.clear();
                 self.assembler.reset();
                 self.target.canonical_chunk_in_flight = false;
+                self.frame_revision += 1;
                 tracing::info!(
                     target: "terminal",
                     session_id = %self.session_id,
@@ -237,7 +257,10 @@ impl TerminalSession {
                 );
                 Admission::BaselineReplaced
             }
-            FrameFoldOutcome::Delta { .. } => Admission::DeltaApplied,
+            FrameFoldOutcome::Delta { .. } => {
+                self.frame_revision += 1;
+                Admission::DeltaApplied
+            }
         }
     }
 

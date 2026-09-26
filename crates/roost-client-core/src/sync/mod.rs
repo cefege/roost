@@ -18,7 +18,7 @@ pub mod watermark;
 pub use domain::DomainToken;
 pub use inbound::SyncFrame;
 pub use link::{
-    RetainedFrame, SYNC_AUTH_REVOKED_CLOSE_CODE, SYNC_RETAINED_FRAME_MAX, SYNC_WATERMARK_KEY,
-    SyncDial, SyncDomain, SyncLink, SyncState,
+    RetainedFrame, SYNC_AUTH_REVOKED_CLOSE_CODE, SYNC_BACKPRESSURE_CLOSE_CODE,
+    SYNC_GENERATION_RETIRED_CLOSE_CODE, SYNC_RETAINED_FRAME_MAX, SYNC_WATERMARK_KEY, SyncDial,
+    SyncDomain, SyncLink, SyncState,
 };
-pub use watermark::RecoveryWatermark;

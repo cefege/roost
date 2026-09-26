@@ -1,0 +1,122 @@
+/* Styles for TerminalStartupOverlay.tsx — the terminal startup card.
+   Travels with its component so the terminal pane never pulls the settings
+   shell's stylesheet. Tokens only: every value resolves through theme-vars.css
+   (+ md/tokens.css for the space and type ramps). */
+
+.terminal-startup {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--md-space-6);
+  pointer-events: none;
+  z-index: 5;
+  animation: terminal-startup-in var(--md-sys-motion-duration-short3)
+    var(--md-sys-motion-easing-standard-decelerate) both;
+}
+
+.terminal-startup[data-phase="complete"] {
+  animation: terminal-startup-out var(--md-sys-motion-duration-short4)
+    var(--md-sys-motion-easing-standard-accelerate) both;
+}
+
+.terminal-startup__card {
+  width: min(100%, 38ch);
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-3);
+  text-align: center;
+  color: var(--md-sys-color-on-surface);
+}
+
+.terminal-startup__announce {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.terminal-startup__eyebrow {
+  color: var(--md-sys-color-on-surface-variant);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.terminal-startup__percent {
+  /* Tabular figures: the number climbs continuously, so proportional digits
+     would jitter the card's centre on every sample. */
+  font-variant-numeric: tabular-nums;
+}
+
+.terminal-startup__track {
+  height: var(--md-space-1);
+  width: 100%;
+  overflow: hidden;
+  border-radius: var(--md-shape-full);
+  background: var(--md-sys-color-surface-container-highest);
+}
+
+.terminal-startup__fill {
+  height: 100%;
+  border-radius: var(--md-shape-full);
+  background: linear-gradient(90deg, var(--md-sys-color-primary), var(--md-sys-color-tertiary));
+  /* 250ms LINEAR over a 200ms sampling period is what makes the climb
+     continuous; an easing curve re-introduces a visible stutter at every
+     sample boundary. */
+  transition: width var(--md-sys-motion-duration-medium1) linear;
+}
+
+.terminal-startup__step {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.terminal-startup__details {
+  color: var(--md-sys-color-on-surface-variant);
+  border-top: 1px solid var(--md-outline-variant);
+  padding-top: var(--md-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-1);
+}
+
+/* A class-level `display` outranks the UA's `[hidden] { display: none }`, so
+   the collapsed block would stay painted. */
+.terminal-startup__details[hidden] {
+  display: none;
+}
+
+@keyframes terminal-startup-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--md-space-2));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes terminal-startup-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .terminal-startup,
+  .terminal-startup[data-phase="complete"] {
+    animation: none;
+  }
+  .terminal-startup__fill {
+    transition: none;
+  }
+}

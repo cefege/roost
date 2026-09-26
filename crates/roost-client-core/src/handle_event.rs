@@ -52,6 +52,7 @@ pub fn handle_event(
                 return;
             }
             let (generation, dial) = store.sync.begin_dial(&store.tab_id);
+            store.note_change();
             out.push(Effect::DialSync { generation, dial });
         }
         ClientEvent::BootstrapRequested => {
@@ -82,6 +83,7 @@ pub fn handle_event(
                 process_epoch.clone(),
                 host_now_ms,
             ) {
+                store.note_change();
                 tracing::info!(
                     target: "sync",
                     generation = *generation,
@@ -94,12 +96,15 @@ pub fn handle_event(
             generation,
             close_code,
         } => {
-            if store.sync.close_link(*generation, *close_code) && store.sync.auth_revoked {
-                tracing::error!(
-                    target: "sync",
-                    generation = *generation,
-                    "sync credential revoked; not redialing"
-                );
+            if store.sync.close_link(*generation, *close_code) {
+                store.note_change();
+                if store.sync.auth_revoked {
+                    tracing::error!(
+                        target: "sync",
+                        generation = *generation,
+                        "sync credential revoked; not redialing"
+                    );
+                }
             }
         }
         ClientEvent::SyncFrameReceived {
@@ -116,6 +121,7 @@ pub fn handle_event(
         ClientEvent::RpcResultReceived(result) => handle_rpc_result(store, result),
         ClientEvent::ChallengeSigned { account_id, .. } => {
             store.account_id = Some(account_id.clone());
+            store.note_change();
         }
         ClientEvent::CredentialsDiscarded => {
             store.account_id = None;
@@ -125,6 +131,7 @@ pub fn handle_event(
             // cursor would make the next socket's initial history invisible
             // (`apps/web/src/store/sync-frame.ts:55-69`).
             store.sync.watermark.reset(storage);
+            store.note_change();
         }
 
         // ---- terminal views ---------------------------------------------------

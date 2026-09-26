@@ -47,12 +47,29 @@ pub struct Store {
     /// The next staging attempt id. Monotonic, so a slow fold cannot overwrite a
     /// newer one.
     pub next_attempt_id: u64,
+    /// How many mutations this store has accepted.
+    ///
+    /// A host reads it after every `handle` and repaints the chrome when it
+    /// moved. A COUNTER rather than a flag, for two reasons that are the same
+    /// reason: "has anything changed since I looked" is a comparison, and a
+    /// comparison cannot be lost by a reader that looked twice or by a writer
+    /// that fired twice between two reads. A boolean has to be cleared, and
+    /// "who clears it, and when" is a second question with a second wrong
+    /// answer — a reader that clears what it has not read yet loses a repaint,
+    /// and one that never clears repaints per event.
+    ///
+    /// It moves where a mutation LANDS, not once per `handle`. A keepalive and
+    /// a cell frame the fold refused both reach `handle` and change nothing,
+    /// and a host that repaints per control frame turns a busy socket into a
+    /// busy main thread. `note_change` is the only thing that moves it.
+    revision: u64,
 }
 
 impl Store {
     /// An empty store, presenting `tab_id` on every dial.
     pub fn new(sync: SyncState, tab_id: impl Into<String>) -> Self {
         Self {
+            revision: 0,
             sessions: SessionPlane::new(),
             sync,
             tab_id: tab_id.into(),
@@ -86,6 +103,20 @@ impl Store {
     /// A session's replica, mutable, if one exists.
     pub fn terminal_mut_if_present(&mut self, session_id: &str) -> Option<&mut TerminalSession> {
         self.terminal.get_mut(session_id)
+    }
+
+    /// How many mutations this store has accepted.
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// Record that a mutation landed here.
+    ///
+    /// `pub(crate)` because the only writers are the `handle_*` functions in
+    /// this crate, and a host that wrote the store itself would be a second
+    /// state machine with a revision nobody increments.
+    pub(crate) fn note_change(&mut self) {
+        self.revision += 1;
     }
 
     /// The generation the client is currently fenced to, from the live socket.

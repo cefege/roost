@@ -1,0 +1,810 @@
+
+/* wterm theme colors. Full 16-color ANSI palette in the warm-cream family
+   keeps shell prompts readable against the terminal background. */
+/* Terminal font — full, uncut JetBrains Mono Nerd Font Mono (~11.7k
+   codepoints / 12.1k glyphs: every Nerd icon range — Powerline, Octicons,
+   Material, Devicons, FontAwesome, Codicons in U+E000-F8FF + U+F0000+).
+   DO NOT subset / PUA-strip these woff2s. An earlier strip (2 MB -> 174 KB)
+   broke edge cases we can't enumerate up front: powerline/starship prompts,
+   `eza --icons` and terminal apps emit PUA glyphs that otherwise render as
+   tofu. The ~2 MB combined download is the accepted cost of never guessing
+   which glyphs a shell might emit. If ever lost, restore the full woff2 from
+   git: `git checkout 9d3c0a17 -- apps/web/public/fonts/JetBrainsMonoNerdFontMono-Regular.woff2`. */
+@font-face {
+  font-family: 'JBM Nerd';
+  src: url('/fonts/JetBrainsMonoNerdFontMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JBM Nerd';
+  src: url('/fonts/JetBrainsMonoNerdFontMono-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* M3 type ramp + icons, self-hosted (was Google Fonts CDN <link> in
+   index.html — dropped so a tailnet-only / offline box renders M3 without
+   reaching fonts.googleapis.com). Both are variable fonts; the wght/opsz
+   ranges below match the retired CDN css2 query so font-variation-settings
+   in md/tokens.css still resolve. Roboto Flex woff2 is basic-Latin subset
+   (94 glyphs) — non-ASCII UI text falls back to the system-ui stack in
+   --md-font. Material Symbols Rounded is instanced to FILL=0:1 only
+   (GRAD/wght/opsz pinned) — 5.3 MB → 534 KB, all 6579 glyphs kept, filled
+   vs outline preserved; the wght/opsz font-variation-settings in
+   md/tokens.css resolve to the pinned single value. Re-instance via
+   `fonttools varLib.instancer <upstream> GRAD=0 wght=400 opsz=24 FILL=0:1`.
+   ponytail: glyph-subset to ~40 KB only if FILL-fidelity codepoint refactor
+   ever pays for itself; instancing alone is the lazy 90% win. */
+@font-face {
+  font-family: 'Roboto Flex';
+  src: url('/fonts/RobotoFlex.woff2') format('woff2-variations');
+  font-weight: 100 1000;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Material Symbols Rounded';
+  src: url('/fonts/MaterialSymbolsRounded.woff2') format('woff2-variations');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+/* Terminal palette bridge → Roost theme engine.
+   Cell spans use --term-color-0..15; point those names at the canonical theme
+   tokens so an existing grid repaints without rebuilding row DOM.
+   --terminal-grid-bg/fg avoid self-references at this scoped .wterm boundary.
+   Structural terminal styles live here too: Nerd Font glyph support, pane
+   containment, padding, scrolling, and the pane-local input surface. */
+.wterm {
+  --term-bg: var(--terminal-grid-bg);
+  --term-fg: var(--terminal-grid-fg);
+  --term-cursor: var(--terminal-cursor);
+  --term-color-0: var(--ansi-black);
+  --term-color-1: var(--ansi-red);
+  --term-color-2: var(--ansi-green);
+  --term-color-3: var(--ansi-yellow);
+  --term-color-4: var(--ansi-blue);
+  --term-color-5: var(--ansi-magenta);
+  --term-color-6: var(--ansi-cyan);
+  --term-color-7: var(--ansi-white);
+  --term-color-8: var(--ansi-bright-black);
+  --term-color-9: var(--ansi-bright-red);
+  --term-color-10: var(--ansi-bright-green);
+  --term-color-11: var(--ansi-bright-yellow);
+  --term-color-12: var(--ansi-bright-blue);
+  --term-color-13: var(--ansi-bright-magenta);
+  --term-color-14: var(--ansi-bright-cyan);
+  --term-color-15: var(--ansi-bright-white);
+  --term-font-family: 'JBM Nerd', monospace;
+  font-size: var(--term-font-size, 14px);
+  border-radius: 0;
+  box-shadow: none;
+  /* Paint/layout isolation: make each pane its own layout+paint root so a
+     divider-drag resize dirties/repaints only THIS terminal, not the whole
+     deck tree (all slots + strips + sidebar). position: relative pins the
+     cell cursor/ghost containing block to .wterm (contain already makes it a
+     containing block; explicit = intent). The focus glow lives on the SLOT
+     ::after (outside .wterm) so it is NOT clipped; the link hint is
+     document.body-attached so it is unaffected. */
+  position: relative;
+  contain: layout paint;
+  /* The cell renderer's viewport row count may be held during a bounded
+   * vertical resize wobble. Keep the scrolling root clipped to the actual
+   * pane so extra claimed rows cannot enlarge the layout or bleed outward. */
+  height: 100%;
+  box-sizing: border-box;
+  padding: 12px 16px;
+  /* Scrollback rows live above the viewport. A stable gutter prevents its
+   * appearance from changing the content width, triggering a resize claim,
+   * and feeding a claim/repaint loop during multi-viewer drag-resize. */
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+
+/* Pane-local terminal keyboard/IME surface. It remains focusable (unlike
+   display:none/visibility:hidden) while contributing no grid nodes or layout.
+   One textarea belongs to each pane so focus, selection and composition state
+   can never leak across parked tabs. */
+.terminal-input {
+  /* Keep browser focus-reveal outside the terminal's scroll coordinate space. */
+  position: fixed;
+  left: -9999px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  outline: none;
+  resize: none;
+  pointer-events: none;
+  caret-color: transparent;
+  color: transparent;
+  background: transparent;
+}
+
+/* Theme the terminal text-selection tint. */
+.wterm ::selection {
+  background: var(--terminal-selection);
+}
+
+/* R11 CellGridRenderer (cellRenderer.ts). Paints pre-rendered cells;
+   NEVER reflows. Rows are pinned to the grid's cols (--cell-cols, ch units,
+   monospace) so a wider pane letterboxes (margin) instead of stretching. */
+.cell-grid {
+  font-family: var(--term-font-family);
+  font-size: var(--term-font-size, 14px);
+  color: var(--term-fg);
+  background: var(--term-bg);
+  line-height: 1.2;
+  font-variant-ligatures: none;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+}
+.cell-grid .cell-scrollback,
+.cell-grid .cell-viewport {
+  width: calc(var(--cell-cols, 80) * 1ch);
+}
+/* Alt-screen owns the viewport — no scrollback, no scroll-up. CellGridRenderer
+   toggles .alt-active from frame.altScreen; without this the stale pre-alt
+   scrollback sheet shows above the viewport and the wheel scrolls into it. */
+.cell-grid.alt-active .cell-scrollback,
+.cell-grid.alt-active .cell-sb-spacer { display: none; }
+/* Stands in for the [0, sbBase) history a snapshot tail didn't ship, so an
+   absolute row index has a fixed pixel offset (CellGridRenderer._syncSpacer).
+   Never a scroll anchor: it resizes on every backfill splice. .wterm is normal
+   block flow (no display:flex), so the inline height is its whole contribution. */
+.cell-grid .cell-sb-spacer {
+  overflow-anchor: none;
+}
+/* Both placeholders stand in for scrollback the pager can still page in
+   (scrollbackBackfill.ts), never for history that is absent — an unpainted
+   blank sheet reads as "nothing here". The head spacer drops the claim once a
+   retention floor is proven ([data-history-floor]): those rows are gone, not
+   loading, and a pending texture there would read as a load that never ends.
+   Paint-only: the inline pixel heights the renderer derives every scroll
+   position from must not change, and a spacer can be 10k rows tall, so no
+   animation and no filter either. */
+.cell-grid .cell-sb-gap,
+.cell-grid .cell-sb-spacer:not([data-history-floor]) {
+  /* Faint ink over the terminal surface: 8% is the first step of the system's
+     state-overlay ramp (8/10/12/16, theme-vars.css --md-state-*), taken on
+     --term-fg because the --md-* roles track chrome ink, not terminal ink. */
+  --cell-sb-pending-ink: color-mix(in srgb, var(--term-fg) 8%, transparent);
+  /* 1.2em period = the .cell-row pitch above, so the bars sit on real row
+     boundaries and read as lines of text instead of a slab. They stop short of
+     the column box (0.6ch per column) so the sheet reads as text, not a fill. */
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--cell-sb-pending-ink) 0em,
+    var(--cell-sb-pending-ink) 0.75em,
+    transparent 0.75em,
+    transparent 1.2em
+  );
+  background-repeat: no-repeat;
+  background-size: calc(var(--cell-cols, 80) * 0.6ch) 100%;
+}
+.cell-grid.alt-active { overflow-y: hidden; }
+.cell-grid .cell-row {
+  white-space: pre;        /* preserve runs of spaces; no wrap = no reflow */
+  /* A CAP, not a floor (was min-height): a terminal row is exactly one cell
+     tall by definition, and a fallback-font line box that grew past one cell
+     would silently break the uniform-row assumption CellGridRenderer's
+     rowHeight()/sizeBlock() derive every scroll position from. */
+  height: 1.2em;
+}
+/* Scrollback rows are packed into .cell-block groups (CellGridRenderer). Skipping
+   layout/paint of off-screen blocks keeps a reveal reflow + scrollHeight reads
+   O(blocks) not O(history) — the fix for the deep-history pane-switch freeze.
+   The 300em below is only a fallback: CellGridRenderer.sizeBlock() sets an EXACT
+   inline contain-intrinsic-size (rows × the MEASURED .cell-row px height), so a
+   skipped block's placeholder equals its real height and revealing it reflows
+   nothing. The flat estimate used to overstate every partial block, which is what
+   made the view lurch when history materialized.
+   NO `auto` keyword on either value: `auto` makes the browser reuse a block's
+   LAST RENDERED size in place of the declared one, so a block that grows while
+   skipped (appends to a parked pane, or to the tail while scrolled up) keeps a
+   stale height and understates scrollHeight until it materializes — see the
+   blockPlaceholder comment in cellRenderer.ts.
+   SB_BLOCK(250) × 1.2em = 300em; keep the line-height on .cell-grid above in
+   sync with DEFAULT_ROW_PX in cellRenderer.ts. */
+.cell-grid .cell-scrollback .cell-block {
+  content-visibility: auto;
+  contain-intrinsic-size: 300em;
+}
+@keyframes cell-blink { 50% { opacity: 0; } }
+/* Block cursor overlay (CellGridRenderer.updateCursor positions it via inline
+   top/left in lh/ch units). cell mode drew no cursor before — this is the
+   "blinking bar where characters are written". */
+.cell-grid .cell-cursor {
+  position: absolute;
+  width: 1ch;
+  height: 1lh;
+  background: var(--term-cursor, var(--term-fg));
+  opacity: 0.7;
+  pointer-events: none;
+  animation: none;
+}
+.cell-grid .cell-cursor[data-blink="true"] {
+  animation: cell-blink 1.06s step-end infinite;
+}
+
+/* The stream indicator is presentation-only. It is absolutely positioned so
+   receiving/catch-up/detached state never joins the pane's flex flow or changes
+   its terminal viewport geometry. An absent dot means quiet and healthy: a
+   viewed pane with no live stream shows the detached dot instead. */
+.terminal-stream-indicator {
+  position: absolute;
+  top: var(--md-space-2);
+  right: var(--md-space-2);
+  width: var(--md-space-2);
+  height: var(--md-space-2);
+  border-radius: var(--md-shape-full);
+  pointer-events: none;
+  z-index: 2;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cell-grid .cell-cursor[data-blink="true"] {
+    animation: none;
+  }
+}
+.terminal-stream-indicator[data-state="receiving"] {
+  background: var(--status-info);
+}
+.terminal-stream-indicator[data-state="catching_up"] {
+  background: var(--status-warn);
+}
+/* Absence of a stream, not a third kind of traffic: the outline-only treatment
+   StatusDot uses for a missing thing, in the error role because no live stream
+   at all outranks frames that merely are not painting yet. */
+.terminal-stream-indicator[data-state="detached"] {
+  background: transparent;
+  border: 1.5px solid var(--status-err);
+  box-sizing: border-box;
+}
+
+/* Find-in-scrollback matches. CellGridRenderer splits a matched run into its own
+   span (renderRow in cellRow.ts) rather than positioning an overlay, so `.wterm`'s
+   overflow / scrollbar-gutter rules stay untouched. The ACTIVE match uses the
+   primary container so it reads as "the one you are on" against the others. */
+.cell-grid .cell-find-hit {
+  background: var(--md-tertiary-container);
+  color: var(--md-on-tertiary-container);
+  border-radius: 2px;
+}
+.cell-grid .cell-find-hit-active {
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+}
+
+/* Find bar — sits INSIDE the pane above the display and consumes real rows
+   (TerminalFindBar.tsx explains why that is deliberate). */
+.term-find-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-2);
+  padding: var(--md-space-1) var(--md-space-2);
+  background: var(--md-sys-color-surface-container-high);
+  border-bottom: var(--workbench-border-width) solid var(--md-sys-color-outline-variant);
+  /* The display translates up under a grown pane composer
+     (TerminalComposePaneGeometry); the bar must stay painted above it. */
+  position: relative;
+  z-index: 1;
+}
+.term-find-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+  border: var(--workbench-border-width) solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-shape-xs);
+  padding: var(--md-space-1) var(--md-space-2);
+  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--term-font-family);
+}
+.term-find-input:focus-visible {
+  outline: var(--workbench-border-width) solid var(--md-sys-color-primary);
+  outline-offset: calc(-1 * var(--workbench-border-width));
+}
+.term-find-input[data-failed="true"] { border-color: var(--md-sys-color-error); }
+.term-find-count,
+.term-find-note {
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
+  white-space: nowrap;
+}
+.term-find-toggle { flex: 0 0 auto; }
+
+/* Ghost cursors — remote viewers' cursor cells (CellGridRenderer.setGhosts).
+   Positioned in ch/lh viewport coords like the real cursor. */
+.cell-grid .cell-ghosts { position: absolute; inset: 0; pointer-events: none; }
+.cell-grid .cell-ghost {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1ch;
+  height: 1lh;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--status-info) 35%, transparent);
+  border: 1px solid var(--status-info);
+  pointer-events: none;
+  transition: transform 60ms linear;
+}
+
+/* Predictive local echo (lib/predictiveEcho.ts) — a speculative char painted
+   ~1 RTT before the authoritative cell frame confirms it. Rendered in the
+   terminal font at the grid position; the engine only shows confirmed-epoch
+   guesses, and underlines them (inline style) on a high-RTT link. */
+.cell-grid .cell-predict-ch {
+  position: absolute;
+  font: inherit;
+  line-height: 1lh;
+  color: var(--term-fg);
+  white-space: pre;
+  pointer-events: none;
+}
+
+/* Backspace prediction: one column of terminal background painted over the
+   glyph the echo is about to delete. The engine refuses any styled or wide
+   cell, so the default bg is always the correct cover. */
+.cell-grid .cell-predict-erase {
+  position: absolute;
+  width: 1ch;
+  height: 1lh;
+  background: var(--term-bg);
+  pointer-events: none;
+}
+
+/* Sleeping-mascot Zzz: two z's drift up and right, then fade.
+   The HTML spans overlay the SVG so the float is compositor-animated. */
+.roost-sleeping {
+  position: relative;
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+}
+.roost-zzz {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-family: ui-monospace, monospace;
+  font-weight: 700;
+  line-height: 1;
+}
+.roost-zzz span {
+  position: absolute;
+  animation: roost-zzz-float 2.6s ease-in-out infinite;
+}
+.roost-zzz .roost-zzz-1 { left: 9px; top: 1px; font-size: 6px; }
+.roost-zzz .roost-zzz-2 { left: 11px; top: -3px; font-size: 8px; animation-delay: 1.3s; }
+@keyframes roost-zzz-float {
+  0%   { opacity: 0; transform: translate(0, 2px); }
+  25%  { opacity: 1; }
+  100% { opacity: 0; transform: translate(2.5px, -4px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .roost-zzz span { animation: none; opacity: 0.85; }
+}
+
+/* ── Mobile (compact) Chrome-style workspace bar (MobileDeckBar) ────────
+   The bar chrome is inline-styled (48px, surface-1); these rules style its
+   interactive bits and the full-screen terminal card grid
+   (WorkspaceTabsSheet) it opens.
+
+   Card layout follows Chrome's tab_grid_card_item_layout spec:
+   24dp border-radius, 1dp elevation, 40dp header (favicon + title + close ✕),
+   thumbnail preview with asymmetric 12/20dp corner radius. Swipe-to-close
+   at 144dp threshold (Chrome's swipe_to_dismiss_threshold). */
+.mobile-deck-new,
+.mobile-deck-count {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: 10px;
+  background: transparent;
+  border: none;
+  color: var(--md-on-surface);
+  cursor: pointer;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+.mobile-deck-new {
+  width: 36px;
+  height: 36px;
+  color: var(--text-hi);
+}
+.mobile-deck-count {
+  width: 28px;
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0;
+  border: 1.5px solid var(--md-outline);
+  border-radius: 8px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--md-on-surface);
+}
+/* The 28px square fits one digit; a fraction ("12/15") needs to grow, and
+   tabular figures stop the badge reflowing as the position changes mid-swipe. */
+.mobile-deck-count--fraction {
+  width: auto;
+  min-width: var(--control-height-sm);
+  padding: 0 var(--md-space-1);
+  font-size: var(--md-label-m-size);
+  font-variant-numeric: tabular-nums;
+}
+@media (hover: hover) {
+  .mobile-deck-new:hover,
+  .mobile-deck-count:hover {
+    background: var(--md-state-hover);
+  }
+}
+
+/* ── New-terminal predictive-back pull (TerminalDeck) ─────────────────────
+   JS (newPeekStyle/newFabStyle) owns geometry + progress; CSS owns color,
+   elevation, and the armed (primary) emphasis. */
+.deck-new-peek {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--md-surface-container);
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+.deck-new-peek__label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--md-on-surface-variant);
+  font: 500 14px/1.2 var(--md-font);
+  letter-spacing: 0.1px;
+}
+.deck-new-fab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 150ms var(--md-ease-emphasized),
+              color 150ms var(--md-ease-emphasized),
+              box-shadow 150ms var(--md-ease-emphasized);
+}
+/* Armed = past the commit distance: fill to primary + state-layer ring, so
+   releasing now unmistakably creates. Pairs with the existing arm haptic. */
+.deck-new-fab[data-armed="true"] {
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5),
+              0 0 0 12px color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent);
+}
+
+/* ── Card entrance animation (Chrome card scale-in, staggered) ─────── */
+/* The wrap carries the entrance animation (scale + opacity); the inner
+   .terminal-card carries the swipe transform (translateX) + swipe opacity fade,
+   so the two never collide on the same element's transform property. */
+.terminal-card-wrap {
+  min-width: 0; /* Grid item: allow shrink below content min-size (terminal
+                  lines are white-space: pre → large min-content). Without
+                  this the 1fr track blows out to the longest line's width. */
+  animation: tc-card-enter 200ms var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1)) backwards;
+}
+.terminal-card-wrap:nth-child(1) { animation-delay: 0ms; }
+.terminal-card-wrap:nth-child(2) { animation-delay: 50ms; }
+.terminal-card-wrap:nth-child(3) { animation-delay: 100ms; }
+.terminal-card-wrap:nth-child(4) { animation-delay: 150ms; }
+.terminal-card-wrap:nth-child(5) { animation-delay: 200ms; }
+.terminal-card-wrap:nth-child(6) { animation-delay: 250ms; }
+.terminal-card-wrap:nth-child(n+7) { animation-delay: 300ms; }
+@keyframes tc-card-enter {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* ── WorkspaceTabsSheet grid (2 columns, Chrome phone default) ─────── */
+.workspace-tabs-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  /* Grid default align-content is stretch — with the flex:1 container grown
+     to ~700px, that stretches the single content row to fill it, leaving
+    ~536px of dead space under each 164px card. Pack rows to the top instead. */
+  align-content: start;
+}
+
+/* ── Terminal card — Chrome tab_grid_card_item_layout ────────────────── */
+/* 24px border-radius, 1dp elevation (not a border — Chrome uses shadow).
+   overflow:hidden clips the preview's asymmetric corners to the card. */
+.terminal-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0; /* Flex item: children with white-space: pre have large
+                  min-content; allow shrink so the card holds its column width. */
+  text-align: left;
+  border-radius: 24px;
+  background: var(--md-surface-container);
+  box-shadow: var(--md-elev-1);
+  color: var(--md-on-surface);
+  cursor: pointer;
+  font-family: inherit;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+.terminal-card[data-active="true"] {
+  box-shadow: 0 0 0 2px var(--md-sys-color-primary), var(--md-elev-1);
+}
+.terminal-card[data-selected="true"] {
+  box-shadow: 0 0 0 2px var(--md-sys-color-primary), var(--md-elev-1);
+}
+/* Selection check badge — top-right, transparent glyph until checked. */
+.terminal-card-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--md-outline);
+  background: var(--md-surface-container);
+  color: transparent;
+}
+.terminal-card-check[data-checked="true"] {
+  background: var(--md-sys-color-primary);
+  border-color: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+}
+.terminal-card:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+/* Header — 36px, favicon + title + compact subtitle. Close ✕ overlaps right. */
+.terminal-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 44px 0 11px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.terminal-card-favicon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  background: var(--md-surface-container-highest);
+}
+.terminal-card-title-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+}
+.terminal-card-title {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.terminal-card-subtitle {
+  font-size: 11px;
+  color: var(--text-mid);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Close ✕ — 48px touch target (Chrome tab_list_card_action_button_size),
+   18px visible icon centered. Absolute top-right. */
+.terminal-card-close {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--md-on-surface-variant);
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.terminal-card-close:hover {
+  color: var(--md-on-surface);
+}
+/* Preview area — terminal text preview (recent viewport lines) or faux glyph.
+   Asymmetric corners: 12px top / 20px bottom (Chrome's signature detail).
+   Dark surface-0 background.
+   Fixed 160px height = uniform card heights across the grid. */
+.terminal-card-preview {
+  margin: 4px;
+  border-radius: 12px 12px 20px 20px;
+  background: var(--surface-0);
+  height: 160px;
+  display: block;
+  position: relative;
+  overflow: hidden;
+}
+.terminal-card-preview-text {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  padding: 4px 6px;
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, "JBM Nerd Font", monospace;
+  font-size: 7px;
+  line-height: 1.2;
+  white-space: pre;
+  color: var(--term-fg);
+  box-sizing: border-box;
+}
+.terminal-card-preview-text span {
+  animation: none !important;
+}
+.terminal-card-preview-row {
+  overflow: hidden;
+  white-space: pre;
+}
+.terminal-card-preview-glyph {
+  font-size: 40px;
+  line-height: 1;
+  opacity: 0.7;
+  /* Center the fallback glyph when no text preview is available. */
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+.terminal-card-glyph {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+}
+@media (prefers-reduced-motion: reduce) {
+  .terminal-card-wrap {
+    animation: none;
+  }
+}
+
+/* ── Home landing ("hello" pane at "/") ──────────────────────────────────
+   Rendered by components/HomeLanding.tsx when workers exist but no session
+   is auto-opened. It owns the brand row, compact navigation access, and empty state. */
+.home-landing {
+  height: 100%;
+  overflow-y: auto;
+  padding: var(--md-space-7) max(var(--md-space-6), env(safe-area-inset-left, 0px))
+    max(var(--md-space-6), env(safe-area-inset-bottom, 0px))
+    max(var(--md-space-6), env(safe-area-inset-left, 0px));
+  box-sizing: border-box;
+}
+.home-landing-head {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-3);
+  margin-bottom: var(--md-space-7);
+}
+.home-landing-menu {
+  width: var(--control-touch-target);
+  height: var(--control-touch-target);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--md-shape-full);
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-title-m-weight) var(--md-title-m-size)/var(--md-title-m-line) var(--md-font);
+  cursor: pointer;
+}
+.home-landing-mark {
+  font: var(--md-title-l-weight) var(--md-title-l-size)/var(--md-title-l-line) var(--md-font);
+  letter-spacing: 0.5px;
+  color: var(--md-sys-color-on-surface);
+}
+
+/* Keep shortcut labels compact so the landing state stays scannable in narrow panes. */
+.home-landing-tagline {
+  margin: calc(-1 * var(--md-space-4)) 0 var(--md-space-7);
+  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.home-landing-kbd {
+  font: var(--md-label-s-weight) var(--md-label-s-size)/var(--md-label-s-line) var(--md-font);
+  padding: 0 var(--md-space-1);
+  border-radius: var(--md-shape-xs);
+  background: var(--md-sys-color-surface-container-high);
+  border: var(--workbench-border-width) solid var(--md-sys-color-outline-variant);
+  color: var(--md-sys-color-on-surface-variant);
+  white-space: nowrap;
+}
+.home-landing-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--md-space-3);
+  text-align: center;
+  padding: var(--md-space-9) var(--md-space-6);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.home-landing-empty-icon {
+  width: calc(var(--control-touch-target) + var(--md-space-3));
+  height: calc(var(--control-touch-target) + var(--md-space-3));
+  display: grid;
+  place-items: center;
+  border-radius: var(--md-shape-lg);
+  background: var(--md-sys-color-surface-container-low);
+  border: var(--workbench-border-width) solid var(--md-sys-color-outline-variant);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.home-landing-empty-title {
+  font: var(--md-title-m-weight) var(--md-title-m-size)/var(--md-title-m-line) var(--md-font);
+  color: var(--md-sys-color-on-surface);
+}
+.home-landing-empty-sub {
+  max-width: 42ch;
+  font: var(--md-body-m-weight) var(--md-body-m-size)/var(--md-body-m-line) var(--md-font);
+}
+
+/* M3 context-menu enter motion + state-layers (M3 wave 2).
+   Applied to SessionRowContextMenu / TerminalContextMenu
+   panels — they used to SNAP open via bare <Show> with no motion. The panel
+   scales 0.95→1 + fades in on mount; menu items get CSS :hover/:active
+   state-layers instead of inline-JS onMouseEnter/Leave. */
+/* transform-only entrance — never animate opacity (rAF-throttle / WAAPI
+   freeze can forwards-fill a fade at 0 → invisible menu). */
+@keyframes df-menu-enter {
+  from { transform: scale(0.95); }
+  to   { transform: scale(1); }
+}
+.df-menu-enter {
+  transform-origin: top right;
+  animation: df-menu-enter var(--md-sys-motion-duration-short4)
+    var(--md-sys-motion-easing-emphasized-decelerate);
+}
+/* Menu item state-layer — replaces inline onMouseEnter/Leave JS. */
+.df-menu-item {
+  display: block;
+  inline-size: 100%;
+  padding: var(--md-space-1) var(--md-space-2);
+  border: 0;
+  border-radius: var(--md-shape-xs);
+  background: transparent;
+  color: var(--text-hi);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+}
+.df-menu-item:disabled { cursor: default; opacity: 0.4; }
+.df-menu-item--danger { color: var(--md-error); }
+.df-menu-item:hover { background: var(--md-state-hover); }
+.df-menu-item:active { background: var(--md-state-pressed); }
+.df-menu-item:focus-visible {
+  background: var(--md-state-focus);
+  outline: none;
+}
+

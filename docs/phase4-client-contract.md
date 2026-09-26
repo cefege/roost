@@ -623,6 +623,10 @@ Landed:
 | `tests/terminal_epoch_fence.rs` | Every row of the §6.3 table, one weakened rule at a time, split by which enforcement point owns it (see §6.3); plus "a refused frame leaves the replica byte-identical", and the two cases that reach a row no other row masks — the stream splice and the geometry reflow. |
 | `tests/terminal_full_before_delta.rs` | §6.2: no delta before a full; a full must be complete for the current expectation; the `apply_delta` ordering trap; one gap latches exactly one repair; only a full clears it; a new stream drops both. |
 | `tests/support/mod.rs` | Hand-built protobuf cell frames, so each rule can be broken in isolation. |
+| `tests/core_without_a_browser.rs` | §1 end to end: the source names no `web-sys`/`wasm-bindgen`/`js-sys`/`tokio`, the manifest depends on no platform crate, the `SyncDomain` wire numbers equal the ones `sync.proto` declares (and the two reserved domains stay out), and the whole state machine — dial, negotiate, hydrate, project, open a pane, fold a cell frame, type, sweep — runs natively. |
+<!-- `core_without_a_browser` is LANDED; the grep acceptance test below is
+     enforced by it, over `src/` rather than the whole package, because the
+     guard necessarily names the tokens it forbids. -->
 
 Specified but not yet written — each is named here so the omission is a tracked
 gap rather than a silent one:
@@ -636,4 +640,3 @@ gap rather than a silent one:
 | `tests/session_projection_fold.rs` | §10: the projection equals the shared fold (in-crate unit tests cover the fold itself). |
 | `tests/find_page_validation.rs` | Coordinator search pages: contiguous windows, matches inside the window, continuation direction. |
 | `tests/history_range_arithmetic.rs` | Absolute scrollback interval arithmetic a pager needs. |
-| `tests/core_without_a_browser.rs` | The claim of §1 end to end, and the `SyncDomain` wire numbers against `sync.proto`. |
