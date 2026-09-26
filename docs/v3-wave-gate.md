@@ -77,6 +77,72 @@ unverified, and "unverified" is the honest state — not "probably fine".**
    it was not aimed at. The honest report states both, and the classes nobody
    covered belong to whoever runs the compiler.
 
+## Two patterns the C1 wave produced, worth carrying forward
+
+**An edit landing on one side of a boundary and not the other.** Every
+compile error in the last two rounds of the coordinator integration, and both
+of the field errors before them, was this and nothing else: a struct field that
+moved while its literal did not, a signature that changed while its callers
+kept the old arity, a return type that was declared rather than derived from
+what the body returns, an alphabet that is not an engine. **None is a design
+problem and none is subtle.** Each is found by reading the *current* text of the
+other side, which is the thing people skip because they remember what they
+wrote. A slice reported stopping its own trust in its memory of its own files
+and reading them instead — that is the whole mitigation.
+
+**Reusing a library constant can be a behaviour change dressed as a refactor.**
+Every shipped `base64::engine::general_purpose::STANDARD_*` is documented *does
+not allow trailing bits when decoding*, while v2's `Buffer.from(x, "base64")`
+does allow them. Building the engine over `base64::alphabet::STANDARD`
+preserves v2's accepted inputs; passing a shipped `STANDARD` engine back into
+the constructor would have quietly narrowed what the coordinator accepts. The
+compiler forced the question by rejecting the call — the engine is a
+`GeneralPurpose` and the constructor wants an `&Alphabet` — and the answer was
+not "pick the other spelling" but "check what each one does with the inputs".
+**The general form: before reusing a dependency's ready-made value, check what
+the version being replaced did, because a constant carries behaviour and the
+type system will not tell you which behaviour you inherited.**
+
+## The defect a shared crate with parallel writers produces most
+
+**A parallel implementation of something that already had an owner — and it is
+findable by searching for the *concept*, not the symbol.**
+
+Four instances in one day, across three tracks:
+
+1. A worker slice wrote its own `SnapshotPart` when the protocol crate already
+   had one. It deleted its own rather than keep a second value.
+2. The device-refusal helper exists **ten** times in the coordinator; seven are
+   byte-equivalent and collapsible, three have genuinely diverged.
+3. A pairing slice wrote `RequestOrigin` — structurally identical to M1's
+   `CallerOrigin`, which had landed first. **It had already drifted on the one
+   rule that matters**: its version had no notion of `X-Forwarded-For` at all
+   and read `x-roost-remote-addr` as the client address, so a pairing request
+   arriving through a front door would have recorded **the proxy's address as
+   the requester's** — in exactly the field an operator reads beside the device
+   they are approving. It also disagreed on whether a bracketed `[::1]` is
+   loopback.
+4. The auth slice asked whether a `SecureKeyStore` trait should exist at all
+   rather than assuming the plan's shape was reachable.
+
+**Why they are missed.** A slice searches for a *name* — `ListenerTrust`,
+`CallerOrigin`, `SnapshotPart` — finds the type it was told about, and never
+asks whether the concept is already owned. The reasoning that produces the
+duplicate is always the same and always reasonable: *I was given this type and
+this behaviour, so I will model it here, where I need it.*
+
+**The check, which is cheap and was not run in any of the four cases:** before
+writing a type that carries a behaviour, grep the crate for the *behaviour* —
+what decides it, not what it is called. In case 3 the search that would have
+caught it is `resolve_caller_origin` or `is_loopback_peer`, neither of which
+contains the word "origin" in the shape a search for it would take.
+
+**When a duplicate is found, cut over — do not wrap.** The pairing slice deleted
+`RequestOrigin`, `from_peer`, `is_loopback` and `UNKNOWN_SOURCE_IP` outright and
+made its helper a three-line delegation. A wrapper around a second
+implementation is the same fork with an extra layer, and the layer is where the
+next person stops looking.
+
 ## Worker track
 
 | # | Property | File and exact edit | Test that must fail | State |
