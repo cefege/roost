@@ -109,7 +109,7 @@ const ALLOWED: &[(&str, &[&str])] = &[
     ("xtask", &[]),
 ];
 
-pub fn run() -> Vec<Violation> {
+pub fn run() -> crate::ratchet::CheckOutcome {
     let metadata = match MetadataCommand::new().no_deps().exec() {
         Ok(metadata) => metadata,
         Err(error) => {
@@ -153,7 +153,10 @@ pub fn run() -> Vec<Violation> {
             .collect();
         violations.extend(edges_outside_allowlist(&crate_name, &actual, allowed));
     }
-    violations
+    crate::ratchet::CheckOutcome {
+        checked: members.len(),
+        violations,
+    }
 }
 
 fn edges_outside_allowlist(
