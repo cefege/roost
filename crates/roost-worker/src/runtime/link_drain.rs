@@ -71,12 +71,18 @@ pub(super) fn on_frame(loop_state: &mut LinkLoop, message: Message) -> Option<Li
             );
         }
         CoordWorkerDownstream::BrowserCommand { request_id, .. } => {
-            // TODO(roost-phase2): execute the command. The session layer that
-            // owns channels, the terminal core and the keeper writes is not
-            // ported. A command that is neither executed nor refused hangs the
-            // browser's request with no error anywhere, so it is refused
-            // explicitly and correlated by `request_id` — the one thing the
-            // coordinator can route the failure back on.
+            // `browser_commands::dispatch` is built and tested, but its `Deps`
+            // needs four collaborators that do not exist yet: the session
+            // layer, the retained grid, the scrollback scanner and the
+            // terminal capture recorder. Constructing it needs implementations
+            // of those traits, and passing anything else would be a stub
+            // answering commands it never ran.
+            //
+            // What is not acceptable is silence: a command that is neither
+            // executed nor refused hangs the browser's request with no error
+            // anywhere. It is refused explicitly and correlated by
+            // `request_id`, which is the one thing the coordinator can route a
+            // failure back on.
             tracing::warn!(
                 request_id,
                 "a browser command arrived with no session layer to run it"

@@ -1,3 +1,8 @@
+// A fake that cannot say what it expected is not a fake. `expect` is denied
+// outside `#[cfg(test)]`, and an integration-test module is its own crate,
+// so the exemption is stated here.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 //! One fake per capability the dispatch routes to, each recording what it was
 //! asked for so a test can assert on the narrowing rather than on a copy of
 //! it.
@@ -14,7 +19,7 @@ use roost_worker::browser_commands::presence::PresenceReports;
 use roost_worker::browser_commands::scrollback_page::{GridDescription, RetainedGrid};
 use roost_worker::browser_commands::search::{BatchSearch, ScrollbackSearch, SingleSearch};
 use roost_worker::browser_commands::session_lifecycle::{SessionLifecycle, SessionOutcome};
-use roost_worker::browser_commands::{Boxed, Refusal};
+use roost_worker::browser_commands::Refusal;
 use roost_worker::diag_snapshot::Snapshot;
 use roost_worker::scrollback_read::EpochBinding;
 use serde_json::{Value, json};

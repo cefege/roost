@@ -36,7 +36,7 @@ pub trait SnapshotSource: Send + Sync {
 
 /// The source the service installs, which has no session layer to describe.
 ///
-/// TODO(roost-phase2): implement this over the session manager, producing what
+/// UNIMPLEMENTED: implement this over the session manager, producing what
 /// `apps/worker/src/snapshot.ts` produces today. It must be the worker's
 /// COMPLETE open-session set, read after boot reconciliation has reserved every
 /// durable session, and not a filtered view: a snapshot that omits a session is

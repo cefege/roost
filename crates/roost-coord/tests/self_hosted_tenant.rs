@@ -5,6 +5,11 @@
 // v2's rule is that this runs before the listener exists precisely so a
 // database with two accounts never answers an RPC.
 
+// A test that cannot say what it expected is not a test. `expect` is denied
+// outside `#[cfg(test)]`, and an integration test is its own crate, so the
+// exemption has to be stated here.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::path::PathBuf;
 
 use roost_coord::auth::self_hosted_tenant::ensure_self_hosted_tenant;

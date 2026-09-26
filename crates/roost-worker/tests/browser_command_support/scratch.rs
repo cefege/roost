@@ -4,7 +4,6 @@
 //! would have them writing over each other's fixtures.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, Ordering};
 
 pub fn scratch_root() -> PathBuf {
     use std::sync::atomic::{AtomicU32, Ordering};

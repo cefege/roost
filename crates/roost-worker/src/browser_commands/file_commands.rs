@@ -160,10 +160,10 @@ impl Shell {
         let rest = match raw.strip_prefix('~') {
             None => return None,
             Some("") => String::new(),
-            Some(rest) => match rest.strip_prefix('/') {
-                Some(rest) => format!("/{rest}"),
-                None => return None,
-            },
+            Some(rest) => {
+                let rest = rest.strip_prefix('/')?;
+                format!("/{rest}")
+            }
         };
         let home = self.home_directory()?.to_string_lossy().into_owned();
         Some(format!("{home}{rest}"))

@@ -7,15 +7,12 @@
 //! one nothing answers.
 
 mod browser_command_support;
+use serde_json::json;
 use browser_command_support::{
-    DIGEST, EPOCH, FINGERPRINT, Harness, HostPlatform, LocalFiles, MapEnv, OTHER_SESSION,
-    SESSION, base64_decode, command, dispatch, every_kind, floor, frame_of, harness, only,
-};
-use roost_worker::browser_commands::Command;
+    EPOCH, FINGERPRINT, SESSION, command, dispatch, frame_of, harness, only};
 use roost_protocol::wire::control::ClientControlFrame;
 use roost_worker::browser_commands::{OWNERS, Refusal, owner_of};
-use std::sync::Arc;
-use serde_json::json;
+
 
 /// THE TABLE IS THE DISPATCH. Every kind the union can produce is owned, and
 /// every row names a kind that exists — so a deleted row fails here and a row
@@ -74,7 +71,15 @@ fn a_kind_nothing_owns_is_refused_rather_than_dropped() {
 /// can reach a handler that could only half-honour it.
 #[test]
 fn a_frame_that_does_not_decode_never_reaches_a_handler() {
-    assert!(roost_worker::browser_commands::Command::decode(FINGERPRINT, FINGERPRINT, "req-1", json!({ "kind": "kill" })).is_err());
+    assert!(
+        roost_worker::browser_commands::Command::decode(
+            FINGERPRINT,
+            FINGERPRINT,
+            "req-1",
+            json!({ "kind": "kill" })
+        )
+        .is_err()
+    );
     assert!(
         roost_worker::browser_commands::Command::decode(
             FINGERPRINT,

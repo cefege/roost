@@ -137,7 +137,7 @@ pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result
         "boot: keeper admitted"
     );
 
-    // TODO(roost-phase2): the local door, the session manager, agent tracking and
+    // UNIMPLEMENTED: the local door, the session manager, agent tracking and
     // the heartbeat, in v2's order between here and the link. The local door
     // comes before the link in v2 and must here too: a browser on this machine
     // reaches its own PTYs through the door, and it has to keep doing that while
@@ -167,7 +167,7 @@ pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result
         "boot: the coordinator link is starting"
     );
 
-    // TODO(roost-phase2): reconcile the coordinator's open-session set against
+    // UNIMPLEMENTED: reconcile the coordinator's open-session set against
     // the local one, activate the snapshot provider, and only then advance
     // `readiness` through `Readiness::advance`. Both need the link to be live and
     // a session layer to reconcile, so until they exist those two steps are

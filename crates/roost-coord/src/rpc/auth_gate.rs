@@ -118,11 +118,13 @@ impl AuthGate {
         }
 
         let remote_address = request.ctx.peer_addr().map(|addr| addr.to_string());
-        let on_host = self
-            .listener_trust
-            .asserts_locality()
-            .then(|| remote_address.as_deref().is_some_and(is_local_address))
-            .unwrap_or(false);
+        // A forwarded peer's address is the proxy's claim, not an observation,
+        // so locality is only asserted from a connection the listener saw.
+        let on_host = if self.listener_trust.asserts_locality() {
+            remote_address.as_deref().is_some_and(is_local_address)
+        } else {
+            false
+        };
 
         let caller = Caller {
             principal: authenticated.principal,

@@ -1,14 +1,19 @@
+// A fake that cannot say what it expected is not a fake. `expect` is denied
+// outside `#[cfg(test)]`, and an integration-test module is its own crate,
+// so the exemption is stated here.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 //! Turning a canonical frame into a command, and a dispatch into the one
 //! reply it produced. The assertion helpers live here so every test binary
 //! holds the dispatch to the same "exactly one, correlated" contract.
 
 use serde_json::Value;
 
-use super::{EPOCH, FINGERPRINT, every_kind};
-use roost_worker::browser_commands::scrollback_page::{GridDescription, history_floor_for};
-use roost_worker::browser_commands::{Command, Deps};
+use super::{FINGERPRINT, every_kind};
 use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 use roost_worker::browser_commands::Reply;
+use roost_worker::browser_commands::scrollback_page::{GridDescription, history_floor_for};
+use roost_worker::browser_commands::{Command, Deps};
 
 /// The one reply a dispatch produced, insisting there was exactly one.
 #[track_caller]
@@ -57,7 +62,9 @@ pub async fn dispatch(command: &Command, deps: &Deps) -> Vec<CoordWorkerUpstream
 
 /// The floor a page clamped at this window reports, as the wire spells it.
 pub fn floor(description: &GridDescription, wanted_start: u32) -> String {
-    history_floor_for(description, wanted_start).as_wire().to_owned()
+    history_floor_for(description, wanted_start)
+        .as_wire()
+        .to_owned()
 }
 
 pub fn base64_decode(value: &str) -> Vec<u8> {

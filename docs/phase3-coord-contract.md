@@ -2038,3 +2038,12 @@ against the port.
 
 **The phase gate does not cover the terminal fan-out, and nothing may report it as
 covered until `pump_lane` is fixed and the three tests are un-ignored.**
+
+**The mutation experiment for this slice is blocked behind the same defect, and
+that is the whole of the explanation.** The planned experiment deletes the
+announcement fence in `send_queue::is_eligible` and expects an ordered-marker
+assertion to fail naming the violation -- but the test carrying that assertion is
+itself one of the three that already fails. A mutation experiment on a red test
+observes nothing, because the test was already failing without the mutation. So
+fixing `pump_lane` unblocks the three tests AND the verification of the fence;
+until then the fence is unverified, not verified-and-fine.

@@ -2,17 +2,11 @@
 //! file, and the digest probe that lets an upload skip its bytes.
 
 mod browser_command_support;
-use browser_command_support::{
-    DIGEST, EPOCH, FINGERPRINT, Harness, HostPlatform, LocalFiles, MapEnv, OTHER_SESSION,
-    SESSION, base64_decode, command, dispatch, every_kind, floor, frame_of, harness, only,
-};
-use roost_worker::browser_commands::Command;
-use roost_worker::browser_commands::scrollback_page::GridDescription;
-use roost_worker::browser_commands::search::Searches;
-
-use roost_worker::scrollback_read::EpochBinding;
-use std::sync::Arc;
 use serde_json::json;
+use browser_command_support::{
+    DIGEST, FINGERPRINT, OTHER_SESSION, SESSION, command, dispatch, frame_of, harness, only};
+
+
 
 /// THE ATTACHMENT DIRECTORY IS THE BASE PLUS THE SESSION'S OWN ID, and a
 /// listing is newest first with the worker's own state excluded.

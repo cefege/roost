@@ -12,17 +12,17 @@ use super::{DIGEST, EPOCH, SESSION};
 pub fn every_kind() -> Vec<(&'static str, Value)> {
     let capture = [
         ("request_id", json!("r16")),
-        ("recording_id", json!("3f6b2a10-0000-4000-8000-000000000001")),
+        (
+            "recording_id",
+            json!("3f6b2a10-0000-4000-8000-000000000001"),
+        ),
         ("capture_id", json!("3f6b2a10-0000-4000-8000-000000000002")),
         ("action", json!("capture")),
         ("reason", json!("manual")),
     ];
     vec![
         frame("attach", &[]),
-        frame(
-            "cursor-pos",
-            &[("col", json!(3)), ("row", json!(4))],
-        ),
+        frame("cursor-pos", &[("col", json!(3)), ("row", json!(4))]),
         frame("spawn-shell", &[("folder", json!("/srv"))]),
         frame("kill", &[]),
         frame(
@@ -114,7 +114,10 @@ pub fn every_kind() -> Vec<(&'static str, Value)> {
         frame("list-attachments", &[("request_id", json!("r14"))]),
         frame(
             "delete-attachment",
-            &[("request_id", json!("r15")), ("filename", json!("notes.txt"))],
+            &[
+                ("request_id", json!("r15")),
+                ("filename", json!("notes.txt")),
+            ],
         ),
         frame("diag-terminal-capture", &capture),
         frame("diag-snapshot", &[("request_id", json!(r"r17"))]),

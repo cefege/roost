@@ -84,7 +84,7 @@ impl Caller {
     /// mounted. That is a wiring fault and it must not read as an anonymous
     /// caller, which would turn a deployment mistake into an authorization
     /// bypass.
-    pub fn from_context<'a>(context: &'a RequestContext) -> ProtocolResult<&'a Self> {
+    pub fn from_context(context: &RequestContext) -> ProtocolResult<&Self> {
         context
             .extensions()
             .get::<Self>()

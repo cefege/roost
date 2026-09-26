@@ -36,7 +36,7 @@ pub trait LinkWire: Send + Sync {
 
 /// The codec the service installs, which cannot encode yet.
 ///
-/// TODO(roost-phase2): add `roost_protocol::proto_adapters::coord_worker_proto`
+/// UNIMPLEMENTED: add `roost_protocol::proto_adapters::coord_worker_proto`
 /// over `roost_proto::roost::v1::{CoordWorkerUp, CoordWorkerDown}` — the
 /// generated pair `protocol/proto/roost/v1/worker_transport.proto` already
 /// defines — and implement this trait over it. `CoordWorkerUp` has 19 arms and

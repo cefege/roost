@@ -1,3 +1,8 @@
+// A support module that cannot say what it expected is not a support
+// module. `expect` is denied outside `#[cfg(test)]`, and an
+// integration-test module is its own crate, so the exemption is here.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 //! The browser-command dispatch surface: which command reaches which
 //! capability, what a command that cannot run is answered with, and what each
 //! command actually does once it is running.
@@ -13,29 +18,24 @@ use std::sync::{Arc, Mutex};
 pub use roost_host::{HostPlatform, MapEnv};
 use roost_protocol::wire::brand::SessionId;
 use roost_worker::browser_commands::attachments::SessionAttachments;
-use roost_worker::browser_commands::diagnostics::DiagnosticReports;
-use roost_worker::browser_commands::presence::PresenceReports;
-use roost_worker::browser_commands::search::Searches;
-use roost_worker::browser_commands::session_lifecycle::SessionLifecycle;
 pub use roost_worker::browser_commands::file_commands::LocalFiles;
-pub use roost_worker::browser_commands::scrollback_page::GridDescription;
-use roost_worker::browser_commands::{Command, Deps};
-use roost_worker::browser_commands::search_cancellation::{MAX_TOMBSTONES, TOMBSTONE_TTL};
-pub use frames::{every_kind, frame};
+use roost_worker::browser_commands::search::Searches;
+use roost_worker::browser_commands::Deps;
 
-pub mod fakes;
 pub mod dispatch;
+pub mod fakes;
 pub mod frames;
+
+// `every_kind` is the dispatch table's own enumeration; the test binaries reach
+// it through this module rather than naming the submodule.
+pub use frames::every_kind;
 pub mod scratch;
 
 pub use scratch::scratch_root;
 
-pub use dispatch::{base64_decode, command, dispatch, floor, frame_of, only};
-pub use fakes::{
-    FakeDiagnostics, FakeGrid, FakePresence, FakeSearch, FakeSessions,
-};
+pub use dispatch::{command, dispatch, frame_of, only};
+pub use fakes::{FakeDiagnostics, FakeGrid, FakePresence, FakeSearch, FakeSessions};
 
-use serde_json::{Value, json};
 
 // Re-exported so a test binary can name the collaborators it drives without
 // importing four modules to reach them.

@@ -2,18 +2,13 @@
 //! listing, a directory, and the home the browse surface starts from.
 
 mod browser_command_support;
-use browser_command_support::{
-    DIGEST, EPOCH, FINGERPRINT, Harness, HostPlatform, LocalFiles, MapEnv, OTHER_SESSION,
-    SESSION, base64_decode, command, dispatch, every_kind, floor, frame_of, harness, only,
-};
-use roost_worker::browser_commands::Command;
-use roost_worker::browser_commands::scrollback_page::GridDescription;
-use roost_worker::browser_commands::file_commands::FileCommands;
-use roost_worker::browser_commands::search::Searches;
-
-use roost_worker::scrollback_read::EpochBinding;
-use std::sync::Arc;
 use serde_json::json;
+use browser_command_support::{
+    EPOCH, FINGERPRINT, HostPlatform, LocalFiles, MapEnv, base64_decode, command, dispatch,
+    frame_of, harness, only};
+use roost_worker::browser_commands::file_commands::FileCommands;
+
+use std::sync::Arc;
 
 /// A READ IS BOUNDED BEFORE IT HAPPENS: a file past the ceiling is refused
 /// from its size alone, and a relative path is refused because it would

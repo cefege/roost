@@ -247,26 +247,31 @@ pub async fn execute(command: &Command, deps: &Deps) -> Result<Answered, Refusal
             // consumed is enough to stop the page: the scan is bounded by the
             // sessions list, and a caller that cancelled any of them has
             // abandoned the navigation they were in the middle of.
-            let mut searches = held(deps)?;
-            let cancelled = sessions.iter().any(|session| {
-                searches.consume_cancel(
-                    &command.viewer_id,
-                    &session.session_id,
+            // The ledger is held only for the admission decision and the
+            // shape it hands back; the scan below runs with it released, so a
+            // slow fleet-wide page never blocks another command's admission.
+            let ticket = {
+                let mut searches = held(deps)?;
+                let cancelled = sessions.iter().any(|session| {
+                    searches.consume_cancel(
+                        &command.viewer_id,
+                        &session.session_id,
+                        search_id.as_str(),
+                        now,
+                    )
+                });
+                if cancelled {
+                    return Err(Refusal::failed(
+                        "search-scrollback-batch",
+                        "search superseded",
+                    ));
+                }
+                searches.admit(
+                    &search_owner_key(WORKER_SCOPE, &command.viewer_id),
                     search_id.as_str(),
-                    now,
-                )
-            });
-            if cancelled {
-                return Err(Refusal::failed(
-                    "search-scrollback-batch",
-                    "search superseded",
-                ));
-            }
-            let ticket = searches.admit(
-                &search_owner_key(WORKER_SCOPE, &command.viewer_id),
-                search_id.as_str(),
-                true,
-            )?;
+                    true,
+                )?
+            };
             let request = BatchSearch {
                 search_id: search_id.as_str().to_owned(),
                 query: query.as_str().to_owned(),
@@ -285,7 +290,6 @@ pub async fn execute(command: &Command, deps: &Deps) -> Result<Answered, Refusal
                     })
                     .collect(),
             };
-            drop(searches);
             let outcome = deps.search.search_batch(request).await;
             held(deps)?.finish(&ticket);
             Ok(Answered::Reply(Reply::ok(&command.request_id, outcome?)))

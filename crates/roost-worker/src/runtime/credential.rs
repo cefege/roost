@@ -35,7 +35,7 @@ pub trait CredentialSource: Send + Sync {
 /// worker stays a visible, escalating, obviously-unauthenticated daemon rather
 /// than a worker that opens a link nobody can trust.
 ///
-/// TODO(roost-phase2): sign an EdDSA JWT with `aud: "roost-coordinator"` from
+/// UNIMPLEMENTED: sign an EdDSA JWT with `aud: "roost-coordinator"` from
 /// the worker's OpenSSH ed25519 private key, which is the port of
 /// `apps/worker/src/host/jwt.ts`. The pieces that already exist and should be
 /// used rather than rewritten: `roost_host::jwt_base::b64url_encode` for the

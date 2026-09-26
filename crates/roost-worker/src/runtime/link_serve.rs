@@ -91,7 +91,7 @@ async fn force_hello(loop_state: &mut LinkLoop, link: &mut Link) -> Option<LinkE
             ));
         }
     }
-    // TODO(roost-phase2): send `capabilities` and `process_epoch` with the
+    // UNIMPLEMENTED: send `capabilities` and `process_epoch` with the
     // hello. The proto's `WHello` has both (fields 3 and 4) and v2 sent both,
     // but the ported `CoordWorkerUpstream::Hello` carries only `worker_fp`,
     // `version` and `trace_id`, so the capability set a coordinator negotiates
