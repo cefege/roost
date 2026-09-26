@@ -8,6 +8,8 @@
 
 pub mod agent_status;
 pub mod brand;
+#[cfg(test)]
+mod brand_tests;
 pub mod control;
 pub mod coord_worker;
 pub mod event;
