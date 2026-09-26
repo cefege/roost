@@ -8,14 +8,26 @@
 //! sampling the operator configures are read at call time from
 //! `core.services.boot`.
 
-/// The telemetry one coordinator process collects.
-#[derive(Debug, Default)]
-pub struct Telemetry;
+use crate::diagnostics::transcription::TranscriptionRuntime;
 
-impl Telemetry {
-    /// A process that has counted nothing yet.
-    #[must_use]
-    pub fn new() -> Self {
-        Self
-    }
+ /// The telemetry one coordinator process collects.
+#[derive(Debug, Default)]
+pub struct Telemetry {
+    /// Settings → Voice: the stored Deepgram key and dictation language, and
+    /// the lifecycle of the reachability probe behind `TranscriptionTest`.
+    ///
+    /// It is here rather than beside the counters because it is the same
+    /// process-wide truth: a coordinator reporting a stale probe as a current
+    /// one is the same defect as two sets of counters.
+    pub transcription: TranscriptionRuntime,
 }
+ 
+ impl Telemetry {
+     /// A process that has counted nothing yet.
+     #[must_use]
+     pub fn new() -> Self {
+        Self {
+            transcription: TranscriptionRuntime::new(),
+        }
+     }
+ }

@@ -8,23 +8,33 @@
 //! `new()` takes nothing and must keep taking nothing: anything the domain
 //! needs from configuration is read at call time from `core.services.boot`.
 //!
-//! AG1 owns the five status and config files below; AG2 owns `prompt_control`
-//! and `rpc_prompt` and is the one slice that edits this file again.
+//! AG1 owns the six status, push and config files below and the `status` field
+//! on the runtime; AG2 owns `prompt_control` and `rpc_prompt` and adds the
+//! `prompt` field. Each names the other's claim in this header, so the next
+//! reader knows which slice is mid-flight rather than guessing.
 
 pub mod config;
 pub mod rpc_status;
 pub mod status_hub;
 pub mod status_order;
+pub mod status_push;
 pub mod status_wait;
 
 /// The agent state one coordinator process holds.
 #[derive(Debug, Default)]
-pub struct AgentsRuntime;
+pub struct AgentsRuntime {
+    /// The one table of what every agent in the fleet is doing: retained
+    /// status, its admission order, its close tombstones, its wait queue and
+    /// the debounced push schedule.
+    pub status: crate::agents::status_hub::AgentStatusHub,
+}
 
 impl AgentsRuntime {
     /// A coordinator that has never seen an agent.
     #[must_use]
     pub fn new() -> Self {
-        Self
+        Self {
+            status: crate::agents::status_hub::AgentStatusHub::new(),
+        }
     }
 }
