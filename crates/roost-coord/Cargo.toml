@@ -28,6 +28,11 @@ roost-observability.workspace = true
 roost-platform.workspace = true
 roost-proto.workspace = true
 roost-protocol.workspace = true
+# The Deepgram reachability probe behind TranscriptionTest is the coordinator's
+# only outbound HTTPS call. `rustls` matches the workspace pin; no `json`,
+# because the probe reads the status line and nothing else.
+reqwest = { workspace = true, features = ["rustls"] }
+rsa.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -36,6 +41,11 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
+# The admission, security-header and CORS layers are three axum layers around
+# the one router, and `tower_http` is where they live. Pinned in the root
+# `[workspace.dependencies]` so no slice blocks the integrator mid-wave for a
+# crate that was already decided.
+tower-http.workspace = true
 
 [dev-dependencies]
 roost-protocol.workspace = true
