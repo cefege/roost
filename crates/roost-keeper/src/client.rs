@@ -8,6 +8,7 @@
 //! is therefore bounded and every failure is reported, because a silent hang
 //! costs an operator an afternoon and a logged timeout costs them a line.
 
+use std::collections::VecDeque;
 use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
@@ -40,6 +41,18 @@ pub struct KeeperClient {
     /// Frames the keeper sent that were not answers to a request: PTY output,
     /// exits, pongs. The worker drains this.
     events: Receiver<MuxFrame>,
+    /// Frames a control wait pulled off `events` that were not the answer, held
+    /// until the worker asks for them.
+    ///
+    /// This buffer is the whole of the fix for the frame loss the reader thread
+    /// interleaves. `events` is ONE channel carrying both PTY output and control
+    /// replies, because the keeper writes both on the same socket from the same
+    /// connection loop — `server.rs` drains `PtyOut` and writes it there. A wait
+    /// that pulled a `PtyOut` and dropped it would lose terminal output on every
+    /// round-trip, and a resize drag is sixty round-trips a second. v2 kept the
+    /// two paths disjoint by routing every frame by tag in a single loop; here
+    /// the disjointness is this buffer.
+    deferred: Mutex<VecDeque<MuxFrame>>,
     /// Set on drop so the reader thread stops. A reader that only noticed a
     /// closed socket would block in `read` until the KEEPER closed its end,
     /// which is exactly the case where nothing else is going to happen.
@@ -66,6 +79,7 @@ impl KeeperClient {
             write_half: Mutex::new(stream),
             shared,
             events,
+            deferred: Mutex::new(VecDeque::new()),
             stop,
             reader: Some(reader),
         }
@@ -251,11 +265,31 @@ impl KeeperClient {
         }
     }
 
+    /// Hold a frame a control wait consumed, so the worker still receives it.
+    ///
+    /// Never blocks and never drops: a poisoned lock is recovered rather than
+    /// propagated, because losing the buffer loses terminal output, and a panic
+    /// in a neighbouring task is not a reason to lose bytes.
+    fn defer(&self, frame: MuxFrame) {
+        match self.deferred.lock() {
+            Ok(mut held) => held.push_back(frame),
+            Err(poisoned) => poisoned.into_inner().push_back(frame),
+        }
+    }
+
     /// Take a frame the keeper sent that was not a reply.
     ///
-    /// `None` when nothing has arrived, which is not the same as the
-    /// connection closing — the caller decides how long to wait.
     pub fn next_event(&self, wait: Duration) -> Option<MuxFrame> {
+        // Deferred first, in arrival order. A frame a control wait consumed
+        // arrived before the one now waiting on the socket, so reading the
+        // socket first would reorder the stream the worker is parsing.
+        let held = match self.deferred.lock() {
+            Ok(mut held) => held.pop_front(),
+            Err(poisoned) => poisoned.into_inner().pop_front(),
+        };
+        if held.is_some() {
+            return held;
+        }
         self.events.recv_timeout(wait).ok()
     }
 
@@ -310,6 +344,10 @@ impl KeeperClient {
             if frame.frame_type == expected && frame.channel_id == channel_id {
                 return Ok(frame);
             }
+            // Not the answer. It is PTY output, an exit or a pong, and it
+            // belongs to the worker -- dropping it here is how terminal output
+            // disappears during a resize drag.
+            self.defer(frame);
         }
         Err(ClientError::SpawnNotAcknowledged {
             path: self.path.clone(),
@@ -346,6 +384,9 @@ impl KeeperClient {
             {
                 return Ok(frame);
             }
+            // Not one of the three answers. Same reason as `wait_for_reply`:
+            // this is the worker's output, not this call's business.
+            self.defer(frame);
         }
         Err(ClientError::SpawnNotAcknowledged {
             path: self.path.clone(),
