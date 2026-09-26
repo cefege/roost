@@ -18,7 +18,7 @@ use crate::error::TerminalCoreResult;
 use crate::row_spans::row_to_spans;
 
 /// One viewport row's spans.
-pub fn viewport_row_spans(core: &impl TerminalCore, row: u16, cols: u16) -> Arc<[CellSpan]> {
+pub fn viewport_row_spans(core: &dyn TerminalCore, row: u16, cols: u16) -> Arc<[CellSpan]> {
     let cells: Vec<_> = (0..cols).map(|col| core.viewport_cell(row, col)).collect();
     Arc::from(row_to_spans(&cells, cells.len()))
 }
@@ -27,7 +27,7 @@ pub fn viewport_row_spans(core: &impl TerminalCore, row: u16, cols: u16) -> Arc<
 ///
 /// The line's own stored width bounds the read, never the current viewport
 /// width: a history line keeps the width it was written at and can be wider.
-pub fn scrollback_offset_spans(core: &impl TerminalCore, offset: usize) -> Arc<[CellSpan]> {
+pub fn scrollback_offset_spans(core: &dyn TerminalCore, offset: usize) -> Arc<[CellSpan]> {
     let length = core.scrollback_line_len(offset);
     let cells: Vec<_> = (0..length)
         .map(|col| core.scrollback_cell(offset, col as u16))
@@ -37,7 +37,7 @@ pub fn scrollback_offset_spans(core: &impl TerminalCore, offset: usize) -> Arc<[
 
 /// One retained line, addressed by its monotonic absolute index.
 fn scrollback_row(
-    core: &impl TerminalCore,
+    core: &dyn TerminalCore,
     absolute: u64,
     retained: u64,
     sb_dropped: u64,
@@ -54,7 +54,7 @@ fn scrollback_row(
 
 /// The scalar state every frame carries, read once.
 fn scalar_state(
-    core: &impl TerminalCore,
+    core: &dyn TerminalCore,
     seq: u64,
     grid_epoch: &str,
     stream_id: &str,
@@ -102,7 +102,7 @@ fn scalar_state(
 /// history in this frame" — while `None` means "a complete grid", which a
 /// caller that genuinely wants one can still ask for.
 pub fn grid_to_cell_frame(
-    core: &impl TerminalCore,
+    core: &dyn TerminalCore,
     seq: u64,
     grid_epoch: &str,
     stream_id: &str,
@@ -130,7 +130,7 @@ pub fn grid_to_cell_frame(
 /// full-versus-delta is the emitter's job, not this function's: send a full
 /// frame on attach, resize, alt-screen toggle, or a monotonic-total rewind.
 pub fn grid_delta_frame(
-    core: &impl TerminalCore,
+    core: &dyn TerminalCore,
     previous_mono_total: u64,
     seq: u64,
     base_seq: u64,
@@ -163,7 +163,7 @@ pub fn grid_delta_frame(
 /// client cannot see is never spliced over with a line that is not adjacent to
 /// it. The emitter reframes in that case; this function simply refuses to lie.
 pub fn read_scrollback_range(
-    core: &impl TerminalCore,
+    core: &dyn TerminalCore,
     start: u64,
     end: u64,
     sb_dropped: u64,
@@ -186,6 +186,6 @@ pub fn read_scrollback_range(
 /// A core that cannot report its own discarded-line count is refused, not
 /// approximated: the frame that would have carried a wrong index is worse than
 /// no frame, because the caller cannot tell them apart.
-pub fn scrollback_origin(core: &impl TerminalCore, base: u64) -> TerminalCoreResult<u64> {
+pub fn scrollback_origin(core: &dyn TerminalCore, base: u64) -> TerminalCoreResult<u64> {
     core.scrollback_origin(base)
 }

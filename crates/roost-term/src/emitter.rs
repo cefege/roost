@@ -89,7 +89,7 @@ impl CellEmitState {
 /// grid is the same grid, and bumping the epoch would invalidate every row
 /// index the client holds for nothing.
 pub fn next_cell_frame(
-    core: &impl TerminalCore,
+    core: &dyn TerminalCore,
     state: &CellEmitState,
     force: bool,
     tail_rows: Option<u32>,

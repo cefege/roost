@@ -44,6 +44,17 @@ pub const KEEPER_REPLACEMENT_BLOCKED_ERROR: &str = "keeper replacement blocked b
 pub struct KeeperHandle(Arc<Mutex<KeeperClient>>);
 
 impl KeeperHandle {
+    /// Wrap a client the caller connected itself.
+    ///
+    /// [`ensure_keeper`] is not the only thing that can produce a connection:
+    /// a test harness that starts a real keeper, and any future endpoint
+    /// source, arrive holding a `KeeperClient` they must not wrap twice. The
+    /// shared handle is the type every consumer takes, so the way IN is as
+    /// public as the way through it.
+    pub fn new(client: KeeperClient) -> Self {
+        Self(Arc::new(Mutex::new(client)))
+    }
+
     /// Take the lock and borrow the client.
     ///
     /// The lock is held for the call and no longer, and every client call is a
