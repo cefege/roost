@@ -14,8 +14,6 @@
 //! that was accepted is already a binding and one that failed was refused — a
 //! keeper in this implementation cannot be mid-spawn while it answers.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 use roost_keeper::client::{KeeperClient, connect as connect_keeper};
@@ -137,18 +135,30 @@ pub async fn endpoint_is_published(socket: &Path) -> bool {
 
 /// The digest the worker expects a keeper it would start to report.
 ///
-/// Deliberately the same computation as `roost_keeper::keeper::implementation_digest`
-/// and not a call to it: that function hashes `current_exe()`, which inside the
-/// worker process is the worker rather than the keeper. The algorithm is
-/// `DefaultHasher` over the whole file because that is what the keeper reports —
-/// which is a weaker contract than the SHA-256 the design calls for, and is
-/// recorded as such in the integration report.
+/// SHA-256 over the whole executable, rendered as 64 lowercase hex, which is
+/// what `roost_keeper` reports and what the protocol's own validator demands.
+/// It used to be a re-derivation of that in `DefaultHasher` over sixteen
+/// characters, on the reasoning that it was "a weaker contract than the SHA-256
+/// the design calls for". It was not a weaker contract: a weaker digest on ONE
+/// side of an equality test is not a weaker contract, it is a comparison that
+/// never succeeds. `exact_target` could not be true against a real keeper, so
+/// admission returned `Unproven` and a worker restarting while its keeper was
+/// still running refused to boot.
+///
+/// [`roost_keeper::keeper::implementation_digest_of`] takes the path, which is
+/// why it takes one: it differs from `implementation_digest` only in naming the
+/// keeper rather than the current process. Reading the file blocks, so it
+/// happens on the blocking pool.
 pub async fn keeper_binary_digest(executable: &Path) -> String {
     let path = executable.to_path_buf();
     let read =
-        tokio::task::spawn_blocking(move || std::fs::read(path).map(|bytes| digest_of(&bytes)));
+        tokio::task::spawn_blocking(move || roost_keeper::keeper::implementation_digest_of(&path));
     match read.await {
-        Ok(Ok(digest)) => digest,
+        Ok(Ok(Some(digest))) => digest,
+        Ok(Ok(None)) => {
+            tracing::warn!("the keeper executable could not be read for digesting");
+            String::new()
+        }
         Ok(Err(join_error)) => {
             tracing::warn!(error = %join_error, "the keeper executable could not be hashed");
             String::new()
@@ -158,10 +168,4 @@ pub async fn keeper_binary_digest(executable: &Path) -> String {
             String::new()
         }
     }
-}
-
-fn digest_of(bytes: &[u8]) -> String {
-    let mut hasher = DefaultHasher::new();
-    bytes.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
 }
