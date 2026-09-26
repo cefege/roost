@@ -3,5 +3,6 @@
 
 #![forbid(unsafe_code)]
 
+pub mod backoff;
 pub mod event_store;
 pub mod outbox;
