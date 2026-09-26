@@ -666,7 +666,7 @@ mod tests {
     #[test]
     fn scroll_semantic() {
         let mut term = term();
-        term.grid_mut().scroll_up(&(Line(0)..Line(20)), 5);
+        term.grid_mut().scroll_up(&(Line(0)..Line(20)), 5, true);
 
         let mut cursor = ViModeCursor::new(Point::new(Line(0), Column(0)));
 
@@ -742,7 +742,7 @@ mod tests {
     #[test]
     fn scroll_word() {
         let mut term = term();
-        term.grid_mut().scroll_up(&(Line(0)..Line(20)), 5);
+        term.grid_mut().scroll_up(&(Line(0)..Line(20)), 5, true);
 
         let mut cursor = ViModeCursor::new(Point::new(Line(0), Column(0)));
 

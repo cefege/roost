@@ -189,3 +189,29 @@ wrap being resolved before the CSI dispatch. It is not; alacritty defers the
 wrap correctly, and the wrap has nothing to do with it. The vector was right
 and the explanation was not, which is why the note now names
 `clear_viewport` instead.
+
+## P5 — a delete discards; only a scroll reaches history
+
+`src/grid/mod.rs`, `Grid::scroll_up` (new `to_history` parameter), and
+`src/term/mod.rs`, `Handler::scroll_up_relative` (same parameter, threaded
+through) and `Handler::delete_lines`.
+
+Upstream implements `CSI M` (delete lines) as a scroll up over the region,
+which is right for the cells — they move identically — and wrong for the
+history. The line leaving the top of a **scroll** becomes scrollback; the line
+leaving the top of a **delete** is discarded. Sharing the implementation without
+the distinction sent deleted lines into scrollback.
+
+That is not a cosmetic difference. A client addressing history by a monotonic
+index then sees its origin move for lines no sequence ever accounted for, so a
+gap appears in history that cannot be explained by a missing frame. The vector
+`protocol/conformance/terminal-core/insert-and-delete-lines.json` pins it:
+`CSI 2M` at the top of a full-screen region leaves scrollback empty, where the
+reference terminal also leaves it empty.
+
+`to_history` is `true` for every genuine scroll — `scroll_up` (the SU family and
+newline-at-bottom), the vi-mode scrolls, the resize paths, and
+`clear_viewport` — and `false` only for `delete_lines`. The parameter is a
+`bool` rather than two methods because the two differ in exactly one branch, and
+a second copy of this function would be a second place for the distinction to go
+missing.

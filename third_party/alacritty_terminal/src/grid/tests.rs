@@ -30,7 +30,7 @@ fn scroll_up() {
         grid[Line(i as i32)][Column(0)] = i;
     }
 
-    grid.scroll_up::<usize>(&(Line(0)..Line(10)), 2);
+    grid.scroll_up::<usize>(&(Line(0)..Line(10)), 2, true);
 
     assert_eq!(grid[Line(0)][Column(0)], 2);
     assert_eq!(grid[Line(0)].occ, 1);

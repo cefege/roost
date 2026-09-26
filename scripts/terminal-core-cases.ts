@@ -155,18 +155,20 @@ export const CASES: Case[] = [
   },
   {
     name: "insert-and-delete-lines",
-    about: "IL and DL move whole lines within the screen and scroll when they run out.",
+    about:
+      "IL and DL move whole lines within the screen. A DL DISCARDS the lines it "
+      + "removes: it is not a scroll, and the line leaving the top of a scroll "
+      + "becomes history while the line leaving the top of a delete is gone. "
+      + "Upstream implements DL as a scroll up, so deleted lines reached "
+      + "scrollback and moved where a client's history begins. This is roost "
+      + "patch P5; see third_party/alacritty_terminal/ROOST-PATCHES.md.",
     cols: 10,
     rows: 4,
     chunks: ["a", CSI + "2;1H", "b", CSI + "1;1H", CSI + "L", CSI + "2M"],
-    oracle: "known-divergence",
-    diverges_from_v2:
-      "An insert-lines at the top of the screen pushes the scrolled-off row "
-      + "into history here. The reference scrolls the viewport without creating "
-      + "history, so the two disagree about where a client's history begins.",
+    oracle: "patch",
     expect: {
       viewport: ["b", "", "", ""],
-      scrollback: ["", "a"],
+      scrollback: [],
       cursor: { row: 0, col: 0 },
       alt_screen: false,
       modes: {

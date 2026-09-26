@@ -771,8 +771,14 @@ impl<T> Term<T> {
     ///
     /// Text moves up; clear at top
     /// Expects origin to be in scroll range.
+    ///
+    /// `to_history` is Roost addition P5. See the note on
+    /// [`crate::grid::Grid::scroll_up`]: a delete-lines moves cells the same way
+    /// a scroll up does, but its top line is discarded rather than becoming
+    /// history, and sharing the implementation without the distinction moved
+    /// where a client's history begins.
     #[inline]
-    fn scroll_up_relative(&mut self, origin: Line, mut lines: usize) {
+    fn scroll_up_relative(&mut self, origin: Line, mut lines: usize, to_history: bool) {
         trace!("Scrolling up relative: origin={origin}, lines={lines}");
 
         lines = cmp::min(lines, (self.scroll_region.end - self.scroll_region.start).0 as usize);
@@ -782,7 +788,7 @@ impl<T> Term<T> {
         // Scroll selection.
         self.selection = self.selection.take().and_then(|s| s.rotate(self, &region, lines as i32));
 
-        self.grid.scroll_up(&region, lines);
+        self.grid.scroll_up(&region, lines, to_history);
 
         // Scroll vi mode cursor.
         let viewport_top = Line(-(self.grid.display_offset() as i32));
@@ -1518,7 +1524,7 @@ impl<T: EventListener> Handler for Term<T> {
     #[inline]
     fn scroll_up(&mut self, lines: usize) {
         let origin = self.scroll_region.start;
-        self.scroll_up_relative(origin, lines);
+        self.scroll_up_relative(origin, lines, true);
     }
 
     #[inline]
@@ -1545,7 +1551,9 @@ impl<T: EventListener> Handler for Term<T> {
         trace!("Deleting {lines} lines");
 
         if lines > 0 && self.scroll_region.contains(&origin) {
-            self.scroll_up_relative(origin, lines);
+            // Roost addition P5: a delete DISCARDS the lines it removes. Only a
+            // real scroll may push into history.
+            self.scroll_up_relative(origin, lines, false);
         }
     }
 
@@ -2907,7 +2915,7 @@ mod tests {
         let mut term = Term::new(Config::default(), &size, VoidListener);
 
         // Add one line of scrollback.
-        term.grid.scroll_up(&(Line(0)..Line(1)), 1);
+        term.grid.scroll_up(&(Line(0)..Line(1)), 1, true);
 
         // Clear the history.
         term.clear_screen(ansi::ClearMode::Saved);
@@ -3239,7 +3247,7 @@ mod tests {
         assert!(term.damage.full);
         term.reset_damage();
 
-        term.scroll_up_relative(Line(3), 2);
+        term.scroll_up_relative(Line(3), 2, true);
         assert!(term.damage.full);
         term.reset_damage();
 

@@ -267,7 +267,17 @@ impl<T: GridCell + Default + PartialEq> Grid<T> {
     /// Move lines at the bottom toward the top.
     ///
     /// This is the performance-sensitive part of scrolling.
-    pub fn scroll_up<D>(&mut self, region: &Range<Line>, positions: usize)
+    /// `to_history` is Roost addition P5: it is true for a SCROLL UP and false
+    /// for a DELETE LINES.
+    ///
+    /// A delete-lines is implemented as a scroll up, because the cells move the
+    /// same way — but the line that leaves the top of a scroll up becomes
+    /// history, while the line that leaves the top of a delete is DISCARDED.
+    /// Sharing the implementation without the distinction sent deleted lines
+    /// into scrollback, which moves where a client's history begins: an
+    /// embedder addressing history by a monotonic index then sees a gap that no
+    /// sequence ever accounted for. See `ROOST-PATCHES.md`.
+    pub fn scroll_up<D>(&mut self, region: &Range<Line>, positions: usize, to_history: bool)
     where
         T: ResetDiscriminant<D>,
         D: PartialEq,
@@ -286,8 +296,9 @@ impl<T: GridCell + Default + PartialEq> Grid<T> {
             self.display_offset = min(self.display_offset + positions, self.max_scroll_limit);
         }
 
-        // Only rotate the entire history if the active region starts at the top.
-        if region.start == 0 {
+        // Rotate the entire history only when the active region starts at the top
+        // AND the caller is scrolling rather than deleting.
+        if region.start == 0 && to_history {
             // Create scrollback for the new lines. Whatever the history could
             // not take is a line this terminal will never be able to show
             // again, and an embedder addressing history by a monotonic index
@@ -346,7 +357,7 @@ impl<T: GridCell + Default + PartialEq> Grid<T> {
         let region = Line(0)..Line(self.lines as i32);
 
         // Clear the viewport.
-        self.scroll_up(&region, positions);
+        self.scroll_up(&region, positions, true);
 
         // Reset rotated lines.
         for line in (0..(self.lines - positions)).map(Line::from) {
