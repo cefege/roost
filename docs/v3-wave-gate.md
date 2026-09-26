@@ -154,6 +154,15 @@ three files, seven of them in targets the run had never reached. The same
 applies to a lib count: a fix that unblocks a later check is a *moved* error,
 not a fixed one, so every residue count is a lower bound and never a total.
 
+**And the masking runs the other way: a failing TEST target hides a lib error
+of the same shape.** A slice's test imported `PushNotificationTransport` from
+`push::dispatch`; its source file did the same. The error list named only the
+test, because test targets compile first and a test failure stops the run before
+the lib is reached. Fixing the test would have revealed the same bug again one
+file later, looking like new work. **Read the error list for the shape, not the
+count: one mistake in two files is one mistake, and the list shows you one of
+them.**
+
 **The shape: `__buffa_unknown_fields`.** buffa generates that field on every
 message, and a struct literal naming only the fields you can see is missing it.
 It is invisible to every check that reads the `.proto` or the visible field
