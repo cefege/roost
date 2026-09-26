@@ -571,6 +571,47 @@ not the class is a finding, and a loud one — because a mis-attributed class is
 worse than an undiagnosed one.** A mis-attribution makes the real defect look
 explained, and the class's own name is what makes it believable.
 
+## A defensible decision that removes a check, and records only the decision
+
+`bun_abi` is carried by the proto message and **deliberately left unmapped** in
+the Rust contract, with the reason in the file header: *a v3 keeper is not a Bun
+process, so there is nothing truthful to put in it.*
+
+**The reason is sound** — writing a Bun ABI string for a Rust binary would be a
+lie in a field whose whole job is to be believed.
+
+**But v2 uses that field for a restart-admission decision:**
+`target.bun_abi === running.bun_abi` refuses a restart whose contract disagrees
+with the running one. So the port has silently dropped a check, and **the only
+record of that is a comment explaining why the field is empty** — which is a
+record of the *decision*, not of the *consequence*.
+
+**So the general form: when a port decision removes a check the reference
+performs, the commit body must name the removed check, not only the reason the
+field is now empty.** A reader who finds the comment learns the field is
+unmapped; a reader who needs to know *what admission rule no longer exists* has
+nothing to find. And the removed check is invisible in a diff, because a missing
+check and a never-implemented one are the same shape.
+
+This was recovered from an agent transcript: the agent found it, concluded "this
+is a product defect", and was **hard-aborted before writing it down.** The
+finding survived only because the transcript was still readable — which is the
+argument for treating an agent's transcript as a durable artefact rather than a
+stream.
+
+## A hard-aborted agent's conclusion is still a conclusion
+
+An agent killed mid-turn had reached a product-defect call and had not recorded
+it. Its integrator correctly refused to reconstruct the verdict, and refused to
+promote the *symptom* it had gathered — three tests sharing one refusal — to a
+cause, **because a shared symptom is exactly what a shared fixture and a shared
+product bug both look like.**
+
+**Both refusals are right, and together they are the method:** do not reconstruct
+an unread verdict, and do not promote a symptom to a cause. What is left is to
+re-run the experiment with a fresh agent — and separately, to read the dead
+agent's transcript for the *leads* it gathered, which are evidence and were never
+claimed as conclusions.
 ## One missing paren in 151 literals, and 6 of the 7 are the idiom
 
 `claim_bootstrap_token`'s SQL literal had **one unclosed parenthesis** — the
