@@ -12,117 +12,15 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+mod middleware_audit_support;
 
 use connectrpc::ErrorCode;
-use roost_coord::auth::self_hosted_tenant::SelfHostedTenant;
-use roost_coord::coord_core::boot_facts::BootFacts;
-use roost_coord::coord_core::{CoordCore, ListenerTrust};
-use roost_coord::db::CoordDb;
-use roost_coord::events::bus::Subscription;
-use roost_coord::events::bus_messages::AuditRow;
+use middleware_audit_support::{AuditFixture, CALLER, DASHBOARD, KILL, SERVICE};
+use roost_coord::coord_core::ListenerTrust;
 use roost_coord::middleware::audit::{
     AuditOutcome, AuditRecord, AuditSkip, NonConnectSurface, connect_status, record_request,
     should_persist_connect_audit, should_persist_non_connect_audit, write_audit_rows,
 };
-use roost_coord::services::CoordServices;
-
-/// The service and procedure every Connect row names, spelled the way the proto
-/// does and the way `audit_log` has always stored it.
-const SERVICE: &str = "roost.v1.CoordinatorService";
-const KILL: &str = "SessionsKill";
-const CALLER: &str = "fp-device-1";
-const DASHBOARD: &str = "dash_audit_test";
-
-/// A coordinator with a migrated database, a tenant, and a bus this test owns.
-struct AuditFixture {
-    core: CoordCore,
-    database: CoordDb,
-    root: PathBuf,
-    published: Arc<Mutex<Vec<AuditRow>>>,
-    _subscription: Subscription<AuditRow>,
-}
-
-impl AuditFixture {
-    async fn new(label: &str) -> Self {
-        Self::build(label, true).await
-    }
-
-    async fn build(label: &str, booted: bool) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "roost-audit-hook-{label}-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
-            .await
-            .expect("a migrated database");
-        let boot = if booted {
-            BootFacts {
-                tenant: Some(SelfHostedTenant {
-                    account_id: "acct_audit_test".to_string(),
-                    organization_id: "org_audit_test".to_string(),
-                    dashboard_id: DASHBOARD.to_string(),
-                }),
-                ..BootFacts::default()
-            }
-        } else {
-            BootFacts::unbooted()
-        };
-        let services = Arc::new(CoordServices::booted(database.clone(), boot));
-        let published: Arc<Mutex<Vec<AuditRow>>> = Arc::new(Mutex::new(Vec::new()));
-        let sink = Arc::clone(&published);
-        let subscription = services
-            .buses
-            .audit_bus
-            .subscribe(move |row: &AuditRow| sink.lock().expect("the sink mutex").push(row.clone()));
-        Self {
-            core: CoordCore::new(services),
-            database,
-            root,
-            published,
-            _subscription: subscription,
-        }
-    }
-
-    /// Every row's id, path, caller, status and dashboard scope, in id order.
-    async fn rows(&self) -> Vec<(i64, String, Option<String>, i64, Option<String>)> {
-        sqlx::query_as(
-            "SELECT id, path, caller_fp, status, dashboard_id FROM audit_log ORDER BY id",
-        )
-        .fetch_all(self.database.pool())
-        .await
-        .expect("audit_log answers")
-    }
-
-    async fn row_count(&self) -> i64 {
-        sqlx::query_scalar("SELECT COUNT(*) FROM audit_log")
-            .fetch_one(self.database.pool())
-            .await
-            .expect("audit_log counts")
-    }
-
-    async fn published(&self) -> Vec<AuditRow> {
-        self.published.lock().expect("the sink mutex").clone()
-    }
-
-    /// Take the table away, so the next insert is a real write failure.
-    async fn drop_audit_table(&self) {
-        sqlx::query("DROP TABLE audit_log")
-            .execute(self.database.pool())
-            .await
-            .expect("the table drops");
-    }
-}
-
-impl Drop for AuditFixture {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
-    }
-}
 
 /// A Connect record for `SessionsKill` on a directly-observed listener.
 fn connect(status: u16, caller_fp: Option<&str>) -> AuditRecord {
@@ -309,23 +207,24 @@ async fn a_committed_batch_is_published_in_durable_id_order() {
 #[tokio::test]
 async fn a_successful_method_with_no_forensic_signal_is_silent_and_its_failure_is_not() {
     let fixture = AuditFixture::new("skip-list").await;
+    let local = ListenerTrust::DirectLoopback;
 
     assert!(matches!(
-        record_request(&fixture.core, &mut on("PairList", 200, Some(CALLER), ListenerTrust::DirectLoopback)).await,
+        record_request(&fixture.core, &mut on("PairList", 200, Some(CALLER), local)).await,
         AuditOutcome::Skipped(AuditSkip::SuccessWithoutSignal)
     ));
     assert!(matches!(
-        record_request(&fixture.core, &mut on("PairList", 500, Some(CALLER), ListenerTrust::DirectLoopback)).await,
+        record_request(&fixture.core, &mut on("PairList", 500, Some(CALLER), local)).await,
         AuditOutcome::Written { .. }
     ));
     // The one method that never persists, success or failure: requester polling
     // is anonymous, high volume, and unsweepable by the retention allowlist.
     assert!(matches!(
-        record_request(&fixture.core, &mut on("PairPoll", 200, Some(CALLER), ListenerTrust::DirectLoopback)).await,
+        record_request(&fixture.core, &mut on("PairPoll", 200, Some(CALLER), local)).await,
         AuditOutcome::Skipped(AuditSkip::NeverPersists)
     ));
     assert!(matches!(
-        record_request(&fixture.core, &mut on("PairPoll", 401, None, ListenerTrust::DirectLoopback)).await,
+        record_request(&fixture.core, &mut on("PairPoll", 401, None, local)).await,
         AuditOutcome::Skipped(AuditSkip::NeverPersists)
     ));
     assert_eq!(fixture.row_count().await, 1);
@@ -334,9 +233,9 @@ async fn a_successful_method_with_no_forensic_signal_is_silent_and_its_failure_i
 #[tokio::test]
 async fn a_refused_pair_confirmation_is_recorded_and_an_accepted_one_is_not() {
     let fixture = AuditFixture::new("pair-confirm").await;
-    let accepted = on("PairConfirm", 200, Some(CALLER), ListenerTrust::DirectLoopback);
-    let refused = on("PairConfirm", 200, Some(CALLER), ListenerTrust::DirectLoopback)
-        .pair_confirmation_failed(true);
+    let local = ListenerTrust::DirectLoopback;
+    let accepted = on("PairConfirm", 200, Some(CALLER), local);
+    let refused = on("PairConfirm", 200, Some(CALLER), local).pair_confirmation_failed(true);
 
     assert!(matches!(
         record_request(&fixture.core, &mut accepted).await,
@@ -392,15 +291,15 @@ async fn a_static_read_is_silent_and_an_amplifying_probe_is_too() {
 }
 
 #[tokio::test]
-async fn a_row_is_scoped_to_the_booted_dashboard_and_still_written_without_one() {
-    let unbooted = AuditFixture::build("unbooted", false).await;
+async fn a_row_is_written_even_with_no_tenancy_scope_to_scope_it_to() {
+    let fixture = AuditFixture::unbooted("unbooted").await;
 
     assert!(matches!(
-        record_request(&unbooted.core, &mut connect(200, Some(CALLER))).await,
+        record_request(&fixture.core, &mut connect(200, Some(CALLER))).await,
         AuditOutcome::Written { id: 1 }
     ));
     assert_eq!(
-        unbooted.rows().await[0].4,
+        fixture.rows().await[0].4,
         None,
         "an unscoped row is still a row, and refusing to write it would audit nothing"
     );

@@ -8,8 +8,8 @@
 mod terminal_view_support;
 
 use terminal_view_support::{
-    decisions, owner_state, watching, Harness, Recorded, Relayed, FINGERPRINT, OTHER_FINGERPRINT,
-    OTHER_SESSION, SESSION, VIEW,
+    decisions, owner_state, watching, Harness, Recorded, Relayed, FINGERPRINT, OTHER_SESSION,
+    SESSION, VIEW,
 };
 
 use roost_proto::{TerminalViewStatus, WTerminalViewProjection};

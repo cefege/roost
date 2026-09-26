@@ -6,7 +6,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use roost_coord::terminal_view::{OwnerViewTransport, RelayIdentity};
+use roost_coord::terminal_view::{OwnerViewTransport, RelayIdentity, TerminalViewSink};
 use roost_proto::{
     FirehoseFrame, TerminalResyncCommand, TerminalViewCommand, TerminalViewStatus,
 };

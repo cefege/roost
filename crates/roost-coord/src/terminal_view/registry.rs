@@ -20,8 +20,8 @@ use roost_protocol::wire::SessionId;
 
 use super::machine::{Machine, session_of};
 use super::record::{
-    GeometrySet, Tombstone, ViewInput, ViewRecord, ViewStats, active_fingerprints, geometry_set,
-    project_inputs, project_viewers, view_constrains, view_key,
+    GeometrySet, TombstoneStore, ViewInput, ViewRecord, ViewStats, active_fingerprints,
+    geometry_set, project_inputs, project_viewers, view_constrains,
 };
 use super::sink::{PendingReply, SinkCall, TerminalViewSink};
 
@@ -318,30 +318,6 @@ impl ViewRegistry {
     #[must_use]
     pub fn socket(&self, socket_id: &str) -> Option<&SocketRecord> {
         self.sockets.get(socket_id)
-    }
-
-    /// The record one viewer key holds for one view id.
-    #[must_use]
-    pub fn record(&self, viewer_key: &str, view_id: &str) -> Option<&ViewRecord> {
-        self.views.get(&view_key(viewer_key, view_id))
-    }
-
-    /// The retained claim one viewer key left for one view id.
-    #[must_use]
-    pub fn tombstone(&self, viewer_key: &str, view_id: &str) -> Option<&Tombstone> {
-        self.tombstones.get(&view_key(viewer_key, view_id))
-    }
-
-    /// How many records membership holds, for a diagnostic line.
-    #[must_use]
-    pub fn record_count(&self) -> usize {
-        self.views.len()
-    }
-
-    /// How many retained claims the store holds.
-    #[must_use]
-    pub fn tombstone_count(&self) -> usize {
-        self.tombstones.len()
     }
 
     /// The mutable view the command machine works through.

@@ -7,8 +7,7 @@
 //! decided.
 
 use roost_protocol::keeper_update::{
-    JournaledKeeperUpdateV1, PRESERVE, REPLACE_EMPTY,
-    validate_keeper_coordinator_open_session_ids,
+    JournaledKeeperUpdateV1, PRESERVE, REPLACE_EMPTY, validate_keeper_coordinator_open_session_ids,
 };
 use roost_protocol::wire::WorkerFp;
 use serde_json::Value;

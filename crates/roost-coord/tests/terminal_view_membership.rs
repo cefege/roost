@@ -9,8 +9,8 @@
 mod terminal_view_support;
 
 use terminal_view_support::{
-    decisions, watching, Harness, Recorded, FINGERPRINT, OTHER_FINGERPRINT, OTHER_SESSION, OTHER_VIEW,
-    SESSION, VIEW,
+    decisions, watching, Harness, Recorded, FINGERPRINT, OTHER_FINGERPRINT, OTHER_SESSION, SESSION,
+    VIEW,
 };
 
 use roost_proto::{TerminalViewCommand, TerminalViewStatus};
@@ -216,7 +216,11 @@ fn a_revoked_device_loses_its_membership_and_its_claims() {
 
     // Re-admit at a small size, then revoke without an explicit release.
     harness.view(&revoked, VIEW, 40, 20, 3, true, T0 + 20);
-    assert_eq!(harness.effective(T0 + 20), Some((40, 50)), "clipped again");
+    assert_eq!(
+        harness.effective(T0 + 20),
+        Some((40, 20)),
+        "clipped again on both axes"
+    );
 
     harness.hub.remove_fingerprint(FINGERPRINT, T0 + 30);
 

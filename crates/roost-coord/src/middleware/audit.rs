@@ -1,7 +1,6 @@
 //! The per-request audit hook: the only place an `audit_log` row is written and
 //! the only place one is published to `audit_bus`. Owned by the audit slice; the
-//! middleware layer mounts it and calls [`record_request`] once per request on
-//! the way out. Depends on `events`, `db` and the `write_gate` audit policy.
+//! middleware layer mounts it. Depends on `events`, `db` and `write_gate`.
 //!
 //! **THE HOOK CANNOT FAIL THE REQUEST IT AUDITS.** A request that succeeded and
 //! then returned 500 because its own audit row could not be written has traded
@@ -9,17 +8,15 @@
 //! A failed write is reported in the log and in the returned value; the response
 //! is already decided by the time the hook runs.
 //!
-//! **A REFUSED REQUEST IS AUDITED, NOT ONLY A SUCCEEDED ONE.** A log that
-//! records only successes cannot answer "who tried this", which is the one
-//! question it exists for. The skips below are a list of high-volume noise, not
-//! a success filter.
+//! **A REFUSED REQUEST IS AUDITED, NOT ONLY A SUCCEEDED ONE.** A log of only
+//! successes cannot answer "who tried this"; the skips below are noise.
 //!
-//! **ONE ROW PER REQUEST.** The RPC interceptor and the outer HTTP layer both
-//! see the same request, and v2 shipped an incident for it: the outer wrapper
-//! wrote rows for requests the auth interceptor had already authenticated, so
-//! every `caller_fp` was NULL (`docs/FAILURE-INDEX.md`, "audit_log caller_fp is
-//! NULL for every authed RPC"). A record is consumed by its first call whatever
-//! the outcome, so a second layer writing the same request writes nothing.
+//! **ONE ROW PER REQUEST.** The RPC interceptor and the outer HTTP layer both see
+//! the same request, and v2 shipped an incident for it: the outer wrapper wrote
+//! rows for requests the auth interceptor had already authenticated, so every
+//! `caller_fp` was NULL (`docs/FAILURE-INDEX.md`, "audit_log caller_fp is NULL for
+//! every authed RPC"). A record is consumed by its first call whatever the
+//! outcome, so a second layer writing the same request writes nothing.
 
 use connectrpc::{ErrorCode, RequestContext};
 use roost_observability::LogFields;
@@ -80,8 +77,8 @@ enum Surface {
 ///
 /// "an unmatched /api/* path is an unauthenticated GET the rate limiter lets
 /// through, so one durable row per probed path is pure amplification" -- and the
-/// janitor that would delete those rows only sweeps anonymous *static* reads, so
-/// an amplified row is not even self-cleaning (`security.ts:114`).
+/// janitor only sweeps anonymous *static* reads, so an amplified row is not even
+/// self-cleaning (`security.ts:114`).
 #[must_use]
 pub fn should_persist_non_connect_audit(
     surface: NonConnectSurface,
@@ -99,11 +96,10 @@ pub fn should_persist_non_connect_audit(
 ///
 /// The one skip: an anonymous credential failure through the operator's front
 /// door. It names no identity, and `audit_log` has no address column, so it is
-/// unbounded volume with no forensic value -- and the retention sweep is an
-/// explicit allowlist that never ages out auth rows, so those rows are permanent.
-/// That table once reached 7,026,358 rows / 1.0 GB (`docs/FAILURE-INDEX.md`).
-/// The same 401 on a directly-observed listener persists: that caller is low
-/// volume and names a host, not a stranger.
+/// unbounded volume with no forensic value -- and the retention sweep never ages
+/// out auth rows, so such a row is permanent. That table once reached 7,026,358
+/// rows / 1.0 GB (`docs/FAILURE-INDEX.md`). The same 401 on a directly-observed
+/// listener persists: that caller is low volume and names a host, not a stranger.
 #[must_use]
 pub fn should_persist_connect_audit(
     listener: ListenerTrust,
@@ -117,6 +113,10 @@ pub fn should_persist_connect_audit(
 ///
 /// Dashboards read `WHERE status >= 400`, so the row carries HTTP semantics
 /// rather than the code's own name (`auth-interceptor.ts:62-78`).
+///
+/// The catch-all is the source's own `default: 500`: `ErrorCode` is
+/// `#[non_exhaustive]`, so a code Connect adds after this port is an outcome
+/// nobody has decided how to record, and 500 says exactly that.
 #[must_use]
 pub fn connect_status(code: ErrorCode) -> u16 {
     match code {
@@ -131,6 +131,7 @@ pub fn connect_status(code: ErrorCode) -> u16 {
         ErrorCode::Unavailable => 503,
         ErrorCode::DeadlineExceeded => 504,
         ErrorCode::Canceled | ErrorCode::Unknown | ErrorCode::Internal | ErrorCode::DataLoss => 500,
+        _ => 500,
     }
 }
 
@@ -284,9 +285,9 @@ pub enum AuditOutcome {
 
 /// Write this request's row, if it deserves one, and report what happened.
 ///
-/// The entry point the middleware layer mounts. It is total by construction:
-/// there is no error for a caller to propagate into a response, because a
-/// response this runs beside has already been decided.
+/// The entry point the middleware layer mounts, and total by construction:
+/// there is no error to propagate into a response, because the response this
+/// runs beside has already been decided.
 pub async fn record_request(core: &CoordCore, record: &mut AuditRecord) -> AuditOutcome {
     if record.written {
         return AuditOutcome::Skipped(AuditSkip::AlreadyRecorded);
@@ -328,8 +329,8 @@ pub async fn record_request(core: &CoordCore, record: &mut AuditRecord) -> Audit
 /// stream agrees with what a later read of the table returns.
 ///
 /// This is the primitive for a caller that must know whether the row landed
-/// (terminal input, `apps/coord/src/terminal/input/input-control.ts:117`). Every
-/// other caller uses [`record_request`], which cannot fail.
+/// (terminal input, `terminal/input/input-control.ts:117`); every other caller
+/// uses [`record_request`], which cannot fail.
 pub async fn write_audit_rows(
     core: &CoordCore,
     records: &[AuditRecord],
@@ -364,7 +365,7 @@ async fn insert_rows(
     records: &[AuditRecord],
     dashboard_id: Option<String>,
 ) -> Result<Vec<AuditRow>, sqlx::Error> {
-    // One instant for the whole batch: rows written together must not straddle a
+    // One instant for the batch: rows written together must not straddle a
     // millisecond, or a read ordered by (ts, id) disagrees with the bus order.
     let ts = crate::serve::now_ms();
     let mut statement = QueryBuilder::<Sqlite>::new(

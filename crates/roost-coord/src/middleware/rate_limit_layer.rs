@@ -18,6 +18,11 @@
 //! two WebSocket upgrades are long-lived sockets rather than request budgets --
 //! a 100/minute budget on one would break a terminal instead of protecting
 //! anything -- and they are not Connect paths, so they are never limited.
+//!
+//! THE LAYER CARRIES ITS OWN STATE, never `http::listener::ListenerState`. A
+//! middleware layer runs in front of the routes, and the listener state belongs
+//! to the handlers behind it; what this layer needs is the process state the
+//! budget table lives in.
 
 use axum::extract::{Request, State};
 use axum::http::{HeaderValue, StatusCode, header::RETRY_AFTER};
@@ -65,18 +70,18 @@ pub async fn rate_limit_layer(
     let Some(refusal) = services.rate_limit.admit(method, &caller) else {
         return next.run(request).await;
     };
-    tracing::warn!(
-        method,
-        client_ip,
-        bucket = ?refusal.bucket,
-        retry_after_seconds = refusal.retry_after_seconds,
-        first_in_window = refusal.first_in_window,
-        "rate limit refused a request"
-    );
+    // The limiter already logs this refusal, deduped to once per window per
+    // caller. A second line here would undo that dedup for a client retrying in
+    // a loop, which is the case the dedup exists for.
     refusal_response(refusal.retry_after_seconds)
 }
 
 /// The `429` a spent budget answers with.
+///
+/// `Retry-After` is the limiter's own clamped value, between one second and the
+/// window, so it goes into the header as it stands: clamping again here could
+/// only widen it, and a zero would tell a client to retry immediately, which is
+/// the one outcome the clamp exists to prevent.
 fn refusal_response(retry_after_seconds: u64) -> Response {
     let retry_after = HeaderValue::from_str(&retry_after_seconds.to_string())
         .unwrap_or_else(|_| HeaderValue::from_static("60"));

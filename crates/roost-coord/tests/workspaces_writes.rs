@@ -41,7 +41,6 @@ async fn create(fixture: &WorkspacesFixture, folder: &str, sessions: &[&str]) ->
 #[tokio::test]
 async fn a_folder_that_already_has_a_workspace_is_not_created_twice() {
     let fixture = WorkspacesFixture::new("dedupe").await;
-    fixture.enroll_session(SESSION_A, "/srv/one").await;
     let first = create(&fixture, "/srv/one", &[]).await;
     let again = handle_workspaces_create(
         &fixture.core,
@@ -194,7 +193,6 @@ async fn an_update_with_no_fields_still_bumps_the_version() {
 /// The five methods are account-device methods, and a machine is not one.
 #[tokio::test]
 async fn a_machine_may_not_manage_workspaces() {
-    use workspaces_support::machine_caller;
     let fixture = WorkspacesFixture::new("auth").await;
     let refused = handle_workspaces_list(
         &fixture.core,

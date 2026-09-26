@@ -30,8 +30,7 @@ use axum::response::Response;
 use crate::coord_core::CoordCore;
 use crate::http::listener::{CONNECT_PATH_PREFIX, DB_EXPORT_PATH};
 use crate::middleware::audit::{
-    AuditOutcome, AuditRecord, NonConnectSurface, record_request,
-    should_persist_non_connect_audit,
+    AuditRecord, NonConnectSurface, record_request, should_persist_non_connect_audit,
 };
 use crate::sync_ws::upgrade_admission::SYNC_WS_PATH;
 use crate::worker_link::upgrade_admission::WORKER_WS_PATH_PREFIX;

@@ -238,19 +238,6 @@ impl OwnerIndex {
         self.data().rows.get(session_id).cloned()
     }
 
-    /// Every published row, for a diagnostic sweep.
-    #[must_use]
-    pub fn rows(&self) -> Vec<(SessionId, OwnerRow)> {
-        let mut rows: Vec<(SessionId, OwnerRow)> = self
-            .data()
-            .rows
-            .iter()
-            .map(|(session_id, row)| (session_id.clone(), row.clone()))
-            .collect();
-        rows.sort_by(|left, right| left.0.cmp(&right.0));
-        rows
-    }
-
     /// Forget a session's owner binding and its row.
     pub fn drop_projection(&self, session_id: &SessionId) {
         let mut data = self.data();

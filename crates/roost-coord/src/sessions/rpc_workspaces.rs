@@ -213,11 +213,12 @@ pub async fn handle_workspaces_set_sessions(
 /// last one. The order is the correctness of the collector:
 ///
 /// 1. the claim, so a stale `if_version` aborts before anything moved;
-/// 2. the rewrite of the junction, which is what empties a workspace;
-/// 3. THEN the emptiness read, because emptiness is a function of the junction --
-///    read it before the rewrite and a workspace that still holds a session reads
-///    as empty, so the collector deletes a live parent and cascades its
-///    membership away;
+/// 2. the rewrite of the junction, which is what decides who is empty;
+/// 3. THEN the emptiness read, because emptiness is a function of the junction and
+///    the junction is only rewritten in step 2: read it one step earlier and the
+///    TARGET reads as empty -- it has not received its new members yet -- so the
+///    collector deletes a live parent and cascades away the very membership this
+///    call just wrote, leaving its sessions pointing at a row that is gone;
 /// 4. then the column, so nothing is left naming a workspace this call deleted --
 ///    from the junction read taken BEFORE step 2, because by now it has cascaded.
 async fn rewrite_membership(

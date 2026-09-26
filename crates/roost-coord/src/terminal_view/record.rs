@@ -15,8 +15,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use roost_proto::TerminalViewCommand;
 use roost_protocol::viewport::{
-    TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS, TERMINAL_VIEW_PARK_GRACE_MS, TerminalGeometry,
-    is_terminal_geometry, is_terminal_uuid, minimum_terminal_geometry,
+    TERMINAL_MAX_COLS, TERMINAL_MAX_ROWS, TERMINAL_VIEW_LEASE_MS, TERMINAL_VIEW_PARK_GRACE_MS,
+    TerminalGeometry, is_terminal_geometry, is_terminal_uuid, minimum_terminal_geometry,
 };
 use roost_protocol::wire::SessionId;
 

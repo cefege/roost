@@ -10,7 +10,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use axum::http::HeaderMap;
 use roost_host::{CoordConfig, b64url_decode};
-use rsa::{BigUint, RsaPublicKey, pkcs1v15::VerifyingKey, signature::Verifier};
+use rsa::pkcs1v15::{Signature, VerifyingKey};
+use rsa::signature::Verifier;
+use rsa::{BigUint, RsaPublicKey};
 use serde_json::Value;
 use sha2::Sha256;
 
@@ -28,7 +30,7 @@ pub const ACCESS_CLOCK_SKEW_MS: i64 = 60_000;
 
 pub const JWKS_TTL_MS: i64 = 15 * 60_000;
 
-/// The floor between two refetches caused by an absent `kid`. Without it,
+/// The floor between two refetches caused by an absent `kid`: without it,
 /// anyone who knows a `kid` is missing picks this coordinator's request rate.
 pub const JWKS_REFETCH_MIN_INTERVAL_MS: i64 = 60_000;
 
@@ -179,14 +181,18 @@ impl CloudflareJwks for RsaJwks {
         let (Some(modulus), Some(exponent)) = (member("n"), member("e")) else {
             return false;
         };
-        RsaPublicKey::from_components(
+        RsaPublicKey::new(
             BigUint::from_bytes_be(&modulus),
             BigUint::from_bytes_be(&exponent),
         )
         .is_ok_and(|public_key| {
-            VerifyingKey::<Sha256>::new(public_key)
-                .verify(signing_input.as_bytes(), signature)
-                .is_ok()
+            // A signature whose length is not the modulus size is refused by
+            // `TryFrom` before any modular arithmetic runs.
+            Signature::try_from(signature).is_ok_and(|signature| {
+                VerifyingKey::<Sha256>::new(public_key)
+                    .verify(signing_input.as_bytes(), &signature)
+                    .is_ok()
+            })
         })
     }
 }
@@ -201,8 +207,7 @@ impl RsaJwks {
     }
 }
 
-/// The JWK a `kid` names. An entry without a usable `kid` is skipped rather than
-/// failing the document: one malformed key must not take the door down.
+/// The JWK a `kid` names; a malformed entry is skipped, not fatal.
 fn jwk_in(document: &Value, kid: &str) -> Option<String> {
     let entry = document
         .get("keys")?
@@ -223,17 +228,16 @@ pub fn cloudflare_access_configured(config: &CoordConfig) -> bool {
     configured(config).is_some()
 }
 
-/// Install the process's Access key ring, once, at boot. Until it is called, a
-/// coordinator that HAS Access configured refuses every assertion rather than
-/// believe a header nobody checked.
+/// Install the process's Access key ring, once, at boot. Until it is called a
+/// coordinator with Access configured refuses every assertion rather than
+/// believe one.
 pub fn install_cloudflare_jwks(jwks: Arc<dyn CloudflareJwks>) -> Result<(), ()> {
     KEY_RING.set(jwks).map_err(|_| ())
 }
 
 static KEY_RING: OnceLock<Arc<dyn CloudflareJwks>> = OnceLock::new();
 
-/// The verified edge identity of one request, or why there is not one: `Ok(None)`
-/// is Access switched off, `Err(reason)` is THIS request failing to verify.
+/// The verified edge identity of one request, or why there is not one.
 pub async fn verify_edge_identity(
     config: &CoordConfig,
     headers: &HeaderMap,
@@ -269,7 +273,6 @@ struct ParsedAssertion {
     kid: String,
 }
 
-/// Split and screen an assertion, before anything is fetched or trusted.
 fn parse_assertion(assertion: &str) -> Result<ParsedAssertion, AccessRejection> {
     let parts: Vec<&str> = assertion.split('.').collect();
     let [header_part, payload_part, signature_part] = parts.as_slice() else {
@@ -305,8 +308,7 @@ fn parse_assertion(assertion: &str) -> Result<ParsedAssertion, AccessRejection> 
 
 /// The email and subject of an assertion whose signature already verified. The
 /// refusal order is v2's (`cf-access.ts:227-254`) and each step is a distinct
-/// reason. Claims are read out of the JSON object, so a claim of the WRONG TYPE
-/// refuses like an absent one rather than as a parse error.
+/// reason. A claim of the WRONG TYPE refuses like an absent one.
 fn validate_claims(
     payload: &[u8],
     domain: &str,
@@ -384,9 +386,7 @@ pub fn is_reportable_identity_text(value: &str) -> bool {
     })
 }
 
-/// An address a pairing request may record: [`is_reportable_identity_text`]
-/// plus one `@`, both sides non-empty and whitespace-free, within
-/// [`MAX_ACCESS_EMAIL_UTF8_BYTES`]. `sub` is NOT held to this.
+/// An address a pairing request may record: [`is_reportable_identity_text`] plus one `@`,
 #[must_use]
 pub fn is_reportable_email(value: &str) -> bool {
     if !is_reportable_identity_text(value) || value.len() > MAX_ACCESS_EMAIL_UTF8_BYTES {
