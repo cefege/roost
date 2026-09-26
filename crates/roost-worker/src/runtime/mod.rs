@@ -37,10 +37,11 @@ pub mod stop;
 use std::sync::Arc;
 
 use anyhow::Context as _;
+use roost_host::ProcessEnv;
 
 use crate::link_dial::CoordinatorEndpoint;
 use boot_order::{BootSequence, Readiness, StepId};
-use credential::UnavailableCredential;
+use credential::WorkerKeyCredential;
 use keeper_boot::KeeperBootOutcome;
 use link_loop::{LinkLoop, WorkerIdentity};
 use link_wire::UnavailableWire;
@@ -138,6 +139,12 @@ pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result
         "boot: keeper admitted"
     );
 
+    // The keeper has been admitted, so the flag that authorised a destructive
+    // retirement has done its work. A value left in the unit re-authorizes
+    // destroying every PTY on each later restart, and this is the only moment
+    // at which the authorisation is known to have been spent.
+    host::install::spend_keeper_force_live_retire_authorization(&ProcessEnv::new()).await;
+
     // UNIMPLEMENTED: the local door (`crate::door` over `crate::local_door`'s
     // policy), the session manager (`crate::session`, plus the
     // `keeper_pool` connection it drives), agent tracking (`crate::agents`)
@@ -160,7 +167,7 @@ pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result
         },
         Arc::new(UnavailableWire),
         Arc::new(NoSnapshot),
-        Arc::new(UnavailableCredential),
+        Arc::new(WorkerKeyCredential::new(boot.worker_key_path.clone())),
     );
     let because = sequence.complete(StepId::CoordinatorLink);
     tracing::info!(
