@@ -330,6 +330,40 @@ asserted in order. One frame cannot distinguish; two can. And the property to
 check when a test does not bite is not "is it running" first but "is it
 discriminating" — a test can be present, collected, executed, and unable to fail.
 
+## Announce the mutation AND ITS CONTROL
+
+A mutation experiment is a claim: *this edit breaks this property and nothing
+else.* Most of the time it is true, and the convention has been to announce
+**which line you changed**.
+
+**An announcement is not enough, because a mutation can be two mutations wearing
+one label.** An agent meant to test arrival order by flipping `pop_front` to
+`pop_back` also deleted the `if held.is_some() { return held; }` early return in
+the same patch. That is not an ordering mutation — it is "drop the deferred
+frames entirely", which is what its *first* attempt had done. **The two runs
+produced byte-identical output**, and the only reason it was caught is that
+someone compared them and noticed the results matched.
+
+A person who had not diffed the runs would have written "the ordering mutation
+is caught" and reported a claim about a mutation they never made. **It is a
+measurement of the wrong thing, reported with the confidence of a right one** —
+the same shape as a fixture that computes its expectation from the function
+under test, and it survived a test that would otherwise have caught it.
+
+**The rule: announce the mutation AND ITS CONTROL.** The control is the thing
+that distinguishes *this property moved* from *something else broke*. For an
+ordering mutation the control is: **the loss test must still pass, and only the
+order test must fail.** Without it, a reader cannot tell a pass that means "the
+property is guarded" from a pass that means "you broke the feature harder" —
+and the announcement leaves them unable to check the result, only to avoid
+stepping on it.
+
+This is the third instance of one shape in this wave — the `x == x` fixture, the
+enum field access, and this — and the shape is always the same: **a measurement
+that is internally consistent and about the wrong object.** The only defence
+found so far is the one that costs something: compare against a control, and
+prefer the account that quotes its own output.
+
 ## Worker track
 
 | # | Property | File and exact edit | Test that must fail | State |
