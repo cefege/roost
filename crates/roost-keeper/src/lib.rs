@@ -6,6 +6,10 @@
 //! site must name the invariant it protects.
 
 pub mod channel_history;
+pub mod client;
+pub mod client_connect;
+pub mod client_error;
+pub mod client_io;
 pub mod codec;
 pub mod frames;
 pub mod history;
