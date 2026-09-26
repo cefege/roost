@@ -629,6 +629,49 @@ a process-wide counter shared by concurrently-run tests is a shared mutable
 global with a test-shaped costume, and the fix is to key the count to whatever
 the assertion is actually about** — not to remove the counter.
 
+## A dependency's behaviour change is a class, and a sweep's NEGATIVES close it
+
+`sqlx` 0.9 changed `Separated::push_bind` to **emit the separator first**. The
+code did `separated.push(column).push(" = ").push_bind(value)`, where `push(" =
+")` had already armed the separator — so it rendered `SET name,  = ?`.
+
+**Every `update_workspace` was a syntax error.** It surfaced as
+`WorkspaceError::Sqlite` and therefore as `Internal` at the RPC boundary — so
+**the version guard never ran, and a stale write reported an internal fault
+instead of `FailedPrecondition`.** Five of six failures in that cluster were this
+one cause.
+
+**The class was closed by a crate-wide sweep for every spelling of the idiom —
+`.separated(`, `push_values`, `push_tuples`, `Separated`, `push_unseparated`,
+`push_bind_unseparated` — and `workspaces.rs:192` was the only site chaining
+`push` and `push_bind` on the same `Separated`.** The other six sites are all
+one-element-per-`push_bind`, the idiom insensitive to the change, and correct
+under both versions.
+
+**So: the negative results are what close a class, and the positive one is what
+opens it.** Six sites enumerated and dismissed is the evidence; one site named is
+a fix. A sweep that reports only the hit has told you nothing about the other
+five.
+
+**And the fix moved the predicate onto the `QueryBuilder`, because a `Separated`
+inserts commas** — which is the general shape: when the container's semantics are
+the bug, the fix is not a different call order within the container, it is a
+different container.
+
+## "Lossy, not wrong" is a third category
+
+A caller sending `if_version > i64::MAX` gets `VersionMismatch` rather than a
+rejected value, because the request is clamped to `i64::MAX` and matches no row.
+**That is lossy, not wrong** — the request is refused, the database is not
+corrupted, and no test sends a value that large.
+
+**This programme keeps inventing binaries for *correct* and *broken*, and a
+defect report that only has those two slots will push a lossy behaviour into one
+of them by default.** So the third category is named explicitly: it goes in as an
+**open decision with its reasoning, and it must not acquire a guard by
+accident** — because adding a check nobody decided on is how a documented
+limitation becomes an undocumented behaviour change.
+
 ## A test that drops the handle asserts the opposite of the contract
 
 Three separate tests in one wave failed for the same reason, and it is a class
