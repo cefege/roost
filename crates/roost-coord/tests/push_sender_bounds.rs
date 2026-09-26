@@ -256,7 +256,7 @@ impl SupersedeOnSaturation {
 impl PushNotificationTransport for SupersedeOnSaturation {
     fn send<'a>(
         &'a self,
-        request: &'a PushDeliveryRequest,
+        request: &PushDeliveryRequest,
     ) -> Pin<Box<dyn Future<Output = Result<(), PushTransportError>> + Send + 'a>> {
         let now = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
         if now >= self.saturation {

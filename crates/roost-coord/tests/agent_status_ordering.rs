@@ -28,11 +28,16 @@ type Published = Arc<Mutex<Vec<AgentStatusUpdate>>>;
 fn subscribe(fixture: &AgentFixture) -> Published {
     let published: Published = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&published);
-    fixture.core.services.buses.agent_status_bus.subscribe(move |update| {
-        sink.lock()
-            .expect("the publication sink")
-            .push(update.clone());
-    });
+    fixture
+        .core
+        .services
+        .buses
+        .agent_status_bus
+        .subscribe(move |update| {
+            sink.lock()
+                .expect("the publication sink")
+                .push(update.clone());
+        });
     published
 }
 
@@ -45,7 +50,10 @@ fn retained(fixture: &AgentFixture) -> Vec<String> {
             format!(
                 "{}:{}:{}",
                 held.common.session_id.as_str(),
-                held.common.occupant_id.as_ref().map_or("-", |id| id.as_str()),
+                held.common
+                    .occupant_id
+                    .as_ref()
+                    .map_or("-", |id| id.as_str()),
                 held.common.revision
             )
         })
@@ -115,7 +123,10 @@ async fn a_replacement_occupant_is_not_a_stale_report_and_retires_the_previous_o
     );
     // The replaced occupant is fenced, however high its revision and whether
     // or not it is trying to delete the row.
-    for overrides in [json!({"revision": 91}), json!({"revision": 92, "active": false})] {
+    for overrides in [
+        json!({"revision": 91}),
+        json!({"revision": 92, "active": false}),
+    ] {
         let refused = fixture.hub().accept_worker_status(
             &fixture.core,
             &worker(WORKER_A),
@@ -208,7 +219,11 @@ async fn a_close_retires_the_occupant_and_a_reopen_does_not_unretire_it() {
         .note_session_closed(&fixture.core.services.buses, &session(SESSION_IDS[0]));
 
     let closing = published.lock().expect("the publication sink");
-    assert_eq!(closing.len(), 2, "the accepted frame and the synthetic close");
+    assert_eq!(
+        closing.len(),
+        2,
+        "the accepted frame and the synthetic close"
+    );
     let synthetic = closing.last().expect("the close publication");
     assert!(!synthetic.active, "a close publishes a deletion");
     assert_eq!(synthetic.common.revision, 9, "one past the last revision");
@@ -226,9 +241,7 @@ async fn a_close_retires_the_occupant_and_a_reopen_does_not_unretire_it() {
     );
     assert_eq!(refused, AgentStatusAcceptance::Stale, "closed is fenced");
 
-    fixture
-        .hub()
-        .note_session_opened(&session(SESSION_IDS[0]));
+    fixture.hub().note_session_opened(&session(SESSION_IDS[0]));
     accepted(
         &fixture,
         WORKER_A,
@@ -268,10 +281,15 @@ async fn the_list_order_and_the_broadcast_order_are_one_answer_after_a_reorderin
             json!({"revision": i64::try_from(index).expect("an index") + 1}),
         );
     }
-    let sorted: Vec<String> = [SESSION_IDS[1], SESSION_IDS[3], SESSION_IDS[0], SESSION_IDS[2]]
-        .iter()
-        .map(|id| (*id).to_owned())
-        .collect();
+    let sorted: Vec<String> = [
+        SESSION_IDS[1],
+        SESSION_IDS[3],
+        SESSION_IDS[0],
+        SESSION_IDS[2],
+    ]
+    .iter()
+    .map(|id| (*id).to_owned())
+    .collect();
     assert_eq!(
         fixture
             .hub()

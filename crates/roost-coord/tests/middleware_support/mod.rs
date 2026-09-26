@@ -21,6 +21,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::ServiceExt as _;
 use roost_coord::coord_core::CoordCore;
 use roost_coord::coord_core::boot_facts::BootFacts;
 use roost_coord::http::listener::{ListenerState, build_router};
@@ -32,8 +33,8 @@ use roost_host::{CoordConfig, CoordConfigInput};
 /// admits without being told about it.
 pub const WORKER_LOCAL_UI_ORIGIN: &str = roost_host::DEFAULT_WORKER_LOCAL_UI_ORIGIN;
 
-/// A host that is not this coordinator, in either spelling a `Host` header
-/// takes.
+/// A host that is not this coordinator. A gate on a loopback bind refuses it
+/// outright; a gate behind a routable bind leaves that job to the front door.
 pub const FOREIGN_HOST: &str = "attacker.example.com";
 
 /// How this fixture's coordinator is configured.
@@ -49,6 +50,12 @@ pub struct FixtureConfig {
     pub web_public_url: Option<String>,
     /// Whether an SPA build is available to serve.
     pub spa_available: bool,
+    /// The bind the operator configured, which decides whether the admission
+    /// gate claims this listener at all: a routable interface has a front door
+    /// doing that gate instead. `None` is the loopback ephemeral bind every
+    /// other fixture uses, and the socket is loopback either way -- only the
+    /// configured bind string differs, which is what the gate reads.
+    pub bind: Option<String>,
 }
 
 impl Default for FixtureConfig {
@@ -59,6 +66,7 @@ impl Default for FixtureConfig {
             cors_allowed_origins: Vec::new(),
             web_public_url: None,
             spa_available: false,
+            bind: None,
         }
     }
 }
@@ -86,8 +94,12 @@ impl ListenerFixture {
             .expect("a migrated database");
         // `:0` is the case the admission gate's pre-bind window exists for: the
         // configured port is not the port the listener gets.
+        let bind = config
+            .bind
+            .clone()
+            .unwrap_or_else(|| "127.0.0.1:0".to_owned());
         let resolved = CoordConfig::parse(CoordConfigInput {
-            bind: Some("127.0.0.1:0".to_owned()),
+            bind: Some(bind),
             db_path: Some(database_path.clone()),
             authorized_keys_path: Some(root.join("authorized_keys")),
             log_dir: Some(root.join("logs")),
@@ -259,20 +271,28 @@ fn parse(raw: &[u8]) -> HttpResponse {
 }
 
 /// Read a chunked body, so a test asserting on a body never reads framing.
+///
+/// Every bound here comes from the BUFFER, never from the chunk's own claimed
+/// size: a size is a number a peer wrote, and a chunk that claims more bytes
+/// than the body holds must end this decode rather than slice past the end of
+/// it. Clamping the upper end alone is not enough, because the start of the
+/// chunk is derived from the same claim.
 fn decode_chunked(body: &[u8]) -> String {
     let mut decoded = Vec::new();
     let mut rest = body;
     while let Some(end) = rest.windows(2).position(|window| window == b"\r\n") {
-        let size = String::from_utf8_lossy(&rest[..end]);
-        let size = usize::from_str_radix(size.trim().split(';').next().unwrap_or("0"), 16)
-            .expect("a chunk size");
-        if size == 0 {
+        let claimed = String::from_utf8_lossy(&rest[..end]);
+        let Ok(size) = usize::from_str_radix(claimed.trim().split(';').next().unwrap_or("0"), 16)
+        else {
+            break;
+        };
+        let start = (end + 2).min(rest.len());
+        let stop = start.saturating_add(size).min(rest.len());
+        if size == 0 || stop <= start {
             break;
         }
-        let chunk_start = end + 2;
-        let chunk_end = chunk_start + size;
-        decoded.extend_from_slice(&rest[chunk_start..chunk_end.min(rest.len())]);
-        rest = &rest[(chunk_end + 2).min(rest.len())..];
+        decoded.extend_from_slice(&rest[start..stop]);
+        rest = &rest[(stop + 2).min(rest.len())..];
     }
     String::from_utf8_lossy(&decoded).into_owned()
 }

@@ -163,8 +163,15 @@ fn refuse_input(error: PushInputError) -> ConnectError {
         // A statement failure is the coordinator's fault, not the caller's, and
         // reporting it as `InvalidArgument` would send a browser into a retry
         // loop against a database that is already unhappy.
-        PushInputError::Store(_) => {
-            return ConnectError::new(ErrorCode::Internal, error.to_string());
+        PushInputError::Store(cause) => {
+            // The store's own text names a table and a constraint, and it would
+            // reach the browser. The detail goes to the log; the client gets a
+            // sentence.
+            tracing::error!(error = %cause, "push.subscription_store_failed");
+            return ConnectError::new(
+                ErrorCode::Internal,
+                "the coordinator could not store this push subscription",
+            );
         }
     };
     ConnectError::new(code, error.to_string())

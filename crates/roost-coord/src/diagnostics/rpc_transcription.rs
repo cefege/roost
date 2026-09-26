@@ -23,9 +23,7 @@ use roost_proto as proto;
 use tracing::info;
 
 use crate::coord_core::{Caller, CoordCore};
-use crate::diagnostics::transcription::{
-    self, ProviderProbe, TranscriptionStoreError,
-};
+use crate::diagnostics::transcription::{self, ProviderProbe, TranscriptionStoreError};
 use crate::rpc::service::ok_response;
 
 /// `CoordinatorService.TranscriptionGetConfig` -- the settings, never the key.
@@ -85,14 +83,12 @@ pub async fn handle_transcription_grant_token(
         .await
         .map_err(|error| refuse_handoff(&error))?
         .ok_or_else(|| {
-            ConnectError::new(
-                ErrorCode::FailedPrecondition,
-                "Deepgram not configured",
-            )
+            ConnectError::new(ErrorCode::FailedPrecondition, "Deepgram not configured")
         })?;
     ok_response(proto::TranscriptionGrantTokenResponse {
         access_token: key,
         expires_in: 0,
+        ..Default::default()
     })
 }
 
@@ -115,15 +111,25 @@ pub async fn handle_transcription_test(
         return ok_response(proto::TranscriptionTestResponse {
             ok: false,
             error: "No Deepgram key saved".to_owned(),
+            ..Default::default()
         });
     };
 
-    let outcome = core.services.telemetry.transcription.probe_provider(key).await;
+    let outcome = core
+        .services
+        .telemetry
+        .transcription
+        .probe_provider(key)
+        .await;
     let (ok, error) = match &outcome {
         ProviderProbe::Reachable { .. } => (true, String::new()),
         other => (false, other.failure_reason().unwrap_or_default()),
     };
-    ok_response(proto::TranscriptionTestResponse { ok, error })
+    ok_response(proto::TranscriptionTestResponse {
+        ok,
+        error,
+        ..Default::default()
+    })
 }
 
 /// The tenant whose dashboard every transcription row is stamped with.
@@ -141,6 +147,7 @@ fn config_proto(config: transcription::TranscriptionConfig) -> proto::Transcript
         deepgram_configured: config.deepgram_configured,
         deepgram_key_masked: config.deepgram_key_masked,
         deepgram_language: config.deepgram_language,
+        ..Default::default()
     }
 }
 

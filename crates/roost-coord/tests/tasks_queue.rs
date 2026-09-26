@@ -74,7 +74,10 @@ async fn a_task_change_reaches_a_sync_subscriber() {
     let finished = &deltas[2].task;
     assert_eq!(finished.state, "done");
     assert_eq!(finished.result_json.as_deref(), Some(r#"{"ok":true}"#));
-    assert!(finished.finished_at_ms.is_some(), "a terminal state is stamped");
+    assert!(
+        finished.finished_at_ms.is_some(),
+        "a terminal state is stamped"
+    );
     assert_eq!(finished.claimed_by.as_deref(), Some(DEVICE_FP));
 }
 
@@ -87,7 +90,10 @@ async fn a_cancelled_task_reaches_the_subscriber_and_stamps_a_finish() {
     let cancelled = handle_tasks_cancel(
         &fixture.core,
         &device(DEVICE_FP),
-        roost_proto::TasksCancelRequest { id: id.clone(), ..Default::default() },
+        roost_proto::TasksCancelRequest {
+            id: id.clone(),
+            ..Default::default()
+        },
     )
     .await
     .expect("a cancelled task")
@@ -107,9 +113,30 @@ async fn a_cancelled_task_reaches_the_subscriber_and_stamps_a_finish() {
 #[tokio::test]
 async fn the_next_pending_claim_takes_the_oldest_task_and_ignores_a_claimed_one() {
     let fixture = TasksFixture::new("claim-order").await;
-    fixture.seed("22222222-2222-4222-8222-222222222222", "pending", 2_000, None).await;
-    fixture.seed("11111111-1111-4111-8111-111111111111", "pending", 1_000, None).await;
-    fixture.seed("33333333-3333-4333-8333-333333333333", "claimed", 0, Some(WORKER_FP)).await;
+    fixture
+        .seed(
+            "22222222-2222-4222-8222-222222222222",
+            "pending",
+            2_000,
+            None,
+        )
+        .await;
+    fixture
+        .seed(
+            "11111111-1111-4111-8111-111111111111",
+            "pending",
+            1_000,
+            None,
+        )
+        .await;
+    fixture
+        .seed(
+            "33333333-3333-4333-8333-333333333333",
+            "claimed",
+            0,
+            Some(WORKER_FP),
+        )
+        .await;
 
     let first = claim_next(&fixture).await;
     assert_eq!(first.id, "11111111-1111-4111-8111-111111111111");
@@ -137,7 +164,12 @@ async fn the_next_pending_claim_takes_the_oldest_task_and_ignores_a_claimed_one(
 async fn a_device_that_did_not_claim_a_task_may_not_report_its_outcome() {
     let fixture = TasksFixture::new("claim-fence").await;
     fixture
-        .seed("11111111-1111-4111-8111-111111111111", "claimed", 1_000, Some(DEVICE_FP))
+        .seed(
+            "11111111-1111-4111-8111-111111111111",
+            "claimed",
+            1_000,
+            Some(DEVICE_FP),
+        )
         .await;
 
     let refused = handle_tasks_set_state(
@@ -172,7 +204,14 @@ async fn a_device_that_did_not_claim_a_task_may_not_report_its_outcome() {
 #[tokio::test]
 async fn a_pending_task_is_open_to_any_device() {
     let fixture = TasksFixture::new("pending-open").await;
-    fixture.seed("11111111-1111-4111-8111-111111111111", "pending", 1_000, None).await;
+    fixture
+        .seed(
+            "11111111-1111-4111-8111-111111111111",
+            "pending",
+            1_000,
+            None,
+        )
+        .await;
     handle_tasks_set_state(
         &fixture.core,
         &device(OTHER_DEVICE_FP),
@@ -190,7 +229,12 @@ async fn a_pending_task_is_open_to_any_device() {
 async fn a_finished_task_cannot_be_cancelled() {
     let fixture = TasksFixture::new("terminal").await;
     fixture
-        .seed("11111111-1111-4111-8111-111111111111", "done", 1_000, Some(DEVICE_FP))
+        .seed(
+            "11111111-1111-4111-8111-111111111111",
+            "done",
+            1_000,
+            Some(DEVICE_FP),
+        )
         .await;
 
     let refused = handle_tasks_cancel(
@@ -244,7 +288,14 @@ async fn an_absent_task_is_not_found_on_both_methods_that_name_one() {
 #[tokio::test]
 async fn a_state_the_queue_does_not_have_is_refused_before_the_database_is_touched() {
     let fixture = TasksFixture::new("bad-state").await;
-    fixture.seed("11111111-1111-4111-8111-111111111111", "pending", 1_000, None).await;
+    fixture
+        .seed(
+            "11111111-1111-4111-8111-111111111111",
+            "pending",
+            1_000,
+            None,
+        )
+        .await;
 
     let listed = handle_tasks_list(
         &fixture.core,
@@ -278,8 +329,17 @@ async fn a_state_the_queue_does_not_have_is_refused_before_the_database_is_touch
 #[tokio::test]
 async fn listing_filters_by_state_and_treats_an_empty_filter_as_every_state() {
     let fixture = TasksFixture::new("list-filter").await;
-    fixture.seed("11111111-1111-4111-8111-111111111111", "pending", 1_000, None).await;
-    fixture.seed("22222222-2222-4222-8222-222222222222", "done", 2_000, None).await;
+    fixture
+        .seed(
+            "11111111-1111-4111-8111-111111111111",
+            "pending",
+            1_000,
+            None,
+        )
+        .await;
+    fixture
+        .seed("22222222-2222-4222-8222-222222222222", "done", 2_000, None)
+        .await;
 
     let all = list(&fixture, None).await;
     assert_eq!(all.len(), 2);
@@ -299,7 +359,12 @@ async fn a_list_returns_the_oldest_five_hundred_rows() {
     let fixture = TasksFixture::new("list-cap").await;
     for index in 0..505_i64 {
         fixture
-            .seed(&format!("{index:08x}-0000-4000-8000-000000000000"), "pending", index, None)
+            .seed(
+                &format!("{index:08x}-0000-4000-8000-000000000000"),
+                "pending",
+                index,
+                None,
+            )
             .await;
     }
     let listed = list(&fixture, None).await;

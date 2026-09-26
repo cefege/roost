@@ -266,14 +266,25 @@ async fn an_unbooted_coordinator_refuses_an_enqueue_rather_than_guessing_a_dashb
     .await
     .expect_err("an unbooted coordinator has no dashboard to scope the row to");
     assert_eq!(refused.code(), connectrpc::ErrorCode::Internal);
-    assert!(refused.message().contains("coordinator booted without tenant"));
+    assert!(
+        refused
+            .message()
+            .contains("coordinator booted without tenant")
+    );
     let _ = std::fs::remove_dir_all(&root);
 }
 
 #[tokio::test]
 async fn two_devices_never_claim_the_same_task() {
     let fixture = TasksFixture::new("claim-race").await;
-    fixture.seed("11111111-1111-4111-8111-111111111111", "pending", 1_000, None).await;
+    fixture
+        .seed(
+            "11111111-1111-4111-8111-111111111111",
+            "pending",
+            1_000,
+            None,
+        )
+        .await;
 
     let mine = tokio::spawn({
         let core = fixture.core.clone();

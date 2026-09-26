@@ -26,14 +26,12 @@ use std::time::Duration;
 use roost_observability::LogFields;
 use roost_protocol::wire::{
     AgentOccupantId, AgentRuntimeState, AgentStatus, AgentStatusUpdate, SessionId, StatusEpoch,
-    agent_status_identity,
 };
 
 use crate::agents::status_order::same_agent_status_occupant;
-use crate::push::dispatch::{
-    ActiveTerminalViewers, AgentPushTransition, PushNotificationTransport, PushTransition,
-    fire_push_for_transition,
-};
+use crate::push::dispatch::{ActiveTerminalViewers, AgentPushTransition, PushTransition, fire_push_for_transition};
+use crate::push::transport::PushNotificationTransport;
+use roost_protocol::wire::agent_status::agent_status_identity;
 
 /// How long a transition is held before a phone is told about it: one second
 /// (`agent-status-push-scheduler.ts:41`).
@@ -142,7 +140,7 @@ impl std::fmt::Debug for PushTransitions {
 
 /// One accepted transition, waiting out the debounce.
 #[derive(Debug, Clone)]
-struct PendingPush {
+pub struct PendingPush {
     /// The session the notification is about; the armed table is keyed by it.
     session_id: SessionId,
     status_epoch: StatusEpoch,
@@ -317,17 +315,21 @@ impl AgentStatusPushSchedule {
         };
         let fence_pending = pending.clone();
         let fence_current = Arc::clone(current);
+        // `deliver` takes a `'static` closure, so the session id is copied in
+        // rather than borrowed: the browser's tab outlives this call and the
+        // future must not hold a pointer into this frame.
+        let fence_session_id: SessionId = session_id.clone();
         delivery.deliver(
             &transition,
             Arc::new(move || {
                 fence_current
-                    .current(session_id)
+                    .current(&fence_session_id)
                     .is_some_and(|status| matches_current(&fence_pending, &status))
             }),
         );
     }
 
-    fn lock<T>(&self, mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    fn lock<'q, T>(&self, mutex: &'q Mutex<T>) -> MutexGuard<'q, T> {
         mutex.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
@@ -370,8 +372,7 @@ fn carried_still_holds(pending: &PendingPush, next: &AgentStatusUpdate) -> bool 
     let Some(identity) = agent_status_identity(&next.common) else {
         return false;
     };
-    if identity.status_epoch != pending.status_epoch
-        || identity.occupant_id != pending.occupant_id
+    if identity.status_epoch != pending.status_epoch || identity.occupant_id != pending.occupant_id
     {
         return false;
     }

@@ -71,9 +71,14 @@ impl TasksFixture {
         let core = CoordCore::new(Arc::clone(&services));
         let received = Arc::new(Mutex::new(Vec::new()));
         let sink = Arc::clone(&received);
-        services.buses.task_bus.subscribe(move |message: &TaskBusMsg| {
-            sink.lock().expect("the recording lock").push(message.clone());
-        });
+        services
+            .buses
+            .task_bus
+            .subscribe(move |message: &TaskBusMsg| {
+                sink.lock()
+                    .expect("the recording lock")
+                    .push(message.clone());
+            });
         Self {
             core,
             database,
@@ -177,10 +182,12 @@ pub async fn claim_next(fixture: &TasksFixture) -> roost_proto::Task {
 
 /// The `state` column of one stored row, read past the RPC layer.
 pub async fn stored_state(fixture: &TasksFixture, id: &str) -> String {
-    sqlx::query_scalar(AssertSqlSafe(format!("SELECT state FROM tasks WHERE id = '{id}'")))
-        .fetch_one(fixture.database.pool())
-        .await
-        .expect("the row")
+    sqlx::query_scalar(AssertSqlSafe(format!(
+        "SELECT state FROM tasks WHERE id = '{id}'"
+    )))
+    .fetch_one(fixture.database.pool())
+    .await
+    .expect("the row")
 }
 
 /// The queue as `TasksList` answers it, optionally narrowed to one state.

@@ -8,8 +8,8 @@
 mod terminal_view_support;
 
 use terminal_view_support::{
-    decisions, owner_state, watching, Harness, Recorded, Relayed, FINGERPRINT, OTHER_FINGERPRINT,
-    OTHER_SESSION, SESSION, VIEW,
+    FINGERPRINT, Harness, OTHER_SESSION, Recorded, Relayed, SESSION, VIEW, decisions, owner_state,
+    watching,
 };
 
 use roost_proto::{TerminalViewStatus, WTerminalViewProjection};
@@ -96,7 +96,9 @@ fn a_relay_refuses_a_session_the_socket_never_held() {
         "an unauthorized session never crosses the link"
     );
     assert_eq!(
-        decisions(&browser.sink.states()).last().map(|state| state.0),
+        decisions(&browser.sink.states())
+            .last()
+            .map(|state| state.0),
         Some(TerminalViewStatus::Rejected),
         "and the browser is refused by name"
     );
@@ -191,8 +193,8 @@ fn an_owner_release_stops_the_sockets_watch() {
 fn a_view_state_from_a_worker_that_does_not_own_the_session_is_dropped() {
     let harness = Harness::new();
     let browser = harness.browser("socket-a", FINGERPRINT, &[SESSION]);
-    let stranger = roost_protocol::wire::WorkerFp::try_from(terminal_view_support::WORKER_FP)
-        .unwrap();
+    let stranger =
+        roost_protocol::wire::WorkerFp::try_from(terminal_view_support::WORKER_FP).unwrap();
 
     harness.hub.apply_owner_view_state(
         &stranger,

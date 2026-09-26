@@ -51,7 +51,9 @@ fn a_frame_queued_and_then_drained_still_carries_its_meta() {
     assert_eq!(opened.meta().announces, vec![SESSION_A.to_owned()]);
     assert_eq!(opened.meta().lane, FeedLane::Session);
     assert!(
-        opened.enqueue_into(&mut session, 1_000, &mut hub).is_queued(),
+        opened
+            .enqueue_into(&mut session, 1_000, &mut hub)
+            .is_queued(),
         "a session-lane frame this socket subscribed to must be queued -- not \
          refused, and not sent as an unsequenced control"
     );
@@ -71,9 +73,11 @@ fn a_frame_queued_and_then_drained_still_carries_its_meta() {
             .as_ref()
             .expect("the test's cell carries a oneof"),
     );
-    assert!(session
-        .enqueue_frame(&cell, Some(&cell_meta), 1_000, &mut hub)
-        .is_queued());
+    assert!(
+        session
+            .enqueue_frame(&cell, Some(&cell_meta), 1_000, &mut hub)
+            .is_queued()
+    );
     assert!(
         matches!(
             session.take_next_sendable(1_000, &mut hub),
@@ -109,7 +113,11 @@ fn a_cell_for_a_session_that_was_closed_never_goes_out() {
     let mut hub = NoTerminalSnapshotHub;
 
     let opened = session_message_frame(&opened_message()).expect("an opened event is public");
-    assert!(opened.enqueue_into(&mut session, 1_000, &mut hub).is_queued());
+    assert!(
+        opened
+            .enqueue_into(&mut session, 1_000, &mut hub)
+            .is_queued()
+    );
     let FlushStep::Send(announcement) = session.take_next_sendable(1_000, &mut hub) else {
         panic!("the announcement must go out first");
     };
@@ -118,7 +126,11 @@ fn a_cell_for_a_session_that_was_closed_never_goes_out() {
 
     let close = session_message_frame(&closed_message()).expect("a close is public");
     assert_eq!(close.meta().closes, vec![SESSION_A.to_owned()]);
-    assert!(close.enqueue_into(&mut session, 1_000, &mut hub).is_queued());
+    assert!(
+        close
+            .enqueue_into(&mut session, 1_000, &mut hub)
+            .is_queued()
+    );
     let FlushStep::Send(delivered) = session.take_next_sendable(1_000, &mut hub) else {
         panic!("the close must go out");
     };
@@ -127,9 +139,11 @@ fn a_cell_for_a_session_that_was_closed_never_goes_out() {
 
     let cell = cell_frame();
     let cell_meta = SyncFrameMeta::cell(SESSION_A);
-    assert!(session
-        .enqueue_frame(&cell, Some(&cell_meta), 1_000, &mut hub)
-        .is_queued());
+    assert!(
+        session
+            .enqueue_frame(&cell, Some(&cell_meta), 1_000, &mut hub)
+            .is_queued()
+    );
     assert!(
         matches!(session.take_next_sendable(1_000, &mut hub), FlushStep::Idle),
         "a cell queued for a session whose close has been delivered describes \
@@ -224,7 +238,9 @@ fn the_routable_set_is_narrowed_to_the_machines_this_socket_may_see() {
         &visible,
     );
     match oneof_of(&frame) {
-        Frame::WorkerRoutable(WorkerRoutableFrame { fps, snapshot_id, .. }) => {
+        Frame::WorkerRoutable(WorkerRoutableFrame {
+            fps, snapshot_id, ..
+        }) => {
             assert_eq!(
                 fps,
                 vec![WORKER_A.to_owned()],

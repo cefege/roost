@@ -9,7 +9,9 @@
 
 mod terminal_view_support;
 
-use terminal_view_support::{decisions, Harness, FINGERPRINT, OTHER_FINGERPRINT, OTHER_VIEW, VIEW};
+use terminal_view_support::{
+    FINGERPRINT, Harness, OTHER_FINGERPRINT, OTHER_VIEW, SESSION, VIEW, decisions,
+};
 
 use roost_proto::TerminalViewStatus;
 use roost_protocol::viewport::{TERMINAL_VIEW_LEASE_MS, TERMINAL_VIEW_PARK_GRACE_MS};
@@ -22,8 +24,8 @@ const T0: u64 = 1_000_000;
 #[test]
 fn crossed_viewers_run_the_pty_at_the_per_axis_minimum() {
     let harness = Harness::unowned();
-    let wide = harness.browser("socket-wide", FINGERPRINT, &["0f9a1b3c-4d5e-4f60-8a7b-9c0d1e2f3a4b"]);
-    let narrow = harness.browser("socket-narrow", OTHER_FINGERPRINT, &["0f9a1b3c-4d5e-4f60-8a7b-9c0d1e2f3a4b"]);
+    let wide = harness.browser("socket-wide", FINGERPRINT, &[SESSION]);
+    let narrow = harness.browser("socket-narrow", OTHER_FINGERPRINT, &[SESSION]);
 
     harness.view(&wide, VIEW, 120, 50, 1, true, T0);
     harness.view(&narrow, OTHER_VIEW, 60, 80, 1, true, T0);
@@ -40,8 +42,8 @@ fn crossed_viewers_run_the_pty_at_the_per_axis_minimum() {
 #[test]
 fn a_viewers_departure_recomputes_the_effective_geometry() {
     let harness = Harness::unowned();
-    let wide = harness.browser("socket-wide", FINGERPRINT, &["0f9a1b3c-4d5e-4f60-8a7b-9c0d1e2f3a4b"]);
-    let narrow = harness.browser("socket-narrow", OTHER_FINGERPRINT, &["0f9a1b3c-4d5e-4f60-8a7b-9c0d1e2f3a4b"]);
+    let wide = harness.browser("socket-wide", FINGERPRINT, &[SESSION]);
+    let narrow = harness.browser("socket-narrow", OTHER_FINGERPRINT, &[SESSION]);
 
     harness.view(&wide, VIEW, 120, 50, 1, true, T0);
     harness.view(&narrow, OTHER_VIEW, 60, 80, 1, true, T0);
@@ -68,8 +70,8 @@ fn a_viewers_departure_recomputes_the_effective_geometry() {
 #[test]
 fn an_expired_lease_stops_pinning_the_pty() {
     let harness = Harness::unowned();
-    let wide = harness.browser("socket-wide", FINGERPRINT, &["0f9a1b3c-4d5e-4f60-8a7b-9c0d1e2f3a4b"]);
-    let narrow = harness.browser("socket-narrow", OTHER_FINGERPRINT, &["0f9a1b3c-4d5e-4f60-8a7b-9c0d1e2f3a4b"]);
+    let wide = harness.browser("socket-wide", FINGERPRINT, &[SESSION]);
+    let narrow = harness.browser("socket-narrow", OTHER_FINGERPRINT, &[SESSION]);
     harness.view(&wide, VIEW, 120, 50, 1, true, T0);
     harness.view(&narrow, OTHER_VIEW, 60, 80, 1, true, T0);
     let died_at = T0 + 100;
@@ -115,7 +117,7 @@ fn an_expired_lease_stops_pinning_the_pty() {
 #[test]
 fn a_live_view_whose_lease_lapses_closes_its_socket() {
     let harness = Harness::unowned();
-    let quiet = harness.browser("socket-quiet", FINGERPRINT, &["0f9a1b3c-4d5e-4f60-8a7b-9c0d1e2f3a4b"]);
+    let quiet = harness.browser("socket-quiet", FINGERPRINT, &[SESSION]);
     harness.view(&quiet, VIEW, 100, 40, 1, true, T0);
 
     harness.hub.sweep(T0 + TERMINAL_VIEW_LEASE_MS);
@@ -139,7 +141,7 @@ fn a_live_view_whose_lease_lapses_closes_its_socket() {
 #[test]
 fn a_solo_viewers_geometry_is_held_across_a_link_blip() {
     let harness = Harness::unowned();
-    let solo = harness.browser("socket-solo", FINGERPRINT, &["0f9a1b3c-4d5e-4f60-8a7b-9c0d1e2f3a4b"]);
+    let solo = harness.browser("socket-solo", FINGERPRINT, &[SESSION]);
     harness.view(&solo, VIEW, 100, 40, 1, true, T0);
     let blip_at = T0 + 100;
     harness.hub.close_socket("socket-solo", blip_at);
@@ -165,18 +167,13 @@ fn a_solo_viewers_geometry_is_held_across_a_link_blip() {
 #[test]
 fn a_viewer_resized_while_offline_reclaims_its_record_at_the_new_size() {
     let harness = Harness::unowned();
-    let first = harness.browser("socket-tab1", FINGERPRINT, &["0f9a1b3c-4d5e-4f60-8a7b-9c0d1e2f3a4b"]);
+    let first = harness.browser("socket-tab1", FINGERPRINT, &[SESSION]);
     harness.view(&first, VIEW, 200, 60, 1, true, T0);
     harness.hub.close_socket("socket-tab1", T0 + 100);
 
     // Same fingerprint, same tab, so the same viewer key: this is the reclaim
     // path, not a fresh admission that would collide with the parked record.
-    let again = harness.browser_with_tab(
-        "socket-tab1-redial",
-        FINGERPRINT,
-        "tab-1",
-        &["0f9a1b3c-4d5e-4f60-8a7b-9c0d1e2f3a4b"],
-    );
+    let again = harness.browser_with_tab("socket-tab1-redial", FINGERPRINT, "tab-1", &[SESSION]);
     harness.view(&again, VIEW, 80, 24, 2, true, T0 + 200);
 
     assert_eq!(
@@ -196,7 +193,7 @@ fn a_viewer_resized_while_offline_reclaims_its_record_at_the_new_size() {
 #[test]
 fn an_owned_session_is_relayed_rather_than_admitted_locally() {
     let harness = Harness::new();
-    let browser = harness.browser("socket-a", FINGERPRINT, &["0f9a1b3c-4d5e-4f60-8a7b-9c0d1e2f3a4b"]);
+    let browser = harness.browser("socket-a", FINGERPRINT, &[SESSION]);
 
     harness.view(&browser, VIEW, 120, 50, 1, true, T0);
 

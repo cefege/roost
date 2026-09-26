@@ -5,16 +5,32 @@
 //! Separate from the test files that use it because `tests/*.rs` are
 //! independent crates, so a harness has to live in a module both can include.
 
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use roost_coord::terminal_view::{SocketRegistration, TerminalViewHub};
-use roost_proto::TerminalViewStatus;
+use roost_proto::{TerminalViewCommand, TerminalViewStateFrame, TerminalViewStatus};
 use roost_protocol::wire::{SessionId, WorkerFp};
 
 mod sink;
 
 pub use sink::{Recorded, RecordingSink, RecordingTransport, Relayed};
+
+/// A device fingerprint the wire accepts.
+pub const FINGERPRINT: &str = "aa00000000000000000000000000000000000000000000000000000000000000";
+/// A second device, for the cases that need one.
+pub const OTHER_FINGERPRINT: &str =
+    "bb00000000000000000000000000000000000000000000000000000000000000";
+/// A worker fingerprint the wire accepts.
+pub const WORKER_FP: &str = "cc00000000000000000000000000000000000000000000000000000000000000";
+
+/// A session id, which must be a uuid.
+pub const SESSION: &str = "0f9a1b3c-4d5e-4f60-8a7b-9c0d1e2f3a4b";
+/// A second session id.
+pub const OTHER_SESSION: &str = "1a2b3c4d-5e6f-4071-9b8c-0d1e2f3a4b5c";
+/// A view id, which must be a uuid.
+pub const VIEW: &str = "2b3c4d5e-6f70-4182-8c9d-1e2f3a4b5c6d";
+/// A second view id.
+pub const OTHER_VIEW: &str = "3c4d5e6f-7081-4293-9d0e-2f3a4b5c6d7e";
 
 /// One registered browser socket and the sink behind it.
 pub struct Browser {
@@ -70,12 +86,7 @@ impl Harness {
     }
 
     /// Register a browser socket that may observe the harness's session.
-    pub fn browser(
-        &self,
-        socket_id: &str,
-        fingerprint: &str,
-        sessions: &[&str],
-    ) -> Browser {
+    pub fn browser(&self, socket_id: &str, fingerprint: &str, sessions: &[&str]) -> Browser {
         self.browser_with_tab(socket_id, fingerprint, "tab-1", sessions)
     }
 
@@ -177,7 +188,6 @@ pub fn watching(effects: &[Recorded]) -> Vec<(String, bool)> {
         .collect()
 }
 
-
 /// An owner view-state frame, as the worker publishes it.
 #[allow(clippy::too_many_arguments)]
 pub fn owner_state(
@@ -195,7 +205,7 @@ pub fn owner_state(
         revision,
         active,
         stream_id: stream_id.to_owned(),
-        status: TerminalViewStatus::Accepted,
+        status: TerminalViewStatus::Accepted.into(),
         effective_cols: cols,
         effective_rows: rows,
         reason: String::new(),

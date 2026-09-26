@@ -14,10 +14,14 @@ use sqlx::{Sqlite, Transaction};
 
 use crate::auth::authorized_keys::fingerprint_of_raw_public_key;
 use crate::auth::bootstrap_tokens::{
-    self, Bind, BootstrapClaim, BootstrapTokenClaim, BootstrapTokenKind, begin, claim_bootstrap_token,
-    commit, decode_ed25519_pubkey, mint_bootstrap_token, run,
+    self, BootstrapClaim, BootstrapTokenClaim, BootstrapTokenKind, claim_bootstrap_token,
+    decode_ed25519_pubkey, mint_bootstrap_token,
 };
-use crate::auth::principal::{AUTH_LAYER_DEVICE, AUTH_LAYER_HEADER};
+use crate::auth::db_statements::{
+    ACCOUNT_DEVICE_ROW, Bind, WORKER_ROW, begin, column1, commit, exists1, fault,
+    insert_account_device, insert_authorized_key, invalid_argument, require_account_device, run,
+    stored_public_key,
+};
 use crate::coord_core::{Caller, CoordCore};
 use crate::db::CoordDb;
 use crate::events::persistence_input::{MAX_PERSISTED_UTF8_BYTES, truncate_persisted_utf8};
@@ -25,9 +29,18 @@ use crate::rpc::service::{now_ms, ok_response};
 
 /// The Connect method each handler answers, and the function that answers it.
 pub const METHOD_HANDLERS: &[(&str, &str)] = &[
-    ("AuthMintBootstrap", "auth::rpc_bootstrap::handle_auth_mint_bootstrap"),
-    ("AuthRedeemWorker", "auth::rpc_bootstrap::handle_auth_redeem_worker"),
-    ("AuthRedeemBrowser", "auth::rpc_bootstrap::handle_auth_redeem_browser"),
+    (
+        "AuthMintBootstrap",
+        "auth::rpc_bootstrap::handle_auth_mint_bootstrap",
+    ),
+    (
+        "AuthRedeemWorker",
+        "auth::rpc_bootstrap::handle_auth_redeem_worker",
+    ),
+    (
+        "AuthRedeemBrowser",
+        "auth::rpc_bootstrap::handle_auth_redeem_browser",
+    ),
 ];
 
 /// `CoordinatorService.AuthMintBootstrap` -- one one-shot enrollment grant.
@@ -51,7 +64,7 @@ pub async fn handle_auth_mint_bootstrap(
         now_ms(),
     )
     .await
-    .map_err(|error| internal(error.to_string()))?;
+    .map_err(|error| fault("redeem", &error))?;
 
     ok_response(proto::AuthMintBootstrapResponse {
         token: minted.token,
@@ -69,8 +82,7 @@ pub async fn handle_auth_redeem_worker(
     if !HostPlatform::is_supported(&request.os) {
         return Err(invalid_argument("unsupported worker os"));
     }
-    let public_key =
-        decode_ed25519_pubkey(&request.ssh_pubkey_b64).ok_or_else(invalid_pubkey)?;
+    let public_key = decode_ed25519_pubkey(&request.ssh_pubkey_b64).ok_or_else(invalid_pubkey)?;
     let fingerprint = fingerprint_of_raw_public_key(&public_key);
     let now = now_ms();
     let label = truncate_persisted_utf8(&request.label, MAX_PERSISTED_UTF8_BYTES).to_owned();
@@ -82,13 +94,11 @@ pub async fn handle_auth_redeem_worker(
     let dashboard_id = core.services.boot.require_tenant()?.dashboard_id.clone();
     let (mut transaction, _) = claim_redemption(
         &core.services.db,
-        BootstrapClaim {
-            token_hash: "",
-            kind: BootstrapTokenKind::Worker,
-            fingerprint: &fingerprint,
-            public_key: &public_key,
-            now_ms: now,
-        },
+        &request.token,
+        BootstrapTokenKind::Worker,
+        &fingerprint,
+        &public_key,
+        now,
     )
     .await?;
 
@@ -159,20 +169,17 @@ pub async fn handle_auth_redeem_browser(
     _caller: &Caller,
     request: proto::AuthRedeemBrowserRequest,
 ) -> ServiceResult<proto::AuthRedeemBrowserResponse> {
-    let public_key =
-        decode_ed25519_pubkey(&request.ssh_pubkey_b64).ok_or_else(invalid_pubkey)?;
+    let public_key = decode_ed25519_pubkey(&request.ssh_pubkey_b64).ok_or_else(invalid_pubkey)?;
     let fingerprint = fingerprint_of_raw_public_key(&public_key);
     let now = now_ms();
     let label = truncate_persisted_utf8(&request.label, MAX_PERSISTED_UTF8_BYTES).to_owned();
     let (mut transaction, claimed) = claim_redemption(
         &core.services.db,
-        BootstrapClaim {
-            token_hash: "",
-            kind: BootstrapTokenKind::Browser,
-            fingerprint: &fingerprint,
-            public_key: &public_key,
-            now_ms: now,
-        },
+        &request.token,
+        BootstrapTokenKind::Browser,
+        &fingerprint,
+        &public_key,
+        now,
     )
     .await?;
 
@@ -225,20 +232,25 @@ pub async fn handle_auth_redeem_browser(
 /// would burn a grant for nothing.
 async fn claim_redemption<'a>(
     database: &'a CoordDb,
-    claim: BootstrapClaim<'_>,
+    token: &str,
+    kind: BootstrapTokenKind,
+    fingerprint: &str,
+    public_key: &[u8; 32],
+    now: i64,
 ) -> Result<(Transaction<'a, Sqlite>, BootstrapTokenClaim), ConnectError> {
     let mut transaction = begin(database).await?;
-    let token_hash = bootstrap_tokens::bootstrap_token_digest(claim.token);
-    let claimed = claim_bootstrap_token(
-        &mut transaction,
-        &BootstrapClaim {
-            token_hash: &token_hash,
-            ..claim
-        },
-    )
-    .await
-    .map_err(|error| internal(error.to_string()))?
-    .ok_or_else(invalid_bootstrap_token)?;
+    let token_hash = bootstrap_tokens::bootstrap_token_digest(token);
+    let claim = BootstrapClaim {
+        token_hash: &token_hash,
+        kind,
+        fingerprint,
+        public_key,
+        now_ms: now,
+    };
+    let claimed = claim_bootstrap_token(&mut transaction, &claim)
+        .await
+        .map_err(|error| fault("claim bootstrap token", &error))?
+        .ok_or_else(invalid_bootstrap_token)?;
     Ok((transaction, claimed))
 }
 
@@ -250,146 +262,3 @@ fn invalid_bootstrap_token() -> ConnectError {
     ConnectError::new(ErrorCode::Unauthenticated, "invalid or expired token")
 }
 
-/// Add a key to `authorized_keys`. Shared with `rpc_devices`.
-pub(crate) async fn insert_authorized_key(
-    transaction: &mut Transaction<'_, Sqlite>,
-    fingerprint: &str,
-    public_key: &[u8; 32],
-    label: &str,
-    now: i64,
-) -> Result<(), ConnectError> {
-    run(
-        transaction,
-        "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) \
-         VALUES (?, ?, ?, ?)",
-        &[
-            Bind::Text(Some(fingerprint)),
-            Bind::Bytes(public_key),
-            Bind::Text(Some(label)),
-            Bind::Int(now),
-        ],
-    )
-    .await
-}
-
-/// the Sync upgrade refuses with a 404.
-pub(crate) async fn insert_account_device(
-    transaction: &mut Transaction<'_, Sqlite>,
-    fingerprint: &str,
-    account_id: &str,
-    now: i64,
-) -> Result<(), ConnectError> {
-    run(
-        transaction,
-        "INSERT INTO account_devices (fingerprint, account_id, added_at_ms, last_seen_at_ms) \
-         VALUES (?, ?, ?, ?)",
-        &[
-            Bind::Text(Some(fingerprint)),
-            Bind::Text(Some(account_id)),
-            Bind::Int(now),
-            Bind::Int(now),
-        ],
-    )
-    .await
-}
-
-pub(crate) async fn exists1(
-    transaction: &mut Transaction<'_, Sqlite>,
-    sql: &str,
-    value: &str,
-) -> Result<bool, ConnectError> {
-    sqlx::query_scalar::<_, i64>(sql)
-        .bind(value)
-        .fetch_optional(&mut **transaction)
-        .await
-        .map(|found| found.is_some())
-        .map_err(|error| internal(error.to_string()))
-}
-
-/// Whether a two-parameter lookup found a row, for the account-scoped questions.
-pub(crate) async fn exists2(
-    transaction: &mut Transaction<'_, Sqlite>,
-    sql: &str,
-    values: (&str, &str),
-) -> Result<bool, ConnectError> {
-    sqlx::query_scalar::<_, i64>(sql)
-        .bind(values.0)
-        .bind(values.1)
-        .fetch_optional(&mut **transaction)
-        .await
-        .map(|found| found.is_some())
-        .map_err(|error| internal(error.to_string()))
-}
-
-pub(crate) async fn column1(
-    transaction: &mut Transaction<'_, Sqlite>,
-    sql: &str,
-    value: &str,
-) -> Result<Option<String>, ConnectError> {
-    sqlx::query_as::<_, (String,)>(sql)
-        .bind(value)
-        .fetch_optional(&mut **transaction)
-        .await
-        .map(|found| found.map(|(text,)| text))
-        .map_err(|error| internal(error.to_string()))
-}
-
-pub(crate) async fn column2(
-    transaction: &mut Transaction<'_, Sqlite>,
-    sql: &str,
-    values: (&str, &str),
-) -> Result<Option<String>, ConnectError> {
-    sqlx::query_as::<_, (String,)>(sql)
-        .bind(values.0)
-        .bind(values.1)
-        .fetch_optional(&mut **transaction)
-        .await
-        .map(|found| found.map(|(text,)| text))
-        .map_err(|error| internal(error.to_string()))
-}
-
-/// wearing the first one's name.
-pub(crate) async fn stored_public_key(
-    transaction: &mut Transaction<'_, Sqlite>,
-    fingerprint: &str,
-) -> Result<Option<Vec<u8>>, ConnectError> {
-    sqlx::query_as::<_, (Vec<u8>,)>(
-        "SELECT public_key FROM authorized_keys WHERE fingerprint = ?",
-    )
-    .bind(fingerprint)
-    .fetch_optional(&mut **transaction)
-    .await
-    .map(|found| found.map(|(bytes,)| bytes))
-    .map_err(|error| internal(error.to_string()))
-}
-
-pub(crate) const AUTHORIZED_KEY: &str = "SELECT 1 FROM authorized_keys WHERE fingerprint = ?";
-pub(crate) const WORKER_ROW: &str = "SELECT 1 FROM workers WHERE fp = ?";
-pub(crate) const REVOKED_KEY: &str = "SELECT 1 FROM authorized_key_revocations WHERE fingerprint = ?";
-pub(crate) const ACCOUNT_DEVICE_ROW: &str =
-    "SELECT 1 FROM account_devices WHERE fingerprint = ?";
-
-/// Refuse anything that is not a browser, marker header included.
-pub(crate) fn require_account_device(caller: &Caller) -> Result<&str, ConnectError> {
-    caller
-        .principal
-        .require_account_device()
-        .map_err(|_| require_device())
-}
-
-pub(crate) fn require_device() -> ConnectError {
-    let mut error = ConnectError::new(ErrorCode::Unauthenticated, "authentication required");
-    error.response_headers_mut().insert(
-        axum::http::HeaderName::from_static(AUTH_LAYER_HEADER),
-        axum::http::HeaderValue::from_static(AUTH_LAYER_DEVICE),
-    );
-    error
-}
-
-pub(crate) fn invalid_argument(message: &str) -> ConnectError {
-    ConnectError::new(ErrorCode::InvalidArgument, message)
-}
-
-pub(crate) fn internal(message: String) -> ConnectError {
-    ConnectError::new(ErrorCode::Internal, message)
-}

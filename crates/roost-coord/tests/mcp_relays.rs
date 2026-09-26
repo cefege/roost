@@ -27,8 +27,8 @@ use roost_coord::services::CoordServices;
 use roost_coord::sessions::mcp::{
     handle_mcp_create, handle_mcp_delete, handle_mcp_list, handle_mcp_publish,
 };
-use roost_protocol::wire::{McpRelayDelta, McpStreamMessage};
 use roost_proto as proto;
+use roost_protocol::wire::{McpRelayDelta, McpStreamMessage};
 use sqlx::Row;
 
 /// A dashboard this coordinator does not hold, so a row can be planted in it.
@@ -106,14 +106,16 @@ impl McpFixture {
     {
         let seen: Arc<Mutex<Vec<McpStreamMessage>>> = Arc::new(Mutex::new(Vec::new()));
         let sink = Arc::clone(&seen);
-        let subscription = self
-            .core
-            .services
-            .buses
-            .mcp_bus
-            .subscribe(move |message: &McpStreamMessage| {
-                sink.lock().expect("the stream sink lock").push(message.clone());
-            });
+        let subscription =
+            self.core
+                .services
+                .buses
+                .mcp_bus
+                .subscribe(move |message: &McpStreamMessage| {
+                    sink.lock()
+                        .expect("the stream sink lock")
+                        .push(message.clone());
+                });
         let outcome = body.await;
         drop(subscription);
         let messages = seen.lock().expect("the stream sink lock").clone();
@@ -130,7 +132,8 @@ impl McpFixture {
             .map(|row| {
                 (
                     row.try_get::<String, _>("id").expect("the relay id"),
-                    row.try_get::<String, _>("dashboard_id").expect("the relay dashboard"),
+                    row.try_get::<String, _>("dashboard_id")
+                        .expect("the relay dashboard"),
                 )
             })
             .collect()
@@ -178,7 +181,10 @@ fn delete_request(id: &str) -> proto::McpDeleteRequest {
 }
 
 fn message_of(error: &ConnectError) -> String {
-    error.message().to_owned()
+    // `ConnectError::message` is a FIELD, an `Option<String>` carrying the text
+    // the client will read, and `payload::message::<M>()` is a different thing
+    // that decodes a body. A test asserting a refusal's wording wants the former.
+    error.message.clone().unwrap_or_default()
 }
 
 /// Plant a relay that exists but belongs to a dashboard this coordinator does
@@ -310,12 +316,21 @@ async fn a_created_relay_persists_the_resolved_dashboard_id() {
     let created = handle_mcp_create(
         &fixture.core,
         &fixture.device(),
-        create_request("Scoped tools", "sse", r#"{"url":"http://127.0.0.1:9999/sse"}"#),
+        create_request(
+            "Scoped tools",
+            "sse",
+            r#"{"url":"http://127.0.0.1:9999/sse"}"#,
+        ),
     )
     .await
     .expect("a relay is registered")
     .body;
-    let id = created.relay.as_option().expect("the created relay").id.clone();
+    let id = created
+        .relay
+        .as_option()
+        .expect("the created relay")
+        .id
+        .clone();
 
     assert_eq!(
         fixture.rows().await,
@@ -382,8 +397,7 @@ async fn a_relay_another_dashboard_holds_is_not_found_and_changes_nothing() {
         .await
         .expect_err("a relay outside this dashboard is not deletable");
     assert_eq!(
-        deleted.code,
-        published.code,
+        deleted.code, published.code,
         "an unknown id and a foreign id are one answer, so the registry cannot be probed"
     );
     assert_eq!(
@@ -479,13 +493,9 @@ async fn a_malformed_relay_id_is_refused_before_it_reaches_the_store() {
         message_of(&deleted)
     );
 
-    let published = handle_mcp_publish(
-        &fixture.core,
-        &fixture.device(),
-        publish_request("", "{}"),
-    )
-    .await
-    .expect_err("an empty relay id is refused");
+    let published = handle_mcp_publish(&fixture.core, &fixture.device(), publish_request("", "{}"))
+        .await
+        .expect_err("an empty relay id is refused");
     assert_eq!(published.code, ErrorCode::InvalidArgument);
     assert!(fixture.rows().await.is_empty());
 }
@@ -538,13 +548,10 @@ async fn a_worker_principal_has_no_authority_over_the_relay_registry() {
     .expect_err("a machine cannot register a relay");
     assert_eq!(created.code, ErrorCode::Unauthenticated);
 
-    let published = handle_mcp_publish(
-        &fixture.core,
-        &worker,
-        publish_request(UNKNOWN_RELAY, "{}"),
-    )
-    .await
-    .expect_err("a machine cannot publish a payload");
+    let published =
+        handle_mcp_publish(&fixture.core, &worker, publish_request(UNKNOWN_RELAY, "{}"))
+            .await
+            .expect_err("a machine cannot publish a payload");
     assert_eq!(published.code, ErrorCode::Unauthenticated);
 
     let deleted = handle_mcp_delete(&fixture.core, &worker, delete_request(UNKNOWN_RELAY))
@@ -583,15 +590,19 @@ async fn the_registry_answers_in_the_order_it_declares() {
     // restating whichever order happened to come out.
     let mut ids = Vec::new();
     for label in ["first", "second"] {
-        let created = handle_mcp_create(
-            &fixture.core,
-            &device,
-            create_request(label, "stdio", "{}"),
-        )
-        .await
-        .expect("a relay is registered")
-        .body;
-        ids.push(created.relay.as_option().expect("the created relay").id.clone());
+        let created =
+            handle_mcp_create(&fixture.core, &device, create_request(label, "stdio", "{}"))
+                .await
+                .expect("a relay is registered")
+                .body;
+        ids.push(
+            created
+                .relay
+                .as_option()
+                .expect("the created relay")
+                .id
+                .clone(),
+        );
     }
 
     let listed = handle_mcp_list(&fixture.core, &device, proto::McpListRequest::default())

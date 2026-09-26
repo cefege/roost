@@ -87,10 +87,12 @@ pub async fn paired_browser_association_conflict(
     if worker_exists(database.pool(), fingerprint).await? {
         return Ok(Some(AssociationConflict::WorkerKey));
     }
-    Ok(match account_of_device(database.pool(), fingerprint).await? {
-        Some(existing) if existing != account_id => Some(AssociationConflict::OtherAccount),
-        _ => None,
-    })
+    Ok(
+        match account_of_device(database.pool(), fingerprint).await? {
+            Some(existing) if existing != account_id => Some(AssociationConflict::OtherAccount),
+            _ => None,
+        },
+    )
 }
 
 /// Make a confirmed fingerprint an account device, or refuse the conflict.
@@ -107,10 +109,10 @@ pub async fn associate_paired_browser(
 ) -> PairingResult<()> {
     match paired_browser_association_conflict(database, fingerprint, account_id).await? {
         Some(AssociationConflict::WorkerKey) => {
-            return Err(refuse(PairingRefusal::WorkerKeyConflict))
+            return Err(refuse(PairingRefusal::WorkerKeyConflict));
         }
         Some(AssociationConflict::OtherAccount) => {
-            return Err(refuse(PairingRefusal::OtherAccountConflict))
+            return Err(refuse(PairingRefusal::OtherAccountConflict));
         }
         None => {}
     }
@@ -130,7 +132,10 @@ pub async fn associate_paired_browser(
 }
 
 /// The account a device fingerprint belongs to.
-pub async fn account_of_device<'a, E>(executor: E, fingerprint: &str) -> PairingResult<Option<String>>
+pub async fn account_of_device<'a, E>(
+    executor: E,
+    fingerprint: &str,
+) -> PairingResult<Option<String>>
 where
     E: sqlx::Executor<'a, Database = sqlx::Sqlite>,
 {
@@ -164,12 +169,11 @@ where
 {
     // `LIMIT 2`, not `LIMIT 1`: the question is "is there exactly one", and a
     // query that cannot see the second account cannot answer it.
-    let rows = sqlx::query_as::<_, (String,)>(
-        "SELECT id FROM accounts WHERE status = 'active' LIMIT 2",
-    )
-    .fetch_all(executor)
-    .await
-    .map_err(|error| super::sqlx_error("pairing.account", error))?;
+    let rows =
+        sqlx::query_as::<_, (String,)>("SELECT id FROM accounts WHERE status = 'active' LIMIT 2")
+            .fetch_all(executor)
+            .await
+            .map_err(|error| super::sqlx_error("pairing.account", error))?;
     Ok(match rows.as_slice() {
         [(id,)] => Some(id.clone()),
         _ => None,
@@ -211,7 +215,7 @@ where
 /// One string column, looked up by a text key.
 async fn one_string<'a, E>(
     executor: E,
-    statement: &str,
+    statement: &'static str,
     key: &str,
 ) -> PairingResult<Option<String>>
 where

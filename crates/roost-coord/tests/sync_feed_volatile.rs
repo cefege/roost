@@ -30,14 +30,14 @@ use roost_coord::sync_ws::feed::presence::{
 };
 use roost_coord::sync_ws::feed::ui::{UiViewer, ui_bus_frame, ui_state_seed_frames};
 use roost_coord::sync_ws::frame_meta::{FeedLane, SyncFrameMeta};
-use roost_coord::sync_ws::frame_meta::SyncDomain;
+use roost_proto::SyncDomain;
 use roost_coord::ui_state::state_owner::UiStateOwner;
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
 use roost_proto::UiCommand;
 use roost_protocol::wire::{ChannelId, SessionEvent};
 use serde_json::json;
 
-use sync_feed_support::{SESSION_A, WORKER_A, oneof_of, session, worker, FixedRoutes};
+use sync_feed_support::{FixedRoutes, SESSION_A, WORKER_A, oneof_of, session, worker};
 
 #[test]
 fn a_busy_session_fans_out_at_most_one_activity_frame_per_throttle_window() {

@@ -167,7 +167,7 @@ impl FakeTransport {
 impl PushNotificationTransport for FakeTransport {
     fn send<'a>(
         &'a self,
-        request: &'a PushDeliveryRequest,
+        request: &PushDeliveryRequest,
     ) -> Pin<Box<dyn Future<Output = Result<(), PushTransportError>> + Send + 'a>> {
         Box::pin(async move {
             self.enter().await;

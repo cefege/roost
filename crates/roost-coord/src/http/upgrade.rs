@@ -111,10 +111,7 @@ pub async fn worker_upgrade(
 }
 
 /// The Sync upgrade. The decision is in `sync_ws::upgrade_admission`.
-pub async fn sync_upgrade(
-    State(state): State<Arc<ListenerState>>,
-    request: Request,
-) -> Response {
+pub async fn sync_upgrade(State(state): State<Arc<ListenerState>>, request: Request) -> Response {
     let offered = offered_protocols(&request);
     let credential = offered.get(1).cloned();
     let caller = match credential.as_deref() {

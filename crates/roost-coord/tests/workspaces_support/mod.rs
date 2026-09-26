@@ -29,10 +29,6 @@ use sqlx::AssertSqlSafe;
 /// A valid worker fingerprint.
 pub const WORKER_FP: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
-/// A second machine, for the tests that need more than one.
-pub const OTHER_WORKER_FP: &str =
-    "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
-
 /// The account device an operator acts as.
 pub const DEVICE_FP: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
@@ -49,8 +45,10 @@ pub struct WorkspacesFixture {
     pub database: CoordDb,
     /// The dashboard every row this fixture writes is scoped to.
     pub dashboard_id: String,
-    /// The `WorkspaceDelta`s a subscriber has seen, in order.
-    pub deltas: Arc<Mutex<Vec<WorkspaceDelta>>>,
+    /// The `WorkspaceDelta`s a subscriber has seen, in order. Private, because
+    /// `recorded()` is the only way a test should read them: a test that indexed
+    /// the vec itself would be asserting on the recorder rather than on the bus.
+    deltas: Arc<Mutex<Vec<WorkspaceDelta>>>,
     /// The subscription, held so the fixture outlives the first publish.
     _subscription: Subscription<WorkspaceDelta>,
     root: PathBuf,
@@ -69,9 +67,10 @@ impl WorkspacesFixture {
         let database = roost_coord::db::open(&root.join("coord.db"))
             .await
             .expect("a migrated database");
-        let tenant = roost_coord::auth::self_hosted_tenant::ensure_self_hosted_tenant(&database, 1_000)
-            .await
-            .expect("the self-hosted tenant");
+        let tenant =
+            roost_coord::auth::self_hosted_tenant::ensure_self_hosted_tenant(&database, 1_000)
+                .await
+                .expect("the self-hosted tenant");
         let services = Arc::new(CoordServices::booted(
             database.clone(),
             BootFacts {
@@ -193,22 +192,6 @@ pub fn machine_caller() -> Caller {
         principal: Principal::Worker {
             fingerprint: WORKER_FP.to_owned(),
             label: "test worker".to_owned(),
-        },
-        tab_id: None,
-        remote_address: None,
-        on_host: true,
-        listener_trust: ListenerTrust::DirectLoopback,
-    }
-}
-
-/// A browser key from before accounts existed: authenticated, but carrying no
-/// device, which is the other half of the same refusal.
-#[must_use]
-pub fn legacy_caller() -> Caller {
-    Caller {
-        principal: Principal::LegacySelfHosted {
-            fingerprint: DEVICE_FP.to_owned(),
-            label: "legacy browser".to_owned(),
         },
         tab_id: None,
         remote_address: None,

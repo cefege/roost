@@ -22,9 +22,8 @@ use roost_coord::events::bus_messages::{
     TaskBusMsg, TaskBusMsgKind, UiBusMsg, WorkerRoutableSet,
 };
 use roost_coord::sync_ws::feed::frames::{
-    agent_status_frame,
-    audit_frame, mcp_frame, pair_frame, session_message_frame, session_title_frame, task_frame,
-    workspace_frame,
+    agent_status_frame, audit_frame, mcp_frame, pair_frame, session_message_frame,
+    session_title_frame, task_frame, workspace_frame,
 };
 use roost_coord::sync_ws::feed::last_activity::last_activity_frame;
 use roost_coord::sync_ws::feed::presence::session_presence_frame;
@@ -80,8 +79,10 @@ fn every_bus_in_the_coordinator_has_a_producer() {
     );
     record(
         "mcp_bus",
-        mcp_frame(&McpStreamMessage::Delta(McpRelayDelta::Updated { relay: relay() }))
-            .expect("a relay's free-form config always serialises"),
+        mcp_frame(&McpStreamMessage::Delta(McpRelayDelta::Updated {
+            relay: relay(),
+        }))
+        .expect("a relay's free-form config always serialises"),
     );
     record("agent_status_bus", agent_status_frame(&agent_status()));
     record(
@@ -200,4 +201,3 @@ fn every_bus_in_the_coordinator_has_a_producer() {
         "each of the seven hydrated domains is reachable from at least one bus"
     );
 }
-
