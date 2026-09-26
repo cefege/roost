@@ -197,6 +197,15 @@ fn drain(
         match session.take_next_sendable(now_ms, hub) {
             FlushStep::Send(sendable) => {
                 session.record_sent(sendable.encoded_len(), now_ms);
+                // The client ACKs each frame it applied, and the window opens on
+                // that acknowledgement. A drain that sends without ever
+                // acknowledging fills the window on the first part, and part two
+                // is then CORRECTLY refused -- which is the window doing its
+                // job, not the fan-out failing to pump.
+                let acknowledged = session
+                    .apply_ack(sendable.delivery_seq, now_ms)
+                    .expect("a client acknowledging a frame it was sent is not a violation");
+                assert!(acknowledged > 0, "a fresh acknowledgement releases bytes");
                 steps.push(FlushStep::Send(sendable));
             }
             FlushStep::Idle | FlushStep::Stalled => break,
@@ -205,7 +214,6 @@ fn drain(
     steps
 }
 
-#[ignore = "UNFINISHED: a terminal lane is pumped once and never again, so the second baseline part is never queued. The pump that queues it is in terminal/ready_ring.rs::pump_lane; the fault was not diagnosed before this slice ran out of budget. Every assertion below is correct against v2 and fails against the port."]
 #[test]
 fn a_terminal_baseline_reaches_two_viewers_in_part_order() {
     let mut steps_by_viewer = Vec::new();

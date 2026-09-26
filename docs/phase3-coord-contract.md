@@ -2023,7 +2023,44 @@ The two that were not named before, and both are load-bearing:
 `FLUSH_BATCH_FRAMES` is 64, and `has_sendable_work(now_ms, ack_seq)` is the flush
 loop's yield contract: send up to 64, then check, then yield.
 
-### 12.8 KNOWN GAP: the terminal fan-out loop does not work
+### 12.8 FIXED: a queued frame carried no meta, and the cursor could never advance
+
+**The root cause was not the pump.** The `#[ignore]` message blamed
+`ready_ring.rs::pump_lane`; the pump was correct.
+
+`RetainedFrame` carries a `meta: SyncFrameMeta`, and the three pump paths build
+that meta **after** the frame is materialised -- the cursor's index and stream
+id only exist once the lane has decided what to send. `try_enqueue_lane_frame`
+therefore receives the meta separately, and `insert_queued` used it for
+placement decisions and then **threw it away**: the frame went into the queue
+still holding `SyncFrameMeta::default()`.
+
+Every consumer reads identity back off the queued item. So the egress saw
+`domain: None`, `session_id: None`, and `on_terminal_frame_delivered` returned
+on its first line. The cursor was never advanced, stayed `InFlight` for ever,
+and a multi-part snapshot stopped after part one. The fix writes the meta onto
+the frame at the single point all three pumps share.
+
+**A frame that is queued without its meta is invisible to the path that is
+supposed to advance it.** That is the whole defect class, and it is why the
+symptom pointed at the pump.
+
+Two further corrections to the original diagnosis, both verified by running the
+code rather than reading a comment:
+
+- The test's `drain` never drove a client -- it sent frames and acknowledged
+  nothing. That was a real gap in the test, and the window was right to refuse
+  part two, but it was **not** the cause: the window is checked at send, and
+  `queue_refusal` never consults it.
+- `commands.rs:171` already reads `SyncClientFrame.ack_delivery_seq` and calls
+  `session.apply_ack`. The acknowledgement path was never missing.
+
+**STILL IGNORED, and still not diagnosed: two send-queue tests.** They now get
+strictly further than before -- previously they failed at the first send because
+nothing ever queued -- and fail at a later assertion instead. Their gap is
+their own; see the `#[ignore]` reasons in `tests/sync_v2_send_queue.rs`.
+
+### 12.8b KNOWN GAP (superseded -- see 12.8)
 
 `tests/sync_v2_session.rs` ships **three `#[ignore]`d tests that FAIL**. The reason
 is in the attribute and it is specific: a terminal lane is pumped once and never
@@ -2038,6 +2075,26 @@ against the port.
 
 **The phase gate does not cover the terminal fan-out, and nothing may report it as
 covered until `pump_lane` is fixed and the three tests are un-ignored.**
+
+**DIAGNOSIS CORRECTED 2026-09-26.** The fault is NOT in
+`terminal/ready_ring.rs::pump_lane`, which is where the `#[ignore]` message
+points. Three facts, each verified against the running code rather than read off
+a comment:
+
+1. `tests/sync_v2_session.rs` \`drain\` drove egress and never drove a client.
+   It sent frames and acknowledged nothing, so the ACK window filled on part one
+   and part two was **correctly refused** -- the window doing its job, not the
+   fan-out failing to pump. The test now acknowledges each frame it applies.
+2. The acknowledgement path EXISTS and is wired: `commands.rs:171` reads
+   `SyncClientFrame.ack_delivery_seq` and calls `session.apply_ack`, which
+   delegates to `ack_window::apply_ack`. Nothing is missing there.
+3. With acknowledgement restored the test STILL stops at part one. So the
+   window is necessary but not sufficient, and the remaining cause is still
+   open. The suspects are the take/restore pairings around
+   `pump_baseline_part` -- `take_cursor_materialization` and
+   `restore_cursor_materialization` -- and the ordering between
+   `on_terminal_frame_delivered` re-marking the lane and
+   `pump_next_ready_lane` taking it back.
 
 **The mutation experiment for this slice is blocked behind the same defect, and
 that is the whole of the explanation.** The planned experiment deletes the

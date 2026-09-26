@@ -120,6 +120,13 @@ impl SyncV2Session {
         let estimated_bytes = retained.estimated_bytes();
         match self.queue_refusal(&retained.frame, meta, estimated_bytes, false) {
             None => {
+                // The frame is materialised BEFORE the meta that describes it
+                // exists, so the meta arrives separately. It has to be written
+                // ONTO the frame here: the egress reads placement, session and
+                // cursor identity back off the queued item's own meta, and a
+                // frame queued with a default one is invisible to the delivery
+                // path that is supposed to advance its cursor.
+                retained.meta = meta.clone();
                 retained.queued_at_ms = now_ms;
                 self.insert_queued(retained, meta, estimated_bytes);
                 self.request_flush();
