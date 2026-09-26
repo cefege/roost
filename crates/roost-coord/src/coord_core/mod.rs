@@ -7,6 +7,12 @@
 
 pub mod caller;
 pub mod core;
+pub mod seams;
+pub mod worker_handle;
 
 pub use caller::{Caller, ListenerTrust};
 pub use core::CoordCore;
+pub use seams::{
+    CoordTerminal, LiveChannel, NoTerminalSeams, TerminalViewLifecycle, WorkerRouteIndex,
+};
+pub use worker_handle::{WorkerHandle, WorkerRegistry};

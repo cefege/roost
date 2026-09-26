@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use crate::coord_core::seams::CoordTerminal;
 use crate::services::CoordServices;
 
 /// The shared coordinator state, handed to every domain handler.
@@ -22,12 +23,24 @@ pub struct CoordCore {
     /// The per-process singletons: database, write gate, key cache, pending
     /// publications.
     pub services: Arc<CoordServices>,
+    /// The terminal seams the workers domain consumes, behind traits so this
+    /// module never names a terminal type.
+    pub terminal: CoordTerminal,
 }
 
 impl CoordCore {
     /// A core over already-constructed services.
     #[must_use]
     pub fn new(services: Arc<CoordServices>) -> Self {
-        Self { services }
+        Self {
+            services,
+            terminal: CoordTerminal::none(),
+        }
+    }
+
+    /// A core with real terminal collaborators rather than the no-op seams.
+    #[must_use]
+    pub fn with_terminal(services: Arc<CoordServices>, terminal: CoordTerminal) -> Self {
+        Self { services, terminal }
     }
 }

@@ -25,6 +25,7 @@ pub mod db;
 pub mod events;
 pub mod http;
 pub mod http_admission;
+pub mod maintenance;
 pub mod rpc;
 pub mod serve;
 pub mod services;
