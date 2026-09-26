@@ -288,6 +288,16 @@ pub struct BootstrapClaim<'a> {
 /// `Internal` from `rpc_bootstrap.rs:252`. **Every bootstrap token redemption
 /// was failing.** A Rust compiler cannot see it and neither can a reader of
 /// fourteen lines of `\`-continued SQL; a counter finds it in one pass.
+///
+/// **AND THE `RETURNING` CLAUSE MAY NOT NAME THE ALIAS.** `RETURNING
+/// bt.account_id` fails with `no such column: bt.account_id`: the `bt` alias
+/// is in scope through the SET and the WHERE, and the column names inside it
+/// are bare. That is a separate error from the paren, it only became visible
+/// once the paren was fixed, and it is why one correct fix did not move the
+/// five failing tests. **A first fix that does not move the number is a fork,
+/// not a verdict** — the honest reading of "still failing" is "there is
+/// another thing", and the discipline is to go looking for it rather than to
+/// re-run the first edit.
 #[rustfmt::skip]
 pub async fn claim_bootstrap_token(
     transaction: &mut Transaction<'_, Sqlite>,
@@ -325,7 +335,7 @@ pub async fn claim_bootstrap_token(
                    OR (? = 'browser' AND EXISTS (SELECT 1 FROM account_devices AS retry_device \
                              WHERE retry_device.fingerprint = ? \
                                AND retry_device.account_id = bt.account_id))))) \
-         RETURNING bt.account_id, bt.label, bt.minted_by_fp",
+         RETURNING account_id, label, minted_by_fp",
     )
     .bind(claim.now_ms)
     .bind(claim.fingerprint)
