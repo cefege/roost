@@ -19,6 +19,7 @@ pub mod mcp_store;
 pub mod rpc_workspaces;
 pub mod tasks;
 pub mod workspaces;
+pub mod workspace_delete;
 
 /// The session state one coordinator process holds.
 #[derive(Debug, Default)]

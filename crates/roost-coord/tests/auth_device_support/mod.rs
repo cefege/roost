@@ -28,6 +28,13 @@ use roost_host::{CoordConfig, CoordConfigInput};
 use roost_proto as proto;
 use sqlx::AssertSqlSafe;
 
+/// Minting and redeeming a grant is one half of this fixture and key derivation
+/// is the other; they are split because together they overflow the file cap
+/// while each is a subject of its own. Re-exported here so every consumer keeps
+/// the one path it already imports.
+mod mints;
+pub use mints::*;
+
 /// The account device an operator acts as.
 pub const DEVICE_FP: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
@@ -288,122 +295,3 @@ pub fn fingerprint_for(label: &str) -> String {
     fingerprint_of_raw_public_key(&public_key_for(label))
 }
 
-/// A browser redemption of `token` by `label`'s key.
-pub fn redeem_browser(
-    token: &str,
-    label: &str,
-    device_label: &str,
-) -> proto::AuthRedeemBrowserRequest {
-    proto::AuthRedeemBrowserRequest {
-        token: token.to_owned(),
-        ssh_pubkey_b64: pubkey_b64(label),
-        label: device_label.to_owned(),
-        ..Default::default()
-    }
-}
-
-/// A worker redemption of `token` by `label`'s key.
-pub fn redeem_worker(
-    token: &str,
-    label: &str,
-    worker_label: &str,
-) -> proto::AuthRedeemWorkerRequest {
-    // `..Default::default()` covers `__buffa_unknown_fields`, the sink buffa
-    // generates on every message. Naming the generated field instead would be
-    // reading a compiler artefact.
-    proto::AuthRedeemWorkerRequest {
-        token: token.to_owned(),
-        ssh_pubkey_b64: pubkey_b64(label),
-        label: worker_label.to_owned(),
-        os: "linux".to_owned(),
-        git_sha: Some("test-sha".to_owned()),
-        ..Default::default()
-    }
-}
-
-/// Mint a grant through the handler, as a paired device would.
-pub async fn mint_via_handler(
-    core: &CoordCore,
-    minter: &Caller,
-    kind: &str,
-    label: &str,
-) -> String {
-    handle_auth_mint_bootstrap(
-        core,
-        minter,
-        proto::AuthMintBootstrapRequest {
-            kind: kind.to_owned(),
-            label: label.to_owned(),
-            ..Default::default()
-        },
-    )
-    .await
-    .expect("a minted grant")
-    .body
-    .token
-}
-
-/// Mint a grant straight against the state layer, for the tests that are about
-/// the token rather than about the RPC.
-///
-/// The instant is the coordinator's OWN clock. This fixture stamps synthetic
-/// ones elsewhere (`added_at = 1000`) because nothing compares them, but
-/// `claim_bootstrap_token` refuses a grant whose `expires_at_ms` is behind
-/// `now_ms` -- a literal here mints one that expired in 1970.
-pub async fn mint_grant(
-    database: &CoordDb,
-    tenancy: (&str, &str),
-    kind: BootstrapTokenKind,
-    label: &str,
-    minter: Option<&str>,
-) -> String {
-    roost_coord::auth::bootstrap_tokens::mint_bootstrap_token(
-        database,
-        kind,
-        label,
-        tenancy.0,
-        tenancy.1,
-        minter,
-        roost_coord::rpc::service::now_ms(),
-    )
-    .await
-    .expect("a grant")
-    .token
-}
-
-/// Mint a grant nobody is accountable for, the way `roost quickstart` does.
-pub async fn mint_host_grant(database: &CoordDb, kind: BootstrapTokenKind, label: &str) -> String {
-    roost_coord::auth::bootstrap_tokens::mint_host_bootstrap_token(
-        database,
-        kind,
-        label,
-        roost_coord::rpc::service::now_ms(),
-    )
-    .await
-    .expect("a host grant")
-    .token
-}
-
-/// Redeem a browser grant through the handler.
-pub async fn redeem_browser_via_handler(
-    core: &CoordCore,
-    request: proto::AuthRedeemBrowserRequest,
-) -> Result<proto::AuthRedeemBrowserResponse, ConnectError> {
-    // A handler answers `ServiceResult<T>`, which is connectrpc's
-    // `Result<Response<T>, ConnectError>` -- the envelope, not the message. The
-    // fixture promises the message, so the envelope is unwrapped here rather
-    // than in every caller.
-    handle_auth_redeem_browser(core, &anonymous(), request)
-        .await
-        .map(|response| response.body)
-}
-
-/// Redeem a worker grant through the handler.
-pub async fn redeem_worker_via_handler(
-    core: &CoordCore,
-    request: proto::AuthRedeemWorkerRequest,
-) -> Result<proto::AuthRedeemWorkerResponse, ConnectError> {
-    handle_auth_redeem_worker(core, &anonymous(), request)
-        .await
-        .map(|response| response.body)
-}
