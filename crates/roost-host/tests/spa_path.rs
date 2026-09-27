@@ -4,6 +4,12 @@
 //! written against a real directory because every one of these is a filesystem
 //! question: an in-memory map would let a traversal pass.
 
+// `expect_used` and `unwrap_used` are denied outside `#[cfg(test)]`, and an
+// integration test is its own crate rather than a module of one, so the
+// exemption has to be stated here rather than inherited. Every panic below is
+// an assertion over a tree this file just built.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};

@@ -135,7 +135,7 @@ pub async fn sweep_export_snapshots(
         }
         survivors.push((modified, entry.path()));
     }
-    survivors.sort_by(|left, right| left.0.cmp(&right.0));
+    survivors.sort_by_key(|(modified, _)| *modified);
     let excess = survivors.len().saturating_sub(keep_newest);
     for (_, path) in survivors.iter().take(excess) {
         let _ = tokio::fs::remove_file(path).await;
@@ -146,7 +146,7 @@ pub async fn sweep_export_snapshots(
 fn is_older_than(modified: std::time::SystemTime, bound: Duration) -> bool {
     std::time::SystemTime::now()
         .duration_since(modified)
-        .map_or(false, |age| age >= bound)
+        .is_ok_and(|age| age >= bound)
 }
 
 fn entropy() -> Result<[u8; 16], ExportError> {

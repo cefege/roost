@@ -66,7 +66,7 @@ fn resident_copies(directory: &Path) -> Vec<PathBuf> {
             Some((modified, entry.path()))
         })
         .collect();
-    found.sort_by(|left, right| left.0.cmp(&right.0));
+    found.sort_by_key(|(modified, _)| *modified);
     found.into_iter().map(|(_, path)| path).collect()
 }
 
