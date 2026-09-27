@@ -12,6 +12,9 @@
 #[path = "credential_support/scratch.rs"]
 mod scratch;
 
+#[path = "boot_env_support/mod.rs"]
+mod boot_env;
+
 use std::os::unix::fs::PermissionsExt as _;
 
 use roost_host::{HostPlatform, MapEnv, supported_host_platform};
@@ -28,10 +31,15 @@ fn platform() -> HostPlatform {
     supported_host_platform().expect("this test only runs where v3 runs")
 }
 
-/// An environment whose home is a scratch directory, so resolution's one write
-/// lands somewhere the test owns.
+/// An environment whose paths are all inside a scratch directory, so
+/// resolution's one write lands somewhere the test owns.
+///
+/// From the shared builder rather than spelled here, because `resolve` refuses
+/// without `HOME` before it reads anything else, and three binaries were each
+/// discovering that refusal independently and each concluding its own fixture
+/// was wrong.
 fn environment(scratch: &Scratch) -> MapEnv {
-    MapEnv::new().with("HOME", &scratch.path("home").display().to_string())
+    boot_env::boot_env(scratch.root())
 }
 
 /// The identity in the dial and the identity in the token are one derivation.

@@ -26,6 +26,9 @@ use roost_worker::runtime::boot::{ENV_KEEPER_EXECUTABLE, WorkerBoot};
 use roost_worker::runtime::serve_until;
 use roost_worker::runtime::stop::{StopReason, StopRequests};
 
+
+#[path = "boot_env_support/mod.rs"]
+mod boot_env;
 mod child;
 
 pub use child::{position_of, serve_in_child, spends};
@@ -41,26 +44,17 @@ pub fn platform() -> HostPlatform {
     supported_host_platform().expect("this test only runs where v3 runs")
 }
 
-/// A worker configuration resolved entirely inside `root`.
+/// A worker configuration resolved entirely inside `root`, from the shared
+/// builder.
 ///
 /// The keeper executable is THIS TEST BINARY, and that is load-bearing: the
 /// worker hashes whatever path it was given and compares that digest against
-/// what the keeper at the endpoint reports, so a fixture keeper is only admitted
-/// when it reports the digest of a file that exists and is readable.
+/// what the keeper at the endpoint reports, so a fixture keeper is only
+/// admitted when it reports the digest of a file that exists and is readable.
+/// The builder sets it, and a fixture naming a keeper which is not there gets
+/// refused at admission, which reads as a keeper defect and is not one.
 pub fn boot(root: &Path, platform: HostPlatform) -> WorkerBoot {
-    let executable = std::env::current_exe().expect("a running test has a binary");
-    let env = MapEnv::new()
-        .with(
-            "ROOST_WORKER_KEY_PATH",
-            root.join("worker.key").to_str().unwrap(),
-        )
-        .with("ROOST_WORKER_LOG_DIR", root.join("logs").to_str().unwrap())
-        .with(
-            "ROOST_KEEPER_SOCKET",
-            root.join("keeper.sock").to_str().unwrap(),
-        )
-        .with(ENV_KEEPER_EXECUTABLE, executable.to_str().unwrap());
-    WorkerBoot::resolve(&env, platform).expect("a worker configuration resolves in a scratch")
+    boot_env::resolve_boot_env(root, platform)
 }
 
 /// Run one activation to its end, having asked it to stop first.
