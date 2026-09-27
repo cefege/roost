@@ -100,7 +100,11 @@ mod tests {
         let tail = window.tail().expect("an unarmed window still retains");
         assert_eq!(tail.bytes, b"before anything was armed");
         assert_eq!(tail.start_offset, 0);
-        assert_eq!(tail.end_offset, 24);
+        // The END offset is the count of retained bytes, and this literal is 25
+        // of them. It was written as 24, which is a test that fails for a
+        // reason unrelated to the thing it is testing — the worst kind, because
+        // it trains a reader to ignore a red in this file.
+        assert_eq!(tail.end_offset, 25);
     }
 
     #[test]

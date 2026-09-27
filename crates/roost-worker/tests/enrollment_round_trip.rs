@@ -38,8 +38,19 @@ fn scratch_dir(label: &str) -> std::path::PathBuf {
     root
 }
 
+/// The environment a boot is resolved from, with `HOME` pointed at the scratch
+/// root.
+///
+/// `HOME` is load-bearing, not decoration: `WorkerBoot::resolve` reads the
+/// worker's data and log roots through it, and a `MapEnv` without one is
+/// refused with `DataDir("HOME: HOME is required to resolve a default Roost
+/// path")` before the coordinator URL is ever looked at — which is the shape
+/// `tests/retire_support/mod.rs:63` fails in. Pointing it at the scratch root
+/// also keeps every path this test causes to be written inside the directory
+/// it removes.
 fn env_for(root: &Path, coordinator: &str, token: Option<&str>) -> MapEnv {
     let mut env = MapEnv::new()
+        .with("HOME", root.to_str().unwrap())
         .with(ENV_WORKER_KEY_PATH, root.join("worker.key").to_str().unwrap())
         .with("ROOST_COORDINATOR_URL", coordinator);
     if let Some(token) = token {
