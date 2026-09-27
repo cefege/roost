@@ -26,6 +26,7 @@ use std::sync::Arc;
 
 use roost_protocol::cell::{CellRow, CellSpan};
 use roost_protocol::wire::brand::SessionId;
+use roost_term::frame::{scrollback_offset_spans, viewport_row_spans};
 use roost_term::{read_scrollback_range, scrollback_origin};
 use serde_json::{Map, Value, json};
 
@@ -95,7 +96,47 @@ fn describe(record: &SessionRecord) -> Result<GridDescription, Refusal> {
             .map_or(0, |pin| narrow(pin.replay_floor)),
         total: narrow(origin.saturating_add(retained)),
         cols: core.cols(),
+        viewport_rows: core.rows(),
     })
+}
+
+/// What one session's grid looks like, for a reader outside this file.
+///
+/// `pub(crate)` rather than `pub` because the only other reader is the
+/// scrollback SCANNER, and it needs the same four numbers a page request gets.
+/// A scanner that derived the floor itself would be a second answer to "where
+/// does this grid start", which is the question the epoch exists to keep
+/// singular — so it asks here.
+pub(crate) fn describe_grid(record: &SessionRecord) -> Result<GridDescription, Refusal> {
+    describe(record)
+}
+
+/// One row's painted spans, by its absolute index, or `None` when the grid no
+/// longer holds it.
+///
+/// The scanner needs SPANS, not the JSON projection [`row_value`] produces: a
+/// match is a scalar offset into a row's text that has to be converted back to
+/// grid columns, and the JSON has already thrown that mapping away.
+pub(crate) fn row_spans(record: &SessionRecord, absolute_row: u32) -> Option<Arc<[CellSpan]>> {
+    let core = record.terminal_core.as_ref();
+    let floor = scrollback_origin(core, record.cell_emit.scrollback_origin).ok()?;
+    let index = u64::from(absolute_row);
+    if index < floor {
+        return None;
+    }
+    let retained = core.scrollback_count() as u64;
+    let scrollback_total = floor.saturating_add(retained);
+    if index < scrollback_total {
+        // Oldest-first absolute index to the core's newest-first offset.
+        let offset = retained - 1 - (index - floor);
+        return Some(scrollback_offset_spans(core, usize::try_from(offset).ok()?));
+    }
+    let viewport_row = index - scrollback_total;
+    if viewport_row >= u64::from(core.rows()) {
+        return None;
+    }
+    let row = u16::try_from(viewport_row).ok()?;
+    Some(viewport_row_spans(core, row, core.cols()))
 }
 
 /// One row by its absolute index, or `None` when the grid no longer holds it.

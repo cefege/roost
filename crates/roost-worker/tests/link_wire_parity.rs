@@ -24,8 +24,14 @@ use roost_protocol::wire::brand::{TraceId, WorkerFp};
 use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 use roost_worker::runtime::link_wire::{LinkWire, ProtoLinkWire, WireError};
 
+/// NOT a uuid, unlike the trace id below it. `WorkerFp` is the SHA-256 hex of a
+/// worker's ed25519 pubkey — 64 lowercase hex characters and nothing else, with
+/// no `sha256:` prefix (`roost_protocol::wire::WorkerFp::check`). Sitting next
+/// to a uuid-looking string it was read as one, and every frame in this file
+/// failed in `worker_fp()` before reaching the codec under test.
 fn worker_fp() -> WorkerFp {
-    WorkerFp::try_from("00000000-0000-4000-8000-0000000000ff").expect("a uuid is a worker fp")
+    WorkerFp::try_from("00000000000000000000000000000000000000000000000000000000000f00d")
+        .expect("a 64-character lowercase hex digest is a worker fp")
 }
 
 fn trace_id() -> TraceId {

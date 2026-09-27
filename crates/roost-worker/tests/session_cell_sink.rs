@@ -11,7 +11,7 @@ mod support;
 use roost_worker::session::cell_sink::{COORD_CELL_SINK_ID, local_cell_sink_id};
 use roost_worker::session::emit::{CellEmitter, FrameOutcome};
 
-use support::{Answer, RecordFixture, RecordingSink, channel, numbered_lines};
+use support::{Answer, RecordFixture, RecordingSink, channel, numbered_lines, stream_id};
 
 /// The sink ids are wire-visible: they appear in diagnostics next to v2's own
 /// lines, and `local:` is what tells a local socket's frames from the
@@ -34,7 +34,7 @@ fn an_overflow_drops_exactly_one_sink_and_tells_it_once() {
     let mut emitter = CellEmitter::new();
     emitter.register_sink(healthy.clone());
     emitter.register_sink(wedged.clone());
-    emitter.install_stream(&mut record, "stream-11");
+    emitter.install_stream(&mut record, stream_id(11));
     emitter.emit_cell_frame(&mut record, true, 1_000);
     assert_eq!(wedged.overflow_notices(), 0);
 
@@ -95,7 +95,7 @@ fn a_sink_that_refuses_a_frame_keeps_its_registration_and_owes_a_full() {
     let mut emitter = CellEmitter::new();
     emitter.register_sink(healthy.clone());
     emitter.register_sink(refusing.clone());
-    emitter.install_stream(&mut record, "stream-12");
+    emitter.install_stream(&mut record, stream_id(12));
     emitter.emit_cell_frame(&mut record, true, 1_000);
 
     emitter.ingest_pty_chunk(&mut record, b"output", 1_010);
@@ -147,7 +147,7 @@ fn a_parked_full_is_retried_from_the_part_the_sink_refused() {
     let fast = RecordingSink::new("coord", Answer::Sent);
     let mut emitter = CellEmitter::new();
     emitter.register_sink(fast.clone());
-    emitter.install_stream(&mut record, "stream-13");
+    emitter.install_stream(&mut record, stream_id(13));
     emitter.emit_cell_frame(&mut record, true, 1_000);
 
     // The slow socket connects after the baseline and immediately overflows its
@@ -179,7 +179,7 @@ fn output_kept_while_no_sink_can_take_it_is_still_in_the_core() {
     let fixture = RecordFixture::new();
     let mut record = fixture.record(channel(14), 80, 24);
     let mut emitter = CellEmitter::new();
-    emitter.install_stream(&mut record, "stream-14");
+    emitter.install_stream(&mut record, stream_id(14));
     emitter.ingest_pty_chunk(&mut record, numbered_lines(30).as_bytes(), 1_000);
 
     let withheld = emitter.emit_cell_frame(&mut record, true, 1_010);

@@ -264,27 +264,41 @@ fn environment_pairs(line: &str) -> Option<Vec<EnvironmentPair<'_>>> {
             cursor += 1;
             continue;
         }
-        let (end, next) = match list[cursor..].strip_prefix('"') {
-            Some(_) => closing_quote(&list[cursor + 1..], cursor + 1)?,
+        // TWO SPANS, and conflating them is the bug this shape exists to
+        // prevent. `start..end` is the pair's OWN BYTES, quotes included, and
+        // is what a survivor is copied from so its escapes survive. The NAME is
+        // read from inside those quotes, because `split_once('=')` over the
+        // whole span would hand back `"ROOST_...` with a quote on the front and
+        // match nothing — which is a scrub that reports "erased nothing" on
+        // every unit it was ever handed.
+        let (content_start, content_end, end) = match list[cursor..].strip_prefix('"') {
+            Some(_) => {
+                let (closing, next) = closing_quote(&list[cursor + 1..], cursor + 1)?;
+                (cursor + 1, closing - 1, next)
+            }
             None => {
                 let offset = list[cursor..].find(' ').unwrap_or(list.len() - cursor);
-                (cursor + offset, cursor + offset)
+                (cursor, cursor + offset, cursor + offset)
             }
         };
-        if let Some((name, _)) = list[cursor..end].split_once('=') {
+        if let Some((name, _)) = list[content_start..content_end].split_once('=') {
             pairs.push(EnvironmentPair {
                 name,
                 start: list_start + cursor,
                 end: list_start + end,
             });
         }
-        cursor = next;
+        cursor = end;
     }
     (!pairs.is_empty()).then_some(pairs)
 }
 
 /// The byte just past a quoted value's closing quote, given where the opening
 /// quote sat. A `\"` inside the value is part of the value, not the end of it.
+///
+/// The first element is the index OF the closing quote and the second the byte
+/// after it, because a caller needs both: the first bounds the name, the second
+/// bounds the pair's own bytes.
 fn closing_quote(value: &str, opened_at: usize) -> Option<(usize, usize)> {
     let mut characters = value.char_indices();
     while let Some((index, character)) = characters.next() {
@@ -292,7 +306,7 @@ fn closing_quote(value: &str, opened_at: usize) -> Option<(usize, usize)> {
             '\\' => {
                 characters.next()?;
             }
-            '"' => return Some((opened_at + index + 1, opened_at + index + 1)),
+            '"' => return Some((opened_at + index, opened_at + index + 1)),
             _ => {}
         }
     }

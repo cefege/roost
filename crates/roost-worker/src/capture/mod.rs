@@ -10,6 +10,17 @@
 //! its bounds and its always-on byte window are decisions somebody has to own.
 //! They are owned here rather than beside the protocol because they are
 //! decisions about this worker's disk, not about the message two peers exchange.
+//!
+//! The three files are split by what they own and by nothing else:
+//! [`byte_window`] holds the always-on tail, [`bundle`] is the only writer of
+//! the capture directory, and [`recorder`] is the lease state machine that
+//! joins them to the protocol's vocabulary.
+
+pub mod bundle;
+pub mod byte_window;
+pub mod recorder;
+
+pub use recorder::CaptureRecorder;
 
 /// How many bytes of raw PTY output are retained per session for the incident
 /// stream, whether or not a recording is armed.
@@ -24,5 +35,9 @@ pub const BYTE_CAPTURE_WINDOW_BYTES: usize = 256 * 1024;
 /// state directory rather than a session's attachment directory.
 ///
 /// Separate from the attachment tree on purpose: an attachment directory is
-/// synced and offered to peers, and evidence bundles are neither.
+/// synced and offered to peers, and evidence bundles are neither. It sits
+/// inside the worker's log directory, which is the one directory the worker
+/// already owns exclusively — v2's `capture-storage.ts` puts it there for the
+/// same reason, and a second top-level directory would be a second thing to
+/// make owner-only.
 pub const CAPTURE_DIR_NAME: &str = "captures";
