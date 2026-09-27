@@ -240,6 +240,32 @@ here — and a baseline set at nine without the migration would have been the
 opposite. The distinction is not the number, it is whether the number came down
 first.
 
+### Coordinator: `v3-coord` @ `81e492b6`
+
+`cargo test -p roost-coord -p roost-host --no-fail-fast`, **two agreeing runs:
+728 passed / 0 failed / 0 ignored**, both times. `roost_host --test spa_path`
+7/7; `middleware_spa` 7/7; `diagnostics_rpc` 9/9. Clippy and `xtask fmt` were
+re-run after the last edits and their results are reported, not predicted.
+
+**The ratchet moved 31 → 27 `AwaitingDomainPort`**, each row flipped in the same
+commit whose `service_impl.rs` arm calls real code: `AuthCoordIdentity`,
+`MiscMetrics`, `AuditList`, `DiagDebugLogBatch`.
+
+**`mcp_relays_authority::a_publish_the_store_cannot_answer_is_refused_inside_the_busy_timeout` PASSES.** That is the test this whole programme held open from its first measurement, and it is settled by a run rather than by an argument. The cause was a race the reading had missed: the deadline arm already answered `Unavailable`, but the pool's own `acquire_timeout` is the *same* 5 s as `STORE_DEADLINE`, so `sqlx::Error::PoolTimedOut` won the race into the blanket `Internal` mapping. "A connection that was not free is not a statement that failed."
+
+**And the propagation was deliberately refused.** Five other sites map `PoolTimedOut → Internal` — `push/rpc.rs`, `ui_state/fence.rs`, `workers/rpc.rs`, `sessions/tasks.rs`, `rpc_transcription.rs` — and v2 has no pool and reports a busy database as `Internal`. Propagating would have been a parity regression on five methods to make one uniform, i.e. optimising for a shape rather than for a behaviour. **The mapping belongs in one shared helper that takes the domain's declared answer**, so it cannot drift, without silently rewriting five of them.
+
+**Four defects the verification found, and three of them are the reason it was worth running.** One is a live production bug on the front door:
+
+- **`middleware/security.rs` overwrote `Vary`.** The CORS layer runs *outside* the SPA, so it sets the header *last*, and its `insert` dropped `accept-encoding` — the token that says a bundle's two answers differ. A shared cache would have handed a gzipped body to a client that refused gzip. Fixed by merging (`append_vary`) rather than replacing, and the SPA test now asserts BOTH tokens survive so neither layer can regress alone. **The generalisable part: a layer that touches a response header is a candidate for this class whenever the composition order changes, and the order is what makes it possible.**
+- **`middleware_spa` used `#[tokio::test]`** whose current-thread runtime starves the task `axum::serve` is spawned onto, and the fixture's `get` is a *blocking* socket read. All seven failed on a 10 s read timeout and **none of them were about the SPA**. Any new listener-backed test binary needs `flavor = "multi_thread"`.
+- The export sweep counted only its surplus removals, so a boot sweep emptied the directory and reported zero.
+- `roost-host` forbids the literal `v2` anywhere in the crate, and the citations broke its install-identity test.
+
+**Three of the lead's own assertions were wrong about correct code**, and one of those is the finding: it compared two reads of a running clock, which is a coin flip on a loaded machine. **A flaky test is worse than no test** — it spends the reader's trust and returns nothing. Delete it or bound it; do not re-run until green and call that a pass.
+
+`xtask lint` reports 2 violations, both in `crates/roost-keeper/tests/`, and both are `v3`'s rather than this track's: the worker branch has carried the restated keeper lint table and all seven binary-level allows since `84be2a9d`, and they clear when that branch merges. The gate number is 2 pending a queued merge, not 2 with a caveat.
+
 ### Worker: first-ever total, `v3-worker` @ `8a85f523`
 
 `cargo test -p roost-worker -p roost-keeper -p roost-term --no-fail-fast`, **one
