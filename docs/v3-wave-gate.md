@@ -3010,6 +3010,41 @@ say **what in `src/` calls the thing it covers.** "The test passes" and "the
 subject of the test is reachable" are different claims, and a suite can be
 entirely green while every one of its subjects is dead code.
 
+**The second instance is 661 lines, and it is not documented anywhere.**
+`worker_link/announced_barrier.rs` (330) + `announced_types.rs` (239) +
+`rate_window.rs` (92) are contract §7.3 and §7.5 — the announced-channel barrier
+with its three bounds, seven drop reasons and four refusals, and the
+600-per-60s durable event window with its backwards-clock roll. `grep
+'worker_link::' src/` outside `worker_link/` returns exactly one module,
+`upgrade_admission`. **Nothing in `src/` imports the other three at all.**
+
+Unlike `feed/`, this substrate HAS integration coverage: `tests/announced_barrier.rs`
+imports `AnnouncedBarrier`, `tests/transport_windows_ack.rs` imports
+`rate_window`, and both are green in the 618/1/3 run. So the precise statement
+is the one that applies to both: **correct, specified, green, tested, and
+unreachable.** 661 lines against `feed/`'s 19 symbols.
+
+**Reachability has to be checked per MODULE, and a module nobody flagged is a
+module nobody checked.** `feed/mod.rs:19-24` documents its own deferral, so that
+one is findable by reading. The `worker_link` case is documented nowhere — not in
+the directory, not in `docs/phase3-coord-contract.md`, not in this file. It reads
+exactly like `upgrade_admission`: a finished-looking module sitting next to a
+mounted route. Three of the four defects found in this hour were in three
+different modules, each found by a different person asking a different question,
+and **none was found by a test, a pass count, or a mutation row.** So a C3
+handoff that lists what calls each thing must also list **which modules nobody
+audited** — on this evidence that list is the one with the defect in it.
+
+**And a note on how the count was got, because the method matters as much as the
+number.** A per-symbol reachability count by NAME produced 19 uncalled symbols,
+of which **two were false positives**: `RetainedFrame` and `EnqueueOutcome` are
+each declared twice, in two transports, with different meanings and different
+variant sets — and the variant name `Dropped` exists in both enums, so even a
+variant-level search cannot separate them. The correct figure is **17**. The
+load-bearing claim is not the per-symbol count at all; it is the **path-based**
+one (`grep 'worker_link::' src/`), which a name collision cannot defeat. Report
+the path-based number and treat per-symbol reachability as a hint.
+
 **Why no mutation row would ever expose it, which is the sharper half.**
 `sync_feed_bus_coverage.rs` **cannot fail**: it asserts that thirteen
 bus-to-adapter pairs are internally consistent, and every line it can delete is

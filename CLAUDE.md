@@ -147,11 +147,35 @@ Non-negotiable for every change.
 
 3. **No panics on untrusted input.** `clippy::unwrap_used` and
    `clippy::expect_used` are denied workspace-wide
-   (`[workspace.lints.clippy]` + `clippy.toml`); tests and fixtures are
-   exempt via `allow-unwrap-in-tests`. A `BadEvent` from a peer is a returned
-   `Err`, never a panic: a panic in the coordinator or the keeper is a
-   fleet-visible outage. `todo!` and `unimplemented!` are denied too — a
-   commit means the code is wired end-to-end.
+   (`[workspace.lints.clippy]` + `clippy.toml`). A `BadEvent` from a peer is a
+   returned `Err`, never a panic: a panic in the coordinator or the keeper is a
+   fleet-visible outage. `todo!` and `unimplemented!` are denied too — a commit
+   means the code is wired end-to-end.
+
+   **The test exemption reaches a test binary and not a fixture.**
+   `allow-unwrap-in-tests` exempts `tests/<name>.rs`, which is its own crate. A
+   **shared fixture module** — `tests/<dir>/mod.rs` — is a different compilation
+   unit and does **not** inherit it, so a fixture must state its own
+   `#![allow(clippy::unwrap_used, clippy::expect_used)]`. Fixtures declare, test
+   roots may. The ~94 redundant per-file allows on test roots are **retained
+   deliberately** and are not licence to strip them a directory at a time.
+   Getting this wrong is how the gate passed on some fixtures in a directory
+   and failed on others for no reason a reader could guess — seven `expect_used`
+   errors lived in exactly that gap.
+
+   `roost-keeper` is the one crate that does **not** inherit the table at all,
+   because cargo rejects a manifest that both says `workspace = true` and
+   overrides a value — and the keeper needs `unsafe_code = "allow"` for its
+   signal handler. It therefore carries a **copy** of the table, which is the
+   price: a new workspace lint does not reach that crate until someone adds it
+   there. `cargo xtask lint` enforces the declaration
+   (`xtask/src/lint_table.rs`, `COPY_EXEMPT`).
+
+   And none of this is visible to `cargo check` or `cargo test` — these are
+   **clippy** lints. A crate can compile, pass every test across every binary,
+   and fail `cargo clippy --workspace --all-targets -- -D warnings`, and
+   `roost-keeper` did exactly that at 131 passing tests and 19 production
+   `expect()` sites. **A pass count is not a gate.**
 
 4. **Descriptive names everywhere.** No single-letter variables except `idx`
    in tight loops. No `handle`, `process`, `do`, `manage`, `run` alone — name
