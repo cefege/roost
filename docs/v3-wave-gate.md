@@ -3485,6 +3485,52 @@ proof.
 
 ---
 
+## The first phase gate of this programme: C5's measurement, taken twice
+
+`cargo test -p roost-coord --no-fail-fast`, worktree `/home/almalinux/repos/roost-v3-coord`,
+run by the integrator after the lead's context ended mid-gate:
+
+| | tip | result |
+|---|---|---|
+| run A, by the previous lead | `26782410` | 618 passed / 1 failed / 3 ignored across 97 result lines |
+| run B, by the integrator | `150d6a22` | **618 passed / 1 failed / 3 ignored across 97 result lines** |
+
+**Two runs, two different tips, identical totals — and 96 identical test
+binaries, verified by diffing the `Running` sets rather than by trusting either
+number.** The sole failure in both is
+`mcp_relays_authority::a_publish_the_store_cannot_answer_is_refused_inside_the_busy_timeout`,
+which is **NOT MINE TO DECIDE**: the port answers `Internal` where v2 answers
+`Unavailable`, it changes client retry behaviour, and it is not to be fixed,
+hidden or ignored away. It is the only red in the coordinator tree.
+
+**The tree advanced between the two runs** — four split defects fixed and
+`build_csp` privatised — and **the totals did not move at all.** That is what
+compile-level repairs and a visibility change should look like, and it is worth
+noting precisely because a totals-identical result across a changed tree is
+either a very good sign or a test suite that cannot see the change. Here the
+changed things were the four *tests* the compiler had rejected, so they were not
+counting before.
+
+### And a counting mistake worth recording, because I made it
+
+The first sample of run A's log reported **118 result lines, 772 passed,
+44 failed**, including seven `Sqlite(PoolTimedOut)` panics. Every one of those
+numbers was wrong, and the cause was that **I read a log file that cargo was
+still writing.** By the time it settled, the same path held 96 binaries and
+**one** failure.
+
+> **A measurement read from a file still being written is not a measurement.**
+> The tell was that the two runs disagreed on totals while agreeing exactly on
+> the set of binaries they executed — 96 unique `Running` names in both, from two
+> logs claiming 118 and 97 result lines. **When two measurements of the same
+> thing disagree, diff what they agree on before believing either.** They agreed
+> on the binary set and on the single failure, and those were the two facts that
+> survived.
+
+This is the same lesson as the `--no-fail-fast` one immediately above it, and
+the two together are the rule: **`0` failures is not `pass`, and a count taken
+mid-write is not a count.**
+
 ## A harness that mislabels SIGINT as a compile failure reports INCONCLUSIVE for a row that ran
 
 The mutation harness every track was told to copy — backup outside the tree,
