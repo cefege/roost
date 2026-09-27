@@ -16,7 +16,7 @@
 mod terminal_view_support;
 
 use terminal_view_support::{
-    FINGERPRINT, Harness, OTHER_FINGERPRINT, OTHER_VIEW, SESSION, VIEW, decisions,, ViewShape};
+    FINGERPRINT, Harness, OTHER_FINGERPRINT, OTHER_VIEW, SESSION, VIEW, decisions, ViewShape};
 
 use roost_proto::TerminalViewStatus;
 use roost_protocol::viewport::{TERMINAL_VIEW_LEASE_MS, TERMINAL_VIEW_PARK_GRACE_MS};

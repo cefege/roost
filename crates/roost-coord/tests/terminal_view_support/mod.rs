@@ -154,8 +154,8 @@ impl Harness {
     }
 
     /// Withdraw a view from one socket.
-    pub fn release(&self, browser: &Browser, view_id: &str, revision: u64, now_ms: u64) {
-        self.view(browser, view_id, 0, 0, revision, false, now_ms);
+    pub fn release(&self, browser: &Browser, view_id: &'static str, revision: u64, now_ms: u64) {
+        self.view(browser, ViewShape::new(view_id, 0, 0, revision).inactive(), now_ms);
     }
 
     /// The size the session's PTY runs at right now.
