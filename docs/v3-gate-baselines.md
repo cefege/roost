@@ -1051,6 +1051,41 @@ and the real constraint is one layer out.** The deferred-append drain, the
 scope. In all three the thing that looked like the problem was a lock or a handle,
 and the thing that was actually the problem was a lifetime, a caller, or a bound.
 
+### A mis-modelled edge does not only cost structure — it removes the test that would catch the bug it enables
+
+**Found on the coordinator track, and it is the reason the finding matters more
+than the tangle it replaced.**
+
+Four pieces of Wave C-B formed what looked like a hard dependency cycle:
+`connection.rs` needed a dispatcher, the dispatcher needed `EventLog`,
+`EventLog::new` needed `live_effects`, `live_effects` needed `OrphanPtyKill`, and
+the kill's destination was the socket `connection.rs` creates. The available move
+was one large commit, and it was defensible.
+
+**The cycle existed because `OrphanPtyKill`'s destination was modelled as *this*
+socket. A kill is delivered outbound, on a worker's own writer; the dispatch path
+is inbound. Re-modelling the destination as a fingerprint-keyed registry owned by
+`CoordServices` dissolved the cycle — and immediately exposed what the wrong
+model had been hiding:**
+
+> a process-wide `Option<Outbox>` means a second worker's kill goes to the FIRST
+> worker's socket, and a wrong terminal kill destroys a live PTY
+
+**And the test for it, `two_connected_workers_never_receive_each_others_kills`,
+could not have been written under the socket model at all.**
+
+**So the cost of a mis-modelled edge is not an inconvenient build order. It is the
+loss of the ability to state the property that would catch the bug it enables** —
+and that cost is invisible until someone re-models, which may be never. The cycle
+was the visible symptom; an untestable cross-worker kill sat underneath it and
+would have shipped inside the large commit, with no test able to name it.
+
+**The rule, for the next cycle that appears:** a dependency cycle is far more often
+a mis-modelled edge than a genuine cycle. Collapsing the graph into one commit
+treats the symptom and leaves the cause in the tree; re-modelling the edge fixes
+it. **And the tell that you have the wrong model rather than a hard tangle is that
+the thing you cannot express is a test.**
+
 ### A green branch is not a tested branch
 
 **Found on the worker track, whose every published number was green.** `clippy
