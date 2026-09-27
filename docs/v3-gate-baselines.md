@@ -538,28 +538,37 @@ without declaring its allow *at its root* was invisible to clippy for the same
 reason, and the lint only saw it once the binary was on the list.
 
 
-**The second instance is worse, and it was found by probing rather than by
-reading.** A build directory was removed out from under a track. The build
-command was `flock <dir>/.roost-build.lock cargo check … 2>&1 | grep -E '^error'`,
-and it came back in **0.22 s with no output** on a crate whose check takes 50
-seconds — which the lead read as clean. Two things had to be true for that, and
-neither was the build:
+**The second instance was found by probing rather than by reading, and the first
+draft of this entry had both of its facts backwards.** A build directory was
+removed out from under a track, and the command was
+`flock <dir>/.roost-build.lock cargo check … 2>&1 | grep -E '^error'`. It came
+back in **0.22 s with no output** on a crate whose check takes 50 seconds, and
+was read as clean. What actually happened, established by probing `flock`
+directly:
 
 1. **`flock` CREATES the lock file it is given.** With the lock file moved away,
-   `flock <dir>/.roost-build.lock true` still exits 0 and recreates it. It fails
-   only when the **parent directory** is absent. So the instruction this file
-   would naturally carry — *"if `flock` fails, stop"* — **can never fire for the
-   case that motivates it**, because a missing directory makes `flock` succeed
-   and leaves a lock sitting in a path `cargo` then ignores.
-2. **A failure piped into a filter that matches nothing returns 0.** The missing
-   directory's error was consumed by `grep -E '^error'`, which found no lines
-   and exited successfully.
+   `flock <dir>/.roost-build.lock true` exits 0 and recreates it. **So the
+   existence of the lock file proves nothing** — it is created on first use, not
+   found. A guard that tests whether the lock is present is testing something
+   `flock` manufactures.
+2. **A missing parent DIRECTORY makes `flock` fail**, with exit 66 and
+   `cannot open lock file`. So the guard this file would naturally carry —
+   *"if `flock` fails, stop"* — **did** have something to fire on, and `flock`
+   **did** fail correctly. It was not defeated by `flock`; it was defeated by
+   nobody reading the exit status.
+3. **The pipeline then hid the failure twice over.** `grep -E '^error'` matched
+   nothing, so it exited 1 — but what was read was the *output*, which was empty,
+   and empty was read as clean. And the structural hazard runs the other way
+   too: without `pipefail` a pipeline's status is the **last** command's, so a
+   cargo failure that `grep` *does* match on becomes a pipeline exit of 0. A
+   green exit from `| grep` can mean the build failed and was filtered into
+   nothing.
 
-**The rule, and it is the coordinator's phrasing because it is the tight one:
-`flock` protects against concurrent writers, not against a missing directory,
-and it will happily create the lock it was given. A lock that is CREATED rather
-than FOUND proves nothing about what is behind it.** The check that matters is
-whether the directory the lock guards still exists.
+So the rules, corrected: **a lock that is CREATED rather than FOUND proves
+nothing about what is behind it**, so assert the directory; **`set -o pipefail`
+so a real failure is not masked by a filter that swallowed it**; and **check the
+exit status, not only the output**, because the most dangerous thing a failed
+build produces is no output at all.
 
 ```sh
 set -o pipefail
