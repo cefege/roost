@@ -612,6 +612,51 @@ happened — and the discipline is to notice it when the test is written rather
 than after a reader has been misled by it. Here it was noticed after, which is
 the ordinary way these things are found.**
 
+### `target-gate/release/roost` is a STAGE-0 ARTIFACT and must not be gated against
+
+**Found before S3.1 rather than during it, and it is the most dangerous shape in
+this file: an artifact that runs, looks correct, and is months out of date.**
+
+Every gate from S3.1 runs against `target-gate/release/roost`. That file exists —
+**11 M, alongside `roost-keeper` at 609 K** — and it executes. Measured just now:
+
+```
+$ roost --version
+dev
+
+$ roost --help          # 12 subcommands
+coord doctor help keeper logs reset skill state status test version worker
+```
+
+**`update` is not among them**, and the plan's Verification item 1 is literally
+*"`roost --help` lists `update`"*. This binary predates the entire CLI track: it has
+12 of the 25 subcommands the CLI work delivers, and `v3` has not merged `v3-cli` at
+all.
+
+**So a gate run right now would test a build that predates every track.** The
+failure is not a crash — it is a suite that boots, serves, and exercises an
+11-subcommand coordinator. **A missing binary is loud; a stale one that runs is the
+`SocketClose::Default` shape**, and it is the reason this is written down rather than
+merely fixed.
+
+**TWO REQUIREMENTS ON S3.0, S3.1, S3.2 and S3.3, neither optional:**
+
+1. **`cargo build --release -p roost-cli -p roost-keeper` on the MERGED tree, after
+   the merges** — not the Stage-0 artifact, and not a warm cache that predates them.
+2. **Re-run `roost --help` and check `update` is listed** before the smoke suite is
+   trusted. The subcommand count is the cheapest available proof the binary is the
+   one the gate thinks it is.
+
+**And the `--version` finding, which is a separate trap for S4.7.** This binary
+reports **`dev`**, the placeholder build identity. S4.7's verification is *"its
+`roost status` build SHA equals the tag"* — **which no locally built binary can
+satisfy**, because a local `cargo build --release` stamps `dev`. So S4.7 is only
+checkable against a binary from the GitHub release, which is what S4.1 fetches. **If
+anyone falls back to a local build, that check compares `dev` with `v3.0.0-rc.1` and
+fails for a reason that has nothing to do with the cutover.** Either the binary
+comes from the release, or the SHA comparison is dropped rather than satisfied by a
+build flag.
+
 ### The questions, not the answers
 
 Everything in this section is an ANSWER. Answers do not let the next person ask the
