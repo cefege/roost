@@ -199,6 +199,30 @@ async fn a_child_that_ignores_the_signal_is_killed_after_the_grace() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A start that fails halfway: the coordinator that DID start must not outlive
+/// the refusal, and the child must have been ready to receive the signal.
+///
+/// **THIS TEST HAS A RACE, AND IT IS THE TEST'S, NOT THE MACHINE'S.** Measured:
+/// three isolated runs of this target gave one pass, one failure, one pass. The
+/// cause is the shape below — `DevStack::start` starts the coordinator, fails
+/// on the missing program, and immediately signals the coordinator, and the
+/// 300 ms `GRACE` is all that stands between that signal and a shell that has
+/// not yet reached its `trap` line. It is a real race, not load: the failing
+/// runs were on an idle machine with nothing else contending.
+///
+/// **THE FIX NEEDS A SEAM IN `DevStack`, SO IT IS NOT LANDED HERE.** The honest
+/// version is determinism, and the child already announces itself: `sleeper`
+/// writes its pid file AFTER installing the trap, so that file's existence IS
+/// "ready for a signal", and `await_started` above proves the mechanism by
+/// waiting on it. What is missing is a way to wait there too — the start and
+/// the stop both happen inside `DevStack::start`, and this test has no point
+/// between them. Closing it means either a readiness callback on `start` (a
+/// production API added for a test) or a readiness field on `DevServer` (a test
+/// concept inside production data). Both are design changes to a production
+/// seam, so they are reported rather than pushed unreviewed.
+///
+/// Widening `GRACE` would make this greener and leave the race exactly where
+/// it is, which is why it is not the fix.
 #[tokio::test]
 async fn a_server_that_cannot_start_names_itself_and_stops_what_already_ran() {
     let dir = scratch("no-program");
