@@ -3205,13 +3205,35 @@ step must be validated **in the state where it is unsafe**, not the state where
 it is safe — the same discipline that found the dead `lint_table` predicate by
 disabling its exemption and expecting a failure.
 
-**The corrected form. One of these two, never a third:**
+**The replacement is ONE form, and it is the blunt one:**
 
-1. Delete `debug/build/<pkg>-<hash>/` **together with** the matching
-   `debug/.fingerprint/<pkg>-<hash>-*` entries, so cargo rebuilds that build
-   script honestly.
-2. Delete the whole `target-*` directory and let it rebuild. Slower, always
-   correct.
+> **`cargo clean` on your own `target-*` directory. Nothing else.**
+
+An earlier version of this entry offered a second option — delete
+`debug/build/<pkg>-<hash>/` together with the matching
+`debug/.fingerprint/<pkg>-<hash>-*` entries. **That option is withdrawn too, and
+the reason is the rule this file keeps teaching: it was never verified.** A
+worker-track agent paired every `build/*/` that has an `out/` against
+`.fingerprint/<same-name>/` and got **0 of 7** — there is no same-named
+`.fingerprint` directory for any of them, so executed literally the recipe
+removes the output and removes nothing else. It is the withdrawn guard with an
+extra sentence attached.
+
+**The layout, measured rather than assumed, because both halves are here.** In
+the three target directories that exist: `out/` directories are common — 18 in
+the web track's, 51 in coord's, 53 in the CLI's — and `serde_core` **has** one
+in each of two of them. So the claim that proc-macro crates have no `out/` is
+wrong. But **both shapes coexist inside the same crate**: `serde_core` also has
+build directories holding only `build-script-build` / `build_script_build-<hash>`
+and no `out/` at all, and `out/private.rs` is exactly where the generated code
+for the build-script-output shape lives. A recipe aimed at one shape is wrong for
+the other, and the correct pairing is **not established**.
+
+**So: `cargo clean`, which is always correct and whose only failure mode is
+"slow".** Anything more surgical than deleting the whole directory requires
+knowing which fingerprint corresponds to which build script, and nobody in this
+programme has established that — so nobody gets to publish a recipe that
+guesses it.
 
 **And name the parent explicitly as the thing not to touch.** `*/debug/build/*/out`
 reads like it scopes to the `out` directories, and it will not stop anyone
