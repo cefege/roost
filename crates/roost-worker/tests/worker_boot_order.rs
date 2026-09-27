@@ -71,13 +71,14 @@ fn the_boot_order_is_declared_and_every_step_says_why_it_is_there() {
         names,
         vec![
             "identity",
-            "keeper-admission",
             "coordinator-link",
+            "keeper-admission",
             "session-reconcile",
             "ready"
         ],
-        "the order is the architecture: identity before any mutation, the keeper's \
-         survivor before a session is touched, readiness last"
+        "the order is the architecture: identity before any mutation, the link \
+         BEFORE the keeper because the survivor decision needs the \
+         coordinator's open-session set, readiness last"
     );
     for step in BOOT_ORDER {
         assert!(
@@ -96,8 +97,8 @@ fn the_sequence_records_steps_in_the_order_they_complete() {
     assert!(sequence.completed().is_empty());
     for step in [
         StepId::Identity,
-        StepId::KeeperAdmission,
         StepId::CoordinatorLink,
+        StepId::KeeperAdmission,
     ] {
         let because = sequence.complete(step);
         assert_eq!(because, BOOT_ORDER[step as usize].because);
@@ -106,10 +107,100 @@ fn the_sequence_records_steps_in_the_order_they_complete() {
         sequence.completed(),
         &[
             StepId::Identity,
-            StepId::KeeperAdmission,
-            StepId::CoordinatorLink
+            StepId::CoordinatorLink,
+            StepId::KeeperAdmission
         ]
     );
+}
+
+/// The enum and the array are two artifacts that must move together, and
+/// nothing in the type system says whether they do.
+///
+/// `StepId::name()` reads `BOOT_ORDER[step as usize]`, so the two can disagree
+/// without a compiler, a lint or any other test noticing: the arm points at a
+/// position, the position says something else, and every log line stays
+/// well-formed while naming the wrong step.
+///
+/// WHAT THIS DOES NOT BUY, because a mutation proved it. Swapping two adjacent
+/// `BOOT_ORDER` rows with the enum untouched — the exact reorder trap — leaves
+/// the two in PERFECT AGREEMENT: the arm still points at index 1, index 1 now
+/// spells a different name, and agreement says nothing about which is right.
+/// This test passed under that mutation. The name vector in
+/// `the_boot_order_is_declared_and_every_step_says_why_it_is_there` is what
+/// caught it, because it is the only thing in the tree that knows the intended
+/// order. So this is a CONSISTENCY check and the name vector is the CORRECTNESS
+/// one; a test that only ever asks "do these two files agree" cannot catch
+/// "both files are wrong together", which is what a reorder is.
+#[test]
+fn the_enum_and_the_array_agree_on_which_step_is_which() {
+    let mut sequence = BootSequence::new();
+    let mut names_from_the_enum = Vec::new();
+    let mut reasons_from_the_enum = Vec::new();
+    for step in StepId::ALL {
+        names_from_the_enum.push(step.name());
+        // The production accessor, not `BOOT_ORDER[step as usize].because`
+        // written out again here: that would restate the very index
+        // arithmetic under test and pass whatever the array says.
+        reasons_from_the_enum.push(sequence.complete(step));
+    }
+
+    let names_from_the_array: Vec<&str> = BOOT_ORDER.iter().map(|step| step.name).collect();
+    let reasons_from_the_array: Vec<&str> = BOOT_ORDER.iter().map(|step| step.because).collect();
+    assert_eq!(
+        (names_from_the_enum.as_slice(), reasons_from_the_enum.as_slice()),
+        (
+            names_from_the_array.as_slice(),
+            reasons_from_the_array.as_slice()
+        ),
+        "StepId and BOOT_ORDER disagree. The enum reads the array by position \
+         (`step as usize`), so one of the two moved without the other. Enum \
+         order: {names_from_the_enum:?}. Array order: {names_from_the_array:?}. \
+         Every log line above is still well-formed and names the WRONG step: \
+         re-add the step to the array and the arm to `name()` in the same \
+         change, or the log will describe an order boot does not run."
+    );
+}
+
+/// The two artifacts must also be the same LENGTH, which is a separate
+/// failure from the ordering one: a step appended to the array with no
+/// variant to reach it, or a variant with no row behind it.
+///
+/// A length mismatch is otherwise a panic deep inside `complete` on the first
+/// real boot, named by a `StepId` debug string and nothing else.
+#[test]
+fn a_step_cannot_be_added_to_one_of_the_two_without_the_other() {
+    assert_eq!(
+        StepId::ALL.len(),
+        BOOT_ORDER.len(),
+        "StepId::ALL has {} variants and BOOT_ORDER has {} rows, so a step exists \
+         in one artifact and not the other. `name()` indexes the array by \
+         position, so the orphaned row is either unreachable (a variant with \
+         no arm) or the wrong step's name (an arm pointing at someone else's \
+         position).",
+        StepId::ALL.len(),
+        BOOT_ORDER.len()
+    );
+    // And no two rows claim the same name, which is what makes a partial
+    // reorder visible: swapping two steps and copying one's name over the
+    // other would leave the log printing a name twice and omitting it once,
+    // with the order still plausible.
+    for (index, row) in BOOT_ORDER.iter().enumerate() {
+        let claimants: Vec<&str> = StepId::ALL
+            .iter()
+            .map(|step| step.name())
+            .filter(|name| *name == row.name)
+            .collect();
+        assert_eq!(
+            claimants.len(),
+            1,
+            "BOOT_ORDER[{index}] is named {:?} by {claimants:?}, so the log prints \
+             that step's name {} times and another step's not at all. Boot runs \
+             the array; the log names the enum; a step that shares a name with \
+             another is a reorder that cannot be told apart from the one it was.",
+            row.name,
+            claimants.len()
+        );
+    }
 }
 
 /// A configuration is refused here, before a socket is bound or a keeper is

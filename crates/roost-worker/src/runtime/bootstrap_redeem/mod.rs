@@ -24,7 +24,7 @@ use crate::host::install::{BOOTSTRAP_TOKEN_ENV, scrub_service_definition_env};
 use crate::host::jwt::read_existing_worker_key;
 use crate::runtime::credential::CredentialSource;
 
-mod activation;
+pub(crate) mod activation;
 mod label;
 mod register;
 

@@ -79,7 +79,15 @@ fn token_offered(env: &dyn EnvSource) -> bool {
 }
 
 /// The Connect client the two boot-time calls travel over.
-fn coordinator_client(base: &str) -> anyhow::Result<CoordinatorServiceClient<HttpClient>> {
+///
+/// `pub(crate)` because boot makes a THIRD call on the same connection — the
+/// open-session read in [`crate::runtime::reconcile`] — and a second client
+/// constructor would be a second answer to "how does this worker reach its
+/// coordinator", including the same refusal to dial `https` in the clear. The
+/// TLS refusal above is the reason this is one function rather than two.
+pub(crate) fn coordinator_client(
+    base: &str,
+) -> anyhow::Result<CoordinatorServiceClient<HttpClient>> {
     let uri: axum::http::Uri = base
         .parse()
         .with_context(|| format!("{base} is not a coordinator URL"))?;

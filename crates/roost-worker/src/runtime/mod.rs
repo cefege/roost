@@ -4,9 +4,11 @@
 //! it and nothing else here.
 //!
 //! The boot order is [`boot_order::BOOT_ORDER`] and it is not negotiable. The
-//! identity is settled before anything is probed or spawned, the keeper's
-//! survivor is admitted before a session is touched, and readiness is announced
-//! last because readiness is a claim about the steps before it.
+//! identity is settled before anything is probed or spawned; the link dials
+//! BEFORE the keeper is admitted, because the survivor decision needs the
+//! coordinator's open-session set and a set nobody has read cannot decide
+//! anything; and readiness is announced last because readiness is a claim
+//! about the steps before it.
 //!
 //! Two rules span every module here. A coordinator disconnect is a reconnect,
 //! never a shutdown: the keeper holds the PTYs and outlives this process on
@@ -33,6 +35,7 @@ pub mod link_loop;
 pub mod link_serve;
 pub mod link_wire;
 pub mod reconnect;
+pub mod reconcile;
 pub mod snapshot_source;
 pub mod stop;
 
@@ -42,12 +45,16 @@ use anyhow::Context as _;
 use roost_host::ProcessEnv;
 
 use crate::event_store::database::{DATABASE_FILE_NAME, Journal};
+use crate::keeper_pool::KeeperPool;
 use crate::link_dial::CoordinatorEndpoint;
 use boot_order::{BootSequence, Readiness, StepId};
+use bootstrap_redeem::activation;
+use bootstrap_redeem::enroll_this_activation;
 use credential::WorkerKeyCredential;
 use keeper_boot::KeeperBootOutcome;
 use link_loop::{BrowserLink, CoordinatorCellSink, LinkLoop, WorkerIdentity};
 use link_wire::ProtoLinkWire;
+use reconcile::read_open_session_count;
 use snapshot_source::NoSnapshot;
 use stop::{StopRequests, stop_requests_from_signals};
 
@@ -103,62 +110,35 @@ pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result
         "boot: identity settled"
     );
 
-    // 2. The keeper. `None` for the coordinator's open-session set, because
-    //    nothing has read it: the link below is what would read it, and
-    //    `keeper_boot::decide` treats an unread set as "do not replace". That is
-    //    the safe direction — a replacement made on an assumed-empty set is how a
-    //    restart kills a user's terminals — and it still lets the two cases that
-    //    need no coordinator happen: adopting a survivor, and starting a keeper
-    //    when nothing is listening at all.
-    let keeper = match keeper_boot::ensure_keeper(&boot, None, &boot.log_dir).await {
-        Ok(KeeperBootOutcome::Adopted { channels, keeper }) => {
-            tracing::info!(
-                ?channels,
-                "boot: adopted the keeper that already holds this machine's terminals"
-            );
-            Some(keeper)
-        }
-        Ok(KeeperBootOutcome::StartedFresh { keeper }) => {
-            tracing::info!("boot: started a fresh keeper");
-            Some(keeper)
-        }
-        Ok(KeeperBootOutcome::Held { decision }) => {
-            tracing::warn!(
-                ?decision,
-                "boot: the keeper endpoint is held and nothing was touched; replacing it waits \
-                 for the coordinator's open-session set"
-            );
-            None
-        }
-        Err(error) => {
-            tracing::error!(%error, "boot refused: the keeper endpoint could not be admitted");
-            return Err(error);
-        }
-    };
-    let because = sequence.complete(StepId::KeeperAdmission);
-    tracing::info!(
-        step = StepId::KeeperAdmission.name(),
-        because,
-        "boot: keeper admitted"
-    );
+    // 2. Enrollment, BEFORE the link dials and therefore before the keeper is
+    //    admitted. A link that opens before the coordinator holds this
+    //    machine's `authorized_keys` row sends its first frame to a
+    //    coordinator that does not know the sender, and the retry that follows
+    //    is a reconnect rather than a registration. Position is the whole
+    //    property here: `enroll_this_activation` on the far side of the dial
+    //    satisfies every test in the enrollment suite and is still the defect
+    //    the suite was written to prevent.
+    //
+    // One client for every boot-time call, so the scheme refusal and the
+    // base-URL parse happen once. Built BEFORE enrollment, so a coordinator
+    // this worker cannot dial is refused before a token is spent against it,
+    // and reused by the open-session read below.
+    let coordinator_client = activation::coordinator_client(&boot.coordinator_base)
+        .with_context(|| format!("{} is not a coordinator this worker can dial", boot.coordinator_base))?;
+    let enrollment = enroll_this_activation(&boot)
+        .await
+        .context("this activation could not be enrolled")?;
+    if enrollment.is_some() {
+        tracing::info!(
+            fingerprint = %boot.fingerprint,
+            "boot: this machine is a member of the fleet before the link opens"
+        );
+    }
 
-    // The keeper has been admitted, so the flag that authorised a destructive
-    // retirement has done its work. A value left in the unit re-authorizes
-    // destroying every PTY on each later restart, and this is the only moment
-    // at which the authorisation is known to have been spent.
-    crate::host::install::spend_keeper_force_live_retire_authorization(&ProcessEnv::new()).await;
-
-    // UNIMPLEMENTED: the local door (`crate::door` over `crate::local_door`'s
-    // policy), the session manager (`crate::session`, plus the
-    // `keeper_pool` connection it drives), agent tracking (`crate::agents`)
-    // and the heartbeat, in v2's order between here and the link. The local
-    // door comes before the link in v2 and must here too: a browser on this
-    // machine reaches its own PTYs through the door, and it has to keep doing
-    // that while the coordinator is unreachable.
-
-    // 3. The coordinator link, after the keeper rather than before it, because
-    //    the keeper is what holds the terminals and a coordinator outage must not
-    //    cost this process them.
+    // 3. The coordinator link, dialed BEFORE the keeper is admitted. v2 starts
+    //    the link at `main.ts:173` and does not reach the survivor decision
+    //    until `boot-session-reconcile.ts:174`, and the reason is the next
+    //    step: the decision needs a fact only the coordinator has.
     let endpoint =
         CoordinatorEndpoint::new(boot.coordinator_base.clone(), boot.fingerprint.as_str())?;
     let mut link = LinkLoop::new(
@@ -208,26 +188,109 @@ pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result
             "the durable outbox is open but its row count could not be read"
         ),
     }
-    link.attach_durable_outbox(outbox);
+    // An unaligned barrier is a boot refusal, not a warning: rows written under
+    // a sequence the barrier will not issue are worse than rows never written,
+    // and a barrier that cannot be aligned wedges in `replay` for ever.
+    link.attach_durable_outbox(outbox)
+        .with_context(|| format!("the link barrier could not be aligned to the outbox at {}", outbox_path.display()))?;
     link.attach_cell_sink(Arc::new(CoordinatorCellSink::new(Arc::new(ProtoLinkWire))));
+
+    // 4. The coordinator's COMPLETE open-session set, and then the keeper. In
+    //    THAT ORDER, and the ordering is the fix: `ensure_keeper` used to be
+    //    called with `None` here, and under the old boot order that `None` was
+    //    not a gap a later step filled — it was permanent. `decide` reads an
+    //    unread set as "do not replace", so a machine whose keeper genuinely
+    //    needed replacing never replaced it, forever, and no test noticed
+    //    because the refusal is the safe direction.
+    let open_sessions = read_open_session_count(&coordinator_client, boot.fingerprint.as_str())
+        .await
+        .unwrap_or_else(|error| {
+            // `None`, never `Some(0)`. A coordinator that did not answer has
+            // told us nothing, and reading that as "nothing is open" is how a
+            // restart ends a user's terminals.
+            tracing::warn!(
+                %error,
+                "boot: the coordinator did not report its open-session set; the keeper \
+                 survivor will not be replaced on an unread fact"
+            );
+            None
+        });
+    let keeper = match keeper_boot::ensure_keeper(&boot, open_sessions, &boot.log_dir).await {
+        Ok(KeeperBootOutcome::Adopted { channels, keeper }) => {
+            tracing::info!(
+                ?channels,
+                "boot: adopted the keeper that already holds this machine's terminals"
+            );
+            Some(keeper)
+        }
+        Ok(KeeperBootOutcome::StartedFresh { keeper }) => {
+            tracing::info!("boot: started a fresh keeper");
+            Some(keeper)
+        }
+        Ok(KeeperBootOutcome::Held { decision }) => {
+            tracing::warn!(
+                ?decision,
+                "boot: the keeper endpoint is held and nothing was touched"
+            );
+            None
+        }
+        Err(error) => {
+            tracing::error!(%error, "boot refused: the keeper endpoint could not be admitted");
+            return Err(error);
+        }
+    };
+
+    // The pool is built from the admitted keeper HERE, and its dispatch loop
+    // starts inside `KeeperPool::new` — which is before any history is read.
+    // The keeper streams `PtyOut` from the moment a worker connects, and an
+    // unbound frame is dropped at `keeper_pool/dispatch.rs`, so a pool that
+    // started after the first history read would lose the bytes a survivor
+    // produced during the read. Nothing reports that loss: the frames were
+    // never expected by anyone.
+    let pool = keeper
+        .as_ref()
+        .map(|handle| KeeperPool::new(handle.clone()));
+
+    let because = sequence.complete(StepId::KeeperAdmission);
+    tracing::info!(
+        step = StepId::KeeperAdmission.name(),
+        because,
+        keeper = keeper.is_some(),
+        "boot: keeper admitted"
+    );
+
+    // The keeper has been admitted, so the flag that authorised a destructive
+    // retirement has done its work. A value left in the unit re-authorizes
+    // destroying every PTY on each later restart, and this is the only moment
+    // at which the authorisation is known to have been spent.
+    crate::host::install::spend_keeper_force_live_retire_authorization(&ProcessEnv::new()).await;
+
+    // The link records its step last of the two, because it is the step that
+    // made step 4 possible: the order is identity, link, keeper, and the
+    // `because` on the link row says so.
     let because = sequence.complete(StepId::CoordinatorLink);
     tracing::info!(
         step = StepId::CoordinatorLink.name(),
         because,
-        keeper = keeper.is_some(),
         "boot: the coordinator link is starting"
     );
 
-    // UNIMPLEMENTED: reconcile the coordinator's open-session set against the
-    // local one, activate the snapshot provider, and only then advance
-    // `readiness` through `Readiness::advance`. Both need the link to be live
-    // and a session MANAGER to reconcile — the record and its vocabulary are in
-    // `crate::session`, and the thing that owns a set of them is not — so until
-    // they exist those two steps are refused rather than skipped — see
-    // `BOOT_ORDER`. `serve_until` deliberately does not call
-    // `Readiness::advance(ReadyStep::Reconciled)`: a worker that announces
-    // readiness it cannot back is worse than one that never does.
+    // UNIMPLEMENTED: the local door (`crate::door` over `crate::local_door`'s
+    // policy), the session manager (`crate::session`, built over `pool` above
+    // with its four production collaborators), agent tracking
+    // (`crate::agents`) and the heartbeat, in v2's order. The local door comes
+    // before the link in v2 and must here too: a browser on this machine
+    // reaches its own PTYs through the door, and it has to keep doing that
+    // while the coordinator is unreachable.
+
+    // The link runs to completion here, which is the whole reason boot is a
+    // function and not a loop of its own: the loop owns every reconnect, and
+    // the run ends when something that can END it asks.
     let reason = link.run(stop.subscribe()).await;
+
+    if pool.is_some() {
+        tracing::info!("boot: the keeper pool's dispatch loop ends with the link");
+    }
 
     tracing::info!(
         reason = %reason,

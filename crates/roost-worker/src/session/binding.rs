@@ -39,10 +39,18 @@ use super::types::SessionRecord;
 /// than a smaller window.
 pub const RESUME_STAGE_CAP_BYTES: usize = 256 * 1024;
 
-/// The per-channel cell delivery registration the lifecycle owes the emitter;
-/// `session::emit::CellEmitter` is the production implementation. Both facts a
-/// channel's delivery has — that it started, and that it is over — are
-/// transitions the session layer owns, so both are announced through here.
+/// The per-channel cell delivery registration the lifecycle owes the emitter.
+/// Both facts a channel's delivery has — that it started, and that it is over —
+/// are transitions the session layer owns, so both are announced through here.
+///
+/// `session::emit::CellEmitter` is the DELIVERY SURFACE, and that is a weaker
+/// claim than "the implementation": it holds the state these two calls change
+/// (`emit_streams::StreamOutput`), and it exposes the changes as inherent
+/// methods. It does not implement this trait, because the inherent forms take
+/// what the state needs — `install_stream` there reads a `&mut SessionRecord`
+/// to pick up the core, and this trait's signature has no record. The wiring
+/// that bridges the two is `runtime`'s, and it is the only place allowed to
+/// hold both halves.
 pub trait CellDelivery: Send + Sync {
     /// A channel's stream generation, so deltas can flow to it.
     fn install_stream(&mut self, channel_id: ChannelId, stream_id: &str);
@@ -66,7 +74,11 @@ pub struct CapturedOutput {
 /// a delivery change: freezing a core is a stream-state question, and a second
 /// answer to "may this chunk be parsed yet" is how a half-applied resize paints
 /// a grid that was never on that terminal. `session::emit::CellEmitter` is the
-/// production implementation of both.
+/// delivery surface for this one too, and again does not implement it — see
+/// the note on [`CellDelivery`]. The staged/ordered half is here, in
+/// [`RecordBinding`], which is what makes the ordering guarantee total: bytes
+/// for a record that does not exist yet are held, and the trait is what
+/// decides whether they may be parsed.
 pub trait ChannelDelivery: Send + Sync {
     /// Parse and ship one chunk, or retain it without parsing while the core is
     /// frozen.
