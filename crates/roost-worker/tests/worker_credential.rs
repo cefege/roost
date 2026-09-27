@@ -355,10 +355,7 @@ lzDrmmsja65im/lI+R0rAAAAAAECAwQF
     let token = source.mint().expect("and it signs with it");
     let verifier = verifier_from_key_file(&key_path);
     verifier
-        .verify(
-            signing_input_of(&token).as_bytes(),
-            &signature_of(&token),
-        )
+        .verify(signing_input_of(&token).as_bytes(), &signature_of(&token))
         .expect("the credential from a v2 key verifies against that key");
     assert_eq!(
         std::fs::read_to_string(&key_path).expect("the file is there"),

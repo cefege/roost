@@ -68,7 +68,10 @@ pub enum EnrollmentError {
         "bootstrap fingerprint mismatch: this machine's key is {expected}, \
          the coordinator redeemed {received}"
     )]
-    FingerprintMismatch { expected: WorkerFp, received: String },
+    FingerprintMismatch {
+        expected: WorkerFp,
+        received: String,
+    },
     #[error("the registration could not be authenticated: {reason}")]
     Credential { reason: String },
     #[error("the coordinator refused the registration: {reason}")]
@@ -143,10 +146,11 @@ where
     // point of the redemption is to bind this token to THIS machine's public
     // key, so a key read as nothing would spend a one-shot grant on no key at
     // all and leave the machine unauthorized with the token already gone.
-    let key = read_existing_worker_key(key_path).map_err(|error| EnrollmentError::KeyUnreadable {
-        path: key_path.to_path_buf(),
-        reason: error.to_string(),
-    })?;
+    let key =
+        read_existing_worker_key(key_path).map_err(|error| EnrollmentError::KeyUnreadable {
+            path: key_path.to_path_buf(),
+            reason: error.to_string(),
+        })?;
     let machine = MachineFacts {
         fingerprint: key.fingerprint().clone(),
         public_key_b64: BASE64_STANDARD.encode(key.public_key()),

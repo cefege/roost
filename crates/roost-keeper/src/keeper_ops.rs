@@ -106,7 +106,11 @@ impl Keeper {
                     channel_id: request.channel_id,
                     pid,
                 };
-                Ok(vec![MuxFrame::json(MuxFrameType::SpawnAck, request.channel_id, &ack)?])
+                Ok(vec![MuxFrame::json(
+                    MuxFrameType::SpawnAck,
+                    request.channel_id,
+                    &ack,
+                )?])
             }
             Err(err) => {
                 tracing::warn!(
@@ -251,7 +255,11 @@ impl Keeper {
     pub fn terminal_state(&mut self, frame: &MuxFrame) -> Result<Vec<MuxFrame>, CodecError> {
         let state = self.state_of(frame.channel_id);
         let payload = state.encode()?;
-        let response = MuxFrame::new(MuxFrameType::GetTerminalStateResp, frame.channel_id, payload)?;
+        let response = MuxFrame::new(
+            MuxFrameType::GetTerminalStateResp,
+            frame.channel_id,
+            payload,
+        )?;
         Ok(vec![response])
     }
 
@@ -281,8 +289,11 @@ impl Keeper {
             Some(_) => channel.history.records().encode()?,
             None => channel.history.records().encode()?,
         };
-        let response =
-            MuxFrame::new(MuxFrameType::GetHistoryRecordsResp, frame.channel_id, payload)?;
+        let response = MuxFrame::new(
+            MuxFrameType::GetHistoryRecordsResp,
+            frame.channel_id,
+            payload,
+        )?;
         Ok(vec![response])
     }
 }

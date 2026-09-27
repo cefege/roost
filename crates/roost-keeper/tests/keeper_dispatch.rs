@@ -211,7 +211,10 @@ fn an_exited_child_is_reported_once_and_only_after_its_output_drains() {
         "a finished channel is not left behind"
     );
     assert!(
-        keeper.reap_exited().expect("an exit frame is small JSON").is_empty(),
+        keeper
+            .reap_exited()
+            .expect("an exit frame is small JSON")
+            .is_empty(),
         "and it is reported once, not every tick"
     );
 }

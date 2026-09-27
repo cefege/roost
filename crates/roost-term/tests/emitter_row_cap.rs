@@ -49,7 +49,10 @@ fn a_delta_past_the_row_cap_becomes_a_viewport_only_full() {
         None,
     )
     .expect("a forced first frame is always built");
-    assert!(baseline.sent_full, "the forced frame established a baseline");
+    assert!(
+        baseline.sent_full,
+        "the forced frame established a baseline"
+    );
     core.clear_dirty();
 
     // The viewport height is added so the caret's walk down the first screen
@@ -69,8 +72,8 @@ fn a_delta_past_the_row_cap_becomes_a_viewport_only_full() {
     // A large history budget is offered deliberately: the cap has to override
     // the caller's tail, or a caller that asks for generous history silently
     // walks straight past it.
-    let (frame, next) =
-        next_cell_frame(&core, &baseline, false, Some(4_096)).expect("the emitter answers past the cap");
+    let (frame, next) = next_cell_frame(&core, &baseline, false, Some(4_096))
+        .expect("the emitter answers past the cap");
 
     assert!(
         frame.full,
@@ -128,8 +131,8 @@ fn a_delta_within_the_row_cap_stays_a_delta() {
         "the feed must land strictly inside the cap: appended {appended} rows against a cap of {LIVE_DELTA_SCROLLBACK_ROWS_CAP}"
     );
 
-    let (frame, next) =
-        next_cell_frame(&core, &baseline, false, Some(4_096)).expect("the emitter answers inside the cap");
+    let (frame, next) = next_cell_frame(&core, &baseline, false, Some(4_096))
+        .expect("the emitter answers inside the cap");
 
     assert!(
         !frame.full,
@@ -140,8 +143,13 @@ fn a_delta_within_the_row_cap_stays_a_delta() {
         "a delta declares the frame it was computed against"
     );
     assert_eq!(
-        frame.scrollback_append.len() as u64, appended,
+        frame.scrollback_append.len() as u64,
+        appended,
         "the delta appends every row the client is missing, which is the fast path the cap is protecting"
     );
-    assert_eq!(next.seq, baseline.seq + 1, "an exact successor, never a gap");
+    assert_eq!(
+        next.seq,
+        baseline.seq + 1,
+        "an exact successor, never a gap"
+    );
 }

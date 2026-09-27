@@ -60,7 +60,10 @@ fn a_host_identity_is_collected_from_this_hosts_sources_or_is_none() {
 fn an_os_release_value_is_unquoted_and_unescaped() {
     let source = "NAME=\"Fedora Linux\"\nPRETTY_NAME=\"Fedora Linux 42 (Workstation Edition)\"\nQUOTED=\"a\\\\b\\\"c\\$d\"\n";
     let value = |key: &str| os_release_value(source, key).as_deref();
-    assert_eq!(value("PRETTY_NAME"), Some("Fedora Linux 42 (Workstation Edition)"));
+    assert_eq!(
+        value("PRETTY_NAME"),
+        Some("Fedora Linux 42 (Workstation Edition)")
+    );
     assert_eq!(value("QUOTED"), Some("a\\b\"c$d"));
     assert_eq!(value("MISSING"), None);
     // A key that is a PREFIX of another key must not match it.

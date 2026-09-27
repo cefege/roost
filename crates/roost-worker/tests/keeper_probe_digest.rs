@@ -55,7 +55,9 @@ async fn a_readable_binary_is_named_by_the_sha256_of_its_bytes() {
     );
     assert_eq!(digest.len(), 64, "a SHA-256 is 64 hex characters");
     assert!(
-        digest.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+        digest
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
         "the digest must be lowercase hex: the keeper's authorized-keys row and the \
          coordinator's both read it with one spelling, and `hex_of_len(.., 64)` \
          rejects the other"

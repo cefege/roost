@@ -84,10 +84,7 @@ pub fn resolve_worker_label(
     if let Some(label) = named(env.get(ENV_WORKER_LABEL)) {
         return Ok(label);
     }
-    if let Some(name) = sources
-        .host_name(platform)
-        .filter(|name| !name.is_empty())
-    {
+    if let Some(name) = sources.host_name(platform).filter(|name| !name.is_empty()) {
         return Ok(name);
     }
     named(env.get(HOSTNAME_ENV)).ok_or(EnrollmentError::NoLabel)
@@ -102,9 +99,7 @@ pub(super) fn named(value: Option<String>) -> Option<String> {
 mod tests {
     use roost_host::{EnvSource, HostPlatform, MapEnv};
 
-    use super::{
-        ENV_WORKER_LABEL, HostLabelSources, LabelSources, named, resolve_worker_label,
-    };
+    use super::{ENV_WORKER_LABEL, HostLabelSources, LabelSources, named, resolve_worker_label};
     use crate::runtime::bootstrap_redeem::EnrollmentError;
 
     /// A host with a name the test chooses, or with none at all.
@@ -128,7 +123,10 @@ mod tests {
         let env = MapEnv::new()
             .with(ENV_WORKER_LABEL, "studio-mac")
             .with("HOSTNAME", "mikes-air.local");
-        assert_eq!(label_of(&env, Some("mikes-air")), Ok("studio-mac".to_string()));
+        assert_eq!(
+            label_of(&env, Some("mikes-air")),
+            Ok("studio-mac".to_string())
+        );
     }
 
     #[test]
@@ -137,7 +135,10 @@ mod tests {
         // there, and an ordering that consulted it first left a whole fleet
         // under one name.
         let env = MapEnv::new().with("HOSTNAME", "stale-import");
-        assert_eq!(label_of(&env, Some("mike-m5-air")), Ok("mike-m5-air".to_string()));
+        assert_eq!(
+            label_of(&env, Some("mike-m5-air")),
+            Ok("mike-m5-air".to_string())
+        );
     }
 
     #[test]
@@ -151,13 +152,19 @@ mod tests {
         let env = MapEnv::new()
             .with(ENV_WORKER_LABEL, "")
             .with("HOSTNAME", "");
-        assert_eq!(label_of(&env, Some("mike-m5-air")), Ok("mike-m5-air".to_string()));
+        assert_eq!(
+            label_of(&env, Some("mike-m5-air")),
+            Ok("mike-m5-air".to_string())
+        );
         assert_eq!(label_of(&env, None), Err(EnrollmentError::NoLabel));
     }
 
     #[test]
     fn a_host_with_no_name_at_all_is_refused_rather_than_called_worker() {
-        assert_eq!(label_of(&MapEnv::new(), None), Err(EnrollmentError::NoLabel));
+        assert_eq!(
+            label_of(&MapEnv::new(), None),
+            Err(EnrollmentError::NoLabel)
+        );
     }
 
     #[test]

@@ -298,7 +298,11 @@ impl Keeper {
             .collect();
         for (channel_id, exit_code) in finished {
             self.channels.remove(&channel_id);
-            exits.push(MuxFrame::json(MuxFrameType::Exit, channel_id, &ExitFrame { exit_code })?);
+            exits.push(MuxFrame::json(
+                MuxFrameType::Exit,
+                channel_id,
+                &ExitFrame { exit_code },
+            )?);
         }
         Ok(exits)
     }

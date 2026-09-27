@@ -51,7 +51,6 @@ fn an_oversized_length_fails_instead_of_allocating() {
     );
 }
 
-
 /// A socket read splits wherever it likes. A decoder that assumed one frame per
 /// read would corrupt every large PTY burst, so the split is driven byte by
 /// byte rather than reasoned about.

@@ -49,9 +49,13 @@ fn a_frame_from_a_boxed_core_matches_one_from_the_concrete_core() {
         None,
     )
     .expect("the concrete core builds a full frame");
-    let (boxed_frame, _) =
-        next_cell_frame(&*boxed_core, &CellEmitState::new("epoch-1", "stream-1"), true, None)
-            .expect("the boxed core builds the same full frame");
+    let (boxed_frame, _) = next_cell_frame(
+        &*boxed_core,
+        &CellEmitState::new("epoch-1", "stream-1"),
+        true,
+        None,
+    )
+    .expect("the boxed core builds the same full frame");
 
     assert_eq!(
         concrete_frame, boxed_frame,

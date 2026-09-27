@@ -4,10 +4,10 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-#[path = "session_emit_support/mod.rs"]
-mod support;
 #[path = "session_spawn_support/mod.rs"]
 mod spawn_support;
+#[path = "session_emit_support/mod.rs"]
+mod support;
 
 use std::sync::Arc;
 
@@ -21,7 +21,6 @@ use spawn_support::{
     BindingThatRecordsDelivery, FakeKeeper, FixedResolver, LedgerSink, context, request,
 };
 use support::shell_spec;
-
 
 /// A spawn that cannot open its PTY must give BOTH claims back. A leaked claim
 /// is capacity the store will never hand out again, and a store that has lost

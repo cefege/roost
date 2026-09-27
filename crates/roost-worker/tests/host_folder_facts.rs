@@ -313,4 +313,3 @@ fn a_sampler_reports_this_hosts_memory_and_disk_rather_than_refusing() {
     assert!(disk_total > 0, "the root filesystem reported no size");
     assert!(disk_used <= disk_total);
 }
-

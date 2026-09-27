@@ -15,7 +15,9 @@ use roost_proto::buffa::MessageField;
 use roost_proto::{CoordinatorServiceClient, WorkersRegisterRequest};
 use roost_protocol::proto_adapters::host_identity_to_proto;
 
-use super::{AUTHORIZATION, EnrollmentError, MachineFacts, boot_call_options, coordinator_is_silent};
+use super::{
+    AUTHORIZATION, EnrollmentError, MachineFacts, boot_call_options, coordinator_is_silent,
+};
 use crate::host::identity::static_host_identity;
 use crate::runtime::credential::CredentialSource;
 
@@ -54,21 +56,20 @@ where
     // `try_with_header`, not `with_header`: the latter drops a value it cannot
     // spell, and a credential this worker built wrong would then arrive as an
     // `Unauthenticated` with no header on it and nothing to point at.
-    let options = match boot_call_options()
-        .try_with_header(AUTHORIZATION, format!("Bearer {token}"))
-    {
-        Ok(options) => options,
-        Err(error) => {
-            tracing::error!(
-                fingerprint = %machine.fingerprint,
-                reason = %error,
-                "enroll: the worker credential is not a header value"
-            );
-            return Err(EnrollmentError::Credential {
-                reason: error.to_string(),
-            });
-        }
-    };
+    let options =
+        match boot_call_options().try_with_header(AUTHORIZATION, format!("Bearer {token}")) {
+            Ok(options) => options,
+            Err(error) => {
+                tracing::error!(
+                    fingerprint = %machine.fingerprint,
+                    reason = %error,
+                    "enroll: the worker credential is not a header value"
+                );
+                return Err(EnrollmentError::Credential {
+                    reason: error.to_string(),
+                });
+            }
+        };
     // The host identity is always sent, empty fields and all. The coordinator
     // normalises an identity whose every field is absent to the same "nothing
     // was collected" it answers for a missing message, so sending it costs
@@ -79,9 +80,7 @@ where
         os: Some(machine.os.to_owned()),
         git_sha: machine.git_sha.clone(),
         reachable_addr: machine.reachable_addr.clone(),
-        host_identity: MessageField::some(host_identity_to_proto(
-            static_host_identity().as_ref(),
-        )),
+        host_identity: MessageField::some(host_identity_to_proto(static_host_identity().as_ref())),
         ..Default::default()
     };
     tracing::info!(

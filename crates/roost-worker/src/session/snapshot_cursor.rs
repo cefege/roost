@@ -27,8 +27,7 @@ use roost_term::{CellEmitState, scrollback_origin};
 use tracing::warn;
 
 use super::cell_sink::{
-    CellSink, FrameTimings, SnapshotCursor, StreamDeliveryAggregate,
-    aggregate_stream_delivery,
+    CellSink, FrameTimings, SnapshotCursor, StreamDeliveryAggregate, aggregate_stream_delivery,
 };
 use super::emit::CellEmitter;
 use super::ids::{MintError, mint_uuid};

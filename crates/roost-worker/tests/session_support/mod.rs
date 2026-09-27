@@ -339,7 +339,10 @@ impl ChannelDelivery for SharedDelivery {
         self.0.freeze_capture(channel_id)
     }
 
-    fn close_capture(&self, channel_id: ChannelId) -> roost_worker::session::binding::CapturedOutput {
+    fn close_capture(
+        &self,
+        channel_id: ChannelId,
+    ) -> roost_worker::session::binding::CapturedOutput {
         self.0.close_capture(channel_id)
     }
 }
@@ -349,7 +352,6 @@ impl ChannelDelivery for SharedDelivery {
 pub fn shared_delivery(recorder: &Arc<RecordingDelivery>) -> Arc<Mutex<dyn ChannelDelivery>> {
     Arc::new(Mutex::new(SharedDelivery(Arc::clone(recorder))))
 }
-
 
 /// The manager, with every collaborator a test can reach.
 pub struct Harness {

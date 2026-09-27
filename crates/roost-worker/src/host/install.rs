@@ -70,8 +70,10 @@ pub enum InstallError {
     /// A name that is not a plain environment name. It is interpolated into
     /// the text both erasers match against, so a name that is not one is
     /// refused rather than edited by a rule nobody wrote.
-    #[error("{key:?} is not an environment name, so it was refused rather than matched against \
-             the service definition")]
+    #[error(
+        "{key:?} is not an environment name, so it was refused rather than matched against \
+             the service definition"
+    )]
     NotAnEnvName { key: String },
     #[error("the worker service definition at {path} could not be read: {reason}")]
     Unreadable { path: PathBuf, reason: String },

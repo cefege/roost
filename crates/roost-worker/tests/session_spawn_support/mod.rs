@@ -24,12 +24,10 @@ use std::sync::{Arc, Mutex};
 use roost_protocol::wire::event::SessionEvent;
 use roost_worker::event_store::{DurableEventKind, Reservation, Store};
 use roost_worker::session::sinks::{ChannelBinding, SessionEventError, SessionEventSink};
-use roost_worker::session::spawn::{
-    ShellSpawner, ShellSpecResolver, SpawnContext, SpawnRequest,
-};
+use roost_worker::session::spawn::{ShellSpawner, ShellSpecResolver, SpawnContext, SpawnRequest};
 
-use support::{channel, shell_spec, worker_fp};
 use roost_worker::shell_spec::ShellSpec;
+use support::{channel, shell_spec, worker_fp};
 
 /// What the durable boundary did, as a ledger of claim ids and events.
 #[derive(Debug, Default)]
