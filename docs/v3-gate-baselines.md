@@ -589,6 +589,43 @@ directory. Each was met separately and filed as its own incident. **Silence is
 the only output all four share**, and grouping them is what makes `test -d` a
 rule rather than a patch for one evening.
 
+### A commented-out `pub mod` is a silent un-registration, and the rule for it is NOT a marker list
+
+A subagent disabled three module registrations in a row with
+`// TEMP-DISABLED pub mod predictive_echo;`, then `// TEMP pub mod
+attachments;`. Each one **removes a module without failing where the edit was
+made**: the files stay, the crate still compiles, and the failure surfaces in a
+different crate as `could not find predictive_echo in client` — four files from
+the cause, phrased as a missing module rather than a commented-out line. The
+reader goes looking for a file that is present. It is the same class as a green
+check that never ran, and it cost a lead three restores and a build cycle.
+
+**The marker names are unbounded, so a lint listing them is not the fix.** A rule
+naming `TEMP`, `FIXME`, `XXX` and `for now` passes on the next spelling. And the
+obvious shape test — a `mod` or `use` with a `;` after it — **flags real prose in
+this repository**: `// happens to declare \`mod api_support;\`.` quotes a
+declaration and disables nothing, and `// this use of the term is deliberate` has
+a `use` in it. A lint that cries wolf on the first file it reads is worse than
+no lint, because the next occurrence is ignored.
+
+**So the rule was written, made its own tests pass, flagged prose, and was
+deleted.** A gate that is broken is worse than a gate that is absent, and an
+optional rule is not worth a broken `xtask`. What survives is the rule written
+here rather than in code:
+
+- **A module is registered, or it is not in the tree. There is no third state, and
+  no marker that temporarily un-registers one.**
+- If a slice needs a registration it does not own, it says so in its report and
+  the integrator writes the line. A slice that cannot compile without a `mod` it
+  does not own is reporting a dependency, not working around one.
+- A **trait with no implementation** is a different case from a module that used
+  to compile: it is a declaration with nothing behind it, and the honest state is
+  "written, unregistered, and named" — in a report, never as a comment.
+- Whoever eventually writes the lint should match a bare `mod`/`use` token within
+  the first few words of a `//` comment **and** a `;` on that line, and should
+  carry the two prose lines above as named regression tests, because a version
+  that flagged them would be reverted by the first person who met it.
+
 **The backstop, scoped so it does not become a superstition: a check faster than
 the crate has ever checked has not checked.** It bites on `cargo check` and
 `cargo test`, and explicitly **not** on a source-tree scan — `cargo xtask lint`
