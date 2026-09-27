@@ -34,8 +34,8 @@ pub mod link_drain;
 pub mod link_loop;
 pub mod link_serve;
 pub mod link_wire;
-pub mod reconnect;
 pub mod reconcile;
+pub mod reconnect;
 pub mod snapshot_source;
 pub mod stop;
 
@@ -123,8 +123,13 @@ pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result
     // base-URL parse happen once. Built BEFORE enrollment, so a coordinator
     // this worker cannot dial is refused before a token is spent against it,
     // and reused by the open-session read below.
-    let coordinator_client = activation::coordinator_client(&boot.coordinator_base)
-        .with_context(|| format!("{} is not a coordinator this worker can dial", boot.coordinator_base))?;
+    let coordinator_client =
+        activation::coordinator_client(&boot.coordinator_base).with_context(|| {
+            format!(
+                "{} is not a coordinator this worker can dial",
+                boot.coordinator_base
+            )
+        })?;
     let enrollment = enroll_this_activation(&boot)
         .await
         .context("this activation could not be enrolled")?;
@@ -167,11 +172,12 @@ pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result
     // warning — a worker that accepted sessions it could not record would
     // leave the coordinator believing a dead session is alive.
     let outbox_path = boot.data_dir.join(DATABASE_FILE_NAME);
-    let outbox = Arc::new(
-        Journal::open(&outbox_path)
-            .await
-            .with_context(|| format!("the durable outbox at {} could not be opened", outbox_path.display()))?,
-    );
+    let outbox = Arc::new(Journal::open(&outbox_path).await.with_context(|| {
+        format!(
+            "the durable outbox at {} could not be opened",
+            outbox_path.display()
+        )
+    })?);
     // Logged, not propagated: a stats read that fails says the store is
     // answering, which is the only thing the line is for. The open above
     // already refused anything that is not.
@@ -191,8 +197,12 @@ pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result
     // An unaligned barrier is a boot refusal, not a warning: rows written under
     // a sequence the barrier will not issue are worse than rows never written,
     // and a barrier that cannot be aligned wedges in `replay` for ever.
-    link.attach_durable_outbox(outbox)
-        .with_context(|| format!("the link barrier could not be aligned to the outbox at {}", outbox_path.display()))?;
+    link.attach_durable_outbox(outbox).with_context(|| {
+        format!(
+            "the link barrier could not be aligned to the outbox at {}",
+            outbox_path.display()
+        )
+    })?;
     link.attach_cell_sink(Arc::new(CoordinatorCellSink::new(Arc::new(ProtoLinkWire))));
 
     // 4. The coordinator's COMPLETE open-session set, and then the keeper. In

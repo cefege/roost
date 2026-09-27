@@ -365,7 +365,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn only_a_coordinator_that_did_not_answer_counts_as_silent() {
         // An outage the link recovers from is tolerated; an authorization this

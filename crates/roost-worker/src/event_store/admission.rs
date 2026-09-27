@@ -10,7 +10,7 @@
 //! record that it ended. So the state arrives as ARGUMENTS and the rule decides
 //! nothing about where it came from.
 
-use super::{DurableEventKind, ReserveError, MAX_PAYLOAD_BYTES, MAX_ROWS};
+use super::{DurableEventKind, MAX_PAYLOAD_BYTES, MAX_ROWS, ReserveError};
 
 /// Whether one more claim of `payload_bytes` fits, given what is already used.
 ///

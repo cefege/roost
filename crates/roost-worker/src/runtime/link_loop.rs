@@ -17,8 +17,8 @@ use std::time::Instant;
 use roost_protocol::wire::WorkerFp;
 
 use crate::backoff::LinkHealth;
-use crate::link_barrier::{Barrier, Pump};
 use crate::event_store::Journal;
+use crate::link_barrier::{Barrier, Pump};
 use crate::link_dial::CoordinatorEndpoint;
 use crate::outbox::{AdmitError, Admitted, Lane, Outbox, PENDING_BYTES_CAP};
 
@@ -70,8 +70,6 @@ pub const SNAPSHOT_STARVATION: std::time::Duration = std::time::Duration::from_s
 /// What a browser command is answered with while nothing can execute one.
 pub const NO_SESSION_LAYER_REFUSAL: &str =
     "this worker build has no session layer, so it cannot execute browser commands";
-
-
 
 /// Who this worker is to the coordinator, in the fields the hello carries.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -279,7 +277,6 @@ impl LinkLoop {
     pub fn wake(&self) {
         self.wake.notify_one();
     }
-
 }
 
 /// Why a frame was not offered to the outbox.
@@ -290,7 +287,9 @@ pub enum AdmitRefusal {
     #[error(transparent)]
     Outbox(#[from] AdmitError),
 
-    #[error("an unidentified agent status names no session or occupant, so no reader could place it")]
+    #[error(
+        "an unidentified agent status names no session or occupant, so no reader could place it"
+    )]
     UnidentifiedAgentStatus,
     #[error("a {label} frame did not encode: {reason}")]
     Unencodable { label: String, reason: String },

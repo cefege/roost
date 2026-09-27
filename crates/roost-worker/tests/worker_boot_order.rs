@@ -147,7 +147,10 @@ fn the_enum_and_the_array_agree_on_which_step_is_which() {
     let names_from_the_array: Vec<&str> = BOOT_ORDER.iter().map(|step| step.name).collect();
     let reasons_from_the_array: Vec<&str> = BOOT_ORDER.iter().map(|step| step.because).collect();
     assert_eq!(
-        (names_from_the_enum.as_slice(), reasons_from_the_enum.as_slice()),
+        (
+            names_from_the_enum.as_slice(),
+            reasons_from_the_enum.as_slice()
+        ),
         (
             names_from_the_array.as_slice(),
             reasons_from_the_array.as_slice()

@@ -67,21 +67,20 @@ impl Coordinator {
             // by THIS key is a success.
             Some(bound) if *bound == fingerprint => {}
             Some(_) | None => {
-                return Err(ConnectError::invalid_argument("the bootstrap token is not spendable"));
+                return Err(ConnectError::invalid_argument(
+                    "the bootstrap token is not spendable",
+                ));
             }
         }
         spent.insert(request.token.clone(), fingerprint.clone());
-        self.authorized
-            .lock()
-            .expect("held")
-            .insert(
-                fingerprint.clone(),
-                Redeemed {
-                    fingerprint: fingerprint.clone(),
-                    public_key,
-                    label: request.label.clone(),
-                },
-            );
+        self.authorized.lock().expect("held").insert(
+            fingerprint.clone(),
+            Redeemed {
+                fingerprint: fingerprint.clone(),
+                public_key,
+                label: request.label.clone(),
+            },
+        );
         Ok(AuthRedeemWorkerResponse {
             fingerprint,
             label: request.label,
@@ -138,12 +137,19 @@ impl Coordinator {
 
     /// The label the worker is registered under, or `None` before it registered.
     pub fn label_of(&self, fingerprint: &str) -> Option<String> {
-        self.registered.lock().expect("held").get(fingerprint).cloned()
+        self.registered
+            .lock()
+            .expect("held")
+            .get(fingerprint)
+            .cloned()
     }
 
     /// Whether this coordinator issued the registration for `fingerprint`.
     pub fn is_registered(&self, fingerprint: &str) -> bool {
-        self.registered.lock().expect("held").contains_key(fingerprint)
+        self.registered
+            .lock()
+            .expect("held")
+            .contains_key(fingerprint)
     }
 
     /// Every credential presented, in arrival order.
@@ -194,7 +200,9 @@ impl Fixture {
 
     /// A Connect client for the enrollment calls, over this fixture's address.
     pub fn client(&self) -> CoordinatorServiceClient<HttpClient> {
-        let uri = format!("http://{}", self.address).parse().expect("a loopback URL");
+        let uri = format!("http://{}", self.address)
+            .parse()
+            .expect("a loopback URL");
         CoordinatorServiceClient::new(HttpClient::plaintext(), ClientConfig::new(uri))
     }
 }
@@ -224,9 +232,7 @@ fn routes(coordinator: Arc<Coordinator>) -> Router {
             "AuthRedeemWorker",
             handler_fn(move |_ctx, request: AuthRedeemWorkerRequest| {
                 let coordinator = Arc::clone(&redeem);
-                async move {
-                    Response::ok(coordinator.redeem(request)?)
-                }
+                async move { Response::ok(coordinator.redeem(request)?) }
             }),
         )
         .route(
@@ -287,10 +293,14 @@ fn fingerprint_of(public_key: &[u8; 32]) -> String {
 
 fn base64_decode(encoded: &str) -> Option<Vec<u8>> {
     use base64::Engine as _;
-    base64::engine::general_purpose::STANDARD.decode(encoded).ok()
+    base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .ok()
 }
 
 fn base64url_decode(encoded: &str) -> Option<Vec<u8>> {
     use base64::Engine as _;
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(encoded).ok()
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(encoded)
+        .ok()
 }

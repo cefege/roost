@@ -25,7 +25,9 @@ pub enum PoolError {
     /// the id handed in and `highest` the mark the pool has learned. The pool
     /// will not pick a different id, because a pool that could is the second
     /// allocator this refusal exists to prevent.
-    #[error("channel {channel_id} is not free: this worker has already spent every id up to {highest}")]
+    #[error(
+        "channel {channel_id} is not free: this worker has already spent every id up to {highest}"
+    )]
     ChannelIdTaken { channel_id: u16, highest: u16 },
 
     /// The id does not fit what the keeper addresses channels by.

@@ -44,7 +44,13 @@ fn a_keeper_control_capability_never_reaches_a_pty() {
     let (binding, record) = session("env-probe");
 
     let spawned = opened(
-        pool.spawn(channel(1), &spec, 80, 24, Arc::new(binding) as Arc<dyn ChannelBinding>),
+        pool.spawn(
+            channel(1),
+            &spec,
+            80,
+            24,
+            Arc::new(binding) as Arc<dyn ChannelBinding>,
+        ),
         "the keeper opens a real PTY",
     );
     let seen = record.settled();
@@ -316,9 +322,7 @@ fn a_killed_channel_leaves_the_keeper_and_nothing_else_is_asked_of_it() {
     // The reaping is the keeper's, and it is asynchronous: what this asserts is
     // that the channel goes, not that a frame came back.
     wait_until(
-        || {
-            matches!(pool.keeper_channels(), Ok(list) if !list.iter().any(|c| c.channel_id == killed.channel_id))
-        },
+        || matches!(pool.keeper_channels(), Ok(list) if !list.iter().any(|c| c.channel_id == killed.channel_id)),
         "the keeper to reap the killed channel",
     );
 
@@ -334,10 +338,7 @@ fn a_killed_channel_leaves_the_keeper_and_nothing_else_is_asked_of_it() {
     // or a sibling, would have taken a terminal somebody is using.
     let remaining = opened(pool.keeper_channels(), "the keeper still answers");
     assert_eq!(
-        remaining
-            .iter()
-            .map(|c| c.channel_id)
-            .collect::<Vec<_>>(),
+        remaining.iter().map(|c| c.channel_id).collect::<Vec<_>>(),
         vec![doomed.channel_id],
         "only the channel that was killed is gone"
     );

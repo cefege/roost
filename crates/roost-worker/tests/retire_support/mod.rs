@@ -26,7 +26,6 @@ use roost_worker::runtime::boot::WorkerBoot;
 use roost_worker::runtime::serve_until;
 use roost_worker::runtime::stop::{StopReason, StopRequests};
 
-
 // `../` because a `#[path]` inside a `mod.rs` resolves against THIS file's
 // directory, and the shared builder sits one level up beside every other
 // test-root support module. The session-spawn support module reaches its

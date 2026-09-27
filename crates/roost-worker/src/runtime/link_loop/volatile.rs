@@ -19,7 +19,9 @@
 
 use std::time::Instant;
 
-use roost_protocol::wire::agent_status::{AgentStatus, AgentStatusUpdate, is_identified_agent_status};
+use roost_protocol::wire::agent_status::{
+    AgentStatus, AgentStatusUpdate, is_identified_agent_status,
+};
 use roost_protocol::wire::brand::ChannelId;
 use roost_protocol::wire::coord_worker::{AgentStatusFrame, CoordWorkerUpstream, TerminalMetadata};
 
@@ -54,7 +56,13 @@ impl LinkLoop {
         let key = channel_id.to_string();
         let admitted = self
             .outbox
-            .admit_coalescing(&key, Lane::Control, bytes, "terminal-metadata", Instant::now())
+            .admit_coalescing(
+                &key,
+                Lane::Control,
+                bytes,
+                "terminal-metadata",
+                Instant::now(),
+            )
             .map_err(AdmitRefusal::Outbox)?;
         if let Admitted::Queued | Admitted::Coalesced = admitted {
             self.wake();
@@ -106,13 +114,13 @@ impl LinkLoop {
         frame: &CoordWorkerUpstream,
         label: &str,
     ) -> Result<Vec<u8>, AdmitRefusal> {
-        let bytes = self
-            .wire
-            .encode_upstream(frame)
-            .map_err(|error| AdmitRefusal::Unencodable {
-                label: label.to_owned(),
-                reason: error.to_string(),
-            })?;
+        let bytes =
+            self.wire
+                .encode_upstream(frame)
+                .map_err(|error| AdmitRefusal::Unencodable {
+                    label: label.to_owned(),
+                    reason: error.to_string(),
+                })?;
         Ok(bytes)
     }
 }
@@ -139,8 +147,7 @@ pub fn merge_terminal_metadata(
         } else {
             held.map_or_else(String::new, |held| held.title.clone())
         },
-        activity_changed: update.activity_changed
-            || held.is_some_and(|held| held.activity_changed),
+        activity_changed: update.activity_changed || held.is_some_and(|held| held.activity_changed),
         activity_ts_ms: if update.activity_changed {
             update.activity_ts_ms
         } else {

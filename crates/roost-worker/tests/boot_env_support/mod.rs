@@ -28,12 +28,12 @@
 // so "make it private and see if it still builds" proves nothing here.
 #![allow(dead_code)]
 
-use std::path::Path;
 use roost_host::MapEnv;
 use roost_host::paths::WORKER_LOG_DIR_ENV;
 use roost_worker::runtime::boot::{
     ENV_KEEPER_EXECUTABLE, ENV_KEEPER_SOCKET, ENV_WORKER_KEY_PATH, WorkerBoot,
 };
+use std::path::Path;
 
 /// A boot environment that resolves, rooted at `root`.
 ///
@@ -55,7 +55,10 @@ pub fn boot_env(root: &Path) -> MapEnv {
         // `DataDir("HOME: …")`, which points a reader at the data directory
         // rather than at the missing variable.
         .with("HOME", root.join("home").to_string_lossy().as_ref())
-        .with(ENV_WORKER_KEY_PATH, root.join("worker.key").to_string_lossy().as_ref())
+        .with(
+            ENV_WORKER_KEY_PATH,
+            root.join("worker.key").to_string_lossy().as_ref(),
+        )
         .with(
             WORKER_LOG_DIR_ENV,
             root.join("logs").to_string_lossy().as_ref(),
@@ -64,7 +67,10 @@ pub fn boot_env(root: &Path) -> MapEnv {
             ENV_KEEPER_SOCKET,
             root.join("keeper.sock").to_string_lossy().as_ref(),
         )
-        .with(ENV_KEEPER_EXECUTABLE, keeper_executable.to_string_lossy().as_ref())
+        .with(
+            ENV_KEEPER_EXECUTABLE,
+            keeper_executable.to_string_lossy().as_ref(),
+        )
 }
 
 /// The environment a boot resolves from, as the shared builder builds it.

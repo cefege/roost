@@ -76,7 +76,9 @@ impl Matcher {
         let compiled = regex::RegexBuilder::new(&pattern)
             .case_insensitive(!case_sensitive)
             .build()
-            .map_err(|_| Refusal::failed(COMMAND, "invalid regex: pattern could not be compiled"))?;
+            .map_err(|_| {
+                Refusal::failed(COMMAND, "invalid regex: pattern could not be compiled")
+            })?;
         Ok(Self::Pattern(compiled))
     }
 
@@ -94,10 +96,7 @@ impl Matcher {
                 let mut from = 0usize;
                 while let Some(found) = text[from..].find(needle.as_str()) {
                     let start = from + found;
-                    visit(
-                        text[..start].chars().count(),
-                        needle.chars().count(),
-                    );
+                    visit(text[..start].chars().count(), needle.chars().count());
                     // Non-overlapping, exactly as v2's `indexOf` loop: an
                     // overlapping match is a second copy of one the caller
                     // already has.
@@ -134,11 +133,7 @@ pub(super) struct Hit {
 /// A row that vanished between two slices is an ERROR rather than a row to
 /// skip: the page reports a half-open scanned range, so a skipped row is a
 /// hole in that range the caller cannot see.
-pub(super) fn scan_row(
-    record: &SessionRecord,
-    matcher: &Matcher,
-    row: u32,
-) -> Option<RowScan> {
+pub(super) fn scan_row(record: &SessionRecord, matcher: &Matcher, row: u32) -> Option<RowScan> {
     let spans = crate::session::retained_grid::row_spans(record, row)?;
     let text = spans_text(&spans);
     let mut hits = Vec::new();

@@ -80,7 +80,6 @@ impl Registry {
         }
         None
     }
-
 }
 
 pub(super) fn now_ms() -> u64 {
@@ -131,7 +130,9 @@ pub(super) fn stopped_ack(capture_id: &str, registry: &Registry) -> TerminalCapt
 /// Both are checked HERE, while the caller is still waiting, rather than at the
 /// write: a capture that cannot hold its evidence is refused before a bundle
 /// exists, instead of producing a file nobody downloads.
-pub(super) fn admit_evidence(command: &CaptureCommand) -> Result<(String, String), TerminalCaptureErrorCode> {
+pub(super) fn admit_evidence(
+    command: &CaptureCommand,
+) -> Result<(String, String), TerminalCaptureErrorCode> {
     let browser = admit_one(
         &command.browser_evidence_json,
         TERMINAL_CAPTURE_LIMITS.browser_evidence_bytes,
@@ -156,5 +157,4 @@ fn admit_one(value: &str, cap: usize) -> Result<String, TerminalCaptureErrorCode
 }
 
 /// A held registry, or the poison a panicking writer left behind.
-pub(super) type Held<'a> =
-    Result<MutexGuard<'a, Registry>, PoisonError<MutexGuard<'a, Registry>>>;
+pub(super) type Held<'a> = Result<MutexGuard<'a, Registry>, PoisonError<MutexGuard<'a, Registry>>>;

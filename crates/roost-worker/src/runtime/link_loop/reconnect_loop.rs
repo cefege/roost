@@ -15,8 +15,8 @@ use std::time::Instant;
 
 use crate::link_dial::dial;
 
+use super::{DIAL_TIMEOUT, LinkLoop, report_escalation};
 use crate::runtime::stop::{LinkEndOutcome, StopReason, StopSignal, verdict_for_link_end};
-use super::{report_escalation, DIAL_TIMEOUT, LinkLoop};
 
 impl LinkLoop {
     /// Run until the process is asked to stop.

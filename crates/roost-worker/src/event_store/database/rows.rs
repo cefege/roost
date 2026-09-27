@@ -9,10 +9,10 @@
 
 use roost_protocol::wire::event::SessionEvent;
 use serde_json::Value;
-use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
+use sqlx::sqlite::SqliteRow;
 
-use super::{corrupt, JournalError};
+use super::{JournalError, corrupt};
 
 /// One row of the outbox, decoded and checked.
 ///
@@ -52,9 +52,7 @@ pub fn decode(row: SqliteRow) -> Result<PendingRow, JournalError> {
     let event_json: String = row.get("event_json");
     let recorded_bytes = u64::try_from(row.get::<i64, _>("payload_bytes"))
         .map_err(|_| corrupt("a payload byte count is negative"))?;
-    if recorded_bytes == 0
-        || usize::try_from(recorded_bytes).ok() != Some(event_json.len())
-    {
+    if recorded_bytes == 0 || usize::try_from(recorded_bytes).ok() != Some(event_json.len()) {
         return Err(corrupt(
             "a row's recorded byte count is not the length of its own text",
         ));

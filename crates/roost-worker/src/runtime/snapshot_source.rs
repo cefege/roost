@@ -186,8 +186,9 @@ impl SnapshotSource for NoSnapshot {
 
     fn snapshot(&self) -> Result<Vec<u8>, SnapshotError> {
         Err(SnapshotError::Unavailable {
-            reason: "this worker was built without a session table, so it has no session set to publish"
-                .to_string(),
+            reason:
+                "this worker was built without a session table, so it has no session set to publish"
+                    .to_string(),
         })
     }
 }

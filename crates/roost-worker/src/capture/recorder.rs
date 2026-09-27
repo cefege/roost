@@ -67,7 +67,10 @@ impl std::fmt::Debug for CaptureRecorder {
             .debug_struct("CaptureRecorder")
             .field("worker_fp", &self.worker_fp)
             .field("armed_recordings", &armed)
-            .field("retained_windows", &self.held().map(|r| r.windows.len()).unwrap_or(0))
+            .field(
+                "retained_windows",
+                &self.held().map(|r| r.windows.len()).unwrap_or(0),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -164,7 +167,10 @@ impl CaptureRecorder {
             .ok_or_else(|| failed(TerminalCaptureErrorCode::SessionUnknown))?;
 
         let mut document = Map::with_capacity(7);
-        document.insert("capture_id".to_owned(), Value::from(command.capture_id.clone()));
+        document.insert(
+            "capture_id".to_owned(),
+            Value::from(command.capture_id.clone()),
+        );
         document.insert(
             "session_id".to_owned(),
             Value::from(command.session_id.as_str()),
@@ -212,10 +218,7 @@ impl DiagnosticReports for CaptureRecorder {
         for (session_id, _) in self.table.live() {
             // `with_record` nests: `None` is "no such session", so the
             // capability's own `Option` is the inner layer.
-            if let Some(Some(channel)) = self
-                .table
-                .with_record(&session_id, channel_diag)
-            {
+            if let Some(Some(channel)) = self.table.with_record(&session_id, channel_diag) {
                 channels.insert(channel.channel_id, channel);
             }
         }
@@ -396,4 +399,3 @@ fn record_identity(record: &SessionRecord) -> Value {
         "git_remote": record.git_remote,
     })
 }
-

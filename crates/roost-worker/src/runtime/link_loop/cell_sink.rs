@@ -22,13 +22,13 @@
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use roost_proto::buffa::MessageField;
+use roost_proto::{WCellGrid, WCellGridChunk};
 use roost_protocol::cell::CellGridFrame;
 use roost_protocol::cell::frame_chunks::CellGridSnapshotPart;
 use roost_protocol::cell::proto::cell_frame_to_proto;
 use roost_protocol::wire::brand::ChannelId;
 use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
-use roost_proto::buffa::MessageField;
-use roost_proto::{WCellGrid, WCellGridChunk};
 
 use crate::outbox::{AdmitError, Lane, Outbox, PENDING_BYTES_CAP, PENDING_CAP};
 use crate::runtime::link_wire::LinkWire;
@@ -102,7 +102,10 @@ impl CoordinatorCellSink {
     }
 
     pub fn frame_count(&self) -> usize {
-        self.queue.lock().map(|held| held.frame_count()).unwrap_or(0)
+        self.queue
+            .lock()
+            .map(|held| held.frame_count())
+            .unwrap_or(0)
     }
 
     pub fn byte_count(&self) -> usize {
@@ -150,7 +153,12 @@ impl CoordinatorCellSink {
     /// a frame the coordinator never sees and the registry has to re-baseline a
     /// whole stream around; a frame left unaccounted for is a terminal that
     /// stops painting with no error anywhere.
-    fn enqueue(&self, channel: ChannelId, frame: CoordWorkerUpstream, label: &str) -> CellSinkResult {
+    fn enqueue(
+        &self,
+        channel: ChannelId,
+        frame: CoordWorkerUpstream,
+        label: &str,
+    ) -> CellSinkResult {
         let bytes = match self.wire.encode_upstream(&frame) {
             Ok(bytes) => bytes,
             Err(error) => {
@@ -243,11 +251,13 @@ impl CellSink for CoordinatorCellSink {
                     ..Default::default()
                 })
             }
-            CellGridSnapshotPart::Chunk(chunk) => CoordWorkerUpstream::CellGridChunk(WCellGridChunk {
-                channel_id: channel_id.as_u32(),
-                chunk: MessageField::some(chunk.clone()),
-                ..Default::default()
-            }),
+            CellGridSnapshotPart::Chunk(chunk) => {
+                CoordWorkerUpstream::CellGridChunk(WCellGridChunk {
+                    channel_id: channel_id.as_u32(),
+                    chunk: MessageField::some(chunk.clone()),
+                    ..Default::default()
+                })
+            }
         };
         self.enqueue(channel_id, frame, "cell-grid-chunk")
     }

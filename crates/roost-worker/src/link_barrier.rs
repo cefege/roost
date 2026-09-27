@@ -146,7 +146,6 @@ impl Pump {
         self.acked
     }
 
-
     /// Queue a durable event UNDER A SEQUENCE THE CALLER CHOSE.
     ///
     /// The outbox allocates the `client_seq` a row is stored under and the
@@ -159,12 +158,19 @@ impl Pump {
     /// A sequence the barrier has already passed is REFUSED rather than
     /// accepted, because a repeat is the one defect here that cannot be repaired
     /// downstream — the coordinator would read the replay as a new event.
-    pub fn enqueue_durable_at(&mut self, seq: u64, bytes: Vec<u8>) -> Result<Action, DurableRefusal> {
+    pub fn enqueue_durable_at(
+        &mut self,
+        seq: u64,
+        bytes: Vec<u8>,
+    ) -> Result<Action, DurableRefusal> {
         if seq == 0 {
             return Err(DurableRefusal::UnusableSequence { seq });
         }
         if seq < self.next_seq {
-            return Err(DurableRefusal::AlreadyPassed { seq, next_seq: self.next_seq });
+            return Err(DurableRefusal::AlreadyPassed {
+                seq,
+                next_seq: self.next_seq,
+            });
         }
         self.next_seq = seq + 1;
         self.durable.push_back(PendingEvent { seq, bytes });

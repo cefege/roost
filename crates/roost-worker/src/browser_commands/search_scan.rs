@@ -81,9 +81,9 @@ impl GridScanner {
 
 impl ScrollbackSearch for GridScanner {
     fn search(&self, request: SingleSearch) -> Boxed<Result<Value, Refusal>> {
-        let budget = Duration::from_millis(
-            u64::from(TERMINAL_SEARCH_RPC_DEADLINE_MS.saturating_sub(RETURN_RESERVE_MS)),
-        );
+        let budget = Duration::from_millis(u64::from(
+            TERMINAL_SEARCH_RPC_DEADLINE_MS.saturating_sub(RETURN_RESERVE_MS),
+        ));
         let page = self.scan(
             &request.session_id,
             &request.grid_epoch,
@@ -219,9 +219,7 @@ impl GridScanner {
                 }
                 page.scanned_start_row = row;
             }
-            if matches.len() as u32 >= max_matches
-                && (!suppressed || start > grid.retained_floor)
-            {
+            if matches.len() as u32 >= max_matches && (!suppressed || start > grid.retained_floor) {
                 stop = Some("match_limit");
                 break;
             }
@@ -239,7 +237,8 @@ impl GridScanner {
         // Read BEFORE the page is consumed: the cursor is the one field a
         // caller needs and `into_value` takes the page whole.
         let cursor = page.scanned_start_row;
-        let continues = reason == "row_limit" || (reason == "match_limit" && cursor > grid.retained_floor);
+        let continues =
+            reason == "row_limit" || (reason == "match_limit" && cursor > grid.retained_floor);
         Ok(page.into_value(reason, continues.then_some(cursor), matches))
     }
 
@@ -256,10 +255,7 @@ impl GridScanner {
         let (described, epoch) = self
             .table
             .with_record(&branded, |record| {
-                (
-                    describe_grid(record),
-                    record.cell_emit.grid_epoch(),
-                )
+                (describe_grid(record), record.cell_emit.grid_epoch())
             })
             .ok_or_else(|| Refusal::failed(COMMAND, "session closed"))?;
         Ok(Reading {
@@ -286,10 +282,16 @@ impl GridScanner {
         let mut row = end;
         while row > start {
             row -= 1;
-            match self.table.with_record(&branded, |record| scan_row(record, matcher, row)) {
+            match self
+                .table
+                .with_record(&branded, |record| scan_row(record, matcher, row))
+            {
                 Some(Some(scanned)) => rows.push((row, scanned)),
                 Some(None) => {
-                    return Err(Refusal::failed(COMMAND, "scrollback search row unavailable"));
+                    return Err(Refusal::failed(
+                        COMMAND,
+                        "scrollback search row unavailable",
+                    ));
                 }
                 None => return Err(Refusal::failed(COMMAND, "session closed")),
             }

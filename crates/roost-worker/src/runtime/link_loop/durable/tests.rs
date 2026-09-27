@@ -27,8 +27,7 @@ use crate::runtime::link_loop::{Authorised, LinkLoop, WorkerIdentity};
 use crate::runtime::link_wire::ProtoLinkWire;
 use crate::session::cell_sink::{CellSink, CellSinkResult, FrameTimings};
 
-const FINGERPRINT: &str =
-    "000000000000000000000000000000000000000000000000000000000000f00d";
+const FINGERPRINT: &str = "000000000000000000000000000000000000000000000000000000000000f00d";
 const SESSION: &str = "00000000-0000-4000-8000-00000000beef";
 const STREAM: &str = "00000000-0000-4000-8000-0000000000a1";
 
@@ -38,10 +37,8 @@ impl Scratch {
     fn new() -> Self {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let ordinal = NEXT.fetch_add(1, Ordering::Relaxed);
-        let root = std::env::temp_dir().join(format!(
-            "roost-durable-{}-{ordinal}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("roost-durable-{}-{ordinal}", std::process::id()));
         std::fs::create_dir_all(&root).expect("a scratch directory is usable");
         Self(root)
     }
@@ -77,8 +74,8 @@ impl CredentialSource for FixedCredential {
 }
 
 fn link_for_test() -> LinkLoop {
-    let endpoint = CoordinatorEndpoint::new("http://127.0.0.1:1", FINGERPRINT)
-        .expect("a usable endpoint");
+    let endpoint =
+        CoordinatorEndpoint::new("http://127.0.0.1:1", FINGERPRINT).expect("a usable endpoint");
     LinkLoop::new(
         endpoint,
         WorkerIdentity {
@@ -173,20 +170,30 @@ async fn an_opened_event_is_offered_before_that_sessions_first_cells() {
     let journal = Journal::open(&scratch.0.join(DATABASE_FILE_NAME))
         .await
         .expect("a fresh outbox opens");
-    link.attach_durable_outbox(std::sync::Arc::new(journal)).expect("a fresh barrier aligns");
-    let sink = std::sync::Arc::new(CoordinatorCellSink::new(std::sync::Arc::new(
-        ProtoLinkWire,
-    )));
+    link.attach_durable_outbox(std::sync::Arc::new(journal))
+        .expect("a fresh barrier aligns");
+    let sink = std::sync::Arc::new(CoordinatorCellSink::new(std::sync::Arc::new(ProtoLinkWire)));
     link.attach_cell_sink(std::sync::Arc::clone(&sink));
 
-    let row = link.publish_durable_event(&opened()).await.expect("published");
+    let row = link
+        .publish_durable_event(&opened())
+        .await
+        .expect("published");
     assert_eq!(row.client_seq, 1);
-    assert_eq!(link.durable_pending(), 1, "the writer holds no mirror of the row");
+    assert_eq!(
+        link.durable_pending(),
+        1,
+        "the writer holds no mirror of the row"
+    );
 
     // The cells arrive, and they wait: not in the authorisation slot, which
     // the `opened` owns, but in the lane the drain reaches last.
     assert_eq!(
-        sink.send_frame(ChannelId::try_from(1_i64).unwrap(), &full_frame(), timings()),
+        sink.send_frame(
+            ChannelId::try_from(1_i64).unwrap(),
+            &full_frame(),
+            timings()
+        ),
         CellSinkResult::Sent
     );
     assert_eq!(link.move_cell_frames_into(), 1);
@@ -209,7 +216,11 @@ async fn an_opened_event_is_offered_before_that_sessions_first_cells() {
         "the barrier left replay with an unacknowledged opened, so its cells were released ahead \
          of it"
     );
-    assert_eq!(link.outbox.lane_len(Lane::Terminal), 1, "the cells left early");
+    assert_eq!(
+        link.outbox.lane_len(Lane::Terminal),
+        1,
+        "the cells left early"
+    );
 
     // The snapshot is acknowledged, and only now may the lanes drain.
     // The coordinator acknowledges the `opened` by its EXACT sequence. Only then
@@ -255,8 +266,12 @@ async fn an_un_acknowledged_row_is_still_waiting_for_the_next_link() {
         let journal = Journal::open(&scratch.0.join(DATABASE_FILE_NAME))
             .await
             .expect("a fresh outbox opens");
-        link.attach_durable_outbox(std::sync::Arc::new(journal)).expect("a fresh barrier aligns");
-        let row = link.publish_durable_event(&opened()).await.expect("published");
+        link.attach_durable_outbox(std::sync::Arc::new(journal))
+            .expect("a fresh barrier aligns");
+        let row = link
+            .publish_durable_event(&opened())
+            .await
+            .expect("published");
         // Nothing acknowledged. The link goes away anyway.
         assert_eq!(link.apply_durable_acks().await, 0);
         row.client_seq

@@ -120,12 +120,12 @@ impl LinkLoop {
             client_seq: row.client_seq,
             trace_id: None,
         };
-        let bytes = self
-            .wire
-            .encode_upstream(&frame)
-            .map_err(|error| OutboxRefusal::Unencodable {
-                reason: error.to_string(),
-            })?;
+        let bytes =
+            self.wire
+                .encode_upstream(&frame)
+                .map_err(|error| OutboxRefusal::Unencodable {
+                    reason: error.to_string(),
+                })?;
         self.enqueue_durable_at(row.client_seq, bytes)?;
         Ok(row)
     }

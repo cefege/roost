@@ -18,7 +18,7 @@ use std::path::Path;
 use enrollment_support::Fixture;
 use roost_host::{HostPlatform, MapEnv, supported_host_platform};
 use roost_worker::host::install::BOOTSTRAP_TOKEN_ENV;
-use roost_worker::runtime::boot::{WorkerBoot, ENV_WORKER_KEY_PATH};
+use roost_worker::runtime::boot::{ENV_WORKER_KEY_PATH, WorkerBoot};
 use roost_worker::runtime::bootstrap_redeem::{Redemption, enroll};
 
 /// The token the coordinator issues and the worker is handed.
@@ -51,7 +51,10 @@ fn scratch_dir(label: &str) -> std::path::PathBuf {
 fn env_for(root: &Path, coordinator: &str, token: Option<&str>) -> MapEnv {
     let mut env = MapEnv::new()
         .with("HOME", root.to_str().unwrap())
-        .with(ENV_WORKER_KEY_PATH, root.join("worker.key").to_str().unwrap())
+        .with(
+            ENV_WORKER_KEY_PATH,
+            root.join("worker.key").to_str().unwrap(),
+        )
         .with("ROOST_COORDINATOR_URL", coordinator);
     if let Some(token) = token {
         env.set(BOOTSTRAP_TOKEN_ENV, token);

@@ -36,8 +36,7 @@ use crate::session::sinks::ChannelBinding;
 /// offset `SurvivorHistory::head_seq` is. The daemon holds the real head
 /// (`Keeper::legacy_history`) and `GetHistoryResp` is specified to carry it
 /// (`protocol/spec/keeper.md`, tag `0xE5`), but nothing emits that tag.
-pub const NO_REPORTED_HEAD: &str =
-    "this keeper does not report the head its retained window was cut from, and the records' own \
+pub const NO_REPORTED_HEAD: &str = "this keeper does not report the head its retained window was cut from, and the records' own \
      sequences are a per-record counter rather than a byte offset, so a window that was truncated \
      cannot be told from a whole one";
 
@@ -46,8 +45,7 @@ pub const NO_REPORTED_HEAD: &str =
 /// `ChannelHistory` evicts geometry records FIRST, so after any truncation the
 /// marker that would establish the base is the first thing gone, and
 /// `terminal_state` answers the CURRENT geometry — the wrong end of the window.
-pub const NO_REPORTED_BASE_GEOMETRY: &str =
-    "this keeper does not report the geometry its oldest retained record was produced at, and the \
+pub const NO_REPORTED_BASE_GEOMETRY: &str = "this keeper does not report the geometry its oldest retained record was produced at, and the \
      geometry it does report is the current one, which is the wrong end of the window to rebuild \
      a core at";
 
@@ -92,10 +90,11 @@ impl KeeperChannels for KeeperPool {
     /// The geometry the keeper has applied, which is the only authority on
     /// where a surviving PTY is.
     fn terminal_state(&self, channel_id: u16) -> Result<TerminalState, KeeperFault> {
-        self.applied_geometry(channel_id).map_err(|error| KeeperFault {
-            operation: "terminal_state",
-            reason: error.to_string(),
-        })
+        self.applied_geometry(channel_id)
+            .map_err(|error| KeeperFault {
+                operation: "terminal_state",
+                reason: error.to_string(),
+            })
     }
 
     /// Route this channel's output into `binding` from now on.
@@ -113,7 +112,11 @@ impl KeeperChannels for KeeperPool {
     ) -> Result<(), KeeperFault> {
         let pid = self.pid_of(channel_id)?;
         self.adopt(channel_id, pid, binding);
-        tracing::info!(channel_id, pid, "keeper: a survivor's output is bound to this worker");
+        tracing::info!(
+            channel_id,
+            pid,
+            "keeper: a survivor's output is bound to this worker"
+        );
         Ok(())
     }
 
@@ -151,15 +154,22 @@ impl KeeperChannels for KeeperPool {
         };
         match self.resize(channel_id, seq, cols, rows) {
             Ok(ResizeOutcome::Applied { seq: applied, .. }) => {
-                tracing::info!(channel_id, seq, applied, cols, rows, "keeper: a resize was applied");
+                tracing::info!(
+                    channel_id,
+                    seq,
+                    applied,
+                    cols,
+                    rows,
+                    "keeper: a resize was applied"
+                );
                 Ok(())
             }
             Ok(ResizeOutcome::Refused { reason, .. }) => {
                 Err(fault(format!("the keeper refused seq {seq}: {reason:?}")))
             }
-            Ok(ResizeOutcome::Unknown { reason, .. }) => {
-                Err(fault(format!("the keeper did not answer seq {seq}: {reason:?}")))
-            }
+            Ok(ResizeOutcome::Unknown { reason, .. }) => Err(fault(format!(
+                "the keeper did not answer seq {seq}: {reason:?}"
+            ))),
             Err(error) => Err(fault(error.to_string())),
         }
     }
@@ -182,8 +192,10 @@ impl KeeperPool {
             .map(|held| held.pid)
             .ok_or_else(|| KeeperFault {
                 operation: "deliver_into",
-                reason: format!("the keeper holds no channel {channel_id}, so it has no pid to \
-                                announce it with"),
+                reason: format!(
+                    "the keeper holds no channel {channel_id}, so it has no pid to \
+                                announce it with"
+                ),
             })
     }
 }

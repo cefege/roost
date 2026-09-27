@@ -31,8 +31,8 @@ use std::path::Path;
 use std::time::Duration;
 
 use roost_protocol::wire::event::SessionEvent;
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::SqlitePool;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 
 use super::{MAX_PAYLOAD_BYTES, MAX_ROWS, SEQUENCE_BLOCK_SIZE};
 
@@ -246,20 +246,22 @@ impl Journal {
         .bind(rows::sequence_value(client_seq)?)
         .bind(&kind)
         .bind(&event_json)
-        .bind(rows::sequence_value(u64::try_from(payload_bytes).map_err(|_| {
-            corrupt("a payload byte count is past what the column can hold")
-        })?)?)
+        .bind(rows::sequence_value(
+            u64::try_from(payload_bytes)
+                .map_err(|_| corrupt("a payload byte count is past what the column can hold"))?,
+        )?)
         .execute(&mut *transaction)
         .await
         .map_err(query("append"))?;
         // Retention is re-read rather than assumed. An insert that did not land
         // would otherwise be reported as a durable event, and a durable event
         // that is not there is a hole nobody can detect downstream.
-        let retained: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM session_events WHERE client_seq = ?")
-            .bind(rows::sequence_value(client_seq)?)
-            .fetch_one(&mut *transaction)
-            .await
-            .map_err(query("append verification"))?;
+        let retained: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM session_events WHERE client_seq = ?")
+                .bind(rows::sequence_value(client_seq)?)
+                .fetch_one(&mut *transaction)
+                .await
+                .map_err(query("append verification"))?;
         if retained != 1 {
             return Err(corrupt("the appended row was not retained"));
         }
@@ -339,12 +341,11 @@ impl Journal {
 
     /// What the file holds, for `roost doctor` and for the admission half.
     pub async fn stats(&self) -> Result<JournalStats, JournalError> {
-        let totals: (i64, i64) = sqlx::query_as(
-            "SELECT COUNT(*), COALESCE(SUM(payload_bytes), 0) FROM session_events",
-        )
-        .fetch_one(&self.pool)
-        .await
-        .map_err(query("stats"))?;
+        let totals: (i64, i64) =
+            sqlx::query_as("SELECT COUNT(*), COALESCE(SUM(payload_bytes), 0) FROM session_events")
+                .fetch_one(&self.pool)
+                .await
+                .map_err(query("stats"))?;
         let (pages, page_size): (i64, i64) =
             sqlx::query_as("SELECT * FROM pragma_page_count(), pragma_page_size()")
                 .fetch_one(&self.pool)
@@ -436,4 +437,3 @@ fn query(label: &'static str) -> impl Fn(sqlx::Error) -> JournalError {
         reason: error.to_string(),
     }
 }
-

@@ -20,9 +20,7 @@ mod keeper_pool_support;
 use std::sync::Arc;
 
 use keeper_pool_support::{KeeperFixture, channel, opened, session, sh_spec, wait_until};
-use roost_worker::keeper_pool::{
-    KeeperPool, NO_REPORTED_BASE_GEOMETRY, NO_REPORTED_HEAD,
-};
+use roost_worker::keeper_pool::{KeeperPool, NO_REPORTED_BASE_GEOMETRY, NO_REPORTED_HEAD};
 use roost_worker::session::resume::KeeperChannels;
 use roost_worker::session::sinks::ChannelBinding;
 
@@ -40,7 +38,9 @@ static FIXTURE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// The fixture lock, held for a whole test body.
 fn exclusive() -> std::sync::MutexGuard<'static, ()> {
-    FIXTURE.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    FIXTURE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// A NEW POOL over a fixture's keeper, which is the only way these tests mean
@@ -59,15 +59,13 @@ fn a_restarted_worker_finds_the_channels_the_keeper_still_holds() {
     let _serialised = exclusive();
     let (binding, record) = session("survivor-3");
     let spawned = opened(
-        fixture
-            .pool()
-            .spawn(
-                channel(1),
-                &sh_spec(&["-c", "sleep 30"], &[]),
-                100,
-                40,
-                Arc::new(binding),
-            ),
+        fixture.pool().spawn(
+            channel(1),
+            &sh_spec(&["-c", "sleep 30"], &[]),
+            100,
+            40,
+            Arc::new(binding),
+        ),
         "the keeper opens a real PTY",
     );
     // The child is running, which is the whole point of the list entry.
@@ -98,15 +96,13 @@ fn a_restarted_worker_receives_the_survivors_output() {
     let _serialised = exclusive();
     let (first, _) = session("before-restart");
     let spawned = opened(
-        fixture
-            .pool()
-            .spawn(
-                channel(1),
-                &sh_spec(&["-c", "printf BEFORE; sleep 1; printf AFTER"], &[]),
-                80,
-                24,
-                Arc::new(first),
-            ),
+        fixture.pool().spawn(
+            channel(1),
+            &sh_spec(&["-c", "printf BEFORE; sleep 1; printf AFTER"], &[]),
+            80,
+            24,
+            Arc::new(first),
+        ),
         "the keeper opens a real PTY",
     );
 
@@ -139,15 +135,13 @@ fn a_kill_through_the_seam_reaches_the_keeper() {
     let _serialised = exclusive();
     let (binding, _) = session("killed-9");
     let spawned = opened(
-        fixture
-            .pool()
-            .spawn(
-                channel(1),
-                &sh_spec(&["-c", "sleep 30"], &[]),
-                80,
-                24,
-                Arc::new(binding),
-            ),
+        fixture.pool().spawn(
+            channel(1),
+            &sh_spec(&["-c", "sleep 30"], &[]),
+            80,
+            24,
+            Arc::new(binding),
+        ),
         "the keeper opens a real PTY",
     );
 

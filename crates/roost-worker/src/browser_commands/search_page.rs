@@ -61,11 +61,20 @@ impl Page {
             "truncated".to_owned(),
             Value::from(reason == "match_limit" || reason == "deadline"),
         );
-        result.insert("scrollback_total".to_owned(), Value::from(self.scrollback_total));
+        result.insert(
+            "scrollback_total".to_owned(),
+            Value::from(self.scrollback_total),
+        );
         result.insert("cols".to_owned(), Value::from(self.cols));
         result.insert("grid_epoch".to_owned(), Value::from(self.epoch));
-        result.insert("scanned_start_row".to_owned(), Value::from(self.scanned_start_row));
-        result.insert("scanned_end_row".to_owned(), Value::from(self.scanned_end_row));
+        result.insert(
+            "scanned_start_row".to_owned(),
+            Value::from(self.scanned_start_row),
+        );
+        result.insert(
+            "scanned_end_row".to_owned(),
+            Value::from(self.scanned_end_row),
+        );
         result.insert(
             "history_floor".to_owned(),
             Value::from(floor_literal(&self.description, self.scanned_start_row)),

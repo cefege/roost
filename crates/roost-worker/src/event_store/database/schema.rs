@@ -10,11 +10,11 @@
 //! replay, and the loss would surface as a session the coordinator never heard
 //! of rather than as a store that would not start.
 
-use sqlx::sqlite::SqlitePool;
 use sqlx::AssertSqlSafe;
+use sqlx::sqlite::SqlitePool;
 
-use super::{corrupt, query, JournalError};
 use super::super::MAX_DATABASE_BYTES;
+use super::{JournalError, corrupt, query};
 
 /// The schema this build owns.
 ///
@@ -30,7 +30,10 @@ pub const SCHEMA_VERSION: i64 = 2;
 /// injection assertion for a number that cannot change.
 const USER_VERSION_PRAGMA: &str = "PRAGMA user_version = 2";
 
-const _: () = assert!(SCHEMA_VERSION == 2, "USER_VERSION_PRAGMA must name the version above");
+const _: () = assert!(
+    SCHEMA_VERSION == 2,
+    "USER_VERSION_PRAGMA must name the version above"
+);
 
 /// The schema, in the order the statements depend on each other.
 ///
@@ -140,17 +143,16 @@ async fn check_integrity(pool: &SqlitePool) -> Result<(), JournalError> {
 
 /// Create the schema, or prove the file already holds the one this build wrote.
 async fn ensure_tables(pool: &SqlitePool) -> Result<(), JournalError> {
-    let tables: Vec<String> =
-        sqlx::query_as::<_, (String,)>(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' \
+    let tables: Vec<String> = sqlx::query_as::<_, (String,)>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' \
              ORDER BY name",
-        )
-        .fetch_all(pool)
-        .await
-        .map_err(query("schema read"))?
-        .into_iter()
-        .map(|(name,)| name)
-        .collect();
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(query("schema read"))?
+    .into_iter()
+    .map(|(name,)| name)
+    .collect();
     if tables.is_empty() {
         return create_tables(pool).await;
     }
@@ -158,9 +160,8 @@ async fn ensure_tables(pool: &SqlitePool) -> Result<(), JournalError> {
         .fetch_one(pool)
         .await
         .map_err(query("schema version read"))?;
-    if version != SCHEMA_VERSION
-            || tables != ["sequence_state", "session_claims", "session_events"]
-        {
+    if version != SCHEMA_VERSION || tables != ["sequence_state", "session_claims", "session_events"]
+    {
         return Err(JournalError::Schema {
             reason: format!("user_version {version} with tables {tables:?}"),
         });
@@ -200,10 +201,12 @@ async fn enforce_page_budget(pool: &SqlitePool) -> Result<(), JournalError> {
     let max_pages = u64::try_from(MAX_DATABASE_BYTES / page_size).unwrap_or(1);
     // `max_pages` is a `u64` this function just derived from a page size, so
     // there is nothing in it to escape; sqlx cannot see that through a `format!`.
-    sqlx::query(AssertSqlSafe(format!("PRAGMA max_page_count = {max_pages}")))
-        .execute(pool)
-        .await
-        .map_err(query("page budget write"))?;
+    sqlx::query(AssertSqlSafe(format!(
+        "PRAGMA max_page_count = {max_pages}"
+    )))
+    .execute(pool)
+    .await
+    .map_err(query("page budget write"))?;
     let (pages,): (i64,) = sqlx::query_as("PRAGMA page_count")
         .fetch_one(pool)
         .await
@@ -215,4 +218,3 @@ async fn enforce_page_budget(pool: &SqlitePool) -> Result<(), JournalError> {
     }
     Ok(())
 }
-

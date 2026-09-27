@@ -32,7 +32,10 @@ impl BrowserLink {
     /// has no ordering guarantee to make that safe.
     pub fn connect(
         deps: Arc<Deps>,
-    ) -> (Self, tokio::sync::mpsc::UnboundedSender<Vec<CoordWorkerUpstream>>) {
+    ) -> (
+        Self,
+        tokio::sync::mpsc::UnboundedSender<Vec<CoordWorkerUpstream>>,
+    ) {
         let (inbound, mut inbound_rx) = tokio::sync::mpsc::unbounded_channel();
         let (outbound, answers) = tokio::sync::mpsc::unbounded_channel();
         // The task gets a CLONE and the caller keeps the original: a send

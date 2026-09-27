@@ -83,12 +83,8 @@ pub(super) fn on_frame(loop_state: &mut LinkLoop, message: Message) -> Option<Li
             // A pump that is gone is the ONE case that refuses here, and it
             // refuses with a cause: silence would hang the coordinator's
             // pending entry until it expired with no error anywhere.
-            let command = crate::browser_commands::Command::new(
-                browser_id,
-                viewer_id,
-                request_id,
-                frame,
-            );
+            let command =
+                crate::browser_commands::Command::new(browser_id, viewer_id, request_id, frame);
             if let Err(command) = loop_state.browser.offer(command) {
                 // The command came BACK, so its ids are still in hand — the
                 // refusal is correlated on the envelope the coordinator is
@@ -165,11 +161,17 @@ pub(super) async fn drain(loop_state: &mut LinkLoop, link: &mut Link) -> Option<
     // is a row that leaves before the next write rather than after it.
     let retired = loop_state.apply_durable_acks().await;
     if retired > 0 {
-        tracing::info!(retired, "the coordinator's acknowledgements retired durable rows");
+        tracing::info!(
+            retired,
+            "the coordinator's acknowledgements retired durable rows"
+        );
     }
     let moved = loop_state.move_cell_frames_into();
     if moved > 0 {
-        tracing::debug!(moved, "cell frames moved onto the coordinator link's terminal lane");
+        tracing::debug!(
+            moved,
+            "cell frames moved onto the coordinator link's terminal lane"
+        );
     }
     let now = Instant::now();
     let mut written = 0u64;

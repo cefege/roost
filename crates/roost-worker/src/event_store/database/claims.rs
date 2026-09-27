@@ -82,10 +82,11 @@ pub async fn used_totals(pool: &SqlitePool, now: i64) -> Result<(usize, usize), 
     .fetch_one(pool)
     .await
     .map_err(store_query("used claims"))?;
-    let stored_bytes: (i64,) = sqlx::query_as("SELECT COALESCE(SUM(payload_bytes), 0) FROM session_events")
-        .fetch_one(pool)
-        .await
-        .map_err(store_query("used bytes"))?;
+    let stored_bytes: (i64,) =
+        sqlx::query_as("SELECT COALESCE(SUM(payload_bytes), 0) FROM session_events")
+            .fetch_one(pool)
+            .await
+            .map_err(store_query("used bytes"))?;
     Ok((
         to_count(rows.0)? + to_count(claims.0)?,
         to_count(stored_bytes.0)? + to_count(claims.1)?,
@@ -118,7 +119,10 @@ pub(crate) async fn reclaim_expired(pool: &SqlitePool, now: i64) -> Result<usize
         .execute(pool)
         .await
         .map_err(store_query("claim reclaim"))?;
-    Ok(usize::try_from(reclaimed.rows_affected()).map_err(|_| corrupt("a count is not a count"))?)
+    Ok(
+        usize::try_from(reclaimed.rows_affected())
+            .map_err(|_| corrupt("a count is not a count"))?,
+    )
 }
 
 impl Journal {
@@ -134,11 +138,12 @@ impl Journal {
     ) -> Result<Reservation, ClaimRefusal> {
         claim_is_well_formed(kind, payload_bytes)?;
         let now = now_ms();
-        let (used_rows, used_bytes) = used_totals(&self.pool, now)
-            .await
-            .map_err(|error| ClaimRefusal::Store {
-                reason: error.to_string(),
-            })?;
+        let (used_rows, used_bytes) =
+            used_totals(&self.pool, now)
+                .await
+                .map_err(|error| ClaimRefusal::Store {
+                    reason: error.to_string(),
+                })?;
         admission_fits(used_rows, used_bytes, payload_bytes)?;
         let id = sqlx::query_scalar::<_, i64>(
             "INSERT INTO session_claims (id, kind, payload_bytes, claimed_at_ms, snapshot_blocking) \
@@ -152,7 +157,12 @@ impl Journal {
         .fetch_one(&self.pool)
         .await
         .map_err(store)?;
-        tracing::debug!(id, ?kind, payload_bytes, "the durable outbox took a claim on capacity");
+        tracing::debug!(
+            id,
+            ?kind,
+            payload_bytes,
+            "the durable outbox took a claim on capacity"
+        );
         Ok(Reservation {
             id: u64::try_from(id).map_err(|_| ClaimRefusal::Store {
                 reason: "a claim id is past what a token can hold".to_owned(),
@@ -216,7 +226,8 @@ impl Journal {
             .execute(&self.pool)
             .await
             .map_err(store_query("claim reclaim"))?;
-        Ok(usize::try_from(reclaimed.rows_affected()).map_err(|_| corrupt("a count is not a count"))?)
+        Ok(usize::try_from(reclaimed.rows_affected())
+            .map_err(|_| corrupt("a count is not a count"))?)
     }
 
     /// Claims still live, and how many of them still block a snapshot.
@@ -259,9 +270,8 @@ impl Journal {
 }
 
 fn claim_id(claim: Reservation) -> Result<i64, ClaimRefusal> {
-    i64::try_from(claim.id).map_err(|_| ClaimRefusal::Refused(ReserveError::ReservationNotLive {
-        id: claim.id,
-    }))
+    i64::try_from(claim.id)
+        .map_err(|_| ClaimRefusal::Refused(ReserveError::ReservationNotLive { id: claim.id }))
 }
 
 /// The stored spelling of a claim's kind, so a reopened file reads as the same

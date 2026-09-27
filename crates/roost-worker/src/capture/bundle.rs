@@ -43,11 +43,7 @@ pub enum Stored {
 /// Every refusal below is a code rather than a message, and that is the whole
 /// point of the signature: the caller serialises this into a reply that crosses
 /// a trust boundary, and it must not be able to carry a path.
-pub async fn write_bundle(
-    log_dir: &Path,
-    capture_id: &str,
-    payload: &[u8],
-) -> Stored {
+pub async fn write_bundle(log_dir: &Path, capture_id: &str, payload: &[u8]) -> Stored {
     if payload.len() > TERMINAL_CAPTURE_LIMITS.bundle_bytes {
         return Stored::Refused(TerminalCaptureErrorCode::ResourceExhausted);
     }
@@ -175,9 +171,7 @@ async fn sweep_retention(directory: &Path, reserve_slot: usize, reserve_bytes: u
         let Ok(metadata) = entry.metadata().await else {
             continue;
         };
-        let modified = metadata
-            .modified()
-            .unwrap_or(std::time::UNIX_EPOCH);
+        let modified = metadata.modified().unwrap_or(std::time::UNIX_EPOCH);
         bundles.push((modified, entry.path(), metadata.len()));
     }
     if bundles.len() + reserve_slot <= TERMINAL_CAPTURE_LIMITS.storage_files

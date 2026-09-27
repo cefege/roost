@@ -56,15 +56,9 @@ pub async fn enroll_this_activation(boot: &WorkerBoot) -> anyhow::Result<Option<
     let client = coordinator_client(&boot.coordinator_base)?;
     let platform = supported_host_platform().context("this host is not one v3 supports")?;
     let credential = WorkerKeyCredential::new(boot.worker_key_path.clone());
-    let enrollment = enroll(
-        &client,
-        &credential,
-        &env,
-        platform,
-        &boot.worker_key_path,
-    )
-    .await
-    .context("this machine could not be enrolled")?;
+    let enrollment = enroll(&client, &credential, &env, platform, &boot.worker_key_path)
+        .await
+        .context("this machine could not be enrolled")?;
     Ok(Some(enrollment))
 }
 
@@ -75,7 +69,8 @@ pub async fn enroll_this_activation(boot: &WorkerBoot) -> anyhow::Result<Option<
 /// question and that read cannot drift apart — there is one source, and it is
 /// the environment.
 fn token_offered(env: &dyn EnvSource) -> bool {
-    env.get(BOOTSTRAP_TOKEN_ENV).is_some_and(|token| !token.is_empty())
+    env.get(BOOTSTRAP_TOKEN_ENV)
+        .is_some_and(|token| !token.is_empty())
 }
 
 /// The Connect client the two boot-time calls travel over.

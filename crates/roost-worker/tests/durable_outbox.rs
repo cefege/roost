@@ -33,8 +33,9 @@ impl Scratch {
             "roost-outbox-{label}-{}-{ordinal}",
             std::process::id()
         ));
-        std::fs::create_dir_all(&root)
-            .unwrap_or_else(|error| panic!("the scratch root {} is unusable: {error}", root.display()));
+        std::fs::create_dir_all(&root).unwrap_or_else(|error| {
+            panic!("the scratch root {} is unusable: {error}", root.display())
+        });
         Self { root }
     }
 
@@ -125,7 +126,11 @@ async fn a_sequence_is_never_handed_out_twice_across_a_restart() {
     let scratch = Scratch::new("sequence");
     let first = {
         let journal = journal_in(&scratch).await;
-        journal.append(&opened(SESSION)).await.expect("appended").client_seq
+        journal
+            .append(&opened(SESSION))
+            .await
+            .expect("appended")
+            .client_seq
     };
     let next = {
         let journal = journal_in(&scratch).await;
@@ -165,7 +170,10 @@ async fn a_row_leaves_only_on_its_exact_acknowledgement() {
     let first = journal.append(&opened(SESSION)).await.expect("appended");
     let second = journal.append(&closed(OTHER)).await.expect("appended");
 
-    assert!(!journal.acknowledge(0).await.expect("ack"), "zero is not a sequence");
+    assert!(
+        !journal.acknowledge(0).await.expect("ack"),
+        "zero is not a sequence"
+    );
     assert!(
         !journal.acknowledge(9_999).await.expect("ack"),
         "a sequence no row holds retired something"
@@ -198,7 +206,13 @@ async fn the_replay_head_is_one_row_and_always_the_oldest() {
     let journal = journal_in(&scratch).await;
     let mut expected = Vec::new();
     for session in [SESSION, OTHER, SESSION] {
-        expected.push(journal.append(&opened(session)).await.expect("appended").client_seq);
+        expected.push(
+            journal
+                .append(&opened(session))
+                .await
+                .expect("appended")
+                .client_seq,
+        );
     }
     for want in expected {
         let head = journal
@@ -239,15 +253,27 @@ fn a_coalescing_frame_replaces_its_own_predecessor_in_one_lane() {
         Ok(Admitted::Queued)
     );
 
-    assert_eq!(outbox.frame_count(), 2, "one record per key, not one per version");
+    assert_eq!(
+        outbox.frame_count(),
+        2,
+        "one record per key, not one per version"
+    );
     assert!(outbox.coalesces(Lane::Control, "s-1"));
     assert!(outbox.coalesces(Lane::Control, "s-2"));
 
     let drained = outbox.drain_all(now);
     assert_eq!(drained.len(), 2);
-    assert_eq!(drained[0].bytes, vec![1; 8], "the replaced version is the one that went");
+    assert_eq!(
+        drained[0].bytes,
+        vec![1; 8],
+        "the replaced version is the one that went"
+    );
     assert_eq!(drained[0].label, "second");
-    assert_eq!(drained[1].bytes, vec![2; 8], "a different key's record is untouched");
+    assert_eq!(
+        drained[1].bytes,
+        vec![2; 8],
+        "a different key's record is untouched"
+    );
 }
 
 /// A frame that does not fit beside the one it would replace is refused, and the
@@ -270,9 +296,16 @@ fn a_coalescing_frame_that_does_not_fit_keeps_the_record_it_would_replace() {
         refused.is_err(),
         "a 12-byte record replaced 8 bytes in a 16-byte queue that already held 8"
     );
-    assert_eq!(outbox.byte_count(), 16, "the refused record changed the byte count");
+    assert_eq!(
+        outbox.byte_count(),
+        16,
+        "the refused record changed the byte count"
+    );
     let drained = outbox.drain_all(now);
-    assert_eq!(drained[1].label, "first", "the record that was told is the one that left");
+    assert_eq!(
+        drained[1].label, "first",
+        "the record that was told is the one that left"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -312,7 +345,11 @@ async fn a_claim_survives_a_close_and_reopen() {
     assert_eq!(first.1, DurableEventKind::Closed);
     let held = journal.hold(second).await.expect("held");
     journal.release(held).await.expect("released");
-    assert_eq!(journal.claims().await.expect("read"), (1, 1), "the released claim is still there");
+    assert_eq!(
+        journal.claims().await.expect("read"),
+        (1, 1),
+        "the released claim is still there"
+    );
 }
 
 /// THE LEASE. A claim from a process that died is capacity nobody hands back,
@@ -336,7 +373,10 @@ async fn a_claim_past_the_lease_is_reclaimed_and_one_inside_it_is_not() {
     // spawn's claim would leave a session mid-spawn with no room for its close,
     // and no error anywhere to say so.
     assert_eq!(
-        journal.reclaim_expired_claims(now_ms()).await.expect("swept"),
+        journal
+            .reclaim_expired_claims(now_ms())
+            .await
+            .expect("swept"),
         0,
         "a live spawn's claim was reclaimed, so a session mid-spawn lost the room it had already \
          taken for its close"
@@ -350,7 +390,10 @@ async fn a_claim_past_the_lease_is_reclaimed_and_one_inside_it_is_not() {
         .reclaim_expired_claims(i64::MAX / 2)
         .await
         .expect("swept");
-    assert_eq!(reclaimed, 2, "two claims past any plausible lease survived the sweep");
+    assert_eq!(
+        reclaimed, 2,
+        "two claims past any plausible lease survived the sweep"
+    );
     assert_eq!(journal.claims().await.expect("read"), (0, 0));
     let _ = (stale, fresh);
 }
