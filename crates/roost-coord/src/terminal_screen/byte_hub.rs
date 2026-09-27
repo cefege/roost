@@ -295,7 +295,17 @@ impl ByteHub {
         self.screens.publish_chunk(&session_id, chunk, now_ms)
     }
 
-    fn record_unmapped_drop(&self, worker_fp: &WorkerFp, channel_id: ChannelId, now_ms: i64) {
+    /// Record a frame that arrived on a channel nothing resolves to.
+    ///
+    /// **PUB FOR REACHABILITY, NOT FOR TIDINESS.** `RouteIndex` has always
+    /// exposed this and `ByteHub` has always hidden it, which left the designed
+    /// behaviour for an unmapped channel -- drop the frame and COUNT it, against
+    /// a threshold that separates the benign open race from sustained loss --
+    /// unreachable from the one place that would perform it. A worker's
+    /// dispatcher is that place, and it had only `Handled` (silently drop) or
+    /// `Refused` (claim the arm is unhandled) available. Neither is true: the arm
+    /// IS handled and the channel simply has no session yet.
+    pub fn record_unmapped_drop(&self, worker_fp: &WorkerFp, channel_id: ChannelId, now_ms: i64) {
         if let Ok(mut routes) = self.routes.lock() {
             routes.record_unmapped_drop(worker_fp, channel_id, now_ms);
         }
