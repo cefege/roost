@@ -1490,6 +1490,39 @@ could revive a released claim, because the admission guard was unreachable for
 release-created claims. **A vacuous test is not merely wasted; it is a place
 where a real defect goes to hide.**
 
+## A FIX IN A TEST THAT DOES NOT ASSERT THE PROPERTY FIXES NOTHING
+
+The first attempt at establishing the ordering premise was placed in
+`create_list_publish_and_delete_stay_consistent_with_the_relay_stream` — a test
+that **asserts no order at all**. Five runs afterwards came back
+`3/0, 3/0, 3/0, 2/1, 3/0`, and the comment in the *real* test kept saying the
+timestamps were *"equalised below"* while the statement sat a hundred lines
+above in a different function.
+
+**A remedy described in a comment and absent from the body is a hope — one level
+above the one the test already had.** The original defect was a premise the body
+did not establish; the first fix was a remedy the comment described and the body
+did not contain. Same class, one indirection out, and it survived a commit.
+
+**And the second defect in the same fix: the scope.** The `UPDATE` was
+`WHERE dashboard_id = (SELECT id FROM dashboards LIMIT 1)` — a whole tenant's
+relays, reached through a subquery over a limit-1.
+
+> **A test asserting its own premise should not assert it through a scope it does
+> not itself pin.** The fix scopes to the two ids the test created and asserts
+> `rows_affected() == 2`, so *"the premise holds"* is an observation rather than a
+> hope.
+
+That `rows_affected` assertion is the part that generalises: **when a test
+establishes a precondition for its own assertion, assert the precondition too**,
+because otherwise the test cannot distinguish *I set it up* from *it happened to
+be true*, and those are the same distinction this whole class is about.
+
+**And the discipline that caught it was exactly the one built earlier: the fix
+shipped with no determinism claim, five identical lines were demanded as the
+closure, and the five came back non-uniform.** Without that step the coin would
+have been declared fixed on the strength of a comment.
+
 ## A test whose stated premise is a HOPE is a coin
 
 `LIST_RELAYS` declares `ORDER BY created_at_ms, id` — so with **equal**
