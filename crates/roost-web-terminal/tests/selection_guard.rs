@@ -3,157 +3,17 @@
 //! comes back, so each one is decided natively with the DOM replaced by the
 //! two facts an adapter reads — the live selection and the retained range.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use roost_web_terminal::input::{
     ComposeSelection, ComposerSelection, DomNodeId, FocusOwner, LiveSelection, OwnedRow,
     PaneInputs, RetainedRange, SelectionDirection, SelectionEndpoint, SelectionGuard, YieldLapse,
 };
 
-/// This pane's display, its painted row, that row's text node, and the
-/// composer's textarea — the four node identities every case names.
-const DISPLAY: DomNodeId = DomNodeId(1);
-const ROW: DomNodeId = DomNodeId(2);
-const TEXT_NODE: DomNodeId = DomNodeId(3);
-const COMPOSER: DomNodeId = DomNodeId(4);
+mod selection_guard_support;
 
-/// The one row a pane-owned selection resolves to.
-fn the_row() -> Vec<OwnedRow> {
-    vec![OwnedRow {
-        id: ROW,
-        text: "v0".to_string(),
-    }]
-}
+use selection_guard_support::*;
 
-fn endpoint(offset: u32) -> SelectionEndpoint {
-    SelectionEndpoint {
-        node: TEXT_NODE,
-        offset,
-    }
-}
-
-/// A selection spanning `text` inside the pane's own row.
-fn pane_selection(text: &str) -> LiveSelection {
-    LiveSelection {
-        present: true,
-        collapsed: false,
-        range_count: 1,
-        anchor: Some(endpoint(0)),
-        focus: Some(endpoint(text.chars().count() as u32)),
-        text: text.to_string(),
-        owned_rows: the_row(),
-        ..LiveSelection::default()
-    }
-}
-
-/// The retained range a capture of `text` over `rows` holds.
-fn retained_for(text: &str, rows: Vec<OwnedRow>) -> RetainedRange {
-    RetainedRange {
-        display: DISPLAY,
-        anchor: endpoint(0),
-        focus: endpoint(text.chars().count() as u32),
-        range_text: text.to_string(),
-        containers_connected: true,
-        rows,
-    }
-}
-
-/// The retained range a capture of `text` over this pane's own row holds.
-fn retained(text: &str) -> RetainedRange {
-    retained_for(text, the_row())
-}
-
-/// A collapsed selection over `rows`: the browser's editable-focus artifact,
-/// not a user selection.
-fn caret(rows: Vec<OwnedRow>) -> LiveSelection {
-    LiveSelection {
-        present: true,
-        collapsed: true,
-        range_count: 1,
-        anchor: Some(endpoint(0)),
-        focus: Some(endpoint(0)),
-        owned_rows: rows,
-        ..LiveSelection::default()
-    }
-}
-
-/// The document after a yield cleared its ranges, composer still focused.
-fn cleared_by_yield() -> LiveSelection {
-    LiveSelection {
-        present: true,
-        collapsed: true,
-        focus_owner: Some(FocusOwner {
-            node: COMPOSER,
-            connected: true,
-        }),
-        ..LiveSelection::default()
-    }
-}
-
-/// No selection anywhere on the page.
-fn no_selection() -> LiveSelection {
-    LiveSelection::default()
-}
-
-/// The live selection, with the composer's textarea holding focus.
-fn focused_by_composer(selection: &LiveSelection) -> LiveSelection {
-    LiveSelection {
-        focus_owner: Some(FocusOwner {
-            node: COMPOSER,
-            connected: true,
-        }),
-        ..selection.clone()
-    }
-}
-
-/// A selection whose endpoints are outside the pane's display.
-fn foreign_selection() -> LiveSelection {
-    LiveSelection {
-        present: true,
-        range_count: 1,
-        anchor: Some(SelectionEndpoint {
-            node: DomNodeId(90),
-            offset: 0,
-        }),
-        focus: Some(SelectionEndpoint {
-            node: DomNodeId(91),
-            offset: 9,
-        }),
-        text: "elsewhere".to_string(),
-        ..LiveSelection::default()
-    }
-}
-
-/// The inputs one transition is decided from.
-fn inputs<'a>(live: &'a LiveSelection, retained: &'a RetainedRange) -> PaneInputs<'a> {
-    PaneInputs {
-        live,
-        retained: Some(retained),
-        display: DISPLAY,
-    }
-}
-
-/// Capture `v0` on `guard` and hand the composer the same inputs.
-fn capture_v0(guard: &mut SelectionGuard) -> (ComposeSelection, LiveSelection, RetainedRange) {
-    let mut composer = ComposeSelection::new();
-    let live = pane_selection("v0");
-    let held = retained("v0");
-    assert!(composer.capture(guard, inputs(&live, &held)).capture);
-    (composer, live, held)
-}
-
-/// A guard holding a capture whose range is yielded to the composer.
-fn suspended_composer_pane() -> (SelectionGuard, ComposeSelection) {
-    let mut guard = SelectionGuard::new();
-    let (mut composer, live, held) = capture_v0(&mut guard);
-    let yielded = focused_by_composer(&live);
-    assert!(
-        composer
-            .suspend(&mut guard, inputs(&yielded, &held))
-            .is_some()
-    );
-    (guard, composer)
-}
-
-#[test]
 fn a_selection_dropped_while_the_panes_listeners_are_detached_stops_holding_paint() {
     let mut guard = SelectionGuard::new();
     let live = pane_selection("v0");
