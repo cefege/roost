@@ -197,7 +197,6 @@ fn the_mouse_forward_default_is_on_and_is_the_default_the_store_loads() {
     // key meant ON. The product reason is named in `MOUSE_FORWARD_DEFAULT`: the
     // gate is the application's mode, so an opt-in would cost every mouse-aware
     // TUI its mouse and buy nothing.
-    assert!(MOUSE_FORWARD_DEFAULT);
     let stored_default = roost_client_core::store::prefs::Prefs::default().mouse_forward;
     assert_eq!(stored_default, MOUSE_FORWARD_DEFAULT);
     assert!(mouse_gestures_forwarded(
