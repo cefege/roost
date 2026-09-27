@@ -164,7 +164,17 @@ pub fn workbench_title(
     if pathname.starts_with("/help") {
         return "Help".to_string();
     }
-    if session_title.is_some() || session_folder.is_some() {
+    // ONLY A TERMINAL ROUTE HAS A SESSION TO NAME. The root is the workbench, and
+    // `/settings` is the settings shell: neither resolves to a session, so a
+    // store that still holds one from a previous route must not put that
+    // session's name in the title bar. v2 gets this by construction —
+    // `activeSessionForPath` returns null for both — and the port has to make the
+    // same exclusion explicit, because here the session arrives as an argument
+    // rather than as something the path looked up.
+    let is_terminal = pathname.starts_with("/s/")
+        || pathname.starts_with("/t/")
+        || pathname.starts_with("/w/");
+    if is_terminal && (session_title.is_some() || session_folder.is_some()) {
         let title = session_title
             .map(str::trim)
             .filter(|title| !title.is_empty())
