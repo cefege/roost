@@ -612,19 +612,40 @@ at their root — `tests/channel_history.rs`, `keeper_daemon.rs`, `keeper_dispat
 `keeper_socket_protocol.rs`. A crate-level allow is a property of the compilation
 unit, so every helper site becomes a clippy error the moment clippy runs.
 
-**THOSE SEVEN ARE NOT NEW, AND NOT MINE TO FIX HERE.** `v3-worker` reads 4
-violations and **none of them are keeper** — `roost-cli/tests/command_tree_shape.rs`,
-`roost-cli/tests/update_self_replace.rs`, `roost-worker/src/session/lifecycle.rs`,
-`roost-worker/src/session/respawn.rs`. So the worker track is already past the
-keeper debt and `v3` carries it only because that merge has not landed. **They
-resolve when `v3-worker` merges; until then `xtask lint` cannot read 0 on `v3`,
-and that is expected rather than a regression.**
+**A TRIAL MERGE MEASURED WHAT THE WORKER MERGE ACTUALLY DOES, and the answer
+corrected the guess above.** Scratch worktree at `v3`, `git merge
+origin/v3-worker` → **`ad68563f`, CLEAN, zero conflicts.** Guarded sweep on the
+merged tree, canary-checked:
 
-The other three on `v3` were not enumerated here, and **that is stated rather
-than glossed**: a count of 10 with seven named is not a count of ten understood.
-S3.0 enumerates all of them before it runs.
+| |`v3` now|after merging `v3-worker`|
+|---|---:|---:|
+|inputs checked|2111|**2412**|
+|unreached modules|0|**0**|
+|`xtask lint` violations|**10**|**2**|
 
-**The new unreached-module rule contributes 0 of these.** Verified by stashing it:
+**So the seven keeper `fixture_allow` findings DO clear on the worker merge** —
+that part of the guess was right, and it is now measured rather than inferred.
+**But the merge is not a lint-to-zero event.** The two survivors are both the
+SIZE cap, and both are CLI-track files, not worker files:
+
+- `crates/roost-cli/tests/command_tree_shape.rs` — **432 lines**, cap 400, baseline 400
+- `crates/roost-cli/tests/update_self_replace.rs` — **409 lines**, cap 400, baseline 400
+
+These are the two size splits the CLI lead made, and they are already fixed on
+`v3-cli` (`3213f798`) — `v3-worker` at `e6a1e8b0` simply predates that. **So
+`v3` needs `v3-cli` merged as well as `v3-worker` before `xtask lint` can read
+0, and merging the worker track alone leaves it at 2.** The scratch worktree was
+removed; nothing about this measurement touched `v3`.
+
+**THE LESSON, which is the same one as the PATH trap and the guard that passed:**
+this entry first said "they resolve when `v3-worker` merges" as though it were
+known. It was an inference from two sweeps, and it was wrong about the total —
+the merge would have landed lint at 2, not 0. **One command in a throwaway
+worktree would have answered it before the sentence was written**, and the
+sentence would then have been a measurement instead of a guess with a
+confident verb. The merge is cheap; being wrong about it is not.
+
+The new unreached-module rule contributes 0 of these.** Verified by stashing it:
 10 violations before, 10 after, with inputs checked going 1480 → 2111.
 
 ### What Phase 6.4 costs: run the classifier, do not read a table
