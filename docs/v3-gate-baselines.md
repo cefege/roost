@@ -600,6 +600,33 @@ ever mentioned it.
 **If S3.0 reports this failure, the run is correct and the gate is not met until
 `connection.rs` lands. Do not bisect it, do not soften it, do not skip it.**
 
+### `cargo xtask lint` on `v3` is RED right now, and here is what it is
+
+**Measured at `e694506a`, not assumed.** `cargo xtask lint` on this tree prints
+**`xtask: checked 2111 inputs` / `xtask: 10 violations`**, and exits non-zero.
+
+Seven of the ten are `roost-keeper` test binaries that compile the shared
+`support` fixture without `#![allow(clippy::unwrap_used, clippy::expect_used)]`
+at their root — `tests/channel_history.rs`, `keeper_daemon.rs`, `keeper_dispatch.rs`,
+`keeper_endpoint.rs`, `keeper_lifecycle.rs`, `keeper_socket.rs`,
+`keeper_socket_protocol.rs`. A crate-level allow is a property of the compilation
+unit, so every helper site becomes a clippy error the moment clippy runs.
+
+**THOSE SEVEN ARE NOT NEW, AND NOT MINE TO FIX HERE.** `v3-worker` reads 4
+violations and **none of them are keeper** — `roost-cli/tests/command_tree_shape.rs`,
+`roost-cli/tests/update_self_replace.rs`, `roost-worker/src/session/lifecycle.rs`,
+`roost-worker/src/session/respawn.rs`. So the worker track is already past the
+keeper debt and `v3` carries it only because that merge has not landed. **They
+resolve when `v3-worker` merges; until then `xtask lint` cannot read 0 on `v3`,
+and that is expected rather than a regression.**
+
+The other three on `v3` were not enumerated here, and **that is stated rather
+than glossed**: a count of 10 with seven named is not a count of ten understood.
+S3.0 enumerates all of them before it runs.
+
+**The new unreached-module rule contributes 0 of these.** Verified by stashing it:
+10 violations before, 10 after, with inputs checked going 1480 → 2111.
+
 ### What Phase 6.4 costs: run the classifier, do not read a table
 
 **There is deliberately no count in this section.** It was hand-maintained and corrected
