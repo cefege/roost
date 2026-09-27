@@ -1821,6 +1821,21 @@ xtask: checked 2744 inputs   unreached 0   violations 16
             both compiling the shared `mouse_forwarding_support` fixture
 ```
 
+**THE LADDER, each rung measured rather than inferred:**
+
+|tree|inputs|violations|what that merge cleared|
+|---|---:|---:|---|
+|`v3`|2111|10|the baseline: 2 roost-cli size, 1 keeper lint table, 7 keeper fixture allow|
+|`v3` + `v3-cli`|2124|**8**|**the 2 roost-cli size violations — the CLI merge alone clears exactly those**|
+|`v3` + `v3-cli` + `v3-worker`|2425|**0**|the keeper lint table and the 7 fixture allows|
+
+**So both merges are needed and the order is forced: `v3-cli` first because it
+clears two, then `v3-worker` because it clears the other eight.** The two rows
+above the full merge were re-measured tonight; the middle one was already on
+record at `20e56d49` and **I re-derived it instead of grepping for it — the tenth
+instance of the same slip, and the one where the document already had the answer
+and I spent a turn and two failed commands producing it again.**
+
 **`v3`'s own ten are GONE, and that is the merge-order prediction confirmed.** The
 two `roost-cli` size violations cleared with `v3-cli`; the `roost-keeper/Cargo.toml`
 lint table and the seven keeper `fixture_allow` findings cleared with `v3-worker`.
