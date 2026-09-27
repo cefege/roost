@@ -564,44 +564,47 @@ apart at exactly the rate the tree moves.
 A gate that cannot run the suite at all has proved nothing. Say so rather
 than reporting a partial pass as a green one.
 
-### What Phase 6.4 actually costs: 101 guards, classified
+### What Phase 6.4 actually costs: 102 guards, classified
 
-Step 6.4 re-points every `**Guard**` that names a path the TS deletion removes,
-and no entry may end up with a guard pointing at nothing. Counted per ENTRY
-(parsing each `###` block, taking the text from `**Guard**` to the next
-heading), because counting lines across the whole file also counts `**Wrong**`
-prose and double-counts any entry naming two paths — a line-count gives 155
-against 101 entries, which is impossible:
+Step 6.4 re-points every `**Guard**` naming a path the TS deletion removes, and no
+entry may end up with a guard pointing at nothing. Counted per ENTRY — parsing each
+`###` block, taking the text from `**Guard**` to the next heading — because counting
+lines across the whole file also counts `**Wrong**` prose and double-counts entries
+naming two paths. That line-count gives 155 against 102 entries, which is impossible.
 
 |bucket|entries|what 6.4 does|
 |---|---:|---|
-|name a deleted TS path and need re-pointing|**67**|re-point to a Rust test; write the test where none exists|
-|names `smoke/`|**17**|**nothing** — smoke stays TypeScript, it is the oracle|
+|name a deleted TS path and still need re-pointing|**67**|re-point to a Rust test; write the test where none exists|
+|name `smoke/`|**17**|**nothing** — smoke stays TypeScript, it is the oracle|
 |cite `scripts/lint-roost.ts` or an `L11` rule|**12**|re-express in `xtask lint`, or delete the rule|
-|already a Rust test (some name `packages/` only as a `(was …)` note)|**7**|nothing|
-|**no guard at all**|**2**|**write one** — see below|
+|already a Rust test (some name `packages/` only as a `(was …)` note)|**5**|nothing|
+|**no guard at all**|**10**|**write one**|
 
-Per deleted path: `apps/web/src` 37, `apps/coord` 20, `apps/worker` 17,
-`packages/` 9, `apps/roost-cli` 7 — and **13 entries name more than one**, so
-these do not sum to 70.
+The lint row overlaps the re-point row, so the rows do not sum to 102.
 
-**So the real work is 81 entries, not 101, and only 67 of them are mechanical.**
+Per deleted path, among the 67 needing re-pointing: `apps/web/src` 34,
+`apps/coord` 18, `apps/worker` 16,
+`packages/` 6, `apps/roost-cli` 7 — and
+**10 name more than one**, so those do not sum either.
+
+**So Phase 6.4 touches 80 entries, and only 67 are mechanical re-points.**
+The 12 lint entries are a different kind of change — a rule, not a test — and the
+17 smoke guards stay safe precisely because the plan kept smoke as the oracle.
 
 **Two corrections, both understating the work.** The lint count is **12, not 8** —
 four guards say only `L11` and never name the script, so a literal `scripts/lint-roost.ts`
-grep misses them; and because 6.4 deletes the script *and* the TS invariants job, all
-12 go dead. And **3 of the original 70 were inflated**: they already name a Rust test
-and mention `packages/…` only inside a `(was …)` note, so they are historical, not live
-references. The 4 guards were the rest of the 9 that name `packages/`, and it is a live
-reference — it names `apps/web/tests/browser/diag.test.ts` with no Rust equivalent.
+grep misses them; and because 6.4 deletes the script *and* the TS invariants job, all of
+them go dead. And **3 of an earlier 70 were inflated**: they already name a Rust test and
+mention `packages/…` only inside a `(was …)` note, so they are historical, not live
+references. The fourth guard naming `packages/` is a genuine live reference — it names
+`apps/web/tests/browser/diag.test.ts` with no Rust equivalent.
 
 **AND TWO ENTRIES HAVE NO GUARD AT ALL, which the index's own rule forbids.**
-`A defaulted injectable host function loses its receiver` and `Roost never owns
-the agent session`. The first explains why — "Bun unit tests pass either way;
-only the live/Playwright browser pass exercises the receiver" — which is a real
-reason and not an excuse, but a reason is not a guard. Both name live
-properties. **They are unguarded, so they need a test written, not a path
-edited**, and neither can be checked by a grep over the tree.
+`A defaulted injectable host function loses its receiver` and `Roost never owns the agent
+session`. The first explains why — "Bun unit tests pass either way; only the live/Playwright
+browser pass exercises the receiver" — which is a real reason and not an excuse, but a
+reason is not a guard. Both name live properties, and **neither is findable by a grep over
+the tree**, so 6.4 would pass them by default. They need a test written, not a path edited.
 
 ### The import check RECOMPUTES its expected counts, and restates the filter
 
