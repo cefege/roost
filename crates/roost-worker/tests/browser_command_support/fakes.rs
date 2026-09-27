@@ -230,7 +230,7 @@ impl RetainedGrid for FakeGrid {
         &self,
         _session_id: SessionId,
         absolute_row: u32,
-    ) -> roost_worker::browser_commands::Boxed<Option<CellRowJson<'static>>> {
+    ) -> roost_worker::browser_commands::Boxed<Option<CellRowJson>> {
         // The SAME type production returns, and it is built the same way: a
         // `CellRow` the fake owns, wrapped rather than spelled as JSON. A fake
         // that answered with a hand-written `json!` would no longer exercise

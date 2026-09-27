@@ -22,7 +22,6 @@
 //! a guard held across it would make this type's `Send`ness a function of how
 //! the session table happens to be locked.
 
-use std::borrow::Cow;
 use std::sync::Arc;
 
 use roost_protocol::cell::{CellRow, CellSpan};
@@ -68,7 +67,7 @@ impl RetainedGrid for SessionGrid {
         Box::pin(async move { described })
     }
 
-    fn row(&self, session_id: SessionId, absolute_row: u32) -> Boxed<Option<CellRowJson<'static>>> {
+    fn row(&self, session_id: SessionId, absolute_row: u32) -> Boxed<Option<CellRowJson>> {
         let read = self
             .table
             .with_record(&session_id, |record| row_value(record, absolute_row))
@@ -146,7 +145,7 @@ pub(crate) fn row_spans(record: &SessionRecord, absolute_row: u32) -> Option<Arc
 /// `read_scrollback_range` CLAMPS to the retained window, which is the whole
 /// answer here: a row below the floor or at the end reads as an empty range, and
 /// an empty range is a row this grid does not have.
-fn row_value(record: &SessionRecord, absolute_row: u32) -> Option<CellRowJson<'static>> {
+fn row_value(record: &SessionRecord, absolute_row: u32) -> Option<CellRowJson> {
     let core = record.terminal_core.as_ref();
     let origin = scrollback_origin(core, record.cell_emit.scrollback_origin).ok()?;
     let index = u64::from(absolute_row);
@@ -156,9 +155,7 @@ fn row_value(record: &SessionRecord, absolute_row: u32) -> Option<CellRowJson<'s
     // it costs is one `Arc` bump, because `CellRow`'s spans are already behind
     // one. Everything expensive — the span text, the link URI — stays behind
     // the borrow that `Serialize` takes below.
-    rows.into_iter()
-        .next()
-        .map(|row| CellRowJson(Cow::Owned(row)))
+    rows.into_iter().next().map(CellRowJson::owned)
 }
 
 /// A monotonic history index as the `u32` the page arithmetic speaks.
@@ -170,59 +167,34 @@ fn narrow(index: u64) -> u32 {
     u32::try_from(index).unwrap_or(u32::MAX)
 }
 
-/// One cell row as the JSON a browser already parses, without building a tree
-/// to throw away.
-///
-/// THE SHAPE IS THE CELL VALUE MODEL'S, NOT proto3 JSON. `PbCellRow`'s own serde
-/// form omits a zero scalar — `"fg":0` disappears — and the renderer compares
-/// spans by identity and looks a palette entry up by that same field, so an
-/// omitted `fg` is a black span that compares unequal to the identical black
-/// span beside it. Every field the browser reads is therefore always present,
-/// and the optional fields appear exactly when the core authored them.
-///
-/// WHY A `Cow` AND NOT A REFERENCE. Two callers, two constraints. A caller
-/// holding a `CellRow` — the test, and anything that has just read one — gets
-/// a borrow and pays nothing. `RetainedGrid::row` builds its row inside a
-/// closure over the session table and cannot hand a borrow out of it, so it
-/// takes the owned side, which is one `Arc` bump rather than a copy of every
-/// span.
-///
-/// WHY IT IS A TYPE AND NOT A `Value`. The field ORDER is the property, and a
-/// `serde_json::Map` is a `BTreeMap` unless the `preserve_order` feature is
-/// switched on globally — which is a graph-wide change to `roost_protocol`'s
-/// own serialisation, made for a function that has no production caller. So the
-/// order lives in `Serialize::serialize_struct` below, which emits fields in
-/// call order, and `RetainedGrid::row` returns THIS rather than a `Value`: a
-/// call site that re-serialised through a map would have to change the trait
-/// to do it, and the compiler would say so.
-///
-/// `roost_protocol::cell::proto` is still where this belongs, beside the row's
-/// other projection. It is here because no JSON spelling of a cell row exists
-/// there yet, and the browser's is the one this command must produce.
-pub fn cell_row_json(row: &CellRow) -> CellRowJson<'_> {
-    CellRowJson(Cow::Borrowed(row))
-}
-
 /// A cell row that serialises itself in the order the value model declares.
 ///
 /// `pub` because `browser_commands::scrollback_page::RetainedGrid` returns it
 /// across a crate boundary, and a private type in a public signature is a type
 /// no caller can name.
+///
+/// IT OWNS THE ROW, AND THAT IS NOT A LOSS. This was a `Cow<'a, CellRow>` with a
+/// borrowed arm, and the borrowed arm was unreachable: its only constructor was
+/// `cell_row_json`, and `cell_row_json` had no caller in `src/` — only its own
+/// test. A `Cow` variant nothing constructs is the same defect one level below
+/// the one it was added to fix, so both are gone rather than kept on the
+/// strength of being documented and tested. The cost is one `Arc` bump, because
+/// `CellRow`'s spans are already behind an `Arc`; the benefit is a type with
+/// one representation instead of two, one of which was fiction.
 #[derive(Debug, Clone)]
-pub struct CellRowJson<'a>(Cow<'a, CellRow>);
+pub struct CellRowJson(CellRow);
 
-impl CellRowJson<'static> {
-    /// The same projection over a row the caller already owns.
+impl CellRowJson {
+    /// The projection over a row the caller already holds.
     ///
-    /// For the grid, whose row is built inside a closure over the session table
-    /// and cannot be borrowed out of. One `Arc` bump: `CellRow`'s spans are
-    /// already shared, so nothing is copied but the pointer.
+    /// For `RetainedGrid::row`, whose row is built inside a closure over the
+    /// session table and cannot be borrowed out of.
     pub fn owned(row: CellRow) -> Self {
-        Self(Cow::Owned(row))
+        Self(row)
     }
 }
 
-impl Serialize for CellRowJson<'_> {
+impl Serialize for CellRowJson {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut row = serializer.serialize_struct("CellRow", 2)?;
         row.serialize_field("index", &self.0.index)?;

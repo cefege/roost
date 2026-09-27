@@ -68,7 +68,7 @@ pub trait RetainedGrid: Send + Sync {
     /// Returning the row's own serialiser puts the order in a type, so a call
     /// site cannot re-serialise through a map and lose it without the compiler
     /// objecting.
-    fn row(&self, session_id: SessionId, absolute_row: u32) -> Boxed<Option<CellRowJson<'static>>>;
+    fn row(&self, session_id: SessionId, absolute_row: u32) -> Boxed<Option<CellRowJson>>;
 }
 
 /// Run the one command this owns.

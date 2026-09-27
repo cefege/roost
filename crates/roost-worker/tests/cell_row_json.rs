@@ -6,7 +6,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_protocol::cell::{CellRow, CellSpan, DEFAULT_COLOR};
-use roost_worker::session::retained_grid::cell_row_json;
+use roost_worker::session::retained_grid::CellRowJson;
 use std::sync::Arc;
 
 fn plain() -> CellSpan {
@@ -48,7 +48,7 @@ fn a_row_is_spelled_the_way_the_browser_already_parses_it() {
         index: 7,
         spans: Arc::from(vec![plain(), linked()]),
     };
-    let encoded = serde_json::to_string(&cell_row_json(&row)).expect("a row encodes");
+    let encoded = serde_json::to_string(&CellRowJson::owned(row)).expect("a row encodes");
     assert_eq!(
         encoded,
         concat!(
@@ -82,7 +82,7 @@ fn a_row_without_a_link_carries_no_link_fields() {
         spans: Arc::from(vec![plain()]),
     };
     let span = &serde_json::from_str::<serde_json::Value>(
-        &serde_json::to_string(&cell_row_json(&row)).expect("a row encodes"),
+        &serde_json::to_string(&CellRowJson::owned(row)).expect("a row encodes"),
     )
     .expect("the row re-reads")["spans"][0];
     assert!(span.get("linkUri").is_none(), "no URI, no field");
@@ -102,7 +102,7 @@ fn a_link_uri_and_its_run_identity_travel_together() {
         spans: Arc::from(vec![half]),
     };
     let span = &serde_json::from_str::<serde_json::Value>(
-        &serde_json::to_string(&cell_row_json(&row)).expect("a row encodes"),
+        &serde_json::to_string(&CellRowJson::owned(row)).expect("a row encodes"),
     )
     .expect("the row re-reads")["spans"][0];
     assert!(span.get("linkUri").is_some());
