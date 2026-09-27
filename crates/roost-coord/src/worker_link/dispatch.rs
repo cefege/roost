@@ -38,6 +38,36 @@ pub enum DispatchOutcome {
     Close(SocketClose),
 }
 
+/// Which of the three arms a frame belongs to, decided by the read loop from
+/// the frame header and NOT by the dispatcher.
+///
+/// The class is the whole reason this file exists, so it is worth being blunt
+/// about what it buys: only [`FrameClass::Durable`] is genuinely asynchronous
+/// (`EventLog::append_event` awaits the database), and the two live classes
+/// resolve to synchronous state. A single boxed-future method for all three
+/// would put a heap allocation on the path that carries every PTY byte a
+/// machine produces, to serve a `dyn` the other two arms never need.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameClass {
+    /// A durable `SessionEvent`. Awaited, and acknowledged one at a time.
+    Durable,
+    /// Terminal bytes and state, forwarded to the byte hub, views and buses.
+    /// Synchronous: no await, and no allocation.
+    Live,
+    /// An `rpc-ok` or `rpc-error` answering a request the coordinator is
+    /// holding open. Synchronous, into the pending-RPC table.
+    Rpc,
+}
+
+impl FrameClass {
+    /// Whether this class's handler is asynchronous, and so whether dispatching
+    /// it costs an allocation.
+    #[must_use]
+    pub const fn is_async(self) -> bool {
+        matches!(self, Self::Durable)
+    }
+}
+
 /// One frame, and the socket it arrived on.
 ///
 /// `channel` is the frame's own channel id and is NOT trusted: the dispatcher
@@ -45,6 +75,8 @@ pub enum DispatchOutcome {
 /// state, which is what `mapping_mismatch` is for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InboundFrame {
+    /// Which arm this frame belongs to.
+    pub class: FrameClass,
     /// The frame's declared channel, as the peer wrote it.
     pub channel: u32,
     /// The frame's payload, exactly as it arrived off the wire.
@@ -57,13 +89,28 @@ pub struct InboundFrame {
 /// the Sync socket's — resolve the same dispatcher rather than each having its
 /// own.
 pub trait FrameDispatch: Send + Sync {
-    /// Handle one frame from `worker_fp`'s socket.
+    /// Handle one SYNCHRONOUS frame — a live or an rpc one.
+    ///
+    /// Not boxed, and not async, because neither of those arms awaits
+    /// anything. This is the hot path: it carries every PTY byte a machine
+    /// produces, and a `Pin<Box<dyn Future>>` here would be one heap
+    /// allocation per frame to serve a dynamic dispatch the compiler can do
+    /// statically inside this crate.
+    fn handle_now(&self, worker_fp: &str, frame: &InboundFrame) -> DispatchOutcome;
+
+    /// Handle one DURABLE frame, which awaits the database and is
+    /// acknowledged one at a time.
     ///
     /// The `&mut` is not an oversight: a durable frame's `client_seq` is
     /// acknowledged ONE AT A TIME, so the handler owns a cursor this socket
     /// advances. Taking `&self` would force a second lock inside the handler
     /// and put the "one at a time" property somewhere it cannot be seen.
-    fn handle<'a>(
+    ///
+    /// The boxed future is the price of `dyn`, paid on the durable arm only.
+    /// Durable frames are `SessionEvent`s — orders of magnitude fewer than
+    /// the byte frames above — so the allocation lands where the await already
+    /// is rather than on the path that does not need it.
+    fn handle_durable<'a>(
         &'a mut self,
         worker_fp: &'a str,
         frame: &'a InboundFrame,
