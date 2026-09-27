@@ -234,6 +234,41 @@ apart at exactly the rate the tree moves.
 A gate that cannot run the suite at all has proved nothing. Say so rather
 than reporting a partial pass as a green one.
 
+### Two ways to misread a red run before you have read it
+
+**A `SpawnNotAcknowledged { timeout: 5s }` under load is LOAD, not a refused
+spawn.** `SPAWN_ACK_TIMEOUT` is 5 s and it is not a fixture's to widen. A test
+binary that opens REAL PTYs competes with every other thing compiling on the
+machine, and the first observed instance came from a real keeper starved by
+three concurrent track builds. At a gate, that failure is evidence about the
+machine. Reading it as a product-seam defect sends you to debug a keeper that
+was never asked a question it could not answer, and the expensive part is the
+hours, not the mistake. **If a spawn timeout is the only red, re-run it with
+the machine otherwise idle before believing it.**
+
+This is the same shape as the known `terminal-peer.spec.ts:263` deviation: a
+spec that passes isolated and fails under full load is a load signal until a
+quiet full run says otherwise.
+
+**A compile error in one crate is a COMPILE error, not a verdict on the port.**
+The worker track's first recorded total was 48 failures across 83 binaries, and
+it would have been easy to read that as a broken port. Twenty-nine lines of
+span arithmetic in a systemd scrub were the only product defect in it; the
+other 47 were seven fixture-shape problems — a `WorkerFp` that wants 64 hex
+where the fixture passed a UUID, a cell stream id that must be a UUID, an unset
+`HOME`. **Triage a red count to its root causes before you characterise it.**
+A count and a character are different claims, and only one of them is
+supported by the number.
+
+**A test that has never RUN is a liability, and a red one is information.** Five
+named tests in the worker track were written and never executed, blocked behind
+a `String`/`&str` in a fixture. Reporting them as "the slice is written" would
+have been a claim about bytes rather than about behaviour, and the gate would
+have inherited four of them as unverified. When a figure is unrun, say
+`unrun` — an unrun gate item labelled unrun costs nothing, and a claimed one
+costs the gate.
+
+
 ## Perf numbers worth not regressing
 
 From the baseline's own instrumentation, since the perf specs assert against
