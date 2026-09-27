@@ -49,15 +49,12 @@ async fn create_list_publish_and_delete_stay_consistent_with_the_relay_stream() 
             );
             let id = relay.id.clone();
 
-            // Make the premise true instead of assuming it: one timestamp for both
-    // rows, so the ONLY thing that can decide the order is the `id` tiebreak.
-    sqlx::query(AssertSqlSafe(format!(
-        "UPDATE mcp_relays SET created_at_ms = 1 WHERE dashboard_id = (SELECT id FROM dashboards LIMIT 1)"
-    )))
-    .execute(fixture.database().pool())
-    .await
-    .expect("both relays share one timestamp");
-
+            // NOTE: the timestamp equalisation that makes the ORDER BY tiebreak
+            // reachable lives in `the_registry_answers_in_the_order_it_declares`,
+            // which is the test that asserts an order. An earlier revision put
+            // it HERE, where nothing asserts an order and the statement is
+            // scope-by-dashboard noise — and the coin survived, because a fix in
+            // a test that does not assert the property fixes nothing.
     let listed = handle_mcp_list(&fixture.core, &device, proto::McpListRequest::default())
                 .await
                 .expect("the registry is listed")
@@ -176,11 +173,22 @@ async fn the_registry_answers_in_the_order_it_declares() {
     // making the premise true rather than hoping for it.
     //
     // Measured bracket, for the next reader: this test passed 3/0 in one clean
-    // full-suite run and 2/1 in the next, and it is the ONLY binary that
+    // full-suite run and 2/1 in the next, and it was the ONLY binary that
     // differed between them. **A test that passes sometimes is worse than one
     // that always fails, because it gets filed as flaky infrastructure and a
     // non-deterministic pass is indistinguishable from a non-deterministic
     // machine.**
+    //
+    // **The first attempt at that fix was in the WRONG TEST and the coin
+    // survived it.** The equalising UPDATE was placed in
+    // `create_list_publish_and_delete_stay_consistent_with_the_relay_stream`,
+    // which asserts no order at all — and five runs afterwards came back
+    // 3/0, 3/0, 3/0, 2/1, 3/0. **A fix in a test that does not assert the
+    // property fixes nothing**, and the comment above kept saying the
+    // timestamps were "equalised below" while the statement sat a hundred
+    // lines above in a different function. A remedy described in a comment and
+    // absent from the body is a hope, one level above the one this test
+    // already had.
     let mut ids = Vec::new();
     for label in ["first", "second"] {
         let created =
@@ -197,6 +205,26 @@ async fn the_registry_answers_in_the_order_it_declares() {
                 .clone(),
         );
     }
+
+    // **Equalise the two rows THIS test created, scoped to their ids.** Scoping
+    // matters: an earlier attempt used `WHERE dashboard_id = (SELECT id FROM
+    // dashboards LIMIT 1)`, which is a whole tenant's relays reached through a
+    // subquery over a limit-1 — and a test asserting its own premise should not
+    // assert it through a scope it does not itself pin. `rows_affected` is
+    // checked so that "the premise holds" is an observation rather than a hope.
+    let equalised = sqlx::query(AssertSqlSafe(format!(
+        "UPDATE mcp_relays SET created_at_ms = 1 WHERE id IN ({})",
+        ids.iter().map(|id| format!("'{id}'")).collect::<Vec<_>>().join(",")
+    )))
+    .execute(fixture.database().pool())
+    .await
+    .expect("the two relays are equalised");
+    assert_eq!(
+        equalised.rows_affected(),
+        2,
+        "both rows this test created were reached, so the id tiebreak is the \
+         only thing that can decide the order"
+    );
 
     let listed = handle_mcp_list(&fixture.core, &device, proto::McpListRequest::default())
         .await
