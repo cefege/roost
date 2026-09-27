@@ -2952,6 +2952,48 @@ owning engine does not exist. They prove the predicate is pinned, not that the
 product uses it. **When SY2 lands, all four must be re-run** — the driver is
 exactly the change that could make them bite differently.
 
+## Worker track (test targets) — five rows, in the REVERSE shape
+
+These guard **compile fixes**, so the mutation is to revert the fix and the proof
+is the failure that was already recorded. That is cheaper and stronger than a
+forward mutation: the pre-fix state is a fact in the build log, and a forward
+mutation of a one-line import fix proves less than the error it replaced. **A
+compile-fix row says MUST FAIL *before* the edit, and that phrasing is not a
+weaker claim — it is a different and better-evidenced one.**
+
+All five are landed; the edits are committed at `d39db2b8` and the 11 uncommitted
+entries in that worktree are other slices' work, not these.
+
+| # | Property | Edit (`file:line`) | Must fail **before** the edit | Must still pass |
+|---|---|---|---|---|
+| WT-1 | A `TerminalCore` method is not inherent on `AlacrittyCore`; driving one through the concrete type needs the trait in scope. **The only import in the wave that is load-bearing for compilation and invisible at the call site.** | `tests/retained_grid.rs:11` — add `TerminalCore` to the `roost_term` import | the `retained_grid` binary, E0599 at `:59` (`core.write(output.as_bytes())`) | all 8 tests, assertions byte-identical — specifically `every_span_a_real_core_produces_carries_its_own_fields`, the test that would notice the import being satisfied by anything other than a real `AlacrittyCore` |
+| WT-2 | `RetainedGrid::describe` takes `SessionId` **by value** and `SessionId` is `Clone` but not `Copy`, so an id named twice must be cloned at the **FIRST** use | `tests/retained_grid.rs:276` — `.describe(unknown)` → `.describe(unknown.clone())` | E0382 at `:280` (`grid.row(unknown, 0)`), use of moved value | `a_session_this_worker_does_not_hold_is_refused` — the refusal message and the `None` from `row` on the same id. **The direction of the clone is the row:** cloning at the second use leaves the first failing, and the row's whole content is "first use" |
+| WT-3 | `as` cannot bridge two unrelated `Arc`s — `Arc<RecordingDelivery>` and `Arc<Mutex<dyn ChannelDelivery>>` are unrelated, and neither an `as`-form nor an `Arc::clone(&x)` form works | `tests/session_support/mod.rs` — `Harness::with_keeper` calls `shared_delivery(&delivery)` in place of the cast; `tests/session_binding.rs:63,100` — `shared_delivery(&harness)` → `harness.shared_delivery()` | E0605 at both `session_binding.rs` sites **and** inside `session_support/mod.rs`, which broke every target declaring `mod session_support;` — `session_binding`, `session_adoption`, `session_lifecycle`, `session_resize` | `a_hold_over_the_bound_is_not_replayed_at_the_swap` and `a_hold_inside_the_bound_is_replayed_whole_at_the_swap`, with the three `harness.delivery.parsed…` reads reaching **the same recorder**. **A shorter rejected fix — constructing a fresh `Arc<Mutex<RecordingDelivery>>` inside the test — passes both while observing a different object.** Any future change that makes the delivery local is a regression no assertion in this file catches |
+| WT-4 | `on_output` is a method of `roost_worker::session::sinks::ChannelBinding`, not inherent on `RecordBinding`. Through a concrete `Arc<RecordBinding>` the trait must be in scope; through `Arc<dyn ChannelBinding>` it must **NOT** be — which is why the first test compiled and the other two did not | `tests/session_binding.rs:12` — added `use roost_worker::session::sinks::ChannelBinding;` | E0599 at four `on_output` sites on the concrete binding, **and not** at the `Arc<dyn ChannelBinding>` site in test 1 | all three tests. **This import is load-bearing and a tidy-up will not notice: deleting it compiles cleanly and fails only at test run** |
+| WT-5 | residue from the local shim's removal, recorded because it is the class this wave keeps finding | `tests/session_binding.rs` — dropped `Mutex`, `ChannelId`, `CapturedOutput`, `ChannelDelivery`, `SessionRecord`, `RecordingDelivery`; kept `ChannelBinding` (WT-4) plus every import still named in the body at a line that can be pointed to | n/a — the pre-edit state is the six unused imports | all three tests, and **`cargo clippy -p roost-worker --all-targets -- -D warnings`**, since an unused import is invisible to check and test |
+
+Already closed by the lead, no row needed: `be399403` made the shared delivery
+shim private because nothing outside named it — the latent trap behind WT-3's
+`SharedDelivery`, which was `pub` and named by no test binary, hidden under a
+blanket `#![allow(dead_code)]`. **A report found it and a commit fixed it**, which
+is the whole loop working.
+
+## A fourth bound category, weaker than a parse and stronger than a grep
+
+Alongside *total*, *floor (no `--keep-going`)*, *floor (parse error masks name
+resolution)*, and *floor (clippy has no `--keep-going`)*, there is:
+
+> **A floor from reading.** No compiler ran; the file was read in full and every
+> symbol it names was resolved by reading its definition, with the two language
+> questions underneath settled by standalone `rustc` probes on scratch files
+> outside the worktree.
+
+This is how "two root causes over six sites" was established in
+`session_binding.rs`, and **it disagrees with the itemised "4" from the brief
+without either being wrong** — unresolved-name errors stop rustc before method
+resolution, so the E0599s were never emitted in that run. Report it as a
+floor-from-reading, and say which of the two numbers it bounds.
+
 ## Coordinator track — tasks (S2)
 
 | # | Edit | Test that must fail |
