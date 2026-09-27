@@ -4,17 +4,21 @@ Raw `cargo test -p roost-cli --no-fail-fast` output for each run behind a
 published figure. A figure with no run behind it is not a figure, and a
 `git worktree remove` deleting the only copy of the run is how that happens.
 
-**Current: `2cdd0e04` — 399 passed / 0 failed / 0 ignored, twice.**
-`gate-run-A-2cdd0e04.log` and `gate-run-B-2cdd0e04.log`. This is the SHA merged
-into `v3`, so the figure describes the tree that ships rather than a branch
-head. Two real runs, not one run copied: different per-binary timings,
-different test execution order.
+**Current: `a86bc6d4` — 404 passed / 0 failed / 0 ignored, twice.**
+`gate-run-A-a86bc6d4.log` and `gate-run-B-a86bc6d4.log`. The five added tests are
+`tests/join_script.rs`, which runs the real `join.sh` against fake `roost`
+binaries: a pre-v3 binary on PATH is never exec'd, a v3 one at the self-link
+location is, and the command that prints the script's URL and the script
+itself name the same one.
 
-The four criteria on `2cdd0e04`:
+Two real runs, not one run copied: different per-binary timings, different
+test execution order.
+
+The four criteria on `a86bc6d4`:
 
 | Criterion | Command | Result |
 | --- | --- | --- |
-| tests (twice) | `cargo test -p roost-cli --no-fail-fast` | 399 / 0 / 0, twice |
+| tests (twice) | `cargo test -p roost-cli --no-fail-fast` | 404 / 0 / 0, twice |
 | clippy | `cargo clippy -p roost-cli --all-targets -- -D warnings` | 0 errors |
 | fmt | `cargo fmt -p roost-cli -- --check` | clean |
 | lint | `cargo xtask lint` | 0 violations under `crates/roost-cli` |
@@ -23,6 +27,9 @@ The four criteria on `2cdd0e04`:
 10/0 — **19 passed, 0 failed**.
 
 ## Superseded
+
+`2cdd0e04` — 399 / 0 / 0 twice, all four criteria green. This is the SHA
+merged into `v3`; the two commits after it are the join change.
 
 `d5c828f9` — 399 / 0 / 0 twice, clippy 0, fmt clean, lint 0, on all four
 criteria. `crates/roost-cli` is byte-identical between `d5c828f9` and
