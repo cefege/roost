@@ -3032,6 +3032,47 @@ The cost of getting it wrong is not symmetric. A stale sha sends a lead looking
 for work that is already done — which is exactly what happened here, and it
 would have cost C2 an afternoon of re-deriving a tree that had moved twice.
 
+**But the severity test is not "sha versus number". It is whether the thing was
+already DONE when the claim was written.** A stale number about a cache is a
+nuisance. A stale sha about work that is *finished* sends a successor to
+re-derive a tree that has moved, and that is the expensive direction. A stale
+sha about work still in flight costs a re-check.
+
+**When you do quote a sha, quote the PROPERTY it stands for beside it**, so a
+reader who finds it stale knows what to re-establish rather than what to re-do.
+
+### The commit SUBJECT is the durable form of the same fact
+
+A hash decays; a sentence survives rebase, merge, and any number of later
+commits. *"worker: the shared delivery shim is private, because nothing outside
+names it"* is the durable statement of the fact that a `pub` trap is closed —
+and the repo already answers this question, because the subject field exists and
+`CLAUDE.md` requires it to be navigable history.
+
+So when a message needs to point at a commit, **the subject is the load-bearing
+part and the hash is the convenience.** Preferring the hash was the mistake, not
+quoting one.
+
+### Four instances of one class: an instrument that cannot fail loudly
+
+| the instrument | returned | consumed as | the truth |
+|---|---|---|---|
+| `grep -L 'lints.*workspace'` | "every crate is missing the table" | 13 broken manifests | it **cannot match a two-line block**; the pattern was guaranteed to fail |
+| a reachability script keyed on symbol name | 19 uncalled symbols | 17 uncalled | **2 were name collisions** — `RetainedFrame`, `EnqueueOutcome`, both with a `Dropped` variant |
+| `cargo check --all-targets` with a parse error upstream | 1 error | 1 error | it **stopped before name resolution**, so the whole E0599 class was masked |
+| `ls <path> \| wc -l` | `0` | "this worktree has no target directory" | `0` is what that command returns for **absent and empty alike**; the real directory held 5.7 GiB under a name nobody had looked for |
+
+**The diagnostic is one question, and it is the same one in all four: what
+could this command have detected, before consuming what it returned?** A `0` from
+a command whose failure mode is silent is not evidence of anything — and neither
+is a `0 violations` from a check that was matching nothing, nor a `1 error` from
+a run that never reached the class it was counting.
+
+**And the fifth instance is the guards.** A reclaim step that is harmless on a
+fully-built directory has a **safe-looking success mode**, so it propagates on
+the evidence of a run that was never a test. Same class: an instrument that
+reports success in a state where it was not exercised.
+
 ## Coordinator track — tasks (S2)
 
 | # | Edit | Test that must fail |
