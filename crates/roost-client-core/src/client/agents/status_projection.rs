@@ -253,6 +253,15 @@ impl AgentStatusProjection {
         if let Some(closed) = self.closed_order.iter().position(|closed| closed == session_id) {
             self.closed_order.remove(closed);
         }
+        // Clearing `closed` is NOT enough to reopen a session. `clear_session`
+        // also retires the occupant through `AgentStatusOrder::record_close`,
+        // and that retirement outlives the closed set: the next report reuses
+        // the existing order, `accepts` finds the occupant retired, and the
+        // upsert is refused — so the fence this function documents starting
+        // never starts. Dropping the order is the whole reopen. The next update
+        // re-seeds it from whatever is retained, so a session that was never
+        // closed keeps exactly the ordering it had.
+        self.order.remove(session_id);
     }
 
     /// Retire released occupants this profile has nothing left to show for.
