@@ -61,7 +61,7 @@ const MIN_RATE_DELTA_MS: u64 = 50;
 /// (`transfers.ts:41`).
 const EMA_ALPHA: f64 = 0.4;
 
-pub use record::{Transfer, TransferDirection, TransferStack, TransferState};
+pub use record::{NewTransfer, Transfer, TransferDirection, TransferStack, TransferState};
 
 /// What one progress tick decided, before it is written to a card.
 struct ProgressUpdate {
@@ -79,38 +79,29 @@ struct ProgressUpdate {
 /// attachment id starts from zero, and a card that had already settled gets its
 /// own dismissal window. Returns the card it displaced, so a host can release
 /// the preview it minted for that one.
-pub fn add_transfer(
-    store: &mut Store,
-    id: impl Into<String>,
-    name: impl Into<String>,
-    direction: TransferDirection,
-    bytes_total: u64,
-    state: TransferState,
-    preview_url: Option<String>,
-    now_ms: u64,
-) -> Option<Transfer> {
-    let id = id.into();
+pub fn add_transfer(store: &mut Store, new: NewTransfer) -> Option<Transfer> {
+    let id = new.id;
     let previous = store.transfers.transfers.get(&id).cloned();
     let transfer = Transfer {
         id: id.clone(),
-        name: name.into(),
-        direction,
+        name: new.name,
+        direction: new.direction,
         bytes_done: 0,
-        bytes_total,
+        bytes_total: new.bytes_total,
         speed_bps: None,
         eta_s: None,
-        state,
+        state: new.state,
         err: None,
-        preview_url,
-        dismiss_at_ms: if state.self_dismisses() {
-            Some(now_ms.saturating_add(TRANSFER_DISMISS_AFTER_MS))
+        preview_url: new.preview_url,
+        dismiss_at_ms: if new.state.self_dismisses() {
+            Some(new.now_ms.saturating_add(TRANSFER_DISMISS_AFTER_MS))
         } else {
             None
         },
-        last_progress_ms: if state.is_terminal() {
+        last_progress_ms: if new.state.is_terminal() {
             None
         } else {
-            Some(now_ms)
+            Some(new.now_ms)
         },
     };
     if previous.is_some() {

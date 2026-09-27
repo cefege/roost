@@ -122,6 +122,24 @@ impl TransferState {
 /// OLDEST card's release obligation rather than growing without limit.
 const MAX_RETAINED_REMOVED: usize = 64;
 
+/// Everything one card needs in order to exist.
+///
+/// A struct rather than eight positional parameters, because six of the eight
+/// are silently transposable: swapping `direction` for `state`, or
+/// `bytes_total` for `now_ms`, compiles and produces a card that is wrong in a
+/// way no assertion in the suite was written to catch. A name at the call site
+/// is the only thing that makes the swap visible.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewTransfer {
+    pub id: String,
+    pub name: String,
+    pub direction: TransferDirection,
+    pub bytes_total: u64,
+    pub state: TransferState,
+    pub preview_url: Option<String>,
+    pub now_ms: u64,
+}
+
 /// One card.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Transfer {

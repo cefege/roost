@@ -29,8 +29,8 @@ use roost_client_core::store::toasts::{
     hold_toast_dismiss, release_toast_dismiss,
 };
 use roost_client_core::store::transfers::{
-    TRANSFER_STALL_AFTER_MS, TransferDirection, TransferState, add_transfer, mark_transfer_state,
-    remove_transfer, set_transfer_progress, sweep_transfers,
+    NewTransfer, TRANSFER_STALL_AFTER_MS, TransferDirection, TransferState, add_transfer,
+    mark_transfer_state, remove_transfer, set_transfer_progress, sweep_transfers,
 };
 use roost_client_core::store::ui::{
     SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, SidebarView, clamp_sidebar_width, load_ui,
@@ -181,13 +181,15 @@ fn transfer_mutations_each_bump_the_revision_exactly_once() {
     assert_one_bump(&mut core, "add_transfer", |store| {
         add_transfer(
             store,
-            "upload-1",
-            "api-gateway.tgz",
-            TransferDirection::Up,
-            1_000,
-            TransferState::Queued,
-            Some("blob:one".to_owned()),
-            0,
+            NewTransfer {
+                id: "upload-1".to_owned(),
+                name: "api-gateway.tgz".to_owned(),
+                direction: TransferDirection::Up,
+                bytes_total: 1_000,
+                state: TransferState::Queued,
+                preview_url: Some("blob:one".to_owned()),
+                now_ms: 0,
+            },
         );
     });
     assert_one_bump(&mut core, "set_transfer_progress", |store| {
@@ -311,13 +313,15 @@ fn the_credential_boundary_is_one_mutation_and_one_bump() {
     );
     add_transfer(
         store,
-        "upload-1",
-        "one.tgz",
-        TransferDirection::Up,
-        10,
-        TransferState::Running,
-        None,
-        0,
+        NewTransfer {
+            id: "upload-1".to_owned(),
+            name: "one.tgz".to_owned(),
+            direction: TransferDirection::Up,
+            bytes_total: 10,
+            state: TransferState::Running,
+            preview_url: None,
+            now_ms: 0,
+        },
     );
     let ticket = begin_optimistic_spawn(store, SESSION_ONE, "f".repeat(64), "/x", None, 0)
         .expect("a uuid is a usable session id");

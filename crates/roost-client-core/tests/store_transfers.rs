@@ -13,8 +13,8 @@
 
 use roost_client_core::ClientCore;
 use roost_client_core::store::transfers::{
-    TRANSFER_STALL_AFTER_MS, TransferDirection, TransferState, add_transfer, mark_transfer_state,
-    remove_transfer, set_transfer_progress, sweep_transfers,
+    NewTransfer, TRANSFER_STALL_AFTER_MS, TransferDirection, TransferState, add_transfer,
+    mark_transfer_state, remove_transfer, set_transfer_progress, sweep_transfers,
 };
 
 /// A client over the in-memory host.
@@ -27,13 +27,15 @@ fn a_transfer_may_decrease_without_failing() {
     let mut core = client();
     add_transfer(
         core.store_mut(),
-        "upload-1",
-        "big.tgz",
-        TransferDirection::Up,
-        1_000,
-        TransferState::Running,
-        None,
-        0,
+        NewTransfer {
+            id: "upload-1".to_owned(),
+            name: "big.tgz".to_owned(),
+            direction: TransferDirection::Up,
+            bytes_total: 1_000,
+            state: TransferState::Running,
+            preview_url: None,
+            now_ms: 0,
+        },
     );
     set_transfer_progress(core.store_mut(), "upload-1", 900, None, 1_000);
     set_transfer_progress(core.store_mut(), "upload-1", 990, None, 2_000);
@@ -79,13 +81,15 @@ fn a_late_tick_cannot_move_a_settled_card_or_resurrect_a_dismissed_one() {
     let mut core = client();
     add_transfer(
         core.store_mut(),
-        "upload-1",
-        "one.tgz",
-        TransferDirection::Up,
-        1_000,
-        TransferState::Running,
-        None,
-        0,
+        NewTransfer {
+            id: "upload-1".to_owned(),
+            name: "one.tgz".to_owned(),
+            direction: TransferDirection::Up,
+            bytes_total: 1_000,
+            state: TransferState::Running,
+            preview_url: None,
+            now_ms: 0,
+        },
     );
     set_transfer_progress(core.store_mut(), "upload-1", 1_000, None, 1_000);
     mark_transfer_state(
@@ -150,13 +154,15 @@ fn a_transfer_may_not_come_back_from_the_dead() {
     let mut core = client();
     add_transfer(
         core.store_mut(),
-        "download-1",
-        "notes.md",
-        TransferDirection::Down,
-        0,
-        TransferState::Running,
-        None,
-        0,
+        NewTransfer {
+            id: "download-1".to_owned(),
+            name: "notes.md".to_owned(),
+            direction: TransferDirection::Down,
+            bytes_total: 0,
+            state: TransferState::Running,
+            preview_url: None,
+            now_ms: 0,
+        },
     );
     mark_transfer_state(
         core.store_mut(),
@@ -186,13 +192,15 @@ fn a_stalled_card_is_revived_by_the_next_tick() {
     let mut core = client();
     add_transfer(
         core.store_mut(),
-        "upload-1",
-        "one.tgz",
-        TransferDirection::Up,
-        1_000,
-        TransferState::Running,
-        None,
-        0,
+        NewTransfer {
+            id: "upload-1".to_owned(),
+            name: "one.tgz".to_owned(),
+            direction: TransferDirection::Up,
+            bytes_total: 1_000,
+            state: TransferState::Running,
+            preview_url: None,
+            now_ms: 0,
+        },
     );
     set_transfer_progress(core.store_mut(), "upload-1", 100, None, 1_000);
     assert!(sweep_transfers(
