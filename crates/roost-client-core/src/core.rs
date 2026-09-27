@@ -11,6 +11,7 @@
 
 use std::rc::Rc;
 
+use crate::client::agents::{AGENT_SEEN_STORAGE_KEY, AgentSeenLedger};
 use crate::effect::Effect;
 use crate::event::ClientEvent;
 use crate::handle_event::handle_event;
@@ -62,8 +63,15 @@ impl ClientCore {
     /// core on a runtime task confines it to that task and sends results outward.
     pub fn new(clock: Rc<dyn Clock>, storage: Rc<dyn KeyValueStore>, tab_id: &str) -> Self {
         let sync = SyncState::new(storage.as_ref());
+        let mut store = Store::new(sync, tab_id);
+        // Loaded here for the same reason the recovery cursor is: a ledger this
+        // tab does not read at boot is a ledger that starts empty on every
+        // reload, and a released occupant whose completion was already
+        // delivered then stays on screen until the profile is closed.
+        store.agent_seen =
+            AgentSeenLedger::decode(storage.get(AGENT_SEEN_STORAGE_KEY).as_deref());
         Self {
-            store: Store::new(sync, tab_id),
+            store,
             clock,
             storage,
         }

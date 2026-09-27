@@ -122,8 +122,10 @@ fn the_first_page_is_debounced_and_sends_the_coordinators_own_limits() {
 fn results_from_three_machines_survive_one_merge_and_the_fleet_count_is_published_verbatim() {
     let (mut controller, first) = started("needle");
     assert!(
-        controller.receive_page(first.call_id, &first.search_id,
-            page(
+        controller.accept_page(
+            first.call_id,
+            &first.search_id,
+            &page(
                 vec![
                     match_in(SESSION_ON_A, 10, 2, 6, "epoch-a"),
                     match_in(SESSION_ON_B, 4, 0, 6, "epoch-b"),
@@ -153,8 +155,10 @@ fn results_from_three_machines_survive_one_merge_and_the_fleet_count_is_publishe
 
     let more = controller.load_more(2).expect("a cursor stands");
     assert_eq!(more.cursor.as_deref(), Some("cursor-2"));
-    assert!(controller.receive_page(more.call_id, &more.search_id,
-        page(
+    assert!(controller.accept_page(
+        more.call_id,
+        &more.search_id,
+        &page(
             vec![match_in(SESSION_ON_C, 7, 1, 6, "epoch-c")],
             vec![],
             None,
@@ -162,7 +166,6 @@ fn results_from_three_machines_survive_one_merge_and_the_fleet_count_is_publishe
             9,
         ),
     ));
-    let results = controller.results();
     assert_eq!(
         results.matches.len(), 3,
         "the third machine's row joined the list: a search that answered for \
@@ -184,8 +187,10 @@ fn results_from_three_machines_survive_one_merge_and_the_fleet_count_is_publishe
 #[test]
 fn a_session_whose_grid_was_replaced_under_the_scan_loses_its_own_rows() {
     let (mut controller, first) = started("needle");
-    controller.receive_page(first.call_id, &first.search_id,
-        page(
+    controller.accept_page(
+        first.call_id,
+        &first.search_id,
+        &page(
             vec![
                 match_in(SESSION_ON_A, 10, 0, 6, "epoch-a1"),
                 match_in(SESSION_ON_B, 4, 0, 6, "epoch-b1"),
@@ -197,8 +202,10 @@ fn a_session_whose_grid_was_replaced_under_the_scan_loses_its_own_rows() {
         ),
     );
     let more = controller.load_more(2).expect("a cursor stands");
-    assert!(controller.receive_page(more.call_id, &more.search_id,
-        page(
+    assert!(controller.accept_page(
+        more.call_id,
+        &more.search_id,
+        &page(
             vec![
                 // Read from the grid that replaced A's: not comparable with the
                 // row published above it.

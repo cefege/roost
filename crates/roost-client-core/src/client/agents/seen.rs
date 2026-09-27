@@ -14,6 +14,8 @@
 //! `platform::KeyValueStore` holds the string. Depends on `status_policy` for
 //! the token and `roost_protocol::wire` for the brands.
 
+use std::collections::BTreeMap;
+
 use roost_protocol::wire::agent_status::agent_status_identity;
 use roost_protocol::wire::{
     AgentOccupantId, AgentStatus, AgentStatusIdentity, AgentStatusSource, SessionId, StatusEpoch,

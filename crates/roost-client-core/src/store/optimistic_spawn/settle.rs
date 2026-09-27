@@ -8,8 +8,8 @@
 use roost_protocol::viewport::is_terminal_uuid;
 
 use super::{
-    ClientOnlySession, EntryState, SpawnRefusal, SpawnSettlement, SpawnTicket, SupersededReason,
-    TombstoneReason,
+    ClientOnlySession, EntryState, SpawnEntry, SpawnRefusal, SpawnSettlement, SpawnTicket,
+    SupersededReason, TombstoneReason,
 };
 use crate::store::Store;
 use crate::store::toasts::{ToastId, ToastKind, ToastOptions, ToastSource, raise_toast};
@@ -45,7 +45,7 @@ pub fn begin_optimistic_spawn(
         SpawnEntry {
             ticket: ticket.clone(),
             placeholder: ClientOnlySession {
-                id: session_id,
+                id: session_id.clone(),
                 worker_fp: anchor_worker_fp.into(),
                 cwd: cwd.clone(),
                 spawn_cwd: cwd,

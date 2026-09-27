@@ -16,19 +16,41 @@ use crate::client::global_search::reconcile::{
     merge_global_search_matches, reconcile_global_search_partials,
 };
 use crate::search::global::{GlobalSearchMatch, GlobalSearchPartialReason, GlobalSearchResponse};
-use super::{GlobalSearchController, GlobalSearchQuery, GlobalSearchRequest, OutstandingPage};
+use super::{
+    GLOBAL_SEARCH_DEBOUNCE_MS, GlobalSearchController, GlobalSearchQuery, GlobalSearchRequest,
+    GlobalSearchResults, OutstandingPage, SetSearchOutcome,
+};
 
 impl GlobalSearchController {
-    /// Fold one answered page in, returning whether it published.
+    /// Fold one coordinator page in, returning whether it changed what a reader
+    /// sees.
     ///
-    /// A page issued under a superseded search is dropped whole. Merging it
-    /// would append another query's rows to this one's list, and its cursor
-    /// would strand the next request on a scan nobody is reading.
-    pub fn receive_page(
+    /// A page answers ONE outstanding call. `call_id` is matched against the
+    /// outstanding page, and a `search_id` that is not the running one is
+    /// dropped the same way: either names a page for a query the reader has
+    /// already moved past, and merging it would append another query's rows to
+    /// this one's list and strand the next request on a scan nobody is reading.
+    /// The socket reorders, retries and duplicates, and this is the client end
+    /// of that.
+    ///
+    /// A page that is REFUSED returns `false`, and so does one that is
+    /// absorbed without a visible change; a page that publishes returns `true`
+    /// because publishing is itself the change — it moved the cursor, the
+    /// coordinator's own counts and the `has_searched` flag, and cleared a
+    /// standing failure.
+    ///
+    /// No clock argument: nothing a reader sees is stamped, so a deadline read
+    /// here would bound a wait nothing consults. The page's own deadline
+    /// arrives as a `GlobalSearchPartialReason::Deadline` partial.
+    ///
+    /// The judging is `reconcile`'s, not this dispatch's: which rows a retired
+    /// epoch withdraws, which duplicates a cursor may repeat and which
+    /// partials a continuation replaces are all answered there.
+    pub fn accept_page(
         &mut self,
         call_id: u64,
         search_id: &str,
-        response: GlobalSearchResponse,
+        page: &GlobalSearchResponse,
     ) -> bool {
         if !self.is_current(call_id, Some(search_id)) {
             return false;
@@ -39,9 +61,9 @@ impl GlobalSearchController {
         let appending = self
             .in_flight
             .as_ref()
-            .is_some_and(|page| page.cursor.is_some());
+            .is_some_and(|outstanding| outstanding.cursor.is_some());
         self.in_flight = None;
-        let retired: BTreeSet<SessionId> = response
+        let retired: BTreeSet<SessionId> = page
             .partials
             .iter()
             .filter(|partial| partial.reason == GlobalSearchPartialReason::EpochChanged)
@@ -50,33 +72,33 @@ impl GlobalSearchController {
         // A session whose grid was replaced under the scan has no comparable
         // rows at all, in this page or in the ones already published: the epoch
         // they carry is the one that was replaced.
-        let page: Vec<GlobalSearchMatch> = response
-            .matches
-            .iter()
-            .filter(|candidate| !retired.contains(&candidate.session_id))
-            .cloned()
-            .collect();
-        let retained: Vec<GlobalSearchMatch> = self
-            .results
+        let incoming: Vec<GlobalSearchMatch> = page
             .matches
             .iter()
             .filter(|candidate| !retired.contains(&candidate.session_id))
             .cloned()
             .collect();
         self.results.matches = if appending {
-            merge_global_search_matches(&retained, &page)
+            let retained: Vec<GlobalSearchMatch> = self
+                .results
+                .matches
+                .iter()
+                .filter(|candidate| !retired.contains(&candidate.session_id))
+                .cloned()
+                .collect();
+            merge_global_search_matches(&retained, &incoming)
         } else {
-            page
+            incoming
         };
         self.results.partials = if appending {
-            reconcile_global_search_partials(&self.results.partials, &response.partials)
+            reconcile_global_search_partials(&self.results.partials, &page.partials)
         } else {
-            response.partials.clone()
+            page.partials.clone()
         };
-        self.results.next_cursor = response.next_cursor.clone();
-        self.results.searched_sessions = response.searched_sessions;
-        self.results.eligible_sessions = response.eligible_sessions;
-        self.results.truncated = response.truncated;
+        self.results.next_cursor = page.next_cursor.clone();
+        self.results.searched_sessions = page.searched_sessions;
+        self.results.eligible_sessions = page.eligible_sessions;
+        self.results.truncated = page.truncated;
         self.results.error = None;
         self.results.retryable = false;
         self.results.has_searched = true;
@@ -84,9 +106,8 @@ impl GlobalSearchController {
     }
 
     /// Fold one failed page in, returning whether it published.
-    /// Fold one failed page in, returning whether it published.
     ///
-    /// FENCED ON `call_id` ALONE, and the asymmetry with `receive_page` is the
+    /// FENCED ON `call_id` ALONE, and the asymmetry with `accept_page` is the
     /// point rather than an oversight: `effect::RpcResult::Failed` carries a
     /// `call_id` and a message and NOTHING ELSE, so a failure for the previous
     /// attempt cannot be told apart from a failure for this one by any second

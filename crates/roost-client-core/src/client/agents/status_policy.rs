@@ -9,6 +9,7 @@
 //! Ported from `apps/web/src/client/agents/agentStatus.ts`. Depends on
 //! `roost_protocol::wire` and adds no state.
 use roost_protocol::wire::agent_status::agent_status_identity;
+use roost_protocol::wire::agent_status::order::same_agent_identity_occupant;
 use roost_protocol::wire::{
     AgentRuntimeState, AgentStatus, AgentStatusFields, AgentStatusIdentity, SessionId,
 };

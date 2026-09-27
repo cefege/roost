@@ -58,7 +58,7 @@ pub fn live_session_ids_for_folder(
 }
 
 /// One session by id.
-pub fn session_by_id(store: &Store, session_id: &str) -> Option<&Session> {
+pub fn session_by_id<'session>(store: &'session Store, session_id: &str) -> Option<&'session Session> {
     store
         .sessions
         .session(&roost_protocol::wire::SessionId::try_from(session_id.to_owned()).ok()?)
@@ -70,12 +70,12 @@ pub fn session_by_id(store: &Store, session_id: &str) -> Option<&Session> {
 /// folder is normal — every spawn mints a new id — so a collision ties to the
 /// newest `created_at`. `None` when nothing live matches, which is the caller's
 /// signal to go home.
-pub fn session_by_folder(
-    store: &Store,
+pub fn session_by_folder<'session>(
+    store: &'session Store,
     paths: &dyn WorkerPaths,
     worker_fp: &str,
     folder_path: &str,
-) -> Option<&Session> {
+) -> Option<&'session Session> {
     let worker_os = store
         .workers
         .get(worker_fp)
@@ -94,9 +94,15 @@ pub fn session_by_folder(
 ///
 /// `None` for an empty workspace, which is a real state the caller must handle
 /// rather than an error.
-pub fn session_by_workspace(store: &Store, workspace_id: &str) -> Option<&Session> {
+pub fn session_by_workspace<'session>(
+    store: &'session Store,
+    workspace_id: &str,
+) -> Option<&'session Session> {
     newest_open(store, |session| {
-        session.workspace_id.as_deref() == Some(workspace_id)
+        session
+            .workspace_id
+            .as_ref()
+            .is_some_and(|workspace| workspace.as_str() == workspace_id)
     })
 }
 
@@ -104,12 +110,12 @@ pub fn session_by_workspace(store: &Store, workspace_id: &str) -> Option<&Sessio
 ///
 /// Backs the pane's safety net: when the terminal being viewed ends, land on a
 /// sibling in the SAME folder rather than at home.
-pub fn newest_open_session_in_folder(
-    store: &Store,
+pub fn newest_open_session_in_folder<'session>(
+    store: &'session Store,
     paths: &dyn WorkerPaths,
     folder_key: &str,
     except_id: Option<&str>,
-) -> Option<&Session> {
+) -> Option<&'session Session> {
     newest_open(store, |session| {
         Some(session.id.as_str()) != except_id
             && !is_pending_close(store, session.id.as_str())

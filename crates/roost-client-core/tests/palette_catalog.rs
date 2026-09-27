@@ -1,6 +1,10 @@
 //! The command palette's catalog: the closed core actions, the contextual rows
-//! that only exist when there is a target, and the credential generation an
-//! action captures in its own id.
+//! that only exist when there is a target, the credential generation an action
+//! captures in its own id, and — because a palette row is a projected session
+//! row — the `unavailable` hint a session gets when its machine cannot be
+//! reached. That last one is pinned here rather than in `navigation_index.rs`
+//! so the hint has exactly one home: two copies of one assertion rot at the
+//! fixture, not at the rule.
 //!
 //! The generation is the whole point. A contextual row captures a target and a
 //! generation, and after a sign-out the SAME folder produces a DIFFERENT row —
@@ -30,9 +34,9 @@ use roost_client_core::store::{
 
 /// A machine fingerprint, which is 64 lowercase hex characters.
 const MACHINE: &str = "00000000000000000000000000000000000000000000000000000000000000ff";
-fn session(cwd: &str, created_at: i64) -> Session {
+fn session(session_id: &str, cwd: &str, created_at: i64) -> Session {
     Session {
-        id: SessionId::try_from("00000000-0000-4000-8000-00000000000a".to_owned()).expect("a uuid"),
+        id: SessionId::try_from(session_id.to_owned()).expect("a uuid"),
         worker_fp: WorkerFp::try_from(MACHINE.to_owned()).expect("a fingerprint"),
         channel: ChannelId::try_from(7_i64).expect("a channel"),
         kind: SessionKind::Shell,

@@ -28,7 +28,13 @@ pub mod identity;
 use std::collections::BTreeMap;
 
 use crate::store::Store;
-use crate::store::toasts::identity::{Toast, ToastAction, ToastId, ToastKind, ToastOptions};
+
+// Re-exported rather than imported privately: a host and this crate's own
+// behaviour tests build a card from `store::toasts` alone, and a private
+// binding would make the identity unreachable through the module that owns it.
+pub use crate::store::toasts::identity::{
+    Toast, ToastAction, ToastId, ToastIntent, ToastKind, ToastOptions, ToastSource,
+};
 
 /// The live cards, in the order they were first raised.
 ///
@@ -114,6 +120,15 @@ pub fn raise_toast(
 ) -> ToastId {
     let ttl_ms = options.ttl_ms.unwrap_or(kind.default_ttl_ms());
     let previous = toasts.toasts.get(&id);
+    // A replace keeps the window the card already had when the caller did NOT
+    // ask for a new one: a redelivered frame refreshing a card's text must not
+    // hand a user who is reading it a fresh eight seconds. A caller that named
+    // a window is taken at its word, and a sticky card has no countdown at all.
+    let remaining_ms = match options.ttl_ms {
+        Some(Some(named)) => named,
+        Some(None) => 0,
+        None => previous.map_or(ttl_ms.unwrap_or(0), |prior| prior.remaining_ms),
+    };
     let mut toast = Toast {
         id: id.clone(),
         msg: msg.into(),
@@ -122,10 +137,7 @@ pub fn raise_toast(
         action: options.action,
         target_session_id: options.target_session_id,
         expires_at_ms: ttl_ms.map(|ttl| now_ms.saturating_add(ttl)),
-        // A replace keeps the window the card already had when the caller did
-        // not ask for a new one: a redelivered frame refreshing a card's text
-        // must not hand a user who is reading it a fresh eight seconds.
-        remaining_ms: ttl_ms.or(previous.map_or(0, |prior| prior.remaining_ms)),
+        remaining_ms,
         held: previous.is_some_and(|prior| prior.held),
     };
     if let Some(sticky) = previous.filter(|prior| prior.held) {

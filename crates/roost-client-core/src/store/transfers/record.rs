@@ -26,12 +26,13 @@ impl TransferDirection {
     }
 }
 
+
 /// Where a transfer is in its life.
 ///
 /// `Stalled` is the one state v2 has no name for: a card that stopped advancing.
 /// It is a deadline, not a verdict — the sweep moves a `running` card here when
-/// nothing has advanced it for [`TRANSFER_STALL_AFTER_MS`], and the next
-/// progress tick moves it back.
+/// nothing has advanced it for the parent's `TRANSFER_STALL_AFTER_MS`, and the
+/// next progress tick moves it back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TransferState {
     /// The card exists and nothing has been sent yet.
@@ -103,18 +104,20 @@ impl TransferState {
             Self::Done | Self::Dedup | Self::Failed => false,
         }
     }
+
+    /// Whether a card in this state removes ITSELF once its window runs out.
+    ///
+    /// Separate from [`TransferState::is_terminal`], because "nothing more can
+    /// change this card" and "this card goes away by itself" are different
+    /// claims. v2 draws the line the same way (`transfers.ts:89-98`): a
+    /// successful or deduplicated card dismisses itself, and an ERROR card
+    /// stays until the user closes it, because the failure text is the thing the
+    /// user needs to read.
+    pub const fn self_dismisses(self) -> bool {
+        matches!(self, Self::Done | Self::Dedup)
+    }
 }
 
-/// How long a settled card stays before it removes itself.
-pub const TRANSFER_DISMISS_AFTER_MS: u64 = 2_000;
-/// How long a `running` card may go without advancing before the sweep calls it
-/// stalled. Long enough that a slow but live upload is never called stalled.
-pub const TRANSFER_STALL_AFTER_MS: u64 = 15_000;
-/// Ticks closer together than this produce no rate: the instantaneous figure off
-/// a 5 ms sample is noise, and an EMA fed noise drifts high.
-const MIN_RATE_DELTA_MS: u64 = 50;
-/// The weight on the newest instantaneous rate.
-const EMA_ALPHA: f64 = 0.4;
 /// The bound on the uncollected removals. A host that never drains loses the
 /// OLDEST card's release obligation rather than growing without limit.
 const MAX_RETAINED_REMOVED: usize = 64;
@@ -162,10 +165,15 @@ impl Transfer {
     }
 }
 
-/// One rate sample. `Copy`, because it is compared and copied, never retained.
+/// One rate sample. `Copy`, because it is copied and never retained.
 ///
 /// `pub(super)`, and not public: the state machine in the parent owns the rate
 /// arithmetic and nothing else has any business seeding a sample.
+///
+/// Deliberately NOT `PartialEq`. `speed_bps` is an exponential moving average,
+/// so an equality over samples is a comparison nothing should be able to make
+/// — and making the type comparable is how that comparison gets made later by
+/// someone who does not know what an EMA is.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct RateSample {
     pub(super) at_ms: u64,
@@ -174,7 +182,16 @@ pub(super) struct RateSample {
 }
 
 /// The live cards, and the bookkeeping beside them.
-#[derive(Debug, Default, Clone, PartialEq)]
+///
+/// Deliberately NOT `PartialEq`, and the reason is the two fields that are not
+/// cards. The samples are arithmetic a host never renders, and the uncollected
+/// removals are an obligation the host has not discharged yet, so two stacks
+/// differing only in those are the same stack to every reader that exists.
+/// There is also no comparison to make: nothing compares two stacks, and a
+/// `PartialEq` nothing calls is a promise the code does not keep. Compare the
+/// cards through [`TransferStack::transfers`] when a caller appears.
+
+#[derive(Debug, Default, Clone)]
 pub struct TransferStack {
     pub(super) transfers: BTreeMap<String, Transfer>,
     pub(super) samples: BTreeMap<String, RateSample>,

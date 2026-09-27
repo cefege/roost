@@ -88,7 +88,7 @@ pub fn reconcile(layout: &PaneLayout, live_ids: &[String]) -> PaneLayout {
     }
 }
 
-fn map_leaves(node: &PaneNode, edit: impl FnMut(&PaneLeaf) -> PaneLeaf) -> PaneNode {
+fn map_leaves(node: &PaneNode, mut edit: impl FnMut(&PaneLeaf) -> PaneLeaf) -> PaneNode {
     match node {
         PaneNode::Leaf(leaf) => PaneNode::Leaf(edit(leaf)),
         PaneNode::Split(split) => PaneNode::Split(PaneSplit {
@@ -130,17 +130,20 @@ pub fn split_leaf(
     }
     let new_pane_id = ids.mint_pane_id();
     let split_id = ids.mint_pane_id();
-    let moved = PaneNode::Leaf(PaneLeaf {
-        pane_id: new_pane_id.clone(),
-        tabs: vec![moving_tab.to_owned()],
-        selected_tab: moving_tab.to_owned(),
-    });
+    // Built INSIDE the edit, not captured by it: the walk may visit either
+    // subtree before it reaches the pane, so the closure has to be callable
+    // more than once, and a captured node would be moved out on the first call.
     let root = collapse_empties(
         &update_leaf(
             &remove_tab_everywhere(&layout.root, moving_tab),
             target_pane_id,
-            move |leaf| {
+            |leaf| {
                 let kept = PaneNode::Leaf(leaf.clone());
+                let moved = PaneNode::Leaf(PaneLeaf {
+                    pane_id: new_pane_id.clone(),
+                    tabs: vec![moving_tab.to_owned()],
+                    selected_tab: moving_tab.to_owned(),
+                });
                 let (first, second) = if insert_first {
                     (moved, kept)
                 } else {

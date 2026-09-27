@@ -27,14 +27,14 @@ use std::fmt;
 
 use crate::client::auth::ceremony::{
     CeremonyError, PAIRING_CEREMONY_VERSION, RandomSource, compact_pair_verification_code,
-    generate_pair_request_id, generate_pair_requester_token, generate_pair_verification_code,
+    generate_pair_request_id, generate_pair_requester_token,
     normalize_pair_request_id, normalize_pair_requester_token,
     normalize_pair_verification_code,
 };
 
 use crate::client::auth::pairing_requests::{
-    PairApprovalStatusRequest, PairApproveRequest, PairConfirmRequest, PairConfirmResponse,
-    PairCreateRequest, PairCreateResponse, PairDenyRequest, PairPollRequest, PairPollResponse,
+    PairConfirmRequest, PairConfirmResponse, PairCreateRequest, PairCreateResponse,
+    PairPollRequest, PairPollResponse,
 };
 
 /// The identity a requester holds for the length of one ceremony.

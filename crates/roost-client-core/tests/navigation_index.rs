@@ -6,6 +6,11 @@
 //! machine reachable" would be a second answer and the three surfaces would
 //! disagree.
 //!
+//! NOT HERE: the palette's reading of a projected row, including the
+//! `unavailable` hint. That is `palette_catalog.rs`, and a second copy of the
+//! same projection asserted against the same fixture is a test that passes for
+//! two reasons and fails for one.
+//!
 //! The mutation experiment for this file is in the slice report: in
 //! `project_session`, drop the `last_activity_ms` override so `activity_at` is
 //! always `created_at`, and `a_projected_row_carries_every_field_a_search_can_match`
@@ -14,11 +19,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use roost_client_core::ClientCore;
+use roost_client_core::store::navigation::query::attention_navigation_documents;
 use roost_client_core::store::navigation::{
-    AgentStatusFacts, NavigationSearchAttention, NavigationSources,
-    project_navigation_search_documents, worker_online,
+    AgentStatusFacts, NavigationSearchAttention, NavigationSources, attention_for_level_token,
+    project_navigation_search_documents, session_href, worker_online,
 };
-use roost_client_core::store::optimistic_spawn::ClientOnlySession;
+use roost_client_core::store::optimistic_spawn::{ClientOnlySession, begin_optimistic_spawn};
 use roost_client_core::store::paths::ExactWorkerPaths;
 use roost_client_core::store::{
     ChannelId, Session, SessionId, SessionKind, SessionMap, SessionStatus, Worker, WorkerFp,
@@ -30,9 +36,13 @@ const MACHINE: &str = "000000000000000000000000000000000000000000000000000000000
 /// A second machine, for the reachability cases.
 const OTHER_MACHINE: &str = "00000000000000000000000000000000000000000000000000000000000000aa";
 
-fn session(cwd: &str, created_at: i64) -> Session {
+/// The row's own id, which every fixture names explicitly so a reader can see
+/// which row an assertion is about.
+const SESSION_ONE: &str = "00000000-0000-4000-8000-00000000000a";
+
+fn session(session_id: &str, cwd: &str, created_at: i64) -> Session {
     Session {
-        id: SessionId::try_from("00000000-0000-4000-8000-00000000000a".to_owned()).expect("a uuid"),
+        id: SessionId::try_from(session_id.to_owned()).expect("a uuid"),
         worker_fp: WorkerFp::try_from(MACHINE.to_owned()).expect("a fingerprint"),
         channel: ChannelId::try_from(7_i64).expect("a channel"),
         kind: SessionKind::Shell,
@@ -61,6 +71,39 @@ fn session_map(rows: Vec<Session>) -> SessionMap {
     map
 }
 
+fn worker(fingerprint: &str, last_seen_ms: i64) -> Worker {
+    Worker {
+        fp: WorkerFp::try_from(fingerprint.to_owned()).expect("a fingerprint"),
+        label: "workstation".to_owned(),
+        os: WorkerOs::Linux,
+        host_identity: None,
+        git_sha: None,
+        host_metrics: None,
+        registered_at_ms: 1,
+        last_seen_ms,
+        reachable_addr: None,
+        keeper_runtime: None,
+        terminal_core_capacity: None,
+    }
+}
+
+/// The agent facts as their owner resolved them. This file never derives them.
+fn facts(level_token: &str, unseen: bool, arrival: u64) -> AgentStatusFacts {
+    AgentStatusFacts {
+        level_token: Some(level_token.to_owned()),
+        attention: match level_token {
+            "blocked" => Some(NavigationSearchAttention::Blocked),
+            "done" => Some(NavigationSearchAttention::Done),
+            _ => None,
+        },
+        unseen,
+        agent_id: Some("claude".to_owned()),
+        message: Some(format!("{level_token} message")),
+        updated_at_ms: None,
+        arrival,
+    }
+}
+
 fn sources<'a>(
     sessions: &'a SessionMap,
     workers: &'a BTreeMap<String, Worker>,
@@ -84,22 +127,6 @@ fn sources<'a>(
     }
 }
 
-fn worker(fingerprint: &str, last_seen_ms: i64) -> Worker {
-    Worker {
-        fp: WorkerFp::try_from(fingerprint.to_owned()).expect("a fingerprint"),
-        label: "workstation".to_owned(),
-        os: WorkerOs::Linux,
-        host_identity: None,
-        git_sha: None,
-        host_metrics: None,
-        registered_at_ms: 1,
-        last_seen_ms,
-        reachable_addr: None,
-        keeper_runtime: None,
-        terminal_core_capacity: None,
-    }
-}
-
 /// A client over the in-memory host.
 fn client() -> ClientCore {
     ClientCore::in_memory("tab-navigation")
@@ -107,11 +134,7 @@ fn client() -> ClientCore {
 
 #[test]
 fn a_projected_row_carries_every_field_a_search_can_match() {
-    let mut row = session(
-        "00000000-0000-4000-8000-00000000000a",
-        "/home/dev/api",
-        1_700_000_000_000,
-    );
+    let mut row = session(SESSION_ONE, "/home/dev/api", 1_700_000_000_000);
     row.custom_title = Some("  Gateway  ".to_owned());
     row.git_branch = Some("main".to_owned());
     row.pr_number = Some(42);
@@ -120,15 +143,9 @@ fn a_projected_row_carries_every_field_a_search_can_match() {
     let sessions = session_map(vec![row]);
     let workers = BTreeMap::new();
     let mut titles = BTreeMap::new();
-    titles.insert(
-        "00000000-0000-4000-8000-00000000000a".to_owned(),
-        "vim api".to_owned(),
-    );
+    titles.insert(SESSION_ONE.to_owned(), "vim api".to_owned());
     let mut activity = BTreeMap::new();
-    activity.insert(
-        "00000000-0000-4000-8000-00000000000a".to_owned(),
-        1_700_000_500_000_i64,
-    );
+    activity.insert(SESSION_ONE.to_owned(), 1_700_000_500_000_i64);
     let status = BTreeMap::new();
     let documents = project_navigation_search_documents(&sources(
         &sessions,
@@ -178,11 +195,7 @@ fn a_projected_row_carries_every_field_a_search_can_match() {
 
 #[test]
 fn a_session_with_no_title_of_its_own_is_named_after_its_folder() {
-    let sessions = session_map(vec![session(
-        "00000000-0000-4000-8000-00000000000a",
-        "/home/dev/api",
-        1,
-    )]);
+    let sessions = session_map(vec![session(SESSION_ONE, "/home/dev/api", 1)]);
     let workers = BTreeMap::new();
     let empty: BTreeMap<String, String> = BTreeMap::new();
     let no_activity = BTreeMap::new();
@@ -241,37 +254,14 @@ fn reachability_is_the_routable_set_when_there_is_one_and_freshness_before_it() 
     );
 }
 
-fn worker(fingerprint: &str, last_seen_ms: i64) -> Worker {
-    Worker {
-        fp: WorkerFp::try_from(fingerprint.to_owned()).expect("a fingerprint"),
-        label: "workstation".to_owned(),
-        os: WorkerOs::Linux,
-        host_identity: None,
-        git_sha: None,
-        host_metrics: None,
-        registered_at_ms: 1,
-        last_seen_ms,
-        reachable_addr: None,
-        keeper_runtime: None,
-        terminal_core_capacity: None,
-    }
-}
-
 #[test]
 fn a_row_carries_the_agent_facts_its_owner_resolved_and_derives_none_of_them() {
-    let sessions = session_map(vec![session(
-        "00000000-0000-4000-8000-00000000000a",
-        "/home/dev/api",
-        100,
-    )]);
+    let sessions = session_map(vec![session(SESSION_ONE, "/home/dev/api", 100)]);
     let workers = BTreeMap::new();
     let empty: BTreeMap<String, String> = BTreeMap::new();
     let no_activity = BTreeMap::new();
     let mut status = BTreeMap::new();
-    status.insert(
-        "00000000-0000-4000-8000-00000000000a".to_owned(),
-        facts("blocked", true, 17),
-    );
+    status.insert(SESSION_ONE.to_owned(), facts("blocked", true, 17));
     let documents = project_navigation_search_documents(&sources(
         &sessions,
         &workers,
@@ -306,11 +296,7 @@ fn a_row_carries_the_agent_facts_its_owner_resolved_and_derives_none_of_them() {
 
 #[test]
 fn a_placeholder_this_browser_minted_is_projected_alongside_the_real_rows() {
-    let sessions = session_map(vec![session(
-        "00000000-0000-4000-8000-00000000000a",
-        "/home/dev/api",
-        100,
-    )]);
+    let sessions = session_map(vec![session(SESSION_ONE, "/home/dev/api", 100)]);
     let workers = BTreeMap::new();
     let empty: BTreeMap<String, String> = BTreeMap::new();
     let no_activity = BTreeMap::new();
@@ -354,36 +340,4 @@ fn a_placeholder_this_browser_minted_is_projected_alongside_the_real_rows() {
         documents[0].session_id, placeholder.session_id,
         "the newest row sorts first, and the placeholder is the newest thing here"
     );
-}
-
-#[test]
-fn a_session_row_says_unavailable_when_its_machine_cannot_be_reached() {
-    let sessions = session_map(vec![session(
-        "00000000-0000-4000-8000-00000000000a",
-        "/home/dev/api",
-        100,
-    )]);
-    let mut workers = BTreeMap::new();
-    workers.insert(MACHINE.to_owned(), worker(MACHINE, 1_699_999_000_000));
-    let empty: BTreeMap<String, String> = BTreeMap::new();
-    let no_activity = BTreeMap::new();
-    let status = BTreeMap::new();
-    let routable: BTreeSet<String> = BTreeSet::new();
-    let documents = project_navigation_search_documents(&sources(
-        &sessions,
-        &workers,
-        &status,
-        &empty,
-        &no_activity,
-        Some(&routable),
-        &[],
-    ));
-    assert!(!documents[0].available);
-    assert!(documents[0].search_text.contains("unavailable offline"));
-    let items = build_default_items(&CommandPaletteContext::default(), &documents, &[]);
-    let row = items
-        .iter()
-        .find(|item| item.kind == ItemKind::Session)
-        .expect("a session row");
-    assert_eq!(row.hint.as_deref(), Some("workstation · unavailable"));
 }

@@ -18,6 +18,8 @@
 //! in a native binary with no browser and no DOM, which is the same claim stated
 //! by execution rather than by inspection.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 

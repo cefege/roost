@@ -65,4 +65,7 @@ pub use pairing_approval::PairApproval;
 pub use pairing_session::{
     PairPollStatus, PairStage, PairingCeremony, PairingError, PairingSession,
 };
-pub use redeem::{RedeemCall, RedeemOutcome, RedeemRefusal, RefusalCode, redeem_pair_token};
+pub use redeem::{
+    AuthRedeemBrowserRequest, RedeemCall, RedeemOutcome, RedeemRefusal, RefusalCode,
+    redeem_pair_token,
+};

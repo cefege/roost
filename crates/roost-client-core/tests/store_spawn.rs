@@ -11,21 +11,45 @@
 //! `a_superseded_spawn_answer_does_not_roll_back_the_newer_attempt` must fail.
 
 use roost_client_core::ClientCore;
+use roost_client_core::store::Store;
 use roost_client_core::store::optimistic_spawn::{
-    SpawnSettlement, SupersededReason, abort_optimistic_spawn, begin_optimistic_spawn,
-    reconcile_spawn, respawn_optimistic_spawn, settle_spawn_admitted, settle_spawn_rejected,
+    SpawnRefusal, SpawnSettlement, SupersededReason, abort_optimistic_spawn,
+    begin_optimistic_spawn, reconcile_spawn, respawn_optimistic_spawn, settle_spawn_admitted,
+    settle_spawn_rejected,
 };
 use roost_client_core::store::pending_close::{
     CloseLabels, UNDO_WINDOW_MS, is_pending_close, schedule_close, sweep_pending_closes, undo_one,
 };
+use roost_client_core::store::toasts::{Toast, ToastKind};
 
 /// Session ids of the shape the coordinator mints.
 const SESSION_ONE: &str = "00000000-0000-4000-8000-00000000000a";
 const SESSION_TWO: &str = "00000000-0000-4000-8000-00000000000b";
 
 /// A fingerprint-shaped machine id, which is all the anchor needs.
+const MACHINE: &str = "00000000000000000000000000000000000000000000000000000000000000ff";
+
+/// The machine every spawn in this file anchors to.
 fn machine() -> String {
-    machine()
+    MACHINE.to_owned()
+}
+
+/// The only card, asserting there is exactly one.
+fn only_toast(store: &Store) -> &Toast {
+    let cards: Vec<&Toast> = store.toasts.toasts().collect();
+    assert_eq!(cards.len(), 1, "expected exactly one card");
+    cards[0]
+}
+
+/// Assert that `mutation` moved the revision exactly once.
+fn assert_one_bump(core: &mut ClientCore, what: &str, mutation: impl FnOnce(&mut Store)) {
+    let before = core.store().revision();
+    mutation(core.store_mut());
+    assert_eq!(
+        core.store().revision(),
+        before + 1,
+        "{what} must bump the revision exactly once"
+    );
 }
 
 /// A client over the in-memory host.
@@ -182,9 +206,13 @@ fn a_spawn_whose_own_attempt_fails_raises_exactly_one_card() {
 fn a_session_id_that_is_not_a_uuid_is_refused_rather_than_held_forever() {
     let mut core = client();
     let before = core.store().revision();
-    assert!(
-        begin_optimistic_spawn(core.store_mut(), "not-a-uuid", machine(), "/x", None, 0).is_err()
-    );
+    // The VARIANT, not `is_err()`. `begin_optimistic_spawn` has two refusals,
+    // and `is_err()` would be satisfied by either — a test named for the shape
+    // check that cannot tell the shape check from the other rule.
+    assert!(matches!(
+        begin_optimistic_spawn(core.store_mut(), "not-a-uuid", machine(), "/x", None, 0),
+        Err(SpawnRefusal::NotAUuid { .. })
+    ));
     assert_eq!(core.store().revision(), before);
     assert!(core.store().spawns.is_empty());
 }

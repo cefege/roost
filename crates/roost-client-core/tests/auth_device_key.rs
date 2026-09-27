@@ -10,13 +10,16 @@
 //!
 //! The first-boot race is in `auth_first_boot_race.rs`, because the interleaving
 //! it needs is its own subject.
+
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 mod support;
 
 use base64::prelude::{BASE64_STANDARD, Engine as _};
 use roost_client_core::client::auth::{
     DeviceKeyManager, KeyAdmission, KeyStoreError, MemorySecureKeyStore, ResetOutcome,
-    RotationOutcome, RotationRecovery, RotationRefusal, RotationStage, SecureKeyStore,
-    recover_rotation,
+    RotationError, RotationOutcome, RotationRecovery, RotationRefusal, RotationStage,
+    SecureKeyStore, recover_rotation,
 };
 use roost_client_core::{MemoryClock, MemoryKeyValueStore};
 use support::auth::{RecordingRotator, ScriptedProbe, store_with_current};
@@ -235,7 +238,12 @@ fn a_rotation_the_coordinator_refuses_leaves_the_device_exactly_as_it_was() {
         message: "permission denied".to_string(),
         authoritative: true,
     });
-    assert!(keys.rotate_current(&mut rotator, "laptop").is_err());
+    // Pinned, not `is_err()`: a key-store failure would satisfy a bare
+    // `is_err()` while testing none of what this test is about.
+    assert!(matches!(
+        keys.rotate_current(&mut rotator, "laptop"),
+        Err(RotationError::Refused(RotationRefusal { .. }))
+    ));
     assert_eq!(
         store.current_key(),
         Some(kept),
@@ -321,7 +329,11 @@ fn a_rotation_the_coordinator_could_not_answer_is_refused_rather_than_resolved()
         &MemoryClock::new(),
     );
     let mut rotator = RecordingRotator::accepting("rotated-device");
-    assert!(keys.rotate_current(&mut rotator, "laptop").is_err());
+    // The refusal is the unanswered question, not the coordinator saying no.
+    assert!(matches!(
+        keys.rotate_current(&mut rotator, "laptop"),
+        Err(RotationError::Key(KeyStoreError::ProbeAmbiguous))
+    ));
     assert_eq!(store.current_key(), Some(keep), "the device is untouched");
     assert!(
         store.rotation_stage().is_some(),

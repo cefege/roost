@@ -10,8 +10,8 @@ mod layout_support;
 
 use roost_client_core::MemoryKeyValueStore;
 use roost_client_core::store::layout::{
-    DIVIDER_PX, LAYOUT_TREE_MAX_DEPTH, LayoutRecords, PaneLayout, PaneLeaf, PaneNode, PaneRect,
-    PaneSplit, find_leaf, find_leaf_of_tab, layout_rects, layout_view,
+    DIVIDER_PX, LAYOUT_TREE_MAX_DEPTH, LayoutRecords, LayoutRecordsError, PaneLayout, PaneLeaf,
+    PaneNode, PaneRect, PaneSplit, find_leaf, find_leaf_of_tab, layout_rects, layout_view,
 };
 use roost_protocol::layout::document::LayoutDirection;
 
@@ -38,6 +38,36 @@ fn row_split(id: &str, ratio: f64, a: PaneNode, b: PaneNode) -> PaneNode {
         a: Box::new(a),
         b: Box::new(b),
     })
+}
+
+/// The bytes a persisted record holds: a map of folder bucket to tree, which is
+/// what `LayoutRecords::restore` deserializes. Serializing a bare `PaneLayout`
+/// here would be refused as `NotARecord` for its SHAPE, and a test that wants a
+/// bound enforced must not be passing because the payload was the wrong type.
+fn record_payload(layout: &PaneLayout) -> String {
+    let mut folders = std::collections::BTreeMap::new();
+    folders.insert(FOLDER.to_owned(), layout.clone());
+    ok(serde_json::to_string(&folders), "encode a persisted record")
+}
+
+/// A chain of `levels` splits over one pane, so its deepest leaf sits `levels`
+/// below the root. `LayoutRecords` counts a leaf at the root as depth 1, so
+/// `levels + 1` is the depth the bound is checked against.
+fn nested_tree(levels: usize) -> PaneLayout {
+    let mut node = leaf("pane-1", &[ALPHA], ALPHA);
+    for level in 0..levels {
+        node = PaneNode::Split(PaneSplit {
+            id: format!("split-{level}"),
+            direction: LayoutDirection::Row,
+            ratio: 0.5,
+            a: Box::new(node),
+            b: Box::new(leaf(&format!("pane-spare-{level}"), &[], "")),
+        });
+    }
+    PaneLayout {
+        root: node,
+        focused_pane_id: "pane-1".to_owned(),
+    }
 }
 
 fn tabs_of(node: &PaneNode, pane_id: &str) -> Vec<String> {
@@ -111,22 +141,19 @@ fn an_area_narrower_than_the_gutter_yields_no_negative_rect() {
 fn a_persisted_tree_is_refused_on_either_side_of_its_depth_bound() {
     // The accepted side, so the refusal below is about the bound and not about a
     // tree the restore cannot represent at all.
-    let at_bound = ok(
-        serde_json::to_string(&nested_tree(LAYOUT_TREE_MAX_DEPTH - 1)),
-        "encode a tree at the bound",
-    );
+    let at_bound = record_payload(&nested_tree(LAYOUT_TREE_MAX_DEPTH - 1));
     let mut records = LayoutRecords::new();
     assert_eq!(ok(records.restore(&at_bound), "restore at the bound"), 1);
-
-    let past_bound = ok(
-        serde_json::to_string(&nested_tree(LAYOUT_TREE_MAX_DEPTH)),
-        "encode a tree past the bound",
-    );
     let before = ok(records.snapshot(), "snapshot");
-    let refused = records.restore(&past_bound);
+
+    let past_bound = record_payload(&nested_tree(LAYOUT_TREE_MAX_DEPTH));
+    // Pinned to the variant. `LayoutRecordsError` has three arms, and a bare
+    // `is_err()` here would be equally happy about a `NotARecord` payload that
+    // never reached the bound at all — which is exactly how this test used to
+    // pass.
     assert!(
-        refused.is_err(),
-        "a tree one level past the bound was restored"
+        matches!(refused, Err(LayoutRecordsError::Malformed { .. })),
+        "a tree one level past the bound was restored: {refused:?}"
     );
     // The whole payload is refused, so the record is not half-restored.
     assert_eq!(ok(records.snapshot(), "snapshot"), before);
@@ -166,8 +193,15 @@ fn a_persisted_tree_that_contradicts_itself_is_refused() {
         ("a pane selecting a tab it does not hold", unheld_selection),
         ("a focused pane that is not in the tree", absent_focus),
     ] {
-        let payload = ok(serde_json::to_string(&layout), "encode");
-        assert!(records.restore(&payload).is_err(), "{name} was restored");
+        let restored = records.restore(&payload);
+        // Three different rules, one assertion each: `Malformed` is the arm
+        // that means the payload WAS a record and its tree failed an invariant.
+        // `NotARecord` here would mean the payload never parsed, and the test
+        // would be green without any of the three rules having run.
+        assert!(
+            matches!(restored, Err(LayoutRecordsError::Malformed { .. })),
+            "{name} was restored: {restored:?}"
+        );
         assert_eq!(
             ok(records.snapshot(), "snapshot"),
             before,

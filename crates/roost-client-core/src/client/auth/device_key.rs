@@ -23,16 +23,29 @@
 //!
 //! Ported from `apps/web/src/client/auth/web-key.ts`; the contract is
 //! `protocol/spec/auth-and-pairing.md:24-25`.
+//!
+//! Everything here is the lifecycle a host drives. The half that needs an
+//! answer from OUTSIDE the store — the probe, the recovery it drives, and a
+//! reset's precondition — is in `probe`, split out because it is the only part
+//! of the lifecycle that cannot be settled locally.
 
+// The coordinator-facing half. An inherent `impl` may span a child module, and
+// a child is also the only place that may read the parent's private store
+// fields without loosening them for the whole crate.
 use std::cell::RefCell;
 
+mod probe;
+
 use crate::client::auth::keystore::{
-    DEVICE_KEY_SLOT, DeviceKey, KEY_MINTED_FLAG, KeyAdmission, KeyStoreError, ROTATION_STAGE_SLOT,
-    RotationStage, SecureKeyStore,
+    DEVICE_KEY_SLOT, DeviceKey, KEY_MINTED_FLAG, KeyAdmission, KeyStoreError, RotationStage,
+    SecureKeyStore,
+};
+use crate::client::auth::jwt::{
+    CoordinatorJwt, JWT_CACHE_TTL_MS, bearer_for_signing, build_unsigned_jwt, public_key_b64,
 };
 use crate::client::auth::key_rotation::{
     DeviceKeyProbe, DeviceKeyRotator, ResetOutcome, RotationError, RotationOutcome,
-    RotationRecovery, RotationRequest, recover_rotation,
+    RotationRecovery, RotationRequest,
 };
 use crate::platform::{Clock, KeyValueStore};
 
@@ -186,15 +199,6 @@ impl<'host> DeviceKeyManager<'host> {
         bearer_for_signing(self.sign_coordinator_jwt())
     }
 
-    /// Whether the coordinator has rejected this device, which is the only
-    /// thing that admits a reset.
-    pub fn is_reset_eligible(&self) -> Result<bool, KeyStoreError> {
-        let Some(current) = self.store.read_current()? else {
-            return Ok(false);
-        };
-        Ok(self.probe_key(current)? == KeyAdmission::DeviceRejected)
-    }
-
     /// Rotate to a new key, and promote the replacement once the coordinator has
     /// it.
     pub fn rotate_current(
@@ -225,7 +229,7 @@ impl<'host> DeviceKeyManager<'host> {
         self.store.add_rotation_stage(&stage)?;
         let descriptor = self.store.describe(replacement)?;
         let bearer =
-            bearer_for_signing(self.sign_with(current, DEVICE_KEY_SLOT, self.clock.now_ms())?);
+            bearer_for_signing(self.sign_with(current, DEVICE_KEY_SLOT, self.clock.now_ms()));
         rotator
             .rotate_current(&RotationRequest {
                 public_key_b64: public_key_b64(&descriptor.public_key),
@@ -310,51 +314,6 @@ impl<'host> DeviceKeyManager<'host> {
         Ok(info)
     }
 
-    /// Resolve a leftover rotation stage by probing, then promote or discard.
-    fn recover_stage(&self) -> Result<RotationRecovery, KeyStoreError> {
-        let Some(stage) = self.store.read_rotation_stage()? else {
-            return Ok(RotationRecovery::None);
-        };
-        let staged = self.probe_key(stage.key)?;
-        let current = if staged == KeyAdmission::Authorized {
-            None
-        } else {
-            match self.store.read_current()? {
-                Some(current) => Some(self.probe_key(current)?),
-                None => None,
-            }
-        };
-        match recover_rotation(staged, current) {
-            RotationRecovery::Promoted => {
-                self.store.promote_rotation_stage(&stage)?;
-                self.cached.borrow_mut().take();
-                tracing::info!(
-                    target: "auth",
-                    operation = %stage.operation_id,
-                    "auth.rotation_recovered_promoted"
-                );
-                Ok(RotationRecovery::Promoted)
-            }
-            RotationRecovery::Discarded => {
-                self.store.delete_rotation_stage(&stage.operation_id)?;
-                tracing::info!(
-                    target: "auth",
-                    operation = %stage.operation_id,
-                    "auth.rotation_recovered_discarded"
-                );
-                Ok(RotationRecovery::Discarded)
-            }
-            ambiguous => {
-                tracing::warn!(
-                    target: "auth",
-                    operation = %stage.operation_id,
-                    "auth.rotation_ambiguous"
-                );
-                Ok(ambiguous)
-            }
-        }
-    }
-
     /// Sign a credential naming one specific key, bypassing the cache.
     fn sign_with(
         &self,
@@ -369,12 +328,6 @@ impl<'host> DeviceKeyManager<'host> {
         let unsigned = build_unsigned_jwt(&descriptor.fingerprint, now_ms);
         let signature = self.store.sign(key, unsigned.signing_input.as_bytes())?;
         Ok(CoordinatorJwt::mint(&unsigned, &signature, now_ms))
-    }
-
-    /// Ask the coordinator about one specific key.
-    fn probe_key(&self, key: DeviceKey) -> Result<KeyAdmission, KeyStoreError> {
-        let token = self.sign_with(key, ROTATION_STAGE_SLOT, self.clock.now_ms())?;
-        Ok(self.probe.probe_bearer(token.token()))
     }
 
     fn cached_key(&self) -> Result<DeviceKey, KeyStoreError> {

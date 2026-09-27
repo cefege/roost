@@ -50,9 +50,9 @@ pub fn set_term_font_px(store: &mut Store, storage: &dyn KeyValueStore, px: u32)
 pub fn step_term_font_px(store: &mut Store, storage: &dyn KeyValueStore, delta: i32) -> bool {
     // A negative delta must clamp at the same floor a direct set does, so the
     // stepper and the setter cannot disagree about where the range ends.
-    let current = i32::try_from(store.prefs.term_font_px).unwrap_or(TERM_FONT_MIN_PX);
+    let current = i32::try_from(store.prefs.term_font_px).unwrap_or(i32::MAX);
     let moved = current.saturating_add(delta);
-    let bounded = u32::try_from(moved).unwrap_or(if moved < 0 { 0 } else { u32::MAX });
+    let bounded = u32::try_from(moved).unwrap_or(0);
     set_term_font_px(store, storage, clamp_term_font_px(bounded))
 }
 

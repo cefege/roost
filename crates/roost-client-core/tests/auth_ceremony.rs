@@ -9,6 +9,8 @@
 //! echoes a request id this browser did not generate is treated as success,
 //! which leaves a ceremony polling for a request that does not exist.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use roost_client_core::client::auth::{
     CeremonyStore, CountingRandomSource, DeviceKeyManager, FixedRandomSource, KeyAdmission,
     MemorySecureKeyStore, PAIR_APPROVAL_STORAGE_KEY, PAIRING_CEREMONY_STORAGE_KEY,
@@ -267,14 +269,14 @@ fn an_approver_binds_the_code_it_generated_and_keeps_it_across_a_reload() {
     );
 
     // A bad request id is refused at generation rather than becoming an
-    // approval the coordinator will reject.
-    assert!(PairApproval::generate(
-        &FixedRandomSource::new(0x0a),
-        "not-an-id",
-        "laptop",
-        1
-    )
-    .is_err());
+    // approval the coordinator will reject. The VARIANT is the point:
+    // `MalformedRequestId` is its own case precisely because the id and the
+    // code arrive from different people, and a bare `is_err()` would be equally
+    // satisfied by an entropy failure.
+    assert!(matches!(
+        PairApproval::generate(&FixedRandomSource::new(0x0a), "not-an-id", "laptop", 1),
+        Err(PairingError::MalformedRequestId)
+    ));
 }
 
 #[test]

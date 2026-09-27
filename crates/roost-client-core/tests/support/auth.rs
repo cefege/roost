@@ -7,6 +7,8 @@
 //! must be able to trust. Every double drives the REAL `MemorySecureKeyStore`;
 //! none of them reimplements a storage rule.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 
@@ -84,7 +86,6 @@ impl RecordingRotator {
         }
     }
 
-    /// A rotator the coordinator refuses.
     /// A rotator the coordinator refuses; it never reports a fingerprint.
     pub fn refusing(refusal: RotationRefusal) -> Self {
         Self {

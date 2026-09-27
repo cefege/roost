@@ -75,7 +75,7 @@ pub fn attention_navigation_documents(
         .iter()
         .filter(|document| document.agent_attention.is_some())
         .collect();
-    attention.sort_by(compare_attention_documents);
+    attention.sort_by(|left, right| compare_attention_documents(left, right));
     attention
 }
 

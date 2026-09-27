@@ -13,6 +13,8 @@
 //!    belonged to a socket nobody is using. The close codes themselves are in
 //!    `sync_close_codes.rs`.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::collections::BTreeSet;
 
 use roost_client_core::client::sync::{

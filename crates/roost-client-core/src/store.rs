@@ -61,8 +61,6 @@ use crate::sessions::SessionPlane;
 use crate::store::optimistic_spawn::SpawnLedger;
 use crate::store::pending_close::PendingCloses;
 use crate::store::prefs::Prefs;
-use crate::store::root::BrowserAccessState;
-use crate::store::spotlight::Spotlight;
 use crate::store::toasts::ToastStack;
 use crate::store::transfers::TransferStack;
 use crate::store::ui::UiState;
@@ -133,6 +131,12 @@ pub struct Store {
     /// that arrives after the one it supersedes is dropped rather than
     /// applied and then re-dropped by the projection.
     pub agent_seen: crate::client::agents::AgentSeenLedger,
+    /// Whether the acknowledgement ledger owes the host a write.
+    ///
+    /// Latched by the acknowledgement paths and cleared by the sweep that emits
+    /// `Effect::PersistAgentSeen`, which is what makes a burst of
+    /// acknowledgements one write. Initialise it to `false` in `Store::new`.
+    pub agent_seen_dirty: bool,
     /// Machine-scoped browse state. Keyed by machine, not by path: two
     /// machines can hold the same folder path and a path is not an identity.
     pub browse: crate::store::browse_state::BrowseState,
@@ -200,6 +204,7 @@ impl Store {
             // that owns the constructor.
             agent_status: crate::client::agents::AgentStatusProjection::new(),
             agent_seen: crate::client::agents::AgentSeenLedger::new(),
+            agent_seen_dirty: false,
             browse: crate::store::browse_state::BrowseState::new(),
             global_search: crate::client::global_search::GlobalSearchController::new(),
             toasts: ToastStack::new(),

@@ -24,7 +24,8 @@ use crate::client::auth::ceremony::{
     PAIRING_CEREMONY_VERSION, normalize_pair_request_id, normalize_pair_requester_token,
     normalize_pair_verification_code,
 };
-use crate::client::auth::pairing_session::{PairApproval, PairingCeremony};
+use crate::client::auth::pairing_approval::PairApproval;
+use crate::client::auth::pairing_session::PairingCeremony;
 use crate::platform::KeyValueStore;
 
 /// The session-storage key the requester's capability is retained under.

@@ -21,7 +21,9 @@ use roost_client_core::store::root::{
     BrowserAccessState, captured_generation_is_current, clear_account_state_for_logout,
     invalidate_auth_resources, set_browser_access_state,
 };
-use roost_client_core::store::spotlight::{set_spotlight_session_id, set_visible_pane_count};
+use roost_client_core::store::spotlight::{
+    clear_spotlight, is_spotlit, set_spotlight_session_id, set_visible_pane_count,
+};
 use roost_client_core::store::toasts::{
     ToastId, ToastKind, ToastOptions, ToastSource, add_toast, dismiss_toast, expire_due_toasts,
     hold_toast_dismiss, release_toast_dismiss,

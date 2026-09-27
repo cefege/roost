@@ -12,8 +12,12 @@
 //! stays in `client::global_search`, so the module that HOLDS rows and the module
 //! that MERGES them are not the same module.
 //!
-//! Ported from `apps/web/src/lib/globalContentSearchResults.ts`. Depends on
-//! `roost_protocol::wire` for the session brand and adds no state.
+//! The rows and the partial reasons are ported from
+//! `apps/web/src/lib/globalContentSearchResults.ts`. `GlobalSearchResponse` is
+//! the page the coordinator's `SessionsSearchGlobalResponse` carries, and it
+//! belongs to this side of the boundary for the same reason the rows do: it is
+//! something the coordinator reported, not something this client judged.
+//! Depends on `roost_protocol::wire` for the session brand and adds no state.
 
 use roost_protocol::wire::SessionId;
 
@@ -58,12 +62,14 @@ impl GlobalSearchPartialReason {
 
     /// Whether a later successful page can clear this partial.
     ///
-    /// Only the three FINAL answers are. `WorkerUnavailable`, `Deadline` and
-    /// `MalformedResult` describe a failure of one attempt, so a continuation
-    /// that searched that session successfully has replaced them; the other
-    /// three describe a property of the session that no continuation changes,
-    /// and dropping them would tell a viewer their session was fully searched
-    /// when part of it is still missing.
+    /// Only the three FINAL answers are: a match cap, an eviction and a
+    /// closure are properties of the session that no continuation changes, and
+    /// dropping them would tell a viewer their session was fully searched when
+    /// part of it is still missing. Every other reason — an unreachable
+    /// machine, a blown deadline, a replaced grid, a result the coordinator
+    /// refused, an answer this build does not name — describes ONE attempt at
+    /// that session, so a continuation that searched it successfully has
+    /// replaced it.
     #[must_use]
     pub const fn is_terminal(self) -> bool {
         matches!(self, Self::MatchLimit | Self::HistoryEvicted | Self::SessionClosed)
@@ -96,8 +102,10 @@ pub struct GlobalSearchMatch {
 impl GlobalSearchMatch {
     /// The identity two pages are deduplicated by.
     ///
-    /// Session, epoch and cell span — not the preview text, which the machine
-    /// may render differently on a later read of the same cell.
+    /// Session, grid epoch, and the row the match starts at with its column
+    /// span — not the preview text, which the machine may render differently on
+    /// a later read of the same cell. The epoch is part of it because a row
+    /// read from a grid that has since been replaced is not the same hit.
     #[must_use]
     pub fn identity(&self) -> String {
         format!(
@@ -117,9 +125,32 @@ pub struct GlobalSearchPartial {
 }
 
 impl GlobalSearchPartial {
-    /// The identity two pages are deduplicated by.
+    /// The identity two pages are deduplicated by: the session and the reason,
+    /// so a session that fails two different ways contributes two partials.
     #[must_use]
     pub fn identity(&self) -> String {
         format!("{}\u{0}{:?}", self.session_id, self.reason)
     }
+}
+
+/// One page of a fleet-wide search answer, as the coordinator reported it.
+///
+/// The counts travel with the rows and are PUBLISHED AS THEY ARRIVE, never
+/// recomputed from this client's own session list: the client's list is the
+/// sessions it happens to hold, and a count derived from it would report a
+/// truncated search as complete whenever the two lists disagree.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GlobalSearchResponse {
+    /// The rows this page read.
+    pub matches: Vec<GlobalSearchMatch>,
+    /// The sessions this page could not finish.
+    pub partials: Vec<GlobalSearchPartial>,
+    /// Where to resume, or `None` when this was the last page.
+    pub next_cursor: Option<String>,
+    /// How many sessions this page actually searched.
+    pub searched_sessions: u32,
+    /// How many were eligible, as the COORDINATOR counted them.
+    pub eligible_sessions: u32,
+    /// Whether the coordinator stopped for a cap rather than for lack of rows.
+    pub truncated: bool,
 }

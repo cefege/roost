@@ -13,6 +13,7 @@ workspace = true
 [dependencies]
 roost-client-core = { workspace = true }
 roost-protocol = { workspace = true }
+thiserror = { workspace = true }
 wasm-bindgen = { workspace = true }
 
 # The renderer touches the DOM directly and deliberately: one cell row is one

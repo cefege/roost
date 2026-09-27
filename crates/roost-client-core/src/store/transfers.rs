@@ -25,15 +25,41 @@
 //! (`apps/web/src/store/transfers.ts:3-5`).
 //!
 //! Ported from `apps/web/src/store/transfers.ts`; the deviations are the
-//! `running` restart, the `stalled` state the brief asks for, `Option` in place
-//! of v2's `-1`/`0` sentinels, and deadlines as data because this crate has no
-//! timer.
+//! `running` restart, a `stalled` state for a card that stopped advancing where
+//! v2 had none, `Option` in place of v2's `-1`/`0` sentinels, and deadlines as
+//! data because this crate has no timer.
 
 use crate::store::Store;
 
 pub mod record;
 
 use self::record::RateSample;
+
+/// How long a successful or deduplicated card stays before it removes itself.
+///
+/// v2's own number, at `transfers.ts:90-98`, and it applies to the same two
+/// states: an ERROR card does not take this window, because the failure text is
+/// what the user came to read. See [`record::TransferState::self_dismisses`].
+pub const TRANSFER_DISMISS_AFTER_MS: u64 = 2_000;
+
+/// How long a `running` card may go without advancing before the sweep calls it
+/// stalled. Long enough that a slow but live upload is never called stalled.
+///
+/// v2 has no such state, so there is no v2 number: the sweep needs SOME bound,
+/// and one that fires on a healthy transfer would report a working upload as
+/// broken.
+pub const TRANSFER_STALL_AFTER_MS: u64 = 15_000;
+
+/// Ticks closer together than this produce no rate.
+///
+/// v2's `MIN_DELTA_S = 0.05` (`transfers.ts:42`) in milliseconds: the
+/// instantaneous figure off a 5 ms sample is noise, and an EMA fed noise drifts
+/// high.
+const MIN_RATE_DELTA_MS: u64 = 50;
+
+/// The weight on the newest instantaneous rate. v2's `EMA_ALPHA`
+/// (`transfers.ts:41`).
+const EMA_ALPHA: f64 = 0.4;
 
 pub use record::{Transfer, TransferDirection, TransferStack, TransferState};
 
@@ -76,7 +102,7 @@ pub fn add_transfer(
         state,
         err: None,
         preview_url,
-        dismiss_at_ms: if state.is_terminal() {
+        dismiss_at_ms: if state.self_dismisses() {
             Some(now_ms.saturating_add(TRANSFER_DISMISS_AFTER_MS))
         } else {
             None
@@ -262,7 +288,7 @@ pub fn mark_transfer_state(
     // A settled card's speed and ETA describe a run that is over.
     transfer.speed_bps = None;
     transfer.eta_s = None;
-    transfer.dismiss_at_ms = if state.is_terminal() {
+    transfer.dismiss_at_ms = if state.self_dismisses() {
         Some(now_ms.saturating_add(TRANSFER_DISMISS_AFTER_MS))
     } else {
         None

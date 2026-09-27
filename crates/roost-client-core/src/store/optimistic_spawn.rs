@@ -266,15 +266,26 @@ impl SpawnLedger {
     }
 
     /// Whether `ticket` is the attempt that decides this session's state.
+    ///
+    /// An ADMITTED entry is not pending, so nothing may act for it: the row
+    /// stays because it is the tab the user is looking at, and a refusal
+    /// arriving after the admission would otherwise delete a working terminal
+    /// and raise a failure card over it. That is the hole
+    /// `optimisticSpawn.ts:187-197` leaves open, and it is why the admission
+    /// leaves a tombstone as well as an entry.
     fn relevance(&self, ticket: &SpawnTicket) -> Option<SupersededReason> {
         match self.entries.get(&ticket.session_id) {
-            Some(entry) if entry.ticket.attempt == ticket.attempt => None,
-            Some(entry) if entry.ticket.attempt > ticket.attempt => {
-                Some(SupersededReason::ReplacedByNewerAttempt)
+            Some(entry) if entry.ticket.attempt != ticket.attempt => Some(
+                if entry.ticket.attempt > ticket.attempt {
+                    SupersededReason::ReplacedByNewerAttempt
+                } else {
+                    SupersededReason::NeverExisted
+                },
+            ),
+            Some(entry) if entry.state != EntryState::Pending => {
+                Some(SupersededReason::AlreadySettled)
             }
-            // A ticket older than the live attempt is a replaced attempt; a
-            // ticket newer than anything this ledger holds was never minted.
-            Some(_) => Some(SupersededReason::NeverExisted),
+            Some(_) => None,
             None => Some(
                 self.tombstone_reason(&ticket.session_id, ticket.attempt)
                     .map_or(SupersededReason::NeverExisted, TombstoneReason::superseded),

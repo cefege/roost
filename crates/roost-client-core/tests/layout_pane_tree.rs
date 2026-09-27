@@ -11,18 +11,16 @@
 mod layout_support;
 
 use roost_client_core::store::layout::{
-    PaneLayout, PaneLeaf, PaneNode, PaneSplit, close_tab, default_layout, find_leaf, move_tab,
-    reconcile, select_tab, set_ratio, split_leaf,
+    PaneLayout, PaneLeaf, PaneNode, PaneSplit, all_leaves, close_tab, default_layout, find_leaf,
+    move_tab, reconcile, select_tab, set_ratio, split_leaf,
 };
 use roost_protocol::layout::document::LayoutDirection;
 use roost_protocol::layout::{LAYOUT_RATIO_MAX, LAYOUT_RATIO_MIN};
 
-use layout_support::{CountedIds, ok, session_ids};
+use layout_support::{CountedIds, session_ids};
 
 const ALPHA: &str = "alpha";
 const BETA: &str = "beta";
-const GAMMA: &str = "gamma";
-const FOLDER: &str = "worker::/work";
 
 fn leaf(pane_id: &str, tabs: &[&str], selected: &str) -> PaneNode {
     PaneNode::Leaf(PaneLeaf {
@@ -103,7 +101,7 @@ fn reconcile_prunes_dead_tabs_and_collapses_only_the_pane_the_prune_emptied() {
     // collapse is a layout decision the prune caused rather than a coincidence.
     let reconciled = reconcile(&layout, &session_ids(&[ALPHA]));
     assert_eq!(
-        roost_client_core::store::layout::all_leaves(&reconciled.root).len(),
+        all_leaves(&reconciled.root).len(),
         1
     );
     assert!(find_leaf(&reconciled.root, "p1").is_some());
@@ -128,39 +126,32 @@ fn reconcile_appends_a_never_placed_live_session_to_the_focused_pane() {
 #[test]
 fn a_split_moves_the_focus_to_the_new_pane_and_leaves_the_source_holding_the_rest() {
     let mut ids = CountedIds::new("pane");
-    let start = ok(
-        default_layout(&session_ids(&[ALPHA, BETA]), &mut ids),
-        "default layout",
+    let start = default_layout(&session_ids(&[ALPHA, BETA]), &mut ids);
+    let split = split_leaf(
+        &start,
+        "pane-1",
+        LayoutDirection::Row,
+        BETA,
+        false,
+        &mut ids,
     );
-    let split = ok(
-        split_leaf(
-            &start,
-            "pane-1",
-            LayoutDirection::Row,
-            BETA,
-            false,
-            &mut ids,
-        ),
-        "split",
-    );
-    let leaves = roost_client_core::store::layout::all_leaves(&split.root);
+    let leaves = all_leaves(&split.root);
     assert_eq!(leaves.len(), 2);
     assert_eq!(tabs_of(&split.root, "pane-1"), session_ids(&[ALPHA]));
-    assert_eq!(tabs_of(&split.root, "pane-3"), session_ids(&[BETA]));
-    assert_eq!(split.focused_pane_id, "pane-3");
+    // The split mints the NEW PANE first and the divider second, so the pane
+    // the gesture created is `pane-2` and the split holding it is `pane-3`.
+    assert_eq!(tabs_of(&split.root, "pane-2"), session_ids(&[BETA]));
+    assert_eq!(split.focused_pane_id, "pane-2");
 
     // Splitting a pane by moving its own only tab leaves nothing behind, so the
     // arrangement is refused rather than doubled.
-    let refused = ok(
-        split_leaf(
-            &start,
-            "pane-1",
-            LayoutDirection::Col,
-            ALPHA,
-            true,
-            &mut ids,
-        ),
-        "refused split",
+    let refused = split_leaf(
+        &start,
+        "pane-1",
+        LayoutDirection::Col,
+        ALPHA,
+        true,
+        &mut ids,
     );
     assert_eq!(refused, start);
 }
@@ -180,7 +171,7 @@ fn a_move_between_panes_selects_the_moved_tab_and_closes_the_pane_it_emptied() {
     // p1 held one tab and the move took it, so p1 collapses into p2 rather than
     // sitting in the deck as a pane with no strip and no way to close.
     assert_eq!(
-        roost_client_core::store::layout::all_leaves(&moved.root).len(),
+        all_leaves(&moved.root).len(),
         1
     );
     assert_eq!(tabs_of(&moved.root, "p2"), session_ids(&[BETA, ALPHA]));
@@ -205,13 +196,13 @@ fn closing_the_last_tab_of_a_pane_collapses_it_into_its_sibling() {
     let after_one = close_tab(&layout, ALPHA);
     assert_eq!(tabs_of(&after_one.root, "p1"), session_ids(&[BETA]));
     assert_eq!(
-        roost_client_core::store::layout::all_leaves(&after_one.root).len(),
+        all_leaves(&after_one.root).len(),
         2
     );
 
     let after_all = close_tab(&layout, BETA);
     assert_eq!(
-        roost_client_core::store::layout::all_leaves(&after_all.root).len(),
+        all_leaves(&after_all.root).len(),
         1
     );
     assert_eq!(tabs_of(&after_all.root, "p2"), session_ids(&[GAMMA]));

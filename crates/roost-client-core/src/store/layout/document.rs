@@ -27,6 +27,7 @@ use roost_protocol::layout::document::LayoutDirection;
 
 use crate::store::layout::PaneIdSource;
 use crate::store::layout::record::LayoutRecords;
+use crate::store::layout::tree::PaneLayout;
 
 use self::materialize::{has_sessionless_leaf, materialize_layout_document};
 

@@ -142,8 +142,11 @@ impl SyncFrame {
     /// `SyncState::may_apply` still consults the domain table for it.
     pub const fn domain(&self) -> Option<SyncDomain> {
         match self {
-            Self::DomainReady { domain, .. } | Self::DomainReset { domain, .. } => Some(*domain),
-            Self::CellGrid { .. } | Self::CellGridChunk { .. } => Some(SyncDomain::Terminal),
+            Self::DomainReady { domain, .. }
+            | Self::DomainReset { domain, .. } => Some(*domain),
+            Self::CellGrid { .. }
+            | Self::CellGridChunk { .. }
+            | Self::AgentStatus { .. } => Some(SyncDomain::Terminal),
             Self::Subscribed { .. }
             | Self::SessionEvent { .. }
             | Self::SessionsSnapshot { .. }
@@ -166,6 +169,7 @@ impl SyncFrame {
             Self::CellGridChunk { .. } => "cell_grid_chunk",
             Self::ViewState { .. } => "view_state",
             Self::InputResult { .. } => "input_result",
+            Self::AgentStatus { .. } => "agent_status",
             Self::Keepalive => "keepalive",
             Self::Unknown { .. } => "unknown",
         }
@@ -178,6 +182,7 @@ impl SyncFrame {
             | Self::CellGridChunk { session_id, .. }
             | Self::ViewState { session_id, .. }
             | Self::InputResult { session_id, .. } => Some(session_id),
+            Self::AgentStatus { update, .. } => Some(update.common.session_id.as_str()),
             _ => None,
         }
     }

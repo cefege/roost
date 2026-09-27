@@ -9,27 +9,7 @@ use std::collections::BTreeSet;
 
 use roost_protocol::wire::SessionId;
 
-use crate::search::global::{GlobalSearchMatch, GlobalSearchPartial, GlobalSearchResponse};
-
-/// One page of a fleet-wide search answer, as the coordinator reported it.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct GlobalSearchResponse {
-    /// The rows this page read.
-    pub matches: Vec<GlobalSearchMatch>,
-    /// The sessions this page could not finish.
-    pub partials: Vec<GlobalSearchPartial>,
-    /// Where to resume, or `None` when this was the last page.
-    pub next_cursor: Option<String>,
-    /// How many sessions this page actually searched.
-    pub searched_sessions: u32,
-    /// How many were eligible. PUBLISHED VERBATIM, and never recomputed from
-    /// the client's own session list: the client's list is the sessions it
-    /// happens to hold, and a count derived from it would report a truncated
-    /// search as complete whenever the two lists disagree.
-    pub eligible_sessions: u32,
-    /// Whether the coordinator stopped for a cap rather than for lack of rows.
-    pub truncated: bool,
-}
+use crate::search::global::{GlobalSearchMatch, GlobalSearchPartial};
 
 /// Merge an incoming page into what is already published.
 ///

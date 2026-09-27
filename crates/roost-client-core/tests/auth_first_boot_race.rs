@@ -9,6 +9,8 @@
 //! visible on screen, which is why the race has its own file rather than a
 //! paragraph in the happy path.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 mod support;
 
 use roost_client_core::client::auth::{
@@ -170,10 +172,10 @@ fn a_credential_is_reused_inside_its_window_and_re_signed_in_place_after_it() {
     );
 
     let first = keys.sign_coordinator_jwt().expect("token");
-    clock.advance(
-        roost_client_core::client::auth::JWT_CACHE_TTL_MS
-            - roost_client_core::client::auth::JWT_LIFETIME_SECS * 1_000,
-    );
+    // The reuse window IS the cache TTL: v2 reuses while `age < JWT_CACHE_TTL_MS`
+    // (`web-key.ts:219`), and the token's own lifetime is a separate, longer
+    // number. Mixing the two is not a stricter test, it is a different one.
+    clock.advance(roost_client_core::client::auth::JWT_CACHE_TTL_MS - 1);
     assert_eq!(
         keys.sign_coordinator_jwt().expect("token").token(),
         first.token(),
@@ -185,7 +187,7 @@ fn a_credential_is_reused_inside_its_window_and_re_signed_in_place_after_it() {
     assert_eq!(refreshed.kid(), first.kid(), "in place: the same key");
     assert_eq!(
         refreshed.issued_at_ms() - first.issued_at_ms(),
-        roost_client_core::client::auth::JWT_LIFETIME_SECS * 1_000,
+        roost_client_core::client::auth::JWT_CACHE_TTL_MS,
         "a refresh moves the issuance by exactly the reuse window"
     );
     assert!(

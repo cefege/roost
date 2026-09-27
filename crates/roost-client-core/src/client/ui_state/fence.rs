@@ -21,13 +21,20 @@ pub const LAYOUT_APPLY_REFETCH_REASON: &str =
     "the target tab has moved; re-read its reported arrangement and recompute";
 
 /// One browser tab's retained report, as `UiListStates` returns it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReportedTab {
     /// The device key that reported it.
     pub fingerprint: String,
     /// Its tab id.
     pub tab_id: String,
-    /// The arrangement it last reported.
+    /// The document this tab last reported, as the coordinator canonicalised it.
+    ///
+    /// Carried so a host can tell what a tab is showing and a coordinator can
+    /// republish it. The apply path deliberately does NOT read it: an apply is a
+    /// command addressed to a named socket, and the socket generation in
+    /// `LayoutApplyTarget` is the fence on it. A field that looks like an
+    /// ordering check and is not is the thing this comment exists to prevent
+    /// someone going looking for.
     ///
     /// Absent is NOT a refusal and NOT a fence: a tab that has never tiled
     /// anything reports no document, and the first apply to it is exactly the

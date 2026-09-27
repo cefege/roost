@@ -174,10 +174,7 @@ fn a_folder_with_no_stored_layout_applies_its_first_arrangement() {
     // And the calling side composes against a tab that has reported no document
     // yet, which is the same first-arrangement case seen from the other end.
     let mut ids = CountedIds::new("caller");
-    let layout = ok(
-        default_layout(&session_ids(&[ALPHA, BETA]), &mut ids),
-        "default layout",
-    );
+    let layout = default_layout(&session_ids(&[ALPHA, BETA]), &mut ids);
     let reported = ReportedTab {
         fingerprint: "fp-1".to_owned(),
         tab_id: TAB.to_owned(),

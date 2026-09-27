@@ -10,9 +10,11 @@
 
 use roost_client_core::client::global_search::{
     GLOBAL_SEARCH_DEBOUNCE_MS, GlobalSearchController, GlobalSearchQuery, GlobalSearchRequest,
-    GlobalSearchResponse, SetSearchOutcome,
+    SetSearchOutcome,
 };
-use roost_client_core::search::global::{GlobalSearchMatch, GlobalSearchPartial};
+use roost_client_core::search::global::{
+    GlobalSearchMatch, GlobalSearchPartial, GlobalSearchResponse,
+};
 use roost_protocol::terminal_search::TERMINAL_SEARCH_QUERY_MAX_CODE_POINTS;
 use roost_protocol::wire::SessionId;
 
@@ -79,16 +81,26 @@ fn a_page_from_a_superseded_query_cannot_land_in_this_querys_list() {
 
     // The FIRST query's page answers late, under its own identity.
     assert!(
-        !controller.receive_page(stale.call_id, &stale.search_id,
-            page(vec![match_in(SESSION_ON_A, 1, 0, 6, "epoch-a")], vec![], None, 1, 1),
+        !controller.accept_page(
+            stale.call_id,
+            &stale.search_id,
+            &page(
+                vec![match_in(SESSION_ON_A, 1, 0, 6, "epoch-a")],
+                vec![],
+                None,
+                1,
+                1,
+            ),
         ),
         "a page from a superseded query must be dropped whole, not merged"
     );
     assert!(controller.results().matches.is_empty());
     assert!(!controller.results().has_searched);
 
-    assert!(controller.receive_page(current.call_id, &current.search_id,
-        page(
+    assert!(controller.accept_page(
+        current.call_id,
+        &current.search_id,
+        &page(
             vec![match_in(SESSION_ON_B, 2, 0, 6, "epoch-b")],
             vec![],
             None,
@@ -107,8 +119,10 @@ fn a_page_from_a_superseded_query_cannot_land_in_this_querys_list() {
 #[test]
 fn abandoning_a_search_owes_the_coordinator_a_cancel_and_keeps_the_rows_already_read() {
     let (mut controller, first) = started("needle");
-    controller.receive_page(first.call_id, &first.search_id,
-        page(
+    controller.accept_page(
+        first.call_id,
+        &first.search_id,
+        &page(
             vec![match_in(SESSION_ON_A, 3, 0, 6, "epoch-a")],
             vec![],
             Some("cursor-2"),
@@ -162,8 +176,10 @@ fn a_failed_page_is_retryable_and_a_page_from_another_search_does_not_publish_it
     let again = controller
         .take_first_page("search-3", 4, 20_000 + GLOBAL_SEARCH_DEBOUNCE_MS)
         .expect("a retry re-arms the same debounce a fresh keystroke would");
-    assert!(controller.receive_page(again.call_id, &again.search_id,
-        page(vec![], vec![], None, 0, 0),
+    assert!(controller.accept_page(
+        again.call_id,
+        &again.search_id,
+        &page(vec![], vec![], None, 0, 0),
     ));
     assert_eq!(controller.results().error, None, "an answer clears the failure");
 }
@@ -195,8 +211,10 @@ fn a_query_longer_than_the_shared_limit_is_refused_without_a_request() {
 #[test]
 fn a_credential_boundary_clears_the_results_and_restores_the_query_afterwards() {
     let (mut controller, first) = started("needle");
-    controller.receive_page(first.call_id, &first.search_id,
-        page(
+    controller.accept_page(
+        first.call_id,
+        &first.search_id,
+        &page(
             vec![match_in(SESSION_ON_A, 3, 0, 6, "epoch-a")],
             vec![],
             None,

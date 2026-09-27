@@ -28,7 +28,7 @@ use roost_protocol::terminal_search::{
     TERMINAL_SEARCH_ID_MAX_LENGTH, TERMINAL_SEARCH_QUERY_MAX_CODE_POINTS,
 };
 
-use crate::search::global::GlobalSearchPartial;
+use crate::search::global::{GlobalSearchMatch, GlobalSearchPartial};
 
 /// How long typing settles before a query is sent.
 ///

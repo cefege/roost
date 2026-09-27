@@ -61,6 +61,17 @@ pub enum Effect {
         /// The highest event id folded into the store.
         event_id: u64,
     },
+    /// Write this profile's agent-status acknowledgement ledger.
+    ///
+    /// The host MERGES before it writes: two tabs on one profile acknowledge
+    /// independently, and a blind write from whichever tab saved last would
+    /// discard the other's. The encoded value is the `roost.agentSeen.v2` shape
+    /// (`AgentSeenLedger::encode`), so the host's merge is a decode, a union, and
+    /// an encode — no second format.
+    PersistAgentSeen {
+        /// The whole ledger, encoded.
+        encoded: String,
+    },
     /// Ask the coordinator for a time-bounded, memory-only direct-terminal grant
     /// naming exact sessions, one worker fingerprint, and this tab.
     ///

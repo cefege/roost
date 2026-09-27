@@ -31,7 +31,7 @@ pub mod query;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use roost_protocol::wire::Worker;
+use roost_protocol::wire::{SessionMap, Worker};
 
 use crate::store::optimistic_spawn::ClientOnlySession;
 use crate::store::paths::WorkerPaths;

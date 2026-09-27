@@ -1,11 +1,11 @@
-//! The portable document: positional keys, the round trip, and the three
-//! properties the apply path is load-bearing for -- a refusal writes nothing,
-//! a re-fetch and a broadcast agree, and a first arrangement is not mistaken for
-//! a stale one.
+//! The portable document for ONE client: positional keys, the round trip, a
+//! refusal that writes nothing, the degraded import, and a direction this build
+//! cannot render.
 //!
 //! Mirrors `apps/web/tests/paneLayoutDocument.test.ts` and
-//! `paneLayoutDocument.degrade.test.ts`, plus the cases the port makes
-//! load-bearing: the fence the client trips, and the one source both read.
+//! `paneLayoutDocument.degrade.test.ts`. The two-client properties -- a re-fetch
+//! and a broadcast agreeing, and a folder's first arrangement -- live beside
+//! this one in `layout_two_clients.rs`.
 
 mod layout_support;
 
@@ -24,11 +24,6 @@ const BETA: &str = "beta";
 const GAMMA: &str = "gamma";
 const DEAD: &str = "not-live";
 const FOLDER: &str = "worker::/work";
-const TAB: &str = "tab-current";
-const SOCKET: &str = "socket-current";
-const OTHER_TAB: &str = "tab-other";
-const OTHER_SOCKET: &str = "socket-other";
-const CORRELATION: &str = "correlation-1";
 
 fn three_sessions() -> Vec<String> {
     session_ids(&[ALPHA, BETA, GAMMA])
@@ -74,32 +69,17 @@ fn shape(layout: &PaneLayout) -> Vec<(Vec<String>, String, bool)> {
         .collect()
 }
 
-fn command(document: LayoutDocumentV1) -> LayoutApplyCommand {
-    LayoutApplyCommand {
-        target_tab_id: TAB.to_owned(),
-        target_socket_id: SOCKET.to_owned(),
-        correlation_id: CORRELATION.to_owned(),
-        document: Some(document),
-    }
-}
-
 #[test]
 fn an_exported_document_carries_positional_keys_and_no_runtime_pane_id() {
     let mut ids = CountedIds::new("pane");
-    let start = ok(
-        default_layout(&session_ids(&[ALPHA, BETA]), &mut ids),
-        "default layout",
-    );
-    let split = ok(
-        split_leaf(
-            &start,
-            "pane-1",
-            LayoutDirection::Row,
-            BETA,
-            false,
-            &mut ids,
-        ),
-        "split",
+    let start = default_layout(&session_ids(&[ALPHA, BETA]), &mut ids);
+    let split = split_leaf(
+        &start,
+        "pane-1",
+        LayoutDirection::Row,
+        BETA,
+        false,
+        &mut ids,
     );
     let document = ok(
         export_layout_document(FOLDER, &session_ids(&[ALPHA, BETA]), &split),
@@ -117,9 +97,12 @@ fn an_exported_document_carries_positional_keys_and_no_runtime_pane_id() {
     );
     let encoded = ok(serde_json::to_string(&document), "encode");
     // A runtime pane id in a document is an id two clients would then share,
-    // which is the one thing the document exists not to do.
-    assert!(!encoded.contains("pane-1"), "{encoded}");
-    assert!(!encoded.contains("pane-3"), "{encoded}");
+    // which is the one thing the document exists not to do. The split minted
+    // `pane-2` for the new pane and `pane-3` for the divider, so all three are
+    // ids this document could have leaked and none may appear in it.
+    for runtime_pane_id in ["pane-1", "pane-2", "pane-3"] {
+        assert!(!encoded.contains(runtime_pane_id), "{encoded}");
+    }
 }
 
 #[test]
@@ -137,9 +120,19 @@ fn an_arrangement_survives_the_round_trip_through_a_document() {
     );
     let applied = ok(records.stored(FOLDER), "a stored layout");
     assert_eq!(shape(applied), shape(&original));
-    // The runtime ids are the importing client's own, not the author's.
-    assert_ne!(shape(applied), Vec::<(Vec<String>, String, bool)>::new());
-    assert_eq!(all_leaves(&applied.root).len(), 2);
+    // The runtime ids are the importing client's own, minted from ITS source:
+    // `p1` and `p2` are identities two clients must not share, and a document
+    // that carried them back would be the one thing this round trip must not
+    // do.
+    let pane_ids: Vec<&str> = all_leaves(&applied.root)
+        .into_iter()
+        .map(|leaf| leaf.pane_id.as_str())
+        .collect();
+    assert_eq!(pane_ids.len(), 2);
+    assert!(
+        pane_ids.iter().all(|pane_id| pane_id.starts_with("other-")),
+        "{pane_ids:?}"
+    );
 }
 
 #[test]
@@ -272,14 +265,17 @@ fn a_direction_this_build_cannot_render_is_refused_in_both_directions() {
         split.direction = LayoutDirection::Other("diagonal".to_owned());
     }
     assert!(validate_layout_document_import(&document, &session_ids(&[ALPHA, BETA])).is_ok());
-    assert!(
+    // Pinned to the variant, not `is_err()`: this document binds only live
+    // sessions under a real folder key, so five of the seven refusal arms are
+    // reachable here and only `UnportableDirection` is the rule under test.
+    assert_eq!(
         apply_layout_document(
             &mut records,
             FOLDER,
             &document,
             &session_ids(&[ALPHA, BETA]),
             &mut ids
-        )
-        .is_err()
+        ),
+        Err(LayoutDocumentError::UnportableDirection)
     );
 }

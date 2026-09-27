@@ -28,6 +28,12 @@ tracing = { workspace = true }
 # sole use; a ceremony that cannot serialise its own state is not a ceremony.
 base64 = { workspace = true }
 serde_json = { workspace = true }
+# The persisted pane layout. A tree the client restores from its own key/value
+# store is untrusted the moment it comes back in, and validating an untrusted
+# tree means deserializing it — so this is a dependency of the RULE, not of a
+# convenience. Derives, not a runtime: nothing here parses a format this crate
+# chose.
+serde = { workspace = true }
 
 [dev-dependencies]
 # Only to read the committed JSON vectors in protocol/conformance/cell-chunks/.

@@ -324,6 +324,16 @@ fn apply_frame(
         SyncFrame::ViewState { .. } | SyncFrame::InputResult { .. } => {
             crate::handle_terminal::handle_correlated_result(store, frame, now_ms, out);
         }
+        SyncFrame::AgentStatus { update } => {
+            // The coordinator already fenced this report against its own
+            // arrival order; what is left is the browser-lifecycle fence and
+            // the acknowledgement ledger, both of which live in the
+            // projection. A refused report changes nothing, so it must not
+            // move the revision a host subscribes to.
+            if store.agent_status.apply_update(update, &store.agent_seen).is_some() {
+                store.note_change();
+            }
+        }
         SyncFrame::Keepalive | SyncFrame::Unknown { .. } => {
             tracing::trace!(target: "sync", frame = frame.kind_name(), "frame applied");
         }
@@ -353,6 +363,18 @@ pub fn handle_rpc_result(store: &mut Store, result: &RpcResult) {
                 store
                     .sync
                     .issue_snapshot_token(generation, SyncDomain::Terminal, token.clone());
+            }
+        }
+        RpcResult::SearchPage {
+            call_id,
+            search_id,
+            page,
+        } => {
+            // A page answers one outstanding call. Anything else is a
+            // replacement the reader has already moved past, and the
+            // controller is the only party that can tell the two apart.
+            if store.global_search.accept_page(*call_id, search_id, page) {
+                store.note_change();
             }
         }
         RpcResult::Failed { call_id, message } => {

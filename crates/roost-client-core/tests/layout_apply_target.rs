@@ -8,12 +8,11 @@
 //! `NotMine` arm exists to make visible.
 
 mod layout_support;
-
 use roost_client_core::client::ui_state::{
     LAYOUT_APPLY_SETTLED_EVENT, LayoutApplyCommand, LayoutApplyConsumption, LayoutApplyExecution,
-    LayoutApplyRejection, apply_layout_document, execute_targeted_layout_apply,
-    reject_layout_apply_without_bridge,
+    LayoutApplyRejection, execute_targeted_layout_apply, reject_layout_apply_without_bridge,
 };
+use roost_client_core::store::layout::apply_layout_document;
 
 use layout_support::{CountedIds, RecordingHost, ok, session_ids, single_pane_document};
 
@@ -186,7 +185,9 @@ fn a_tab_that_is_not_on_a_live_folder_is_refused_before_anything_is_written() {
             LayoutApplyRejection::NoActiveFolder
         ))
     ));
-    assert!(host.events.is_empty());
+    // Silence is the one answer the caller cannot use: the whole refusal IS
+    // the acknowledgement, and nothing else ran.
+    assert_eq!(host.events, vec!["ack:rejected".to_owned()]);
 
     // The active session is not among the live ones: a folder mid-navigation is
     // not a folder to rearrange.
@@ -198,7 +199,7 @@ fn a_tab_that_is_not_on_a_live_folder_is_refused_before_anything_is_written() {
             LayoutApplyRejection::NoActiveFolder
         ))
     ));
-    assert!(host.events.is_empty());
+    assert_eq!(host.events, vec!["ack:rejected".to_owned()]);
 
     // The membership is still only this browser's: an arrangement computed
     // against a session the fleet has not admitted is one nobody else can read.
@@ -212,7 +213,7 @@ fn a_tab_that_is_not_on_a_live_folder_is_refused_before_anything_is_written() {
             LayoutApplyRejection::NoActiveFolder
         ))
     ));
-    assert!(host.events.is_empty());
+    assert_eq!(host.events, vec!["ack:rejected".to_owned()]);
     assert!(host.records.is_empty());
 }
 

@@ -32,20 +32,14 @@ const MOVED_SOCKET: &str = "socket-moved";
 /// A two-pane arrangement, which is what a caller composes from.
 fn arranged() -> PaneLayout {
     let mut ids = CountedIds::new("caller");
-    let start = ok(
-        default_layout(&session_ids(&[ALPHA, BETA]), &mut ids),
-        "default layout",
-    );
-    ok(
-        split_leaf(
-            &start,
-            "caller-1",
-            LayoutDirection::Row,
-            BETA,
-            false,
-            &mut ids,
-        ),
-        "split",
+    let start = default_layout(&session_ids(&[ALPHA, BETA]), &mut ids);
+    split_leaf(
+        &start,
+        "caller-1",
+        LayoutDirection::Row,
+        BETA,
+        false,
+        &mut ids,
     )
 }
 
@@ -198,10 +192,7 @@ fn a_second_apply_to_the_same_tab_replaces_the_first_rather_than_queueing() {
 #[test]
 fn an_arrangement_this_folder_cannot_render_is_never_composed() {
     let mut ids = CountedIds::new("caller");
-    let layout = ok(
-        default_layout(&session_ids(&[ALPHA]), &mut ids),
-        "default layout",
-    );
+    let layout = default_layout(&session_ids(&[ALPHA]), &mut ids);
     let mut target = reported();
     target.layout_document = None;
     // No folder bucket, and a duplicated live id: both are refused at compose
@@ -236,7 +227,16 @@ fn an_arrangement_this_folder_cannot_render_is_never_composed() {
         "compose",
     );
     let value = ok(serde_json::to_value(&composed.document), "encode");
-    assert!(roost_protocol::layout::parse_layout_document_v1(&value).is_ok());
+    // Not merely `is_ok()`: a document the parser admits but does not return
+    // UNCHANGED is one two clients could read differently, so the round trip
+    // is asserted to be the identity.
+    assert_eq!(
+        ok(
+            roost_protocol::layout::parse_layout_document_v1(&value),
+            "the shared parser admits a composed document"
+        ),
+        composed.document
+    );
     assert_eq!(composed.target.tab_id, TAB);
     assert_eq!(composed.target.socket_id, SOCKET);
     assert_eq!(composed.folder_key, FOLDER);

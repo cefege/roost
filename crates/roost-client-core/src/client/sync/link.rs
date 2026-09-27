@@ -64,7 +64,7 @@ impl InstalledLink {
         }
         self.accepting = false;
         self.abort_reason = Some(reason);
-        self
+        true
     }
 
     /// The socket is gone without a decision of this client's — a peer close, or
@@ -76,7 +76,7 @@ impl InstalledLink {
         }
         self.open = false;
         self.accepting = false;
-        self
+        true
     }
 
     /// The generation of the installed socket.

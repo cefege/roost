@@ -21,7 +21,8 @@ use roost_protocol::layout::{LAYOUT_DOCUMENT_MAX_DEPTH, LAYOUT_DOCUMENT_MAX_NODE
 use crate::platform::KeyValueStore;
 
 use super::PaneIdSource;
-use super::tree::{PaneLayout, PaneNode, default_layout, find_leaf, reconcile};
+use super::tree::{PaneLayout, PaneNode, default_layout, find_leaf};
+use super::tree_edit::reconcile;
 
 /// The key every folder's arrangements are persisted under.
 pub const LAYOUT_STORAGE_KEY: &str = "roost.paneLayout.v1";
@@ -190,6 +191,12 @@ impl LayoutRecords {
         let folders: BTreeMap<String, PaneLayout> =
             serde_json::from_str::<BTreeMap<String, PaneLayout>>(payload)
                 .map_err(|error| LayoutRecordsError::NotARecord(error.to_string()))?;
+        // Every folder is proved before ANY of them is installed, so one bad
+        // folder leaves the record exactly as it was rather than half-restored.
+        for (folder_key, layout) in &folders {
+            validate_stored(folder_key, layout)?;
+        }
+        let restored = folders.len();
         self.folders = folders;
         tracing::info!(target: "layout", restored, "restored pane layouts");
         Ok(restored)

@@ -74,7 +74,7 @@ fn client() -> ClientCore {
 
 #[test]
 fn two_sessions_in_one_folder_share_a_bucket_and_the_newest_wins() {
-    let mut older = session("00000000-0000-4000-8000-00000000000a", "/home/dev/api", 100);
+    let older = session("00000000-0000-4000-8000-00000000000a", "/home/dev/api", 100);
     let mut newer = session("00000000-0000-4000-8000-00000000000b", "/home/dev/api", 200);
     newer.workspace_id = Some(workspace(1));
     let elsewhere = session("00000000-0000-4000-8000-00000000000c", "/home/dev/web", 300);

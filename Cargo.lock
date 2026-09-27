@@ -4375,8 +4375,10 @@ dependencies = [
 name = "roost-client-core"
 version = "3.0.0"
 dependencies = [
+ "base64 0.23.1",
  "roost-proto",
  "roost-protocol",
+ "serde",
  "serde_json",
  "tracing",
 ]
@@ -4511,6 +4513,7 @@ version = "3.0.0"
 dependencies = [
  "roost-client-core",
  "roost-protocol",
+ "thiserror 2.0.21",
  "wasm-bindgen",
  "web-sys",
 ]

@@ -156,17 +156,23 @@ pub fn compact_leaf_for_layout<'layout>(
 
 /// Replace the leaf with `pane_id` by `edit`, which may return a split and so
 /// grow the tree. A `pane_id` that names no leaf returns the tree unchanged.
+///
+/// `FnMut`, and re-borrowed into each child, because the walk visits BOTH
+/// subtrees looking for the one pane and only the matching leaf calls `edit`. A
+/// `FnOnce` would be consumed by the first subtree the walk reached, which is
+/// whichever one happened to be walked first rather than the one the caller
+/// named.
 pub(crate) fn update_leaf(
     node: &PaneNode,
     pane_id: &str,
-    edit: impl FnOnce(&PaneLeaf) -> PaneNode,
+    mut edit: impl FnMut(&PaneLeaf) -> PaneNode,
 ) -> PaneNode {
     match node {
         PaneNode::Leaf(leaf) if leaf.pane_id == pane_id => edit(leaf),
         PaneNode::Leaf(_) => node.clone(),
         PaneNode::Split(split) => PaneNode::Split(PaneSplit {
-            a: Box::new(update_leaf(&split.a, pane_id, &edit)),
-            b: Box::new(update_leaf(&split.b, pane_id, &edit)),
+            a: Box::new(update_leaf(&split.a, pane_id, &mut edit)),
+            b: Box::new(update_leaf(&split.b, pane_id, &mut edit)),
             ..split.clone()
         }),
     }

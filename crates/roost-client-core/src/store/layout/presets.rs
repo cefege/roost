@@ -170,9 +170,9 @@ fn build_balanced(
     }
     let middle = sessions.len().div_ceil(2);
     let child_direction = if alternate {
-        other_direction(direction)
+        other_direction(direction.clone())
     } else {
-        direction
+        direction.clone()
     };
     let ratio = middle as f64 / sessions.len() as f64;
     PaneNode::Split(PaneSplit {
