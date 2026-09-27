@@ -134,6 +134,14 @@ pub(crate) fn parse_openssh_ed25519(pem: &str) -> Result<([u8; 32], [u8; 32]), S
     if secret.len() != 64 || secret[32..] != public {
         return Err("its private key does not carry its own public key".to_string());
     }
+    // The comment field sits BETWEEN the secret and the padding, and it is
+    // length-prefixed like every other field. Reading the padding without
+    // consuming it started `expected` at the comment's own zero length word,
+    // so a key this module ENCODED failed to parse with "its padding byte 1 is
+    // missing" — the round trip was broken in the reader, not the writer.
+    // Verified against a key `ssh-keygen -t ed25519 -N ''` produced: after the
+    // 64-byte secret come a 4-byte comment length of 0, then 1, 2, 3, 4, 5.
+    let _comment = private_block.string()?;
     check_padding(&private_block)?;
     Ok((seed, public))
 }

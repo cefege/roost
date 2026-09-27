@@ -151,11 +151,13 @@ pub fn session_id() -> SessionId {
         .expect("the test session id is a uuid")
 }
 
+// NO `sha256:` prefix. `WorkerFp` carries the bare 64-character lowercase hex
+// of the pubkey digest; the prefix is a display convention, and carrying it
+// here made every consumer of this fixture fail `check()` with a length error
+// that reads as a protocol defect rather than a fixture defect.
 pub fn worker_fp() -> WorkerFp {
-    WorkerFp::try_from(
-        "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_owned(),
-    )
-    .expect("the test fingerprint is well formed")
+    WorkerFp::try_from("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_owned())
+        .expect("the test fingerprint is well formed")
 }
 
 pub fn shell_spec(cwd: &str) -> ShellSpec {

@@ -38,7 +38,12 @@ use roost_worker::shell_spec::{SHELL_SPEC_VERSION, ShellSpec};
 
 pub const SESSION: &str = "00000000-0000-4000-8000-00000000beef";
 pub const OTHER: &str = "00000000-0000-4000-8000-00000000cafe";
-pub const FINGERPRINT: &str = "00000000-0000-4000-8000-00000000f00d";
+// NOT a uuid, unlike `SESSION` and `OTHER` above it. `WorkerFp` is the SHA-256
+// hex of a worker's ed25519 pubkey — 64 lowercase hex characters and nothing
+// else, with no `sha256:` prefix (`roost_protocol::wire::WorkerFp::check`).
+// Sitting among three uuids it was read as one, and every consumer of this
+// fixture failed in `worker_fp()` before reaching the behaviour under test.
+pub const FINGERPRINT: &str = "00000000000000000000000000000000000000000000000000000000000f00d";
 pub const NOW: i64 = 1_700_000_000_000;
 
 pub fn session_id(value: &str) -> SessionId {
@@ -50,7 +55,7 @@ pub fn channel(value: i64) -> ChannelId {
 }
 
 fn worker_fp() -> WorkerFp {
-    WorkerFp::try_from(FINGERPRINT).expect("the fixture fingerprint is a uuid")
+    WorkerFp::try_from(FINGERPRINT).expect("the fixture fingerprint is 64 lowercase hex")
 }
 
 fn trace() -> TraceId {
