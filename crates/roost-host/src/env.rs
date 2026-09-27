@@ -16,11 +16,6 @@ pub const HOME_ENV: &str = "HOME";
 
 /// The Linux data root, per the XDG base-directory specification.
 pub const XDG_DATA_HOME_ENV: &str = "XDG_DATA_HOME";
-/// The Linux config root, per the XDG base-directory specification. This is
-/// the one XDG root whose default is NOT under `.local`, which is why it needs
-/// its own constant rather than riding `xdg_root`'s `default_leaf` shape.
-pub const XDG_CONFIG_HOME_ENV: &str = "XDG_CONFIG_HOME";
-
 
 /// The Linux state root; logs live here because they are mutable state.
 pub const XDG_STATE_HOME_ENV: &str = "XDG_STATE_HOME";

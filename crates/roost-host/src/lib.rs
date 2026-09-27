@@ -48,7 +48,7 @@ pub use coord_config_origin::{
     normalize_https_origin, validate_bare_http_origin, validate_bare_https_origin,
 };
 pub use env::{
-    EnvSource, HOME_ENV, MapEnv, ProcessEnv, XDG_CONFIG_HOME_ENV, XDG_DATA_HOME_ENV,
+    EnvSource, HOME_ENV, MapEnv, ProcessEnv, XDG_DATA_HOME_ENV,
     XDG_STATE_HOME_ENV,
     host_platform_from_os, supported_host_platform,
 };
@@ -59,8 +59,9 @@ pub use paths::{
     SERVICE_DIR_ENV, SERVICE_DIR_SUBDIR, VERSIONS_DIR_ENV, VERSIONS_DIR_SUBDIR,
     WORKER_DATA_DIR_ENV, WORKER_DATA_DIR_NAME, WORKER_LABEL_DARWIN, WORKER_LABEL_ENV,
     WORKER_LABEL_LINUX, WORKER_LOG_DIR_ENV, WORKER_LOG_DIR_NAME, WORKER_PLIST_ENV, WORKER_UNIT_ENV,
-    coord_data_dir, coord_log_dir, coord_service_label, coord_service_path, roost_service_dir,
-    roost_versions_dir, worker_data_dir, worker_log_dir, worker_service_label, worker_service_path,
+    config_root, coord_data_dir, coord_log_dir, coord_service_label, coord_service_path,
+    roost_service_dir,
+    roost_versions_dir, state_root, worker_data_dir, worker_log_dir, worker_service_label, worker_service_path,
 };
 
 // The worker's loopback door belongs to `roost-protocol` so a browser bundle can
