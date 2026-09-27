@@ -2548,7 +2548,8 @@ prefer the account that quotes its own output.
 | W4 | A delta too large for one part escalates to a full | `session/emit.rs::build_frame`: delete the `encoded_cell_grid_frame_size(&wire) > CELL_GRID_PART_MAX_BYTES` escalation | `a_delta_too_large_for_one_part_is_escalated_to_a_full` | unrun |
 | W5 | The retained floor stays the offset before the oldest retained byte | `session/types.rs::append_retained`: `head_seq += self.scrollback.len()` instead of `chunk.len()` | `the_history_floor_is_the_offset_before_the_oldest_retained_byte` + 2 | **OBSERVED** — 3 named tests failed, in `734982d1` |
 | W6 | A keeper control credential is recognised whatever its case | `shell_spec.rs::is_keeper_control_key`: drop `to_ascii_uppercase()` | `a_keeper_control_credential_is_recognised_whatever_its_case` | **OBSERVED** in `734982d1`. **Re-run:** W1's credential cutover landed after that observation. |
-| W7 | A frame from `Box<dyn TerminalCore>` is byte-identical to one from `AlacrittyCore` | the `&dyn TerminalCore` widening in `roost-term` | no test yet — this row needs one written | unrun. A widening that silently changed frame bytes is exactly the defect nobody is looking for. |
+| W7 | A frame from `Box<dyn TerminalCore>` is byte-identical to one from `AlacrittyCore` | the `&dyn TerminalCore` widening in `roost-term` | `crates/roost-term/tests/dyn_dispatch_parity.rs` | **SATISFIED — the test the row asked for exists and was written and run.** This row said "no test yet" until `WorkerLeadW` checked the crate rather than the row. A row table that reports a missing test without looking is the "A check that quietly stopped looking" entry above, one layer down. |
+| W2 | A delta past the row cap escalates to a full frame, never a silent hole | `roost-term/src/emitter.rs:127`: `> LIVE_DELTA_SCROLLBACK_ROWS_CAP` → `> u64::MAX` | `a_delta_past_the_row_cap_becomes_a_viewport_only_full` | **BLOCKED ON THE TEST, NOT THE MUTATION.** The named test is in no file under `crates/roost-term`, so the row cannot be run at all until somebody writes it. **The only row guarding behaviour inside a COMPLETED ported crate**, and the one gap in this table that is a missing artefact rather than an unrun check. Assigned to the worker track; the spec is `docs/phase4-client-contract.md` §6.2 full-before-delta, §6.3 the delta fence, §6.4 chunked baselines. |
 | W8 | A spawn's ack is correlated 1:1 with its request under concurrency | keeper pool dispatch | W4's ack-correlation test | unrun |
 | W9 | A read against a replaced grid epoch is REFUSED | `retained_grid.rs describe`, the `EpochBinding::new(...)` argument: replace `record.cell_emit.grid_epoch()` with a constant | `a_read_against_a_replaced_grid_epoch_is_refused` | **OBSERVED** (W2c) |
 | W10 | A page over the ceiling is CLAMPED, not refused | `retained_grid.rs describe`, the `total:` field: use `origin` without adding the retained count | `a_page_larger_than_the_ceiling_is_clamped_not_refused` | **OBSERVED** |
@@ -2747,6 +2748,62 @@ reconnecting client got a frame it could not place and the cursor never advanced
 a frame cannot leave the directory without its meta; this row is what proves the
 type-level guarantee survives the next edit.
 
+## Coordinator track — C5 (red to green), rows re-verified and re-pointed at `26782410`
+
+Every target below was re-checked against the tree as it stands by the lead who
+was holding the worktree, and **two line numbers moved** because the
+`AgentStatusOrder` import cut took a line out of `status_hub.rs`. A row naming
+a line that has moved is a row that cannot be run, and a row that cannot be run
+reads as a row that was not needed.
+
+| # | Property | Edit | Test that must fail | State |
+|---|---|---|---|---|
+| C12 | A queued frame is charged to the window, once | `sync_ws/egress.rs:162` — `self.record_sent(encoded_len, now_ms)` → `reserved` | the `sync_feed_adapters` close-frame case (`delivery_seq == 2`, not 1) | re-verified current; `reserved` is in scope at `:121` |
+| C13 | The queue path still charges on its own | delete `sync_ws/send_queue.rs:264-266` | the same close-frame case, by a second route | re-verified current |
+| C14 | The control path does **not** charge | delete `sync_ws/egress.rs:163` | none — see the state column | **PRE-REGISTERED AS NOT EXPECTED TO BITE.** `control_frames.rs:62` sets `delivery_seq = 0` deliberately and `ack_window.rs:142` documents it. Recorded so nobody later reads its silence as coverage |
+| C15 | An identified report above a legacy frame's first revision is refused | delete `agents/status_hub.rs:272` — `tables.active.remove(&session_id);` | `the_list_answers_in_session_id_order_with_derived_promptability` (`tests/agent_status_rpc.rs:191`, asserted `:224-227`) | **re-pointed 273 → 272.** The other candidate, `a_legacy_frame_yields_permanently_once_an_identified_occupant_is_accepted`, sends revision 1 and the guard needs `revision > 1`, so it passes either way and **is not a pin** |
+| C16 | The `ws://` twin reaches the served policy | delete `middleware/security.rs:104` — `connect_origins.push(websocket_twin(declared));` | the assembled-CSP assertion in `middleware_security_headers` | re-verified current. **The test builds the policy the way a coordinator builds it**; the earlier row naming a direct `build_csp` call was dead text, because no test calls it directly any more |
+| C17 | Presence is addressed to another viewer, not the author's own | `sync_ws/feed/presence.rs:59`, `:53`, `:59`, `:78` — four rows, one per property | `sync_feed_volatile` | re-verified verbatim current after the merge |
+
+**Two rows cannot be re-pointed, only re-registered, and the distinction
+matters.** `M1-MOUNTED` and `M1-PREFLIGHT` are named in commit `1a384d7c`'s body
+as NEVER RUN, but **their row text was never written into the repository** — the
+names exist and the rows do not. So there is nothing to correct; there is
+something to write. Recorded here rather than papered over, because a row that
+is present and says "this has to be written" is a promise, and a row that is
+absent is the failure mode this table exists to prevent. The seams are live and
+findable: the mount is `security_layer` at `middleware/security.rs:240`, wired
+at `http/listener.rs:209`; the preflight is `preflight_response` at
+`security.rs:232`, which calls the same `apply_security_headers` at `:235`.
+
+**A harness is written and inert**, outside the worktree at
+`/tmp/coord-mutate.sh`: backs the file up outside the tree, refuses to mutate
+if the backup does not match, verifies the restore by sha256 in an
+`EXIT`/`INT`/`TERM` trap, and reports a compile failure as INCONCLUSIVE rather
+than as a pass.
+
+**Zero of these rows has been run.** The C5 gate needs all eight — C12 through
+C17 plus the two registrations — and each must state must-fail AND
+must-still-pass. A non-compiling mutation is INCONCLUSIVE, and a row run
+against a red baseline is BIT-with-unestablished-isolation.
+
+### The clippy floor this track has not beaten, and why it is structural
+
+`cargo clippy` on stable 1.98.1 **has no `--keep-going`.** It stops at the first
+failing target, so every test target scheduled after it is never linted at all.
+That makes a clippy number a **floor by construction** — a property of the
+tool, not of the tree — and two agreeing clippy runs will agree and both be
+floors, exactly as two agreeing test runs can.
+
+The last measured pass stopped at `tasks_queue` on
+`tests/tasks_support/mod.rs:103` (`useless use of format!`) and never reached
+six shared fixture modules holding **62 `unwrap`/`expect` sites** with no
+`#![allow]` header: `auth_device_support` (10), `sync_feed_support` (9),
+`tasks_support` (13), `terminal_screen_support` (1 unwrap + 7 expect),
+`terminal_view_support` (4 in `mod.rs` + 10 in `sink.rs`), `workspaces_support`
+(8). **62 is a count of sites in modules that have not been linted, not a count
+of defects.** Whether any of them fires is unmeasured.
+
 ## Coordinator track — tasks (S2)
 
 | # | Edit | Test that must fail |
@@ -2806,3 +2863,398 @@ proof.
   port's.** The port does `buckets.retain(|_, bucket| now < bucket.reset_at)`,
   dropping what has expired and reaching the fail-closed refusal only when the
   survivors alone fill the ceiling. Same guarantee, different mechanism.
+
+---
+
+## The integrator merge carry list
+
+Things that live on a track branch, are correct there, and would be easy to lose
+at a checkpoint merge. The integrator takes each of these deliberately rather
+than letting a merge resolve it by accident. **A row that is present and says
+"this is why" is a promise the repo can keep; a row that is absent is the
+failure mode this list exists to prevent.**
+
+> **M1 is AMENDED, and the amendment is load-bearing.** The hunk as committed in
+> `d02d6ec3` **breaks the workspace**: cargo rejects a manifest that both
+> inherits the workspace lint table and overrides a value in it, so
+> `[lints] workspace = true` alongside `[lints.rust]` is a hard manifest error,
+> not a warning. `roost-keeper` is a dependency of `roost-coord` as well as
+> `roost-worker`, so that hunk would stop **every** track building anything.
+> The checkpoint merge must take `WorkerLeadW2`'s corrected form — the whole
+> table restated in `crates/roost-keeper/Cargo.toml` with the single
+> `unsafe_code` override — and take it **deliberately**, because the corrected
+> form conflicts with `v3`'s and would otherwise be resolved by whichever side
+> a merge happened to prefer.
+>
+> The corrected form is the only one of the three available. Inheriting and
+> losing the override is not implementable: installing a signal handler has no
+> safe API, so the `unsafe` at `crates/roost-keeper/src/bin/roost-keeper.rs:162`
+> cannot be refactored away without changing what the keeper does on SIGTERM.
+> The cost of the copy is real and belongs in the file rather than in a commit
+> body: **a new workspace lint does not reach `roost-keeper` until someone adds
+> it to that copy.** `cargo xtask lint` is where a duplicated table belongs — a
+> rule flagging a crate whose `[lints]` is not `workspace = true` and which
+> defines a key the workspace table also defines. **That rule is written**, as
+> `xtask/src/lint_table.rs`, with `roost-keeper` as the one `COPY_EXEMPT` entry.
+>
+> **PREDICTED, NOT DISCOVERED.** The workspace clippy was clean at `b13c2e05`,
+> and that number is measured on `v3`, which does **not** carry this hunk. The
+> moment it lands, `roost-keeper` is under four lint groups it has never been
+> under — `expect_used`, `unwrap_used`, `missing_debug_implementations`,
+> `rust_2018_idioms` — plus `unsafe_code = "forbid"` over raw-fd and
+>> controlling-TTY code the gate has never actually enforced on it. The 18
+>> `expect`/`unwrap` sites and the three `Debug` gaps are already cleared, so the
+> **Expect that merge to turn the workspace clippy red.** It is not a reason to
+> hold the merge; it is a reason to have said so first. The unused-import class
+> is the one to look for in `roost-keeper`'s test files first, because that is
+> where the splits happened, and `cargo check` and `cargo test` both pass over
+> an unused import.
+
+| # | Carried on | What | Why it is on the list rather than merged already |
+| M1 | `v3-worker`, **`WorkerLeadW2`'s corrected form — not `d02d6ec3`** | `crates/roost-keeper/Cargo.toml` restates the workspace lint table in full, with one `unsafe_code = "allow"` override | Per-ref measured: `roost-worker`'s branch is the only one with the change, and the file is byte-identical to `v3` on `v3-coord`, `v3-web` and `v3-cli` — so the *original* hunk would have merged one-sided and silently. It also would not have parsed. Without this the crate is outside `[workspace.lints]` entirely, so `expect_used`, `unwrap_used` and `unsafe_code = "forbid"` never applied to it, 19 production `expect()`s survived, and `cargo clippy --workspace --all-targets -- -D warnings` passed over it **by not applying**. See the amendment above. |
+| M2 | `v3-coord` @ `edac76e2`+ | `roost_coord::auth::bootstrap_tokens::mint_host_bootstrap_token` | `roost-cli` restates four coordinator values — the column list, the `roost_bt_` bearer format, the 24h TTL, the SHA-256 digest — because `v3-cli` has never merged `v3-coord` and cannot compile a call to a function it does not have. **A fork that compiles and carries a header is worse than one that fails**, because a reviewer can skip it. Carried so the CLI checkpoint deliberately takes the coord side. |
+| M3 | `v3` @ `31e77d95` | the `AgentStatusOrder` identified-over-legacy arm | A deliberate superset of v2. It lives in the shared crate because a coord-only rule re-creates the drift this module removes, in the direction where a client shows a status its coordinator has retired. The coord checkpoint deletes its own copy; if the merge takes `v3`'s side of `agents/status_order.rs` the arm silently reverts. **ONE test pins it, not two:** `the_list_answers_in_session_id_order_with_derived_promptability` at `tests/agent_status_rpc.rs:191`, asserted `:224-227` — legacy rev 5 held, then identified rev 6 must be Stale. The other candidate sends revision 1, the guard's condition is `revision > 1`, so it never fires and passes either way. |
+| M4 | `v3-worker` snap `87ee7b0e` | 34 paths of uncommitted W-C and W-2 work | Pushed as a snapshot, never committed. Until the worker checkpoint, the wave's code fixes exist only in that ref. **The worker track has twice now been one context-end from losing a wave** — this row is the reason the next one will not be. |
+
+## Three lessons from the four-track wave, and each one cost a real defect
+
+### A count is a claim about COVERAGE, and the question is always what the tool never reached
+
+`cargo check --all-targets` **without** `--keep-going` stops at the first failing
+target. Every track in this programme ran it, every track reported a number, and
+every number was a floor. The worker track's `--keep-going` run returned **~56
+errors across 14 test targets** after a lib that was already clean — and those
+test targets **had never been compiled in this project's history**. "The worker
+builds" and "the worker's tests build" are two claims and only the first had ever
+been true.
+
+`--keep-going` is the fix for the flag case. It is **not** the fix for the
+ordering case, and a slice proved the second independently: its run aborted on a
+stray brace it had introduced mid-edit, so "38 errors" meant *38 up to the first
+syntax error in a lib target*, and everything downstream was unmeasured. The
+honest statement for that slice was **"no error count at all"**, which is what
+the slice eventually said.
+
+The pattern generalises past rustc. `--all-targets` sounds total and was not, for
+a reason that had nothing to do with the flag.
+
+### A pass count is not a gate, because the deny-class lints are CLIPPY lints
+
+`expect_used` and `unwrap_used` are **clippy** lints. `cargo check` and
+`cargo test` cannot see them. A crate can compile, pass every test across 22
+binaries, and fail `cargo clippy --workspace --all-targets -- -D warnings` — and
+it did: `roost-keeper` sat at "131 passed / 0 failed" while carrying 18
+production `expect()` sites, reported to the integrator as a sign-off.
+
+CI enforces clippy in exactly one place (`.github/workflows/ci.yml:26`), so a
+crate signed off on `cargo test` was never signed off at all. **Run clippy per
+crate, one at a time, and never infer one crate's result from another's or from
+a workspace build.** The same crate had a second gate waiting behind the first:
+turning on the inherited table promotes `missing_debug_implementations = "warn"`
+to an error, and five `pub` types with no `Debug` were enumerated by reading
+before a single one was compiled.
+
+### `is_err()` claims that SOMETHING did, and a test that names a rule must pin the rule
+
+`assert!(restore(&payload).is_err())` was satisfied by a `NotARecord` parse
+failure and had nothing to do with the depth bound, the ratio bound, the unheld
+selection or the absent focus the test was named for. **Four separate rules, one
+assertion, zero coverage, green forever.**
+
+`assert!(matches!(restore(&payload), Err(LayoutRecordsError::Malformed { .. })))`
+does not. Adopted in one broadcast, it found **five real defects in three
+slices** before the next hour was out: two bare `is_err()` in the CLI's
+`command_tree_shape.rs` that could not tell `subcommand_required` from any other
+parse failure; a `RotationError` assertion that could not tell the
+coordinator's *considered refusal* from a local `KeyStoreError`; a second that
+could not tell "the coordinator said no" from "nobody answered", which is the
+entire distinction its test exists for; a `PairingError` assertion that an
+entropy failure satisfied; and one latent `SpawnRefusal` case that was right by
+coincidence today and would have absorbed a new variant silently tomorrow.
+
+The rule is greppable and it is cheap: **`is_err()` and `is_none()` in a test
+target are where this hides**, and pinning is load-bearing only where a `Result`
+could fail more than one way. An `Option` with a single documented refusal is
+already pinned.
+
+**And the sibling shape, which is the same defect wearing a comment.** Three
+findings in one slice were a doc that stated the correct rule sitting next to
+code that did something else: `restore` with a header promising
+`validate_stored`; `dismiss_at_ms` armed for `Failed` against a field documented
+"Stays until the user closes it"; `relevance` against a doc promising the late
+rejection changes nothing. A `drop` called on a **reference** is the same thing —
+`drop` takes ownership, so on a `&T` it drops the borrow and the guard is not
+released where the author believed. The question for any file is not **"does it
+compile"** but **"does every comment in it describe what the adjacent line
+does."**
+
+### A green test over a subject nothing calls is a green nothing
+
+The firehose feed is the largest instance: **97 green test binaries, 618 green
+tests, and not one line of `src/` subscribes a bus.** Every adapter in
+`sync_ws/feed/` has zero `src/` callers, and so do `enqueue_into`,
+`observe_and_publish`, `publish_presence`, `subscribe_session_close`,
+`ui_state_seed_frames` and `with_meta`. `BUS_FRAME_ADAPTERS` names thirteen
+bus-to-adapter pairs and `tests/sync_feed_bus_coverage.rs` drives every row --
+so the table reads as covered while the path from "an event was committed" to
+"a browser saw it" does not exist.
+
+This is not a coverage gap. It is a gap in the PRODUCT that the coverage was
+arranged not to notice, and no pass count can distinguish the two, because the
+test is asserting that the table is internally consistent and an internally
+consistent table with no driver is a perfectly green nothing.
+
+**The requirement that follows, and it is now programme-wide:** for any test
+that drives a registry, a table, an adapter or a set of arms, the handoff must
+say **what in `src/` calls the thing it covers.** "The test passes" and "the
+subject of the test is reachable" are different claims, and a suite can be
+entirely green while every one of its subjects is dead code.
+
+**AMENDED, because the obvious implementation of that requirement is a grep, and
+a grep cannot answer this question.** A crate-wide reachability audit was run
+while holding a worktree and reported **88 modules with zero external
+references** -- including `sync_ws::egress`, `agents::status_hub`,
+`http::upgrade`, `rpc::service_impl` and the whole `auth/pairing/*` tree. It was
+wrong, and it was disproved two independent ways:
+
+- **A bad exclusion rule ate the evidence.** For a module that is a *file*
+  rather than a directory, the audit excluded its whole parent directory as
+  "inside itself" -- so for `http::upgrade` it discarded every sibling under
+  `src/http/`, including `listener.rs:67`, which is the import that reaches it.
+  The text was in the file it threw away before searching it.
+- **The pattern cannot see inherent impls at all.** `sync_ws/egress.rs:81` is
+  `impl SyncV2Session`, reached purely by being declared and compiled. There is
+  no import of it anywhere, **by design**, so "0 references" is the EXPECTED
+  output for a whole category of correct code.
+
+**Three things cannot distinguish "nothing calls it" from "my search cannot see
+it":**
+
+1. **Name collisions** -- proven twice in one session. `RetainedFrame` and
+   `EnqueueOutcome` each exist in two modules with different meanings, and both
+   enums have a `Dropped` variant, so variant-level search fails too.
+2. **Relative and re-exported paths** -- `super::`, `self::`, a parent's
+   `pub use`, or a `mod.rs` re-export all reach a module without its full path
+   ever appearing.
+3. **Inherent impls and `mod` declarations** -- reached by being compiled,
+   invisible to any reference count.
+
+**So the requirement is stated as a method, not as a grep:**
+
+> **Name a caller as `file:line`, never as a count.** A count is a claim about a
+> search; a `file:line` is a fact a reader can walk to.
+>
+> **Any claim of ZERO callers carries a stated reason it is not a search
+> artefact** -- either the symbol is unreachable by construction, or every
+> candidate hit was disambiguated by hand.
+>
+> **Silence is not acceptable for zero.** Zero is the one number that needs
+> evidence the most, and it is the number most likely to be produced by a search
+> that could not have found anything.
+
+A table of module names with a zero in a column is indistinguishable from a real
+audit table, which is why 88 phantom findings would have passed a glance.
+
+**The general answer, and it is not a discipline: you cannot grep a negative,
+but you can make it uncompilable.** The three rules above ask a person to
+remember to supply a reason a zero is real. There is a check that either passes
+or does not, and it costs one edit per module:
+
+> **Privatise the symbol. If the crate still builds, nothing outside the module
+> was using it — and that is a compiler fact, not a search result.**
+
+`AnnouncedBarrier`, `DurableEventWindow` and the `announced_types` surface are
+the test case. Drop each to `pub(crate)` or private, run
+`cargo check -p roost-coord`, and a clean check **proves** the 661 lines are
+unreachable, because any external use would now be a visibility error. If it
+does not compile, the search artefact is found in the same step.
+
+This is the only way to prove a negative of this shape to compiler grade, and it
+is worth doing to `worker_link` when C2 opens because it is cheap and it
+settles the question rather than arguing about it. **A handoff that says "I
+believed this was uncalled" should say instead "I made it private and it still
+built."**
+
+**What replaced a count, as the worked example.** The `feed/` claim was first
+"17 `pub` symbols with zero callers", corrected down from 19. Restating it as
+`file:line` produced a better claim underneath: **the engine that owns every
+adapter does not exist.** `feed/mod.rs:19-24` names `sync_ws::socket` and
+`sync_ws::driver`; `src/sync_ws/socket.rs` and `src/sync_ws/driver.rs` are
+**absent**, and `mod socket` / `mod driver` are declared nowhere in `src/` —
+`sync_ws/mod.rs:26-41` declares sixteen modules and neither is among them. No
+symbol names are involved, module declarations cannot be spelled relatively, and
+there is nothing to exclude, so it is immune to all three artefacts. And it
+**explains** the zeros rather than resting on them: the adapters are uncalled
+because the thing that would call them was never written.
+
+**And an asymmetry worth carrying.** `feed/` is a **documented** deferral — its
+own module header names the future owner. `worker_link`'s 661 lines have **no
+such structural explanation**: the consumer is simply absent, with no file naming
+a future owner. Same symptom, different defect, and the difference is whether
+anyone wrote down that they knew.
+
+**One honest boundary, from the agent that produced it:** the `worker_link`
+conclusion is **verified by a single independent check, not by the full method**
+— symbols enumerated, two collisions disambiguated by reading both definitions,
+then corroborated by one path-based import query. That is stronger than a count
+and weaker than a compiler fact, and it should be described that way rather than
+as settled.
+
+**And the mirror false positive, which is the same defect pointing the other
+way.** `grep -rn "Command::new" crates/ | grep -i tail`, run to prove nothing
+spawns `tailscale`, returned **1** -- `Command::new("tail")` in
+`crates/roost-cli/src/ops/logs.rs:90`, the Unix `tail`. A plausible, confident,
+wrong finding produced by a substring. So the two shapes are: a bad exclusion
+rule that **eats** evidence, and a bad pattern that **invents** it. A disproof
+that shows a search cannot see something, and a disproof that shows a search
+sees something that is not there.
+
+**The heuristic that caught it is the one to carry, and it is the opposite of
+the one most people use: a number that CONTRADICTS the claim you were trying to
+support is more trustworthy than one that agrees with you.** The agent said it
+only noticed because the result conflicted with the claim it was trying to
+support. That is worth more than the finding it discarded, because it is the
+only mechanism in this whole document that does not depend on remembering to
+run a control: **a measurement that agrees with what you want is a measurement
+to distrust until you have said why it could not have agreed by accident.**
+
+ The
+`worker_link` result survives precisely because it was not produced that way:
+symbols were enumerated, two collisions were **disambiguated by reading both
+definitions**, and the claim was then corroborated with a path-based import
+check that a name collision cannot defeat.
+
+**The second instance is 661 lines, and it is not documented anywhere.**
+`worker_link/announced_barrier.rs` (330) + `announced_types.rs` (239) +
+`rate_window.rs` (92) are contract §7.3 and §7.5 — the announced-channel barrier
+with its three bounds, seven drop reasons and four refusals, and the
+600-per-60s durable event window with its backwards-clock roll. `grep
+'worker_link::' src/` outside `worker_link/` returns exactly one module,
+`upgrade_admission`. **Nothing in `src/` imports the other three at all.**
+
+Unlike `feed/`, this substrate HAS integration coverage: `tests/announced_barrier.rs`
+imports `AnnouncedBarrier`, `tests/transport_windows_ack.rs` imports
+`rate_window`, and both are green in the 618/1/3 run. So the precise statement
+is the one that applies to both: **correct, specified, green, tested, and
+unreachable.** 661 lines against `feed/`'s 19 symbols.
+
+**Reachability has to be checked per MODULE, and a module nobody flagged is a
+module nobody checked.** `feed/mod.rs:19-24` documents its own deferral, so that
+one is findable by reading. The `worker_link` case is documented nowhere — not in
+the directory, not in `docs/phase3-coord-contract.md`, not in this file. It reads
+exactly like `upgrade_admission`: a finished-looking module sitting next to a
+mounted route. Three of the four defects found in this hour were in three
+different modules, each found by a different person asking a different question,
+and **none was found by a test, a pass count, or a mutation row.** So a C3
+handoff that lists what calls each thing must also list **which modules nobody
+audited** — on this evidence that list is the one with the defect in it.
+
+**And a note on how the count was got, because the method matters as much as the
+number.** A per-symbol reachability count by NAME produced 19 uncalled symbols,
+of which **two were false positives**: `RetainedFrame` and `EnqueueOutcome` are
+each declared twice, in two transports, with different meanings and different
+variant sets — and the variant name `Dropped` exists in both enums, so even a
+variant-level search cannot separate them. The correct figure is **17**. The
+load-bearing claim is not the per-symbol count at all; it is the **path-based**
+one (`grep 'worker_link::' src/`), which a name collision cannot defeat. Report
+the path-based number and treat per-symbol reachability as a hint.
+
+**Why no mutation row would ever expose it, which is the sharper half.**
+`sync_feed_bus_coverage.rs` **cannot fail**: it asserts that thirteen
+bus-to-adapter pairs are internally consistent, and every line it can delete is
+correct, because consistency is not reachability. The test is not weak -- it is
+answering a different question from the one its name implies, and a mutation
+row mutates the code, not the question. So "run a mutation on it" is not a
+remedy here, and a gate that only knows how to mutate will report this class
+clean forever.
+
+**The question no gate asks is: what is this test exercising, and does anything
+in production call it?** A seam with no caller reads as finished -- which is why
+this file already carries an entry for "a seam that looks complete".
+
+Three instances in this programme, one defect at three sizes: a
+`collapsible_if` in one line of a file reported verified, a `ShellSpecResolver`
+trait with no implementation, and a whole module.
+
+### The disk guard I wrote was destructive, and it was safe only when there was nothing to lose
+
+It went out in the plan, in four task briefs and two broadcasts:
+
+> delete `*/debug/incremental` and `*/debug/build/*/out` in every `target-*` dir
+
+Two tracks ran it and both lost a build. `WebLeadU2` deleted `out/` out from
+under three proc-macro crates that had not been rebuilt — `serde_core`,
+`thiserror`, `rustversion` — all failing with `couldn't read .../out/private.rs`.
+`CoordLeadC` hit the identical signature on `serde_core` then `serde`.
+
+**The mechanism is what makes this a rule rather than a tip.** Cargo keeps a
+fingerprint saying a build script succeeded. Deleting its **output** without
+deleting its **fingerprint** leaves a record of a success that no longer has a
+result, and the next build trusts the record. You do not get a rebuild; you get
+a confident failure pointing at a file that is legitimately gone.
+
+**The generalisation, from the agent that watched it happen twice: the failure
+needs a target directory that is PARTLY built, and it does not care how it got
+there.** `CoordLeadC`'s directory had just been cleaned and the same command
+still ran. So the guard's failure mode is not "someone was unlucky" — it is
+**"it worked, once, visibly, and taught everyone the shape."** On a fully-built
+directory the deletion is harmless and looks like it worked, and the successful
+run is the evidence that teaches the wrong rule. That is this file's
+check-that-quietly-stopped-looking lesson one layer down, and it is why a reclaim
+step must be validated **in the state where it is unsafe**, not the state where
+it is safe — the same discipline that found the dead `lint_table` predicate by
+disabling its exemption and expecting a failure.
+
+**The corrected form. One of these two, never a third:**
+
+1. Delete `debug/build/<pkg>-<hash>/` **together with** the matching
+   `debug/.fingerprint/<pkg>-<hash>-*` entries, so cargo rebuilds that build
+   script honestly.
+2. Delete the whole `target-*` directory and let it rebuild. Slower, always
+   correct.
+
+**And name the parent explicitly as the thing not to touch.** `*/debug/build/*/out`
+reads like it scopes to the `out` directories, and it will not stop anyone
+reaching for `debug/build` itself — which removes the parent of every `out/`,
+taking build-script output AND a partially-built crate's intermediates in one
+stroke, with the same failure mode and a larger blast radius.
+
+What survives and did its job: check the floor **before** a build rather than
+discovering it from `ENOSPC`; `CARGO_INCREMENTAL=0` stays set, so there is
+nothing in `incremental` to reclaim anyway; **`debug/deps` is the actual
+pressure** and is reclaimable only per-track with `cargo clean`, which is a lead's
+call on their own directory; and pause Track L then Track U, because a track that
+has never compiled restarts from one pass while a track mid-build loses its build
+directory with the run. Free disk bottomed at **9.2 GiB against a 10 GiB floor**
+with four tracks resident, and that ordering was written for exactly this moment.
+
+**One more distinction, per-directory state and not derivable from the guard:** a
+track that has never compiled is CHEAP to clean and a track mid-build is
+EXPENSIVE, and which one you are is a property of the directory, not of the rule.
+`CliLeadL2`'s 7.6 GiB was a failed build's worth of cache worth nothing; the
+coord track's 15 GiB is 97 separately-linked test binaries that do not share, so
+it regrows to roughly its current size after any clean and the lever that moves
+it is fewer or smaller test binaries — a C3/C4 decision, not a disk decision.
+
+### A pattern that cannot match a legal form returns a confident negative
+
+Two of these, from the same hour, and the second is worse:
+
+- `grep -L 'lints.*workspace'` is line-oriented; `[lints]` and `workspace = true`
+  are on **two** lines in every manifest here, so the pattern could never match
+  and `-L` reported **all thirteen** crates as outside the lint table. The
+  integrator broadcast it; four agents caught it. A command that reports 100% of
+  crates as broken is reporting on itself, not on the tree.
+- `^\[lints\]` with a closing bracket matches `[lints]` and **cannot match
+  `[lints.rust]`** — which is a legal form of the thing being searched for. That
+  confident negative became "no `[lints]` table anywhere in the file", and the
+  file had one.
+
+**Ask what a command could have detected before reporting what it found**, and
+name the branch a manifest finding was measured on: a finding about a file is
+meaningless without the tree, and this one produced a genuine six-way
+disagreement that turned out to be two correct measurements of two different
+branches. A measurement must also say **what it contradicts** — a report that
+agrees with nothing is a report nobody checks, and the agent who named the
+conflict instead of resolving it is the reason that one was diagnosed as branch
+skew rather than as an error.
