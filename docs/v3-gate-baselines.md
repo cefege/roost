@@ -728,6 +728,37 @@ and `WorkerRouteIndex::bind`. In every case the instrument was a `grep` for the 
 or the field, and in every case a review, a diff read, and a passing suite had all
 missed it.
 
+**THE RULE NOW EXISTS AS CODE, and it found a real file on its first honest run.**
+`xtask/src/unreached_module.rs`, wired into `cargo xtask lint`: every `.rs` file
+under a crate's `src/` must be reachable from that crate's module roots through
+`mod` declarations. The graph is transitive, because a file declared by a module
+nothing reaches is itself unreachable and naming the child points at the wrong
+file. It is deliberately NOT a dead-code detector — it answers "is this file in
+the module graph", not "is anything in it called", and a rule trying to be both
+would produce false positives and get deleted.
+
+Swept across all five tracks with `ROOST_REPO_ROOT`: **`v3`, `v3-coord`,
+`v3-worker`, `v3-cli` and `v3-cli2` each report 0; `v3-web` reports 8.** Seven
+are `find`/`backfill`, queued for registration. The eighth is new and nobody had
+named it: **`roost-web/src/platform/peer.rs`, 365 lines of ported WebRTC, declared
+by nothing** — and its own header claims *"reached by reflection because the
+WebRTC `web-sys` features are not enabled."* That sentence is an eighth instance
+of this class, not a defence against it: a comment asserting a reachability the
+build does not have, over code no `cargo test` has type-checked.
+
+**NO BASELINE WAS TAKEN, deliberately.** Every one of the eight has a named fix
+in flight. The size and console ratchets exist for pre-existing debt nobody is
+addressing; baselining work that is queued would make the tree read clean while
+eight files stay uncompiled, which is the failure this whole class is about.
+
+**AND THE INSTRUMENT HAS A TRAP THAT PRODUCES THE MOST DANGEROUS NUMBER HERE.**
+`xtask lint` shells out to `cargo metadata`. Run the binary without `cargo` on
+`PATH` and it exits 1 printing one line, and a `grep -c` over that output returns
+**0 — indistinguishable from a clean tree.** That mistake was made twice while
+measuring this rule, and it is the same class as every other finding tonight: an
+instrument reporting success while doing nothing. A zero from a tool that failed
+is worse than an error, because nothing prompts anyone to look again.
+
 **THE COUNT WILL KEEP MOVING, so do not cite it — grep, and add to the list.** A
 number in this file is a number from the day it was written, and the day this class
 grew from six to seven the only thing that changed was that someone ran the filter
