@@ -212,7 +212,29 @@ fn the_queue_drops_one_frame_and_resets_the_domain_rather_than_growing() {
     assert!(!notice.terminal_sessions_dropped);
 }
 
-#[ignore = "UNFINISHED: a terminal lane is pumped once and never again, so the second baseline part is never queued. The pump that queues it is in terminal/ready_ring.rs::pump_lane; the fault was not diagnosed before this slice ran out of budget. Every assertion below is correct against v2 and fails against the port."]
+// UNFINISHED, and the fault is NOT the one this attribute used to name. It is
+// not `terminal/ready_ring.rs::pump_lane`: the ready ring is EMPTY for the whole
+// of this test, because `enqueue_frame` puts a frame straight into its domain's
+// queue and never creates a terminal lane, so `pump_lane` is never entered and
+// no change to it can move this test. Measured: the failure is on the FIRST
+// `take_next_sendable`, at the assertion that the announcement is the frame
+// selected -- before the acknowledgement this test is about ever happens.
+//
+// THE CAUSE IS THE FIXTURE, NOT THE FENCE. `hydrated_terminal` binds the
+// snapshot token over SESSION_A, and `handle_domain_ready` seeds
+// `announced_sessions` from the covered set -- exactly as v2 does
+// (`sync-ws-v2-commands.ts:127-130`). So by the time this test queues its cell,
+// the session has already been announced and `is_eligible`
+// (`send_queue.rs:249`) lets the cell straight through: the cell goes out
+// first, and the assertion that the announcement is selected first cannot hold.
+//
+// The fence is correct. Measured: with the token covering nothing -- so
+// hydration announces nobody -- this test passes with every assertion
+// unchanged. Emptying the covered set is NOT the fix, because it would stop
+// this test exercising hydration at all, which is the state a real socket is
+// in. What is needed is a second fixture that hydrates a socket which is
+// watching a session the seed did not cover.
+#[ignore = "UNFINISHED: the hydrated socket has already announced SESSION_A (handle_domain_ready seeds announced_sessions from the token's covered set, as v2 does), so the cell is never fenced and goes out first. The fence is correct: with the token covering nothing this test passes unchanged. Not a ready-ring fault -- the ring is empty throughout."]
 #[test]
 fn a_cell_is_fenced_behind_its_announcement_until_the_acknowledgement_lands() {
     let (mut session, _tokens) = hydrated_terminal();
@@ -254,7 +276,32 @@ fn a_cell_is_fenced_behind_its_announcement_until_the_acknowledgement_lands() {
     assert!(matches!(second.frame.frame, Some(Frame::CellGrid(_))));
 }
 
-#[ignore = "UNFINISHED: a terminal lane is pumped once and never again, so the second baseline part is never queued. The pump that queues it is in terminal/ready_ring.rs::pump_lane; the fault was not diagnosed before this slice ran out of budget. Every assertion below is correct against v2 and fails against the port."]
+// UNFINISHED, and it has TWO independent faults, neither of them the one this
+// attribute used to name. It is not `terminal/ready_ring.rs::pump_lane`: the
+// ready ring is empty throughout, because `enqueue_frame` never creates a
+// terminal lane, so `pump_lane` is never entered.
+//
+// FAULT ONE, the same as the sibling test: the hydrated socket has already
+// announced SESSION_A, so the cell at index 0 is eligible and the first
+// `take_next_sendable` returns it, so the test fails on its `TerminalTitle`
+// assertion before the claim under test is even reached.
+//
+// FAULT TWO is the load-bearing one, and it survives that. Measured: with the
+// fixture corrected so the first cell is genuinely fenced, the test advances
+// past its first assertion and then fails on the aged-out override. The queue
+// at that point is [cell(fenced), opened@2000, cell2(fenced), last_activity@
+// 2000]. `select_candidate` (`send_queue.rs:83-94`) considers only the FIRST
+// ELIGIBLE frame per domain and the age override then takes the oldest of
+// those heads, so the head is `opened` -- and `opened` and `last_activity`
+// carry the SAME `queued_at_ms`, which the oldest-wins tiebreak resolves in
+// favour of the earlier one. v2 selects identically
+// (`sync-ws-v2-queue.ts:77-95`), so no FIFO-among-equal-timestamps rule can
+// prefer the later frame and this assertion is not satisfiable as written in
+// either implementation. It needs either a distinct `queued_at_ms` for the
+// `LastActivity`, or a selection rule that scans past an eligible frame to
+// find the oldest AGED one -- and the latter is a policy change to
+// `select_candidate`, not a port of v2.
+#[ignore = "UNFINISHED: two faults. (1) the hydrated socket already announced SESSION_A, so the first cell is never fenced and the title assertion fails; (2) with that corrected the aged-out override still cannot pick the LastActivity, because select_candidate only considers each domain's first eligible frame and opened shares its queued_at_ms -- v2 behaves identically (sync-ws-v2-queue.ts:77-95). Not a ready-ring fault: the ring is empty throughout."]
 #[test]
 fn the_aged_out_lane_outranks_a_streaming_terminal() {
     let (mut session, _tokens) = hydrated_terminal();
