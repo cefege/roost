@@ -156,7 +156,7 @@ impl DevStack {
     }
 
     fn spawn(&mut self, server: &DevServer) -> Result<(), CommandFailure> {
-        let mut child = Command::new(&server.program)
+        let child = Command::new(&server.program)
             .args(&server.args)
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())

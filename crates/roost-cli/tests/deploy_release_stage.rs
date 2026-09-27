@@ -41,7 +41,6 @@ fn run_stage(label: &str, remote_release_dir: &Path, tree: &[(&str, &str)]) -> b
         .spawn()
         .and_then(|mut child| {
             use std::io::Write;
-            use std::process::Stdio;
             let _ = child.stdin.take().unwrap().write_all(&tar.stdout);
             child.wait_with_output()
         })

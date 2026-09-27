@@ -52,6 +52,7 @@ use crate::wall_clock;
 /// release before they may install one is how quickstart never gets run. The
 /// keeper is looked for beside it and is optional, so a development build that
 /// ships no separate keeper binary still installs a `roost` and says so.
+#[derive(Debug)]
 pub struct LocalPrograms {
     /// The `roost` this process is running from.
     pub roost: PathBuf,

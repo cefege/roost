@@ -107,7 +107,11 @@ async fn upload(
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "attachment".to_string());
     let upload_id = upload_identity(session, &filename, bytes.len());
-    let mut absolute = String::new();
+    // The path the LAST chunk reports is the whole path. Carried out of the
+    // loop by `break` rather than by a variable initialised before it, because
+    // a pre-filled String is a value the compiler must treat as possibly-read
+    // and this loop is the only thing that can produce the real one.
+    let absolute;
     let mut sequence: u32 = 0;
     // At least one chunk runs even for an empty file, so a zero-byte upload
     // still creates the file and still comes back with a path.

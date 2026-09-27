@@ -33,6 +33,7 @@ use crate::services::service_spec::{ServiceRole, ServiceSpec};
 use crate::status::service_definition::{InstalledEnvironment, parse_installed_environment};
 
 /// One resolved service, ready to be rendered or installed.
+#[derive(Debug)]
 pub struct PlannedService {
     /// The spec a real run would install, resolved and never written.
     pub spec: ServiceSpec,
@@ -47,6 +48,7 @@ impl PlannedService {
 }
 
 /// Both services one quickstart run installs, and the `PATH` entry it adds.
+#[derive(Debug)]
 pub struct QuickstartPlan {
     /// The origins this run decided.
     pub endpoint: QuickstartEndpoint,

@@ -12,19 +12,12 @@
 
 use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use roost_cli::deploy::codes;
 use roost_cli::deploy::facts::{self, RemoteFacts};
-use roost_cli::deploy::installed::{
-    installed_build_sha, installed_release_dir, launchd_program_argument, systemd_working_directory,
-};
 use roost_cli::deploy::manifest::{ApplyManifest, ApplyOutcome, ApplyReport};
-use roost_cli::deploy::release::release_digest;
-use roost_cli::deploy::retire::{Retirement, plan_retirement};
 use roost_cli::deploy::ssh::{self, REMOTE_PATH_PREFIX, SSH_OPTS, read_remote_file};
-use roost_cli::status::service_definition::parse_installed_environment;
-use roost_host::HostPlatform;
 use roost_protocol::keeper_update::KeeperContractV1;
 use roost_worker::runtime::boot::ENV_COORDINATOR_URL;
 use serde_json::json;

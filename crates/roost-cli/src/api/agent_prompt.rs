@@ -104,7 +104,7 @@ pub async fn prompt(
     };
     let wait_outcome = match (response.wait_outcome.as_ref(), &wait, input) {
         (None, _, _) => None,
-        (Some(code), None, _) => {
+        (Some(_code), None, _) => {
             return Err(invalid(
                 "a wait outcome for a prompt with no wait asked for",
             ));
