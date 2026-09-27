@@ -2838,8 +2838,21 @@ failure mode this list exists to prevent.**
 > body: **a new workspace lint does not reach `roost-keeper` until someone adds
 > it to that copy.** `cargo xtask lint` is where a duplicated table belongs — a
 > rule flagging a crate whose `[lints]` is not `workspace = true` and which
-> defines a key the workspace table also defines. **That rule is owed to the
-> integrator and is not yet written.**
+> defines a key the workspace table also defines. **That rule is written**, as
+> `xtask/src/lint_table.rs`, with `roost-keeper` as the one `COPY_EXEMPT` entry.
+>
+> **PREDICTED, NOT DISCOVERED.** The workspace clippy was clean at `b13c2e05`,
+> and that number is measured on `v3`, which does **not** carry this hunk. The
+> moment it lands, `roost-keeper` is under four lint groups it has never been
+> under — `expect_used`, `unwrap_used`, `missing_debug_implementations`,
+> `rust_2018_idioms` — plus `unsafe_code = "forbid"` over raw-fd and
+>> controlling-TTY code the gate has never actually enforced on it. The 18
+>> `expect`/`unwrap` sites and the three `Debug` gaps are already cleared, so the
+> **Expect that merge to turn the workspace clippy red.** It is not a reason to
+> hold the merge; it is a reason to have said so first. The unused-import class
+> is the one to look for in `roost-keeper`'s test files first, because that is
+> where the splits happened, and `cargo check` and `cargo test` both pass over
+> an unused import.
 
 | # | Carried on | What | Why it is on the list rather than merged already |
 | M1 | `v3-worker`, **`WorkerLeadW2`'s corrected form — not `d02d6ec3`** | `crates/roost-keeper/Cargo.toml` restates the workspace lint table in full, with one `unsafe_code = "allow"` override | Per-ref measured: `roost-worker`'s branch is the only one with the change, and the file is byte-identical to `v3` on `v3-coord`, `v3-web` and `v3-cli` — so the *original* hunk would have merged one-sided and silently. It also would not have parsed. Without this the crate is outside `[workspace.lints]` entirely, so `expect_used`, `unwrap_used` and `unsafe_code = "forbid"` never applied to it, 19 production `expect()`s survived, and `cargo clippy --workspace --all-targets -- -D warnings` passed over it **by not applying**. See the amendment above. |
@@ -2918,6 +2931,45 @@ rejection changes nothing. A `drop` called on a **reference** is the same thing 
 released where the author believed. The question for any file is not **"does it
 compile"** but **"does every comment in it describe what the adjacent line
 does."**
+
+### A green test over a subject nothing calls is a green nothing
+
+The firehose feed is the largest instance: **97 green test binaries, 618 green
+tests, and not one line of `src/` subscribes a bus.** Every adapter in
+`sync_ws/feed/` has zero `src/` callers, and so do `enqueue_into`,
+`observe_and_publish`, `publish_presence`, `subscribe_session_close`,
+`ui_state_seed_frames` and `with_meta`. `BUS_FRAME_ADAPTERS` names thirteen
+bus-to-adapter pairs and `tests/sync_feed_bus_coverage.rs` drives every row --
+so the table reads as covered while the path from "an event was committed" to
+"a browser saw it" does not exist.
+
+This is not a coverage gap. It is a gap in the PRODUCT that the coverage was
+arranged not to notice, and no pass count can distinguish the two, because the
+test is asserting that the table is internally consistent and an internally
+consistent table with no driver is a perfectly green nothing.
+
+**The requirement that follows, and it is now programme-wide:** for any test
+that drives a registry, a table, an adapter or a set of arms, the handoff must
+say **what in `src/` calls the thing it covers.** "The test passes" and "the
+subject of the test is reachable" are different claims, and a suite can be
+entirely green while every one of its subjects is dead code.
+
+**Why no mutation row would ever expose it, which is the sharper half.**
+`sync_feed_bus_coverage.rs` **cannot fail**: it asserts that thirteen
+bus-to-adapter pairs are internally consistent, and every line it can delete is
+correct, because consistency is not reachability. The test is not weak -- it is
+answering a different question from the one its name implies, and a mutation
+row mutates the code, not the question. So "run a mutation on it" is not a
+remedy here, and a gate that only knows how to mutate will report this class
+clean forever.
+
+**The question no gate asks is: what is this test exercising, and does anything
+in production call it?** A seam with no caller reads as finished -- which is why
+this file already carries an entry for "a seam that looks complete".
+
+Three instances in this programme, one defect at three sizes: a
+`collapsible_if` in one line of a file reported verified, a `ShellSpecResolver`
+trait with no implementation, and a whole module.
 
 ### A pattern that cannot match a legal form returns a confident negative
 
