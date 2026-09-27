@@ -2807,3 +2807,115 @@ proof.
   port's.** The port does `buckets.retain(|_, bucket| now < bucket.reset_at)`,
   dropping what has expired and reaching the fail-closed refusal only when the
   survivors alone fill the ceiling. Same guarantee, different mechanism.
+
+---
+
+## The integrator merge carry list
+
+Things that live on a track branch, are correct there, and would be easy to lose
+at a checkpoint merge. The integrator takes each of these deliberately rather
+than letting a merge resolve it by accident. **A row that is present and says
+"this is why" is a promise the repo can keep; a row that is absent is the
+failure mode this list exists to prevent.**
+
+| # | Carried on | What | Why it is on the list rather than merged already |
+|---|---|---|---|
+| M1 | `v3-worker` @ `d02d6ec3` | `crates/roost-keeper/Cargo.toml` gains `[lints]` / `workspace = true` above the existing `[lints.rust]` block | **Per-ref measured:** `v3-worker` INHERITS; `v3`, `v3-coord`, `v3-web`, `v3-cli`, `v3-cli-docs` all MISSING, and the file is byte-identical to `v3` on all four. So the three-way merge is one-sided and takes `v3-worker`'s hunk with **no conflict** — which is a silent fix, not a deliberate one. Without the inheritance the crate is outside `[workspace.lints]`, so `expect_used`, `unwrap_used` and `unsafe_code = "forbid"` never applied to it and `cargo clippy --workspace --all-targets -- -D warnings` passes over it by not applying. The commit that takes it should say so. |
+| M2 | `v3-coord` @ `edac76e2`+ | `roost_coord::auth::bootstrap_tokens::mint_host_bootstrap_token` | `roost-cli` restates four coordinator values — the column list, the `roost_bt_` bearer format, the 24h TTL, the SHA-256 digest — because `v3-cli` has never merged `v3-coord` and cannot compile a call to a function it does not have. **A fork that compiles and carries a header is worse than one that fails**, because a reviewer can skip it. Carried so the CLI checkpoint deliberately takes the coord side. |
+| M3 | `v3` @ `eb923a42`+ | the `AgentStatusOrder` identified-over-legacy arm | A deliberate superset of v2 that two coord tests are load-bearing for. It lives in the shared crate because a coord-only rule re-creates the drift this module removes, in the direction where a client shows a status its coordinator has retired. The coord checkpoint deletes its own copy; if the merge takes `v3`'s side of `agents/status_order.rs` the guard silently reverts and two green tests go red. |
+| M4 | `v3-worker` snap `87ee7b0e` | 34 paths of uncommitted W-C and W-2 work | Pushed as a snapshot, never committed. Until the worker checkpoint, the wave's code fixes exist only in that ref. **The worker track has twice now been one context-end from losing a wave** — this row is the reason the next one will not be. |
+
+## Three lessons from the four-track wave, and each one cost a real defect
+
+### A count is a claim about COVERAGE, and the question is always what the tool never reached
+
+`cargo check --all-targets` **without** `--keep-going` stops at the first failing
+target. Every track in this programme ran it, every track reported a number, and
+every number was a floor. The worker track's `--keep-going` run returned **~56
+errors across 14 test targets** after a lib that was already clean — and those
+test targets **had never been compiled in this project's history**. "The worker
+builds" and "the worker's tests build" are two claims and only the first had ever
+been true.
+
+`--keep-going` is the fix for the flag case. It is **not** the fix for the
+ordering case, and a slice proved the second independently: its run aborted on a
+stray brace it had introduced mid-edit, so "38 errors" meant *38 up to the first
+syntax error in a lib target*, and everything downstream was unmeasured. The
+honest statement for that slice was **"no error count at all"**, which is what
+the slice eventually said.
+
+The pattern generalises past rustc. `--all-targets` sounds total and was not, for
+a reason that had nothing to do with the flag.
+
+### A pass count is not a gate, because the deny-class lints are CLIPPY lints
+
+`expect_used` and `unwrap_used` are **clippy** lints. `cargo check` and
+`cargo test` cannot see them. A crate can compile, pass every test across 22
+binaries, and fail `cargo clippy --workspace --all-targets -- -D warnings` — and
+it did: `roost-keeper` sat at "131 passed / 0 failed" while carrying 18
+production `expect()` sites, reported to the integrator as a sign-off.
+
+CI enforces clippy in exactly one place (`.github/workflows/ci.yml:26`), so a
+crate signed off on `cargo test` was never signed off at all. **Run clippy per
+crate, one at a time, and never infer one crate's result from another's or from
+a workspace build.** The same crate had a second gate waiting behind the first:
+turning on the inherited table promotes `missing_debug_implementations = "warn"`
+to an error, and five `pub` types with no `Debug` were enumerated by reading
+before a single one was compiled.
+
+### `is_err()` claims that SOMETHING did, and a test that names a rule must pin the rule
+
+`assert!(restore(&payload).is_err())` was satisfied by a `NotARecord` parse
+failure and had nothing to do with the depth bound, the ratio bound, the unheld
+selection or the absent focus the test was named for. **Four separate rules, one
+assertion, zero coverage, green forever.**
+
+`assert!(matches!(restore(&payload), Err(LayoutRecordsError::Malformed { .. })))`
+does not. Adopted in one broadcast, it found **five real defects in three
+slices** before the next hour was out: two bare `is_err()` in the CLI's
+`command_tree_shape.rs` that could not tell `subcommand_required` from any other
+parse failure; a `RotationError` assertion that could not tell the
+coordinator's *considered refusal* from a local `KeyStoreError`; a second that
+could not tell "the coordinator said no" from "nobody answered", which is the
+entire distinction its test exists for; a `PairingError` assertion that an
+entropy failure satisfied; and one latent `SpawnRefusal` case that was right by
+coincidence today and would have absorbed a new variant silently tomorrow.
+
+The rule is greppable and it is cheap: **`is_err()` and `is_none()` in a test
+target are where this hides**, and pinning is load-bearing only where a `Result`
+could fail more than one way. An `Option` with a single documented refusal is
+already pinned.
+
+**And the sibling shape, which is the same defect wearing a comment.** Three
+findings in one slice were a doc that stated the correct rule sitting next to
+code that did something else: `restore` with a header promising
+`validate_stored`; `dismiss_at_ms` armed for `Failed` against a field documented
+"Stays until the user closes it"; `relevance` against a doc promising the late
+rejection changes nothing. A `drop` called on a **reference** is the same thing —
+`drop` takes ownership, so on a `&T` it drops the borrow and the guard is not
+released where the author believed. The question for any file is not **"does it
+compile"** but **"does every comment in it describe what the adjacent line
+does."**
+
+### A pattern that cannot match a legal form returns a confident negative
+
+Two of these, from the same hour, and the second is worse:
+
+- `grep -L 'lints.*workspace'` is line-oriented; `[lints]` and `workspace = true`
+  are on **two** lines in every manifest here, so the pattern could never match
+  and `-L` reported **all thirteen** crates as outside the lint table. The
+  integrator broadcast it; four agents caught it. A command that reports 100% of
+  crates as broken is reporting on itself, not on the tree.
+- `^\[lints\]` with a closing bracket matches `[lints]` and **cannot match
+  `[lints.rust]`** — which is a legal form of the thing being searched for. That
+  confident negative became "no `[lints]` table anywhere in the file", and the
+  file had one.
+
+**Ask what a command could have detected before reporting what it found**, and
+name the branch a manifest finding was measured on: a finding about a file is
+meaningless without the tree, and this one produced a genuine six-way
+disagreement that turned out to be two correct measurements of two different
+branches. A measurement must also say **what it contradicts** — a report that
+agrees with nothing is a report nobody checks, and the agent who named the
+conflict instead of resolving it is the reason that one was diagnosed as branch
+skew rather than as an error.
