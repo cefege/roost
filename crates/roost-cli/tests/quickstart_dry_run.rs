@@ -115,7 +115,7 @@ fn a_dry_run_resolves_both_services_on_a_machine_with_nothing_installed() {
     let endpoint = fresh_endpoint(None).expect("a loopback endpoint needs no front door");
     assert_eq!(endpoint.mode, EndpointMode::Local);
 
-    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, false)
+    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, None, false)
         .expect("the plan resolves on a machine with nothing installed");
 
     assert_eq!(resolved.coordinator.spec.role, ServiceRole::Coordinator);
@@ -148,7 +148,7 @@ fn a_dry_run_renders_the_definitions_a_real_run_would_install() {
         "ROOST_COORDINATOR_BIND=127.0.0.1:{}",
         endpoint.loopback_port
     );
-    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, false)
+    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, None, false)
         .expect("the plan resolves");
 
     for service in [&resolved.coordinator, &resolved.worker] {
@@ -184,7 +184,7 @@ fn a_dry_run_changes_nothing_on_disk() {
     // A release program at the path the plan resolves, so a dry run that
     // installed one would overwrite a file whose bytes a snapshot would catch.
     let endpoint = fresh_endpoint(None).expect("a loopback endpoint");
-    let first = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, false)
+    let first = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, None, false)
         .expect("the plan resolves");
     let program = first.coordinator.spec.program.clone();
     std::fs::create_dir_all(program.parent().expect("a parent")).expect("the release dir exists");
@@ -193,7 +193,7 @@ fn a_dry_run_changes_nothing_on_disk() {
     let before = tree_snapshot(&machine.root);
 
     let endpoint = fresh_endpoint(None).expect("a loopback endpoint");
-    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, false)
+    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, None, false)
         .expect("the plan resolves");
     // The rendered text is materialised, exactly as `print_plan` does.
     let _ = resolved
@@ -263,7 +263,14 @@ fn a_dry_run_of_a_rerun_keeps_the_installed_front_door() {
         "the listener stays on the loopback bind the install already declared"
     );
 
-    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, Some(&installed), false)
+    let resolved = plan::resolve_plan(
+        &env,
+        HostPlatform::Linux,
+        endpoint,
+        None,
+        Some(&installed),
+        false,
+    )
         .expect("the rerun plan resolves");
     assert!(resolved.coordinator_already_installed);
     let unit_text = resolved
@@ -276,6 +283,112 @@ fn a_dry_run_of_a_rerun_keeps_the_installed_front_door() {
     );
 }
 
+/// The bundle is named by BOTH definitions and lands inside the release, and
+/// the dry run writes neither. The half that matters most is the second: a
+/// dry run that copied the operator's bundle would mutate the very directory
+/// they are being asked about.
+#[test]
+fn a_dry_run_names_the_bundle_in_both_definitions_and_copies_nothing() {
+    let machine = TempMachine::new("bundle");
+    let env = machine.environment();
+    let source = machine.root.join("somewhere/apps/web/dist");
+    std::fs::create_dir_all(&source).expect("the bundle directory is created");
+    std::fs::write(source.join("index.html"), b"<html></html>\n").expect("the index is written");
+
+    let endpoint = fresh_endpoint(None).expect("a loopback endpoint");
+    let before = tree_snapshot(&machine.root);
+    let resolved = plan::resolve_plan(
+        &env,
+        HostPlatform::Linux,
+        endpoint,
+        Some(&source),
+        None,
+        false,
+    )
+    .expect("the plan resolves with a bundle");
+
+    let web_dir = resolved
+        .web_dir
+        .clone()
+        .expect("a run given a bundle resolves where it would install it");
+    assert!(
+        web_dir.ends_with("web"),
+        "the bundle is the release's own directory, beside bin/: {}",
+        web_dir.display()
+    );
+    assert!(
+        web_dir.parent().is_some_and(|root| root.join("bin").is_dir() || root.join("bin").ends_with("bin")),
+        "and the release's bin/ is its sibling: {}",
+        web_dir.display()
+    );
+
+    for service in [&resolved.coordinator, &resolved.worker] {
+        let text = service.definition_text(HostPlatform::Linux).expect("a linux unit renders");
+        assert!(
+            text.contains("ROOST_WEB_DIST_PATH") && text.contains(&web_dir.display().to_string()),
+            "both the coordinator and the worker door read this directory, so both definitions \
+             name it:\n{text}"
+        );
+    }
+
+    assert_eq!(
+        before,
+        tree_snapshot(&machine.root),
+        "a dry run copied the bundle, or staged anything beside the release"
+    );
+    assert!(
+        !web_dir.exists(),
+        "the destination is a real install's job: {}",
+        web_dir.display()
+    );
+}
+
+/// A run given no bundle leaves the two definitions in DIFFERENT states, and
+/// each is the one that role actually reads.
+///
+/// The coordinator's own resolution writes the setting blank rather than
+/// omitting it, and that is correct: an entry absent from a definition falls
+/// back to whatever the service manager's own environment holds, which is how a
+/// cleared front door comes back from a stale manager value. The worker is
+/// stamped only by an install that has a bundle, so it carries nothing at all.
+/// A test that asserted the two agreed would have been asserting a tidiness the
+/// product does not have and should not acquire.
+#[test]
+fn a_dry_run_without_a_bundle_leaves_each_definition_saying_nothing_is_served() {
+    let machine = TempMachine::new("no-bundle");
+    let env = machine.environment();
+    let endpoint = fresh_endpoint(None).expect("a loopback endpoint");
+    let resolved =
+        plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, None, false)
+            .expect("the plan resolves with no bundle");
+
+    assert_eq!(resolved.web_dir, None);
+    let coordinator = resolved
+        .coordinator
+        .definition_text(HostPlatform::Linux)
+        .expect("a linux unit renders");
+    assert!(
+        coordinator.contains("ROOST_WEB_DIST_PATH="),
+        "the coordinator's own resolution always writes the setting, so a cleared value is \
+         cleared the same way every time:\n{coordinator}"
+    );
+    assert!(
+        !coordinator.contains("ROOST_WEB_DIST_PATH=/"),
+        "and it must be blank rather than naming a directory: a path with nothing behind it \
+         reports a healthy spa line for a page that is not there:\n{coordinator}"
+    );
+
+    let worker = resolved
+        .worker
+        .definition_text(HostPlatform::Linux)
+        .expect("a linux unit renders");
+    assert!(
+        !worker.contains("ROOST_WEB_DIST_PATH"),
+        "the worker is stamped only by an install that has a bundle, so an install without one \
+         leaves it unset rather than stamping an empty path:\n{worker}"
+    );
+}
+
 /// The plan's definitions are the ones the services group's own tests pin, not
 /// a second rendering: the same renderer, the same spec, byte for byte.
 #[test]
@@ -284,7 +397,7 @@ fn the_dry_run_definition_is_the_text_the_install_would_write() {
     let env = machine.environment();
     let endpoint = fresh_endpoint(None).expect("a loopback endpoint");
     let endpoint_origin = endpoint.loopback_origin();
-    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, false)
+    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, None, false)
         .expect("the plan resolves");
 
     let spec = &resolved.worker.spec;

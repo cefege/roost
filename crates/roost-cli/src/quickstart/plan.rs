@@ -24,6 +24,7 @@
 
 use std::path::Path;
 
+use roost_host::coord_config_loader::ENV_WEB_DIST_PATH;
 use roost_host::{EnvSource, HostPlatform, ProtocolResult};
 
 use crate::quickstart::endpoint::QuickstartEndpoint;
@@ -31,6 +32,7 @@ use crate::services::definition_text::render_definition;
 use crate::services::install::{default_program_path, release_bin_dir};
 use crate::services::logrotate::{RotationPlan, rotation_plan};
 use crate::services::service_spec::{ServiceRole, ServiceSpec};
+use crate::services::web_bundle;
 use crate::status::service_definition::{InstalledEnvironment, parse_installed_environment};
 
 /// One resolved service, ready to be rendered or installed.
@@ -69,6 +71,10 @@ pub struct QuickstartPlan {
     /// the reason one of them gets none. Resolved through the same function the
     /// install uses, so a dry run cannot describe a rotation a real run skips.
     pub rotation: Vec<RotationPlan>,
+    /// Where the web bundle would be installed, or `None` when this run was
+    /// given no bundle. Both definitions name this path and `roost status` reads
+    /// it back out of the installed coordinator.
+    pub web_dir: Option<std::path::PathBuf>,
 }
 
 /// Resolve the whole plan, touching nothing.
@@ -83,18 +89,27 @@ pub fn resolve_plan(
     env: &dyn EnvSource,
     platform: HostPlatform,
     endpoint: QuickstartEndpoint,
+    web_dist: Option<&Path>,
     installed_coordinator: Option<&InstalledEnvironment>,
     installed_worker: bool,
 ) -> Result<QuickstartPlan, crate::command_error::CommandFailure> {
     let bin_dir = release_bin_dir(env, platform)?;
     let program = bin_dir.join(crate::deploy::apply_release::ROOST_PROGRAM);
+    // The directory a real run would install the bundle into, decided here so
+    // the printed definitions name the same path the install writes. A run
+    // given no `--web-dist` resolves to `None`, and neither definition carries
+    // the setting — the honest state of a machine given no bundle.
+    let web_dir = web_dist.map(|_| web_bundle::release_web_dir(&bin_dir));
     let home = env.home_dir().ok_or_else(|| {
         crate::command_error::CommandFailure::generic(
             "a first run needs a home directory, and this process could not resolve one",
         )
     })?;
 
-    let coordinator_decided = endpoint.coordinator_settings();
+    let mut coordinator_decided = endpoint.coordinator_settings();
+    if let Some(web_dir) = web_dir.as_deref() {
+        coordinator_decided.insert(ENV_WEB_DIST_PATH.to_string(), web_dir.display().to_string());
+    }
     let coordinator_spec = ServiceSpec::resolve(
         ServiceRole::Coordinator,
         &crate::deploy::apply_release::install_environment(env, &coordinator_decided),
@@ -103,13 +118,16 @@ pub fn resolve_plan(
     )?;
 
     let worker_decided = worker_decided_settings(&endpoint);
-    let worker_spec = ServiceSpec::resolve(
+    let mut worker_spec = ServiceSpec::resolve(
         ServiceRole::Worker,
         &crate::deploy::apply_release::install_environment(env, &worker_decided),
         platform,
         &program,
-    )?
-    .with_decided_one_shots(&worker_decided);
+    )?;
+    if let Some(web_dir) = web_dir.as_deref() {
+        worker_spec = worker_spec.with_setting(ENV_WEB_DIST_PATH, web_dir.display().to_string());
+    }
+    let worker_spec = worker_spec.with_decided_one_shots(&worker_decided);
 
     let link_program = installed_release_program(env, platform)
         .unwrap_or_else(|| default_program_path(env, platform).unwrap_or_else(|_| program.clone()));
@@ -132,6 +150,7 @@ pub fn resolve_plan(
             link_program,
         ),
         rotation,
+        web_dir,
     })
 }
 
@@ -232,6 +251,21 @@ pub fn print_plan(plan: &QuickstartPlan, platform: HostPlatform) {
             .definition_text(platform)
             .unwrap_or_else(|error| format!("<this platform renders no definition: {error}>"))
     );
+    match &plan.web_dir {
+        Some(web_dir) => {
+            println!("web bundle");
+            println!("  {}", web_dir.display());
+            println!("    both definitions would serve this directory. It is the release's own,");
+            println!("    so retiring the release retires the page with it.");
+        }
+        None => {
+            println!("web bundle");
+            println!("  none: this run was given no --web-dist, so neither definition would");
+            println!("    serve a page and the coordinator answers 404 for every URL.");
+        }
+    }
+    println!();
+
     println!("--- log rotation ---");
     print_rotation(plan);
     eprintln!(

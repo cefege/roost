@@ -113,6 +113,46 @@ pub fn release_asset_name(
     }
 }
 
+/// The keeper asset a platform/arch pair installs from.
+///
+/// The `roost` name with `roost` replaced by `roost-keeper`, never a second
+/// table. The release pipeline emits both from one matrix entry, so a table
+/// that could name a keeper asset the pipeline never publishes is a 404 on one
+/// architecture and not another — the shape of bug that ships.
+///
+/// `replacen` with a count of ONE, and that detail is the whole reason this is
+/// written as a substitution rather than as `replace`: `roost-darwin-x64`
+/// names the program twice, and an un-counted replacement of the first
+/// occurrence would ask for `roost-keeper-darwin-x64`, which is an asset name
+/// the pipeline has never published.
+///
+/// Returns an owned `String` where [`release_asset_name`] returns a `&'static
+/// str`, because a substitution produces a new string rather than naming one.
+/// Every caller builds a URL from it, so the allocation lands where the URL is
+/// built and nowhere else.
+pub fn keeper_release_asset_name(
+    platform: HostPlatform,
+    arch: &str,
+) -> Result<String, CommandFailure> {
+    Ok(release_asset_name(platform, arch)?.replacen(ROOST_PROGRAM, KEEPER_PROGRAM, 1))
+}
+
+/// The web bundle a release publishes, and the only asset whose name is not
+/// per-platform.
+///
+/// One bundle serves all four targets: the page is the same build, differing
+/// only in which binaries serve it. So one name is not a simplification here,
+/// it is the shape the asset actually has, and a per-platform table would be
+/// four chances to invent a name the pipeline does not emit.
+pub const WEB_ASSET_NAME: &str = "roost-web.tar.gz";
+
+/// The `roost` executable's own file name, and the prefix the keeper's name is
+/// derived from. Both are what the release pipeline writes files under.
+const ROOST_PROGRAM: &str = "roost";
+
+/// The keeper executable beside it.
+const KEEPER_PROGRAM: &str = "roost-keeper";
+
 /// The architecture names a release pipeline and a Rust build disagree about,
 /// folded to the release pipeline's spelling.
 fn normalized_arch(arch: &str) -> Result<&'static str, CommandFailure> {
@@ -217,6 +257,59 @@ pub async fn download_and_verify(
     asset: &str,
     executable: &Path,
 ) -> Result<VerifiedCandidate, CandidateError> {
+    let (staged, file) = candidate::open_candidate(executable)?;
+    let (url, sha256) = match verified_download(env, tag, asset, file).await {
+        Ok(verified) => verified,
+        Err(failure) => {
+            let _ = std::fs::remove_file(&staged);
+            return Err(failure);
+        }
+    };
+    let verified = VerifiedCandidate {
+        path: staged,
+        sha256,
+        url,
+    };
+    // The bytes are read back from disk before anything may rename them, because
+    // what gets installed is the file as it is NOW, not the body as it arrived.
+    if let Err(failure) = candidate::confirm_staged_bytes(&verified) {
+        let _ = std::fs::remove_file(&verified.path);
+        return Err(failure);
+    }
+    Ok(verified)
+}
+
+/// Download one asset and prove it, writing the body into `file`.
+///
+/// The one verification this crate performs, for every asset it fetches from a
+/// release: the published digest is read BEFORE the body is requested, and a
+/// body that fails its check leaves `file` truncated rather than complete. The
+/// binary, the keeper and the web bundle are three fetches, and three copies
+/// of this would be three chances to ship one of them unverified — which is
+/// the defect the previous single-asset shape could not have, and would have
+/// grown the moment a second asset existed.
+pub async fn download_verified_to(
+    env: &dyn EnvSource,
+    tag: &str,
+    asset: &str,
+    file: std::fs::File,
+) -> Result<String, CandidateError> {
+    verified_download(env, tag, asset, file)
+        .await
+        .map(|(_url, sha256)| sha256)
+}
+
+/// Fetch the sidecar, fetch the body, and refuse a body that does not match.
+///
+/// Returns the URL it fetched and the digest the bytes actually hashed to, so a
+/// caller that stages beside an executable and a caller that stages into a
+/// temporary file both record where the bytes came from.
+async fn verified_download(
+    env: &dyn EnvSource,
+    tag: &str,
+    asset: &str,
+    file: std::fs::File,
+) -> Result<(String, String), CandidateError> {
     let base = release_base_url(env, tag);
     let url = format!("{}/{asset}", base.trim_end_matches('/'));
     let client = reqwest::Client::builder()
@@ -227,16 +320,8 @@ pub async fn download_and_verify(
             cause: error.to_string(),
         })?;
     let expected = fetch_published_digest(&client, &url, asset).await?;
-    let (staged, file) = candidate::open_candidate(executable)?;
-    let received = match stream_to_file(&client, &url, asset, file).await {
-        Ok(digest) => digest,
-        Err(failure) => {
-            let _ = std::fs::remove_file(&staged);
-            return Err(failure);
-        }
-    };
+    let received = stream_to_file(&client, &url, asset, file).await?;
     if received != expected {
-        let _ = std::fs::remove_file(&staged);
         return Err(CandidateError::DigestMismatch {
             asset: asset.to_string(),
             expected,
@@ -244,18 +329,7 @@ pub async fn download_and_verify(
         });
     }
     info!(asset, sha256 = %received, "release asset verified against its published digest");
-    let verified = VerifiedCandidate {
-        path: staged,
-        sha256: received,
-        url,
-    };
-    // The bytes are read back from disk before anything may rename them, because
-    // what gets installed is the file as it is NOW, not the body as it arrived.
-    if let Err(failure) = candidate::confirm_staged_bytes(&verified) {
-        let _ = std::fs::remove_file(&verified.path);
-        return Err(failure);
-    }
-    Ok(verified)
+    Ok((url, received))
 }
 
 /// The digest the release published, refusing anything that is not one.

@@ -31,10 +31,12 @@ pub mod join;
 pub mod plan;
 pub mod self_link;
 
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::Args;
+use roost_host::coord_config_loader::ENV_WEB_DIST_PATH;
 use roost_host::{HostPlatform, ProcessEnv};
 use roost_worker::runtime::boot::ENV_COORDINATOR_URL;
 
@@ -48,6 +50,7 @@ use crate::quickstart::install::{
 use crate::services::install::{default_program_path, release_bin_dir};
 use crate::services::service_environment::ENV_BOOTSTRAP_TOKEN;
 use crate::services::service_spec::{ServiceRole, ServiceSpec};
+use crate::services::web_bundle;
 use crate::status::{collect, render};
 use crate::wall_clock;
 
@@ -89,11 +92,23 @@ pub struct QuickstartArgs {
     /// completion on a machine with nothing installed.
     #[arg(long)]
     pub dry_run: bool,
+    /// The built web bundle to install beside this release's executables, and to
+    /// point both definitions at. It must hold an `index.html`; a directory
+    /// without one is refused before anything is written, because a
+    /// coordinator serving it answers 404 for every URL and reports itself up.
+    #[arg(long, value_name = "DIR")]
+    pub web_dist: Option<PathBuf>,
 }
 
 pub async fn run(args: &QuickstartArgs) -> Result<ExitCode, CommandFailure> {
     let env = ProcessEnv::new();
     let platform = roost_host::supported_host_platform()?;
+    // Checked before the endpoint is even decided, so a `--web-dist` naming a
+    // directory that was never built is a usage refusal rather than an install
+    // that reports success and then answers 404 for every URL.
+    if let Some(source) = &args.web_dist {
+        web_bundle::validate(source).map_err(|error| CommandFailure::usage(error.to_string()))?;
+    }
 
     // Everything that can be wrong with the invocation is wrong before the
     // first write, including on a rerun: the endpoint comes from the installed
@@ -111,21 +126,23 @@ pub async fn run(args: &QuickstartArgs) -> Result<ExitCode, CommandFailure> {
     };
 
     if args.dry_run {
-        return dry_run(&env, platform, endpoint, installed.as_ref());
+        return dry_run(&env, platform, endpoint, args.web_dist.as_deref(), installed.as_ref());
     }
-    install_everything(&env, platform, endpoint).await
+    install_everything(&env, platform, endpoint, args.web_dist.as_deref()).await
 }
 
 fn dry_run(
     env: &roost_host::ProcessEnv,
     platform: HostPlatform,
     endpoint: QuickstartEndpoint,
+    web_dist: Option<&Path>,
     installed: Option<&crate::status::service_definition::InstalledEnvironment>,
 ) -> Result<ExitCode, CommandFailure> {
     let resolved = plan::resolve_plan(
         env,
         platform,
         endpoint,
+        web_dist,
         installed,
         plan::worker_installed(env, platform),
     )?;
@@ -137,18 +154,21 @@ async fn install_everything(
     env: &roost_host::ProcessEnv,
     platform: HostPlatform,
     endpoint: QuickstartEndpoint,
+    web_dist: Option<&Path>,
 ) -> Result<ExitCode, CommandFailure> {
-    eprintln!(
-        ">> installing this build into {}",
-        release_bin_dir(env, platform)?.display()
-    );
+    let bin_dir = release_bin_dir(env, platform)?;
+    eprintln!(">> installing this build into {}", bin_dir.display());
 
     let service_dir = service_dir(env, platform)?;
-    let bin_dir = release_bin_dir(env, platform)?;
     let programs = LocalPrograms::of_this_process()?;
     install_programs(&programs, &bin_dir)?;
+    // The bundle goes in before either definition names it, for the same reason
+    // the programs do: a definition pointing at a directory that is not there
+    // yet is a service whose first activation serves nothing.
+    let web_dir = install_local_bundle(web_dist, &bin_dir)?;
 
-    let coordinator_spec = coordinator_spec(env, platform, &bin_dir, &endpoint)?;
+    let coordinator_spec =
+        coordinator_spec(env, platform, &bin_dir, &endpoint, web_dir.as_deref())?;
     prepare_service_directories(&coordinator_spec)?;
     eprintln!(">> installing {}", coordinator_spec.label);
     let coordinator_outcome =
@@ -176,7 +196,8 @@ async fn install_everything(
     )
     .await?;
 
-    let worker_spec = local_worker_spec(env, platform, &bin_dir, &endpoint, &grant)?;
+    let worker_spec =
+        local_worker_spec(env, platform, &bin_dir, &endpoint, &grant, web_dir.as_deref())?;
     prepare_service_directories(&worker_spec)?;
     eprintln!(">> installing {}", worker_spec.label);
     let worker_outcome = deploy_local_definition(&worker_spec, platform, &service_dir).await?;
@@ -226,10 +247,14 @@ async fn install_everything(
 fn coordinator_spec(
     env: &roost_host::ProcessEnv,
     platform: HostPlatform,
-    bin_dir: &std::path::Path,
+    bin_dir: &Path,
     endpoint: &QuickstartEndpoint,
+    web_dir: Option<&Path>,
 ) -> Result<ServiceSpec, CommandFailure> {
-    let decided = endpoint.coordinator_settings();
+    let mut decided = endpoint.coordinator_settings();
+    if let Some(web_dir) = web_dir {
+        decided.insert(ENV_WEB_DIST_PATH.to_string(), web_dir.display().to_string());
+    }
     let install_env = crate::deploy::apply_release::install_environment(env, &decided);
     let program = bin_dir.join(crate::deploy::apply_release::ROOST_PROGRAM);
     ServiceSpec::resolve(ServiceRole::Coordinator, &install_env, platform, &program)
@@ -241,17 +266,46 @@ fn coordinator_spec(
 fn local_worker_spec(
     env: &roost_host::ProcessEnv,
     platform: HostPlatform,
-    bin_dir: &std::path::Path,
+    bin_dir: &Path,
     endpoint: &QuickstartEndpoint,
     grant: &grant::OneShotGrant,
+    web_dir: Option<&Path>,
 ) -> Result<ServiceSpec, CommandFailure> {
     let mut decided = endpoint.coordinator_settings();
     decided.insert(ENV_COORDINATOR_URL.to_string(), endpoint.loopback_origin());
     decided.insert(ENV_BOOTSTRAP_TOKEN.to_string(), grant.expose().to_string());
     let install_env = crate::deploy::apply_release::install_environment(env, &decided);
     let program = bin_dir.join(crate::deploy::apply_release::ROOST_PROGRAM);
-    let resolved = ServiceSpec::resolve(ServiceRole::Worker, &install_env, platform, &program)?;
+    let mut resolved = ServiceSpec::resolve(ServiceRole::Worker, &install_env, platform, &program)?;
+    // The worker reads its dist path from the ambient environment like any
+    // other setting, and it is deliberately NOT in the chosen-entries list:
+    // that list means "an operator's answer a redeploy must keep", which a path
+    // into a release directory is not, because a later deploy retires that
+    // release. So the installer that knows which release this is stamps it,
+    // once, and every other install re-stamps rather than preserving.
+    if let Some(web_dir) = web_dir {
+        resolved = resolved.with_setting(ENV_WEB_DIST_PATH, web_dir.display().to_string());
+    }
     Ok(resolved.with_decided_one_shots(&decided))
+}
+
+/// Install a `--web-dist` beside the release's executables, and report the
+/// directory both definitions will be pointed at.
+fn install_local_bundle(
+    web_dist: Option<&Path>,
+    bin_dir: &Path,
+) -> Result<Option<PathBuf>, CommandFailure> {
+    let Some(source) = web_dist else {
+        return Ok(None);
+    };
+    let installed = web_bundle::install_from_dir(source, &web_bundle::release_web_dir(bin_dir))
+        .map_err(|error| CommandFailure::generic(error.to_string()))?;
+    eprintln!(
+        ">> installed the web bundle ({} files) into {}",
+        installed.files,
+        installed.root.display()
+    );
+    Ok(Some(installed.root))
 }
 
 /// Poll the coordinator's own loopback listener until it answers its identity

@@ -24,3 +24,4 @@ pub mod service_settings;
 pub mod service_spec;
 pub mod systemd_syntax;
 pub mod systemd_unit;
+pub mod web_bundle;
