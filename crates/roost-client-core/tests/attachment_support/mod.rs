@@ -38,7 +38,7 @@ pub struct FakeEnvironment {
     pub peer_available: bool,
     pub tab_id: String,
     pub device_fingerprint: String,
-    pub mint: Result<AttachmentDirectGrantResponse, ()>,
+    pub mint: Option<AttachmentDirectGrantResponse>,
     pub peer_id: Option<String>,
     pub loopback: RouteOpen,
     pub peer: RouteOpen,
@@ -55,7 +55,7 @@ impl FakeEnvironment {
             peer_available: true,
             tab_id: "tab-a".to_owned(),
             device_fingerprint: "device-a".to_owned(),
-            mint: Ok(AttachmentDirectGrantResponse {
+            mint: Some(AttachmentDirectGrantResponse {
                 grant_id: "grant-a".to_owned(),
                 secret: "secret-a".to_owned(),
                 worker_epoch: "epoch-a".to_owned(),
@@ -105,7 +105,7 @@ impl AttachmentDirectEnvironment for FakeEnvironment {
     fn mint_grant(
         &mut self,
         request: &AttachmentDirectGrantRequest,
-    ) -> Result<AttachmentDirectGrantResponse, ()> {
+    ) -> Option<AttachmentDirectGrantResponse> {
         self.calls.push("mint".to_owned());
         self.minted.push(request.clone());
         self.mint.clone()

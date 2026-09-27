@@ -83,7 +83,7 @@ impl AttachmentPacketQueue {
             return Err(AttachmentPacketError::Closed);
         }
         let length = bytes.len();
-        if length < 1 || length > ATTACHMENT_LOGICAL_FRAME_MAX_BYTES {
+        if !(1..=ATTACHMENT_LOGICAL_FRAME_MAX_BYTES).contains(&length) {
             return Err(AttachmentPacketError::MessageSize);
         }
         if self.next_message_id == 0 {

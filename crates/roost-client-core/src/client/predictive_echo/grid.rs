@@ -72,11 +72,7 @@ pub enum PredictionVerdict {
 /// `None` means a sparse delta did not include the row, while `Some("")` means
 /// the represented row is blank or ends before the requested column — the two
 /// are different facts and only one of them can hold an echo.
-pub fn cell_char_at<'frame>(
-    frame: &'frame CellGridFrame,
-    row: u32,
-    col: i64,
-) -> Option<&'frame str> {
+pub fn cell_char_at(frame: &CellGridFrame, row: u32, col: i64) -> Option<&str> {
     let found = frame
         .viewport_rows
         .iter()

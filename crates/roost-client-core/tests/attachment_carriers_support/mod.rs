@@ -46,7 +46,7 @@ pub fn grant(total_bytes: u64) -> AttachmentDirectGrant {
         peer_supported: true,
         stun_urls: Vec::new(),
     };
-    AttachmentDirectGrant::from_response(request, "tab-a", "device-a", Ok(response))
+    AttachmentDirectGrant::from_response(request, "tab-a", "device-a", response)
         .expect("a complete answer is a grant")
 }
 
@@ -93,7 +93,6 @@ pub fn server_frame_bytes(frame: ServerFrame) -> Vec<u8> {
     AttachmentTransferServerFrame {
         __buffa_unknown_fields: Default::default(),
         frame: Some(frame),
-        ..Default::default()
     }
     .encode_to_vec()
 }

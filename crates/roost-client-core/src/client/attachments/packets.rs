@@ -295,7 +295,7 @@ fn assert_packet_fields(
         return Err(AttachmentPacketError::MessageId);
     }
     let total_bytes = header.total_bytes as usize;
-    if total_bytes < 1 || total_bytes > ATTACHMENT_LOGICAL_FRAME_MAX_BYTES {
+    if !(1..=ATTACHMENT_LOGICAL_FRAME_MAX_BYTES).contains(&total_bytes) {
         return Err(AttachmentPacketError::MessageSize);
     }
     let offset_bytes = header.offset_bytes as usize;

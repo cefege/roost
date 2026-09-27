@@ -155,7 +155,7 @@ fn a_size_no_peer_could_read_exactly_names_an_unrepresentable_file_size() {
 #[test]
 fn a_refused_or_unreachable_coordinator_names_a_refused_grant() {
     let mut environment = FakeEnvironment::with_door("worker-a");
-    environment.mint = Err(());
+    environment.mint = None;
 
     assert_eq!(
         upload_attachment_direct(&request(), &mut environment),
@@ -185,7 +185,7 @@ fn a_grant_with_no_tab_or_device_names_a_grant_mismatch() {
 fn a_worker_without_the_peer_route_names_an_unsupported_peer() {
     let mut environment = FakeEnvironment::with_door("worker-a");
     environment.loopback = FakeEnvironment::refused("loopback unavailable", false);
-    environment.mint = Ok(AttachmentDirectGrantResponse {
+    environment.mint = Some(AttachmentDirectGrantResponse {
         grant_id: "grant-a".to_owned(),
         secret: "secret-a".to_owned(),
         worker_epoch: "epoch-a".to_owned(),

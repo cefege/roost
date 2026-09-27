@@ -17,11 +17,11 @@ use roost_protocol::cell::{CellGridFrame, CellSpan};
 // Re-exported rather than left behind `report`: these two are what the
 // overlay and its tests name, and a split that changes every caller's import
 // path is a split that reaches outside its own crate.
-pub use report::{EchoPaint, PredictedCell};
 use self::report::{EchoDebug, ResetReason};
 use crate::client::predictive_echo::expiry::{ExpiryCheck, expiry_check, expiry_delay_ms};
 use crate::client::predictive_echo::grid::Prediction;
 use crate::store::prefs::PredictMode;
+pub use report::{EchoPaint, PredictedCell};
 
 /// srtt/2 above this engages predictions. Low enough that local echo engages on
 /// a LAN or tailnet link (~15-30 ms RTT); only a single-digit-ms loopback is a

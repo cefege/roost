@@ -4,6 +4,8 @@
 //! `local_terminal_grant_backoff`; the shared session table and the
 //! mint-completing harness live in `local_terminal_grants_support`.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 mod local_terminal_grants_support;
 
 use std::collections::BTreeSet;

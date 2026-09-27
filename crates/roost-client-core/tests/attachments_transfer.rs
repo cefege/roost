@@ -17,15 +17,13 @@
 
 use roost_client_core::ClientCore;
 use roost_client_core::client::attachments::transfer::ledger::{
-    begin_upload_card, record_upload_progress, settle_upload_card,
+    begin_upload_card, settle_upload_card,
 };
 use roost_client_core::client::attachments::transfer::receipt::{
-    AttachmentTransferStatus, COORDINATOR_STATUS_DEADLINE_MS, RECEIPT_SOURCES, ReceiptOutcome,
-    ReceiptSource, settle_from_receipt,
+    AttachmentTransferStatus, RECEIPT_SOURCES, ReceiptOutcome, ReceiptSource, settle_from_receipt,
 };
 use roost_client_core::client::attachments::transfer::{
-    AttachmentTransferAck, AttachmentTransferCarrierError, DIRECT_CHUNK_BYTES, DirectUpload,
-    InFlightChunk, SliceRequest,
+    AttachmentTransferAck, DIRECT_CHUNK_BYTES, DirectUpload, InFlightChunk, SliceRequest,
 };
 use roost_client_core::store::transfers::TransferState;
 
@@ -194,10 +192,6 @@ fn settles_a_lost_final_ack_from_its_authenticated_direct_receipt() {
         upload.outcome().map(|result| result.abs_path),
         Some("/worker/final-receipt.bin".to_owned())
     );
-    assert!(
-        COORDINATOR_STATUS_DEADLINE_MS > 0,
-        "the coordinator probe is bounded"
-    );
 }
 
 #[test]
@@ -245,7 +239,6 @@ fn does_not_resume_a_nonfinal_direct_upload_through_coordinator_status() {
     // sent again.
     let mut upload = DirectUpload::new("upload-a", DIRECT_CHUNK_BYTES + 1);
     let mut sent_sequences = Vec::new();
-    let mut first_in_flight = None;
 
     while let Some(request) = upload.next_slice() {
         let data = vec![request.bytes as u8; request.bytes];
@@ -255,7 +248,6 @@ fn does_not_resume_a_nonfinal_direct_upload_through_coordinator_status() {
         let in_flight = upload.in_flight().expect("a chunk is in flight").clone();
         sent_sequences.push(in_flight.seq);
         if sent_sequences.len() == 1 {
-            first_in_flight = Some(in_flight);
             let receipt = AttachmentTransferStatus {
                 upload_id: "upload-a".to_owned(),
                 next_seq: 1,
@@ -266,11 +258,7 @@ fn does_not_resume_a_nonfinal_direct_upload_through_coordinator_status() {
                 error: String::new(),
             };
             assert_eq!(
-                settle_from_receipt(
-                    &first_in_flight.expect("the first chunk"),
-                    ReceiptSource::Carrier,
-                    Some(&receipt),
-                ),
+                settle_from_receipt(&in_flight, ReceiptSource::Carrier, Some(&receipt),),
                 ReceiptOutcome::TryNextSource,
                 "a receipt for an uncommitted chunk does not settle it"
             );
@@ -338,10 +326,12 @@ fn a_completed_transfer_verifies_its_digest_before_the_path_is_recorded() {
         None,
         "no path is recorded for a refused chunk"
     );
-    assert_eq!(
-        settle_upload_card(core.store_mut(), "upload-a", Err(&refused.reason), 1),
-        true
-    );
+    assert!(settle_upload_card(
+        core.store_mut(),
+        "upload-a",
+        Err(&refused.reason),
+        1
+    ));
     assert_eq!(
         core.store()
             .transfers

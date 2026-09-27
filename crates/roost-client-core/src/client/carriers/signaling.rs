@@ -321,10 +321,11 @@ impl Signalling {
         // retiring it for a slow attempt would drop a live session.
         let negotiating = matches!(self.phase, PeerPhase::Gathering | PeerPhase::Negotiating);
         let waited = now_ms.saturating_sub(self.attempt_started_ms);
-        if negotiating && waited >= TERMINAL_PEER_NEGOTIATION_DEADLINE_MS {
-            if let Some(id) = self.attempt_id() {
-                out.extend(self.fault(id, CarrierFault::InvalidOffer, "negotiation deadline"));
-            }
+        if negotiating
+            && waited >= TERMINAL_PEER_NEGOTIATION_DEADLINE_MS
+            && let Some(id) = self.attempt_id()
+        {
+            out.extend(self.fault(id, CarrierFault::InvalidOffer, "negotiation deadline"));
         }
         out
     }

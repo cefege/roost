@@ -144,7 +144,7 @@ fn a_grant_admits_only_the_upload_it_names() {
         request.clone(),
         "tab-a",
         "device-a",
-        Ok(grant_response()),
+        grant_response(),
     )
     .expect("a complete answer is a grant");
     assert!(grant.admits(&request));
@@ -166,15 +166,13 @@ fn a_grant_admits_only_the_upload_it_names() {
 
 #[test]
 fn an_answer_without_a_secret_is_not_a_grant() {
+    // A grant is folded from an answer that EXISTS. The no-answer case is not
+    // this function's to decide: `mint_grant` reports it as `None` and
+    // `attachments_fallback.rs` pins what the caller then does with it.
     let mut response = grant_response();
     response.secret = String::new();
     assert_eq!(
-        AttachmentDirectGrant::from_response(grant_request(), "tab-a", "device-a", Err(())),
-        None,
-        "an unreachable coordinator is a refusal, not a pending state"
-    );
-    assert_eq!(
-        AttachmentDirectGrant::from_response(grant_request(), "tab-a", "device-a", Ok(response)),
+        AttachmentDirectGrant::from_response(grant_request(), "tab-a", "device-a", response),
         None
     );
 }
@@ -185,7 +183,7 @@ fn a_grants_hello_names_the_whole_authenticated_tuple() {
         grant_request(),
         "tab-a",
         "device-a",
-        Ok(grant_response()),
+        grant_response(),
     )
     .expect("a complete answer is a grant");
     let hello = grant.hello("peer-a");

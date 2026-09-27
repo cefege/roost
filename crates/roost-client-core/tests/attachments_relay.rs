@@ -46,9 +46,9 @@ impl AttachmentDirectEnvironment for NoDirectEnvironment {
     fn mint_grant(
         &mut self,
         request: &AttachmentDirectGrantRequest,
-    ) -> Result<AttachmentDirectGrantResponse, ()> {
+    ) -> Option<AttachmentDirectGrantResponse> {
         self.minted.push(request.clone());
-        Ok(AttachmentDirectGrantResponse {
+        Some(AttachmentDirectGrantResponse {
             grant_id: "grant-a".to_owned(),
             secret: "secret-a".to_owned(),
             worker_epoch: "epoch-a".to_owned(),
