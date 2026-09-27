@@ -2994,6 +2994,44 @@ without either being wrong** — unresolved-name errors stop rustc before method
 resolution, so the E0599s were never emitted in that run. Report it as a
 floor-from-reading, and say which of the two numbers it bounds.
 
+## Name the act of reading the state, never the value you read
+
+Everything in this programme that was **captured at write time and consumed at
+read time** has decayed, and the list is long enough to be a pattern rather than
+a tally:
+
+| captured | consumed as | what it had become |
+|---|---|---|
+| three mutation rows in a peer message | a row ledger | **unrecoverable** — the message cannot be read back |
+| a starting sha in a C2 brief | the tree to work from | **two commits stale plus an uncommitted edit**, on a track that decayed twice in the time it took to check |
+| a handoff note | the state of a worktree | a **moment**, not a state — and the note that said "uncommitted" about work that had since been committed |
+| "7.6 GiB in the CLI target dir" | a reclaim decision | the directory was **133 MiB**; the figure belonged to a different tree |
+| "62 ungated `unwrap`/`expect` sites" | work to do | a **miscount** — a count of occurrences presented as a count of missing declarations |
+| "21 subcommands" | a test assertion | v2's surface, not the v3 dispatcher's **25** |
+| "a Rust file has no target directory" | nothing to reclaim | the path was **wrong**; the real one held 5.7 GiB |
+
+**The rule, and it costs nothing:**
+
+> **Do not name a starting sha, a file count, or a state. Name the ACT of reading
+> it, and read it from the worktree at the moment you need it.**
+
+A brief that says *"read the tip when C2 opens, from the worktree rather than
+from any handoff note"* stays true however far the branch has moved. A brief that
+says *"start from `d1728b32`"* is false the moment a second commit lands, and
+**nothing notices the gap** — which is the whole failure. A handoff note records
+a moment; a worktree records a state.
+
+**This is the same defect as a row that exists only in a message, one layer up.**
+There, a value was captured in a place that could not be read back. Here, a
+value was captured in a place that *could* be read back and was not, because
+reading it was optional. The defence is the same in both: **put it where it
+cannot go stale, or make reading it the first instruction rather than a
+footnote.**
+
+The cost of getting it wrong is not symmetric. A stale sha sends a lead looking
+for work that is already done — which is exactly what happened here, and it
+would have cost C2 an afternoon of re-deriving a tree that had moved twice.
+
 ## Coordinator track — tasks (S2)
 
 | # | Edit | Test that must fail |
