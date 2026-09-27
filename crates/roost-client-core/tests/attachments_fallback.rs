@@ -1,87 +1,26 @@
-impl FakeEnvironment {
-    fn new() -> Self {
-        Self {
-            door: None,
-            peer_available: true,
-            tab_id: "tab-a".to_owned(),
-            device_fingerprint: "device-a".to_owned(),
-            mint: Ok(AttachmentDirectGrantResponse {
-                grant_id: "grant-a".to_owned(),
-                secret: "secret-a".to_owned(),
-                worker_epoch: "epoch-a".to_owned(),
-                peer_supported: true,
-                stun_urls: Vec::new(),
-            }),
-            peer_id: Some("peer-a".to_owned()),
-            loopback: RouteOpen::Opened,
-            peer: RouteOpen::Opened,
-            calls: Vec::new(),
-            minted: Vec::new(),
-        }
-    }
+//! Which carrier an upload falls back to, and which refusal may not fall back
+//! at all. The defect class is a client that re-sends a file it already half
+//! sent: a chunk that already left the browser cannot be re-sent, because the
+//! worker may have committed it.
+//!
+//! Every named refusal in the loader has a case here, because each one is a
+//! different reason a user sees a different thing happen. Ported from
+//! `apps/web/tests/attachments*.test.ts`.
 
-    fn with_door(worker_fingerprint: &str) -> Self {
-        Self {
-            door: Some(LocalWorkerDoor {
-                origin: "http://127.0.0.1:4104".to_owned(),
-                worker_fingerprint: worker_fingerprint.to_owned(),
-            }),
-            ..Self::new()
-        }
-    }
+mod attachment_support;
 
-    fn refused(reason: &str, sent_chunk: bool) -> RouteOpen {
-        RouteOpen::Refused(AttachmentTransferCarrierError::refused(reason, sent_chunk))
-    }
-}
+use attachment_support::*;
+use roost_client_core::client::attachments::direct::{
+    AttachmentDirectEnvironment, AttachmentDirectUploadRequest, DirectAttempt, DirectRoute,
+    DirectUnavailableReason, LocalWorkerDoor, RouteOpen, upload_attachment_direct,
+};
+use roost_client_core::client::attachments::grant::{
+    AttachmentDirectGrant, AttachmentDirectGrantRequest, AttachmentDirectGrantResponse,
+};
+use roost_client_core::client::attachments::transfer::{
+    AttachmentTransferCarrierError, MAX_SAFE_TOTAL_BYTES,
+};
 
-impl AttachmentDirectEnvironment for FakeEnvironment {
-    fn read_local_worker_door(&self) -> Option<LocalWorkerDoor> {
-        self.door.clone()
-    }
-
-    fn peer_available(&self) -> bool {
-        self.peer_available
-    }
-
-    fn tab_id(&self) -> String {
-        self.tab_id.clone()
-    }
-
-    fn device_fingerprint(&self) -> String {
-        self.device_fingerprint.clone()
-    }
-
-    fn mint_grant(
-        &mut self,
-        request: &AttachmentDirectGrantRequest,
-    ) -> Result<AttachmentDirectGrantResponse, ()> {
-        self.calls.push("mint".to_owned());
-        self.minted.push(request.clone());
-        self.mint.clone()
-    }
-
-    fn create_peer_id(&mut self) -> Option<String> {
-        self.calls.push("peer-id".to_owned());
-        self.peer_id.clone()
-    }
-
-    fn open_loopback_route(
-        &mut self,
-        _door: &LocalWorkerDoor,
-        _grant: &AttachmentDirectGrant,
-    ) -> RouteOpen {
-        self.calls.push("loopback".to_owned());
-        self.loopback.clone()
-    }
-
-    fn open_peer_route(&mut self, _grant: &AttachmentDirectGrant, _peer_id: &str) -> RouteOpen {
-        self.calls.push("peer".to_owned());
-        self.peer.clone()
-    }
-}
-
-/// The upload these tests are about: two bytes, on a named worker.
 fn request() -> AttachmentDirectUploadRequest {
     AttachmentDirectUploadRequest {
         worker_fp: Some("worker-a".to_owned()),

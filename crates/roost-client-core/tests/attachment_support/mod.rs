@@ -70,7 +70,7 @@ impl FakeEnvironment {
         }
     }
 
-    fn with_door(worker_fingerprint: &str) -> Self {
+    pub fn with_door(worker_fingerprint: &str) -> Self {
         Self {
             door: Some(LocalWorkerDoor {
                 origin: "http://127.0.0.1:4104".to_owned(),
@@ -80,7 +80,7 @@ impl FakeEnvironment {
         }
     }
 
-    fn refused(reason: &str, sent_chunk: bool) -> RouteOpen {
+    pub fn refused(reason: &str, sent_chunk: bool) -> RouteOpen {
         RouteOpen::Refused(AttachmentTransferCarrierError::refused(reason, sent_chunk))
     }
 }

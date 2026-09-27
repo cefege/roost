@@ -333,11 +333,11 @@ fn authenticates_then_sends_direct_bytes_in_order_and_advances_progress_from_ack
     while let Some(slice) = upload.next_slice() {
         let data = file[slice.offset as usize..slice.offset as usize + slice.bytes].to_vec();
         upload
-            .begin_chunk(data, DIGEST)
+            .begin_chunk(data.clone(), DIGEST)
             .expect("the slice is the one that was asked for");
         let in_flight = upload.in_flight().expect("a chunk is in flight").clone();
         let frame_bytes = carrier
-            .send_chunk(&in_flight, slice_bytes(&slice, &file))
+            .send_chunk(&in_flight, data)
             .expect("a ready carrier sends a chunk");
         let frame = AttachmentTransferClientFrame::decode_from_slice(&frame_bytes)
             .expect("the chunk is a client frame");
@@ -405,13 +405,13 @@ fn requests_direct_status_on_the_authenticated_control_socket() {
         committed: false,
         abs_path: String::new(),
         error: String::new(),
+        __buffa_unknown_fields: Default::default(),
     })));
     let outcome = carrier.frame_received(&status);
     let Ok(ConversationOutcome::Status(receipt)) = outcome else {
         panic!("the worker's status settles the receipt in flight");
     };
     let AttachmentTransferStatus {
-        __buffa_unknown_fields: Default::default(),
         upload_id,
         next_seq,
         bytes_received,
