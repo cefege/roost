@@ -836,10 +836,14 @@ inferred after one:**
 row, and a row flips only in the same commit whose `service_impl.rs` arm calls
 the real handler. The ratchet is doing its job by not moving.
 
-**`v3-worker` is at 2 `UNIMPLEMENTED`, down from `v3`'s 6** — `credential.rs`,
-`link_wire.rs`, `snapshot_source.rs` and the reconcile block at `runtime/mod.rs:170`
-are closed; the two that remain are `runtime/mod.rs:282` (the local door) and
-`runtime/link_serve.rs:113` (the hello `capabilities` list).
+**`v3-worker` @ `57bd7f74` is at 2 `UNIMPLEMENTED`** — `credential.rs`,
+`link_wire.rs`, `snapshot_source.rs` and the reconcile block are closed; the two
+that remain are `runtime/mod.rs:283` (the local door) and
+`runtime/link_serve.rs:113` (the hello `capabilities` list). This line previously
+read *"down from `v3`'s 6"*, and both halves of that were wrong: `v3` does not
+carry the worker's `session/` tree at all, so there was no figure there to have
+been 6, and no measurement of 6 on `v3-worker` was ever taken to have dropped
+from. It also cited `runtime/mod.rs:282`, which the tree has since moved past.
 
 **AND THAT EXPOSED A CONTRADICTION IN THE PLAN, recorded here so the gate is not
 failed for someone else's sequencing error.** 2W-DOOR, the local door, was
