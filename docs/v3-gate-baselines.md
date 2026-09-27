@@ -564,40 +564,42 @@ apart at exactly the rate the tree moves.
 A gate that cannot run the suite at all has proved nothing. Say so rather
 than reporting a partial pass as a green one.
 
-### The import check's expected counts, measured against a real backup
+### The import check RECOMPUTES its expected counts, and restates the filter
 
-The Phase 6 install gate asserts exact row counts after `roost import-v2`, and
-until now those numbers were assertions in a plan rather than measurements.
-They are measured, from the newest v2 backup at the time of writing
-(`coord_v2.2026-09-26T13-32-32-235.db.gz`, 38M gz, 391M inflated,
-`pragma integrity_check` = `ok`):
+The Phase 6 install gate asserts row counts after `roost import-v2`. **It must
+not assert hardcoded numbers, and the reason is specific.**
 
-|table|rows|
-|---|---|
-|`accounts`|1|
-|`account_devices`|26|
-|`authorized_keys` (all)|31|
-|`authorized_keys` (the imported set)|**26**|
-|`authorized_key_revocations`|241|
-|`app_settings`|7|
-|`organizations` / `organization_memberships` / `account_identities` / `dashboards` / `dashboard_memberships`|1 each|
+Measured once, from `coord_v2.2026-09-26T13-32-32-235.db.gz` (38M gz, 391M
+inflated, `integrity_check` `ok`, sha256 `13becff426a0d3f…cb740`): accounts 1,
+`account_devices` 26, `authorized_keys` 31 with **26** in the imported set,
+`authorized_key_revocations` 241, `app_settings` 7, and one row each in
+`organizations`, `organization_memberships`, `account_identities`, `dashboards`,
+`dashboard_memberships`.
 
-**The fingerprint filter is demonstrated, not assumed: 31 keys in, 26 out, the
-5 dropped being the machine keys whose fingerprints equal `workers.fp`.** That
-is the one number that would silently pass a broken filter, because 26 devices
-and 26 keys look right whether or not the filter ran.
+**THOSE NUMBERS ARE NOT THE GATE, because that file does not last.**
+`RoostCoordinatorV2/backups/` keeps a rolling 14 (oldest today `2026-09-11`),
+so this one is rotated out around 2026-10-11 and the gate may well run after
+that. A hardcoded 26/26/241/7 then fails on a difference that is **correct v2
+state** — a device paired or a key revoked since — and the operator spends the
+debugging session on the importer instead of on the thing that changed.
 
-**AND THE GATE MUST PIN THE BACKUP, NOT TAKE THE NEWEST.** The counts above are
-from ONE file. The plan's step says "gunzip the newest `backups/*.gz`", and
-nightly backups keep running — so a device paired or a key revoked on v2 between
-this measurement and the gate moves the numbers, and the gate fails on a
-difference that is correct v2 state rather than an import defect.
+**SO THE GATE RECOMPUTES from whichever backup it inflates, by its own SQL, and
+prints that file's sha256 so a run is attributable.** The count is not the point;
+the *filter* is, and the filter cannot be recomputed by calling the importer:
 
-**So the gate names this file explicitly.** If it is gone, take the newest and
-RECORD which one, then take the counts from that file rather than from this
-table. **A gate whose expected values are themselves unpinned is a gate that
-reports drift as failure**, and the operator then spends the debugging session
-on the importer instead of on the thing that actually changed.
+```sql
+-- restated here on purpose: 26 exists ONLY because this predicate runs
+select count(distinct k.fingerprint) from authorized_keys k
+ where exists (select 1 from account_devices d where d.fingerprint = k.fingerprint);  -- 26
+select count(*) from authorized_keys k
+ where not exists (select 1 from account_devices d where d.fingerprint = k.fingerprint); -- 5 machine keys
+```
+
+**Borrowing the importer's own filter would make the gate assert the filter
+against itself** — it would pass with the filter deleted. The two `exists`
+clauses above are deliberately written out, and this SQL was run independently
+to confirm it reproduces 26 and 5. Everything else is an identity assertion
+(imported rows == source rows for that table) and needs no restating.
 
 ### Two more, both measured rather than argued
 
