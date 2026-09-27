@@ -13,7 +13,7 @@ use roost_worker::session::raw_metadata::{
     RAW_METADATA_DISPATCH_FRAME_BUDGET, RawMetadataStage,
 };
 
-use support::{Answer, RecordFixture, RecordingSink, channel};
+use support::{Answer, RecordFixture, RecordingSink, channel, stream_id};
 
 /// A coordinator that negotiated the semantic lane never sees the raw one, and
 /// a lane that filled up before the negotiation arrived is emptied rather than
@@ -130,7 +130,7 @@ fn a_promotion_is_taken_by_the_chunk_that_carries_the_echo() {
     let sink = RecordingSink::new("coord", Answer::Sent);
     let mut emitter = CellEmitter::new();
     emitter.register_sink(sink.clone());
-    emitter.install_stream(&mut record, "stream-37");
+    emitter.install_stream(&mut record, &stream_id(37));
     emitter.emit_cell_frame(&mut record, true, 1_000);
     emitter.note_input_echo(channel(37));
 

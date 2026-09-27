@@ -16,7 +16,7 @@ use roost_worker::session::emit::{
     CellEmitter, FrameOutcome, LIVE_DELTA_SCROLLBACK_ROWS_CAP, Withheld,
 };
 
-use support::{Answer, RecordFixture, RecordingSink, channel, numbered_lines};
+use support::{Answer, RecordFixture, RecordingSink, channel, numbered_lines, stream_id};
 
 #[test]
 fn the_first_frame_is_full_and_the_next_is_a_delta() {
@@ -25,7 +25,7 @@ fn the_first_frame_is_full_and_the_next_is_a_delta() {
     let sink = RecordingSink::new("coord", Answer::Sent);
     let mut emitter = CellEmitter::new();
     emitter.register_sink(sink.clone());
-    emitter.install_stream(&mut record, "stream-1");
+    emitter.install_stream(&mut record, &stream_id(1));
 
     let first = emitter.emit_cell_frame(&mut record, true, 1_000);
     assert!(
@@ -66,7 +66,7 @@ fn entering_the_alt_screen_reframes_instead_of_shipping_a_delta() {
     let sink = RecordingSink::new("coord", Answer::Sent);
     let mut emitter = CellEmitter::new();
     emitter.register_sink(sink.clone());
-    emitter.install_stream(&mut record, "stream-2");
+    emitter.install_stream(&mut record, &stream_id(2));
     emitter.emit_cell_frame(&mut record, true, 1_000);
     emitter.ingest_pty_chunk(&mut record, b"before", 1_010);
     emitter.emit_cell_frame(&mut record, false, 1_020);
@@ -103,7 +103,7 @@ fn a_delta_past_the_row_cap_becomes_a_viewport_only_full() {
     let sink = RecordingSink::new("coord", Answer::Sent);
     let mut emitter = CellEmitter::new();
     emitter.register_sink(sink.clone());
-    emitter.install_stream(&mut record, "stream-3");
+    emitter.install_stream(&mut record, &stream_id(3));
     let baseline = emitter.emit_cell_frame(&mut record, true, 1_000);
     let baseline_seq = match baseline {
         FrameOutcome::Full { seq, .. } => seq,
@@ -164,7 +164,7 @@ fn a_delta_too_large_for_one_part_is_escalated_to_a_full() {
     let sink = RecordingSink::new("coord", Answer::Sent);
     let mut emitter = CellEmitter::new();
     emitter.register_sink(sink.clone());
-    emitter.install_stream(&mut record, "stream-4");
+    emitter.install_stream(&mut record, &stream_id(4));
     emitter.emit_cell_frame(&mut record, true, 1_000);
 
     // One styled cell per column: a span per cell is what pushes a delta past
@@ -226,7 +226,7 @@ fn a_held_channel_emits_nothing_and_says_which_gate_holds_it() {
     let sink = RecordingSink::new("coord", Answer::Sent);
     let mut emitter = CellEmitter::new();
     emitter.register_sink(sink.clone());
-    emitter.install_stream(&mut record, "stream-6");
+    emitter.install_stream(&mut record, &stream_id(6));
     emitter.emit_cell_frame(&mut record, true, 1_000);
 
     emitter.hold_frames(channel(6), CellGate::SyncOutput, 1_005);
@@ -268,7 +268,7 @@ fn a_cell_frame_goes_to_the_terminal_lane_and_drains_behind_the_opened_event() {
     let sink = RecordingSink::new("coord", Answer::Sent);
     let mut emitter = CellEmitter::new();
     emitter.register_sink(sink.clone());
-    emitter.install_stream(&mut record, "stream-7");
+    emitter.install_stream(&mut record, &stream_id(7));
     emitter.emit_cell_frame(&mut record, true, 1_000);
 
     // What the coordinator sink does with a frame: encode it and admit it to
@@ -316,7 +316,7 @@ fn a_suspended_sink_is_handed_nothing_and_owes_a_full_on_resume() {
     let mut emitter = CellEmitter::new();
     emitter.register_sink(coord.clone());
     emitter.register_sink(local.clone());
-    emitter.install_stream(&mut record, "stream-8");
+    emitter.install_stream(&mut record, &stream_id(8));
     emitter.emit_cell_frame(&mut record, true, 1_000);
 
     emitter.suspend_sink("coord");

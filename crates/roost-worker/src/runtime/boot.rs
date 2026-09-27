@@ -114,6 +114,14 @@ pub struct WorkerBoot {
     /// them at different roots: data is state, logs are not, and an operator
     /// rotates one without touching the other.
     pub log_dir: PathBuf,
+    /// The root this worker's STATE lives under.
+    ///
+    /// Distinct from `log_dir` on purpose, and the distinction is a durability
+    /// one: the durable outbox is state that has to survive a restart, and an
+    /// operator who rotates logs must not be able to delete a session's
+    /// un-acknowledged events by clearing a directory whose name says it holds
+    /// only text.
+    pub data_dir: PathBuf,
     /// The version this worker reports in its hello.
     pub worker_version: String,
     /// An identifier unique to this activation.
@@ -159,6 +167,7 @@ impl WorkerBoot {
             keeper_executable: resolve_keeper_executable(env)?,
             worker_key_path,
             log_dir: logs,
+            data_dir: support,
             worker_version: reported_version(&build_identity(env)),
             process_epoch: new_process_epoch(),
             force_live_retire: resolve_force_live_retire(env)?,

@@ -43,7 +43,7 @@ pub const OTHER: &str = "00000000-0000-4000-8000-00000000cafe";
 // else, with no `sha256:` prefix (`roost_protocol::wire::WorkerFp::check`).
 // Sitting among three uuids it was read as one, and every consumer of this
 // fixture failed in `worker_fp()` before reaching the behaviour under test.
-pub const FINGERPRINT: &str = "00000000000000000000000000000000000000000000000000000000000f00d";
+pub const FINGERPRINT: &str = "000000000000000000000000000000000000000000000000000000000000f00d";
 pub const NOW: i64 = 1_700_000_000_000;
 
 pub fn session_id(value: &str) -> SessionId {
@@ -152,7 +152,10 @@ impl Harness {
             folder: folder.to_string(),
             shell_spec: shell_spec("/home/user/project"),
             session_trace_id: trace(),
-            stream_id: "stream-1".to_string(),
+            // A coordinator-minted stream id, which is a UUID by admission
+            // (`roost_protocol::viewport::is_terminal_uuid`) — a stream id that
+            // is not one is a coordinator that never minted it.
+            stream_id: "00000000-0000-4000-8000-0000000000a1".to_string(),
             close_reservation: self
                 .sink
                 .reserve(DurableEventKind::Closed)

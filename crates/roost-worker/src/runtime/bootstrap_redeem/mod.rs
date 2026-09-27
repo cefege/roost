@@ -24,8 +24,11 @@ use crate::host::install::{BOOTSTRAP_TOKEN_ENV, scrub_service_definition_env};
 use crate::host::jwt::read_existing_worker_key;
 use crate::runtime::credential::CredentialSource;
 
+mod activation;
 mod label;
 mod register;
+
+pub use activation::enroll_this_activation;
 
 pub use label::ENV_WORKER_LABEL;
 
@@ -326,14 +329,26 @@ fn boot_call_options() -> CallOptions {
 #[cfg(test)]
 mod tests {
     use connectrpc::{ConnectError, ErrorCode};
-    use roost_host::MapEnv;
+    use roost_host::{COMPILED_ROOST_BUILD_SHA, MapEnv};
 
     use super::{build_sha, coordinator_is_silent};
 
+    /// A COMPILED BUILD REPORTS ITS OWN STAMP and ignores the environment; a
+    /// source checkout reports the one its service provided. Both halves matter
+    /// here, and which one applies is a property of the BUILD — so the test
+    /// reads it rather than assuming, exactly as `roost_host::build_identity`'s
+    /// own test does.
     #[test]
     fn a_compiled_stamp_is_reported_and_a_source_checkout_sends_nothing() {
-        let compiled = MapEnv::new().with("GIT_SHA", "0123456789ab");
-        assert_eq!(build_sha(&compiled), Some("0123456789ab".to_string()));
+        let sourced = MapEnv::new().with("GIT_SHA", "0123456789ab");
+        match COMPILED_ROOST_BUILD_SHA {
+            // A binary replaced in place must describe itself as what it is,
+            // so a stale `GIT_SHA` in the service that launched it cannot
+            // rename the release.
+            Some(stamped) => assert_eq!(build_sha(&sourced), Some(stamped.to_string())),
+            // A checkout with no stamp of its own has nothing else to send.
+            None => assert_eq!(build_sha(&sourced), Some("0123456789ab".to_string())),
+        }
         assert_eq!(build_sha(&MapEnv::new()), None);
     }
 

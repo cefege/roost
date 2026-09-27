@@ -1,0 +1,274 @@
+//! The durable session-event outbox, at the store level. The property
+//! throughout is the one the file exists for: **an event the coordinator never
+//! acknowledged is still there after a restart**, and nothing else removes it.
+//!
+//! The link-level half of the same rule — that `opened` reaches the coordinator
+//! before that session's first cells — lives beside the code that enforces it, in
+//! `runtime::link_loop::durable`'s own tests, because it needs the barrier and
+//! the drain and neither is reachable from here.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
+
+use roost_protocol::wire::brand::{ChannelId, SessionId, WorkerFp};
+use roost_protocol::wire::event::SessionEvent;
+use roost_protocol::wire::session::SessionKind;
+use roost_worker::event_store::{DATABASE_FILE_NAME, Journal};
+use roost_worker::outbox::{Admitted, Lane, Outbox};
+
+/// One directory, removed when the value goes out of scope.
+///
+/// A store that is reopened over the SAME file is the whole point of one of
+/// these tests, so a path per test is a path no two tests share.
+struct Scratch {
+    root: PathBuf,
+}
+
+impl Scratch {
+    fn new(label: &str) -> Self {
+        static NEXT: AtomicU32 = AtomicU32::new(0);
+        let ordinal = NEXT.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "roost-outbox-{label}-{}-{ordinal}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root)
+            .unwrap_or_else(|error| panic!("the scratch root {} is unusable: {error}", root.display()));
+        Self { root }
+    }
+
+    fn file(&self) -> PathBuf {
+        self.root.join(DATABASE_FILE_NAME)
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        // A test that failed mid-write leaves a store behind, and the cleanup is
+        // best effort because a failure here must not mask the assertion that
+        // already failed.
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+const FINGERPRINT: &str = "000000000000000000000000000000000000000000000000000000000000f00d";
+const SESSION: &str = "00000000-0000-4000-8000-00000000beef";
+const OTHER: &str = "00000000-0000-4000-8000-00000000cafe";
+
+fn opened(session: &str) -> SessionEvent {
+    SessionEvent::Opened {
+        session_id: SessionId::try_from(session).expect("a uuid is a session id"),
+        worker_fp: WorkerFp::try_from(FINGERPRINT).expect("64 hex characters is a fingerprint"),
+        channel: ChannelId::try_from(1_i64).expect("a small channel id"),
+        session_kind: SessionKind::Shell,
+        cwd: "/home/user/project".to_string(),
+        ts: 1_700_000_000_000,
+        trace_id: None,
+    }
+}
+
+fn closed(session: &str) -> SessionEvent {
+    SessionEvent::Closed {
+        session_id: SessionId::try_from(session).expect("a uuid is a session id"),
+        exit_code: Some(0),
+        ts: 1_700_000_001_000,
+        trace_id: None,
+    }
+}
+
+async fn journal_in(scratch: &Scratch) -> Journal {
+    Journal::open(&scratch.file())
+        .await
+        .expect("a fresh outbox opens")
+}
+
+/// THE NAMED PROPERTY. A worker that wrote an event and never saw the
+/// coordinator acknowledge it must offer that event again after a restart —
+/// otherwise the coordinator's record of what happened has a silent hole, and
+/// the session a browser is watching was opened by a worker nobody told.
+#[tokio::test]
+async fn an_un_acknowledged_row_survives_a_restart() {
+    let scratch = Scratch::new("survive");
+    let first_sequence = {
+        let journal = journal_in(&scratch).await;
+        let row = journal.append(&opened(SESSION)).await.expect("appended");
+        assert_eq!(row.client_seq, 1);
+        assert_eq!(journal.pending().await.expect("read").len(), 1);
+        journal.close().await.expect("closed");
+        row.client_seq
+    };
+
+    // A second process over the same file, which is what a restart is.
+    let journal = journal_in(&scratch).await;
+    let head = journal
+        .replay_head()
+        .await
+        .expect("read")
+        .expect("the row the coordinator never acknowledged is still waiting");
+    assert_eq!(
+        head.client_seq, first_sequence,
+        "a restart renumbered the row, so the coordinator would read the replay as a new event"
+    );
+    assert_eq!(
+        head.event,
+        opened(SESSION),
+        "the replay is a different event from the one that was written"
+    );
+    assert_eq!(head.kind, "opened");
+}
+
+/// A number this file already burned is never handed out again, and the barrier
+/// resumes above it. A repeat would let a replayed event be mistaken for a new
+/// one, which is the one sequence defect a durable store cannot recover from.
+#[tokio::test]
+async fn a_sequence_is_never_handed_out_twice_across_a_restart() {
+    let scratch = Scratch::new("sequence");
+    let first = {
+        let journal = journal_in(&scratch).await;
+        journal.append(&opened(SESSION)).await.expect("appended").client_seq
+    };
+    {
+        let journal = journal_in(&scratch).await;
+        assert_eq!(
+            journal.handed_over_at(),
+            first,
+            "the restarted store did not read the sequence already used"
+        );
+        let next = journal.append(&closed(SESSION)).await.expect("appended");
+        assert!(
+            next.client_seq > first,
+            "the restarted store handed out {first} again, so the coordinator could not tell the \
+             close from the open"
+        );
+        journal.close().await.expect("closed");
+    }
+    let journal = journal_in(&scratch).await;
+    let waiting = journal.pending().await.expect("read");
+    assert_eq!(
+        waiting.iter().map(|row| row.client_seq).collect::<Vec<_>>(),
+        vec![first],
+        "the acknowledged close left the outbox, so the restart replayed it"
+    );
+}
+
+/// A row leaves on ITS sequence and no other. Acknowledging a sequence no row
+/// holds is a stale or duplicated answer and must retire nothing, because the
+/// row that IS waiting is one the coordinator has not confirmed.
+#[tokio::test]
+async fn a_row_leaves_only_on_its_exact_acknowledgement() {
+    let scratch = Scratch::new("exact");
+    let journal = journal_in(&scratch).await;
+    let first = journal.append(&opened(SESSION)).await.expect("appended");
+    let second = journal.append(&closed(OTHER)).await.expect("appended");
+
+    assert!(!journal.acknowledge(0).await.expect("ack"), "zero is not a sequence");
+    assert!(
+        !journal.acknowledge(9_999).await.expect("ack"),
+        "a sequence no row holds retired something"
+    );
+    assert_eq!(journal.pending().await.expect("read").len(), 2);
+
+    assert!(
+        journal.acknowledge(second.client_seq).await.expect("ack"),
+        "the acknowledged row did not leave"
+    );
+    let waiting = journal.pending().await.expect("read");
+    assert_eq!(
+        waiting.iter().map(|row| row.client_seq).collect::<Vec<_>>(),
+        vec![first.client_seq],
+        "acknowledging the close also retired the open, and the open is the row the coordinator \
+         has still never confirmed"
+    );
+    assert!(
+        !journal.acknowledge(second.client_seq).await.expect("ack"),
+        "the same acknowledgement retired the row twice"
+    );
+}
+
+/// ONE row at a time, oldest first, for ever. Two rows in flight would make the
+/// coordinator's two acknowledgements ambiguous, and an ambiguous
+/// acknowledgement is the state a durable path cannot recover from on its own.
+#[tokio::test]
+async fn the_replay_head_is_one_row_and_always_the_oldest() {
+    let scratch = Scratch::new("head");
+    let journal = journal_in(&scratch).await;
+    let mut expected = Vec::new();
+    for session in [SESSION, OTHER, SESSION] {
+        expected.push(journal.append(&opened(session)).await.expect("appended").client_seq);
+    }
+    for want in expected {
+        let head = journal
+            .replay_head()
+            .await
+            .expect("read")
+            .expect("a row is waiting");
+        assert_eq!(head.client_seq, want, "the head skipped or repeated a row");
+        assert!(
+            journal.acknowledge(want).await.expect("ack"),
+            "the head did not retire under its own acknowledgement"
+        );
+    }
+    assert!(
+        journal.replay_head().await.expect("read").is_none(),
+        "an empty outbox still offered a row"
+    );
+}
+
+/// The volatile producers' fold: one record per key, replaced in place. A link
+/// applying backpressure must not accumulate every version of one agent status
+/// and then ship them all in order, because the coordinator would walk a
+/// replacement edge it has already passed.
+#[test]
+fn a_coalescing_frame_replaces_its_own_predecessor_in_one_lane() {
+    let mut outbox = Outbox::default();
+    let now = std::time::Instant::now();
+    assert_eq!(
+        outbox.admit_coalescing("s-1", Lane::Control, vec![0; 8], "first", now),
+        Ok(Admitted::Queued)
+    );
+    assert_eq!(
+        outbox.admit_coalescing("s-1", Lane::Control, vec![1; 8], "second", now),
+        Ok(Admitted::Coalesced)
+    );
+    assert_eq!(
+        outbox.admit_coalescing("s-2", Lane::Control, vec![2; 8], "other", now),
+        Ok(Admitted::Queued)
+    );
+
+    assert_eq!(outbox.frame_count(), 2, "one record per key, not one per version");
+    assert!(outbox.coalesces(Lane::Control, "s-1"));
+    assert!(outbox.coalesces(Lane::Control, "s-2"));
+
+    let drained = outbox.drain_all(now);
+    assert_eq!(drained.len(), 2);
+    assert_eq!(drained[0].bytes, vec![1; 8], "the replaced version is the one that went");
+    assert_eq!(drained[0].label, "second");
+    assert_eq!(drained[1].bytes, vec![2; 8], "a different key's record is untouched");
+}
+
+/// A frame that does not fit beside the one it would replace is refused, and the
+/// older record STAYS. Refusing is the only truthful answer: a title the
+/// coordinator has already been told is stale, but a refusal is a refusal.
+#[test]
+fn a_coalescing_frame_that_does_not_fit_keeps_the_record_it_would_replace() {
+    let mut outbox = Outbox::new(8, 16);
+    let now = std::time::Instant::now();
+    // A second key fills the cap, so the replacement has to be judged against a
+    // queue that is already full rather than against an empty one.
+    outbox
+        .admit_coalescing("s-0", Lane::Control, vec![9; 8], "other", now)
+        .expect("admitted");
+    outbox
+        .admit_coalescing("s-1", Lane::Control, vec![0; 8], "first", now)
+        .expect("admitted");
+    let refused = outbox.admit_coalescing("s-1", Lane::Control, vec![1; 12], "second", now);
+    assert!(
+        refused.is_err(),
+        "a 12-byte record replaced 8 bytes in a 16-byte queue that already held 8"
+    );
+    assert_eq!(outbox.byte_count(), 16, "the refused record changed the byte count");
+    let drained = outbox.drain_all(now);
+    assert_eq!(drained[1].label, "first", "the record that was told is the one that left");
+}
+
