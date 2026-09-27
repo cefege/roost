@@ -3025,6 +3025,89 @@ without either being wrong** — unresolved-name errors stop rustc before method
 resolution, so the E0599s were never emitted in that run. Report it as a
 floor-from-reading, and say which of the two numbers it bounds.
 
+## Two rules this file stated, and both were falsified within the hour
+
+### The test-allow is a property of the COMPILATION UNIT, not the file
+
+An earlier version of this section said a test file carries the allow **iff** it
+has an expect/unwrap outside a `#[test]` body. **That is wrong for shared fixture
+modules**, and it was falsified by the run that was asked for as the test.
+
+`cargo clippy -p roost-coord --all-targets -- -D warnings` returned **exit 0** —
+a total — and two of the six fixture modules predicted to be flagged were not,
+because they do not need to be:
+
+> **A crate-level `#![allow]` is a property of the CRATE.** A test binary that
+> declares one at its root pulls its `mod <fixture>;` into that same crate, so
+> the allow reaches the fixture's helpers. A fixture included by three binaries
+> is covered whenever all three declare it.
+
+**The corrected rule:**
+
+> **A COMPILATION UNIT carries the allow if any file in it has an
+> expect/unwrap outside a `#[test]` body.** For a test binary that means the
+> root; for a shared fixture it means **every consumer declares it, or the
+> fixture declares it for itself.**
+
+**The only failing combination is a fixture with a consumer that does NOT
+declare it — and that is invisible from the fixture's own file**, which is why
+a per-file classification cannot find it. Classify by listing each fixture's
+consumers, not by reading the fixture.
+
+**This retires the "62 sites" figure for good.** It counted occurrences in
+files, where the deciding question was never about files.
+
+### `exit 0` is NOT a floor, and "every clippy number is a floor" was wrong
+
+Clippy on stable 1.98.1 has no `--keep-going` and stops at the first failing
+target. That bounds **a count of diagnostics**. It says nothing about a run
+that reached the end of the target list and emitted none.
+
+> **`exit != 0` gives a count bounded by where it stopped. `exit 0` gives a
+> count bounded by nothing, because there was no first failing target.** Same
+> tool, same missing flag, two different epistemic statuses.
+
+`roost-keeper` reached **0 diagnostics across lib + bin + 20 test targets** on
+its first clippy run ever. Calling that "a low floor" would have understated it.
+
+### And the worst member of the family: a LINTER'S SUGGESTED FIX was a defect
+
+Clippy told the coordinator that `.all()` was more succinct than
+`.fold(true, |all, x| all && x)`. **The suggestion was applied. The next run
+disagreed: `.map(...).all(identity)`.**
+
+Because **`.all()` short-circuits**, and that test registers sessions until a
+bound refuses one — so short-circuiting stops at the first refusal and **the
+bound is never reached.** The test would have passed without exercising the
+property it is named for.
+
+Every other instance in this family is *an instrument that could not detect what
+it was asked about*. This one is **an instrument that was right about the code
+and wrong about the test**, and following its suggestion destroyed the coverage.
+
+> **A fix a linter suggests is a HYPOTHESIS about behaviour, not a repair.**
+> Apply it, then re-run — and if the next run disagrees with the one that
+> produced the suggestion, **the linter was wrong about your test, not your
+> code.**
+
+Which is also why a clippy run is worth repeating even when it is clean: **the
+run after a fix is a check on the fix, not only on the code.**
+
+### Six members of the family, and a grep cannot tell a prohibition from a use
+
+`grep -c web-sys` over `roost-client-core/src/` is **0**. Over `tests/` it is
+**4** — and all four are inside `tests/core_without_a_browser.rs`, which exists
+to **fail if that dependency ever appears**: two entries in its own `forbidden`
+substring array, one in prose, one in the module header.
+
+**A reader who greps `tests/` sees a crate that depends on `web-sys` four times,
+when the truth is that it has a test whose entire purpose is to fail if that
+dependency appears.** The scope-free number inverts its own meaning, and the
+figure the contract's §1 actually asks for is the resolver one:
+`cargo tree -p roost-client-core -e normal | grep -c web-sys` → **0**.
+
+**State the scope, or state the resolver figure. Do not publish the bare count.**
+
 ## Name the act of reading the state, never the value you read
 
 Everything in this programme that was **captured at write time and consumed at
