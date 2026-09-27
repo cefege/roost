@@ -3485,6 +3485,33 @@ proof.
 
 ---
 
+## A harness that mislabels SIGINT as a compile failure reports INCONCLUSIVE for a row that ran
+
+The mutation harness every track was told to copy — backup outside the tree,
+refuse on mismatch, sha256 restore in a trap, **compile failure reported as
+INCONCLUSIVE** — has that last clause wrong.
+
+A coordinator run was **killed mid-window**: one row completed and bit with a
+verified restore, the next two died on **signals 130 and 143**, and the last
+seven never started. The harness recorded those two as `COMPILE FAILURE`, which
+is the same class of wrong verdict as a row that does not bite — except this one
+is worse, because **INCONCLUSIVE looks like rigour.** A reader concludes the row
+was measured and the result withheld, when in fact it was interrupted and never
+ran.
+
+> **Check the exit status before classifying it: 130 is SIGINT, 143 is SIGTERM,
+> and neither is a compiler verdict.** A harness that maps them onto "the code
+> did not compile" converts an interruption into a finding about the code, and the
+> finding is fabricated — the eighth member of that family, and the first that
+> lives in the TOOL rather than in the analysis.
+
+**The general form, and it applies to every tool this programme runs: a status
+code is not a category.** `0` is success; `non-zero` is a *bundle* of unrelated
+outcomes; and a harness that names a specific cause for a bundle invents the
+cause. Distinguish by the signal first, then by the compiler's own diagnostics,
+and where neither is conclusive say the row was **INTERRUPTED** — a fifth state,
+distinct from run, unrun and inconclusive, and the only honest one.
+
 ## `--no-fail-fast` governs the RUNNER, not compilation — so 0 tests is not 0 passes
 
 A track ran `cargo test -p roost-cli --no-fail-fast` for the first time in this
