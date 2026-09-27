@@ -564,6 +564,39 @@ apart at exactly the rate the tree moves.
 A gate that cannot run the suite at all has proved nothing. Say so rather
 than reporting a partial pass as a green one.
 
+### What Phase 6.4 actually costs: 101 guards, classified
+
+Step 6.4 re-points every `**Guard**` that names a path the TS deletion removes,
+and no entry may end up with a guard pointing at nothing. Counted per ENTRY
+(parsing each `###` block, taking the text from `**Guard**` to the next
+heading), because counting lines across the whole file also counts `**Wrong**`
+prose and double-counts any entry naming two paths — a line-count gives 155
+against 101 entries, which is impossible:
+
+|bucket|entries|what 6.4 does|
+|---|---:|---|
+|names a deleted TS path|**70**|re-point to a Rust test; write the test where none exists|
+|names `smoke/`|**17**|**nothing** — smoke stays TypeScript, it is the oracle|
+|names a `scripts/lint-roost.ts` rule|**8**|re-express in `xtask lint`, or delete the rule|
+|already names a Rust test|**4**|nothing|
+|**no guard at all**|**2**|**write one** — see below|
+
+Per deleted path: `apps/web/src` 37, `apps/coord` 20, `apps/worker` 17,
+`packages/` 9, `apps/roost-cli` 7 — and **13 entries name more than one**, so
+these do not sum to 70.
+
+**So the real work is 78 entries, not 101, and only 70 of them are mechanical.**
+The 8 lint rules are a different kind of change (a rule, not a test), and the
+17 smoke guards are safe precisely because the plan kept smoke as the oracle.
+
+**AND TWO ENTRIES HAVE NO GUARD AT ALL, which the index's own rule forbids.**
+`A defaulted injectable host function loses its receiver` and `Roost never owns
+the agent session`. The first explains why — "Bun unit tests pass either way;
+only the live/Playwright browser pass exercises the receiver" — which is a real
+reason and not an excuse, but a reason is not a guard. Both name live
+properties. **They are unguarded, so they need a test written, not a path
+edited**, and neither can be checked by a grep over the tree.
+
 ### The import check RECOMPUTES its expected counts, and restates the filter
 
 The Phase 6 install gate asserts row counts after `roost import-v2`. **It must
