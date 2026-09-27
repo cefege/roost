@@ -1,14 +1,17 @@
-//! The durable outbox's SQLite half: the file, the append, and the exact-sequence
-//! acknowledgement that is the only thing permitted to remove a row. Owned by
-//! [`super::event_store`]; `sqlx` appears here and in its three children and
-//! nowhere else in the worker.
+//! The durable outbox's SQLite half: the file, the append, and the
+//! exact-sequence acknowledgement that is the only thing permitted to remove a
+//! row. Owned by [`super::event_store`]; `sqlx` appears here and in its four
+//! children and nowhere else in the worker.
 //!
 //! The admission half is [`super::Store`]. This half holds no capacity
 //! ARITHMETIC of its own: the rule is [`super::admission`], which both halves
 //! call, because a store that admits and persists with two ideas of "full" is a
 //! store whose two answers can disagree. What lives here is PERSISTENCE, and
-//! [`claims`] is the part of it that holds capacity, so a claim outlives the
-//! process that took it.
+//! it is split by what each part owns: the FILE ([`schema`]), ONE ROW
+//! ([`rows`]), the CAPACITY a session claimed before its PTY existed
+//! ([`claims`]), and the one that is about NUMBERING rather than capacity — the
+//! client-sequence block, whose own failure mode is a duplicated sequence and
+//! not a duplicated row ([`sequence`]).
 //!
 //! TWO INVARIANTS, and everything else here serves one of them.
 //!
@@ -26,6 +29,7 @@
 pub mod claims;
 pub mod rows;
 pub mod schema;
+pub mod sequence;
 
 use std::path::Path;
 use std::time::Duration;
@@ -34,19 +38,14 @@ use roost_protocol::wire::event::SessionEvent;
 use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 
-use super::{MAX_PAYLOAD_BYTES, MAX_ROWS, SEQUENCE_BLOCK_SIZE};
+use super::{MAX_PAYLOAD_BYTES, MAX_ROWS};
+use sequence::SequenceWindow;
 
 pub use rows::PendingRow;
-
-/// The outbox's file, inside the worker's data directory.
-///
 /// The name is v2's, deliberately: an operator reading a support bundle sees
 /// one filename, and a worker's durable record should not change shape because
 /// the implementation did.
 pub const DATABASE_FILE_NAME: &str = "session-event-outbox.sqlite";
-
-/// The highest sequence an INTEGER column can carry.
-const MAX_SEQUENCE: u64 = i64::MAX as u64;
 
 /// How long a writer waits for the outbox's one connection before giving up.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -82,17 +81,6 @@ pub enum JournalError {
     Query { label: &'static str, reason: String },
     #[error("the durable outbox holds a corrupt row: {reason}")]
     Corrupt { reason: String },
-}
-
-/// The window of client sequences this process has claimed.
-///
-/// A block is claimed and written as a unit, so a crash costs the unused tail of
-/// one block rather than renumbering everything after it. The consequence is a
-/// GAP in the sequence, never a repeat.
-#[derive(Debug, Clone, Copy, Default)]
-struct SequenceWindow {
-    issued: u64,
-    reserved_through: u64,
 }
 
 /// The durable outbox.
@@ -316,7 +304,7 @@ impl Journal {
     /// has to notice, because the barrier's in-flight row must never vanish
     /// before its own acknowledgement arrives.
     pub async fn acknowledge(&self, client_seq: u64) -> Result<bool, JournalError> {
-        if client_seq == 0 || client_seq > MAX_SEQUENCE {
+        if client_seq == 0 || client_seq > sequence::MAX_SEQUENCE {
             return Ok(false);
         }
         let removed = sqlx::query("DELETE FROM session_events WHERE client_seq = ?")
@@ -329,14 +317,6 @@ impl Journal {
             tracing::info!(client_seq, "the coordinator acknowledged a durable row");
         }
         Ok(removed)
-    }
-
-    /// The next sequence, claimed and persisted without writing a row.
-    ///
-    /// The snapshot draws from the same sequence space as the durable events, so
-    /// it has to come from here rather than from a counter of its own.
-    pub async fn next_client_seq(&self) -> Result<u64, JournalError> {
-        self.claim_sequence().await
     }
 
     /// What the file holds, for `roost doctor` and for the admission half.
@@ -362,45 +342,6 @@ impl Journal {
     /// Close the file. Un-acknowledged rows stay on disk; that is the point.
     pub async fn close(&self) -> Result<(), JournalError> {
         self.pool.close().await;
-        Ok(())
-    }
-
-    /// One sequence, claimed from the block this process holds.
-    async fn claim_sequence(&self) -> Result<u64, JournalError> {
-        let mut window = self.window.lock().await;
-        if window.issued >= window.reserved_through {
-            self.reserve_block(&mut window).await?;
-        }
-        window.issued += 1;
-        Ok(window.issued)
-    }
-
-    /// Persist the next block before any of it is handed out.
-    ///
-    /// The write happens BEFORE the first value is returned, which is what makes
-    /// a crash cost a gap rather than a repeat.
-    async fn reserve_block(&self, window: &mut SequenceWindow) -> Result<(), JournalError> {
-        let mut transaction = self.pool.begin().await.map_err(query("begin"))?;
-        let reserved: i64 =
-            sqlx::query_scalar("SELECT reserved_through FROM sequence_state WHERE singleton = 1")
-                .fetch_one(&mut *transaction)
-                .await
-                .map_err(query("sequence read"))?;
-        let reserved =
-            u64::try_from(reserved).map_err(|_| corrupt("the sequence watermark is negative"))?;
-        let floor = window.issued.max(reserved);
-        let end = floor
-            .checked_add(SEQUENCE_BLOCK_SIZE)
-            .filter(|end| *end <= MAX_SEQUENCE)
-            .ok_or_else(|| corrupt("the client sequence space is exhausted"))?;
-        sqlx::query("UPDATE sequence_state SET reserved_through = ? WHERE singleton = 1")
-            .bind(rows::sequence_value(end)?)
-            .execute(&mut *transaction)
-            .await
-            .map_err(query("sequence reservation"))?;
-        transaction.commit().await.map_err(query("commit"))?;
-        window.issued = floor;
-        window.reserved_through = end;
         Ok(())
     }
 }
