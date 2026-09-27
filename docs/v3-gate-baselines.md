@@ -233,7 +233,6 @@ here so the next person is not rediscovering them:
 | 384 | `.roost-zzz-1` | `6px` | decorative floating badge digit, deliberately below the ramp floor of 11px |
 | 385 | `.roost-zzz-2` | `8px` | same; 8px exists only as `--md-space-2`, which would be a spacing token doing a type job |
 | 659 | `.terminal-card-preview-text` | `7px` | a monospace preview scaled to fit a 28px card |
-
 The last three would need **ramp steps added**, which is designing. A baseline
 set at six is the ratchet doing its job — hold the line here, drive it down from
 here — and a baseline set at nine without the migration would have been the
@@ -266,6 +265,31 @@ commit whose `service_impl.rs` arm calls real code: `AuthCoordIdentity`,
 
 `xtask lint` reports 2 violations, both in `crates/roost-keeper/tests/`, and both are `v3`'s rather than this track's: the worker branch has carried the restated keeper lint table and all seven binary-level allows since `84be2a9d`, and they clear when that branch merges. The gate number is 2 pending a queued merge, not 2 with a caveat.
 
+**The permanent backstop, and why the direction it checks is the one that matters.**
+`crates/roost-coord/tests/method_route_implementation.rs` checks the method
+table against the **IMPL**, where `method_route_coverage.rs` checks it against
+the **PROTO**. The proto direction cannot lie silently; the impl direction can: a
+row marked `Implemented` whose arm is still `delegated_reply` compiles, passes
+every other test in the tree, and tells a reader the method works.
+
+**It found one on its first run, and the shape of the symptom is the argument for
+it.** `Sync` was marked `Implemented` with no `fn sync` arm — correct, not a
+defect: the retired Connect Sync is answered by a *mounted route* returning 410
+before `ConnectRpcService` opens a stream, because a throwing stub would keep the
+runtime's abort-listener crash path reachable. So a row and its arm coming apart
+produces **not a compile error but a 410 that reads like a routing bug**, which
+sends the next person to the router instead of to the table. That is the worst
+shape a defect can have, and it is invisible to every other check in the tree.
+
+Four guards make the exception set survive contact: `TRANSPORT_ANSWERED` holds
+`Sync` **and a second test asserts that list is exactly the set of `Implemented`
+rows with no arm** (a documented exception with no bound on its number is a
+ratchet with the pin removed); all 16 `UnwiredInV2` delegations are asserted
+**correct**, so nobody "fixes" one into a handler; the implemented count is
+asserted **above 50**, so the main test cannot be satisfied by emptying the
+column; and the test asserts that it read the file `CoordinatorService` is
+actually implemented in — without that it would prove a table true of a file
+nobody uses.
 ### Worker: first-ever total, `v3-worker` @ `8a85f523`
 
 `cargo test -p roost-worker -p roost-keeper -p roost-term --no-fail-fast`, **one
@@ -455,6 +479,19 @@ apart at exactly the rate the tree moves.
 - **Phase 2** (Rust worker, TS coord): no spec that passed in the baseline
   may fail. `terminal-delivery.spec.ts:15` ("browser smoke flow creates and
   cleans its resources") is the load-bearing one and must pass.
+  **This one needs TWO triggers, not one, and reading either alone produces a
+  run that cannot pass.** It sets `ROOST_SMOKE_WORKER_EXECUTABLE`, so it needs
+  (a) both `Admitted` arms in `http/upgrade.rs` to be real `on_upgrade` calls into
+  real `serve_socket`s, **and** (b) the worker track green — `UNIMPLEMENTED` at
+  zero, all nine `SessionManager` collaborators with production impls, and the
+  composition root wired. A worker that cannot construct a `SessionManager`
+  cannot spawn a PTY, and this gate is exactly "can this worker spawn a PTY".
+  **"Both arms upgraded" is not "Phase 2 is runnable."**
+  The two triggers also fail differently, which is why neither check catches the
+  other: the coordinator's fails **loudly at startup** (a 401 on every link, no
+  socket), and the worker's fails **silently at runtime** (a socket that opens
+  and then cannot serve a session). A green coordinator gate would not have
+  caught a broken worker, and a green worker gate would not have caught a 401.
 - **Phase 3** (Rust coord, then both): same rule, with
   `ROOST_SMOKE_COORD_EXECUTABLE` set alone first, then with both.
 - **Phase 4** is not Playwright — it is
