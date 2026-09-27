@@ -24,6 +24,7 @@ pub mod ids;
 pub mod journal_sink;
 pub mod keeper_admission;
 pub mod lifecycle;
+pub mod lifecycle_commands;
 pub mod raw_metadata;
 pub mod resize;
 pub mod respawn;
