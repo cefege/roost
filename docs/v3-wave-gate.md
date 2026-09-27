@@ -2881,6 +2881,77 @@ stays in the table because a row that is satisfied by a fact is worth recording,
 and because the check closes the "third door" concern **by visibility rather than
 by argument**.
 
+## CLI track — eleven rows, all NEVER RUN
+
+Sent as a record rather than at a gate. **Every one is a pre-registered claim,
+not evidence: this crate has never compiled, and a row against an uncompiled
+baseline is uninterpretable.** Every target below was verified by grep against
+`v3-cli` rather than passed through from a slice, which is not ceremony — it
+caught three wrong targets.
+
+### Three targets that were wrong before they were sent
+
+| Row as written | Correct target | What would have happened |
+|---|---|---|
+| `PLACEHOLDER_BEARER` in `join.rs` | `quickstart/grant.rs:72`, consumed at `plan.rs:140,217` — the string does not appear in `join.rs` at all | the row would have mutated nothing and its silence would have read as "does not bite" |
+| `write_link` at `:132` | `quickstart/self_link.rs:136` — the slice had renumbered the file after writing the row | same |
+| `from_name` at `:98`, the `#[command]` attribute's line | `quickstart/add_machine.rs:77`, the function | a row editing the attribute instead of the function mutates the wrong thing |
+
+### The rows
+
+| # | Property | Edit | Must fail | Must still pass |
+|---|---|---|---|---|
+| L2-1 | A target matching two registry rows is refused, never guessed | `push/plan.rs::resolve_push_targets` — delete the whole `if resolved.ambiguous { … }` block | `a_name_that_matches_two_machines_is_refused_rather_than_guessed`; `a_fingerprint_that_two_rows_claims_is_refused_before_a_single_target_is_chosen` | `a_push_with_no_registered_worker_refuses_rather_than_reporting_an_empty_success`; `a_machine_whose_address_is_not_a_safe_ssh_target_stops_the_push_before_anything` |
+| L2-2 | Past the durable decision there is no rollback | `push/rollout.rs::recover_from` — delete `if finalizing { return Err(forward); }` | `a_failure_after_the_decision_exits_eight_and_never_attempts_a_rollback` | `a_failure_before_the_decision_moves_every_machine_back_and_keeps_the_rollback_point` — **the control that matters: it distinguishes "the guard moved" from "rollback broke harder"** |
+| L2-3 | Admission compares the RUNNING keeper's digest against the release's, not the keeper against itself | `push/admission.rs::classify_fleet_keeper_updates` — change the first argument to `&worker.keeper_runtime.as_ref().unwrap().running_contract` | `a_different_keeper_binary_with_live_sessions_is_deferred_with_the_way_out`; `a_machine_with_no_keeper_observation_is_deferred_as_unproven_and_never_guessed_at` | `the_same_keeper_binary_is_carried_across_and_the_machine_is_a_participant` — **admitted by the mutated code as well as the correct one, so its passing is what proves the mutation is about WHICH TWO CONTRACTS ARE COMPARED rather than about admission breaking** |
+| L3-1 | A dry run renders the definitions a real run would install | delete the `coordinator_settings()` call in `QuickstartEndpoint` (`quickstart/endpoint.rs`) | `a_dry_run_renders_the_definitions_a_real_run_would_install` | the two no-writes tests |
+| L3-2 | A dry run changes nothing on disk | make `print_plan`'s resolution (`quickstart/plan.rs`) write the rendered unit to `spec.definition_path` | `a_dry_run_changes_nothing_on_disk` | all four renders/resolve tests |
+| L3-3 | The door comes from the installed definition and the shell cannot override it | swap the precedence in `dial_url` (`quickstart/add_machine.rs`) so ambient wins over the installed record | `the_door_comes_from_the_installed_definition_and_the_shell_cannot_override_it` | the blank-unit and loopback tests |
+| L3-4 | `windows` is refused at the argument, with the reason | accept `"windows"` in `EnrollmentPlatform::from_name` — `quickstart/add_machine.rs:77` | `windows_is_refused_at_the_argument_and_the_refusal_explains_why` | the two quoting tests |
+| L3-5 | A dirty checkout is refused with the reserved code | drop the dirty-suffix branch in `joined_build_sha` — `quickstart/join.rs:144` | `a_dirty_checkout_is_refused_with_the_reserved_code_and_names_the_escape_hatch` | `a_clean_checkout_is_accepted_and_its_commit_is_the_identity` |
+| L3-6 | A dry run renders a NAMED placeholder, never a real-looking grant | put a real-looking `roost_bt_` value in `PLACEHOLDER_BEARER` — `quickstart/grant.rs:72` | `a_dry_run_renders_a_worker_definition_with_a_named_placeholder_and_no_real_grant` | the four credentials tests |
+| L3-7 | A real file is refused and its contents untouched | make `write_link` (`quickstart/self_link.rs:136`) `remove_file` a non-symlink before relinking | `a_real_file_is_refused_and_its_contents_are_untouched` | the idempotence and v2-repoint tests |
+| L3-8 | A second run changes nothing | drop the `read_link` equality short-circuit in `write_link` | `a_missing_link_is_created_and_a_second_run_changes_nothing` | the repair tests |
+| L-1 | A grant this deploy was given reaches the definition; a spent one does not | re-insert `values.retain(\|key, _\| !is_one_shot_authorization(key));` at the end of `worker_install_environment` (`deploy/identity_env.rs`), **after** the override loop | `a_grant_this_deploy_was_given_reaches_the_definition`; `a_first_install_the_shell_is_authorized_for_carries_its_grant` | `a_deploy_never_carries_a_one_shot_grant_forward` — **its first half, which is the real guard: a PRIOR install's grant is not carried forward** |
+| L-2 | A decided one-shot reaches the RENDERED unit text, not just the spec | make `ServiceSpec::with_decided_one_shots` return `self` unchanged | `a_decided_one_shot_reaches_the_rendered_definition`; `every_value_a_deploy_composes_can_reach_a_definition` | `a_one_shot_grant_is_never_carried_into_a_definition` — **the resolve-side refusal, a DIFFERENT rule that must stay green when the arming site breaks. That asymmetry is the whole point: the right rule and the missing writer are separate defects** |
+
+**L-1 and L-2 pin the two halves of the defect this programme found in Track L:**
+a one-shot grant was accepted as the authorization to enroll and then discarded as
+a value, and `--force-live` was authorized and never reached the worker. **L-2's
+control is what makes the pair diagnostic rather than two red tests** — the
+resolve-side refusal is a *correct* rule, so it must stay green when the arming
+site is broken, and a row that could not tell those apart would not have found
+the missing link.
+
+### Three rules these rows established, which apply to every row in this file
+
+**A row needs a GREEN BASELINE, and without one it is uninterpretable rather
+than pending.** Four of the coord C5 rows and all eleven of these name
+must-fail tests in binaries whose suite has not yet run twice. A row against a
+red or absent baseline cannot produce a verdict at all, so "unrun" and
+"uninterpretable" are different states and the table should say which.
+
+**ANNOUNCE THE CONTROL, including when there isn't one.** L2-3's control is
+admitted by the mutated code as well as the correct one — deliberately, because
+**a control the mutation also breaks only proves the suite noticed something.**
+And the coord presence rows state the opposite where it is true: one of them has
+**no in-test control at all**, the three echo assertions passing under it by
+construction, and its expected result is annotated as "a single failure here with
+the other seven green; more than that is not this row."
+
+**A control that fails when it should not is a FINDING, not a failed row.** The
+`presence_echo_is_own_notice` control is a second property in one row: if the
+mutated guard also breaks the third echo assertion, the mutation exposed a real
+ordering dependency between the applicability gate and the equality. **Record
+that as what it is.**
+
+**And the one that outlives the wave: a row that passes today and is never
+re-run after the thing it guards becomes reachable is a row that has quietly
+stopped looking.** Four coord rows mutate `sync_ws/feed/presence.rs`, whose
+owning engine does not exist. They prove the predicate is pinned, not that the
+product uses it. **When SY2 lands, all four must be re-run** — the driver is
+exactly the change that could make them bite differently.
+
 ## Coordinator track — tasks (S2)
 
 | # | Edit | Test that must fail |
