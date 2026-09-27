@@ -1490,6 +1490,50 @@ could revive a released claim, because the admission guard was unreachable for
 release-created claims. **A vacuous test is not merely wasted; it is a place
 where a real defect goes to hide.**
 
+## A test whose stated premise is a HOPE is a coin
+
+`LIST_RELAYS` declares `ORDER BY created_at_ms, id` — so with **equal**
+timestamps the order *is* the id order, and the test's expectation was right. It
+failed because **the two rows did not have equal timestamps**, and `ORDER BY`
+then correctly answered in creation order.
+
+**The test asserted a premise it never established.** Its comment claimed
+*"created inside the same millisecond"* — and whether `now_ms()` returned the
+same value twice was a coin, passing about one run in two.
+
+> **The failure mode is not a wrong product and not a flaky machine: it is a test
+> whose stated premise is a hope.**
+
+The fix establishes the premise rather than hoping for it — one statement giving
+both rows the same `created_at_ms`, so the only thing that can decide the order
+is the tiebreak the test exists to pin. **And no `src/` change: the product's
+declared order was correct and stays as it is.**
+
+**Three instances of this one class in a single crate, and every one found by
+asking a question rather than by running a tool:**
+
+1. a comment claiming *"created inside the same millisecond"*, never equalised;
+2. a bus fixture that **subscribed and dropped the handle in the same
+   statement**;
+3. an empty database left by five dropped `insert` futures.
+
+> **None has a tool that catches it, and all three are one question: what does
+> this test set up, and did it?**
+
+**So the class generalises past premises about data to premises about
+*plumbing*** — a subscription that was made and released, an `await` that was
+dropped, a timestamp that was assumed equal. **The comment is where a test states
+its premise, and a premise in a comment that the body does not establish is a
+hope, and a hope is a coin.**
+
+**And the hardest case of the measurement rule, handled correctly:** the fix was
+made, four determinism runs did not return inside the budget, and the commit
+therefore **carries no claim that the test is now deterministic** — it states
+what would verify it (five identical `3 passed` lines) and leaves the measured
+bracket in the test's own comment. **Declining to claim a fix works because the
+verification did not land is the same discipline as publishing a range instead
+of a point**, and it is the harder of the two.
+
 ## Two runs that DISAGREE are a finding, and both get published
 
 Two clean runs of one tree, six minutes apart:
