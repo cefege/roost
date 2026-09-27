@@ -4,7 +4,12 @@
 //!
 //! `DEADLINE` is the point: a test that hangs is indistinguishable from a
 //! keeper that does, so every wait here fails rather than blocks.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+// NO `allow(clippy::unwrap_used)` here, deliberately. The allow is a property
+// of the COMPILATION UNIT, not of this file: every one of the nine test
+// binaries that declares `mod support;` declares the allow at its own root,
+// and a crate-level `#![allow]` covers the modules it pulls in. Adding one here
+// as well would be dead weight — a reader would have two declarations to keep
+// in step and no way to tell which is load-bearing.
 #![allow(dead_code)]
 
 use std::time::{Duration, Instant};

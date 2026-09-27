@@ -6,7 +6,10 @@
 //!
 //! Also here, the two degenerate keepers a client must survive: one that takes
 //! the connection and never answers, and one that is gone.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+// NO `allow(clippy::unwrap_used)` here, deliberately, and for the same reason
+// as in `mod.rs`: the allow belongs to the compilation unit, and this file's
+// only consumer is `support/mod.rs`, whose own consumers declare it at their
+// roots. A declaration here would be a second one to keep in step.
 
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
