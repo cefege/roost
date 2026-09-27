@@ -182,15 +182,18 @@ impl SessionManager {
             ));
         }
         if self.keeper.resize_channel(raw, seq, cols, rows).is_err() {
-            let outcome = self.close_capture(
+            let (outcome, loss) = self.close_capture(
                 &mut record,
                 &*delivery,
                 None,
                 "the keeper refused the resize",
             );
+            drop(delivery);
+            drop(record);
+            report_capture_loss(&session_id, raw, loss);
             return Ok(outcome);
         }
-        let outcome = self.close_capture(
+        let (outcome, loss) = self.close_capture(
             &mut record,
             &*delivery,
             Some((cols, rows)),
@@ -198,6 +201,7 @@ impl SessionManager {
         );
         drop(delivery);
         drop(record);
+        report_capture_loss(&session_id, raw, loss);
         tracing::info!(
             session_id = %session_id,
             channel_id = raw,
@@ -214,13 +218,19 @@ impl SessionManager {
     /// `target` is the geometry the boundary proved, or `None` when it proved
     /// nothing: the captured bytes are then parsed at the geometry still in
     /// force, which is the only honest reading of an unproven boundary.
+    ///
+    /// A lost history floor is RETURNED rather than logged here. The record
+    /// lock is owned by the caller and is still held on this path, so a
+    /// warning about lost history emitted from in here reads as though the
+    /// capture were already released — which is exactly what a `drop` on a
+    /// `&mut` used to leave this function claiming it was.
     fn close_capture(
         &self,
         record: &mut SessionRecord,
         delivery: &dyn super::binding::ChannelDelivery,
         target: Option<(u16, u16)>,
         reason: &'static str,
-    ) -> ResizeOutcome {
+    ) -> (ResizeOutcome, Option<CaptureLoss>) {
         let channel_id = record.channel_id();
         let session_id = record.session_id().clone();
         let captured = delivery.close_capture(channel_id);
@@ -237,9 +247,12 @@ impl SessionManager {
                 "a resize boundary captured more output than the retained window holds; \
                  the geometry was left alone"
             );
-            return ResizeOutcome::Refused {
-                reason: format!("{reason}, and the capture outgrew the retained window"),
-            };
+            return (
+                ResizeOutcome::Refused {
+                    reason: format!("{reason}, and the capture outgrew the retained window"),
+                },
+                None,
+            );
         }
         let (cols, rows) =
             target.unwrap_or_else(|| (record.terminal_core.cols(), record.terminal_core.rows()));
@@ -261,23 +274,14 @@ impl SessionManager {
                 .sb_origin_pin
                 .map_or(0, |previous| previous.replay_floor),
         });
-        let lost = pin.replay_lost_rows;
-        let floor = pin.sb_dropped;
+        let loss = (pin.replay_lost_rows > 0).then_some(CaptureLoss {
+            floor: pin.sb_dropped,
+            rows: pin.replay_lost_rows,
+        });
         record.sb_origin_pin = Some(pin);
         record.cell_emit.grid_epoch_revision += 1;
         let applied = (record.terminal_core.cols(), record.terminal_core.rows());
-        drop(record);
-        if lost > 0 {
-            tracing::warn!(
-                session_id = %session_id,
-                channel_id = channel_id.as_u32(),
-                history_floor = floor,
-                replay_lost_rows = lost,
-                "this resize moved the history floor: rows a never-resized session would \
-                 still hold are gone"
-            );
-        }
-        match target {
+        let outcome = match target {
             Some(_) => ResizeOutcome::Applied {
                 cols: applied.0,
                 rows: applied.1,
@@ -285,7 +289,8 @@ impl SessionManager {
             None => ResizeOutcome::Refused {
                 reason: reason.to_string(),
             },
-        }
+        };
+        (outcome, loss)
     }
 
     /// The next sequence this worker asks the keeper to apply on a channel.
@@ -312,6 +317,28 @@ impl SessionManager {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .insert(channel_id, applied_seq);
     }
+}
+
+/// History a closed capture cost, reported once the record lock is gone.
+///
+/// Carried out of `close_capture` rather than logged inside it, so the warning
+/// lands at the release the code actually performs.
+struct CaptureLoss {
+    floor: u64,
+    rows: u64,
+}
+
+fn report_capture_loss(session_id: &str, channel_id: u16, loss: Option<CaptureLoss>) {
+    let Some(loss) = loss else {
+        return;
+    };
+    tracing::warn!(
+        session_id,
+        channel_id,
+        history_floor = loss.floor,
+        replay_lost_rows = loss.rows,
+        "this resize moved the history floor: rows a never-resized session would still hold are gone"
+    );
 }
 
 /// The two counters a pin is computed from.

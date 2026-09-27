@@ -10,10 +10,13 @@ use std::sync::Arc;
 
 use roost_keeper::history::HistoryRecord;
 use roost_keeper::payloads::TerminalState;
+use roost_term::TerminalCore;
 use roost_worker::browser_commands::session_lifecycle::SessionOutcome;
+use roost_worker::event_store::DurableEventKind;
 use roost_worker::session::resume::{AdoptRefusal, SurvivorHistory};
+use roost_worker::session::sinks::SessionEventSink;
 
-use session_support::{Harness, SESSION, ScriptedKeeper, channel, session_id};
+use session_support::{Harness, SESSION, ScriptedKeeper, session_id};
 
 /// THE HEAD IS THE KEEPER'S. A history whose records do not sum to its head —
 /// a geometry marker sits between two output records — is the case a
@@ -294,7 +297,14 @@ fn a_session_with_no_keeper_channel_is_refused_rather_than_recreated() {
         AdoptRefusal::NoSurvivor(7),
         "the refusal names the channel, and it is the absence one: {refused}"
     );
-    assert!(harness.table.is_empty_session(&session_id(SESSION)));
+    assert!(
+        harness
+            .table
+            .with_record(&session_id(SESSION), |_| ())
+            .is_none(),
+        "the refusal installed nothing under this session, so the caller's \
+         respawn is not shadowed by a half-built record"
+    );
     assert!(
         harness.sink.published().is_empty(),
         "a refused adoption publishes nothing: the caller respawns or reports"

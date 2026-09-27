@@ -5,10 +5,11 @@
 
 mod session_support;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use roost_worker::session::binding::{ChannelDelivery, RESUME_STAGE_CAP_BYTES, RecordBinding};
+use roost_worker::session::binding::{RESUME_STAGE_CAP_BYTES, RecordBinding};
 use roost_worker::session::resume::AdoptRefusal;
+use roost_worker::session::sinks::ChannelBinding;
 
 use session_support::{Harness, PinnedClock, SESSION, ScriptedKeeper, session_id};
 
@@ -59,7 +60,7 @@ fn a_hold_over_the_bound_is_not_replayed_at_the_swap() {
     let binding = RecordBinding::staged(
         7,
         Arc::clone(&harness.table),
-        Arc::clone(&harness.delivery) as Arc<Mutex<dyn ChannelDelivery>>,
+        harness.shared_delivery(),
         Arc::new(PinnedClock),
     );
     let chunk = vec![b'x'; 32 * 1024];
@@ -96,7 +97,7 @@ fn a_hold_inside_the_bound_is_replayed_whole_at_the_swap() {
     let binding = RecordBinding::staged(
         7,
         Arc::clone(&harness.table),
-        Arc::clone(&harness.delivery) as Arc<Mutex<dyn ChannelDelivery>>,
+        harness.shared_delivery(),
         Arc::new(PinnedClock),
     );
     binding.on_output(b"first");

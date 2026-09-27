@@ -7,11 +7,14 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_host::HostPlatform;
-use roost_term::AlacrittyCore;
+use roost_term::{AlacrittyCore, TerminalCore};
 use roost_worker::event_store::{DurableEventKind, Store};
 use roost_worker::session::history::{UNHANDLED_SEQ_MAX, UnhandledSequenceEntry};
 use roost_worker::session::ring::ScrollbackRing;
 use roost_worker::session::scrollback::{append_pty_chunk, record_unhandled, replay_retained_into};
+use roost_worker::session::stream_scan::{parse_osc7_worker_path, scan_alt_mode, scan_osc7};
+use roost_worker::session::types::{SessionIdentity, SessionRecord};
+use roost_worker::shell_spec::ShellSpec;
 use std::sync::{Arc, Mutex};
 
 const SESSION: &str = "00000000-0000-4000-8000-00000000000a";
@@ -287,9 +290,9 @@ fn two_sequences_with_one_final_byte_are_two_sequences() {
 fn the_unhandled_log_stops_at_its_cap_and_says_it_did() {
     let mut log = None;
     let distinct = (0..UNHANDLED_SEQ_MAX + 5)
-        .map(|index| observed("q", "?", vec![index], u64::from(index)))
+        .map(|index| observed("q", "?", vec![index as u32], index as u64))
         .collect::<Vec<_>>();
-    let summary = record_unhandled(&mut log, u64::from(UNHANDLED_SEQ_MAX) + 5, distinct, 0, 1);
+    let summary = record_unhandled(&mut log, UNHANDLED_SEQ_MAX as u64 + 5, distinct, 0, 1);
     assert_eq!(summary.recorded, UNHANDLED_SEQ_MAX as u32);
     assert!(summary.capped, "and the cap is reported, not hidden");
     let stored = log.as_ref().expect("the log exists");

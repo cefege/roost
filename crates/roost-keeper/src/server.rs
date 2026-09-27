@@ -188,6 +188,17 @@ pub struct Server {
     keeper: Keeper,
 }
 
+// The listener is left out: it is the endpoint that identifies this server in
+// a log, and a second rendering of the same socket is noise.
+impl std::fmt::Debug for Server {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Server")
+            .field("endpoint", &self.endpoint)
+            .field("channels", &self.keeper.channel_count())
+            .finish_non_exhaustive()
+    }
+}
+
 impl Server {
     pub fn new(endpoint: Endpoint, listener: UnixListener) -> Self {
         Self {

@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use roost_worker::scrollback_read::{
     EpochBinding, Refusal, Request, SCROLLBACK_MAX_ROWS_PER_PAGE, SCROLLBACK_SLICE_ROWS,
-    WalkOutcome, page_for, slice_count, walk_page,
+    SLICE_BUDGET, WalkOutcome, page_for, slice_count, walk_page,
 };
 
 fn request(epoch: &str, end_row: u32, max_rows: u32) -> Request {
@@ -233,10 +233,10 @@ fn a_refused_walk_can_be_retried_whole() {
 /// left disagreeing about what a frame is.
 #[test]
 fn the_slice_budget_and_the_slice_size_agree() {
-    let slice = Duration::from_millis(8);
-    assert_eq!(SCROLLBACK_SLICE_ROWS, 250, "250 rows inside an 8ms slice");
+    assert_eq!(SCROLLBACK_SLICE_ROWS, 250, "250 rows inside one slice");
     assert!(
-        slice <= Duration::from_millis(16),
-        "and a slice stays well under a frame at 60fps"
+        SLICE_BUDGET <= Duration::from_millis(16),
+        "the worker's OWN stated slice budget stays well under a frame at \
+         60fps, rather than a copy of it here drifting from the constant"
     );
 }

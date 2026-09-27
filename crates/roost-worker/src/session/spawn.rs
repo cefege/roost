@@ -103,6 +103,21 @@ pub struct SpawnContext<'a> {
     pub worker_fp: &'a WorkerFp,
 }
 
+impl std::fmt::Debug for SpawnContext<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The three collaborators are trait objects, so what a log line can say
+        // about them is their type. The fingerprint is the one field that names
+        // a machine, and a spawn refusal is read against it.
+        formatter
+            .debug_struct("SpawnContext")
+            .field("spawner", &"dyn ShellSpawner")
+            .field("resolver", &"dyn ShellSpecResolver")
+            .field("events", &"dyn SessionEventSink")
+            .field("worker_fp", &self.worker_fp)
+            .finish()
+    }
+}
+
 /// Why a spawn did not happen. Every variant is a condition the caller can act
 /// on; none of them leaves a claim taken or a PTY open.
 #[derive(Debug, thiserror::Error)]

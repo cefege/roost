@@ -8,7 +8,7 @@
 mod browser_command_support;
 use browser_command_support::{OTHER_SESSION, SESSION, command, dispatch, harness, only, session};
 use roost_host::HostPlatform;
-use roost_term::{AlacrittyCore, CellEmitState};
+use roost_term::{AlacrittyCore, CellEmitState, TerminalCore};
 use roost_worker::browser_commands::scrollback_page::RetainedGrid;
 use roost_worker::event_store::{DurableEventKind, Store};
 use roost_worker::scrollback_read::{
@@ -273,7 +273,7 @@ async fn a_session_this_worker_does_not_hold_is_refused() {
     let grid = SessionGrid::new(table);
     let unknown = session(OTHER_SESSION);
     let refusal = grid
-        .describe(unknown)
+        .describe(unknown.clone())
         .await
         .expect_err("an unknown session has no grid to describe");
     assert_eq!(refusal.message(), "`get-scrollback-cells`: unknown session");

@@ -17,6 +17,11 @@
 //! authorisation spent before the admission that reads it authorises nothing,
 //! and both the definition text and the spend report look exactly right.
 //!
+//! Each test runs its activation in a child process, because the definition is
+//! spent through `ProcessEnv` and the process environment is the only channel
+//! to it. The three need no serialisation with each other: each has its own
+//! scratch root, its own keeper socket, and its own child.
+//!
 //! A test unwraps the value it is asserting about: a failure there IS the
 //! assertion failing. The workspace denies unwrap/expect because a panic on a
 //! bad wire value in a running component is a fleet-visible outage, and that
@@ -29,47 +34,32 @@ mod scratch;
 
 mod retire_support;
 
-use std::sync::Mutex;
-
-use retire_support::{Definition, FakeKeeper, platform, position_of, spend_events, spends};
+use retire_support::{Definition, FakeKeeper, platform, position_of, serve_in_child, spends};
 use scratch::Scratch;
-
-/// Both tests set the same process environment variable, because
-/// `runtime::serve_until` spends the authorisation through `ProcessEnv` and
-/// has no environment of its own to hand in. Serialised so neither can observe
-/// the other's definition.
-static ENVIRONMENT: Mutex<()> = Mutex::new(());
 
 /// THE PROPERTY. One activation, one keeper admitted, one authorisation spent:
 /// the flag is gone from the service definition afterwards, exactly one spend
 /// was reported, and that report says the entry WAS there.
 #[tokio::test]
 async fn a_force_live_retire_authorisation_is_spent_once_after_admission() {
-    let _guard = ENVIRONMENT
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let scratch = Scratch::new("retire-spend");
     let platform = platform();
     let definition = Definition::write(scratch.root(), platform, true);
     let boot = retire_support::boot(scratch.root(), platform);
     let _keeper = FakeKeeper::start(&boot, platform).await;
-    let (captured, _capture) = spend_events();
 
-    let outcome = retire_support::serve_once(boot).await;
+    let activation = serve_in_child(scratch.root(), platform, &definition);
+    let outcome = activation.outcome();
     assert!(outcome.is_ok(), "the worker refused to boot: {outcome:?}");
 
-    let events = captured();
-    let spend = spends(&events);
+    let spend = spends(activation.events());
     assert_eq!(
         spend.len(),
         1,
         "the authorisation was spent {n} times, and exactly once is the property",
         n = spend.len()
     );
-    assert!(
-        spend[0],
-        "the spend did not report the entry it removed"
-    );
+    assert!(spend[0], "the spend did not report the entry it removed");
     let after = definition.read();
     assert!(
         !after.contains(retire_support::FORCE_LIVE_RETIRE_KEY),
@@ -87,26 +77,20 @@ async fn a_force_live_retire_authorisation_is_spent_once_after_admission() {
 /// `systemctl --user daemon-reload` for nothing, on every start of every worker.
 #[tokio::test]
 async fn an_activation_with_no_authorisation_to_spend_reports_that_it_had_none() {
-    let _guard = ENVIRONMENT
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let scratch = Scratch::new("retire-absent");
     let platform = platform();
     let definition = Definition::write(scratch.root(), platform, false);
     let before = definition.read();
     let boot = retire_support::boot(scratch.root(), platform);
     let _keeper = FakeKeeper::start(&boot, platform).await;
-    let (captured, _capture) = spend_events();
 
-    let outcome = retire_support::serve_once(boot).await;
+    let activation = serve_in_child(scratch.root(), platform, &definition);
+    let outcome = activation.outcome();
     assert!(outcome.is_ok(), "the worker refused to boot: {outcome:?}");
 
-    let spend = spends(&captured());
+    let spend = spends(activation.events());
     assert_eq!(spend.len(), 1, "the spend was not reported at all");
-    assert!(
-        !spend[0],
-        "an absent entry was reported as removed"
-    );
+    assert!(!spend[0], "an absent entry was reported as removed");
     assert_eq!(
         definition.read(),
         before,
@@ -128,23 +112,20 @@ async fn an_activation_with_no_authorisation_to_spend_reports_that_it_had_none()
 /// is probed, and this fails on the comparison below.
 #[tokio::test]
 async fn the_authorisation_is_spent_after_admission_and_before_the_link() {
-    let _guard = ENVIRONMENT
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let scratch = Scratch::new("retire-order");
     let platform = platform();
-    let _definition = Definition::write(scratch.root(), platform, true);
+    let definition = Definition::write(scratch.root(), platform, true);
     let boot = retire_support::boot(scratch.root(), platform);
     let _keeper = FakeKeeper::start(&boot, platform).await;
-    let (captured, _capture) = spend_events();
 
-    let outcome = retire_support::serve_once(boot).await;
+    let activation = serve_in_child(scratch.root(), platform, &definition);
+    let outcome = activation.outcome();
     assert!(outcome.is_ok(), "the worker refused to boot: {outcome:?}");
 
-    let events = captured();
-    let admitted = position_of(&events, "boot: keeper admitted");
+    let events = activation.events();
+    let admitted = position_of(events, "boot: keeper admitted");
     let spent = events.iter().position(|event| event.removed.is_some());
-    let linked = position_of(&events, "boot: the coordinator link is starting");
+    let linked = position_of(events, "boot: the coordinator link is starting");
     let admitted = admitted.unwrap_or_else(|| {
         panic!(
             "the activation never reported admitting the keeper, so the spend's position is \

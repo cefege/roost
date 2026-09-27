@@ -89,6 +89,7 @@ fn concurrent_spawns_are_answered_one_for_one() {
                     pool.spawn(
                         &sh_spec(&["-c", &format!("echo {marker}; sleep 5")], &[]),
                         80,
+                        24,
                         Arc::new(binding) as Arc<dyn ChannelBinding>,
                     ),
                     "every concurrent spawn is answered",

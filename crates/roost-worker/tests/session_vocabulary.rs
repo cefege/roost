@@ -199,7 +199,15 @@ fn a_new_record_can_be_attached_and_ends_exactly_once() {
     // The second close is REFUSED rather than silently accepted, which is the
     // exactly-once guarantee: two `closed` events is a session the coordinator
     // records as ended, ended again.
-    assert!(session.fsm.close(Some(0)).is_err());
+    assert!(
+        matches!(
+            session.fsm.close(Some(0)),
+            Err(roost_worker::channel_fsm::Refusal::Terminal)
+        ),
+        "a second close must be refused as TERMINAL, not as an impossible \
+         transition: the two are different claims, and `is_err()` accepts \
+         either one for the exactly-once guarantee this test is named for"
+    );
 }
 
 /// Replacing an agent clears the evidence the dead process left, and keeps the

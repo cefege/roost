@@ -26,6 +26,12 @@ pub const PTY_PATH_PREFIX: &str = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bi
 /// trip, and the fastest failure is a tool that has hung on a filesystem it
 /// cannot reach — either way the answer arrives as no reading, and the caller
 /// is a sampling thread that has to come back.
+///
+/// This bound is a v3 choice and NOT a port. v2 ran its tools through
+/// `Bun.spawn`, which has no timeout at all, so v2 inherited a hung `gh` into a
+/// hung sampling thread. The number is reasoned from the slowest real caller,
+/// not measured against the code it replaces, and it must not be described as
+/// parity with anything.
 pub const TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// The `PATH` this worker resolves its own tools against, prefix included.

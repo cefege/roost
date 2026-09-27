@@ -27,7 +27,7 @@ use roost_worker::link_dial::CoordinatorEndpoint;
 use roost_worker::runtime::credential::{CredentialError, CredentialSource};
 use roost_worker::runtime::link_loop::{LinkLoop, WorkerIdentity};
 use roost_worker::runtime::link_wire::{LinkWire, WireError};
-use roost_worker::runtime::snapshot_source::{NoSnapshot, SnapshotSource};
+use roost_worker::runtime::snapshot_source::{NoSnapshot, SnapshotError, SnapshotSource};
 use roost_worker::runtime::stop::{
     LinkEnd, LinkEndOutcome, StopReason, StopRequests, verdict_for_link_end,
 };
@@ -215,5 +215,10 @@ fn a_source_with_no_sessions_is_not_a_source_with_no_snapshot() {
         "an inactive source is what the link reports at boot, so the missing \
          snapshot is one log line rather than one per dial"
     );
-    assert!(inactive.snapshot().is_err());
+    assert!(
+        matches!(inactive.snapshot(), Err(SnapshotError::Unavailable { .. })),
+        "an inactive source refuses as UNAVAILABLE, not as an encoding failure: \
+         the two say opposite things about whether there was anything to encode, \
+         and `is_err()` accepts either for a test named for the difference"
+    );
 }

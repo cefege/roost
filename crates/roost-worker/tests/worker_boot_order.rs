@@ -22,7 +22,9 @@ use roost_worker::runtime::boot::{
     BootConfigError, ENV_COORDINATOR_URL, ENV_KEEPER_EXECUTABLE, ENV_KEEPER_SOCKET,
     KEEPER_PID_NAME, KEEPER_SOCKET_NAME, WORKER_KEY_NAME, WorkerBoot, WorkerOverrides,
 };
-use roost_worker::runtime::boot_order::{BOOT_ORDER, BootSequence, Readiness, ReadyStep, StepId};
+use roost_worker::runtime::boot_order::{
+    BOOT_ORDER, BootSequence, OutOfOrderStep, Readiness, ReadyStep, StepId,
+};
 use scratch::Scratch;
 
 /// A worker's environment, and the scratch home it resolves into.
@@ -175,8 +177,17 @@ fn readiness_advances_only_through_the_three_steps_in_order() {
         Readiness::Ready
     );
     assert!(readiness.is_ready());
-    // And it is a one-way door: a second announce is a second claim.
-    assert!(readiness.advance(ReadyStep::MarkedReady).is_err());
+    // And it is a one-way door: a second announce is a second claim. The
+    // refusal is pinned by variant, because `is_err()` would pass just as
+    // happily for an advance that refused the right transition for a reason
+    // that has nothing to do with ordering.
+    assert!(matches!(
+        readiness.advance(ReadyStep::MarkedReady),
+        Err(OutOfOrderStep {
+            step: ReadyStep::MarkedReady,
+            at: Readiness::Ready,
+        })
+    ));
 }
 
 /// Paths come from the installer layout when the environment names none, so a

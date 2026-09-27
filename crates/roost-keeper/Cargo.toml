@@ -26,14 +26,40 @@ tracing.workspace = true
 [dev-dependencies]
 roost-protocol.workspace = true
 serde_json.workspace = true
-[lints]
-workspace = true
 
-
+# THIS TABLE IS A COPY, NOT AN INHERITANCE, and the copy is the only form
+# Cargo accepts here: a package may either set `lints.workspace = true` or
+# carry its own `[lints]`, never both. Verified — the combination is a hard
+# manifest error, not a warning:
+#
+#     cannot override `workspace.lints` in `lints`, either remove the overrides
+#     or `lints.workspace = true` and manually specify the lints
+#
+# So because this crate genuinely needs one value changed (below), it restates
+# the whole table. The restatement is the DRIFT HAZARD: a new workspace lint
+# does not reach this crate until it is added here. That is a real cost of
+# carrying the override, stated here rather than discovered at a gate.
+# THE DRIFT IS DETECTABLE, NOT MERELY ACCEPTED: `cargo xtask lint` flags a
+# crate that restates a workspace key without `workspace = true`, and this one is
+# the single entry in `xtask/src/lint_table.rs`'s `COPY_EXEMPT` — the reason
+# recorded there being that the signal handler has no safe API and cargo rejects
+# inheriting a table you also override. So adding a workspace lint without
+# adding it here is a one-line edit plus one line of amendment, rather than a
+# mystery six months later: this crate silently stops receiving it.
+#
+# Before this table existed at all, the crate was under NO deny table:
+# `expect_used`, `todo`, `unimplemented` and `unsafe_code` never applied to it,
+# which is how 19 production `expect()` calls survived a sign-off that read as
+# green. `cargo check` and `cargo test` cannot see any of these — they are
+# clippy and rustc lints — so "compiles and its tests pass" said nothing about
+# whether this crate was gated.
 [lints.rust]
-# The workspace forbids `unsafe`; this crate is the one place that needs it,
-# because a PTY requires raw file descriptors and the controlling-TTY
-# handshake. Overriding the workspace value here makes cargo pass --allow
-# rather than -F, which an inner `#![allow]` could not undo: `forbid` is
-# irrevocable.
 unsafe_code = "allow"
+missing_debug_implementations = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+todo = "deny"
+unimplemented = "deny"

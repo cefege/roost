@@ -11,10 +11,16 @@ description = "The worker service: sessions, the keeper client, the durable outb
 anyhow.workspace = true
 base64.workspace = true
 futures-util.workspace = true
+# The enrollment calls are the only place this crate speaks Connect, and
+# `CallOptions`/`ClientTransport` live behind the `client` feature. The
+# transport itself is the composition root's: a worker dials its coordinator
+# over `http://` and `https://`, and pinning one here would pin it for both.
+connectrpc = { workspace = true, features = ["client"] }
 roost-host.workspace = true
 roost-keeper.workspace = true
 roost-observability.workspace = true
 roost-platform.workspace = true
+roost-proto.workspace = true
 roost-protocol.workspace = true
 serde_json.workspace = true
 tracing.workspace = true

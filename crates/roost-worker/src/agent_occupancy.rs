@@ -57,7 +57,6 @@ impl RuntimeState {
     /// it, and a viewer must be able to see that fact after the process is
     /// gone. Inventing an `unknown` would lose the only thing worth keeping.
     pub fn forced_idle(self) -> Self {
-        let _ = self;
         RuntimeState::Idle
     }
 }

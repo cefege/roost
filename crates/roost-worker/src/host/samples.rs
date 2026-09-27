@@ -43,6 +43,7 @@ pub struct CgroupPressure {
 /// comes from a route lookup whose answer does not change. Holding that on the
 /// sampler is what keeps it off a module-level global, where a second sampler
 /// and a test would fight over the same slot.
+#[derive(Debug)]
 pub struct HostSampler {
     platform: HostPlatform,
     previous_cpu: Option<CpuReading>,

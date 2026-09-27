@@ -60,6 +60,7 @@ pub fn implementation_digest() -> Option<String> {
 }
 
 /// Every live channel the keeper owns.
+#[derive(Debug)]
 pub struct Keeper {
     pub(crate) channels: HashMap<u16, Channel>,
     /// The contract reported at `Hello`, computed once because digesting the

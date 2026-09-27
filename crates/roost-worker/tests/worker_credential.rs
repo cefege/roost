@@ -11,8 +11,12 @@
 #[path = "credential_support/scratch.rs"]
 mod scratch;
 
+#[path = "credential_support/credential_fixture.rs"]
+mod credential_fixture;
+
 use std::os::unix::fs::PermissionsExt as _;
 
+use credential_fixture::source_in;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use roost_host::jwt_base::b64url_decode_to_utf8;
 use roost_worker::host::jwt::{
@@ -22,13 +26,6 @@ use roost_worker::host::jwt::{
 use roost_worker::runtime::credential::{CredentialSource, WorkerKeyCredential};
 use scratch::Scratch;
 use serde_json::Value;
-use sha2::Digest as _;
-
-/// A source over a key file inside `scratch`, freshly generated on first mint.
-fn source_in(scratch: &Scratch) -> (WorkerKeyCredential, std::path::PathBuf) {
-    let key_path = scratch.path("coordinator_ed25519.key");
-    (WorkerKeyCredential::new(key_path.clone()), key_path)
-}
 
 /// The decoded claims of a token.
 fn claims_of(token: &str) -> Value {
@@ -57,13 +54,13 @@ fn signature_of(token: &str) -> Signature {
         .as_bytes()
         .try_into()
         .expect("an ed25519 signature is 64 bytes");
-    Signature::from_bytes(&raw).expect("a well-formed signature")
+    Signature::from_bytes(&raw)
 }
 
 /// The bytes a signature covers: the caller's own two segments joined once,
 /// which is what the coordinator verifies and what a rewriter has to change.
 fn signing_input_of(token: &str) -> String {
-    let (header, payload, _) = token.split_once('.').expect("two segments");
+    let (header, payload) = token.split_once('.').expect("two segments");
     format!("{header}.{payload}")
 }
 
@@ -125,7 +122,7 @@ fn a_credential_whose_bytes_were_touched_does_not_verify() {
     // network somebody else controls.
     let mut forged_bytes = original.to_bytes();
     forged_bytes[63] ^= 0x01;
-    let forged = Signature::from_bytes(&forged_bytes).expect("64 bytes are a signature");
+    let forged = Signature::from_bytes(&forged_bytes);
     assert!(
         verifier
             .verify(signing_input_of(&token).as_bytes(), &forged)
@@ -357,10 +354,9 @@ lzDrmmsja65im/lI+R0rAAAAAAECAwQF
     );
     let token = source.mint().expect("and it signs with it");
     let verifier = verifier_from_key_file(&key_path);
-    let (header, payload, _) = token.split_once('.').expect("two segments");
     verifier
         .verify(
-            format!("{header}.{payload}").as_bytes(),
+            signing_input_of(&token).as_bytes(),
             &signature_of(&token),
         )
         .expect("the credential from a v2 key verifies against that key");
@@ -370,32 +366,4 @@ lzDrmmsja65im/lI+R0rAAAAAAECAwQF
         "loading a key must not rewrite it: an install's key is the one the \
          coordinator has a row for"
     );
-}
-
-/// The key file is the one the keeper's authorized-keys row and the
-/// coordinator's `authorized_keys` row were built from, so the fingerprint has
-/// to be SHA-256 of the public key in it — the same value the browser, the CLI
-/// and the coordinator each derive independently.
-#[test]
-fn the_identity_is_the_public_keys_digest_and_nothing_else() {
-    let scratch = Scratch::new("identity");
-    let (source, key_path) = source_in(&scratch);
-    source.mint().expect("a first dial installs a key");
-    let key = read_existing_worker_key(&key_path).expect("the key it wrote");
-    let digest: [u8; 32] = sha2::Sha256::digest(&key.public_key()).into();
-    assert_eq!(
-        key.fingerprint().as_str(),
-        roost_protocol::fingerprint::fingerprint_hex(&digest),
-        "three ends derive this value independently; a second definition here is \
-         a machine the coordinator cannot route"
-    );
-    let claimed = read_worker_fingerprint_of(&key_path);
-    assert_eq!(claimed, *key.fingerprint());
-}
-
-fn read_worker_fingerprint_of(key_path: &std::path::Path) -> String {
-    roost_worker::host::jwt::read_worker_fingerprint(key_path)
-        .expect("a readable key file")
-        .as_str()
-        .to_string()
 }

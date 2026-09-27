@@ -83,6 +83,16 @@ impl OutputRing {
     }
 }
 
+// The `Receiver` half is omitted because it has no `Debug`. What is left is
+// the partial chunk, which is the only state here a reader could act on.
+impl std::fmt::Debug for OutputRing {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OutputRing")
+            .field("pending", &self.pending)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Drain a PTY into a channel's ring until the child closes the slave end.
 ///
 /// The read blocks by design — that is what a pty read does — and the queue is

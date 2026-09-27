@@ -266,9 +266,7 @@ impl Outbox {
     /// is invalidated and its pending cells are meaningless.
     pub fn discard(&mut self, lane: Lane) -> usize {
         let dropped = self.lanes[Self::slot(lane)].len();
-        while let Some(frame) = self.take_from(lane) {
-            let _ = frame;
-        }
+        while self.take_from(lane).is_some() {}
         dropped
     }
 }

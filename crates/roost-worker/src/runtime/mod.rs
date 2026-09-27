@@ -23,6 +23,7 @@ pub mod boot;
 // shape of the module tree behind it.
 pub use boot::{WorkerBoot, WorkerOverrides};
 pub mod boot_order;
+pub mod bootstrap_redeem;
 pub mod credential;
 pub mod keeper_boot;
 pub mod keeper_probe;

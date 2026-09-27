@@ -8,13 +8,16 @@
 //! [`roost_protocol::proto_adapters::coord_worker_proto`] already owns that job
 //! for all 19 upstream and 28 downstream arms.
 //!
-//! It is also why this module holds an interface rather than a codec. The
-//! worker crate is not allowed to depend on `roost-proto` — the generated
-//! types reach it only through `roost-protocol` — so a codec written here could
-//! not name the messages it encodes. The interface is what makes the mapping
-//! swappable at all, and the test fakes in
-//! `crates/roost-worker/tests/worker_reconnect_ladder.rs` are the other
-//! implementors it exists for.
+//! It is also why this module holds an interface rather than a codec. The worker
+//! crate does depend on `roost-proto` — the bootstrap redemption calls a
+//! generated Connect service — so the generated message types are reachable from
+//! here in principle. What is not permitted is the MAPPING: `roost-protocol`
+//! owns the wire's definition, and a second one written against the union's own
+//! field numbers would be a second definition that agrees with the first until
+//! it does not. The interface keeps the codec swappable without reaching into
+//! the owner's internals, and `tests/link_wire_parity.rs` is what keeps the
+//! delegation honest — a second mapping would round-trip against itself
+//! perfectly and still be wrong.
 
 use roost_protocol::proto_adapters::coord_worker_proto;
 use roost_protocol::wire::coord_worker::{CoordWorkerDownstream, CoordWorkerUpstream};

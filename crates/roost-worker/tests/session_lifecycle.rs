@@ -7,6 +7,7 @@
 
 mod session_support;
 
+use roost_protocol::wire::event::SessionEvent;
 use roost_worker::browser_commands::session_lifecycle::{SessionLifecycle, SessionOutcome};
 use roost_worker::session::respawn::classify_birth;
 use roost_worker::strays::Stillborn;
@@ -136,7 +137,7 @@ async fn a_claim_of_a_session_this_worker_does_not_hold_is_refused() {
         .expect_err("there is no such session here");
     assert_eq!(
         refused.message(),
-        Some("`attach`: this worker holds no session 00000000-0000-4000-8000-00000000cafe")
+        "`attach`: this worker holds no session 00000000-0000-4000-8000-00000000cafe"
     );
 }
 

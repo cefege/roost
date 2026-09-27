@@ -182,12 +182,19 @@ pub struct UnhandledRecord {
 ///
 /// A sample that observed nothing and moved no watermark leaves the log `None`,
 /// because a core that has never reported anything must cost nothing.
+///
+/// `_mono_ms` is part of this call's shape and not used by it: the cap is
+/// reported by `UnhandledRecord::capped`, which is what "it stopped and said so"
+/// means, and nothing here records a wall reading. The parameter is kept
+/// because the production call site lands with the emit slice and a timestamp
+/// on a novel sequence is worth having there. It is named with the underscore
+/// so that reads as deliberate rather than arriving later as an oversight.
 pub fn record_unhandled(
     log: &mut Option<UnhandledSequenceLog>,
     core_consumed_total: u64,
     observed: impl IntoIterator<Item = UnhandledSequenceEntry>,
     ring_dropped: u32,
-    mono_ms: u64,
+    _mono_ms: u64,
 ) -> UnhandledRecord {
     let mut observed = observed.into_iter().peekable();
     let previous = log.as_ref().map_or(0, |existing| existing.consumed);

@@ -32,7 +32,7 @@ use roost_protocol::wire::brand::{ChannelId, SessionId, TraceId};
 use roost_term::AlacrittyCore;
 use roost_term::TerminalCore;
 
-use super::binding::{CellDelivery, RESUME_STAGE_CAP_BYTES, RecordBinding};
+use super::binding::{RESUME_STAGE_CAP_BYTES, RecordBinding};
 use super::ids::mint_uuid;
 use super::lifecycle::SessionManager;
 use super::resize::pin_for_adoption;

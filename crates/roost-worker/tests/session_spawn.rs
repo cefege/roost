@@ -6,204 +6,22 @@
 
 #[path = "session_emit_support/mod.rs"]
 mod support;
+#[path = "session_spawn_support/mod.rs"]
+mod spawn_support;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use roost_protocol::wire::event::SessionEvent;
 use roost_worker::channel_fsm::ChannelState;
-use roost_worker::event_store::{DurableEventKind, Reservation, Store};
-use roost_worker::session::ids::mint_uuid;
-use roost_worker::session::sinks::{ChannelBinding, SessionEventError, SessionEventSink};
-use roost_worker::session::spawn::{
-    ShellSpawner, ShellSpecResolver, SpawnContext, SpawnRefusal, SpawnRequest,
-    canonical_session_cwd, spawn_shell,
-};
+use roost_worker::event_store::DurableEventKind;
+use roost_worker::session::spawn::{SpawnRefusal, spawn_shell};
 use roost_worker::session::types::SessionRecord;
-use roost_worker::shell_spec::ShellSpec;
 
-use support::{channel, shell_spec, worker_fp};
+use spawn_support::{
+    BindingThatRecordsDelivery, FakeKeeper, FixedResolver, LedgerSink, context, request,
+};
+use support::shell_spec;
 
-/// What the durable boundary did, as a ledger of claim ids and events.
-#[derive(Debug, Default)]
-struct ClaimLedger {
-    emitted: Vec<(u64, Option<SessionEvent>)>,
-    held: Vec<u64>,
-    released: Vec<u64>,
-    /// When set, every emit fails with this.
-    refuse_emit: bool,
-}
-
-struct LedgerSink {
-    store: Mutex<Store>,
-    ledger: Mutex<ClaimLedger>,
-}
-
-impl LedgerSink {
-    fn new() -> Arc<Self> {
-        Arc::new(Self {
-            store: Mutex::new(Store::new()),
-            ledger: Mutex::new(ClaimLedger::default()),
-        })
-    }
-
-    fn reserve(&self, kind: DurableEventKind) -> Reservation {
-        self.store
-            .lock()
-            .unwrap()
-            .reserve_default(kind)
-            .expect("a fresh store has room")
-    }
-
-    fn released(&self) -> Vec<u64> {
-        self.ledger.lock().unwrap().released.clone()
-    }
-
-    fn held(&self) -> Vec<u64> {
-        self.ledger.lock().unwrap().held.clone()
-    }
-
-    fn emitted(&self) -> Vec<Option<SessionEvent>> {
-        self.ledger
-            .lock()
-            .unwrap()
-            .emitted
-            .iter()
-            .map(|(_, event)| event.clone())
-            .collect()
-    }
-
-    fn live_claims(&self) -> usize {
-        self.store.lock().unwrap().live_reservations()
-    }
-}
-
-impl SessionEventSink for LedgerSink {
-    fn reserve(&self, kind: DurableEventKind) -> Result<Reservation, SessionEventError> {
-        self.store
-            .lock()
-            .unwrap()
-            .reserve(kind, kind.payload_limit())
-            .map_err(SessionEventError::from)
-    }
-
-    fn hold(&self, reservation: Reservation) {
-        self.ledger.lock().unwrap().held.push(reservation.id());
-    }
-
-    fn release(&self, reservation: Reservation) {
-        self.ledger.lock().unwrap().released.push(reservation.id());
-    }
-
-    fn emit(
-        &self,
-        event: &SessionEvent,
-        reservation: Option<Reservation>,
-    ) -> Result<(), SessionEventError> {
-        let mut ledger = self.ledger.lock().unwrap();
-        if ledger.refuse_emit {
-            return Err(SessionEventError::Unclassifiable(
-                "the store is full".to_owned(),
-            ));
-        }
-        ledger.emitted.push((
-            reservation.map(Reservation::id).unwrap_or(0),
-            Some(event.clone()),
-        ));
-        Ok(())
-    }
-}
-
-/// A keeper that opens PTYs, and remembers what it was asked for.
-struct FakeKeeper {
-    refuse: bool,
-    opened: Mutex<Vec<(i64, u16, u16)>>,
-    killed: Mutex<Vec<i64>>,
-}
-
-impl FakeKeeper {
-    fn refusing() -> Arc<Self> {
-        Arc::new(Self {
-            refuse: true,
-            opened: Mutex::new(Vec::new()),
-            killed: Mutex::new(Vec::new()),
-        })
-    }
-
-    fn working() -> Arc<Self> {
-        Arc::new(Self {
-            refuse: false,
-            opened: Mutex::new(Vec::new()),
-            killed: Mutex::new(Vec::new()),
-        })
-    }
-}
-
-impl ShellSpawner for FakeKeeper {
-    fn spawn_channel(
-        &self,
-        channel_id: roost_protocol::wire::brand::ChannelId,
-        _spec: &ShellSpec,
-        cols: u16,
-        rows: u16,
-        _binding: Arc<dyn ChannelBinding>,
-    ) -> Result<u32, String> {
-        if self.refuse {
-            return Err("channel_id in use".to_owned());
-        }
-        self.opened
-            .lock()
-            .unwrap()
-            .push((channel_id.as_u32() as i64, cols, rows));
-        Ok(4242)
-    }
-
-    fn kill_channel(&self, channel_id: roost_protocol::wire::brand::ChannelId) {
-        self.killed.lock().unwrap().push(channel_id.as_u32() as i64);
-    }
-}
-
-struct FixedResolver {
-    cwd: String,
-}
-
-impl ShellSpecResolver for FixedResolver {
-    fn resolve_shell_spec(&self, _cwd: &str, _session_id: &str) -> Result<ShellSpec, String> {
-        Ok(shell_spec(&self.cwd))
-    }
-}
-
-struct BindingThatRecordsDelivery;
-
-impl ChannelBinding for BindingThatRecordsDelivery {
-    fn on_output(&self, _chunk: &[u8]) {}
-    fn on_exit(&self, _exit_code: Option<i32>) {}
-    fn on_error(&self, _reason: String) {}
-}
-
-fn request(channel_id: i64) -> SpawnRequest {
-    SpawnRequest {
-        channel_id: channel(channel_id),
-        folder: "/tmp".to_owned(),
-        cols: 0,
-        rows: 0,
-        session_id: None,
-        shell_spec: None,
-        event: DurableEventKind::Opened,
-    }
-}
-
-fn context<'a>(
-    keeper: &'a Arc<FakeKeeper>,
-    events: &'a Arc<LedgerSink>,
-    resolver: &'a FixedResolver,
-) -> SpawnContext<'a> {
-    SpawnContext {
-        spawner: keeper.as_ref(),
-        resolver,
-        events: events.as_ref(),
-        worker_fp: &worker_fp(),
-    }
-}
 
 /// A spawn that cannot open its PTY must give BOTH claims back. A leaked claim
 /// is capacity the store will never hand out again, and a store that has lost

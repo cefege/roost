@@ -31,7 +31,7 @@ fn platform() -> HostPlatform {
 /// An environment whose home is a scratch directory, so resolution's one write
 /// lands somewhere the test owns.
 fn environment(scratch: &Scratch) -> MapEnv {
-    MapEnv::new().with("HOME", scratch.path("home").display().to_string())
+    MapEnv::new().with("HOME", &scratch.path("home").display().to_string())
 }
 
 /// The identity in the dial and the identity in the token are one derivation.

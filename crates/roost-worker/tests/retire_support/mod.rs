@@ -1,18 +1,18 @@
 //! The machinery one boot test needs and the other eight do not: a keeper on a
-//! real socket that admits, a resolved boot configuration, a service definition
-//! on disk, and a subscriber that records what the spend reported.
+//! real socket that admits, a resolved boot configuration, and a service
+//! definition on disk in the shape the platform's service manager uses.
 //!
-//! Every part here is real. The keeper is a real Unix socket speaking the real
-//! handshake; the definition is a real file a real rename rewrites; the events
-//! are the ones `tracing` emitted. A fake that answered `Ok` where the code
-//! under test asks "did the file change" would assert nothing.
+//! The definition is spent by a real activation, and that activation runs in a
+//! child process: `runtime::serve_until` spends through `ProcessEnv`, the
+//! process environment is the only channel to it, and mutating it is `unsafe`
+//! in edition 2024, which this workspace forbids outright.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use roost_host::{HostPlatform, MapEnv, supported_host_platform};
@@ -25,6 +25,10 @@ use roost_keeper::payloads::{
 use roost_worker::runtime::boot::{ENV_KEEPER_EXECUTABLE, WorkerBoot};
 use roost_worker::runtime::serve_until;
 use roost_worker::runtime::stop::{StopReason, StopRequests};
+
+mod child;
+
+pub use child::{position_of, serve_in_child, spends};
 
 /// The authorisation this test is about.
 pub const FORCE_LIVE_RETIRE_KEY: &str = "ROOST_KEEPER_FORCE_LIVE_RETIRE";
@@ -208,10 +212,10 @@ pub struct Definition {
 }
 
 impl Definition {
-    /// Write a definition into `root` and point the PROCESS environment at it,
-    /// which is the only environment `runtime::serve_until` spends through.
-    pub fn write(root: &Path, platform: HostPlatform, with_authorisation: bool) -> Self {
-        let (path, body) = match platform {
+    /// Write a definition into `root` and keep its path, which is what the
+    /// activation is pointed at when the child is spawned.
+    pub fn write(root: &Path, host: HostPlatform, with_authorisation: bool) -> Self {
+        let (path, body) = match host {
             HostPlatform::MacOs => (
                 root.join("com.roost.worker-v3.plist"),
                 plist(with_authorisation),
@@ -219,22 +223,24 @@ impl Definition {
             _ => (root.join("roost3-worker.service"), unit(with_authorisation)),
         };
         std::fs::write(&path, body).expect("the fixture can write its service definition");
-        // SAFETY: the tests that read this variable are serialised by the
-        // caller's mutex, and nothing else in this binary reads it.
-        unsafe {
-            std::env::set_var(
-                match platform {
-                    HostPlatform::MacOs => "ROOST_WORKER_PLIST_ENV",
-                    _ => "ROOST_WORKER_UNIT_ENV",
-                },
-                &path,
-            );
-        }
         Self { path }
     }
 
     pub fn read(&self) -> String {
         std::fs::read_to_string(&self.path).expect("the definition is still there")
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// The variable `roost_host::paths::worker_service_path` reads to find
+    /// this definition instead of the host's own location.
+    pub fn env_key(host: HostPlatform) -> &'static str {
+        match host {
+            HostPlatform::MacOs => "ROOST_WORKER_PLIST_ENV",
+            _ => "ROOST_WORKER_UNIT_ENV",
+        }
     }
 }
 
@@ -262,115 +268,4 @@ fn plist(with_authorisation: bool) -> String {
          <key>{SURVIVOR_KEY}</key>\n\t<string>http://127.0.0.1:4113</string>\n\t</dict>\n\
          </dict></plist>\n"
     )
-}
-
-/// One boot event, in the order the activation emitted it.
-///
-/// Ordered rather than counted, because the property this file is about is
-/// WHERE the spend lands and not only that it happened: a spend above keeper
-/// admission destroys an authorisation the admission may not consume, and a
-/// spend that is simply absent is loud while a spend in the wrong place is not.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BootEvent {
-    /// The event's message, which is the human-readable name of the transition.
-    pub name: String,
-    /// `removed_from_service_definition`, on the spend event and nowhere else.
-    pub removed: Option<bool>,
-}
-
-/// Record every event on the current thread, and hand back the reader AND the
-/// guard that keeps the subscriber installed. Dropping the guard uninstalls it
-/// mid-test.
-///
-/// Thread-local on purpose: `install_observability` inside `serve_until` accepts
-/// a subscriber that is already installed, and a global one would also swallow
-/// the events of whatever else this test binary is doing in parallel.
-pub fn spend_events() -> (
-    impl Fn() -> Vec<BootEvent>,
-    tracing::subscriber::DefaultGuard,
-) {
-    let recorded: Arc<Mutex<Vec<BootEvent>>> = Arc::new(Mutex::new(Vec::new()));
-    let sink = Arc::clone(&recorded);
-    let guard = tracing::subscriber::set_default(SpendCapture(sink));
-    let read = move || recorded.lock().expect("the capture lock").clone();
-    (read, guard)
-}
-
-/// Just the spends, in order, out of a whole activation's events.
-pub fn spends(events: &[BootEvent]) -> Vec<bool> {
-    events.iter().filter_map(|event| event.removed).collect()
-}
-
-/// Where in the activation an event with this message was emitted.
-pub fn position_of(events: &[BootEvent], name: &str) -> Option<usize> {
-    events.iter().position(|event| event.name == name)
-}
-
-/// A subscriber that keeps every event this activation emits, in order.
-struct SpendCapture(Arc<Mutex<Vec<BootEvent>>>);
-
-impl tracing::Subscriber for SpendCapture {
-    fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
-        true
-    }
-
-    fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
-        tracing::span::Id::from_u64(1)
-    }
-
-    fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
-
-    fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
-
-    fn event(&self, event: &tracing::Event<'_>) {
-        let mut visitor = BootEventFields {
-            message: String::new(),
-            removed: None,
-        };
-        event.record(&mut visitor);
-        self.0.lock().expect("the capture lock").push(BootEvent {
-            name: visitor.message,
-            removed: visitor.removed,
-        });
-    }
-
-    fn enter(&self, _span: &tracing::span::Id) {}
-
-    fn exit(&self, _span: &tracing::span::Id) {}
-}
-
-/// Reads the two fields this test is about, and ignores every other one.
-///
-/// `message` rather than `metadata().name()`: the name a `tracing` macro
-/// generates is the file and line it was written at, which moves the moment an
-/// unrelated line is added above it, and a test keyed on that fails for a
-/// reason that has nothing to do with the property.
-struct BootEventFields {
-    message: String,
-    removed: Option<bool>,
-}
-
-impl tracing::field::Visit for BootEventFields {
-    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-        if field.name() == "message" {
-            self.message = value.to_owned();
-        }
-    }
-
-    fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
-        if field.name() == "removed_from_service_definition" {
-            self.removed = Some(value);
-        }
-    }
-}
-
-impl BootEventFields {
-    /// The default visitor would format every field into a `dyn Debug`; this one
-    /// reads the two that matter, so a capture is not paying to stringify values
-    /// nothing looks at.
-    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        if field.name() == "message" {
-            self.message = format!("{value:?}");
-        }
-    }
 }

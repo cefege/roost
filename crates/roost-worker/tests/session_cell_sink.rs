@@ -180,7 +180,7 @@ fn output_kept_while_no_sink_can_take_it_is_still_in_the_core() {
     let mut record = fixture.record(channel(14), 80, 24);
     let mut emitter = CellEmitter::new();
     emitter.install_stream(&mut record, "stream-14");
-    emitter.ingest_pty_chunk(&mut record, &numbered_lines(30), 1_000);
+    emitter.ingest_pty_chunk(&mut record, numbered_lines(30).as_bytes(), 1_000);
 
     let withheld = emitter.emit_cell_frame(&mut record, true, 1_010);
     assert_eq!(

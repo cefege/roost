@@ -6,9 +6,8 @@
 //! spec changing means one of the two is now wrong.
 
 use roost_keeper::codec::{
-    CodecError, FrameDecoder, KEEPER_MAX_INPUT_BYTES, KEEPER_MAX_MUX_FRAME_BYTES,
-    MUX_FRAME_HEADER_BYTES, MuxFrame, MuxFrameType, StreamEvent, read_sequence, read_u32,
-    write_sequence,
+    CodecError, FrameDecoder, KEEPER_MAX_INPUT_BYTES, KEEPER_MAX_MUX_FRAME_BYTES, MuxFrame,
+    MuxFrameType, StreamEvent, read_sequence, read_u32, write_sequence,
 };
 use roost_keeper::frames::{SpawnAck, SpawnRequest};
 use roost_keeper::payloads::{

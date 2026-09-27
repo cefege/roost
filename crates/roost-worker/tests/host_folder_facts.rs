@@ -15,6 +15,7 @@ mod scratch;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use roost_host::{HostPlatform, supported_host_platform};

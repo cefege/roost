@@ -86,7 +86,14 @@ impl Recording {
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             seen = guard;
         }
-        seen
+        // The lock is released here rather than returned: each field is taken
+        // out under it, so a test reading the value holds no channel lock for
+        // as long as it keeps the result.
+        Seen {
+            output: std::mem::take(&mut seen.output),
+            exit: seen.exit,
+            error: seen.error.take(),
+        }
     }
 
     /// Wait until the child has printed `needle`, and return what it printed.

@@ -14,9 +14,11 @@ use roost_protocol::wire::event::SessionEvent;
 use roost_term::AlacrittyCore;
 use roost_term::CellEmitState;
 use roost_worker::event_store::{DurableEventKind, Reservation, Store};
-use roost_worker::session::binding::ChannelDelivery;
-use roost_worker::session::lifecycle::{CellDelivery, SessionManager, SessionTable};
-use roost_worker::session::resume::{KeeperChannels, KeeperFault, SurvivorHistory};
+use roost_worker::session::binding::{CellDelivery, ChannelDelivery};
+use roost_worker::session::lifecycle::{SessionManager, SessionTable};
+use roost_worker::session::resume::{
+    AdoptionRequest, KeeperChannels, KeeperFault, SurvivorHistory,
+};
 use roost_worker::session::ring::ScrollbackRing;
 use roost_worker::session::sinks::{ChannelBinding, SessionEventError, SessionEventSink};
 use roost_worker::session::spawn::{ShellSpawner, ShellSpecResolver};
@@ -32,7 +34,7 @@ pub fn session_id(value: &str) -> SessionId {
     SessionId::try_from(value).expect("the fixture id is a uuid")
 }
 
-fn channel(value: i64) -> ChannelId {
+pub fn channel(value: i64) -> ChannelId {
     ChannelId::try_from(value).expect("a small channel id is in range")
 }
 
@@ -57,6 +59,7 @@ fn shell_spec(cwd: &str) -> ShellSpec {
 
 /// A clock that does not move, so a timestamp in an assertion is the one the
 /// test wrote.
+#[derive(Debug)]
 pub struct PinnedClock;
 
 impl EventClock for PinnedClock {
@@ -305,6 +308,49 @@ impl ShellSpecResolver for FixedResolver {
     }
 }
 
+/// The harness's recorder behind the locked trait object a `RecordBinding` is
+/// built from.
+///
+/// The harness hands its recorder out as the CONCRETE `Arc<RecordingDelivery>`,
+/// because that is what the assertions read, while `SessionManager` and a
+/// hand-built `RecordBinding` both want `Arc<Mutex<dyn ChannelDelivery>>`. An
+/// `as` cast cannot bridge those two — it is E0605, a non-primitive cast — so
+/// the forwarding wrapper is the only way one recorder answers to both types.
+/// It lives here rather than in a test file so that there is ONE of them: a
+/// second copy would be a second answer to "what does a hand-built binding
+/// parse into", which is how a binding ends up writing to a recorder no
+/// assertion reads.
+pub struct SharedDelivery(pub Arc<RecordingDelivery>);
+
+impl ChannelDelivery for SharedDelivery {
+    fn ingest_output(&self, record: &mut SessionRecord, chunk: &[u8], now_ms: i64) {
+        self.0.ingest_output(record, chunk, now_ms);
+    }
+
+    fn ingest_exit(&self, record: &mut SessionRecord, exit_code: Option<i32>, now_ms: i64) {
+        self.0.ingest_exit(record, exit_code, now_ms);
+    }
+
+    fn ingest_error(&self, record: &mut SessionRecord, reason: &str, now_ms: i64) {
+        self.0.ingest_error(record, reason, now_ms);
+    }
+
+    fn freeze_capture(&self, channel_id: ChannelId) -> bool {
+        self.0.freeze_capture(channel_id)
+    }
+
+    fn close_capture(&self, channel_id: ChannelId) -> roost_worker::session::binding::CapturedOutput {
+        self.0.close_capture(channel_id)
+    }
+}
+
+/// The delivery a hand-built binding is fed through, wired to the SAME recorder
+/// the harness's assertions read — which is the whole point of the shim.
+pub fn shared_delivery(recorder: &Arc<RecordingDelivery>) -> Arc<Mutex<dyn ChannelDelivery>> {
+    Arc::new(Mutex::new(SharedDelivery(Arc::clone(recorder))))
+}
+
+
 /// The manager, with every collaborator a test can reach.
 pub struct Harness {
     pub manager: Arc<SessionManager>,
@@ -327,7 +373,7 @@ impl Harness {
             Arc::clone(&sink) as Arc<dyn SessionEventSink>,
             Arc::clone(&keeper) as Arc<dyn KeeperChannels>,
             Arc::clone(&cells) as Arc<Mutex<dyn CellDelivery>>,
-            Arc::clone(&delivery) as Arc<Mutex<dyn ChannelDelivery>>,
+            shared_delivery(&delivery),
             Arc::new(PinnedClock),
             Arc::new(NeverSpawns),
             Arc::new(FixedResolver {
@@ -346,6 +392,13 @@ impl Harness {
 
     pub fn new() -> Self {
         Self::with_keeper(Arc::new(ScriptedKeeper::default()))
+    }
+
+    /// The delivery a hand-built binding is fed through, wired to the same
+    /// recorder `self.delivery` exposes, so the assertions keep reading the
+    /// one they were written against.
+    pub fn shared_delivery(&self) -> Arc<Mutex<dyn ChannelDelivery>> {
+        shared_delivery(&self.delivery)
     }
 
     /// Put a record in the table the way a spawn would have.

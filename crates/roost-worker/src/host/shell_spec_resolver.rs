@@ -25,7 +25,7 @@ use std::sync::Mutex;
 use roost_host::HostPlatform;
 
 use crate::host::shell_bootstrap::{self, ShellFlavour};
-use crate::host::tool_path::PTY_PATH_PREFIX;
+pub use crate::host::tool_path::PTY_PATH_PREFIX;
 use crate::session::spawn::ShellSpecResolver;
 use crate::shell_spec::{SESSION_ID_ENV, SHELL_SPEC_VERSION, ShellSpec, is_keeper_control_key};
 
