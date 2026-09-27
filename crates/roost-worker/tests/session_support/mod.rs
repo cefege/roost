@@ -2,11 +2,26 @@
 //! recording what it was asked, with the real `event_store::Store` behind the
 //! sink so a `Reservation` is minted by the only thing that can mint one.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+// This module is compiled into FOUR separate test binaries by `#[path]` —
+// `session_adoption`, `session_binding`, `session_lifecycle`, `session_resize`
+// — and each one exercises a DIFFERENT subset of it. So a dead-code warning
+// here is a statement about one binary, not about the fixture: `closed_events`
+// is called by `session_lifecycle` and by nothing else, while
+// `with_survivor`, `delivered` and `killed` are called by `session_adoption`
+// and by nothing else. Deleting or narrowing any of them to quiet a warning
+// would break a caller in a different binary — which is why the asymmetry runs
+// the other way from the reachability check: for a symbol in a private
+// support module, "privatise it and see if it still builds" proves nothing,
+// because a `pub` in a private module is already unreachable outside the
+// crate. The check that carries information is the opposite trade, and it was
+// run: this allow was REMOVED, the four binaries were compiled, and the lint
+// list each one produced was read against which binary actually calls what.
+// Those four names are the whole list.
+#![allow(dead_code)]
 
 use std::sync::{Arc, Mutex};
 
 use roost_keeper::frames::ChannelBinding as KeeperChannel;
-use roost_keeper::history::HistoryRecord;
 use roost_keeper::payloads::TerminalState;
 use roost_observability::clock::EventClock;
 use roost_protocol::wire::brand::{ChannelId, SessionId, TraceId, WorkerFp};
@@ -144,7 +159,14 @@ fn event_kind(event: &SessionEvent) -> DurableEventKind {
 }
 
 /// A keeper that answers from a script and remembers what it was told.
-#[derive(Default)]
+///
+/// `Default` is written out rather than derived, and the reason is the one
+/// field that cannot have a derived one: a derived `Default` would hand
+/// `applied` a `TerminalState` of `0x0`, and `terminal_state()` would then
+/// report that the keeper applied a zero-sized terminal. No PTY can be that,
+/// and a test that asserted on it would be asserting on a value the protocol
+/// cannot carry. `80x24` is the same geometry `with_survivor` starts from, so
+/// a defaulted keeper and a survivor keeper agree about what a terminal is.
 pub struct ScriptedKeeper {
     pub channels: Mutex<Vec<KeeperChannel>>,
     pub history: Mutex<SurvivorHistory>,
@@ -153,6 +175,24 @@ pub struct ScriptedKeeper {
     pub killed: Mutex<Vec<u16>>,
     pub resized: Mutex<Vec<(u16, u64, u16, u16)>>,
     pub list_fails: Mutex<bool>,
+}
+
+impl Default for ScriptedKeeper {
+    fn default() -> Self {
+        Self {
+            channels: Mutex::new(Vec::new()),
+            history: Mutex::new(SurvivorHistory::default()),
+            applied: Mutex::new(TerminalState {
+                applied_seq: 0,
+                cols: 80,
+                rows: 24,
+            }),
+            delivered: Mutex::new(None),
+            killed: Mutex::new(Vec::new()),
+            resized: Mutex::new(Vec::new()),
+            list_fails: Mutex::new(false),
+        }
+    }
 }
 
 impl KeeperChannels for ScriptedKeeper {

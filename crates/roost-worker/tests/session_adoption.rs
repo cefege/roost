@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 use roost_keeper::history::HistoryRecord;
 use roost_keeper::payloads::TerminalState;
-use roost_term::TerminalCore;
 use roost_worker::browser_commands::session_lifecycle::SessionOutcome;
 use roost_worker::event_store::DurableEventKind;
 use roost_worker::session::resume::{AdoptRefusal, SurvivorHistory};

@@ -33,6 +33,15 @@ impl Scratch {
     }
 
     /// The root itself.
+    ///
+    /// `#[allow(dead_code)]` because this module is compiled into SEVERAL test
+    /// binaries by `#[path]`, and each one sees only the items it calls:
+    /// `worker_retire_authorization`, `shell_spec_resolution` and
+    /// `host_folder_facts` all use this, and `keeper_probe_digest` does not.
+    /// Without the allow, the binaries that do not call it report a dead item
+    /// that three others depend on — so the alternative (narrowing or deleting
+    /// it) would break a caller to silence a lint in an unrelated binary.
+    #[allow(dead_code)]
     pub fn root(&self) -> &Path {
         &self.root
     }
