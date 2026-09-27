@@ -135,6 +135,13 @@ fn websocket_twin(origin: &str) -> String {
 }
 
 /// The `Content-Security-Policy` this coordinator answers with.
+///
+/// `connect_origins` is listed exactly as given. A declared door's WebSocket
+/// twin belongs to the caller that declared it, and both callers of the shared
+/// builder already derive one (`security.ts:46`, `local-ui-server.ts:360`);
+/// deriving it here too would be a second answer to one value, and because the
+/// sources are deduped it would be invisible -- a caller that forgot would look
+/// the same as a caller that did not.
 #[must_use]
 pub fn build_csp(relaxed: bool, connect_origins: &[String]) -> String {
     let mut connections: Vec<&str> = vec!["'self'"];

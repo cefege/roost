@@ -26,7 +26,8 @@ use roost_coord::sync_ws::feed::last_activity::{
     LAST_ACTIVITY_THROTTLE_MS, LastActivityHub, last_activity_frame,
 };
 use roost_coord::sync_ws::feed::presence::{
-    presence_is_addressed_to_another_viewer, publish_presence, session_presence_frame,
+    presence_echo_is_own_notice, presence_is_viewer_addressed, publish_presence,
+    session_presence_frame,
 };
 use roost_coord::sync_ws::feed::ui::{UiViewer, ui_bus_frame, ui_state_seed_frames};
 use roost_coord::sync_ws::frame_meta::{FeedLane, SyncFrameMeta};
@@ -120,25 +121,40 @@ fn presence_reaches_every_viewer_except_the_one_that_authored_it() {
     let viewers = json!({"kind":"viewers","fps":["fingerprint:tab-1","fingerprint:tab-2"]});
 
     assert!(
-        presence_is_addressed_to_another_viewer(&mine, Some("fingerprint:tab-1")),
+        presence_is_viewer_addressed(&mine, Some("fingerprint:tab-1")),
         "a viewer's own cursor notice is the one thing it already knows"
     );
     assert!(
-        presence_is_addressed_to_another_viewer(&theirs, Some("fingerprint:tab-1")),
+        presence_is_viewer_addressed(&theirs, Some("fingerprint:tab-1")),
         "another viewer's cursor is the feature, so it must NOT be filtered: a \
          presence change is broadcast to every viewer of the session"
     );
-    assert!(!presence_is_addressed_to_another_viewer(
+    assert!(!presence_is_viewer_addressed(
         &viewers,
         Some("fingerprint:tab-1")
     ));
     assert!(
-        !presence_is_addressed_to_another_viewer(&mine, None),
+        !presence_is_viewer_addressed(&mine, None),
         "a socket with no viewer identity cannot have authored a notice that names one"
     );
     assert!(
-        !presence_is_addressed_to_another_viewer(&json!("a string"), Some("x")),
+        !presence_is_viewer_addressed(&json!("a string"), Some("x")),
         "an opaque non-object payload is addressed to nobody"
+    );
+
+    // The one refusal. The applicability test above is true for BOTH notices,
+    // so it cannot be the drop; this is, and it fires on exactly one of them.
+    assert!(
+        presence_echo_is_own_notice(&mine, Some("fingerprint:tab-1")),
+        "the tab that sent a cursor notice must not be told its own tab moved"
+    );
+    assert!(
+        !presence_echo_is_own_notice(&theirs, Some("fingerprint:tab-1")),
+        "another viewer's notice is broadcast to every viewer, its author included"
+    );
+    assert!(
+        !presence_echo_is_own_notice(&mine, None),
+        "a socket with no viewer identity owns no notice, so it suppresses nothing"
     );
 
     let frame = session_presence_frame(&SessionPresenceUpdate {

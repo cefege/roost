@@ -5,6 +5,12 @@
 //! Ported from `apps/coord/tests/terminal/view/terminal-view-hub.test.ts` and
 //! the relay path of `terminal-view-owner-relay.ts`.
 
+// `unwrap_used` and `expect_used` are denied outside `#[cfg(test)]`, and an
+// integration test is its own crate rather than a module of one, so the
+// exemption has to be stated here rather than inherited. Every panic below
+// is an assertion over a value the test just built.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 mod terminal_view_support;
 
 use terminal_view_support::{

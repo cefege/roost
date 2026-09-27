@@ -304,14 +304,14 @@ impl ViewRegistry {
                 }
                 continue;
             }
-            if !record.parked {
-                if let Some(session_id) = session_of(&record) {
-                    outcome.calls.push(SinkCall::LiveViewExpired {
-                        socket_id: record.socket_id.clone(),
-                        view_id: record.view_id.clone(),
-                        session_id,
-                    });
-                }
+            if !record.parked
+                && let Some(session_id) = session_of(&record)
+            {
+                outcome.calls.push(SinkCall::LiveViewExpired {
+                    socket_id: record.socket_id.clone(),
+                    view_id: record.view_id.clone(),
+                    session_id,
+                });
             }
             self.machine().drop_record(&key, true, now_ms, None);
             if let Some(session_id) = session_of(&record) {

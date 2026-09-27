@@ -33,12 +33,12 @@ pub async fn paired_browser_account_id(
     database: &CoordDb,
     authority_fingerprint: Option<&str>,
 ) -> PairingResult<Option<String>> {
-    if let Some(fingerprint) = authority_fingerprint {
-        if let Some(account_id) = account_of_device(database.pool(), fingerprint).await? {
-            return Ok(Some(account_id));
-        }
+    if let Some(fingerprint) = authority_fingerprint
+        && let Some(account_id) = account_of_device(database.pool(), fingerprint).await?
+    {
+        return Ok(Some(account_id));
     }
-    Ok(single_active_account(database.pool()).await?)
+    single_active_account(database.pool()).await
 }
 
 /// Whether an approval's authority is still authority now.
@@ -127,8 +127,8 @@ pub async fn associate_paired_browser(
     .bind(now_ms)
     .execute(database.pool())
     .await
-    .map_err(|error| super::sqlx_error("pairing.associate", error))?;
-    Ok(())
+    .map(|_| ())
+    .map_err(|error| super::sqlx_error("pairing.associate", error))
 }
 
 /// The account a device fingerprint belongs to.

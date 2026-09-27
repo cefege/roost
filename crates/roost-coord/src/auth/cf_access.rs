@@ -107,11 +107,10 @@ pub trait CloudflareJwks: Send + Sync {
     fn verify_rs256(&self, jwk: &str, signing_input: &str, signature: &[u8]) -> bool;
 }
 
-/// The production key ring: Cloudflare's key set over HTTPS, cached per issuer,
-/// and RSA-SHA256 verification against it. The cache lives here because the key
-/// set is the network's: a gate that rebuilt it per request would be one
-/// Cloudflare slowdown from refusing every pairing.
-
+/// The team domain and audience Access is configured for, or `None` when
+/// either is absent or blank. Blank is not the same as absent: a host header
+/// from an operator who set the variable to `""` is still a fronted
+/// coordinator, and treating it as unfronted would skip a check.
 fn configured(config: &CoordConfig) -> Option<(&str, &str)> {
     let domain = config.cf_access_team_domain.as_deref()?;
     let audience = config.cf_access_aud.as_deref()?;
@@ -123,11 +122,31 @@ pub fn cloudflare_access_configured(config: &CoordConfig) -> bool {
     configured(config).is_some()
 }
 
+/// The one way installing the key ring can fail.
+///
+/// It is not a boot failure worth retrying: the process keeps the ring it was
+/// given first, and a second install means two components each believe they
+/// own the key set. The name is the message, because the caller's only correct
+/// response is to log it and keep going.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum KeyRingInstallError {
+    /// A key ring is already installed; the first one stands.
+    #[error("the cloudflare access key ring is already installed")]
+    AlreadyInstalled,
+}
+
 /// Install the process's Access key ring, once, at boot. Until it is called a
 /// coordinator with Access configured refuses every assertion rather than
 /// believe one.
-pub fn install_cloudflare_jwks(jwks: Arc<dyn CloudflareJwks>) -> Result<(), ()> {
-    KEY_RING.set(jwks).map_err(|_| ())
+///
+/// The production ring is Cloudflare's key set over HTTPS, cached per issuer.
+/// The cache lives here because the key set is the network's: a gate that
+/// rebuilt it per request would be one Cloudflare slowdown from refusing every
+/// pairing.
+pub fn install_cloudflare_jwks(jwks: Arc<dyn CloudflareJwks>) -> Result<(), KeyRingInstallError> {
+    KEY_RING
+        .set(jwks)
+        .map_err(|_| KeyRingInstallError::AlreadyInstalled)
 }
 
 static KEY_RING: OnceLock<Arc<dyn CloudflareJwks>> = OnceLock::new();

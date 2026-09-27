@@ -1,14 +1,25 @@
+
+
+// `unwrap_used` and `expect_used` are denied outside `#[cfg(test)]`, and an
+// integration test is its own crate rather than a module of one, so the
+// exemption has to be stated here rather than inherited. Every panic below
+// is an assertion over a value the test just built.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 // The security-header and CORS layer as the mounted stack applies it: the policy
 // a response carries, the preflight that is answered before any route, and the
 // one origin whose `Access-Control-Allow-Origin` is echoed.
 //
-// The CSP builder is asserted directly as well, because its output is a string
-// an operator reads in a browser console and a rule that stopped being enforced
-// would not fail any request.
+// The policy is asserted as a header a coordinator SERVES rather than through
+// the builder behind it, because the WebSocket twin of a declared door is
+// derived where the options are resolved: a hand-written origin list is not an
+// input the product can produce, so a test built on one asserts a function
+// rather than the policy a browser is handed.
 mod middleware_support;
 
-use middleware_support::{FOREIGN_HOST, FixtureConfig, ListenerFixture, WORKER_LOCAL_UI_ORIGIN};
-use roost_coord::middleware::security::build_csp;
+use middleware_support::{
+    FOREIGN_HOST, FixtureConfig, ListenerFixture, WORKER_LOCAL_UI_ORIGIN, front_door_config,
+    served_csp,
+};
 
 /// The retired Connect `Sync`, which the listener answers with `410` before
 /// Connect sees it -- a real response on a real path, with no credential needed.
@@ -164,19 +175,24 @@ async fn an_origin_is_echoed_only_when_it_is_on_the_allowlist() {
 /// the coordinator choosing it.
 #[test]
 fn a_relaxed_policy_adds_plaintext_endpoints_and_nothing_else_changes() {
-    let origins = vec!["http://127.0.0.1:4114".to_owned()];
-    let strict = build_csp(false, &origins);
-    let relaxed = build_csp(true, &origins);
-    let strict_connect = "connect-src 'self' http://127.0.0.1:4114 ws://127.0.0.1:4114";
-
+    let strict = served_csp(&front_door_config(false));
+    let relaxed = served_csp(&front_door_config(true));
     // The worker's door is plaintext, so its WebSocket twin has to be named or
-    // the page cannot open the terminal socket at all.
+    // the page cannot open the terminal socket at all, and the declared front
+    // door needs its own twin for the Sync socket to this coordinator.
+    let strict_connect = "connect-src 'self' \
+        https://api.deepgram.com wss://api.deepgram.com \
+        https://desk.example.com wss://desk.example.com \
+        http://127.0.0.1:4114 ws://127.0.0.1:4114";
+
     assert!(strict.contains(strict_connect), "{strict}");
-    assert!(!strict.contains("http:"), "{strict}");
-    assert!(
-        relaxed.contains(&format!("{strict_connect} http: ws:")),
-        "{relaxed}"
-    );
+    // The two scheme sources are the operator's opt-in, and they are the
+    // trailing pair: the flag is the only thing that appends them, so a
+    // policy carrying them without it ends the directive with this same form,
+    // and the plaintext door in the strict list means `http:` cannot be
+    // searched for on its own.
+    assert!(relaxed.contains(&format!("{strict_connect} http: ws:")), "{relaxed}");
+    assert!(!strict.contains(&format!("{strict_connect} http: ws:")), "{strict}");
     assert_eq!(
         strict.replace(strict_connect, "X"),
         relaxed.replace(&format!("{strict_connect} http: ws:"), "X"),
@@ -185,14 +201,7 @@ fn a_relaxed_policy_adds_plaintext_endpoints_and_nothing_else_changes() {
 
     // A repeated origin is listed once, so a front door that is both declared
     // and allowlisted cannot widen the policy by being written twice.
-    let repeated = build_csp(
-        false,
-        &[
-            "https://desk.example.com".to_owned(),
-            "https://desk.example.com".to_owned(),
-        ],
-    );
-    assert_eq!(repeated.matches("https://desk.example.com").count(), 1);
+    assert_eq!(strict.matches("https://desk.example.com").count(), 1);
 }
 
 /// A preflight from a host the gate refuses is refused too: the browser's

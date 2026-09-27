@@ -1,3 +1,10 @@
+
+
+// `unwrap_used` and `expect_used` are denied outside `#[cfg(test)]`, and an
+// integration test is its own crate rather than a module of one, so the
+// exemption has to be stated here rather than inherited. Every panic below
+// is an assertion over a value the test just built.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 // The seven arms wired with the UI and push domains: the same refusal an
 // unwired method gives, and the two proofs that a wired arm really is a
 // delegation -- the caller the arm resolved is the one the handler decides on,

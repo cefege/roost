@@ -1,3 +1,10 @@
+
+
+// `unwrap_used` and `expect_used` are denied outside `#[cfg(test)]`, and an
+// integration test is its own crate rather than a module of one, so the
+// exemption has to be stated here rather than inherited. Every panic below
+// is an assertion over a value the test just built.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 // The property a bootstrap token exists for: redeemable exactly once, by
 // exactly one principal, inside the same statement that records the claim.
 //

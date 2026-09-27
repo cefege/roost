@@ -7,6 +7,10 @@
 // handler: a refusal that is really decided by an outer layer, and the headers
 // an inner one adds, are both invisible to a unit test of either layer alone.
 //
+// It also owns the other half: a configuration resolved without a boot, for
+// the tests that assert the policy a configuration produces rather than the
+// one a socket returns.
+//
 // `tower::ServiceExt::oneshot` would serve the layer chain just as well -- the
 // layers sit on the `Router`, not on the socket -- and it would be simpler. It
 // cannot carry a PEER ADDRESS, and two of these tests turn on one:
@@ -33,6 +37,7 @@ use std::time::Duration;
 use roost_coord::coord_core::CoordCore;
 use roost_coord::coord_core::boot_facts::BootFacts;
 use roost_coord::http::listener::{ListenerState, build_router};
+use roost_coord::middleware::security::{apply_security_headers, security_options_for_config};
 use roost_coord::rpc::service::CoordinatorServiceImpl;
 use roost_coord::services::CoordServices;
 use roost_host::{CoordConfig, CoordConfigInput};
@@ -44,6 +49,10 @@ pub const WORKER_LOCAL_UI_ORIGIN: &str = roost_host::DEFAULT_WORKER_LOCAL_UI_ORI
 /// A host that is not this coordinator. A gate on a loopback bind refuses it
 /// outright; a gate behind a routable bind leaves that job to the front door.
 pub const FOREIGN_HOST: &str = "attacker.example.com";
+
+/// A browser front door the operator both declares and allowlists, which is the
+/// shape that puts one origin in the response policy by two routes.
+pub const FRONT_DOOR: &str = "https://desk.example.com";
 
 /// How this fixture's coordinator is configured.
 pub struct FixtureConfig {
@@ -77,6 +86,44 @@ impl Default for FixtureConfig {
             bind: None,
         }
     }
+}
+
+/// A coordinator configured but not booting: the paths a boot supplies are
+/// placeholders, because the response policy is resolved from the operator's
+/// own fields and reads none of them.
+///
+/// The front door is both `public_url` and a CORS entry, so the origins a
+/// served policy must list once are reached by the two routes a real
+/// deployment reaches them by.
+pub fn front_door_config(relaxed_csp: bool) -> CoordConfig {
+    CoordConfig::parse(CoordConfigInput {
+        db_path: Some(PathBuf::from("/nonexistent/coord.db")),
+        authorized_keys_path: Some(PathBuf::from("/nonexistent/authorized_keys")),
+        log_dir: Some(PathBuf::from("/nonexistent/logs")),
+        public_url: Some(FRONT_DOOR.to_owned()),
+        cors_allowed_origins: Some(vec![FRONT_DOOR.to_owned()]),
+        relaxed_csp: Some(relaxed_csp),
+        ..CoordConfigInput::default()
+    })
+    .expect("a coordinator config")
+}
+
+/// The `content-security-policy` this configuration makes a coordinator serve,
+/// read off the headers the security layer stamps rather than off the builder.
+///
+/// A browser applies `connect-src` to the WebSocket scheme, so the twin of a
+/// declared door is part of the policy a page is given, and it is derived when
+/// the options are resolved -- which is why a caller that hand-writes the
+/// origin list cannot see what a running coordinator serves.
+pub fn served_csp(config: &CoordConfig) -> String {
+    let mut headers = axum::http::HeaderMap::new();
+    apply_security_headers(&mut headers, &security_options_for_config(config));
+    headers
+        .get(axum::http::header::CONTENT_SECURITY_POLICY)
+        .expect("a content security policy")
+        .to_str()
+        .expect("a visible ASCII policy")
+        .to_owned()
 }
 
 /// A coordinator serving the real router on a real port.

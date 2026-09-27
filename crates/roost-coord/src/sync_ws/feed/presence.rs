@@ -39,24 +39,43 @@ pub fn session_presence_frame(update: &SessionPresenceUpdate) -> FeedFrame {
     })
 }
 
-/// Whether this payload is the VIEWER'S OWN notice, which that viewer must not
-/// receive back: echoing a viewer's own cursor to it makes its tab appear to
-/// join and leave.
+/// Whether the own-echo rule can bite this payload: a per-viewer presence
+/// notice, read for a socket that HAS a viewer identity.
 ///
-/// `viewer_key` of `None` is a socket with no viewer identity, which cannot be
-/// the author of a notice that names one, so nothing is dropped for it.
+/// This is the applicability test, not the decision. It is true for another
+/// viewer's notice exactly as it is for the socket's own, because both are the
+/// kind that names a `viewer_id`; telling them apart is
+/// [`presence_echo_is_own_notice`]. `viewers` is a snapshot of the room rather
+/// than a notice from one viewer, so the rule never applies to it however many
+/// ids it lists. A socket with no `viewer_key` has no own notice to suppress.
 #[must_use]
-pub fn presence_is_addressed_to_another_viewer(data: &Value, viewer_key: Option<&str>) -> bool {
-    let Some(viewer_key) = viewer_key else {
+pub fn presence_is_viewer_addressed(data: &Value, viewer_key: Option<&str>) -> bool {
+    if viewer_key.is_none() {
         return false;
-    };
+    }
     let Some(kind) = data.get("kind").and_then(Value::as_str) else {
         return false;
     };
-    if !matches!(kind, "presence-delta" | "presence-leave") {
-        return false;
-    }
-    data.get("viewer_id").and_then(Value::as_str) == Some(viewer_key)
+    matches!(kind, "presence-delta" | "presence-leave")
+}
+
+/// Whether this payload is the VIEWER'S OWN notice, the one notice a socket
+/// must not receive back: echoing a viewer's own cursor to it makes its own tab
+/// appear to join and leave.
+///
+/// This is the whole of the subscriber's presence refusal
+/// (`sync-feed.ts:236-242`): the single condition under which a session's
+/// presence is not pushed to a socket watching that session. Another viewer's
+/// notice is the feature and is delivered to every viewer.
+///
+/// `viewer_key` is an `Option` on both sides of that equality, so a payload
+/// that names a viewer can never match a socket that has none. The gate has
+/// already answered that case, and spelling it this way keeps the comparison
+/// false if the two are ever reordered.
+#[must_use]
+pub fn presence_echo_is_own_notice(data: &Value, viewer_key: Option<&str>) -> bool {
+    presence_is_viewer_addressed(data, viewer_key)
+        && data.get("viewer_id").and_then(Value::as_str) == viewer_key
 }
 
 /// Publish one relayed presence payload, keyed by the session its channel

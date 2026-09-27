@@ -314,10 +314,14 @@ async fn the_list_order_and_the_broadcast_order_are_one_answer_after_a_reorderin
 
     // A client that applied the broadcasts must now hold exactly what a client
     // that re-fetched holds.
-    assert_eq!(fold_publications(&published), retained_rows(&fixture));
+    assert_eq!(
+        fold_publications(&published),
+        retained_rows(&fixture),
+        "the two answers are one answer, whichever way the client got there"
+    );
 
-    // Reorder: session two is replaced by a new occupant, and session four goes
-    // away entirely. The two answers must still be the same answer.
+    // Reorder: the fourth session is taken over by a new occupant, and the
+    // second goes away entirely. The two answers must still be the same answer.
     accepted(
         &fixture,
         WORKER_A,
@@ -330,18 +334,21 @@ async fn the_list_order_and_the_broadcast_order_are_one_answer_after_a_reorderin
         SESSION_IDS[1],
         json!({"revision": 3, "active": false}),
     );
-    assert_eq!(fold_publications(&published), retained_rows(&fixture));
     assert_eq!(
-        fixture
-            .hub()
-            .snapshot()
-            .iter()
-            .map(|held| held.common.session_id.to_string())
-            .collect::<Vec<String>>(),
+        fold_publications(&published),
+        retained_rows(&fixture),
+        "a deletion and a takeover move neither answer relative to the other"
+    );
+    // The survivors in ASCENDING SESSION-ID ORDER -- the one order the answer
+    // has, and not the order the fixture numbers them in. Their contents ride
+    // along because order is half the claim: a re-fetch still naming the
+    // retired occupant would be as wrong as one out of order.
+    assert_eq!(
+        retained_rows(&fixture),
         vec![
-            SESSION_IDS[0].to_owned(),
-            SESSION_IDS[2].to_owned(),
-            SESSION_IDS[3].to_owned()
+            format!("{}:{OCCUPANT_B}:2", SESSION_IDS[3]),
+            format!("{}:{OCCUPANT_A}:1", SESSION_IDS[0]),
+            format!("{}:{OCCUPANT_A}:3", SESSION_IDS[2]),
         ],
         "a deletion removes the row, and the rest keep their order"
     );

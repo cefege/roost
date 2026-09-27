@@ -115,7 +115,7 @@ pub async fn handle_agent_status_wait(
         after_revision,
         u64::from(request.timeout_ms),
     )
-    .map_err(|error| wait_error(error))?;
+    .map_err(wait_error)?;
     let waiter = core
         .services
         .agents

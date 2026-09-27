@@ -133,8 +133,7 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
     // coordinator refuses every pairing request it was built to authenticate,
     // with nothing anywhere saying the ring was never installed.
     if cloudflare_access_configured(&boot.config) {
-        install_cloudflare_jwks(Arc::new(RsaJwks::default()))
-            .map_err(|()| anyhow::anyhow!("the Access key ring was already installed"))?;
+        install_cloudflare_jwks(Arc::new(RsaJwks::default()))?;
     }
     let services = Arc::new(CoordServices::booted(database, boot_facts));
 

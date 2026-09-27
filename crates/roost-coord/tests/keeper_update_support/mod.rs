@@ -7,6 +7,12 @@
 //! as its own test binary, and a shared module that declares no test is a
 //! binary that links nothing it needs.
 
+
+// `unwrap_used` and `expect_used` are denied outside `#[cfg(test)]`, and a
+// shared test fixture is its own crate rather than a module of one, so the
+// exemption has to be stated here rather than inherited. Every panic below
+// names a value the fixture just built.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 #![allow(dead_code)]
 
 use std::collections::BTreeSet;
@@ -75,14 +81,14 @@ pub fn journal(action: &str) -> String {
         "admission": {
             "classification": classification,
             "source_contract_digest": source,
-            "target_contract_digest": digest(&target),
+            "target_contract_digest": digest(target),
             "expected_keeper_pid": 4242,
             "expected_keeper_epoch": EPOCH,
             "expected_binding_digest": binding,
             "required_action": action,
         },
         "source_contract": contract(&source),
-        "target_contract": contract(&digest(&target)),
+        "target_contract": contract(&digest(target)),
     })
     .to_string()
 }
@@ -151,7 +157,7 @@ pub fn observed_by(observed: &Arc<Mutex<Observed>>) -> Observed {
 /// Claim a worker generation whose socket records the drain's state and answers
 /// the preparation the way the link's frame dispatcher answers `rpc-ok`.
 pub fn connect_observer(fixture: &WorkersFixture, reply: Value, observed: Arc<Mutex<Observed>>) {
-    let pending = Arc::clone(&fixture.core.services.scrollback.pending());
+    let pending = Arc::clone(fixture.core.services.scrollback.pending());
     let gate = fixture.core.services.write_gate();
     let sender: Arc<dyn Fn(CoordWorkerDownstream) -> i64 + Send + Sync> =
         Arc::new(move |frame: CoordWorkerDownstream| {

@@ -222,10 +222,10 @@ impl AgentStatusOrder {
         if let Some(previous_epoch) = self.latest_status_epoch.clone() {
             if previous_epoch != identity.status_epoch {
                 self.retire_epoch(&previous_epoch);
-            } else if let Some(previous_occupant) = self.latest_occupant_id.clone() {
-                if previous_occupant != identity.occupant_id {
-                    self.retire_occupant(&previous_epoch, &previous_occupant);
-                }
+            } else if let Some(previous_occupant) = self.latest_occupant_id.clone()
+                && previous_occupant != identity.occupant_id
+            {
+                self.retire_occupant(&previous_epoch, &previous_occupant);
             }
         }
         self.latest_status_epoch = Some(identity.status_epoch.clone());
