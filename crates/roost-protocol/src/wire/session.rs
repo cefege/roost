@@ -63,7 +63,10 @@ impl std::str::FromStr for SessionStatus {
             .into_iter()
             .find(|status| status.as_str() == value)
             .ok_or_else(|| {
-                ProtocolError::new("session_status", format!("unknown session status {value:?}"))
+                ProtocolError::new(
+                    "session_status",
+                    format!("unknown session status {value:?}"),
+                )
             })
     }
 }
@@ -139,7 +142,10 @@ impl std::str::FromStr for PullRequestChecks {
         .into_iter()
         .find(|checks| checks.as_str() == value)
         .ok_or_else(|| {
-            ProtocolError::new("pr_checks", format!("unknown pull request checks {value:?}"))
+            ProtocolError::new(
+                "pr_checks",
+                format!("unknown pull request checks {value:?}"),
+            )
         })
     }
 }

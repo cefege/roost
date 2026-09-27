@@ -20,8 +20,8 @@ use roost_coord::ui_state::rpc::{
     handle_ui_dispatch, handle_ui_list_states, handle_ui_report_state,
 };
 use roost_proto as proto;
-use roost_proto::buffa::MessageField;
 use roost_proto::__buffa::oneof::ui_command::Command;
+use roost_proto::buffa::MessageField;
 use ui_state_fixture::{
     FOREIGN_SESSION_ID, SESSION_ID, UiStateFixture, browser_fingerprint, collect_ui_bus,
     layout_document, report_request, select_tab_command,
@@ -42,7 +42,11 @@ async fn report_list_and_dispatch_refuse_a_request_that_carried_no_tab_id() {
     .expect_err("a report with no tab id is refused");
     assert_eq!(report.code, ErrorCode::FailedPrecondition);
     assert!(
-        report.message.as_deref().unwrap_or_default().contains("tab fence"),
+        report
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("tab fence"),
         "the refusal must name the fence it is missing: {}",
         report.message.as_deref().unwrap_or_default()
     );
@@ -56,7 +60,10 @@ async fn report_list_and_dispatch_refuse_a_request_that_carried_no_tab_id() {
     .await
     .expect_err("a list with no tab id is refused");
     assert!(
-        list.message.as_deref().unwrap_or_default().contains("tab fence"),
+        list.message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("tab fence"),
         "UiListStates must refuse the same way: {}",
         list.message.as_deref().unwrap_or_default()
     );
@@ -74,7 +81,11 @@ async fn report_list_and_dispatch_refuse_a_request_that_carried_no_tab_id() {
     .await
     .expect_err("a dispatch with no tab id is refused");
     assert!(
-        dispatch.message.as_deref().unwrap_or_default().contains("tab fence"),
+        dispatch
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("tab fence"),
         "UiDispatch must refuse the same way: {}",
         dispatch.message.as_deref().unwrap_or_default()
     );
@@ -158,7 +169,11 @@ async fn a_reported_tab_id_never_borrows_another_devices_fingerprint() {
     .expect("the second report is admitted");
 
     let entries = fixture.runtime.states().list();
-    assert_eq!(entries.len(), 2, "the same tab id on two devices is two reports");
+    assert_eq!(
+        entries.len(),
+        2,
+        "the same tab id on two devices is two reports"
+    );
     assert_eq!(entries[0].fingerprint, browser_fingerprint('a'));
     assert_eq!(entries[1].fingerprint, browser_fingerprint('b'));
 }
@@ -203,11 +218,8 @@ async fn a_report_cannot_impersonate_another_browser_by_naming_its_tab() {
     .expect("the first report is admitted");
 
     // The attacker's request is otherwise well formed; only the fence is wrong.
-    let attacker = ui_state_fixture::browser_caller(
-        &browser_fingerprint('b'),
-        &fixture.account_id,
-        None,
-    );
+    let attacker =
+        ui_state_fixture::browser_caller(&browser_fingerprint('b'), &fixture.account_id, None);
     let refused = handle_ui_report_state(
         &fixture.core,
         &fixture.runtime,
@@ -217,7 +229,10 @@ async fn a_report_cannot_impersonate_another_browser_by_naming_its_tab() {
     .await
     .expect_err("a report with no tab fence is refused whatever it names");
     assert_eq!(refused.code, ErrorCode::FailedPrecondition);
-    assert_eq!(fixture.runtime.states().list()[0].state.active_path, "/s/one");
+    assert_eq!(
+        fixture.runtime.states().list()[0].state.active_path,
+        "/s/one"
+    );
 }
 
 #[tokio::test]

@@ -12,6 +12,10 @@ use serde::{Deserialize, Serialize};
 /// itself. A decoder rejects a larger value rather than allocating for it: a
 /// length that large is a protocol violation, not a frame.
 pub const KEEPER_MAX_MUX_FRAME_BYTES: u32 = 16 * 1024 * 1024;
+/// The smallest legal frame body: a type tag and a two-byte channel id, with no
+/// payload at all. A claimed length below this cannot be indexed, so the
+/// decoder refuses it rather than trusting the prefix to be well formed.
+pub const MUX_FRAME_HEADER_BYTES: u32 = 3;
 /// A single `PtyInRequest` payload. Bounded so one keystroke storm cannot make
 /// the keeper allocate without limit.
 pub const KEEPER_MAX_INPUT_BYTES: u32 = 64 * 1024;
@@ -305,6 +309,30 @@ impl FrameDecoder {
             let claimed = u32::from_be_bytes(prefix.try_into().expect("sliced to 4 bytes"));
             if claimed > KEEPER_MAX_MUX_FRAME_BYTES {
                 events.push(StreamEvent::Failed(CodecError::FrameTooLarge(claimed)));
+                self.buffered.clear();
+                return events;
+            }
+            // A frame body is a tag byte plus a two-byte channel id before any
+            // payload, so a claimed length below that is a protocol violation
+            // and not a frame that has not finished arriving.
+            //
+            // This bound is the whole reason the four bytes below cannot be
+            // indexed unguarded: with only the upper check, a peer that sends
+            // `00 00 00 00` gets an empty frame and `frame[0]` panics, and the
+            // panic unwinds the serve loop and the keeper's main, taking every
+            // PTY the machine held with it. Any same-uid process can write
+            // those four bytes to the socket, so an unguarded index here is a
+            // four-byte denial of service against every terminal on a host.
+            //
+            // v2 refused the same frame: `protocol-envelope.ts:114` throws a
+            // `RangeError` when the body is under three bytes. The port kept
+            // the indexing and lost the check, and `LengthMismatch` was
+            // declared for exactly this and never constructed by the decoder.
+            if claimed < MUX_FRAME_HEADER_BYTES {
+                events.push(StreamEvent::Failed(CodecError::LengthMismatch {
+                    claimed,
+                    actual: self.buffered.len().saturating_sub(4),
+                }));
                 self.buffered.clear();
                 return events;
             }

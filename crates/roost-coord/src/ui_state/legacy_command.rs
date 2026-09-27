@@ -22,7 +22,9 @@ use roost_protocol::validate::max_utf8_bytes;
 ///
 /// A command that names no session returns nothing, so the caller's database
 /// check is skipped rather than run against an empty list.
-pub fn legacy_ui_command_session_ids(command: &proto::UiCommand) -> Result<Vec<String>, ConnectError> {
+pub fn legacy_ui_command_session_ids(
+    command: &proto::UiCommand,
+) -> Result<Vec<String>, ConnectError> {
     let session_ids = match command.command.as_ref() {
         Some(Command::PlaceSplit(split)) => {
             vec![split.session_id.clone(), split.anchor_session_id.clone()]
@@ -32,20 +34,25 @@ pub fn legacy_ui_command_session_ids(command: &proto::UiCommand) -> Result<Vec<S
         Some(Command::CloseTab(close)) => vec![close.session_id.clone()],
         Some(Command::Spotlight(spotlight)) => vec![spotlight.session_id.clone()],
         Some(Command::MoveTab(move_tab)) => {
-            vec![move_tab.session_id.clone(), move_tab.dest_session_id.clone()]
+            vec![
+                move_tab.session_id.clone(),
+                move_tab.dest_session_id.clone(),
+            ]
         }
-        Some(Command::Navigate(_)) | Some(Command::Arrange(_)) | Some(Command::ApplyLayout(_)) | None => {
-            Vec::new()
-        }
+        Some(Command::Navigate(_))
+        | Some(Command::Arrange(_))
+        | Some(Command::ApplyLayout(_))
+        | None => Vec::new(),
     };
     for session_id in &session_ids {
-        max_utf8_bytes("ui command session id", session_id, LAYOUT_DOCUMENT_MAX_SESSION_ID_UTF8_BYTES)
-            .map_err(|_| {
-                ConnectError::new(
-                    ErrorCode::InvalidArgument,
-                    "invalid UI command session id",
-                )
-            })?;
+        max_utf8_bytes(
+            "ui command session id",
+            session_id,
+            LAYOUT_DOCUMENT_MAX_SESSION_ID_UTF8_BYTES,
+        )
+        .map_err(|_| {
+            ConnectError::new(ErrorCode::InvalidArgument, "invalid UI command session id")
+        })?;
     }
     Ok(session_ids)
 }
@@ -55,7 +62,9 @@ pub fn legacy_ui_command_session_ids(command: &proto::UiCommand) -> Result<Vec<S
 /// Each arm rebuilds the message rather than forwarding the caller's, so a
 /// retired or unknown field cannot ride along, and each arm re-checks the one
 /// enum-shaped field the wire leaves as a string.
-pub fn canonical_legacy_ui_command(command: &proto::UiCommand) -> Result<proto::UiCommand, ConnectError> {
+pub fn canonical_legacy_ui_command(
+    command: &proto::UiCommand,
+) -> Result<proto::UiCommand, ConnectError> {
     let canonical = match command.command.as_ref() {
         Some(Command::Navigate(navigate)) => Command::Navigate(Box::new(proto::UiNavigate {
             path: navigate.path.clone(),
