@@ -136,6 +136,86 @@ style,class_list}` are missing from the manifest. It went unnoticed because
 `crates/roost-cli/src/dev/signal.rs` is the fixed version everywhere. The
 dangerous version of that file exists on no branch in this family.
 
+## Track gates as they land
+
+### CLI: `v3-cli` @ `b35f0f65`, merged into `v3` as `0ad703be`
+
+`cargo test -p roost-cli --no-fail-fast`, **two agreeing runs**: all 37
+`test result:` lines read `ok`, 0 failed anywhere, both times. The baseline on
+this branch was **17 failures across 11 binaries**.
+
+The 17 were **6 product defects and 11 wrong expectations**, and the split held
+under re-reading. It is worth recording WHY, because "17 red" reads as a broken
+port and it was not: the product defects were a payload preview that trimmed
+where v2 collapsed in place; a dial-URL resolution that asked
+installed-then-ambient *per name* so a shell exporting the most specific name
+outranked the installed definition and silently enrolled the next machine at the
+wrong door; a service spec that took `GIT_SHA` from the running binary's
+compile-time stamp, so every definition named a commit nobody installed; a
+failed commit decision exiting 1 instead of 8, which a wrapper reads as
+"retry the same transaction"; and — the one that would have broken the cutover —
+booleans written with Rust's `Display` (`ROOST_TRUST_PROXY=true`) where the
+loader reads `== "1"` and `parse_terminal_peer_enabled` refuses `true`
+outright, so installs came up with the wrong front-door policy or would not
+boot at all.
+
+That last one had a second defect behind it, found by following the failure one
+assertion further rather than stopping at the fix: the Cloudflare Access pair
+was written BLANK when unset, and the host refused a blank team domain while
+`normalize_https_origin` reads a blank public URL as unset. **Every coordinator
+installed without Cloudflare Access got a definition it could not boot from.**
+The root cause was in the host loader and is fixed there; the CLI omission is
+kept as v2 parity. A test that stops at the assertion it was given will find
+the surface, not the cause.
+
+`clippy -D warnings` and `xtask lint` were **not run** on that branch — the
+build queue was spent getting the push out. Six pre-existing `roost-cli`
+warnings are still owed there, and `xtask lint` has never been run in its
+workspace form by anyone.
+
+### Worker: first-ever total, `v3-worker` @ `8a85f523`
+
+`cargo test -p roost-worker -p roost-keeper -p roost-term --no-fail-fast`, **one
+run: 530 passed / 48 failed / 0 ignored, 83 binaries.** No worker total had ever
+been recorded before this. **This is a triage baseline and NOT a gate figure** —
+one run is not two, and the tree moved substantially afterwards.
+
+The finding that matters is the composition of the 48: they collapse to **eight
+root causes, and only ONE is a product defect**. Seventeen are a single fixture
+constant (`WorkerFp` wants 64 lowercase hex, the fixture passed a UUID); nine are
+a single fixture shape (a cell stream id must be a UUID, so `next_cell_frame`
+returned `Unbuildable` and every later assertion saw `Withheld(BaselineOwed)`);
+three are an unset `HOME`; one was a fake that logged a release without
+releasing it. A reviewer who reads "48 failing" and concludes "this port is
+broken" would be wrong.
+
+The real one is worth its own paragraph. `host/install.rs`'s `closing_quote`
+returned the index PAST the closing quote, so `split_once('=')` produced a
+variable name with a leading `"` that matched no key, and **every systemd scrub
+took the "nothing on this line is the key" branch and reported `removed: false`**.
+A redeemed bootstrap token survived in the unit; a spent force-live-retire
+authorisation survived to re-authorise killing every PTY on the next restart.
+Twenty-nine lines of span arithmetic, and a credential and an authorisation both
+failing open.
+
+`roost-keeper` on the same branch: `cargo test -p roost-keeper --no-fail-fast`,
+**two agreeing runs, 23 binaries, 0 failed.**
+
+### Keeper client: the plan's premise was stale
+
+The plan recorded three open keeper-client defects on `v3-worker`
+(`wait_for_reply` discarding non-matching frames, six missing client frames,
+`resize()` discarding the applied seq and geometry). **All three were already
+fixed** by commits `94bab2b7` and `be68afa0`, merged in at `8a85f523`, with 14
+tests covering them. The plan was reading a doc line the branch had moved past.
+The deferral was proved with a mutation rather than an assertion: reverting
+`client_frames.rs:121` to the pre-fix drop gives **0 passed / 2 failed**, both
+`left: []`.
+
+The lesson is the one this file exists to enforce. A defect list in a plan is a
+hypothesis about a tree; a measurement is a fact about one, and the two drift
+apart at exactly the rate the tree moves.
+
 
 ## How to read a later gate
 
