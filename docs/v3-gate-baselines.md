@@ -370,6 +370,44 @@ still running against it. The restore was verified byte-identical with `diff -q`
 which made that instance recoverable — but a test reading a file while you write
 it produces a result about neither version. Kill the run, mutate, re-run.
 
+### The rig, not the port: three reds in one track that all pointed at the wrong seam
+
+The worker track produced three failures in one session whose cause was the
+fixture or the test rather than the code under test. **The product was correct in
+all three**, and in one of them the *first half of the same test was already
+correct*.
+
+| The test said | The truth |
+|---|---|
+| 24 retained bytes | the literal `b"before anything was armed"` is 25 bytes |
+| "the bootstrap token is not spendable" | `Fixture::start` seeds an issued token with an **empty** binding meaning nobody has spent it, and `redeem` fell through to "spent by somebody else" — a **three-state** thing collapsed into two |
+| `build_sha(&MapEnv::new()) == None`, asserted unconditionally | the constant is derived from git **at compile time**, so whether it is `None` is a property of the **tree**, not the test. `left: Some("d7675361…")` reads as a build-identity defect and is not one |
+
+The third is the sharpest, because the `match` two lines above the failing
+assertion already branched on that same constant and handled both cases
+correctly. **Only the closing assertion ignored it.** `build_identity` preferring
+the compiled stamp is correct, and a compiled build having an answer with no
+environment supplied is not a leak.
+
+**The cost is not the reds. It is that a reader who works out that the cause is
+the rig stops trusting the file** — and the next real defect in it goes unread
+for the same reason the last one was misread. So each of these is written up in
+the commit that fixed it, and the pattern is here for the next track that meets
+it.
+
+**The shape to recognise:** *a failure whose message points at the product, where
+the message is produced by something that was never under test.* Ask what the
+failure is actually **about** before fixing what it appears to be about. Twice
+today the cheap explanation was load and twice the serialised or quiet re-run
+killed it; twice the plausible cause was the rig.
+
+**And a related habit, from a lead that suspected a sibling's files and was
+wrong:** it wrote "almost certainly WorkerStore's, but I am not asserting that
+without the name" — the hedge was correct — and then, after measuring, published
+the reversal in the same message as its own fix. **A number stays readable
+because people correct it in public.** A lead that quietly drops a suspicion
+leaves the next reader unable to tell whether it was ever a suspicion.
+
 ### Keeper client: the plan's premise was stale
 
 The plan recorded three open keeper-client defects on `v3-worker`
