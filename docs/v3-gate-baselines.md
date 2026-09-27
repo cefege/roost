@@ -854,28 +854,55 @@ measuring this rule, and it is the same class as every other finding tonight: an
 instrument reporting success while doing nothing. A zero from a tool that failed
 is worse than an error, because nothing prompts anyone to look again.
 
-**SO THE SWEEP GUARDS ITS OWN OUTPUT, and runs a known-positive tree first.** A
-count with no canary cannot distinguish "nothing found" from "nothing looked at":
+**SO THE SWEEP GUARDS ITS OWN OUTPUT — and the canary is STRUCTURAL, not numeric.**
 
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"
 BIN=/home/almalinux/repos/roost-v3/target-gate/debug/xtask
+
+# CANARY: a throwaway root with exactly one orphan, so the expected figure can
+# never go stale. A live tree's count FALLS as the work succeeds, and a canary
+# pinned to a number starts failing on a healthy tree.
+canary() {
+  R=$(mktemp -d); mkdir -p "$R/crates/probe/src"
+  : > "$R/crates/probe/src/lib.rs"
+  : > "$R/crates/probe/src/orphan.rs"          # named by nothing
+  : > "$R/crates/probe/Cargo.toml"
+  OUT=$(ROOST_REPO_ROOT="$R" "$BIN" lint 2>&1)
+  N=$(printf '%s' "$OUT" | grep -c 'not reached\|not reachable')
+  rm -rf "$R"
+  [ "$N" = 1 ] && echo "canary OK" || { echo "CANARY FAILED (got $N) — every number below is fiction"; exit 1; }
+}
+
 sweep() {
   OUT=$(ROOST_REPO_ROOT="$1" "$BIN" lint 2>&1)
-  # a run that did not print this line FAILED; its zero is not a result
   if ! printf '%s' "$OUT" | grep -q '^xtask: checked'; then
-    printf "%-18s TOOL FAILED: %s\n" "$2" "$(printf '%s' "$OUT" | head -1)"; return
+    printf "%-22s TOOL FAILED: %s\n" "$2" "$(printf '%s' "$OUT" | head -1)"; return
   fi
-  printf "%-18s unreached %2s   (%s)\n" "$2" \
+  printf "%-22s unreached %2s   (%s)\n" "$2" \
     "$(printf '%s' "$OUT" | grep -c 'not reachable from any crate root')" \
     "$(printf '%s' "$OUT" | grep '^xtask: checked')"
 }
-# CANARY FIRST — v3-web must print 8. If it prints 0, every other number is fiction.
-sweep /home/almalinux/repos/roost-v3-web v3-web
-for w in roost-v3 roost-v3-coord roost-v3-worker roost-v3-cli roost-v3-cli2; do
+canary
+for w in roost-v3 roost-v3-coord roost-v3-worker roost-v3-web roost-v3-cli roost-v3-cli2; do
   sweep "/home/almalinux/repos/$w" "$w"
 done
 ```
+
+**THE FLAW THIS REPLACES, and it is the same shape as everything else in this
+file.** The first version of the canary was *"v3-web must print 8"*, taken when
+`v3-web` had exactly eight unreached files. **It is now the correct answer for
+that tree — the seven `find`/`backfill` files are registered — so the canary
+fires on a healthy tree that has simply been fixed.** A canary whose expected
+value is a count goes stale precisely when the work succeeds, and a guard that
+fires on healthy trees is worse than none: it teaches people to ignore it.
+
+**The property worth canarying is not a number, it is a capability: can this
+instrument see anything at all?** A fixture root built to contain exactly one
+orphan answers that forever, because nothing anyone does to the real trees
+changes it. **Pin a property, not a figure** — which is the same lesson as
+`AwaitingDomainPort 27` being a starting measurement rather than an expected
+value.
 
 **The verified sweep, with the input count beside every figure so a zero is
 never bare:** `v3` 0 of 2111, `v3-coord` 0 of 1607, `v3-worker` 0 of 2414,
