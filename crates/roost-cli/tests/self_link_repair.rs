@@ -122,7 +122,10 @@ fn a_broken_link_is_repaired_and_reported_as_having_had_no_target() {
 
     let outcome = write_link(&link, &current).expect("a broken link is repaired");
     assert_eq!(outcome, LinkOutcome::Repaired { previous: None });
-    assert_eq!(std::fs::read_link(&link).expect("the link is readable"), current);
+    assert_eq!(
+        std::fs::read_link(&link).expect("the link is readable"),
+        current
+    );
     assert!(
         outcome.sentence(&link, &current).contains("broken link"),
         "{}",

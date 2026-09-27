@@ -110,10 +110,14 @@ pub fn resolve_plan(
         coordinator_already_installed: installed_coordinator.is_some(),
         worker_already_installed: installed_worker,
         endpoint,
-        coordinator: PlannedService { spec: coordinator_spec },
+        coordinator: PlannedService {
+            spec: coordinator_spec,
+        },
         worker: PlannedService { spec: worker_spec },
         path_link: (
-            home.join(".local").join("bin").join(crate::deploy::apply_release::ROOST_PROGRAM),
+            home.join(".local")
+                .join("bin")
+                .join(crate::deploy::apply_release::ROOST_PROGRAM),
             link_program,
         ),
     })
@@ -124,7 +128,9 @@ pub fn resolve_plan(
 /// The grant is a placeholder, and the label is the one quickstart gives the
 /// machine it is enrolling. The placeholder is the only way a dry run can print
 /// a worker definition at all without minting a credential nobody asked for.
-fn worker_decided_settings(endpoint: &QuickstartEndpoint) -> std::collections::BTreeMap<String, String> {
+fn worker_decided_settings(
+    endpoint: &QuickstartEndpoint,
+) -> std::collections::BTreeMap<String, String> {
     use crate::services::service_environment::ENV_BOOTSTRAP_TOKEN;
     use roost_worker::runtime::boot::ENV_COORDINATOR_URL;
 
@@ -197,7 +203,10 @@ pub fn print_plan(plan: &QuickstartPlan, platform: HostPlatform) {
         );
     }
     println!();
-    println!("--- coordinator definition ({}) ---", plan.coordinator.spec.label);
+    println!(
+        "--- coordinator definition ({}) ---",
+        plan.coordinator.spec.label
+    );
     println!(
         "{}",
         plan.coordinator
@@ -218,12 +227,7 @@ pub fn print_plan(plan: &QuickstartPlan, platform: HostPlatform) {
     );
 }
 
-fn print_service(
-    heading: &str,
-    service: &PlannedService,
-    platform: HostPlatform,
-    extra: &str,
-) {
+fn print_service(heading: &str, service: &PlannedService, platform: HostPlatform, extra: &str) {
     let spec = &service.spec;
     println!("{heading}");
     println!("  service     {}", spec.label);

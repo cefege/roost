@@ -172,7 +172,12 @@ async fn agent_status_json_is_exactly_one_parseable_document_and_nothing_else() 
     .expect("the coordinator answered");
 
     assert_eq!(code, ExitCode::SUCCESS);
-    assert_eq!(out.answers.len(), 1, "stdout carries one document: {:?}", out.answers);
+    assert_eq!(
+        out.answers.len(),
+        1,
+        "stdout carries one document: {:?}",
+        out.answers
+    );
     let document: serde_json::Value =
         serde_json::from_str(&out.answers[0]).expect("the one stdout line is a JSON document");
     assert_eq!(document["session_id"], SESSION_ID);
@@ -196,7 +201,10 @@ async fn a_wait_that_reaches_its_state_exits_zero_and_prints_that_state() {
 
     let code = agents::wait(
         &api,
-        &invocation("agent-wait", &[SESSION_ID, "--until", "blocked", "--timeout", "1s"]),
+        &invocation(
+            "agent-wait",
+            &[SESSION_ID, "--until", "blocked", "--timeout", "1s"],
+        ),
         &mut out,
     )
     .await
@@ -221,7 +229,10 @@ async fn a_wait_that_times_out_exits_one_and_names_the_state_it_was_still_in() {
 
     let code = agents::wait(
         &api,
-        &invocation("agent-wait", &[SESSION_ID, "--until", "blocked", "--timeout", "1s"]),
+        &invocation(
+            "agent-wait",
+            &[SESSION_ID, "--until", "blocked", "--timeout", "1s"],
+        ),
         &mut out,
     )
     .await
@@ -253,7 +264,10 @@ async fn a_wait_reports_the_state_it_was_pinned_to_when_the_occupant_was_replace
 
     agents::wait(
         &api,
-        &invocation("agent-wait", &[SESSION_ID, "--until", "idle", "--timeout", "1s"]),
+        &invocation(
+            "agent-wait",
+            &[SESSION_ID, "--until", "idle", "--timeout", "1s"],
+        ),
         &mut out,
     )
     .await

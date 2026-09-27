@@ -14,12 +14,12 @@ use roost_cli::services::definition_text::render_definition;
 use roost_cli::services::service_spec::{ServiceRole, ServiceSpec};
 use roost_host::{HostPlatform, MapEnv};
 
-use roost_cli::deploy::codes;
-use roost_cli::deploy::invocation;
 use roost_cli::deploy::DeployArgs;
+use roost_cli::deploy::codes;
 use roost_cli::deploy::identity_env::{
     self, EnvTarget, resolve_deploy_env_value, resolve_remote_deploy_identity,
 };
+use roost_cli::deploy::invocation;
 use roost_cli::services::service_environment::{
     ENV_BOOTSTRAP_TOKEN, ENV_REACHABLE_ADDR, ENV_WORKER_LABEL,
 };

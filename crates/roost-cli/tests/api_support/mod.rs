@@ -33,10 +33,9 @@ use connectrpc::handler::handler_fn;
 use connectrpc::service::ConnectRpcService;
 use roost_proto::buffa::{Inline, MessageField};
 use roost_proto::{
-    AgentStatusGetRequest, AgentStatusGetResponse, AgentStatusListRequest,
-    AgentStatusListResponse, AgentStatusView, AgentPromptWaitOutcome, AgentStatusWaitRequest,
-    AgentStatusWaitResponse, SessionsListRequest, SessionsListResponse, Worker, WorkersListRequest,
-    WorkersListResponse,
+    AgentPromptWaitOutcome, AgentStatusGetRequest, AgentStatusGetResponse, AgentStatusListRequest,
+    AgentStatusListResponse, AgentStatusView, AgentStatusWaitRequest, AgentStatusWaitResponse,
+    SessionsListRequest, SessionsListResponse, Worker, WorkersListRequest, WorkersListResponse,
 };
 
 /// The status a session's agent is in, fenced to a named occupant.
@@ -153,83 +152,79 @@ fn router(fixture: Fixture) -> connectrpc::Router {
         router,
         roost_proto::COORDINATOR_SERVICE_WORKERS_LIST_SPEC,
         handler_fn(move |_ctx, _request: WorkersListRequest| {
-                let workers = workers.clone();
-                async move {
-                    Ok(connectrpc::Response::new(WorkersListResponse {
-                        workers: workers.workers.clone(),
-                        routable_fps: workers.routable_fps.clone(),
-                        ..Default::default()
-                    }))
-                }
-            }),
+            let workers = workers.clone();
+            async move {
+                Ok(connectrpc::Response::new(WorkersListResponse {
+                    workers: workers.workers.clone(),
+                    routable_fps: workers.routable_fps.clone(),
+                    ..Default::default()
+                }))
+            }
+        }),
     );
     router = mount(
         router,
         roost_proto::COORDINATOR_SERVICE_SESSIONS_LIST_SPEC,
         handler_fn(move |_ctx, _request: SessionsListRequest| {
-                let sessions = sessions.clone();
-                async move {
-                    Ok(connectrpc::Response::new(SessionsListResponse {
-                        sessions: sessions.sessions.clone(),
-                        ..Default::default()
-                    }))
-                }
-            }),
+            let sessions = sessions.clone();
+            async move {
+                Ok(connectrpc::Response::new(SessionsListResponse {
+                    sessions: sessions.sessions.clone(),
+                    ..Default::default()
+                }))
+            }
+        }),
     );
     router = mount(
         router,
         roost_proto::COORDINATOR_SERVICE_AGENT_STATUS_GET_SPEC,
         handler_fn(move |_ctx, _request: AgentStatusGetRequest| {
-                let status = status.clone();
-                let status_reads = Arc::clone(&status_reads);
-                async move {
-                    Ok(connectrpc::Response::new(AgentStatusGetResponse {
-                        status: field(if status_reads.fetch_add(1, Ordering::SeqCst) == 0 {
-                            status.first_status.clone()
-                        } else {
-                            status.second_status.clone().or(status.first_status.clone())
-                        }),
-                        ..Default::default()
-                    }))
-                }
-            }),
+            let status = status.clone();
+            let status_reads = Arc::clone(&status_reads);
+            async move {
+                Ok(connectrpc::Response::new(AgentStatusGetResponse {
+                    status: field(if status_reads.fetch_add(1, Ordering::SeqCst) == 0 {
+                        status.first_status.clone()
+                    } else {
+                        status.second_status.clone().or(status.first_status.clone())
+                    }),
+                    ..Default::default()
+                }))
+            }
+        }),
     );
     router = mount(
         router,
         roost_proto::COORDINATOR_SERVICE_AGENT_STATUS_LIST_SPEC,
         handler_fn(move |_ctx, _request: AgentStatusListRequest| {
-                let listed = listed.clone();
-                async move {
-                    Ok(connectrpc::Response::new(AgentStatusListResponse {
-                        statuses: listed.first_status.clone().into_iter().collect(),
-                        ..Default::default()
-                    }))
-                }
-            }),
+            let listed = listed.clone();
+            async move {
+                Ok(connectrpc::Response::new(AgentStatusListResponse {
+                    statuses: listed.first_status.clone().into_iter().collect(),
+                    ..Default::default()
+                }))
+            }
+        }),
     );
     router = mount(
         router,
         roost_proto::COORDINATOR_SERVICE_AGENT_STATUS_WAIT_SPEC,
         handler_fn(move |_ctx, _request: AgentStatusWaitRequest| {
-                let wait = wait.clone();
-                async move {
-                    Ok(connectrpc::Response::new(AgentStatusWaitResponse {
-                        outcome: outcome_name(wait.wait_outcome),
-                        ..Default::default()
-                    }))
-                }
-            }),
-        );
+            let wait = wait.clone();
+            async move {
+                Ok(connectrpc::Response::new(AgentStatusWaitResponse {
+                    outcome: outcome_name(wait.wait_outcome),
+                    ..Default::default()
+                }))
+            }
+        }),
+    );
     router
 }
 
 /// Register one generated method, under the service and method its own spec
 /// names, and carry that spec into the router's method table.
-fn mount<H, Req, Res>(
-    router: connectrpc::Router,
-    spec: Spec,
-    handler: H,
-) -> connectrpc::Router
+fn mount<H, Req, Res>(router: connectrpc::Router, spec: Spec, handler: H) -> connectrpc::Router
 where
     H: connectrpc::Handler<Req, Res>,
     Req: roost_proto::buffa::message::Message

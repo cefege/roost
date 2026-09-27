@@ -99,11 +99,7 @@ pub const VERBS: &[VerbSpec] = &[
         verb: "agent-prompt",
         usage: "roost api agent-prompt <session> <text> [--wait --until <states> --timeout <d>]",
         positionals: (2, 2),
-        options: &[
-            flag("--wait"),
-            valued("--until"),
-            valued("--timeout"),
-        ],
+        options: &[flag("--wait"), valued("--until"), valued("--timeout")],
     },
     VerbSpec {
         verb: "sessions",
@@ -313,7 +309,9 @@ mod tests {
     fn no_two_verbs_share_a_name() {
         for (index, spec) in VERBS.iter().enumerate() {
             assert!(
-                !VERBS[..index].iter().any(|earlier| earlier.verb == spec.verb),
+                !VERBS[..index]
+                    .iter()
+                    .any(|earlier| earlier.verb == spec.verb),
                 "{} appears twice in the verb table",
                 spec.verb
             );

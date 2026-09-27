@@ -45,7 +45,9 @@ pub enum ReplaceError {
     NoInstalledBinary(PathBuf),
     #[error("the installed binary at {path} could not be read: {cause}")]
     Unreadable { path: PathBuf, cause: String },
-    #[error("the verified candidate at {path} now hashes to {found}, not the {expected} the release published, so it is not installed")]
+    #[error(
+        "the verified candidate at {path} now hashes to {found}, not the {expected} the release published, so it is not installed"
+    )]
     CandidateChanged {
         path: PathBuf,
         expected: String,
@@ -53,11 +55,15 @@ pub enum ReplaceError {
     },
     #[error("the previous binary at {path} could not be retained: {cause}")]
     PreviousNotRetained { path: PathBuf, cause: String },
-    #[error("the previous binary at {path} does not match the digest recorded for it, so it is not a copy this update may install back")]
+    #[error(
+        "the previous binary at {path} does not match the digest recorded for it, so it is not a copy this update may install back"
+    )]
     PreviousCopyTruncated { path: PathBuf },
     #[error("the swap onto {path} failed: {cause}")]
     SwapFailed { path: PathBuf, cause: String },
-    #[error("the binary at {path} reads as {found}, which is neither the copy this update replaced ({replaced}) nor the one it installed ({target}); it is left alone and the journal is kept")]
+    #[error(
+        "the binary at {path} reads as {found}, which is neither the copy this update replaced ({replaced}) nor the one it installed ({target}); it is left alone and the journal is kept"
+    )]
     InstalledBinaryUnrecognised {
         path: PathBuf,
         /// Named `replaced`, not `source`: thiserror reads a field literally
@@ -69,7 +75,9 @@ pub enum ReplaceError {
     },
     #[error("the self-update journal is not usable: {0}")]
     Journal(String),
-    #[error("the keeper on this machine {running}, and the candidate {summary}, so this update is refused and nothing is replaced")]
+    #[error(
+        "the keeper on this machine {running}, and the candidate {summary}, so this update is refused and nothing is replaced"
+    )]
     KeeperNotAdmissible { running: String, summary: String },
 }
 
@@ -217,10 +225,7 @@ pub fn replace_executable(
     })
 }
 
-fn write_journal(
-    journal: &SelfUpdateJournal,
-    service_dir: &Path,
-) -> Result<(), ReplaceError> {
+fn write_journal(journal: &SelfUpdateJournal, service_dir: &Path) -> Result<(), ReplaceError> {
     journal
         .write(service_dir)
         .map(|_| ())
@@ -258,7 +263,9 @@ fn retain_previous(journal: &SelfUpdateJournal) -> Result<(), ReplaceError> {
         cause: error.to_string(),
     })?;
     if sha256_hex(&retained) != journal.source_binary_sha256 {
-        return Err(ReplaceError::PreviousCopyTruncated { path: previous_path });
+        return Err(ReplaceError::PreviousCopyTruncated {
+            path: previous_path,
+        });
     }
     Ok(())
 }
@@ -266,18 +273,17 @@ fn retain_previous(journal: &SelfUpdateJournal) -> Result<(), ReplaceError> {
 /// The rename itself: flush the candidate, give it its mode, move it onto the
 /// target's name in one step, then flush the directory so the rename itself
 /// survives a power cut.
-fn swap_candidate_into_place(
-    candidate_path: &Path,
-    executable: &Path,
-) -> Result<(), ReplaceError> {
+fn swap_candidate_into_place(candidate_path: &Path, executable: &Path) -> Result<(), ReplaceError> {
     let candidate = File::open(candidate_path).map_err(|error| ReplaceError::SwapFailed {
         path: candidate_path.to_path_buf(),
         cause: error.to_string(),
     })?;
-    candidate.sync_all().map_err(|error| ReplaceError::SwapFailed {
-        path: candidate_path.to_path_buf(),
-        cause: error.to_string(),
-    })?;
+    candidate
+        .sync_all()
+        .map_err(|error| ReplaceError::SwapFailed {
+            path: candidate_path.to_path_buf(),
+            cause: error.to_string(),
+        })?;
     drop(candidate);
     fs::set_permissions(candidate_path, fs::Permissions::from_mode(EXECUTABLE_MODE)).map_err(
         |error| ReplaceError::SwapFailed {
@@ -309,7 +315,9 @@ pub fn restore_previous(journal: &SelfUpdateJournal) -> Result<(), ReplaceError>
         cause: error.to_string(),
     })?;
     if sha256_hex(&bytes) != journal.source_binary_sha256 {
-        return Err(ReplaceError::PreviousCopyTruncated { path: previous_path });
+        return Err(ReplaceError::PreviousCopyTruncated {
+            path: previous_path,
+        });
     }
     write_durable(&journal.executable(), &bytes, journal.source_binary_mode).map_err(|error| {
         ReplaceError::PreviousNotRetained {

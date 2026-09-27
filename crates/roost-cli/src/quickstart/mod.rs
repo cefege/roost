@@ -101,9 +101,12 @@ pub async fn run(args: &QuickstartArgs) -> Result<ExitCode, CommandFailure> {
     // re-point a machine that has a front door.
     let installed = plan::installed_coordinator(&env, platform);
     let endpoint = match &installed {
-        Some(environment) => {
-            endpoint::installed_endpoint(environment, args.coordinator_url.as_deref(), &env, platform)?
-        }
+        Some(environment) => endpoint::installed_endpoint(
+            environment,
+            args.coordinator_url.as_deref(),
+            &env,
+            platform,
+        )?,
         None => endpoint::fresh_endpoint(args.coordinator_url.as_deref())?,
     };
 
@@ -135,7 +138,10 @@ async fn install_everything(
     platform: HostPlatform,
     endpoint: QuickstartEndpoint,
 ) -> Result<ExitCode, CommandFailure> {
-    eprintln!(">> installing this build into {}", release_bin_dir(env, platform)?.display());
+    eprintln!(
+        ">> installing this build into {}",
+        release_bin_dir(env, platform)?.display()
+    );
 
     let service_dir = service_dir(env, platform)?;
     let bin_dir = release_bin_dir(env, platform)?;
@@ -145,7 +151,8 @@ async fn install_everything(
     let coordinator_spec = coordinator_spec(env, platform, &bin_dir, &endpoint)?;
     prepare_service_directories(&coordinator_spec)?;
     eprintln!(">> installing {}", coordinator_spec.label);
-    let coordinator_outcome = deploy_local_definition(&coordinator_spec, platform, &service_dir).await?;
+    let coordinator_outcome =
+        deploy_local_definition(&coordinator_spec, platform, &service_dir).await?;
     report_change(&coordinator_outcome, "quickstart installed the coordinator");
 
     eprintln!(">> waiting for {}", endpoint.loopback_origin());
@@ -221,7 +228,8 @@ fn coordinator_spec(
     let decided = endpoint.coordinator_settings();
     let install_env = crate::deploy::apply_release::install_environment(env, &decided);
     let program = bin_dir.join(crate::deploy::apply_release::ROOST_PROGRAM);
-    ServiceSpec::resolve(ServiceRole::Coordinator, &install_env, platform, &program).map_err(Into::into)
+    ServiceSpec::resolve(ServiceRole::Coordinator, &install_env, platform, &program)
+        .map_err(Into::into)
 }
 
 /// The worker this machine runs, with its one-shot grant armed through the
@@ -319,7 +327,11 @@ fn urlencode(value: &str) -> String {
 }
 
 /// The block that answers "did that work, and what now".
-fn print_completion(env: &roost_host::ProcessEnv, platform: HostPlatform, endpoint: &QuickstartEndpoint) {
+fn print_completion(
+    env: &roost_host::ProcessEnv,
+    platform: HostPlatform,
+    endpoint: &QuickstartEndpoint,
+) {
     println!();
     println!("Roost is installed and serving.");
     println!("  Local access:   {}", endpoint.loopback_origin());

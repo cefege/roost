@@ -17,8 +17,8 @@
 //! is a match arm here, so `grep` for a verb's behaviour finds exactly one
 //! place and the table cannot grow a row nobody dispatches.
 
-pub mod agent_prompt;
 pub mod agent_projection;
+pub mod agent_prompt;
 pub mod agents;
 pub mod client;
 pub mod credentials;

@@ -87,9 +87,7 @@ pub fn installed_release(
     location: &CoordinatorLocation,
 ) -> Result<(String, PathBuf), CommandFailure> {
     let sha = crate::status::service_definition::declared_value(installed, GIT_SHA_ENV)
-        .or_else(|| {
-            crate::status::service_definition::declared_value(installed, ROOST_GIT_SHA_ENV)
-        })
+        .or_else(|| crate::status::service_definition::declared_value(installed, ROOST_GIT_SHA_ENV))
         .ok_or_else(|| {
             CommandFailure::generic(format!(
                 "the installed coordinator definition at {} does not name the commit it is \
@@ -104,10 +102,7 @@ pub fn installed_release(
 
 /// The release directory for a commit on this machine.
 pub fn release_bin_dir(location: &CoordinatorLocation, git_sha: &str) -> PathBuf {
-    location
-        .release_root
-        .join(git_sha)
-        .join(RELEASE_BIN_DIR)
+    location.release_root.join(git_sha).join(RELEASE_BIN_DIR)
 }
 
 /// The program a service definition runs for a commit on this machine.
@@ -146,9 +141,11 @@ pub fn coordinator_spec(
     git_sha: &str,
     program: &Path,
 ) -> Result<ServiceSpec, CommandFailure> {
-    Ok(ServiceSpec::resolve(ServiceRole::Coordinator, env, location.platform, program)?
-        .with_setting(GIT_SHA_ENV, git_sha)
-        .with_setting(ROOST_GIT_SHA_ENV, git_sha))
+    Ok(
+        ServiceSpec::resolve(ServiceRole::Coordinator, env, location.platform, program)?
+            .with_setting(GIT_SHA_ENV, git_sha)
+            .with_setting(ROOST_GIT_SHA_ENV, git_sha),
+    )
 }
 
 /// Deploy `spec` as a transaction on this machine, rolling back on its own if
@@ -230,7 +227,9 @@ pub fn snapshot_database(
     database: &Path,
     rollout_id: &str,
 ) -> Result<PathBuf, CommandFailure> {
-    let snapshot_dir = location.service_dir.join(format!("coordinator-rollback-{rollout_id}"));
+    let snapshot_dir = location
+        .service_dir
+        .join(format!("coordinator-rollback-{rollout_id}"));
     std::fs::create_dir_all(&snapshot_dir).map_err(|error| {
         CommandFailure::generic(format!(
             "cannot create the coordinator rollback directory {}: {error}",
@@ -302,9 +301,13 @@ pub fn discard_snapshot(snapshot_dir: &Path) {
 
 fn remove_quietly(path: &Path) {
     match std::fs::remove_file(path) {
-        Ok(()) => info!(path = %path.display(), "removed a write-ahead log the snapshot did not carry"),
+        Ok(()) => {
+            info!(path = %path.display(), "removed a write-ahead log the snapshot did not carry")
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => warn!(path = %path.display(), reason = %error, "could not remove a stale write-ahead log"),
+        Err(error) => {
+            warn!(path = %path.display(), reason = %error, "could not remove a stale write-ahead log")
+        }
     }
 }
 

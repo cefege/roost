@@ -28,8 +28,8 @@ use roost_protocol::terminal_input::{
 };
 use roost_protocol::wire::agent_status::agent_status_identity;
 
-use crate::api::agents::{parse_duration, parse_states};
 use crate::api::agent_projection;
+use crate::api::agents::{parse_duration, parse_states};
 use crate::api::client::CoordinatorApi;
 use crate::api::output::ApiOutput;
 use crate::api::verbs::Invocation;
@@ -70,27 +70,32 @@ pub async fn prompt(
              so a prompt cannot be fenced to it"
         ))
     })?;
-    let revision = u64::try_from(status.revision)
-        .map_err(|_| CommandFailure::generic("agent-prompt: the status revision is out of range"))?;
+    let revision = u64::try_from(status.revision).map_err(|_| {
+        CommandFailure::generic("agent-prompt: the status revision is out of range")
+    })?;
 
     let response = api
-        .answer(api.stub().sessions_prompt(SessionsPromptRequest {
-            session_id: session.to_string(),
-            expected_status_epoch: fence.status_epoch.as_str().to_string(),
-            expected_occupant_id: fence.occupant_id.as_str().to_string(),
-            expected_revision: revision,
-            text: text.to_string(),
-            wait_states: wait
-                .as_ref()
-                .map_or_else(Vec::new, |wait| wait.states.clone()),
-            wait_timeout_ms: wait.as_ref().map(|wait| wait.timeout_ms),
-            ..Default::default()
-        }))
+        .answer(
+            api.stub().sessions_prompt(SessionsPromptRequest {
+                session_id: session.to_string(),
+                expected_status_epoch: fence.status_epoch.as_str().to_string(),
+                expected_occupant_id: fence.occupant_id.as_str().to_string(),
+                expected_revision: revision,
+                text: text.to_string(),
+                wait_states: wait
+                    .as_ref()
+                    .map_or_else(Vec::new, |wait| wait.states.clone()),
+                wait_timeout_ms: wait.as_ref().map(|wait| wait.timeout_ms),
+                ..Default::default()
+            }),
+        )
         .await?;
 
     let input = input_outcome(&response.input_outcome)?;
     if !written_bytes_fit(input, response.written_bytes) {
-        return Err(invalid("a written byte count that disagrees with the outcome"));
+        return Err(invalid(
+            "a written byte count that disagrees with the outcome",
+        ));
     }
     let rejection = match &response.rejection {
         None => None,
@@ -100,7 +105,9 @@ pub async fn prompt(
     let wait_outcome = match (response.wait_outcome.as_ref(), &wait, input) {
         (None, _, _) => None,
         (Some(code), None, _) => {
-            return Err(invalid("a wait outcome for a prompt with no wait asked for"));
+            return Err(invalid(
+                "a wait outcome for a prompt with no wait asked for",
+            ));
         }
         (Some(_), Some(_), "rejected") => {
             return Err(invalid("a wait outcome for a prompt it says it rejected"));
@@ -153,7 +160,9 @@ fn wait_request(args: &Invocation) -> Result<Option<WaitRequest>, CommandFailure
     }))
 }
 
-fn input_outcome(value: &roost_proto::buffa::EnumValue<AgentPromptInputOutcome>) -> Result<&'static str, CommandFailure> {
+fn input_outcome(
+    value: &roost_proto::buffa::EnumValue<AgentPromptInputOutcome>,
+) -> Result<&'static str, CommandFailure> {
     match value.as_known() {
         Some(AgentPromptInputOutcome::Accepted) => Ok("accepted"),
         Some(AgentPromptInputOutcome::Rejected) => Ok("rejected"),
@@ -184,7 +193,9 @@ fn rejection_name(value: Option<AgentPromptRejection>) -> Result<&'static str, C
     }
 }
 
-fn wait_outcome_name(value: Option<AgentPromptWaitOutcome>) -> Result<&'static str, CommandFailure> {
+fn wait_outcome_name(
+    value: Option<AgentPromptWaitOutcome>,
+) -> Result<&'static str, CommandFailure> {
     match value {
         Some(AgentPromptWaitOutcome::Matched) => Ok("matched"),
         Some(AgentPromptWaitOutcome::TimedOut) => Ok("timed_out"),
@@ -221,8 +232,7 @@ mod tests {
     use super::{input_outcome, invalid, rejection_name, wait_outcome_name, written_bytes_fit};
     use crate::command_error::CommandFailure;
     use roost_proto::{
-        AgentPromptInputOutcome, AgentPromptRejection, AgentPromptWaitOutcome,
-        buffa::EnumValue,
+        AgentPromptInputOutcome, AgentPromptRejection, AgentPromptWaitOutcome, buffa::EnumValue,
     };
 
     #[test]

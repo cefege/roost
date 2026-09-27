@@ -57,9 +57,13 @@ pub enum KeeperGateError {
     ProbeFailed { path: String, reason: String },
     #[error("the candidate keeper contract is not a shape this build can read: {0}")]
     ContractMalformed(String),
-    #[error("the keeper on this machine {running}, and the candidate {summary}, so this update is refused and nothing is replaced")]
+    #[error(
+        "the keeper on this machine {running}, and the candidate {summary}, so this update is refused and nothing is replaced"
+    )]
     NotAdmissible { running: String, summary: String },
-    #[error("a keeper is running on this machine but the coordinator has no proof of it, so this update cannot be shown to be safe and is refused")]
+    #[error(
+        "a keeper is running on this machine but the coordinator has no proof of it, so this update cannot be shown to be safe and is refused"
+    )]
     KeeperUnproven,
 }
 
@@ -129,9 +133,11 @@ pub fn admit_candidate(
         return Err(KeeperGateError::KeeperUnproven);
     };
     let open_sessions: BTreeSet<String> = running.open_session_ids.iter().cloned().collect();
-    let Some(admission) =
-        keeper_update_admission(&candidate.contract, running.observation.as_ref(), &open_sessions)
-    else {
+    let Some(admission) = keeper_update_admission(
+        &candidate.contract,
+        running.observation.as_ref(),
+        &open_sessions,
+    ) else {
         return Err(KeeperGateError::NotAdmissible {
             running: describe_running(running),
             summary: format!(
@@ -189,10 +195,7 @@ fn describe_running(running: &RunningKeeper) -> String {
 /// The classification the shared contract reached, for a message that says
 /// which of its four verdicts applied. Asking it a second time is safe and
 /// cheap; it is a pure function of the same three inputs.
-fn classification_of(
-    candidate: &CandidateContract,
-    running: &RunningKeeper,
-) -> &'static str {
+fn classification_of(candidate: &CandidateContract, running: &RunningKeeper) -> &'static str {
     let open_sessions: BTreeSet<String> = running.open_session_ids.iter().cloned().collect();
     roost_protocol::keeper_update::classify_keeper_update(
         &candidate.contract,

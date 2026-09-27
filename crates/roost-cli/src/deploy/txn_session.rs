@@ -134,5 +134,10 @@ fn spawn(host: &str, command: &str) -> Result<Child, CommandFailure> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| codes::refuse(codes::REJECTED_INVOCATION, format!("cannot run ssh: {error}")))
+        .map_err(|error| {
+            codes::refuse(
+                codes::REJECTED_INVOCATION,
+                format!("cannot run ssh: {error}"),
+            )
+        })
 }

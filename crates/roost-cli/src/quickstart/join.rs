@@ -78,8 +78,14 @@ impl JoinCredentials {
     /// The decided environment one worker's definition is resolved from.
     pub fn decided_settings(&self) -> BTreeMap<String, String> {
         let mut decided = BTreeMap::new();
-        decided.insert(ENV_COORDINATOR_URL.to_string(), self.coordinator_url.clone());
-        decided.insert(ENV_BOOTSTRAP_TOKEN.to_string(), self.bootstrap_token.clone());
+        decided.insert(
+            ENV_COORDINATOR_URL.to_string(),
+            self.coordinator_url.clone(),
+        );
+        decided.insert(
+            ENV_BOOTSTRAP_TOKEN.to_string(),
+            self.bootstrap_token.clone(),
+        );
         if let Some(label) = &self.label {
             decided.insert(ENV_WORKER_LABEL.to_string(), label.clone());
         }
@@ -89,12 +95,10 @@ impl JoinCredentials {
 
 /// Read the two variables a join needs, naming whichever is missing.
 pub fn read_credentials(env: &dyn EnvSource) -> Result<JoinCredentials, CommandFailure> {
-    let coordinator_url = declared(env, ENV_COORDINATOR_URL).ok_or_else(|| {
-        missing_variable(ENV_COORDINATOR_URL)
-    })?;
-    let bootstrap_token = declared(env, ENV_BOOTSTRAP_TOKEN).ok_or_else(|| {
-        missing_variable(ENV_BOOTSTRAP_TOKEN)
-    })?;
+    let coordinator_url =
+        declared(env, ENV_COORDINATOR_URL).ok_or_else(|| missing_variable(ENV_COORDINATOR_URL))?;
+    let bootstrap_token =
+        declared(env, ENV_BOOTSTRAP_TOKEN).ok_or_else(|| missing_variable(ENV_BOOTSTRAP_TOKEN))?;
     Ok(JoinCredentials {
         coordinator_url,
         bootstrap_token,
@@ -226,22 +230,27 @@ mod tests {
     fn a_missing_coordinator_url_is_named_on_its_own() {
         let failure = read_credentials(&environment(&[])).expect_err("neither variable is set");
         assert!(
-            failure.message.contains(&format!("{ENV_COORDINATOR_URL} is not set")),
+            failure
+                .message
+                .contains(&format!("{ENV_COORDINATOR_URL} is not set")),
             "{failure}"
         );
         assert!(
-            !failure.message.contains(&format!("{ENV_BOOTSTRAP_TOKEN} is not set")),
+            !failure
+                .message
+                .contains(&format!("{ENV_BOOTSTRAP_TOKEN} is not set")),
             "{failure}"
         );
     }
 
     #[test]
     fn a_missing_grant_is_named_even_when_the_url_is_present() {
-        let failure =
-            read_credentials(&environment(&[(ENV_COORDINATOR_URL, "https://a.example")]))
-                .expect_err("the grant is missing");
+        let failure = read_credentials(&environment(&[(ENV_COORDINATOR_URL, "https://a.example")]))
+            .expect_err("the grant is missing");
         assert!(
-            failure.message.contains(&format!("{ENV_BOOTSTRAP_TOKEN} is not set")),
+            failure
+                .message
+                .contains(&format!("{ENV_BOOTSTRAP_TOKEN} is not set")),
             "{failure}"
         );
     }
@@ -249,7 +258,11 @@ mod tests {
     #[test]
     fn a_variable_set_to_nothing_is_treated_as_missing() {
         assert!(
-            declared(&environment(&[(ENV_BOOTSTRAP_TOKEN, "   ")]), ENV_BOOTSTRAP_TOKEN).is_none()
+            declared(
+                &environment(&[(ENV_BOOTSTRAP_TOKEN, "   ")]),
+                ENV_BOOTSTRAP_TOKEN
+            )
+            .is_none()
         );
         assert!(
             declared(

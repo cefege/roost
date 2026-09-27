@@ -14,8 +14,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use roost_protocol::keeper_update::{
-    INCOMPATIBLE_WITH_LIVE_SESSIONS, JournaledKeeperUpdateV1, KEEPER_RESTART_REQUIRED, UNPROVEN,
-    WORKER_ONLY_SAFE, KeeperContractV1, classify_keeper_update, keeper_update_admission,
+    INCOMPATIBLE_WITH_LIVE_SESSIONS, JournaledKeeperUpdateV1, KEEPER_RESTART_REQUIRED,
+    KeeperContractV1, UNPROVEN, WORKER_ONLY_SAFE, classify_keeper_update, keeper_update_admission,
 };
 
 use crate::push::plan::{DeferredFleetWorker, FleetRolloutTarget};
@@ -70,8 +70,11 @@ pub fn classify_fleet_keeper_updates(
             });
             continue;
         };
-        let open_sessions: BTreeSet<String> =
-            worker.coordinator_open_session_ids.iter().cloned().collect();
+        let open_sessions: BTreeSet<String> = worker
+            .coordinator_open_session_ids
+            .iter()
+            .cloned()
+            .collect();
         let Some(admission) = keeper_update_admission(
             target_contract,
             worker.keeper_runtime.as_ref(),
@@ -118,8 +121,11 @@ pub fn classify_fleet_keeper_updates(
 /// coordinator's own observation of that keeper rather than from any release.
 pub fn rollback_keeper_update(worker: &WorkerStatus) -> Option<JournaledKeeperUpdateV1> {
     let running = worker.keeper_runtime.as_ref()?;
-    let open_sessions: BTreeSet<String> =
-        worker.coordinator_open_session_ids.iter().cloned().collect();
+    let open_sessions: BTreeSet<String> = worker
+        .coordinator_open_session_ids
+        .iter()
+        .cloned()
+        .collect();
     let admission =
         keeper_update_admission(&running.running_contract, Some(running), &open_sessions)?;
     Some(JournaledKeeperUpdateV1 {

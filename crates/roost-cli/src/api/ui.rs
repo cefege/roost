@@ -46,7 +46,11 @@ pub async fn state(
             "{}\t{}\t{}\t{}",
             tab.fp,
             tab.tab_id,
-            if tab.label.is_empty() { "-" } else { &tab.label },
+            if tab.label.is_empty() {
+                "-"
+            } else {
+                &tab.label
+            },
             tab.last_ms
         ));
     }
@@ -139,15 +143,17 @@ pub async fn command(
         }
     };
     let delivered = api
-        .answer(api.stub().ui_dispatch(UiDispatchRequest {
-            target_tab_id: target,
-            command: UiCommand {
-                command: Some(command),
+        .answer(
+            api.stub().ui_dispatch(UiDispatchRequest {
+                target_tab_id: target,
+                command: UiCommand {
+                    command: Some(command),
+                    ..Default::default()
+                }
+                .into(),
                 ..Default::default()
-            }
-            .into(),
-            ..Default::default()
-        }))
+            }),
+        )
         .await?
         .delivered;
     out.answer(&delivered.to_string());

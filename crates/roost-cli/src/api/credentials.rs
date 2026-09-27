@@ -31,8 +31,7 @@ use crate::status::collect::{installed_coordinator_environment, resolve_endpoint
 /// here can put a credential on stdout: the value is handed straight to the
 /// client's default headers and is never formatted.
 pub fn token(env: &dyn EnvSource) -> Option<String> {
-    env.get(CLI_TOKEN_ENV)
-        .filter(|value| !value.is_empty())
+    env.get(CLI_TOKEN_ENV).filter(|value| !value.is_empty())
 }
 
 /// The coordinator this command talks to, as an origin.

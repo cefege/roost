@@ -24,13 +24,13 @@ use roost_protocol::keeper_update::KeeperContractV1;
 use tracing::info;
 
 use crate::command_error::CommandFailure;
+use crate::deploy::DeployArgs;
 use crate::deploy::codes;
 use crate::deploy::identity::{self, DIRTY_SUFFIX};
 use crate::deploy::identity_env;
 use crate::deploy::invocation;
 use crate::deploy::release;
 use crate::deploy::ssh;
-use crate::deploy::DeployArgs;
 use crate::ops::reset::coordinator_database;
 use crate::push::PushArgs;
 use crate::push::admission::{self, FleetKeeperAdmission, FleetRolloutWorker};
@@ -69,8 +69,7 @@ pub async fn push(_args: &PushArgs) -> Result<std::process::ExitCode, CommandFai
     }
 
     let roster = read_roster(&env, platform).await?;
-    let candidates =
-        plan::resolve_push_targets(&roster).map_err(PushRefusal::into_failure)?;
+    let candidates = plan::resolve_push_targets(&roster).map_err(PushRefusal::into_failure)?;
     let routable = routable_fingerprints(&candidates).await;
     let partition = plan::partition_fleet_for_rollout(&candidates, &roster, &routable, &prior_sha);
     refuse_if_nobody_can_move(&partition, &prior_sha, &target_sha)?;
@@ -163,7 +162,10 @@ fn is_full_commit(value: &str) -> bool {
 
 /// The fleet as the running coordinator reports it right now, with the whole
 /// registry's identity proved whole.
-async fn read_roster(env: &dyn EnvSource, platform: HostPlatform) -> Result<Vec<WorkerStatus>, CommandFailure> {
+async fn read_roster(
+    env: &dyn EnvSource,
+    platform: HostPlatform,
+) -> Result<Vec<WorkerStatus>, CommandFailure> {
     let collected = collect(&StatusContext {
         env,
         platform,

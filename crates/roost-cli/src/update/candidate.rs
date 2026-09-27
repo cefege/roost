@@ -64,7 +64,9 @@ pub enum CandidateError {
     DownloadUnreachable { asset: String, status: u16 },
     #[error("{asset} could not be fetched: {cause}")]
     DownloadFailed { asset: String, cause: String },
-    #[error("{asset} hashed to {actual} and the release published {expected}, so nothing was installed")]
+    #[error(
+        "{asset} hashed to {actual} and the release published {expected}, so nothing was installed"
+    )]
     DigestMismatch {
         asset: String,
         expected: String,
@@ -170,10 +172,12 @@ pub fn digest_of(path: &Path) -> Result<String, CandidateError> {
     let mut hasher = sha2::Sha256::new();
     let mut buffer = [0_u8; 64 * 1024];
     loop {
-        let read = file.read(&mut buffer).map_err(|error| CandidateError::Unwritable {
-            path: path.to_path_buf(),
-            cause: error.to_string(),
-        })?;
+        let read = file
+            .read(&mut buffer)
+            .map_err(|error| CandidateError::Unwritable {
+                path: path.to_path_buf(),
+                cause: error.to_string(),
+            })?;
         if read == 0 {
             break;
         }
@@ -190,9 +194,7 @@ pub fn digest_of(path: &Path) -> Result<String, CandidateError> {
 /// ago; what gets renamed is the file on disk NOW, and between the two there is
 /// a window any other process on the machine can write through. A candidate
 /// that failed this check is removed rather than left beside a live `roost`.
-pub fn confirm_staged_bytes(
-    candidate: &VerifiedCandidate,
-) -> Result<PathBuf, CandidateError> {
+pub fn confirm_staged_bytes(candidate: &VerifiedCandidate) -> Result<PathBuf, CandidateError> {
     let actual = digest_of(&candidate.path)?;
     if actual != candidate.sha256 {
         return Err(CandidateError::StagedBytesChanged {

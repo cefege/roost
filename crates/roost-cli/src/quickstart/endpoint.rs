@@ -237,7 +237,11 @@ fn cors_origins(installed: &InstalledEnvironment) -> ProtocolResult<Vec<String>>
         .map(String::as_str)
         .unwrap_or_default();
     let mut origins = Vec::new();
-    for entry in raw.split(',').map(str::trim).filter(|entry| !entry.is_empty()) {
+    for entry in raw
+        .split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+    {
         validate_bare_http_origin(entry, ENV_CORS_ALLOWED_ORIGINS)?;
         origins.push(entry.to_string());
     }
@@ -322,7 +326,10 @@ mod tests {
         )
         .expect("a promotion resolves");
         assert_eq!(endpoint.mode, EndpointMode::FrontDoor);
-        assert_eq!(endpoint.web_public_url.as_deref(), Some("https://new.example.com"));
+        assert_eq!(
+            endpoint.web_public_url.as_deref(),
+            Some("https://new.example.com")
+        );
         assert_eq!(
             endpoint.coordinator_public_url.as_deref(),
             Some("https://api.example.com")
@@ -345,7 +352,10 @@ mod tests {
             HostPlatform::Linux,
         )
         .expect_err("a plaintext front door is refused");
-        assert!(failure.to_string().contains("--coordinator-url"), "{failure}");
+        assert!(
+            failure.to_string().contains("--coordinator-url"),
+            "{failure}"
+        );
     }
 
     #[test]
@@ -353,14 +363,19 @@ mod tests {
         let failure = validate_installed_coordinator(
             &installed(&[
                 ("ROOST_COORDINATOR_BIND", "127.0.0.1:4200"),
-                ("ROOST_CORS_ALLOWED_ORIGINS", "https://roost.example.com/app"),
+                (
+                    "ROOST_CORS_ALLOWED_ORIGINS",
+                    "https://roost.example.com/app",
+                ),
             ]),
             &base(),
             HostPlatform::Linux,
         )
         .expect_err("a CORS entry with a path is refused");
         assert!(
-            failure.to_string().contains(roost_host::ENV_CORS_ALLOWED_ORIGINS),
+            failure
+                .to_string()
+                .contains(roost_host::ENV_CORS_ALLOWED_ORIGINS),
             "{failure}"
         );
     }

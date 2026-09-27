@@ -255,7 +255,10 @@ mod tests {
         status.message = Some("line one\nline\ttwo".to_string());
         let row = status.tsv_row();
         assert_eq!(row.split('\t').count(), 11, "{row}");
-        assert!(!row.contains('\n'), "a raw newline survived into the row: {row}");
+        assert!(
+            !row.contains('\n'),
+            "a raw newline survived into the row: {row}"
+        );
     }
 
     #[test]

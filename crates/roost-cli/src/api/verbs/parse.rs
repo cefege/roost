@@ -232,8 +232,7 @@ mod tests {
     #[test]
     fn a_required_option_is_refused_by_name() {
         let spec = lookup("agent-wait").expect("agent-wait is registered");
-        let failure =
-            parse(spec, &argv(&["session-1"])).expect_err("--until is required to wait");
+        let failure = parse(spec, &argv(&["session-1"])).expect_err("--until is required to wait");
         assert_eq!(failure.code, REJECTED_INVOCATION);
         assert_ne!(failure.code, GENERIC_FAILURE);
         assert!(failure.message.contains("--until"), "{}", failure.message);
@@ -244,7 +243,15 @@ mod tests {
         let spec = lookup("agent-wait").expect("agent-wait is registered");
         let failure = parse(
             spec,
-            &argv(&["s", "--until", "working", "--until", "idle", "--timeout", "1s"]),
+            &argv(&[
+                "s",
+                "--until",
+                "working",
+                "--until",
+                "idle",
+                "--timeout",
+                "1s",
+            ]),
         )
         .expect_err("a repeated --until is two answers to one question");
         assert!(
@@ -257,8 +264,11 @@ mod tests {
     #[test]
     fn an_option_value_is_never_read_as_a_positional() {
         let spec = lookup("agent-wait").expect("agent-wait is registered");
-        let parsed = parse(spec, &argv(&["s", "--until", "working,idle", "--timeout", "30s"]))
-            .expect("a separated option value belongs to the option");
+        let parsed = parse(
+            spec,
+            &argv(&["s", "--until", "working,idle", "--timeout", "30s"]),
+        )
+        .expect("a separated option value belongs to the option");
         assert_eq!(parsed.positionals, vec!["s".to_string()]);
         assert_eq!(parsed.value("--until"), Ok("working,idle"));
         assert_eq!(parsed.value("--timeout"), Ok("30s"));
@@ -288,7 +298,11 @@ mod tests {
     fn a_verb_with_no_positional_refuses_one() {
         let spec = lookup("workers").expect("workers is registered");
         let failure = parse(spec, &argv(&["extra"])).expect_err("workers takes no arguments");
-        assert!(failure.message.contains("unexpected"), "{}", failure.message);
+        assert!(
+            failure.message.contains("unexpected"),
+            "{}",
+            failure.message
+        );
     }
 
     #[test]

@@ -42,12 +42,7 @@ use crate::command_error::{CommandFailure, GENERIC_FAILURE};
 pub const WAITABLE_STATES: [&str; 3] = ["blocked", "idle", "working"];
 
 /// The four outcomes the coordinator's wait answers with.
-const WAIT_OUTCOMES: [&str; 4] = [
-    "matched",
-    "timed_out",
-    "occupant_changed",
-    "session_closed",
-];
+const WAIT_OUTCOMES: [&str; 4] = ["matched", "timed_out", "occupant_changed", "session_closed"];
 
 /// Every observed agent status, sorted, as a table or as one JSON array.
 pub async fn list(
@@ -56,7 +51,10 @@ pub async fn list(
     out: &mut dyn ApiOutput,
 ) -> Result<ExitCode, CommandFailure> {
     let response = api
-        .answer(api.stub().agent_status_list(AgentStatusListRequest::default()))
+        .answer(
+            api.stub()
+                .agent_status_list(AgentStatusListRequest::default()),
+        )
         .await?;
     let mut views = response.statuses;
     views.sort_by(|left, right| left.session_id.cmp(&right.session_id));

@@ -108,11 +108,7 @@ pub fn journaled_update(
 }
 
 /// A rollout participant carrying `update` as its keeper decision.
-pub fn participant(
-    label: &str,
-    host: &str,
-    update: JournaledKeeperUpdateV1,
-) -> FleetRolloutWorker {
+pub fn participant(label: &str, host: &str, update: JournaledKeeperUpdateV1) -> FleetRolloutWorker {
     FleetRolloutWorker {
         fingerprint: digest(&format!("fingerprint-{label}")),
         host: host.to_string(),

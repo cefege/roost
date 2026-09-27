@@ -131,7 +131,9 @@ impl CoordinatorApi {
     where
         V: MessageView<'static>,
     {
-        let response = call.await.map_err(|error| (self.refusal(&error), error.code))?;
+        let response = call
+            .await
+            .map_err(|error| (self.refusal(&error), error.code))?;
         Ok(response.into_view().to_owned_message())
     }
     /// What a coordinator that did not answer, or refused, becomes.

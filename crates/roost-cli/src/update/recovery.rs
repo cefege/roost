@@ -44,7 +44,10 @@ pub enum RecoveryOutcome {
 impl RecoveryOutcome {
     /// Whether this outcome ends the update.
     pub const fn is_terminal(self) -> bool {
-        !matches!(self, RecoveryOutcome::Nothing | RecoveryOutcome::PreparedCleaned)
+        !matches!(
+            self,
+            RecoveryOutcome::Nothing | RecoveryOutcome::PreparedCleaned
+        )
     }
 
     /// Whether the operator has to be told the update was rolled back.
@@ -60,9 +63,7 @@ impl RecoveryOutcome {
 /// if it had never started, and the machine it leaves behind has a binary
 /// nobody can account for.
 pub fn resolve_interrupted_update(service_dir: &Path) -> Result<RecoveryOutcome, ReplaceError> {
-    let Some(journal) =
-        SelfUpdateJournal::load(service_dir).map_err(ReplaceError::Journal)?
-    else {
+    let Some(journal) = SelfUpdateJournal::load(service_dir).map_err(ReplaceError::Journal)? else {
         return Ok(RecoveryOutcome::Nothing);
     };
     let executable = journal.executable();
@@ -79,11 +80,10 @@ pub fn resolve_interrupted_update(service_dir: &Path) -> Result<RecoveryOutcome,
         // the journal names, so the retained copy is dead weight and retiring
         // it is the whole of what is left.
         retire_retained_copy(&previous_path)?;
-        SelfUpdateJournal::clear(service_dir)
-            .map_err(|error| ReplaceError::SwapFailed {
-                path: SelfUpdateJournal::path_in(service_dir),
-                cause: error.to_string(),
-            })?;
+        SelfUpdateJournal::clear(service_dir).map_err(|error| ReplaceError::SwapFailed {
+            path: SelfUpdateJournal::path_in(service_dir),
+            cause: error.to_string(),
+        })?;
         info!(
             executable = %executable.display(),
             "the previous self-update had installed the new binary; it is committed",
@@ -95,11 +95,10 @@ pub fn resolve_interrupted_update(service_dir: &Path) -> Result<RecoveryOutcome,
         // nothing to undo — but the retained copy was written, and leaving it
         // beside a live `roost` is a file no operator can account for.
         retire_retained_copy(&previous_path)?;
-        SelfUpdateJournal::clear(service_dir)
-            .map_err(|error| ReplaceError::SwapFailed {
-                path: SelfUpdateJournal::path_in(service_dir),
-                cause: error.to_string(),
-            })?;
+        SelfUpdateJournal::clear(service_dir).map_err(|error| ReplaceError::SwapFailed {
+            path: SelfUpdateJournal::path_in(service_dir),
+            cause: error.to_string(),
+        })?;
         info!(
             executable = %executable.display(),
             "the previous self-update had replaced nothing; it is cleared",
@@ -126,12 +125,8 @@ const MISSING: &str = "missing";
 
 /// Put the previous binary back and clear the journal, for the caller that
 /// decides a retry is not what it wants.
-pub fn roll_back_interrupted_update(
-    service_dir: &Path,
-) -> Result<RecoveryOutcome, ReplaceError> {
-    let Some(journal) =
-        SelfUpdateJournal::load(service_dir).map_err(ReplaceError::Journal)?
-    else {
+pub fn roll_back_interrupted_update(service_dir: &Path) -> Result<RecoveryOutcome, ReplaceError> {
+    let Some(journal) = SelfUpdateJournal::load(service_dir).map_err(ReplaceError::Journal)? else {
         return Ok(RecoveryOutcome::Nothing);
     };
     restore_previous(&journal)?;

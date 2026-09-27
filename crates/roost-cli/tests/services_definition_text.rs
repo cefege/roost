@@ -258,8 +258,7 @@ fn a_decided_one_shot_reaches_the_rendered_definition() {
     // And an install that decided nothing arms nothing. Both directions matter:
     // the first is a deploy that cannot enroll, the second is every machine on
     // the fleet inheriting a credential because one operator's shell had one.
-    let unarmed =
-        spec(ServiceRole::Worker, HostPlatform::Linux, Path::new(HOME));
+    let unarmed = spec(ServiceRole::Worker, HostPlatform::Linux, Path::new(HOME));
     let unit = render_definition(&unarmed, HostPlatform::Linux)
         .expect("a worker unit with nothing decided renders");
     assert!(!unit.contains("ROOST_BOOTSTRAP_TOKEN"));

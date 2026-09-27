@@ -19,17 +19,17 @@ use roost_host::EnvSource;
 use tracing::{info, warn};
 
 use crate::command_error::CommandFailure;
+use crate::deploy::DeployArgs;
 use crate::deploy::identity_env::Ambient;
 use crate::deploy::keeper_client;
 use crate::deploy::run::KEEPER_ATTEMPTS;
-use crate::deploy::DeployArgs;
 use crate::push::admission::FleetRolloutWorker;
 use crate::push::coordinator::{self, CoordinatorLocation};
 use crate::push::journal::FleetJournal;
 use crate::push::participant;
+use crate::push::rollout::FleetRuntime as Runtime;
 use crate::push::rollout::convergence::fleet_convergence_problems;
 use crate::push::rollout::{FleetRolloutPlan, RolloutAction};
-use crate::push::rollout::FleetRuntime as Runtime;
 use crate::push::source::RollbackCheckout;
 use crate::status::report::WorkerStatus;
 

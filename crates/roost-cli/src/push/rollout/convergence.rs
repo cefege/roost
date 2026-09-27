@@ -50,7 +50,10 @@ pub fn fleet_convergence_problems(
         if let Some(routable) = routable
             && !routable.contains(&target.fingerprint)
         {
-            problems.push(format!("{}: worker is not coordinator-routable", worker.label));
+            problems.push(format!(
+                "{}: worker is not coordinator-routable",
+                worker.label
+            ));
             continue;
         }
         if let Some(problem) = worker_problem(worker, target, expected_sha, action) {

@@ -51,15 +51,16 @@ pub async fn cells(
         })?,
     };
     let response = api
-        .answer(api.stub().sessions_get_scrollback_cells(
-            SessionsGetScrollbackCellsRequest {
-                session_id: session.to_string(),
-                end_row,
-                max_rows,
-                grid_epoch: String::new(),
-                ..Default::default()
-            },
-        ))
+        .answer(
+            api.stub()
+                .sessions_get_scrollback_cells(SessionsGetScrollbackCellsRequest {
+                    session_id: session.to_string(),
+                    end_row,
+                    max_rows,
+                    grid_epoch: String::new(),
+                    ..Default::default()
+                }),
+        )
         .await?;
     out.progress(&format!(
         "rows {}..{} of {} (cols {})",

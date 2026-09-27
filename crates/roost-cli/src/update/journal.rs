@@ -259,7 +259,9 @@ impl SelfUpdateJournal {
             ("target", &self.target_binary_sha256),
         ] {
             if !is_digest(value) {
-                return Err(format!("self-update journal {label} digest is not a sha256"));
+                return Err(format!(
+                    "self-update journal {label} digest is not a sha256"
+                ));
             }
         }
         if self.source_binary_mode > 0o7777 {
@@ -275,7 +277,10 @@ impl SelfUpdateJournal {
 fn canonical_path(path: &Path) -> Result<String, String> {
     let text = path.to_string_lossy().into_owned();
     if !path.is_absolute() || contains_control(&text) {
-        return Err(format!("{} is not a path a journal can record", path.display()));
+        return Err(format!(
+            "{} is not a path a journal can record",
+            path.display()
+        ));
     }
     Ok(text)
 }
@@ -285,5 +290,8 @@ fn contains_control(value: &str) -> bool {
 }
 
 fn is_digest(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }

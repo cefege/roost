@@ -126,8 +126,8 @@ pub fn safe_ssh_target(value: &str) -> Option<String> {
     if !first.is_ascii_alphanumeric() {
         return None;
     }
-    let permitted = characters
-        .all(|character| character.is_ascii_alphanumeric() || "._:-".contains(character));
+    let permitted =
+        characters.all(|character| character.is_ascii_alphanumeric() || "._:-".contains(character));
     permitted.then(|| target.to_string())
 }
 
@@ -185,10 +185,13 @@ fn exact<'a>(matches: Vec<RegistryWorker<'a>>) -> Option<TargetMatch<'a>> {
 /// The two names an operator may know a machine by, and the address the rest of
 /// the fleet reaches it at.
 fn addresses(worker: &WorkerStatus) -> Vec<&str> {
-    [Some(worker.label.as_str()), worker.reachable_addr.as_deref()]
-        .into_iter()
-        .flatten()
-        .collect()
+    [
+        Some(worker.label.as_str()),
+        worker.reachable_addr.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 /// The whole registry as rollout candidates, refusing a target that resolves to

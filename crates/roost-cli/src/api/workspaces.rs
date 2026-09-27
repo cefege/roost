@@ -114,7 +114,10 @@ pub async fn update(
         position,
         ..Default::default()
     };
-    let mut response = match api.try_answer(api.stub().workspaces_update(attempt.clone())).await {
+    let mut response = match api
+        .try_answer(api.stub().workspaces_update(attempt.clone()))
+        .await
+    {
         Ok(response) => response,
         Err((_, ErrorCode::FailedPrecondition)) => {
             attempt.if_version = version_of(api, &id).await?;
@@ -143,7 +146,10 @@ pub async fn delete(
         if_version: version_of(api, &id).await?,
         ..Default::default()
     };
-    let ok = match api.try_answer(api.stub().workspaces_delete(attempt.clone())).await {
+    let ok = match api
+        .try_answer(api.stub().workspaces_delete(attempt.clone()))
+        .await
+    {
         Ok(response) => response.ok,
         Err((_, ErrorCode::FailedPrecondition)) => {
             attempt.if_version = version_of(api, &id).await?;
@@ -169,19 +175,18 @@ pub async fn set_sessions(
         session_ids,
         ..Default::default()
     };
-    let mut response =
-        match api
-            .try_answer(api.stub().workspaces_set_sessions(attempt.clone()))
-            .await
-        {
-            Ok(response) => response,
-            Err((_, ErrorCode::FailedPrecondition)) => {
-                attempt.if_version = version_of(api, &id).await?;
-                api.answer(api.stub().workspaces_set_sessions(attempt))
-                    .await?
-            }
-            Err((failure, _)) => return Err(failure),
-        };
+    let mut response = match api
+        .try_answer(api.stub().workspaces_set_sessions(attempt.clone()))
+        .await
+    {
+        Ok(response) => response,
+        Err((_, ErrorCode::FailedPrecondition)) => {
+            attempt.if_version = version_of(api, &id).await?;
+            api.answer(api.stub().workspaces_set_sessions(attempt))
+                .await?
+        }
+        Err((failure, _)) => return Err(failure),
+    };
     out.answer(
         &response
             .workspace

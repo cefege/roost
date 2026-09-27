@@ -23,7 +23,9 @@ pub enum SignalError {
     NoSignalProgram(String),
     #[error("{signal} to pid {pid} was refused")]
     Refused { pid: u32, signal: &'static str },
-    #[error("pid {pid} names no single process: `kill` would read it as a process group or as every process")]
+    #[error(
+        "pid {pid} names no single process: `kill` would read it as a process group or as every process"
+    )]
     NotASingleProcess { pid: u32 },
 }
 
@@ -75,6 +77,9 @@ mod tests {
             .trim()
             .parse()
             .expect("pid_max is a number");
-        assert!(matches!(send(pid_max, INTERRUPT), Err(SignalError::Refused { .. })));
+        assert!(matches!(
+            send(pid_max, INTERRUPT),
+            Err(SignalError::Refused { .. })
+        ));
     }
 }

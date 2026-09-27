@@ -49,11 +49,8 @@ pub async fn local_keeper(
     if !database.exists() {
         return Ok(None);
     }
-    let inventory = crate::status::inventory::worker_inventory(
-        &database,
-        crate::wall_clock::now_ms(),
-    )
-    .await?;
+    let inventory =
+        crate::status::inventory::worker_inventory(&database, crate::wall_clock::now_ms()).await?;
     let identity = installed_worker_identity(env, platform);
     let local: Vec<&WorkerStatus> = inventory
         .iter()
@@ -128,9 +125,8 @@ pub fn decide_keeper_action(
         observation: local.observation.clone(),
         open_session_ids: local.open_session_ids.clone(),
     };
-    admit_candidate(candidate, Some(&running)).map_err(|error| {
-        CommandFailure::generic(error.to_string())
-    })
+    admit_candidate(candidate, Some(&running))
+        .map_err(|error| CommandFailure::generic(error.to_string()))
 }
 
 /// Where a self-update keeps its journal.

@@ -113,11 +113,7 @@ pub async fn publish(repository: &Path) -> Result<(), CommandFailure> {
 
 /// One git invocation. A failure here is exit 7, because every use of it is a
 /// question about what may be shipped.
-async fn git(
-    repository: &Path,
-    args: &[&str],
-    label: &str,
-) -> Result<String, CommandFailure> {
+async fn git(repository: &Path, args: &[&str], label: &str) -> Result<String, CommandFailure> {
     let output = tokio::process::Command::new("git")
         .args(args)
         .current_dir(repository)

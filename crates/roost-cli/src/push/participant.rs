@@ -20,6 +20,7 @@ use roost_worker::runtime::boot::ENV_COORDINATOR_URL;
 use tracing::info;
 
 use crate::command_error::CommandFailure;
+use crate::deploy::DeployArgs;
 use crate::deploy::apply_release::{RELEASE_BIN_DIR, ROOST_PROGRAM, staging_dir};
 use crate::deploy::codes;
 use crate::deploy::facts::{self, RemoteFacts};
@@ -34,7 +35,6 @@ use crate::deploy::release;
 use crate::deploy::release_stage;
 use crate::deploy::ssh;
 use crate::deploy::txn_session::{self, RemoteTransaction};
-use crate::deploy::DeployArgs;
 
 /// What one machine did, for the progress line an operator watches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

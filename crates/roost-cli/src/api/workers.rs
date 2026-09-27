@@ -13,9 +13,7 @@
 
 use std::process::ExitCode;
 
-use roost_proto::{
-    WorkersDeleteRequest, WorkersListRequest, WorkersRenameRequest,
-};
+use roost_proto::{WorkersDeleteRequest, WorkersListRequest, WorkersRenameRequest};
 
 use crate::api::client::CoordinatorApi;
 use crate::api::output::ApiOutput;
@@ -58,7 +56,9 @@ pub async fn rename(
     let named = args.positional(0, "fp|prefix|label")?;
     let label = args.joined_from(1);
     if label.is_empty() {
-        return Err(CommandFailure::usage("roost api worker-rename: missing <label>"));
+        return Err(CommandFailure::usage(
+            "roost api worker-rename: missing <label>",
+        ));
     }
     let fingerprint = resolve(api, named).await?;
     let mut response = api

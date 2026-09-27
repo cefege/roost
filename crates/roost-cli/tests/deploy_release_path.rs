@@ -17,8 +17,7 @@ use std::path::{Path, PathBuf};
 use roost_cli::deploy::codes;
 use roost_cli::deploy::facts::{self, RemoteFacts};
 use roost_cli::deploy::installed::{
-    installed_build_sha, installed_release_dir, launchd_program_argument,
-    systemd_working_directory,
+    installed_build_sha, installed_release_dir, launchd_program_argument, systemd_working_directory,
 };
 use roost_cli::deploy::manifest::{ApplyManifest, ApplyOutcome, ApplyReport};
 use roost_cli::deploy::release::release_digest;
@@ -27,8 +26,8 @@ use roost_cli::deploy::ssh::{self, REMOTE_PATH_PREFIX, SSH_OPTS, read_remote_fil
 use roost_cli::status::service_definition::parse_installed_environment;
 use roost_host::HostPlatform;
 use roost_protocol::keeper_update::KeeperContractV1;
-use serde_json::json;
 use roost_worker::runtime::boot::ENV_COORDINATOR_URL;
+use serde_json::json;
 
 /// A remote command is an argv, never a shell string assembled by a caller. `--`
 /// before the host is what makes a host that looks like an option impossible to

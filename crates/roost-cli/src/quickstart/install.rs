@@ -122,17 +122,17 @@ pub fn install_programs(
     programs: &LocalPrograms,
     bin_dir: &Path,
 ) -> Result<Vec<InstallOutcome>, CommandFailure> {
-    install_release_programs(
-        &programs.roost,
-        programs.keeper.as_deref(),
-        bin_dir,
+    install_release_programs(&programs.roost, programs.keeper.as_deref(), bin_dir).map_err(
+        |error| {
+            codes::refuse(
+                codes::BUILD_FAILED,
+                format!(
+                    "the release could not be installed into {}: {error}",
+                    bin_dir.display()
+                ),
+            )
+        },
     )
-    .map_err(|error| {
-        codes::refuse(
-            codes::BUILD_FAILED,
-            format!("the release could not be installed into {}: {error}", bin_dir.display()),
-        )
-    })
 }
 
 /// Create every directory a service needs before its definition is written.

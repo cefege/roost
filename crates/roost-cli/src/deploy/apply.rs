@@ -248,4 +248,3 @@ fn settle_report(
     }
     report
 }
-

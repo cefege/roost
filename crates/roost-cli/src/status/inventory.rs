@@ -162,7 +162,8 @@ async fn open_session_ids_by_worker(
 /// A required column, decoded. A NULL or a wrong type here is a column the
 /// database holds and this build cannot read — never a missing database.
 fn text(row: &SqliteRow, column: &str) -> Result<String, InventoryError> {
-    row.try_get::<String, _>(column).map_err(column_error(column))
+    row.try_get::<String, _>(column)
+        .map_err(column_error(column))
 }
 
 /// An optional column, decoded. `None` means the column is NULL, and that is a

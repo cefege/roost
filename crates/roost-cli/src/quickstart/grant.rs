@@ -164,14 +164,14 @@ pub async fn mint_host_grant(
     let tenant = roost_coord::auth::self_hosted_tenant::ensure_self_hosted_tenant(&opened, now_ms)
         .await
         .map_err(|error| {
-        codes::refuse(
-            codes::NO_COORDINATOR_URL,
-            format!(
-                "this coordinator's tenant could not be resolved from {}: {error}",
-                database.display()
-            ),
-        )
-    })?;
+            codes::refuse(
+                codes::NO_COORDINATOR_URL,
+                format!(
+                    "this coordinator's tenant could not be resolved from {}: {error}",
+                    database.display()
+                ),
+            )
+        })?;
     sqlx::query(
         "INSERT INTO bootstrap_tokens (\
            token_hash, account_id, dashboard_id, kind, label,\
@@ -216,7 +216,9 @@ fn random_hex() -> Result<String, CommandFailure> {
     std::fs::File::open("/dev/urandom")
         .and_then(|mut source| source.read_exact(&mut bytes))
         .map_err(|error| {
-            CommandFailure::generic(format!("this machine's entropy source could not be read: {error}"))
+            CommandFailure::generic(format!(
+                "this machine's entropy source could not be read: {error}"
+            ))
         })?;
     Ok(hex::encode(bytes))
 }
@@ -225,7 +227,9 @@ fn random_hex() -> Result<String, CommandFailure> {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{BEARER_PREFIX, GrantKind, GRANT_TTL_MS, grant_digest, mint_host_grant, random_hex};
+    use super::{
+        BEARER_PREFIX, GRANT_TTL_MS, GrantKind, grant_digest, mint_host_grant, random_hex,
+    };
     use crate::deploy::codes;
     use crate::services::deploy_journal::sha256_hex;
 
@@ -274,24 +278,32 @@ mod tests {
     async fn a_minted_grant_is_stored_as_a_digest_and_the_bearer_is_the_only_live_copy() {
         let tree = TempTree::new("digest-only");
         let database = coordinator_database(&tree).await;
-        let grant = mint_host_grant(&database, GrantKind::Worker, "add-machine", 1_700_000_000_000)
-            .await
-            .expect("a grant is minted");
+        let grant = mint_host_grant(
+            &database,
+            GrantKind::Worker,
+            "add-machine",
+            1_700_000_000_000,
+        )
+        .await
+        .expect("a grant is minted");
 
         let bearer = grant.expose().to_string();
         assert!(bearer.starts_with(BEARER_PREFIX), "{bearer}");
         assert_eq!(grant.expires_at_ms(), 1_700_000_000_000 + GRANT_TTL_MS);
 
         let pool = roost_coord::db::open(&database).await.expect("reopened");
-        let rows: Vec<(String, String, String, i64)> = sqlx::query_as(
-            "SELECT token_hash, kind, label, expires_at_ms FROM bootstrap_tokens",
-        )
-        .fetch_all(pool.pool())
-        .await
-        .expect("the grant row is readable");
+        let rows: Vec<(String, String, String, i64)> =
+            sqlx::query_as("SELECT token_hash, kind, label, expires_at_ms FROM bootstrap_tokens")
+                .fetch_all(pool.pool())
+                .await
+                .expect("the grant row is readable");
         assert_eq!(rows.len(), 1, "one mint writes one row");
         let (hash, kind, label, expires_at_ms) = &rows[0];
-        assert_eq!(hash, &grant_digest(&bearer), "the stored value is the digest");
+        assert_eq!(
+            hash,
+            &grant_digest(&bearer),
+            "the stored value is the digest"
+        );
         assert_ne!(hash, &bearer, "the bearer itself is never stored");
         assert_eq!(kind, "worker");
         assert_eq!(label, "add-machine");
@@ -358,4 +370,3 @@ mod tests {
         assert_ne!(first, second);
     }
 }
-
