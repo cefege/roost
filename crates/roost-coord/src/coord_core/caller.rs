@@ -69,11 +69,22 @@ impl Caller {
 
     /// The account this key acts for, when it acts for one.
     ///
-    /// A worker and a legacy key act for no account, and asking them for one
-    /// is the question `require_account_device` already answers.
+    /// A worker acts for no account, and so does a `LegacySelfHosted` key —
+    /// which predates accounts and carries none, so `None` is the truthful
+    /// answer for it rather than a fingerprint dressed up as one.
+    ///
+    /// **This used to answer `self.principal.require_account_device().ok()`,
+    /// which is the FINGERPRINT.** It type-checked, it had no caller, and it
+    /// was the obvious thing for the next handler to reach for. A method named
+    /// `account_id` that answers with a fingerprint is worse than no method at
+    /// all, because the name is a promise and the body is a different value.
+    /// The fingerprint is [`Caller::fingerprint`], under its own name.
     #[must_use]
     pub fn account_id(&self) -> Option<&str> {
-        self.principal.require_account_device().ok()
+        match &self.principal {
+            Principal::AccountDevice { account_id, .. } => Some(account_id),
+            Principal::Worker { .. } | Principal::LegacySelfHosted { .. } => None,
+        }
     }
 
     /// Read the caller the auth interceptor stored on this request.

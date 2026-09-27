@@ -102,6 +102,13 @@ pub fn run() -> crate::ratchet::CheckOutcome {
         };
         checked += 1;
         let local = read_lint_table(&read_manifest(&manifest));
+        // A crate that inherits needs nothing further. A crate that does not
+        // is COPYING the table, and a copy is only permitted if it is
+        // COMPLETE — the exemption is keyed on the crate's name, so on its
+        // own it cannot tell a correct copy from a broken one that happens
+        // to be present. `roost-keeper` carried `unsafe_code` alone for a
+        // whole wave, which is a crate outside `expect_used`, `todo` and the
+        // rest while looking exempt.
         if local.inherits {
             continue;
         }
@@ -111,7 +118,36 @@ pub fn run() -> crate::ratchet::CheckOutcome {
             .filter(|key| workspace.keys.contains(*key))
             .map(String::as_str)
             .collect();
-        if overlapping.is_empty() || COPY_EXEMPT.iter().any(|(exempt, _)| *exempt == name) {
+        let missing: Vec<&str> = workspace
+            .keys
+            .iter()
+            .filter(|key| !local.keys.contains(*key))
+            .map(String::as_str)
+            .collect();
+        if COPY_EXEMPT.iter().any(|(exempt, _)| *exempt == name) {
+            if !missing.is_empty() {
+                violations.push(Violation::new(
+                    format!("crates/{name}/Cargo.toml"),
+                    0,
+                    format!(
+                        "is exempt from the workspace lint table but its COPY restates only \
+                         [{}] — it is missing [{}], so those lints do not apply to this crate at \
+                         all. An exemption is a permission, not a substitute for the table",
+                        local
+                            .keys
+                            .iter()
+                            .map(String::as_str)
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        missing.join(", ")
+                    ),
+                    RULE,
+                    MEMORY,
+                ));
+            }
+            continue;
+        }
+        if overlapping.is_empty() {
             continue;
         }
         violations.push(Violation::new(

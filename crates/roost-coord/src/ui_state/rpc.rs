@@ -5,6 +5,11 @@
 //! database, the retained state or the UI bus; the apply additionally reserves
 //! the target's exact live socket and waits for that tab's acknowledgement.
 //!
+//! THE RETAINED STATE IS REACHED THROUGH THE CORE, NOT PASSED IN. Each handler
+//! takes `(core, caller, request)` -- the shape every Connect method in this
+//! crate has -- and reads `core.services.ui_state`. A handler that took the
+//! runtime as a parameter could be called with a runtime that is not the
+//! coordinator's, and the caller would have no way to tell.
 //! THE REPORT'S FINGERPRINT IS THE CALLER'S, never the request's. A tab that
 //! could name another browser's fingerprint would write into that browser's
 //! retained state and appear in its list, so the identity comes from the
@@ -16,10 +21,10 @@ use connectrpc::{ConnectError, ErrorCode, ServiceResult};
 use roost_proto as proto;
 use roost_proto::__buffa::oneof::ui_command::Command;
 
+use crate::auth::principal::require_account_device;
 use crate::coord_core::{Caller, CoordCore};
 use crate::events::bus_messages::UiBusMsg;
 use crate::rpc::service::ok_response;
-use crate::ui_state::UiStateRuntime;
 use crate::ui_state::fence::{
     labels_for_fingerprints, require_bounded_ui_text, require_persisted_sessions, require_tab_fence,
 };
@@ -34,7 +39,6 @@ use crate::ui_state::state_owner::UiStateReportError;
 /// `CoordinatorService.UiReportState` -- retain and fan out one tab's report.
 pub async fn handle_ui_report_state(
     core: &CoordCore,
-    runtime: &UiStateRuntime,
     caller: &Caller,
     request: proto::UiReportStateRequest,
 ) -> ServiceResult<proto::UiReportStateResponse> {
@@ -83,7 +87,8 @@ pub async fn handle_ui_report_state(
         ..Default::default()
     };
     let fingerprint = caller.fingerprint().to_owned();
-    runtime
+    core.services
+        .ui_state
         .states()
         .report(&fingerprint, &state.tab_id, state.clone())
         .map_err(refuse_report)?;
@@ -98,13 +103,12 @@ pub async fn handle_ui_report_state(
 /// `CoordinatorService.UiListStates` -- every live tab, with its key's label.
 pub async fn handle_ui_list_states(
     core: &CoordCore,
-    runtime: &UiStateRuntime,
     caller: &Caller,
     _request: proto::UiListStatesRequest,
 ) -> ServiceResult<proto::UiListStatesResponse> {
     require_account_device(caller)?;
     require_tab_fence(caller, "UiListStates")?;
-    let entries = runtime.states().list();
+    let entries = core.services.ui_state.states().list();
     let fingerprints: Vec<String> = entries
         .iter()
         .map(|entry| entry.fingerprint.clone())
@@ -130,7 +134,6 @@ pub async fn handle_ui_list_states(
 /// `CoordinatorService.UiDispatch` -- relay one legacy command, unreliably.
 pub async fn handle_ui_dispatch(
     core: &CoordCore,
-    _runtime: &UiStateRuntime,
     caller: &Caller,
     request: proto::UiDispatchRequest,
 ) -> ServiceResult<proto::UiDispatchResponse> {
@@ -186,7 +189,6 @@ pub async fn handle_ui_dispatch(
 /// exists separately from it.
 pub async fn handle_ui_apply_layout(
     core: &CoordCore,
-    runtime: &UiStateRuntime,
     caller: &Caller,
     request: proto::UiApplyLayoutRequest,
 ) -> ServiceResult<proto::UiApplyLayoutResponse> {
@@ -227,7 +229,9 @@ pub async fn handle_ui_apply_layout(
     };
     let buses = Arc::clone(&core.services.buses);
     let target_tab_id = request.target_tab_id.clone();
-    let requested = runtime
+    let requested = core
+        .services
+        .ui_state
         .layout_applies()
         .request_apply(
             &request.target_fingerprint,
@@ -254,29 +258,18 @@ pub async fn handle_ui_apply_layout(
     })
 }
 
-/// Refuse anything that is not a browser, with the marker header a client needs
-/// to tell "log in again" from "this method needs a device credential"
-/// (`auth-interceptor.ts:265-271`).
-fn require_account_device(caller: &Caller) -> Result<&str, ConnectError> {
-    caller.principal.require_account_device().map_err(|_| {
-        let mut error = ConnectError::new(ErrorCode::Unauthenticated, "authentication required");
-        error.response_headers_mut().insert(
-            axum::http::HeaderName::from_static(crate::auth::principal::AUTH_LAYER_HEADER),
-            axum::http::HeaderValue::from_static(crate::auth::principal::AUTH_LAYER_DEVICE),
-        );
-        error
-    })
-}
-
 fn refuse_report(error: UiStateReportError) -> ConnectError {
     ConnectError::new(ErrorCode::ResourceExhausted, error.message())
 }
 
-/// The Connect method each handler answers, for the single delegation pass in
-/// `rpc/service_impl.rs`.
-pub const METHODS: &[(&str, &str)] = &[
-    ("UiReportState", "handle_ui_report_state"),
-    ("UiListStates", "handle_ui_list_states"),
-    ("UiDispatch", "handle_ui_dispatch"),
-    ("UiApplyLayout", "handle_ui_apply_layout"),
+/// The Connect method each handler answers, and the function that answers it.
+///
+/// The integrator's list: every row is one arm of the single `impl
+/// CoordinatorService` block in `rpc/service_impl.rs`, so wiring a domain is
+/// reading this table rather than matching on names by hand.
+pub const METHOD_HANDLERS: &[(&str, &str)] = &[
+    ("UiReportState", "ui_state::rpc::handle_ui_report_state"),
+    ("UiListStates", "ui_state::rpc::handle_ui_list_states"),
+    ("UiDispatch", "ui_state::rpc::handle_ui_dispatch"),
+    ("UiApplyLayout", "ui_state::rpc::handle_ui_apply_layout"),
 ];

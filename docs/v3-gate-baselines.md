@@ -80,6 +80,33 @@ failure to diagnose. Do not read the two green isolation runs as a cleared
 gate; read them as the only evidence that exists, and note what it does not
 cover.
 
+## The integrator tree's own gate, after the bootstrap commits
+
+`v3` @ `1c9579e8`, Linux x86_64, 8 cores, run while four track worktrees were
+compiling in their own target directories. This is the number the integrator
+publishes, and it is the only figure in this file that measures the Rust tree.
+
+| Gate | Result |
+|---|---|
+| `cargo test --workspace --no-fail-fast` | **1437 passed / 0 failed / 0 ignored** across 173 binaries |
+| `cargo clippy --workspace --all-targets -- -D warnings` | **clean**, confirmed on two independent runs |
+| `cargo xtask lint` | **0 violations**, `checked 880 inputs`; 35 `xtask` tests pass |
+| `cargo xtask fmt` | formatted, working tree unchanged |
+| `bun x tsgo -p tsconfig.base.json --noEmit` | **clean** |
+
+**Up from the 1420 the plan recorded at `a464fa3e`**, and the difference is real
+work rather than drift: the `AgentStatusOrder` ordering module and its tests, the
+`lint_table` rule, and the `xtask` self-tests that came with the DAG and design
+changes.
+
+**Two things this number is not.** It does not cover the four track branches —
+each is mid-wave, and merging any of them turns it red for reasons that are
+progress rather than defects. And it was measured **before** `roost-keeper`'s
+lint-table copy lands, which puts that crate under four lint groups it has never
+faced. The carry list predicts that merge turns the workspace clippy red, so **a
+clean workspace clippy on `v3` is a statement about `v3` and not about the
+programme.**
+
 ## How to read a later gate
 
 - **Phase 2** (Rust worker, TS coord): no spec that passed in the baseline

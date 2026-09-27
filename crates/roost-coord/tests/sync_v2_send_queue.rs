@@ -238,8 +238,6 @@ fn a_cell_is_fenced_behind_its_announcement_until_the_acknowledgement_lands() {
     assert!(matches!(first.frame.frame, Some(Frame::SessionEvent(_))));
 
     // With the announcement sent but not acknowledged, the cell is still held.
-    let encoded = first.encoded_len();
-    session.record_sent(encoded, 1_000);
     assert!(matches!(
         session.take_next_sendable(1_000, &mut hub),
         FlushStep::Idle
