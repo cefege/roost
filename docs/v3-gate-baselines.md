@@ -587,6 +587,23 @@ name-count sweep is not a conclusion — it produces candidates, and a human jud
 them. But the one candidate that mattered was invisible to both a diff review and
 a passing test suite, and the filter that found it is one `grep`.
 
+**THE RULE THIS PRODUCES, and it is the only one here that closes the class
+rather than the instance.** Six capabilities have now been found unreachable by
+one instrument — `adopt_survivor`, `WorkerCapabilities`, `cell_row_json`, the
+`LiveEffects` pair, the coordinator's `ClientSeqCursor`, and the whole deferred-
+append path including its flag, its store field, its claim hand-back and two
+green tests. In every case the instrument was `grep` for the type or the field,
+and in every case a review, a diff read, and a passing suite had all missed it.
+
+**So: assert reachability, in the tests that already cover the capability.** A
+test that proves a value is right is not the same claim as a test that proves
+something asks for it. The second is the one that catches this class, it costs one
+assertion, and it belongs in the existing test rather than a new file — because the
+test is where the camouflage already is.
+
+**And the instance that produced the rule, because it is the first whose guard is
+a PASSING TEST rather than a comment — and that inverts the usual expectation.**
+
 **And a fifth instance of the pattern below, which is the first where the guard is
 a passing test rather than a comment.** `grep snapshot_reap_ids` outside
 `events/append.rs` returns six hits and **not one production reader**: the field
