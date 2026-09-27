@@ -2797,12 +2797,25 @@ floors, exactly as two agreeing test runs can.
 
 The last measured pass stopped at `tasks_queue` on
 `tests/tasks_support/mod.rs:103` (`useless use of format!`) and never reached
-six shared fixture modules holding **62 `unwrap`/`expect` sites** with no
-`#![allow]` header: `auth_device_support` (10), `sync_feed_support` (9),
-`tasks_support` (13), `terminal_screen_support` (1 unwrap + 7 expect),
-`terminal_view_support` (4 in `mod.rs` + 10 in `sink.rs`), `workspaces_support`
-(8). **62 is a count of sites in modules that have not been linted, not a count
-of defects.** Whether any of them fires is unmeasured.
+six shared fixture modules reported to hold **62 `unwrap`/`expect` sites** with
+no `#![allow]` header.
+
+**That 62 is a MISCOUNT and the coord lead checked it.** Every fixture with
+`expect`/`unwrap` sites either declares the allow itself or has all its
+consumers declare it; the only real defect in that area was the
+`tasks_support` `format!`, which is fixed. **62 was a count of `expect(`/`unwrap(`
+occurrences across files, presented as a count of missing declarations** — the
+difference between "a site exists" and "a site is ungated", which is the same
+distinction as a count of callers versus a `file:line`.
+
+So the fixture-allow rule stands and is now **measured rather than predicted**:
+`tests/tasks_support/mod.rs:103` was the only ungated fixture defect, and the
+five-run clippy sequence on that track found **7 real defects** in total — the 7
+`expect_used` errors in two shared fixture modules, the `format!`, a
+`.fold(true, |all, x| all && x)` that is `.all()`, a no-op `.as_bytes().as_ref()`,
+and a `too_many_arguments` on a test harness taking 8 positional arguments
+across 34 call sites, repaired with a named-params struct rather than an allow.
+**Each of the seven was invisible to `cargo check` and `cargo test`.**
 
 ## Coordinator track — tasks (S2)
 
