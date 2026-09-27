@@ -74,7 +74,7 @@ async fn a_hold_over_the_bound_is_not_replayed_at_the_swap() {
         "the arrival path counted every byte it was handed"
     );
     assert!(
-        !binding.go_live(),
+        !binding.go_live().0,
         "the swap refuses a hold that went over the bound, even though the record \
          now exists and the bytes are already in memory"
     );
@@ -104,7 +104,7 @@ async fn a_hold_inside_the_bound_is_replayed_whole_at_the_swap() {
     binding.on_output(b"first");
     binding.on_output(b"second");
     assert!(binding.is_staged(), "a hold is holding until the swap");
-    assert!(binding.go_live(), "two chunks is well inside the bound");
+    assert!(binding.go_live().0, "two chunks is well inside the bound");
     assert_eq!(
         harness.delivery.parsed.lock().expect("held").clone(),
         vec![b"first".to_vec(), b"second".to_vec()],

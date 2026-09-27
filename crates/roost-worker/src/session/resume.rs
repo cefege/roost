@@ -246,12 +246,41 @@ impl SessionManager {
         // The swap and its drain are ONE critical section inside the binding, so
         // a chunk the keeper delivers the instant after the flip is parsed after
         // the staged bytes and never before them.
-        let clean = binding.go_live();
+        let (clean, held_exit) = binding.go_live();
         if !clean {
             self.abandon(request, &binding, channel).await;
             return Err(AdoptRefusal::StagingOverflow {
                 channel,
                 cap: RESUME_STAGE_CAP_BYTES,
+            });
+        }
+        // A SURVIVOR THAT HAD ALREADY EXITED is closed HERE, by the adoption,
+        // and not by the binding. This is v2's split exactly: the live `onExit`
+        // goes to `closedByKeeper` (`session-emit.ts:316-322`) and the adoption
+        // path does not (`session-resume-events.ts:47-50`) — it replays the exit
+        // and the close happens on the other side, after the record is
+        // installed. It has to be here: the record now exists, and the binding's
+        // live path runs on the keeper's dispatch thread where blocking is legal
+        // and this runs on a runtime worker where it would panic. One question,
+        // two callers, and only this one can answer it.
+        if let Some(exit_code) = held_exit {
+            tracing::info!(
+                session_id = %request.session_id,
+                %channel,
+                %exit_code,
+                "a survivor had already exited before its record was installed;                  the adoption closes it"
+            );
+            self.close_channel(channel, Some(exit_code))
+                .await
+                .map_err(|refusal| unreplayable(refusal.message()))?;
+            // NO `install_stream` HERE, and the omission is the point: the close
+            // above took the record out of the table, so installing a delivery
+            // generation onto it would announce a stream for a session that has
+            // already ended — the same "looks live and produces nothing" state
+            // the overflow branch above refuses.
+            return Ok(Adopted {
+                replay_offset,
+                head_seq,
             });
         }
         self.cells

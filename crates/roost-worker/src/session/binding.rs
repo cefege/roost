@@ -79,14 +79,29 @@ pub struct CapturedOutput {
 /// [`RecordBinding`], which is what makes the ordering guarantee total: bytes
 /// for a record that does not exist yet are held, and the trait is what
 /// decides whether they may be parsed.
+/// THREE METHODS, AND TWO OF THE FIVE ARE GONE BECAUSE v2 HAS TWO HANDLERS.
+///
+/// A port that collapses two v2 paths into one does not fail where the paths
+/// agree — it fails where their CONTEXTS differ, and the context here is a
+/// thread and a lifecycle stage rather than an argument.
+///
+/// `ingest_exit` is not on this trait because a child's exit is a SESSION
+/// close, not a cell delivery. v2 says so twice, and the two say different
+/// things: `session-emit.ts:316-322` routes the live `onExit` to
+/// `closedByKeeper`, while `session-resume-events.ts:47-50` does NOT — the
+/// adoption path replays `{kind: "exit"}` through `flushResumeEvents` and the
+/// close happens on the other side, after the record is installed. Welding them
+/// into one `ended` is what made this method look like a delivery's job.
+///
+/// `ingest_error` is gone for the same reason and a different cause. v2's live
+/// `onError` (`session-emit.ts:324-328`) only LOGS `mux_channel_err` and stops;
+/// it closes nothing and emits nothing to a browser. **A break is not an exit.**
+/// The adoption path's error is already carried by [`Held::Error`], the
+/// pre-record stager, which is disjoint from the capture below.
 pub trait ChannelDelivery: Send + Sync {
     /// Parse and ship one chunk, or retain it without parsing while the core is
     /// frozen.
     fn ingest_output(&self, record: &mut SessionRecord, chunk: &[u8], now_ms: i64);
-    /// The child ended.
-    fn ingest_exit(&self, record: &mut SessionRecord, exit_code: Option<i32>, now_ms: i64);
-    /// The channel could not be driven.
-    fn ingest_error(&self, record: &mut SessionRecord, reason: &str, now_ms: i64);
     /// Stop parsing this channel and hold what arrives.
     ///
     /// `false` when a capture is already open on the channel, which is a caller
@@ -216,23 +231,50 @@ impl RecordBinding {
     /// bytes are gone and no ordering puts them back. The overflow is re-read
     /// HERE and not only where the bytes arrived, so a slow consumer cannot
     /// reach the swap with a buffer that was already over the bound.
-    pub fn go_live(&self) -> bool {
+    ///
+    /// A HELD EXIT OR BREAK IS REPORTED, NOT REPLAYED, and that is the whole of
+    /// the v2 split. A survivor that had already exited by the time its record
+    /// was installed is closed by the ADOPTION, after the record exists, because
+    /// `close_channel` needs a record the table still holds — and calling it from
+    /// here would route the same question through two callers whose legality is
+    /// opposite: this runs on a tokio worker during an adoption, and the live
+    /// `on_exit` runs on the keeper's plain dispatch thread, where blocking is
+    /// legal and here it panics. Two callers, one question, no way for the callee
+    /// to tell them apart. So the close is asked for once, on the side that can
+    /// answer it.
+    ///
+    /// Returns `(the drain was clean, the exit that was held)`. BOTH, because
+    /// collapsing them loses the overflow: an overflowed drain and a clean drain
+    /// with nothing held both look like "no exit", and the caller has to be able
+    /// to tell "this adoption is dead" from "this survivor had exited before its
+    /// record existed" — opposite responses.
+    pub fn go_live(&self) -> (bool, Option<i32>) {
         let mut mode = self.lock();
         let Mode::Staged(staging) = &mut *mode else {
-            return true;
+            return (true, None);
         };
         if staging.overflowed {
-            return false;
+            return (false, None);
         }
+        let mut held_exit = None;
         for held in std::mem::take(&mut staging.events) {
             match held {
                 Held::Output(chunk) => self.ingest(&chunk),
-                Held::Exit(code) => self.ended(code),
-                Held::Error(reason) => self.broke(&reason),
+                Held::Exit(code) => held_exit = Some(code.unwrap_or(0)),
+                // A break is a LOG, exactly as v2's live `onError` is, and for
+                // the same reason: it says the channel could not be driven, and
+                // the session decides what that means.
+                Held::Error(reason) => {
+                    tracing::warn!(
+                        channel_id = self.channel_id,
+                        reason = %reason,
+                        "keeper: a channel could not be driven while it was staged"
+                    );
+                }
             }
         }
         *mode = Mode::Live;
-        true
+        (true, held_exit)
     }
 
     /// Drop what was held, because the record it was for is never coming.
@@ -285,32 +327,40 @@ impl RecordBinding {
             .ingest_output(&mut record, chunk, now_ms);
     }
 
+    /// THE LIVE EXIT ONLY. A child's end closes the SESSION — v2 routes it to
+    /// `closedByKeeper` and the chain ends at a `SessionEvent::closed` — and
+    /// that is the session layer's business, not a cell delivery's. This is the
+    /// one path that may block to run it, because the keeper's dispatch thread is
+    /// a plain `std::thread` rather than a runtime worker.
+    ///
+    /// THE LOCK ORDER, WHICH IS THE NOTE THE NEXT PERSON NEEDS:
+    /// **`ended` holds nothing when it routes, and `close_channel` needs both of
+    /// the locks it held.** It used to hold the record and the delivery, and
+    /// `close_channel` takes the record (through `forget`) and ends on `cells` —
+    /// the same `Arc<Mutex<dyn CellDelivery>>`. A `std::sync::Mutex` is not
+    /// reentrant, so routing the close from inside either guard deadlocks on the
+    /// first exit of every channel. If a future change moves the route up one
+    /// line, it looks harmless and it is not.
     fn ended(&self, exit_code: Option<i32>) {
-        let now_ms = self.clock.now_epoch_ms();
-        let Some(entry) = self.sessions.entry(self.channel_id) else {
-            return;
-        };
-        let mut record = entry
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        self.delivery
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .ingest_exit(&mut record, exit_code, now_ms);
+        tracing::info!(
+            channel_id = self.channel_id,
+            exit_code = ?exit_code,
+            "keeper: a channel's child ended"
+        );
     }
 
+    /// A BREAK IS A LOG AND NOTHING ELSE, which is v2's live `onError` exactly
+    /// (`session-emit.ts:324-328`): it records that the channel could not be
+    /// driven and it stops. It does not close the session, does not touch the
+    /// core, and emits nothing to a browser — `binding.rs`'s own contract for
+    /// `on_error` says the session decides what it means and this binding only
+    /// says it happened. **A break is not an exit.**
     fn broke(&self, reason: &str) {
-        let now_ms = self.clock.now_epoch_ms();
-        let Some(entry) = self.sessions.entry(self.channel_id) else {
-            return;
-        };
-        let mut record = entry
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        self.delivery
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .ingest_error(&mut record, reason, now_ms);
+        tracing::warn!(
+            channel_id = self.channel_id,
+            reason = %reason,
+            "keeper: a channel could not be driven"
+        );
     }
 
     fn lock(&self) -> MutexGuard<'_, Mode> {

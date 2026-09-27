@@ -250,7 +250,7 @@ impl ScriptedKeeper {
 #[derive(Default)]
 pub struct RecordingDelivery {
     pub parsed: Mutex<Vec<Vec<u8>>>,
-    pub exits: Mutex<Vec<Option<i32>>>,
+
     pub frozen: Mutex<Vec<ChannelId>>,
     pub capture: Mutex<Vec<u8>>,
 }
@@ -259,10 +259,6 @@ impl ChannelDelivery for RecordingDelivery {
     fn ingest_output(&self, _record: &mut SessionRecord, chunk: &[u8], _now_ms: i64) {
         self.parsed.lock().expect("held").push(chunk.to_vec());
     }
-    fn ingest_exit(&self, _record: &mut SessionRecord, exit_code: Option<i32>, _now_ms: i64) {
-        self.exits.lock().expect("held").push(exit_code);
-    }
-    fn ingest_error(&self, _record: &mut SessionRecord, _reason: &str, _now_ms: i64) {}
     fn freeze_capture(&self, channel_id: ChannelId) -> bool {
         self.frozen.lock().expect("held").push(channel_id);
         true
@@ -344,14 +340,6 @@ struct SharedDelivery(Arc<RecordingDelivery>);
 impl ChannelDelivery for SharedDelivery {
     fn ingest_output(&self, record: &mut SessionRecord, chunk: &[u8], now_ms: i64) {
         self.0.ingest_output(record, chunk, now_ms);
-    }
-
-    fn ingest_exit(&self, record: &mut SessionRecord, exit_code: Option<i32>, now_ms: i64) {
-        self.0.ingest_exit(record, exit_code, now_ms);
-    }
-
-    fn ingest_error(&self, record: &mut SessionRecord, reason: &str, now_ms: i64) {
-        self.0.ingest_error(record, reason, now_ms);
     }
 
     fn freeze_capture(&self, channel_id: ChannelId) -> bool {
