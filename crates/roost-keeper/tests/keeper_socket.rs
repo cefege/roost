@@ -4,6 +4,7 @@
 //!
 //! Every wait is bounded, because a test that hangs is indistinguishable from a
 //! keeper that does.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod support;
 

@@ -1,6 +1,7 @@
 //! What a browser can ask of a live terminal: a page of retained rows and
 //! a bounded search, with the fences that stop either answering for a grid
 //! that no longer exists.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod browser_command_support;
 use browser_command_support::{

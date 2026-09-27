@@ -2,6 +2,7 @@
 //! when it cannot start. Split from the lifecycle tests because a failure here
 //! is about how the daemon TALKS to whoever invoked it, not about what it does
 //! once running.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::PathBuf;
 use std::process::Command;

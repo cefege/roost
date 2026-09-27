@@ -6,6 +6,7 @@
 //! A keeper socket is a remote shell to every PTY on the machine. A readable
 //! pid file tells any local process where to send a signal. Both are
 //! filesystem properties, which is why they are tested without a conversation.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::io::{Read, Write};
 use std::os::unix::fs::PermissionsExt;

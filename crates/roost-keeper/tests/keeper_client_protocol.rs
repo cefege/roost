@@ -2,6 +2,7 @@
 //! the answer, and what a refusal must name. Split from the connection tests
 //! because a failure in one is a protocol contract rather than a question of
 //! whether the client can reach a keeper at all.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};

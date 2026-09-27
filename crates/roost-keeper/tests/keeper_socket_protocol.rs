@@ -2,6 +2,7 @@
 //! the PROTOCOL rather than about a terminal: a tag it predates, a shutdown, an
 //! exit. Split from the byte-carrying cases because a failure here is a framing
 //! or lifecycle bug, not a terminal bug.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};

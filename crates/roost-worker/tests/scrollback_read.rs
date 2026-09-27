@@ -1,6 +1,7 @@
 //! Scrollback retrieval: the page window, the epoch fence, and the cancellable
 //! walk. These are bounds and a fence, and both are the kind of arithmetic that
 //! is correct until one edge case moves it.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::time::Duration;
 

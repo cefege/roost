@@ -5,6 +5,7 @@
 //! A screen observation proves identity and activity. A visible blocker PROMPT
 //! additionally corrects an integration that is not a full-lifecycle authority.
 //! Nothing corrects a full-lifecycle integration.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_worker::agent_occupancy::{Candidate, Loss, Occupancy, ProcessKey, RuntimeState, Source};
 

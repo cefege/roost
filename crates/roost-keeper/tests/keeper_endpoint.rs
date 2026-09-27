@@ -4,6 +4,7 @@
 //!
 //! A keeper socket is a remote shell to every PTY the machine has open, so
 //! these are properties of the filesystem rather than of a conversation.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;

@@ -5,6 +5,7 @@
 //! `ClientControlFrame` union can produce and asserts the dispatch owns it, so
 //! deleting a row from `OWNERS` fails here rather than turning a command into
 //! one nothing answers.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod browser_command_support;
 use browser_command_support::every_kind;

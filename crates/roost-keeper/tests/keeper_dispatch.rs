@@ -4,6 +4,7 @@
 //! reproduce, and those are exactly the ones nobody writes tests for.
 //!
 //! The contract is `protocol/spec/keeper.md`.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod support;
 

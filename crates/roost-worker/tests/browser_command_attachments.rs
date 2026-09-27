@@ -1,5 +1,6 @@
 //! The browser attachment commands: what a session holds, removing one
 //! file, and the digest probe that lets an upload skip its bytes.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod browser_command_support;
 use browser_command_support::{

@@ -2,6 +2,7 @@
 //! test throughout is the difference between EXPIRY, which gates a fresh hello,
 //! and REVOCATION, which is an immediate fence — because getting it backwards
 //! fails in both directions at once.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_worker::attachment_transfer::{
     ACTIVE_LEASE, CHUNK_BYTES, ChunkRefusal, HelloRefusal, MAX_ACTIVE_PER_BROWSER_DOCUMENT,

@@ -6,6 +6,7 @@
 //!
 //! Also here, the two degenerate keepers a client must survive: one that takes
 //! the connection and never answers, and one that is gone.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;

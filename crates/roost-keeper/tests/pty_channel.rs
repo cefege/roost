@@ -4,6 +4,7 @@
 //!
 //! Every test is bounded by a deadline and fails rather than hangs, because a
 //! test that hangs is indistinguishable from a keeper that does.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::time::{Duration, Instant};
 

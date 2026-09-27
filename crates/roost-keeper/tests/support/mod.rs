@@ -4,7 +4,7 @@
 //!
 //! `DEADLINE` is the point: a test that hangs is indistinguishable from a
 //! keeper that does, so every wait here fails rather than blocks.
-
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 #![allow(dead_code)]
 
 use std::time::{Duration, Instant};

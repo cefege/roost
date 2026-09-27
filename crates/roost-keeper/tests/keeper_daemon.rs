@@ -7,6 +7,7 @@
 //! the keeper exists so a worker restart costs a reconnect, and a daemon that
 //! exited on disconnect would have defeated the entire design while passing
 //! every unit test in the crate.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod support;
 

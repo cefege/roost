@@ -3,6 +3,7 @@
 //! a clean stop, and the leftovers are a different kind of problem: a clean
 //! stop cleans up after itself, and the interesting case is the one where it
 //! could not.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;

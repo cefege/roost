@@ -4,6 +4,7 @@
 //!
 //! The contract is `protocol/spec/keeper.md`. A test that moved without the
 //! spec changing means one of the two is now wrong.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_keeper::codec::{
     CodecError, FrameDecoder, KEEPER_MAX_INPUT_BYTES, KEEPER_MAX_MUX_FRAME_BYTES, MuxFrame,
