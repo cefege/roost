@@ -198,7 +198,7 @@ async fn enforce_page_budget(pool: &SqlitePool) -> Result<(), JournalError> {
     }
     let page_size =
         u64::try_from(page_size).map_err(|_| corrupt("the page size is not a count"))?;
-    let max_pages = u64::try_from(MAX_DATABASE_BYTES / page_size).unwrap_or(1);
+    let max_pages = (MAX_DATABASE_BYTES / page_size).max(1);
     // `max_pages` is a `u64` this function just derived from a page size, so
     // there is nothing in it to escape; sqlx cannot see that through a `format!`.
     sqlx::query(AssertSqlSafe(format!(

@@ -139,11 +139,11 @@ impl CaptureRecorder {
     fn freeze(
         &self,
         command: &CaptureCommand,
-    ) -> Result<(Vec<u8>, Option<TerminalCaptureFileRef>), TerminalCaptureWorkerAck> {
+    ) -> Result<(Vec<u8>, Option<TerminalCaptureFileRef>), Box<TerminalCaptureWorkerAck>> {
         if command.action != CaptureAction::Capture {
-            return Err(TerminalCaptureWorkerAck::failed(
+            return Err(Box::new(TerminalCaptureWorkerAck::failed(
                 TerminalCaptureErrorCode::InvalidArgument,
-            ));
+            )));
         }
         let (armed, previous, window) = {
             let mut registry = self
@@ -321,7 +321,7 @@ impl DiagnosticReports for CaptureRecorder {
         Box::pin(async move {
             let (payload, previous) = match frozen {
                 Ok(frozen) => frozen,
-                Err(refusal) => return refusal,
+                Err(refusal) => return *refusal,
             };
             let capture_id = command.capture_id.clone();
             let ack = match write_bundle(&log_dir, &capture_id, &payload).await {

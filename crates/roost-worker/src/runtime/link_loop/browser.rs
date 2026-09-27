@@ -70,7 +70,16 @@ impl BrowserLink {
     }
 
     /// Hand a command to the pump, or hand it BACK so the caller can refuse it.
-    pub(in crate::runtime) fn offer(&self, command: Command) -> Result<(), Command> {
-        self.inbound.send(command).map_err(|error| error.0)
+    ///
+    /// THE ERROR IS BOXED, and `Command` is what made that necessary: it is the
+    /// browser command union and it is 288 bytes, so `Result<(), Command>` moves
+    /// 288 bytes on every call whether it succeeded or not — and this is the
+    /// call the composition root will make once `BrowserLink::connect` replaces
+    /// the detached pump. A refused command is rare and an accepted one is the
+    /// common case, so the size is paid on the path that is not exceptional.
+    pub(in crate::runtime) fn offer(&self, command: Command) -> Result<(), Box<Command>> {
+        self.inbound
+            .send(command)
+            .map_err(|error| Box::new(error.0))
     }
 }

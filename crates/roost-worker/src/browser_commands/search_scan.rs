@@ -92,10 +92,12 @@ impl ScrollbackSearch for GridScanner {
                 regex: request.regex,
                 case_sensitive: request.case_sensitive,
             },
-            request.before_row,
-            request.max_rows,
-            request.max_matches,
-            budget,
+            Bounds {
+                before_row: request.before_row,
+                max_rows: request.max_rows,
+                max_matches: request.max_matches,
+                budget,
+            },
         );
         Box::pin(std::future::ready(page))
     }
@@ -126,10 +128,12 @@ impl ScrollbackSearch for GridScanner {
                     regex: false,
                     case_sensitive: request.case_sensitive,
                 },
-                *before_row,
-                request.max_rows_per_session,
-                per_session,
-                deadline.saturating_duration_since(Instant::now()),
+                Bounds {
+                    before_row: *before_row,
+                    max_rows: request.max_rows_per_session,
+                    max_matches: per_session,
+                    budget: deadline.saturating_duration_since(Instant::now()),
+                },
             ) {
                 Ok(result) => json!({
                     "status": "ok",
@@ -148,6 +152,22 @@ impl ScrollbackSearch for GridScanner {
     }
 }
 
+/// How much of one session's grid a scan may read.
+///
+/// These four were four parameters, which is what `clippy::too_many_arguments`
+/// was objecting to — and it was right that they belong together, because they
+/// are one decision: the caller saying how much it wants. Folding them makes
+/// that a type rather than a convention, and a scan can no longer be given a
+/// row budget with no match budget by forgetting an argument at a call site.
+#[derive(Debug, Clone, Copy)]
+struct Bounds {
+    /// The newest row a caller may name, or `None` for the whole history.
+    before_row: Option<u32>,
+    max_rows: u32,
+    max_matches: u32,
+    budget: Duration,
+}
+
 impl GridScanner {
     /// One session's page, newest first, bounded by rows, matches and a budget.
     fn scan(
@@ -155,10 +175,7 @@ impl GridScanner {
         session_id: &str,
         grid_epoch: &str,
         request: Scan<'_>,
-        before_row: Option<u32>,
-        max_rows: u32,
-        max_matches: u32,
-        budget: Duration,
+        bounds: Bounds,
     ) -> Result<Value, Refusal> {
         let reading = self.describe(session_id)?;
         let (grid, live_epoch) = (reading.description, reading.epoch);
@@ -168,7 +185,10 @@ impl GridScanner {
         // request naming a row the grid has not reached yet is a request for
         // everything, not a failure.
         let newest_exclusive = grid.total.saturating_add(u32::from(grid.viewport_rows));
-        let scanned_end = before_row.unwrap_or(newest_exclusive).min(newest_exclusive);
+        let scanned_end = bounds
+            .before_row
+            .unwrap_or(newest_exclusive)
+            .min(newest_exclusive);
         let mut page = Page::new(&grid, scanned_end);
 
         if !grid_epoch.is_empty() && grid_epoch != live_epoch {
@@ -182,7 +202,7 @@ impl GridScanner {
         }
         let matcher = Matcher::compile(request)?;
 
-        let deadline = Instant::now() + budget;
+        let deadline = Instant::now() + bounds.budget;
         let mut matches: Vec<Value> = Vec::new();
         let mut suppressed = false;
         let mut next_row = page.scanned_end_row;
@@ -197,10 +217,10 @@ impl GridScanner {
                 break;
             }
             let start = next_row
-                .saturating_sub(max_rows.min(SEARCH_SLICE_ROWS))
+                .saturating_sub(bounds.max_rows.min(SEARCH_SLICE_ROWS))
                 .max(grid.retained_floor);
             for (row, scanned) in self.read_slice(session_id, &matcher, start, next_row)? {
-                if matches.len() as u32 >= max_matches {
+                if matches.len() as u32 >= bounds.max_matches {
                     // One row past the cap is what tells a full page from a
                     // short one: without it a scan that reached the floor with
                     // exactly `max_matches` hits would claim to be truncated
@@ -219,7 +239,9 @@ impl GridScanner {
                 }
                 page.scanned_start_row = row;
             }
-            if matches.len() as u32 >= max_matches && (!suppressed || start > grid.retained_floor) {
+            if matches.len() as u32 >= bounds.max_matches
+                && (!suppressed || start > grid.retained_floor)
+            {
                 stop = Some("match_limit");
                 break;
             }
@@ -228,7 +250,7 @@ impl GridScanner {
                 stop = Some("complete");
                 break;
             }
-            if page.scanned_end_row.saturating_sub(page.scanned_start_row) >= max_rows {
+            if page.scanned_end_row.saturating_sub(page.scanned_start_row) >= bounds.max_rows {
                 stop = Some("row_limit");
                 break;
             }

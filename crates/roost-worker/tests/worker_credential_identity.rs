@@ -29,7 +29,7 @@ fn the_identity_is_the_public_keys_digest_and_nothing_else() {
     let (source, key_path) = source_in(&scratch);
     source.mint().expect("a first dial installs a key");
     let key = read_existing_worker_key(&key_path).expect("the key it wrote");
-    let digest: [u8; 32] = sha2::Sha256::digest(&key.public_key()).into();
+    let digest: [u8; 32] = sha2::Sha256::digest(key.public_key()).into();
     assert_eq!(
         key.fingerprint().as_str(),
         roost_protocol::fingerprint::fingerprint_hex(&digest),

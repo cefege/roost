@@ -119,10 +119,7 @@ pub(crate) async fn reclaim_expired(pool: &SqlitePool, now: i64) -> Result<usize
         .execute(pool)
         .await
         .map_err(store_query("claim reclaim"))?;
-    Ok(
-        usize::try_from(reclaimed.rows_affected())
-            .map_err(|_| corrupt("a count is not a count"))?,
-    )
+    usize::try_from(reclaimed.rows_affected()).map_err(|_| corrupt("a count is not a count"))
 }
 
 impl Journal {
@@ -226,8 +223,7 @@ impl Journal {
             .execute(&self.pool)
             .await
             .map_err(store_query("claim reclaim"))?;
-        Ok(usize::try_from(reclaimed.rows_affected())
-            .map_err(|_| corrupt("a count is not a count"))?)
+        usize::try_from(reclaimed.rows_affected()).map_err(|_| corrupt("a count is not a count"))
     }
 
     /// Claims still live, and how many of them still block a snapshot.

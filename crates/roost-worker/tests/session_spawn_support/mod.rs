@@ -28,7 +28,14 @@ use roost_worker::session::sinks::{ChannelBinding, SessionEventError, SessionEve
 use roost_worker::session::spawn::{ShellSpawner, ShellSpecResolver, SpawnContext, SpawnRequest};
 use roost_worker::shell_spec::ShellSpec;
 
-use support::{channel, shell_spec};
+// RE-EXPORTED, and the re-export is the fix rather than tidiness. The test that
+// includes this module used to reach `session_emit_support` ITSELF, under a
+// different path string — and rustc loads a file included twice under two paths
+// as two modules, with two copies of every fixture in them. So the items that
+// binary needs are named here and it takes them from here: one owner, one path,
+// one copy of the store.
+use support::channel;
+pub use support::{session_id, shell_spec, worker_fp};
 
 /// What the durable boundary did, as a ledger of claim ids and events.
 #[derive(Debug, Default)]

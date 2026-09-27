@@ -196,8 +196,7 @@ async fn a_pair_sharing_a_line_with_the_erased_one_survives_unchanged() {
         "the authorization is still in the unit: {updated}"
     );
     assert_eq!(
-        updated,
-        format!("[Service]\nEnvironment=\"ROOST_COORDINATOR_URL=https://coord.example\"\n"),
+        updated, "[Service]\nEnvironment=\"ROOST_COORDINATOR_URL=https://coord.example\"\n",
         "the survivor keeps its own bytes: re-encoding it would turn a value the \
          installer escaped once into a value systemd reads differently"
     );

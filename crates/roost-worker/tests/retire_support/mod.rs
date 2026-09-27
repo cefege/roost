@@ -206,10 +206,10 @@ fn serve(
                 ),
                 _ => continue,
             };
-            if let Ok(reply) = reply {
-                if stream.write_all(&reply.encode()).is_err() {
-                    return;
-                }
+            if let Ok(reply) = reply
+                && stream.write_all(&reply.encode()).is_err()
+            {
+                return;
             }
         }
     }

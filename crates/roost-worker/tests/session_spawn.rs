@@ -6,8 +6,6 @@
 
 #[path = "session_spawn_support/mod.rs"]
 mod spawn_support;
-#[path = "session_emit_support/mod.rs"]
-mod support;
 
 use std::sync::Arc;
 
@@ -20,7 +18,7 @@ use roost_worker::session::types::SessionRecord;
 use spawn_support::{
     BindingThatRecordsDelivery, FakeKeeper, FixedResolver, LedgerSink, context, request,
 };
-use support::{shell_spec, worker_fp};
+use spawn_support::{session_id as support_session_id, shell_spec, worker_fp};
 
 /// A spawn that cannot open its PTY must give BOTH claims back. A leaked claim
 /// is capacity the store will never hand out again, and a store that has lost
@@ -136,7 +134,7 @@ fn a_respawn_announces_a_respawn_and_not_an_opened() {
     let fp = worker_fp();
     let mut wanted = request(23);
     wanted.event = DurableEventKind::State;
-    wanted.session_id = Some(support::session_id());
+    wanted.session_id = Some(support_session_id());
     wanted.shell_spec = Some(shell_spec("/somewhere/that/is/gone"));
 
     let record = spawn_shell(
@@ -157,7 +155,7 @@ fn a_respawn_announces_a_respawn_and_not_an_opened() {
         } => {
             assert_eq!(
                 session_id,
-                &support::session_id(),
+                &support_session_id(),
                 "the respawn changed the session id"
             );
             assert_eq!(*new_channel, record.channel_id());

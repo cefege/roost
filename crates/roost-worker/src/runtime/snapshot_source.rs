@@ -160,7 +160,7 @@ fn row(worker_fp: &WorkerFp, record: &SessionRecord) -> Session {
         git_remote: record.git_remote.clone(),
         pr_number: pr.map(|pr| i64::from(pr.number)),
         pr_state: pr.map(|pr| pr.state),
-        pr_checks: pr.map(|pr| pr.checks.clone()),
+        pr_checks: pr.map(|pr| pr.checks),
         pr_url: pr.map(|pr| pr.url.clone()),
         ports: record
             .ports
