@@ -18,17 +18,22 @@ use roost_coord::worker_link::conn_types::{
     SocketClose, SocketIdentity,
 };
 use roost_coord::worker_link::frame_queue::{
-    FrameQueue, Queued, QueuedFrame, QueueRefusal, WORKER_FRAME_QUEUE_MAX_BYTES,
+    FrameQueue, QueueRefusal, Queued, QueuedFrame, WORKER_FRAME_QUEUE_MAX_BYTES,
     WORKER_FRAME_QUEUE_MAX_FRAMES,
 };
-use roost_coord::worker_link::keepalive::{Keepalive, STALE_LINK_CHECK_INTERVAL, STALE_LINK_TIMEOUT};
+use roost_coord::worker_link::keepalive::{
+    Keepalive, STALE_LINK_CHECK_INTERVAL, STALE_LINK_TIMEOUT,
+};
 
 #[test]
 fn every_close_the_transport_can_emit_carries_the_code_the_worker_reacts_to() {
     // The table is a promise: the worker backs off on 1009 and 1008, and
     // re-authenticates on 4001 and 4003. Sending the wrong code tells it to do
     // the wrong thing, which is why each row is asserted rather than trusted.
-    assert_eq!(SocketClose::QueueOverflow.code(), Some(CLOSE_QUEUE_OVERFLOW));
+    assert_eq!(
+        SocketClose::QueueOverflow.code(),
+        Some(CLOSE_QUEUE_OVERFLOW)
+    );
     assert_eq!(
         SocketClose::QueueOverflow.into_frame(),
         Some((1009, "worker queue overflow"))
@@ -41,10 +46,16 @@ fn every_close_the_transport_can_emit_carries_the_code_the_worker_reacts_to() {
         SocketClose::EventRateExceeded.into_frame(),
         Some((1008, "worker event rate exceeded"))
     );
-    assert_eq!(SocketClose::DedupeMismatch.code(), Some(CLOSE_POLICY_VIOLATION));
+    assert_eq!(
+        SocketClose::DedupeMismatch.code(),
+        Some(CLOSE_POLICY_VIOLATION)
+    );
     assert_eq!(SocketClose::Revoked.code(), Some(CLOSE_REVOKED));
     assert_eq!(SocketClose::Revoked.into_frame(), Some((4001, "revoked")));
-    assert_eq!(SocketClose::ReauthRequired.code(), Some(CLOSE_REAUTH_REQUIRED));
+    assert_eq!(
+        SocketClose::ReauthRequired.code(),
+        Some(CLOSE_REAUTH_REQUIRED)
+    );
     assert_eq!(
         SocketClose::ReauthRequired.into_frame(),
         Some((4003, "reauth required"))
@@ -178,7 +189,10 @@ fn a_silent_socket_is_declared_dead_and_a_slow_one_is_not() {
         keepalive.note_activity(start + STALE_LINK_CHECK_INTERVAL);
     }
     let busy = start + STALE_LINK_CHECK_INTERVAL * 5;
-    assert!(!keepalive.is_stale(busy), "a socket that just spoke is alive");
+    assert!(
+        !keepalive.is_stale(busy),
+        "a socket that just spoke is alive"
+    );
 
     // Now it stops. The last word was at the end of the loop, so the silence is
     // measured from THERE and not from `start`: a socket that spoke 15 s ago

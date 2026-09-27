@@ -184,8 +184,10 @@ fn the_transport_answered_set_is_exactly_the_implemented_rows_with_no_arm() {
         .cloned()
         .collect();
     armless_sorted.sort_unstable();
-    let mut declared: Vec<String> =
-        TRANSPORT_ANSWERED.iter().map(|name| (*name).to_owned()).collect();
+    let mut declared: Vec<String> = TRANSPORT_ANSWERED
+        .iter()
+        .map(|name| (*name).to_owned())
+        .collect();
     declared.sort_unstable();
     assert_eq!(
         armless_sorted, declared,

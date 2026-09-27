@@ -74,10 +74,7 @@ fn a_seam_with_the_real_hubs_names_them_and_not_the_no_op() {
 /// would only prove the test can build one.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn terminal_seam_wiring_is_the_real_hubs() {
-    let root = std::env::temp_dir().join(format!(
-        "roost-terminal-seam-{}",
-        std::process::id()
-    ));
+    let root = std::env::temp_dir().join(format!("roost-terminal-seam-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).expect("a scratch directory");
     let database = roost_coord::db::open(&root.join("coord.db"))

@@ -431,7 +431,12 @@ fn roost_src_files() -> impl Iterator<Item = String> {
         .flatten()
         .filter_map(Result::ok)
         .filter(|entry| entry.path().is_dir())
-        .flat_map(|domain| std::fs::read_dir(domain.path()).into_iter().flatten().flatten())
+        .flat_map(|domain| {
+            std::fs::read_dir(domain.path())
+                .into_iter()
+                .flatten()
+                .flatten()
+        })
         .filter(|file| file.path().extension().is_some_and(|ext| ext == "rs"))
         .filter_map(|file| std::fs::read_to_string(file.path()).ok())
 }

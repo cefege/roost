@@ -17,8 +17,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use event_support::{
     DASHBOARD_ID, EventFixture, RecordingEffects, Step, closed_event, fingerprint, live_session,
-    opened_event, respawned_event, session_id, snapshot_event, worker_caller, workspace_id,
-    the_deferred_append_path_has_an_execution_path,
+    opened_event, respawned_event, session_id, snapshot_event,
+    the_deferred_append_path_has_an_execution_path, worker_caller, workspace_id,
 };
 use roost_coord::events::append::{AppendOptions, append_event};
 use roost_coord::events::bus_messages::SessionBusMessage;
