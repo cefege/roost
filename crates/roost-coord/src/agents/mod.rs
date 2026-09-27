@@ -16,7 +16,6 @@
 pub mod config;
 pub mod rpc_status;
 pub mod status_hub;
-pub mod status_order;
 pub mod status_push;
 pub mod status_wait;
 

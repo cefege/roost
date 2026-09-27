@@ -1933,6 +1933,37 @@ identical to it (every table's `PRAGMA table_info`, `foreign_key_list`,
 | `tests/upgrade_admission.rs` | both upgrade state machines: every refusal, every status, the origin-before-credential order, the query ban |
 | `tests/transport_windows.rs` | the announced-channel barrier, the ACK window, the rate window, and the socket-wide budget |
 
+### The fixture-allow rule: fixtures declare, test roots may
+
+`unwrap_used` and `expect_used` are **denied workspace-wide** (root
+`Cargo.toml` `[workspace.lints.clippy]`), because a panic on a bad wire value
+in the coordinator is a fleet-visible outage. `clippy.toml` exempts tests
+(`allow-unwrap-in-tests`, `allow-expect-in-tests`) — and that exemption reaches
+**two different things** unevenly, which is the whole reason this rule exists:
+
+| site | what it is | is it exempt? |
+| --- | --- | --- |
+| `tests/foo.rs` | a **test binary root** — its own crate, compiled with `--test` | **YES**, by `clippy.toml` |
+| `tests/<dir>/mod.rs` | a **shared fixture module**, pulled in by `#[path = "…/mod.rs"] mod …;` | **NO** — the allow does not reach it |
+
+So: **fixtures declare, test roots may.** A shared fixture that unwraps must
+state its own
+`#![allow(clippy::unwrap_used, clippy::expect_used)]`, because the exemption it
+is relying on is not the one that covers it.
+
+**The ~94 `#![allow]` headers on test binary roots in this crate are redundant
+and are retained deliberately.** `clippy.toml` already exempts them. They stay
+because removing them is an all-or-none sweep to be decided on one clippy
+measurement, and a half-stripped directory is precisely the "passes on some
+files, fails on others" shape that produced this rule in the first place. **This
+line is not licence to start stripping them directory by directory.**
+
+Why the asymmetry exists, in one sentence: an integration test is its own crate
+rather than a `#[cfg(test)]` module of one, so the lint exemption that keys off
+test-ness covers the crate and not a module compiled into it. Without this rule
+the gate is **red on two fixtures in a directory and green on the other six**,
+and nothing in the output names the real difference.
+
 ## 12. Wave 0 — the seams that had to exist before any domain slice
 
 Recorded here because every domain brief depends on them, and because the

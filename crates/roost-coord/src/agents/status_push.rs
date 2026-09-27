@@ -24,12 +24,11 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use roost_observability::LogFields;
-use roost_protocol::wire::agent_status::agent_status_identity;
+use roost_protocol::wire::agent_status::{agent_status_identity, same_agent_status_occupant};
 use roost_protocol::wire::{
     AgentOccupantId, AgentRuntimeState, AgentStatus, AgentStatusUpdate, SessionId, StatusEpoch,
 };
 
-use crate::agents::status_order::same_agent_status_occupant;
 use crate::push::dispatch::{
     ActiveTerminalViewers, AgentPushTransition, PushTransition, fire_push_for_transition,
 };

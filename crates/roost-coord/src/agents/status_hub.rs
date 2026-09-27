@@ -18,14 +18,13 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use roost_observability::LogFields;
-use roost_protocol::wire::agent_status::agent_status_identity;
+use roost_protocol::wire::agent_status::{AgentStatusOrder, agent_status_identity};
 use roost_protocol::wire::{
     AgentOccupantId, AgentRuntimeState, AgentStatus, AgentStatusUpdate, SessionId, StatusEpoch,
     WorkerFp,
 };
 use serde_json::Value;
 
-use crate::agents::status_order::AgentStatusOrder;
 use crate::agents::status_push::{
     AGENT_STATUS_PUSH_DELAY, AgentStatusPushDelivery, AgentStatusPushSchedule, CurrentAgentStatus,
 };
