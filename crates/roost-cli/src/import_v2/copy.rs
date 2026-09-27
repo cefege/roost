@@ -90,7 +90,14 @@ pub async fn source_account(pool: &SqlitePool) -> Result<String, CommandFailure>
 /// `tests/import_v2_copy.rs` runs both and asserts the two reports are equal,
 /// which is the only thing that makes a dry run worth reading.
 pub async fn estimate(source: &Path, target: &Path) -> Result<Vec<TableReport>, CommandFailure> {
-    if !target.is_file() {
+    // A target with no `accounts` table is a target with NOTHING in it, whether
+    // the file is absent or merely not yet a v3 database. Both report the
+    // first-run numbers, and both must not be opened through the coordinator's
+    // own opener to find that out: that opener runs migrations, so a dry run
+    // that used it to inspect an unmigrated file would MIGRATE the file it
+    // promised not to touch, on the machine where the operator ran `--dry-run`
+    // precisely to look before leaping.
+    if !target.is_file() || !target_is_migrated(source, target).await? {
         // Nothing to compare against, and nothing to create: a dry run that
         // made the file it is reporting on would not be a dry run.
         let source_pool = open_source_read_only(source).await?;
@@ -243,6 +250,23 @@ pub async fn open_source_read_only(path: &Path) -> Result<SqlitePool, CommandFai
         })?;
     attach(&pool, path).await?;
     Ok(pool)
+}
+
+/// Whether the target is already a v3 database, read without writing to it.
+///
+/// The table is asked for through a read-only handle rather than by opening the
+/// file, because "does this database have a schema" is a question a dry run must
+/// be able to ask without touching the answer.
+async fn target_is_migrated(source: &Path, target: &Path) -> Result<bool, CommandFailure> {
+    let pool = attached_read_only(source, target).await?;
+    let present: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM main.sqlite_master WHERE type = 'table' AND name = 'accounts'",
+    )
+    .fetch_one(&pool)
+    .await
+    .map_err(|error| read_failure("sqlite_master", &error))?;
+    pool.close().await;
+    Ok(present == 1)
 }
 
 /// A read-only view of both databases: the target as `main`, the v2 one as
