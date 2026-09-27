@@ -189,7 +189,7 @@ fn the_installed_launcher_finds_a_program_and_says_when_there_is_none() {
 fn the_reserved_exit_codes_are_distinct_and_named() {
     let reserved = [
         codes::USAGE,
-        codes::SSH_UNREACHABLE,
+        codes::REJECTED_INVOCATION,
         codes::NO_REMOTE_RUNTIME,
         codes::BUILD_FAILED,
         codes::KEEPER_NOT_ADOPTABLE,

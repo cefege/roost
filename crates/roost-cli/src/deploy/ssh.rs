@@ -26,7 +26,7 @@ use tokio::process::Command;
 use tracing::warn;
 
 use crate::command_error::CommandFailure;
-use crate::deploy::codes::{self, SSH_UNREACHABLE};
+use crate::deploy::codes::{self, REJECTED_INVOCATION};
 
 /// The ssh options every remote step shares.
 ///
@@ -96,7 +96,7 @@ impl RemoteOutcome {
 pub fn reject_control_characters(what: &str, value: &str) -> Result<(), CommandFailure> {
     if value.is_empty() {
         return Err(codes::refuse(
-            SSH_UNREACHABLE,
+            REJECTED_INVOCATION,
             format!("the target reported an empty {what}"),
         ));
     }
@@ -105,7 +105,7 @@ pub fn reject_control_characters(what: &str, value: &str) -> Result<(), CommandF
         .find(|character| matches!(character, '\n' | '\r' | '\0'))
     {
         return Err(codes::refuse(
-            SSH_UNREACHABLE,
+            REJECTED_INVOCATION,
             format!(
                 "the target reported a {what} containing {found:?}; refusing to build a remote \
                  command from it"
@@ -176,7 +176,7 @@ async fn run(
     let output = builder
         .output()
         .await
-        .map_err(|error| codes::refuse(SSH_UNREACHABLE, format!("cannot run ssh: {error}")))?;
+        .map_err(|error| codes::refuse(REJECTED_INVOCATION, format!("cannot run ssh: {error}")))?;
     drop(payload);
     Ok(RemoteOutcome {
         exit: output.status.code().unwrap_or(1),
@@ -243,7 +243,7 @@ pub async fn require_reachable(host: &str) -> Result<(), CommandFailure> {
         return Ok(());
     }
     Err(codes::refuse(
-        SSH_UNREACHABLE,
+        REJECTED_INVOCATION,
         format!(
             "ssh failed for {host}; ensure key-based auth to that host\n{}",
             outcome.detail()
@@ -259,7 +259,7 @@ pub async fn remote_platform(host: &str) -> Result<HostPlatform, CommandFailure>
     let outcome = exec(host, "uname -s").await?;
     if !outcome.ok() {
         return Err(codes::refuse(
-            SSH_UNREACHABLE,
+            REJECTED_INVOCATION,
             format!(
                 "cannot read the target platform from {host}\n{}",
                 outcome.detail()
@@ -287,7 +287,7 @@ pub async fn remote_arch(host: &str) -> Result<String, CommandFailure> {
     let outcome = exec(host, "uname -m").await?;
     if !outcome.ok() {
         return Err(codes::refuse(
-            SSH_UNREACHABLE,
+            REJECTED_INVOCATION,
             format!(
                 "cannot read the target architecture from {host}\n{}",
                 outcome.detail()
@@ -308,7 +308,7 @@ pub async fn remote_home(host: &str) -> Result<String, CommandFailure> {
     let outcome = exec(host, "set -e; cd ~ && pwd").await?;
     if !outcome.ok() {
         return Err(codes::refuse(
-            SSH_UNREACHABLE,
+            REJECTED_INVOCATION,
             format!(
                 "cannot resolve the remote home directory on {host}\n{}",
                 outcome.detail()

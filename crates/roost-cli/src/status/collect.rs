@@ -224,6 +224,17 @@ async fn read_workers(
             );
             Vec::new()
         }
+        Err(InventoryError::ColumnDecode { column, cause }) => {
+            // The database answered; what it holds is something this build
+            // cannot read. Logged apart from a database that would not open,
+            // because the remedy is a newer client, not a permission.
+            tracing::warn!(
+                target: "status",
+                msg = "worker_inventory_column_unreadable",
+                fields = format!("{column}: {cause}"),
+            );
+            Vec::new()
+        }
         Err(error) => {
             // A database that exists and cannot be read is NOT an empty fleet.
             // The rows print empty and the reason goes to the log, because the

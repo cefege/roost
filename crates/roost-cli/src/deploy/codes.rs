@@ -8,9 +8,14 @@
 //! that means something different in one of the two is a wrapper that rolls back
 //! a fleet for the wrong reason.
 //!
-//! The one collision is deliberate and recorded in
-//! `docs/phase6-cli-contract.md`: 2 is clap's usage code for a bad flag AND
-//! "ssh failed", exactly as it was in v2.
+//! **The one collision is deliberate.** 2 is clap's usage code for a bad flag
+//! AND the code a deploy returns when the target could not be reached, exactly
+//! as it was in v2. It was once two constants in two modules —
+//! `command_error::USAGE_FAILURE` and `codes::SSH_UNREACHABLE` — which is two
+//! names for one value and therefore a second answer to "what does exit 2
+//! mean". There is now one definition, in `command_error`, re-exported here so
+//! this table keeps its documented row. A re-export is one item under one name,
+//! not an alias.
 
 use crate::command_error::CommandFailure;
 
@@ -20,9 +25,10 @@ use crate::command_error::CommandFailure;
 pub const USAGE: u8 = 1;
 
 /// The target could not be reached, or answered nothing. Also clap's own code
-/// for a rejected invocation, which is why it is named for the transport and
-/// not for the syntax.
-pub const SSH_UNREACHABLE: u8 = 2;
+/// for a rejected invocation, which is why the constant is named for the
+/// invocation rather than for the transport: one number, one meaning to a
+/// caller, whether the parser or the far end refused.
+pub use crate::command_error::REJECTED_INVOCATION;
 
 /// The target has no runtime that can run the release: not a POSIX platform,
 /// or an architecture the release was not built for.

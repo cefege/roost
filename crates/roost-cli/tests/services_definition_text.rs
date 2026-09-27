@@ -9,6 +9,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use roost_cli::services::definition_text::{
@@ -202,14 +203,90 @@ fn a_one_shot_grant_is_never_carried_into_a_definition() {
     );
     assert!(!spec.environment.contains_key("ROOST_BOOTSTRAP_TOKEN"));
     // A caller that means to arm one says so on the spec, and only for that
-    // deploy.
-    let armed = spec.with_setting(roost_platform::KEEPER_FORCE_LIVE_RETIRE_ENV, "yes");
-    assert_eq!(
-        armed
-            .environment
-            .get(roost_platform::KEEPER_FORCE_LIVE_RETIRE_ENV),
-        Some(&"yes".to_string())
+    // deploy. This goes through `with_decided_one_shots` rather than the
+    // crate-internal `with_setting`, because that is the door the product
+    // actually uses: a test that armed a grant through a different door than
+    // the deploy would pass whether or not the deploy's door worked.
+    let armed = spec.with_decided_one_shots(&BTreeMap::from([(
+        roost_platform::KEEPER_FORCE_LIVE_RETIRE_ENV.to_string(),
+        "yes".to_string(),
+    )]));
+}
+
+/// The grant has to reach the BYTES a service manager reads, not just the spec
+/// that renders them. The resolve-side refusal above is the right rule and it
+/// was still not enough: `apply.rs` resolved a worker spec from the manifest's
+/// decided environment and installed the result, and the resolve dropped every
+/// one-shot key — so `--force-live` produced a definition with no force-live in
+/// it, and a fresh host's enrollment token produced a worker with no
+/// credential. Both deploys reported a settled install.
+#[test]
+fn a_decided_one_shot_reaches_the_rendered_definition() {
+    let decided = BTreeMap::from([
+        ("ROOST_BOOTSTRAP_TOKEN".to_string(), "one-shot".to_string()),
+        (
+            roost_platform::KEEPER_FORCE_LIVE_RETIRE_ENV.to_string(),
+            "1".to_string(),
+        ),
+    ]);
+    let armed = spec(ServiceRole::Worker, HostPlatform::Linux, Path::new(HOME))
+        .with_decided_one_shots(&decided);
+    let unit = render_definition(&armed, HostPlatform::Linux);
+    assert!(
+        unit.contains("ROOST_BOOTSTRAP_TOKEN=one-shot"),
+        "a decided enrollment token has to be in the unit the worker runs from:\n{unit}"
     );
+    assert!(
+        unit.contains(&format!(
+            "{}=1",
+            roost_platform::KEEPER_FORCE_LIVE_RETIRE_ENV
+        )),
+        "a decided retire grant has to be in the unit too:\n{unit}"
+    );
+
+    // And an install that decided nothing arms nothing. Both directions matter:
+    // the first is a deploy that cannot enroll, the second is every machine on
+    // the fleet inheriting a credential because one operator's shell had one.
+    let unarmed =
+        spec(ServiceRole::Worker, HostPlatform::Linux, Path::new(HOME));
+    let unit = render_definition(&unarmed, HostPlatform::Linux);
+    assert!(!unit.contains("ROOST_BOOTSTRAP_TOKEN"));
+    assert!(!unit.contains(roost_platform::KEEPER_FORCE_LIVE_RETIRE_ENV));
+}
+
+/// `--label` is a chosen entry like any other, and it was missing from the
+/// set, so the deploy resolved the machine's name, refused to guess it when the
+/// deploying shell exported one, told the operator to pass `--label` instead —
+/// and then dropped `--label` on the floor on the way to the definition. The
+/// refusal worked and the remedy it named did nothing, which is the worst
+/// combination available: an operator who follows the error message still ends
+/// up with a machine under a derived name, and the coordinator lists two
+/// machines under one name because a reachable address is what a browser
+/// builds a machine's location from.
+#[test]
+fn a_chosen_worker_label_reaches_the_rendered_definition() {
+    let env = environment(Path::new(HOME)).with("ROOST_WORKER_LABEL", "studio");
+    let spec = ServiceSpec::resolve_with_host_memory(
+        ServiceRole::Worker,
+        &env,
+        HostPlatform::Linux,
+        Path::new(PROGRAM),
+        8 * 1024 * 1024 * 1024,
+    )
+    .expect("a worker spec resolves");
+    let unit = render_definition(&spec, HostPlatform::Linux);
+    assert!(
+        unit.contains("ROOST_WORKER_LABEL=studio"),
+        "the name a deploy was told to enroll under has to be in the unit:\n{unit}"
+    );
+
+    // A deploy given no label writes no label, rather than an empty one that
+    // would read as "named ''" to whatever consumes it.
+    let unit = render_definition(
+        &spec(ServiceRole::Worker, HostPlatform::Linux, Path::new(HOME)),
+        HostPlatform::Linux,
+    );
+    assert!(!unit.contains("ROOST_WORKER_LABEL"));
 }
 
 #[test]

@@ -677,15 +677,19 @@ dependencies = [
  "http-body",
  "http-body-util",
  "hyper",
+ "hyper-rustls",
  "hyper-util",
  "libc",
  "percent-encoding",
  "pin-project",
+ "rustls",
+ "rustls-pki-types",
  "serde",
  "serde_json",
  "sync_wrapper",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-rustls",
  "tokio-util",
  "tower",
  "tower-http",
@@ -3086,6 +3090,7 @@ name = "roost-cli"
 version = "3.0.0"
 dependencies = [
  "anyhow",
+ "axum",
  "clap",
  "connectrpc",
  "hex",
@@ -3320,6 +3325,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
 dependencies = [
  "aws-lc-rs",
+ "log",
  "once_cell",
  "rustls-pki-types",
  "rustls-webpki",

@@ -22,7 +22,7 @@ use roost_host::{
 
 use crate::services::memory_limits::{ResourceLimits, host_total_memory_bytes};
 use crate::services::service_environment::{
-    DIAGNOSTIC_ENV, ENV_HOME, ENV_PATH, default_service_path,
+    DIAGNOSTIC_ENV, ENV_HOME, ENV_PATH, ONE_SHOT_AUTHORIZATIONS, default_service_path,
 };
 use crate::services::service_settings::role_settings;
 
@@ -196,11 +196,53 @@ impl ServiceSpec {
         })
     }
 
-    /// Add or replace one entry. This is how a deploy carries a setting a
-    /// caller decided on, including the one-shot authorizations a plain
-    /// resolve deliberately refuses to reinstall.
-    pub fn with_setting(mut self, name: &str, value: impl Into<String>) -> Self {
+    /// Add or replace one entry, for the callers inside this crate that
+    /// assemble a spec by hand.
+    ///
+    /// `pub(crate)` on purpose, and the reason is a defect this crate shipped:
+    /// while this was `pub` it was a THIRD door into a definition's environment
+    /// alongside `ONE_SHOT_AUTHORIZATIONS` and `WORKER_CHOSEN_ENTRIES`, so
+    /// enumerating those two lists read as a complete account of what a
+    /// definition could carry, and was not. A complete enumeration of the wrong
+    /// set is worse than no enumeration. Narrowing it makes "no definition can
+    /// carry an ad-hoc key" a fact a reader can re-check by making it private
+    /// again, rather than an argument about two lists someone might extend.
+    pub(crate) fn with_setting(mut self, name: &str, value: impl Into<String>) -> Self {
         self.environment.insert(name.to_string(), value.into());
+        self
+    }
+
+    /// Install the one-shot grants a caller decided on, and nothing else.
+    ///
+    /// A plain resolve refuses to put a one-shot into a definition, and that
+    /// refusal is right: an ambient environment must never arm a credential, or
+    /// every machine an operator happened to run a command from inherits one.
+    /// It is also incomplete on its own, because the callers that decide
+    /// deliberately are the ones that need it — and a refusal with no exception
+    /// is a grant that cannot be granted at all.
+    ///
+    /// Two grants need this and both were inert without it. The enrollment
+    /// token is the only credential a fresh host can obtain, and `--force-live`
+    /// is the authorization a deploy gives the new worker to destroy the PTYs a
+    /// keeper it cannot adopt holds. Each was accepted, carried in the decided
+    /// environment, and then dropped by the resolve — so a first install
+    /// produced a worker that could never join the fleet and a `--force-live`
+    /// deploy produced a definition that did not carry the force-live it was
+    /// invoked with. Both report success, which is what makes them silent.
+    ///
+    /// Armed per grant and only from the caller's own decided values, so a grant
+    /// nobody supplied is not installed; and the next install does not carry it
+    /// either, because `deploy::identity_env` strips both from a prior install.
+    /// That is what makes each one one-shot.
+    pub fn with_decided_one_shots(
+        mut self,
+        decided: &BTreeMap<String, String>,
+    ) -> Self {
+        for name in ONE_SHOT_AUTHORIZATIONS {
+            if let Some(value) = decided.get(name) {
+                self.environment.insert(name.to_string(), value.clone());
+            }
+        }
         self
     }
 

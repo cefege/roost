@@ -20,7 +20,7 @@ use crate::deploy::DeployArgs;
 use crate::deploy::codes;
 use crate::deploy::identity;
 use crate::deploy::identity_env::{self, Ambient};
-use crate::services::service_environment::{ENV_REACHABLE_ADDR, ENV_WORKER_LABEL};
+use crate::services::service_environment::{ENV_BOOTSTRAP_TOKEN, ENV_REACHABLE_ADDR, ENV_WORKER_LABEL};
 use roost_worker::runtime::boot::ENV_COORDINATOR_URL;
 
 /// Everything wrong with the invocation, refused before anything is touched.
@@ -188,6 +188,21 @@ pub fn definition_environment(
             roost_platform::KEEPER_FORCE_LIVE_RETIRE_ENV.to_string(),
             "1".to_string(),
         );
+    }
+    // The enrollment grant is the one value a FIRST install cannot do without,
+    // and the only place a deploy can supply it. `roost add-machine` mints it
+    // and prints it; `roost quickstart` mints one and runs a localhost deploy
+    // with it in this shell. Either way it arrives here as the deploying
+    // box's ambient value, and without it the target installs a worker that has
+    // no credential to enroll with — a fleet that never converges, reported by
+    // this command as a settled deploy. Armed from ambient and only from
+    // ambient: the key the coordinator's admission reads
+    // (`keeper_step::plan_and_apply`'s `bootstrap_allowed`) is this same
+    // variable, so the authorization and the credential it authorizes come from
+    // one read and cannot disagree. Never printed, never logged, and stripped
+    // again by the next deploy, which is what makes it one-shot.
+    if let Some(token) = ambient.get(ENV_BOOTSTRAP_TOKEN) {
+        environment.insert(ENV_BOOTSTRAP_TOKEN.to_string(), token.clone());
     }
     environment
 }

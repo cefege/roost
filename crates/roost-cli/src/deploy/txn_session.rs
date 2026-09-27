@@ -46,7 +46,7 @@ impl RemoteTransaction {
         let mut child = spawn(host, remote_command)?;
         let stdout = child.stdout.take().ok_or_else(|| {
             codes::refuse(
-                codes::SSH_UNREACHABLE,
+                codes::REJECTED_INVOCATION,
                 "the machine transaction command produced no output stream",
             )
         })?;
@@ -134,5 +134,5 @@ fn spawn(host: &str, command: &str) -> Result<Child, CommandFailure> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| codes::refuse(codes::SSH_UNREACHABLE, format!("cannot run ssh: {error}")))
+        .map_err(|error| codes::refuse(codes::REJECTED_INVOCATION, format!("cannot run ssh: {error}")))
 }

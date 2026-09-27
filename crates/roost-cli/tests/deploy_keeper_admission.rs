@@ -19,16 +19,11 @@ use roost_cli::deploy::target_evidence::{
 };
 use roost_cli::status::report::WorkerStatus;
 use roost_host::HostPlatform;
-use roost_protocol::keeper_update::{
-    INCOMPATIBLE_WITH_LIVE_SESSIONS, KEEPER_EMPTY_BINDING_DIGEST, KEEPER_RESTART_REQUIRED,
-    KeeperContractV1, KeeperRuntimeObservationV1, UNPROVEN, WORKER_ONLY_SAFE,
-    classify_keeper_update,
-};
+use roost_protocol::keeper_update::{KEEPER_EMPTY_BINDING_DIGEST, KeeperRuntimeObservationV1};
 use serde_json::json;
 
 const NOW: i64 = 1_781_900_000_000;
 const RUNNING_DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-const TARGET_DIGEST: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 /// The one digest a provably empty keeper reports, taken from the constant that
 /// owns it rather than restated: a literal here would be a second answer to "what
 /// does an empty keeper hash to", and a replace-empty admission proved against

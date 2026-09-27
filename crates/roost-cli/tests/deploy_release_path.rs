@@ -86,7 +86,7 @@ fn a_reported_path_with_a_control_character_is_refused() {
     ] {
         let failure = ssh::reject_control_characters("home", hostile)
             .expect_err("a control character must be refused");
-        assert_eq!(failure.code, codes::SSH_UNREACHABLE);
+        assert_eq!(failure.code, codes::REJECTED_INVOCATION);
     }
     assert!(
         ssh::reject_control_characters("home", "").is_err(),

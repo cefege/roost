@@ -32,7 +32,6 @@ use roost_platform::AGENT_CONVERSATION_RESTORE_ENV;
 
 use crate::services::service_environment::{
     ENV_BOOTSTRAP_TOKEN, ENV_REACHABLE_ADDR, ENV_WORKER_LABEL, ENV_WORKER_LOCAL_UI_ALLOWED_ORIGINS,
-    is_one_shot_authorization,
 };
 use crate::status::service_definition::InstalledEnvironment;
 
@@ -207,7 +206,6 @@ pub fn worker_install_environment(
             }
         }
     }
-    values.retain(|key, _| !is_one_shot_authorization(key));
     values.insert("GIT_SHA".to_string(), git_sha.to_string());
     values.insert(
         roost_host::build_identity::ROOST_GIT_SHA_ENV.to_string(),

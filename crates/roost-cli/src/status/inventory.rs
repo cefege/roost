@@ -32,8 +32,19 @@ const CAPACITY_COLUMN: &str = "terminal_core_capacity_json";
 pub enum InventoryError {
     #[error("coordinator database not found: {0}")]
     Missing(PathBuf),
+    /// The database exists and could not be opened or queried. The operator's
+    /// install is at fault: the file is locked, the permissions are wrong, or
+    /// the path is not a database.
     #[error("coordinator database unreadable: {0}")]
     Unreadable(String),
+    /// A row's column did not decode. **Not** the same failure, and the
+    /// opposite remedy: the database opened and answered, and what it holds is
+    /// something this build cannot read — a coordinator ahead of this CLI, or
+    /// a corrupt row. Reporting it as `Unreadable` points the operator at the
+    /// filesystem when the answer is "upgrade the client", and a deploy that
+    /// hit it through `keeper_client` was showing the same sentence.
+    #[error("coordinator database column {column} did not decode: {cause}")]
+    ColumnDecode { column: String, cause: String },
 }
 
 /// One machine's row, with staleness derived from `now_ms`.
@@ -81,19 +92,19 @@ async fn read_workers(pool: &SqlitePool, now_ms: i64) -> Result<Vec<WorkerStatus
             fingerprint: fingerprint.clone(),
             label: text(&row, "label")?,
             os: text(&row, "os")?,
-            reachable_addr: optional_text(&row, "reachable_addr"),
-            git_sha: optional_text(&row, "git_sha"),
+            reachable_addr: optional_text(&row, "reachable_addr")?,
+            git_sha: optional_text(&row, "git_sha")?,
             keeper_runtime: parse_keeper_runtime(
-                optional_text(&row, KEEPER_RUNTIME_COLUMN).as_deref(),
+                optional_text(&row, KEEPER_RUNTIME_COLUMN)?.as_deref(),
             ),
             terminal_core_capacity: parse_terminal_core_capacity(
-                optional_text(&row, CAPACITY_COLUMN).as_deref(),
+                optional_text(&row, CAPACITY_COLUMN)?.as_deref(),
             ),
             coordinator_open_session_ids: open_sessions
                 .get(&fingerprint)
                 .cloned()
                 .unwrap_or_default(),
-            last_seen_ms: row.try_get::<i64, _>("last_seen_ms").map_err(unreadable)?,
+            last_seen_ms: integer(&row, "last_seen_ms")?,
             age_ms: 0,
             stale: false,
         };
@@ -148,12 +159,32 @@ async fn open_session_ids_by_worker(
     Ok(by_worker)
 }
 
+/// A required column, decoded. A NULL or a wrong type here is a column the
+/// database holds and this build cannot read — never a missing database.
 fn text(row: &SqliteRow, column: &str) -> Result<String, InventoryError> {
-    row.try_get::<String, _>(column).map_err(unreadable)
+    row.try_get::<String, _>(column).map_err(column_error(column))
 }
 
-fn optional_text(row: &SqliteRow, column: &str) -> Option<String> {
-    row.try_get::<Option<String>, _>(column).ok().flatten()
+/// An optional column, decoded. `None` means the column is NULL, and that is a
+/// real answer: a coordinator older than the column, or a worker that has
+/// never reported one. A column that is present but not decodable is a
+/// different thing, and used to be indistinguishable from NULL here — which
+/// rendered a machine that DID report a keeper runtime as one that never has.
+fn optional_text(row: &SqliteRow, column: &str) -> Result<Option<String>, InventoryError> {
+    row.try_get::<Option<String>, _>(column)
+        .map_err(column_error(column))
+}
+
+/// An integer column, decoded, for the same reason as [`text`].
+fn integer(row: &SqliteRow, column: &str) -> Result<i64, InventoryError> {
+    row.try_get::<i64, _>(column).map_err(column_error(column))
+}
+
+fn column_error(column: &str) -> impl Fn(sqlx::Error) -> InventoryError {
+    move |error| InventoryError::ColumnDecode {
+        column: column.to_string(),
+        cause: error.to_string(),
+    }
 }
 
 fn unreadable(error: sqlx::Error) -> InventoryError {

@@ -146,7 +146,7 @@ async fn apply(manifest_bytes: &[u8], env: &dyn EnvSource) -> Result<ApplyReport
         platform,
         &bin_dir.join(ROOST_PROGRAM),
     ) {
-        Ok(spec) => spec,
+        Ok(spec) => spec.with_decided_one_shots(&manifest.environment),
         Err(error) => {
             return Err(ApplyReport::new(
                 ApplyOutcome::Refused,
@@ -248,3 +248,4 @@ fn settle_report(
     }
     report
 }
+

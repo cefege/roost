@@ -16,14 +16,19 @@
 //! cannot tell a "refused, and do not retry" from a "failed, try again" is a
 //! script that retries the one thing that must never be retried.
 
+pub mod api;
 pub mod command_error;
 pub mod daemon;
+pub mod dev;
 pub mod deploy;
 pub mod doctor;
 pub mod ops;
 pub mod overlay_env;
+pub mod quickstart;
+pub mod push;
 pub mod services;
 pub mod status;
+pub mod update;
 pub mod utc_clock;
 pub mod wall_clock;
 
@@ -32,6 +37,12 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 
 use crate::command_error::CommandFailure;
+use crate::api::ApiArgs;
+use crate::dev::DevArgs;
+use crate::push::PushArgs;
+use crate::quickstart::add_machine::AddMachineArgs;
+use crate::quickstart::join;
+use crate::quickstart::QuickstartArgs;
 use crate::daemon::{CoordArgs, KeeperArgs, WorkerArgs};
 use crate::deploy::remote_commands::{
     RemoteApplyArgs, RemoteEvidenceArgs, RemoteFactsArgs, RemoteTransactionArgs,
@@ -82,6 +93,20 @@ pub enum Command {
     Deploy(DeployArgs),
     /// Shut a machine's keeper down empty, keeping its worker installed.
     KeeperRefresh(KeeperRefreshArgs),
+    /// Introspect and drive a running coordinator without a browser.
+    Api(ApiArgs),
+    /// Install a coordinator and this machine's worker, then open a browser.
+    Quickstart(QuickstartArgs),
+    /// Publish this commit and roll the whole fleet onto it.
+    Push(PushArgs),
+    /// Install and register this machine's worker from a one-shot grant.
+    Join,
+    /// Mint a one-shot enrollment grant and print an enrollment command.
+    AddMachine(AddMachineArgs),
+    /// Run the coordinator, the worker and the web dev server together.
+    Dev(DevArgs),
+    /// Put this install's roost on PATH as ~/.local/bin/roost.
+    SelfLink,
     #[command(name = "__remote-facts", hide = true)]
     RemoteFacts(RemoteFactsArgs),
     #[command(name = "__remote-evidence", hide = true)]
@@ -116,6 +141,13 @@ impl Command {
             Command::Logs(_) => "logs",
             Command::Deploy(_) => "deploy",
             Command::KeeperRefresh(_) => "keeper-refresh",
+            Command::Quickstart(_) => "quickstart",
+            Command::Api(_) => "api",
+            Command::Push(_) => "push",
+            Command::Join => "join",
+            Command::AddMachine(_) => "add-machine",
+            Command::Dev(_) => "dev",
+            Command::SelfLink => "self-link",
             Command::RemoteFacts(_) => "__remote-facts",
             Command::RemoteEvidence(_) => "__remote-evidence",
             Command::RemoteTransaction(_) => "__remote-transaction",
@@ -142,6 +174,13 @@ pub async fn dispatch(cli: Cli) -> Result<ExitCode, CommandFailure> {
         Command::Logs(args) => ops::logs::run(&args),
         Command::Deploy(args) => deploy::run::run(&args).await,
         Command::KeeperRefresh(args) => deploy::keeper_refresh::run(&args).await,
+        Command::Quickstart(args) => quickstart::run(&args).await,
+        Command::Api(args) => api::run(&args).await,
+        Command::Push(args) => push::run(&args).await,
+        Command::Join => join::run(&roost_host::ProcessEnv::new()).await,
+        Command::AddMachine(args) => quickstart::add_machine::run(&args).await,
+        Command::Dev(args) => dev::run(&args).await,
+        Command::SelfLink => quickstart::self_link::run(),
         Command::RemoteFacts(args) => deploy::remote_commands::facts(&args),
         Command::RemoteEvidence(args) => deploy::remote_commands::evidence(&args),
         Command::RemoteTransaction(args) => deploy::remote_commands::transaction(&args).await,

@@ -50,12 +50,13 @@ pub const ONE_SHOT_AUTHORIZATIONS: [&str; 2] = [ENV_BOOTSTRAP_TOKEN, KEEPER_FORC
 /// conversation-restore opt-in is here rather than in the grant list precisely
 /// because it is the opposite: the operator's answer outlives the deploy that
 /// carried it.
-pub const WORKER_CHOSEN_ENTRIES: [&str; 5] = [
+pub const WORKER_CHOSEN_ENTRIES: [&str; 6] = [
     ENV_COORDINATOR_URL,
     WORKER_LOCAL_UI_BIND_ENV,
     ENV_WORKER_LOCAL_UI_ALLOWED_ORIGINS,
     AGENT_CONVERSATION_RESTORE_ENV,
     ENV_REACHABLE_ADDR,
+    ENV_WORKER_LABEL,
 ];
 
 /// True when `name` is an authorization no redeploy may carry forward.
