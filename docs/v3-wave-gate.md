@@ -2838,8 +2838,21 @@ failure mode this list exists to prevent.**
 > body: **a new workspace lint does not reach `roost-keeper` until someone adds
 > it to that copy.** `cargo xtask lint` is where a duplicated table belongs — a
 > rule flagging a crate whose `[lints]` is not `workspace = true` and which
-> defines a key the workspace table also defines. **That rule is owed to the
-> integrator and is not yet written.**
+> defines a key the workspace table also defines. **That rule is written**, as
+> `xtask/src/lint_table.rs`, with `roost-keeper` as the one `COPY_EXEMPT` entry.
+>
+> **PREDICTED, NOT DISCOVERED.** The workspace clippy was clean at `b13c2e05`,
+> and that number is measured on `v3`, which does **not** carry this hunk. The
+> moment it lands, `roost-keeper` is under four lint groups it has never been
+> under — `expect_used`, `unwrap_used`, `missing_debug_implementations`,
+> `rust_2018_idioms` — plus `unsafe_code = "forbid"` over raw-fd and
+>> controlling-TTY code the gate has never actually enforced on it. The 18
+>> `expect`/`unwrap` sites and the three `Debug` gaps are already cleared, so the
+> **Expect that merge to turn the workspace clippy red.** It is not a reason to
+> hold the merge; it is a reason to have said so first. The unused-import class
+> is the one to look for in `roost-keeper`'s test files first, because that is
+> where the splits happened, and `cargo check` and `cargo test` both pass over
+> an unused import.
 
 | # | Carried on | What | Why it is on the list rather than merged already |
 | M1 | `v3-worker`, **`WorkerLeadW2`'s corrected form — not `d02d6ec3`** | `crates/roost-keeper/Cargo.toml` restates the workspace lint table in full, with one `unsafe_code = "allow"` override | Per-ref measured: `roost-worker`'s branch is the only one with the change, and the file is byte-identical to `v3` on `v3-coord`, `v3-web` and `v3-cli` — so the *original* hunk would have merged one-sided and silently. It also would not have parsed. Without this the crate is outside `[workspace.lints]` entirely, so `expect_used`, `unwrap_used` and `unsafe_code = "forbid"` never applied to it, 19 production `expect()`s survived, and `cargo clippy --workspace --all-targets -- -D warnings` passed over it **by not applying**. See the amendment above. |
