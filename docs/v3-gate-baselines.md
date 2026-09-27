@@ -1809,7 +1809,28 @@ it is the one failure mode a pass/fail/skip summary cannot show.
 
 ### Gate results
 
-*None recorded yet.* Stage 3 has not run. The three gates, in order:
+**MERGE POINT MEASURED, on the real tree rather than a projection.** A trial
+merge of all five tracks into `v3` at `a41f9d38` — **zero conflicts at every step**,
+`v3-cli`, `v3-cli-cutover`, `v3-coord`, `v3-worker`, `v3-web`:
+
+```
+xtask: checked 2744 inputs   unreached 0   violations 16
+  14  size — files stay <=400 lines          (8 roost-client-core, 6 roost-web-terminal)
+   2  tests — a fixture reached from a binary that does not declare the allow
+                                                (1 roost-worker, 1 roost-coord)
+```
+
+**`v3`'s own ten are GONE, and that is the merge-order prediction confirmed.** The
+two `roost-cli` size violations cleared with `v3-cli`; the `roost-keeper/Cargo.toml`
+lint table and the seven keeper `fixture_allow` findings cleared with `v3-worker`.
+**Nothing is inherited from `v3` any more**, so `xtask lint` is now entirely the
+leads' own work: twelve size splits on the web track, and two fixture allows.
+
+**`unreached 0` across the whole merge** — every module in every crate is
+registered, which is the property the unreached-module rule exists to protect and
+the first time it has been checked on a merged tree.
+
+*No Phase 2, 3 or 6 result is recorded yet.* Stage 3 has not run. The three gates, in order:
 
 1. **Phase 2** — `ROOST_SMOKE_WORKER_EXECUTABLE=<release>/roost bun run test:terminal`.
    The load-bearing spec is `terminal-delivery.spec.ts` *"browser smoke flow
