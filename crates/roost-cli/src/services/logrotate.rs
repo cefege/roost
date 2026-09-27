@@ -34,10 +34,7 @@
 
 use std::path::{Path, PathBuf};
 
-use roost_host::EnvSource;
-use roost_host::HostPlatform;
-use roost_host::ProtocolResult;
-use roost_host::paths::{config_root, state_root};
+use roost_host::{EnvSource, HostPlatform, ProtocolResult, config_root, state_root};
 
 use crate::services::definition_text::DEFINITION_MODE;
 use crate::services::install::{InstallError, InstallOutcome, install_bytes};

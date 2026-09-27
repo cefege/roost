@@ -128,38 +128,50 @@ fn an_entry_rotates_exactly_the_two_files_the_unit_appends_to() {
 }
 
 #[test]
-fn an_override_moves_both_roots_and_a_blank_one_falls_back() {
+fn the_rotation_conf_directory_ignores_xdg_config_home_because_v2_does() {
     let mut env = environment();
     env.set("XDG_CONFIG_HOME", "/xdg/config");
-    env.set("XDG_STATE_HOME", "/xdg/state");
     assert_eq!(
         conf_dir(&env).expect("resolves"),
-        PathBuf::from("/xdg/config").join(CONF_DIR_NAME)
+        PathBuf::from("/home/op/.config").join(CONF_DIR_NAME),
+        "v2 hardcodes $HOME/.config, so honouring the variable would put this install's rules \
+         somewhere a v2 install on the same account never put any, and one account would then carry \
+         two sets of rotation that both claim to be the current one"
     );
+}
+
+/// The other half of the pair above, and the half that surprises: the two XDG
+/// roots do NOT agree about whether their variable is read. Pinned apart rather
+/// than together, because a reader who finds only one of them has no way to tell
+/// the asymmetry is deliberate rather than a mistake in whichever they did not see.
+#[test]
+fn the_state_root_follows_xdg_state_home_and_a_blank_one_falls_back() {
+    let mut env = environment();
+    env.set("XDG_STATE_HOME", "/xdg/state");
     assert_eq!(
         status_path(&env).expect("resolves"),
         PathBuf::from("/xdg/state").join("roost").join(STATUS_FILE_NAME)
     );
 
-    env.set("XDG_CONFIG_HOME", "");
+    env.set("XDG_STATE_HOME", "");
     assert_eq!(
-        conf_dir(&env).expect("resolves"),
-        PathBuf::from("/home/op/.config").join(CONF_DIR_NAME),
-        "an override that names nothing falls back, because the alternative is rotating nothing"
+        status_path(&env).expect("resolves"),
+        PathBuf::from("/home/op/.local/state/roost").join(STATUS_FILE_NAME),
+        "an override that names nothing falls back, because the alternative is losing the ledger \
+         and rotating the same files twice on the next run"
     );
 }
 
 #[test]
 fn the_oneshot_names_the_program_the_ledger_and_the_directory() {
     let mut env = environment();
-    env.set("XDG_CONFIG_HOME", "/xdg/config");
     env.set("XDG_STATE_HOME", "/xdg/state");
     let files = plan(&env, ServiceRole::Worker);
     let unit = text_of(&files, SERVICE_FILE_NAME);
     assert!(
         unit.contains(&format!(
             "ExecStart={ROTATE_BINARY} --state /xdg/state/roost/{STATUS_FILE_NAME} \
-             /xdg/config/{CONF_DIR_NAME}"
+             /home/op/.config/{CONF_DIR_NAME}"
         )),
         "the unit must run the program over the directory holding the entries:\n{unit}"
     );
