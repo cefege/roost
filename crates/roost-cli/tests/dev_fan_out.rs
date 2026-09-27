@@ -115,7 +115,7 @@ fn assert_handled(dir: &Path, name: &str) {
 /// the other: a file that was never created is a child nobody watched, which
 /// is not the same claim as a file that stopped moving.
 fn beat_now(dir: &Path, name: &str) -> Option<String> {
-    std::fs::read_to_string(&beat_file(dir, name)).ok()
+    std::fs::read_to_string(beat_file(dir, name)).ok()
 }
 
 /// The counter moved while it was watched. This is the only way a test can
