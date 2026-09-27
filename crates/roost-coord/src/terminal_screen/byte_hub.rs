@@ -138,6 +138,30 @@ impl ByteHub {
         self.routes.lock().ok()?.cached_route(session_id).cloned()
     }
 
+    /// Bind ONE durable channel, without touching any other of that worker's.
+    ///
+    /// A fourth method beside [`WorkerRouteIndex`]'s three, and the reason is
+    /// that none of them can carry a delta. `replace_worker_channel_index` takes
+    /// a whole generation and REPLACES — handing it a one-element slice for a
+    /// single `Opened` would erase every other live channel on that worker, which
+    /// is the history-corrupting drop `events::append::LiveEffects` exists to
+    /// prevent. `retire_worker_routes` drops everything for a worker, and
+    /// `lookup_session_id` only reads.
+    ///
+    /// So the capability existed one layer down — [`RouteIndex::bind`] has always
+    /// done exactly this and had no production caller — and this is the seam over
+    /// it rather than a second implementation of it.
+    pub fn bind_durable_channel(
+        &self,
+        worker_fp: &WorkerFp,
+        channel_id: ChannelId,
+        session_id: &SessionId,
+    ) {
+        if let Ok(mut routes) = self.routes.lock() {
+            routes.bind(worker_fp, channel_id, session_id);
+        }
+    }
+
     /// Forget a session's cached route AND its last-cell record.
     ///
     /// Both, because a stale last-cell record advertises a channel the worker

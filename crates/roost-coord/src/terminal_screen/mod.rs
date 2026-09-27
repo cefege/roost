@@ -9,6 +9,7 @@
 //! runs on the worker and is relayed from here.
 
 pub mod byte_hub;
+pub mod live_effects;
 pub mod pending_rpcs;
 pub mod replica;
 pub mod replica_admission;
