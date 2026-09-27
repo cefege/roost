@@ -272,15 +272,19 @@ async fn the_coordinator_bounds_total_waits_across_sessions() {
     // every registration and the bound never bound anything.
     let mut held: Vec<AgentStatusWaiter> = Vec::new();
     for index in 0..=(AGENT_STATUS_WAIT_MAX_GLOBAL / AGENT_STATUS_WAIT_MAX_PER_SESSION) {
-        let outcome = (0..AGENT_STATUS_WAIT_MAX_PER_SESSION)
-            .map(|_| match registry.register(request(index)) {
-                Ok(waiter) => {
-                    held.push(waiter);
-                    true
-                }
-                Err(_) => false,
-            })
-            .all(|admitted| admitted);
+        // A LOOP, NOT `all()`. Every registration must be attempted even after
+        // one is refused, because the property under test is that the registry
+        // holds exactly the global bound and refuses the next one — a
+        // short-circuiting combinator would stop at the first refusal and the
+        // bound would never be reached, so the test would pass without
+        // exercising it.
+        let mut outcome = true;
+        for _ in 0..AGENT_STATUS_WAIT_MAX_PER_SESSION {
+            match registry.register(request(index)) {
+                Ok(waiter) => held.push(waiter),
+                Err(_) => outcome = false,
+            }
+        }
         if index == AGENT_STATUS_WAIT_MAX_GLOBAL / AGENT_STATUS_WAIT_MAX_PER_SESSION {
             assert!(!outcome, "the global bound refuses the last session");
         } else {
