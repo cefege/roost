@@ -72,7 +72,8 @@ pub async fn serve_once(boot: WorkerBoot) -> anyhow::Result<()> {
 }
 
 /// A real keeper socket that authenticates, speaks this protocol, and reports
-/// the bindings it holds — none.
+/// the bindings it holds. None by default; a test that needs a survivor with
+/// somebody's terminal in it says so through [`FakeKeeper::start_holding`].
 pub struct FakeKeeper {
     stop: Arc<AtomicBool>,
     socket: PathBuf,
@@ -82,6 +83,20 @@ pub struct FakeKeeper {
 impl FakeKeeper {
     /// Bind the socket the boot configuration names and answer on it.
     pub async fn start(boot: &WorkerBoot, platform: HostPlatform) -> Self {
+        Self::start_holding(boot, platform, Vec::new()).await
+    }
+
+    /// The same keeper, reporting `channels` as ones it still holds.
+    ///
+    /// A fixture that can only say "I hold nothing" cannot express the one case
+    /// the survivor decision turns on: a keeper with a live terminal in it and
+    /// no coordinator to ask. It is also the only way to test that a boot which
+    /// could not read the open-session set leaves that keeper alone.
+    pub async fn start_holding(
+        boot: &WorkerBoot,
+        platform: HostPlatform,
+        channels: Vec<ChannelBinding>,
+    ) -> Self {
         // NOT `keeper_binary_digest`. Asking the function under test what to
         // report makes the comparison `x == x`: it passed while the worker
         // hashed with `DefaultHasher` and a real keeper with SHA-256, and
@@ -96,6 +111,7 @@ impl FakeKeeper {
         let stop = Arc::new(AtomicBool::new(false));
         let stopping = Arc::clone(&stop);
         let contract = contract(&digest, platform);
+        let held = channels.clone();
         let thread = std::thread::spawn(move || {
             for stream in listener.incoming() {
                 if stopping.load(Ordering::SeqCst) {
@@ -103,7 +119,8 @@ impl FakeKeeper {
                 }
                 let Ok(stream) = stream else { return };
                 let contract = contract.clone();
-                std::thread::spawn(move || serve(stream, contract));
+                let held = held.clone();
+                std::thread::spawn(move || serve(stream, contract, held));
             }
         });
         Self {
@@ -152,7 +169,11 @@ fn contract(digest: &str, platform: HostPlatform) -> KeeperContractV1 {
 }
 
 /// Answer one connection until the peer goes away.
-fn serve(mut stream: std::os::unix::net::UnixStream, contract: KeeperContractV1) {
+fn serve(
+    mut stream: std::os::unix::net::UnixStream,
+    contract: KeeperContractV1,
+    held: Vec<ChannelBinding>,
+) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let mut decoder = FrameDecoder::new();
     let mut buffer = [0_u8; 4096];
@@ -166,12 +187,12 @@ fn serve(mut stream: std::os::unix::net::UnixStream, contract: KeeperContractV1)
                 return;
             };
             let reply = match frame_type {
-                Some(MuxFrameType::Hello) => hello(&contract),
+                Some(MuxFrameType::Hello) => hello(&contract, held.len()),
                 Some(MuxFrameType::ListChannels) => MuxFrame::json(
                     MuxFrameType::ListChannelsResp,
                     0,
                     &ListChannelsResp {
-                        channels: Vec::<ChannelBinding>::new(),
+                        channels: held.clone(),
                     },
                 ),
                 _ => continue,
@@ -185,7 +206,7 @@ fn serve(mut stream: std::os::unix::net::UnixStream, contract: KeeperContractV1)
     }
 }
 
-fn hello(contract: &KeeperContractV1) -> Result<MuxFrame, CodecError> {
+fn hello(contract: &KeeperContractV1, live: usize) -> Result<MuxFrame, CodecError> {
     MuxFrame::json(
         MuxFrameType::HelloResp,
         0,
@@ -193,7 +214,7 @@ fn hello(contract: &KeeperContractV1) -> Result<MuxFrame, CodecError> {
             contract: contract.clone(),
             observation: KeeperObservation {
                 contract: contract.clone(),
-                live_channel_count: 0,
+                live_channel_count: live as u32,
             },
             // Every feature this build requires, which is what the client's own
             // hello refuses a keeper for lacking.

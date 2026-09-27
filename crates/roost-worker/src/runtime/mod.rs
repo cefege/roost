@@ -212,19 +212,13 @@ pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result
     //    unread set as "do not replace", so a machine whose keeper genuinely
     //    needed replacing never replaced it, forever, and no test noticed
     //    because the refusal is the safe direction.
-    let open_sessions = read_open_session_count(&coordinator_client, boot.fingerprint.as_str())
-        .await
-        .unwrap_or_else(|error| {
-            // `None`, never `Some(0)`. A coordinator that did not answer has
-            // told us nothing, and reading that as "nothing is open" is how a
-            // restart ends a user's terminals.
-            tracing::warn!(
-                %error,
-                "boot: the coordinator did not report its open-session set; the keeper \
-                 survivor will not be replaced on an unread fact"
-            );
-            None
-        });
+    //    `open_sessions_or_unknown` is `reconcile`'s, not a closure written
+    //    here, so the "an unanswered coordinator is not an empty one" half of
+    //    that decision is something a test can call. It shipped untested
+    //    precisely because it was an `unwrap_or_else` two lines wide.
+    let open_sessions = reconcile::open_sessions_or_unknown(
+        read_open_session_count(&coordinator_client, boot.fingerprint.as_str()).await,
+    );
     let keeper = match keeper_boot::ensure_keeper(&boot, open_sessions, &boot.log_dir).await {
         Ok(KeeperBootOutcome::Adopted { channels, keeper }) => {
             tracing::info!(

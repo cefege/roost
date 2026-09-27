@@ -69,3 +69,31 @@ where
     );
     Ok(Some(count))
 }
+
+/// What the boot does with a coordinator that did not answer: `None`.
+///
+/// A NAMED FUNCTION, and that is the whole point of it. This decision used to
+/// be an inline `unwrap_or_else` in the composition root, which is why it
+/// shipped untested — a closure in the middle of `serve_until` is not a thing
+/// any test can reach, and the failure it guards is invisible in the safe
+/// direction: collapse it to `unwrap_or(0)` and `decide` reads "no sessions are
+/// open" from a coordinator that said nothing, and a keeper survivor holding
+/// somebody's terminals is replaced.
+///
+/// `None` is not a weaker `Some(0)`. Zero is a CLAIM — this coordinator has no
+/// open sessions — and it is the only claim that authorises a replacement.
+/// `None` is the absence of a claim, and `keeper_boot::decide` treats it as
+/// do-not-replace.
+pub fn open_sessions_or_unknown(read: anyhow::Result<OpenSessionCount>) -> OpenSessionCount {
+    match read {
+        Ok(count) => count,
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                "boot: the coordinator did not report its open-session set; the keeper \
+                 survivor will not be replaced on an unread fact"
+            );
+            None
+        }
+    }
+}
