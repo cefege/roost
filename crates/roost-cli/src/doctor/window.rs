@@ -7,7 +7,7 @@
 //! be pasted into a daily review is how a week of logs silently becomes a day
 //! of logs, or a day becomes a week of noise nobody reads.
 
-use crate::command_error::{CommandFailure, USAGE_FAILURE};
+use crate::command_error::{CommandFailure, REJECTED_INVOCATION};
 
 /// The label a window prints with, and the one `--help` shows. 24 hours is the
 /// daily-review default this command was built for: long enough to cover a
@@ -48,7 +48,7 @@ pub fn parse_window(label: &str) -> Result<Window, CommandFailure> {
 
 fn bad_window(label: &str) -> CommandFailure {
     CommandFailure::new(
-        USAGE_FAILURE,
+        REJECTED_INVOCATION,
         format!("bad --since \"{label}\" (use e.g. 24h, 7d, 90m)"),
     )
 }
