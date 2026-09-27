@@ -19,7 +19,8 @@
 
 use std::sync::Arc;
 
-use roost_client_core::client::predictive_echo::{PredictiveEcho, ResetReason};
+use roost_client_core::client::predictive_echo::PredictiveEcho;
+use roost_client_core::client::predictive_echo::report::ResetReason;
 use roost_client_core::store::prefs::PredictMode;
 use roost_protocol::cell::{CellGridFrame, CellRow, CellSpan, MouseTracking};
 

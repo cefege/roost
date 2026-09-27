@@ -21,16 +21,18 @@
 //! `fences_a_mismatched_door_and_advances_a_pre_send_loopback_failure_to_webrtc`
 //! must fail.
 
+// Each binary compiles this module whole, so a fixture one of them does not
+// use reads as dead in that binary and not in the other. That is the cost of
+// sharing, not a fault in the fixture.
+#![allow(dead_code)]
+
 use roost_client_core::client::attachments::direct::{
-    AttachmentDirectEnvironment, AttachmentDirectUploadRequest, DirectAttempt, DirectRoute,
-    DirectUnavailableReason, LocalWorkerDoor, RouteOpen, upload_attachment_direct,
+    AttachmentDirectEnvironment, LocalWorkerDoor, RouteOpen,
 };
 use roost_client_core::client::attachments::grant::{
     AttachmentDirectGrant, AttachmentDirectGrantRequest, AttachmentDirectGrantResponse,
 };
-use roost_client_core::client::attachments::transfer::{
-    AttachmentTransferCarrierError, MAX_SAFE_TOTAL_BYTES,
-};
+use roost_client_core::client::attachments::transfer::AttachmentTransferCarrierError;
 
 /// What a fake environment answers, and what it recorded.
 pub struct FakeEnvironment {
@@ -38,7 +40,7 @@ pub struct FakeEnvironment {
     pub peer_available: bool,
     pub tab_id: String,
     pub device_fingerprint: String,
-    pub mint: Result<AttachmentDirectGrantResponse, ()>,
+    pub mint: Option<AttachmentDirectGrantResponse>,
     pub peer_id: Option<String>,
     pub loopback: RouteOpen,
     pub peer: RouteOpen,
@@ -55,7 +57,7 @@ impl FakeEnvironment {
             peer_available: true,
             tab_id: "tab-a".to_owned(),
             device_fingerprint: "device-a".to_owned(),
-            mint: Ok(AttachmentDirectGrantResponse {
+            mint: Some(AttachmentDirectGrantResponse {
                 grant_id: "grant-a".to_owned(),
                 secret: "secret-a".to_owned(),
                 worker_epoch: "epoch-a".to_owned(),
@@ -105,7 +107,7 @@ impl AttachmentDirectEnvironment for FakeEnvironment {
     fn mint_grant(
         &mut self,
         request: &AttachmentDirectGrantRequest,
-    ) -> Result<AttachmentDirectGrantResponse, ()> {
+    ) -> Option<AttachmentDirectGrantResponse> {
         self.calls.push("mint".to_owned());
         self.minted.push(request.clone());
         self.mint.clone()

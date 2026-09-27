@@ -166,10 +166,14 @@ pub trait AttachmentDirectEnvironment {
     fn device_fingerprint(&self) -> String;
 
     /// Ask the coordinator for the exact grant this upload needs.
+    ///
+    /// `None` is every way there is no answer to fold, and none of them is a
+    /// pending state — the same shape as `create_peer_id` below, which answers
+    /// the same way when there is no id to mint.
     fn mint_grant(
         &mut self,
         request: &AttachmentDirectGrantRequest,
-    ) -> Result<AttachmentDirectGrantResponse, ()>;
+    ) -> Option<AttachmentDirectGrantResponse>;
 
     /// Mint the peer id this attempt will be known by.
     fn create_peer_id(&mut self) -> Option<String>;
@@ -203,15 +207,11 @@ pub fn upload_attachment_direct(
         return DirectAttempt::Unavailable(DirectUnavailableReason::NoLocalCarrier);
     }
     let grant_request = request.grant_request(&worker_fp);
-    let response = environment.mint_grant(&grant_request);
     let tab_id = environment.tab_id();
     let fingerprint = environment.device_fingerprint();
-    let Some(grant) = AttachmentDirectGrant::from_response(
-        grant_request.clone(),
-        &tab_id,
-        &fingerprint,
-        response,
-    ) else {
+    let Some(grant) = environment.mint_grant(&grant_request).and_then(|response| {
+        AttachmentDirectGrant::from_response(grant_request.clone(), &tab_id, &fingerprint, response)
+    }) else {
         return DirectAttempt::Unavailable(DirectUnavailableReason::GrantRefused);
     };
     if !grant.admits(&grant_request) {

@@ -9,6 +9,7 @@ pub mod faults;
 pub mod grant;
 pub mod loopback;
 pub mod signaling;
+pub mod signaling_snapshot;
 pub mod transport_trait;
 
 pub use faults::{

@@ -11,8 +11,9 @@ use roost_protocol::cell::{
     CELL_REVERSE, CellGridFrame, CellSpan, DEFAULT_COLOR, column_span, column_text, span_is_atomic,
 };
 
+use super::PredictiveEcho;
 use super::expiry::GLITCH_MS;
-use super::{PredictiveEcho, ResetReason};
+use super::report::ResetReason;
 use crate::store::prefs::PredictMode;
 
 /// The application's own echo latency after the PTY write. A contradiction
@@ -71,11 +72,7 @@ pub enum PredictionVerdict {
 /// `None` means a sparse delta did not include the row, while `Some("")` means
 /// the represented row is blank or ends before the requested column — the two
 /// are different facts and only one of them can hold an echo.
-pub fn cell_char_at<'frame>(
-    frame: &'frame CellGridFrame,
-    row: u32,
-    col: i64,
-) -> Option<&'frame str> {
+pub fn cell_char_at(frame: &CellGridFrame, row: u32, col: i64) -> Option<&str> {
     let found = frame
         .viewport_rows
         .iter()

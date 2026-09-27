@@ -66,17 +66,18 @@ pub struct AttachmentDirectGrant {
 impl AttachmentDirectGrant {
     /// Fold a coordinator answer into a grant, or refuse it.
     ///
-    /// `Err` at the boundary is the whole answer: an unreachable coordinator,
-    /// a refused device, or a grant it declined to issue are one outcome to the
-    /// caller, and none of them is a pending state.
+    /// `None` is one outcome to the caller and never a pending state: either
+    /// no answer arrived at all — an unreachable coordinator, a refused device,
+    /// or a grant it declined to issue — or the answer is missing a field the
+    /// grant has to carry, which is refused here rather than after the bytes
+    /// are on the wire.
     #[must_use]
     pub fn from_response(
         request: AttachmentDirectGrantRequest,
         tab_id: &str,
         device_fingerprint: &str,
-        response: Result<AttachmentDirectGrantResponse, ()>,
+        response: AttachmentDirectGrantResponse,
     ) -> Option<Self> {
-        let response = response.ok()?;
         if response.grant_id.is_empty()
             || response.secret.is_empty()
             || response.worker_epoch.is_empty()

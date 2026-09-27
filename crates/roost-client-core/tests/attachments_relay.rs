@@ -9,70 +9,15 @@
 //! The v2 names are kept verbatim, from
 //! `apps/web/tests/attachmentsDirectFallback.test.ts`.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 #[path = "attachment_support/mod.rs"]
 mod attachment_support;
 use attachment_support::FakeEnvironment;
 use roost_client_core::client::attachments::direct::relay::{RELAY_CHUNK_BYTES, RelayUpload};
 use roost_client_core::client::attachments::direct::{
-    AttachmentDirectEnvironment, AttachmentDirectUploadRequest, DirectAttempt,
-    DirectUnavailableReason, LocalWorkerDoor, RouteOpen, upload_attachment_direct,
+    AttachmentDirectUploadRequest, DirectAttempt, DirectUnavailableReason, upload_attachment_direct,
 };
-use roost_client_core::client::attachments::grant::{
-    AttachmentDirectGrant, AttachmentDirectGrantRequest, AttachmentDirectGrantResponse,
-};
-
-/// What a fake environment answers when the direct route is not possible.
-struct NoDirectEnvironment {
-    minted: Vec<AttachmentDirectGrantRequest>,
-}
-
-impl AttachmentDirectEnvironment for NoDirectEnvironment {
-    fn read_local_worker_door(&self) -> Option<LocalWorkerDoor> {
-        None
-    }
-
-    fn peer_available(&self) -> bool {
-        false
-    }
-
-    fn tab_id(&self) -> String {
-        "tab-a".to_owned()
-    }
-
-    fn device_fingerprint(&self) -> String {
-        "device-a".to_owned()
-    }
-
-    fn mint_grant(
-        &mut self,
-        request: &AttachmentDirectGrantRequest,
-    ) -> Result<AttachmentDirectGrantResponse, ()> {
-        self.minted.push(request.clone());
-        Ok(AttachmentDirectGrantResponse {
-            grant_id: "grant-a".to_owned(),
-            secret: "secret-a".to_owned(),
-            worker_epoch: "epoch-a".to_owned(),
-            peer_supported: true,
-            stun_urls: Vec::new(),
-        })
-    }
-
-    fn create_peer_id(&mut self) -> Option<String> {
-        Some("peer-a".to_owned())
-    }
-
-    fn open_loopback_route(
-        &mut self,
-        _door: &LocalWorkerDoor,
-        _grant: &AttachmentDirectGrant,
-    ) -> RouteOpen {
-        RouteOpen::Opened
-    }
-
-    fn open_peer_route(&mut self, _grant: &AttachmentDirectGrant, _peer_id: &str) -> RouteOpen {
-        RouteOpen::Opened
-    }
-}
 
 // ------------------------------------------------------- the relay fallback
 
