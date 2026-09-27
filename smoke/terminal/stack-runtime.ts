@@ -13,6 +13,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { resolveLocalEndpoint } from "../../packages/host/src/local-endpoint.ts";
 import { shutdownKeeperAuthenticated } from "../../apps/worker/src/keeper/keeper-probe.ts";
 import type { AuthorizedApiClient } from "../../apps/roost-cli/src/api.ts";
+import { resolveSmokeWebDist } from "./stack-executables.ts";
 
 export const REPOSITORY_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -272,9 +273,12 @@ export function startCoordinatorService(config: CoordinatorServiceConfig): Runni
         ROOST_RELAXED_CSP: config.relaxedCsp === false ? "0" : "1",
         ROOST_COORDINATOR_DB: config.dbPath,
         ROOST_COORDINATOR_AUTHORIZED_KEYS: join(config.root, "authorized_keys.roost"),
-        // The SPA is always the working tree's build: apps/web/dist is not
-        // committed, so a prior-release checkout has none to serve.
-        ROOST_WEB_DIST_PATH: join(REPOSITORY_ROOT, "apps/web/dist"),
+        // The SPA is the working tree's build by default: apps/web/dist is not
+        // committed, so a prior-release checkout has none to serve. A Rust SPA
+        // is a different directory with the same contract, so ROOST_SMOKE_WEB_DIST
+        // names it and is validated at resolution rather than here.
+        ROOST_WEB_DIST_PATH:
+          resolveSmokeWebDist() ?? join(REPOSITORY_ROOT, "apps/web/dist"),
         ROOST_GIT_SHA: config.gitSha,
         ...(config.webPublicUrl === undefined ? {} : { ROOST_WEB_PUBLIC_URL: config.webPublicUrl }),
         ...(config.coordinatorPublicUrl === undefined
