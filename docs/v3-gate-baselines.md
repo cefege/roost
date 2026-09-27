@@ -759,6 +759,34 @@ measuring this rule, and it is the same class as every other finding tonight: an
 instrument reporting success while doing nothing. A zero from a tool that failed
 is worse than an error, because nothing prompts anyone to look again.
 
+**SO THE SWEEP GUARDS ITS OWN OUTPUT, and runs a known-positive tree first.** A
+count with no canary cannot distinguish "nothing found" from "nothing looked at":
+
+```bash
+export PATH="$HOME/.cargo/bin:$PATH"
+BIN=/home/almalinux/repos/roost-v3/target-gate/debug/xtask
+sweep() {
+  OUT=$(ROOST_REPO_ROOT="$1" "$BIN" lint 2>&1)
+  # a run that did not print this line FAILED; its zero is not a result
+  if ! printf '%s' "$OUT" | grep -q '^xtask: checked'; then
+    printf "%-18s TOOL FAILED: %s\n" "$2" "$(printf '%s' "$OUT" | head -1)"; return
+  fi
+  printf "%-18s unreached %2s   (%s)\n" "$2" \
+    "$(printf '%s' "$OUT" | grep -c 'not reachable from any crate root')" \
+    "$(printf '%s' "$OUT" | grep '^xtask: checked')"
+}
+# CANARY FIRST — v3-web must print 8. If it prints 0, every other number is fiction.
+sweep /home/almalinux/repos/roost-v3-web v3-web
+for w in roost-v3 roost-v3-coord roost-v3-worker roost-v3-cli roost-v3-cli2; do
+  sweep "/home/almalinux/repos/$w" "$w"
+done
+```
+
+**The verified sweep, with the input count beside every figure so a zero is
+never bare:** `v3` 0 of 2111, `v3-coord` 0 of 1607, `v3-worker` 0 of 2414,
+`v3-web` **8** of 2363, `v3-cli` 0 of 2124, `v3-cli2` 0 of 2130. Five trees read
+zero because five trees were examined.
+
 **THE COUNT WILL KEEP MOVING, so do not cite it — grep, and add to the list.** A
 number in this file is a number from the day it was written, and the day this class
 grew from six to seven the only thing that changed was that someone ran the filter
