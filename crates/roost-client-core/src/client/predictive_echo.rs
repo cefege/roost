@@ -14,7 +14,11 @@ use std::sync::Arc;
 
 use roost_protocol::cell::{CellGridFrame, CellSpan};
 
-use self::report::{EchoDebug, EchoPaint, PredictedCell, ResetReason};
+// Re-exported rather than left behind `report`: these two are what the
+// overlay and its tests name, and a split that changes every caller's import
+// path is a split that reaches outside its own crate.
+pub use report::{EchoPaint, PredictedCell};
+use self::report::{EchoDebug, ResetReason};
 use crate::client::predictive_echo::expiry::{ExpiryCheck, expiry_check, expiry_delay_ms};
 use crate::client::predictive_echo::grid::Prediction;
 use crate::store::prefs::PredictMode;
