@@ -3229,6 +3229,31 @@ and no `out/` at all, and `out/private.rs` is exactly where the generated code
 for the build-script-output shape lives. A recipe aimed at one shape is wrong for
 the other, and the correct pairing is **not established**.
 
+**And the defect is in the guard's SHAPE, not in the operator's care.** An
+agent watching the second failure put it better than the version above: the
+guard is not dangerous because it is subtle — it failed fast and named itself,
+`couldn't read .../out/private.rs`, and the lead escalated correctly instead of
+retrying. **It is dangerous because it has a safe-looking success mode.** On a
+fully-built directory it reclaims a little, prints nothing alarming, and the run
+reads as fine, so the rule propagates on the evidence of a success that was
+never a test. A tool that either works or fails loudly is far less dangerous than
+one that half-works quietly — so the fix belongs in the guard's shape, which is
+why the replacement is `cargo clean`: it has no quiet half-success, because
+either the directory is gone or it is not.
+
+**And the incident report that turned out to be wrong is part of this.** A
+coincident read a single command line in a process list — `rm -rf
+target-track/debug/build` — and reported it as a destructive deletion landing
+under a live build, with the damage window open. It was the **recovery**,
+reached by escalation after the original guard had already failed visibly, and
+it had run with nothing in flight. Both of its candidate diagnoses assumed a
+delete under a running build and neither had happened. The same agent had
+produced a confident well-formatted claim about the wrong object earlier the
+same hour — an 88-module reachability audit that was 88 false positives. **The
+defence that caught both was a person who owned the measurement asking how
+rather than accepting the account**, and that is the transferable part: a
+process list does not carry ordering, and a single command line is not a story.
+
 **So: `cargo clean`, which is always correct and whose only failure mode is
 "slow".** Anything more surgical than deleting the whole directory requires
 knowing which fingerprint corresponds to which build script, and nobody in this
