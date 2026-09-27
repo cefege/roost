@@ -537,6 +537,57 @@ exposure in a different form: a test binary that compiles a shared fixture
 without declaring its allow *at its root* was invisible to clippy for the same
 reason, and the lint only saw it once the binary was on the list.
 
+
+**The second instance is worse, and it was found by probing rather than by
+reading.** A build directory was removed out from under a track. The build
+command was `flock <dir>/.roost-build.lock cargo check … 2>&1 | grep -E '^error'`,
+and it came back in **0.22 s with no output** on a crate whose check takes 50
+seconds — which the lead read as clean. Two things had to be true for that, and
+neither was the build:
+
+1. **`flock` CREATES the lock file it is given.** With the lock file moved away,
+   `flock <dir>/.roost-build.lock true` still exits 0 and recreates it. It fails
+   only when the **parent directory** is absent. So the instruction this file
+   would naturally carry — *"if `flock` fails, stop"* — **can never fire for the
+   case that motivates it**, because a missing directory makes `flock` succeed
+   and leaves a lock sitting in a path `cargo` then ignores.
+2. **A failure piped into a filter that matches nothing returns 0.** The missing
+   directory's error was consumed by `grep -E '^error'`, which found no lines
+   and exited successfully.
+
+**The rule, and it is the coordinator's phrasing because it is the tight one:
+`flock` protects against concurrent writers, not against a missing directory,
+and it will happily create the lock it was given. A lock that is CREATED rather
+than FOUND proves nothing about what is behind it.** The check that matters is
+whether the directory the lock guards still exists.
+
+```sh
+set -o pipefail
+export CARGO_TARGET_DIR=<worktree>/target-track
+test -d "$CARGO_TARGET_DIR" || { echo "MISSING TARGET DIR" >&2; exit 1; }
+flock "$CARGO_TARGET_DIR/.roost-build.lock" cargo "$@"
+```
+
+`test -d "$CARGO_TARGET_DIR"` and not `test -d <path>`: the hazard is specifically
+that the variable names a path `cargo` will silently ignore, so the thing to
+assert is the **variable's value**, which cannot pass on a typo between the
+brief's path and the worktree's.
+
+**The four silences, which are one class and not four small mistakes.** A filter
+that matches nothing; a package that no longer exists; a `--test` that names no
+target (which prints a *suggestion*, and reads past easily); and a missing target
+directory. Each was met separately and filed as its own incident. **Silence is
+the only output all four share**, and grouping them is what makes `test -d` a
+rule rather than a patch for one evening.
+
+**The backstop, scoped so it does not become a superstition: a check faster than
+the crate has ever checked has not checked.** It bites on `cargo check` and
+`cargo test`, and explicitly **not** on a source-tree scan — `cargo xtask lint`
+walks files and counts lines, so 0.62 s for it is genuinely fast and does mean
+what it says. A rule that fires on every fast result trains people to ignore it.
+
+**A gate that reports nothing is not a gate that passed.**
+
 **The general form, and it is the fourth instance today:** an instrument that
 cannot see the thing reports success. A sweep that counts only its surplus
 removals reports zero for a sweep that emptied the directory. A rate window that
