@@ -75,7 +75,7 @@ fn a_release_lands_when_the_destination_is_absent() {
         "first"
     );
     assert!(
-        !destination.join(&format!("b1d1836a.staging")).exists(),
+        !destination.join("b1d1836a.staging").exists(),
         "the temporary directory is renamed into place, not left beside it"
     );
     let _ = std::fs::remove_dir_all(&home);

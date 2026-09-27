@@ -23,7 +23,7 @@
 // are imported there instead: a re-export used by one file and not the other
 // is an unused import in the file that does not, and two binaries of the same
 // fixture wanting different halves of it is the point of splitting them.
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 pub use roost_cli::services::deploy_journal::sha256_hex;
@@ -75,23 +75,6 @@ impl Install {
     pub fn service_dir(&self) -> PathBuf {
         self.root.join("service")
     }
-
-    /// Every name in the install directory, so a test asserts what was left
-    /// behind as well as what the target now holds.
-    pub fn entries(&self) -> Vec<String> {
-        let mut names: Vec<String> = std::fs::read_dir(&self.root)
-            .expect("the install directory is readable")
-            .map(|entry| {
-                entry
-                    .expect("a directory entry")
-                    .file_name()
-                    .to_string_lossy()
-                    .into_owned()
-            })
-            .collect();
-        names.sort();
-        names
-    }
 }
 
 impl Drop for Install {
@@ -102,20 +85,6 @@ impl Drop for Install {
 
 pub fn read(path: &Path) -> Vec<u8> {
     std::fs::read(path).unwrap_or_else(|error| panic!("{} is readable: {error}", path.display()))
-}
-
-pub fn mode_of(path: &Path) -> u32 {
-    std::fs::metadata(path)
-        .expect("the file has metadata")
-        .permissions()
-        .mode()
-        & 0o7777
-}
-
-pub fn inode_of(path: &Path) -> u64 {
-    std::fs::metadata(path)
-        .expect("the file has metadata")
-        .ino()
 }
 
 pub fn no_keeper() -> Option<KeeperRecord> {

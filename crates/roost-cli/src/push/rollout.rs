@@ -64,33 +64,52 @@ pub struct FleetRolloutPlan {
 }
 
 /// Everything the decision boundary needs from the world.
+/// **WHY `Sync` IS A SUPERTRAIT AND NOT A `where` ON EACH METHOD.** Six
+/// `async fn` in a public trait cannot carry an auto-trait bound, so the
+/// futures these methods return have no nameable `Send`, and the lint saying
+/// so is not asking for a suppression — it is saying the bound is real and
+/// unexpressed. Every method holds `&self` across an await, so `Send` requires
+/// `&Self: Send`, which requires `Self: Sync`.
 ///
-/// `prove_fleet` returns problems rather than failing: a proof that could not be
-/// read and a proof that was read and did not hold are both "the fleet is not
-/// where it must be", and the boundary's answer is the same either way.
-pub trait FleetRuntime {
+/// It is a supertrait rather than six `where Self: Sync` clauses because the
+/// bound is the TRAIT's: a caller holding a `&dyn FleetRuntime` has to know it
+/// before it calls anything, and six scattered clauses are six chances to
+/// forget one.
+///
+/// THE VERIFICATION IS AN ASSERTION, NOT A COMMENT. The production runtime was
+/// NOT `Sync` before this: its single non-`Sync` field was `&'a dyn EnvSource`,
+/// and `dyn EnvSource` was not `Sync` because the trait did not say so. One
+/// supertrait on `roost_host::EnvSource` fixed the whole chain, since
+/// `&T: Sync` whenever `T: Sync`. `runtime.rs` and the test fake both carry a
+/// `const _: () = { assert_sync::<…>() }`, so a field that breaks the claim
+/// later is a compile failure rather than a comment that decays.
+pub trait FleetRuntime: Sync {
     /// Move one machine, and report what went wrong if it did not.
-    async fn settle_worker(
+    fn settle_worker(
         &self,
         worker: &FleetRolloutWorker,
         action: RolloutAction,
-    ) -> Result<(), String>;
+    ) -> impl Future<Output = Result<(), String>> + Send;
 
     /// Every way the fleet is not yet where this action says it must be.
-    async fn prove_fleet(&self, expected_sha: &str, action: RolloutAction) -> Vec<String>;
+    fn prove_fleet(
+        &self,
+        expected_sha: &str,
+        action: RolloutAction,
+    ) -> impl Future<Output = Vec<String>> + Send;
 
     /// Take the durable global commit decision. After it returns, there is no
     /// rollback.
-    async fn begin_finalization(&self) -> Result<(), String>;
+    fn begin_finalization(&self) -> impl Future<Output = Result<(), String>> + Send;
 
     /// Whether the coordinator can still be restored. False once it has settled.
-    async fn coordinator_can_roll_back(&self) -> Result<bool, String>;
+    fn coordinator_can_roll_back(&self) -> impl Future<Output = Result<bool, String>> + Send;
 
     /// The coordinator is committed: retire what it replaced and restart it.
-    async fn finalize_coordinator(&self) -> Result<(), String>;
+    fn finalize_coordinator(&self) -> impl Future<Output = Result<(), String>> + Send;
 
     /// Put the coordinator back on the prior commit.
-    async fn rollback_coordinator(&self) -> Result<(), String>;
+    fn rollback_coordinator(&self) -> impl Future<Output = Result<(), String>> + Send;
 }
 
 /// What an interrupted run of this rollout must do next.
