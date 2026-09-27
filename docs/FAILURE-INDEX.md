@@ -2535,6 +2535,39 @@ it. `roost push` already proved that SHA published before installing it.
 **Guard** — `apps/roost-cli/tests/deploy-coordinator-release.test.ts`: "a detached coordinator release at its
 installed SHA is admitted without any upstream", plus the wrong-checkout, wrong-build, and dirty-tree refusals.
 
+### The coordinator refuses to boot on a definition quickstart just wrote
+
+**Symptom** — "coordinator will not start / `config.cf_access_team_domain must be one lowercase label` /
+`config.cf_access_aud must be 64 lowercase hex characters` / `ROOST_TERMINAL_PEER_ENABLED must be exactly 0
+or 1` / `ROOST_TRUST_PROXY` read as disabled though the operator set it"
+
+**Wrong** — a producer and a consumer, each correct in isolation, disagreeing about what a MISSING value
+looks like. `env.get(key)` returns `Some("")` for a variable that is present and empty; the loader passed
+that straight into a shape check, and the check refused it. Meanwhile the producer wrote booleans with
+Rust's `Display` (`ROOST_TRUST_PROXY=true`) where the consumer reads `== "1"`, and wrote both Cloudflare
+Access keys empty when it meant "unset". So `quickstart` produced a definition no `roost coord` would
+accept — and on a machine with no Cloudflare Access in front of it, which is every self-hosted install,
+that pair is ALWAYS empty.
+
+**Right** — the consumer treats set-but-blank as absence, because a hand-edited unit, an
+`EnvironmentFile=` line and `export FOO=` all produce one: `declared_or_absent` in
+`crates/roost-host/src/coord_config_loader.rs`, which is what `origin_list`, `is_enabled` and
+`normalize_https_origin` already did in the same file. The producer omits a key it has no value for, and
+writes booleans as `1`/`0` through `flag()`. These are two different questions — "what do I write?" and
+"what can I read?" — and neither layer consults the other, so this is defence in depth across a producer
+and a consumer, not duplication. Both halves are required: consumer tolerance alone leaves a misleading
+definition, and producer correctness alone leaves one typo away from a coordinator that will not start.
+
+**Guard** — `crates/roost-host/tests/coord_config_blank_settings.rs`:
+`a_blank_cloudflare_access_declaration_is_absence_rather_than_a_refusal`, plus the two that fail if the
+filter is ever written as "skip validation" instead of "skip empties" (a real pair is kept whole; a
+present-but-malformed pair is still refused). The CLI half is pinned by
+`a_dry_run_of_a_rerun_keeps_the_installed_front_door` in `crates/roost-cli/tests/quickstart_dry_run.rs`.
+
+**Why this is an entry and not a commit body** — the boolean bug was found and fixed, the test was
+rerun, and the rerun's NEXT assertion failed. Stopping at the assertion you were given finds the surface.
+The cause was in a layer neither the failing test nor the fix lived in.
+
 ---
 
 ## Process rule
