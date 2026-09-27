@@ -257,6 +257,10 @@ async fn a_row_the_grid_no_longer_holds_is_not_served() {
         .row(session(SESSION), 0)
         .await
         .expect("the oldest retained row is served");
+    // The row comes back as the serialiser, not as a tree, so the only way to
+    // read a field out of it is to produce the JSON and parse that. Which is the
+    // point: what a caller receives is bytes, and these are the bytes.
+    let first = serde_json::to_value(&first).expect("the served row serialises");
     assert_eq!(
         first["index"].as_u64(),
         Some(0),
@@ -340,6 +344,7 @@ async fn every_span_a_real_core_produces_carries_its_own_fields() {
         .row(session(SESSION), 0)
         .await
         .expect("the oldest retained row is served");
+    let row = serde_json::to_value(&row).expect("the served row serialises");
     let spans = row["spans"].as_array().expect("a row carries spans");
     assert!(!spans.is_empty(), "a painted line is not an empty row");
     for span in spans {

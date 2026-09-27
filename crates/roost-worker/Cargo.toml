@@ -22,6 +22,7 @@ roost-observability.workspace = true
 roost-platform.workspace = true
 roost-proto.workspace = true
 roost-protocol.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 sha2.workspace = true

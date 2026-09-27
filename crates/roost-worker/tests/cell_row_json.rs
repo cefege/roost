@@ -48,8 +48,9 @@ fn a_row_is_spelled_the_way_the_browser_already_parses_it() {
         index: 7,
         spans: Arc::from(vec![plain(), linked()]),
     };
+    let encoded = serde_json::to_string(&cell_row_json(&row)).expect("a row encodes");
     assert_eq!(
-        serde_json::to_string(&cell_row_json(&row)).expect("a row encodes"),
+        encoded,
         concat!(
             r#"{"index":7,"spans":["#,
             r#"{"text":"plain","fg":0,"bg":0,"flags":0,"columns":5},"#,
@@ -59,8 +60,14 @@ fn a_row_is_spelled_the_way_the_browser_already_parses_it() {
         ),
         "the shape and field order the browser parses, unchanged"
     );
+    // The presence assertions live HERE rather than against a returned
+    // `Value`, because there is no longer a `Value` to index. The projection is
+    // a serialiser, so the only way to ask what it produced is to produce it —
+    // which is also the only way a test can catch a field that stopped being
+    // written at all.
+    let parsed: serde_json::Value = serde_json::from_str(&encoded).expect("the row re-reads");
     assert!(
-        !cell_row_json(&row)["spans"][0]["fg"].is_null(),
+        !parsed["spans"][0]["fg"].is_null(),
         "a zero palette index is present rather than absent"
     );
 }
@@ -74,7 +81,10 @@ fn a_row_without_a_link_carries_no_link_fields() {
         index: 0,
         spans: Arc::from(vec![plain()]),
     };
-    let span = &cell_row_json(&row)["spans"][0];
+    let span = &serde_json::from_str::<serde_json::Value>(
+        &serde_json::to_string(&cell_row_json(&row)).expect("a row encodes"),
+    )
+    .expect("the row re-reads")["spans"][0];
     assert!(span.get("linkUri").is_none(), "no URI, no field");
     assert!(span.get("linkKey").is_none(), "no key, no field");
     assert!(span.get("fgRgb").is_none(), "no true colour, no field");
@@ -91,7 +101,10 @@ fn a_link_uri_and_its_run_identity_travel_together() {
         index: 0,
         spans: Arc::from(vec![half]),
     };
-    let span = &cell_row_json(&row)["spans"][0];
+    let span = &serde_json::from_str::<serde_json::Value>(
+        &serde_json::to_string(&cell_row_json(&row)).expect("a row encodes"),
+    )
+    .expect("the row re-reads")["spans"][0];
     assert!(span.get("linkUri").is_some());
     assert!(
         span.get("linkKey").is_none(),

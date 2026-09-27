@@ -9,6 +9,7 @@
 
 use std::sync::Mutex;
 
+use roost_protocol::cell::{CellRow, CellSpan};
 use roost_protocol::terminal_capture::{
     TerminalCaptureErrorCode, TerminalCaptureFileRef, TerminalCaptureStatus,
     TerminalCaptureWorkerAck,
@@ -22,6 +23,7 @@ use roost_worker::browser_commands::search::{BatchSearch, ScrollbackSearch, Sing
 use roost_worker::browser_commands::session_lifecycle::{SessionLifecycle, SessionOutcome};
 use roost_worker::diag_snapshot::Snapshot;
 use roost_worker::scrollback_read::EpochBinding;
+use roost_worker::session::retained_grid::CellRowJson;
 use serde_json::{Value, json};
 
 use super::EPOCH;
@@ -228,11 +230,25 @@ impl RetainedGrid for FakeGrid {
         &self,
         _session_id: SessionId,
         absolute_row: u32,
-    ) -> roost_worker::browser_commands::Boxed<Option<Value>> {
-        Box::pin(async move {
-            Some(
-                json!({ "index": absolute_row, "spans": [{ "text": format!("row {absolute_row}") }] }),
-            )
-        })
+    ) -> roost_worker::browser_commands::Boxed<Option<CellRowJson<'static>>> {
+        // The SAME type production returns, and it is built the same way: a
+        // `CellRow` the fake owns, wrapped rather than spelled as JSON. A fake
+        // that answered with a hand-written `json!` would no longer exercise
+        // the serialisation the page command actually ships.
+        let row = CellRow {
+            index: absolute_row,
+            spans: std::sync::Arc::from(vec![CellSpan {
+                text: format!("row {absolute_row}"),
+                fg: 0,
+                bg: 0,
+                flags: 0,
+                fg_rgb: None,
+                bg_rgb: None,
+                columns: 0,
+                link_uri: None,
+                link_key: None,
+            }]),
+        };
+        Box::pin(async move { Some(CellRowJson::owned(row)) })
     }
 }

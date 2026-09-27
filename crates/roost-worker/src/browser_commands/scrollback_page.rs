@@ -23,6 +23,7 @@ use roost_protocol::wire::control::ClientControlFrame;
 
 use super::{Answered, Boxed, Command, Deps, Refusal, Reply};
 use crate::scrollback_read;
+use crate::session::retained_grid::CellRowJson;
 
 /// What a session's grid looks like to a reader, taken once per request.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,10 +59,16 @@ pub trait RetainedGrid: Send + Sync {
     fn describe(&self, session_id: SessionId) -> Boxed<Result<GridDescription, Refusal>>;
 
     /// One row by its absolute index, or `None` when the grid no longer holds
-    /// it. Already in the wire shape the browser parses: the cell row's JSON
-    /// projection belongs beside `roost_protocol::cell::proto`, and a copy
-    /// written here would be a second answer to how a row is spelled.
-    fn row(&self, session_id: SessionId, absolute_row: u32) -> Boxed<Option<serde_json::Value>>;
+    /// it.
+    ///
+    /// `session::retained_grid::CellRowJson` and NOT `serde_json::Value`,
+    /// because the field ORDER is part of what the browser parses and a `Value`
+    /// cannot promise it: `serde_json::Map` is a `BTreeMap` unless the
+    /// `preserve_order` feature is switched on for the whole dependency graph.
+    /// Returning the row's own serialiser puts the order in a type, so a call
+    /// site cannot re-serialise through a map and lose it without the compiler
+    /// objecting.
+    fn row(&self, session_id: SessionId, absolute_row: u32) -> Boxed<Option<CellRowJson<'static>>>;
 }
 
 /// Run the one command this owns.
