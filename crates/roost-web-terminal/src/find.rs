@@ -10,17 +10,16 @@
 
 pub mod controller;
 pub mod hits;
+pub mod host;
 pub mod intent;
 
 pub use controller::{FIND_DEBOUNCE_MS, TerminalFind};
 pub use hits::{
-    ActiveHit, FindCommand, FindHost, FindPublication, FindQueryOptions, HitRows, PendingReveal,
-    PreferredMatch, RevealDecision, active_hit, hit_rows, matches_belong_to_pane,
-    preferred_find_index, reveal_decision,
+    ActiveHit, FindPublication, FindQueryOptions, HitRows, PendingReveal, PreferredMatch,
+    active_hit, hit_rows, matches_belong_to_pane, preferred_find_index,
 };
-pub use intent::{FindIntentRegistry, FindIntentSink, TerminalFindIntent, TerminalFindIntentOptions};
+pub use host::{FindCommand, FindHost, RevealDecision, reveal_decision};
 
-use crate::presentation::BackfillAnchor;
 use roost_client_core::search::{
     FindMatch, RawMatch, SearchPage, continuation_is_valid, fence_page, window_is_valid,
 };
@@ -254,9 +253,12 @@ impl FindChain {
         if reply.matches.len() as u32 > self.remaining_matches() {
             return ChainStep::Finish(self.failed_partial());
         }
-        let Some(page_matches) =
-            fence_page(&reply.matches, &reply.page, self.before_row, &self.requested_epoch)
-        else {
+        let Some(page_matches) = fence_page(
+            &reply.matches,
+            &reply.page,
+            self.before_row,
+            &self.requested_epoch,
+        ) else {
             return ChainStep::Finish(self.failed_partial());
         };
         self.found.extend(page_matches);
@@ -347,31 +349,4 @@ impl FindChain {
     fn remaining_matches(&self) -> u32 {
         TERMINAL_SEARCH_MAX_MATCHES.saturating_sub(self.found.len() as u32)
     }
-}
-
-/// What must happen before one match can be revealed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RevealDecision {
-    /// The pane renumbered under this match, so the controller re-fences.
-    StaleEpoch,
-    /// The match is already in the live grid: no fetch, no scroll.
-    AlreadyVisible,
-    /// The match is history, so its row is fetched FIRST and only a painted row
-    /// may then be revealed.
-    FetchFirst {
-        /// The row the match sits in.
-        row: u32,
-    },
-}
-
-/// What one match needs from the pane before it can be revealed.
-#[must_use]
-pub fn reveal_decision(anchor: &BackfillAnchor, row: u32, epoch: &str) -> RevealDecision {
-    if anchor.grid_epoch != epoch {
-        return RevealDecision::StaleEpoch;
-    }
-    if row >= anchor.total {
-        return RevealDecision::AlreadyVisible;
-    }
-    RevealDecision::FetchFirst { row }
 }

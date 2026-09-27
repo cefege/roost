@@ -15,8 +15,8 @@ use std::collections::BTreeMap;
 use roost_client_core::search::FindMatch;
 
 use crate::cell_row::FindHit;
-use crate::find::{ChainOutcome, FindCommand, FindHost, FindRequest, OlderMatchPage};
-use crate::presentation::BackfillAnchor;
+use crate::find::OlderMatchPage;
+use crate::find::host::FindHost;
 
 /// The highlight intervals of every match, keyed by the absolute row they sit
 /// in. A `BTreeMap` because the row order IS the painting order: a viewport
@@ -46,6 +46,20 @@ impl HitRows {
     pub fn iter(&self) -> impl Iterator<Item = (u32, &[FindHit])> {
         self.0.iter().map(|(row, hits)| (*row, hits.as_slice()))
     }
+    /// Record one interval, keeping the row's intervals column-ascending.
+    ///
+    /// The order is maintained here rather than assumed of the caller, because
+    /// `iter` promises it: a painter that walks a row's slices in arrival order
+    /// would splice the highlight out of column order, and a match list that
+    /// spans a resize arrives newest-first.
+    fn push(&mut self, row: u32, hit: FindHit) {
+        let intervals = self.0.entry(row).or_default();
+        let at = intervals
+            .iter()
+            .position(|existing| existing.col > hit.col)
+            .unwrap_or(intervals.len());
+        intervals.insert(at, hit);
+    }
 }
 
 /// The match a reader is on: the row to bring into view, and the column the
@@ -62,6 +76,7 @@ pub struct ActiveHit {
 /// activate. A PREFERENCE, never an authority: pane-local fresh results and the
 /// pane's live grid epoch decide the reveal, because a coordinator coordinate
 /// may name a row the pane has since renumbered.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreferredMatch {
     /// The grid numbering the coordinator coordinate was read against.
     pub grid_epoch: String,
@@ -72,7 +87,7 @@ pub struct PreferredMatch {
 }
 
 /// What a query asks for, beyond the text of it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FindQueryOptions {
     /// Reset regex state before searching an externally supplied literal. A
     /// needle from global content search IS a literal, and a pane left in regex
@@ -86,6 +101,7 @@ pub struct FindQueryOptions {
 }
 
 /// A reveal a fetch is owed, fenced to the search that asked for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingReveal {
     /// The row the pull is for.
     pub row: u32,
@@ -124,6 +140,27 @@ pub fn matches_belong_to_pane(matches: &[FindMatch], pane_epoch: &str) -> bool {
     matches
         .first()
         .is_none_or(|found| found.epoch == pane_epoch)
+}
+
+/// The highlight intervals of a match list, grouped into the rows they sit in.
+///
+/// Grouping rather than flattening is what lets a painter walk the grid in row
+/// order and look up only the rows that carry a match: a flat match list would
+/// make painted order follow scan order, and a match list spanning a resize
+/// arrives newest-first.
+#[must_use]
+pub fn hit_rows(matches: &[FindMatch]) -> HitRows {
+    let mut rows = HitRows::empty();
+    for found in matches {
+        rows.push(
+            found.row,
+            FindHit {
+                col: found.col,
+                len: found.len,
+            },
+        );
+    }
+    rows
 }
 
 /// The 1-based index the next publication activates.
@@ -246,7 +283,8 @@ impl FindPublication {
         self.truncated = truncated;
         self.failed = failed;
         self.older_page = older;
-        self.index = preferred_find_index(&self.matches, pane_epoch, self.preferred_match.take());
+        let preferred = self.preferred_match.take();
+        self.index = preferred_find_index(&self.matches, pane_epoch, preferred.as_ref());
         self.paint(host);
         self.active_match()
     }
@@ -281,7 +319,10 @@ impl FindPublication {
 
     /// Take the reveal owed a fetch of `row`, if that is the one outstanding.
     pub fn take_pending_reveal(&mut self, row: u32) -> Option<PendingReveal> {
-        let pending = self.pending_reveal.clone().filter(|reveal| reveal.row == row)?;
+        let pending = self
+            .pending_reveal
+            .clone()
+            .filter(|reveal| reveal.row == row)?;
         self.pending_reveal = None;
         Some(pending)
     }
@@ -289,7 +330,10 @@ impl FindPublication {
     /// Choose the match the next publication activates: the newest of a freshly
     /// slid page, or the one the reader was parked on when it added none.
     pub fn prefer_newest_of(&mut self, slid: &[FindMatch], parked: &[FindMatch]) {
-        let choice = slid.iter().max_by_key(|found| found.row).or_else(|| parked.first());
+        let choice = slid
+            .iter()
+            .max_by_key(|found| found.row)
+            .or_else(|| parked.first());
         self.preferred_match = choice.map(|found| PreferredMatch {
             grid_epoch: found.epoch.clone(),
             row: found.row,
@@ -300,7 +344,10 @@ impl FindPublication {
     /// Paint only hits owned by the pane's current grid numbering.
     fn paint(&mut self, host: &mut dyn FindHost) {
         if matches_belong_to_pane(&self.matches, &host.pane_epoch()) {
-            host.publish_hits(&hit_rows(&self.matches), active_hit(&self.matches, self.index));
+            host.publish_hits(
+                &hit_rows(&self.matches),
+                active_hit(&self.matches, self.index),
+            );
         } else {
             host.publish_hits(&HitRows::empty(), None);
         }

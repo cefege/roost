@@ -24,7 +24,7 @@ use roost_client_core::client::attachments::packets::{
 };
 use roost_client_core::client::attachments::peer::AttachmentPeerTransfer;
 use roost_client_core::client::attachments::transfer::receipt::AttachmentTransferStatus;
-use roost_client_core::client::attachments::transfer::
+use roost_client_core::client::attachments::transfer::{
     AttachmentTransferAck, DIRECT_CHUNK_BYTES, DirectUpload, InFlightChunk, SliceRequest,
 };
 use roost_proto::buffa::Message;

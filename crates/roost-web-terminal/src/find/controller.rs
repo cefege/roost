@@ -93,7 +93,7 @@ impl TerminalFind {
     pub fn close_find(&mut self, host: &mut dyn FindHost) -> Vec<FindCommand> {
         self.open = false;
         self.debounce_at_ms = None;
-        let mut commands = self.stop_active();
+        let commands = self.stop_active();
         self.query.clear();
         self.publication.clear(host);
         host.end_find_read();
@@ -117,7 +117,7 @@ impl TerminalFind {
         self.query.push_str(next);
         if next.is_empty() {
             self.debounce_at_ms = None;
-            let mut commands = self.stop_active();
+            let commands = self.stop_active();
             self.publication.clear(host);
             return commands;
         }
@@ -253,7 +253,9 @@ impl TerminalFind {
     fn stop_active(&mut self) -> Vec<FindCommand> {
         self.token += 1;
         let aborted = self.active.take().map(|active| active.search_id);
-        aborted.map_or_else(Vec::new, |id| vec![FindCommand::CancelSearch { search_id: id }])
+        aborted.map_or_else(Vec::new, |id| {
+            vec![FindCommand::CancelSearch { search_id: id }]
+        })
     }
 
     /// The active search if it still owns the pane, taken by value.
@@ -285,10 +287,18 @@ impl TerminalFind {
         self.searches_minted += 1;
         let search_id = format!("find-{}", self.searches_minted);
         // A resumed chain keeps its cursor's epoch; a fresh one pins the pane's.
-        let epoch = resume.map_or_else(|| host.pane_epoch(), |page| page.epoch);
+        let epoch = resume
+            .as_ref()
+            .map_or_else(|| host.pane_epoch(), |page| page.epoch.clone());
         let flags = (self.case_sensitive, self.regex);
-        let chain =
-            FindChain::new(&self.session_id, &search_id, &self.query, flags, &epoch, resume.as_ref());
+        let chain = FindChain::new(
+            &self.session_id,
+            &search_id,
+            &self.query,
+            flags,
+            &epoch,
+            resume.as_ref(),
+        );
         self.active = Some(ActiveSearch {
             search_id,
             token: self.token,
@@ -300,14 +310,16 @@ impl TerminalFind {
         // the pane's own epoch, so its only possible first step is a request.
         let pane_epoch = host.pane_epoch();
         let fresh = self.active.take();
-        let step = fresh.as_ref().map_or(ChainStep::Finish(ChainOutcome::Abandoned), |s| {
-            s.chain.next_request(&pane_epoch, !self.disposed)
-        });
+        let step = fresh
+            .as_ref()
+            .map_or(ChainStep::Finish(ChainOutcome::Abandoned), |s| {
+                s.chain.next_request(&pane_epoch, !self.disposed)
+            });
         match step {
             ChainStep::Issue(request) => commands.push(FindCommand::Search(request)),
             ChainStep::Finish(outcome) => match fresh {
                 Some(finished) => commands.extend(self.install_chain(finished, outcome, host)),
-                None => commands,
+                None => {}
             },
         }
         commands
@@ -367,9 +379,12 @@ impl TerminalFind {
         budget: u32,
         host: &mut dyn FindHost,
     ) -> Vec<FindCommand> {
-        let decision = host.anchor().as_ref().map_or(RevealDecision::AlreadyVisible, |a| {
-            reveal_decision(a, row, epoch)
-        });
+        let decision = host
+            .anchor()
+            .as_ref()
+            .map_or(RevealDecision::AlreadyVisible, |a| {
+                reveal_decision(a, row, epoch)
+            });
         match decision {
             RevealDecision::StaleEpoch => self.invalidate(budget, host),
             RevealDecision::AlreadyVisible => Vec::new(),
@@ -387,7 +402,7 @@ impl TerminalFind {
             return Vec::new();
         };
         let parked = self.publication.matches().to_vec();
-        let mut commands = self.search_now(1, Some(page), host);
+        let commands = self.search_now(1, Some(page), host);
         let slid = self.active.as_ref().map(|live| live.chain.found());
         if let Some(slid) = slid {
             self.publication.prefer_newest_of(slid, &parked);

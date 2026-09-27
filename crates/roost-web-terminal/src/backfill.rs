@@ -244,8 +244,7 @@ impl ScrollbackBackfill {
         let Some(anchor) = host.anchor() else {
             return Vec::new();
         };
-        let bounds =
-            find_demand_bounds(gap, row, self.retained_floor, anchor.sb_base);
+        let bounds = find_demand_bounds(gap, row, self.retained_floor, anchor.sb_base);
         self.raise_demand(DemandKind::Find, bounds, false, host)
     }
 
@@ -341,14 +340,16 @@ impl ScrollbackBackfill {
         if reader_gesture && !self.scroll_demand_owed {
             self.scroll_demand_owed = true;
             if let Some(wave) = &self.active_wave {
-                actions.push(BackfillAction::DemandCoalesced { kind: wave.demand.kind });
+                actions.push(BackfillAction::DemandCoalesced {
+                    kind: wave.demand.kind,
+                });
             }
         }
         if let Some(wave) = &self.active_wave {
             if kind == DemandKind::Scroll
                 || (wave.demand.kind == kind && wave.demand.bounds.focus == bounds.focus)
             {
-                return actions.extend(vec![]);
+                return actions;
             }
         }
         let Some(anchor) = host.anchor() else {
@@ -370,7 +371,11 @@ impl ScrollbackBackfill {
             first_requested_offset: 0,
             fetch_retried: false,
         });
-        actions.push(BackfillAction::Fetch(ScrollbackPageRequest::for_demand(&self.session_id, &demand.bounds, &demand.grid_epoch)));
+        actions.push(BackfillAction::Fetch(ScrollbackPageRequest::for_demand(
+            &self.session_id,
+            &demand.bounds,
+            &demand.grid_epoch,
+        )));
         actions
     }
 
@@ -381,4 +386,4 @@ impl ScrollbackBackfill {
         host.set_history_floor(0);
         vec![BackfillAction::SetHistoryFloor(0)]
     }
- }
+}

@@ -11,8 +11,7 @@ use roost_protocol::cell::CellRow;
 use roost_protocol::terminal_search::ScrollbackHistoryFloor;
 
 use crate::backfill::{
-    BACKFILL_IDENTICAL_RETRIES, BACKFILL_RETRY_MS, BackfillAction, BackfillHost,
-    ScrollbackBackfill,
+    BACKFILL_IDENTICAL_RETRIES, BACKFILL_RETRY_MS, BackfillAction, BackfillHost, ScrollbackBackfill,
 };
 use crate::block_placeholder::SCROLLBACK_BLOCK_ROWS;
 
@@ -176,10 +175,7 @@ impl ValidatedPage {
 /// claim coverage it does not have, and every later interval query would answer
 /// from that lie. A stale epoch is diagnosed before a row count, so an incident
 /// names the renumber that caused the wave rather than the symptom it produced.
-pub fn validate_page(
-    page: &ScrollbackPage,
-    demand: &Demand,
-) -> Result<ValidatedPage, ChunkGuard> {
+pub fn validate_page(page: &ScrollbackPage, demand: &Demand) -> Result<ValidatedPage, ChunkGuard> {
     let rows = &demand.bounds;
     if page.grid_epoch != demand.grid_epoch {
         return Err(ChunkGuard::Epoch);
@@ -270,7 +266,7 @@ impl ScrollbackBackfill {
                 return actions;
             }
         };
-        let floor = note_floor(&validated, &demand, self.retained_floor);
+        let floor = note_floor(&validated, &demand.bounds, self.retained_floor);
         let mut actions = Vec::new();
         if let Some((row, reason)) = floor {
             self.retained_floor = row;
@@ -297,7 +293,11 @@ impl ScrollbackBackfill {
     }
 
     /// Absorb the host's answer to a `Splice` action.
-    pub fn on_spliced(&mut self, inserted: bool, host: &mut dyn BackfillHost) -> Vec<BackfillAction> {
+    pub fn on_spliced(
+        &mut self,
+        inserted: bool,
+        host: &mut dyn BackfillHost,
+    ) -> Vec<BackfillAction> {
         if !inserted {
             return self.settle_wave(false, host);
         }

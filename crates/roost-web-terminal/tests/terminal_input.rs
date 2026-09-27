@@ -27,6 +27,16 @@ fn held(character: char, modifiers: Modifiers) -> KeyChord {
     KeyChord::printable(character).with_modifiers(modifiers)
 }
 
+/// A chord the browser's own text services own, which the pane must not encode.
+fn browser_owned(dom_key: &str) -> KeyChord {
+    KeyChord {
+        kind: KeyKind::from_dom_key(dom_key),
+        modifiers: Modifiers::NONE,
+        alt_graph: false,
+        is_composing: false,
+    }
+}
+
 #[test]
 fn maps_terminal_ctrl_characters_and_leaves_unsupported_input_intact() {
     for character in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".chars() {
@@ -192,8 +202,13 @@ fn preserves_text_ctrl_alt_and_meta_ownership() {
     );
     assert_eq!(
         KeyKind::from_dom_key("Dead"),
-        None,
+        KeyKind::BrowserOwned,
         "a dead key has no named form, so the browser's text services own it"
+    );
+    assert_eq!(
+        browser_owned("Dead").to_bytes(false),
+        None,
+        "and a key the browser's text services own must reach the shell as nothing"
     );
     assert_eq!(
         KeyChord::printable('x').composing().to_bytes(false),
@@ -309,7 +324,14 @@ fn the_panes_key_space() -> Vec<(KeyChord, bool)> {
     }
     for character in ['a', 'A', '1', ' ', '@', '?', '[', 'é', '😀'] {
         for modifiers in modifier_sets {
-            cases.push((KeyChord::printable(character), modifiers));
+            let chord = KeyChord::printable(character).with_modifiers(modifiers);
+            // Both cursor modes, exactly as the named keys are covered: DECCKM
+            // reaches the encoder on every keystroke, so a printable that
+            // encoded differently under one flag would slip past a matrix that
+            // only ever tried the normal mode.
+            for application in [false, true] {
+                cases.push((chord.clone(), application));
+            }
         }
     }
     cases

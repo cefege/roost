@@ -56,6 +56,11 @@ fn retained_for(text: &str, rows: Vec<OwnedRow>) -> RetainedRange {
     }
 }
 
+/// The retained range a capture of `text` over this pane's own row holds.
+fn retained(text: &str) -> RetainedRange {
+    retained_for(text, the_row())
+}
+
 /// A collapsed selection over `rows`: the browser's editable-focus artifact,
 /// not a user selection.
 fn caret(rows: Vec<OwnedRow>) -> LiveSelection {

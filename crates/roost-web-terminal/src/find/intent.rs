@@ -26,7 +26,7 @@ pub struct TerminalFindIntent {
 }
 
 /// What a caller may add to an intent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TerminalFindIntentOptions {
     /// The case sensitivity to hand the pane; absent means insensitive.
     pub case_sensitive: Option<bool>,
@@ -70,11 +70,27 @@ pub trait FindIntentSink {
 }
 
 /// Per-session intents, and the pane each is waiting for.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct FindIntentRegistry {
     registrations: BTreeMap<String, (u64, Box<dyn FindIntentSink>)>,
     pending: BTreeMap<String, TerminalFindIntent>,
     next_registration: u64,
+}
+
+/// The mounted panes and the pending intents, by session.
+///
+/// The sinks themselves are LIVE CALLBACKS into a mounted pane, not data, so
+/// they are named by session and not formatted. A derived `Debug` would need
+/// `FindIntentSink: Debug`, which would pin the trait to something it has no
+/// reason to be.
+impl std::fmt::Debug for FindIntentRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FindIntentRegistry")
+            .field("mounted", &self.registrations.keys().collect::<Vec<_>>())
+            .field("pending", &self.pending)
+            .field("next_registration", &self.next_registration)
+            .finish()
+    }
 }
 
 impl FindIntentRegistry {
@@ -89,11 +105,7 @@ impl FindIntentRegistry {
     /// the registration it was ISSUED for, so a pane that unmounts late cannot
     /// unregister the pane that replaced it: the id is what keeps a stale
     /// disposer from silencing a live pane.
-    pub fn register(
-        &mut self,
-        session_id: &str,
-        sink: Box<dyn FindIntentSink>,
-    ) -> u64 {
+    pub fn register(&mut self, session_id: &str, sink: Box<dyn FindIntentSink>) -> u64 {
         self.next_registration += 1;
         let id = self.next_registration;
         self.registrations

@@ -16,6 +16,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod backfill;
 pub mod block_placeholder;
 pub mod cell_geometry;
 pub mod cell_renderer;
@@ -23,6 +24,7 @@ pub mod cell_renderer_dom;
 pub mod cell_row;
 pub mod echo_overlay;
 pub mod element_style;
+pub mod find;
 pub mod input;
 pub mod link_target;
 pub mod links;

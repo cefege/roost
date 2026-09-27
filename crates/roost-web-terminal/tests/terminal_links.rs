@@ -252,7 +252,9 @@ fn only_a_route_this_build_minted_may_be_installed_on_an_internal_anchor() {
 #[test]
 fn armed_and_physical_modifier_terminal_links_bypass_pty_bytes_while_bare_clicks_forward() {
     let mac = LinkModifierKey::Meta;
-    let withheld = |over, modifier, armed| withhold_press(over, modifier, armed, mac, false);
+    let withheld = |over: bool, modifier: &LinkActivationGesture, armed: bool| {
+        withhold_press(over, modifier, armed, mac, false)
+    };
     // The physical modifier over a link is the terminal's own gesture. A bare
     // click over the same link falls through, so a mouse-aware TUI keeps its
     // press; compact arming withholds it with no modifier at all.
@@ -348,7 +350,7 @@ fn initial_activation_waits_for_paint_then_scans_only_the_current_tail() {
 }
 
 #[test]
-fn a_dropped_rAF_stuck_latch_is_recovered_by_visibilitychange() {
+fn a_dropped_request_animation_frame_stuck_latch_is_recovered_by_visibilitychange() {
     let mut schedule = ScanSchedule::new();
     schedule.activate();
     // A browser that DROPPED the post-activation frame leaves the latch armed:
@@ -373,7 +375,7 @@ fn a_dropped_rAF_stuck_latch_is_recovered_by_visibilitychange() {
 }
 
 #[test]
-fn a_deferred_rAF_is_cancelled_by_visibilitychange_so_no_scan_runs_twice() {
+fn a_deferred_request_animation_frame_is_cancelled_by_visibilitychange_so_no_scan_runs_twice() {
     let mut schedule = ScanSchedule::new();
     schedule.activate();
     // The frame is merely DEFERRED, still owed. Recovery cancels the stale one

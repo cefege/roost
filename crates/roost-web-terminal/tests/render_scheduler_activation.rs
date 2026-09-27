@@ -13,7 +13,7 @@ mod render_scheduler_support;
 use render_scheduler_support::{
     RecordingRenderer, delta_frame, flush_frame, full_frame, offer, row_shell,
 };
-use roost_web_terminal::scheduler::{ApplyMode, FrameDecision, RenderScheduler};
+use roost_web_terminal::scheduler::{ApplyMode, EnqueueDecision, FrameDecision, RenderScheduler};
 
 #[test]
 fn folds_parked_deliveries_canonically_and_repairs_with_the_latest_full_on_activation() {
@@ -84,6 +84,7 @@ fn repairs_a_renderer_only_dropped_delta_with_a_viewport_only_checkpoint() {
     let mut checkpoint = full_frame(3, "C");
     checkpoint.scrollback_total = 2;
     checkpoint.sb_base = 2;
+    let checkpoint_base = checkpoint.sb_base;
     let queued = offer(&mut scheduler, &following, checkpoint, 12);
     assert_eq!(
         queued.decision,
@@ -104,7 +105,7 @@ fn repairs_a_renderer_only_dropped_delta_with_a_viewport_only_checkpoint() {
     assert!(painted.full);
     assert_eq!(painted.base_seq, 0);
     assert_eq!(painted.seq, 3);
-    assert_eq!(painted.sb_base, checkpoint.sb_base);
+    assert_eq!(painted.sb_base, checkpoint_base);
     let delivery = repair.delivery.expect("the repair published a delivery");
     assert_eq!(delivery.frame.seq, 3);
     assert!(

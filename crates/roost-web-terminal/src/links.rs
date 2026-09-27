@@ -21,6 +21,7 @@ pub mod dom;
 pub use activation::{
     LinkActivation, LinkActivationGesture, LinkArmedHold, LinkModifierKey, PressWithheld,
     activate_link, is_link_activation_gesture, is_worker_file_href, link_hint, link_title,
+    withhold_press,
 };
 pub use scan::{
     DIRTY_ROW_LIMIT, LinkHalf, ScanRequest, ScanSchedule, ScannedLink, link_at_cell, region_links,

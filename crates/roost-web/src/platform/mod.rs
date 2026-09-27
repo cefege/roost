@@ -20,6 +20,7 @@ pub mod carrier;
 pub mod clock;
 pub mod fragment_credential;
 pub mod location;
+pub mod peer;
 pub mod rpc;
 pub mod storage;
 pub mod sync_socket;

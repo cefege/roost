@@ -1,9 +1,17 @@
 //! The browser's WebRTC stack, as one `PeerTransport`, and the only file in this
-//! tree that names a WebRTC library type. Owned by `platform`, driven by the
-//! client core's `PeerSignalling` machine, and reached by reflection because the
-//! WebRTC `web-sys` features are not enabled. Ported from
+//! tree that names a WebRTC binding. Owned by `platform`, driven by the client
+//! core's `PeerSignalling` machine. Ported from
 //! `apps/web/src/store/transport/terminal-peer-connection.ts`: the three static
 //! ordered channels and the offer/answer handshake, and nothing else.
+//!
+//! The bindings are reached through `js_sys::Reflect` rather than `web_sys`
+//! because this crate's `web-sys` feature list carries no WebRTC features — no
+//! `RtcPeerConnection`, no `RtcDataChannel`, no `RtcConfiguration`. That is a
+//! statement about the FEATURE SET, not about reachability: the module is
+//! compiled because `platform` declares it, and it is reachable like any other.
+//! Because it names no `web_sys` type, it builds against the features the crate
+//! actually declares; the wasm32 build is what type-checks the sixteen
+//! browser-only items below, and a native `cargo check` covers the rest.
 
 #[cfg(target_arch = "wasm32")]
 use std::collections::BTreeMap;
@@ -153,7 +161,10 @@ impl PeerTransport for BrowserPeer {
 
         self.peers.insert(
             attempt.attempt_id,
-            OpenPeer { connection, channels },
+            OpenPeer {
+                connection,
+                channels,
+            },
         );
         Ok(())
     }
@@ -172,9 +183,7 @@ impl PeerTransport for BrowserPeer {
             .ok()
             .and_then(|value| value.as_string())
             .ok_or_else(|| refused("the local description has no SDP yet"))?;
-        Ok(roost_protocol::terminal_peer::sdp::filter_browser_terminal_peer_udp_candidates(
-            &sdp,
-        ))
+        Ok(roost_protocol::terminal_peer::sdp::filter_browser_terminal_peer_udp_candidates(&sdp))
     }
 
     /// Hand the coordinator's answer to the open transport.
@@ -310,8 +319,16 @@ fn description_object(kind: &str, sdp: &str) -> JsValue {
     use js_sys::Object;
 
     let description = Object::new();
-    let _ = Reflect::set(&description, &JsValue::from_str("type"), &JsValue::from_str(kind));
-    let _ = Reflect::set(&description, &JsValue::from_str("sdp"), &JsValue::from_str(sdp));
+    let _ = Reflect::set(
+        &description,
+        &JsValue::from_str("type"),
+        &JsValue::from_str(kind),
+    );
+    let _ = Reflect::set(
+        &description,
+        &JsValue::from_str("sdp"),
+        &JsValue::from_str(sdp),
+    );
     description.into()
 }
 
@@ -335,11 +352,7 @@ fn call_method(
 }
 
 #[cfg(target_arch = "wasm32")]
-fn set_prop(
-    object: &js_sys::Object,
-    key: &str,
-    value: &JsValue,
-) -> Result<(), TransportError> {
+fn set_prop(object: &js_sys::Object, key: &str, value: &JsValue) -> Result<(), TransportError> {
     Reflect::set(object, &JsValue::from_str(key), value)
         .map_err(|_| refused(&format!("{key} could not be set")))
 }
