@@ -1490,6 +1490,44 @@ could revive a released claim, because the admission guard was unreachable for
 release-created claims. **A vacuous test is not merely wasted; it is a place
 where a real defect goes to hide.**
 
+## A hold has THREE states, and only two of them are visible
+
+A commit body saying *"held, not fixed"* is ambiguous, and the ambiguity is
+resolved after six months by nobody — because **a deferral with a citation reads
+exactly like a decision someone reasoned their way to.**
+
+| state | what it is | is it a reason? |
+|---|---|---|
+| **CHOSEN** | someone argued it and took it | a decision |
+| **OUT OF CLOCK** | real, nobody chose, and the next reader cannot tell it from the third state | not a reason |
+| **NOT MINE TO DECIDE** | the decision belongs somewhere this crate cannot reach | **the only one that is a reason rather than an excuse** |
+
+> **A hold that does not name who decides is a deferral with a citation, and a
+> citation is not a hand-off.**
+
+**So the discipline is: a held item carries a state, and a state-2 item is
+required to say so.** An honest wave ends with several items marked
+*out of clock* and one or two marked *not mine*, and **the ratio between them is
+itself the finding** — a wave where everything is "held" and nothing is
+"deferred for lack of time" is not being careful, it is being vague.
+
+**Applied to this crate's five, which is the point of writing it down:**
+
+- `confirmation::terminalize` — **CHOSEN**: the guard would introduce a refusal
+  the other two terminal writes have and this one does not, so it is a contract
+  question and it is held because the answer is a decision.
+- `mcp_relays_authority` (`Internal` for `Unavailable`) — **NOT MINE TO DECIDE**:
+  callers decide retry behaviour from the code, so changing it changes what every
+  client does under saturation, and the blast radius is past this crate.
+- `i64::MAX` clamp · process-wide `OnceLock` counter · `MiscDbExportUrl` locality
+  gap — **OUT OF CLOCK**: each is a real finding with a real argument behind it
+  and **none has an owner named for the decision.**
+
+**The general reason this matters is the one that makes a gate file trustworthy:
+reading them, the author could tell which two they argued and which three they
+ran out of clock on — only because they remembered the difference. A reader two
+commits from now cannot.**
+
 ## A rule you built a guard for, and then did not apply, is worse than no guard
 
 The equalising statement landed in the wrong function because the edit was a
