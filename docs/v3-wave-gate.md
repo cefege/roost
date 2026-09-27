@@ -3049,10 +3049,36 @@ because they do not need to be:
 > root; for a shared fixture it means **every consumer declares it, or the
 > fixture declares it for itself.**
 
-**The only failing combination is a fixture with a consumer that does NOT
-declare it — and that is invisible from the fixture's own file**, which is why
-a per-file classification cannot find it. Classify by listing each fixture's
-consumers, not by reading the fixture.
+**There are TWO ways to be correct, and the failing combination is narrower than
+"a consumer that lacks it".** Both of these are right:
+
+1. a **consumer root** declares it, and every fixture under that root inherits
+   it — the coordinator's `sync_feed_support` / `workspaces_support` shape; or
+2. the **fixture declares it for itself**, and it travels with the module into
+   every crate that compiles it — the web track's `tests/support/auth.rs:10`
+   shape, where four consumers declare nothing at their root and are correct
+   as they stand.
+
+> **The only failing combination is a fixture that does NEITHER: no
+> self-declaration, and at least one consumer without a root declaration.**
+
+That is strictly narrower than "a fixture with a consumer that lacks it", and
+**the narrower statement is the one that predicts correctly on both tracks.** It
+is also a two-line check per module and needs no clippy run: *does the fixture
+file itself carry an inner `#![allow]`?* If yes it is self-sufficient regardless
+of its consumers; if no, every consumer must declare it.
+
+**`xtask/src/fixture_allow.rs` implements exactly this** — a fixture with helper
+sites that declares for itself is skipped, and only a fixture that does neither
+is required to have every consumer declare. Verified by making it fail on
+purpose: it reported 7 real violations in `roost-keeper`'s test binaries, on a
+tree where the declarations genuinely are absent.
+
+**What made the difference between the two tracks is worth naming:** the
+coordinator's six fixtures are all covered *from the consumer side*, and the
+web track's one fixture with helper sites covers *itself*. A check written
+against either shape alone would have reported the other track's tree as broken,
+and both of those reports would have been confident and wrong.
 
 **This retires the "62 sites" figure for good.** It counted occurrences in
 files, where the deciding question was never about files.
