@@ -26,8 +26,11 @@
 //! 4. `middleware::rate_limit_layer` -- one request budget per client, spent by
 //!    Connect paths only.
 //! 5. `middleware::audit_layer` -- one audit row per non-Connect response.
-//! 6. The two WebSocket upgrades, then the retired Connect `Sync`, then Connect
-//!    itself, then the export route, then the namespace misses, then the SPA.
+//! 6. `http::spa` -- the browser's front door, inside the audit mount so a page
+//!    load is audited like every other non-Connect response, and OUTSIDE
+//!    Connect because a path is a page before it is an RPC.
+//! 7. The two WebSocket upgrades, then the retired Connect `Sync`, then Connect
+//!    itself, then the export route, then the namespace misses.
 //!
 //! `Router::layer` wraps what is already there, so the LAST layer applied is
 //! the OUTERMOST one, and the mounting order in [`build_router`] is the reverse
@@ -64,7 +67,11 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 
 use crate::coord_core::CoordCore;
+use crate::http::spa::{self, SpaMount};
 use crate::http::upgrade::{sync_upgrade, worker_upgrade};
+use crate::maintenance::export_snapshot::{
+    EXPORT_DOWNLOAD_NAME, ExportSnapshot, prepare_export_snapshot, schedule_reclaim,
+};
 use crate::middleware::admission_layer::{AdmissionLayer, admission_gate};
 use crate::middleware::audit_layer::{AuditMount, audit_layer};
 use crate::middleware::caller_origin::{
@@ -117,9 +124,10 @@ pub struct ListenerState {
     pub web_public_url: Option<String>,
     /// Whether to believe `X-Forwarded-For`.
     pub trust_proxy: bool,
-    /// Whether an SPA build is available to serve. `false` means every page
-    /// request 404s, and the boot log has already said why.
-    pub spa_available: bool,
+    /// The one web build this process serves, chosen at boot. `root()` is
+    /// `None` when the configured path holds no `index.html`, and every page
+    /// request then 404s, which is what the boot log has already said why.
+    pub spa: Arc<SpaMount>,
 }
 
 /// The router, plus the one thing about it that only the bind knows.
@@ -186,7 +194,8 @@ pub fn build_router(state: Arc<ListenerState>) -> MountedListener {
 
     let admission = Arc::new(AdmissionLayer::from_config(&state.service.config));
     let security = Arc::new(security_options_for_config(&state.service.config));
-    let audit = AuditMount::new(Arc::clone(&core), state.spa_available);
+    let audit = AuditMount::new(Arc::clone(&core), state.spa.root().is_some());
+    let spa = Arc::clone(&state.spa);
     let services = Arc::clone(&state.services);
 
     // Reverse order, outermost first; see the module header. Each layer is
@@ -198,6 +207,12 @@ pub fn build_router(state: Arc<ListenerState>) -> MountedListener {
         .route(DB_EXPORT_PATH, get(db_export).head(db_export))
         .route(RETIRED_SYNC_PATH, axum::routing::post(retired_sync))
         .fallback_service(connect)
+        // The SPA is the fallback for the paths nothing above claims, and it is
+        // mounted as a layer rather than a route so the two upgrade routes and
+        // the export are still reached through the router untouched. The LAST
+        // layer added is the OUTERMOST one, so this sits outside Connect and
+        // inside the audit mount -- one audit row per page, as in v2.
+        .layer(axum::middleware::from_fn_with_state(spa, spa::spa_layer))
         .with_state(state)
         .layer(axum::middleware::from_fn_with_state(audit, audit_layer))
         .layer(axum::middleware::from_fn_with_state(
@@ -262,12 +277,67 @@ async fn db_export(State(state): State<Arc<ListenerState>>, request: Request) ->
     if !state.services.db.path().exists() {
         return (axum::http::StatusCode::NOT_FOUND, "").into_response();
     }
-    (
-        axum::http::StatusCode::SERVICE_UNAVAILABLE,
-        [(axum::http::header::CONTENT_TYPE, "application/json")],
-        r#"{"error":"export snapshot is served by the deployment that installs the sqlite writer"}"#,
-    )
-        .into_response()
+    let snapshot = match prepare_export_snapshot(&state.services.db).await {
+        Ok(snapshot) => snapshot,
+        Err(reason) => {
+            // The copy is what failed; the caller asked for a database and is
+            // getting none. 500 rather than 503: nothing here is a retryable
+            // outage, and a browser that retries a broken disk fills it faster.
+            tracing::error!(%reason, "db-export: the snapshot could not be taken");
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                r#"{"error":"the export snapshot could not be taken"}"#,
+            )
+                .into_response();
+        }
+    };
+    schedule_reclaim(snapshot.path.clone());
+    match stream_database(&snapshot).await {
+        Ok(response) => response,
+        Err(reason) => {
+            tracing::error!(%reason, "db-export: the snapshot could not be opened for streaming");
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                r#"{"error":"the export snapshot could not be read"}"#,
+            )
+                .into_response()
+        }
+    }
+}
+
+/// Stream the copy from disk, never through memory: a coordinator database is
+/// measured in hundreds of megabytes, and reading one into the heap to send it
+/// is how an export becomes the outage it was taken to diagnose.
+async fn stream_database(snapshot: &ExportSnapshot) -> std::io::Result<Response> {
+    let file = tokio::fs::File::open(&snapshot.path).await?;
+    let mut headers = axum::http::HeaderMap::new();
+    insert(
+        &mut headers,
+        axum::http::header::CONTENT_TYPE,
+        "application/x-sqlite3",
+    );
+    insert(
+        &mut headers,
+        axum::http::header::CONTENT_LENGTH,
+        &snapshot.size.to_string(),
+    );
+    insert(
+        &mut headers,
+        axum::http::header::CONTENT_DISPOSITION,
+        &format!("attachment; filename=\"{EXPORT_DOWNLOAD_NAME}\""),
+    );
+    let body = axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(file));
+    Ok((axum::http::StatusCode::OK, headers, body).into_response())
+}
+
+/// A header whose value could not be a header value is left out, not faked: an
+/// export with a wrong `content-length` is worse than one without.
+fn insert(headers: &mut axum::http::HeaderMap, name: axum::http::HeaderName, value: &str) {
+    if let Ok(value) = axum::http::HeaderValue::from_str(value) {
+        headers.insert(name, value);
+    }
 }
 
 /// The refusal the export route gives a caller that is not on this host.

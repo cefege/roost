@@ -30,13 +30,14 @@
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use roost_coord::coord_core::CoordCore;
 use roost_coord::coord_core::boot_facts::BootFacts;
 use roost_coord::http::listener::{ListenerState, build_router};
+use roost_coord::http::spa::SpaMount;
 use roost_coord::middleware::security::{apply_security_headers, security_options_for_config};
 use roost_coord::rpc::service::CoordinatorServiceImpl;
 use roost_coord::services::CoordServices;
@@ -65,8 +66,11 @@ pub struct FixtureConfig {
     pub cors_allowed_origins: Vec<String>,
     /// The operator's declared browser front door.
     pub web_public_url: Option<String>,
-    /// Whether an SPA build is available to serve.
-    pub spa_available: bool,
+    /// Whether to write a real web build under the fixture's scratch
+    /// directory and point the SPA mount at it. The mount resolves its root
+    /// through an `index.html` on disk, so a configured path and a real build
+    /// are different claims and only the second one is a thing to assert.
+    pub serve_dist: bool,
     /// The bind the operator configured, which decides whether the admission
     /// gate claims this listener at all: a routable interface has a front door
     /// doing that gate instead. `None` is the loopback ephemeral bind every
@@ -82,7 +86,7 @@ impl Default for FixtureConfig {
             publish_port: true,
             cors_allowed_origins: Vec::new(),
             web_public_url: None,
-            spa_available: false,
+            serve_dist: false,
             bind: None,
         }
     }
@@ -126,6 +130,26 @@ pub fn served_csp(config: &CoordConfig) -> String {
         .to_owned()
 }
 
+/// A minimal but complete web build under `root`: the shell, one hashed
+/// bundle, and a stable-named icon, because those three are the three answers
+/// the front door has to keep distinct.
+fn write_dist(root: &Path) -> PathBuf {
+    let dist = root.join("dist");
+    std::fs::create_dir_all(dist.join("assets")).expect("the build's directory");
+    std::fs::write(
+        dist.join("index.html"),
+        b"<!doctype html><title>roost</title>",
+    )
+    .expect("the build's shell");
+    std::fs::write(
+        dist.join("assets/app.a1b2c3.js"),
+        b"export const shell = 1;",
+    )
+    .expect("the build's bundle");
+    std::fs::write(dist.join("favicon.ico"), b"icon").expect("the build's icon");
+    dist
+}
+
 /// A coordinator serving the real router on a real port.
 pub struct ListenerFixture {
     address: SocketAddr,
@@ -143,6 +167,7 @@ impl ListenerFixture {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
+        let dist = config.serve_dist.then(|| write_dist(&root));
         let database_path = root.join("coord.db");
         let database = roost_coord::db::open(&database_path)
             .await
@@ -189,7 +214,7 @@ impl ListenerFixture {
             bind: resolved.bind.clone(),
             web_public_url: resolved.web_public_url.clone(),
             trust_proxy: resolved.trust_proxy,
-            spa_available: config.spa_available,
+            spa: Arc::new(SpaMount::from_dist_path(dist.as_deref())),
         });
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -269,8 +294,12 @@ pub struct HttpResponse {
     pub status: u16,
     /// The header names, lowercased.
     pub headers: Vec<(String, String)>,
-    /// The body, with any chunked framing removed.
+    /// The body, with any chunked framing removed, as text.
     pub body: String,
+    /// The same body as bytes, for an assertion about a compressed body: the
+    /// text field above replaces every non-UTF-8 byte, so it cannot show the
+    /// magic number of a gzip member.
+    pub raw_body: Vec<u8>,
 }
 
 impl HttpResponse {
@@ -314,14 +343,17 @@ fn parse(raw: &[u8]) -> HttpResponse {
     let chunked = headers.iter().any(|(name, value)| {
         name == "transfer-encoding" && value.to_lowercase().contains("chunked")
     });
+    let raw_body: Vec<u8> = if chunked {
+        decode_chunked(body).into_bytes()
+    } else {
+        body.to_vec()
+    };
+    let text = String::from_utf8_lossy(&raw_body).into_owned();
     HttpResponse {
         status,
         headers,
-        body: if chunked {
-            decode_chunked(body)
-        } else {
-            String::from_utf8_lossy(body).into_owned()
-        },
+        body: text,
+        raw_body,
     }
 }
 

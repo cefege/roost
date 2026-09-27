@@ -173,7 +173,7 @@ pub const ROWS_ATTACHMENTS: &[MethodRoute] = &[
 ///   admits a browser and nothing else, today.
 #[rustfmt::skip]
 pub const ROWS_AUTH: &[MethodRoute] = &[
-    route("AuthCoordIdentity", "auth", AuthRequirement::Public, PortStatus::AwaitingDomainPort),
+    route("AuthCoordIdentity", "auth", AuthRequirement::Public, PortStatus::Implemented),
     route("AuthDashboardAccess", "auth", AuthRequirement::Unwired, PortStatus::UnwiredInV2),
     route("AuthLogout", "auth", AuthRequirement::Device, PortStatus::Implemented),
     route("AuthOwnerActivate", "auth", AuthRequirement::Unwired, PortStatus::UnwiredInV2),
@@ -210,31 +210,39 @@ pub const ROWS_AUTH: &[MethodRoute] = &[
 pub const ROWS_RPC: &[MethodRoute] = &[
     route("MiscFlags", "rpc", AuthRequirement::Unwired, PortStatus::UnwiredInV2),
     route("MiscHealth", "rpc", AuthRequirement::Public, PortStatus::Implemented),
-    // `DeviceOnHost`, and the requirement is CORRECT while the ENFORCEMENT is
-    // missing — which is the whole point of recording it. v2 asserts it
-    // unguarded (`handlers-system.ts:114-115`): `requireAccountDevice` AND
-    // `assertOnHost`, so a remote browser is refused the URL itself.
+    // `DeviceOnHost`, AND THE LOCALITY IS ENFORCED ONE LAYER BELOW THE GATE.
+    // Re-read against the code rather than the plan, because the export route
+    // stopped being a stub and this row is the only place that says what it
+    // costs:
     //
-    // `principal_satisfies` (`service.rs:216`) answers `is_browser` for this
-    // variant and for `Device` alike, so **the gate does not enforce the
-    // locality today** and a remote browser is handed the path. The body behind
-    // it is still refused on-host (`http/listener.rs:248`), so what leaks is a
-    // path string and not the export.
+    // - v2 asserts locality in the HANDLER, unguarded
+    //   (`handlers-system.ts:114-115`): `requireAccountDevice` AND
+    //   `assertOnHost`, so a remote browser is refused the URL itself.
+    // - `principal_satisfies` (`service.rs:213`) answers `is_browser` for this
+    //   variant and for `Device` alike, so the auth GATE still does not
+    //   enforce locality, and a remote browser is still handed the path.
+    // - the route behind that path enforces it in full: the on-host profile is
+    //   resolved from the caller-origin layer and anything that is not on this
+    //   host is refused `403` BEFORE a snapshot is taken
+    //   (`http/listener.rs:258`). The database copy is streamed only to a
+    //   caller that passed that check.
     //
-    // Narrowing this row to `Device` would have made the table agree with the
-    // gate by recording LESS than v2 requires — a row that under-claims is the
-    // same defect as one that over-claims, and the fix for it is a gate change,
-    // not a table change. `no_row_claims_a_locality_the_auth_gate_does_not_
-    // enforce` is the test that holds both halves of this sentence.
+    // So what a remote browser can learn from this row is a path string, and
+    // what the gate does not do is hide that string. Narrowing the row to
+    // `Device` would make the table agree with the gate by recording LESS
+    // than v2 requires — an under-claiming row is the same defect as an
+    // over-claiming one, and the fix is a gate change, not a table change.
+    // `no_row_claims_a_locality_the_auth_gate_does_not_enforce` is the test
+    // that holds both halves of this sentence.
     route("MiscDbExportUrl", "rpc", AuthRequirement::DeviceOnHost, PortStatus::Implemented),
-    route("MiscMetrics", "rpc", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("AuditList", "rpc", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
+    route("MiscMetrics", "rpc", AuthRequirement::Device, PortStatus::Implemented),
+    route("AuditList", "rpc", AuthRequirement::Device, PortStatus::Implemented),
     route("TranscriptionGetConfig", "rpc", AuthRequirement::Device, PortStatus::Implemented),
     route("TranscriptionSetConfig", "rpc", AuthRequirement::Device, PortStatus::Implemented),
     route("TranscriptionGrantToken", "rpc", AuthRequirement::Device, PortStatus::Implemented),
     route("TranscriptionTest", "rpc", AuthRequirement::Device, PortStatus::Implemented),
     route("Sync", "rpc", AuthRequirement::Device, PortStatus::Implemented),
-    route("DiagDebugLogBatch", "rpc", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
+    route("DiagDebugLogBatch", "rpc", AuthRequirement::Device, PortStatus::Implemented),
     route("DiagSnapshot", "rpc", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
 ];
 

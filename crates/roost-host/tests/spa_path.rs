@@ -4,13 +4,19 @@
 //! written against a real directory because every one of these is a filesystem
 //! question: an in-memory map would let a traversal pass.
 
+// `expect_used` and `unwrap_used` are denied outside `#[cfg(test)]`, and an
+// integration test is its own crate rather than a module of one, so the
+// exemption has to be stated here rather than inherited. Every panic below is
+// an assertion over a tree this file just built.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use roost_host::spa_path::{
-    ContentEncoding, SpaTarget, accepts_gzip, cache_control_for, content_type_for,
-    is_compressible, resolve, resolve_disk_spa_root,
+    ContentEncoding, SpaTarget, accepts_gzip, cache_control_for, content_type_for, is_compressible,
+    resolve, resolve_disk_spa_root,
 };
 
 /// A fresh tree with one build in it. The build sits in a `dist/` subdirectory
@@ -74,15 +80,24 @@ fn a_missing_content_hashed_bundle_is_never_the_shell() {
     // The bundle name changed between two deploys. Falling back to HTML here
     // hands the browser a page where it expects JavaScript, and the failure
     // surfaces as an unparseable module rather than as a missing asset.
-    assert_eq!(resolve(&root, "/assets/gone.deadbe.js", ""), SpaTarget::NotFound);
-    assert_eq!(resolve(&root, "/assets/nested/deep/x.js", ""), SpaTarget::NotFound);
+    assert_eq!(
+        resolve(&root, "/assets/gone.deadbe.js", ""),
+        SpaTarget::NotFound
+    );
+    assert_eq!(
+        resolve(&root, "/assets/nested/deep/x.js", ""),
+        SpaTarget::NotFound
+    );
     remove(&root);
 }
 
 #[test]
 fn a_traversal_cannot_reach_a_file_outside_the_build() {
     let root = build_root();
-    let outside = root.parent().expect("the build is inside the fixture tree").join("secret.txt");
+    let outside = root
+        .parent()
+        .expect("the build is inside the fixture tree")
+        .join("secret.txt");
     fs::write(&outside, b"secret").expect("a neighbouring file");
 
     for path in [
@@ -170,7 +185,8 @@ fn a_client_that_refuses_gzip_never_gets_a_compressed_body() {
 
 #[test]
 fn a_name_the_bundle_reuses_never_becomes_immutable() {
-    // v2's four cache cases, each with the deployment it protects.
+    // The four cache cases from `spa.ts:117-148`, each with the deployment it
+    // protects.
     assert_eq!(
         cache_control_for("index.html"),
         "no-cache, no-store, must-revalidate"
@@ -179,7 +195,10 @@ fn a_name_the_bundle_reuses_never_becomes_immutable() {
         cache_control_for("assets/app.a1b2c3.js"),
         "public, max-age=31536000, immutable"
     );
-    assert_eq!(cache_control_for("fonts/mono.woff2"), "public, max-age=604800");
+    assert_eq!(
+        cache_control_for("fonts/mono.woff2"),
+        "public, max-age=604800"
+    );
     // A favicon keeps its name across builds, so caching it for a year pins
     // yesterday's icon in every browser that has ever visited.
     assert_eq!(cache_control_for("favicon.ico"), "no-cache");
