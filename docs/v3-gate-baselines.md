@@ -564,6 +564,41 @@ apart at exactly the rate the tree moves.
 A gate that cannot run the suite at all has proved nothing. Say so rather
 than reporting a partial pass as a green one.
 
+### The import check's expected counts, measured against a real backup
+
+The Phase 6 install gate asserts exact row counts after `roost import-v2`, and
+until now those numbers were assertions in a plan rather than measurements.
+They are measured, from the newest v2 backup at the time of writing
+(`coord_v2.2026-09-26T13-32-32-235.db.gz`, 38M gz, 391M inflated,
+`pragma integrity_check` = `ok`):
+
+|table|rows|
+|---|---|
+|`accounts`|1|
+|`account_devices`|26|
+|`authorized_keys` (all)|31|
+|`authorized_keys` (the imported set)|**26**|
+|`authorized_key_revocations`|241|
+|`app_settings`|7|
+|`organizations` / `organization_memberships` / `account_identities` / `dashboards` / `dashboard_memberships`|1 each|
+
+**The fingerprint filter is demonstrated, not assumed: 31 keys in, 26 out, the
+5 dropped being the machine keys whose fingerprints equal `workers.fp`.** That
+is the one number that would silently pass a broken filter, because 26 devices
+and 26 keys look right whether or not the filter ran.
+
+**AND THE GATE MUST PIN THE BACKUP, NOT TAKE THE NEWEST.** The counts above are
+from ONE file. The plan's step says "gunzip the newest `backups/*.gz`", and
+nightly backups keep running — so a device paired or a key revoked on v2 between
+this measurement and the gate moves the numbers, and the gate fails on a
+difference that is correct v2 state rather than an import defect.
+
+**So the gate names this file explicitly.** If it is gone, take the newest and
+RECORD which one, then take the counts from that file rather than from this
+table. **A gate whose expected values are themselves unpinned is a gate that
+reports drift as failure**, and the operator then spends the debugging session
+on the importer instead of on the thing that actually changed.
+
 ### Two more, both measured rather than argued
 
 **The worker track's first clippy measurement is 0, at `e6a1e8b0`.** It is the
