@@ -12,9 +12,9 @@
 
 use sqlx::SqliteConnection;
 
-use roost_protocol::wire::{SessionId, WorkspaceId};
 use crate::db::CoordDb;
 use crate::sessions::workspaces::{WorkspaceError, members_of};
+use roost_protocol::wire::{SessionId, WorkspaceId};
 
 /// Delete a workspace and everything it holds, conditioned on `if_version`.
 pub async fn delete_workspace(

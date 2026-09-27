@@ -28,9 +28,9 @@
 /// tests read as the behaviour they assert.
 #[path = "cf_access_keyring_support/mod.rs"]
 mod rsa_keys;
-use rsa_keys::{
-    PRIME_P, PRIME_P_ALT, PRIME_Q, PRIME_Q_ALT, big_uint, jwk_for, sign, test_key, the_test_key,
-};
+// A glob, because the three tests below use different halves of the fixture
+// and an explicit list would carry an unused-import warning for the rest.
+use rsa_keys::*;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -245,7 +245,6 @@ async fn concurrent_verifications_against_an_unsigned_assertion_all_refuse_alike
 // key. The earlier version of this file wrapped a SplitMix64 in an `unsafe impl
 // CryptoRng`; removing the need for an RNG removed the question rather than
 // answering it.
-
 
 /// THE RSA PATH, EXERCISED. A locally generated key, a JWK published from it, a
 /// real signature, and the production `RsaJwks` accepting it. This is the test

@@ -246,7 +246,6 @@ pub async fn update_workspace(
     Ok(workspace)
 }
 
-
 /// Point `session_ids` at `workspace_id` on BOTH representations, because a
 /// session belongs to one workspace and the two rows are one fact the browser
 /// reads twice: writing only the junction double-counts a session as a member

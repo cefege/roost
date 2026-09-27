@@ -21,8 +21,8 @@ mod waits;
 use std::time::Duration;
 
 use agent_fixture::{
-    AgentFixture, EPOCH_A, OCCUPANT_A, OCCUPANT_B, SESSION_IDS, SESSION_MISSING, WORKER_A, WORKER_B,
-    legacy_status, session, status, worker,
+    AgentFixture, EPOCH_A, OCCUPANT_A, OCCUPANT_B, SESSION_IDS, SESSION_MISSING, WORKER_A,
+    WORKER_B, legacy_status, session, status, worker,
 };
 use connectrpc::ErrorCode;
 use roost_coord::agents::rpc_status::{
@@ -269,4 +269,3 @@ async fn the_list_answers_in_session_id_order_with_derived_promptability() {
     assert_eq!(legacy.occupant_id, None);
     assert_eq!(legacy.source, None);
 }
-

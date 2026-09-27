@@ -294,4 +294,3 @@ pub fn pubkey_b64(label: &str) -> String {
 pub fn fingerprint_for(label: &str) -> String {
     fingerprint_of_raw_public_key(&public_key_for(label))
 }
-

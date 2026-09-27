@@ -302,4 +302,3 @@ async fn the_coordinator_bounds_total_waits_across_sessions() {
     assert_eq!(registry.waiter_count(), 0, "stopping releases every wait");
     drop(held);
 }
-
