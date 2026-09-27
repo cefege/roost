@@ -15,19 +15,23 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use roost_host::{HostPlatform, MapEnv, supported_host_platform};
+use roost_host::{HostPlatform, supported_host_platform};
 use roost_keeper::codec::{CodecError, FrameDecoder, MuxFrame, MuxFrameType, StreamEvent};
 use roost_keeper::frames::{ChannelBinding, ListChannelsResp};
 use roost_keeper::payloads::{
     KEEPER_PROTOCOL_VERSION, KeeperContractV1, KeeperFeature, KeeperHelloResponse,
     KeeperObservation,
 };
-use roost_worker::runtime::boot::{ENV_KEEPER_EXECUTABLE, WorkerBoot};
+use roost_worker::runtime::boot::WorkerBoot;
 use roost_worker::runtime::serve_until;
 use roost_worker::runtime::stop::{StopReason, StopRequests};
 
 
-#[path = "boot_env_support/mod.rs"]
+// `../` because a `#[path]` inside a `mod.rs` resolves against THIS file's
+// directory, and the shared builder sits one level up beside every other
+// test-root support module. The session-spawn support module reaches its
+// sibling the same way.
+#[path = "../boot_env_support/mod.rs"]
 mod boot_env;
 mod child;
 
