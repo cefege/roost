@@ -35,8 +35,13 @@ jobs:
         run: cargo test --manifest-path third_party/alacritty_terminal/Cargo.toml
       # roost-client-core and roost-protocol are the two crates every future
       # front end links, and both must stay free of host-only dependencies.
+      #
+      # roost-web and roost-web-terminal were OMITTED here, and the omission is
+      # why a 51-error crate sat on the branch unnoticed: both compile for
+      # wasm32, so a build gate that named neither could not see them break. A
+      # gate that is green because it is absent is not a gate.
       - name: wasm32 build
-        run: cargo build -p roost-client-core -p roost-protocol --target wasm32-unknown-unknown
+        run: cargo build -p roost-client-core -p roost-protocol -p roost-web -p roost-web-terminal --target wasm32-unknown-unknown
 
   invariants:
     name: typescript invariants (pre-deletion)
