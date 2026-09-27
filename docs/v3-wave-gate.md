@@ -3093,7 +3093,37 @@ and wrong about the test**, and following its suggestion destroyed the coverage.
 Which is also why a clippy run is worth repeating even when it is clean: **the
 run after a fix is a check on the fix, not only on the code.**
 
-### Six members of the family, and a grep cannot tell a prohibition from a use
+### The family, all seven, and why the seventh is the dangerous direction
+
+| # | the instrument | what it reported | the truth |
+|---|---|---|---|
+| 1 | `grep -L 'lints.*workspace'` | 13 crates outside the lint table | it **cannot match a two-line block**; the pattern was guaranteed to fail |
+| 2 | reachability keyed on symbol name | 19 uncalled symbols | **2 were name collisions** — `RetainedFrame`, `EnqueueOutcome`, both with a `Dropped` variant |
+| 3 | `cargo check` with a parse error upstream | 1 error | it **stopped before name resolution**, masking the whole E0599 class |
+| 4 | `ls <path> \| wc -l` | `0` | `0` is what it returns for **absent and empty alike**; the directory held 5.7 GiB |
+| 5 | `rustfmt --check` exit code | two parse errors | a **formatting diff** also exits non-zero; **stderr** is the discriminator |
+| 6 | git's author field | "made outside my session" | it is the **repo's configured identity, constant across every writer** — a field with no variance carries no information about the writer |
+| 7 | `\.unwrap` with no `(` | **88 exposed sites across 48 product files** | `Option::unwrap_or` is a **total function**; the regex counted the prefix of `unwrap_or` |
+
+**Members 1–6 all fail by UNDER-reporting: a zero, a floor, a silence.** Member 7
+fails by **over-reporting**, and that is the one that matters most:
+
+> **A false negative hides a defect. A false positive sends someone to edit
+> working code.** An instrument that can do the second is more dangerous than
+> one that can only do the first, and "an exit code is not a finding" does not
+> cover it — that number was not wrong because of how it was read, it was wrong
+> because of how it was **produced**.
+
+**So the defence is different in kind, and it is the one the web lead and the
+CLI lead each arrived at independently: validate a classifier against a
+measurement it did not consume, and if there is no such measurement, say
+"prediction" BEFORE running it, not after finding it broken.** A prediction that
+matches a measurement it did not fit is an instrument; one fitted to it is not.
+And with no clippy datapoint available, the honest label is a prediction — which
+is the label the CLI lead eventually used, and which is worth more than the
+number it replaced.
+
+### A grep cannot tell a prohibition from a use
 
 `grep -c web-sys` over `roost-client-core/src/` is **0**. Over `tests/` it is
 **4** — and all four are inside `tests/core_without_a_browser.rs`, which exists
