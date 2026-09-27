@@ -191,6 +191,55 @@ build queue was spent getting the push out. Six pre-existing `roost-cli`
 warnings are still owed there, and `xtask lint` has never been run in its
 workspace form by anyone.
 
+### Web: the first published gate, and the six values it deliberately leaves
+
+`v3-web` @ `b10646fc`, merged into `v3`. `cargo test -p roost-client-core
+-p roost-web-terminal --no-fail-fast`, **two agreeing runs: 47 binaries, 320
+passed, 0 failed, 0 ignored.** `wasm32-unknown-unknown` clean, clippy `-D
+warnings` 0, `xtask fmt` clean.
+
+**The 51 errors were not a `cfg` gap, and knowing why changed the fix.** The
+sibling `impl` files had been written against a *different web-sys than the
+lockfile pins*: 0.3.106 has no `Element::style` (it is on `HtmlElement`),
+`get_bounding_client_rect` returns `DomRect` and not `Result`,
+`Document::create_text_node` returns `Text` and not `Result`, `HtmlCollection`
+has no `get`. The fix was therefore a new seam, not a gate — `element_style.rs`
+owning the two properties the stable surface does not expose. And inside it, a
+choice worth keeping: **`scrollTop` is read and written as a `double` via
+`js_sys::Reflect`, because the `i32` accessor rounds a reader that moved half a
+row to *unmoved*** — which is exactly the state the follow-band predicate and
+the owned-write check are asked about. A rounding accessor would make those two
+predicates unanswerable.
+
+**All four web mutation rows bit**, against a gate doc that recorded one
+historically did not. Two results inside that: **M-U1 bit wider than
+pre-registered** (9 tests, not the predicted one), which means the edit sits
+under more behaviour than the row's author knew; and **M-U3's control was
+passing for the wrong reason** — green because the defect under test had
+inverted its own guard, so it proved the control worked and proved nothing
+about the property. Only running the row tells you which of the two you have.
+
+**Six raw values remain in `sidebar.css`, and the baseline now says six.** v2
+baselined this same file at **35** and never drove it to zero, so this is
+inherited debt and the number is going down (35 → 9 → 6). Three mapped with no
+judgement at all; the remaining six are a U-3 design decision and are listed
+here so the next person is not rediscovering them:
+
+| Line | Selector | Value | Why it is not a lookup |
+|---|---|---|---|
+| 432 | `.mobile-deck-count` | `13px` | ramp has 12 and 14, no 13. The sibling `--fraction` block already uses `var(--md-label-m-size)`, so it reads as an off-ramp one-off — but 13 → 12 or 14 changes the badge |
+| 604 | `.terminal-card-title` | `13px` | same off-ramp, one step |
+| 673 | `.terminal-card-preview-glyph` | `40px` | `--md-display-s-size` is 36px; the 40px in the tree is a `-line` token, not a size |
+| 384 | `.roost-zzz-1` | `6px` | decorative floating badge digit, deliberately below the ramp floor of 11px |
+| 385 | `.roost-zzz-2` | `8px` | same; 8px exists only as `--md-space-2`, which would be a spacing token doing a type job |
+| 659 | `.terminal-card-preview-text` | `7px` | a monospace preview scaled to fit a 28px card |
+
+The last three would need **ramp steps added**, which is designing. A baseline
+set at six is the ratchet doing its job — hold the line here, drive it down from
+here — and a baseline set at nine without the migration would have been the
+opposite. The distinction is not the number, it is whether the number came down
+first.
+
 ### Worker: first-ever total, `v3-worker` @ `8a85f523`
 
 `cargo test -p roost-worker -p roost-keeper -p roost-term --no-fail-fast`, **one
