@@ -154,6 +154,2039 @@ three files, seven of them in targets the run had never reached. The same
 applies to a lib count: a fix that unblocks a later check is a *moved* error,
 not a fixed one, so every residue count is a lower bound and never a total.
 
+**A test has a TIER, and the tier is not visible in its name.** A slice's
+capacity test calls `handle_agent_status_wait` directly. That covers the whole
+chain inside its slice — registry refusal → `wait_error` → `ConnectError` — and
+it would fail if the mapping were deleted or flipped. It does **not** observe
+that the generated Connect service and the connectrpc runtime carry that code and
+message to the client unchanged, and the test's name says "reaches the client",
+which is a wire claim it does not make.
+
+**So every gate row carries a tier, and a row that cannot state its tier is not
+finished.** Handler-tier: the handler is called directly. Wire-tier: a request
+goes through the generated `CoordinatorService` and its `RequestContext`, or
+through the listener. A slice that cannot construct a wire-tier harness names the
+row **unwritten** and says what would close it, rather than letting a handler-tier
+pass stand in for it — which is exactly what this one did, and its saying so is
+why the gap is visible at all.
+
+**And the masking runs the other way: a failing TEST target hides a lib error
+of the same shape.** A slice's test imported `PushNotificationTransport` from
+`push::dispatch`; its source file did the same. The error list named only the
+test, because test targets compile first and a test failure stops the run before
+the lib is reached. Fixing the test would have revealed the same bug again one
+file later, looking like new work. **Read the error list for the shape, not the
+count: one mistake in two files is one mistake, and the list shows you one of
+them.**
+
+## `--keep-going` turns a lower bound into a total
+
+The whole "an error list is a lower bound" rule above was true and **actionable
+in exactly one way**: cargo stops at the first failing target unless you tell it
+not to. The handoff said *13 errors, 1 warning, none in a file the previous lead
+edited*. Re-measured with `--keep-going --message-format short`:
+
+**56 distinct errors across 22 failing test targets, 17 source files. Zero in
+`src/`.** One error — `tests/push_fixture/transport.rs:172` — was failing eight
+test binaries on its own.
+
+**So "13" was not a smaller true number; it was the set the compiler happened to
+reach before it stopped.** Three numbers had circulated for the same state
+(13, 27, 1) and all three were artefacts of the flag.
+
+**The correction is the flag, not more care.** Any error count in a handoff is
+unusable until someone re-measured it, and the re-measurement is one argument. A
+number you inherited that cannot be reproduced with a flag is not a measurement;
+it is a memory of where the compiler stopped.
+
+## A binary that fails entirely is one defect, not N
+
+The first diagnosis of 100 failures across 25 binaries: **several binaries fail
+*entirely* — 7/7, 8/8, 9/9, 10/10 — and one at 1/11 and one at 1/7.** A binary
+where nothing passed is a **fixture that never came up**, not N independent
+defects. `pairing_confirmation` at 0/4 and `pairing_confirmation_authority` at
+0/8 are almost certainly one shared fixture failing, and they are the same class
+as the five missing `.await` calls and the test that seeded an empty database
+and passed anyway.
+
+**So the diagnostic order is: for every binary with a 0-pass count, find the
+shared fixture and read it before reading any individual test.** Reading the
+tests first is how a wave spends an hour on twelve independent defects that are
+one. Sort by *shape of failure* — all-fail, most-fail, one-fail — not by count,
+because the shape names the cause and the count does not.
+
+And the same rule applies to a mutation: **a run that stops at the first
+failure is a lower bound**, so mutation rows that "passed" because the run
+aborted earlier are not passes. The integrator ran its six rows on a
+**checksum-verified copy-and-restore harness** — back up, mutate, run, restore,
+verify by sha256 — because a Rust mutation must compile in place, and *an
+unverified restore is exactly the failure the copy rule exists to prevent*.
+
+## The map, and the negative results that make it usable
+
+Sorting the 100 failures by shape put **47 of them in two files**:
+
+| module | binaries | tests | passes |
+|---|---|---|---|
+| `tests/agent_fixture/` | 5 (`agent_config_rpc`, `agent_status_ordering`, `agent_status_push`, `agent_status_rpc`, `agent_status_wait`) | 35 | **0** |
+| `tests/pairing_support/` | 2 (`pairing_confirmation`, `pairing_confirmation_authority`) | 12 | **0** |
+
+**The other four shared-module groups are explicitly NOT fixture problems**, and
+that is the part that makes the map worth more than the count:
+
+- `tests/terminal_view_support/` — 3 binaries, 1–2 failures each (6/1, 9/2,
+  9/1). Most tests pass, so the module works and these are real assertions.
+- `tests/tasks_support/` — `tasks_queue` has 3 failures while
+  `tasks_refusals` is 8/0. **The shared module is fine.**
+- `tests/mcp_relays_support/` — `mcp_relays_authority` 1, the other three mcp
+  binaries fully green. A split-and-refactor survived intact.
+- `tests/keeper_update_support/` — 3, 1, 0. Not a fixture problem.
+
+**"They share a module" is the obvious guess and it is wrong in four of six
+cases.** A negative result is worth as much as a positive one here, because the
+wrong guess costs an hour and a positive one is visible on its own.
+
+And the asymmetry inside one slice that changed the instruction: of A2's two
+binaries, `bootstrap_single_use` (1/7) declares `auth_device_support` and is
+therefore a shared-fixture case — but **`cf_access_identity` declares no module
+at all and still fails 11 of 12.** So "A2's failures" is two unrelated causes in
+two different subsystems, one of which holds the RSA key material. **Sending one
+agent at a slice's failure count would have sent it to the wrong file for half
+the work.**
+
+## Establish the rule by running it, because the naive version breaks correct code
+
+The 2018+ `use` rule looks like a one-liner and is not. A slice established it
+**by running rustc on four minimal cases rather than by reading the edition
+guide** — and it did so precisely because the obvious statement of the rule is
+false:
+
+A `use` declaration's first segment resolves against **what is in scope in the
+module holding the declaration.**
+
+| site | result |
+|---|---|
+| bare `use sibling::x;` at the **crate root** | compiles |
+| bare `use sibling::{A, B};` inside a **function** of a root-level module | compiles |
+| bare `use sibling::x;` inside a **child** module | **E0432** — needs `crate::` or `super::` |
+| `crate::sibling::x;` | compiles |
+
+**The discriminator is the module's position, not the name — and the rule "bare
+first segment in a child module is wrong" is wrong.** There is a live site
+(`deploy/keeper_update/refusal.rs:75`) with a function-scoped
+`use ErrorCode::{…}` where `ErrorCode` is imported at that module's own top
+level. **A blanket sweep would have rewritten it to a `crate::ErrorCode` that
+does not exist**, and the coordinator came within one edit of exactly that. The
+four rustc cases are the reason that site survived.
+
+**So the question per site is "is this name in scope *here*", never "am I in a
+child module"** — and the reason to run minimal cases rather than read the guide
+is that a rule is only worth writing down once you have tried to write the short
+version and watched it break something that works.
+
+**One diagnostic, two unrelated fixes.** The same wave produced two different
+E0432 causes at once: a private `use X as Y` where the consumers needed a
+re-export, and a `#[path = "…"] mod renamed;` whose *child* then wrote
+`use real_name::…`. Same diagnostic, unrelated causes, **both live in the same
+fixture simultaneously.** A count that rises when you fix one says nothing about
+the other.
+
+## A shared test module must live in a subdirectory
+
+Every `.rs` file directly under `tests/` compiles as **its own test binary**. A
+shared module placed there becomes a binary that links nothing — it passes by
+constructing an empty suite.
+
+**So a shared fixture with more than one consumer must live in a
+subdirectory**, declared by each consumer as:
+
+    #[path = "keeper_update_support/mod.rs"] mod keeper_support;
+
+and it reaches a sibling fixture with `use crate::workers_support::{…}`. The
+path attribute and the directory are the same fact: the attribute is what lets
+the file sit *inside* a directory while the module name stays flat, and both
+fixture agents should converge on this shape if their consumers number more than
+one.
+
+## A mutation row needs both directions, and the pairing is not the numbering
+
+Six rows arrived as one-line edits, each with the test that must fail. **Five
+had no test named for the other direction** — the must-still-pass — which is the
+gap that makes "this edit changed nothing" indistinguishable from "this edit
+changed everything".
+
+**The first correction here is mine and it is the one worth keeping.** Reading
+the rows, I paired them by their *numbering* — M2+M3, M4+M5 — and wrote that
+into this file. **The numbering is not the pairing.** Each must-still-pass was
+embedded in prose inside its own row, so the two did not line up, and the real
+relationships were:
+
+- one row's must-still-pass is a test **in its own prose**;
+- one row names a second test it *expects to fail* — **a must-fail, not a
+  must-still-pass**, belonging to that row alone;
+- three rows had no second direction at all.
+
+**So: read the row, do not read the sequence.** I applied a pattern to a
+numbered list and produced a confident wrong answer — the same error as resolving
+a decode function from its name, and the reason the pairing question is
+unanswerable by inspection.
+
+**The rule, now with all six rows in it. A mutation row claims "this edit
+breaks *this* property and nothing else", and it needs both halves:**
+
+| | must FAIL | must STILL PASS | what the still-pass proves |
+|---|---|---|---|
+| M1 | a proof for a different action is refused | — | refuse-closed |
+| M2 | a decision outside the drain is refused | a decision **inside** the drain is not refused **for the drain** | the guard is the restriction, not the drain being active |
+| M3 | a replace-empty across a live session is refused | a force-live **does** cross a live session | the edit removed the *requirement*, not the path |
+| M4 | the drain is held across the decision | a **second** preparation **is** refused while held *(a must-fail)* | what a concurrent update would do with the gate open |
+| M5 | an unresolvable caller may not proceed | a preserved keeper **is** reported with its identity | the edit isolated the re-read, not the happy path |
+| M6 | a shutdown reports no keeper because none is left | an authorized maintenance **may** cross a live session | the branch is about an identity being *present*, not about shutdowns generally |
+
+**The must-still-pass is what proves the test isolates the property rather than
+merely failing** — deleting a guard and seeing both tests go red tells you the
+guard was load-bearing; seeing one go red and the other stay green tells you the
+second is pinning the *absence* of the refusal, which is a weaker property than
+its name claims. **If the named must-still-pass also fails, that is reported,
+never adjusted.**
+
+## A numbering that runs out is a silent scope loss
+
+A seventh check — that the outbound frame is really the `KeeperUpdatePrepare`
+arm and not a `BrowserCommand` wrapper carrying JSON, which is exactly what a
+sloppy port reaches for to route around a missing enum arm — was described in
+prose and never numbered. It needs a `BrowserCommand` fake; the six numbered
+rows do not.
+
+**Two checks were momentarily one, and the consequence would have been that the
+fake-requiring check was dropped from the schedule with no trace** — a check
+that is harder to write is exactly the one that disappears when it is merged
+with an easier neighbour.
+
+**So: a list of experiments has to have a stated cardinality, and anything
+described but not enumerated must be either numbered or explicitly parked.**
+"Here are six" and "here are six and a seventh I did not number" are different
+claims, and only the second is safe.
+
+## The defect the fixture blamed, and the one it hid
+
+Two binaries, 12 tests, **0 passes**, sharing one module. The rule sent the agent
+to `tests/pairing_support/mod.rs` first. **The fixture was correct.** The defect
+was in `src/`: `pair_requests.id` is `TEXT` in both migrations and in v2
+(`pairing-account.ts:139` inserts an ephemeral id), while **five Rust
+declarations typed it `i64`.**
+
+**And the shape rule is what found it.** Had the reading been *"0-pass binary,
+blame the fixture"*, this would still be broken in production today — the fixture
+is what the tests *call*, and it is the callee that is wrong.
+
+Two consequences, and **they are different defects from one wrong type**:
+
+- every `read_pair_request` — PairCreate's retry path, PairApprove — **errors
+  out**, loudly.
+- every `LiveSelector::ById` terminalize **binds an integer against a
+  TEXT-affinity column and matches zero rows**, silently.
+
+**The second is the dangerous one: the query is valid, it returns an empty set,
+and nothing says that is wrong.** A compile cannot see it. A green suite built on
+a fixture that never ran could not see it. **The only reason it surfaced is that
+the tests ran at all and failed loudly** — which is the whole argument for
+executing a new target before believing anything about it.
+
+The fix went the right way: **the Rust types change, not the schema.** v2 parity
+is the schema's job, and making a wrong Rust type compile by changing the schema
+would trade a visible type error for an invisible migration divergence from the
+port of record.
+
+**And the standing question after a type fix lands: did the mask hide a second
+cause?** A binary that moves less than its shape promised has told you something.
+The same applies to the silent half: **if a selector is supposed to match rows
+and a test passes because it matched none, that is a green-but-vacuous test** —
+and the question is the one from `Scratch::second_core()`: *what made this test
+able to fail at all, and is that still here?*
+
+## A test mis-written against a fixture with no seam is fixed at the FIXTURE
+
+`a_wrong_requester_token_finds_nothing` had a name, a doc comment and an
+assertion message that all said *a wrong token* — and it called
+`fixture.confirm(CODE, …)`, where `confirm` **hardcoded the correct requester
+token.** So the test asserted that a *successful* confirmation equalled
+`Err("not found")`, while its own final line asserted no key was authorized.
+**It could never have passed, and its last line contradicted its first.**
+
+The cause is not a wrong assertion. It is that **the fixture offered no way to
+present a different token** — there was no seam, so the test was written against
+the only call available and then described as something else.
+
+**So when a test's name and its call disagree, widen the fixture rather than
+rewrite the test:** add `confirm_with_token(token, code, now_ms)` with `confirm`
+delegating to it, and the property becomes *strictly stronger* with no assertion
+weakened. Rewriting the test to match the fixture would have made it green and
+kept it vacuous.
+
+This is the `Scratch::second_core()` rule from the other direction: there, a
+property could be lost in a merge; here, a property was never expressible, and
+the test compensated by lying about what it exercised.
+
+## A test that cannot construct its own input is not a test
+
+Three failures in `tests/pairing_provenance.rs`, and in all three the test dies
+**before reaching the product logic**:
+
+- a header name with a trailing space → `InvalidHeaderName`
+- a value of `"Ottawa\r\nX-Injected: 1"` → `InvalidHeaderValue`
+- a 60 000-byte `"é"` → `HeaderValue::to_str()` rejects non-visible-ASCII, so
+  `read_bounded` returns `None` and the test panics on its own helper
+
+**The second one is a header-injection test.** Its entire purpose is to prove
+the product refuses an injected header, and it cannot construct the string
+`http` refuses to build. **The test asserts nothing about the product, and it
+fails, so the count looks like a defect when the defect is in the test's own
+scaffolding.**
+
+So a panic on a *test helper's* line is categorically different from a panic on
+an assertion, and the diagnostic order says so: **read the line number before
+the assertion message.** A failure inside the fixture's own construction is a
+harness defect, and no amount of product fixing will move it.
+
+**And the honest way to report "I cannot tell whether this pre-existed":** an
+agent tried to baseline a neighbouring binary by stashing its own changes, hit
+the shared cargo lock, **aborted, popped the stash and verified the tree
+restored** — then said *pre-existing by construction, not by baseline
+measurement.* Declining to produce a number you could not obtain, and naming the
+attempt, is worth more than the number would have been.
+
+## A check that quietly stopped looking is worse than one that is noisy
+
+The noise rule already on record: *a sweep that is mostly noise is a false
+assurance — discard it.* This is the **more dangerous** version, and it came from
+an agent falsifying its own prediction rather than waiting to be right.
+
+A scan of seed SQL against the migration flagged 2 candidates. Both were hand
+checked and both were false positives — **artifacts of the scanner splitting on
+commas inside `--` comments.** So the scanner was hardened. And the hardened
+version **stopped splitting wrongly and began missing statements: 1 checked
+instead of all.**
+
+**So the instrument was discarded rather than reported, and the number that
+stood behind was the FIRST scan's: 19 modules, 2 candidates, 2 hand-verified
+false positives, no real unknown-column defect in any shared fixture.**
+
+**A tool that gets louder is easy to notice and a tool that gets quieter is
+not.** A noisy check produces output you can dismiss; a check that has silently
+stopped covering its input produces a clean result indistinguishable from a real
+one, and a clean result is exactly what a gate wants to hear. **The signature is
+a count that changed for a reason nobody asked about** — here, "1 checked
+instead of all", which is the only thing in the report that would have given it
+away.
+
+**So the rule has two halves, and the second is the one that catches defects:**
+
+- a check that is **noisy** is discarded, because it cannot be acted on;
+- a check whose **coverage changed** is discarded, because its result now
+  describes a different set of inputs than the one you asked about.
+
+And the standing number is named as *"the first scan's"*, with the caveat
+attached, rather than a single confident figure. **An agent that narrows its own
+claim and says which run it is standing behind has produced a more usable fact
+than one that reports the best number it obtained.**
+
+The same agent's static sweep of the other class — every `pub const … : &str`
+across all 19 fixture modules, validated against its brand rule — returned
+**19 fingerprint-shaped constants, 27 UUID-shaped, 0 violations**, and
+`agent_fixture` was the only fixture in the crate that could not satisfy
+`WorkerFp::check`. **The defect existed exactly once.** And with both shapes
+checked, its prediction stayed falsifiable rather than settled: *if the run shows
+a shortfall, the cause is something neither scan covers* — a dropped `.await`
+leaving a seed empty, which no static scan can see, or a `Drop` that discards an
+error. **Those need a run to see, not a grep.**
+
+**So the rule has two halves, and the second is the one that catches defects:**## Both kills were one defect: a value of the wrong SHAPE at a boundary that cannot reject it
+
+The two 0-pass fixture groups produced **two production defects, and they share a
+cause**:
+
+- 32 hex characters where a 64-hex branded type is checked;
+- `i64` where the column is `TEXT`.
+
+**Both are the right type in the wrong place, and the compiler enforces
+neither** — one is a valid string, the other a valid integer, and both are
+wrong only at a specific boundary that cannot tell.
+
+**A panic in a fixture and an empty result set from a live query are the same
+defect in different clothes.** And the silent one is the one that ships:
+`LiveSelector::ById` matched zero rows and returned a **valid empty set**, which
+to every caller is indistinguishable from the right answer. The loud one — a
+panic in a test constructor — is the one that gets found, because a test that
+cannot run is impossible to ignore.
+
+**So the diagnostic question is "what is this boundary unable to reject", not
+"is this value valid".** A brand type is only as good as the construction that
+enforces it, and a constructor that panics on bad input is a boundary that
+*does* reject — which is why the fixture failure was the good news.
+
+**And a fully implemented, fully tested method can still never run once.**
+`settle()` deregistered the waiter before awaiting: `WaiterEntry` owns the
+`oneshot::Sender`, `remove()` dropped the registry's `Arc`, the local one died
+before the `.await`, and **every `AgentStatusWait` not already satisfied
+returned `Canceled` instantly.** Nothing about that is subtle, nothing about it
+would have been caught by a compile, and a method can be implemented, tested at
+the seams either side of it, and still have never executed.
+
+**And the rule bit its author within a day, in the direction that flattered
+him.** A published "97 binaries" came from `grep -c "^test result"` — which
+**also matches the trailing summary line**, so the real figure was 96. The fix
+adopted was a *mechanism* rather than a promise: derive the map from a file,
+print the file's byte size, its `Running` count and its `test result` count
+beside the number being reported, and **let the agreement be the check**.
+
+**## Transfer a rule as the failures, not as the caution
+
+Four fresh agents were about to be given the measurement rule. The instruction
+that was going to work is not "be careful with numbers" — it is **the five
+specific ways the number went wrong in this tree**:
+
+`13 errors`, `27 errors`, a `97 binaries` from a `grep` that also matched its own
+summary line, six binaries lost to a truncated printout, and a stale `581/38`
+that two clean runs falsified.
+
+> **An agent told only "be careful with numbers" will be careful. An agent told
+> the five ways it went wrong here will recognise the sixth.**
+
+**A general caution produces generic caution, which is indistinguishable from
+compliance and does not survive a surprising situation.** A specific failure
+produces recognition, because the agent now has a *shape* to match against — and
+the shapes here are not alike: a count that stopped early, a count that included
+the summary, a count that was cut off, and a count that was true when taken. An
+agent shown those four shapes will notice a fifth that shares none of their
+mechanics.
+
+**So the rule for handing a hard-won lesson to a fresh agent: name the
+instances, not the principle.** The principle is the *result* of the instances
+and it is strictly weaker to hand over on its own.
+
+**And the corollary, for classifying a known class:** when an agent is given a
+class that is already diagnosed, it must be told that **finding a thing that is
+not the class is a finding, and a loud one — because a mis-attributed class is
+worse than an undiagnosed one.** A mis-attribution makes the real defect look
+explained, and the class's own name is what makes it believable.
+
+## A defensible decision that removes a check, and records only the decision
+
+`bun_abi` is carried by the proto message and **deliberately left unmapped** in
+the Rust contract, with the reason in the file header: *a v3 keeper is not a Bun
+process, so there is nothing truthful to put in it.*
+
+**The reason is sound** — writing a Bun ABI string for a Rust binary would be a
+lie in a field whose whole job is to be believed.
+
+**But v2 uses that field for a restart-admission decision:**
+`target.bun_abi === running.bun_abi` refuses a restart whose contract disagrees
+with the running one. So the port has silently dropped a check, and **the only
+record of that is a comment explaining why the field is empty** — which is a
+record of the *decision*, not of the *consequence*.
+
+**So the general form: when a port decision removes a check the reference
+performs, the commit body must name the removed check, not only the reason the
+field is now empty.** A reader who finds the comment learns the field is
+unmapped; a reader who needs to know *what admission rule no longer exists* has
+nothing to find. And the removed check is invisible in a diff, because a missing
+check and a never-implemented one are the same shape.
+
+This was recovered from an agent transcript: the agent found it, concluded "this
+is a product defect", and was **hard-aborted before writing it down.** The
+finding survived only because the transcript was still readable — which is the
+argument for treating an agent's transcript as a durable artefact rather than a
+stream.
+
+## A hard-aborted agent's conclusion is still a conclusion
+
+An agent killed mid-turn had reached a product-defect call and had not recorded
+it. Its integrator correctly refused to reconstruct the verdict, and refused to
+promote the *symptom* it had gathered — three tests sharing one refusal — to a
+cause, **because a shared symptom is exactly what a shared fixture and a shared
+product bug both look like.**
+
+**Both refusals are right, and together they are the method:** do not reconstruct
+an unread verdict, and do not promote a symptom to a cause. What is left is to
+re-run the experiment with a fresh agent — and separately, to read the dead
+agent's transcript for the *leads* it gathered, which are evidence and were never
+claimed as conclusions.
+## The checksum proves YOU restored. It says nothing about anyone else.
+
+The per-row harness printed sha256 before and after every mutation and required
+them equal — and **two mutations were still found sitting in a live tree**, left
+by an agent that was hard-aborted between applying an edit and running the row.
+
+**Both were identified only by reading their diffs** (`delete the
+&& !open_session_ids.is_empty()`; `delete reauthorize_device(...)`) and reverted
+by hand, and **neither was detectable from the harness**, because the harness
+had no way to know a second writer existed.
+
+> **The checksum proves *you* restored correctly. It says nothing about whether
+> *anyone else* touched the file, and in a shared worktree those are different
+> questions.**
+
+So the sound check is the conjunction, and only the first half was enforced:
+**the digest was equal at both ends AND no one else wrote the file in
+between.** A per-row harness owns the first; **only the absence of concurrent
+writers owns the second**, and the cheapest proxy for that is a mutation window
+that is announced and *kept* — because a dead agent in an unannounced window
+leaves a tree that looks edited on purpose.
+
+**And the practical rescue, which is worth more than the rule: a mutation is
+recognisable from its diff.** A deleted guard, a deleted call, a deleted
+condition — a mutation reads as a suspiciously small removal, and that is a
+shape a reader can catch in one glance. **The dangerous artefact is not the
+mutation; it is a mutation that has been committed.**
+
+## A row that confirms a fix is the strongest shape a row has
+
+The staleness fix went in and **the same row was re-run on the green tree**:
+`update.common.revision > held.common.revision` → `true` still fails
+`a_late_report_never_displaces_a_fresh_one` with `left: Accepted, right: Stale`.
+Restores checksum-verified on both runs.
+
+> **The row ruled the line out on the broken predicate and confirms the fix on
+> the good one — and the second run is the one that says the fix did not merely
+> move the failure somewhere else.**
+
+**Three verdicts, in increasing strength, and they are not interchangeable:**
+
+| verdict | what it establishes |
+|---|---|
+| **BIT on a red test** | the guard is load-bearing, and *nothing* about isolation |
+| **BIT on a green test** | the guard is load-bearing and the test isolates it |
+| **BIT on green, before and after a fix** | the guard is load-bearing, the test isolates it, **and the fix did not relocate the failure** |
+
+**The third is the one that closes a defect rather than describing one**, and it
+costs one extra run. A fix that moves a failure from one assertion to another in
+the same binary passes a naive "is it green now" check; **a row that bit before
+and after is the only thing in the set that distinguishes a fix from a
+relocation.**
+
+**And the bracket did what a bracket is for.** The third hypothesis was
+necessary-and-insufficient — it fixed the case it was written for and broke the
+other — and that is not a failure, it is **the answer located between two
+bounds**: the rule, plus the dimension the two test bodies share. The dimension
+turned out to be a number in a fixture, not a relation between values.
+
+> **You do not need a fourth guess after a necessary-and-insufficient result. You
+> need one read, and the bracket has already told you where.**
+
+Three dead ends were recorded in the commit body with the test that killed each,
+and **all three were model errors rather than typos**: every line they touched
+was correct, and every line the row can delete is correct. **A dead end that
+touched only correct lines was a wrong model, not a wrong edit** — which is the
+cheapest possible dead end and the most informative one.
+
+## The axis is the REVISION, and it is a property of neither side
+
+Four hypotheses. The first three assumed the missing rule was a **property** —
+of `held` (is it legacy?), of `update` (is it identified?), or of the pair (is
+held-legacy-and-update-identified?). The fourth found it is none of those:
+
+> **The axis is the revision, and it is not a property of either side.**
+
+- An identified frame at **revision 1** is a **brand-new occupant** numbering
+  its first report from scratch, and a new occupant legitimately takes over.
+- An identified frame at **revision 2 or above** is a **continuation** arriving
+  for a session a legacy agent still holds, and must be refused as `Stale`.
+
+Before the fix, both fell through to the same `return update.active`, **so the
+continuation silently took the session.**
+
+**So the general form, and it is the reason three property-shaped hypotheses all
+failed:**
+
+> **A missing condition is often a *relation* between two values, and a relation
+> is not discoverable by asking what either value is.** Asking "is `held` legacy?"
+> and "is `update` identified?" are both answerable from the code and both
+> insufficient; only *"how do these two relate along a third axis"* is the
+> question the predicate was actually failing.
+
+**And the failure mode of the three attempts is worth naming, because it is
+general:** *a tightening changes one side of a relation, and a direction is not a
+tightening.* Making the legacy branch stricter moved the boundary between the two
+cases without moving the boundary in the direction that separates them — so it
+passed one test and broke the other, every time, in a minute.
+
+**The fix is a pure addition — 34 lines added, 0 deleted — and the comment
+records both wrong attempts and why they were wrong.** That is the part that
+makes the next reader's minute unnecessary: *a tightening changes one side of a
+relation, and a direction is not a tightening*, written next to the line that
+finally works.
+
+## Read the test BODY. An assertion message is a hypothesis about the setup.
+
+Three hypotheses were tried against one predicate. All three failed, and the
+third failure is the useful one — because the two tests turned out to be **in
+direct conflict on the very shape the third hypothesis proposed**:
+
+- held **legacy** → update **identified** at **revision 1**, expecting **ACCEPT**
+- held **legacy** → update **identified** at **revision 6**, expecting **REFUSE**
+
+**Same relation, same direction, opposite expectations — distinguished only by
+the revision number, and nothing in the predicate says `1` is special.** So the
+missing rule is not the relation that was proposed; the relation is real and
+**insufficient**, and the defect **cannot be described accurately** until the
+axis is named.
+
+The agent had been **reading the assertion messages and inferring the setup from
+them** — and the test named *"a legacy frame yields permanently once an
+identified occupant is accepted"* is not exercising a legacy frame at all. **The
+name and the message were both describing something other than the body.**
+
+> **An assertion message is a hypothesis about the setup, not a description of
+> it. It is written to be readable on failure, which is a different purpose from
+> describing what the test does.**
+
+**So the read that resolves this is one test body, end to end** — and the
+generalisation of the whole class is now three instruments deep:
+
+- a **code-reading pass** cannot find it, because the code is right;
+- a **mutation row** cannot find it, because every line it can delete is correct;
+- an **inference from an assertion message** cannot find it either, which is the
+  new instance.
+
+**Only the test body carries the axis**, because the axis lives in the fixture.
+
+**And the stopping rule, which is the part worth keeping:**
+
+> **Three hypotheses failing in a row is evidence that the model is wrong, not
+> that the fourth guess will be right.** A fourth attempt would be a fourth guess
+> at a shape now demonstrated not to separate the cases.
+
+The agent said it had had *three opinions about a function it had not read end to
+end*, and asked for the read rather than taking it. **That is the whole
+discipline in one sentence**: the number of failed hypotheses is not diligence, and
+past a point the honest next step is a read rather than another edit. **A count of
+attempts is not evidence of care.**
+
+## The defect was a MISSING RULE, not a wrong branch
+
+Two hypotheses aimed at the same line and both were wrong, because the line was
+correct. What the failing test actually exercises:
+
+- held **legacy** at revision 5, update **identified** at revision 6 → expected
+  `Stale`, and the comment says why: *"once an identified occupant exists, a
+  legacy one can no longer answer for the session."*
+- walked through the predicate: the update is identified so the legacy-*update*
+  branch is skipped; `is_retired` false; `previous` is `Some` so the `else` is not
+  taken; and the *held* row is legacy, so `agent_status_identity(&held).is_none()`
+  is true → `return update.active` → `Accepted`.
+
+**So the line is on the path AND is correct — which is exactly why tightening it
+broke the other test.** The two tests pin **opposite directions through the same
+line**:
+
+| held | update | required |
+|---|---|---|
+| identified | legacy | **accept** |
+| legacy | identified | **refuse** |
+
+> **The predicate cannot tell those apart.** The occupant check is false for a
+> legacy held row, so two different rules fall through to the *same*
+> `return update.active`. **The rule that is missing is a *direction* test —
+> legacy-held versus identified-update — and it exists in none of the returns.**
+
+**So the general form, and this is the fourth distinct shape in one predicate:**
+
+> **Two branches are not "the same line twice". They are two different rules that
+> happen to share a return value, and the thing that distinguishes them is the
+> pair of tests that pin the pair of directions — not the code.**
+
+A code-reading pass cannot find this, because the code is right; a row cannot find
+it, because every line it can delete is correct; and a reviewer comparing two
+identical branches sees a pair. **Only asking "which direction does each test
+require?" exposes an absent condition**, and the answer is a *relation* between
+two values rather than a property of either.
+
+**And the disposition was right a third time: the change came back as evidence
+rather than as an edit**, with the note that it has now had two wrong hypotheses
+in this predicate and the change is *checkable against both pinned tests before
+it is written.* **That is the cheap test applied to a behaviour change** — a
+hypothesis that two existing tests can falsify in a minute should meet them
+before it meets the compiler.
+
+## A fix a test caught is cheaper than a fix a reviewer caught
+
+One behaviour change was authorised on a two-line hypothesis — the legacy branch
+of a staleness predicate returned `update.active` unconditionally, and a row had
+already bounded its *neighbour*, so the defect "must" be there.
+
+**It compiled, and the very next run said otherwise in under a minute.** A test
+named `a_legacy_frame_yields_permanently_once_an_identified_occupant_is_accepted`
+failed with `left: Stale, right: Accepted` — i.e. the branch **is** deliberate and
+**already had a test pinning it**, exactly like the sibling. The change was
+reverted, `git status` clean, the binary back to its prior count.
+
+**And the original failure was still there with the change in place** — so the
+hypothesis was not merely wrong, it was wrong *and* irrelevant, which is the
+cheapest possible way to be wrong.
+
+**What it bought is a tighter bound, not a fix.** Of four returns, three are now
+ruled out: one by a mutation row, one by a passing test, one by the test that just
+failed. **The search area went from "the predicate" to two lines**, and
+*"one disproved fix is enough for a day"* is the right stopping rule.
+
+**So the rule, which applies to every behaviour change on a shipped path:**
+
+> **A fix that a test catches is worth having, and a fix that survives review is
+> worth more. The first outcome is information; the second is a liability.**
+
+The general shape: **a hypothesis cheap enough to test in a minute should be
+tested in a minute, not argued in a review.** The cost of being wrong here was
+one reverted line and one run. The cost of the same wrongness argued rather than
+tested is a shipped behaviour change nobody can distinguish from the fix.
+
+**And the identical-branch rule needed its other half, which is the better half:**
+
+> Two branches written the same way whose *reasons* differ are indistinguishable
+> from correct code — **and two branches written the same way whose rules are
+> both deliberate are indistinguishable from a wrong copy.**
+
+**The thing that distinguishes them is the test each one owns, not the code.**
+Here both early returns turned out to be deliberate, each with a test naming it,
+and the defect was in neither. **Identical code is not a smell on its own; the
+question is whether each copy is pinned by a test that says which rule it is.**
+
+## Two branches written identically, where only one of them has a reason
+
+A staleness predicate with three returns, and a mutation row proved the **last**
+one was guarded while the predicate still accepted a stale report:
+
+```
+:115  if agent_status_identity(&held.common).is_none() { return update.active; }
+:118  if !same_agent_status_occupant(...)            { return update.active; }
+:120  update.common.revision > held.common.revision
+```
+
+**Both early returns `return update.active` without comparing revisions at all.**
+And they are written identically.
+
+**`:118` is correct and deliberate, with a test pinning it:** a replacement
+occupant numbers its revisions from 1, so refusing it as stale would strand the
+session. **`a_replacement_occupant_is_not_a_stale_report_and_retires_the_previous_one`
+is exactly that test.**
+
+**`:115` has no such justification.** A held row with no identity is a *legacy*
+record, and on that path the function accepts any active update at any revision —
+including one at or below the held revision.
+
+> **The occupant-change branch has a reason and the legacy branch does not, and
+> they are written identically — which is precisely why the row could rule out
+> the third line and leave the defect standing.**
+
+**So the general form, and it is a review question rather than a code one:**
+
+> **When two branches are written the same way, ask what each one is FOR. If one
+> has a justification and its twin does not, the one without it is either a bug
+> or an undocumented decision — and it is indistinguishable from the other in a
+> diff, in a read, and to every tool that checks behaviour rather than intent.**
+
+A reader scanning the predicate sees two early returns and reads them as a pair.
+**The pair is the camouflage.** Two branches that differ in *why* must not be
+written identically, because identical code carrying different reasons is
+unreviewable — and the row that could have caught it was bounded to the line that
+*was* correct.
+
+**And the disposition is right: a behaviour change on a shipped path is named in
+the commit body, not made as a side effect of a test failing.**
+
+## A row that BITES and a defect that PERSISTS are compatible, and the pair is the finding
+
+Three pre-registered rows, written long before this wave, all three bit — and
+**every one of them fired on a test that was already red for a second reason**:
+
+- **C5 BIT** on `status_order.rs:120`, and the live staleness failure is a
+  *different* test entirely. So **C5 biting rules `:120` out as the cause**, and
+  the defect is in one of the two earlier early-returns in `accepts`. The row
+  bounded the last of three; the defect is in the first two.
+- **C10 BIT**, failing at `:53` while the same test is currently red at `:81` —
+  the meta defect is genuinely guarded, and the live failure is something else
+  in the same test.
+- **C11 BIT**, but measured against red, and correctly labelled as such: the
+  verdict is real and **the isolation is not established**.
+
+> **A test whose row bites and which is also red is failing twice over, and the
+> row cannot tell you which failure you are looking at.**
+
+And the finding that generalises past this wave:
+
+> **The gate's instrumentation is working and the failure set has grown
+> underneath it.** The rows are not stale — the tests have acquired a second
+> cause.
+
+**This is a different problem from stale rows, and running the rows one at a
+time and recording BIT would never have shown it.** Three BITs that look like
+three successes are, together, three tests with an unexamined second defect each.
+**The pair — a row that bites plus a failure that persists — is strictly more
+informative than either alone**, because one bounds what the guard covers and the
+other says what is still uncovered.
+
+**And the labelling rules this forced, all three of which are now standard:**
+
+- **A mutation that does not compile is INCONCLUSIVE, not "did not bite".** They
+  are different verdicts: "did not bite" is a claim about the test, and a
+  compile error is a claim about the edit.
+- **A row measured against a red baseline is BIT-with-unestablished-isolation**,
+  and must be labelled that way rather than folded into a pass.
+- **When a row bites a red test, the row's job changes.** It is no longer
+  answering "is this test sensitive"; it is answering "what else is wrong with
+  it", and the second question is the one the wave needed answered.
+
+## The row that already exists for this defect is cheaper than diagnosing it
+
+Three `tasks_queue` failures were read as **three individual assertions** by the
+map that classified them. They are **one product cause**: three independent
+handlers, **zero deliveries**, same module, different tests. `left: []` where
+`[Created, State, State]` is expected — not a wrong delta, not a wrong order, **no
+deltas at all**. That is a bus that is not connected.
+
+**And the mutation row for it was written months ago and has never been run.**
+`C11` — *delete the `publish` call in `handle_tasks_set_state`*, must fail
+`a_task_change_reaches_a_sync_subscriber` — is **precisely** the row that catches
+this class. The same is true of `C5` for the staleness defect below.
+
+> **Before diagnosing a defect by hand, check whether a row already exists for
+> it. A row is a cheaper experiment than a reading, it has a pre-registered
+> prediction, and it produces a control the reading cannot.**
+
+**The corollary, and it is the sharper half: a defect whose row has never been
+run is a defect that has never been *bounded*.** The row does not only confirm
+the cause — **it states how much of the surface that one `publish` call owns**,
+which is information no amount of reading the failure would give you.
+
+## Four product candidates, two of them the shape that has destroyed contracts
+
+Of 14 remaining failures, four are product candidates rather than test defects:
+
+- **A staleness check that accepts a stale report.** `left: Accepted, right:
+  Stale` — a report that should be refused is accepted. **This is the most
+  consequential single failure in the list, because it is the difference between
+  the last word and the first**, and it is the same `status_order::accepts`
+  predicate `C5`'s row guards.
+- **A busy store reported as `Internal` where `Unavailable` is expected.** The
+  test's own message is the argument: *"the call is retryable, so it is neither
+  the caller's fault nor a statement failure."* **A busy store is a
+  `Unavailable`, and reporting it as `Internal` tells an operator the coordinator
+  is broken when it is merely saturated.** A caller that treats `Internal` as
+  non-retryable will not retry a request that should be retried.
+- **The unconnected bus** above.
+- **A deletion that leaves the row present and misordered** — the same family as
+  the staleness defect, in the same ordering logic.
+
+**All four are the same shape: a boundary that reports the wrong thing, so the
+observable the contract promised is simply absent.** Something upstream errors, or
+does not run, and the error either disappears or is reported as the wrong kind.
+**This is the third occurrence of that shape in this port** and the second today.
+
+**And the discipline that produced them: the agent refused to classify the four
+it had not read**, pointing out that the map's "individual assertions" label was
+wrong about `tasks_queue` too. **A classification is not inherited — it is
+re-earned per cluster**, and a map's verdict on a cluster nobody has opened is a
+guess with a number on it.
+
+## The first complete mutation rows — and the two that did not behave
+
+Six rows, run with both directions and a checksum-verified restore, against a
+baseline established *after* the fixtures were fixed to green. The results are
+worth more than the count, because **two of the six are findings about the
+tests**:
+
+| row | verdict | what it means |
+|---|---|---|
+| **M2** | **BIT**, and **the pair separated** | the outside-drain test went red, the inside-drain test stayed green — the tests are isolating the property, not merely failing |
+| **M4** | **BIT** on both named tests | plus three handler tests beyond its two named, noted rather than absorbed |
+| **M6** | **BIT** with a clean control | the first attempt left a stray brace — the *harness's* encoding error, not the row's — and was corrected and re-run |
+| **M1** | **DID NOT BITE — zero delta** | the same three tests failed with the same messages before and after the edit |
+| **M3** | **the named tests did not move** | the property is actually pinned by a *different* binary |
+| **M2 vs M4** | **perfectly orthogonal** | the guard tests stay green under M4 and the acquisition tests stay green under M2 |
+
+**M1 is the most valuable row in the set, and it is a row that failed.** Its
+named test passes with the guard deleted, so **the test does not test the
+property** — the row stays open, and no rewording until it bites.
+
+**And M3 is the other one: its named tests live in the wrong binary.** The row
+named a test in one binary and the property is actually pinned by another. That
+is not a broken row, it is a row that found where the coverage really is — and
+**a row whose named test does not move is telling you where the assertion
+lives, not that the code is safe.**
+
+The general form, and it is the reason both directions are mandatory:
+
+> **A row that bites proves a test is sensitive. A row that does not bite proves
+> where the sensitivity is not — and the second answer is the one that changes
+> what you write next.**
+
+## A shared-contract field the FIXTURE stopped sending
+
+The four keeper failures shared one refusal — *"journaled keeper update is
+malformed"* — and the cause was the fixture, not the product: **it still sent
+`bun_abi`**, a field the admission contract deliberately omits. **The fixture is
+the stale side of a decision the code had already made correctly.**
+
+That is worth stating precisely because it is the *third* time in this port that
+a v2 field's removal was correct and something else had not caught up. **A
+divergence is not always a defect in the port** — sometimes it is a caller that
+never learned the field went away, and the test fixture is the caller that
+finds it first.
+
+## A mutation row run against a RED baseline is uninterpretable
+
+The keeper rows were run, and the results were discarded and re-run — because
+the baseline the rows were measured against was **not green**. Four tests in the
+binaries under mutation were already failing for an unrelated reason.
+
+**With a red baseline, a row's outcome is ambiguous in every direction:**
+
+- the named test failed — but it was already failing, so the mutation proved
+  nothing;
+- the named test passed — but so did it before, so the row is unproven;
+- a neighbouring test moved — and there is no way to attribute it.
+
+**So the precondition is a green baseline for exactly the binaries the rows
+name, established and recorded before the first mutation** — the same
+"establish the tree's state before the measurement, not after" rule, applied to
+the instrument rather than to the subject.
+
+**And this is the same class as the mutation window itself:** a measurement taken
+over a tree that is known to be in a transient state is a measurement of the
+transient. The window announcement stops siblings *misreading* the transient;
+the green baseline stops the *experiment itself* from being run on one. **The
+first is hygiene for other agents, the second is a precondition for the result
+to mean anything, and the second is the one that costs you the whole run.**
+
+## A first fix that does not move the number is a FORK, not a verdict
+
+`bootstrap_single_use` was **3 passed / 5 failed** after a real defect was
+fixed. A real defect: **one unclosed parenthesis in `claim_bootstrap_token`'s SQL
+— every bootstrap token redemption was failing.** The fix was correct and it moved
+nothing, because there were **two** defects in one statement and the first hid
+the second: `RETURNING bt.account_id` names the alias in a clause where SQLite
+requires the bare column, failing with `no such column: bt.account_id`.
+
+**8 passed / 0 failed** once both were fixed.
+
+> **A first fix that does not move the number is a fork, not a verdict — it names
+> the two places the cause could be, and picking one without evidence is how a
+> real fix gets reported as your fix.**
+
+The earlier formulation was *"a fix that does not move its predicted number is
+either incomplete or was never the cause"*, which is a diagnosis. **The
+operational form is a fork**: there are now two live hypotheses, the statement
+and the path around it, and the next move is to distinguish them rather than to
+declare the first one sufficient. **"I fixed a real bug" and "I fixed your bug"
+are different claims, and a partially-green result is exactly where they come
+apart.**
+
+**And the corollary that makes this expensive: those two tests were never a race
+test.** They assert on `accepted` and reported `left 0, right 1` — *both*
+redemptions refused — while the other three said in prose *"the first
+redemption: Internal"*. The first redemption failed, so there was no concurrency
+to investigate. **They have been counted as atomicity evidence in every summary
+so far and they are not.** A test failing for a reason other than its stated
+reason is worse than one that has never run, because it is counted.
+
+## Two references disagreeing is the evidence: find a third
+
+The `RETURNING` failure was explained three ways in turn, and **the wrong ones
+were falsified by running minimal cases rather than by reasoning:**
+
+1. *"the alias is not visible inside a subquery"* — **false**; a minimal
+   `UPDATE t AS bt … WHERE EXISTS (SELECT 1 … o.fk = bt.account_id)` succeeds.
+2. *"the whole statement is malformed"* — **false** on the real schema; the
+   exact extracted statement runs against all 27 tables, and the only failure is
+   `RETURNING`. The system `sqlite3` here is **3.34.1 and cannot parse `RETURNING`
+   at all** — it landed in 3.35 — so that was a version artefact.
+3. *"the error is in the RETURNING clause"* — **confirmed**.
+
+> **Two references disagreeing with each other is not a problem to resolve by
+> picking one. It is a third reference point you have not looked for yet.**
+
+The system `sqlite3` and the bundled one disagreed, **and the disagreement was
+the evidence** — because a version artefact and a real defect produce the same
+diagnostic until something independent breaks the tie. This is the same shape as
+the `rtx`-vs-mobilecheck-vs-bundled divergence earlier in this port, and the rule
+is the same: **when two sources of truth about an environment disagree, the
+answer is a third independent source, not a tiebreak between the two.**
+
+## The run that stopped early is a claim about the run, not the workspace
+
+`cargo clippy` reported two diagnostics, both unused imports in `roost-keeper`,
+and the integrator read that as *roost-coord is clean*.
+
+**It was not. The run stopped at the first failing crate, and `roost-keeper`
+sorts before `roost-coord`.** So *"only two lints remain in the workspace"* was
+true of what the compiler reached and false of the workspace.
+
+**This is the sixth instance of the `--keep-going` family, and it is the one
+place nobody expected it: `clippy` is not a test run, and the habit of reading a
+lint count as a verdict is as strong there as anywhere.** The family has now
+produced: a `13 errors` under-read, a `27 errors` under-read, six missed binaries
+from a truncated printout, a `97` from a `grep` that matched its own summary, a
+stale `581/38`, and **a clippy count that described the crates alphabetically
+before `roost-coord`.**
+
+**And the count went DOWN — from an inherited 8 to 7 — by discovering the run had
+stopped early rather than by fixing anything.** That is the useful shape of it:
+a better number arrived from a better question, not from more work.
+
+**The catch is the part worth naming: it went looking for a third reference point
+rather than because the number looked wrong.** A linter reporting two unused
+imports is not a suspicious number — it is exactly what a nearly-clean tree
+looks like. **The only thing that made it checkable was the rule that two
+sources disagreeing means looking for a third**, and the same agent had written
+it down an hour earlier.
+
+## A lint that is right is not always a mechanical fix
+
+Two of the seven remaining lints were deliberately not fixed, and the reasons
+are the point:
+
+- **`install_cloudflare_jwks` returns `Result<(), ()>`.** Clippy is right: `()`
+  is not an error type, and a caller cannot tell *why* an install failed.
+  **Replacing it means choosing an error type** — and the choice is a decision,
+  because the install runs once at boot and a `OnceLock::set` failure means a
+  *second* install, which is a programming fault rather than a runtime
+  condition. The right error type has to say that.
+- **`authority.rs`'s unneeded `Ok`/`?` pair.** Clippy is right that the pair is
+  redundant, and **which of the two to remove is a statement about whether that
+  function can fail.**
+
+> **A linter that reports a redundancy is pointing at a decision, not
+> necessarily at an edit.** `collapsible_if` is mechanical; `needless_question_mark`
+> is a question about whether the function can fail, and the lint does not know
+> which you meant.
+
+**So the remaining five are listed with exact locations rather than fixed in a
+hurry, so that nobody re-derives them** — and the two judgement calls are
+recorded as decisions, not as omissions, because a lint left unfixed with no
+stated reason is indistinguishable from a lint nobody ran.
+
+## One missing paren in 151 literals, and 6 of the 7 are the idiom
+
+`claim_bootstrap_token`'s SQL literal had **one unclosed parenthesis** — the
+`AND (` opening the minter-authority group never closed. SQLite reached
+`RETURNING` at depth 1 and refused with `near "RETURNING": syntax error`, and the
+RPC reported `Internal`.
+
+**Every bootstrap token redemption was failing**, and no compiler can see it,
+nor can a reader of fourteen lines of backslash-continued SQL.
+
+**The class sweep is the part that generalises: of 151 SQL string literals, 7 are
+unbalanced — and 6 are the deliberate "the `)` arrives from a `QueryBuilder::push`"
+idiom. Exactly one is real.** So the sweep did not find one bug in 151 places; it
+found **a defect and a convention that look identical to a paren-counter**, and
+the only way to tell them apart was to read each one. **The negative results are
+what close a class**, and here the six idiom sites are what prove the seventh is
+a defect rather than the same deliberate shape.
+
+**And the fix did not move the number it was predicted to move** — still 3 passed
+/ 5 failed, all five redemption tests. So the missing paren was real **and
+incomplete**: either a second problem in the statement or a second statement on
+the path.
+
+> **A fix that does not move the number it was predicted to move is either
+> incomplete or was never the cause — and the report must say which.**
+
+That sentence is the whole discipline in one line. "I fixed a real bug" and "I
+fixed your bug" are different claims, and a green-looking partial result is
+exactly where they come apart.
+
+## A test that passes half the time is worse than one that always fails
+
+`the_registry_answers_in_the_order_it_declares` asserts an order over relay ids
+that are **random v4 uuids from SQLite's `randomblob`**. It passed at the
+previous gate, fails now, with nothing in its files changed.
+
+**A test that passes sometimes is worse than one that always fails, because it
+gets filed as flaky infrastructure — a non-deterministic pass is
+indistinguishable from a non-deterministic machine.** An always-failing test is
+diagnosed in a minute; a sometimes-passing one is argued about for a week.
+
+And the sharp part: **the same suspicion was falsified elsewhere.** Random-uuid
+ordering was suspected in `workspaces_tree` and *disproved* at `:323-332`, which
+rewrites tied ids to fixed values. **The suspicion was wrong in one place and
+right in another, and only running it says which** — which is why a hunch has to
+travel as a hunch, per site, and never as a pattern.
+
+## A diff cannot distinguish "found nothing" from "found something and named it"
+
+An agent working under a brief that forbids it from editing `src/` produces a
+diff in which **a product defect is indistinguishable from no work at all.** I
+read a clean-looking diff, concluded "this wave found no product defect", and was
+wrong — the wave found the paren defect, named the file, and stopped at the
+boundary, exactly as briefed.
+
+**So: "the agent changed nothing" and "the agent found the cause and named it"
+are identical in a diff, and only the report distinguishes them.** The lesson is
+the mirror of the one above: **a diff is evidence about files, never about
+findings**, and a conclusion drawn from an unchanged file list is a claim about
+files being mistaken for a claim about the work.
+
+## A stale number in a COMMIT BODY is worse than one in a chat message
+
+A commit landed claiming **581 passed / 38 failed across 15 failing binaries.**
+Two independent runs of the committed tree, from clean, both give:
+
+```
+584 passed / 35 failed / 3 ignored, 14 failing binaries
+```
+
+**Reproduced twice, identical — so the committed figure is stale, not flaky.**
+It was measured before the last edits landed, and the commit body — the durable
+artefact every future reader consults — states it as the tree's result.
+
+**The rule sharpens from "do not quote a stale number" to: the commit body's
+numbers are part of the commit, and a number measured before the final edit is a
+false claim about committed code.** The stale-figure family has now produced:
+a `13 errors` under-read, a `27 errors` under-read, a `97 binaries` off-by-one
+from a `grep` that also matched the summary, six missed binaries from a
+truncated printout, and now this — and **every one of them was correct when
+measured and wrong when published.**
+
+**The guard is cheap and it is the same one that caught the `97`:** a figure
+quoted in a commit body is measured on the tree at that commit, and if anything
+was edited afterwards the number does not ship. **Two runs agreeing is what makes
+the corrected number trustworthy in its turn** — a single run of a tree that has
+just been edited is the same measurement error wearing a different hat.
+
+**The cleanest statement of the whole family, and the one to keep:**
+
+> **A number is a claim about a tree, not about a run — and the two come apart
+> silently.**
+
+Every instance was *correct about the thing it measured* and *wrong about the
+tree it was describing*. A `grep` that also matches the summary line is correct
+about how many lines matched. A suite run that finished before the last edit is
+correct about the suite. **The run is never wrong; the claim is.** That is why
+none of these were caught by re-running — re-running reproduces the run, and the
+run was never the problem.
+
+**So the guard is structural, not diligence: a published figure ships with the
+runs that agree, or it does not ship.** Not "check the number", but "the number
+cannot be written down without the evidence beside it" — which is why the fix is
+a file's byte count and two independent line counts sitting next to every
+figure, rather than a reminder to be careful. **A rule that requires remembering
+something is not a gate; a rule that makes the thing impossible to write alone
+is.**
+
+**And the check earns its cost only once someone declines to argue with it.** The
+integrator had a number, I had two agreeing runs, and it took the reading over
+its own — which is the only version of this that works. **A verification step
+whose result gets negotiated is not a verification step.**
+
+**So the general form of the trap: a counting command whose pattern also matches
+the report about the count.** `grep -c "test result"` is one line longer than the
+file it describes. The cheap guard is to print two independent counts beside each
+other and require them to agree — because a single count has no way to be wrong
+visibly.
+
+## "They share a module" is now wrong four times out of six
+
+| cluster | shared | one cause? |
+|---|---|---|
+| `agent_fixture` | 5 binaries | **yes** — one 32-hex constant, and two product bugs under it |
+| `pairing_support` | 2 binaries | **yes** — `i64` against a `TEXT` column, and two more under it |
+| `terminal_view_support` | 3 binaries | **no** — four subjects, four mechanisms, 24 tests pass |
+| `tasks_support` | 2 binaries | **no** — `tasks_refusals` is 8/0 |
+| `mcp_relays_support` | 4 binaries | **no** — three of four fully green |
+| `keeper_update_support` | 3 binaries | **no** |
+
+**Two of six, and both of those turned out to be product defects rather than
+fixture defects.** So the guess is wrong four times in six *and* the times it is
+right are the ones that matter most — which is the worst possible ratio, because
+it makes the guess feel reliable right up until it costs an hour.
+
+**Which is why a triage wave must not route by sharing.** Read the shared module
+first because a fixture cause is *possible* there, not because it is *likely* —
+and then be ready for the negative. **Four unrelated assertions in a working
+module is a completely ordinary result**, and reporting it as such is a finding,
+not a failure to find something.
+
+**And the one that generalises past fixtures: a test whose expectation
+contradicts its own input builder, ten lines apart, is a missing test rather than
+a weak one.** `assert name == "ws"` sitting above a `create` helper that builds
+`format!("ws-{folder}")` is not a weak assertion; it is an assertion that could
+never have held, and it is provable from the test's own file without running it.
+
+## A bounded read presented as a total is the `--keep-going` error again
+
+A published per-binary breakdown **missed six binaries** — three
+`workspaces_*` tests, all failing, all in the run — because the printout was
+truncated at 130 lines and the tail was reported without checking what the cut
+had removed. The conclusion survived (they are individual assertions, not
+fixture cases) but **a number that was published was an under-read**, and this
+is the same family as measuring without `--keep-going`: a limit in the tool
+silently became a limit in the claim.
+
+**So the rule generalises past cargo: when a result is bounded — by `head`, by
+a terminal, by a page — the number is a lower bound until someone has read the
+part that was cut off.** Truncation is not a display concern; it is a claim
+about what was examined, and the claim is what gets cited later.
+
+## A fixture can violate TWO rules and only ever show you the first
+
+A test's configuration was refused. It violated **two** validation rules, and
+they are checked in order:
+
+- a team domain must be exactly one lowercase label under `.cloudflareaccess.com`
+  — the test's literal was `team.example`;
+- **behind it**, an audience must be exactly 64 lowercase hex characters — and
+  *both* test files' audience was the 14-character `roost-coord-aud`.
+
+**Any fix that corrected only the domain would have failed on the next line,
+with a different message.** So the fixture costs a cycle no matter how the first
+fix goes, and **the panic message never names the rule that was actually
+violated** — it names the first one checked.
+
+**So the rule: when a validation failure is fixed, read the validator's ORDER,
+not just its first message.** A validator that checks A then B is a fixture that
+violating either one produces the same-looking failure twice, and the second
+attempt looks like the first fix not having worked. The crate's own unit test
+held the good values, which is the fastest reference and the one a fixer skips
+because the test file is what is already wrong.
+
+**Same species as the `i64`-for-`TEXT` finding one layer out: a value that must
+satisfy a constraint the error does not state.**
+
+## Two tests sharing a process-wide counter produce a random result, not a flake
+
+Two async tests in one binary shared **one process-wide lookup counter**, and the
+harness runs tests concurrently — so each could read the other's eight lookups.
+
+**That is not a defect in the product; it is a test whose result would have been
+random.** And a random result is worse than a flake: once it surfaces it is
+reported as *flaky* and filed as an infrastructure problem, because a
+non-deterministic pass looks exactly like a non-deterministic infrastructure.
+
+Fixed by counting **per `kid`**, with each test using its own. **The general form:
+a process-wide counter shared by concurrently-run tests is a shared mutable
+global with a test-shaped costume, and the fix is to key the count to whatever
+the assertion is actually about** — not to remove the counter.
+
+## A dependency's behaviour change is a class, and a sweep's NEGATIVES close it
+
+`sqlx` 0.9 changed `Separated::push_bind` to **emit the separator first**. The
+code did `separated.push(column).push(" = ").push_bind(value)`, where `push(" =
+")` had already armed the separator — so it rendered `SET name,  = ?`.
+
+**Every `update_workspace` was a syntax error.** It surfaced as
+`WorkspaceError::Sqlite` and therefore as `Internal` at the RPC boundary — so
+**the version guard never ran, and a stale write reported an internal fault
+instead of `FailedPrecondition`.** Five of six failures in that cluster were this
+one cause.
+
+**The class was closed by a crate-wide sweep for every spelling of the idiom —
+`.separated(`, `push_values`, `push_tuples`, `Separated`, `push_unseparated`,
+`push_bind_unseparated` — and `workspaces.rs:192` was the only site chaining
+`push` and `push_bind` on the same `Separated`.** The other six sites are all
+one-element-per-`push_bind`, the idiom insensitive to the change, and correct
+under both versions.
+
+**So: the negative results are what close a class, and the positive one is what
+opens it.** Six sites enumerated and dismissed is the evidence; one site named is
+a fix. A sweep that reports only the hit has told you nothing about the other
+five.
+
+**And the fix moved the predicate onto the `QueryBuilder`, because a `Separated`
+inserts commas** — which is the general shape: when the container's semantics are
+the bug, the fix is not a different call order within the container, it is a
+different container.
+
+## "Lossy, not wrong" is a third category
+
+A caller sending `if_version > i64::MAX` gets `VersionMismatch` rather than a
+rejected value, because the request is clamped to `i64::MAX` and matches no row.
+**That is lossy, not wrong** — the request is refused, the database is not
+corrupted, and no test sends a value that large.
+
+**This programme keeps inventing binaries for *correct* and *broken*, and a
+defect report that only has those two slots will push a lossy behaviour into one
+of them by default.** So the third category is named explicitly: it goes in as an
+**open decision with its reasoning, and it must not acquire a guard by
+accident** — because adding a check nobody decided on is how a documented
+limitation becomes an undocumented behaviour change.
+
+## THE GUARD-ESCAPE CLASS IS CLOSED
+
+Open since before this wave: **the only test in the programme that can see a
+lock held across an `await` had never been executed.** The verdict, in the three
+terms fixed in advance, and how each resolved:
+
+- **HANG — NO, and that was the load-bearing observation.** All eight concurrent
+  callers completed; each crossed the real `yield_now().await` inside
+  `CloudflareJwks::jwk` and each received a verified identity. **If a lock were
+  held across the await, the second of eight callers would block and the test
+  would never have finished.** It finished in 0.11s.
+- **FAIL inside the concurrency body — YES, once**, at *"every caller really did
+  reach the key ring"*, `left: 16, right: 8`.
+- **PASS — no, on that run.** The test failed on its own arithmetic: the
+  fixture's counter is `+= 2` per call while the assertion expected one per
+  caller. Eight callers × 2 is 16, exactly. **The instrument and the expectation
+  disagreed with each other, not with the product.**
+
+**After naming the constant, the test passes: 5 passed / 0 failed.** So the
+class is closed on the no-hang evidence *and* on a green run, and the fix between
+them was the test's own arithmetic.
+
+**The route took three failed runs, and none of the first two was the answer.**
+The first panicked in the test's own `config()` on a team domain; the second was
+behind that on an audience length; only the third reached the concurrency body.
+**A test that cannot construct its own inputs will tell you about its inputs for
+as long as you let it, and never about the thing it was written to check** —
+which is the same shape as the vacuous-fixture class, arriving from the
+opposite direction.
+
+**And the fix is a general rule, because the failure is general:** a counter that
+moves by N per call must be asserted as `CALLERS * LOOKUPS_PER_CALL` in terms of
+a **named constant**, never as a bare number that happens to be right for one of
+them. Here the bare `8` was wrong by exactly the per-call factor, and it had
+been sitting in a test nobody had run.
+
+**A residual race the per-`kid` fix did not close, recorded rather than
+silently accepted:** the ring is a process-wide `OnceLock` and three other tests
+in the same binary also use `KEY_ID`, so the `before`/`after` delta isolates them
+only if none increments *during* this test. **Keying a counter to what the
+assertion is about is necessary and not sufficient** — a counter shared across
+concurrently-run tests needs the tests serialised, or the counter per-test
+rather than per-subject.
+
+## The input that does not say what the test's own name says
+
+This has now appeared **four times independently, in three unrelated areas**,
+which makes it a class rather than a coincidence:
+
+- a test named `a_wrong_requester_token_finds_nothing` called a helper that
+  **hardcoded the correct token**, so "wrong" was a *successful* confirmation;
+- `workspaces_sync_delta` asserted `created.name == "ws"` ten lines above a
+  builder that produces `format!("ws-{folder}")` — provable without running it;
+- a trust-boundary test passed `UNADMITTED` (documented as a SESSION uuid) as a
+  **view id**, so validation passed, the declaration was admitted, and **the
+  `!allowed` arm was never reached — the test was exercising nothing**;
+- a "stranger" identity built from the same `WORKER_FP` the harness registers
+  the owner with, so the stranger **was** the owner.
+
+**The general form: a test's input builder and its name are written separately,
+and nothing checks that the builder produces what the name claims.** The name is
+the specification; the builder is the fixture; a test is honest only when the two
+agree, and **the assertion cannot detect the disagreement** — it either passes
+vacuously or fails for a reason the name does not describe.
+
+**So the check is mechanical and belongs before the run: read the test's input
+builder and compare it to the test's name and doc comment.** A name naming a
+*wrong*, *stranger*, *expired*, *revoked* or *foreign* value is a claim that the
+fixture is distinguishing it, and a builder that cannot distinguish it is a
+vacuous test. **This is the last thing a compiler, a linter, and a reviewer
+skimming the assertions will ever catch — it is only visible in the gap between
+the signature and the setup.**
+
+And the corollary that makes it a real risk rather than a style note: **four of
+these were found by reading inputs, not assertions, and one of the four was
+hiding a genuine product defect behind it** — a same-revision ACTIVE declaration
+could revive a released claim, because the admission guard was unreachable for
+release-created claims. **A vacuous test is not merely wasted; it is a place
+where a real defect goes to hide.**
+
+## A hold has THREE states, and only two of them are visible
+
+A commit body saying *"held, not fixed"* is ambiguous, and the ambiguity is
+resolved after six months by nobody — because **a deferral with a citation reads
+exactly like a decision someone reasoned their way to.**
+
+| state | what it is | is it a reason? |
+|---|---|---|
+| **CHOSEN** | someone argued it and took it | a decision |
+| **OUT OF CLOCK** | real, nobody chose, and the next reader cannot tell it from the third state | not a reason |
+| **NOT MINE TO DECIDE** | the decision belongs somewhere this crate cannot reach | **the only one that is a reason rather than an excuse** |
+
+> **A hold that does not name who decides is a deferral with a citation, and a
+> citation is not a hand-off.**
+
+**So the discipline is: a held item carries a state, and a state-2 item is
+required to say so.** An honest wave ends with several items marked
+*out of clock* and one or two marked *not mine*, and **the ratio between them is
+itself the finding** — a wave where everything is "held" and nothing is
+"deferred for lack of time" is not being careful, it is being vague.
+
+**Applied to this crate's five, which is the point of writing it down:**
+
+- `confirmation::terminalize` — **CHOSEN**: the guard would introduce a refusal
+  the other two terminal writes have and this one does not, so it is a contract
+  question and it is held because the answer is a decision.
+- `mcp_relays_authority` (`Internal` for `Unavailable`) — **NOT MINE TO DECIDE**:
+  callers decide retry behaviour from the code, so changing it changes what every
+  client does under saturation, and the blast radius is past this crate.
+- `i64::MAX` clamp · process-wide `OnceLock` counter · `MiscDbExportUrl` locality
+  gap — **OUT OF CLOCK**: each is a real finding with a real argument behind it
+  and **none has an owner named for the decision.**
+
+**The general reason this matters is the one that makes a gate file trustworthy:
+reading them, the author could tell which two they argued and which three they
+ran out of clock on — only because they remembered the difference. A reader two
+commits from now cannot.**
+
+## A rule you built a guard for, and then did not apply, is worse than no guard
+
+The equalising statement landed in the wrong function because the edit was a
+scripted replace **anchored on a line that appears in both tests** — so it hit
+the first occurrence. The author already had a `NOT UNIQUE — refusing to guess`
+guard in the mutation harness for precisely this hazard, had written it down as a
+rule, and then made an edit that violated it **while quoting the rule in the same
+commit body.**
+
+> **A guard you built for a hazard and then did not apply is worse than never
+> having built it** — because its existence makes the hazard feel handled, and
+> "we have a rule about that" is what a reader (and its author) stops thinking
+> at.
+
+**The check belongs where the mistake is made, not only where the mistake was
+first seen.** A guard in the mutation harness protects mutations; the same guard
+belongs in *every scripted edit*, because **an ambiguous anchor is a property of
+the text, not of the tool you happen to be running.**
+
+**And the structural note, which is the part that generalises past this bug:**
+
+> **"Unverified" is honest, and it is not a substitute for looking.** A commit
+> that says *"I did not verify this"* still has to be **internally consistent**,
+> and this one was not — the comment sat in one function and the statement in
+> another, and **either** check would have caught it: read the body the comment is
+> in, or run the test.
+
+**So a claim of non-verification is not a substitute for the cheap check that was
+available anyway.** Declining to claim a result is honest; declining to *look*,
+when looking costs one read, is not. **The two are independent, and only one of
+them is free.**
+
+## A FIX IN A TEST THAT DOES NOT ASSERT THE PROPERTY FIXES NOTHING
+
+The first attempt at establishing the ordering premise was placed in
+`create_list_publish_and_delete_stay_consistent_with_the_relay_stream` — a test
+that **asserts no order at all**. Five runs afterwards came back
+`3/0, 3/0, 3/0, 2/1, 3/0`, and the comment in the *real* test kept saying the
+timestamps were *"equalised below"* while the statement sat a hundred lines
+above in a different function.
+
+**A remedy described in a comment and absent from the body is a hope — one level
+above the one the test already had.** The original defect was a premise the body
+did not establish; the first fix was a remedy the comment described and the body
+did not contain. Same class, one indirection out, and it survived a commit.
+
+**And the second defect in the same fix: the scope.** The `UPDATE` was
+`WHERE dashboard_id = (SELECT id FROM dashboards LIMIT 1)` — a whole tenant's
+relays, reached through a subquery over a limit-1.
+
+> **A test asserting its own premise should not assert it through a scope it does
+> not itself pin.** The fix scopes to the two ids the test created and asserts
+> `rows_affected() == 2`, so *"the premise holds"* is an observation rather than a
+> hope.
+
+That `rows_affected` assertion is the part that generalises: **when a test
+establishes a precondition for its own assertion, assert the precondition too**,
+because otherwise the test cannot distinguish *I set it up* from *it happened to
+be true*, and those are the same distinction this whole class is about.
+
+**And the discipline that caught it was exactly the one built earlier: the fix
+shipped with no determinism claim, five identical lines were demanded as the
+closure, and the five came back non-uniform.** Without that step the coin would
+have been declared fixed on the strength of a comment.
+
+## A test whose stated premise is a HOPE is a coin
+
+`LIST_RELAYS` declares `ORDER BY created_at_ms, id` — so with **equal**
+timestamps the order *is* the id order, and the test's expectation was right. It
+failed because **the two rows did not have equal timestamps**, and `ORDER BY`
+then correctly answered in creation order.
+
+**The test asserted a premise it never established.** Its comment claimed
+*"created inside the same millisecond"* — and whether `now_ms()` returned the
+same value twice was a coin, passing about one run in two.
+
+> **The failure mode is not a wrong product and not a flaky machine: it is a test
+> whose stated premise is a hope.**
+
+The fix establishes the premise rather than hoping for it — one statement giving
+both rows the same `created_at_ms`, so the only thing that can decide the order
+is the tiebreak the test exists to pin. **And no `src/` change: the product's
+declared order was correct and stays as it is.**
+
+**Three instances of this one class in a single crate, and every one found by
+asking a question rather than by running a tool:**
+
+1. a comment claiming *"created inside the same millisecond"*, never equalised;
+2. a bus fixture that **subscribed and dropped the handle in the same
+   statement**;
+3. an empty database left by five dropped `insert` futures.
+
+> **None has a tool that catches it, and all three are one question: what does
+> this test set up, and did it?**
+
+**So the class generalises past premises about data to premises about
+*plumbing*** — a subscription that was made and released, an `await` that was
+dropped, a timestamp that was assumed equal. **The comment is where a test states
+its premise, and a premise in a comment that the body does not establish is a
+hope, and a hope is a coin.**
+
+**And the hardest case of the measurement rule, handled correctly:** the fix was
+made, four determinism runs did not return inside the budget, and the commit
+therefore **carries no claim that the test is now deterministic** — it states
+what would verify it (five identical `3 passed` lines) and leaves the measured
+bracket in the test's own comment. **Declining to claim a fix works because the
+verification did not land is the same discipline as publishing a range instead
+of a point**, and it is the harder of the two.
+
+## Two runs that DISAGREE are a finding, and both get published
+
+Two clean runs of one tree, six minutes apart:
+
+```
+run 1   612 passed / 7 failed / 3 ignored, 6 failing binaries   77,110 bytes
+run 2   613 passed / 6 failed / 3 ignored, 5 failing binaries   76,359 bytes
+```
+
+**One binary differs: `mcp_relays_registry` went 2 passed / 1 failed, then 3
+passed / 0 failed.** It asserts an order over relay ids, and those are random v4
+uuids from `randomblob` — so a prediction made from reading the code is now
+**measured rather than inferred, bracketed at roughly one in two.**
+
+> **The 6 is a floor, the 7 is a ceiling, and neither is the number.**
+
+**And this reframes the whole measurement rule, which until now had only ever
+paid by confirming.** Every previous instance was "measure twice, they agreed,
+now I know the value". **This time the value was in the disagreement**, because
+a single run cannot distinguish *"this test fails"* from *"this test is a coin"*:
+
+> **A test that passes sometimes is worse than one that always fails: it gets
+> filed as flaky infrastructure, and a non-deterministic pass is indistinguishable
+> from a non-deterministic machine.**
+
+**So the rule's final form has two clauses, and the second is the one that is
+easy to omit:**
+
+1. **A figure ships with the runs that agree — or with the runs that disagree,
+   both published.**
+2. **Publishing one run of a tree that turns out to be nondeterministic is the
+   same error as publishing a stale number: a claim about a run presented as a
+   claim about a tree.**
+
+**Because the honest figure here is a range, and a single number would have been
+a claim about one sample of a coin.** The amend was the right move and it is now
+the recorded behaviour: publish run 1, then amend when run 2 disagrees, and say
+in the body that the figure is a floor and a ceiling rather than a point.
+
+**And the corollary for a gate: a suite containing a nondeterministic test cannot
+be green or red, only *usually*.** The check is not "did it pass" but "did it
+pass twice", which is the same reason a row measured once is a claim about a run.
+
+## A named limit is an ARTEFACT; a deleted test is not
+
+An injection test asserted something genuinely unreachable: the product's own
+entry point takes a typed `&HeaderMap`, so **a peer cannot deliver a CRLF in a
+header value at all** — the test had been written as if the builder were the
+product, and the builder *is* the same typed layer.
+
+**The unreachable case is replaced by a comment naming the limit, and the test
+asserts the reachable half.** The general form:
+
+> **A test that asserts something the system cannot express is not a weak test,
+> it is a test about a different system.** Writing it as a skip loses the
+> information; writing it as a named limit in the file keeps it.
+
+**And the honest version of the same thing, which cost a second wrong guess to
+establish:** the reachable half was sought by trying candidate control characters
+— DEL, then the C1 range — and **both are refused too.** There is no reachable
+header control character at this layer, and that is a *finding*, not a failure
+to find one.
+
+> **Asserting that the builder refuses proves `http`'s behaviour, not this
+> product's.** What remains as this product's behaviour is the byte bound — which
+> used to be a silent drop.
+
+**So the discipline when a test turns out to assert the unreachable: name the
+limit, then ask what the product's OWN behaviour is in that area, and test
+that.** The second question is the one that found the real defect here, and it
+is the question a "skip" would have prevented anyone from asking.
+
+## A property that ABSENCE also satisfies is not a property
+
+A test named *"the bound counts bytes and never splits a scalar"* was green
+while the bound **dropped** over-long values instead of truncating them.
+
+**A dropped value satisfies "never splits a scalar" trivially — there is no
+scalar left to split.** The test could not fail, and it was reporting a property
+it was not checking.
+
+> **A test whose name describes a property that *absence* would also satisfy is a
+> test that can pass vacuously** — and the tell is in the name, not the
+> assertion.
+
+The general form, and it applies well beyond truncation:
+
+**Some properties are only meaningful when the value exists.** "Never splits a
+scalar", "is never empty of its prefix", "preserves order" — each of these is
+about the *content* of something, and each is trivially true of nothing. **So a
+test for one of those properties must also assert that the subject is present**,
+or it is asserting a tautology about absence.
+
+**And this one had a second defect hiding behind the first, which is why it is
+worth two paragraphs.** The drop was not only for over-long values:
+`HeaderValue::to_str` returns `Err` for anything outside **visible ASCII**, so
+**every provenance value carrying a non-ASCII client name was silently
+dropped** — not just values over the bound. The fix reads the bytes directly and
+decodes lossily.
+
+**A boundary implemented with a strict parser is a boundary that drops
+everything the parser rejects, and the parser's rules are usually about the
+wire format rather than about this field's purpose.** So the diagnostic question
+for any bounded capture is: **which inputs does the reader refuse, and is a
+refusal the right answer for a field a human reads?**
+
+## A shared failure CLASS is as unreliable as a shared module
+
+A cluster of three was filed as three absences. Reading the panic **messages**
+rather than the line numbers found **two absences and one product defect** in it:
+
+- one test built a country as a header **name** when a country arrives as a
+  **value**, and the typed builder correctly refused a name with a trailing space
+  — a test-side error in how the input is built, not a product limit;
+- one asserted something genuinely unreachable, because **the product's own entry
+  point takes a typed `&HeaderMap`**, so a peer cannot deliver a CRLF in a header
+  value at all — the test was written as if the builder were the product, and the
+  builder *is* the same typed layer;
+- **the third was a product defect.** The bound is 512 and `read_bounded` was
+  **dropping** an over-long value rather than truncating it. **And the test was
+  named for exactly the property that distinguishes those two** — *"the bound
+  counts bytes and never splits a scalar"* — so **a dropped value cannot split a
+  scalar, and the test passed for a reason that was not its stated reason.**
+
+**And the agent had been reading the line number since the first report, on the
+strength of the other two in the same file being builder failures.** So:
+
+> **A shared module is an unreliable predictor of a shared cause, and a shared
+> failure CLASS is exactly as unreliable.** Twice in one evening: a shared
+> *symptom* pointed at a product cause and the cause was the fixture; a shared
+> *class* pointed at two absences and the third was a product defect.
+
+**The fix is the same in both cases and it is not "look harder": read the panic
+message, and read the test's NAME against what the assertion actually proves.**
+A name that specifies a property — *"counts bytes and never splits a scalar"* —
+is a claim about mechanism, and a value that is *absent* satisfies a
+never-splits-anything property trivially. **Any test whose name describes a
+property that absence would also satisfy is a test that can pass vacuously.**
+
+## A test that drops the handle of the thing it is OBSERVING is not weak, it is unobserved
+
+`BoundedBus::subscribe` returns a `Subscription<T>`, and `impl Drop for
+Subscription` **removes the listener**. The fixture wrote:
+
+```rust
+services.buses.task_bus.subscribe(move |message| { ... });
+Self { core, database, received, root }
+```
+
+— **discarding the handle, so the listener was deregistered in the same statement
+that registered it.** Every publication after that reached a bus with no
+subscriber. **Nothing in `src/` was wrong; the bus was connected the whole time.**
+
+**And the three failures read exactly like a product bug:** three independent
+handlers, zero deliveries, same module, `left: []` where `[Created, State, State]`
+was expected. That is why it was routed to a product diagnosis first.
+
+> **"Three handlers, zero deliveries, same module" is a wiring fact before it is
+> a logic fact — and here the wiring was correct and the OBSERVER was broken.**
+
+**A reader who starts at `publish` and works outwards finds a correct call chain
+and then has to guess. A reader who starts at the connection finds it in one
+pass.** Two things made it one pass rather than an hour, and both are diagnostic:
+
+- **the failures were *zero* rather than wrong** — no ordering argument and no
+  shape argument explains a total absence, and *absence is a different symptom
+  class from mismatch*;
+- **`tasks_refusals` is 8/8 on the same module**, which is a fact about the
+  *fixture* rather than about the bus.
+
+**And the line worth keeping, because it generalises the whole dropped-handle
+class:**
+
+> **A test that drops the handle of the thing it is observing is not weak, it is
+> UNOBSERVED.** `assert_eq!` on an empty vector reads exactly like an assert that
+> passed — and so does an assert on a bus nobody is subscribed to.
+
+**The failure mode is not a wrong answer. It is the absence of the observer, and
+an absence is indistinguishable from a pass until something else fails.** That is
+the same shape as the fixture that seeded an empty database and passed, and the
+same shape as the vacuous green at `sync_feed_adapters:53`. **All three are one
+class: a test whose subject is missing asserts nothing and reports success.**
+
+**And the row's promotion is the closing of the loop.** C11 was BIT against red
+and honestly labelled as unisolated. With the bus connected, **the same row with
+the same edit now says what it could not before** — the removed call is the only
+difference between two deltas and three, so **the assertion isolates the publish
+call.** The earlier BIT was real, the caveat was real, and fixing the *fixture*
+is what converted the first into evidence. **A row measured against red is not a
+failed row; it is a row waiting for its baseline.**
+
+## A test that drops the handle asserts the opposite of the contract
+
+Three separate tests in one wave failed for the same reason, and it is a class
+with a name: **an RAII handle was discarded, and the test then asserted the
+resource was still held.**
+
+- a `subscribe()` helper calls `bus.subscribe(..)` and **discards the returned
+  `Subscription`.** Its `Drop` removes the listener, so the sink records nothing
+  — observed as `closing.len() == 0`. The assertions were correct; the test was
+  observing a torn-down subscription.
+- a capacity test loops `registry.register(request(i)).is_ok()` and **discards
+  the `AgentStatusWaiter`.** Its `Drop` deregisters immediately, so `total` never
+  accumulates and the global bound is never reached. **The test's own
+  bookkeeping was destroyed by RAII before the next assertion.**
+- two more tests fill a per-session bound in a loop that discards each waiter, so
+  every slot is released before the bound is probed and **neither refusal ever
+  occurs.**
+
+**A dropped binding is valid syntax, so every resolver-based check is blind to
+this by construction — and here the handle is not even a binding, it is a
+discarded `Ok` value nobody is required to use.** The compiler has nothing to say
+about a handle you chose not to keep.
+
+**The statement to carry: a test that drops the handle asserts the opposite of
+the contract.** That is sharper than "the test is wrong", because it explains
+*why*: the resource's whole lifetime is managed by the handle, so releasing the
+handle is releasing the thing under test. And the second one is a *consequence* of
+a semantics fix — once a pending waiter was made to actually hold its slot, a
+test that dropped it was asserting the old, broken behaviour.
+
+**So when a test fails with "the thing is not there", check whether the test is
+holding the thing.** The fix is a `Vec` of handles kept alive to the assertion,
+not a corrected expectation.
+
+**And the rule was then made falsifiable rather than merely plausible.** Every
+test in the two affected files was classified by whether it *holds* or *drops*
+its waiters, and compared against the measured result:
+
+- **7 tests hold their waiters — all 7 pass.**
+- **3 tests drop them — all 3 fail**, and they are exactly the three named.
+
+**Zero exceptions in either direction. A perfect predictor across 10 tests is not
+something a coincidence produces**, and that is the difference between a rule
+that fits and a rule that is confirmed. A rule with no counterexample checked is
+a pattern; a rule with all 10 cases on the predicted side is a mechanism.
+
+**The counter-example is what makes it correct rather than nearly-correct.**
+`a_released_wait_is_not_leaked_when_the_subscriber_is_gone` **drops its waiters
+deliberately and asserts the slot IS released** — which is correct. So the
+refined rule is not *"never drop"*:
+
+> **What matters is whether the drop is deliberate, and whether the assertion is
+> about the state after the drop.** A handle dropped to make a resource go away,
+> followed by an assertion that it went away, is the test working. A handle
+> dropped because the return value was unused, followed by an assertion that it
+> is still there, is the test asserting the opposite of its own intent.
+
+That counterexample is also the thing that keeps the rule from being
+over-applied into "never discard a value", which would be wrong and would
+generate false findings.
+
+## A test may be the thing that is out of step with the port
+
+One assertion was judged **wrong** and deliberately not edited: a push-scheduler
+test expected a notification for an `idle -> blocked` transition, and
+`classify_transition` awards `Blocked` only for `working -> blocked`. **The port
+matches v2 exactly** (`agent-status-push-scheduler.ts:98-104`) — so the test is
+out of step with the code, not the reverse.
+
+**An idle→blocked transition producing no push is defensible** — an idle agent is
+not mid-turn, and a blocked-notification requires a turn to be blocked in — **but
+the test was asserting a product decision nobody has made.** That is routed as a
+human call, not a mechanical fix, and it is recorded rather than edited: **the
+right move when the code and its reference agree and the test disagrees is to
+stop and ask which of the two is the requirement.**
+
+And a near-vacuous sibling was flagged rather than counted: one test builds a
+`PushTransitions` twice and asserts `is_enabled()` true and false — **a
+constructor predicate, not the allowlist's effect** — while its sibling does
+exercise the real path. Flagged so nobody counts it as allowlist coverage.
+
+## A fixture can hold a property that does not survive a merge
+
+`tests/auth_device_support/` exists for one reason: `Scratch::second_core()`
+opens a **second `CoordDb` on the same database file.** That is what makes the
+redemption race a real race instead of a pool-of-one serialisation, and it is
+why `two_simultaneous_browser_redemptions_leave_exactly_one_principal` is not
+vacuous — a read-then-write claim would pass it if both redemptions shared one
+connection.
+
+**If that fixture is folded into a shared one and `second_core` is lost in the
+merge, both race tests keep compiling, keep passing, and stop testing the
+property.** Nothing fails. That is the worst artefact in this programme: a green
+test that is now a tautology, produced not by a bad edit but by a *good* one.
+
+**So a fixture refactor has to be read as a change to every test that consumes
+it, not as a tidiness change** — and the property to look for is not "does it
+still compile" but **"what made this test able to fail at all, and is that still
+here?"** The rest of that fixture (a scratch dir, a booted core, an enrol
+helper) is ordinary and is what would be worth sharing.
+
+## "Never observed" is a fourth category, and it is not "failing"
+
+22 of one slice's tests **have never been observed in any state.** They are not
+"still broken" — they are an **absence**, and an absence contributes no signal to
+a second-cause analysis because there is no before.
+
+**So a failure map has four categories, not three:** 0-pass-fixture, failing,
+partially-green, and **never-observed.** The first three all have a before. The
+fourth has none, and the question for it is different in kind: **not "what is
+still red" but "what does the first successful compile surface?"** Those are
+different measurements, and counting a never-observed binary as a regression — or
+as a pass — is a category error.
+
+This is why a wave's first run of a new target is a *discovery* step and not a
+*measurement* step, and why "the suite ran for the first time in this crate's
+history" is a fact with no baseline attached.
+
+## The count is not the deliverable, the shape is
+
+The full accounting of 100 failures, when sorted, has **exactly three shapes**:
+
+| shape | count | what it wants |
+|---|---|---|
+| two shared fixtures, 0-pass | **47** | read one file, find one cause |
+| partially-green binaries with a known module | ~24 | individual assertions |
+| individual assertions in otherwise-green binaries | ~29 | individual attention |
+
+**"A binary that moved less than its shape promised has told you something."**
+The failure mode is an agent reporting a clean number while a binary that should
+have moved 9/9 moved 4/9 — and the count conceals exactly the information that
+matters, because 4/9 still *looks* like progress.
+
+So the deliverable of a fix is a **shape**, and the diagnostic is a
+**discrepancy between the count and the shape that count was supposed to have**:
+- a 0-pass binary that still has failures is a *second cause underneath*;
+- a partially-green binary that moved nothing is a *cause nobody has looked at*;
+- a number in the wrong group that changed at all is *drift*, and drift is a
+  finding, not noise.
+
+**47 + 53 = 100, and the three groups are disjoint by construction** — which is
+what makes the wave routable at all. A failure count sorted by owner would have
+overlapped: one slice's two binaries sit in two different groups, because one
+declares a shared fixture and the other declares none and still fails 11 of 12.
+
+## Before fanning out over a shared fixture, count its consumers exactly
+
+Two agents were about to be pointed at `tests/agent_fixture/` and
+`tests/pairing_support/`, and the convergence risk was real: three agents
+editing one fixture with no owner. It was closed by counting, not by grepping a
+sample — **`agent_fixture` has exactly five consumers and `pairing_support`
+exactly two, with no `#[path]` indirection on either**, so the search is complete
+rather than a sample.
+
+**And the count buys a second fact that decides the sequencing: neither fixture
+is load-bearing for anything currently green.** If it were, fixing it would break
+a passing test and the agent would have to reason about a regression it did not
+cause. **A shared fixture whose every consumer is already failing is the safest
+thing in the tree to hand to an agent** — the blast radius is the set of things
+that are already broken.
+
+## A fixture fix is not done when the count rises
+
+The number of passing tests is a **proxy** for the cause being gone, and the
+second cause under a fixture is the one that gets read as *"still broken"* and
+attributed to the agent who just fixed the first.
+
+**A fixture killing 35 tests can easily have been hiding three more, and an agent
+told to reach 35/35 who stops there has not finished.** The completion criterion
+is the cause, not the count: after the fix, the re-measured map must be **read**,
+and any binary that moved less than expected is a *finding about the second
+cause*, not a rounding error.
+
+**This is the same rule as "establish the tree's state before the measurement,
+not after"** — a count taken across a fix is two measurements, and reading it as
+one is how a wave reports progress it did not make.
+
+## The audit that cannot see the defect, and the noise you must discard
+
+A slice deleting a dead `FixedEntropy` block used a doc comment further down
+as its end boundary, **and the four prime constants sat between the block and
+the marker.** It deleted a larger slice than it had read. It then verified the
+names it *expected* to disappear were gone — **and did not check what had gone
+with them.**
+
+**The recovery is the reusable part.** It re-derived the constants **out of the
+file**, not from memory, and checked each is byte-identical to the integer it
+had generated. That last check matters because each 309-digit constant is
+wrapped across four lines with `\` continuations: **a transcription slip would
+still have parsed as a prime**, and would have made
+`a_signature_from_another_key_does_not_verify` assert that a key differs from a
+key it is identical to. The mutation would have compiled, run, and passed —
+**a green test asserting the opposite of its name.**
+
+**Then it established the limit of its own instruments, which is the finding:**
+
+> A dropped binding is **valid syntax**, so `rustfmt --emit stdout` is blind to
+> it by construction — and so are cross-module import resolution and dangling
+> `pub mod` detection, because all three are about *declaration and
+> resolution*, not about *use*. A third sweep was written, found to be pure
+> noise (it matches prose in doc comments, SQL inside string literals, and
+> methods on imported types), and **discarded rather than reported.**
+
+**No static audit in that set can catch this class. What catches it is reading
+what a deletion removed — a review step, not a script.** And the discipline is
+the same one as a signature change: **look at the other side of the edit, not
+only the side you meant to touch.**
+
+Two rules, both cheap:
+
+- **A sweep that is mostly noise is not a finding — it is a false assurance.**
+  Discarding it is the correct result and belongs in the report, because "I
+  looked for this class and cannot see it statically" is information a gate can
+  act on, and "here is a check that fires on 400 doc comments" is not.
+- **For a test whose fixture is a large constant, the fixture must be
+  byte-verified against its source of truth.** A constant that is 98% digits and
+  2% transcription is a prime that is not the one you meant.
+
+## Making the table agree with the gate by recording LESS
+
+The integrator narrowed `MiscDbExportUrl` from `DeviceOnHost` to `Device` after
+finding that the gate enforces no locality. That made the table *consistent with
+the code* — and it was **a parity narrowing, which is the same defect as a row
+that over-claims, pointing the other way.** v2 is `requireAccountDevice` **AND**
+an unguarded `assertOnHost`; a device *and* on-host is precisely what
+`DeviceOnHost` means. Recording `Device` because the gate cannot tell them apart
+discards a real requirement so that a reader's check passes.
+
+**The two correct sentences are different and only one of them is useful:**
+"the variant is meaningless" and "the requirement is real in v2 and the gate does
+not enforce it." The first invites deletion; the second is what a reader needs.
+
+And v2's five `assertOnHost` sites are **two shapes, not one**:
+
+- **unguarded `assertOnHost(...)`** — a credentialed device *and* on-host. One
+  site. This is `DeviceOnHost`.
+- **`if (!caller) assertOnHost(...)`** — on-host as an **uncredentialed
+  fallback**, admitting a caller holding no key at all. Four sites: pairing ×3
+  and the devices revoke.
+
+`principal_satisfies` can express neither: the first is an extra restriction on
+a caller it has already admitted, and the second admits a caller with no
+credential, which the gate only builds for a request that carried one.
+**Flattening two shapes into one lost the fallback reading that four rows depend
+on** — the same flattening risk as a shared-crate parallel implementation, one
+level up, in a *record* rather than in code.
+
+**A parity question belongs in a commit body as a named decision, not in a diff
+at an integration gate** — and a third sentence was available and unsupported:
+"`Device` is correct because on-host is out of scope for the port." Only
+"`Device` is correct because v2 asserts no locality here" is a claim the
+evidence supports, and choosing between them is the whole job.
+
+## A handoff that needs two actors is not a request for one of them to go first
+
+A slice named a file in its report as something it would do *once the
+integrator placed the `mod` line* — because `auth/mod.rs` is integrator-owned.
+The integrator placed the line immediately. **`pub mod` naming a file that does
+not exist is a hard error for the whole crate**, so the coordinator was red for
+a while.
+
+The slice was right that `mod` placement is not its to decide, and the
+integrator was right that the declaration is not its to author, and **the design
+was wrong in both cases**: the request carried a build-breaking window inside
+it, and neither party could see the window from where they stood.
+
+**The rule: a handoff that needs two actors must not be phrased as a request
+for one of them to go first.** Either write the file and *then* ask for the
+declaration, or ask for the declaration and accept that the build stays red
+until the file lands — but never "do this once I do that", because that
+serialises two actions across a message boundary and leaves a window neither
+actor is watching.
+
+The same slice had already done it correctly three times in one report:
+`cf_access_keyring`, `db_statements` and `rpc_bootstrap` were all file-first,
+then asked. **It named the difference itself: it chose per-conversation instead
+of per-rule.** That is the shape to watch for — a convention that holds for most
+of the work and fails on the one case that crosses an ownership boundary.
+
+And the practical guard: a `mod` line whose file is not on disk is a build
+failure with no useful diagnostic, so **place declarations as the last step of
+a change, never as a response to a request.**
+
+## The test that was asserting the lie
+
+`method_route_coverage.rs` carried
+`the_on_host_gate_is_exactly_the_export_url_and_nothing_else`, asserting that the
+`DeviceOnHost` set was exactly `{MiscDbExportUrl, WorkersPrepareKeeperUpdate}`,
+with the comment *"host-local changes a remote device has no business
+authorising"*.
+
+**It was green precisely because it agreed with the table, and it never asked
+the gate.** The test restated the claim under test instead of checking it, so a
+variant that nothing enforced was documented by a test that enforced nothing
+either. Two rows claimed a locality the auth gate does not implement —
+`principal_satisfies` answers `is_browser` for `Device` and `DeviceOnHost`
+alike.
+
+It is replaced by `no_row_claims_a_locality_the_auth_gate_does_not_enforce`,
+which asserts the **empty** set and then names where each method's locality
+really lives: the export is checked at `http/listener.rs:248`, and the keeper
+update has no locality check in v2 either.
+
+**The general form, and it is the worst instance of the verification ceiling in
+this programme: a test that restates the claim under test is worse than no
+test.** It occupies the slot where a real check would go, and it is *more*
+believable than an absence because it has assertions in it. The question to ask
+of any coverage contract is **"what would this test print if the thing it names
+stopped being true?"** — and this one would print the same thing.
+
+Note also what was done with the now-unused variant: `DeviceOnHost` is kept,
+with a doc saying it cannot be enforced and why, because expressing it needs an
+on-host caller with no credential and the gate only builds a `Caller` for a
+request that carried one. Deciding whether to build that caller is a **parity**
+question — dropping v2's credential-less device-recovery path — and it belongs
+in a commit body as a named decision, not in a diff at an integration gate.
+
+## An auth level that is recorded but not enforced
+
+`DevicesRevoke` is `DeviceOnHost` in v2 and in the port — an on-host caller with
+**no credential at all** may revoke a device, because the operator who has lost
+their only device is exactly who needs that path. The row records
+`DeviceOnHost` correctly.
+
+**`principal_satisfies` treats `DeviceOnHost` identically to `Device`: it checks
+the principal and not the locality.** So the recorded level is a claim the
+enforcement does not make, which is the specific failure the route-row contract
+exists to prevent — a security document that reads correctly and describes code
+that does something narrower. The handler implements v2's rule anyway, so it is
+correct the moment a variant expresses it, and the credential-less path is
+currently unreachable in Shape A because every handler takes a `&Caller` and the
+gate only inserts one for a request that carried a credential.
+
+**The general form, and it is the one to check at every row flip: a row that
+records a level nothing enforces is worse than a row that records `Device`,
+because it buys the reviewer the assurance the code does not have.** Ask what
+distinguishes the variants at the point of the check, not at the point of the
+declaration.
+
+## Two majors of one crate in one build
+
+The workspace pins `sha2 = "0.11.0"`. `rsa 0.9.10` depends on `sha2 0.10.6`
+and re-exports it as `rsa::sha2`. `VerifyingKey::<D>` is generic over
+`Digest + AssociatedOid` **from digest 0.10**, so the workspace's `Sha256` is
+rejected by a bound rather than by a name.
+
+**This is invisible until the bound fires, and it fires in the CALLER, not in the
+dependency declaration** — so the error names a type the reader believes is the
+one they imported. The keyring uses `rsa::sha2::Sha256`, and the RSA test
+signs with the same one, because **a test that signs with a different digest
+than the code verifies with cannot pass for the right reason.** That is the
+fixture rule again, one layer down: the fixture must compute its expectation the
+way the *peer* does, and here the peer is a different major of the same crate.
+
+**When a generic bound rejects a type from a workspace-pinned crate, check the
+resolved version before you check your own code.** `cargo tree -i <crate>` is the
+command, and the answer is frequently that the crate you imported and the crate
+your dependency compiled against are not the same crate.
+
 **The shape: `__buffa_unknown_fields`.** buffa generates that field on every
 message, and a struct literal naming only the fields you can see is missing it.
 It is invisible to every check that reads the `.proto` or the visible field
@@ -272,6 +2305,238 @@ claim the code does not support:** `#[tokio::test]` on a function with zero
 that does no I/O is the same mistake as naming a field on an enum** — the
 annotation asserts an asynchrony the code does not have, and a reader who
 believes it will be confused by why the test is instant.
+
+## The test that was testing an empty database, and the class nothing can see
+
+Five `insert` calls in a fixture were missing `.await`. `insert` is async, so
+each call built a future and dropped it: **the fixture seeded nothing, and
+every assertion in that file was checking rows that were never there.** The
+file compiled, passed review, and passed five of its author's own audits.
+
+**This is worse than having no test**, because a missing test is visible in
+review and a test that asserts against an empty fixture looks exactly like
+coverage. It would have passed CI, and its failure mode is a sweep that never
+ran being indistinguishable from a sweep that ran and reclaimed nothing.
+
+**Nothing in the lock-free toolkit can see it.** Not the parse check — a dropped
+future is valid syntax. Not the reference audit — the name resolves. Not the
+arity audit — the arguments are right; the call is simply never made. The
+diagnostic is about a value's *use*, not its shape, so it is the one class
+where a compiler is not merely faster than a script but categorically
+different. **"Compiling is not passing" is usually about assertions; here it was
+about the fixture, and the assertions were fine.**
+
+The corollary for a gate: **a test binary that has never been executed has an
+unverified fixture.** Type-checking proves the file parses and the names
+resolve; it proves nothing about whether the rows a test asserts on were ever
+written. That is a distinct claim from "the tests pass", and a gate that
+reports the first must not imply the second.
+
+**And the neighbouring finding, which is about error messages rather than
+tests.** A fully-qualified `account::LiveSelector::ById` produced
+`E0603 private` — a *misleading* error, because `LiveSelector` had moved to
+`rows` and the stale prefix made a public enum read as private. **An error that
+names the wrong cause is worse than one that names nothing, because it sends
+you to change a visibility that was never wrong.** The same shape as the enum
+field access: the evidence is about a real thing, and the thing is not the
+thing that is broken.
+
+**"The binary compiles" is not "the fixture works", and the gap between them is
+where a test becomes a lie.** Of eight test binaries in one slice, two were
+clean only *after* the compile found real defects in them — and one of those was
+a fixture that seeded nothing. So the compilation of a test binary is not
+confirmation that its fixture works; **it is confirmation that its fixture
+type-checks.** A test suite in that state is *nominally* sound and *unexecuted*,
+which is a third claim, distinct from both "green" and "broken", and a gate
+reporting it should say which of the three it has.
+
+**And the row that did not bite, which is the sharpest instance of this rule in
+the wave.** A mutation inverted F1's arrival-order drain — `next_event` popping
+the *newest* deferred frame instead of the oldest — and **the entire keeper suite
+passed**, including the test written to pin exactly that. One deferred frame is
+indistinguishable under `pop_front` and `pop_back`, because a single element is
+its own head, so the test could not have caught it at any strength.
+
+**The fix is the same shape as every other discriminating test in this file: the
+expected value must be one a wrong client cannot produce.** Two deferred frames,
+asserted in order. One frame cannot distinguish; two can. And the property to
+check when a test does not bite is not "is it running" first but "is it
+discriminating" — a test can be present, collected, executed, and unable to fail.
+
+## F1's proof, complete — and what it took to get there
+
+Both halves of the keeper's PTY-loss fix are now pinned, **each with a control
+that distinguishes "this property moved" from "something else broke":**
+
+| Half | Mutation | Observed |
+|---|---|---|
+| **loss** — the output is handed over at all | `defer` set to drop | both F1 tests fail, `left: []` |
+| **order** — the output is handed over in arrival order | `pop_back` instead of `pop_front` | the order test fails with `left: ["third","second","first"]` **while the loss test passes** |
+
+**The control did its job on the run where it was needed.** Both going red would
+have meant the patch was two mutations and the result would have said nothing
+about ordering — which is exactly what happened on the first attempt at the
+order mutation, and exactly what announcing the control is designed to catch.
+
+**The durable form of the rule is not "report your own contamination" — it is
+"establish the tree's state BEFORE the measurement, not after".** A lead filed a
+green suite and noticed a sibling's open mutation only afterwards, and the
+second run may have straddled the restore. Both numbers were discarded and the
+sibling's `git status`-founded account was taken instead, because it quoted a
+check and the other quoted a recollection.
+
+Self-naming on the second pass is real and it is worth less than never filing
+the number. **A measurement taken on a tree whose state was not established
+first is not a contaminated measurement, it is an unattributed one** — and the
+cheapest defence is a `git status` before the run, which costs a second and
+discards nothing.
+
+**And the order test was already discriminating, which I had wrong.** I said it
+needed two deferred frames to have teeth, on the principle that one frame is
+indistinguishable under `pop_front` and `pop_back`. The fixture sends **three**,
+ so the principle is satisfied — the lead corrected my framing rather than
+letting it be recorded as a gap that needed closing.
+
+**The refutation that settled whether the deferral path is exercised at all is
+the best argument in this file.** The hypothesis was that the fake wrote the
+chunks and the ack in one burst and the chunks might never be deferred. The
+decisive answer: **the three `PtyOut` frames and the `ResizeAck` go into one
+ordered channel with the answer last, so `wait_for_reply` must consume all three
+before it sees the ack — it is not a race, it is a single ordered channel with
+the answer last.** And the observed vector settles it independently: under the
+hypothesis the drain would read `["first","second","third"]` under *both*
+`pop_front` and `pop_back`. **A reversed vector is only producible if the frames
+went through the deferred queue** — you cannot get third-second-first out of a
+channel that was never reversed.
+
+**Which means the property is observable through this API, and a test that
+cannot distinguish is a question about the test rather than about the design.**
+That is worth stating because the opposite conclusion — "it is not observable
+here" — would have been a reasonable guess and would have been wrong.
+
+## The first green ported-crate suite, and what it does not prove
+
+`cargo test -p roost-keeper --no-fail-fast` on the restored tree — **131 passed
+/ 0 failed, 22 binaries, one uncontended run**, with the crate's `git status`
+verified clean immediately before and after. **This is the keeper's number, not
+the worker's**: the worker crate does not link, and a reader who sees 131 green
+will otherwise assume the track is further along than it is.
+
+**Why the ordering property is observable at all, which is the part worth
+keeping.** The doubt was that whether `wait_for_reply` consumes the chunks
+before the ack might be a race — and that if the reader won, the deferred
+queue would be empty and `next_event` would read `events` in arrival order
+regardless of the drain. It is not a race: the three `PtyOut` frames and the
+`ResizeAck` enter **one** ordered channel with the answer last, so
+`wait_for_reply` must consume all three whichever thread wins.
+
+**And the observed vector settles it independently of the argument.** Under the
+empty-queue hypothesis the drain comes from `events` in *arrival* order and
+yields `["first","second","third"]` under `pop_front` **and** `pop_back`. You
+cannot produce `["third","second","first"]` from a channel nobody reversed.
+
+So the property is observable through this API and is pinned, rather than being
+asserted by a test that could not have distinguished it. **The opposite
+conclusion — "it is not observable here" — was a reasonable guess and would
+have been wrong**, and the reason it was wrong is a structural property of the
+channel rather than anything in the test.
+
+**And the two rules are the same instrument, which took two agents and a
+longer argument than it should have.** The F1 control — *the loss test must
+still pass, so the mutation moved order and nothing else* — and the hygiene rule
+— *establish the tree's state before the measurement, not after* — are one idea:
+**a measurement is only as good as the state it was taken against.** The loss
+test passing is what made a red order-test readable; a clean `git status` is
+what made 131 quotable. In both cases the cheap control is the same move, and in
+both cases its absence costs the whole result rather than degrading it.
+
+**And the sharpest argument for the whole discipline, which is what a mutation
+bought rather than what it proved.** A terminal-view slice removed an `unused
+mut` by restructuring, and the restructure exposed a real defect: `drop_record`
+removed a key from `socket.views` silently, so **a session that closed while
+browsers had it open left every one of those sockets still watching it**, and the
+Sync driver went on delivering cells for a session that no longer existed.
+
+The defect was in code no test covered and no review had questioned, and it
+surfaced because a lint's removal forced the shape to change.
+
+**So a mutation's return is not only that a test bites. It is that changing one
+line of a covered file re-shapes its neighbours, and the neighbours are where
+the unexamined behaviour is.** A mutation that fails to compile is telling you
+something about the shape; one that passes is telling you the shape held.
+
+The framing that makes it stick: **reporting your own contamination is a
+confession; a `git status` before the run is a control.** One is a statement
+about the past, the other is an instrument for the future, and only the second
+prevents the next occurrence.
+
+
+## Sixty files that existed in one working tree
+
+The worker's entire W-1 wave — **53 new files and 7 modified, every slice's
+output** — sat uncommitted for hours. Only the module skeleton and the lead's own
+seams had ever been committed. A lead came within one `git checkout` of losing
+all of it, clearing a mutation it had itself applied; the only reason that was
+survivable is that the file it would have restored happened to be backed up in
+`/tmp`.
+
+**It is committed now, with a body that says plainly that it does not compile**
+and carries the measured triage, so nobody reads the push as a working state.
+That is the correct form for committing a red tree: **the commit is a recovery
+point, and its body is the warning label.**
+
+The defence is not discipline. It is a snapshot that costs nothing:
+
+```
+snap=$(git stash create "wave snapshot")   # a commit object; HEAD and the
+git branch -f <track>-wip "$snap"          # working tree are untouched
+git push -u origin <track>-wip
+```
+
+`git stash create` makes a commit object out of the dirty tree **without moving
+HEAD and without touching a single file** — which is why it is safe to run while
+agents are writing, and why it is strictly better than `git stash`, `git add -A`
+or a branch checkout, all of which change what is on disk.
+
+**Snapshot before any destructive command, not after.** An hour of integration
+is worth one `git stash create`, and the whole cost of the near-miss was that
+nobody had run it since the last slice landed. Two tracks lost work to
+uncommitted trees tonight — one to a budget cutoff, one to a `git checkout` — and
+both were avoidable for the price of a command that does not modify anything.
+
+## Announce the mutation AND ITS CONTROL
+
+A mutation experiment is a claim: *this edit breaks this property and nothing
+else.* Most of the time it is true, and the convention has been to announce
+**which line you changed**.
+
+**An announcement is not enough, because a mutation can be two mutations wearing
+one label.** An agent meant to test arrival order by flipping `pop_front` to
+`pop_back` also deleted the `if held.is_some() { return held; }` early return in
+the same patch. That is not an ordering mutation — it is "drop the deferred
+frames entirely", which is what its *first* attempt had done. **The two runs
+produced byte-identical output**, and the only reason it was caught is that
+someone compared them and noticed the results matched.
+
+A person who had not diffed the runs would have written "the ordering mutation
+is caught" and reported a claim about a mutation they never made. **It is a
+measurement of the wrong thing, reported with the confidence of a right one** —
+the same shape as a fixture that computes its expectation from the function
+under test, and it survived a test that would otherwise have caught it.
+
+**The rule: announce the mutation AND ITS CONTROL.** The control is the thing
+that distinguishes *this property moved* from *something else broke*. For an
+ordering mutation the control is: **the loss test must still pass, and only the
+order test must fail.** Without it, a reader cannot tell a pass that means "the
+property is guarded" from a pass that means "you broke the feature harder" —
+and the announcement leaves them unable to check the result, only to avoid
+stepping on it.
+
+This is the third instance of one shape in this wave — the `x == x` fixture, the
+enum field access, and this — and the shape is always the same: **a measurement
+that is internally consistent and about the wrong object.** The only defence
+found so far is the one that costs something: compare against a control, and
+prefer the account that quotes its own output.
 
 ## Worker track
 

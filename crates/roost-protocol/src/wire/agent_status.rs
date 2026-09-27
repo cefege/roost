@@ -272,5 +272,22 @@ pub fn is_identified_agent_status(status: &AgentStatusFields) -> bool {
     agent_status_identity(status).is_some()
 }
 
+/// The one ordering predicate both ends apply.
+///
+/// v2 had two copies of this rule — the coordinator's
+/// `agent-status-order.ts` and a hand-rolled `acceptsStatus` in the web
+/// store — and a client that disagreed with its coordinator about whether a
+/// report is fresh is a client showing a stale status with nothing to
+/// contradict it. The predicate therefore lives here, in the crate both ends
+/// already depend on, rather than in either of them. `roost-client-core`
+/// cannot depend on `roost-coord`, so a copy in the client was the only other
+/// option and it is the option this removes.
+pub mod order;
+
+pub use order::{
+    MAX_RETIRED_EPOCHS, AgentStatusOrder, same_agent_identity_occupant,
+    same_agent_status_occupant,
+};
+
 #[cfg(test)]
 mod tests;

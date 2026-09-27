@@ -21,9 +21,19 @@ pub struct RatchetSpec {
     pub describe: fn(observed: usize, allowed: usize) -> String,
 }
 
+/// What one check looked at and what it found. `checked` is the number of
+/// inputs the check actually read: a check that silently narrows its own
+/// coverage otherwise prints the same verdict as one that read everything, and
+/// `xtask lint` printing "0 violations" is indistinguishable between the two.
+pub struct CheckOutcome {
+    /// Inputs read. Printed on every run, violation or not.
+    pub checked: usize,
+    pub violations: Vec<Violation>,
+}
+
 pub enum RatchetOutcome {
     /// Fail only where a file grew past its allowance.
-    Regressions(Vec<Violation>),
+    Regressions(CheckOutcome),
     /// The baseline was rewritten; the caller reports and stops.
     BaselineRewritten { file_count: usize, total: usize },
 }
@@ -58,7 +68,10 @@ pub fn run_ratchet(
             })
         })
         .collect();
-    RatchetOutcome::Regressions(violations)
+    RatchetOutcome::Regressions(CheckOutcome {
+        checked: counts.len(),
+        violations,
+    })
 }
 
 /// Serialize counts into the baseline file, sorted by path.
@@ -132,7 +145,8 @@ mod tests {
 
     fn regressions(outcome: RatchetOutcome) -> Vec<String> {
         match outcome {
-            RatchetOutcome::Regressions(violations) => violations
+            RatchetOutcome::Regressions(outcome) => outcome
+                .violations
                 .into_iter()
                 .map(|violation| violation.file)
                 .collect(),
@@ -185,9 +199,42 @@ mod tests {
             RatchetOutcome::BaselineRewritten { file_count, total } => {
                 assert_eq!((file_count, total), (1, 512));
             }
-            RatchetOutcome::Regressions(violations) => {
-                panic!("expected a snapshot, got {} failures", violations.len())
+            RatchetOutcome::Regressions(outcome) => {
+                panic!("expected a snapshot, got {} failures", outcome.violations.len())
             }
+        }
+    }
+
+    /// A check that read nothing must not report the same `checked` as one that
+    /// read everything: the count is the only thing that distinguishes a clean
+    /// result from a check that has silently stopped covering its input.
+    #[test]
+    fn the_outcome_reports_how_many_files_it_read() {
+        let outcome = run_ratchet(
+            &counts(&[
+                ("crates/roost-host/src/paths.rs", 120),
+                ("crates/roost-host/src/config.rs", 200),
+                ("crates/roost-protocol/src/wire/event.rs", 90),
+            ]),
+            &BTreeMap::new(),
+            &spec(400, 400),
+            false,
+        );
+        match outcome {
+            RatchetOutcome::Regressions(outcome) => {
+                assert_eq!(outcome.checked, 3);
+                assert!(outcome.violations.is_empty());
+            }
+            RatchetOutcome::BaselineRewritten { .. } => panic!("expected a verdict"),
+        }
+    }
+
+    #[test]
+    fn an_empty_input_reports_zero_checked_rather_than_a_clean_bill() {
+        let outcome = run_ratchet(&BTreeMap::new(), &BTreeMap::new(), &spec(400, 400), false);
+        match outcome {
+            RatchetOutcome::Regressions(outcome) => assert_eq!(outcome.checked, 0),
+            RatchetOutcome::BaselineRewritten { .. } => panic!("expected a verdict"),
         }
     }
 }

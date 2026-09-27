@@ -130,7 +130,7 @@ mod tests {
 
     fn violations(counts: &BTreeMap<String, usize>) -> usize {
         match run_ratchet(&retained(counts), &BTreeMap::new(), &spec(), false) {
-            RatchetOutcome::Regressions(found) => found.len(),
+            RatchetOutcome::Regressions(found) => found.violations.len(),
             RatchetOutcome::BaselineRewritten { .. } => 0,
         }
     }

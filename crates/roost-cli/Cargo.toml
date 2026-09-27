@@ -24,7 +24,10 @@ roost-platform.workspace = true
 roost-proto.workspace = true
 roost-protocol.workspace = true
 roost-worker.workspace = true
-connectrpc.workspace = true
+# `client` here rather than in the workspace default: it pulls `mio` in through
+# hyper, which does not build for `wasm32-unknown-unknown`, and the browser
+# client is a first-class target of this workspace. Only the CLI dials.
+connectrpc = { workspace = true, features = ["client"] }
 
 clap.workspace = true
 anyhow.workspace = true

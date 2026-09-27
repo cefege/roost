@@ -22,9 +22,10 @@ const EXEMPT_CRATES: [&str; 2] = ["roost-cli", "xtask"];
 const BUILD_SCRIPT: &str = "build.rs";
 const BANNED_MACROS: [&str; 3] = ["println", "eprintln", "dbg"];
 
-pub fn run() -> Vec<Violation> {
+pub fn run() -> crate::ratchet::CheckOutcome {
     let crates = source_tree::repo_root().join("crates");
     let mut violations = Vec::new();
+    let mut checked = 0;
     for path in source_tree::walk(&crates) {
         if path.extension().is_none_or(|suffix| suffix != "rs") {
             continue;
@@ -36,6 +37,7 @@ pub fn run() -> Vec<Violation> {
         let Some(text) = source_tree::read_text(&path) else {
             continue;
         };
+        checked += 1;
         for (index, line) in text.lines().enumerate() {
             if let Some(macro_name) = direct_stdout_macro(line) {
                 violations.push(Violation::new(
@@ -48,7 +50,7 @@ pub fn run() -> Vec<Violation> {
             }
         }
     }
-    violations
+    crate::ratchet::CheckOutcome { checked, violations }
 }
 
 fn is_exempt(relative: &str) -> bool {
