@@ -2932,6 +2932,35 @@ released where the author believed. The question for any file is not **"does it
 compile"** but **"does every comment in it describe what the adjacent line
 does."**
 
+### A green test over a subject nothing calls is a green nothing
+
+The firehose feed is the largest instance: **97 green test binaries, 618 green
+tests, and not one line of `src/` subscribes a bus.** Every adapter in
+`sync_ws/feed/` has zero `src/` callers, and so do `enqueue_into`,
+`observe_and_publish`, `publish_presence`, `subscribe_session_close`,
+`ui_state_seed_frames` and `with_meta`. `BUS_FRAME_ADAPTERS` names thirteen
+bus-to-adapter pairs and `tests/sync_feed_bus_coverage.rs` drives every row --
+so the table reads as covered while the path from "an event was committed" to
+"a browser saw it" does not exist.
+
+This is not a coverage gap. It is a gap in the PRODUCT that the coverage was
+arranged not to notice, and no pass count can distinguish the two, because the
+test is asserting that the table is internally consistent and an internally
+consistent table with no driver is a perfectly green nothing.
+
+**The requirement that follows, and it is now programme-wide:** for any test
+that drives a registry, a table, an adapter or a set of arms, the handoff must
+say **what in `src/` calls the thing it covers.** "The test passes" and "the
+subject of the test is reachable" are different claims, and a suite can be
+entirely green while every one of its subjects is dead code.
+
+The three instances in this programme are the same defect at three sizes: a
+`collapsible_if` in one line of a file reported verified, a `ShellSpecResolver`
+trait with no implementation, and a whole module. The question no gate asks is
+*what is this test exercising, and does anything in production call it?* A seam
+with no caller reads as finished -- that is why the entry above is called "a
+seam that looks complete".
+
 ### A pattern that cannot match a legal form returns a confident negative
 
 Two of these, from the same hour, and the second is worse:
