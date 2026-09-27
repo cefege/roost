@@ -1,11 +1,18 @@
-//! The production [`DiagnosticReports`]: this worker's answer about itself, and
-//! the opt-in terminal-incident recorder behind `diag-terminal-capture`.
+//! The opt-in terminal-incident recorder behind `diag-terminal-capture`, and
+//! the capability that joins it to the protocol's vocabulary.
 //! `runtime::deps` installs one over the worker's `SessionTable`; nothing else
 //! in the worker holds a recorder.
 //!
 //! It is v2's `apps/worker/src/diag/terminal-capture.ts` and
-//! `terminal-capture-registry.ts`. The two rules from them a caller can see are
-//! the lease rules, and both are about NOT TAKING SOMEBODY ELSE'S EVIDENCE:
+//! `terminal-capture-registry.ts`. The other half of the capability it
+//! implements — this worker's answer about ITSELF — is
+//! [`crate::diag_snapshot::Snapshot::of_live_channels`], which is a different
+//! question with no recording in it, and which used to sit here beside the
+//! lease machinery it shares no state with.
+//!
+//! THE THREE LEASE RULES, all of which are about NOT TAKING SOMEBODY ELSE'S
+//! EVIDENCE. They live in [`super::leases`] with the state they move; what is
+//! here is the recorder that owns that state and freezes it into a bundle.
 //!
 //! A REPEAT START FROM THE SAME RECORDING RENEWS THE LEASE AND KEEPS EVERY
 //! RETAINED RECORD. The browser re-sends START on a timer while the debugging
@@ -18,16 +25,9 @@
 //! LEASE EXPIRY IS DECIDED ON SERVER TIME AND DISARMS ON OBSERVATION. An
 //! expired lease is never silently renewed: a browser that went away for half
 //! an hour must not find its recording still armed when it comes back.
-//!
-//! THE ANSWER NEVER CARRIES TERMINAL TEXT. Every failure is one of the
-//! protocol's own codes. An `errno` or a parser message from a grid walk quotes
-//! the screen it failed on, and this answer crosses a trust boundary into an
-//! operator-visible download.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
 use roost_protocol::terminal_capture::{
@@ -38,7 +38,7 @@ use serde_json::{Map, Value, json};
 
 use crate::browser_commands::diagnostics::{CaptureAction, CaptureCommand, DiagnosticReports};
 use crate::browser_commands::{Boxed, Refusal};
-use crate::diag_snapshot::{ChannelDiag, RingBounds, Snapshot};
+use crate::diag_snapshot::Snapshot;
 use crate::session::lifecycle::SessionTable;
 use crate::session::types::SessionRecord;
 
@@ -130,10 +130,12 @@ impl CaptureRecorder {
         self.registry.lock()
     }
 
-    /// The armed lease for a session, dropping it if its time has passed.
+    /// The bytes of one incident bundle: the armed lease's evidence, the
+    /// retained window, and what the session is, WITHOUT its terminal content.
     ///
-    /// `None` covers two different callers — a session that was never armed and
-    /// The payload, and the last bundle this worker froze before it.
+    /// The second value is the last bundle this worker froze before this one,
+    /// because the answer names it and the naming is the recorder's to get
+    /// right.
     fn freeze(
         &self,
         command: &CaptureCommand,
@@ -209,20 +211,13 @@ impl CaptureRecorder {
 
 impl DiagnosticReports for CaptureRecorder {
     /// The state report, folded against one monotonic reading.
+    ///
+    /// A DELEGATION, and not a shortcut: the fold, and the single reading every
+    /// age in the report is measured against, are the snapshot module's rule
+    /// rather than this recorder's, and a second implementation here is a
+    /// second answer to it.
     fn snapshot(&self) -> Result<Snapshot, Refusal> {
-        let captured_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or(Duration::ZERO);
-        let mono_now = std::time::Instant::now();
-        let mut channels: HashMap<u16, ChannelDiag> = HashMap::new();
-        for (session_id, _) in self.table.live() {
-            // `with_record` nests: `None` is "no such session", so the
-            // capability's own `Option` is the inner layer.
-            if let Some(Some(channel)) = self.table.with_record(&session_id, channel_diag) {
-                channels.insert(channel.channel_id, channel);
-            }
-        }
-        Ok(Snapshot::with_channels(captured_at, mono_now, channels))
+        Ok(Snapshot::of_live_channels(&self.table))
     }
 
     /// Arm or renew a recording.
@@ -362,27 +357,6 @@ impl DiagnosticReports for CaptureRecorder {
             ack
         })
     }
-}
-
-/// One channel's diagnostic state, taken once.
-fn channel_diag(record: &SessionRecord) -> Option<ChannelDiag> {
-    let ring = record.scrollback.len() as u64;
-    let cap = record.scrollback.capacity() as u64;
-    Some(ChannelDiag {
-        // The report is keyed by the u16 the wire names, and the brand is a
-        // `u32` newtype: a channel id past `u16::MAX` is a keeper that has
-        // opened more channels than the wire can name, so it saturates rather
-        // than wrapping onto a real channel's number.
-        channel_id: u16::try_from(record.channel_id().as_u32()).unwrap_or(u16::MAX),
-        grid_epoch: record.cell_emit.grid_epoch(),
-        generation: record.cell_emit.seq,
-        suppression: None,
-        ring: Some(RingBounds {
-            retained_bytes: ring,
-            cap_bytes: cap,
-            evicting: record.scrollback.evicting(),
-        }),
-    })
 }
 
 /// What a session is, in a bundle, without its terminal content.

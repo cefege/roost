@@ -11,7 +11,7 @@
 //! They are owned here rather than beside the protocol because they are
 //! decisions about this worker's disk, not about the message two peers exchange.
 //!
-//! The three files are split by what they own and by nothing else:
+//! The four files are split by what they own and by nothing else:
 //! [`byte_window`] holds the always-on tail, [`bundle`] is the only writer of
 //! the capture directory, [`leases`] owns the armed state and the rules that
 //! move it, and [`recorder`] is the capability that joins them to the

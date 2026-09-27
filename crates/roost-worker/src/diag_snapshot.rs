@@ -18,7 +18,10 @@
 //! timeout somewhere else.
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use crate::session::lifecycle::SessionTable;
+use crate::session::types::SessionRecord;
 
 /// Which gate is withholding a channel's cell frames.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -127,6 +130,30 @@ impl Snapshot {
             channels,
         }
     }
+    /// The report as the WORKER's own live sessions make it.
+    ///
+    /// The fold lives here rather than in the caller that owns a session table
+    /// because the monotonic reading is this module's rule and not the
+    /// caller's: it is taken ONCE, in this function, and every age in the
+    /// report is measured against it. A caller that stamped each channel from
+    /// its own reading would satisfy the signature and break the property.
+    pub fn of_live_channels(table: &SessionTable) -> Self {
+        let captured_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::ZERO);
+        let mono_now = Instant::now();
+        let mut channels: HashMap<u16, ChannelDiag> = HashMap::new();
+        for (session_id, _) in table.live() {
+            // `with_record` nests: `None` is "no such session", so the
+            // capability's own `Option` is the inner layer, and a session that
+            // closed between the two reads is simply absent from the report.
+            if let Some(Some(channel)) = table.with_record(&session_id, channel_diag) {
+                channels.insert(channel.channel_id, channel);
+            }
+        }
+        Self::with_channels(captured_at, mono_now, channels)
+    }
+
     /// One channel's recorded state, if the report carries it.
     pub fn channel(&self, channel_id: u16) -> Option<&ChannelDiag> {
         self.channels.get(&channel_id)
@@ -172,6 +199,27 @@ impl Snapshot {
         ids.sort_unstable();
         ids
     }
+}
+
+/// One channel's diagnostic state, read once and never revisited.
+fn channel_diag(record: &SessionRecord) -> Option<ChannelDiag> {
+    let ring = record.scrollback.len() as u64;
+    let cap = record.scrollback.capacity() as u64;
+    Some(ChannelDiag {
+        // The report is keyed by the u16 the wire names, and the brand is a
+        // `u32` newtype: a channel id past `u16::MAX` is a keeper that has
+        // opened more channels than the wire can name, so it saturates rather
+        // than wrapping onto a real channel's number.
+        channel_id: u16::try_from(record.channel_id().as_u32()).unwrap_or(u16::MAX),
+        grid_epoch: record.cell_emit.grid_epoch(),
+        generation: record.cell_emit.seq,
+        suppression: None,
+        ring: Some(RingBounds {
+            retained_bytes: ring,
+            cap_bytes: cap,
+            evicting: record.scrollback.evicting(),
+        }),
+    })
 }
 
 /// A gate that is currently withholding a channel's frames.

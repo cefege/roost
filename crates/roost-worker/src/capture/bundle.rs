@@ -117,8 +117,6 @@ pub fn is_bundle_file_name(name: &str) -> bool {
             .all(|character| character.is_ascii_alphanumeric() || character == '-')
 }
 
-use tokio::io::AsyncWriteExt as _;
-
 /// Create the directory with the owner-only mode if it is not already there.
 async fn ensure_owner_only_dir(directory: &Path) -> std::io::Result<()> {
     match tokio::fs::create_dir_all(directory).await {
