@@ -37,4 +37,5 @@ pub mod snapshot_cursor;
 pub mod snapshot_cursor_drain;
 pub mod spawn;
 pub mod stream_scan;
+pub mod table;
 pub mod types;
