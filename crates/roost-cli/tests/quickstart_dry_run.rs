@@ -17,7 +17,8 @@ use roost_cli::quickstart::endpoint::{EndpointMode, installed_endpoint};
 
 mod quickstart_dry_run_support;
 
-use quickstart_dry_run_support::{TempMachine, fresh_endpoint, tree_snapshot};
+pub use quickstart_dry_run_support::fresh_endpoint;
+use quickstart_dry_run_support::{TempMachine, tree_snapshot};
 use roost_cli::quickstart::plan;
 use roost_cli::services::definition_text::render_definition;
 use roost_cli::services::service_spec::{ServiceRole, ServiceSpec};

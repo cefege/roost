@@ -36,7 +36,7 @@ use crate::quickstart::install::{
     LocalPrograms, deploy_local_definition, install_programs, prepare_service_directories,
     report_change, report_rotation, service_dir,
 };
-use crate::quickstart::web_bundle::install_web_bundle;
+use crate::quickstart::web_source::install_web_bundle;
 use crate::services::install::release_bin_dir;
 use crate::services::service_environment::{ENV_BOOTSTRAP_TOKEN, ENV_WORKER_LABEL};
 use crate::services::service_spec::{ServiceRole, ServiceSpec};

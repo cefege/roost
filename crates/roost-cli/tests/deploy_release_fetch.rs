@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use release_support::{FakeAsset, FakeRelease};
 use roost_cli::deploy::DeployArgs;
 use roost_cli::deploy::invocation::validate;
-use roost_cli::deploy::release::fetch_release;
+use roost_cli::deploy::release_fetch::fetch_release;
 use roost_cli::update::release::{
     RELEASE_BASE_URL_ENV, WEB_ASSET_NAME, keeper_release_asset_name, release_asset_name,
 };

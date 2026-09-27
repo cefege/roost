@@ -1,4 +1,5 @@
-//! Where an install gets the web bundle from, for the two paths that do not
+//! Where an install gets the web bundle from: a directory an operator names, or
+//! the release the running binary came from. Called by the three install paths;
 //! take a directory on the command line. Called by `join` and by
 //! `roost update`; depends on `update::release` for the origin and the one
 //! verification every fetched asset goes through, and on this group's own
@@ -27,7 +28,7 @@ use crate::update::release;
 /// without, and a missing page is a smaller problem than a machine that is not
 /// in the fleet. A failed download IS a refusal, because silently joining with
 /// no page would report success for a machine that serves 404s.
-async fn install_web_bundle(
+pub async fn install_web_bundle(
     env: &dyn EnvSource,
     bin_dir: &Path,
 ) -> Result<Option<PathBuf>, CommandFailure> {

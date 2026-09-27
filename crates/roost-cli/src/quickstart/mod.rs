@@ -30,7 +30,8 @@ pub mod install;
 pub mod join;
 pub mod plan;
 pub mod self_link;
-pub mod web_bundle;
+pub mod specs;
+pub mod web_source;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -48,11 +49,12 @@ use crate::quickstart::install::{
     LocalPrograms, deploy_local_definition, install_programs, prepare_service_directories,
     report_change, report_rotation, service_dir,
 };
-use crate::quickstart::web_bundle::install_local_bundle;
+use crate::quickstart::specs::{coordinator_spec, local_worker_spec};
+use crate::quickstart::web_source::install_local_bundle;
 use crate::services::install::{default_program_path, release_bin_dir};
 use crate::services::service_environment::ENV_BOOTSTRAP_TOKEN;
 use crate::services::service_spec::{ServiceRole, ServiceSpec};
-use crate::services::web_bundle;
+use crate::services::web_bundle::validate as validate_bundle;
 use crate::status::{collect, render};
 use crate::wall_clock;
 
@@ -109,7 +111,7 @@ pub async fn run(args: &QuickstartArgs) -> Result<ExitCode, CommandFailure> {
     // directory that was never built is a usage refusal rather than an install
     // that reports success and then answers 404 for every URL.
     if let Some(source) = &args.web_dist {
-        web_bundle::validate(source).map_err(|error| CommandFailure::usage(error.to_string()))?;
+        validate_bundle(source).map_err(|error| CommandFailure::usage(error.to_string()))?;
     }
 
     // Everything that can be wrong with the invocation is wrong before the
@@ -252,55 +254,6 @@ async fn install_everything(
         Err(remedy) => eprintln!("{remedy}"),
     }
     Ok(ExitCode::SUCCESS)
-}
-
-/// The coordinator definition, resolved from the endpoint's own decided values
-/// so nothing ambient can reach it. A definition that names another service's
-/// dist path is the defect `docs/FAILURE-INDEX.md` records against the shell
-/// installers, and the fix there was structural: there is no longer a shell.
-fn coordinator_spec(
-    env: &roost_host::ProcessEnv,
-    platform: HostPlatform,
-    bin_dir: &Path,
-    endpoint: &QuickstartEndpoint,
-    web_dir: Option<&Path>,
-) -> Result<ServiceSpec, CommandFailure> {
-    let mut decided = endpoint.coordinator_settings();
-    if let Some(web_dir) = web_dir {
-        decided.insert(ENV_WEB_DIST_PATH.to_string(), web_dir.display().to_string());
-    }
-    let install_env = crate::deploy::apply_release::install_environment(env, &decided);
-    let program = bin_dir.join(crate::deploy::apply_release::ROOST_PROGRAM);
-    ServiceSpec::resolve(ServiceRole::Coordinator, &install_env, platform, &program)
-        .map_err(Into::into)
-}
-
-/// The worker this machine runs, with its one-shot grant armed through the
-/// services group's own arming seam and nowhere else.
-fn local_worker_spec(
-    env: &roost_host::ProcessEnv,
-    platform: HostPlatform,
-    bin_dir: &Path,
-    endpoint: &QuickstartEndpoint,
-    grant: &grant::OneShotGrant,
-    web_dir: Option<&Path>,
-) -> Result<ServiceSpec, CommandFailure> {
-    let mut decided = endpoint.coordinator_settings();
-    decided.insert(ENV_COORDINATOR_URL.to_string(), endpoint.loopback_origin());
-    decided.insert(ENV_BOOTSTRAP_TOKEN.to_string(), grant.expose().to_string());
-    let install_env = crate::deploy::apply_release::install_environment(env, &decided);
-    let program = bin_dir.join(crate::deploy::apply_release::ROOST_PROGRAM);
-    let mut resolved = ServiceSpec::resolve(ServiceRole::Worker, &install_env, platform, &program)?;
-    // The worker reads its dist path from the ambient environment like any
-    // other setting, and it is deliberately NOT in the chosen-entries list:
-    // that list means "an operator's answer a redeploy must keep", which a path
-    // into a release directory is not, because a later deploy retires that
-    // release. So the installer that knows which release this is stamps it,
-    // once, and every other install re-stamps rather than preserving.
-    if let Some(web_dir) = web_dir {
-        resolved = resolved.with_setting(ENV_WEB_DIST_PATH, web_dir.display().to_string());
-    }
-    Ok(resolved.with_decided_one_shots(&decided))
 }
 
 /// Poll the coordinator's own loopback listener until it answers its identity

@@ -23,11 +23,11 @@ use roost_host::{EnvSource, HostPlatform};
 use tracing::info;
 
 use crate::command_error::CommandFailure;
-use crate::deploy::apply_release::RELEASE_BIN_DIR;
+use crate::deploy::apply_release::{KEEPER_PROGRAM, RELEASE_BIN_DIR, ROOST_PROGRAM};
 use crate::deploy::codes;
 use crate::deploy::release::{StagedRelease, read_keeper_contract, release_digest};
 use crate::services::web_bundle;
-use crate::update::release;
+use crate::update::assets::{WEB_ASSET_NAME, keeper_release_asset_name, release_asset_name};
 
 /// The release a tag publishes, fetched rather than built, staged in the same
 /// tree layout `build_release` produces.
@@ -98,12 +98,9 @@ async fn fetch_into(
     // two files and then reports the release ships no keeper, because it is
     // looking for a name the release never publishes under.
     for (published, installed) in [
+        (release_asset_name(platform, arch)?, ROOST_PROGRAM),
         (
-            update::release::release_asset_name(platform, arch)?,
-            ROOST_PROGRAM,
-        ),
-        (
-            update::release::keeper_release_asset_name(platform, arch)?.as_str(),
+            keeper_release_asset_name(platform, arch)?.as_str(),
             crate::deploy::apply_release::KEEPER_PROGRAM,
         ),
     ] {
@@ -113,7 +110,7 @@ async fn fetch_into(
                 format!("cannot create the staged {installed}: {error}"),
             )
         })?;
-        update::release::download_verified_to(env, tag, published, file)
+        crate::update::release::download_verified_to(env, tag, published, file)
             .await
             .map_err(|error| {
                 codes::refuse(
@@ -129,8 +126,8 @@ async fn fetch_into(
 /// The bundle, when the release published one beside its binaries.
 async fn fetch_web(env: &dyn EnvSource, tag: &str, bin_dir: &Path) -> Result<(), CommandFailure> {
     let staging = bin_dir.parent().unwrap_or(bin_dir);
-    let asset = update::release::WEB_ASSET_NAME;
-    if !update::release::sidecar_is_published(env, tag, asset).await {
+    let asset = WEB_ASSET_NAME;
+    if !crate::update::release::sidecar_is_published(env, tag, asset).await {
         info!(
             tag,
             "this release publishes no web bundle, so the target keeps serving whatever it has"
@@ -144,7 +141,7 @@ async fn fetch_web(env: &dyn EnvSource, tag: &str, bin_dir: &Path) -> Result<(),
             format!("cannot create {}: {error}", archive.display()),
         )
     })?;
-    update::release::download_verified_to(env, tag, asset, file)
+    crate::update::release::download_verified_to(env, tag, asset, file)
         .await
         .map_err(|error| {
             codes::refuse(

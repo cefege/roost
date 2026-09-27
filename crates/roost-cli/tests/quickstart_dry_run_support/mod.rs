@@ -8,16 +8,18 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeMap;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use roost_cli::quickstart::endpoint::QuickstartEndpoint;
-use roost_cli::quickstart::endpoint::fresh_endpoint;
+pub use roost_cli::quickstart::endpoint::fresh_endpoint;
 use roost_host::MapEnv;
 
 /// A throwaway tree that removes itself, standing in for a machine with no
 /// install of any kind.
 pub struct TempMachine {
-    root: PathBuf,
+    /// The whole throwaway tree: home, data root and everything either creates.
+    pub root: PathBuf,
 }
 
 impl TempMachine {

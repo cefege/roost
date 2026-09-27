@@ -32,6 +32,7 @@ use crate::deploy::keeper_step::{self, KeeperPlan};
 use crate::deploy::machine_txn::TransactionKind;
 use crate::deploy::manifest::{ApplyManifest, ApplyOutcome, ApplyReport};
 use crate::deploy::release;
+use crate::deploy::release_fetch;
 use crate::deploy::release_stage;
 use crate::deploy::ssh;
 use crate::deploy::txn_session::{self, RemoteTransaction};
@@ -87,7 +88,8 @@ pub async fn run(args: &DeployArgs) -> Result<ExitCode, CommandFailure> {
             progress(format!(
                 ">> fetching the published {tag} release for {triple}"
             ));
-            release::fetch_release(&roost_host::ProcessEnv::new(), tag, platform, &arch).await?
+            release_fetch::fetch_release(&roost_host::ProcessEnv::new(), tag, platform, &arch)
+                .await?
         }
         None => {
             let source_root = source_root(args)?;

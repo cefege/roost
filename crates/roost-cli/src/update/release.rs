@@ -27,7 +27,7 @@ use roost_host::{EnvSource, HostPlatform};
 use tracing::info;
 
 use crate::command_error::CommandFailure;
-use crate::update::assets::{WEB_ASSET_NAME, keeper_release_asset_name, release_asset_name};
+pub use crate::update::assets::{WEB_ASSET_NAME, keeper_release_asset_name, release_asset_name};
 use crate::update::candidate::{self, CandidateError, VerifiedCandidate};
 
 /// The GitHub repository every release is published from, named in both URLs

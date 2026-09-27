@@ -13,6 +13,7 @@
 use std::path::{Path, PathBuf};
 
 use roost_host::HostPlatform;
+use tracing::info;
 
 use crate::command_error::CommandFailure;
 use crate::deploy::apply_release::{RELEASE_BIN_DIR, ROOST_PROGRAM};

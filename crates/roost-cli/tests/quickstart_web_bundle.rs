@@ -10,8 +10,8 @@
 
 mod quickstart_dry_run_support;
 
-use quickstart_dry_run_support::{TempMachine, fresh_endpoint, tree_snapshot};
-use roost_cli::quickstart::endpoint::fresh_endpoint as new_endpoint;
+use quickstart_dry_run_support::{TempMachine, tree_snapshot};
+use roost_cli::quickstart::endpoint::fresh_endpoint;
 use roost_cli::quickstart::plan;
 use roost_host::HostPlatform;
 
@@ -27,7 +27,7 @@ fn a_dry_run_names_the_bundle_in_both_definitions_and_copies_nothing() {
     std::fs::create_dir_all(&source).expect("the bundle directory is created");
     std::fs::write(source.join("index.html"), b"<html></html>\n").expect("the index is written");
 
-    let endpoint = new_endpoint(None).expect("a loopback endpoint");
+    let endpoint = fresh_endpoint(None).expect("a loopback endpoint");
     let before = tree_snapshot(machine.root());
     let resolved = plan::resolve_plan(
         &env,
@@ -93,7 +93,7 @@ fn a_dry_run_names_the_bundle_in_both_definitions_and_copies_nothing() {
 fn a_dry_run_without_a_bundle_leaves_each_definition_saying_nothing_is_served() {
     let machine = TempMachine::new("no-bundle");
     let env = machine.environment();
-    let endpoint = new_endpoint(None).expect("a loopback endpoint");
+    let endpoint = fresh_endpoint(None).expect("a loopback endpoint");
     let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, None, false)
         .expect("the plan resolves with no bundle");
 
@@ -122,20 +122,4 @@ fn a_dry_run_without_a_bundle_leaves_each_definition_saying_nothing_is_served() 
         "the worker is stamped only by an install that has a bundle, so an install without one \
          leaves it unset rather than stamping an empty path:\n{worker}"
     );
-}
-
-/// The two endpoints disagree about a loopback bind, so this binary re-reads
-/// the shared fixture's own constructor rather than the one its sibling file
-/// re-exports. Asserted here so the divergence is visible instead of a reader
-/// wondering why the import above is unused.
-#[test]
-fn the_shared_fixture_is_the_same_machine_in_both_binaries() {
-    let machine = TempMachine::new("shared");
-    assert!(machine.root().is_dir());
-    assert_eq!(
-        machine.environment().get("HOME").map(str::to_string),
-        Some(machine.root().display().to_string()),
-        "HOME is the tree, so a path this command resolves is inside the snapshot"
-    );
-    let _ = fresh_endpoint(None).expect("a loopback endpoint needs no front door");
 }
