@@ -42,13 +42,15 @@ pub fn CheckingScreen() -> Element {
 /// the only honest action is the pairing route, and the copy says the key was
 /// refused rather than that something went wrong.
 #[component]
-pub fn UnauthorizedScreen() -> Element {
+pub fn UnauthorizedScreen(on_navigate: EventHandler<String>) -> Element {
+    let pair_path = crate::routes::Route::Pair.to_path();
     rsx! {
         div { class: "access-checking", "data-testid": "access-unauthorized",
             div { class: "access-checking__card", role: "alert",
                 Icon { name: "lock", filled: false }
                 span { "This browser is not authorized on this coordinator." }
-                a { href: crate::routes::Route::Pair.to_path(), "data-testid": "access-unauthorized-pair",
+                a { href: pair_path.clone(), onclick: move |_| on_navigate.call(pair_path.clone()),
+                    "data-testid": "access-unauthorized-pair",
                     "Pair this browser"
                 }
             }

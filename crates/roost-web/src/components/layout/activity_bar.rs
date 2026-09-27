@@ -17,7 +17,7 @@ use crate::components::design_icon::Icon;
 /// where Settings and Help live by muscle memory, so moving them would be a
 /// change nobody asked for.
 #[component]
-pub fn ActivityBar(path: String) -> Element {
+pub fn ActivityBar(path: String, on_navigate: EventHandler<String>) -> Element {
     let active = active_destination(&path);
     let top = [
         Destination::Sessions,
@@ -32,12 +32,12 @@ pub fn ActivityBar(path: String) -> Element {
             "aria-label": "Workbench navigation",
             div { class: "workbench-activity-bar__group",
                 for destination in top {
-                    ActivityItem { destination, active }
+                    ActivityItem { destination, active, on_navigate }
                 }
             }
             div { class: "workbench-activity-bar__group workbench-activity-bar__group--bottom",
                 for destination in bottom {
-                    ActivityItem { destination, active }
+                    ActivityItem { destination, active, on_navigate }
                 }
             }
         }
@@ -46,14 +46,20 @@ pub fn ActivityBar(path: String) -> Element {
 
 /// One rail item: the icon, the label, and the active state the stylesheet draws.
 #[component]
-fn ActivityItem(destination: Destination, active: Option<Destination>) -> Element {
+fn ActivityItem(
+    destination: Destination,
+    active: Option<Destination>,
+    on_navigate: EventHandler<String>,
+) -> Element {
+    let href = destination.href();
     let is_active = active == Some(destination);
     rsx! {
         a {
             class: "workbench-activity-bar__item",
             "data-testid": destination.test_id(),
             "data-active": if is_active { "true" } else { "false" },
-            href: destination.href(),
+            href: href.clone(),
+            onclick: move |_| on_navigate.call(href.clone()),
             "aria-label": destination.label(),
             "aria-current": is_active.then_some("page"),
             title: destination.label(),

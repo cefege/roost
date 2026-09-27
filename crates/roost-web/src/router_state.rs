@@ -1,0 +1,79 @@
+//! In-app navigation: the path the shell renders, kept in step with the address
+//! bar in both directions. Owned by `AuthorizedShell`; every rail, title and
+//! error link routes its clicks through `navigation_handler`.
+//!
+//! WHY THIS EXISTS. `pushState` moves the address bar without reloading, and
+//! nothing re-renders on its own, so a link that only changed the URL left the
+//! shell painting the path it had before. The old answer was to let the anchor
+//! do a full document load — which tears down `ClientCore`, every replica and
+//! every socket, and sends the access gate back to `Checking` for the length of a
+//! network round trip. So the two halves have to be one operation: this module
+//! writes the address bar AND the signal, and a `popstate` listener does the
+//! same for Back and Forward.
+//!
+//! The signal is the render source of truth, not `location`, because only the
+//! signal re-renders. `popstate` is what keeps the two from drifting when the
+//! reader uses the browser's own Back button rather than a rail.
+
+use dioxus::prelude::*;
+
+use crate::platform::location::{current_location, navigate};
+
+/// The path the shell renders, seeded from the address bar and kept in step
+/// with it.
+///
+/// The listener is installed once per shell, not once per render: a listener
+/// re-registered on every render would fire N times per Back press.
+pub fn use_path_signal() -> Signal<String> {
+    let path = use_hook(|| Signal::new(current_location()));
+    #[cfg(target_arch = "wasm32")]
+    use_hook({
+        let path = path;
+        move || install_popstate_listener(path)
+    });
+    path
+}
+
+/// The handler every in-app link hands its clicks to.
+///
+/// It closes over the signal so that one call moves BOTH the address bar and
+/// the rendered path, which is the whole point: a link that moved only one of
+/// them either repaints nothing or reloads the document. A link already showing
+/// is not re-navigated, because `pushState` would add a history entry the reader
+/// has to press Back through twice to leave a page they never left.
+pub fn navigation_handler(path: Signal<String>) -> EventHandler<String> {
+    EventHandler::new(move |next: String| {
+        let mut path = path;
+        if next == path() {
+            return;
+        }
+        navigate(&next);
+        path.set(next);
+    })
+}
+
+/// Listen for the reader's own Back and Forward, and repaint from them.
+///
+/// `Closure::forget` is deliberate: the listener must outlive the component
+/// that registered it, and a shell is mounted once for the life of the
+/// document. Dropping the handle would leave `popstate` firing into freed
+/// memory the first time the shell unmounted.
+#[cfg(target_arch = "wasm32")]
+fn install_popstate_listener(path: Signal<String>) {
+    use wasm_bindgen::JsCast as _;
+    use wasm_bindgen::closure::Closure;
+
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let listener = Closure::<dyn FnMut(web_sys::PopStateEvent)>::new(move |_event| {
+        path.set(current_location());
+    });
+    if window
+        .add_event_listener_with_callback("popstate", listener.as_ref().unchecked_ref())
+        .is_err()
+    {
+        tracing::warn!(target: "router", "the browser refused the popstate listener");
+    }
+    listener.forget();
+}

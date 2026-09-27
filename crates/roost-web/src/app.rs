@@ -22,6 +22,7 @@ use roost_client_core::store::BrowserAccessState;
 
 use crate::components::access_gate;
 use crate::components::layout::AppShell;
+use crate::router_state;
 use crate::routes::Route;
 
 /// Which surface a route names.
@@ -134,29 +135,31 @@ impl Gate {
 #[component]
 pub fn GatedApp() -> Element {
     let core = use_context::<Rc<RefCell<ClientCore>>>();
+    let path = router_state::use_path_signal();
+    let on_navigate = router_state::navigation_handler(path);
     match Gate::for_state(read_access(&core)) {
         Gate::Checking => rsx! { access_gate::CheckingScreen {} },
-        Gate::Unauthorized => rsx! { access_gate::UnauthorizedScreen {} },
-        Gate::Authorized => rsx! { AuthorizedShell {} },
+        Gate::Unauthorized => rsx! { access_gate::UnauthorizedScreen { on_navigate } },
+        Gate::Authorized => rsx! { AuthorizedShell { path, on_navigate } },
     }
 }
 
 /// The shell, with the surface the current path names in its editor slot.
 #[component]
-fn AuthorizedShell() -> Element {
-    let path = current_path();
-    let surface = surface_for(&Route::parse(&path));
+fn AuthorizedShell(path: Signal<String>, on_navigate: EventHandler<String>) -> Element {
+    let surface = surface_for(&Route::parse(&path()));
     rsx! {
         AppShell {
-            path,
-            children: rsx! { RouteContent { surface } },
+            path: path(),
+            on_navigate,
+            children: rsx! { RouteContent { surface, on_navigate } },
         }
     }
 }
 
 /// The surface, or the honest statement of why there is not one.
 #[component]
-fn RouteContent(surface: Surface) -> Element {
+fn RouteContent(surface: Surface, on_navigate: EventHandler<String>) -> Element {
     match surface {
         Surface::Served(ServedSurface::Home) => rsx! {
             crate::components::home::HomeLanding { apple_keyboard: apple_keyboard() }
@@ -165,7 +168,7 @@ fn RouteContent(surface: Surface) -> Element {
             rsx! { crate::components::not_served::NotServed { path } }
         }
         Surface::NotFound { path } => {
-            rsx! { crate::components::not_served::NotFound { path } }
+            rsx! { crate::components::not_served::NotFound { path, on_navigate } }
         }
     }
 }
@@ -186,23 +189,6 @@ fn apple_keyboard() -> bool {
 #[cfg(not(target_arch = "wasm32"))]
 fn apple_keyboard() -> bool {
     false
-}
-
-/// The path the document is showing.
-///
-/// Read during render and cached nowhere, so there is no copy of the address
-/// that can disagree with the address bar.
-#[cfg(target_arch = "wasm32")]
-fn current_path() -> String {
-    crate::platform::location::current_location()
-}
-
-/// A native build has no address bar, so the router reads the root. That keeps
-/// `cargo test -p roost-web` exercising the same components a browser runs
-/// rather than a second set that exists only natively.
-#[cfg(not(target_arch = "wasm32"))]
-fn current_path() -> String {
-    "/".to_string()
 }
 
 /// The browser access state, read through the core.

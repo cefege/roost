@@ -19,6 +19,7 @@
 pub mod app;
 pub mod components;
 pub mod platform;
+pub mod router_state;
 pub mod routes;
 
 use std::cell::RefCell;

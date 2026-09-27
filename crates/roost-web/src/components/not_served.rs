@@ -38,7 +38,8 @@ pub fn NotServed(path: String) -> Element {
 
 /// A path the grammar does not recognise.
 #[component]
-pub fn NotFound(path: String) -> Element {
+pub fn NotFound(path: String, on_navigate: EventHandler<String>) -> Element {
+    let home_path = Route::Home.to_path();
     rsx! {
         section { class: "access-checking", "data-testid": "route-not-found",
             div { class: "access-checking__card", role: "status",
@@ -47,7 +48,8 @@ pub fn NotFound(path: String) -> Element {
                     span { "No route matches " }
                     code { {path} }
                     div {
-                        a { href: Route::Home.to_path(), "data-testid": "route-not-found-home",
+                        a { href: home_path.clone(), onclick: move |_| on_navigate.call(home_path.clone()),
+                            "data-testid": "route-not-found-home",
                             "Go to sessions"
                         }
                     }

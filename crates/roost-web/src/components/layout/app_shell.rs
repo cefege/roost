@@ -70,7 +70,7 @@ pub fn sidebar_width_style(expanded_px: u32, collapsed: bool) -> String {
 
 /// The application's frame, with the route content in the editor slot.
 #[component]
-pub fn AppShell(path: String, children: Element) -> Element {
+pub fn AppShell(path: String, on_navigate: EventHandler<String>, children: Element) -> Element {
     let core = use_context::<Rc<RefCell<ClientCore>>>();
     let (width, height) = use_hook(viewport);
     let size_class = use_hook(move || classify(width, height));
@@ -86,9 +86,9 @@ pub fn AppShell(path: String, children: Element) -> Element {
             class: "workbench-shell",
             "data-compact": if compact { "true" } else { "false" },
             style: sidebar_width_style(sidebar_width, collapsed),
-            TitleBar { path: path.clone(), session_title: title.clone(), session_folder: folder.clone() }
+            TitleBar { path: path.clone(), on_navigate, session_title: title.clone(), session_folder: folder.clone() }
             if !compact {
-                ActivityBar { path: path.clone() }
+                ActivityBar { path: path.clone(), on_navigate }
                 SidebarRegion { collapsed, children: rsx! {} }
             }
             main {

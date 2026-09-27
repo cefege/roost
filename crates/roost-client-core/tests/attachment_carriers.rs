@@ -27,13 +27,13 @@ use roost_client_core::client::attachments::transfer::receipt::AttachmentTransfe
 use roost_client_core::client::attachments::transfer::{
     AttachmentTransferAck, DIRECT_CHUNK_BYTES, DirectUpload, InFlightChunk, SliceRequest,
 };
+use roost_proto::__buffa::oneof::attachment_transfer_client_frame::Frame as ClientFrame;
+use roost_proto::__buffa::oneof::attachment_transfer_server_frame::Frame as ServerFrame;
 use roost_proto::buffa::Message;
 use roost_proto::{
     AttachmentTransferAck as ProtoAck, AttachmentTransferClientFrame, AttachmentTransferReady,
     AttachmentTransferServerFrame, AttachmentTransferStatus as ProtoStatus,
 };
-use roost_proto::__buffa::oneof::attachment_transfer_client_frame::Frame as ClientFrame;
-use roost_proto::__buffa::oneof::attachment_transfer_server_frame::Frame as ServerFrame;
 
 const DIGEST: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
@@ -116,7 +116,11 @@ fn ack_frame(chunk: &InFlightChunk, bytes_received: u64) -> ServerFrame {
         upload_id: chunk.upload_id.clone(),
         seq: chunk.seq,
         bytes_received,
-        abs_path: if chunk.last { WORKER_PATH.to_owned() } else { String::new() },
+        abs_path: if chunk.last {
+            WORKER_PATH.to_owned()
+        } else {
+            String::new()
+        },
         error: String::new(),
         chunk_sha256: chunk.chunk_sha256.clone(),
     }))
@@ -194,12 +198,21 @@ fn fragments_attachment_frames_on_separate_ordered_channels_and_completes_from_a
     };
     assert_eq!(hello.grant_id, "grant-a");
     assert_eq!(hello.secret, "secret-a");
-    assert_eq!((hello.tab_id.as_str(), hello.device_fingerprint.as_str()), ("tab-a", "device-a"));
-    assert_eq!((hello.session_id.as_str(), hello.upload_id.as_str()), ("session-a", "upload-a"));
+    assert_eq!(
+        (hello.tab_id.as_str(), hello.device_fingerprint.as_str()),
+        ("tab-a", "device-a")
+    );
+    assert_eq!(
+        (hello.session_id.as_str(), hello.upload_id.as_str()),
+        ("session-a", "upload-a")
+    );
     assert_eq!(hello.filename, "peer.bin");
     assert!(!hello.short_path);
     assert_eq!(hello.total_bytes, DIRECT_CHUNK_BYTES);
-    assert_eq!((hello.peer_id.as_str(), hello.worker_epoch.as_str()), ("peer-a", "epoch-a"));
+    assert_eq!(
+        (hello.peer_id.as_str(), hello.worker_epoch.as_str()),
+        ("peer-a", "epoch-a")
+    );
 
     // Ready authenticates the peer, and only Ready does.
     let ready = peer.packet_received(PeerLane::Control, &server_packet(1, ready_frame()), 10);
@@ -232,9 +245,15 @@ fn fragments_attachment_frames_on_separate_ordered_channels_and_completes_from_a
     let Some(ClientFrame::Chunk(sent)) = sent.frame else {
         panic!("the data lane carries chunks");
     };
-    assert_eq!((sent.upload_id.as_str(), sent.seq, sent.offset), ("upload-a", 0, 0));
+    assert_eq!(
+        (sent.upload_id.as_str(), sent.seq, sent.offset),
+        ("upload-a", 0, 0)
+    );
     assert_eq!(sent.data.len(), DIRECT_CHUNK_BYTES as usize);
-    assert!(sent.last, "a whole chunk of a whole file is the final chunk");
+    assert!(
+        sent.last,
+        "a whole chunk of a whole file is the final chunk"
+    );
     assert_eq!(sent.chunk_sha256, DIGEST);
 
     // The worker's acknowledgement settles it, and the path is the result.
@@ -250,7 +269,10 @@ fn fragments_attachment_frames_on_separate_ordered_channels_and_completes_from_a
     assert_eq!(receipt.abs_path, WORKER_PATH);
     let settled = upload.settle(&receipt).expect("a matching receipt settles");
     assert!(settled.completed);
-    assert_eq!(upload.outcome().map(|result| result.abs_path).as_deref(), Some(WORKER_PATH));
+    assert_eq!(
+        upload.outcome().map(|result| result.abs_path).as_deref(),
+        Some(WORKER_PATH)
+    );
 }
 
 // ------------------------------------------------------------- the loopback
@@ -270,9 +292,7 @@ fn authenticates_then_sends_direct_bytes_in_order_and_advances_progress_from_ack
     );
     assert_eq!(carrier.subprotocol(), LOOPBACK_SUBPROTOCOL);
 
-    let hello_bytes = carrier
-        .socket_opened()
-        .expect("the socket authenticates");
+    let hello_bytes = carrier.socket_opened().expect("the socket authenticates");
     let hello = AttachmentTransferClientFrame::decode_from_slice(&hello_bytes)
         .expect("the hello is a client frame");
     let Some(ClientFrame::Hello(hello)) = hello.frame else {
@@ -280,8 +300,14 @@ fn authenticates_then_sends_direct_bytes_in_order_and_advances_progress_from_ack
     };
     assert_eq!(hello.grant_id, "grant-a");
     assert_eq!(hello.secret, "secret-a");
-    assert_eq!((hello.tab_id.as_str(), hello.device_fingerprint.as_str()), ("tab-a", "device-a"));
-    assert_eq!((hello.session_id.as_str(), hello.upload_id.as_str()), ("session-a", "upload-a"));
+    assert_eq!(
+        (hello.tab_id.as_str(), hello.device_fingerprint.as_str()),
+        ("tab-a", "device-a")
+    );
+    assert_eq!(
+        (hello.session_id.as_str(), hello.upload_id.as_str()),
+        ("session-a", "upload-a")
+    );
     assert_eq!(hello.filename, "peer.bin");
     assert!(!hello.short_path);
     assert_eq!(hello.total_bytes, total);
@@ -339,9 +365,18 @@ fn authenticates_then_sends_direct_bytes_in_order_and_advances_progress_from_ack
         vec![(0, 0, false), (1, DIRECT_CHUNK_BYTES, true)]
     );
     assert_eq!(progress, vec![DIRECT_CHUNK_BYTES, total]);
-    assert_eq!(upload.outcome().map(|result| result.abs_path).as_deref(), Some(WORKER_PATH));
-    let crossed: Vec<u8> = sent.iter().flat_map(|(_, _, _, data)| data.clone()).collect();
-    assert_eq!(crossed, file, "the slices cross the socket in order and whole");
+    assert_eq!(
+        upload.outcome().map(|result| result.abs_path).as_deref(),
+        Some(WORKER_PATH)
+    );
+    let crossed: Vec<u8> = sent
+        .iter()
+        .flat_map(|(_, _, _, data)| data.clone())
+        .collect();
+    assert_eq!(
+        crossed, file,
+        "the slices cross the socket in order and whole"
+    );
 }
 
 #[test]

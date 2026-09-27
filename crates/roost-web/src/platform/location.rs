@@ -53,3 +53,17 @@ pub fn navigate(href: &str) {
         tracing::warn!(target: "router", href, "the browser refused the navigation");
     }
 }
+
+/// A native build has no address bar, so every path reads as the root.
+///
+/// This is a stub and not a second grammar: `routes::Route` still parses
+/// whatever this returns, so a native test drives the same components a
+/// browser runs rather than a set that exists only natively.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn current_location() -> String {
+    "/".to_string()
+}
+
+/// A native build has no history to move, so a navigation only repaints.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn navigate(_href: &str) {}

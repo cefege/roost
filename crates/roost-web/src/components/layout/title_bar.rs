@@ -20,16 +20,19 @@ pub const PRODUCT: &str = "Roost";
 #[component]
 pub fn TitleBar(
     path: String,
+    on_navigate: EventHandler<String>,
     session_title: Option<String>,
     session_folder: Option<String>,
 ) -> Element {
+    let home_path = Route::Home.to_path();
     let context = workbench_title(&path, session_title.as_deref(), session_folder.as_deref());
     rsx! {
         header { class: "workbench-titlebar",
             div { class: "workbench-titlebar__left",
                 a {
                     class: "workbench-titlebar__brand",
-                    href: Route::Home.to_path(),
+                    href: home_path.clone(),
+                    onclick: move |_| on_navigate.call(home_path.clone()),
                     "aria-label": "Roost home",
                     BrandMark { size: TITLE_BAR_MARK_SIZE }
                     span { class: "workbench-titlebar__product", {PRODUCT} }
