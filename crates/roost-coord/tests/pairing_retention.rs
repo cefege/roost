@@ -126,7 +126,6 @@ impl RetentionFixture {
         .fetch_optional(self.database.pool())
         .await
         .expect("a digest read")
-        .map(|(hash, attempts)| (hash, attempts))
     }
 
     async fn exists(&self, ephemeral_id: &str) -> bool {
