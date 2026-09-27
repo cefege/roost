@@ -3093,6 +3093,29 @@ and wrong about the test**, and following its suggestion destroyed the coverage.
 Which is also why a clippy run is worth repeating even when it is clean: **the
 run after a fix is a check on the fix, not only on the code.**
 
+### The discriminator, measured rather than assumed
+
+On the web track, of the clippy suggestions actually applied, **one in seven was
+wrong about what was load-bearing** — and the wrong one would have deleted the
+property its function exists for. `manual_clamp` on `normalize_pane_ratio` wanted
+`ratio.max(MIN).min(MAX)` replaced with `ratio.clamp(MIN, MAX)`, and **`f64::clamp`
+returns NaN for a NaN input**, which is the exact case the three guards above it
+exist to prevent, on a function whose doc promises a finite answer for every
+input. The guards were kept; only the final line was adopted.
+
+**The discriminator is whether the file already carries a comment stating the
+rule.** A file whose author wrote down *why* the awkward form is there is a file
+where a linter's pattern-match suggestion is most likely to be removing
+something deliberate — and the comment is the evidence.
+
+**So: read the comment above the line before taking the suggestion.** Where there
+is no comment, the suggestion is usually right. Where there is one, the comment
+is the specification and the lint is a guess about the code it did not read.
+
+This is the same shape as the comment-beside-the-code family, and it is why that
+one is worth having: a file with a correct comment is *better documented* and
+*more likely to be mis-refactored by something that did not read it.*
+
 ### The family, all seven, and why the seventh is the dangerous direction
 
 | # | the instrument | what it reported | the truth |
