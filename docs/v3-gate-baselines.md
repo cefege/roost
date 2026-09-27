@@ -612,6 +612,41 @@ happened — and the discipline is to notice it when the test is written rather
 than after a reader has been misled by it. Here it was noticed after, which is
 the ordinary way these things are found.**
 
+### GATE ORDERING, decided: `v3-cli` merges FIRST, ahead of 2C-GATE and 2W-GATE
+
+**The dependency, measured.** `v3` itself carries two `roost-cli` size violations
+(`command_tree_shape.rs` 432, `update_self_replace.rs` 409, both against a 400 cap
+with a 400 baseline). Every track that merged `v3` inherits them, and **they clear
+only when `v3-cli` merges.** So **2C-GATE and 2W-GATE cannot read `xtask lint` = 0
+until the CLI track's branch is on `v3`** — the two Stage 3 triggers are gated behind
+a third track that is neither of them.
+
+**RULING: `v3-cli` merges at 2L.1-GATE, ahead of both.** Three reasons, in order of
+weight:
+
+1. **The dependency is real and the alternative is running a gate that cannot pass.**
+   2C-GATE and 2W-GATE both require `xtask lint` 0. Running them before the CLI
+   merge means running them with a known, named, unfixable-from-there violation.
+2. **The CLI gate is the smallest of the three.** 2L.3 and 2L.1c are both bounded,
+   and the nineteen `import-v2` tests have never been executed — so its gate is also
+   **the first real evidence that the row selection, the account refusal and the
+   fingerprint filter work at all.**
+3. **It clears two violations from every track simultaneously**, which is the
+   cheapest ratchet movement available anywhere in the programme.
+
+**THE COST, stated rather than glossed.** `v3-cli` reaches `v3` before `import-v2`
+has been exercised against a real database, which inverts the plan's own instinct to
+prove the importer first. **The mitigation is that the merge is the CODE.**
+`import-v2` runs as a command at S4.1, after Phase 6, and by then both 2L.1-GATE and
+S3.3 have executed it. **So the sequencing risk is confined to the merge, not to the
+first real use of the thing being merged** — and the first real use is three gates
+away with a gate in front of it.
+
+**What this does NOT change:** the coordinator and worker tracks keep their own gates
+and their own ratchets, and neither waits on the other. READY-RING still runs in
+parallel in its own worktree. This is a merge order, not a dependency between
+tracks' work.
+
 ### The gate ratchets, measured so the exit conditions are concrete
 
 Every track gate has a numeric exit condition. **Measured on `v3` at `93a5f69e`
