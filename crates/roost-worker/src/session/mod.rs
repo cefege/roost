@@ -21,6 +21,7 @@ pub mod emit;
 pub mod emit_streams;
 pub mod history;
 pub mod ids;
+pub mod journal_sink;
 pub mod keeper_admission;
 pub mod lifecycle;
 pub mod raw_metadata;

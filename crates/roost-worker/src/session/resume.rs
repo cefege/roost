@@ -265,7 +265,7 @@ impl SessionManager {
 
     /// Leave nothing half-adopted: the survivor dies, the record goes, the
     /// claim is given back, the staged bytes are dropped.
-    fn abandon(&self, request: &AdoptionRequest, binding: &RecordBinding, channel: u16) {
+    async fn abandon(&self, request: &AdoptionRequest, binding: &RecordBinding, channel: u16) {
         if let Err(fault) = self.keeper.kill_channel(channel) {
             tracing::error!(
                 session_id = %request.session_id,
@@ -275,7 +275,7 @@ impl SessionManager {
             );
         }
         self.sessions.forget(channel);
-        self.events.release(request.close_reservation);
+        self.events.release(request.close_reservation).await;
         let staged = binding.abandon();
         tracing::warn!(
             session_id = %request.session_id,

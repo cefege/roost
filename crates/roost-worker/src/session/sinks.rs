@@ -13,6 +13,8 @@
 //! condition no per-request answer can fix. Collapsing them would make "the
 //! keeper is producing" and "the coordinator can learn about it" one decision.
 
+use std::pin::Pin;
+
 use roost_protocol::wire::event::SessionEvent;
 
 use crate::event_store::{AppendError, DurableEventKind, Reservation, ReserveError};
@@ -64,6 +66,15 @@ pub enum SessionEventError {
     #[error("the durable session-event store refused the write: {0}")]
     Append(#[from] AppendError),
 
+    /// The durable store could not be reached, or refused in its own right.
+    ///
+    /// Its own variant because a store that did not answer is neither a
+    /// CAPACITY refusal nor a claim mismatch, and collapsing it into either
+    /// would tell a caller to do something about capacity when the disk is what
+    /// said no.
+    #[error("the durable session-event store did not answer: {0}")]
+    Store(String),
+
     /// An event with no worker-authored policy reached this boundary.
     ///
     /// Not a refusal the caller can act on: it means a caller emitted an event
@@ -81,23 +92,51 @@ pub enum SessionEventError {
 /// SessionEventSink::hold) then marks that claim as committed — it no longer
 /// blocks a snapshot, but it is still the same claim and nobody else may take
 /// its capacity.
+///
+/// ASYNC, AND EXPLICITLY SO. The store behind this is `event_store::Journal`, a
+/// SQLite database, and every one of its claim operations is `async`. A sync
+/// trait over an async store has three exits and all three are wrong: block a
+/// runtime thread on a database round trip; spawn and return, so a caller that
+/// believes its `closed` event is recorded is mistaken; or queue and report
+/// success, which is a claim that APPEARS to be taken while the write is still
+/// in flight. That last one is the invisible failure, and it is worse than the
+/// trait being inconvenient.
+///
+/// THE METHODS RETURN [`EventFuture`] RATHER THAN BEING `async fn`, for two
+/// reasons that are both load-bearing. `async fn` in a trait is not dyn
+/// compatible, and this is held as `Arc<dyn SessionEventSink>`. And the future's
+/// `Send` bound has to be NAMEABLE, because the manager holds a sink across an
+/// await and a future that is not `Send` would make `SessionManager` un-`Send`
+/// — a property of this crate's async surface rather than something a caller
+/// should discover.
+///
+/// THE LIFETIME IS THE POINT OF `'a`. Without it the future would be `'static`,
+/// so `emit` would have to CLONE the event into it — and this trait is
+/// crossed on every session state change, which is exactly the frequency at
+/// which a copy nobody needs is most expensive. Note what this lifetime is NOT:
+/// it is a return-position lifetime, which keeps the trait dyn compatible. The
+/// undispatchable-receiver problem that killed `self: Arc<Self>` on
+/// `SessionLifecycle` does not arise here.
 pub trait SessionEventSink: Send + Sync {
     /// Claim capacity for one durable event, before the event is built.
     ///
     /// Fails when the store cannot hold the kind. A spawn that cannot reserve
     /// its `closed` must not open a PTY at all.
-    fn reserve(&self, kind: DurableEventKind) -> Result<Reservation, SessionEventError>;
+    fn reserve(
+        &self,
+        kind: DurableEventKind,
+    ) -> EventFuture<'_, Result<Reservation, SessionEventError>>;
 
     /// Mark a claim committed: it stops blocking snapshots and keeps its
     /// capacity. Idempotent only in the sense that a second hold is refused
     /// rather than silently absorbed.
-    fn hold(&self, reservation: Reservation);
+    fn hold(&self, reservation: Reservation) -> EventFuture<'_, ()>;
 
     /// Give a claim back, because the event it was taken for will not happen.
     ///
     /// A spawn that fails after reserving `opened` and `closed` releases both;
     /// leaking a claim is how a store eventually refuses every write.
-    fn release(&self, reservation: Reservation);
+    fn release(&self, reservation: Reservation) -> EventFuture<'_, ()>;
 
     /// Publish one event, consuming a claim when one was taken for it.
     ///
@@ -105,9 +144,19 @@ pub trait SessionEventSink: Send + Sync {
     /// in memory, and lost on restart without a session being wrong. The claim
     /// is what makes the event durable, so its presence is the difference
     /// between the two and the caller must state which it meant.
-    fn emit(
-        &self,
-        event: &SessionEvent,
+    fn emit<'a>(
+        &'a self,
+        event: &'a SessionEvent,
         reservation: Option<Reservation>,
-    ) -> Result<(), SessionEventError>;
+    ) -> EventFuture<'a, Result<(), SessionEventError>>;
 }
+
+/// What every [`SessionEventSink`] method returns.
+///
+/// Named here rather than borrowed from `browser_commands` because this is not a
+/// browser command's future: it is a database round trip, and a reader asking
+/// what a claim costs should not have to walk through the command router to
+/// find out. `Send` because `SessionManager` holds a sink across an await, and
+/// `'a` because the event an `emit` borrows is not copied to make the future
+/// ownable.
+pub type EventFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;

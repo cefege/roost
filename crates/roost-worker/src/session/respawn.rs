@@ -97,7 +97,7 @@ impl SessionManager {
     /// not what this worker replays: a viewer that is behind gets its own
     /// offset, one that fell below the floor is told the floor, and neither is
     /// served a window this worker cannot address.
-    pub fn claim_viewer(
+    pub async fn claim_viewer(
         &self,
         session_id: &SessionId,
         from_offset: Option<u64>,
@@ -129,6 +129,7 @@ impl SessionManager {
             };
             self.events
                 .emit(&event, None)
+                .await
                 .map_err(|error| Refusal::failed("attach", error.to_string()))?;
         }
         tracing::info!(
@@ -147,7 +148,7 @@ impl SessionManager {
     /// caller's folder is all there is to open — which is why the reconcile path
     /// adopts survivors BEFORE this runs: respawning a session whose keeper
     /// survived throws away a live terminal's history.
-    pub fn respawn_lost_child(
+    pub async fn respawn_lost_child(
         &self,
         session_id: &SessionId,
         folder: &str,
@@ -155,10 +156,11 @@ impl SessionManager {
         rows: u16,
     ) -> Result<SessionOutcome, Refusal> {
         self.open_under(Some(session_id), folder, true, cols, rows)
+            .await
     }
 
     /// Spawn a brand new shell, under a caller-minted id when one was named.
-    pub fn open_shell(
+    pub async fn open_shell(
         &self,
         folder: String,
         cols: Option<u16>,
@@ -174,6 +176,7 @@ impl SessionManager {
             return Ok(SessionOutcome::AlreadyLive);
         }
         self.open_under(requested_session_id.as_ref(), &folder, false, cols, rows)
+            .await
     }
 
     /// The one path that opens a channel, for a spawn and for a respawn alike.
@@ -182,7 +185,7 @@ impl SessionManager {
     /// still holds is re-opened at the spec its PTY was launched with, VERBATIM
     /// and un-resolved, because re-resolving a folder that has since been
     /// deleted would fail a session that was working a moment ago.
-    fn open_under(
+    async fn open_under(
         &self,
         session_id: Option<&SessionId>,
         folder: &str,
@@ -214,8 +217,8 @@ impl SessionManager {
         } else {
             DurableEventKind::Opened
         };
-        let opened = self.reserve(event)?;
-        let close = self.reserve(DurableEventKind::Closed)?;
+        let opened = self.reserve(event).await?;
+        let close = self.reserve(DurableEventKind::Closed).await?;
         let request = SpawnRequest {
             channel_id,
             folder,
@@ -239,6 +242,7 @@ impl SessionManager {
             request,
             self.clock.now_epoch_ms(),
         )
+        .await
         .map_err(|error| {
             // The spawn path gives both claims back and kills any PTY it opened,
             // so all that is left here is to say so and answer the caller.
@@ -287,8 +291,21 @@ impl SessionManager {
 /// arm does lives in the file that owns it.
 impl SessionLifecycle for SessionManager {
     fn kill(&self, session_id: SessionId) -> Boxed<Result<SessionOutcome, Refusal>> {
-        let answered = self.kill_held_session(&session_id);
-        Box::pin(std::future::ready(answered))
+        // THE OWNED HANDLE, AND WHY THIS IS NOT OPTIONAL. The return type is
+        // `Boxed<T>` = `Pin<Box<dyn Future<Output = T> + Send + 'static>>`, and
+        // `&self` cannot go into a `'static` future. So the future is built from
+        // an UPGRADED `Arc<SessionManager>`, and a manager that cannot be
+        // upgraded is answered with a refusal rather than a panic: nothing owns
+        // it, so nothing could have tied a claim taken through it to disk.
+        match self.owned() {
+            Some(owned) => Box::pin(async move { owned.kill_held_session(&session_id).await }),
+            None => Box::pin(std::future::ready(Err(Refusal::failed(
+                "sessions",
+                "this session manager is not owned by anything, so a claim taken \
+                 through it could not be recorded; refusing rather than opening \
+                 a PTY nobody could close",
+            )))),
+        }
     }
 
     fn spawn_shell(
@@ -298,8 +315,19 @@ impl SessionLifecycle for SessionManager {
         rows: Option<u16>,
         requested_session_id: Option<SessionId>,
     ) -> Boxed<Result<SessionOutcome, Refusal>> {
-        let answered = self.open_shell(folder, cols, rows, requested_session_id);
-        Box::pin(std::future::ready(answered))
+        match self.owned() {
+            Some(owned) => Box::pin(async move {
+                owned
+                    .open_shell(folder, cols, rows, requested_session_id)
+                    .await
+            }),
+            None => Box::pin(std::future::ready(Err(Refusal::failed(
+                "sessions",
+                "this session manager is not owned by anything, so a claim taken \
+                 through it could not be recorded; refusing rather than opening \
+                 a PTY nobody could close",
+            )))),
+        }
     }
 
     fn respawn_if_missing(
@@ -309,8 +337,19 @@ impl SessionLifecycle for SessionManager {
         cols: u16,
         rows: u16,
     ) -> Boxed<Result<SessionOutcome, Refusal>> {
-        let answered = self.respawn_lost_child(&session_id, &cwd, cols, rows);
-        Box::pin(std::future::ready(answered))
+        match self.owned() {
+            Some(owned) => Box::pin(async move {
+                owned
+                    .respawn_lost_child(&session_id, &cwd, cols, rows)
+                    .await
+            }),
+            None => Box::pin(std::future::ready(Err(Refusal::failed(
+                "sessions",
+                "this session manager is not owned by anything, so a claim taken \
+                 through it could not be recorded; refusing rather than opening \
+                 a PTY nobody could close",
+            )))),
+        }
     }
 
     fn attach(
@@ -318,8 +357,17 @@ impl SessionLifecycle for SessionManager {
         session_id: SessionId,
         from_offset: Option<u64>,
     ) -> Boxed<Result<SessionOutcome, Refusal>> {
-        let answered = self.claim_viewer(&session_id, from_offset);
-        Box::pin(std::future::ready(answered))
+        match self.owned() {
+            Some(owned) => {
+                Box::pin(async move { owned.claim_viewer(&session_id, from_offset).await })
+            }
+            None => Box::pin(std::future::ready(Err(Refusal::failed(
+                "sessions",
+                "this session manager is not owned by anything, so a claim taken \
+                 through it could not be recorded; refusing rather than opening \
+                 a PTY nobody could close",
+            )))),
+        }
     }
 }
 
