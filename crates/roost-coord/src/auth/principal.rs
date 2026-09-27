@@ -136,6 +136,49 @@ pub const AUTH_LAYER_HEADER: &str = "x-roost-auth-layer";
 /// The value of [`AUTH_LAYER_HEADER`] on a device-layer refusal.
 pub const AUTH_LAYER_DEVICE: &str = "device";
 
+/// The one refusal every device-only method answers with.
+///
+/// **This function exists because it was written eight times.** Each domain
+/// that needed "refuse anything that is not a browser" spelled it out — seven
+/// byte-equivalent, and one (`terminal_screen::rpc`) that answered
+/// `PermissionDenied` with no marker at all, which a browser reads as "you are
+/// not allowed" rather than as "present a device key", and so never refreshes
+/// a session it could have fixed by logging in again. The marker is the whole
+/// point of [`AUTH_LAYER_HEADER`]; a copy that drops it is a copy that is
+/// wrong, and a copy nobody can compare against the others is a copy nobody
+/// will notice is wrong.
+///
+/// `Unauthenticated` rather than `PermissionDenied` is v2's answer
+/// (`auth-interceptor.ts:256-262`) and the right one: telling a worker that
+/// reached a device-only path "permission denied" confirms its key is live to
+/// a peer that guessed a fingerprint.
+#[must_use]
+pub fn device_refusal() -> connectrpc::ConnectError {
+    let mut error = connectrpc::ConnectError::new(
+        connectrpc::ErrorCode::Unauthenticated,
+        "authentication required",
+    );
+    error.response_headers_mut().insert(
+        axum::http::HeaderName::from_static(AUTH_LAYER_HEADER),
+        axum::http::HeaderValue::from_static(AUTH_LAYER_DEVICE),
+    );
+    error
+}
+
+/// The acting browser's fingerprint, or [`device_refusal`].
+///
+/// The `Caller` wrapper rather than [`Principal::require_account_device`]
+/// because this is the shape every handler is handed; the method is kept for
+/// the callers that hold a bare `Principal`.
+pub fn require_account_device(
+    caller: &crate::coord_core::Caller,
+) -> Result<&str, connectrpc::ConnectError> {
+    caller
+        .principal
+        .require_account_device()
+        .map_err(|_| device_refusal())
+}
+
 /// The rows a `resolveCallerPrincipal` join found, before the rules apply.
 ///
 /// Taken as data so the refusals are testable with no database, which is the

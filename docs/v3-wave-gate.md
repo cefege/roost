@@ -2543,13 +2543,12 @@ prefer the account that quotes its own output.
 | # | Property | File and exact edit | Test that must fail | State |
 |---|---|---|---|---|
 | W1 | A record is born `Spawned`, not the FSM's retired `None`; a second close is REFUSED | `session/types.rs`, `SessionRecord::new`: `fsm: ChannelFsm::new()` → `default()` | `a_new_record_can_be_attached_and_ends_exactly_once` — **its SECOND assertion**; the attach alone passes under a weaker fix | **NEVER RUN.** The fix for the defect W2a found in the lead's own W-0 file. Most load-bearing row on the branch. |
-| W2 | A delta past the row cap escalates to a full frame, never a silent hole | `roost-term/src/emitter.rs:127`: `> LIVE_DELTA_SCROLLBACK_ROWS_CAP` → `> u64::MAX` | `a_delta_past_the_row_cap_becomes_a_viewport_only_full` | unrun. **The only row guarding behaviour inside a COMPLETED ported crate.** |
 | W3 | An overflow drops exactly one sink and tells it once | `session/cell_sink.rs::drop_for_overflow`: remove `sink.on_overflow()` | `an_overflow_drops_exactly_one_sink_and_tells_it_once` | unrun |
 | W4 | A delta too large for one part escalates to a full | `session/emit.rs::build_frame`: delete the `encoded_cell_grid_frame_size(&wire) > CELL_GRID_PART_MAX_BYTES` escalation | `a_delta_too_large_for_one_part_is_escalated_to_a_full` | unrun |
 | W5 | The retained floor stays the offset before the oldest retained byte | `session/types.rs::append_retained`: `head_seq += self.scrollback.len()` instead of `chunk.len()` | `the_history_floor_is_the_offset_before_the_oldest_retained_byte` + 2 | **OBSERVED** — 3 named tests failed, in `734982d1` |
-| W6 | A keeper control credential is recognised whatever its case | `shell_spec.rs::is_keeper_control_key`: drop `to_ascii_uppercase()` | `a_keeper_control_credential_is_recognised_whatever_its_case` | **OBSERVED** in `734982d1`. **Re-run:** W1's credential cutover landed after that observation. |
+| W6 | A keeper control credential is recognised whatever its case | `shell_spec.rs::is_keeper_control_key`: drop `to_ascii_uppercase()` | `a_keeper_control_credential_is_recognised_whatever_its_case` | **OBSERVED in `734982d1`, then STALE — and a row whose recorded result describes a tree that no longer exists is not `OBSERVED`.** The observation predates W1's credential cutover, so the honest state is **`RECONSTRUCTED, not re-verified` until it is re-run.** Its own text already said "Re-run"; the state column now says what that means |
 | W7 | A frame from `Box<dyn TerminalCore>` is byte-identical to one from `AlacrittyCore` | the `&dyn TerminalCore` widening in `roost-term` | `crates/roost-term/tests/dyn_dispatch_parity.rs` | **SATISFIED — the test the row asked for exists and was written and run.** This row said "no test yet" until `WorkerLeadW` checked the crate rather than the row. A row table that reports a missing test without looking is the "A check that quietly stopped looking" entry above, one layer down. |
-| W2 | A delta past the row cap escalates to a full frame, never a silent hole | `roost-term/src/emitter.rs:127`: `> LIVE_DELTA_SCROLLBACK_ROWS_CAP` → `> u64::MAX` | `a_delta_past_the_row_cap_becomes_a_viewport_only_full` | **BLOCKED ON THE TEST, NOT THE MUTATION.** The named test is in no file under `crates/roost-term`, so the row cannot be run at all until somebody writes it. **The only row guarding behaviour inside a COMPLETED ported crate**, and the one gap in this table that is a missing artefact rather than an unrun check. Assigned to the worker track; the spec is `docs/phase4-client-contract.md` §6.2 full-before-delta, §6.3 the delta fence, §6.4 chunked baselines. |
+| W2 | A delta past the row cap escalates to a viewport-only full frame, never a silent hole | **MUTATED SITE: `roost-term/src/emitter.rs:29`** — `pub const LIVE_DELTA_SCROLLBACK_ROWS_CAP: u64 = 250;` → `u64::MAX`, i.e. the constant's **definition**. The arm it disables is `emitter.rs:127`, the `&&` clause naming the constant. **This row previously named `:127`, which is the comparison rather than the definition, and no mutation was run there.** **A THIRD SPELLING IS A TRAP: `roost-term/src/lib.rs:54` re-exports the constant**, so an edit aimed at the `lib.rs` occurrence would compile identically and change nothing — the wrong-file failure, and the reason this row names the definition explicitly. `:29` is the definition; `:127` is the arm; `lib.rs:54` is a re-export and is NOT a site | `a_delta_past_the_row_cap_becomes_a_viewport_only_full` → **FAILED as required**; `a_delta_within_the_row_cap_stays_a_delta` → passed, and it is not optional: a cap that always fires is not a cap | **OBSERVED — the only observed mutation row in the programme.** sha256 of the mutated file differed from the pre-mutation value (so the mutation was applied and not silently restored), restore sha256 matches, baseline before the window was 2 passed / 0 failed, and every other `roost-term` target was green. **Two earlier entries for this row said `unrun` and `BLOCKED ON THE TEST, NOT THE MUTATION`; both were true at their moment and both are now stale, and having them side by side gave the table two answers to one row's state.** The second was correct when written: the named test was in no file under `crates/roost-term`, so the row was **UNRUNNABLE rather than failing**, which is a different state. The test and its opposite-direction sibling were then written against `docs/phase4-client-contract.md` §6.2/§6.3/§6.4, and only then was the row run. |
 | W8 | A spawn's ack is correlated 1:1 with its request under concurrency | keeper pool dispatch | W4's ack-correlation test | unrun |
 | W9 | A read against a replaced grid epoch is REFUSED | `retained_grid.rs describe`, the `EpochBinding::new(...)` argument: replace `record.cell_emit.grid_epoch()` with a constant | `a_read_against_a_replaced_grid_epoch_is_refused` | **OBSERVED** (W2c) |
 | W10 | A page over the ceiling is CLAMPED, not refused | `retained_grid.rs describe`, the `total:` field: use `origin` without adding the retained count | `a_page_larger_than_the_ceiling_is_clamped_not_refused` | **OBSERVED** |
@@ -2727,7 +2726,7 @@ sometimes does not fire".
 
 | # | Edit | Test that must fail |
 |---|---|---|
-| C5 | `status_order.rs::accepts`, last line: `update.common.revision > held.common.revision` → `true` | `a_late_report_never_displaces_a_fresh_one` |
+| C5 | **DEAD TEXT — RE-POINTED.** The row named `status_order.rs::accepts` and that file no longer exists: the coord-local copy was deleted at the C5 cutover and the predicate now lives in `crates/roost-protocol/src/wire/agent_status/order.rs`. Run as written it mutates nothing and **its silence would read as "does not bite"** — the same shape as Track L's `PLACEHOLDER_BEARER` row, and the second dead row in a table I own. The property is real and still worth a row; the anchor is the shared copy's `accepts` | `a_late_report_never_displaces_a_fresh_one`, **re-anchored to the protocol copy before it is run** |
 | C6 | delete the body of `impl Drop for AgentStatusWaiter` in `status_wait/registry.rs` | `a_released_wait_is_not_leaked_when_the_subscriber_is_gone` |
 | C7 | `status_push.rs::classify_transition`: drop `&& next.common.completed_revision > previous.common.completed_revision` from the done arm | `only_a_block_and_a_finished_turn_reach_a_phone` |
 | C8 | `rpc_status.rs handle_agent_status_wait`: move `AgentStatusWaitRequest::new` validation ABOVE `require_open_agent_status_session` | `a_wait_never_becomes_an_oracle_for_which_sessions_exist` |
@@ -2748,61 +2747,681 @@ reconnecting client got a frame it could not place and the cursor never advanced
 a frame cannot leave the directory without its meta; this row is what proves the
 type-level guarantee survives the next edit.
 
-## Coordinator track — C5 (red to green), rows re-verified and re-pointed at `26782410`
+## Coordinator track — C5 (red to green)
 
-Every target below was re-checked against the tree as it stands by the lead who
-was holding the worktree, and **two line numbers moved** because the
-`AgentStatusOrder` import cut took a line out of `status_hub.rs`. A row naming
-a line that has moved is a row that cannot be run, and a row that cannot be run
-reads as a row that was not needed.
+**Supersedes the earlier C12–C17 numbering**, which carried the same properties
+with less detail and without must-still-pass arms. All targets below were
+verified against the tree by the lead that wrote them; **none has been run**, so
+every one is UNVERIFIED and none may be read as coverage.
 
-| # | Property | Edit | Test that must fail | State |
+| # | Property | Edit (`file:line`) | Must fail | Must still pass |
 |---|---|---|---|---|
-| C12 | A queued frame is charged to the window, once | `sync_ws/egress.rs:162` — `self.record_sent(encoded_len, now_ms)` → `reserved` | the `sync_feed_adapters` close-frame case (`delivery_seq == 2`, not 1) | re-verified current; `reserved` is in scope at `:121` |
-| C13 | The queue path still charges on its own | delete `sync_ws/send_queue.rs:264-266` | the same close-frame case, by a second route | re-verified current |
-| C14 | The control path does **not** charge | delete `sync_ws/egress.rs:163` | none — see the state column | **PRE-REGISTERED AS NOT EXPECTED TO BITE.** `control_frames.rs:62` sets `delivery_seq = 0` deliberately and `ack_window.rs:142` documents it. Recorded so nobody later reads its silence as coverage |
-| C15 | An identified report above a legacy frame's first revision is refused | delete `agents/status_hub.rs:272` — `tables.active.remove(&session_id);` | `the_list_answers_in_session_id_order_with_derived_promptability` (`tests/agent_status_rpc.rs:191`, asserted `:224-227`) | **re-pointed 273 → 272.** The other candidate, `a_legacy_frame_yields_permanently_once_an_identified_occupant_is_accepted`, sends revision 1 and the guard needs `revision > 1`, so it passes either way and **is not a pin** |
-| C16 | The `ws://` twin reaches the served policy | delete `middleware/security.rs:104` — `connect_origins.push(websocket_twin(declared));` | the assembled-CSP assertion in `middleware_security_headers` | re-verified current. **The test builds the policy the way a coordinator builds it**; the earlier row naming a direct `build_csp` call was dead text, because no test calls it directly any more |
-| C17 | Presence is addressed to another viewer, not the author's own | `sync_ws/feed/presence.rs:59`, `:53`, `:59`, `:78` — four rows, one per property | `sync_feed_volatile` | re-verified verbatim current after the merge |
+| C5-1 | A frame the socket sends consumes a delivery sequence | `sync_ws/egress.rs` — in `take_next_sendable`, replace the `record_sent(…)` charge with the sequence reserved earlier | `sync_feed_adapters::a_cell_for_a_session_that_was_closed_never_goes_out` (`:137`, `left 1 right 2`) **and** `a_frame_queued_and_then_drained_still_carries_its_meta` (`:81`) | the binary's other four — they never reach a flush, so their passing is what proves the row isolates the charge rather than the flush path generally |
+| C5-2 | A cell is fenced behind its session's announcement | delete the `if !announced.contains(session_id) { return false; }` arm in `send_queue.rs`'s `is_eligible` | `a_cell_for_a_session_that_was_closed_never_goes_out` (`:148`, `Send` where `Idle` is expected — the close released the announcement) | `a_frame_queued_and_then_drained_still_carries_its_meta` |
+| C5-3 | **PRE-REGISTERED AS NOT EXPECTED TO BITE** | delete the `frame.delivery_seq = …` assignment in `egress.rs` | none — the tests assert `sendable.delivery_seq`, never the envelope field | **This is a real hole in the tests, not a passed row.** Recorded so its silence is never read as coverage |
+| C5-4 | An inactive update removes the retained row | delete `tables.active.remove(&session_id);` at `agents/status_hub.rs` **`:272`, not `:273`** — the `status_order.rs` import cut moved it | `the_list_order_and_the_broadcast_order_are_one_answer_after_a_reordering`, and `an_inactive_update_deletes_the_row_and_keeps_its_revision_floor` (whose `retained(&fixture).is_empty()` at `:160` is a second pin on the same line) | the binary's other five, plus `--test agent_status_rpc --test agent_status_push --test agent_status_wait --test agent_config_rpc` |
+| C5-5 | The presence filter is addressed, not broadcast | **APPEND** the `&& data.get("viewer_id") … == viewer_key` conjunct to the expression at `presence.rs:59` — the pre-fix body of `presence_is_viewer_addressed` had it and the port dropped it. **A distinct edit from C5-6 on the SAME line: this one adds a conjunct, C5-6 replaces the whole expression.** | `sync_feed_volatile::presence_reaches_every_viewer_except_the_one_that_authored_it`, at the `theirs` assertion | the other four filter assertions and all three echo assertions |
+| C5-6 | Only delta/leave frames are presence | **REPLACE** the expression at `presence.rs:59` with `true` — see C5-5 for why these two share a line and are not one edit | the `viewers` assertion | the other four filter assertions and the three echo rows |
+| C5-7 | An absent viewer key is never addressed | delete the `if viewer_key.is_none() { return false; }` guard at `presence.rs:53-55` | the `mine`+`None` assertion | the other four and the three echo rows |
+| C5-8 | A viewer never receives its own echo | delete the `&& data.get("viewer_id")… == viewer_key` conjunct at `presence.rs:78`, reducing `presence_echo_is_own_notice` to the bare applicability gate | the `!presence_echo_is_own_notice(&theirs, …)` assertion | all five filter assertions and the other two echo rows |
+| C5-9 | The `ws://` twin reaches the served policy | `middleware/security.rs:104` — `connect_origins.push(websocket_twin(declared));` | `a_relaxed_policy_adds_plaintext_endpoints_and_nothing_else_changes` at `:181` | `every_response_carries_the_policy_this_coordinator_declares`, `a_preflight_is_answered_before_any_route_is_tried`, `the_worker_door_is_allowed_on_every_coordinator`, and the three other middleware binaries |
 
-**Two rows cannot be re-pointed, only re-registered, and the distinction
-matters.** `M1-MOUNTED` and `M1-PREFLIGHT` are named in commit `1a384d7c`'s body
-as NEVER RUN, but **their row text was never written into the repository** — the
-names exist and the rows do not. So there is nothing to correct; there is
-something to write. Recorded here rather than papered over, because a row that
-is present and says "this has to be written" is a promise, and a row that is
-absent is the failure mode this table exists to prevent. The seams are live and
-findable: the mount is `security_layer` at `middleware/security.rs:240`, wired
-at `http/listener.rs:209`; the preflight is `preflight_response` at
-`security.rs:232`, which calls the same `apply_security_headers` at `:235`.
+**C5-9 replaces a row that was dead text.** `build_csp` is no longer called
+directly by any test — a slice rewrote the CSP test to drive the *served header*
+through `security_options_for_config`, so the test's direct `use build_csp` went
+away — and a row naming a direct builder call cannot be run as written. The
+replacement targets the twin at its assembly point instead.
 
-**A harness is written and inert**, outside the worktree at
-`/tmp/coord-mutate.sh`: backs the file up outside the tree, refuses to mutate
-if the backup does not match, verifies the restore by sha256 in an
-`EXIT`/`INT`/`TERM` trap, and reports a compile failure as INCONCLUSIVE rather
-than as a pass.
-
-**Zero of these rows has been run.** The C5 gate needs all eight — C12 through
-C17 plus the two registrations — and each must state must-fail AND
-must-still-pass. A non-compiling mutation is INCONCLUSIVE, and a row run
-against a red baseline is BIT-with-unestablished-isolation.
+**`M1-MOUNTED` and `M1-PREFLIGHT` are a RE-REGISTRATION, not a re-pointing.**
+Their names appear in commit `1a384d7c`'s body as NEVER RUN, but **the row text
+was never written into the repository** — so there is nothing to correct, only
+something to write. The seams are live and findable: the mount is `security_layer`
+at `middleware/security.rs:240`, wired at `http/listener.rs:209`; the preflight is
+`preflight_response` at `security.rs:232`, which calls the same
+`apply_security_headers` at `:235`.
 
 ### The clippy floor this track has not beaten, and why it is structural
 
-`cargo clippy` on stable 1.98.1 **has no `--keep-going`.** It stops at the first
+`cargo clippy` on stable 1.98.1 **has no `--keep-going`**. It stops at the first
 failing target, so every test target scheduled after it is never linted at all.
 That makes a clippy number a **floor by construction** — a property of the
 tool, not of the tree — and two agreeing clippy runs will agree and both be
 floors, exactly as two agreeing test runs can.
 
-The last measured pass stopped at `tasks_queue` on
-`tests/tasks_support/mod.rs:103` (`useless use of format!`) and never reached
-six shared fixture modules holding **62 `unwrap`/`expect` sites** with no
-`#![allow]` header: `auth_device_support` (10), `sync_feed_support` (9),
-`tasks_support` (13), `terminal_screen_support` (1 unwrap + 7 expect),
-`terminal_view_support` (4 in `mod.rs` + 10 in `sink.rs`), `workspaces_support`
-(8). **62 is a count of sites in modules that have not been linted, not a count
-of defects.** Whether any of them fires is unmeasured.
+**The "62 ungated `unwrap`/`expect` sites" figure that was carried here is a
+MISCOUNT** and the real figure is smaller than any of the numbers that carried
+it: **six module roots need a declaration, not 62 sites.** 52 occurrences across
+six `mod.rs` files, each needing one `#![allow(clippy::unwrap_used,
+clippy::expect_used)]` header of the kind `workers_support/mod.rs:16` and
+`keeper_update_support/mod.rs` already establish:
+
+| fixture `mod.rs` | occurrences | needs a declaration |
+|---|---:|---|
+| `tasks_support` | 13 | yes |
+| `auth_device_support` | 10 | yes |
+| `sync_feed_support` | 9 | yes |
+| `terminal_screen_support` | 8 | yes |
+| `workspaces_support` | 8 | yes |
+| `terminal_view_support` | 4 | yes |
+
+**A seventh edit would have been redundant, and the reason generalises:** an
+inner attribute on a module applies to that module *and its children*, so
+`terminal_view_support/mod.rs`'s header already covers its `sink.rs` — which is
+why `push_fixture` has a header on `transport.rs:8` that it does not need.
+
+**Two claims about these six files disagreed, and the disagreement is the
+point.** A clippy run reported that every fixture either declares the allow or
+has all its consumers declare it; a direct file inspection reported these six
+need one each. **The clippy run stopped at `tasks_queue` and never reached
+them**, so its answer was an inference from a run that had not been there. The
+inspection is the evidence.
+
+**This is a PREDICTION BEING TESTED, not a count.** What is measured is which
+files contain what; what is NOT measured is whether clippy flags them. If a run
+comes back clean on those six with no changes, then the `clippy.toml` exemption
+*does* reach fixture modules and the rule in `phase3-coord-contract.md` §11 is
+wrong — **which is a more interesting result than the six edits, and exactly
+what a prediction is for.**
+
+Separately, the clippy sequence on this track found **7 real defects**, and
+every one was invisible to `cargo check` and `cargo test`.
+
+
+## Worker track — the one OBSERVED row
+
+**W2 — a delta past the row cap becomes a viewport-only full. STATUS: OBSERVED,
+it bit.** The only observed mutation row in the programme so far.
+
+| | |
+|---|---|
+| Property | A cell delta is legal only while the client is within `LIVE_DELTA_SCROLLBACK_ROWS_CAP` history rows of the live head. Past that the client's absolute row indices no longer mean the same thing, so the frame must degrade to a viewport-only FULL rather than a delta. |
+| Mutation | `roost-term/src/emitter.rs:29` — `LIVE_DELTA_SCROLLBACK_ROWS_CAP: u64 = 250` → `u64::MAX`. The arm it disables is `:127`, the `&&` clause naming the constant. |
+| Must fail, and did | `a_delta_past_the_row_cap_becomes_a_viewport_only_full` → FAILED |
+| Must still pass, and did | `a_delta_within_the_row_cap_stays_a_delta` → passed. **Not optional: a cap that always fires is not a cap**, and without this arm a mutation deleting the whole clause would pass the first test. |
+| Baseline before the window | 2 passed / 0 failed on the named binary. A red baseline makes the row INCONCLUSIVE rather than a pass, and the harness stops on it. |
+| Proof the mutation applied | sha256 of the mutated file differed from the pre-mutation sha256 — so it was applied and not silently restored. |
+| Restore | sha256 matches pre-mutation. Verified, not assumed. |
+| Scope | every other `roost-term` target green; only the mutated target failed. |
+| Harness | `scripts/row-w2-mutation.sh` — re-runnable, backup outside the worktree, trap restore, sha256 before and after, green baseline required before mutating. |
+
+**Two things about this row that are not in the table above.** The **test did not
+exist when the row was written** — `a_delta_past_the_row_cap_becomes_a_viewport_only_full`
+was in no file under `crates/roost-term`, so the row was recorded as BLOCKED ON
+THE TEST, neither passing nor failing. The test and its opposite-direction
+sibling were written against `docs/phase4-client-contract.md` §6.2/§6.3/§6.4, and
+only then was the row run. **The row was unrunnable, not failing**, and those are
+different states.
+
+And **the constant is re-exported at `roost-term/src/lib.rs:54`**, so a mutation
+aimed at the `lib.rs` spelling would compile identically and change nothing. The
+`emitter.rs:29` spelling is given because that is where the value is defined;
+the re-export is not an alternative site.
+
+## Web track (U-1c) — four rows, all RECONSTRUCTED, none run
+
+Sent as written by `WebLeadU2` before the 33 failures are triaged. **Every
+must-fail claim below is a pre-registered prediction, not a result**, and the
+rows are labelled `RECONSTRUCTED against the tree as it stands, not re-verified`.
+
+| # | Property | Edit (`file:line`) | Must fail | Must still pass |
+|---|---|---|---|---|
+| M-U1 | `MemorySecureKeyStore::new()` stores and signs; the two degraded stores are reachable only by asking | `client/auth/memory_keystore.rs:71-81` — delete the hand-written `impl Default` body | `auth_device_key::a_generated_key_is_non_extractable_and_nothing_the_store_hands_back_carries_its_bytes` — panics on `PersistenceUnavailable { detail: "this store keeps keys in memory only" }`, the exact signature the old derive produced | `auth_first_boot_race::a_signing_failure_still_dispatches_the_request_unauthenticated` — needs `with_failing_signing` to be a *distinct* store from `new()`. **This is the row that separates the two flags**: a default of `true` for both plus two opt-out constructors is the only shape where that test means anything |
+| M-U2 | A status whose completion predates this profile never reads `done`; an identified occupant's first completion does | `client/agents/status_policy.rs:240` — `EVERY_COMPLETION_ALREADY_SEEN` → `0` | `agent_status_policy::a_legacy_status_never_reads_done_because_it_could_not_have_been_missed` — `left: Done, right: Idle` | `::an_unseen_completion_of_an_identified_occupant_reads_done_and_a_seen_one_reads_idle` — the other arm of the same `unwrap_or_else`, which goes `Done` only because the identified floor stayed at `-1` |
+| M-U3 | A child of home is `~/src`; one `..` from there is `~`, not `/` | `store/browse_paths.rs:60-62` — restore `\|\| dir == BROWSE_HOME` to the early return in `child` | `browse_machine_scope::the_home_sentinel_is_a_path_browse_can_start_on_and_up_cannot_leave` — `left: "/", right: "~"` at the `cwd()` assertion | `::a_machines_recents_never_include_another_machines_even_at_the_same_path` — its guard assertion fires first; if the two lists come back equal the row did not bite and the guard is doing its job |
+| M-U4 | A stored legacy spelling is rewritten to one of the four on the next write, and the revision moves only when the *mode* moved | `store/prefs/predict.rs:75-77` — delete the `already_canonical` term so the early return fires on `!changed` alone | `prefs_persistence::the_two_spellings_an_earlier_build_wrote_still_mean_something` — `left: Some("force"), right: Some("always")` | `::preferences_round_trip_through_storage` — the same `PREDICT_MODE_KEY` normaliser reached by a different route |
+
+**Rows deliberately NOT written, and the reason is the point.** The seven
+test-side corrections this wave made — the rollup expecting `Working` where v2
+folds `Done`, the ledger merge compared against a pre-merge ledger, the
+replacement-occupant key clobbered before the lookup, the split-refusal fixture
+holding two tabs, the sidebar-width closure that bumps once, `take_one` called
+where two frames were enqueued, and the conformance epoch compared against
+another suite's fixture constant — are **test defects, not source defects.**
+There is no `file:line` in `src/` to mutate, so presenting them as rows would
+be a category error. **What they are is seven places where a test asserted
+something the code and v2 both contradicted**, which is the same cluster as the
+four agent-status failures and worth reading as one.
+
+`ScriptedRandomSource` is new surface added to make a rejection branch
+expressible. **No row yet, and saying so is better than writing one unrun.**
+
+## Worker track (W-2 / L4) — three rows, none run, and one honest limit
+
+| # | Property | Edit (`file:line`) | Must fail | Must still pass |
+|---|---|---|---|---|
+| L4-1 | A host with no label source is refused, never registered as the literal `"worker"` | `runtime/bootstrap_redeem/label.rs:90` — append `.or(Some("worker".to_string()))` before the `ok_or` on `named(env.get(HOSTNAME_ENV))` | `a_host_with_no_name_at_all_is_refused_rather_than_called_worker` (`label.rs:163`) — asserts `label_of(&MapEnv::new(), None) == Err(EnrollmentError::NoLabel)`; the mutation returns `Ok("worker")` | the other four label tests — **none supplies a host with no name at all**, which is why the row is worth pre-registering rather than trusting to coverage |
+| L4-2 | The machine's OWN name outranks the shell's `HOSTNAME` — the macOS regression | `label.rs:84-90` — move the `named(env.get(HOSTNAME_ENV))` arm above `sources.host_name(platform)` | `the_machine_name_outranks_the_shell_hostname` (`label.rs:133`) — `HOSTNAME=stale-import`, host name `mike-m5-air`, expects `Ok("mike-m5-air")`; the mutation returns `Ok("stale-import")` | `the_operator_label_outranks_the_machine_name` **and** `the_shell_hostname_is_the_last_resort_not_the_first` — that test supplies no host name, so the mutated order still reaches `HOSTNAME` and still returns `build-box`. **That second one is what proves the row bites the property rather than merely breaking the file** |
+| L4-3 | A coordinator that did not answer and a coordinator that answered *no* are different events | `bootstrap_redeem/mod.rs:300-304` — replace the body of `coordinator_is_silent` with `let _ = error; true` | `only_a_coordinator_that_did_not_answer_counts_as_silent` (`mod.rs:341`) — the `spoken` arm asserts `!coordinator_is_silent(..)` for `Unauthenticated`, `InvalidArgument`, `PermissionDenied`, `Internal`, `Unimplemented` | the `silent` arm of the same test, and `a_compiled_stamp_is_reported_and_a_source_checkout_sends_nothing` |
+
+**The gap L4-3 does NOT cover, recorded so the row is not read as covering it.**
+These three rows pin the **predicate**; none pins the **policy**. There is no
+test that the redeem path actually returns `Err(RedemptionRefused)` rather than
+logging and continuing — that needs a transport double for
+`CoordinatorServiceClient`, which needs the composition root that does not exist
+yet. **The predicate is pinned and the thing the predicate exists to decide is
+unpinned**, and that belongs next to the rows rather than being left for a
+reader to assume the policy is covered because the predicate is.
+
+**`ServiceSpec::with_setting` — PRE-REGISTERED AS NOT EXPECTED TO BITE.**
+`crates/roost-cli/src/services/service_spec.rs:202`, `pub fn` → `pub(crate) fn`.
+Nothing outside its own declaration calls it, so **a clean `roost-cli` build IS
+the assertion.** `CliLeadL2` checked: the method is *already* `pub(crate)` at
+`:210`, with callers only at `push/coordinator.rs:150,151` — so the privatisation
+is already done in the tree and this row is satisfied rather than pending. It
+stays in the table because a row that is satisfied by a fact is worth recording,
+and because the check closes the "third door" concern **by visibility rather than
+by argument**.
+
+## CLI track — eleven rows, all NEVER RUN
+
+Sent as a record rather than at a gate. **Every one is a pre-registered claim,
+not evidence: this crate has never compiled, and a row against an uncompiled
+baseline is uninterpretable.** Every target below was verified by grep against
+`v3-cli` rather than passed through from a slice, which is not ceremony — it
+caught three wrong targets.
+
+### Three targets that were wrong before they were sent
+
+| Row as written | Correct target | What would have happened |
+|---|---|---|
+| `PLACEHOLDER_BEARER` in `join.rs` | `quickstart/grant.rs:72`, consumed at `plan.rs:140,217` — the string does not appear in `join.rs` at all | the row would have mutated nothing and its silence would have read as "does not bite" |
+| `write_link` at `:132` | `quickstart/self_link.rs:136` — the slice had renumbered the file after writing the row | same |
+| `from_name` at `:98`, the `#[command]` attribute's line | `quickstart/add_machine.rs:77`, the function | a row editing the attribute instead of the function mutates the wrong thing |
+
+### The rows
+
+| # | Property | Edit | Must fail | Must still pass |
+|---|---|---|---|---|
+| L2-1 | A target matching two registry rows is refused, never guessed | `push/plan.rs::resolve_push_targets` — delete the whole `if resolved.ambiguous { … }` block | `a_name_that_matches_two_machines_is_refused_rather_than_guessed`; `a_fingerprint_that_two_rows_claims_is_refused_before_a_single_target_is_chosen` | `a_push_with_no_registered_worker_refuses_rather_than_reporting_an_empty_success`; `a_machine_whose_address_is_not_a_safe_ssh_target_stops_the_push_before_anything` |
+| L2-2 | Past the durable decision there is no rollback | `push/rollout.rs::recover_from` — delete `if finalizing { return Err(forward); }` | `a_failure_after_the_decision_exits_eight_and_never_attempts_a_rollback` | `a_failure_before_the_decision_moves_every_machine_back_and_keeps_the_rollback_point` — **the control that matters: it distinguishes "the guard moved" from "rollback broke harder"** |
+| L2-3 | Admission compares the RUNNING keeper's digest against the release's, not the keeper against itself | `push/admission.rs::classify_fleet_keeper_updates` — change the first argument to `&worker.keeper_runtime.as_ref().unwrap().running_contract` | `a_different_keeper_binary_with_live_sessions_is_deferred_with_the_way_out`; `a_machine_with_no_keeper_observation_is_deferred_as_unproven_and_never_guessed_at` | `the_same_keeper_binary_is_carried_across_and_the_machine_is_a_participant` — **admitted by the mutated code as well as the correct one, so its passing is what proves the mutation is about WHICH TWO CONTRACTS ARE COMPARED rather than about admission breaking** |
+| L3-1 | A dry run renders the definitions a real run would install | delete the `coordinator_settings()` call in `QuickstartEndpoint` (`quickstart/endpoint.rs`) | `a_dry_run_renders_the_definitions_a_real_run_would_install` | the two no-writes tests |
+| L3-2 | A dry run changes nothing on disk | make `print_plan`'s resolution (`quickstart/plan.rs`) write the rendered unit to `spec.definition_path` | `a_dry_run_changes_nothing_on_disk` | all four renders/resolve tests |
+| L3-3 | The door comes from the installed definition and the shell cannot override it | swap the precedence in `dial_url` (`quickstart/add_machine.rs`) so ambient wins over the installed record | `the_door_comes_from_the_installed_definition_and_the_shell_cannot_override_it` | the blank-unit and loopback tests |
+| L3-4 | `windows` is refused at the argument, with the reason | accept `"windows"` in `EnrollmentPlatform::from_name` — `quickstart/add_machine.rs:77` | `windows_is_refused_at_the_argument_and_the_refusal_explains_why` | the two quoting tests |
+| L3-5 | A dirty checkout is refused with the reserved code | drop the dirty-suffix branch in `joined_build_sha` — `quickstart/join.rs:144` | `a_dirty_checkout_is_refused_with_the_reserved_code_and_names_the_escape_hatch` | `a_clean_checkout_is_accepted_and_its_commit_is_the_identity` |
+| L3-6 | A dry run renders a NAMED placeholder, never a real-looking grant | put a real-looking `roost_bt_` value in `PLACEHOLDER_BEARER` — `quickstart/grant.rs:72` | `a_dry_run_renders_a_worker_definition_with_a_named_placeholder_and_no_real_grant` | the four credentials tests |
+| L3-7 | A real file is refused and its contents untouched | make `write_link` (`quickstart/self_link.rs:136`) `remove_file` a non-symlink before relinking | `a_real_file_is_refused_and_its_contents_are_untouched` | the idempotence and v2-repoint tests |
+| L3-8 | A second run changes nothing | drop the `read_link` equality short-circuit in `write_link` | `a_missing_link_is_created_and_a_second_run_changes_nothing` | the repair tests |
+| L-1 | A grant this deploy was given reaches the definition; a spent one does not | re-insert `values.retain(\|key, _\| !is_one_shot_authorization(key));` at the end of `worker_install_environment` (`deploy/identity_env.rs`), **after** the override loop | `a_grant_this_deploy_was_given_reaches_the_definition`; `a_first_install_the_shell_is_authorized_for_carries_its_grant` | `a_deploy_never_carries_a_one_shot_grant_forward` — **its first half, which is the real guard: a PRIOR install's grant is not carried forward** |
+| L-2 | A decided one-shot reaches the RENDERED unit text, not just the spec | make `ServiceSpec::with_decided_one_shots` return `self` unchanged | `a_decided_one_shot_reaches_the_rendered_definition`; `every_value_a_deploy_composes_can_reach_a_definition` | `a_one_shot_grant_is_never_carried_into_a_definition` — **the resolve-side refusal, a DIFFERENT rule that must stay green when the arming site breaks. That asymmetry is the whole point: the right rule and the missing writer are separate defects** |
+
+**L-1 and L-2 pin the two halves of the defect this programme found in Track L:**
+a one-shot grant was accepted as the authorization to enroll and then discarded as
+a value, and `--force-live` was authorized and never reached the worker. **L-2's
+control is what makes the pair diagnostic rather than two red tests** — the
+resolve-side refusal is a *correct* rule, so it must stay green when the arming
+site is broken, and a row that could not tell those apart would not have found
+the missing link.
+
+### Three rules these rows established, which apply to every row in this file
+
+**A row needs a GREEN BASELINE, and without one it is uninterpretable rather
+than pending.** Four of the coord C5 rows and all eleven of these name
+must-fail tests in binaries whose suite has not yet run twice. A row against a
+red or absent baseline cannot produce a verdict at all, so "unrun" and
+"uninterpretable" are different states and the table should say which.
+
+**ANNOUNCE THE CONTROL, including when there isn't one.** L2-3's control is
+admitted by the mutated code as well as the correct one — deliberately, because
+**a control the mutation also breaks only proves the suite noticed something.**
+And the coord presence rows state the opposite where it is true: one of them has
+**no in-test control at all**, the three echo assertions passing under it by
+construction, and its expected result is annotated as "a single failure here with
+the other seven green; more than that is not this row."
+
+**A control that fails when it should not is a FINDING, not a failed row.** The
+`presence_echo_is_own_notice` control is a second property in one row: if the
+mutated guard also breaks the third echo assertion, the mutation exposed a real
+ordering dependency between the applicability gate and the equality. **Record
+that as what it is.**
+
+**And the one that outlives the wave: a row that passes today and is never
+re-run after the thing it guards becomes reachable is a row that has quietly
+stopped looking.** Four coord rows mutate `sync_ws/feed/presence.rs`, whose
+owning engine does not exist. They prove the predicate is pinned, not that the
+product uses it. **When SY2 lands, all four must be re-run** — the driver is
+exactly the change that could make them bite differently.
+
+## Worker track (test targets) — five rows, in the REVERSE shape
+
+These guard **compile fixes**, so the mutation is to revert the fix and the proof
+is the failure that was already recorded. That is cheaper and stronger than a
+forward mutation: the pre-fix state is a fact in the build log, and a forward
+mutation of a one-line import fix proves less than the error it replaced. **A
+compile-fix row says MUST FAIL *before* the edit, and that phrasing is not a
+weaker claim — it is a different and better-evidenced one.**
+
+All five are landed; the edits are committed at `d39db2b8` and the 11 uncommitted
+entries in that worktree are other slices' work, not these.
+
+| # | Property | Edit (`file:line`) | Must fail **before** the edit | Must still pass |
+|---|---|---|---|---|
+| WT-1 | A `TerminalCore` method is not inherent on `AlacrittyCore`; driving one through the concrete type needs the trait in scope. **The only import in the wave that is load-bearing for compilation and invisible at the call site.** | `tests/retained_grid.rs:11` — add `TerminalCore` to the `roost_term` import | the `retained_grid` binary, E0599 at `:59` (`core.write(output.as_bytes())`) | all 8 tests, assertions byte-identical — specifically `every_span_a_real_core_produces_carries_its_own_fields`, the test that would notice the import being satisfied by anything other than a real `AlacrittyCore` |
+| WT-2 | `RetainedGrid::describe` takes `SessionId` **by value** and `SessionId` is `Clone` but not `Copy`, so an id named twice must be cloned at the **FIRST** use | `tests/retained_grid.rs:276` — `.describe(unknown)` → `.describe(unknown.clone())` | E0382 at `:280` (`grid.row(unknown, 0)`), use of moved value | `a_session_this_worker_does_not_hold_is_refused` — the refusal message and the `None` from `row` on the same id. **The direction of the clone is the row:** cloning at the second use leaves the first failing, and the row's whole content is "first use" |
+| WT-3 | `as` cannot bridge two unrelated `Arc`s — `Arc<RecordingDelivery>` and `Arc<Mutex<dyn ChannelDelivery>>` are unrelated, and neither an `as`-form nor an `Arc::clone(&x)` form works | `tests/session_support/mod.rs` — `Harness::with_keeper` calls `shared_delivery(&delivery)` in place of the cast; `tests/session_binding.rs:63,100` — `shared_delivery(&harness)` → `harness.shared_delivery()` | E0605 at both `session_binding.rs` sites **and** inside `session_support/mod.rs`, which broke every target declaring `mod session_support;` — `session_binding`, `session_adoption`, `session_lifecycle`, `session_resize` | `a_hold_over_the_bound_is_not_replayed_at_the_swap` and `a_hold_inside_the_bound_is_replayed_whole_at_the_swap`, with the three `harness.delivery.parsed…` reads reaching **the same recorder**. **A shorter rejected fix — constructing a fresh `Arc<Mutex<RecordingDelivery>>` inside the test — passes both while observing a different object.** Any future change that makes the delivery local is a regression no assertion in this file catches |
+| WT-4 | `on_output` is a method of `roost_worker::session::sinks::ChannelBinding`, not inherent on `RecordBinding`. Through a concrete `Arc<RecordBinding>` the trait must be in scope; through `Arc<dyn ChannelBinding>` it must **NOT** be — which is why the first test compiled and the other two did not | `tests/session_binding.rs:12` — added `use roost_worker::session::sinks::ChannelBinding;` | E0599 at four `on_output` sites on the concrete binding, **and not** at the `Arc<dyn ChannelBinding>` site in test 1 | all three tests. **This import is load-bearing and a tidy-up will not notice: deleting it compiles cleanly and fails only at test run** |
+| WT-5 | residue from the local shim's removal, recorded because it is the class this wave keeps finding | `tests/session_binding.rs` — dropped `Mutex`, `ChannelId`, `CapturedOutput`, `ChannelDelivery`, `SessionRecord`, `RecordingDelivery`; kept `ChannelBinding` (WT-4) plus every import still named in the body at a line that can be pointed to | n/a — the pre-edit state is the six unused imports | all three tests, and **`cargo clippy -p roost-worker --all-targets -- -D warnings`**, since an unused import is invisible to check and test |
+
+Already closed by the lead, no row needed: `be399403` made the shared delivery
+shim private because nothing outside named it — the latent trap behind WT-3's
+`SharedDelivery`, which was `pub` and named by no test binary, hidden under a
+blanket `#![allow(dead_code)]`. **A report found it and a commit fixed it**, which
+is the whole loop working.
+
+## A fourth bound category, weaker than a parse and stronger than a grep
+
+Alongside *total*, *floor (no `--keep-going`)*, *floor (parse error masks name
+resolution)*, and *floor (clippy has no `--keep-going`)*, there is:
+
+> **A floor from reading.** No compiler ran; the file was read in full and every
+> symbol it names was resolved by reading its definition, with the two language
+> questions underneath settled by standalone `rustc` probes on scratch files
+> outside the worktree.
+
+This is how "two root causes over six sites" was established in
+`session_binding.rs`, and **it disagrees with the itemised "4" from the brief
+without either being wrong** — unresolved-name errors stop rustc before method
+resolution, so the E0599s were never emitted in that run. Report it as a
+floor-from-reading, and say which of the two numbers it bounds.
+
+## Two rules this file stated, and both were falsified within the hour
+
+### The test-allow is a property of the COMPILATION UNIT, not the file
+
+An earlier version of this section said a test file carries the allow **iff** it
+has an expect/unwrap outside a `#[test]` body. **That is wrong for shared fixture
+modules**, and it was falsified by the run that was asked for as the test.
+
+`cargo clippy -p roost-coord --all-targets -- -D warnings` returned **exit 0** —
+a total — and two of the six fixture modules predicted to be flagged were not,
+because they do not need to be:
+
+> **A crate-level `#![allow]` is a property of the CRATE.** A test binary that
+> declares one at its root pulls its `mod <fixture>;` into that same crate, so
+> the allow reaches the fixture's helpers. A fixture included by three binaries
+> is covered whenever all three declare it.
+
+**The corrected rule:**
+
+> **A COMPILATION UNIT carries the allow if any file in it has an
+> expect/unwrap outside a `#[test]` body.** For a test binary that means the
+> root; for a shared fixture it means **every consumer declares it, or the
+> fixture declares it for itself.**
+
+**There are TWO ways to be correct, and the failing combination is narrower than
+"a consumer that lacks it".** Both of these are right:
+
+1. a **consumer root** declares it, and every fixture under that root inherits
+   it — the coordinator's `sync_feed_support` / `workspaces_support` shape; or
+2. the **fixture declares it for itself**, and it travels with the module into
+   every crate that compiles it — the web track's `tests/support/auth.rs:10`
+   shape, where four consumers declare nothing at their root and are correct
+   as they stand.
+
+> **The only failing combination is a fixture that does NEITHER: no
+> self-declaration, and at least one consumer without a root declaration.**
+
+That is strictly narrower than "a fixture with a consumer that lacks it", and
+**the narrower statement is the one that predicts correctly on both tracks.** It
+is also a two-line check per module and needs no clippy run: *does the fixture
+file itself carry an inner `#![allow]`?* If yes it is self-sufficient regardless
+of its consumers; if no, every consumer must declare it.
+
+**`xtask/src/fixture_allow.rs` implements exactly this** — a fixture with helper
+sites that declares for itself is skipped, and only a fixture that does neither
+is required to have every consumer declare. Verified by making it fail on
+purpose: it reported 7 real violations in `roost-keeper`'s test binaries, on a
+tree where the declarations genuinely are absent.
+
+**What made the difference between the two tracks is worth naming:** the
+coordinator's six fixtures are all covered *from the consumer side*, and the
+web track's one fixture with helper sites covers *itself*. A check written
+against either shape alone would have reported the other track's tree as broken,
+and both of those reports would have been confident and wrong.
+
+**This retires the "62 sites" figure for good.** It counted occurrences in
+files, where the deciding question was never about files.
+
+### `exit 0` is NOT a floor, and "every clippy number is a floor" was wrong
+
+Clippy on stable 1.98.1 has no `--keep-going` and stops at the first failing
+target. That bounds **a count of diagnostics**. It says nothing about a run
+that reached the end of the target list and emitted none.
+
+> **`exit != 0` gives a count bounded by where it stopped. `exit 0` gives a
+> count bounded by nothing, because there was no first failing target.** Same
+> tool, same missing flag, two different epistemic statuses.
+
+`roost-keeper` reached **0 diagnostics across lib + bin + 20 test targets** on
+its first clippy run ever. Calling that "a low floor" would have understated it.
+
+### And the worst member of the family: a LINTER'S SUGGESTED FIX was a defect
+
+Clippy told the coordinator that `.all()` was more succinct than
+`.fold(true, |all, x| all && x)`. **The suggestion was applied. The next run
+disagreed: `.map(...).all(identity)`.**
+
+Because **`.all()` short-circuits**, and that test registers sessions until a
+bound refuses one — so short-circuiting stops at the first refusal and **the
+bound is never reached.** The test would have passed without exercising the
+property it is named for.
+
+Every other instance in this family is *an instrument that could not detect what
+it was asked about*. This one is **an instrument that was right about the code
+and wrong about the test**, and following its suggestion destroyed the coverage.
+
+> **A fix a linter suggests is a HYPOTHESIS about behaviour, not a repair.**
+> Apply it, then re-run — and if the next run disagrees with the one that
+> produced the suggestion, **the linter was wrong about your test, not your
+> code.**
+
+Which is also why a clippy run is worth repeating even when it is clean: **the
+run after a fix is a check on the fix, not only on the code.**
+
+### The ladder substitutes for the total, and the stopping target is the evidence
+
+Clippy on stable has no `--keep-going`, so a crate without the flag is measured
+one failing target at a time. **The target a run stopped at is the evidence that
+the previous fix worked** — a run that got strictly further is a run whose
+predecessor's finding is gone — and you get that from the exit code you already
+had to look at.
+
+| run | stopped at | diagnostics |
+|---|---|---|
+| A | `connect_interceptor` | 2, fixed |
+| B | `prefs_persistence` | 2, **different ones**, fixed |
+| C | … | … |
+
+**Without the flag you lose the total; what you keep is the DISTANCE, and the
+distance is monotonic as you fix what each run finds.** It takes N runs instead
+of one, and each is cheap against a warm target directory.
+
+**Two things not to claim from it.** The counts must never be summed — two and two
+are two floors from two different stopping points, not four of lint debt. And a
+target that happens to sort late is **not** a reached target: on one track a
+stopping point moved alphabetically forward and nearly read as coverage of a
+fixture four positions earlier. **Only a run that reaches the END of the target
+list settles anything**, and `exit 0` is then a total.
+
+### The discriminator, measured rather than assumed
+
+On the web track, of the clippy suggestions actually applied, **one in seven was
+wrong about what was load-bearing** — and the wrong one would have deleted the
+property its function exists for. `manual_clamp` on `normalize_pane_ratio` wanted
+`ratio.max(MIN).min(MAX)` replaced with `ratio.clamp(MIN, MAX)`, and **`f64::clamp`
+returns NaN for a NaN input**, which is the exact case the three guards above it
+exist to prevent, on a function whose doc promises a finite answer for every
+input. The guards were kept; only the final line was adopted.
+
+**The discriminator is whether the file already carries a comment stating the
+rule.** A file whose author wrote down *why* the awkward form is there is a file
+where a linter's pattern-match suggestion is most likely to be removing
+something deliberate — and the comment is the evidence.
+
+**So: read the comment above the line before taking the suggestion.** Where there
+is no comment, the suggestion is usually right. Where there is one, the comment
+is the specification and the lint is a guess about the code it did not read.
+
+This is the same shape as the comment-beside-the-code family, and it is why that
+one is worth having: a file with a correct comment is *better documented* and
+*more likely to be mis-refactored by something that did not read it.*
+
+### The family, all seven, and why the seventh is the dangerous direction
+
+| # | the instrument | what it reported | the truth |
+|---|---|---|---|
+| 1 | `grep -L 'lints.*workspace'` | 13 crates outside the lint table | it **cannot match a two-line block**; the pattern was guaranteed to fail |
+| 2 | reachability keyed on symbol name | 19 uncalled symbols | **2 were name collisions** — `RetainedFrame`, `EnqueueOutcome`, both with a `Dropped` variant |
+| 3 | `cargo check` with a parse error upstream | 1 error | it **stopped before name resolution**, masking the whole E0599 class |
+| 4 | `ls <path> \| wc -l` | `0` | `0` is what it returns for **absent and empty alike**; the directory held 5.7 GiB |
+| 5 | `rustfmt --check` exit code | two parse errors | a **formatting diff** also exits non-zero; **stderr** is the discriminator |
+| 6 | git's author field | "made outside my session" | it is the **repo's configured identity, constant across every writer** — a field with no variance carries no information about the writer |
+| 7 | `\.unwrap` with no `(` | **88 exposed sites across 48 product files** | `Option::unwrap_or` is a **total function**; the regex counted the prefix of `unwrap_or` |
+
+**Members 1–6 all fail by UNDER-reporting: a zero, a floor, a silence.** Member 7
+fails by **over-reporting**, and that is the one that matters most:
+
+> **A false negative hides a defect. A false positive sends someone to edit
+> working code.** An instrument that can do the second is more dangerous than
+> one that can only do the first, and "an exit code is not a finding" does not
+> cover it — that number was not wrong because of how it was read, it was wrong
+> because of how it was **produced**.
+
+**So the defence is different in kind, and it is the one the web lead and the
+CLI lead each arrived at independently: validate a classifier against a
+measurement it did not consume, and if there is no such measurement, say
+"prediction" BEFORE running it, not after finding it broken.** A prediction that
+matches a measurement it did not fit is an instrument; one fitted to it is not.
+And with no clippy datapoint available, the honest label is a prediction — which
+is the label the CLI lead eventually used, and which is worth more than the
+number it replaced.
+
+### A grep cannot tell a prohibition from a use
+
+`grep -c web-sys` over `roost-client-core/src/` is **0**. Over `tests/` it is
+**4** — and all four are inside `tests/core_without_a_browser.rs`, which exists
+to **fail if that dependency ever appears**: two entries in its own `forbidden`
+substring array, one in prose, one in the module header.
+
+**A reader who greps `tests/` sees a crate that depends on `web-sys` four times,
+when the truth is that it has a test whose entire purpose is to fail if that
+dependency appears.** The scope-free number inverts its own meaning, and the
+figure the contract's §1 actually asks for is the resolver one:
+`cargo tree -p roost-client-core -e normal | grep -c web-sys` → **0**.
+
+**State the scope, or state the resolver figure. Do not publish the bare count.**
+
+## Merge-time decisions, and why they are here rather than in a merge body
+
+A merge commit's default body records that a merge happened and **nothing about
+the three conflicts it resolved.** So the reasoning lives only in peer messages,
+which is the same defect as a row in a message: a thing that exists in one place,
+that place is not durable. And it cannot be fixed by amending — the merge is
+commits back and the tree is live, so **rewriting history to improve a message
+is precisely the destructive move this file keeps warning about.**
+
+**So the decisions are recorded here, as properties rather than as shas.** A
+property survives the branch moving; a merge body from five commits back does
+not, and neither does a handoff note.
+
+### `2a30ed73` — merge of `origin/v3` into `v3-coord`, three conflicts
+
+**1. `crates/roost-keeper/tests/codec_wire.rs` — taken from `origin/v3`, no
+coord content lost.** Both sides agreed on the import list and v3's is a **strict
+superset**: it adds `KEEPER_MAX_MUX_FRAME_BYTES`, the residue from the
+`codec_wire` split. These are the *worker* track's files and the branch rule
+says a non-coord conflict is the integrator's; it was resolved mechanically
+because there was no decision to make, and flagged at the time for that reason.
+**The reusable shape is not the outcome but why it was safe: a strict superset on
+a contested hunk loses nothing from either side.**
+
+**2. `crates/roost-keeper/tests/codec_wire_bounds.rs` — taken from `origin/v3`,
+formatting only.** Coord's side was a single un-wrapped `use` line; v3's is the
+rustfmt-wrapped form. No semantic difference. **Coord's side being un-wrapped is
+itself a small finding** — it says `cargo fmt` had not been run across that file
+in the coord tree, which is the residue `fmt --check` surfaces anyway.
+
+**3. `docs/phase3-coord-contract.md` §4.11 — a genuine two-sided prose merge,
+and the only one of the three that involved judgement.** Both sides agree the
+count is 32. Coord's fuller version was kept — the one naming
+`RATE_LIMITED_METHODS`'s 32-for-the-same-reason and the per-entry exclusions —
+and v3's two unique facts folded in: the `:16-64` line reference, and that
+`PAIR_POLL_ROUTE` resolves to `/roost.v1.CoordinatorService/PairPoll` and so
+appears as a bare identifier rather than a quoted literal.
+
+> **Two sides can agree on every number and still each hold a fact the other
+> lacks, so the merge is a UNION OF FACTS and not a choice between texts.**
+
+That is the reusable shape, and it is the reason prose conflicts are not
+resolvable by picking a side the way a code conflict can be.
+
+**One boundary crossed deliberately and flagged:** item 3 is integrator-owned and
+was edited inside a coord merge, because the two texts had to be reconciled
+rather than chosen between. The property — *both sides agree the count is 32, and
+each holds a fact the other lacks* — is what a later reader needs, and the file
+it is in is the contract rather than a track's.
+
+## Name the act of reading the state, never the value you read
+
+Everything in this programme that was **captured at write time and consumed at
+read time** has decayed, and the list is long enough to be a pattern rather than
+a tally:
+
+| captured | consumed as | what it had become |
+|---|---|---|
+| three mutation rows in a peer message | a row ledger | **unrecoverable** — the message cannot be read back |
+| a starting sha in a C2 brief | the tree to work from | **two commits stale plus an uncommitted edit**, on a track that decayed twice in the time it took to check |
+| a handoff note | the state of a worktree | a **moment**, not a state — and the note that said "uncommitted" about work that had since been committed |
+| "7.6 GiB in the CLI target dir" | a reclaim decision | the directory was **133 MiB**; the figure belonged to a different tree |
+| "62 ungated `unwrap`/`expect` sites" | work to do | a **miscount** — a count of occurrences presented as a count of missing declarations |
+| "21 subcommands" | a test assertion | v2's surface, not the v3 dispatcher's **25** |
+| "a Rust file has no target directory" | nothing to reclaim | the path was **wrong**; the real one held 5.7 GiB |
+
+**The rule, and it costs nothing:**
+
+> **Do not name a starting sha, a file count, or a state. Name the ACT of reading
+> it, and read it from the worktree at the moment you need it.**
+
+A brief that says *"read the tip when C2 opens, from the worktree rather than
+from any handoff note"* stays true however far the branch has moved. A brief that
+says *"start from `d1728b32`"* is false the moment a second commit lands, and
+**nothing notices the gap** — which is the whole failure. A handoff note records
+a moment; a worktree records a state.
+
+**This is the same defect as a row that exists only in a message, one layer up.**
+There, a value was captured in a place that could not be read back. Here, a
+value was captured in a place that *could* be read back and was not, because
+reading it was optional. The defence is the same in both: **put it where it
+cannot go stale, or make reading it the first instruction rather than a
+footnote.**
+
+The cost of getting it wrong is not symmetric. A stale sha sends a lead looking
+for work that is already done — which is exactly what happened here, and it
+would have cost C2 an afternoon of re-deriving a tree that had moved twice.
+
+**But the severity test is not "sha versus number". It is whether the thing was
+already DONE when the claim was written.** A stale number about a cache is a
+nuisance. A stale sha about work that is *finished* sends a successor to
+re-derive a tree that has moved, and that is the expensive direction. A stale
+sha about work still in flight costs a re-check.
+
+**When you do quote a sha, quote the PROPERTY it stands for beside it**, so a
+reader who finds it stale knows what to re-establish rather than what to re-do.
+
+### The commit SUBJECT is the durable form of the same fact
+
+A hash decays; a sentence survives rebase, merge, and any number of later
+commits. *"worker: the shared delivery shim is private, because nothing outside
+names it"* is the durable statement of the fact that a `pub` trap is closed —
+and the repo already answers this question, because the subject field exists and
+`CLAUDE.md` requires it to be navigable history.
+
+So when a message needs to point at a commit, **the subject is the load-bearing
+part and the hash is the convenience.** Preferring the hash was the mistake, not
+quoting one.
+
+### Four instances of one class: an instrument that cannot fail loudly
+
+| the instrument | returned | consumed as | the truth |
+|---|---|---|---|
+| `grep -L 'lints.*workspace'` | "every crate is missing the table" | 13 broken manifests | it **cannot match a two-line block**; the pattern was guaranteed to fail |
+| a reachability script keyed on symbol name | 19 uncalled symbols | 17 uncalled | **2 were name collisions** — `RetainedFrame`, `EnqueueOutcome`, both with a `Dropped` variant |
+| `cargo check --all-targets` with a parse error upstream | 1 error | 1 error | it **stopped before name resolution**, so the whole E0599 class was masked |
+| `ls <path> \| wc -l` | `0` | "this worktree has no target directory" | `0` is what that command returns for **absent and empty alike**; the real directory held 5.7 GiB under a name nobody had looked for |
+
+**The diagnostic is one question, and it is the same one in all four: what
+could this command have detected, before consuming what it returned?** A `0` from
+a command whose failure mode is silent is not evidence of anything — and neither
+is a `0 violations` from a check that was matching nothing, nor a `1 error` from
+a run that never reached the class it was counting.
+
+**And the fifth instance is the guards.** A reclaim step that is harmless on a
+fully-built directory has a **safe-looking success mode**, so it propagates on
+the evidence of a run that was never a test. Same class: an instrument that
+reports success in a state where it was not exercised.
+
+## Standing unverified state, and why it is here rather than in a commit
+
+**A commit body decays; this does not.** A warning that lives in a conversation
+has a shorter life than the code it describes, and a commit message is read once
+at `git log` and never again. So an unverified state is recorded **here** — in
+the document a lead actually reads when they open a slice — and the entry is
+removed only when a compiler has seen the code.
+
+This arose because the obvious home was unavailable and the unavailability was
+the lesson: the commit carrying the change was **already published on two
+remotes**, so its message could not be amended; and the working tree was
+**clean**, so there was no diff for a warning to ride on. Putting it in the next
+commit would have relocated the defect rather than fixed it — a reader auditing
+that commit for its own stated scope would have found an unverified-state
+warning about three lines in a file it never mentions.
+
+| Where | What is unverified | The one failure mode reading could not exclude |
+|---|---|---|
+| `crates/roost-worker/src/runtime/bootstrap_redeem/label.rs:32,40,79` | `LabelSources`, `HostLabelSources`, `resolve_worker_label` are `pub(super)`, narrowed from `pub` with **no compiler having seen the change** | a `pub(super)` item reached through `use super::{..}` from a `#[cfg(test)]` child |
+
+Every other line in that module is also unbuilt; **these three are unbuilt *and*
+edited after the last full read.** The whole of
+`crates/roost-worker/src/runtime/bootstrap_redeem/` is 661 lines across three
+files and has never been through a compiler.
+
+**Remove this entry when `cargo check -p roost-worker --lib` has been run over
+the module**, not when the tests pass — a test run needs the lib, and the lib is
+what these three lines are in.
+
+## Two rules about WHERE a mutation goes, both from a row that would have measured nothing
+
+### A site whose value the test reads is not an independent lever
+
+Row W2's test, `crates/roost-term/tests/emitter_row_cap.rs`, **derives its own
+input from the constant it guards**:
+
+```rust
+let overflow = LIVE_DELTA_SCROLLBACK_ROWS_CAP as usize + 64;   // :60
+assert!(growth > LIVE_DELTA_SCROLLBACK_ROWS_CAP, ...);          // :68
+```
+
+So mutating the constant to `u64::MAX` moves the test's overflow, its scroll
+amount **and** its precondition together. `growth` still exceeds the cap, the
+precondition still holds, the escalation still fires, **and the test passes.**
+
+**That is not a weak test — it is a test that survives a legitimate cap retune**,
+which is why the author wrote it that way. It is also why the constant's
+*definition* is a decoy that reads as plausible, and only the comparison at
+`emitter.rs:127` disables the arm. Three spellings exist: the definition at
+`:29`, the arm at `:127`, and a **re-export** at `roost-term/src/lib.rs:54` that
+compiles identically and changes nothing.
+
+> **Before choosing a mutation site, ask what the test READS.** A site whose
+> value the test consumes is not a lever, and its silence is not a finding.
+
+### A correct decoy in the same file defeats a pattern-matched mutation
+
+`crates/roost-cli/src/push/admission.rs` has **two** places that compare a
+keeper against a contract. `:76` is the one under test. `:127-128`,
+`rollback_keeper_update`, **legitimately** compares the keeper against *itself*,
+and its own doc says why: a rollback ships no new keeper and restores the one
+the machine had.
+
+> **A mutation aimed "at keeper-compared-against-itself" by pattern hits the
+> correct instance and leaves the one under test untouched** — and then reports
+> that the row does not bite, which is a confident and completely wrong finding.
+
+So: **point a mutation at a `file:line`, never at a pattern.** The wrong-file
+failure and this one are the same defect in different clothes — a mutation that
+lands somewhere other than the property under test and reports its silence as
+coverage. The difference is that here the decoy is *correct code*, so the
+mutation produces no error at all rather than an obvious one.
+
+### And the row's own attribution can be wrong while its text is right
+
+`L2-3` named `classify_fleet_keeper_updates`; that function's first parameter is
+`targets: &[FleetRolloutTarget]`, and the comparison is one level down at
+`push/admission.rs:76`. **The recorded mutation text was exactly right and only
+the function it was attributed to was wrong** — which is invisible until
+someone reads the signature, and is why a row names the line rather than the
+enclosing symbol.
 
 ## Coordinator track — tasks (S2)
 
@@ -2866,6 +3485,200 @@ proof.
 
 ---
 
+## The first phase gate of this programme: C5's measurement, taken twice
+
+`cargo test -p roost-coord --no-fail-fast`, worktree `/home/almalinux/repos/roost-v3-coord`,
+run by the integrator after the lead's context ended mid-gate:
+
+| | tip | result |
+|---|---|---|
+| run A, by the previous lead | `26782410` | 618 passed / 1 failed / 3 ignored across 97 result lines |
+| run B, by the integrator | `150d6a22` | **618 passed / 1 failed / 3 ignored across 97 result lines** |
+
+**Two runs, two different tips, identical totals — and 96 identical test
+binaries, verified by diffing the `Running` sets rather than by trusting either
+number.** The sole failure in both is
+`mcp_relays_authority::a_publish_the_store_cannot_answer_is_refused_inside_the_busy_timeout`,
+which is **NOT MINE TO DECIDE**: the port answers `Internal` where v2 answers
+`Unavailable`, it changes client retry behaviour, and it is not to be fixed,
+hidden or ignored away. It is the only red in the coordinator tree.
+
+**The tree advanced between the two runs** — four split defects fixed and
+`build_csp` privatised — and **the totals did not move at all.** That is what
+compile-level repairs and a visibility change should look like, and it is worth
+noting precisely because a totals-identical result across a changed tree is
+either a very good sign or a test suite that cannot see the change. Here the
+changed things were the four *tests* the compiler had rejected, so they were not
+counting before.
+
+### And a counting mistake worth recording, because I made it
+
+The first sample of run A's log reported **118 result lines, 772 passed,
+44 failed**, including seven `Sqlite(PoolTimedOut)` panics. Every one of those
+numbers was wrong, and the cause was that **I read a log file that cargo was
+still writing.** By the time it settled, the same path held 96 binaries and
+**one** failure.
+
+> **A measurement read from a file still being written is not a measurement.**
+> The tell was that the two runs disagreed on totals while agreeing exactly on
+> the set of binaries they executed — 96 unique `Running` names in both, from two
+> logs claiming 118 and 97 result lines. **When two measurements of the same
+> thing disagree, diff what they agree on before believing either.** They agreed
+> on the binary set and on the single failure, and those were the two facts that
+> survived.
+
+This is the same lesson as the `--no-fail-fast` one immediately above it, and
+the two together are the rule: **`0` failures is not `pass`, and a count taken
+mid-write is not a count.**
+
+## A harness that mislabels SIGINT as a compile failure reports INCONCLUSIVE for a row that ran
+
+The mutation harness every track was told to copy — backup outside the tree,
+refuse on mismatch, sha256 restore in a trap, **compile failure reported as
+INCONCLUSIVE** — has that last clause wrong.
+
+A coordinator run was **killed mid-window**: one row completed and bit with a
+verified restore, the next two died on **signals 130 and 143**, and the last
+seven never started. The harness recorded those two as `COMPILE FAILURE`, which
+is the same class of wrong verdict as a row that does not bite — except this one
+is worse, because **INCONCLUSIVE looks like rigour.** A reader concludes the row
+was measured and the result withheld, when in fact it was interrupted and never
+ran.
+
+> **Check the exit status before classifying it: 130 is SIGINT, 143 is SIGTERM,
+> and neither is a compiler verdict.** A harness that maps them onto "the code
+> did not compile" converts an interruption into a finding about the code, and the
+> finding is fabricated — the eighth member of that family, and the first that
+> lives in the TOOL rather than in the analysis.
+
+**The general form, and it applies to every tool this programme runs: a status
+code is not a category.** `0` is success; `non-zero` is a *bundle* of unrelated
+outcomes; and a harness that names a specific cause for a bundle invents the
+cause. Distinguish by the signal first, then by the compiler's own diagnostics,
+and where neither is conclusive say the row was **INTERRUPTED** — a fifth state,
+distinct from run, unrun and inconclusive, and the only honest one.
+
+## `--no-fail-fast` governs the RUNNER, not compilation — so 0 tests is not 0 passes
+
+A track ran `cargo test -p roost-cli --no-fail-fast` for the first time in this
+project's history and got:
+
+> **exit 101 — 0 `Running` lines, 0 `test result` lines, 12 compile errors.**
+
+**The suite did not start.** One unbuildable target stopped all 38 test binaries,
+and the flag — which governs the test *runner* — had nothing to hand to. So the
+run reported **zero tests**, when 35 targets might well have passed.
+
+> **A `test result` count of zero means the binaries did not build. It is not a
+> pass count, and it is emphatically not an empty suite.** Anyone reading "0
+> passed" off that run would conclude the crate has no tests, which is the
+> opposite of the truth.
+
+This is the sharpest form of the floor rule in this file, because the figure
+looks like a *result* rather than a bound: **`--keep-going` bounds a compile
+count by how far it got, and `--no-fail-fast` bounds a test count by whether
+anything built at all.** A `0` from either is an absence wearing a number's
+clothes.
+
+**And a second, quieter version of the same thing:** `--keep-going` with parallel
+jobs **does not print every diagnostic in one pass.** A run reported 21 rendered
+`-->` citations while the per-target "due to N previous error" summaries summed
+to 23, and the two missing ones were real — a lifetime error in a shared fixture
+and nine `E0451`s — which appeared as soon as earlier targets compiled far
+enough to reach them. **The count was never 23; it was 21 that did not all
+print.** Naming the fuzziness rather than resolving it is what made that
+legible: picking 21 would have produced a clean-looking figure and no idea that
+two real errors were queued behind the first.
+
+### A compiler that offers TWO fixes, where only one addresses the fault
+
+rustc's primary help for a lifetime error was a named lifetime; `move` on the
+closure was the secondary. The secondary was applied, did not work, and the
+named lifetime was the repair.
+
+**That is the linter-suggestion rule with the compiler as the linter, and it is
+the same shape as the coord `.all()` case:** an instrument that was right about
+the code and offered answers of which only one was about the thing that was
+wrong. The *primary* suggestion is more often the diagnosis, because it is the
+one derived from the borrow the compiler actually found.
+
+**A private field is a design fault, not a syntax slip, and the repair is not
+`pub`.** `Fixture` had a private `reads: Arc<AtomicUsize>`, and **one private
+field makes `..Default::default()` illegal from outside the module** — so nine
+call sites could not build a fixture at all. Making the field `pub` would have
+let a test set the counter it is supposed to be counting. Instead the counter
+moved into the `router` that serves the reads, which was also the only thing
+that ever used it. **The struct now matches its own doc comment**, which said it
+holds canned values.
+
+### Two sources for one value, found by reading a warning nobody reads
+
+`push/runtime.rs:86` — `FleetRuntime::new` takes a `prior_sha: &str` parameter and
+the struct **has no such field**; it reads `self.plan.prior_sha` at three sites,
+and the only caller passes the same value the plan already carries. Two sources
+for one value where one silently wins.
+
+**It surfaced as an `unused_variables` warning that `cargo check` emits and
+nobody reads.** The repair is to delete the parameter, not to prefix it with `_` —
+and a warning silenced rather than read is a defect deferred to whoever reads it
+next, which is the same trade as a dead allow and a stale baseline.
+
+## A short-circuiting operator whose operands MUTATE
+
+The most valuable defect class this wave produced, and it is not a lint, not a
+missing test, and not a measurement error. It is invisible to every gate.
+
+```rust
+let had_scoped = !store.mcp_relays.is_empty()
+    || !store.pair_requests.is_empty()
+    || toasts::clear_all(&mut store.toasts)          // mutates
+    || transfers::clear_all(&mut store.transfers)    // mutates
+    || !store.spawns.is_empty()
+    || !store.pending_closes.is_empty();
+```
+
+**`||` stops at the first truthy term, so a mutating operand is CONDITIONALLY
+EXECUTED.** The test populated a `pair_request`, that term answered `true`, and
+**both `clear_all` calls were never made.** One assertion caught the toast half;
+the very next assertion at `:371` — `assert!(store.transfers.is_empty(), "a card
+names a file and a path from the old account")` — was **the same line failing a
+second time.** The leak is a toast quoting a machine the new account cannot see.
+
+**The rules, and they generalise past the crate they were found in:**
+
+1. **Never put a mutating call in a `||`/`&&` chain.** An operand with a side
+   effect is not a value, and `||` is not a place to put one.
+2. **When a clear, flush or sweep is an operand, read its result from a call
+   already made** — run the clears first, then build the predicate from their
+   return values. The disjunction is then logically identical in every case, so
+   behaviour a reviewer cares about (here, `revision`) **provably cannot change**
+   and only the slices that get emptied differ. That is what makes such a fix
+   safe to land beside 211 passing tests: the argument is structural, not
+   empirical.
+3. **A dormant copy of the same chain is a defect with a fuse.** The identical
+   expression existed one function away with **no in-tree caller**, and was fixed
+   in the same commit.
+4. **Check the siblings for the class, then stop.** The sibling credential
+   boundary here was straight-line with no predicate, so scope stayed at the two
+   chains. A class-wide sweep on a hunch is how a fix becomes a refactor.
+
+**The audit it suggests, and it is cheap:** grep for `||` and `&&` chains whose
+operands are not field reads. Most are; the ones that **call** anything are a
+short list, and each is either a bug or a comment saying why it is safe. That is
+the `file:line` discipline the mutation rows already use, applied to a shape
+rather than to a status.
+
+**Why nothing caught it.** It passed `cargo check`. It passed clippy. It passed
+**every test except the two that name it** — and those two were already written,
+already in the suite, waiting. A defect that only one assertion names is a defect
+that ships, so the question after any caught leak is *what else does this line
+reach*, and here the answer was one assertion away. The sibling defect found an
+earlier commit was the same shape: `mark_session_open` documented starting a
+browser lifecycle fence and did not, because the fence is installed in **two**
+places — the closed set and `AgentStatusOrder::record_close`, which retires the
+occupant in a different map — so the guard passed, `or_insert_with` did not fire,
+`accepts` hit `is_retired`, and the fence never started.
+
 ## The integrator merge carry list
 
 Things that live on a track branch, are correct there, and would be easy to lose
@@ -2895,6 +3708,19 @@ failure mode this list exists to prevent.**
 > it to that copy.** `cargo xtask lint` is where a duplicated table belongs — a
 > rule flagging a crate whose `[lints]` is not `workspace = true` and which
 > defines a key the workspace table also defines. **That rule is written**, as
+> `xtask/src/lint_table.rs`, with `roost-keeper` as the one `COPY_EXEMPT` entry.
+>
+> **M1 now carries a second consequence, measured.** `xtask/src/fixture_allow.rs`
+> requires every test binary attaching a shared fixture to declare
+> `#![allow(clippy::unwrap_used, clippy::expect_used)]` at its own root, because
+> the allow is a property of the COMPILATION UNIT and a fixture's own
+> declaration does not reach its consumers. On `v3` it reports **7 violations** in
+> `roost-keeper`'s test binaries, and those files carry the declaration on
+> `v3-worker` and not here — so **this merge turns `cargo xtask lint` red, and that
+> is the rule working rather than the merge breaking something.** The rule
+> recognises both attachment forms, `mod <dir>;` and `#[path = "<dir>/mod.rs"]`,
+> because a name-only scan misses the second and that is the form a fixture with
+> several consumers is most likely to use.
 > `xtask/src/lint_table.rs`, with `roost-keeper` as the one `COPY_EXEMPT` entry.
 >
 > **PREDICTED, NOT DISCOVERED.** The workspace clippy was clean at `b13c2e05`,
@@ -3175,6 +4001,113 @@ this file already carries an entry for "a seam that looks complete".
 Three instances in this programme, one defect at three sizes: a
 `collapsible_if` in one line of a file reported verified, a `ShellSpecResolver`
 trait with no implementation, and a whole module.
+
+### The disk guard I wrote was destructive, and it was safe only when there was nothing to lose
+
+It went out in the plan, in four task briefs and two broadcasts:
+
+> delete `*/debug/incremental` and `*/debug/build/*/out` in every `target-*` dir
+
+Two tracks ran it and both lost a build. `WebLeadU2` deleted `out/` out from
+under three proc-macro crates that had not been rebuilt — `serde_core`,
+`thiserror`, `rustversion` — all failing with `couldn't read .../out/private.rs`.
+`CoordLeadC` hit the identical signature on `serde_core` then `serde`.
+
+**The mechanism is what makes this a rule rather than a tip.** Cargo keeps a
+fingerprint saying a build script succeeded. Deleting its **output** without
+deleting its **fingerprint** leaves a record of a success that no longer has a
+result, and the next build trusts the record. You do not get a rebuild; you get
+a confident failure pointing at a file that is legitimately gone.
+
+**The generalisation, from the agent that watched it happen twice: the failure
+needs a target directory that is PARTLY built, and it does not care how it got
+there.** `CoordLeadC`'s directory had just been cleaned and the same command
+still ran. So the guard's failure mode is not "someone was unlucky" — it is
+**"it worked, once, visibly, and taught everyone the shape."** On a fully-built
+directory the deletion is harmless and looks like it worked, and the successful
+run is the evidence that teaches the wrong rule. That is this file's
+check-that-quietly-stopped-looking lesson one layer down, and it is why a reclaim
+step must be validated **in the state where it is unsafe**, not the state where
+it is safe — the same discipline that found the dead `lint_table` predicate by
+disabling its exemption and expecting a failure.
+
+**The replacement is ONE form, and it is the blunt one:**
+
+> **`cargo clean` on your own `target-*` directory. Nothing else.**
+
+An earlier version of this entry offered a second option — delete
+`debug/build/<pkg>-<hash>/` together with the matching
+`debug/.fingerprint/<pkg>-<hash>-*` entries. **That option is withdrawn too, and
+the reason is the rule this file keeps teaching: it was never verified.** A
+worker-track agent paired every `build/*/` that has an `out/` against
+`.fingerprint/<same-name>/` and got **0 of 7** — there is no same-named
+`.fingerprint` directory for any of them, so executed literally the recipe
+removes the output and removes nothing else. It is the withdrawn guard with an
+extra sentence attached.
+
+**The layout, measured rather than assumed, because both halves are here.** In
+the three target directories that exist: `out/` directories are common — 18 in
+the web track's, 51 in coord's, 53 in the CLI's — and `serde_core` **has** one
+in each of two of them. So the claim that proc-macro crates have no `out/` is
+wrong. But **both shapes coexist inside the same crate**: `serde_core` also has
+build directories holding only `build-script-build` / `build_script_build-<hash>`
+and no `out/` at all, and `out/private.rs` is exactly where the generated code
+for the build-script-output shape lives. A recipe aimed at one shape is wrong for
+the other, and the correct pairing is **not established**.
+
+**And the defect is in the guard's SHAPE, not in the operator's care.** An
+agent watching the second failure put it better than the version above: the
+guard is not dangerous because it is subtle — it failed fast and named itself,
+`couldn't read .../out/private.rs`, and the lead escalated correctly instead of
+retrying. **It is dangerous because it has a safe-looking success mode.** On a
+fully-built directory it reclaims a little, prints nothing alarming, and the run
+reads as fine, so the rule propagates on the evidence of a success that was
+never a test. A tool that either works or fails loudly is far less dangerous than
+one that half-works quietly — so the fix belongs in the guard's shape, which is
+why the replacement is `cargo clean`: it has no quiet half-success, because
+either the directory is gone or it is not.
+
+**And the incident report that turned out to be wrong is part of this.** A
+coincident read a single command line in a process list — `rm -rf
+target-track/debug/build` — and reported it as a destructive deletion landing
+under a live build, with the damage window open. It was the **recovery**,
+reached by escalation after the original guard had already failed visibly, and
+it had run with nothing in flight. Both of its candidate diagnoses assumed a
+delete under a running build and neither had happened. The same agent had
+produced a confident well-formatted claim about the wrong object earlier the
+same hour — an 88-module reachability audit that was 88 false positives. **The
+defence that caught both was a person who owned the measurement asking how
+rather than accepting the account**, and that is the transferable part: a
+process list does not carry ordering, and a single command line is not a story.
+
+**So: `cargo clean`, which is always correct and whose only failure mode is
+"slow".** Anything more surgical than deleting the whole directory requires
+knowing which fingerprint corresponds to which build script, and nobody in this
+programme has established that — so nobody gets to publish a recipe that
+guesses it.
+
+**And name the parent explicitly as the thing not to touch.** `*/debug/build/*/out`
+reads like it scopes to the `out` directories, and it will not stop anyone
+reaching for `debug/build` itself — which removes the parent of every `out/`,
+taking build-script output AND a partially-built crate's intermediates in one
+stroke, with the same failure mode and a larger blast radius.
+
+What survives and did its job: check the floor **before** a build rather than
+discovering it from `ENOSPC`; `CARGO_INCREMENTAL=0` stays set, so there is
+nothing in `incremental` to reclaim anyway; **`debug/deps` is the actual
+pressure** and is reclaimable only per-track with `cargo clean`, which is a lead's
+call on their own directory; and pause Track L then Track U, because a track that
+has never compiled restarts from one pass while a track mid-build loses its build
+directory with the run. Free disk bottomed at **9.2 GiB against a 10 GiB floor**
+with four tracks resident, and that ordering was written for exactly this moment.
+
+**One more distinction, per-directory state and not derivable from the guard:** a
+track that has never compiled is CHEAP to clean and a track mid-build is
+EXPENSIVE, and which one you are is a property of the directory, not of the rule.
+`CliLeadL2`'s 7.6 GiB was a failed build's worth of cache worth nothing; the
+coord track's 15 GiB is 97 separately-linked test binaries that do not share, so
+it regrows to roughly its current size after any clean and the lever that moves
+it is fewer or smaller test binaries — a C3/C4 decision, not a disk decision.
 
 ### A pattern that cannot match a legal form returns a confident negative
 

@@ -37,6 +37,34 @@ pub enum AuthRequirement {
     /// A browser or legacy browser key.
     Device,
     /// A browser key **and** a request that arrived on the host.
+    ///
+    /// **THE REQUIREMENT IS REAL IN v2 AND THE GATE DOES NOT ENFORCE IT.**
+    /// `principal_satisfies` answers `is_browser` for this variant and for
+    /// [`AuthRequirement::Device`] alike, so a row carrying it records a
+    /// restriction nothing checks. That is not a reason to stop using it — it is
+    /// the reason the table records what v2 requires and the gate is a separate
+    /// question. **A row that under-claims is the same defect as one that
+    /// over-claims**: narrowing `MiscDbExportUrl` to `Device` would have made
+    /// the table agree with the gate by recording less than v2 enforces.
+    ///
+    /// v2 asserts on-host in FIVE places, and they are TWO SHAPES which must
+    /// not be conflated — only the first is what this variant means:
+    ///
+    /// - **UNGUARDED `assertOnHost(...)`** — a credentialed device AND
+    ///   on-host. One site, `handlers-system.ts:115`. This is `DeviceOnHost`.
+    /// - **`if (!caller) assertOnHost(...)`** — on-host as an UNCREDENTIALED
+    ///   FALLBACK, admitting a caller holding no key at all. Four sites:
+    ///   pairing ×3 and `handlers-devices.ts:72`. This is NOT this variant and
+    ///   the table has no way to say it; those rows record what their handlers
+    ///   enforce, and the credential-less path is currently unreachable because
+    ///   `AuthGate::admit` only inserts a `Caller` for a request that carried
+    ///   one.
+    ///
+    /// Whoever implements the gate's half has to pick which shape each row
+    /// means. `the_on_host_requirement_matches_v2_and_the_gate_does_not_yet_
+    /// enforce_it` in `tests/method_route_coverage.rs` holds both halves: the
+    /// requirement set, and an assertion against the real gate that FAILS THE
+    /// DAY the locality check is written.
     DeviceOnHost,
     /// A machine key.
     Worker,

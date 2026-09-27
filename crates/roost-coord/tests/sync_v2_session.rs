@@ -191,7 +191,6 @@ fn drain(
     for _ in 0..64 {
         match session.take_next_sendable(now_ms, hub) {
             FlushStep::Send(sendable) => {
-                session.record_sent(sendable.encoded_len(), now_ms);
                 // The client ACKs each frame it applied, and the window opens on
                 // that acknowledgement. A drain that sends without ever
                 // acknowledging fills the window on the first part, and part two

@@ -265,6 +265,24 @@ impl JournaledKeeperUpdateV1 {
 
     /// A journal whose contracts disagree with its own admission is a proof of
     /// nothing, so the disagreement is refused rather than re-derived.
+    ///
+    /// **AND ONE OF v2's RESTART CHECKS HAS NO COUNTERPART HERE, DELIBERATELY.**
+    /// v2 refuses a restart when `target.bun_abi === running.bun_abi` fails
+    /// (`packages/protocol/src/keeper-update.ts:207`) — the target contract's
+    /// Bun ABI must agree with the one currently running. `KeeperContractV1`
+    /// has no `bun_abi` field, because a v3 keeper is not a Bun process and
+    /// there is nothing truthful to write in a field whose job is to be
+    /// believed. `keeper_runtime_proto.rs:6` records the same decision on the
+    /// wire side.
+    ///
+    /// **The consequence is stated here, at the admission, rather than only in
+    /// a fixture's comment: what `validate` compares is the implementation
+    /// digest, the features, the platform and the arch — and nothing
+    /// restates the runtime ABI, so a restart is admitted on those four alone.**
+    /// A reader auditing what a restart may assume is looking at this function,
+    /// so this is where the omission belongs. Restoring the check means
+    /// choosing a truthful replacement field, which is a contract decision and
+    /// not a mapping fix.
     pub fn validate(&self) -> ProtocolResult<()> {
         self.admission.validate()?;
         let agrees = self.source_contract.implementation_digest.as_deref()

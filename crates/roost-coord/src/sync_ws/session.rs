@@ -183,8 +183,17 @@ impl SyncV2Session {
     }
 
     /// The sequence the next application frame will carry.
+    ///
+    /// Zero on a socket that did not negotiate flow control, which is the
+    /// number [`Self::record_sent`] charges such a socket with. The two have to
+    /// agree: a frame stamped with a sequence the window never assigned carries
+    /// a number no client can acknowledge, and the window's own accounting
+    /// stops describing the delivery it is supposed to bound.
     #[must_use]
     pub fn next_delivery_seq(&self) -> u64 {
+        if !self.window.is_enabled() {
+            return 0;
+        }
         self.window.next_sequence()
     }
 
@@ -337,6 +346,11 @@ impl SyncV2Session {
     }
 
     /// Record a frame the socket accepted, consuming its delivery sequence.
+    ///
+    /// The flush turn charges for itself, because v2's `flushV2` charges inside
+    /// its own loop (`sync-ws-v2-egress.ts:307-313`) and a caller that repeated
+    /// the charge would spend two sequences on one frame. This is the charge for
+    /// a frame written outside a flush turn.
     pub fn record_sent(&mut self, encoded_bytes: u64, now_ms: u64) -> u64 {
         self.window.record_sent(encoded_bytes, now_ms)
     }

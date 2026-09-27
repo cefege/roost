@@ -88,7 +88,6 @@ async fn an_apply_reserves_the_named_socket_and_resolves_with_its_acknowledgemen
 
     let response = handle_ui_apply_layout(
         &fixture.core,
-        &fixture.runtime,
         &fixture.caller('a'),
         apply_request(&target.fingerprint, &target.tab_id, SESSION_ID),
     )
@@ -134,7 +133,6 @@ async fn an_apply_for_a_reported_but_socketless_tab_is_answered_target_gone() {
     let fixture = UiStateFixture::new("apply-gone").await;
     handle_ui_report_state(
         &fixture.core,
-        &fixture.runtime,
         &fixture.caller('a'),
         report_request("tab-1", "/s/one", None),
     )
@@ -144,7 +142,6 @@ async fn an_apply_for_a_reported_but_socketless_tab_is_answered_target_gone() {
     let (response, messages) = collect_ui_bus(&fixture, async {
         handle_ui_apply_layout(
             &fixture.core,
-            &fixture.runtime,
             &fixture.caller('a'),
             apply_request(&browser_fingerprint('a'), "tab-1", SESSION_ID),
         )
@@ -181,7 +178,6 @@ async fn an_apply_naming_an_unpersisted_session_is_refused_before_any_reservatio
     let (result, messages) = collect_ui_bus(&fixture, async {
         handle_ui_apply_layout(
             &fixture.core,
-            &fixture.runtime,
             &fixture.caller('a'),
             apply_request(&target.fingerprint, &target.tab_id, FOREIGN_SESSION_ID),
         )
@@ -222,14 +218,9 @@ async fn an_apply_without_a_target_fingerprint_or_document_is_refused() {
             ..Default::default()
         },
     ] {
-        let refused = handle_ui_apply_layout(
-            &fixture.core,
-            &fixture.runtime,
-            &fixture.caller('a'),
-            request,
-        )
-        .await
-        .expect_err("a semantically required field is missing");
+        let refused = handle_ui_apply_layout(&fixture.core, &fixture.caller('a'), request)
+            .await
+            .expect_err("a semantically required field is missing");
         assert_eq!(refused.code, ErrorCode::InvalidArgument);
     }
 }
@@ -250,7 +241,6 @@ async fn an_apply_refuses_a_request_that_carried_no_tab_id() {
 
     let refused = handle_ui_apply_layout(
         &fixture.core,
-        &fixture.runtime,
         &fixture.caller_without_tab('a'),
         apply_request(&target.fingerprint, &target.tab_id, SESSION_ID),
     )

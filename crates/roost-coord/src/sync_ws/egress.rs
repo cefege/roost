@@ -17,6 +17,12 @@
 //! is no path that does neither, and a caller that finds one should retire the
 //! session rather than retry, because the terminal lane has already advanced.
 //!
+//! **THE TURN CHARGES THE WINDOW ITSELF.** v2 charges inside `flushV2`, right
+//! after `ws.send` and the dequeue, so a turn here charges too. A caller that
+//! also called `record_sent` would spend two delivery sequences on one frame,
+//! and a turn that charged nowhere would leave every frame on the socket
+//! carrying sequence 1 forever.
+//!
 //! WHY A FULL WINDOW STALLS AND DOES NOT CLOSE. v2's v2 egress returns from the
 //! flush when the unacknowledged window is full; it does not close, unlike the
 //! v1 send path. A browser tab that stopped dispatching gets a paused socket
@@ -106,7 +112,13 @@ impl SyncV2Session {
             let queued = &domain.queue[candidate.index];
             (queued.estimated_bytes(), queued.meta.clone())
         };
-        let delivery_seq = self.next_delivery_seq();
+        // The sequence the window is ABOUT to assign, read here so the copy
+        // below is stamped with the number its own byte accounting will be
+        // measured against. v2 reads it once and uses that one local for the
+        // stamp, the announcement record and the in-flight queue
+        // (`sync-ws-v2-egress.ts:257,274,307-313`); here the charge below is
+        // what makes it authoritative, and the stamp is rewritten from it.
+        let reserved = self.next_delivery_seq();
         // A terminal frame is measured against its CONSERVATIVE estimate, which
         // is at least its real encoded size because the estimate was taken with
         // the widest scalars the stamp can occupy. A non-terminal frame is
@@ -117,18 +129,48 @@ impl SyncV2Session {
             return FlushStep::Stalled;
         }
         let fanout_ms = self.snapshot_fanout_stamp(&meta, now_ms);
-        let frame = self.domains[candidate.slot].queue[candidate.index]
+        let mut frame = self.domains[candidate.slot].queue[candidate.index]
             .frame
-            .outbound_copy(delivery_seq, fanout_ms);
+            .outbound_copy(reserved, fanout_ms);
         if !terminal && !self.window_has_room(u64::from(frame.encoded_len())) {
             return FlushStep::Stalled;
         }
         let kind = frame_kind(&frame);
         let chunk_transfer = chunk_transfer_of(&frame, now_ms, fanout_ms);
+        // Measured on the copy above, which carries `reserved`, so it is exact
+        // whenever the charge below assigns that same number -- which is every
+        // time, because nothing between the two can charge a window. A future
+        // edit that charges in between makes this count short by the width of
+        // one varint, and the per-frame room check still governs.
+        let encoded_len = u64::from(frame.encoded_len());
         let delivered = self.take_selected(candidate);
+        // The charge belongs HERE, where v2 puts it: after the frame has left
+        // and the queue entry is gone, and for the bytes the wire actually took
+        // rather than the estimate the room check used. A turn that does not
+        // charge at all is what pins a whole socket -- `next_delivery_seq` is
+        // `last_sent + 1`, so with nothing ever advancing `last_sent` every
+        // frame on the socket carries sequence 1, a cumulative acknowledgement
+        // of 1 releases only the first frame, and every session's cells stay
+        // fenced behind an announcement no acknowledgement can lift.
+        //
+        // THE WINDOW OWNS THE NUMBER. Whatever `reserved` was, the frame is
+        // stamped with what the window actually assigned, so the sequence on
+        // the wire, the sequence the announcement is recorded under, and the
+        // sequence the caller reports cannot disagree. Both Stalled returns
+        // above are ahead of this line, which is what keeps a frame that was
+        // never sent from spending a sequence.
+        let delivery_seq = self.record_sent(encoded_len, now_ms);
+        frame.delivery_seq = delivery_seq;
         self.apply_delivered_lifecycle(&delivered, delivery_seq);
         self.on_terminal_frame_delivered(&meta);
         self.pump_next_ready_lane(now_ms, hub);
+        tracing::debug!(
+            socket_id = %self.socket_id,
+            delivery_seq,
+            kind,
+            encoded_bytes = encoded_len,
+            "sync v2 application frame delivered and charged to the ack window"
+        );
         FlushStep::Send(SendableFrame {
             delivery_seq,
             frame,

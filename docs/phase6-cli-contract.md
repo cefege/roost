@@ -645,6 +645,56 @@ half-written one. The command is **idempotent**: a second run reports
 
 ---
 
+## The target side: `roost __remote-*`
+
+Four hidden subcommands, all `#[command(hide = true)]`, all taking **no
+arguments**, all reading and writing **standard input and stdout**. They are
+what `roost deploy <host>` runs *on the target*, over ssh. They appear in no
+other section of this document, which is a gap: a machine that has never run a
+deploy cannot tell from the contract that this is what a deploy invokes on it.
+
+| Command | What it does on the target |
+|---|---|
+| `roost __remote-facts` | what this machine has installed — the facts probe, read from the process environment for the command that spawned it |
+| `roost __remote-evidence` | may a release be staged here? one command plus the markers that answer whether a staged release has anything to destroy |
+| `roost __remote-transaction` | take the machine transaction, say so, and **hold it until stdin closes** |
+| `roost __remote-apply` | install the release the manifest on stdin names, and print the report the deploying box reads |
+
+**The wait in `__remote-transaction` is the mechanism, not an artefact of it.**
+Closing this process's input is how the holder says it is done, and **the kernel
+releasing the file lock** is how the machine notices when the holder dies
+without saying anything. So a deploy that loses its ssh connection does not
+leave a machine locked — the lock dies with the process. That is the whole
+reason the command is a process that waits rather than a flag with a timeout,
+and it is not visible from the name.
+
+It blocks on a **blocking thread** rather than through tokio's stdin, which is
+behind a feature this crate does not enable: a transaction holder is a process
+whose only job is to wait, and the thread it waits on is idle by construction.
+
+### The subcommand count is 25, and three different numbers are each correct
+
+`crates/roost-cli/src/lib.rs`'s `Command` enum has **25 variants**, and both
+`name()` and `dispatch()` answer all 25 — checked arm by arm, so there is no
+orphan variant and no arm without one. 20 are visible; 5 are hidden
+(`__keeper-contract` and these four).
+
+- **21** is v2's operator-and-daemon surface: v2's `main.ts` carried 23
+  subcommand keys, minus 2 deliberately dropped (`cutover`,
+  `__windows-updater-broker`). v3 adds 4 v2 did not have — these four.
+- **25** is what the v3 dispatcher actually answers, and it is what
+  `tests/command_tree_shape.rs` asserts, because that file's own doc says its
+  list is *"every subcommand the crate's dispatcher answers"* and it exists
+  precisely because a deploy's journal addresses `__keeper-contract` by string
+  and a deploy addresses the `__remote-*` over ssh. **Asserting 21 would drop
+  exactly the four commands the file exists to protect.**
+- **14 + 7 = 21** is what *this document* covered before this section: 14
+>   under its own `## roost …` headings and 7 in the "Not in the tree yet"
+>   table.
+
+Three correct numbers about three different objects, which is why the count
+disagreed across briefs, the test, and this contract. **25 is the answer.**
+
 ## Not in the tree yet
 
 These are part of the Phase 6 command list and are **not implemented in this
