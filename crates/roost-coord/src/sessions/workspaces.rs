@@ -14,7 +14,8 @@ use crate::db::CoordDb;
 /// detach and the unclaim are only ever correct immediately before the row
 /// goes -- a reader that finds the three apart is the half-deleted tree this
 /// file's own comments warn about. Re-exported so every caller keeps one path.
-pub use super::workspace_delete::{delete_workspace, detach_members, unclaim};
+pub use super::workspace_delete::delete_workspace;
+pub(crate) use super::workspace_delete::{detach_members, unclaim};
 
 /// The `workspaces` columns one projection reads, named once so the ordered
 /// list, a write's read-back and a delta cannot read different sets.

@@ -13,19 +13,13 @@ use std::sync::Arc;
 
 use base64::engine::general_purpose;
 use base64::prelude::Engine as _;
-use connectrpc::ConnectError;
 use roost_coord::auth::authorized_keys::fingerprint_of_raw_public_key;
-use roost_coord::auth::bootstrap_tokens::BootstrapTokenKind;
 use roost_coord::auth::principal::Principal;
-use roost_coord::auth::rpc_bootstrap::{
-    handle_auth_mint_bootstrap, handle_auth_redeem_browser, handle_auth_redeem_worker,
-};
 use roost_coord::coord_core::boot_facts::BootFacts;
 use roost_coord::coord_core::{Caller, CoordCore, ListenerTrust};
 use roost_coord::db::CoordDb;
 use roost_coord::services::CoordServices;
 use roost_host::{CoordConfig, CoordConfigInput};
-use roost_proto as proto;
 use sqlx::AssertSqlSafe;
 
 /// Minting and redeeming a grant is one half of this fixture and key derivation

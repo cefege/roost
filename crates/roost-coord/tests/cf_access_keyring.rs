@@ -42,10 +42,6 @@ use roost_coord::auth::cf_access::{
 };
 use roost_coord::auth::jwt_verify::VerifyClock;
 use roost_host::{CoordConfig, CoordConfigInput};
-use rsa::pkcs1v15::{Signature, SigningKey};
-use rsa::sha2::Sha256;
-use rsa::signature::{SignatureEncoding, Signer};
-use rsa::{BigUint, RsaPrivateKey};
 
 /// `CoordConfig::parse` validates BOTH of these before a request is ever
 /// verified (`roost-host/src/coord_config.rs:193` and `:216`): a team domain is

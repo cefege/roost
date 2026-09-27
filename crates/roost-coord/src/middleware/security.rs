@@ -143,7 +143,7 @@ fn websocket_twin(origin: &str) -> String {
 /// sources are deduped it would be invisible -- a caller that forgot would look
 /// the same as a caller that did not.
 #[must_use]
-pub fn build_csp(relaxed: bool, connect_origins: &[String]) -> String {
+fn build_csp(relaxed: bool, connect_origins: &[String]) -> String {
     let mut connections: Vec<&str> = vec!["'self'"];
     for origin in connect_origins {
         if !connections.contains(&origin.as_str()) {

@@ -8,15 +8,16 @@
 use connectrpc::ConnectError;
 
 use roost_coord::auth::bootstrap_tokens::BootstrapTokenKind;
-use roost_coord::auth::principal::Caller;
 use roost_coord::auth::rpc_bootstrap::{
     handle_auth_mint_bootstrap, handle_auth_redeem_browser, handle_auth_redeem_worker,
 };
+use roost_coord::coord_core::Caller;
 use roost_coord::coord_core::CoordCore;
 use roost_coord::db::CoordDb;
 use roost_proto as proto;
 
 use super::{anonymous, pubkey_b64};
+
 /// A browser redemption of `token` by `label`'s key.
 pub fn redeem_browser(
     token: &str,
