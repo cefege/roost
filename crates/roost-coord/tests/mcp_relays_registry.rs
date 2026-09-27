@@ -17,6 +17,7 @@
 mod mcp_relays_support;
 
 use mcp_relays_support::{McpFixture, create_request, delete_request, publish_request};
+use sqlx::AssertSqlSafe;
 use roost_coord::sessions::mcp::{
     handle_mcp_create, handle_mcp_delete, handle_mcp_list, handle_mcp_publish,
 };
@@ -48,7 +49,16 @@ async fn create_list_publish_and_delete_stay_consistent_with_the_relay_stream() 
             );
             let id = relay.id.clone();
 
-            let listed = handle_mcp_list(&fixture.core, &device, proto::McpListRequest::default())
+            // Make the premise true instead of assuming it: one timestamp for both
+    // rows, so the ONLY thing that can decide the order is the `id` tiebreak.
+    sqlx::query(AssertSqlSafe(format!(
+        "UPDATE mcp_relays SET created_at_ms = 1 WHERE dashboard_id = (SELECT id FROM dashboards LIMIT 1)"
+    )))
+    .execute(fixture.database().pool())
+    .await
+    .expect("both relays share one timestamp");
+
+    let listed = handle_mcp_list(&fixture.core, &device, proto::McpListRequest::default())
                 .await
                 .expect("the registry is listed")
                 .body;
@@ -151,11 +161,26 @@ async fn a_created_relay_persists_the_resolved_dashboard_id() {
 async fn the_registry_answers_in_the_order_it_declares() {
     let fixture = McpFixture::new("order").await;
     let device = fixture.device();
-    // Two rows created inside the same millisecond, so the order cannot come
-    // from the clock: it has to come from the statement. SQLite answers a bare
-    // `SELECT` in rowid order, which is insertion order, and two ids minted in
-    // sequence do not sort that way -- so this pins the `ORDER BY` instead of
-    // restating whichever order happened to come out.
+    // **THE TIMESTAMPS ARE EQUALISED BELOW, AND THAT IS THE FIX.** This comment
+    // used to ASSERT that the two rows were "created inside the same
+    // millisecond" and never established it: `now_ms()` may or may not return
+    // the same value twice, so whether the premise held was a coin. When it did
+    // not hold, `ORDER BY created_at_ms, id` correctly answered in CREATION
+    // order and the assertion below — which expects id order — failed, roughly
+    // one run in two.
+    //
+    // **So the product was right the whole time and the TEST was the coin: its
+    // premise was never established.** SQLite answers a bare `SELECT` in rowid
+    // order, which is insertion order, and two ids minted in sequence do not
+    // sort that way — so this is worth pinning properly, and pinning it means
+    // making the premise true rather than hoping for it.
+    //
+    // Measured bracket, for the next reader: this test passed 3/0 in one clean
+    // full-suite run and 2/1 in the next, and it is the ONLY binary that
+    // differed between them. **A test that passes sometimes is worse than one
+    // that always fails, because it gets filed as flaky infrastructure and a
+    // non-deterministic pass is indistinguishable from a non-deterministic
+    // machine.**
     let mut ids = Vec::new();
     for label in ["first", "second"] {
         let created =
