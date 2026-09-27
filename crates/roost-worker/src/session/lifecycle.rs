@@ -14,7 +14,7 @@
 //! a tombstone: an orphan whose keeper died is otherwise unkillable.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Mutex, Weak};
 
 use roost_observability::clock::EventClock;
 use roost_protocol::wire::brand::{SessionId, WorkerFp};
@@ -25,15 +25,14 @@ use super::respawn::DeadBirths;
 use super::resume::KeeperChannels;
 use super::sinks::SessionEventSink;
 use super::spawn::{ShellSpawner, ShellSpecResolver};
-use super::types::SessionRecord;
 use crate::browser_commands::Refusal;
 use crate::browser_commands::session_lifecycle::SessionOutcome;
 use crate::event_store::{DurableEventKind, Reservation};
 use crate::strays::RECENTLY_CLOSED_TTL;
 
-use super::table::LiveSet;
 /// The live session index. Its own file because it is a second type with a
-/// second question, and `SessionManager` is a different one.
+/// second question, and `SessionManager` is a different one. Re-exported so the
+/// split moved no caller.
 pub use super::table::SessionTable;
 /// The worker's sessions, as a browser command acts on them. Data holders and
 /// interfaces only: the manager owns no clock, no socket and no core, so every

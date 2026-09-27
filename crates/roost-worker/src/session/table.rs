@@ -24,7 +24,7 @@ use crate::browser_commands::Refusal;
 
 /// The live records, by channel and by session.
 #[derive(Debug, Default)]
-pub(super) struct LiveSet {
+struct LiveSet {
     by_channel: HashMap<u16, Arc<Mutex<SessionRecord>>>,
     by_session: HashMap<SessionId, u16>,
 }
