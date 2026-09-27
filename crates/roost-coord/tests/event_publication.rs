@@ -18,7 +18,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 use event_support::{
     DASHBOARD_ID, EventFixture, RecordingEffects, Step, closed_event, fingerprint, live_session,
     opened_event, respawned_event, session_id, snapshot_event,
-    the_deferred_append_path_has_an_execution_path, worker_caller, workspace_id,
+    the_deferred_append_path_has_an_execution_path, the_deferred_reap_ids_have_a_production_reader,
+    worker_caller, workspace_id,
 };
 use roost_coord::events::append::{AppendOptions, append_event};
 use roost_coord::events::bus_messages::SessionBusMessage;
@@ -327,11 +328,14 @@ async fn a_deferred_reap_waits_for_the_callers_readiness_barrier() {
     // drains the ids, the whole deferred-append capability is inert and these
     // assertions are camouflage.
     assert!(
-        the_deferred_append_path_has_an_execution_path(),
-        "nothing sets `defer_snapshot_reap`, so the deferred-append capability has \
-         no execution path: `EventLog::append_event` has no production caller, so \
-         a force-closed PTY on an offline worker is never killed. GREEN WHEN: the \
-         worker link appends with the flag set and drains the returned ids."
+        the_deferred_append_path_has_an_execution_path()
+            && the_deferred_reap_ids_have_a_production_reader(),
+        "the deferred-append capability needs BOTH halves and has neither yet: \
+         something must set `defer_snapshot_reap` (R3, the dispatcher), AND \
+         something must READ the ids it returns (R4, the drain). The flag alone \
+         is only reachability -- with the flag set and no reader, the ids are \
+         still returned and dropped, and a force-closed PTY on an offline worker \
+         is still never killed. GREEN WHEN: both are true."
     );
     assert!(
         !fixture

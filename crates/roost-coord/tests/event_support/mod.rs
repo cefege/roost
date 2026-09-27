@@ -393,6 +393,31 @@ pub fn worker_caller(worker_fp: &WorkerFp, client_seq: u64) -> Caller {
     Caller::worker(worker_fp.clone(), client_seq, DASHBOARD_ID)
 }
 
+/// Whether anything READS the ids a deferred append returns.
+///
+/// `src/` only, and **not** the files that merely build them: a first version of
+/// this guard grepped for any mention of `snapshot_reap_ids` that did not
+/// declare it, and `append_transaction.rs:78` BUILDS the field without declaring
+/// it, so a PRODUCER satisfied a test written for a CONSUMER and it passed six of
+/// six green on a capability with no consumer. A guard whose question a producer
+/// can satisfy is not a guard.
+///
+/// The four producer files are named rather than pattern-matched, because the
+/// distinction that matters is the DIRECTION of the data and no grep reads
+/// direction.
+pub fn the_deferred_reap_ids_have_a_production_reader() -> bool {
+    const PRODUCERS: [&str; 4] = [
+        "events/append.rs",
+        "events/append_publication.rs",
+        "events/append_transaction.rs",
+        "events/pending_publications.rs",
+    ];
+    roost_src_files()
+        .filter(|_| true)
+        .filter(|(path, _)| !PRODUCERS.iter().any(|p| path.ends_with(p)))
+        .any(|(_, source)| source.contains("snapshot_reap_ids"))
+}
+
 /// Whether the DEFERRED-APPEND PATH has an execution path at all.
 ///
 /// THE CAMOUFLAGE THIS EXISTS TO DEFEAT. `event_publication.rs` asserts that
@@ -417,14 +442,14 @@ pub fn worker_caller(worker_fp: &WorkerFp, client_seq: u64) -> Caller {
 /// production caller defers, and false while the only caller that would is the
 /// unwritten worker link.
 pub fn the_deferred_append_path_has_an_execution_path() -> bool {
-    roost_src_files().any(|source| source.contains("defer_snapshot_reap: true"))
+    roost_src_files().any(|(_, source)| source.contains("defer_snapshot_reap: true"))
 }
 
 /// Every `.rs` file under the crate's `src/`, as text.
 ///
 /// `src/` only, and not `tests/`: counting assertions in the test tree would
 /// make this guard its own camouflage.
-fn roost_src_files() -> impl Iterator<Item = String> {
+fn roost_src_files() -> impl Iterator<Item = (String, String)> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     std::fs::read_dir(root)
         .into_iter()
@@ -438,5 +463,10 @@ fn roost_src_files() -> impl Iterator<Item = String> {
                 .flatten()
         })
         .filter(|file| file.path().extension().is_some_and(|ext| ext == "rs"))
-        .filter_map(|file| std::fs::read_to_string(file.path()).ok())
+        .filter_map(|file| {
+            let path = file.path().to_string_lossy().into_owned();
+            std::fs::read_to_string(file.path())
+                .ok()
+                .map(|source| (path, source))
+        })
 }
