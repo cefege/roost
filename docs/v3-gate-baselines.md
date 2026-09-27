@@ -647,15 +647,68 @@ merely fixed.
    trusted. The subcommand count is the cheapest available proof the binary is the
    one the gate thinks it is.
 
-**And the `--version` finding, which is a separate trap for S4.7.** This binary
-reports **`dev`**, the placeholder build identity. S4.7's verification is *"its
-`roost status` build SHA equals the tag"* — **which no locally built binary can
-satisfy**, because a local `cargo build --release` stamps `dev`. So S4.7 is only
-checkable against a binary from the GitHub release, which is what S4.1 fetches. **If
-anyone falls back to a local build, that check compares `dev` with `v3.0.0-rc.1` and
-fails for a reason that has nothing to do with the cutover.** Either the binary
-comes from the release, or the SHA comparison is dropped rather than satisfied by a
-build flag.
+**And a second finding, which CORRECTS an earlier claim of mine rather than
+adding to it.** `roost --version` prints **`dev`** on this binary, and I read that as
+"no local build can satisfy S4.7". **That was wrong, and the two fields are
+different things.** Measured in `crates/roost-host/src/build_identity.rs`:
+
+- `artifact_version` (line 13) — `option_env!("ROOST_BUILD_VERSION")`, falling back
+  to `dev`. **This is what `--version` prints.**
+- `build_sha` (lines 17, 34, 46) — `option_env!("ROOST_BUILD_SHA")`, with a
+  resolution chain at line 58 over `DEV_BUILD_STAMP` / `GIT_SHA_ENV` /
+  `ROOST_GIT_SHA_ENV`, **so a local build at the tagged commit does carry that
+  commit's SHA.**
+- `is_compiled` (line 51) — `COMPILED_ROOST_BUILD_SHA.is_some()`. **A field whose
+  only job is to say whether the SHA is real or a placeholder.**
+
+**So S4.7's check is a question about `roost status`'s build SHA, not about
+`--version`, and a local release build at the tag can satisfy it.** What it cannot
+satisfy is a build with no resolvable SHA — and `is_compiled` is how you tell the
+two apart. **Read the build SHA and `is_compiled`; do not infer either from
+`--version`, which reports a different field and falls back independently.**
+
+(`roost status` on this host prints no build line at all, because nothing v3 is
+installed here — the check belongs to S4.3's install, not to a bare status call.)
+
+### `apps/web/dist` is the SMOKE bundle and must never be packaged
+
+**The other half of the stale-artifact family: correct for its purpose, wrong for
+every other one.**
+
+S3.1 and S3.2 run with `ROOST_SMOKE_WEB_DIST` unset, which falls back to
+`apps/web/dist`. Measured:
+
+```
+built 2026-09-27 01:02    0 source files under apps/web/src are newer — it is CURRENT
+grep -rl __smoke  ->  apps/web/dist/assets/smoke-By9VXwPV.js
+```
+
+**Current AND carrying the smoke backdoor** — exactly right for a Playwright suite
+that needs `window.__smoke` to drive the browser, and exactly wrong for anything a
+user reaches.
+
+2R already fails the release build if `grep -rl __smoke` finds anything, and builds
+`roost-web.tar.gz` with `VITE_ROOST_SMOKE` unset. **That check lives in CI, so it
+protects the pipeline and not the tree.** The operational hazard is local: someone
+packages the existing `apps/web/dist`, which passes a casual look and ships
+`window.__smoke` to production. The installer gates it on
+`localStorage.roostSmoke === "1"`, so it is not a remote-execution hole — but it is
+shipped code that can drive the app on a user's machine, and Phase 5's own criterion
+is `grep -rc __smoke` totalling 0.
+
+**As requirements, not as a worry:**
+
+- **S3.1 and S3.2 may use `apps/web/dist` as-is.** The backdoor is what makes the
+  suite driveable; that is its purpose.
+- **S3.3's install gate and S4.1's release fetch must not.** S3.3 copies a web
+  directory into a scratch install; if that directory is this one, the gate proves
+  the installer works *with* a backdoor present, which is a different property from
+  the one production has. **Build a smoke-free directory for the install gate, or
+  state in the gate record that it ran against the smoke bundle and what that does
+  not prove.**
+- **Before anything is packaged, `grep -rl __smoke <bundle>` must be empty** — run
+  on the directory, not on a build log and not on the pipeline. The pipeline's check
+  is real, and it is a check on CI rather than on this tree.
 
 ### The questions, not the answers
 
