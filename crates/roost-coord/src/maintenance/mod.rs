@@ -9,6 +9,7 @@
 
 pub mod audit_retention;
 pub mod backup;
+pub mod export_snapshot;
 pub mod gzip_file;
 pub mod snapshot;
 pub mod startup_janitor;

@@ -21,12 +21,19 @@
 //! the socket, and the refusal that matters is the one the upgrade's own
 //! admission module logs with the caller's fingerprint.
 //!
-//! ONE CALL IS DELIBERATELY ABSENT. v2 also records a bounded telemetry label
-//! for a response that persists no row (`recordAuditTelemetry`,
-//! `security.ts:147-149`), and that call belongs in this layer, immediately
-//! after the `should_persist_non_connect_audit` check. It is not here because
-//! `diagnostics::telemetry` owns no such function yet; a stubbed counter would
-//! read as a real one, and a missing one is visible in review.
+//! THE TELEMETRY LABEL IS RECORDED HERE, FOR EVERY RESPONSE ON THIS SURFACE.
+//! It is deliberately not behind the `should_persist_non_connect_audit` check:
+//! that check is about what is durable, and a 404 that persists nothing is
+//! still a request `MiscMetrics` has to be able to count. v2's note for the same
+//! call is that a static success and an unmatched `/api/*` probe "each retain
+//! one bounded metric label but do not let arbitrary Internet paths amplify
+//! durable SQLite rows or telemetry keys" (`coord-factory.ts:206-216`) — the
+//! label is collapsed in [`bounded_label`], which is the whole of the bound.
+///
+/// A CONNECT PATH IS NOT COUNTED HERE, and the reason is that nothing writes
+/// its audit row yet: `AuditRecord::connect` does not exist, so there is no
+/// Connect-side hook to hang the call on. The counter is honest about the
+/// surfaces that exist rather than reporting zeros for a path it never saw.
 
 use std::sync::Arc;
 
@@ -53,6 +60,15 @@ const TRACE_ID_HEADER: &str = "x-roost-trace-id";
 
 /// The API namespace, which no route owns outside the export.
 const API_PREFIX: &str = "/api/";
+
+/// The one label a page load contributes, whatever it asked for. v2's
+/// `SPA_AUDIT_TELEMETRY_PATH`; a per-path label would let an Internet probe
+/// invent one key per request.
+const SPA_LABEL: &str = "<spa-static>";
+
+/// The one label an unmatched API probe contributes. v2's
+/// `API_NOT_FOUND_AUDIT_PATH`.
+const API_404_LABEL: &str = "<api-404>";
 
 /// The proto service namespace, which Connect owns.
 const PROTO_PREFIX: &str = "/roost.";
@@ -114,6 +130,24 @@ fn trace_id(request: &Request) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// The telemetry label one response contributes: the fixed label for its
+/// surface, and the real path only where the path is already bounded.
+///
+/// A Connect path is bounded by its own protocol — there are as many of them as
+/// the proto declares methods — so it is used verbatim. A page path and an
+/// unmatched API path are chosen by whoever sent the request, and are the two
+/// shapes that would grow the counter without bound.
+fn bounded_label(surface: NonConnectSurface, path: &str, status: u16) -> String {
+    match surface {
+        NonConnectSurface::Spa => SPA_LABEL.to_owned(),
+        NonConnectSurface::Api if status == 404 => API_404_LABEL.to_owned(),
+        // The export is ONE path, so its real name is already bounded — and a
+        // label that says which export was asked for is worth more than a fixed
+        // one. v2 makes the same choice (`coord-factory.ts:212-215`).
+        NonConnectSurface::Api | NonConnectSurface::DbExport => path.to_owned(),
+    }
+}
+
 /// Write this request's row, if the surface and the outcome are worth one.
 pub async fn audit_layer(
     State(mount): State<AuditMount>,
@@ -128,6 +162,18 @@ pub async fn audit_layer(
     let trace = trace_id(&request);
     let response = next.run(request).await;
     let status = response.status().as_u16();
+    // The bounded telemetry label, recorded for EVERY response on this surface
+    // and not only for the ones that persist a row: a static success and an
+    // unmatched probe each happened, and the counter that `MiscMetrics` reports
+    // is the only place either of them is visible afterwards. v2 records the
+    // same call for the same reason (`security.ts:147-149`), and the label is
+    // collapsed HERE rather than at the counter, because the path is the one
+    // dimension a caller can grow without bound.
+    mount
+        .core
+        .services
+        .telemetry
+        .record_audit_telemetry(&bounded_label(surface, &path, status), status);
     if !should_persist_non_connect_audit(surface, &method, status) {
         return response;
     }

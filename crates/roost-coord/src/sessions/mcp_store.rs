@@ -43,22 +43,50 @@ pub async fn within_store_deadline<T>(
 ) -> Result<T, ConnectError> {
     match tokio::time::timeout(STORE_DEADLINE, work).await {
         Ok(Ok(value)) => Ok(value),
-        Ok(Err(error)) => Err(ConnectError::new(ErrorCode::Internal, error.to_string())),
+        Ok(Err(error)) => Err(refusal_for(method, error)),
         Err(_elapsed) => {
             tracing::error!(
                 method,
                 deadline_ms = STORE_DEADLINE.as_millis(),
                 "mcp: the store did not answer inside the busy timeout; refusing rather than holding the caller"
             );
-            Err(ConnectError::new(
-                ErrorCode::Unavailable,
-                format!(
-                    "the coordinator store did not answer {method} within {}ms",
-                    STORE_DEADLINE.as_millis()
-                ),
-            ))
+            Err(did_not_answer(method))
         }
     }
+}
+
+/// What a failed statement means to a caller.
+///
+/// A `PoolTimedOut` IS the deadline arm, reached a few microseconds earlier by
+/// the pool's own timer: the coordinator keeps one connection, both timers are
+/// armed from the same [`STORE_DEADLINE`], and the one that fires first is a
+/// race. Answering it `Internal` would report "your statement failed" for a
+/// statement that never started, which is the one thing the status cannot mean
+/// — a browser does not retry those. Every other error is a real statement
+/// failure and stays `Internal`.
+fn refusal_for(method: &'static str, error: sqlx::Error) -> ConnectError {
+    if matches!(error, sqlx::Error::PoolTimedOut) {
+        tracing::error!(
+            method,
+            deadline_ms = STORE_DEADLINE.as_millis(),
+            "mcp: the store's single connection was not free inside the busy timeout"
+        );
+        return did_not_answer(method);
+    }
+    ConnectError::new(ErrorCode::Internal, error.to_string())
+}
+
+/// The one refusal for "the coordinator's own state did not answer", named for
+/// the method that was waiting so a reader of the browser console knows which
+/// call to retry.
+fn did_not_answer(method: &'static str) -> ConnectError {
+    ConnectError::new(
+        ErrorCode::Unavailable,
+        format!(
+            "the coordinator store did not answer {method} within {}ms",
+            STORE_DEADLINE.as_millis()
+        ),
+    )
 }
 
 /// The caller's own mistake — the one status worth separating from the

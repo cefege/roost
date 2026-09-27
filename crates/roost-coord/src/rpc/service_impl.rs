@@ -47,6 +47,10 @@ use super::service::{
     misc_health_reply, now_ms, sync_moved_stream,
 };
 
+use crate::auth::rpc_identity::handle_auth_coord_identity;
+use crate::diagnostics::diag_log::handle_diag_debug_log_batch;
+use crate::diagnostics::rpc_audit::handle_audit_list;
+use crate::diagnostics::rpc_metrics::handle_misc_metrics;
 use crate::agents::rpc_status::{
     handle_agent_config_get, handle_agent_config_set, handle_agent_status_get,
     handle_agent_status_list, handle_agent_status_wait,
@@ -605,7 +609,9 @@ impl CoordinatorService for CoordinatorServiceImpl {
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<AuthCoordIdentityResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<AuthCoordIdentityResponse>("AuthCoordIdentity")
+        // No `caller_of`: this row is `Public`, and a request context that
+        // carries no credential is the normal case here rather than a fault.
+        async move { handle_auth_coord_identity(&self.config, &self.git_sha) }
     }
 
     fn auth_mint_bootstrap<'a>(
@@ -799,30 +805,39 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn misc_metrics<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, MiscMetricsRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, MiscMetricsRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<MiscMetricsResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<MiscMetricsResponse>("MiscMetrics")
+        async move {
+            let caller = caller_of(&ctx, "MiscMetrics")?;
+            handle_misc_metrics(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn audit_list<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AuditListRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AuditListRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<AuditListResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<AuditListResponse>("AuditList")
+        async move {
+            let caller = caller_of(&ctx, "AuditList")?;
+            handle_audit_list(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn diag_debug_log_batch<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, DiagDebugLogBatchRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, DiagDebugLogBatchRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<DiagDebugLogBatchResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<DiagDebugLogBatchResponse>("DiagDebugLogBatch")
+        async move {
+            let caller = caller_of(&ctx, "DiagDebugLogBatch")?;
+            handle_diag_debug_log_batch(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn diag_snapshot<'a>(
