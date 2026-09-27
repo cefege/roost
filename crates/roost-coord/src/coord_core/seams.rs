@@ -121,16 +121,33 @@ pub struct CoordTerminal {
     pub routes: Arc<dyn WorkerRouteIndex>,
     /// The view hub's lifecycle, as the workers domain sees it.
     pub views: Arc<dyn TerminalViewLifecycle>,
+    /// The CONCRETE type name of `routes`, captured where the wiring happens.
+    ///
+    /// Stored rather than derived in `Debug` because deriving it there is how
+    /// this field came to print `CoordTerminal` for both collaborators: the name
+    /// has to come from the type parameter the collaborator was passed as, and
+    /// a trait object does not carry it. A `Debug` that derives the name from
+    /// `Self` is a `Debug` that can only ever name itself.
+    routes_type: &'static str,
+    /// The concrete type name of `views`. See [`Self::routes_type`].
+    views_type: &'static str,
 }
 
 impl std::fmt::Debug for CoordTerminal {
     /// The collaborators are traits, and what a log line needs to know is
     /// WHICH are wired, not what they contain.
+    ///
+    /// It printed `type_name::<Self>()` -- `CoordTerminal`, for both fields --
+    /// so a reader debugging a worker retirement saw two plausible type names,
+    /// concluded the seam was reporting, and stopped looking. **A wrong answer
+    /// closes a question; an absent one keeps it open**, and the names now come
+    /// from the captured fields, which is what makes the wrong output
+    /// unrepresentable rather than merely avoided.
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("CoordTerminal")
-            .field("routes", &std::any::type_name::<Self>())
-            .field("views", &std::any::type_name::<Self>())
+            .field("routes", &self.routes_type)
+            .field("views", &self.views_type)
             .finish()
     }
 }
@@ -149,13 +166,31 @@ impl CoordTerminal {
         Self {
             routes: Arc::clone(&none) as Arc<dyn WorkerRouteIndex>,
             views: none as Arc<dyn TerminalViewLifecycle>,
+            routes_type: std::any::type_name::<NoTerminalSeams>(),
+            views_type: std::any::type_name::<NoTerminalSeams>(),
         }
     }
 
     /// The seams a real terminal hub provides.
+    ///
+    /// GENERIC over the two collaborators, and that is the fix rather than a
+    /// convenience: the concrete type name is captured here, where the wiring
+    /// happens, so `Debug` cannot regress to naming the container. Widening the
+    /// two traits with an `as_any` would have answered the same question and
+    /// been a method no production caller ever invokes -- and a method nobody
+    /// calls is the thing a later reader deletes, taking the fix with it.
     #[must_use]
-    pub fn new(routes: Arc<dyn WorkerRouteIndex>, views: Arc<dyn TerminalViewLifecycle>) -> Self {
-        Self { routes, views }
+    pub fn new<R, V>(routes: Arc<R>, views: Arc<V>) -> Self
+    where
+        R: WorkerRouteIndex + 'static,
+        V: TerminalViewLifecycle + 'static,
+    {
+        Self {
+            routes_type: std::any::type_name::<R>(),
+            views_type: std::any::type_name::<V>(),
+            routes,
+            views,
+        }
     }
 }
 

@@ -29,7 +29,7 @@ use crate::auth::cf_access::{cloudflare_access_configured, install_cloudflare_jw
 use crate::auth::cf_access_keyring::RsaJwks;
 use crate::coord_core::CoordCore;
 use crate::coord_core::boot_facts::BootFacts;
-use crate::coord_core::seams::{CoordTerminal, WorkerRouteIndex};
+use crate::coord_core::seams::CoordTerminal;
 use crate::http::listener::{ListenerState, build_router};
 use crate::http::spa::SpaMount;
 use crate::push::PushRuntime;
@@ -243,18 +243,24 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
 
 /// The terminal collaborators a booted coordinator hands the workers domain.
 ///
-/// The byte hub is the real route index. The view hub is a real object but has
-/// no production `TerminalViewLifecycle` yet, and `NoTerminalSeams` is this
-/// crate's documented answer for a seam that has no collaborator -- a type
-/// that answers `None` for a geometry it has never seen, rather than a hub that
-/// claims no session is being watched when the registry behind it was never
-/// consulted.
-fn terminal_seams(services: &CoordServices) -> CoordTerminal {
-    let routes: std::sync::Arc<dyn WorkerRouteIndex> = services.byte_hub.clone();
-    CoordTerminal::new(
-        routes,
-        std::sync::Arc::new(crate::coord_core::NoTerminalSeams),
-    )
+/// BOTH ARE REAL. `ByteHub` is the route index and `TerminalViewHub` implements
+/// `TerminalViewLifecycle` (`terminal_view/mod.rs:338`), so the second
+/// collaborator is no longer `NoTerminalSeams`.
+///
+/// The no-op stays in the tree for tests that genuinely want a coordinator with
+/// no terminal, and its own doc is why the wiring is asserted rather than
+/// assumed: "two no-op types invite a caller to wire one and forget the other."
+/// The two are behaviourally identical on a coordinator with no sessions — a
+/// page renders the same either way — so **no behavioural test can tell them
+/// apart**, and the only thing that keeps the no-op correct for tests and wrong
+/// for production is `terminal_seam_wiring_is_the_real_hubs`.
+pub fn terminal_seams(services: &CoordServices) -> CoordTerminal {
+    // THE CONCRETE TYPES, not `Arc<dyn Trait>`. That is what lets
+    // `CoordTerminal` name the collaborator it was given, and the names are the
+    // whole point: the log line a worker retirement produces has to say which
+    // hub was consulted, and a `Debug` that printed the container's own name
+    // for both fields said neither.
+    CoordTerminal::new(services.byte_hub.clone(), services.views.clone())
 }
 
 /// The platform's termination signal, or a never-completing future elsewhere.
