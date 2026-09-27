@@ -17,6 +17,7 @@
 //! wordings live in `status::update_state`; this module does not import them and
 //! `tests/update_release_decision.rs` holds the two apart.
 
+pub mod assets;
 pub mod candidate;
 pub mod journal;
 pub mod keeper;
@@ -33,7 +34,8 @@ use roost_host::{EnvSource, HostPlatform, ProcessEnv};
 use tracing::info;
 
 use crate::command_error::CommandFailure;
-use crate::services::web_bundle;
+use crate::quickstart::web_bundle;
+use crate::services::web_bundle::InstalledBundle;
 use crate::update::journal::KeeperRecord;
 use crate::update::local_keeper::{decide_keeper_action, local_keeper, self_update_service_dir};
 use crate::update::recovery::RecoveryOutcome;
@@ -140,7 +142,7 @@ async fn install_web_bundle(env: &dyn EnvSource, executable: &Path, tag: &str) {
         return;
     };
     let destination = web_bundle::release_web_dir(bin_dir);
-    let archive = match crate::quickstart::join::download_web_bundle(env, tag).await {
+    let archive = match web_bundle::download_web_bundle(env, tag).await {
         Ok(archive) => archive,
         Err(failure) => {
             // The swap already settled, and the page is a second problem while

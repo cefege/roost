@@ -13,91 +13,16 @@ use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use roost_cli::quickstart::endpoint::{EndpointMode, fresh_endpoint, installed_endpoint};
+use roost_cli::quickstart::endpoint::{EndpointMode, installed_endpoint};
+
+mod quickstart_dry_run_support;
+
+use quickstart_dry_run_support::{TempMachine, fresh_endpoint, tree_snapshot};
 use roost_cli::quickstart::plan;
 use roost_cli::services::definition_text::render_definition;
 use roost_cli::services::service_spec::{ServiceRole, ServiceSpec};
 use roost_cli::status::service_definition::parse_installed_environment;
 use roost_host::{HostPlatform, MapEnv};
-
-/// A throwaway tree that removes itself, standing in for a machine with no
-/// install of any kind.
-struct TempMachine {
-    root: PathBuf,
-}
-
-impl TempMachine {
-    fn new(case: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "roost-quickstart-{}-{case}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|elapsed| elapsed.as_nanos())
-                .unwrap_or(0)
-        ));
-        std::fs::create_dir_all(&root).expect("the throwaway machine is created");
-        Self { root }
-    }
-
-    /// An account with a home and nothing else under it.
-    fn environment(&self) -> MapEnv {
-        let text = |relative: &str| self.root.join(relative).display().to_string();
-        MapEnv::new()
-            .with("HOME", &text("home"))
-            .with(
-                roost_host::COORD_UNIT_ENV,
-                &text("unit/roost3-coord.service"),
-            )
-            .with(
-                roost_host::WORKER_UNIT_ENV,
-                &text("unit/roost3-worker.service"),
-            )
-            .with(roost_host::WORKER_DATA_DIR_ENV, &text("data/worker"))
-            .with(roost_host::COORD_DATA_DIR_ENV, &text("data/coord"))
-    }
-}
-
-impl Drop for TempMachine {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
-    }
-}
-
-/// Every file under `root` as its bytes and permission bits, keyed by its path
-/// relative to `root`. This is the whole comparison: a file that appeared, a
-/// directory that was created, a byte that changed.
-fn tree_snapshot(root: &Path) -> BTreeMap<PathBuf, (Vec<u8>, u32)> {
-    let mut snapshot = BTreeMap::new();
-    let mut pending = vec![root.to_path_buf()];
-    while let Some(directory) = pending.pop() {
-        let Ok(entries) = std::fs::read_dir(&directory) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let relative = path
-                .strip_prefix(root)
-                .expect("every entry is under the root")
-                .to_path_buf();
-            let Ok(metadata) = entry.metadata() else {
-                continue;
-            };
-            if metadata.is_dir() {
-                pending.push(path);
-            } else {
-                snapshot.insert(
-                    relative,
-                    (
-                        std::fs::read(&path).unwrap_or_default(),
-                        metadata.permissions().mode() & 0o7777,
-                    ),
-                );
-            }
-        }
-    }
-    snapshot
-}
 
 #[test]
 fn a_dry_run_resolves_both_services_on_a_machine_with_nothing_installed() {
@@ -280,115 +205,6 @@ fn a_dry_run_of_a_rerun_keeps_the_installed_front_door() {
     assert!(
         unit_text.contains("https://roost.example.com"),
         "a rerun must not silently drop the front door the machine already has:\n{unit_text}"
-    );
-}
-
-/// The bundle is named by BOTH definitions and lands inside the release, and
-/// the dry run writes neither. The half that matters most is the second: a
-/// dry run that copied the operator's bundle would mutate the very directory
-/// they are being asked about.
-#[test]
-fn a_dry_run_names_the_bundle_in_both_definitions_and_copies_nothing() {
-    let machine = TempMachine::new("bundle");
-    let env = machine.environment();
-    let source = machine.root.join("somewhere/apps/web/dist");
-    std::fs::create_dir_all(&source).expect("the bundle directory is created");
-    std::fs::write(source.join("index.html"), b"<html></html>\n").expect("the index is written");
-
-    let endpoint = fresh_endpoint(None).expect("a loopback endpoint");
-    let before = tree_snapshot(&machine.root);
-    let resolved = plan::resolve_plan(
-        &env,
-        HostPlatform::Linux,
-        endpoint,
-        Some(&source),
-        None,
-        false,
-    )
-    .expect("the plan resolves with a bundle");
-
-    let web_dir = resolved
-        .web_dir
-        .clone()
-        .expect("a run given a bundle resolves where it would install it");
-    assert!(
-        web_dir.ends_with("web"),
-        "the bundle is the release's own directory, beside bin/: {}",
-        web_dir.display()
-    );
-    assert!(
-        web_dir
-            .parent()
-            .is_some_and(|root| root.join("bin").is_dir() || root.join("bin").ends_with("bin")),
-        "and the release's bin/ is its sibling: {}",
-        web_dir.display()
-    );
-
-    for service in [&resolved.coordinator, &resolved.worker] {
-        let text = service
-            .definition_text(HostPlatform::Linux)
-            .expect("a linux unit renders");
-        assert!(
-            text.contains("ROOST_WEB_DIST_PATH") && text.contains(&web_dir.display().to_string()),
-            "both the coordinator and the worker door read this directory, so both definitions \
-             name it:\n{text}"
-        );
-    }
-
-    assert_eq!(
-        before,
-        tree_snapshot(&machine.root),
-        "a dry run copied the bundle, or staged anything beside the release"
-    );
-    assert!(
-        !web_dir.exists(),
-        "the destination is a real install's job: {}",
-        web_dir.display()
-    );
-}
-
-/// A run given no bundle leaves the two definitions in DIFFERENT states, and
-/// each is the one that role actually reads.
-///
-/// The coordinator's own resolution writes the setting blank rather than
-/// omitting it, and that is correct: an entry absent from a definition falls
-/// back to whatever the service manager's own environment holds, which is how a
-/// cleared front door comes back from a stale manager value. The worker is
-/// stamped only by an install that has a bundle, so it carries nothing at all.
-/// A test that asserted the two agreed would have been asserting a tidiness the
-/// product does not have and should not acquire.
-#[test]
-fn a_dry_run_without_a_bundle_leaves_each_definition_saying_nothing_is_served() {
-    let machine = TempMachine::new("no-bundle");
-    let env = machine.environment();
-    let endpoint = fresh_endpoint(None).expect("a loopback endpoint");
-    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, None, false)
-        .expect("the plan resolves with no bundle");
-
-    assert_eq!(resolved.web_dir, None);
-    let coordinator = resolved
-        .coordinator
-        .definition_text(HostPlatform::Linux)
-        .expect("a linux unit renders");
-    assert!(
-        coordinator.contains("ROOST_WEB_DIST_PATH="),
-        "the coordinator's own resolution always writes the setting, so a cleared value is \
-         cleared the same way every time:\n{coordinator}"
-    );
-    assert!(
-        !coordinator.contains("ROOST_WEB_DIST_PATH=/"),
-        "and it must be blank rather than naming a directory: a path with nothing behind it \
-         reports a healthy spa line for a page that is not there:\n{coordinator}"
-    );
-
-    let worker = resolved
-        .worker
-        .definition_text(HostPlatform::Linux)
-        .expect("a linux unit renders");
-    assert!(
-        !worker.contains("ROOST_WEB_DIST_PATH"),
-        "the worker is stamped only by an install that has a bundle, so an install without one \
-         leaves it unset rather than stamping an empty path:\n{worker}"
     );
 }
 

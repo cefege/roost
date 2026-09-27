@@ -30,6 +30,7 @@ pub mod install;
 pub mod join;
 pub mod plan;
 pub mod self_link;
+pub mod web_bundle;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -47,6 +48,7 @@ use crate::quickstart::install::{
     LocalPrograms, deploy_local_definition, install_programs, prepare_service_directories,
     report_change, report_rotation, service_dir,
 };
+use crate::quickstart::web_bundle::install_local_bundle;
 use crate::services::install::{default_program_path, release_bin_dir};
 use crate::services::service_environment::ENV_BOOTSTRAP_TOKEN;
 use crate::services::service_spec::{ServiceRole, ServiceSpec};
@@ -299,25 +301,6 @@ fn local_worker_spec(
         resolved = resolved.with_setting(ENV_WEB_DIST_PATH, web_dir.display().to_string());
     }
     Ok(resolved.with_decided_one_shots(&decided))
-}
-
-/// Install a `--web-dist` beside the release's executables, and report the
-/// directory both definitions will be pointed at.
-fn install_local_bundle(
-    web_dist: Option<&Path>,
-    bin_dir: &Path,
-) -> Result<Option<PathBuf>, CommandFailure> {
-    let Some(source) = web_dist else {
-        return Ok(None);
-    };
-    let installed = web_bundle::install_from_dir(source, &web_bundle::release_web_dir(bin_dir))
-        .map_err(|error| CommandFailure::generic(error.to_string()))?;
-    eprintln!(
-        ">> installed the web bundle ({} files) into {}",
-        installed.files,
-        installed.root.display()
-    );
-    Ok(Some(installed.root))
 }
 
 /// Poll the coordinator's own loopback listener until it answers its identity

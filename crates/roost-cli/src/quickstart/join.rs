@@ -36,11 +36,10 @@ use crate::quickstart::install::{
     LocalPrograms, deploy_local_definition, install_programs, prepare_service_directories,
     report_change, report_rotation, service_dir,
 };
+use crate::quickstart::web_bundle::install_web_bundle;
 use crate::services::install::release_bin_dir;
 use crate::services::service_environment::{ENV_BOOTSTRAP_TOKEN, ENV_WORKER_LABEL};
 use crate::services::service_spec::{ServiceRole, ServiceSpec};
-use crate::services::web_bundle;
-use crate::update::release;
 
 /// The checkout a join proves its build identity against, when the operator
 /// names one. A compiled binary has no checkout of its own, and the variable is
@@ -218,70 +217,6 @@ pub async fn run(env: &dyn EnvSource) -> Result<ExitCode, CommandFailure> {
         spec.definition_path.display()
     );
     Ok(ExitCode::SUCCESS)
-}
-
-/// The web bundle a joined machine gets, downloaded from the release this
-/// binary came from, or `None` when there is nothing to download it from.
-///
-/// A source build has no published tag, so it installs no bundle and says so
-/// rather than refusing to join: enrollment is the one step a machine cannot do
-/// without, and a missing page is a smaller problem than a machine that is not
-/// in the fleet. A failed download IS a refusal, because silently joining with
-/// no page would report success for a machine that serves 404s.
-async fn install_web_bundle(
-    env: &dyn EnvSource,
-    bin_dir: &Path,
-) -> Result<Option<PathBuf>, CommandFailure> {
-    let identity = roost_host::build_identity(env);
-    if identity.artifact_version == roost_host::DEV_BUILD_STAMP {
-        eprintln!(
-            ">> this is a source build, so there is no published web bundle to install; the \
-             machine's door serves nothing until a release binary is installed"
-        );
-        return Ok(None);
-    }
-    let tag = identity.artifact_version.clone();
-    let archive = download_web_bundle(env, &tag).await?;
-    let destination = web_bundle::release_web_dir(bin_dir);
-    match web_bundle::install_from_tarball(&archive, &destination) {
-        Ok(installed) => {
-            let _ = std::fs::remove_file(&archive);
-            eprintln!(
-                ">> installed the web bundle ({} files) into {}",
-                installed.files,
-                installed.root.display()
-            );
-            Ok(Some(installed.root))
-        }
-        Err(error) => {
-            let _ = std::fs::remove_file(&archive);
-            Err(CommandFailure::generic(error.to_string()))
-        }
-    }
-}
-
-/// Fetch the release's `roost-web.tar.gz` and prove it against the digest the
-/// same release published for it.
-pub async fn download_web_bundle(
-    env: &dyn EnvSource,
-    tag: &str,
-) -> Result<PathBuf, CommandFailure> {
-    let path = std::env::temp_dir().join(format!("roost-web-{tag}.tar.gz"));
-    let file = std::fs::File::create(&path).map_err(|error| {
-        CommandFailure::generic(format!(
-            "cannot create {} to download the web bundle into: {error}",
-            path.display()
-        ))
-    })?;
-    match release::download_verified_to(env, tag, release::WEB_ASSET_NAME, file).await {
-        Ok(_) => Ok(path),
-        Err(error) => {
-            let _ = std::fs::remove_file(&path);
-            Err(CommandFailure::generic(format!(
-                "the web bundle published with {tag} could not be fetched and verified: {error}"
-            )))
-        }
-    }
 }
 
 #[cfg(test)]
