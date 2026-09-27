@@ -18,6 +18,9 @@ use roost_client_core::client::auth::{
     RedeemCall, RedeemOutcome, RedeemRefusal, RefusalCode, SecureKeyStore, redeem_pair_token,
 };
 use roost_client_core::{MemoryClock, MemoryKeyValueStore};
+// `get` is a trait method on `KeyValueStore`, not inherent on the in-memory
+// store; the minted-once flag assertion below needs it in scope.
+use roost_client_core::KeyValueStore as _;
 use support::auth::{LostRaceStore, ScriptedProbe, store_with_current};
 
 /// A store with a current key already in it, for a manager that must not mint.
@@ -77,18 +80,10 @@ fn two_concurrent_first_boots_converge_on_exactly_one_key() {
     // identity, so one browser cannot end up replacing the other's device.
     let flags = MemoryKeyValueStore::new();
     let clock = MemoryClock::new();
-    let first = DeviceKeyManager::new(
-        &store,
-        &flags,
-        &ScriptedProbe::always(KeyAdmission::Authorized),
-        &clock,
-    );
-    let second = DeviceKeyManager::new(
-        &store,
-        &flags,
-        &ScriptedProbe::always(KeyAdmission::Authorized),
-        &clock,
-    );
+    let probe = ScriptedProbe::always(KeyAdmission::Authorized);
+    let first = DeviceKeyManager::new(&store, &flags, &probe, &clock);
+    let probe = ScriptedProbe::always(KeyAdmission::Authorized);
+    let second = DeviceKeyManager::new(&store, &flags, &probe, &clock);
     assert_eq!(
         first.load_or_generate().expect("load").fingerprint,
         second.load_or_generate().expect("load").fingerprint
@@ -115,12 +110,10 @@ fn a_first_boot_that_loses_the_race_adopts_the_winners_key() {
     let seed = MemorySecureKeyStore::new();
     let winner = store_with_current(&seed);
     let store = LostRaceStore::new(winner);
-    let keys = DeviceKeyManager::new(
-        &store,
-        &MemoryKeyValueStore::new(),
-        &ScriptedProbe::always(KeyAdmission::Authorized),
-        &MemoryClock::new(),
-    );
+    let flags = MemoryKeyValueStore::new();
+    let probe = ScriptedProbe::always(KeyAdmission::Authorized);
+    let clock = MemoryClock::new();
+    let keys = DeviceKeyManager::new(&store, &flags, &probe, &clock);
 
     let info = keys.load_or_generate().expect("the loser adopts the winner");
     assert_eq!(
@@ -147,12 +140,9 @@ fn one_manager_asked_twice_signs_as_one_key() {
     // mint a second key either, and a second call must not re-sign.
     let (store, minted) = filled();
     let clock = MemoryClock::new();
-    let keys = DeviceKeyManager::new(
-        &store,
-        &MemoryKeyValueStore::new(),
-        &ScriptedProbe::always(KeyAdmission::Authorized),
-        &clock,
-    );
+    let flags = MemoryKeyValueStore::new();
+    let probe = ScriptedProbe::always(KeyAdmission::Authorized);
+    let keys = DeviceKeyManager::new(&store, &flags, &probe, &clock);
     let first = keys.sign_coordinator_jwt().expect("token");
     let second = keys.sign_coordinator_jwt().expect("token");
     assert_eq!(first.token(), second.token(), "inside the reuse window");
@@ -164,12 +154,9 @@ fn one_manager_asked_twice_signs_as_one_key() {
 fn a_credential_is_reused_inside_its_window_and_re_signed_in_place_after_it() {
     let (store, _) = filled();
     let clock = MemoryClock::new();
-    let keys = DeviceKeyManager::new(
-        &store,
-        &MemoryKeyValueStore::new(),
-        &ScriptedProbe::always(KeyAdmission::Authorized),
-        &clock,
-    );
+    let flags = MemoryKeyValueStore::new();
+    let probe = ScriptedProbe::always(KeyAdmission::Authorized);
+    let keys = DeviceKeyManager::new(&store, &flags, &probe, &clock);
 
     let first = keys.sign_coordinator_jwt().expect("token");
     // The reuse window IS the cache TTL: v2 reuses while `age < JWT_CACHE_TTL_MS`
@@ -223,12 +210,10 @@ fn a_signing_failure_still_dispatches_the_request_unauthenticated() {
     // The store holds the key and refuses only to SIGN: the ceremony is intact
     // and the credential is not, which is the exact shape of the failure.
     let store = MemorySecureKeyStore::with_failing_signing();
-    let keys = DeviceKeyManager::new(
-        &store,
-        &MemoryKeyValueStore::new(),
-        &ScriptedProbe::always(KeyAdmission::Authorized),
-        &MemoryClock::new(),
-    );
+    let flags = MemoryKeyValueStore::new();
+    let probe = ScriptedProbe::always(KeyAdmission::Authorized);
+    let clock = MemoryClock::new();
+    let keys = DeviceKeyManager::new(&store, &flags, &probe, &clock);
     let public_key_b64 = keys.public_key_b64().expect("the key itself is fine");
     assert!(
         keys.current_bearer().is_none(),

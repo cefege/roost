@@ -121,7 +121,6 @@ impl PaintedHistory {
     }
 
     /// The missing interval the reader's own scroll position exposes.
-    #[allow(clippy::too_many_arguments)]
     pub fn missing_range_at_scroll(
         &self,
         total: u32,

@@ -166,6 +166,7 @@ fn results_from_three_machines_survive_one_merge_and_the_fleet_count_is_publishe
             9,
         ),
     ));
+    let results = controller.results();
     assert_eq!(
         results.matches.len(), 3,
         "the third machine's row joined the list: a search that answered for \

@@ -26,7 +26,7 @@ const OTHER_TAB: &str = "tab-other";
 const OTHER_SOCKET: &str = "socket-old";
 const CORRELATION: &str = "correlation-1";
 
-fn host() -> RecordingHost {
+fn recording_host() -> RecordingHost {
     RecordingHost::new(
         TAB,
         SOCKET,
@@ -59,7 +59,7 @@ fn seed(host: &mut RecordingHost) {
 
 #[test]
 fn an_exact_apply_commits_once_clears_spotlight_navigates_and_answers_applied() {
-    let mut host = host();
+    let mut host = recording_host();
     let execution = execute_targeted_layout_apply(Some(&command()), &mut host);
     assert_eq!(
         execution,
@@ -89,7 +89,7 @@ fn an_exact_apply_commits_once_clears_spotlight_navigates_and_answers_applied() 
 #[test]
 fn a_settlement_diagnostic_bounds_the_correlation_and_the_answer_does_not() {
     let long = "🦆".repeat(129);
-    let mut host = host();
+    let mut host = recording_host();
     let mut frame = command();
     frame.correlation_id = long.clone();
     execute_targeted_layout_apply(Some(&frame), &mut host);
@@ -139,7 +139,7 @@ fn a_frame_this_tab_is_not_the_exact_target_for_is_consumed_and_answers_nothing(
         ),
     ];
     for (name, frame) in variants {
-        let mut host = host();
+        let mut host = recording_host();
         seed(&mut host);
         let before = ok(host.records.snapshot(), "snapshot");
         assert_eq!(
@@ -162,7 +162,7 @@ fn a_frame_this_tab_is_not_the_exact_target_for_is_consumed_and_answers_nothing(
 
 #[test]
 fn a_frame_that_is_not_an_apply_frame_is_left_to_the_legacy_command_path() {
-    let mut host = host();
+    let mut host = recording_host();
     assert_eq!(
         execute_targeted_layout_apply(None, &mut host),
         LayoutApplyExecution::NotMine
@@ -177,7 +177,7 @@ fn a_frame_that_is_not_an_apply_frame_is_left_to_the_legacy_command_path() {
 #[test]
 fn a_tab_that_is_not_on_a_live_folder_is_refused_before_anything_is_written() {
     // Not viewing a folder at all.
-    let mut host = host();
+    let mut host = recording_host();
     host.folder = None;
     assert!(matches!(
         execute_targeted_layout_apply(Some(&command()), &mut host),
@@ -191,7 +191,7 @@ fn a_tab_that_is_not_on_a_live_folder_is_refused_before_anything_is_written() {
 
     // The active session is not among the live ones: a folder mid-navigation is
     // not a folder to rearrange.
-    let mut host = host();
+    let mut host = recording_host();
     host.folder = Some(RecordingHost::folder(FOLDER, ALPHA, &[BETA]));
     assert!(matches!(
         execute_targeted_layout_apply(Some(&command()), &mut host),
@@ -205,7 +205,7 @@ fn a_tab_that_is_not_on_a_live_folder_is_refused_before_anything_is_written() {
     // against a session the fleet has not admitted is one nobody else can read.
     let mut optimistic = RecordingHost::folder(FOLDER, ALPHA, &[ALPHA, BETA]);
     optimistic.has_client_only_session = true;
-    let mut host = host();
+    let mut host = recording_host();
     host.folder = Some(optimistic);
     assert!(matches!(
         execute_targeted_layout_apply(Some(&command()), &mut host),
@@ -219,7 +219,7 @@ fn a_tab_that_is_not_on_a_live_folder_is_refused_before_anything_is_written() {
 
 #[test]
 fn a_refused_apply_leaves_local_state_byte_identical_to_before_it() {
-    let mut host = host();
+    let mut host = recording_host();
     seed(&mut host);
     let before = ok(host.records.snapshot(), "snapshot");
 
@@ -253,7 +253,7 @@ fn a_refused_apply_leaves_local_state_byte_identical_to_before_it() {
 
 #[test]
 fn a_commit_that_lands_after_this_tab_redialled_stands_and_answers_nothing() {
-    let mut host = host().replacing_identity("socket-next");
+    let mut host = recording_host().replacing_identity("socket-next");
     let execution = execute_targeted_layout_apply(Some(&command()), &mut host);
     assert_eq!(
         execution,
@@ -272,7 +272,7 @@ fn a_commit_that_lands_after_this_tab_redialled_stands_and_answers_nothing() {
 
 #[test]
 fn a_shell_with_no_router_still_answers_an_exact_apply_and_nothing_else() {
-    let mut host = host();
+    let mut host = recording_host();
     assert!(matches!(
         reject_layout_apply_without_bridge(Some(&command()), &mut host),
         LayoutApplyExecution::Settled(LayoutApplyConsumption::Rejected(
@@ -290,7 +290,7 @@ fn a_shell_with_no_router_still_answers_an_exact_apply_and_nothing_else() {
         target_tab_id: OTHER_TAB.to_owned(),
         ..command()
     };
-    let mut host = host();
+    let mut host = recording_host();
     assert_eq!(
         reject_layout_apply_without_bridge(Some(&frame), &mut host),
         LayoutApplyExecution::Ignored
@@ -306,7 +306,7 @@ fn a_document_aimed_at_this_tab_with_nothing_in_it_is_still_answered() {
         document: None,
         ..command()
     };
-    let mut host = host();
+    let mut host = recording_host();
     assert!(matches!(
         execute_targeted_layout_apply(Some(&frame), &mut host),
         LayoutApplyExecution::Settled(LayoutApplyConsumption::Rejected(

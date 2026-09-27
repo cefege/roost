@@ -108,7 +108,13 @@ impl NotifyPrefs {
     }
 
     /// The object as it is written to storage.
-    fn to_record(&self) -> BTreeMap<&'static str, bool> {
+    ///
+    /// Named `as_record` rather than `to_record`: the convention clippy
+    /// enforces is that a `to_*` taking `&self` is building a NEW value, and
+    /// `NotifyPrefs` is `Copy`, so a `to_*` on it reads as a conversion of a
+    /// borrowed temporary rather than a projection of a value the caller still
+    /// owns.
+    fn as_record(&self) -> BTreeMap<&'static str, bool> {
         let mut record = BTreeMap::new();
         for pref in NotifyPref::ALL {
             record.insert(pref.as_str(), self.get(pref));
@@ -142,7 +148,7 @@ pub fn parse(raw: Option<&str>) -> NotifyPrefs {
 /// Serialise the object. A `BTreeMap` of the five known members, so a member
 /// added by a later build is not written by this one.
 fn serialise(prefs: &NotifyPrefs) -> String {
-    serde_json::to_string(&prefs.to_record()).unwrap_or_else(|_| "{}".to_owned())
+    serde_json::to_string(&prefs.as_record()).unwrap_or_else(|_| "{}".to_owned())
 }
 
 /// Change one switch, and persist.

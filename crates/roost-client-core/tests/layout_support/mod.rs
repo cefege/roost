@@ -206,8 +206,8 @@ impl LayoutApplyContext for RecordingHost {
 
     fn layout_state(&mut self) -> (&mut LayoutRecords, &mut dyn PaneIdSource) {
         if let Some(replacement) = self.socket_after_commit.take() {
-            self.socket_id = Some(replacement);
             self.events.push(format!("redial:{replacement}"));
+            self.socket_id = Some(replacement);
         }
         let ids: &mut dyn PaneIdSource = &mut self.ids;
         (&mut self.records, ids)
@@ -240,5 +240,19 @@ pub fn ok<T, E: std::fmt::Debug>(result: Result<T, E>, context: &str) -> T {
     match result {
         Ok(value) => value,
         Err(error) => panic!("{context}: {error:?}"),
+    }
+}
+
+/// Unwrap an option with the context that explains a failure.
+///
+/// A second function rather than one that takes both, because `Result` and
+/// `Option` are different types and a helper covering both is a trait with one
+/// method per type and no behaviour to share. Half the calls in this suite read
+/// something that returns an option — a stored arrangement, a pane in a walk —
+/// and they need the same "a failure names the step" property.
+pub fn some<T>(value: Option<T>, context: &str) -> T {
+    match value {
+        Some(found) => found,
+        None => panic!("{context}: nothing to unwrap"),
     }
 }

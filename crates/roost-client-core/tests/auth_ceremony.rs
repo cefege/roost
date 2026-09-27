@@ -12,14 +12,19 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_client_core::client::auth::{
-    CeremonyStore, CountingRandomSource, DeviceKeyManager, FixedRandomSource, KeyAdmission,
+    CeremonyStore, DeviceKeyManager, FixedRandomSource, KeyAdmission,
     MemorySecureKeyStore, PAIR_APPROVAL_STORAGE_KEY, PAIRING_CEREMONY_STORAGE_KEY,
     PAIRING_CEREMONY_VERSION, PairApproval, PairPollStatus, PairStage, PairingError,
-    PairingSession, SecureKeyStore, compact_pair_verification_code, generate_pair_request_id,
-    generate_pair_requester_token, generate_pair_verification_code, normalize_pair_request_id,
-    normalize_pair_requester_token, normalize_pair_verification_code,
+    PairingSession, ScriptedRandomSource, compact_pair_verification_code,
+    generate_pair_request_id, generate_pair_requester_token, generate_pair_verification_code,
+    normalize_pair_request_id, normalize_pair_requester_token,
+    normalize_pair_verification_code,
 };
 use roost_client_core::{MemoryClock, MemoryKeyValueStore};
+// `get`/`set` are trait methods on `KeyValueStore`, not inherent on the
+// in-memory store, so the trait has to be in scope for the tampered-record
+// cases below to reach them.
+use roost_client_core::KeyValueStore as _;
 
 #[test]
 fn ceremony_entropy_has_the_widths_the_wire_declares_and_one_spelling() {
@@ -60,9 +65,13 @@ fn a_verification_code_is_six_digits_and_a_draw_above_the_limit_is_discarded() {
     assert_eq!(code.len(), 6);
     assert_eq!(normalize_pair_verification_code(&code), Some(code));
 
-    // 0xffffffff is above the limit, so it is discarded and the NEXT draw is
-    // used: 0x00010203 = 66_051 renders as 066051.
-    let code = generate_pair_verification_code(&CountingRandomSource::new(0xff)).expect("code");
+    // A draw at or above 4_294_000_000 is discarded and the NEXT draw is used:
+    // 0x00010203 = 66_051 renders as 066051. Only a scripted source can state
+    // this — the rejection window is the top 0.023% of the u32 range, and a
+    // counting source's highest reachable draw is 0xff000102.
+    let code =
+        generate_pair_verification_code(&ScriptedRandomSource::rejecting_then(0x0001_0203))
+            .expect("code");
     assert_eq!(code, "066051");
 
     // A code the human typed or pasted arrives with spaces in it often enough
@@ -80,12 +89,9 @@ fn a_verification_code_is_six_digits_and_a_draw_above_the_limit_is_discarded() {
 #[test]
 fn a_pair_request_carries_the_public_key_and_never_the_private_half() {
     let store = MemorySecureKeyStore::new();
-    let keys = DeviceKeyManager::new(
-        &store,
-        &MemoryKeyValueStore::new(),
-        &NeverProbed,
-        &MemoryClock::new(),
-    );
+    let flags = MemoryKeyValueStore::new();
+    let clock = MemoryClock::new();
+    let keys = DeviceKeyManager::new(&store, &flags, &NeverProbed, &clock);
     let session = PairingSession::create(&FixedRandomSource::new(0x11)).expect("ceremony");
     let request = session.create_request(&keys.public_key_b64().expect("public key"), "laptop");
 
@@ -284,7 +290,7 @@ fn the_ceremonys_records_survive_a_reload_and_a_tampered_one_is_deleted() {
     let storage = MemoryKeyValueStore::new();
     let store = CeremonyStore::new(&storage);
 
-    let mut session = PairingSession::create(&FixedRandomSource::new(0x55)).expect("ceremony");
+    let session = PairingSession::create(&FixedRandomSource::new(0x55)).expect("ceremony");
     let ceremony = session.ceremony().clone();
     store.save_ceremony(&ceremony);
     let restored = store.load_ceremony().expect("the capability survives");

@@ -119,7 +119,7 @@ fn a_signing_failure_still_dispatches_the_request_unauthenticated() {
     assert_eq!(request.method(), "SessionsList");
     assert_eq!(request.call_id(), 9);
     assert_eq!(request.body(), b"\x0a\x02hi");
-    assert_eq!(&*returned, request, "dispatch reports what it handed over");
+    assert_eq!(&returned, request, "dispatch reports what it handed over");
 }
 
 #[test]
@@ -261,7 +261,7 @@ fn a_device_auth_refusal_is_the_device_and_a_proxy_refusal_is_not() {
     // carries someone else's chain, and showing the pairing page to a user whose
     // pairing is fine is the expensive mistake.
     assert_eq!(
-        classify_auth_failure(&[device], "AuthCoordIdentity"),
+        classify_auth_failure(&[device.clone()], "AuthCoordIdentity"),
         AuthFailureKind::Retryable
     );
     assert_eq!(

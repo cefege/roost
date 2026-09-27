@@ -207,6 +207,14 @@ pub const fn agent_status_presentation(level: AgentStatusLevel) -> AgentStatusPr
     }
 }
 
+/// The acknowledgement floor for a status whose completion predates this
+/// profile: above every real revision, so nothing it reports is ever unseen.
+const EVERY_COMPLETION_ALREADY_SEEN: i64 = i64::MAX;
+
+/// The acknowledgement floor for an identified occupant with no acknowledgement
+/// on record: below every real revision, so its first completion is news.
+const NO_COMPLETION_YET_SEEN: i64 = -1;
+
 /// The level a status reads as, given what this profile has already acknowledged.
 ///
 /// Idle becomes Done only while a real completion revision remains unseen, and
@@ -227,11 +235,19 @@ pub fn derive_agent_status_level(
     if status.common.state == AgentRuntimeState::Working {
         return AgentStatusLevel::Working;
     }
+    // A legacy deployment's completion PREDATES this profile, so it cannot have
+    // been missed: there was no acknowledgement ledger in existence when it
+    // completed, and nothing this profile does can go back and clear it. The
+    // floor for an unidentified status is therefore "everything is already
+    // seen", not zero — zero would make every legacy row read `done`, which is
+    // a Done nobody can ever clear. An identified occupant is the opposite
+    // case: its completions are the only ones this profile can have missed, so
+    // an absent acknowledgement floors BELOW any real revision.
     let seen = acknowledged_revision.unwrap_or_else(|| {
         if agent_status_occupant_key(&status.common).is_none() {
-            0
+            EVERY_COMPLETION_ALREADY_SEEN
         } else {
-            -1
+            NO_COMPLETION_YET_SEEN
         }
     });
     if status.common.completed_revision > 0 && status.common.completed_revision > seen {

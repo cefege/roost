@@ -19,11 +19,12 @@
 //! Ported from `apps/web/src/lib/globalContentSearchController.ts`. The limits
 //! are `roost_protocol::terminal_search` and are not restated here.
 
-// The page-folding half of this type lives in `page`, a CHILD module: an inherent
-// `impl` may span files, and a child is also the only place that may read this
-// file's private fence fields without loosening them for the whole crate.
+// The page-folding half of this type lives in `controller/page.rs`, a CHILD
+// module: an inherent `impl` may span files, and a child is also the only
+// place that may read this file's private fence fields without loosening them
+// for the whole crate. The module is `controller`, not `global_search`, which
+// named itself — `clippy::module_inception`.
 mod page;
-
 use roost_protocol::terminal_search::{
     TERMINAL_SEARCH_ID_MAX_LENGTH, TERMINAL_SEARCH_QUERY_MAX_CODE_POINTS,
 };

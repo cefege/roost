@@ -132,10 +132,7 @@ fn a_palette_row_carries_the_credential_generation_its_action_captured() {
             cwd: "/home/dev/api".to_owned(),
         })
     );
-    assert_eq!(
-        roost_client_core::store::palette::captured_generation(sibling),
-        Some(7)
-    );
+    assert_eq!(captured_generation(sibling), Some(7));
     assert!(
         !items
             .iter()

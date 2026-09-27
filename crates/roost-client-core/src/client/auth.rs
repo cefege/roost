@@ -38,8 +38,9 @@ pub mod redeem;
 pub use ceremony::{
     CeremonyError, CountingRandomSource, FixedRandomSource, PAIRING_CEREMONY_VERSION,
     PAIR_REQUESTER_TOKEN_BYTES, PAIR_REQUEST_ID_BYTES, PAIR_VERIFICATION_CODE_LENGTH,
-    RandomSource, compact_pair_verification_code, generate_pair_request_id,
-    generate_pair_requester_token, generate_pair_verification_code, normalize_pair_request_id,
+    RandomSource, ScriptedRandomSource, compact_pair_verification_code,
+    generate_pair_request_id, generate_pair_requester_token, generate_pair_verification_code,
+    normalize_pair_request_id,
     normalize_pair_requester_token, normalize_pair_verification_code,
 };
 pub use ceremony_store::{CeremonyStore, PAIRING_CEREMONY_STORAGE_KEY, PAIR_APPROVAL_STORAGE_KEY};

@@ -6,8 +6,14 @@
 //! terminal element. The container is stamped with BOTH `wterm` and
 //! `cell-grid` because the first carries the overflow rules that make history
 //! scrollable at all and the second scopes every cell-grid rule.
+//!
+//! Only the head spacer is an `HtmlElement`, and only because `offset_top` is
+//! the one measured offset the renderer reads off it. Everything else is an
+//! `Element`, which keeps the structural calls unambiguous: a web-sys element
+//! implements `AsRef` for its whole IDL chain, so an `as_ref()` on one is
+//! ambiguous between `Node`, `Element` and the document.
 
-use web_sys::{Document, Element, HtmlElement};
+use web_sys::{Document, Element, HtmlElement, Node};
 
 use crate::block_placeholder::{DEFAULT_CELL_ROW_PX, block_placeholder};
 use crate::cell_geometry::{TerminalCellGeometry, grid_geometry_from_box};
@@ -38,17 +44,17 @@ pub struct CellRendererElements {
     pub doc: Document,
     /// Reserved height of the unpainted history HEAD, a SIBLING of the
     /// scrollback sheet. Sibling placement is load-bearing: the sheet's first
-    /// child is the eviction unit, and the reader's absolute row offsets are
-    /// measured from the spacer down.
+    /// child is the eviction unit, and an absolute row's pixel offset is the
+    /// spacer's offset plus its row number.
     pub spacer: HtmlElement,
     /// The immutable painted history: blocks and exact-height gaps.
-    pub scrollback: HtmlElement,
+    pub scrollback: Element,
     /// The live grid rows, plus the cursor and ghost overlays.
-    pub viewport: HtmlElement,
+    pub viewport: Element,
     /// The local cursor block.
-    pub cursor: HtmlElement,
+    pub cursor: Element,
     /// Remote cursor overlays, sharing the viewport as their host.
-    pub ghosts: HtmlElement,
+    pub ghosts: Element,
 }
 
 /// One remote operator's cursor, in grid cells from the pane's top-left.
@@ -62,6 +68,16 @@ pub struct GhostCursor {
     pub y: f64,
     /// Hover label, defaulting to the operator id.
     pub label: Option<String>,
+}
+
+/// One element as the node every structural `Node` call takes.
+pub fn as_node(element: &Element) -> &Node {
+    AsRef::<Node>::as_ref(element)
+}
+
+/// One HTML element as the node every structural `Node` call takes.
+pub fn html_as_node(element: &HtmlElement) -> &Node {
+    AsRef::<Element>::as_ref(element)
 }
 
 /// Create one of the renderer's fixed `div` elements.
@@ -80,6 +96,15 @@ pub fn create_span(doc: &Document) -> DomResult<Element> {
         })
 }
 
+/// Whether `child` is currently a direct child of `parent`.
+///
+/// Identity, not equality: a web-sys element has no `PartialEq`, and the
+/// overlays have to be re-appended exactly when they are no longer children of
+/// the viewport rather than merely when their contents differ.
+pub fn is_child_of(child: &Element, parent: &Element) -> bool {
+    std::ptr::eq(child.parent_node().as_ref(), Some(as_node(parent)))
+}
+
 /// Create the renderer's element tree inside `container`.
 ///
 /// The container's class list ends up holding BOTH `wterm` and `cell-grid`,
@@ -93,12 +118,7 @@ pub fn create_cell_renderer_elements(
         .ok_or_else(|| DomSetupError::RefusedTag {
             tag: "document".to_string(),
         })?;
-    container
-        .class_list()
-        .add_2("wterm", "cell-grid")
-        .map_err(|_| DomSetupError::RefusedTag {
-            tag: "class".to_string(),
-        })?;
+    let _ = container.class_list().add_2("wterm", "cell-grid");
     let _ = container.set_attribute("role", "log");
     let spacer = classed_div(&doc, "cell-sb-spacer")?;
     spacer.style().set_property("height", "0px");
@@ -108,13 +128,9 @@ pub fn create_cell_renderer_elements(
     let cursor = classed_div(&doc, "cell-cursor")?;
     let ghosts = classed_div(&doc, "cell-ghosts")?;
     let spacer = HtmlElement::from(spacer);
-    let scrollback = HtmlElement::from(scrollback);
-    let viewport = HtmlElement::from(viewport);
-    let cursor = HtmlElement::from(cursor);
-    let ghosts = HtmlElement::from(ghosts);
-    let _ = container.append_child(&spacer);
-    let _ = container.append_child(&scrollback);
-    let _ = container.append_child(&viewport);
+    let _ = container.append_child(html_as_node(&spacer));
+    let _ = container.append_child(as_node(&scrollback));
+    let _ = container.append_child(as_node(&viewport));
     Ok(CellRendererElements {
         doc,
         spacer,
@@ -134,8 +150,8 @@ fn classed_div(doc: &Document, class_name: &str) -> DomResult<Element> {
 /// Remove an element from wherever it currently sits.
 ///
 /// Going through the parent rather than the `ChildNode.remove` mixin keeps
-/// every structural change on the inherent `Node` surface, and makes a
-/// detached element a no-op instead of a throw.
+/// every structural change on the inherent `Node` surface, and makes a detached
+/// element a no-op instead of a throw.
 pub fn detach(element: &Element) {
     if let Some(parent) = element.parent_node() {
         let _ = parent.remove_child(element);
@@ -228,9 +244,7 @@ pub fn measure_cell_row_height(doc: &Document, viewport: &Element) -> f64 {
     if viewport.append_child(&probe).is_err() {
         return 0.0;
     }
-    let height = probe
-        .get_bounding_client_rect()
-        .map_or(0.0, |rect| rect.height());
+    let height = probe.get_bounding_client_rect().map_or(0.0, |rect| rect.height());
     detach(&probe);
     height
 }

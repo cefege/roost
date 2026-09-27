@@ -8,11 +8,10 @@
 //! only honest answer to a checkpoint: a viewport-only full cannot prove which
 //! rows left the grid, so the renderer never infers them.
 
-use wasm_bindgen::JsCast;
 use web_sys::Element;
 use roost_protocol::cell::CellRow;
 
-use crate::cell_renderer_dom::{DomResult, create_div, detach, size_scrollback_block};
+use crate::cell_renderer_dom::{DomResult, as_node, create_div, detach, size_scrollback_block};
 use crate::block_placeholder::{SCROLLBACK_BLOCK_ROWS, block_placeholder};
 use roost_client_core::terminal::history::HistoryRange;
 
@@ -41,11 +40,6 @@ impl CellGridRenderer {
     /// One child of the history sheet, by position.
     pub(crate) fn child_at(&self, index: u32) -> Option<Element> {
         self.scrollback.children().get(index)
-    }
-
-    /// The gap that ends at the layout end, when the tail is unpainted.
-    pub(crate) fn tail_gap(&self) -> Option<&Element> {
-        self.tail_gap.as_ref()
     }
 
     /// Close the OPEN tail block: stamp its exact height and let the browser
@@ -155,7 +149,7 @@ impl CellGridRenderer {
             let block = create_div(&self.doc)?;
             block.set_class_name(BLOCK_CLASS);
             self.scrollback
-                .insert_before(block.as_ref(), reference.map(|element| element.as_ref()))
+                .insert_before(&block, reference.map(as_node))
                 .ok();
             let mut block_rows = 0u32;
             while offset < rows.len() && block_rows < SCROLLBACK_BLOCK_ROWS {
@@ -212,7 +206,7 @@ impl CellGridRenderer {
             if end < head_end {
                 let right = self.create_gap(end, head_end)?;
                 self.scrollback
-                    .insert_before(right.as_ref(), first.as_ref())
+                    .insert_before(&right, first.as_ref().map(as_node))
                     .ok();
                 self.gap_rows += u64::from(head_end - end);
                 if tail_target {
@@ -268,7 +262,7 @@ impl CellGridRenderer {
                 if end < range.end {
                     let right = self.create_gap(end, range.end)?;
                     self.scrollback
-                        .insert_before(right.as_ref(), next.as_ref())
+                        .insert_before(&right, next.as_ref().map(as_node))
                         .ok();
                     if tail_target {
                         self.tail_gap = Some(right);

@@ -27,13 +27,22 @@ use roost_proto::PbCellGridChunk;
 use serde::Deserialize;
 use serde_json::Value;
 
-use support::{EPOCH, STREAM};
+use support::STREAM;
 
 /// The session every recorded vector names.
 const VECTOR_SESSION: &str = "session";
 /// The grid every recorded vector declares.
 const VECTOR_COLS: u32 = 8;
 const VECTOR_ROWS: u32 = 4;
+/// The grid epoch the RECORDED vectors name.
+///
+/// NOT `support::EPOCH`. That is the synthetic `"g-1"` the in-crate terminal
+/// tests install for themselves; the files under
+/// `protocol/conformance/cell-chunks/` all declare `"g"`, and this suite reads
+/// those files rather than installing anything, so asserting the fixture's own
+/// epoch against a constant from a different suite's fixture reported a
+/// mismatch where there was none.
+const VECTOR_GRID_EPOCH: &str = "g";
 
 #[derive(Deserialize)]
 struct CellChunkVector {
@@ -173,7 +182,7 @@ fn every_vector_declares_the_grid_this_fixture_installs() {
             );
             assert_eq!(
                 part["gridEpoch"].as_str(),
-                Some(EPOCH),
+                Some(VECTOR_GRID_EPOCH),
                 "vector {} names a grid epoch this fixture does not install",
                 vector.name
             );

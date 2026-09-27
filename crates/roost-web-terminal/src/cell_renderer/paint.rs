@@ -8,13 +8,15 @@
 
 use std::collections::BTreeMap;
 
-use wasm_bindgen::JsCast;
 use web_sys::Element;
 
 use crate::cell_renderer::CellGridRenderer;
 use crate::cell_renderer::history_page::to_row_index;
 use crate::cell_renderer::scrollback::BLOCK_CLASS;
-use crate::cell_renderer_dom::{DomResult, detach, paint_cell_grid_width, replace_element, sync_alternate_screen};
+use crate::cell_renderer_dom::{
+    DomResult, as_node, detach, is_child_of, paint_cell_grid_width, replace_element,
+    sync_alternate_screen,
+};
 use crate::cell_row::dom::render_row;
 use crate::cell_row::{FindHit, row_hash};
 use roost_protocol::cell::CellRow;
@@ -75,6 +77,7 @@ impl CellGridRenderer {
         let Some(frame) = self.frame.clone() else {
             return Ok(());
         };
+        self.measure_row_height();
         let viewport_base = to_row_index(frame.scrollback_total);
         let shifted = usize::try_from(scrolled.min(self.row_elements.len() as u32)).unwrap_or(0);
         for element in self.row_elements.iter().take(shifted) {
@@ -115,11 +118,7 @@ impl CellGridRenderer {
     /// Append one row element BELOW the overlays, so a row never lands between
     /// the cursor and the rows it points at.
     fn insert_viewport_row(&self, element: &Element) {
-        let anchor = if self.cursor.parent_element().as_ref() == Some(self.viewport.as_ref()) {
-            Some(self.cursor.as_ref())
-        } else {
-            None
-        };
+        let anchor = is_child_of(&self.cursor, &self.viewport).then_some(as_node(&self.cursor));
         let _ = self.viewport.insert_before(element, anchor);
     }
 
@@ -127,10 +126,10 @@ impl CellGridRenderer {
     /// cursor. The overlays must be the LAST children so a row appended above
     /// them does not cover the cursor.
     fn attach_viewport_overlays(&mut self) {
-        if self.cursor.parent_element().as_ref() != Some(self.viewport.as_ref()) {
+        if !is_child_of(&self.cursor, &self.viewport) {
             let _ = self.viewport.append_child(&self.cursor);
         }
-        if self.ghosts.parent_element().as_ref() != Some(self.viewport.as_ref()) {
+        if !is_child_of(&self.ghosts, &self.viewport) {
             let _ = self.viewport.append_child(&self.ghosts);
         }
         self.update_cursor();

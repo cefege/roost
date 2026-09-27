@@ -33,6 +33,9 @@ impl CellGridRenderer {
         let Some(frame) = self.frame.clone() else {
             return Ok(());
         };
+        // Measure once per paint, before any placeholder is sized: every
+        // reserved pixel below is derived from this one number.
+        self.measure_row_height();
         let same_grid = self.reconciled_grid_epoch.as_deref() == Some(frame.grid_epoch.as_str())
             && self.painted_cols == Some(frame.cols)
             && self.row_elements.len() == frame.rows as usize

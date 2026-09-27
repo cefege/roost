@@ -54,11 +54,30 @@ struct KeyMaterial {
 }
 
 /// A `SecureKeyStore` held entirely in this process.
-#[derive(Debug, Default)]
+///
+/// `Default` is HAND-WRITTEN, and that is the whole point of the type. The two
+/// capability flags are `bool`, so a `#[derive(Default)]` would set both to
+/// `false` — which makes `new()` a store that can neither store nor sign, and
+/// makes `without_persistence` and `with_failing_signing` no-ops rather than
+/// the two ways of breaking a working store. Every test that wants a working
+/// store would then have to opt back IN to one.
+#[derive(Debug)]
 pub struct MemorySecureKeyStore {
     state: RefCell<KeyState>,
     persistence_available: RefCell<bool>,
     signing_available: RefCell<bool>,
+}
+
+impl Default for MemorySecureKeyStore {
+    /// A store that stores and signs; the degraded shapes are the two named
+    /// constructors, each of which is reachable only by asking for it.
+    fn default() -> Self {
+        Self {
+            state: RefCell::new(KeyState::default()),
+            persistence_available: RefCell::new(true),
+            signing_available: RefCell::new(true),
+        }
+    }
 }
 
 impl MemorySecureKeyStore {

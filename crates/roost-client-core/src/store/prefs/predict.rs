@@ -59,14 +59,27 @@ pub fn parse(value: Option<&str>) -> PredictMode {
 /// `PredictMode`: a control that hands this an unknown value gets `adaptive`
 /// rather than having its own enum widened. Normalising on the way IN is what
 /// makes the value on disk one of the four.
+///
+/// The early return is about the store's REVISION, not about the disk. A user
+/// whose stored value is a legacy spelling has an unchanged mode AND a spelling
+/// that is not one of the four, so returning before the write left `"force"`
+/// on disk forever — the normalisation this function exists to perform never
+/// ran for exactly the values that need it. The write therefore also happens
+/// whenever the stored spelling is not already canonical, and the revision is
+/// bumped only when the mode itself moved.
 pub fn set_predict_mode(store: &mut Store, storage: &dyn KeyValueStore, value: &str) -> bool {
     let mode = parse(Some(value));
-    if store.prefs.predict == mode {
+    let canonical = mode.as_str();
+    let already_canonical = storage.get(PREDICT_MODE_KEY).as_deref() == Some(canonical);
+    let changed = store.prefs.predict != mode;
+    if !changed && already_canonical {
         return false;
     }
     store.prefs.predict = mode;
-    storage.set(PREDICT_MODE_KEY, mode.as_str());
-    store.note_change();
-    tracing::debug!(target: "store", mode = mode.as_str(), "predictive echo mode");
+    storage.set(PREDICT_MODE_KEY, canonical);
+    if changed {
+        store.note_change();
+    }
+    tracing::debug!(target: "store", mode = canonical, "predictive echo mode");
     true
 }

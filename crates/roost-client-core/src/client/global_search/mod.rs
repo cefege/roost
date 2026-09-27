@@ -11,13 +11,13 @@
 //! they are the same kind of value, and the module that HOLDS rows is not the
 //! module that MERGES them.
 
+mod controller;
 mod reconcile;
-pub mod global_search;
 
-pub use reconcile::{
-    merge_global_search_matches, reconcile_global_search_partials, retain_joinable_matches,
-};
-pub use global_search::{
+pub use controller::{
     GLOBAL_SEARCH_DEBOUNCE_MS, GlobalSearchController, GlobalSearchQuery, GlobalSearchRequest,
     GlobalSearchResults, OutstandingPage, SetSearchOutcome,
+};
+pub use reconcile::{
+    merge_global_search_matches, reconcile_global_search_partials, retain_joinable_matches,
 };

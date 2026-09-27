@@ -10,9 +10,12 @@
 
 use std::collections::BTreeMap;
 
-use roost_client_core::store::browse_entries::{BrowseEntry, entry_date, relative_entry_time, visible_files, visible_folders};
-use roost_client_core::store::browse_machine::{BrowseListing, BrowseState};
-use roost_client_core::store::browse_paths::{BROWSE_HOME, ExactBrowsePaths};
+use roost_client_core::store::browse_entries::{
+    BrowseEntry, entry_date, relative_entry_time, visible_files, visible_folders,
+};
+use roost_client_core::store::browse_machine::BrowseListing;
+use roost_client_core::store::browse_paths::{BROWSE_HOME, BrowsePathOps, ExactBrowsePaths};
+use roost_client_core::store::browse_state::BrowseState;
 use roost_protocol::wire::{ChannelId, Session, SessionId, SessionKind, SessionStatus, WorkerFp};
 
 const WORKER_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

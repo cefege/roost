@@ -22,18 +22,18 @@ use roost_client_core::client::auth::{
     SecureKeyStore, recover_rotation,
 };
 use roost_client_core::{MemoryClock, MemoryKeyValueStore};
+// `get` is a trait method on `KeyValueStore`, not inherent on the in-memory
+// store; the minted-once flag assertion below needs it in scope.
+use roost_client_core::KeyValueStore as _;
 use support::auth::{RecordingRotator, ScriptedProbe, store_with_current};
 
 #[test]
 fn a_generated_key_is_non_extractable_and_nothing_the_store_hands_back_carries_its_bytes() {
     let store = MemorySecureKeyStore::new();
     let flags = MemoryKeyValueStore::new();
-    let keys = DeviceKeyManager::new(
-        &store,
-        &flags,
-        &ScriptedProbe::always(KeyAdmission::Authorized),
-        &MemoryClock::new(),
-    );
+    let probe = ScriptedProbe::always(KeyAdmission::Authorized);
+    let clock = MemoryClock::new();
+    let keys = DeviceKeyManager::new(&store, &flags, &probe, &clock);
 
     let info = keys.load_or_generate().expect("a first boot mints a key");
     assert!(!info.extractable, "a generated key must not be extractable");
@@ -76,12 +76,10 @@ fn an_extractable_key_is_refused_rather_than_used() {
     let store = MemorySecureKeyStore::new();
     let weak = store.plant_extractable_key();
     store.force_overwrite_current(weak);
-    let keys = DeviceKeyManager::new(
-        &store,
-        &MemoryKeyValueStore::new(),
-        &ScriptedProbe::always(KeyAdmission::Authorized),
-        &MemoryClock::new(),
-    );
+    let flags = MemoryKeyValueStore::new();
+    let probe = ScriptedProbe::always(KeyAdmission::Authorized);
+    let clock = MemoryClock::new();
+    let keys = DeviceKeyManager::new(&store, &flags, &probe, &clock);
 
     assert_eq!(
         keys.load_or_generate(),
@@ -100,12 +98,9 @@ fn an_extractable_key_is_refused_rather_than_used() {
 fn a_store_without_durable_storage_fails_loudly_instead_of_minting_a_throwaway_key() {
     let store = MemorySecureKeyStore::without_persistence();
     let flags = MemoryKeyValueStore::new();
-    let keys = DeviceKeyManager::new(
-        &store,
-        &flags,
-        &ScriptedProbe::always(KeyAdmission::Authorized),
-        &MemoryClock::new(),
-    );
+    let probe = ScriptedProbe::always(KeyAdmission::Authorized);
+    let clock = MemoryClock::new();
+    let keys = DeviceKeyManager::new(&store, &flags, &probe, &clock);
 
     assert!(matches!(
         keys.load_or_generate(),
@@ -172,12 +167,10 @@ fn rotation_admits_the_old_key_for_exactly_its_window_and_the_new_one_afterwards
 #[test]
 fn a_completed_rotation_promotes_the_new_key_and_the_old_one_stops_signing() {
     let store = MemorySecureKeyStore::new();
-    let mut keys = DeviceKeyManager::new(
-        &store,
-        &MemoryKeyValueStore::new(),
-        &ScriptedProbe::always(KeyAdmission::Authorized),
-        &MemoryClock::new(),
-    );
+    let flags = MemoryKeyValueStore::new();
+    let probe = ScriptedProbe::always(KeyAdmission::Authorized);
+    let clock = MemoryClock::new();
+    let mut keys = DeviceKeyManager::new(&store, &flags, &probe, &clock);
     let before = keys.load_or_generate().expect("load").fingerprint;
     let old_key = store.current_key().expect("current");
     let old_credential = keys.current_bearer().expect("a credential");
@@ -192,7 +185,7 @@ fn a_completed_rotation_promotes_the_new_key_and_the_old_one_stops_signing() {
     assert_eq!(asked[0].label, "laptop");
     assert_eq!(
         asked[0].bearer.as_deref(),
-        old_credential.as_deref(),
+        Some(old_credential.as_str()),
         "the rotation is authorized by the key it is replacing"
     );
     let new_key = store.current_key().expect("promoted");
@@ -225,12 +218,10 @@ fn a_completed_rotation_promotes_the_new_key_and_the_old_one_stops_signing() {
 #[test]
 fn a_rotation_the_coordinator_refuses_leaves_the_device_exactly_as_it_was() {
     let store = MemorySecureKeyStore::new();
-    let mut keys = DeviceKeyManager::new(
-        &store,
-        &MemoryKeyValueStore::new(),
-        &ScriptedProbe::always(KeyAdmission::Authorized),
-        &MemoryClock::new(),
-    );
+    let flags = MemoryKeyValueStore::new();
+    let probe = ScriptedProbe::always(KeyAdmission::Authorized);
+    let clock = MemoryClock::new();
+    let mut keys = DeviceKeyManager::new(&store, &flags, &probe, &clock);
     let before = keys.load_or_generate().expect("load").fingerprint;
     let kept = store.current_key().expect("current");
 
@@ -322,12 +313,9 @@ fn a_rotation_the_coordinator_could_not_answer_is_refused_rather_than_resolved()
         [KeyAdmission::Ambiguous, KeyAdmission::Authorized],
         KeyAdmission::Ambiguous,
     );
-    let mut keys = DeviceKeyManager::new(
-        &store,
-        &MemoryKeyValueStore::new(),
-        &probe,
-        &MemoryClock::new(),
-    );
+    let flags = MemoryKeyValueStore::new();
+    let clock = MemoryClock::new();
+    let mut keys = DeviceKeyManager::new(&store, &flags, &probe, &clock);
     let mut rotator = RecordingRotator::accepting("rotated-device");
     // The refusal is the unanswered question, not the coordinator saying no.
     assert!(matches!(
@@ -352,12 +340,8 @@ fn a_reset_needs_the_coordinators_explicit_rejection() {
 
     // Still accepted: refused.
     let store = MemorySecureKeyStore::new();
-    let mut keys = DeviceKeyManager::new(
-        &store,
-        &flags,
-        &ScriptedProbe::always(KeyAdmission::Authorized),
-        &clock,
-    );
+    let probe = ScriptedProbe::always(KeyAdmission::Authorized);
+    let mut keys = DeviceKeyManager::new(&store, &flags, &probe, &clock);
     keys.load_or_generate().expect("load");
     assert!(!keys.is_reset_eligible().expect("eligible"));
     assert_eq!(
@@ -369,24 +353,16 @@ fn a_reset_needs_the_coordinators_explicit_rejection() {
 
     // Unreachable: also refused, because silence is not consent.
     let store = MemorySecureKeyStore::new();
-    let mut keys = DeviceKeyManager::new(
-        &store,
-        &flags,
-        &ScriptedProbe::always(KeyAdmission::Ambiguous),
-        &clock,
-    );
+    let probe = ScriptedProbe::always(KeyAdmission::Ambiguous);
+    let mut keys = DeviceKeyManager::new(&store, &flags, &probe, &clock);
     keys.load_or_generate().expect("load");
     assert_eq!(keys.reset(), Err(KeyStoreError::ProbeAmbiguous));
     assert!(store.current_key().is_some());
 
     // Rejected, and only then.
     let store = MemorySecureKeyStore::new();
-    let mut keys = DeviceKeyManager::new(
-        &store,
-        &flags,
-        &ScriptedProbe::always(KeyAdmission::DeviceRejected),
-        &clock,
-    );
+    let probe = ScriptedProbe::always(KeyAdmission::DeviceRejected);
+    let mut keys = DeviceKeyManager::new(&store, &flags, &probe, &clock);
     keys.load_or_generate().expect("load");
     assert!(keys.is_reset_eligible().expect("eligible"));
     assert_eq!(keys.reset(), Ok(ResetOutcome::Unpaired));

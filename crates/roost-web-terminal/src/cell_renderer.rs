@@ -36,6 +36,7 @@ use web_sys::{Document, Element, HtmlElement};
 use crate::cell_geometry::TerminalCellGeometry;
 use crate::cell_renderer_dom::{
     DomSetupError, GhostCursor, create_cell_renderer_elements, create_ghost_elements, detach,
+    is_child_of,
 };
 use crate::cell_row::FindHit;
 use crate::painted_history::PaintedHistory;
@@ -54,12 +55,10 @@ pub struct CellGridRenderer {
     container: Element,
     doc: Document,
     spacer: HtmlElement,
-    scrollback: HtmlElement,
-    viewport: HtmlElement,
-    cursor: HtmlElement,
-    ghosts: HtmlElement,
-
-    /// The frame the painted DOM was built from.
+    scrollback: Element,
+    viewport: Element,
+    cursor: Element,
+    ghosts: Element,
     frame: Option<CellGridFrame>,
     /// The newest frame, held back while a reader is parked. It is the CANONICAL
     /// frame: the pane keeps advancing while the DOM is immutable.
@@ -229,13 +228,13 @@ impl CellGridRenderer {
     }
 
     /// The immutable history sheet, whose first child is the eviction unit.
-    pub fn scrollback_element(&self) -> &HtmlElement {
+    pub fn scrollback_element(&self) -> &Element {
         &self.scrollback
     }
 
     /// The live grid host, which the echo predictor also paints into.
     pub fn prediction_host(&self) -> &Element {
-        self.viewport.as_ref()
+        &self.viewport
     }
 
     /// The head spacer, a SIBLING of the history sheet.
@@ -245,7 +244,7 @@ impl CellGridRenderer {
 
     /// The cursor element the viewport overlay owns.
     pub fn cursor_element(&self) -> &Element {
-        self.cursor.as_ref()
+        &self.cursor
     }
 
     /// The document every painted node is created from.
@@ -281,10 +280,10 @@ impl CellGridRenderer {
         let boxes = create_ghost_elements(&self.doc, ghosts);
         self.ghosts.set_inner_html("");
         for element in boxes {
-            self.ghosts.append_child(&element).ok();
+            let _ = self.ghosts.append_child(&element);
         }
-        if self.ghosts.parent_element().as_ref() != Some(self.viewport.as_ref()) {
-            self.viewport.append_child(&self.ghosts).ok();
+        if !is_child_of(&self.ghosts, &self.viewport) {
+            let _ = self.viewport.append_child(&self.ghosts);
         }
     }
 
@@ -304,7 +303,7 @@ impl CellGridRenderer {
         crate::cell_renderer_dom::viewport_cell_geometry(
             frame.cols,
             frame.rows,
-            self.viewport.as_ref(),
+            &self.viewport,
             self.row_height(),
         )
     }
@@ -341,18 +340,6 @@ impl CellGridRenderer {
         detach(&self.spacer);
         detach(&self.scrollback);
         detach(&self.viewport);
-        self.resize_history_placeholders(row_height);
-        self.sync_spacer();
-        self.pin_to_bottom(was_at_bottom);
-        true
-    }
-
-    /// Release every DOM node the renderer owns and reset its state.
-    pub fn dispose(&mut self) {
-        self.incident_observer = None;
-        self.spacer.remove();
-        self.scrollback.remove();
-        self.viewport.remove();
         self.frame = None;
         self.reader_pending_frame = None;
         self.reader_pending_frame_retains_history = true;

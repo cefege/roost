@@ -16,6 +16,7 @@
 //! `protocol/spec/auth-and-pairing.md:38-44`.
 
 use std::fmt;
+use std::collections::VecDeque;
 
 /// The ceremony version this client speaks.
 ///
@@ -119,10 +120,17 @@ pub fn generate_pair_requester_token(
 
 /// A random source that counts up from `start`, one byte at a time.
 ///
-/// For the boundary the code generator actually has: a draw at or above the
-/// rejection limit must be discarded and the next one used, and a source that
-/// repeats one byte can only ever produce the same draw — which would make the
-/// rejection branch a hang rather than a test.
+/// Its draw CHANGES between calls, so two consecutive draws differ — which is
+/// what a source that repeats one byte cannot do, and why drawing twice is not
+/// the same value twice.
+///
+/// **It cannot reach the rejection branch of the verification code, and no
+/// choice of `start` makes it.** The limit is `4_294_000_000` and the highest
+/// value four counting bytes can take is `0xff000102` = `4_278_190_338`,
+/// because a counting run wraps through `0x00` instead of climbing. The
+/// rejection window is the top 0.023% of the `u32` range. Use
+/// [`ScriptedRandomSource`] for that boundary; this one is for a draw that
+/// must vary.
 #[derive(Debug)]
 pub struct CountingRandomSource {
     next: std::cell::Cell<u8>,
@@ -147,6 +155,71 @@ impl RandomSource for CountingRandomSource {
     }
 }
 
+/// A random source that hands out pre-written byte blocks in order.
+///
+/// This is the only source that can express a draw at or above a limit,
+/// because it is the only one whose bytes are not a function of a counter.
+/// The rejection branch of the verification code is unreachable without it:
+/// the window is `967_296` values wide at the very top of the `u32` range, and
+/// every other source here bottoms out or wraps long before reaching it.
+///
+/// Blocks are consumed in order; once they run out the last one repeats, so a
+/// test that asks for more entropy than it scripted gets a stable answer
+/// rather than an error.
+#[derive(Debug)]
+pub struct ScriptedRandomSource {
+    blocks: std::cell::RefCell<VecDeque<Vec<u8>>>,
+    last: std::cell::RefCell<Option<Vec<u8>>>,
+}
+
+impl ScriptedRandomSource {
+    /// A source that yields each block in turn.
+    pub fn new(blocks: impl IntoIterator<Item = Vec<u8>>) -> Self {
+        Self {
+            blocks: std::cell::RefCell::new(blocks.into_iter().collect()),
+            last: std::cell::RefCell::new(None),
+        }
+    }
+
+    /// A source that yields one four-byte block, and keeps yielding it.
+    pub fn fixed(draw: u32) -> Self {
+        Self::new([draw.to_be_bytes().to_vec()])
+    }
+
+    /// A source whose first draw is rejected and whose second is `accepted`.
+    pub fn rejecting_then(draw: u32) -> Self {
+        Self::new([u32::MAX.to_be_bytes().to_vec(), draw.to_be_bytes().to_vec()])
+    }
+}
+
+impl RandomSource for ScriptedRandomSource {
+    fn fill_bytes(&self, out: &mut [u8]) -> Result<(), CeremonyError> {
+        let block = {
+            let mut blocks = self.blocks.borrow_mut();
+            let next = blocks.pop_front();
+            match next {
+                Some(block) => {
+                    *self.last.borrow_mut() = Some(block.clone());
+                    block
+                }
+                None => self.last.borrow().clone().ok_or(CeremonyError::Entropy {
+                    detail: "this source was scripted with no blocks".to_string(),
+                })?,
+            }
+        };
+        if block.len() != out.len() {
+            return Err(CeremonyError::Entropy {
+                detail: format!(
+                    "a scripted block of {} bytes cannot fill a {}-byte draw",
+                    block.len(),
+                    out.len()
+                ),
+            });
+        }
+        out.copy_from_slice(&block);
+        Ok(())
+    }
+}
 
 /// A six-digit verification code, drawn without bias.
 pub fn generate_pair_verification_code(

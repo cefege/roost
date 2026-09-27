@@ -103,6 +103,10 @@ impl CellGridRenderer {
     /// into reserved-but-unpainted space keeps the backfill drain pulling toward
     /// them.
     pub(crate) fn sync_spacer(&mut self) -> bool {
+        // The head reservation is the one pixel value every absolute row offset
+        // is measured against, so it is stamped from a MEASURED height, falling
+        // back to the default pitch — never from a stale or zeroed cache.
+        self.measure_row_height();
         let row_height = self.row_height();
         if row_height > 0.0 && row_height != self.painted_gap_row_height {
             self.resize_history_placeholders(row_height);

@@ -319,10 +319,7 @@ fn exact_current_target(
 fn is_current_live_folder(folder: &LayoutApplyFolder) -> bool {
     !folder.folder_key.is_empty()
         && !folder.active_session_id.is_empty()
-        && folder
-            .live_session_ids
-            .iter()
-            .any(|session| *session == folder.active_session_id)
+        && folder.live_session_ids.contains(&folder.active_session_id)
         && !folder.has_client_only_session
 }
 

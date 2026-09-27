@@ -144,7 +144,7 @@ pub fn session_folder_key(store: &Store, paths: &dyn WorkerPaths, session: &Sess
 /// in projection order rather than to whichever row the map happened to yield
 /// last; a selector whose answer changes between two calls with the same inputs
 /// is a selector nobody can cache a route against.
-fn newest_open<'a>(store: &'a Store, predicate: impl Fn(&Session) -> bool) -> Option<&'a Session> {
+fn newest_open(store: &Store, predicate: impl Fn(&Session) -> bool) -> Option<&Session> {
     let mut best: Option<&Session> = None;
     for session in store.sessions.sessions().values() {
         if session.status != SessionStatus::Open || !predicate(session) {

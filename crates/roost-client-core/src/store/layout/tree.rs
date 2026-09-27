@@ -162,17 +162,20 @@ pub fn compact_leaf_for_layout<'layout>(
 /// `FnOnce` would be consumed by the first subtree the walk reached, which is
 /// whichever one happened to be walked first rather than the one the caller
 /// named.
-pub(crate) fn update_leaf(
+pub(crate) fn update_leaf<Edit>(
     node: &PaneNode,
     pane_id: &str,
-    mut edit: impl FnMut(&PaneLeaf) -> PaneNode,
-) -> PaneNode {
+    edit: &mut Edit,
+) -> PaneNode
+where
+    Edit: FnMut(&PaneLeaf) -> PaneNode,
+{
     match node {
         PaneNode::Leaf(leaf) if leaf.pane_id == pane_id => edit(leaf),
         PaneNode::Leaf(_) => node.clone(),
         PaneNode::Split(split) => PaneNode::Split(PaneSplit {
-            a: Box::new(update_leaf(&split.a, pane_id, &mut edit)),
-            b: Box::new(update_leaf(&split.b, pane_id, &mut edit)),
+            a: Box::new(update_leaf(&split.a, pane_id, edit)),
+            b: Box::new(update_leaf(&split.b, pane_id, edit)),
             ..split.clone()
         }),
     }
@@ -289,7 +292,11 @@ pub(crate) fn normalize_pane_ratio(ratio: f64) -> f64 {
     if ratio == f64::NEG_INFINITY {
         return LAYOUT_RATIO_MIN;
     }
-    ratio.max(LAYOUT_RATIO_MIN).min(LAYOUT_RATIO_MAX)
+    // The three guards above make the input finite, so `clamp` and
+    // `max(..).min(..)` agree here. The guards stay because `f64::clamp`
+    // returns NaN for a NaN input while `f64::max` does not, and this function
+    // promises a finite answer for every input including that one.
+    ratio.clamp(LAYOUT_RATIO_MIN, LAYOUT_RATIO_MAX)
 }
 
 /// Clamp every ratio in a stored tree, so a document written by an older build

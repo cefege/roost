@@ -17,7 +17,7 @@ use roost_client_core::store::layout::{
 use roost_protocol::layout::document::LayoutDirection;
 use roost_protocol::layout::{LayoutDocumentNode, LayoutDocumentV1};
 
-use layout_support::{CountedIds, ok, session_ids, single_pane_document, split_document};
+use layout_support::{CountedIds, ok, session_ids, single_pane_document, some, split_document};
 
 const ALPHA: &str = "alpha";
 const BETA: &str = "beta";
@@ -118,7 +118,7 @@ fn an_arrangement_survives_the_round_trip_through_a_document() {
         apply_layout_document(&mut records, FOLDER, &document, &three_sessions(), &mut ids),
         "apply",
     );
-    let applied = ok(records.stored(FOLDER), "a stored layout");
+    let applied = some(records.stored(FOLDER), "a stored layout");
     assert_eq!(shape(applied), shape(&original));
     // The runtime ids are the importing client's own, minted from ITS source:
     // `p1` and `p2` are identities two clients must not share, and a document
@@ -221,8 +221,9 @@ fn a_live_session_the_document_never_named_lands_on_the_focused_pane() {
         ),
         "apply",
     );
-    let stored = ok(records.stored(FOLDER), "the arrangement");
-    let first = ok(all_leaves(&stored.root).first(), "a pane");
+    let stored = some(records.stored(FOLDER), "the arrangement");
+    let leaves = all_leaves(&stored.root);
+    let first = some(leaves.first(), "a pane");
     assert_eq!(first.tabs, three_sessions());
     assert_eq!(applied.selected_session_id, Some(ALPHA.to_owned()));
 }

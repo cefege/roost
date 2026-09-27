@@ -15,7 +15,7 @@
 use roost_client_core::store::Store;
 use roost_client_core::store::mutations::{PairRequest, delete_pair_request, replace_workers};
 use roost_client_core::store::optimistic_spawn::{
-    SupersededReason, begin_optimistic_spawn, settle_spawn_rejected,
+    SpawnSettlement, SupersededReason, begin_optimistic_spawn, settle_spawn_rejected,
 };
 use roost_client_core::store::root::{
     BrowserAccessState, captured_generation_is_current, clear_account_state_for_logout,
@@ -261,15 +261,26 @@ fn chrome_and_preference_mutations_each_bump_the_revision_exactly_once() {
             assert!(!load_ui(store, &storage));
         },
     );
-    assert_no_bump(
-        &mut core,
-        "a sidebar width of zero clamps to the minimum",
-        |store| {
-            set_sidebar_width(store, &storage, 0);
-            let before = store.revision();
-            set_sidebar_width(store, &storage, SIDEBAR_WIDTH_MIN - 1);
-            assert_eq!(store.revision(), before);
-        },
+    // NOT wrapped in `assert_no_bump`: the first call in this closure DOES move
+    // the width (300 -> 200), so the closure as a whole bumps once and the
+    // outer helper's "changed nothing" reading was never true of it. What the
+    // rule actually says is that the SECOND call changes nothing, because 199
+    // and 0 both clamp to the same minimum — so the revision is sampled
+    // inside, after the first write has already landed.
+    let before_width = core.store().revision();
+    set_sidebar_width(core.store_mut(), &storage, 0);
+    assert_eq!(
+        core.store().revision(),
+        before_width + 1,
+        "the first write moves the width off the default, so it is a change"
+    );
+    let after_width = core.store().revision();
+    set_sidebar_width(core.store_mut(), &storage, SIDEBAR_WIDTH_MIN - 1);
+    assert_eq!(
+        core.store().revision(),
+        after_width,
+        "a width of 199 clamps to the same minimum 0 did, so it changed nothing \
+         and must not bump"
     );
     assert_no_bump(
         &mut core,

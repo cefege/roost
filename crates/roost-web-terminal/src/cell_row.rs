@@ -255,16 +255,16 @@ pub fn span_slices(span: &CellSpan, hits: &[FindHit], active_col: Option<u32>) -
     slices
 }
 
-/// The text of one slice. A slice is only ever produced for a coalesced narrow
-/// run, where every scalar is one column, so the column offset is also the
-/// scalar offset.
-pub fn slice_text(span: &CellSpan, slice: SpanSlice) -> String {
-    let start = slice.start as usize;
-    let end = start + slice.columns as usize;
+/// The text of one slice, addressed by its column interval inside the span.
+///
+/// A slice is only ever produced for a coalesced narrow run, where every
+/// scalar is one column, so the column offset is also the scalar offset. An
+/// atomic span is never sliced.
+pub fn slice_text(span: &CellSpan, start: u32, columns: u32) -> String {
     span.text
         .chars()
-        .skip(start)
-        .take(slice.columns as usize)
+        .skip(start as usize)
+        .take(columns as usize)
         .collect()
 }
 

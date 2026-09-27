@@ -51,7 +51,13 @@ pub struct ExactBrowsePaths;
 
 impl BrowsePathOps for ExactBrowsePaths {
     fn child(&self, dir: &str, name: &str) -> String {
-        if dir.is_empty() || dir == BROWSE_HOME {
+        // The sentinel JOINS like any other segment: v2's `nativePathJoin`
+        // normalises `~` and then appends with a separator, so a child of home
+        // is `~/src` and not `src`. Dropping the sentinel here made the child
+        // a bare relative name, and one `..` away from `parent()` — which
+        // answers `/` for anything unanchored — so going up out of a folder
+        // opened from home landed on the filesystem root instead of on `~`.
+        if dir.is_empty() {
             return name.to_owned();
         }
         if dir.ends_with('/') {

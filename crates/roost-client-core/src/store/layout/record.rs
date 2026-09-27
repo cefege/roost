@@ -230,7 +230,7 @@ fn validate_stored(folder_key: &str, layout: &PaneLayout) -> Result<(), LayoutRe
                 // empty case is legal and is the only one, and a pane that
                 // selects a tab it does not hold paints a terminal the deck has
                 // no rect for.
-                if !leaf.tabs.is_empty() && !leaf.tabs.iter().any(|tab| *tab == leaf.selected_tab) {
+                if !leaf.tabs.is_empty() && !leaf.tabs.contains(&leaf.selected_tab) {
                     return Err(malformed(
                         folder_key,
                         format!("pane {} selects a tab it does not hold", leaf.pane_id),

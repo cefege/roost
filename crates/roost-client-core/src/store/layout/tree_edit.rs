@@ -31,7 +31,7 @@ use super::tree::{
 pub fn reconcile(layout: &PaneLayout, live_ids: &[String]) -> PaneLayout {
     let live: BTreeSet<&str> = live_ids.iter().map(String::as_str).collect();
     let mut emptied_by_prune: BTreeSet<String> = BTreeSet::new();
-    let pruned = map_leaves(&normalize_split_ratios(&layout.root), |leaf| {
+    let pruned = map_leaves(&normalize_split_ratios(&layout.root), &mut |leaf: &PaneLeaf| {
         let tabs: Vec<String> = leaf
             .tabs
             .iter()
@@ -68,7 +68,7 @@ pub fn reconcile(layout: &PaneLayout, live_ids: &[String]) -> PaneLayout {
     let focused_pane_id = fix_focus(&root, &layout.focused_pane_id);
     if !orphans.is_empty() {
         let first_orphan = orphans[0].clone();
-        root = update_leaf(&root, &focused_pane_id, move |leaf| {
+        root = update_leaf(&root, &focused_pane_id, &mut move |leaf: &PaneLeaf| {
             let mut tabs = leaf.tabs.clone();
             tabs.extend(orphans.iter().cloned());
             PaneNode::Leaf(PaneLeaf {
@@ -88,12 +88,15 @@ pub fn reconcile(layout: &PaneLayout, live_ids: &[String]) -> PaneLayout {
     }
 }
 
-fn map_leaves(node: &PaneNode, mut edit: impl FnMut(&PaneLeaf) -> PaneLeaf) -> PaneNode {
+fn map_leaves<Edit>(node: &PaneNode, edit: &mut Edit) -> PaneNode
+where
+    Edit: FnMut(&PaneLeaf) -> PaneLeaf,
+{
     match node {
         PaneNode::Leaf(leaf) => PaneNode::Leaf(edit(leaf)),
         PaneNode::Split(split) => PaneNode::Split(PaneSplit {
-            a: Box::new(map_leaves(&split.a, &mut edit)),
-            b: Box::new(map_leaves(&split.b, &mut edit)),
+            a: Box::new(map_leaves(&split.a, edit)),
+            b: Box::new(map_leaves(&split.b, edit)),
             ..split.clone()
         }),
     }
@@ -137,7 +140,7 @@ pub fn split_leaf(
         &update_leaf(
             &remove_tab_everywhere(&layout.root, moving_tab),
             target_pane_id,
-            |leaf| {
+            &mut |leaf: &PaneLeaf| {
                 let kept = PaneNode::Leaf(leaf.clone());
                 let moved = PaneNode::Leaf(PaneLeaf {
                     pane_id: new_pane_id.clone(),
@@ -189,7 +192,7 @@ pub fn move_tab(
         &update_leaf(
             &remove_tab_everywhere(&layout.root, tab),
             to_pane_id,
-            move |leaf| {
+            &mut move |leaf: &PaneLeaf| {
                 PaneNode::Leaf(PaneLeaf {
                     pane_id: leaf.pane_id.clone(),
                     tabs: destination.clone(),
@@ -215,7 +218,7 @@ fn move_within(tabs: &[String], tab: &str, index: Option<usize>) -> Vec<String> 
 /// Replace a pane's tab order. The pane's selection and every other pane are
 /// untouched: a reorder moves strips, it does not change what is showing.
 pub fn reorder_tab(layout: &PaneLayout, pane_id: &str, ordered_tabs: Vec<String>) -> PaneLayout {
-    let root = update_leaf(&layout.root, pane_id, move |leaf| {
+    let root = update_leaf(&layout.root, pane_id, &mut move |leaf: &PaneLeaf| {
         PaneNode::Leaf(PaneLeaf {
             tabs: ordered_tabs.clone(),
             ..leaf.clone()
@@ -233,7 +236,7 @@ pub fn select_tab(layout: &PaneLayout, tab: &str) -> PaneLayout {
         return layout.clone();
     };
     let pane_id = leaf.pane_id.clone();
-    let root = update_leaf(&layout.root, &pane_id, move |leaf| {
+    let root = update_leaf(&layout.root, &pane_id, &mut move |leaf: &PaneLeaf| {
         PaneNode::Leaf(PaneLeaf {
             selected_tab: tab.to_owned(),
             ..leaf.clone()

@@ -342,7 +342,10 @@ fn a_released_occupants_row_is_spent_once_its_completion_is_acknowledged() {
     assert_eq!(projection.spent_released_count(&seen), 1);
     let retired = projection.retire_spent_released(&seen);
     assert_eq!(retired.len(), 1);
-    assert_eq!(retired[0].previous.map(|status| status.common.revision), Some(4));
+    assert_eq!(
+        retired[0].previous.as_ref().map(|status| status.common.revision),
+        Some(4)
+    );
     assert!(projection.status(&session_id(SESSION_A)).is_none());
 }
 

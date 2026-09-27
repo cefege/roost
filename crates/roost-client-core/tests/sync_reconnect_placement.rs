@@ -195,7 +195,7 @@ fn a_frame_queued_across_a_reconnect_is_still_placeable() {
     let effects = core.handle(frame.into_event());
     let session = SessionId::try_from(SESSION).expect("a valid session id");
     assert!(
-        core.store().sessions().session(&session).is_some(),
+        core.store().sessions.session(&session).is_some(),
         "a frame accepted on a retired generation is still applied"
     );
     assert_eq!(
@@ -263,8 +263,12 @@ fn a_credential_boundary_drops_the_frames_keyed_to_it() {
     enqueue(&mut dispatch, generation, 2, 11);
 
     // One is applied, so there is a cursor that a persisted global one would skip
-    // the next socket's history past.
-    let applied = take_one(&mut dispatch);
+    // the next socket's history past. `take` DRAINS, so both frames come back —
+    // this call site enqueued two and `take_one` asserts exactly one, so the
+    // assertion was measuring the helper's contract, not the credential rule.
+    let mut held = dispatch.take();
+    assert_eq!(held.len(), 2, "both enqueued frames are still held");
+    let applied = held.remove(0);
     core.handle(applied.into_event());
     assert_eq!(cursor_on_next_dial(&mut core), 10);
 

@@ -8,7 +8,6 @@
 //! claim coverage it does not have, and every later interval query would answer
 //! from that lie.
 
-use wasm_bindgen::JsCast;
 use web_sys::Element;
 
 use crate::cell_renderer::CellGridRenderer;
@@ -26,6 +25,7 @@ impl CellGridRenderer {
     /// demand can be re-derived from live state rather than from a stale one.
     pub(crate) fn insert_history_page(&mut self, rows: &[CellRow], follow_tail: bool) -> bool {
         self.observe_history_insert();
+        self.measure_row_height();
         let Some(frame_total) = self.frame.as_ref().map(|frame| frame.scrollback_total) else {
             return false;
         };

@@ -201,7 +201,7 @@ fn arrange_dispatches_a_rebuild_and_a_rebalance() {
         assert_eq!(ArrangeKind::parse(wire), Some(ArrangeKind::Preset(kind)));
         assert_eq!(
             ArrangeKind::parse(wire).map(|kind| kind.as_wire()),
-            Some(wire.to_owned())
+            Some(wire)
         );
     }
     assert_eq!(ArrangeKind::parse("balance"), Some(ArrangeKind::Balance));

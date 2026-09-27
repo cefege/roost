@@ -133,6 +133,20 @@ impl LostRaceStore {
             armed: Cell::new(true),
         }
     }
+
+    /// The key currently in the slot, read through the real store.
+    ///
+    /// Not on `SecureKeyStore` because that trait is the host's discipline and
+    /// deliberately has no observation method; a fixture that wraps a real store
+    /// still has to be able to say what that store now holds.
+    pub fn current_key(&self) -> Option<DeviceKey> {
+        self.inner.current_key()
+    }
+
+    /// How many keys this store has generated, loser's discarded one included.
+    pub fn generated_count(&self) -> u64 {
+        self.inner.generated_count()
+    }
 }
 
 impl SecureKeyStore for LostRaceStore {

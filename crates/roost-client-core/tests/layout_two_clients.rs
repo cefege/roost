@@ -19,7 +19,7 @@ use roost_client_core::store::layout::{
 use roost_protocol::layout::LayoutDocumentV1;
 use roost_protocol::layout::document::LayoutDirection;
 
-use layout_support::{CountedIds, RecordingHost, ok, session_ids, single_pane_document};
+use layout_support::{CountedIds, RecordingHost, ok, session_ids, single_pane_document, some};
 
 const ALPHA: &str = "alpha";
 const BETA: &str = "beta";
@@ -125,18 +125,18 @@ fn the_re_fetched_and_the_broadcast_arrangement_agree_after_a_reordering() {
         apply_layout_document(
             &mut refetch.records,
             FOLDER,
-            ok(reported.layout_document.as_ref(), "a reported document"),
+            some(reported.layout_document.as_ref(), "a reported document"),
             &three_sessions(),
             &mut refetch.ids,
         ),
         "re-fetch apply",
     );
 
-    let broadcast_layout = ok(
+    let broadcast_layout = some(
         broadcast.records.stored(FOLDER),
         "the broadcast arrangement",
     );
-    let refetched = ok(refetch.records.stored(FOLDER), "the re-fetched arrangement");
+    let refetched = some(refetch.records.stored(FOLDER), "the re-fetched arrangement");
     // One source, one answer: the two paths are the same function, and this is
     // what pins that rather than leaving it to a reader's trust.
     assert_eq!(shape(broadcast_layout), shape(refetched));
@@ -165,7 +165,7 @@ fn a_folder_with_no_stored_layout_applies_its_first_arrangement() {
         })
     );
     assert_eq!(host.records.len(), 1);
-    let stored = ok(host.records.stored(FOLDER), "the first arrangement");
+    let stored = some(host.records.stored(FOLDER), "the first arrangement");
     assert_eq!(
         shape(stored),
         vec![(session_ids(&[ALPHA, BETA]), BETA.to_owned(), true)]

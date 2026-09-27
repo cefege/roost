@@ -15,7 +15,7 @@ use roost_client_core::store::layout::{
 };
 use roost_protocol::layout::document::LayoutDirection;
 
-use layout_support::{CountedIds, ok, session_ids};
+use layout_support::{CountedIds, ok, session_ids, some};
 
 const ALPHA: &str = "alpha";
 const BETA: &str = "beta";
@@ -91,9 +91,9 @@ fn two_panes_split_the_area_and_the_divider_takes_the_gutter() {
     assert_eq!(panes.len(), 2);
     assert_eq!(dividers.len(), 1);
 
-    let first = ok(panes.first(), "a first pane");
-    let second = ok(panes.get(1), "a second pane");
-    let divider = ok(dividers.first(), "a divider");
+    let first = some(panes.first(), "a first pane");
+    let second = some(panes.get(1), "a second pane");
+    let divider = some(dividers.first(), "a divider");
     // The two panes and the gutter between them fill the width exactly, so a
     // resize that re-derives the rects cannot leave a seam or an overhang.
     assert_eq!(first.rect.w + divider.rect.w + second.rect.w, 1000.0);
@@ -147,6 +147,7 @@ fn a_persisted_tree_is_refused_on_either_side_of_its_depth_bound() {
     let before = ok(records.snapshot(), "snapshot");
 
     let past_bound = record_payload(&nested_tree(LAYOUT_TREE_MAX_DEPTH));
+    let refused = records.restore(&past_bound);
     // Pinned to the variant. `LayoutRecordsError` has three arms, and a bare
     // `is_err()` here would be equally happy about a `NotARecord` payload that
     // never reached the bound at all — which is exactly how this test used to
@@ -193,6 +194,7 @@ fn a_persisted_tree_that_contradicts_itself_is_refused() {
         ("a pane selecting a tab it does not hold", unheld_selection),
         ("a focused pane that is not in the tree", absent_focus),
     ] {
+        let payload = record_payload(&layout);
         let restored = records.restore(&payload);
         // Three different rules, one assertion each: `Malformed` is the arm
         // that means the payload WAS a record and its tree failed an invariant.
@@ -226,7 +228,7 @@ fn a_persisted_record_round_trips_through_the_key_value_store() {
     let mut restored = LayoutRecords::new();
     assert_eq!(ok(restored.restore_from(&store), "restore"), 1);
     assert_eq!(ok(restored.snapshot(), "snapshot"), first);
-    let stored = ok(restored.stored(FOLDER), "a stored layout");
+    let stored = some(restored.stored(FOLDER), "a stored layout");
     assert_eq!(tabs_of(&stored.root, "pane-1"), session_ids(&[ALPHA, BETA]));
 }
 

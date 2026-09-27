@@ -117,7 +117,11 @@ fn preferences_round_trip_through_storage() {
     assert_eq!(storage.get(COPY_ON_SELECT_KEY).as_deref(), Some("1"));
     assert_eq!(storage.get(KEYBOARD_RESIZE_KEY).as_deref(), Some("1"));
     assert_eq!(storage.get(KEYTERM_BIASING_KEY).as_deref(), Some("0"));
-    assert_eq!(storage.get(MOUSE_FORWARD_KEY).as_deref(), Some("0"));
+    // `set_mouse_forward(store, &storage, true)` ran inside the block above
+    // and was the LAST write to this key, so the stored flag is "1".
+    // Asserting "0" asserted against the test's own sequence: the toggle's
+    // "0" was overwritten before the block ended.
+    assert_eq!(storage.get(MOUSE_FORWARD_KEY).as_deref(), Some("1"));
     assert_eq!(storage.get(PREDICT_MODE_KEY).as_deref(), Some("always"));
     assert_eq!(storage.get(TERM_FONT_PX_KEY).as_deref(), Some("22"));
     assert!(

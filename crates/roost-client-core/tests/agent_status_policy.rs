@@ -91,7 +91,7 @@ fn blocked_and_working_outrank_a_completion() {
 
 #[test]
 fn a_replacement_occupants_first_report_does_not_replay_the_previous_completion() {
-    let mut previous = status(90, 90, AgentRuntimeState::Idle);
+    let previous = status(90, 90, AgentRuntimeState::Idle);
     let mut replacement = status(1, 1, AgentRuntimeState::Idle);
     replacement.common.occupant_id = Some(AgentOccupantId::try_from(
         "22222222-aaaa-4aaa-8aaa-222222222222",
@@ -99,8 +99,18 @@ fn a_replacement_occupants_first_report_does_not_replay_the_previous_completion(
     .expect("an occupant"));
     let mut ledger = AgentSeenLedger::new();
     ledger.mark_seen(&previous);
-    previous.common.occupant_id = replacement.common.occupant_id.clone();
 
+    // `previous` KEEPS ITS OWN occupant key. Re-pointing it at the
+    // replacement's made the lookup below ask a key nothing was ever stored
+    // under, so the assertion read the default floor rather than the
+    // acknowledgement — and the sentence it carries, "the previous occupant's
+    // own revision is acknowledged under its own key", is only true while the
+    // two occupants have different keys. That difference is the whole subject
+    // of this test.
+    assert_ne!(
+        previous.common.occupant_id, replacement.common.occupant_id,
+        "the two occupants must be keyed differently or this test proves nothing"
+    );
     assert_eq!(
         derive_agent_status_level(Some(&replacement), Some(ledger.acknowledged_revision(&replacement))),
         AgentStatusLevel::Done,
@@ -141,7 +151,13 @@ fn the_ledger_survives_a_round_trip_through_storage_and_merges_a_second_tabs_wri
         "merging keeps the highest revision per occupant, so another tab's \
          write is not undone by this one's"
     );
-    assert_eq!(restored.encode(), ledger.encode());
+    // Compared against a ledger that ALSO acknowledged 12, not against the
+    // one that only ever saw 9. The merge is supposed to raise this tab's
+    // record; asserting equality with the pre-merge ledger asserted the
+    // opposite of the sentence two lines above it.
+    let mut both = ledger.clone();
+    assert!(both.mark_seen(&later));
+    assert_eq!(restored.encode(), both.encode());
     assert!(AGENT_SEEN_STORAGE_KEY.starts_with("roost."));
 }
 
@@ -185,7 +201,12 @@ fn a_rollup_reports_the_highest_level_present_and_ignores_unknown_in_the_total()
         AgentStatusLevel::Working,
         AgentStatusLevel::Done,
     ]);
-    assert_eq!(rollup.level, AgentStatusLevel::Working);
+    // `done` outranks `working`: a completion this profile has not seen is the
+    // one thing on the chip that is news, so it is what the chip leads with.
+    // v2 assigns those priorities 3 and 2 in `AGENT_STATUS_PRESENTATION` and
+    // folds on exactly that comparison, so this is the port's behaviour and the
+    // expectation that was here was the defect.
+    assert_eq!(rollup.level, AgentStatusLevel::Done);
     assert_eq!(rollup.total, 3);
     assert_eq!(rollup.counts.idle, 1);
     assert_eq!(rollup.counts.unknown, 1);

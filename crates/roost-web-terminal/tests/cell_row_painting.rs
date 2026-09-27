@@ -133,7 +133,7 @@ fn a_narrow_run_splits_at_every_match_boundary() {
     );
     let text: String = slices
         .iter()
-        .map(|slice| slice_text(&run, *slice))
+        .map(|slice| slice_text(&run, slice.start, slice.columns))
         .collect();
     assert_eq!(text, "abcdef");
 }
@@ -145,7 +145,7 @@ fn a_match_running_past_the_end_never_produces_an_empty_tail() {
     assert_eq!(described(&slices), vec![(0, 2, false, false), (2, 2, true, false)]);
     let text: String = slices
         .iter()
-        .map(|slice| slice_text(&run, *slice))
+        .map(|slice| slice_text(&run, slice.start, slice.columns))
         .collect();
     assert_eq!(text, "abcd");
 }
@@ -155,7 +155,10 @@ fn an_atomic_span_is_never_cut_by_a_column_boundary() {
     let wide = span("\u{4e2d}", 2);
     let slices = span_slices(&wide, &[FindHit { col: 1, len: 1 }], Some(1));
     assert_eq!(described(&slices), vec![(0, 2, true, true)]);
-    assert_eq!(slice_text(&wide, slices[0]), "\u{4e2d}");
+    assert_eq!(
+        slice_text(&wide, slices[0].start, slices[0].columns),
+        "\u{4e2d}"
+    );
 }
 
 #[test]
@@ -168,13 +171,7 @@ fn an_unmatched_span_paints_as_one_unhighlighted_slice() {
 #[test]
 fn a_span_no_find_state_at_all_paints_as_its_own_text() {
     let run = span("\u{1f419}", 1);
-    let slice = roost_web_terminal::cell_row::SpanSlice {
-        start: 0,
-        columns: 1,
-        highlighted: false,
-        active: false,
-    };
-    assert_eq!(slice_text(&run, slice), "\u{1f419}");
+    assert_eq!(slice_text(&run, 0, 1), "\u{1f419}");
 }
 
 #[test]

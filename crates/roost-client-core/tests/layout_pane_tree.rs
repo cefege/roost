@@ -21,6 +21,7 @@ use layout_support::{CountedIds, session_ids};
 
 const ALPHA: &str = "alpha";
 const BETA: &str = "beta";
+const GAMMA: &str = "gamma";
 
 fn leaf(pane_id: &str, tabs: &[&str], selected: &str) -> PaneNode {
     PaneNode::Leaf(PaneLeaf {
@@ -144,16 +145,22 @@ fn a_split_moves_the_focus_to_the_new_pane_and_leaves_the_source_holding_the_res
     assert_eq!(split.focused_pane_id, "pane-2");
 
     // Splitting a pane by moving its own only tab leaves nothing behind, so the
-    // arrangement is refused rather than doubled.
+    // arrangement is refused rather than doubled. The guard is
+    // `tabs.length <= 1` on the TARGET — v2 `paneLayout.ts:254` — so this has
+    // to run against a pane holding exactly one tab. Against `start`, which
+    // holds ALPHA and BETA, the guard cannot fire and the assertion was
+    // measuring the wrong case.
+    let mut single = CountedIds::new("pane");
+    let lone = default_layout(&session_ids(&[ALPHA]), &mut single);
     let refused = split_leaf(
-        &start,
+        &lone,
         "pane-1",
         LayoutDirection::Col,
         ALPHA,
         true,
-        &mut ids,
+        &mut single,
     );
-    assert_eq!(refused, start);
+    assert_eq!(refused, lone);
 }
 
 #[test]
