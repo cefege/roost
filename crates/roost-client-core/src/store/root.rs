@@ -96,10 +96,18 @@ pub fn set_browser_access_state(store: &mut Store, state: BrowserAccessState) ->
 /// ONE `revision` for the whole clear: it is one user-visible event, and a repaint
 /// per emptied slice is a repaint storm on a large account.
 pub fn clear_auth_scoped_state(store: &mut Store) {
+    // The clears run FIRST and the predicate is read off their return values.
+    // Written as one `||` chain they are short-circuited: the first non-empty
+    // collection answers `true` and every later `clear_all` is never called,
+    // so a card naming a machine outlives the credential that raised it. The
+    // disjunction is unchanged, so this changes WHICH slices get emptied, not
+    // whether the caller sees one `revision`.
+    let toasts_cleared = crate::store::toasts::clear_all(&mut store.toasts);
+    let transfers_cleared = crate::store::transfers::clear_all(&mut store.transfers);
     let had_any = !store.mcp_relays.is_empty()
         || !store.pair_requests.is_empty()
-        || crate::store::toasts::clear_all(&mut store.toasts)
-        || crate::store::transfers::clear_all(&mut store.transfers)
+        || toasts_cleared
+        || transfers_cleared
         || !store.spawns.is_empty()
         || !store.pending_closes.is_empty();
     if !had_any {
@@ -121,10 +129,15 @@ pub fn clear_auth_scoped_state(store: &mut Store) {
 /// been checked, and every credential-bound record goes. Three writes, one event,
 /// one repaint.
 pub fn clear_account_state_for_logout(store: &mut Store) {
+    // Same shape and same hazard as `clear_auth_scoped_state`, and the same
+    // reason the clears come first: `||` short-circuits, and a `pair_request`
+    // made `true` before the toast and transfer clears were ever called.
+    let toasts_cleared = crate::store::toasts::clear_all(&mut store.toasts);
+    let transfers_cleared = crate::store::transfers::clear_all(&mut store.transfers);
     let had_scoped = !store.mcp_relays.is_empty()
         || !store.pair_requests.is_empty()
-        || crate::store::toasts::clear_all(&mut store.toasts)
-        || crate::store::transfers::clear_all(&mut store.transfers)
+        || toasts_cleared
+        || transfers_cleared
         || !store.spawns.is_empty()
         || !store.pending_closes.is_empty();
     store.mcp_relays.clear();
