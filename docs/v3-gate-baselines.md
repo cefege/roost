@@ -479,21 +479,24 @@ apart at exactly the rate the tree moves.
 - **Phase 2** (Rust worker, TS coord): no spec that passed in the baseline
   may fail. `terminal-delivery.spec.ts:15` ("browser smoke flow creates and
   cleans its resources") is the load-bearing one and must pass.
-  **This one needs TWO triggers, not one, and reading either alone produces a
-  run that cannot pass.** It sets `ROOST_SMOKE_WORKER_EXECUTABLE`, so it needs
-  (a) both `Admitted` arms in `http/upgrade.rs` to be real `on_upgrade` calls into
-  real `serve_socket`s, **and** (b) the worker track green — `UNIMPLEMENTED` at
-  zero, all nine `SessionManager` collaborators with production impls, and the
+  **Its ONLY trigger is the worker track being green** — `UNIMPLEMENTED` at
+  zero, all nine `SessionManager` collaborators with production impls, the
   composition root wired. A worker that cannot construct a `SessionManager`
   cannot spawn a PTY, and this gate is exactly "can this worker spawn a PTY".
-  **"Both arms upgraded" is not "Phase 2 is runnable."**
-  The two triggers also fail differently, which is why neither check catches the
-  other: the coordinator's fails **loudly at startup** (a 401 on every link, no
-  socket), and the worker's fails **silently at runtime** (a socket that opens
-  and then cannot serve a session). A green coordinator gate would not have
-  caught a broken worker, and a green worker gate would not have caught a 401.
+  **The Rust coordinator is not in this gate at all**: the coordinator is the
+  TypeScript one, and `ROOST_SMOKE_COORD_EXECUTABLE` is unset. Reading C-B as
+  Phase 2's trigger is wrong, and it was written here first and corrected.
 - **Phase 3** (Rust coord, then both): same rule, with
   `ROOST_SMOKE_COORD_EXECUTABLE` set alone first, then with both.
+  **This is where C-B lands.** Its first run (`COORD` alone) is triggered by both
+  `Admitted` arms in `http/upgrade.rs` being real `on_upgrade` calls into real
+  `serve_socket`s — without them a worker is refused at startup with a `401` and
+  there is no socket at all, which fails loudly. Its second run (both) is
+  triggered by C-B **and** the worker being green, and the two halves fail
+  differently enough that neither check covers the other: the coordinator's
+  fails **loudly at startup**, while a worker that opens a socket and then
+  cannot serve a session fails **silently at runtime**. A green coordinator run
+  would not catch the second, and a green Phase 2 would not catch the first.
 - **Phase 4** is not Playwright — it is
   `crates/roost-client-core/tests/headless_client.rs`, an in-process Rust
   coord + worker that must paint a `MARKER` into a replica viewport.
