@@ -476,6 +476,33 @@ the reversal in the same message as its own fix. **A number stays readable
 because people correct it in public.** A lead that quietly drops a suspicion
 leaves the next reader unable to tell whether it was ever a suspicion.
 
+### CLI cutover, item 1: logrotate landed, and the gate beside it is NOT green
+
+`v3-cli-cutover` @ `fa61f851`, `2L.2`. A rotation plan and its two systemd
+units, one `logrotate.d` entry per role, with the second install a
+byte-comparison no-op. Ten new tests, **10/10 green in both full-suite runs.**
+
+**The track gate beside it is not met, and the number is worse-looking than a
+green one because it is true:**
+
+- run 1: **379 passed / 0 failed**
+- run 2: **378 passed / 1 failed** — `dev_fan_out::a_server_that_cannot_start_names_itself_and_stops_what_already_ran`,
+  "coordinator never reported handling the signal it was sent", binary time
+  0.44 s
+- **The two runs do not agree, so this is not a two-agreeing-runs figure.**
+- Two isolated re-runs of that target, 4/4 each. The change under test touches
+  no `dev/` file, and the flake is load-dependent and pre-existing.
+- `clippy -D warnings` and `xtask fmt` were **not run** on this branch for this
+  change.
+
+**And one finding worth carrying to Stage 4, because it is v2's answer and not a
+gap: v2 installs nothing on macOS.** `apps/coord/scripts/install.sh:601` and
+`apps/worker/scripts/install.sh:518` both branch to
+`if $IS_LINUX; then write_unit; write_logrotate; …; else write_plist; bootstrap; fi`.
+`RotationPlan::Skipped` names `newsyslog` as the thing that rotates there. A
+`roost` that installed a `logrotate.d` fragment on macOS would be *less* faithful
+than one that does not.
+
 ### Keeper client: the plan's premise was stale
 
 The plan recorded three open keeper-client defects on `v3-worker`
