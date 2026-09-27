@@ -18,20 +18,25 @@ use super::super::MAX_DATABASE_BYTES;
 
 /// The schema this build owns.
 ///
-/// A file at any other version is refused, not migrated.
-pub const SCHEMA_VERSION: i64 = 1;
+/// A file at any other version is REFUSED, not migrated, and version 1 — the
+/// rows-and-sequences-only schema — is refused exactly as a foreign one is. The
+/// outbox became reachable from the composition root hours ago and holds no
+/// production data, so there is nothing to migrate FROM; a worker that met one
+/// stops and says so instead of quietly starting a second, empty store beside
+/// the first, which is the one outcome nobody would notice.
+pub const SCHEMA_VERSION: i64 = 2;
 
 /// The version stamp, as a literal so the query is a `&'static str` and needs no
 /// injection assertion for a number that cannot change.
-const USER_VERSION_PRAGMA: &str = "PRAGMA user_version = 1";
+const USER_VERSION_PRAGMA: &str = "PRAGMA user_version = 2";
 
-const _: () = assert!(SCHEMA_VERSION == 1, "USER_VERSION_PRAGMA must name the version above");
+const _: () = assert!(SCHEMA_VERSION == 2, "USER_VERSION_PRAGMA must name the version above");
 
 /// The schema, in the order the statements depend on each other.
 ///
 /// CHECK constraints rather than a STRICT table: the guards are the same and do
 /// not depend on how the bundled SQLite happened to be compiled.
-const SCHEMA: [&str; 3] = [
+const SCHEMA: [&str; 4] = [
     "CREATE TABLE sequence_state (
         singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
         reserved_through INTEGER NOT NULL CHECK(reserved_through >= 0)
@@ -41,6 +46,18 @@ const SCHEMA: [&str; 3] = [
         kind TEXT NOT NULL CHECK(length(kind) > 0),
         event_json TEXT NOT NULL CHECK(length(event_json) > 0),
         payload_bytes INTEGER NOT NULL CHECK(payload_bytes > 0)
+    )",
+    // A claim is capacity a session has taken for an event that does not exist
+    // yet. It is PERSISTED because the case it exists for is a machine that
+    // reboots mid-spawn, and LEASED because persistence makes the other failure
+    // permanent: a claim from a process that died would hold capacity for ever
+    // and the store would eventually refuse every write while reporting "full".
+    "CREATE TABLE session_claims (
+        id INTEGER PRIMARY KEY,
+        kind TEXT NOT NULL CHECK(length(kind) > 0),
+        payload_bytes INTEGER NOT NULL CHECK(payload_bytes > 0),
+        claimed_at_ms INTEGER NOT NULL,
+        snapshot_blocking INTEGER NOT NULL CHECK(snapshot_blocking IN (0, 1))
     )",
     "INSERT INTO sequence_state (singleton, reserved_through) VALUES (1, 0)",
 ];
@@ -141,7 +158,9 @@ async fn ensure_tables(pool: &SqlitePool) -> Result<(), JournalError> {
         .fetch_one(pool)
         .await
         .map_err(query("schema version read"))?;
-    if version != SCHEMA_VERSION || tables != ["sequence_state", "session_events"] {
+    if version != SCHEMA_VERSION
+            || tables != ["sequence_state", "session_claims", "session_events"]
+        {
         return Err(JournalError::Schema {
             reason: format!("user_version {version} with tables {tables:?}"),
         });

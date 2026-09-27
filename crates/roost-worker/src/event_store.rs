@@ -1,10 +1,7 @@
-//! The durable session-event store's admission control: who may claim capacity,
-//! for how long, and when a snapshot is allowed to proceed.
-//!
-//! Owned by the worker. The SQLite schema, its I/O, and sequence allocation
-//! live elsewhere; this file is the part that decides whether an event may be
-//! written at all, and that decision is where the durable guarantee actually
-//! lives.
+//! The durable store's admission control: who may claim capacity, for how long,
+//! and when a snapshot is allowed to proceed. Owned by the worker; the SQLite
+//! half that persists a claim is [`database`], and the cap rule both halves
+//! share is [`admission`].
 //!
 //! THE PROBLEM THIS SOLVES. A session that is open has not yet written its
 //! `closed` event, and it must be able to. If the store fills up in the
@@ -13,14 +10,15 @@
 //! session RESERVES the capacity its close will need, before anyone knows
 //! whether the close will happen.
 //!
-//! That reservation is a claim with a lifetime, not a queue entry, and the
-//! subtlety is that it must stop blocking snapshots without giving up the
-//! claim. `hold` does exactly that: the session is committed, so its close
-//! capacity is no longer speculative, and the same token remains the sole
-//! owner of that close.
+//! `hold` stops that claim from blocking snapshots WITHOUT giving it up: the
+//! session is committed, so its close capacity is no longer speculative, and
+//! the same token remains the sole owner of that close.
 
 use std::collections::HashMap;
 use std::time::Duration;
+
+pub mod admission;
+pub use admission::{admission_fits, claim_is_well_formed};
 
 pub mod database;
 pub use database::{DATABASE_FILE_NAME, Journal, JournalError, JournalStats, PendingRow};
@@ -214,31 +212,15 @@ impl Store {
         kind: DurableEventKind,
         payload_bytes: usize,
     ) -> Result<Reservation, ReserveError> {
-        if payload_bytes == 0 {
-            return Err(ReserveError::PayloadNotPositive {
-                payload: payload_bytes,
-            });
-        }
-        let limit = kind.payload_limit();
-        if payload_bytes > limit {
-            return Err(ReserveError::PayloadTooLarge {
-                kind,
-                payload: payload_bytes,
-                limit,
-            });
-        }
-        // A reserve that would exactly fill the store leaves nothing for the
-        // next event, and the next event is usually a close.
-        if self.stats.rows + self.reserved_rows >= MAX_ROWS
-            || self.stats.payload_bytes + self.reserved_bytes + payload_bytes > MAX_PAYLOAD_BYTES
-        {
-            return Err(ReserveError::Full {
-                rows: self.stats.rows + self.reserved_rows,
-                bytes: self.stats.payload_bytes + self.reserved_bytes,
-                max_rows: MAX_ROWS,
-                max_bytes: MAX_PAYLOAD_BYTES,
-            });
-        }
+        // The rule is a PURE FUNCTION, not this method's arithmetic, because
+        // the durable half asks the same question against a table and the two
+        // must not be able to disagree. See [`admission`].
+        claim_is_well_formed(kind, payload_bytes)?;
+        admission_fits(
+            self.stats.rows + self.reserved_rows,
+            self.stats.payload_bytes + self.reserved_bytes,
+            payload_bytes,
+        )?;
 
         let reservation = Reservation {
             id: self.next_reservation_id,

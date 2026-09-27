@@ -1,21 +1,21 @@
-//! The durable outbox's SQLite half: the file, the append and the exact-sequence
+//! The durable outbox's SQLite half: the file, the append, and the exact-sequence
 //! acknowledgement that is the only thing permitted to remove a row. Owned by
-//! [`super::event_store`]; `sqlx` appears here and in its two children and
+//! [`super::event_store`]; `sqlx` appears here and in its three children and
 //! nowhere else in the worker.
 //!
-//! The admission half — who may claim capacity, and when a snapshot may proceed
-//! — is [`super::Store`], and it holds no persistence. This half holds no
-//! capacity rule, because a store that both admits and persists is a store whose
-//! two ideas of "full" can disagree.
+//! The admission half is [`super::Store`]. This half holds no capacity
+//! ARITHMETIC of its own: the rule is [`super::admission`], which both halves
+//! call, because a store that admits and persists with two ideas of "full" is a
+//! store whose two answers can disagree. What lives here is PERSISTENCE, and
+//! [`claims`] is the part of it that holds capacity, so a claim outlives the
+//! process that took it.
 //!
 //! TWO INVARIANTS, and everything else here serves one of them.
 //!
-//! **A row leaves only on the EXACT coordinator acknowledgement.**
-//! [`Journal::acknowledge`] takes one positive sequence and removes that row and
-//! no other. A row the coordinator has not confirmed is the whole reason this
-//! file exists: a worker restarted mid-event must offer it again, and a store
-//! that tidied it away on a timeout would turn at-least-once into at-most-once
-//! with nothing to show for it.
+//! **A row leaves only on the EXACT coordinator acknowledgement.** A row the
+//! coordinator has not confirmed is the whole reason this file exists: a worker
+//! restarted mid-event must offer it again, and a store that tidied it away on a
+//! timeout would turn at-least-once into at-most-once with nothing to show for it.
 //!
 //! **Replay is one row at a time, oldest first.** [`Journal::replay_head`]
 //! returns ONE row, never a batch. The coordinator's `client_seq` ledger is a
@@ -23,6 +23,7 @@
 //! ambiguous — and an ambiguous acknowledgement is the one state a durable path
 //! cannot recover from on its own.
 
+pub mod claims;
 pub mod rows;
 pub mod schema;
 
@@ -152,6 +153,17 @@ impl Journal {
                 reason: error.to_string(),
             })?;
         schema::establish(&pool).await?;
+        // Every open reclaims the claims past the lease and leaves the ones
+        // inside it. A sweep, not a per-reserve check, so a long-lived worker
+        // cannot quietly eat its own live claims one lease at a time.
+        let reclaimed = claims::reclaim_expired(&pool, claims::now_ms()).await?;
+        if reclaimed > 0 {
+            tracing::warn!(
+                reclaimed,
+                "the durable outbox reclaimed capacity claims abandoned by a process that did not \
+                 release them"
+            );
+        }
         let handed_over_at = schema::persisted_high_water(&pool).await?;
         Ok(Journal {
             pool,
@@ -168,8 +180,38 @@ impl Journal {
         self.handed_over_at
     }
 
+    /// Write one event the caller has ALREADY claimed capacity for, retiring
+    /// the claim in the SAME transaction.
+    ///
+    /// This is the primitive the session layer publishes through. Two
+    /// transactions — a write then a retire — would leave a row on disk with a
+    /// live claim behind it, and that double-counts capacity for an event that
+    /// is already durable. It is not the crash path that manufactures the leak;
+    /// it is the ORDINARY one, which is why it has to be one transaction.
+    pub async fn emit(
+        &self,
+        claim: super::Reservation,
+        event: &SessionEvent,
+    ) -> Result<PendingRow, JournalError> {
+        self.append_within(event, Some(claim)).await
+    }
+
     /// Write one event, and return the row that will be replayed for it.
+    ///
+    /// NO CLAIM. For the paths that genuinely hold none — the snapshot is one,
+    /// and the barrier owns it — and stated here so the next reader knows which
+    /// primitive they are looking at: a caller holding a claim wants
+    /// [`Journal::emit`].
     pub async fn append(&self, event: &SessionEvent) -> Result<PendingRow, JournalError> {
+        self.append_within(event, None).await
+    }
+
+    /// The shared body of [`Journal::emit`] and [`Journal::append`].
+    async fn append_within(
+        &self,
+        event: &SessionEvent,
+        claim: Option<super::Reservation>,
+    ) -> Result<PendingRow, JournalError> {
         let value = serde_json::to_value(event).map_err(|error| JournalError::Query {
             label: "serialization",
             reason: error.to_string(),
@@ -183,6 +225,9 @@ impl Journal {
         let client_seq = self.claim_sequence().await?;
 
         let mut transaction = self.pool.begin().await.map_err(query("begin"))?;
+        if let Some(claim) = claim {
+            Self::retire_claim(&mut transaction, claim).await?;
+        }
         let (held_rows, held_bytes) = held_totals(&mut transaction).await?;
         // Inclusive caps: a store holding exactly the cap admits nothing more,
         // and the next event is usually a close.
