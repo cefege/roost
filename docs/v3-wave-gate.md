@@ -3176,6 +3176,66 @@ Three instances in this programme, one defect at three sizes: a
 `collapsible_if` in one line of a file reported verified, a `ShellSpecResolver`
 trait with no implementation, and a whole module.
 
+### The disk guard I wrote was destructive, and it was safe only when there was nothing to lose
+
+It went out in the plan, in four task briefs and two broadcasts:
+
+> delete `*/debug/incremental` and `*/debug/build/*/out` in every `target-*` dir
+
+Two tracks ran it and both lost a build. `WebLeadU2` deleted `out/` out from
+under three proc-macro crates that had not been rebuilt — `serde_core`,
+`thiserror`, `rustversion` — all failing with `couldn't read .../out/private.rs`.
+`CoordLeadC` hit the identical signature on `serde_core` then `serde`.
+
+**The mechanism is what makes this a rule rather than a tip.** Cargo keeps a
+fingerprint saying a build script succeeded. Deleting its **output** without
+deleting its **fingerprint** leaves a record of a success that no longer has a
+result, and the next build trusts the record. You do not get a rebuild; you get
+a confident failure pointing at a file that is legitimately gone.
+
+**The generalisation, from the agent that watched it happen twice: the failure
+needs a target directory that is PARTLY built, and it does not care how it got
+there.** `CoordLeadC`'s directory had just been cleaned and the same command
+still ran. So the guard's failure mode is not "someone was unlucky" — it is
+**"it worked, once, visibly, and taught everyone the shape."** On a fully-built
+directory the deletion is harmless and looks like it worked, and the successful
+run is the evidence that teaches the wrong rule. That is this file's
+check-that-quietly-stopped-looking lesson one layer down, and it is why a reclaim
+step must be validated **in the state where it is unsafe**, not the state where
+it is safe — the same discipline that found the dead `lint_table` predicate by
+disabling its exemption and expecting a failure.
+
+**The corrected form. One of these two, never a third:**
+
+1. Delete `debug/build/<pkg>-<hash>/` **together with** the matching
+   `debug/.fingerprint/<pkg>-<hash>-*` entries, so cargo rebuilds that build
+   script honestly.
+2. Delete the whole `target-*` directory and let it rebuild. Slower, always
+   correct.
+
+**And name the parent explicitly as the thing not to touch.** `*/debug/build/*/out`
+reads like it scopes to the `out` directories, and it will not stop anyone
+reaching for `debug/build` itself — which removes the parent of every `out/`,
+taking build-script output AND a partially-built crate's intermediates in one
+stroke, with the same failure mode and a larger blast radius.
+
+What survives and did its job: check the floor **before** a build rather than
+discovering it from `ENOSPC`; `CARGO_INCREMENTAL=0` stays set, so there is
+nothing in `incremental` to reclaim anyway; **`debug/deps` is the actual
+pressure** and is reclaimable only per-track with `cargo clean`, which is a lead's
+call on their own directory; and pause Track L then Track U, because a track that
+has never compiled restarts from one pass while a track mid-build loses its build
+directory with the run. Free disk bottomed at **9.2 GiB against a 10 GiB floor**
+with four tracks resident, and that ordering was written for exactly this moment.
+
+**One more distinction, per-directory state and not derivable from the guard:** a
+track that has never compiled is CHEAP to clean and a track mid-build is
+EXPENSIVE, and which one you are is a property of the directory, not of the rule.
+`CliLeadL2`'s 7.6 GiB was a failed build's worth of cache worth nothing; the
+coord track's 15 GiB is 97 separately-linked test binaries that do not share, so
+it regrows to roughly its current size after any clean and the lever that moves
+it is fewer or smaller test binaries — a C3/C4 decision, not a disk decision.
+
 ### A pattern that cannot match a legal form returns a confident negative
 
 Two of these, from the same hour, and the second is worse:
