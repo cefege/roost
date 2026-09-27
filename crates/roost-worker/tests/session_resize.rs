@@ -6,7 +6,6 @@
 
 mod session_support;
 
-use roost_term::TerminalCore;
 use roost_worker::session::resize::{PinInputs, ResizeOutcome, pin_for};
 
 use session_support::{Harness, SESSION, channel, session_id};

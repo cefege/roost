@@ -21,13 +21,14 @@ mod support;
 
 use std::sync::{Arc, Mutex};
 
+use roost_protocol::wire::brand::WorkerFp;
 use roost_protocol::wire::event::SessionEvent;
 use roost_worker::event_store::{DurableEventKind, Reservation, Store};
 use roost_worker::session::sinks::{ChannelBinding, SessionEventError, SessionEventSink};
 use roost_worker::session::spawn::{ShellSpawner, ShellSpecResolver, SpawnContext, SpawnRequest};
-
 use roost_worker::shell_spec::ShellSpec;
-use support::{channel, shell_spec, worker_fp};
+
+use support::{channel, shell_spec};
 
 /// What the durable boundary did, as a ledger of claim ids and events.
 #[derive(Debug, Default)]
@@ -142,6 +143,15 @@ impl FakeKeeper {
             killed: Mutex::new(Vec::new()),
         })
     }
+
+    /// The `(channel_id, cols, rows)` triples this keeper was actually asked
+    /// to open, in the order it was asked. A snapshot rather than a borrow, so
+    /// an assertion does not hold the lock across its own comparison. Reading
+    /// this is the only way a test can tell "refused, so nothing was opened"
+    /// from "opened something the assertions never looked at".
+    pub fn opened_channels(&self) -> Vec<(i64, u16, u16)> {
+        self.opened.lock().unwrap().clone()
+    }
 }
 
 impl ShellSpawner for FakeKeeper {
@@ -172,6 +182,20 @@ pub struct FixedResolver {
     cwd: String,
 }
 
+impl FixedResolver {
+    /// A resolver that answers with `cwd` whatever it is asked.
+    ///
+    /// A constructor rather than a `pub` field, because a struct literal from
+    /// another module cannot name a private field at all, and widening the
+    /// field to make the literal compile would make the fixture's shape part
+    /// of its public surface.
+    pub fn at(cwd: &str) -> Self {
+        Self {
+            cwd: cwd.to_owned(),
+        }
+    }
+}
+
 impl ShellSpecResolver for FixedResolver {
     fn resolve_shell_spec(&self, _cwd: &str, _session_id: &str) -> Result<ShellSpec, String> {
         Ok(shell_spec(&self.cwd))
@@ -198,15 +222,22 @@ pub fn request(channel_id: i64) -> SpawnRequest {
     }
 }
 
+/// The collaborators one spawn is driven through.
+///
+/// The fingerprint is a parameter rather than a call to `worker_fp()` inside
+/// here, because `SpawnContext` BORROWS it: `&worker_fp()` would hand back a
+/// reference to a temporary that dies when this function returns, and the
+/// borrow would outlive the value it names.
 pub fn context<'a>(
     keeper: &'a Arc<FakeKeeper>,
     events: &'a Arc<LedgerSink>,
     resolver: &'a FixedResolver,
+    worker_fp: &'a WorkerFp,
 ) -> SpawnContext<'a> {
     SpawnContext {
         spawner: keeper.as_ref(),
         resolver,
         events: events.as_ref(),
-        worker_fp: &worker_fp(),
+        worker_fp,
     }
 }

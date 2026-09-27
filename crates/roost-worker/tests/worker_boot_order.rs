@@ -41,7 +41,11 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let scratch = Scratch::new("boot-order");
-        let env = MapEnv::new().with("HOME", scratch.path("home").display().to_string());
+        // `MapEnv::with` takes `&str`, and the value is built here rather than
+        // borrowed from a temporary: `&scratch.path(..).display().to_string()`
+        // would borrow a `String` that dies at the end of the statement.
+        let home = scratch.path("home").display().to_string();
+        let env = MapEnv::new().with("HOME", &home);
         Self {
             _scratch: scratch,
             env,

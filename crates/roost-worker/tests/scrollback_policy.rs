@@ -111,24 +111,35 @@ fn an_alt_screen_toggle_split_across_chunks_is_recognised_once() {
 fn a_cwd_change_is_reported_once_and_only_when_it_changed() {
     let mut session = record(1024);
     let mut seen: Vec<String> = Vec::new();
-    let mut record_change = |cwd: &str| seen.push(cwd.to_string());
-
-    append_pty_chunk(
-        &mut session,
-        b"\x1b]7;file:///a\x07\x1b]7;file:///b\x07",
-        &mut record_change,
-    );
+    {
+        // Scoped, because a closure that captures `seen` mutably holds that
+        // borrow for its whole lifetime — and this test has to read `seen`
+        // BETWEEN appends. The block ends the borrow at the right place
+        // instead of leaving the assertion to fight the closure.
+        let mut record_change = |cwd: &str| seen.push(cwd.to_string());
+        append_pty_chunk(
+            &mut session,
+            b"\x1b]7;file:///a\x07\x1b]7;file:///b\x07",
+            &mut record_change,
+        );
+    }
     assert_eq!(seen, vec!["/b".to_string()], "the final destination");
     assert_eq!(session.identity.cwd, "/b");
 
     seen.clear();
-    append_pty_chunk(&mut session, b"just some output", &mut record_change);
+    {
+        let mut record_change = |cwd: &str| seen.push(cwd.to_string());
+        append_pty_chunk(&mut session, b"just some output", &mut record_change);
+    }
     assert!(
         seen.is_empty(),
         "a chunk with no report does not re-announce the folder"
     );
 
-    append_pty_chunk(&mut session, b"\x1b]7;file:///b\x07", &mut record_change);
+    {
+        let mut record_change = |cwd: &str| seen.push(cwd.to_string());
+        append_pty_chunk(&mut session, b"\x1b]7;file:///b\x07", &mut record_change);
+    }
     assert!(
         seen.is_empty(),
         "and a report of the folder the session is already in is not a change"
@@ -227,7 +238,12 @@ fn a_replay_feeds_the_whole_window_and_says_whether_it_was_saturated() {
          old core held may not exist in this one"
     );
     let mut rebuilt = AlacrittyCore::new(20, 4);
-    let _ = replay_retained_into(&mut rebuilt, &session);
+    // Not bound, and not `let _ =`: `Replay` is not `#[must_use]`, so a
+    // binding would exist only to stop the compiler asking about a value this
+    // test does not assert on. The summary IS pinned, by the `replay`
+    // assertions above; what this second call is here for is the geometry of
+    // the core after it.
+    replay_retained_into(&mut rebuilt, &session);
     assert_eq!(
         core.cols(),
         rebuilt.cols(),

@@ -94,7 +94,11 @@ fn concurrent_spawns_are_answered_one_for_one() {
                     ),
                     "every concurrent spawn is answered",
                 );
-                (spawned, marker, record.printed(&marker))
+                // The text is read BEFORE `marker` moves into the tuple: tuple
+                // elements evaluate in order, so `(spawned, marker, …&marker)`
+                // borrows a value the previous element already consumed.
+                let text = record.printed(&marker);
+                (spawned, marker, text)
             })
         })
         .collect();

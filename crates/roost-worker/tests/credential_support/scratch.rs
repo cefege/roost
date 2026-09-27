@@ -5,6 +5,20 @@
 //! so they cannot be faked into a `MapEnv` value. This is the whole fixture
 //! they share.
 
+// NINE test binaries include this module by `#[path]`, and each one calls a
+// different subset of it: `path` is called by seven, `root` by three
+// (`host_folder_facts`, `shell_spec_resolution`, `worker_retire_authorization`),
+// and the other four call neither. So a dead-code warning here is a statement
+// about ONE binary, not about the fixture, and deleting or narrowing a method
+// to quiet one would break a caller in a different binary. That is the
+// asymmetry worth carrying: for a symbol in a private support module, "make it
+// private and see if it still builds" proves nothing, because a `pub` in a
+// private module is already unreachable outside the crate. The check that does
+// carry information is the opposite trade — and it was run: this allow was
+// absent, all nine binaries were compiled, and the per-binary lint lists
+// (`root` in five of them, `path` in two) were read against that map.
+#![allow(dead_code)]
+
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 

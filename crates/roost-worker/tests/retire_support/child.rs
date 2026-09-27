@@ -72,7 +72,10 @@ pub fn serve_in_child(root: &Path, host: HostPlatform, definition: &Definition) 
         .arg("--nocapture")
         .env(CHILD_ENV, "1")
         .env(ROOT_ENV, root)
-        .env(definition.env_key(host), definition.path());
+        // `env_key` takes no `self`: the variable NAME does not depend on which
+        // definition was written, only on the platform. Called as an associated
+        // function for that reason, not as a method on the definition.
+        .env(Definition::env_key(host), definition.path());
     let output = command.output().expect("the activation child started");
     parse(&output)
 }

@@ -59,15 +59,20 @@ fn a_host_identity_is_collected_from_this_hosts_sources_or_is_none() {
 #[test]
 fn an_os_release_value_is_unquoted_and_unescaped() {
     let source = "NAME=\"Fedora Linux\"\nPRETTY_NAME=\"Fedora Linux 42 (Workstation Edition)\"\nQUOTED=\"a\\\\b\\\"c\\$d\"\n";
-    let value = |key: &str| os_release_value(source, key).as_deref();
+    // The `Cow` is returned whole and dereffed at each comparison. Two other
+    // shapes both fail here: `as_deref()` inside the closure borrows the
+    // temporary `Option` the closure is building (E0515), and comparing the
+    // `Cow` against `Some(&str)` needs `Cow: PartialEq<&str>` for the
+    // `Option` wrapper, which is not what inference reaches for first.
+    let value = |key: &str| os_release_value(source, key);
     assert_eq!(
-        value("PRETTY_NAME"),
+        value("PRETTY_NAME").as_deref(),
         Some("Fedora Linux 42 (Workstation Edition)")
     );
-    assert_eq!(value("QUOTED"), Some("a\\b\"c$d"));
-    assert_eq!(value("MISSING"), None);
+    assert_eq!(value("QUOTED").as_deref(), Some("a\\b\"c$d"));
+    assert_eq!(value("MISSING").as_deref(), None);
     // A key that is a PREFIX of another key must not match it.
-    assert_eq!(value("NAME"), Some("Fedora Linux"));
+    assert_eq!(value("NAME").as_deref(), Some("Fedora Linux"));
 }
 
 /// Sources that answer from a fixture rather than from this machine, which is

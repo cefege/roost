@@ -20,7 +20,7 @@ use roost_worker::session::types::SessionRecord;
 use spawn_support::{
     BindingThatRecordsDelivery, FakeKeeper, FixedResolver, LedgerSink, context, request,
 };
-use support::shell_spec;
+use support::{shell_spec, worker_fp};
 
 /// A spawn that cannot open its PTY must give BOTH claims back. A leaked claim
 /// is capacity the store will never hand out again, and a store that has lost
@@ -31,12 +31,11 @@ fn a_spawn_the_keeper_refuses_releases_both_claims_and_opens_nothing() {
     let opened = events.reserve(DurableEventKind::Opened);
     let close = events.reserve(DurableEventKind::Closed);
     let keeper = FakeKeeper::refusing();
-    let resolver = FixedResolver {
-        cwd: "/tmp".to_owned(),
-    };
+    let resolver = FixedResolver::at("/tmp");
+    let fp = worker_fp();
 
     let refused = spawn_shell(
-        &context(&keeper, &events, &resolver),
+        &context(&keeper, &events, &resolver, &fp),
         opened,
         close,
         Arc::new(BindingThatRecordsDelivery),
@@ -56,7 +55,10 @@ fn a_spawn_the_keeper_refuses_releases_both_claims_and_opens_nothing() {
         events.emitted().is_empty(),
         "a refused spawn announced a session"
     );
-    assert!(keeper.opened.lock().unwrap().is_empty());
+    assert!(
+        keeper.opened_channels().is_empty(),
+        "a refusing keeper opened a PTY anyway"
+    );
     assert_eq!(
         events.live_claims(),
         0,
@@ -73,12 +75,11 @@ fn a_spawn_consumes_the_opened_claim_and_leaves_the_close_claim_committed() {
     let opened = events.reserve(DurableEventKind::Opened);
     let close = events.reserve(DurableEventKind::Closed);
     let keeper = FakeKeeper::working();
-    let resolver = FixedResolver {
-        cwd: "/tmp".to_owned(),
-    };
+    let resolver = FixedResolver::at("/tmp");
+    let fp = worker_fp();
 
     let record: SessionRecord = spawn_shell(
-        &context(&keeper, &events, &resolver),
+        &context(&keeper, &events, &resolver, &fp),
         opened,
         close,
         Arc::new(BindingThatRecordsDelivery),
@@ -119,7 +120,7 @@ fn a_spawn_consumes_the_opened_claim_and_leaves_the_close_claim_committed() {
         "a spawned channel is not attached, so nothing may ever close it"
     );
     assert_eq!(record.child_pid, Some(4242));
-    assert_eq!(keeper.opened.lock().unwrap().as_slice(), &[(22, 80, 24)]);
+    assert_eq!(keeper.opened_channels(), vec![(22, 80, 24)]);
     assert_eq!(record.identity.socket_path, "mux:22");
 }
 
@@ -131,16 +132,15 @@ fn a_respawn_announces_a_respawn_and_not_an_opened() {
     let opened = events.reserve(DurableEventKind::State);
     let close = events.reserve(DurableEventKind::Closed);
     let keeper = FakeKeeper::working();
-    let resolver = FixedResolver {
-        cwd: "/tmp".to_owned(),
-    };
+    let resolver = FixedResolver::at("/tmp");
+    let fp = worker_fp();
     let mut wanted = request(23);
     wanted.event = DurableEventKind::State;
     wanted.session_id = Some(support::session_id());
     wanted.shell_spec = Some(shell_spec("/somewhere/that/is/gone"));
 
     let record = spawn_shell(
-        &context(&keeper, &events, &resolver),
+        &context(&keeper, &events, &resolver, &fp),
         opened,
         close,
         Arc::new(BindingThatRecordsDelivery),
@@ -177,14 +177,13 @@ fn geometry_is_refused_before_a_pty_or_a_claim_is_touched() {
     let opened = events.reserve(DurableEventKind::Opened);
     let close = events.reserve(DurableEventKind::Closed);
     let keeper = FakeKeeper::working();
-    let resolver = FixedResolver {
-        cwd: "/tmp".to_owned(),
-    };
+    let resolver = FixedResolver::at("/tmp");
+    let fp = worker_fp();
     let mut too_wide = request(24);
     too_wide.cols = 900;
 
     let refused = spawn_shell(
-        &context(&keeper, &events, &resolver),
+        &context(&keeper, &events, &resolver, &fp),
         opened,
         close,
         Arc::new(BindingThatRecordsDelivery),
@@ -200,7 +199,10 @@ fn geometry_is_refused_before_a_pty_or_a_claim_is_touched() {
         "a refused geometry released a claim"
     );
     assert!(events.emitted().is_empty());
-    assert!(keeper.opened.lock().unwrap().is_empty());
+    assert!(
+        keeper.opened_channels().is_empty(),
+        "a refused geometry still reached the keeper"
+    );
 }
 
 /// An event kind that is neither a spawn nor a respawn has no business
@@ -211,14 +213,13 @@ fn a_close_may_not_announce_a_spawn() {
     let opened = events.reserve(DurableEventKind::Closed);
     let close = events.reserve(DurableEventKind::Closed);
     let keeper = FakeKeeper::working();
-    let resolver = FixedResolver {
-        cwd: "/tmp".to_owned(),
-    };
+    let resolver = FixedResolver::at("/tmp");
+    let fp = worker_fp();
     let mut wrong = request(25);
     wrong.event = DurableEventKind::Exited;
 
     let refused = spawn_shell(
-        &context(&keeper, &events, &resolver),
+        &context(&keeper, &events, &resolver, &fp),
         opened,
         close,
         Arc::new(BindingThatRecordsDelivery),
@@ -229,5 +230,8 @@ fn a_close_may_not_announce_a_spawn() {
         matches!(refused, Err(SpawnRefusal::UnnameableEvent { .. })),
         "an unnameable event was not refused, got {refused:?}"
     );
-    assert!(keeper.opened.lock().unwrap().is_empty());
+    assert!(
+        keeper.opened_channels().is_empty(),
+        "an unnameable event still opened a PTY"
+    );
 }
