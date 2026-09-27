@@ -219,6 +219,7 @@ impl RetainedGrid for FakeGrid {
             resize_replay_floor: self.resize_replay_floor,
             total: self.total,
             cols: 80,
+            viewport_rows: 24,
         };
         Box::pin(async move { Ok(description) })
     }

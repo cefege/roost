@@ -16,7 +16,7 @@ use roost_worker::session::emit::{
     CellEmitter, FrameOutcome, LIVE_DELTA_SCROLLBACK_ROWS_CAP, Withheld,
 };
 
-use support::{Answer, RecordFixture, RecordingSink, channel, numbered_lines};
+use support::{Answer, RecordFixture, RecordingSink, channel, numbered_lines, stream_id};
 
 #[test]
 fn the_first_frame_is_full_and_the_next_is_a_delta() {
@@ -25,7 +25,7 @@ fn the_first_frame_is_full_and_the_next_is_a_delta() {
     let sink = RecordingSink::new("coord", Answer::Sent);
     let mut emitter = CellEmitter::new();
     emitter.register_sink(sink.clone());
-    emitter.install_stream(&mut record, "stream-1");
+    emitter.install_stream(&mut record, stream_id(1));
 
     let first = emitter.emit_cell_frame(&mut record, true, 1_000);
     assert!(
@@ -103,7 +103,7 @@ fn a_delta_past_the_row_cap_becomes_a_viewport_only_full() {
     let sink = RecordingSink::new("coord", Answer::Sent);
     let mut emitter = CellEmitter::new();
     emitter.register_sink(sink.clone());
-    emitter.install_stream(&mut record, "stream-3");
+    emitter.install_stream(&mut record, stream_id(3));
     let baseline = emitter.emit_cell_frame(&mut record, true, 1_000);
     let baseline_seq = match baseline {
         FrameOutcome::Full { seq, .. } => seq,

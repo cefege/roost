@@ -22,6 +22,9 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+pub mod database;
+pub use database::{DATABASE_FILE_NAME, Journal, JournalError, JournalStats, PendingRow};
+
 /// How many rows the store will hold.
 pub const MAX_ROWS: usize = 8_192;
 
