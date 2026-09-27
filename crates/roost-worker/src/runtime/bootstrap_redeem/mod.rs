@@ -345,12 +345,26 @@ mod tests {
             // A binary replaced in place must describe itself as what it is,
             // so a stale `GIT_SHA` in the service that launched it cannot
             // rename the release.
-            Some(stamped) => assert_eq!(build_sha(&sourced), Some(stamped.to_string())),
+            Some(stamped) => {
+                assert_eq!(build_sha(&sourced), Some(stamped.to_string()));
+                // And a COMPILED build has an answer with no environment at
+                // all, which is the half this assertion used to get wrong. It
+                // was unconditional, so it asserted a source-checkout property
+                // on a build that had a stamp of its own — and the stamp is
+                // derived from git at compile time, so whether it is `Some` is
+                // a property of the TREE, not of the test. The failure read
+                // `left: Some("d7675361...") right: None`, which looks like a
+                // build-identity defect and is not one.
+                assert_eq!(build_sha(&MapEnv::new()), Some(stamped.to_string()));
+            }
             // A checkout with no stamp of its own has nothing else to send.
-            None => assert_eq!(build_sha(&sourced), Some("0123456789ab".to_string())),
+            None => {
+                assert_eq!(build_sha(&sourced), Some("0123456789ab".to_string()));
+                assert_eq!(build_sha(&MapEnv::new()), None);
+            }
         }
-        assert_eq!(build_sha(&MapEnv::new()), None);
     }
+
 
     #[test]
     fn only_a_coordinator_that_did_not_answer_counts_as_silent() {
