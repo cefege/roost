@@ -600,6 +600,37 @@ ever mentioned it.
 **If S3.0 reports this failure, the run is correct and the gate is not met until
 `connection.rs` lands. Do not bisect it, do not soften it, do not skip it.**
 
+### The gate ratchets, measured so the exit conditions are concrete
+
+Every track gate has a numeric exit condition. **Measured on `v3` at `93a5f69e`
+and on both Stage 3 tracks, so the delta is known before any merge rather than
+inferred after one:**
+
+|ratchet|`v3`|`v3-coord`|`v3-worker`|gate requires|
+|---|---:|---:|---:|---:|
+|`PortStatus::AwaitingDomainPort` rows|27|**27**|27|**0** (2C-GATE)|
+|`PortStatus::UnwiredInV2` rows|16|16|16|16, keep them|
+|`#[ignore = "UNFINISHED"]`|3|3|3|**0** (2C-GATE)|
+|`UNIMPLEMENTED` in `roost-worker/src`|**6**|6|**2**|**0** (2W-GATE)|
+|`todo!` / `unimplemented!()` in `roost-coord/src`|0|—|—|0|
+
+**`v3-coord` has flipped ZERO rows, and that is correct** — 1b is an impl, not a
+row, and a row flips only in the same commit whose `service_impl.rs` arm calls
+the real handler. The ratchet is doing its job by not moving.
+
+**`v3-worker` is at 2 `UNIMPLEMENTED`, down from `v3`'s 6** — `credential.rs`,
+`link_wire.rs`, `snapshot_source.rs` and the reconcile block at `runtime/mod.rs:170`
+are closed; the two that remain are `runtime/mod.rs:282` (the local door) and
+`runtime/link_serve.rs:113` (the hello `capabilities` list).
+
+**AND THAT EXPOSED A CONTRADICTION IN THE PLAN, recorded here so the gate is not
+failed for someone else's sequencing error.** 2W-DOOR, the local door, was
+scheduled AFTER 2W-GATE — while 2W-GATE requires `UNIMPLEMENTED` = 0 and the door
+is one of the two markers that must reach 0. **As written the gate could never
+pass, because the work that would make it pass sat behind it.** The door is
+therefore part of the composition root and comes BEFORE the gate. A ratchet
+cannot distinguish "not done" from "mis-sequenced", and neither could the plan.
+
 ### `cargo xtask lint` on `v3` is RED right now, and here is what it is
 
 **Measured at `e694506a`, not assumed.** `cargo xtask lint` on this tree prints
