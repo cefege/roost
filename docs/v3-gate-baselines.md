@@ -509,6 +509,15 @@ apart at exactly the rate the tree moves.
   of the error is the lesson: **a trigger is a claim about what a gate
   exercises, so it has to be read off the specs the gate runs** and not off
   which wave happens to be finishing.
+- **Phase 4** is not Playwright — it is
+  `crates/roost-client-core/tests/headless_client.rs`, an in-process Rust
+  coord + worker that must paint a `MARKER` into a replica viewport.
+- **Phase 5** (all-Rust): the full 157 on Chromium and Firefox, plus a
+  production build with the `smoke` feature off containing zero occurrences
+  of `__smoke` in the bundle.
+
+A gate that cannot run the suite at all has proved nothing. Say so rather
+than reporting a partial pass as a green one.
 
 ### A green check on a file nothing includes is not a check
 
@@ -535,15 +544,6 @@ matches nothing is zero violations. A `SpawnNotAcknowledged` under load reads as
 a refused spawn. **Ask what the check could have detected before consuming what
 it returned** — that question has caught more real defects today than any
 individual test.
-- **Phase 4** is not Playwright — it is
-  `crates/roost-client-core/tests/headless_client.rs`, an in-process Rust
-  coord + worker that must paint a `MARKER` into a replica viewport.
-- **Phase 5** (all-Rust): the full 157 on Chromium and Firefox, plus a
-  production build with the `smoke` feature off containing zero occurrences
-  of `__smoke` in the bundle.
-
-A gate that cannot run the suite at all has proved nothing. Say so rather
-than reporting a partial pass as a green one.
 
 ### Two more, both of which cost a whole agent-hour to learn
 
