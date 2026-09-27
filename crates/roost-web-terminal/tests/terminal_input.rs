@@ -149,7 +149,7 @@ fn encodes_navigation_function_and_special_key_modifiers() {
 fn preserves_text_ctrl_alt_and_meta_ownership() {
     assert_eq!(
         printable('é').to_bytes(false).as_deref(),
-        Some(&"é".as_bytes()[..])
+        Some("é".as_bytes())
     );
     assert_eq!(
         KeyChord::named(
@@ -244,7 +244,7 @@ fn treats_explicit_and_ctrl_alt_reported_altgraph_as_printable_text() {
     assert!(represented.is_alt_graph());
     assert_eq!(
         explicit.to_bytes(false).as_deref(),
-        Some(&"€".as_bytes()[..])
+        Some("€".as_bytes())
     );
     assert_eq!(
         represented.to_bytes(false).as_deref(),
