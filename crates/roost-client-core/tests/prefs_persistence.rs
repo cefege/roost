@@ -85,14 +85,12 @@ fn preferences_round_trip_through_storage() {
         assert!(!set_keyterm_biasing(store, &storage, true), "already on");
         assert!(set_keyterm_biasing(store, &storage, false));
         assert!(toggle_mouse_forward(store, &storage));
-        assert_eq!(
-            mouse_gestures_forwarded(store, 0),
-            false,
+        assert!(
+            !mouse_gestures_forwarded(store, 0),
             "a zero tracking mode forwards nothing"
         );
-        assert_eq!(
-            mouse_gestures_forwarded(store, 2),
-            false,
+        assert!(
+            !mouse_gestures_forwarded(store, 2),
             "the device says no"
         );
         assert!(set_mouse_forward(store, &storage, true));
