@@ -10,11 +10,14 @@
 //! that decided for itself would be a second answer to "is it safe to replace
 //! the thing holding this machine's terminals".
 
+mod channel_ids;
 mod channels;
 mod dispatch;
 mod error;
 mod pool;
+mod pool_spawn;
 mod session_seam;
+mod shell_spawner;
 mod spawn_spec;
 
 pub use session_seam::{NO_REPORTED_BASE_GEOMETRY, NO_REPORTED_HEAD};

@@ -21,6 +21,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use roost_keeper::server::{Endpoint, Server};
+use roost_protocol::wire::brand::ChannelId;
 use roost_worker::keeper_pool::{KeeperPool, PoolError};
 use roost_worker::runtime::keeper_boot::KeeperHandle;
 use roost_worker::session::sinks::ChannelBinding;
@@ -216,6 +217,17 @@ impl Drop for KeeperFixture {
         }
         let _ = std::fs::remove_dir_all(&self.root);
     }
+}
+
+/// The channel id a test hands the pool for one of its spawns.
+///
+/// The pool no longer mints one: `SessionManager`'s counter owns that, and a
+/// test that wanted a second allocator would be testing the thing that was
+/// removed. Every id here is therefore stated, and a test that means to reuse
+/// an id says so by passing it again — which the pool refuses once the keeper
+/// has been told it holds that channel.
+pub fn channel(id: u16) -> ChannelId {
+    ChannelId::try_from(i64::from(id)).expect("a test channel id fits a channel")
 }
 
 /// Unwrap a pool request, naming what was being attempted when it failed.

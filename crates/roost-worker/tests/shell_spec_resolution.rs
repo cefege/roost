@@ -23,7 +23,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use keeper_pool_support::{KeeperFixture, child_environment, opened, session};
+use keeper_pool_support::{KeeperFixture, channel, child_environment, opened, session};
 use roost_host::{HostPlatform, supported_host_platform};
 use roost_worker::host::shell_bootstrap::ShellFlavour;
 use roost_worker::host::shell_spec_resolver::{HostShellSpecResolver, PTY_PATH_PREFIX};
@@ -279,7 +279,13 @@ fn a_keeper_control_credential_never_reaches_a_spawned_child() {
     probe.argv = vec!["-c".to_string(), "env".to_string()];
 
     opened(
-        pool.spawn(&probe, 80, 24, Arc::new(binding) as Arc<dyn ChannelBinding>),
+        pool.spawn(
+            channel(1),
+            &probe,
+            80,
+            24,
+            Arc::new(binding) as Arc<dyn ChannelBinding>,
+        ),
         "the keeper opens a real PTY with the resolved environment",
     );
     let seen = record.settled();

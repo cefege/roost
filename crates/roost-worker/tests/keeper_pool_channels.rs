@@ -8,7 +8,7 @@ mod keeper_pool_support;
 
 use std::sync::Arc;
 
-use keeper_pool_support::{KeeperFixture, opened, session, sh_spec, wait_until};
+use keeper_pool_support::{KeeperFixture, channel, opened, session, sh_spec, wait_until};
 use roost_worker::keeper_pool::PoolError;
 use roost_worker::session::sinks::ChannelBinding;
 
@@ -25,6 +25,7 @@ fn an_exited_channel_is_omitted_from_the_live_bindings() {
 
     let ended = opened(
         pool.spawn(
+            channel(1),
             &sh_spec(&["-c", "exit 7"], &[]),
             80,
             24,
@@ -34,6 +35,7 @@ fn an_exited_channel_is_omitted_from_the_live_bindings() {
     );
     let staying = opened(
         pool.spawn(
+            channel(2),
             &sh_spec(&["-c", "sleep 5"], &[]),
             80,
             24,
@@ -80,6 +82,7 @@ fn a_lost_keeper_tells_every_channel_exactly_once() {
     let (second, second_record) = session("second");
     opened(
         pool.spawn(
+            channel(1),
             &sh_spec(&["-c", "sleep 5"], &[]),
             80,
             24,
@@ -89,6 +92,7 @@ fn a_lost_keeper_tells_every_channel_exactly_once() {
     );
     opened(
         pool.spawn(
+            channel(2),
             &sh_spec(&["-c", "sleep 5"], &[]),
             80,
             24,

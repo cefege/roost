@@ -19,7 +19,7 @@ mod keeper_pool_support;
 
 use std::sync::Arc;
 
-use keeper_pool_support::{KeeperFixture, opened, session, sh_spec, wait_until};
+use keeper_pool_support::{KeeperFixture, channel, opened, session, sh_spec, wait_until};
 use roost_worker::keeper_pool::{
     KeeperPool, NO_REPORTED_BASE_GEOMETRY, NO_REPORTED_HEAD,
 };
@@ -61,7 +61,13 @@ fn a_restarted_worker_finds_the_channels_the_keeper_still_holds() {
     let spawned = opened(
         fixture
             .pool()
-            .spawn(&sh_spec(&["-c", "sleep 30"], &[]), 100, 40, Arc::new(binding)),
+            .spawn(
+                channel(1),
+                &sh_spec(&["-c", "sleep 30"], &[]),
+                100,
+                40,
+                Arc::new(binding),
+            ),
         "the keeper opens a real PTY",
     );
     // The child is running, which is the whole point of the list entry.
@@ -95,6 +101,7 @@ fn a_restarted_worker_receives_the_survivors_output() {
         fixture
             .pool()
             .spawn(
+                channel(1),
                 &sh_spec(&["-c", "printf BEFORE; sleep 1; printf AFTER"], &[]),
                 80,
                 24,
@@ -134,7 +141,13 @@ fn a_kill_through_the_seam_reaches_the_keeper() {
     let spawned = opened(
         fixture
             .pool()
-            .spawn(&sh_spec(&["-c", "sleep 30"], &[]), 80, 24, Arc::new(binding)),
+            .spawn(
+                channel(1),
+                &sh_spec(&["-c", "sleep 30"], &[]),
+                80,
+                24,
+                Arc::new(binding),
+            ),
         "the keeper opens a real PTY",
     );
 
@@ -188,7 +201,13 @@ fn a_refused_resize_is_reported_rather_than_swallowed() {
     let pool = fixture.pool();
     let (binding, _) = session("resized-5");
     let spawned = opened(
-        pool.spawn(&sh_spec(&["-c", "sleep 30"], &[]), 80, 24, Arc::new(binding)),
+        pool.spawn(
+            channel(1),
+            &sh_spec(&["-c", "sleep 30"], &[]),
+            80,
+            24,
+            Arc::new(binding),
+        ),
         "the keeper opens a real PTY",
     );
 
@@ -221,7 +240,13 @@ fn a_channel_history_is_refused_because_the_keeper_reports_no_head() {
     let pool = fixture.pool();
     let (binding, _) = session("history-1");
     let spawned = opened(
-        pool.spawn(&sh_spec(&["-c", "sleep 30"], &[]), 80, 24, Arc::new(binding)),
+        pool.spawn(
+            channel(1),
+            &sh_spec(&["-c", "sleep 30"], &[]),
+            80,
+            24,
+            Arc::new(binding),
+        ),
         "the keeper opens a real PTY",
     );
 
@@ -250,7 +275,13 @@ fn the_applied_geometry_survives_the_worker_that_set_it() {
     let spawned = {
         let pool = fixture.pool();
         let spawned = opened(
-            pool.spawn(&sh_spec(&["-c", "sleep 30"], &[]), 80, 24, Arc::new(binding)),
+            pool.spawn(
+                channel(1),
+                &sh_spec(&["-c", "sleep 30"], &[]),
+                80,
+                24,
+                Arc::new(binding),
+            ),
             "the keeper opens a real PTY",
         );
         KeeperChannels::resize_channel(pool.as_ref(), spawned.channel_id, 1, 132, 43)

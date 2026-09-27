@@ -2,13 +2,20 @@
 //! `session::spawn` opens channels through it, `session::sinks::ChannelBinding`
 //! receives their bytes, and the boot reconcile re-adopts survivors through it.
 //! Depends on `runtime::keeper_boot::KeeperHandle` for the connection,
-//! `roost_keeper::client` for every request, and `crate::strays` for the
-//! channel-id allocator — nothing here.
+//! `roost_keeper::client` for every request, and `super::channel_ids` for the
+//! one channel-id fact it refuses against. Opening the PTY itself is
+//! `super::pool_spawn`; and this file holds NO allocator, which is the point.
 //!
-//! IT OWNS NO KEEPER LIFECYCLE. Whether this worker adopts a survivor or
-//! replaces it is `runtime::keeper_boot`'s decision; this pool is handed a
-//! connection and drives it. A pool that decided for itself would be a second
-//! answer to "is it safe to replace the thing holding this machine's terminals".
+//! IT OWNS NO KEEPER LIFECYCLE, AND NO CHANNEL-ID COUNTER EITHER. Whether this
+//! worker adopts a survivor or replaces it is `runtime::keeper_boot`'s
+//! decision; the counter that mints a fresh id belongs to
+//! `session::lifecycle::SessionManager`, beside the stray reaper that advances
+//! it past the keeper's own maximum. This pool used to hold a SECOND copy of
+//! that counter and advance it from `adopt`, which meant the worker held two
+//! allocators of one id space and only one of them was the one callers used.
+//! What is left here is [`ChannelIds`], which mints nothing and refuses an id
+//! the keeper is known to hold — a caller that skipped the allocator cannot
+//! hand this keeper a channel it already owns.
 //!
 //! ONE LOCK, AND WHY IT IS THE SAME ONE TWICE. The connection handle serialises
 //! every request, and it is also what keeps the dispatch loop from stealing a
@@ -20,8 +27,9 @@
 //! the resize produced: the result is settled inside the request, and no later
 //! frame is dispatched until the handle is free.
 
+use std::sync::Arc;
+use std::sync::Weak;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 
 use roost_keeper::client::KeeperClient;
@@ -32,14 +40,12 @@ use roost_keeper::frames::ChannelBinding as KeeperChannelBinding;
 use roost_keeper::payloads::PtyInResult;
 
 use super::PoolChannel;
+use super::channel_ids::ChannelIds;
 use super::channels::ChannelRegistry;
 use super::dispatch::dispatch_loop;
 use super::error::PoolError;
-use super::spawn_spec::pty_command;
 use crate::runtime::keeper_boot::KeeperHandle;
 use crate::session::sinks::ChannelBinding;
-use crate::shell_spec::ShellSpec;
-use crate::strays::ChannelAllocator;
 
 /// A PTY the keeper opened, and the channel it is addressed by.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,12 +56,15 @@ pub struct Spawned {
 
 /// Every live PTY on this machine, multiplexed over one keeper connection.
 pub struct KeeperPool {
-    keeper: KeeperHandle,
-    channels: ChannelRegistry,
-    /// The worker-owned channel-id allocator. Behind its own lock because
-    /// allocation is a counter bump while the connection lock is held across a
-    /// request, and the two must not queue behind each other.
-    allocator: Mutex<ChannelAllocator>,
+    /// `pub(super)` so `pool_spawn` can read the connection and the table it
+    /// writes, and nothing outside `keeper_pool` can.
+    pub(super) keeper: KeeperHandle,
+    pub(super) channels: ChannelRegistry,
+    /// The highest channel id the keeper is known to hold, so a spawn is
+    /// refused an id this worker has already spent. Not an allocator: the
+    /// counter that mints one is `SessionManager`'s, and a second copy of it
+    /// here is what let a fresh worker and a surviving keeper disagree.
+    pub(super) channel_ids: ChannelIds,
     /// Cleared the moment the keeper is known to be gone, so a later request
     /// fails instead of writing into a socket nobody is reading.
     connected: AtomicBool,
@@ -82,7 +91,7 @@ impl KeeperPool {
         let pool = Arc::new(Self {
             keeper,
             channels: ChannelRegistry::default(),
-            allocator: Mutex::new(ChannelAllocator::new()),
+            channel_ids: ChannelIds::new(),
             connected: AtomicBool::new(true),
         });
         tracing::info!("the keeper pool is driving its connection");
@@ -94,72 +103,6 @@ impl KeeperPool {
             tracing::error!(%err, "the keeper dispatch loop could not start");
         }
         pool
-    }
-
-    /// Open a PTY running `spec`, delivering its output into `output`.
-    ///
-    /// The output binding is registered BEFORE the spawn frame is written, so
-    /// the first bytes after the acknowledgement have a session to reach; and
-    /// the id comes from the worker-owned allocator, so a fresh worker cannot
-    /// collide with a channel the surviving keeper still holds.
-    pub fn spawn(
-        &self,
-        spec: &ShellSpec,
-        cols: u16,
-        rows: u16,
-        output: Arc<dyn ChannelBinding>,
-    ) -> Result<Spawned, PoolError> {
-        self.require_connected()?;
-        let channel_id = self.take_channel_id()?;
-        let command = pty_command(spec);
-        if command.withheld_any() {
-            // Reportable because it means a resolver handed this pool a spec
-            // carrying a credential; the refusal itself is already done.
-            tracing::warn!(
-                channel_id,
-                withheld = ?command.withheld,
-                executable = %spec.executable,
-                "withheld keeper control credentials from a PTY environment"
-            );
-        }
-        if self.channels.begin_spawn(channel_id, output) {
-            tracing::warn!(channel_id, "respawning a channel the keeper already owns");
-        }
-        match self
-            .keeper
-            .with(|client| client.spawn(channel_id, command.command, cols, rows))
-        {
-            Ok(pid) => {
-                if let Err(err) = self.channels.finish_spawn(channel_id, pid) {
-                    // The PTY is real; only the pool's record of it is gone. The
-                    // strays reaper is the designed answer to a channel nobody
-                    // tracks, and saying so beats a caller that believes it has
-                    // no terminal and leaves a shell running.
-                    tracing::error!(
-                        channel_id,
-                        pid,
-                        %err,
-                        "the keeper opened a channel this pool can no longer track"
-                    );
-                }
-                tracing::info!(
-                    channel_id,
-                    pid,
-                    executable = %spec.executable,
-                    cwd = %spec.cwd,
-                    "the keeper opened a channel"
-                );
-                Ok(Spawned { channel_id, pid })
-            }
-            Err(err) => {
-                // The keeper refused or did not answer, so there is no PTY. The
-                // binding goes with it: a recycled id must not reach the session
-                // that was never opened.
-                self.channels.abort_spawn(channel_id);
-                tracing::warn!(channel_id, %err, "the keeper did not open the channel");
-                Err(PoolError::Keeper(err))
-            }
-        }
     }
 
     /// Take over a channel a previous worker or this keeper already owns.
@@ -174,7 +117,10 @@ impl KeeperPool {
                 "adopted over a channel already in this pool"
             );
         }
-        self.advance_past_keeper(&[channel_id]);
+        // The id is now KNOWN to be the keeper's, which is what a later spawn
+        // refuses against. Advancing the counter is `SessionManager`'s job and
+        // happens once, against the keeper's WHOLE list, not per channel.
+        self.channel_ids.note(channel_id);
         tracing::info!(channel_id, pid, "adopted a surviving channel");
     }
 
@@ -236,9 +182,19 @@ impl KeeperPool {
     }
 
     /// The channels the keeper says it still owns, for a reconcile.
+    ///
+    /// Reading the list is also how this pool LEARNS it. The only place the
+    /// worker ever asks the keeper what it holds is this call, so teaching the
+    /// guard here means a boot that reconciles needs no second wiring to know
+    /// which ids are spoken for — and a caller cannot get a fresh id from the
+    /// pool before the pool has been told what the keeper is holding.
     pub fn keeper_channels(&self) -> Result<Vec<KeeperChannelBinding>, PoolError> {
         self.require_connected()?;
-        self.request(|client| client.list_channels().map(|list| list.channels))
+        let channels = self.request(|client| client.list_channels().map(|list| list.channels))?;
+        for channel in &channels {
+            self.channel_ids.note(channel.channel_id);
+        }
+        Ok(channels)
     }
 
     /// The pairs a hello announces: live channels only.
@@ -253,20 +209,6 @@ impl KeeperPool {
     /// terminal that was about to exist.
     pub fn spawning_channels(&self) -> Vec<u16> {
         self.channels.spawning()
-    }
-
-    /// Move the id allocator past every channel a keeper reported.
-    pub fn advance_past_keeper(&self, keeper_channels: &[u16]) -> bool {
-        let mut allocator = self.lock_allocator();
-        let moved = allocator.advance_past_keeper(keeper_channels);
-        if moved {
-            tracing::info!(
-                next = allocator.next(),
-                keeper_channels = keeper_channels.len(),
-                "advanced the channel id allocator past the keeper"
-            );
-        }
-        moved
     }
 
     /// Drop a channel from the pool entirely, for a session that has closed.
@@ -350,10 +292,6 @@ impl KeeperPool {
         }
     }
 
-    fn take_channel_id(&self) -> Result<u16, PoolError> {
-        self.lock_allocator().take().ok_or(PoolError::NoChannelId)
-    }
-
     /// Run one request, and treat a broken socket as a lost keeper.
     ///
     /// The write half is the only place a dead keeper is visible to a caller
@@ -378,19 +316,12 @@ impl KeeperPool {
         Ok(outcome?)
     }
 
-    fn require_connected(&self) -> Result<(), PoolError> {
+    pub(super) fn require_connected(&self) -> Result<(), PoolError> {
         if self.connected.load(Ordering::SeqCst) {
             return Ok(());
         }
         Err(PoolError::Disconnected(
             "the keeper connection was reported gone".into(),
         ))
-    }
-
-    fn lock_allocator(&self) -> MutexGuard<'_, ChannelAllocator> {
-        match self.allocator.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        }
     }
 }
