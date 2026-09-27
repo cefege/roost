@@ -486,17 +486,29 @@ apart at exactly the rate the tree moves.
   **The Rust coordinator is not in this gate at all**: the coordinator is the
   TypeScript one, and `ROOST_SMOKE_COORD_EXECUTABLE` is unset. Reading C-B as
   Phase 2's trigger is wrong, and it was written here first and corrected.
-- **Phase 3** (Rust coord, then both): same rule, with
-  `ROOST_SMOKE_COORD_EXECUTABLE` set alone first, then with both.
-  **This is where C-B lands.** Its first run (`COORD` alone) is triggered by both
-  `Admitted` arms in `http/upgrade.rs` being real `on_upgrade` calls into real
-  `serve_socket`s — without them a worker is refused at startup with a `401` and
-  there is no socket at all, which fails loudly. Its second run (both) is
-  triggered by C-B **and** the worker being green, and the two halves fail
+- **Phase 3** (Rust coord, then both): no spec that passed in the baseline may
+  fail, with `ROOST_SMOKE_COORD_EXECUTABLE` set alone first, then with both.
+  **Its trigger is the WHOLE coordinator track green — C-B *and* C-C, which is
+  `AwaitingDomainPort` at 0. Not C-B alone.**
+  The terminal specs drive the whole session lifecycle through the
+  coordinator's Connect API — workspace create, terminal open, spawn, attach,
+  input, scrollback, search, attachment, pane close. **Those are the C-C rows**
+  (10 sessions, 11 attachments, 2 search, 1 agent prompt, 2 deploy). Without C-C
+  the Rust coordinator answers them `Unimplemented`, so **C-B alone produces a
+  working link that carries no method handlers, and the run fails on its first
+  spec.** C-B is necessary and not sufficient.
+  The "both" run needs all of that plus the worker, and the two halves fail
   differently enough that neither check covers the other: the coordinator's
-  fails **loudly at startup**, while a worker that opens a socket and then
-  cannot serve a session fails **silently at runtime**. A green coordinator run
-  would not catch the second, and a green Phase 2 would not catch the first.
+  fails **loudly at startup** (a 401 on every link, no socket at all), while a
+  worker that opens a socket and then cannot serve a session fails **silently
+  at runtime**. A green coordinator run would not catch the second, and a green
+  Phase 2 would not catch the first.
+  **This file has now been wrong about the Phase 2 and Phase 3 triggers twice**
+  — first crediting C-B with Phase 2, then crediting C-B alone with Phase 3.
+  Both corrections are recorded rather than quietly replaced, because the shape
+  of the error is the lesson: **a trigger is a claim about what a gate
+  exercises, so it has to be read off the specs the gate runs** and not off
+  which wave happens to be finishing.
 - **Phase 4** is not Playwright — it is
   `crates/roost-client-core/tests/headless_client.rs`, an in-process Rust
   coord + worker that must paint a `MARKER` into a replica viewport.
