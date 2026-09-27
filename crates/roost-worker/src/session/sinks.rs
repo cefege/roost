@@ -122,6 +122,7 @@ pub trait SessionEventSink: Send + Sync {
     ///
     /// Fails when the store cannot hold the kind. A spawn that cannot reserve
     /// its `closed` must not open a PTY at all.
+    #[must_use = "a claim that is not awaited is a claim that was not taken"]
     fn reserve(
         &self,
         kind: DurableEventKind,
@@ -130,12 +131,14 @@ pub trait SessionEventSink: Send + Sync {
     /// Mark a claim committed: it stops blocking snapshots and keeps its
     /// capacity. Idempotent only in the sense that a second hold is refused
     /// rather than silently absorbed.
+    #[must_use = "a hold that is not awaited has not marked the claim committed"]
     fn hold(&self, reservation: Reservation) -> EventFuture<'_, ()>;
 
     /// Give a claim back, because the event it was taken for will not happen.
     ///
     /// A spawn that fails after reserving `opened` and `closed` releases both;
     /// leaking a claim is how a store eventually refuses every write.
+    #[must_use = "a release that is not awaited has not given the claim back"]
     fn release(&self, reservation: Reservation) -> EventFuture<'_, ()>;
 
     /// Publish one event, consuming a claim when one was taken for it.
@@ -144,6 +147,7 @@ pub trait SessionEventSink: Send + Sync {
     /// in memory, and lost on restart without a session being wrong. The claim
     /// is what makes the event durable, so its presence is the difference
     /// between the two and the caller must state which it meant.
+    #[must_use = "an emit that is not awaited is an event that was never written"]
     fn emit<'a>(
         &'a self,
         event: &'a SessionEvent,
@@ -159,4 +163,25 @@ pub trait SessionEventSink: Send + Sync {
 /// find out. `Send` because `SessionManager` holds a sink across an await, and
 /// `'a` because the event an `emit` borrows is not copied to make the future
 /// ownable.
+///
+/// IT IS NOT AN INSTRUMENT, AND THAT IS WHY THE ATTRIBUTE IS ON THE METHODS.
+/// A `#[must_use]` on a TYPE ALIAS is ignored by rustc — the attribute would sit
+/// there looking like a guard and do nothing, which is the seventh instrument of
+/// the night. The four methods below carry it instead, and that is the form
+/// which fires.
+///
+/// `#[must_use]` HERE IS NOT COSMETIC. A caller that builds one of these and
+/// does not await it gets a future that is constructed and immediately dropped,
+/// so whatever the future was going to do silently does not happen — and
+/// NOTHING SAYS SO. The type system cannot see it, clippy did not, `--all-targets`
+/// compiled it, and the code reads correctly. It was found by a before/after
+/// test baseline and not by review, which is the worst possible way to find
+/// one.
+///
+/// The fourth instance of "type-checks and cannot do what you meant" in one
+/// cascade, after `Arc::get_mut` on a type holding a `Weak` to itself, an
+/// explicit `drop()` leaving a drop flag so a `MutexGuard` stayed live across an
+/// await, and a `MutexGuard` across an await making the whole future `!Send`.
+/// The first three cost a compile or a test run to find; this one is now
+/// impossible to write.
 pub type EventFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;

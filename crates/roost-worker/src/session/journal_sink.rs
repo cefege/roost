@@ -24,8 +24,8 @@ use roost_protocol::wire::event::SessionEvent;
 
 use crate::event_store::DurableEventKind;
 use crate::event_store::Journal;
+use crate::event_store::Reservation;
 use crate::event_store::database::claims::ClaimRefusal;
-use crate::event_store::{Reservation, ReserveError};
 
 use super::sinks::{EventFuture, SessionEventError, SessionEventSink};
 
@@ -142,7 +142,7 @@ impl SessionEventSink for JournalSink {
 /// caller to free capacity, because there is nothing to free.
 fn claim_refusal(refusal: ClaimRefusal) -> SessionEventError {
     match refusal {
-        ClaimRefusal::Refused(error) => SessionEventError::Reserve(ReserveError::from(error)),
+        ClaimRefusal::Refused(error) => SessionEventError::Reserve(error),
         ClaimRefusal::Store { reason } => SessionEventError::Store(reason),
     }
 }
