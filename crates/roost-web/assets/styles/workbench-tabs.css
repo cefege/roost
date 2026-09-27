@@ -1,0 +1,374 @@
+/*
+ * Terminal editor-tab and pane interaction surface.
+ * PaneStrip owns tab state; deck components own geometry and gestures.
+ * This file owns strip, tab, menu, hover, drag, drop, and spotlight states.
+ */
+
+.workbench-tab-strip,
+.workbench-pane-tab-strip {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: var(--workbench-tab-strip-height);
+  block-size: var(--workbench-tab-strip-height);
+  box-sizing: border-box;
+  overflow: hidden;
+  position: relative;
+  background: var(--workbench-tab-strip);
+  isolation: isolate;
+}
+.workbench-pane-tab-strip {
+  padding-inline-end: var(--workbench-editor-actions-reserve);
+}
+.df-tab-bar.workbench-pane-tab-strip__tabs {
+  display: flex;
+  align-items: center;
+  /* Content-width basis that shrinks but never grows: the + button is the next flex
+     sibling, so the rail ends where the tabs end and scrolled tab content is clipped
+     at the rail edge instead of sliding under the button. */
+  flex: 0 1 auto;
+  min-width: 0;
+  block-size: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.df-tab-bar.workbench-pane-tab-strip__tabs::-webkit-scrollbar { display: none; }
+.workbench-pane-tab-strip > .df-tab-new { margin-inline-start: var(--md-space-1); }
+.workbench-pane-tab-strip__actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  block-size: 100%;
+  gap: var(--md-space-1);
+  padding-inline: var(--md-space-1);
+  background: var(--workbench-tab-strip);
+}
+
+.terminal-transport-indicator {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-inline-size: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.terminal-transport-indicator > .roost-chip {
+  min-height: 0;
+  padding: var(--md-space-1) var(--md-space-2);
+  color: var(--text-mid);
+  font: var(--md-label-s-weight) var(--md-label-s-size)/var(--md-label-s-line) var(--md-font);
+}
+
+.workbench-pane-tab,
+.df-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  /* A DEFINITE width, not just a flex-basis: the container-type below applies
+     inline-size containment, which zeroes each tab's intrinsic contribution, so a
+     content-based rail would claim only the tabs' floor width and every tab would
+     sit at its minimum from the second tab on. */
+  flex: 0 1 auto;
+  inline-size: var(--workbench-tab-width-max);
+  min-inline-size: var(--workbench-tab-width-min);
+  align-self: stretch;
+  max-inline-size: var(--workbench-tab-width-max);
+  container: pane-tab / inline-size;
+  padding-block: 0;
+  padding-inline: var(--md-space-1);
+  gap: var(--md-space-1);
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 0;
+  border-block-start: var(--workbench-border-width) solid transparent;
+  border-inline-end: var(--workbench-border-width) solid var(--workbench-tab-border);
+  border-radius: 0;
+  background: var(--workbench-tab-strip);
+  color: var(--workbench-tab-inactive-foreground);
+  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
+  cursor: pointer;
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard),
+    color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+}
+.workbench-pane-tab__select {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  gap: var(--md-space-1);
+  block-size: 100%;
+  overflow: hidden;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+/* The tab is one hover surface. The select button is a hit target inside it, so the
+   Button primitive's state layer would paint a second, inset, rounded rectangle. */
+.workbench-pane-tab .workbench-pane-tab__select::after { content: none; }
+.workbench-pane-tab .workbench-pane-tab__select:focus-visible {
+  outline: var(--workbench-border-width) solid var(--workbench-focus-ring);
+  outline-offset: calc(var(--workbench-border-width) * -1);
+}
+.workbench-pane-tab__icon,
+.workbench-pane-tab__select > .agent-status { flex-shrink: 0; }
+.workbench-pane-tab:not([data-active="true"]):hover,
+.df-tab:not([data-active="true"]):hover {
+  background: var(--workbench-tab-hover);
+  color: var(--workbench-tab-hover-foreground);
+}
+.workbench-pane-tab:not([data-active="true"]):hover .workbench-pane-tab__select,
+.workbench-pane-tab:not([data-active="true"]):focus-within .workbench-pane-tab__select {
+  color: var(--workbench-tab-hover-foreground);
+}
+.workbench-pane-tab[data-active="true"],
+.df-tab[data-active="true"] {
+  background: var(--workbench-editor);
+  color: var(--workbench-tab-active-foreground);
+  border-block-start-color: var(--workbench-focus-ring);
+}
+.df-tab-bar[data-focused="false"] .df-tab[data-active="true"] {
+  background: var(--workbench-editor);
+  color: var(--workbench-tab-unfocused-active-foreground);
+  border-block-start-color: transparent;
+}
+.workbench-pane-tab__close {
+  flex: 0 0 auto;
+  inline-size: var(--workbench-tab-action-size);
+  block-size: var(--workbench-tab-action-size);
+  color: var(--text-lo);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard),
+    color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+}
+.workbench-pane-tab__close:hover {
+  color: var(--text-hi);
+}
+.workbench-pane-tab:hover .workbench-pane-tab__close,
+.workbench-pane-tab:focus-within .workbench-pane-tab__close,
+.workbench-pane-tab[data-active="true"] .workbench-pane-tab__close,
+.workbench-pane-tab__close:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.df-tab-close:focus-visible,
+.workbench-pane-tab__close:focus-visible {
+  color: var(--text-hi);
+  outline: var(--workbench-border-width) solid var(--workbench-focus-ring);
+  outline-offset: calc(var(--workbench-border-width) * -1);
+}
+.df-tab-label,
+.workbench-pane-tab__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The loopback marker is informational, not a status: it rides the same
+   on-surface-variant role as the hover card's caption lines so it reads as a
+   property of the tab instead of outranking the label it sits beside. */
+.workbench-pane-tab__local { color: var(--md-sys-color-on-surface-variant); flex-shrink: 0; }
+
+/* Uniform tab widths mean one density per rail, so the only question at a given width
+   is which affordances still fit inside the tab's clip box. Anything that would be
+   clipped leaves layout entirely — a close button revealed on hover must never reflow
+   the tab it sits in (the hover-time reflow that staled the hover-card anchor). */
+@container pane-tab (max-inline-size: 120px) {
+  .workbench-pane-tab__local { display: none; }
+}
+/* Glyph-only is keyed on the rail, not on a calibrated width: tabs reach their floor
+   exactly when the rail starts to scroll, so data-packed IS "tabs are at their minimum"
+   at every density (the coarse-pointer and TV floors scale with the action size, and no
+   px literal has to track them). Hiding the label cannot feed back into layout because
+   the width is already pinned to the floor. */
+.df-tab-bar[data-packed="true"] .workbench-pane-tab__label { display: none; }
+.df-tab-bar[data-packed="true"] .workbench-pane-tab__select { justify-content: center; }
+.df-tab-bar[data-packed="true"] .workbench-pane-tab:not([data-active="true"]) .workbench-pane-tab__close { display: none; }
+.df-tab-bar[data-packed="true"] .workbench-pane-tab[data-active="true"] .workbench-pane-tab__icon { display: none; }
+
+.df-tab-bar[data-dragging="true"] { user-select: none; cursor: grabbing; }
+.df-tab[data-dragging="true"] {
+  position: relative;
+  z-index: 4;
+  background: var(--md-surface-container-high);
+  box-shadow: var(--md-elev-2);
+  cursor: grabbing;
+}
+.df-tab[data-closing="true"] {
+  min-inline-size: 0 !important;
+  max-inline-size: 0 !important;
+  padding-inline: 0 !important;
+  opacity: 0;
+  overflow: hidden;
+  z-index: 0;
+  pointer-events: none;
+  transition: max-inline-size var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized-accelerate),
+    padding-inline var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized-accelerate),
+    opacity var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+}
+.df-tab-filler { flex: 1 1 auto; align-self: stretch; min-width: 0; cursor: default; }
+
+.df-tab-new,
+.df-tab-overflow,
+.df-arrange-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  inline-size: var(--workbench-tab-action-size);
+  block-size: var(--workbench-tab-action-size);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--workbench-tab-strip);
+  color: var(--text-mid);
+  cursor: pointer;
+  transition: background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard),
+    color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+}
+.df-tab-new:hover,
+.df-tab-overflow:hover { color: var(--text-hi); }
+.df-arrange-btn:hover { background: var(--md-state-hover); color: var(--text-hi); }
+
+.workbench-tab-list {
+  display: flex;
+  flex-direction: column;
+  min-width: var(--workbench-tab-menu-min-width);
+  max-width: calc(var(--md-space-9) * 8);
+  padding: var(--md-space-1);
+  background: var(--workbench-tab-menu);
+  border: var(--workbench-border-width) solid var(--workbench-tab-border);
+  border-radius: var(--md-shape-sm);
+  box-shadow: var(--md-elev-3);
+  color: var(--text-hi);
+}
+.workbench-tab-list__filter {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-1);
+  min-block-size: var(--workbench-tab-action-size);
+  padding: 0 var(--md-space-2);
+  border-block-end: var(--workbench-border-width) solid var(--workbench-tab-border);
+}
+.workbench-tab-list__filter-icon { color: var(--text-lo); }
+.workbench-tab-list__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--text-hi);
+  font: inherit;
+  outline: 0;
+}
+.workbench-tab-list__items { max-block-size: calc(var(--md-space-9) * 8); overflow-y: auto; padding-block: var(--md-space-1); }
+.workbench-tab-list__item,
+.workbench-tab-list .df-menu-item {
+  display: flex;
+  align-items: center;
+  inline-size: 100%;
+  min-block-size: var(--workbench-tab-action-size);
+  gap: var(--md-space-2);
+  padding: 0 var(--md-space-2);
+  box-sizing: border-box;
+  background: transparent;
+  border: 0;
+  border-radius: var(--md-shape-xs);
+  color: var(--text-hi);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.workbench-tab-list__item:hover,
+.workbench-tab-list__item[data-highlighted="true"],
+.workbench-tab-list .df-menu-item:hover,
+.workbench-tab-list .df-menu-item[data-highlighted="true"] { background: var(--md-state-hover); }
+.workbench-tab-list__item:focus-visible,
+.workbench-tab-list .df-menu-item:focus-visible { background: var(--md-state-focus); outline: none; }
+.workbench-tab-list__item[data-active="true"],
+.workbench-tab-list__item[data-selected="true"],
+.workbench-tab-list .df-menu-item[data-selected="true"],
+.workbench-tab-list .df-menu-item[aria-current="page"] {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+.workbench-tab-list__item-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workbench-tab-list__item-check { flex: 0 0 auto; }
+.workbench-tab-list__empty { padding: var(--md-space-3) var(--md-space-2); color: var(--text-lo); }
+
+.df-tab-hovercard {
+  position: fixed;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  inline-size: var(--workbench-tab-hovercard-width);
+  gap: var(--md-space-1);
+  padding: var(--md-space-2) var(--md-space-3);
+  box-sizing: border-box;
+  color: var(--text-hi);
+  font-size: var(--md-body-s-size);
+  pointer-events: none;
+  animation: df-hovercard-in var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+}
+.df-tab-hovercard-head { display: flex; align-items: center; gap: var(--md-space-1); }
+.df-tab-hovercard-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--md-label-l-weight); }
+.df-tab-hovercard-chip,
+.df-tab-hovercard-line { color: var(--text-mid); }
+.df-tab-hovercard-chip { display: inline-flex; align-items: center; gap: var(--md-space-1); flex-shrink: 0; font-size: var(--md-label-s-size); }
+.df-tab-hovercard-line,
+.df-tab-hovercard-cwd { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.df-tab-hovercard-cwd { color: var(--text-lo); font-family: var(--font-mono); font-size: var(--md-label-s-size); }
+.df-tab-hovercard-preview { block-size: calc(var(--md-space-9) * 2); margin-block-start: var(--md-space-1); overflow: hidden; border-radius: var(--md-shape-sm); background: var(--terminal-grid-bg); }
+@keyframes df-hovercard-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .df-tab-hovercard { animation: none; } }
+
+.pane-divider {
+  background: var(--workbench-pane-divider);
+  opacity: 0.4;
+  transition: opacity var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard), background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+}
+.pane-divider:hover,
+.pane-divider:active,
+.pane-divider[data-dragging="true"] { opacity: 1; background: var(--workbench-pane-focus); }
+.pane-divider[data-dragging="true"] { transition: none; }
+.pane-drop-overlay {
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--workbench-pane-drop) 22%, transparent);
+  border: calc(var(--workbench-border-width) * 2) solid var(--workbench-pane-focus);
+  border-radius: var(--md-shape-sm);
+  transition:
+    left var(--md-sys-motion-duration-short1) var(--md-sys-motion-easing-standard),
+    top var(--md-sys-motion-duration-short1) var(--md-sys-motion-easing-standard),
+    width var(--md-sys-motion-duration-short1) var(--md-sys-motion-easing-standard),
+    height var(--md-sys-motion-duration-short1) var(--md-sys-motion-easing-standard);
+}
+.pane-drop-overlay[data-zone="reorder"] {
+  background: color-mix(in srgb, var(--workbench-pane-drop) 10%, transparent);
+  border-style: dashed;
+}
+.pane-spotlight-backdrop { background: color-mix(in srgb, var(--md-scrim) 55%, transparent); animation: pane-spotlight-fade var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard-accelerate); }
+.pane-spotlight-card { border-radius: var(--md-shape-md); box-shadow: 0 0 0 var(--workbench-border-width) var(--border-strong), var(--md-elev-5); }
+@keyframes pane-spotlight-fade { from { opacity: 0; } to { opacity: 1; } }
+[data-multi-pane="true"] [data-pane-slot][data-focused="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  border: calc(var(--workbench-border-width) * 3) solid var(--workbench-pane-focus);
+  border-radius: var(--md-shape-sm);
+  box-shadow: inset 0 0 0 var(--workbench-border-width) var(--workbench-pane-focus),
+    0 0 var(--md-space-5) var(--md-space-1) color-mix(in srgb, var(--workbench-pane-focus) 55%, transparent);
+}
+[data-multi-pane="true"] [data-pane-slot][data-focused="true"][data-spotlit="true"]::after { display: none; }
+[data-testid="terminal-deck"][data-resizing="true"] [data-pane-slot][data-focused="true"]::after { box-shadow: none; }
+[data-pane-slot]:focus-visible { outline: calc(var(--workbench-border-width) * 3) solid var(--workbench-pane-focus); outline-offset: calc(var(--workbench-border-width) * -3); }

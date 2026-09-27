@@ -61,6 +61,17 @@ pub enum Effect {
         /// The highest event id folded into the store.
         event_id: u64,
     },
+    /// Write this profile's agent-status acknowledgement ledger.
+    ///
+    /// The host MERGES before it writes: two tabs on one profile acknowledge
+    /// independently, and a blind write from whichever tab saved last would
+    /// discard the other's. The encoded value is the `roost.agentSeen.v2` shape
+    /// (`AgentSeenLedger::encode`), so the host's merge is a decode, a union, and
+    /// an encode — no second format.
+    PersistAgentSeen {
+        /// The whole ledger, encoded.
+        encoded: String,
+    },
     /// Ask the coordinator for a time-bounded, memory-only direct-terminal grant
     /// naming exact sessions, one worker fingerprint, and this tab.
     ///
@@ -220,6 +231,62 @@ pub enum RpcCall {
         /// The token the operator pasted.
         token: String,
     },
+    /// `FilesListDir` — one directory listing for the file viewer.
+    FilesListDir {
+        /// Correlates the answer with this call.
+        call_id: u64,
+        /// The machine to read, by its registry fingerprint.
+        worker_fp: String,
+        /// The directory path, absolute on that machine.
+        path: String,
+    },
+    /// `FilesMkdir` — create a directory, optionally as a chain of parents.
+    FilesMkdir {
+        /// Correlates the answer with this call.
+        call_id: u64,
+        /// The machine to write to, by its registry fingerprint.
+        worker_fp: String,
+        /// The directory path to create.
+        path: String,
+        /// Create missing parents rather than failing on the first gap.
+        recursive: bool,
+    },
+    /// `SessionsSearchGlobal` — one page of a fleet-wide content search.
+    ///
+    /// Unary and cursor-paged, NOT a stream. The answer carries the page and
+    /// the `next_cursor` that asks for the one after it
+    /// (`protocol/proto/roost/v1/coordinator.proto:960`), and the REQUEST
+    /// already carries a `cursor` — a continuation is this same method again,
+    /// which is only meaningful because the first answer came back inline.
+    /// One page in flight at a time, because the coordinator's cursor is a
+    /// single continuation and two pages sharing it would interleave.
+    SessionsSearchGlobal {
+        /// Correlates the answer with this call.
+        call_id: u64,
+        /// The identity the coordinator cancels this search under. **The
+        /// CLIENT mints it and sends it on the request** — the start does not
+        /// return it, so a client that treated the answer as the handle would
+        /// have nothing to cancel with.
+        search_id: String,
+        /// The text to find.
+        query: String,
+        /// Whether a match respects case.
+        case_sensitive: bool,
+        /// Where to resume, or `None` for the first page.
+        cursor: Option<String>,
+        /// The coordinator's own caps, never this client's.
+        max_sessions: u32,
+        max_rows_per_session: u32,
+        max_matches: u32,
+    },
+    /// `SessionsCancelGlobalSearch` — stop a search already running.
+    SessionsCancelGlobalSearch {
+        /// Correlates the answer with this call.
+        call_id: u64,
+        /// The search to cancel: the `search_id` this client minted and sent on
+        /// the request (`coordinator.proto:409`).
+        search_id: String,
+    },
 }
 
 /// One Connect unary response.
@@ -267,5 +334,21 @@ pub enum RpcResult {
     PairTokenRedeemed {
         /// Which call this answers.
         call_id: u64,
+    },
+    /// `SessionsSearchGlobal` answered with one page.
+    ///
+    /// Carries the `search_id` back as well as the page, because the answer is
+    /// only meaningful against the identity that asked for it: a page arriving
+    /// after the user cancelled, or after a second search replaced this one,
+    /// must be dropped rather than appended. `next_cursor` is `None` when the
+    /// coordinator has nothing more, and a page may be `truncated` at the
+    /// coordinator's own caps and still carry a cursor.
+    SearchPage {
+        /// Which call this answers.
+        call_id: u64,
+        /// The search this page belongs to, as sent on the request.
+        search_id: String,
+        /// The page the coordinator returned.
+        page: crate::search::global::GlobalSearchResponse,
     },
 }

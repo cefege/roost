@@ -1,0 +1,113 @@
+/* Ten-foot presentation. One root attribute (data-tv, written by lib/tvMode.ts)
+   re-declares the dimension and type tokens every component already
+   references, so no component needs a TV branch.
+   The token block is `html[data-tv="true"]` rather than `[data-tv="true"]` so
+   it outranks theme-vars.css's `@media (any-pointer: coarse) :root` block by
+   specificity: source order alone would make the win depend on import order.
+   Depends on: styles/theme-vars.css token names. */
+
+html[data-tv="true"] {
+  --md-body-s-size: 18px;  --md-body-s-line: 26px;
+  --md-body-m-size: 22px;  --md-body-m-line: 30px;
+  --md-body-l-size: 24px;  --md-body-l-line: 34px;
+  --md-label-s-size: 18px; --md-label-s-line: 26px;
+  --md-label-m-size: 20px; --md-label-m-line: 28px;
+  --md-label-l-size: 22px; --md-label-l-line: 30px;
+  --md-title-s-size: 22px; --md-title-s-line: 30px;
+  --md-title-m-size: 26px; --md-title-m-line: 34px;
+  --md-title-l-size: 32px; --md-title-l-line: 40px;
+  --md-headline-s-size: 34px; --md-headline-s-line: 44px;
+  --md-headline-m-size: 40px; --md-headline-m-line: 50px;
+  --control-height-xs: 36px;
+  --control-height-sm: 40px;
+  --control-height: 48px;
+  --control-height-lg: 56px;
+  --control-touch-target: 56px;
+  --md-icon-button-icon-size: 32px;
+  --workbench-titlebar-height: 56px;
+  --workbench-activity-width: 72px;
+  --workbench-statusbar-height: 36px;
+  --workbench-tab-strip-height: 56px;
+  --workbench-tab-action-size: 44px;
+  --workbench-sidebar-expanded-width: 420px;
+  --row-h: 44px;
+}
+
+[data-tv="true"] .md-icon { font-size: var(--md-title-m-size); }
+[data-tv="true"] .md-icon--sm { font-size: var(--md-body-l-size); }
+[data-tv="true"] .md-icon--lg { font-size: var(--md-headline-s-size); }
+
+/* Overscan: the shell is box-sizing:border-box at height:100svh, so inner
+   padding shrinks the grid instead of overflowing it. */
+[data-tv="true"] .workbench-shell {
+  padding: var(--tv-overscan-block) var(--tv-overscan-inline);
+}
+
+[data-tv="true"] .access-checking {
+  padding: var(--tv-overscan-block) var(--tv-overscan-inline);
+}
+
+/* Only the standalone pairing page: the embedded copy in Settings → Devices
+   already sits inside the shell's overscan padding. The root stays the
+   full-width scroll owner; only its padding and the panel width change. */
+[data-tv="true"] .onboarding-root[data-embedded="false"] {
+  padding: var(--tv-overscan-block) var(--tv-overscan-inline);
+}
+
+[data-tv="true"] .onboarding-root[data-embedded="false"] > .onboarding-panel {
+  max-width: var(--roost-dialog-wide-max-inline-size);
+}
+
+/* A remote has no hover, and many TV browsers still report hover:hover, so the
+   hover-gated row actions would stay invisible. */
+[data-tv="true"] .df-row .df-action,
+[data-tv="true"] .df-row[data-density="flat"] .df-action-always {
+  opacity: 1;
+}
+
+/* Focus must be unmistakable at 3 m — it is the only cursor a remote has. */
+[data-tv="true"] :focus-visible {
+  outline: var(--md-space-1) solid var(--workbench-focus-ring);
+  outline-offset: var(--md-space-1);
+}
+
+[data-tv="true"] .wterm:focus-visible {
+  outline: var(--md-space-1) solid var(--workbench-pane-focus);
+  outline-offset: calc(var(--md-space-1) * -1);
+}
+
+/* TerminalNavButtons and its toggle are portaled to <body> as position:fixed
+   surfaces, so they escape .workbench-shell's overscan padding entirely, and
+   the env(safe-area-inset-*) they lean on is 0px on a television. Without
+   these offsets the TV's only raw-key surface lands in the cropped bezel. */
+[data-tv="true"] .term-nav-toggle {
+  right: calc(var(--tv-overscan-inline) + var(--md-space-4));
+  bottom: calc(var(--tv-overscan-block) + 152px);
+}
+
+[data-tv="true"] .term-nav {
+  right: calc(var(--tv-overscan-inline) + var(--md-space-4));
+  bottom: calc(var(--tv-overscan-block) + 220px);
+  /* The base max-height subtracts a 220px literal matching the base `bottom`.
+     Raising `bottom` without raising this lets a tall sheet run off the top of
+     the frame; the overscan is subtracted twice — once for the raised bottom,
+     once to keep the sheet's top edge clear of the cropped edge too. */
+  max-height: max(
+    0px,
+    calc(
+      100dvh
+      - calc(var(--tv-overscan-block) * 2)
+      - 220px
+      - var(--md-space-4)
+    )
+  );
+}
+
+/* The dock is viewport-fixed outside .workbench-shell's overscan padding, and a
+   television reports every env(safe-area-inset-*) as 0px, so its own gutters do
+   not clear the cropped bezel. */
+[data-tv="true"] .roost-notify-dock {
+  left: calc(var(--roost-main-left) + var(--tv-overscan-inline) + var(--md-space-3));
+  right: calc(var(--tv-overscan-inline) + var(--md-space-3));
+  --roost-notify-dock-overscan: var(--tv-overscan-block);
+}
