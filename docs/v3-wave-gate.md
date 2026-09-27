@@ -3053,7 +3053,27 @@ it":**
 > that could not have found anything.
 
 A table of module names with a zero in a column is indistinguishable from a real
-audit table, which is why 88 phantom findings would have passed a glance. The
+audit table, which is why 88 phantom findings would have passed a glance.
+
+**And the mirror false positive, which is the same defect pointing the other
+way.** `grep -rn "Command::new" crates/ | grep -i tail`, run to prove nothing
+spawns `tailscale`, returned **1** -- `Command::new("tail")` in
+`crates/roost-cli/src/ops/logs.rs:90`, the Unix `tail`. A plausible, confident,
+wrong finding produced by a substring. So the two shapes are: a bad exclusion
+rule that **eats** evidence, and a bad pattern that **invents** it. A disproof
+that shows a search cannot see something, and a disproof that shows a search
+sees something that is not there.
+
+**The heuristic that caught it is the one to carry, and it is the opposite of
+the one most people use: a number that CONTRADICTS the claim you were trying to
+support is more trustworthy than one that agrees with you.** The agent said it
+only noticed because the result conflicted with the claim it was trying to
+support. That is worth more than the finding it discarded, because it is the
+only mechanism in this whole document that does not depend on remembering to
+run a control: **a measurement that agrees with what you want is a measurement
+to distrust until you have said why it could not have agreed by accident.**
+
+ The
 `worker_link` result survives precisely because it was not produced that way:
 symbols were enumerated, two collisions were **disambiguated by reading both
 definitions**, and the claim was then corroborated with a path-based import
