@@ -882,6 +882,90 @@ interleaved into a web dev server's build log helps nobody. Its own state
 transitions are `tracing` events. **Exit code 0** on a clean stop, whatever
 signal asked for it; 1 when the stack could not be started at all.
 
+## `roost import-v2`
+
+```
+roost import-v2 --from PATH [--dry-run]
+```
+
+Carries a v2 coordinator's account, paired devices and browser keys into this
+install, **once**, and is the only code in the tree that opens a v2 database.
+The coordinator never does: that is the invariant which keeps a v3 install from
+growing a migration path it would have to support forever.
+
+**It exists because browser keys are origin-bound.** A paired browser cannot
+be handed to another origin and expected to work, so the only way a browser
+survives the cutover is for its key to already be in the v3 database. This
+command puts it there, and the Stage 4 proof that a paired browser keeps
+working is the proof that it did.
+
+**It must run before anything creates the v3 database.**
+`ensure_self_hosted_tenant` creates a fresh account in an empty database, and a
+later import could not reconcile that — the account it carried across would be
+a second one, and the coordinator refuses two. The refusal below enforces the
+half an operator can get wrong.
+
+**What is copied**, from the v2 schema, and the column lists are column for
+column identical: `accounts`, `account_identities`, `organizations`,
+`organization_memberships`, `dashboards`, `dashboard_memberships`,
+`account_devices`, `app_settings`, and `authorized_key_revocations` in full.
+`authorized_keys` is copied **only where the fingerprint is one an account
+paired** — 26 of the 31 rows on the database this was written for. The other
+five are machine keys whose fingerprint is a `workers.fp`; importing them would
+enrol five authenticators that no human paired and no browser can present.
+
+**What is not copied, and the reason each is not:** `sessions` (terminal
+sessions bound to v2 workers, not authentication), `events` and `audit_log`
+(~1.5 M rows of the product being replaced), `workers`, `bootstrap_tokens`,
+`tasks`, `pair_requests`, `email_outbox`, `mcp_relays`, `workspaces`,
+`workspace_sessions`, `push_subscriptions`, the token and redemption tables,
+`feature_flags`, and `_migrations` — v3's own migrations have already run by
+the time any of this executes.
+
+**Mechanics, each of which is load-bearing.**
+
+- The source is ATTACHed **read-only** (`mode=ro` in the filename, not left to
+  file permissions) and read inside the same transaction that writes, so the
+  import sees one consistent snapshot of a file the v2 coordinator is still
+  writing to. A device paired during the read is either wholly in the snapshot
+  or wholly out of it.
+- Each table is copied by a single `INSERT … SELECT`, so SQLite performs the
+  copy rather than a reader and a writer marshalling values between two
+  representations of the same row.
+- The target is opened with **roost-coord's own** `db::open`, so v3's
+  migrations run and the file is the one the coordinator will read.
+- The column list is read from the **target's** `PRAGMA table_info`, so a
+  column v3 has and v2 lacks fails loudly inside a transaction that rolls back,
+  rather than a row that quietly loses a field.
+- After the commit, the coordinator's own `ensure_self_hosted_tenant` runs
+  against the target and must return the account the import carried. That call
+  is the validator, and it is why the order above is not negotiable.
+
+**A re-run is a refresh, not a merge.** A target holding exactly one account
+that is not the one being imported is **refused by name** — two accounts in
+one coordinator is a state v3 does not have, and the repair is for the
+operator to say which install the machine is. Otherwise new
+`account_devices`/`authorized_keys` rows are added, new revocations are
+applied, the rows a revocation covers are deleted, and `app_settings` is left
+alone where v3 already has a row — so an operator who has already changed the
+Deepgram key or the VAPID pair in v3 does not have it reverted by re-running an
+import. This is how the production flip picks up devices paired on v2 during
+the cutover window.
+
+**stdout** is one line per table, `<table>: <n> copied, <m> already present`,
+under a first line saying whether this was a first import or a refresh. Those
+are the numbers a real run produced, not an estimate: a run inserts exactly the
+rows the target did not have. **stderr** is nothing; every failure is the one
+JSON failure line described under [The failure line](#the-failure-line).
+
+**Exit codes.**
+
+| Situation | Code |
+| --- | --- |
+| imported, or dry-run reported | 0 |
+| `--from` is not a file; the coordinator is running; the target belongs to another install; the target is not a single-account install | 2 |
+| the source has no account, or more than one; the source could not be attached; a statement failed; the imported topology is not a valid self-hosted install | 1 |
+
 ---
 
 ## `roost update`
