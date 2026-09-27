@@ -1824,9 +1824,25 @@ xtask: checked 2744 inputs   unreached 0   violations 16
 **`v3`'s own ten are GONE, and that is the merge-order prediction confirmed.** The
 two `roost-cli` size violations cleared with `v3-cli`; the `roost-keeper/Cargo.toml`
 lint table and the seven keeper `fixture_allow` findings cleared with `v3-worker`.
-**Nothing is inherited from `v3` any more**, so `xtask lint` is now entirely one
-lead's work: **all sixteen are the web track's** — fourteen size splits and the two
-`mouse_forwarding_support` fixture allows, both in `roost-web-terminal/tests/`.
+**Nothing is inherited from `v3` any more.** What remains, by file, named:
+
+|file|lines|rule|owner|
+|---|---:|---|---|
+|`roost-client-core` (8 files)|401–477|size|web|
+|`roost-web-terminal` (4 files)|401–477|size|web|
+|`roost-web-terminal/tests/mouse_forwarding.rs`|—|fixture allow|web|
+|`roost-web-terminal/tests/mouse_reporting.rs`|—|fixture allow|web|
+|**`roost-coord/tests/event_publication.rs`**|**406**|size|coordinator|
+|**`roost-worker/src/session/respawn.rs`**|**438**|size|**worker**|
+
+**Fourteen are the web track's, and TWO ARE NOT** — the coordinator's
+`event_publication.rs` at 406, which it is already blocked on, and the worker's
+`respawn.rs` at 438, which it does not know about. **An earlier revision of this
+entry said "all sixteen are the web track's", and that was an over-correction: I
+had just fixed the FIXTURE attribution by reading the named files, and then
+re-derived the SIZE attribution from the grouped count in the same breath. Two
+corrections in a row, the second undoing the first's spirit.** The rule prints the
+file; read the file.
 
 **An earlier reading of this same sweep put one fixture allow on `roost-worker` and
 one on `roost-coord`. That was wrong, and it was wrong the same way as most of the
