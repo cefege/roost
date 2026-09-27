@@ -24,7 +24,9 @@ use std::sync::{Arc, Mutex};
 use roost_protocol::wire::brand::WorkerFp;
 use roost_protocol::wire::event::SessionEvent;
 use roost_worker::event_store::{DurableEventKind, Reservation, Store};
-use roost_worker::session::sinks::{ChannelBinding, SessionEventError, SessionEventSink};
+use roost_worker::session::sinks::{
+    ChannelBinding, EventFuture, SessionEventError, SessionEventSink,
+};
 use roost_worker::session::spawn::{ShellSpawner, ShellSpecResolver, SpawnContext, SpawnRequest};
 use roost_worker::shell_spec::ShellSpec;
 
@@ -92,19 +94,30 @@ impl LedgerSink {
 }
 
 impl SessionEventSink for LedgerSink {
-    fn reserve(&self, kind: DurableEventKind) -> Result<Reservation, SessionEventError> {
-        self.store
+    fn reserve(
+        &self,
+        kind: DurableEventKind,
+    ) -> EventFuture<'_, Result<Reservation, SessionEventError>> {
+        // Ready at once, like the other fake: the work is done before the
+        // future is built, so the future has nothing to await. What matters is
+        // that the SIGNATURE matches the seam, because a fake that quietly
+        // diverged is how a caller keeps compiling against a shape the product
+        // no longer has.
+        let reserved = self
+            .store
             .lock()
             .unwrap()
             .reserve(kind, kind.payload_limit())
-            .map_err(SessionEventError::from)
+            .map_err(SessionEventError::from);
+        Box::pin(std::future::ready(reserved))
     }
 
-    fn hold(&self, reservation: Reservation) {
+    fn hold(&self, reservation: Reservation) -> EventFuture<'_, ()> {
         self.ledger.lock().unwrap().held.push(reservation.id());
+        Box::pin(std::future::ready(()))
     }
 
-    fn release(&self, reservation: Reservation) {
+    fn release(&self, reservation: Reservation) -> EventFuture<'_, ()> {
         // The STORE is the claim's owner, so recording the id in the ledger is
         // not releasing it: a fake that logged a release and kept the capacity
         // reported a leak the spawn path does not have.
@@ -114,24 +127,28 @@ impl SessionEventSink for LedgerSink {
             .release(reservation)
             .expect("a claim this sink handed out is still live");
         self.ledger.lock().unwrap().released.push(reservation.id());
+        Box::pin(std::future::ready(()))
     }
 
-    fn emit(
-        &self,
-        event: &SessionEvent,
+    fn emit<'a>(
+        &'a self,
+        event: &'a SessionEvent,
         reservation: Option<Reservation>,
-    ) -> Result<(), SessionEventError> {
-        let mut ledger = self.ledger.lock().unwrap();
-        if ledger.refuse_emit {
-            return Err(SessionEventError::Unclassifiable(
-                "the store is full".to_owned(),
+    ) -> EventFuture<'a, Result<(), SessionEventError>> {
+        let published = (|| {
+            let mut ledger = self.ledger.lock().unwrap();
+            if ledger.refuse_emit {
+                return Err(SessionEventError::Unclassifiable(
+                    "the store is full".to_owned(),
+                ));
+            }
+            ledger.emitted.push((
+                reservation.map(Reservation::id).unwrap_or(0),
+                Some(event.clone()),
             ));
-        }
-        ledger.emitted.push((
-            reservation.map(Reservation::id).unwrap_or(0),
-            Some(event.clone()),
-        ));
-        Ok(())
+            Ok(())
+        })();
+        Box::pin(std::future::ready(published))
     }
 }
 

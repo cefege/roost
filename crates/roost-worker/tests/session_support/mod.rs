@@ -11,6 +11,8 @@
 // why narrowing or deleting an item to quiet one would break a caller in
 // another.
 
+use futures_util::FutureExt as _;
+
 mod fakes;
 
 // Only the two the four test binaries actually name are re-exported. The rest
@@ -89,7 +91,7 @@ impl Harness {
         let sink = Arc::new(RecordingSink::default());
         let delivery = Arc::new(RecordingDelivery::default());
         let cells = Arc::new(Mutex::new(CountingCells::default()));
-        let manager = Arc::new(SessionManager::new(
+        let manager = SessionManager::new(
             worker_fp(),
             Arc::clone(&table),
             Arc::clone(&sink) as Arc<dyn SessionEventSink>,
@@ -101,7 +103,7 @@ impl Harness {
             Arc::new(FixedResolver {
                 spec: shell_spec("/home/user/project"),
             }),
-        ));
+        );
         Self {
             manager,
             table,
@@ -137,6 +139,8 @@ impl Harness {
             },
             self.sink
                 .reserve(DurableEventKind::Closed)
+                .now_or_never()
+                .expect("a reserve against the in-memory fake is ready at once")
                 .expect("a fresh store has room"),
             Box::new(AlacrittyCore::new(80, 24)),
             CellEmitState::new("epoch", "stream"),
@@ -159,6 +163,8 @@ impl Harness {
             close_reservation: self
                 .sink
                 .reserve(DurableEventKind::Closed)
+                .now_or_never()
+                .expect("a reserve against the in-memory fake is ready at once")
                 .expect("a fresh store has room"),
             socket_path: "mux:1".to_string(),
             now_ms: NOW,

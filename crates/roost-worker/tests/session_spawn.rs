@@ -23,8 +23,8 @@ use spawn_support::{session_id as support_session_id, shell_spec, worker_fp};
 /// A spawn that cannot open its PTY must give BOTH claims back. A leaked claim
 /// is capacity the store will never hand out again, and a store that has lost
 /// its capacity refuses every later write in the worker, not just this one.
-#[test]
-fn a_spawn_the_keeper_refuses_releases_both_claims_and_opens_nothing() {
+#[tokio::test]
+async fn a_spawn_the_keeper_refuses_releases_both_claims_and_opens_nothing() {
     let events = LedgerSink::new();
     let opened = events.reserve(DurableEventKind::Opened);
     let close = events.reserve(DurableEventKind::Closed);
@@ -39,7 +39,8 @@ fn a_spawn_the_keeper_refuses_releases_both_claims_and_opens_nothing() {
         Arc::new(BindingThatRecordsDelivery),
         request(21),
         1_000,
-    );
+    )
+    .await;
     assert!(
         matches!(refused, Err(SpawnRefusal::KeeperRefused { .. })),
         "the refusal did not surface, got {refused:?}"
@@ -67,8 +68,8 @@ fn a_spawn_the_keeper_refuses_releases_both_claims_and_opens_nothing() {
 /// The successful shape: the `opened` claim is consumed by the event, the
 /// close claim is committed and left ON THE RECORD for the close to consume,
 /// and the record comes back attached.
-#[test]
-fn a_spawn_consumes_the_opened_claim_and_leaves_the_close_claim_committed() {
+#[tokio::test]
+async fn a_spawn_consumes_the_opened_claim_and_leaves_the_close_claim_committed() {
     let events = LedgerSink::new();
     let opened = events.reserve(DurableEventKind::Opened);
     let close = events.reserve(DurableEventKind::Closed);
@@ -84,6 +85,7 @@ fn a_spawn_consumes_the_opened_claim_and_leaves_the_close_claim_committed() {
         request(22),
         1_000,
     )
+    .await
     .expect("a working keeper spawns");
 
     let emitted = events.emitted();
@@ -124,8 +126,8 @@ fn a_spawn_consumes_the_opened_claim_and_leaves_the_close_claim_committed() {
 
 /// A respawn announces a `respawned`, not an `opened`. An `opened` here would
 /// tell every browser watching that row to paint a start moment it never had.
-#[test]
-fn a_respawn_announces_a_respawn_and_not_an_opened() {
+#[tokio::test]
+async fn a_respawn_announces_a_respawn_and_not_an_opened() {
     let events = LedgerSink::new();
     let opened = events.reserve(DurableEventKind::State);
     let close = events.reserve(DurableEventKind::Closed);
@@ -145,6 +147,7 @@ fn a_respawn_announces_a_respawn_and_not_an_opened() {
         wanted,
         2_000,
     )
+    .await
     .expect("a respawn succeeds");
 
     match events.emitted()[0].as_ref().expect("an event was written") {
@@ -169,8 +172,8 @@ fn a_respawn_announces_a_respawn_and_not_an_opened() {
 
 /// Geometry is validated before anything is claimed or opened, and a request
 /// that states none gets the default rather than a zero-sized PTY.
-#[test]
-fn geometry_is_refused_before_a_pty_or_a_claim_is_touched() {
+#[tokio::test]
+async fn geometry_is_refused_before_a_pty_or_a_claim_is_touched() {
     let events = LedgerSink::new();
     let opened = events.reserve(DurableEventKind::Opened);
     let close = events.reserve(DurableEventKind::Closed);
@@ -187,7 +190,8 @@ fn geometry_is_refused_before_a_pty_or_a_claim_is_touched() {
         Arc::new(BindingThatRecordsDelivery),
         too_wide,
         1_000,
-    );
+    )
+    .await;
     assert!(
         matches!(refused, Err(SpawnRefusal::Geometry { cols: 900, .. })),
         "an impossible geometry was not refused, got {refused:?}"
@@ -205,8 +209,8 @@ fn geometry_is_refused_before_a_pty_or_a_claim_is_touched() {
 
 /// An event kind that is neither a spawn nor a respawn has no business
 /// announcing a PTY, and it is refused rather than coerced into one.
-#[test]
-fn a_close_may_not_announce_a_spawn() {
+#[tokio::test]
+async fn a_close_may_not_announce_a_spawn() {
     let events = LedgerSink::new();
     let opened = events.reserve(DurableEventKind::Closed);
     let close = events.reserve(DurableEventKind::Closed);
@@ -223,7 +227,8 @@ fn a_close_may_not_announce_a_spawn() {
         Arc::new(BindingThatRecordsDelivery),
         wrong,
         1_000,
-    );
+    )
+    .await;
     assert!(
         matches!(refused, Err(SpawnRefusal::UnnameableEvent { .. })),
         "an unnameable event was not refused, got {refused:?}"
