@@ -24,7 +24,8 @@ use std::path::{Path, PathBuf};
 use crate::source_tree;
 use crate::violation::Violation;
 
-const RULE: &str = "every .rs file under src/ must be reachable from a crate root via mod declarations";
+const RULE: &str =
+    "every .rs file under src/ must be reachable from a crate root via mod declarations";
 const MEMORY: &str =
     "docs/FAILURE-INDEX.md — a capability that is implemented, tested, and never called";
 
@@ -69,7 +70,10 @@ pub fn run() -> crate::ratchet::CheckOutcome {
             }
         }
     }
-    crate::ratchet::CheckOutcome { checked, violations }
+    crate::ratchet::CheckOutcome {
+        checked,
+        violations,
+    }
 }
 
 /// Every `crates/*/src` directory.
@@ -131,11 +135,7 @@ fn graph_from(src: &Path) -> Option<ModuleGraph> {
             });
         }
     }
-    while let Some(Pending {
-        file,
-        children_dir,
-    }) = queue.pop_front()
-    {
+    while let Some(Pending { file, children_dir }) = queue.pop_front() {
         let Some((_, text)) = all.iter().find(|(path, _)| path == &file) else {
             continue;
         };
@@ -345,8 +345,15 @@ mod tests {
 
         let graph = graph_from(&src).expect("a graph");
         assert!(graph.reached.contains(&src.join("oddly_named.rs")));
-        assert!(graph.reached.contains(&src.join("conventional_name/inner.rs")));
-        assert_eq!(path_attribute("#[path = \"a.rs\"]").as_deref(), Some("a.rs"));
+        assert!(
+            graph
+                .reached
+                .contains(&src.join("conventional_name/inner.rs"))
+        );
+        assert_eq!(
+            path_attribute("#[path = \"a.rs\"]").as_deref(),
+            Some("a.rs")
+        );
         assert_eq!(path_attribute("#[derive(Clone)]"), None);
     }
 
