@@ -25,7 +25,6 @@ use crate::runtime::link_loop::browser::BrowserLink;
 use crate::runtime::link_loop::cell_sink::CoordinatorCellSink;
 use crate::runtime::link_loop::{Authorised, LinkLoop, WorkerIdentity};
 use crate::runtime::link_wire::ProtoLinkWire;
-use crate::runtime::snapshot_source::NoSnapshot;
 use crate::session::cell_sink::{CellSink, CellSinkResult, FrameTimings};
 
 const FINGERPRINT: &str =
@@ -54,6 +53,21 @@ impl Drop for Scratch {
     }
 }
 
+/// A snapshot provider that answers, because the barrier refuses to leave
+/// `replay` for `snapshot` without one and the point of the test is what
+/// happens AFTER the snapshot commits, not that a missing provider wedges.
+struct FixedSnapshot;
+
+impl crate::runtime::snapshot_source::SnapshotSource for FixedSnapshot {
+    fn is_active(&self) -> bool {
+        true
+    }
+
+    fn snapshot(&self) -> Result<Vec<u8>, crate::runtime::snapshot_source::SnapshotError> {
+        Ok(vec![0xA5])
+    }
+}
+
 struct FixedCredential;
 
 impl CredentialSource for FixedCredential {
@@ -73,7 +87,7 @@ fn link_for_test() -> LinkLoop {
             process_epoch: "test-epoch".to_owned(),
         },
         std::sync::Arc::new(ProtoLinkWire),
-        std::sync::Arc::new(NoSnapshot),
+        std::sync::Arc::new(FixedSnapshot),
         std::sync::Arc::new(FixedCredential),
         BrowserLink::detached(),
     )
@@ -184,16 +198,37 @@ async fn an_opened_event_is_offered_before_that_sessions_first_cells() {
     let action = link.pump.on_hello_ack();
     crate::runtime::link_drain::apply_to(&mut link, action);
     assert!(matches!(link.authorised, Some(Authorised::Durable(1))));
+    // `Replay`, and not `Snapshot`: the barrier asks for a snapshot only once
+    // the durable queue behind it has drained, so a pending `opened` holds the
+    // link in the one state whose lanes it may not write. `Live` is the state
+    // `move_cell_frames_into` depends on, and this is the assertion that the
+    // cells are still shut out.
     assert_eq!(
         link.barrier(),
-        Barrier::Snapshot,
-        "the barrier reached live before the opened was acknowledged, so its cells were \
-         released ahead of it"
+        Barrier::Replay,
+        "the barrier left replay with an unacknowledged opened, so its cells were released ahead \
+         of it"
     );
     assert_eq!(link.outbox.lane_len(Lane::Terminal), 1, "the cells left early");
 
     // The snapshot is acknowledged, and only now may the lanes drain.
-    let action = link.pump.on_snapshot_ack(1);
+    // The coordinator acknowledges the `opened` by its EXACT sequence. Only then
+    // does the barrier ask for a snapshot, and only that request puts a sequence
+    // of its own into the space — one after the durable event, so 2 here.
+    let acked = link.pump.on_event_ack(1);
+    // The barrier's answer is read before it is applied, because applying it
+    // moves the value and what is under test is what the barrier SAID.
+    assert!(
+        matches!(acked, Action::WriteSnapshot),
+        "the barrier did not ask for the snapshot once the opened was acknowledged, so it would \
+         wait for a replay that is never coming"
+    );
+    crate::runtime::link_drain::apply_to(&mut link, acked);
+    assert!(matches!(link.authorised, Some(Authorised::Snapshot(_))));
+
+    // The snapshot draws from the SAME sequence space and is acknowledged from
+    // it, which is what makes this socket generation routable at the coordinator.
+    let action = link.pump.on_snapshot_ack(2);
     assert!(
         !matches!(action, Action::IgnoredAck { .. }),
         "the barrier ignored the coordinator's own snapshot acknowledgement, so it would wait for \
@@ -249,7 +284,21 @@ async fn an_un_acknowledged_row_is_still_waiting_for_the_next_link() {
         .publish_durable_event(&closed())
         .await
         .expect("published");
-    assert_eq!(next.client_seq, first + 1);
+    // A BLOCK BOUNDARY, not `first + 1`: the outbox allocates sequences in
+    // blocks of `SEQUENCE_BLOCK_SIZE`, so a restarted worker resumes at the top
+    // of a reserved block. The invariant is that the new number is ABOVE the old
+    // one — a repeat is what the barrier could not recover from — and that the
+    // barrier was told it, which `publish_durable_event` does.
+    assert!(
+        next.client_seq > first,
+        "the restarted outbox handed out {first} again, so the coordinator could not tell the \
+         replay from a new open"
+    );
+    assert_eq!(
+        next.client_seq % crate::event_store::SEQUENCE_BLOCK_SIZE,
+        1,
+        "the sequence is not on a block boundary, so the block claim is not what reserved it"
+    );
 
     // And the exact acknowledgement retires that one row and only that one.
     restarted.note_durable_ack(next.client_seq);

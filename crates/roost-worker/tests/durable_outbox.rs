@@ -95,7 +95,6 @@ async fn an_un_acknowledged_row_survives_a_restart() {
         let row = journal.append(&opened(SESSION)).await.expect("appended");
         assert_eq!(row.client_seq, 1);
         assert_eq!(journal.pending().await.expect("read").len(), 1);
-        journal.close().await.expect("closed");
         row.client_seq
     };
 
@@ -128,7 +127,7 @@ async fn a_sequence_is_never_handed_out_twice_across_a_restart() {
         let journal = journal_in(&scratch).await;
         journal.append(&opened(SESSION)).await.expect("appended").client_seq
     };
-    {
+    let next = {
         let journal = journal_in(&scratch).await;
         assert_eq!(
             journal.handed_over_at(),
@@ -141,14 +140,18 @@ async fn a_sequence_is_never_handed_out_twice_across_a_restart() {
             "the restarted store handed out {first} again, so the coordinator could not tell the \
              close from the open"
         );
-        journal.close().await.expect("closed");
-    }
+        next
+    };
     let journal = journal_in(&scratch).await;
     let waiting = journal.pending().await.expect("read");
+    // BOTH rows, and that is the point: the second process wrote a close and
+    // was never acknowledged for it, so a close it has no answer for is still
+    // waiting. Only an acknowledgement retires a row, so "the process ended" is
+    // not one.
     assert_eq!(
         waiting.iter().map(|row| row.client_seq).collect::<Vec<_>>(),
-        vec![first],
-        "the acknowledged close left the outbox, so the restart replayed it"
+        vec![first, next.client_seq],
+        "a row the coordinator never acknowledged did not survive the restart"
     );
 }
 

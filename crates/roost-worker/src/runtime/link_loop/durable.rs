@@ -25,7 +25,7 @@ use roost_protocol::wire::event::SessionEvent;
 
 use crate::event_store::database::{Journal, JournalError, JournalStats, PendingRow};
 
-use super::LinkLoop;
+use super::{DurableWrite, LinkLoop};
 
 /// How many acknowledgements may be waiting to be applied.
 ///
@@ -45,6 +45,8 @@ pub enum OutboxRefusal {
     Unencodable { reason: String },
     #[error(transparent)]
     Mirror(#[from] super::DurableRefusal),
+    #[error("the barrier refused the outbox's sequence: {reason}")]
+    UnusableSequence { reason: String },
     #[error(
         "this link's barrier already issued up to {issued}, so it cannot resume the outbox's \
          sequence at {next_sequence}"
@@ -124,8 +126,40 @@ impl LinkLoop {
             .map_err(|error| OutboxRefusal::Unencodable {
                 reason: error.to_string(),
             })?;
-        self.enqueue_durable(bytes)?;
+        self.enqueue_durable_at(row.client_seq, bytes)?;
         Ok(row)
+    }
+
+    /// Offer a durable event the outbox has already numbered.
+    ///
+    /// The same three steps [`LinkLoop::enqueue_durable`] takes — the mirror, the
+    /// pump, the apply — except the pump is TOLD the sequence instead of
+    /// inventing one. That is the whole reason this is a separate path: the
+    /// outbox allocates `client_seq` in blocks, and two allocators of one space
+    /// drift apart at every block boundary.
+    pub fn enqueue_durable_at(
+        &mut self,
+        client_seq: u64,
+        bytes: Vec<u8>,
+    ) -> Result<(), OutboxRefusal> {
+        if let Some(refusal) = self.mirror_refusal(bytes.len()) {
+            return Err(OutboxRefusal::Mirror(refusal));
+        }
+        self.durable_bytes += bytes.len();
+        // Copied once, for the reason `enqueue_durable` gives: the pump keeps
+        // its own copy and never hands it back.
+        self.durable.push_back(DurableWrite {
+            bytes: bytes.clone(),
+            seq: Some(client_seq),
+        });
+        let action = self
+            .pump
+            .enqueue_durable_at(client_seq, bytes)
+            .map_err(|refusal| OutboxRefusal::UnusableSequence {
+                reason: refusal.to_string(),
+            })?;
+        crate::runtime::link_drain::apply_to(self, action);
+        Ok(())
     }
 
     /// The oldest row the outbox still holds, which is the only one that may go
