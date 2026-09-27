@@ -1193,17 +1193,40 @@ commits answer 5 close-code and 3 keepalive — identical, and nothing was added
 did.** `-w` ignores whitespace *within* a line, but when a formatter splits one
 line into four the diff hunks move and `-w` does not merge them. A whole-tree
 `cargo fmt` pass still reports **77 files, 1314 insertions, 576 deletions** under
-`-w`, which reads as substantial content change and is not. **`--word-diff` is the
-instrument: it shows the identical tokens reflowed, and a reader can see that in
-one glance. `-w --stat` will mislead you on exactly the case where you need it.**
+`-w`, which reads as substantial content change and is not. **`--word-diff` is NOT
+the instrument either — it is line-based too, and it shows a reflow as changed
+lines. Both were tried on a 77-file formatter pass and both were inconclusive.**
+
+**What settles it is comparing the whitespace-stripped token stream per file:**
+
+```bash
+for f in $(git diff --name-only); do
+  [ "$(git show HEAD:"$f" | tr -d ' \t\n')" = "$(tr -d ' \t\n' < "$f")" ] || echo "CONTENT: $f"
+done
+```
+
+**And normalise trailing commas as well**, because a formatter adds and removes
+them when it re-wraps: on the web track's pass, whitespace-stripping alone flagged
+**56 files** and 56 still differed after `s/,)//g`, so the flag is only meaningful
+once both are applied — and a file it still names is a **real** content change, not
+a reflow.
+
+**The lesson is the one this whole section is about: I read one file's
+`--word-diff`, saw tokens on new lines, and called all 77 files pure formatting.
+A sample read as a conclusion is the same error as the accusation this entry
+corrects** — and it is the reason the instrument has to be mechanical rather than a
+glance.
 
 **And the general rule the pair of instances produced: a tree-wide formatter pass
 is its own commit, every time.** The coordinator's `cargo fmt` touched five test
-files it had not authored; the web track's touched 77 across three crates. In both
-cases a reviewer reading "the formatter's pass" skips the diff — and in the
-coordinator's case the skipped diff happened to contain the close-code assertions
-that were under review. **A commit's subject line is the only thing that tells a
-reader which changes were intended, and a formatter's are not.**
+files it had not authored; the web track's touched 77 across three crates, mixed in
+with the registration work those same files needed. **A reviewer reading "the
+formatter's pass" skips the diff, so a commit whose subject says "formatting" must
+contain nothing else.** The coordinator's commit was exactly that and needed no
+repair: its ten test functions and 43 assertions are identical across `7c78b57b` and
+`0d4df396`, and the close-code assertions in it were **rewrapped, not added**. A
+commit's subject line is the only thing that tells a reader which changes were
+intended, and a formatter's are not.
 
 **The general rule, and it is the same as every other entry here: an instrument
 has to be able to fail before its number means anything.** `--stat` counts lines,
