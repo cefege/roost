@@ -161,8 +161,12 @@ fn preserves_text_ctrl_alt_and_meta_ownership() {
         )
         .to_bytes(false)
         .as_deref(),
-        Some(&b"\x1bOP"[..]),
-        "Alt+F1 keeps the SS3 introducer and adds no ESC prefix"
+        Some(&b"\x1b[1;3P"[..]),
+        "Alt+F1 is F1 WITH the alt modifier, so it takes the CSI modifier form \
+         and the modifier must survive. v2's terminalInput.ts returns \
+         `\x1b[1;<modifier><final>` for any modified function key and reserves \
+         SS3 for the unmodified one, so encoding this as a bare `\x1bOP` would \
+         hand the shell a plain F1 and drop the Alt the reader pressed."
     );
     assert_eq!(
         held(

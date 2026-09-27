@@ -7,6 +7,8 @@
 //! Test names are v2's, from
 //! `apps/web/tests/terminalMouseForwarding.dom.test.ts`.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 mod mouse_forwarding_support;
 
 use mouse_forwarding_support::*;
