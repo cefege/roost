@@ -48,7 +48,8 @@ pub use coord_config_origin::{
     normalize_https_origin, validate_bare_http_origin, validate_bare_https_origin,
 };
 pub use env::{
-    EnvSource, HOME_ENV, MapEnv, ProcessEnv, XDG_DATA_HOME_ENV, XDG_STATE_HOME_ENV,
+    EnvSource, HOME_ENV, MapEnv, ProcessEnv, XDG_CONFIG_HOME_ENV, XDG_DATA_HOME_ENV,
+    XDG_STATE_HOME_ENV,
     host_platform_from_os, supported_host_platform,
 };
 pub use jwt_base::{b64url_decode, b64url_decode_to_utf8, b64url_encode};
