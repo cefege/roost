@@ -54,7 +54,10 @@ fn legacy(revision: i64, completed_revision: i64) -> AgentStatus {
 #[test]
 fn an_unseen_completion_of_an_identified_occupant_reads_done_and_a_seen_one_reads_idle() {
     let done = status(9, 9, AgentRuntimeState::Idle);
-    assert_eq!(derive_agent_status_level(Some(&done), None), AgentStatusLevel::Done);
+    assert_eq!(
+        derive_agent_status_level(Some(&done), None),
+        AgentStatusLevel::Done
+    );
     assert_eq!(
         derive_agent_status_level(Some(&done), Some(9)),
         AgentStatusLevel::Idle,
@@ -85,18 +88,23 @@ fn blocked_and_working_outrank_a_completion() {
         "an agent waiting for a human is not done, whatever it completed"
     );
     let working = status(9, 9, AgentRuntimeState::Working);
-    assert_eq!(derive_agent_status_level(Some(&working), None), AgentStatusLevel::Working);
-    assert_eq!(derive_agent_status_level(None, None), AgentStatusLevel::Unknown);
+    assert_eq!(
+        derive_agent_status_level(Some(&working), None),
+        AgentStatusLevel::Working
+    );
+    assert_eq!(
+        derive_agent_status_level(None, None),
+        AgentStatusLevel::Unknown
+    );
 }
 
 #[test]
 fn a_replacement_occupants_first_report_does_not_replay_the_previous_completion() {
     let previous = status(90, 90, AgentRuntimeState::Idle);
     let mut replacement = status(1, 1, AgentRuntimeState::Idle);
-    replacement.common.occupant_id = Some(AgentOccupantId::try_from(
-        "22222222-aaaa-4aaa-8aaa-222222222222",
-    )
-    .expect("an occupant"));
+    replacement.common.occupant_id = Some(
+        AgentOccupantId::try_from("22222222-aaaa-4aaa-8aaa-222222222222").expect("an occupant"),
+    );
     let mut ledger = AgentSeenLedger::new();
     ledger.mark_seen(&previous);
 
@@ -112,12 +120,18 @@ fn a_replacement_occupants_first_report_does_not_replay_the_previous_completion(
         "the two occupants must be keyed differently or this test proves nothing"
     );
     assert_eq!(
-        derive_agent_status_level(Some(&replacement), Some(ledger.acknowledged_revision(&replacement))),
+        derive_agent_status_level(
+            Some(&replacement),
+            Some(ledger.acknowledged_revision(&replacement))
+        ),
         AgentStatusLevel::Done,
         "the replacement has not been acknowledged, so ITS completion is unseen"
     );
     assert_eq!(
-        derive_agent_status_level(Some(&previous), Some(ledger.acknowledged_revision(&previous))),
+        derive_agent_status_level(
+            Some(&previous),
+            Some(ledger.acknowledged_revision(&previous))
+        ),
         AgentStatusLevel::Idle,
         "the previous occupant's own revision is acknowledged under its own key"
     );
@@ -128,7 +142,10 @@ fn the_ledger_survives_a_round_trip_through_storage_and_merges_a_second_tabs_wri
     let mut ledger = AgentSeenLedger::new();
     let done = status(9, 9, AgentRuntimeState::Idle);
     assert!(ledger.mark_seen(&done));
-    assert!(!ledger.mark_seen(&done), "acknowledging twice moves nothing");
+    assert!(
+        !ledger.mark_seen(&done),
+        "acknowledging twice moves nothing"
+    );
 
     let raw = ledger.encode();
     assert!(!raw.is_empty());
@@ -180,16 +197,18 @@ fn a_revision_token_only_matches_its_own_occupant() {
     let token = agent_status_revision_token(&done);
     assert!(matches_agent_status_revision_token(&done, &token));
     let mut replacement = status(9, 9, AgentRuntimeState::Idle);
-    replacement.common.occupant_id = Some(AgentOccupantId::try_from(
-        "22222222-aaaa-4aaa-8aaa-222222222222",
-    )
-    .expect("an occupant"));
+    replacement.common.occupant_id = Some(
+        AgentOccupantId::try_from("22222222-aaaa-4aaa-8aaa-222222222222").expect("an occupant"),
+    );
     assert!(
         !matches_agent_status_revision_token(&replacement, &token),
         "two occupants of one session both reach revision 9, so a bare revision \
          would match the wrong agent"
     );
-    assert_eq!(agent_status_occupant_key(&done.common), Some(format!("{EPOCH}:{OCCUPANT}")));
+    assert_eq!(
+        agent_status_occupant_key(&done.common),
+        Some(format!("{EPOCH}:{OCCUPANT}"))
+    );
     assert_eq!(agent_status_occupant_key(&legacy(1, 1).common), None);
 }
 
@@ -248,8 +267,7 @@ fn every_level_has_a_presentation_and_a_dot_status() {
         AgentStatusLevel::Idle,
         AgentStatusLevel::Unknown,
     ] {
-        let presentation =
-            roost_client_core::client::agents::agent_status_presentation(level);
+        let presentation = roost_client_core::client::agents::agent_status_presentation(level);
         assert!(!presentation.label.is_empty());
         assert!(!presentation.count_label.is_empty());
         assert!(!presentation.tooltip.is_empty());

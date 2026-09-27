@@ -85,8 +85,9 @@ fn an_exported_document_carries_positional_keys_and_no_runtime_pane_id() {
         export_layout_document(FOLDER, &session_ids(&[ALPHA, BETA]), &split),
         "export",
     );
-    // Preorder, first leaf then first, second leaf then second.
-    assert_eq!(document.focused_leaf_key, "leaf-1");
+    // Preorder, first leaf then first, second leaf then second. Focus follows
+    // the split's NEW pane, which with `insert_first = false` is the second.
+    assert_eq!(document.focused_leaf_key, "leaf-2");
     assert_eq!(
         document
             .bindings

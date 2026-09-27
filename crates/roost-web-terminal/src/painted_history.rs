@@ -58,13 +58,23 @@ impl PaintedHistory {
         &self.indices
     }
 
+    /// Drop every painted row, leaving an empty store.
+    ///
+    /// A reconcile repaints the whole sheet from the frame's own history, so
+    /// the rows it is about to replace must not survive as coverage claims —
+    /// every interval query afterwards answers from the store.
+    pub fn clear(&mut self) {
+        self.rows.clear();
+        self.indices.clear();
+    }
+
     /// The painted row at one absolute index, or `None` when it is unpainted.
     pub fn row_at(&self, index: u32) -> Option<&CellRow> {
         let position = intervals::insertion_index(&self.indices, index);
         self.indices
             .get(position)
             .filter(|painted| **painted == index)
-            .map(|painted| &self.rows[position])
+            .map(|_| &self.rows[position])
     }
 
     /// Splice one contiguous page in at its sorted position. The caller has
@@ -75,7 +85,8 @@ impl PaintedHistory {
             return;
         };
         let position = intervals::insertion_index(&self.indices, first.index);
-        self.indices.splice(position..position, page.iter().map(|row| row.index));
+        self.indices
+            .splice(position..position, page.iter().map(|row| row.index));
         self.rows.splice(position..position, page.iter().cloned());
     }
 
@@ -97,21 +108,12 @@ impl PaintedHistory {
     }
 
     /// The missing interval containing one row, or `None` when it is painted.
-    pub fn missing_range_at(
-        &self,
-        total: u32,
-        row: u32,
-    ) -> Option<intervals::HistoryRange> {
+    pub fn missing_range_at(&self, total: u32, row: u32) -> Option<intervals::HistoryRange> {
         intervals::missing_range_at(&self.indices, total, row)
     }
 
     /// The missing intervals inside one requested range, ascending.
-    pub fn missing_ranges(
-        &self,
-        total: u32,
-        start: u32,
-        end: u32,
-    ) -> Vec<intervals::HistoryRange> {
+    pub fn missing_ranges(&self, total: u32, start: u32, end: u32) -> Vec<intervals::HistoryRange> {
         intervals::missing_ranges(&self.indices, total, start, end)
     }
 
@@ -170,7 +172,9 @@ pub fn plan_eviction(
         return None;
     }
     let excess = painted.len() - cap;
-    let rows = u32::try_from(excess).unwrap_or(u32::MAX).min(leading_block_rows);
+    let rows = u32::try_from(excess)
+        .unwrap_or(u32::MAX)
+        .min(leading_block_rows);
     if rows == 0 {
         return None;
     }

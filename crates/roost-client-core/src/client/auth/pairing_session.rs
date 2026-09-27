@@ -27,9 +27,8 @@ use std::fmt;
 
 use crate::client::auth::ceremony::{
     CeremonyError, PAIRING_CEREMONY_VERSION, RandomSource, compact_pair_verification_code,
-    generate_pair_request_id, generate_pair_requester_token,
-    normalize_pair_request_id, normalize_pair_requester_token,
-    normalize_pair_verification_code,
+    generate_pair_request_id, generate_pair_requester_token, normalize_pair_request_id,
+    normalize_pair_requester_token, normalize_pair_verification_code,
 };
 
 use crate::client::auth::pairing_requests::{
@@ -142,14 +141,12 @@ impl fmt::Display for PairingError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Ceremony(error) => write!(formatter, "{error}"),
-            Self::RequestMismatch => write!(
-                formatter,
-                "the pairing request did not match this browser"
-            ),
-            Self::MalformedVerificationCode => write!(
-                formatter,
-                "the verification code is not six digits"
-            ),
+            Self::RequestMismatch => {
+                write!(formatter, "the pairing request did not match this browser")
+            }
+            Self::MalformedVerificationCode => {
+                write!(formatter, "the verification code is not six digits")
+            }
             Self::MalformedRequestId => write!(
                 formatter,
                 "the pair request id is not 32 lowercase hex characters"
@@ -271,7 +268,10 @@ impl PairingSession {
 
     /// The `PairPoll` body, or `None` before the coordinator has the request.
     pub fn poll_request(&self) -> Option<PairPollRequest> {
-        if !matches!(self.stage, PairStage::Acknowledged | PairStage::VerificationRequired) {
+        if !matches!(
+            self.stage,
+            PairStage::Acknowledged | PairStage::VerificationRequired
+        ) {
             return None;
         }
         Some(PairPollRequest {
@@ -289,9 +289,9 @@ impl PairingSession {
             PairPollStatus::Pending | PairPollStatus::Unknown(_) => self.stage,
             PairPollStatus::VerificationRequired => PairStage::VerificationRequired,
             PairPollStatus::Completed => PairStage::Completed,
-            PairPollStatus::Denied | PairPollStatus::Expired | PairPollStatus::VerificationFailed => {
-                PairStage::Terminal
-            }
+            PairPollStatus::Denied
+            | PairPollStatus::Expired
+            | PairPollStatus::VerificationFailed => PairStage::Terminal,
             PairPollStatus::Idle => self.stage,
         };
         if status.is_terminal() {

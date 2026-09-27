@@ -97,7 +97,10 @@ fn two_machines_at_the_same_path_hold_separate_browsers() {
     assert!(browse.open_child(&a, "app", &ExactBrowsePaths));
     assert!(browse.open_child(&b, "app", &ExactBrowsePaths));
 
-    assert_eq!(browse.get(&a).expect("machine A is open").cwd(), "~/src/app");
+    assert_eq!(
+        browse.get(&a).expect("machine A is open").cwd(),
+        "~/src/app"
+    );
     assert_eq!(
         browse.get(&b).expect("machine B is open").cwd(),
         "~/src/app",
@@ -135,10 +138,14 @@ fn a_machines_recents_never_include_another_machines_even_at_the_same_path() {
     let recents_a = browse.get(&a).expect("machine A is open").recents(&all);
     let recents_b = browse.get(&b).expect("machine B is open").recents(&all);
 
-    assert_eq!(recents_a, vec!["~/src".to_owned(), "/home/dev/work".to_owned()]);
+    assert_eq!(
+        recents_a,
+        vec!["~/src".to_owned(), "/home/dev/work".to_owned()]
+    );
     assert_eq!(recents_b, vec!["~/src".to_owned(), "~/notes".to_owned()]);
     assert!(
-        recents_a.contains(&"~/notes".to_owned()) || recents_b.contains(&"/home/dev/work".to_owned()),
+        !recents_a.contains(&"~/notes".to_owned())
+            && !recents_b.contains(&"/home/dev/work".to_owned()),
         "this test is only meaningful while the two lists differ"
     );
     assert_eq!(
@@ -173,7 +180,12 @@ fn a_listing_reply_for_a_path_the_viewer_left_cannot_repaint_the_current_one() {
         "a reply for a directory the viewer has left must be dropped whole"
     );
     assert!(
-        browse.get(&a).expect("machine A is open").listing().entries().is_empty()
+        browse
+            .get(&a)
+            .expect("machine A is open")
+            .listing()
+            .entries()
+            .is_empty()
     );
 
     assert!(browse.apply_listing(
@@ -214,11 +226,21 @@ fn two_machines_listing_at_once_do_not_fence_each_other() {
         vec![BrowseEntry::file("b-only", 1)],
     ));
     assert_eq!(
-        browse.get(&a).expect("machine A is open").listing().entries()[0].name,
+        browse
+            .get(&a)
+            .expect("machine A is open")
+            .listing()
+            .entries()[0]
+            .name,
         "a-only"
     );
     assert_eq!(
-        browse.get(&b).expect("machine B is open").listing().entries()[0].name,
+        browse
+            .get(&b)
+            .expect("machine B is open")
+            .listing()
+            .entries()[0]
+            .name,
         "b-only"
     );
 }
@@ -274,7 +296,10 @@ fn a_filtered_listing_keeps_dot_directories_out_and_their_names_available_to_mkd
 #[test]
 fn the_home_sentinel_is_a_path_browse_can_start_on_and_up_cannot_leave() {
     let paths = ExactBrowsePaths;
-    assert_eq!(paths.child(BROWSE_HOME, "src"), "src");
+    // v2's `nativePathJoin` keeps the `~` sentinel and appends with a
+    // separator, so a child of home is `~/src` — and one `..` from it lands
+    // back on `~` rather than on `/`.
+    assert_eq!(paths.child(BROWSE_HOME, "src"), "~/src");
     assert_eq!(paths.parent(BROWSE_HOME), BROWSE_HOME);
     assert_eq!(paths.parent("/"), "/");
     assert_eq!(paths.parent("/home/dev"), "/home");
@@ -287,14 +312,21 @@ fn the_home_sentinel_is_a_path_browse_can_start_on_and_up_cannot_leave() {
     assert!(!browse.go_up(&a, &paths), "up from home must not move");
     assert!(browse.open_child(&a, "src", &paths));
     assert!(browse.go_up(&a, &paths));
-    assert_eq!(browse.get(&a).expect("machine A is open").cwd(), BROWSE_HOME);
+    assert_eq!(
+        browse.get(&a).expect("machine A is open").cwd(),
+        BROWSE_HOME
+    );
 }
 
 #[test]
 fn an_entry_time_reads_relative_and_then_as_a_utc_date() {
     let now = 1_800_000_000_000_i64;
     assert_eq!(relative_entry_time(0, now), "");
-    assert_eq!(relative_entry_time(-1, now), "", "a clock behind reads as no time");
+    assert_eq!(
+        relative_entry_time(-1, now),
+        "",
+        "a clock behind reads as no time"
+    );
     assert_eq!(relative_entry_time(now - 30_000, now), "just now");
     assert_eq!(relative_entry_time(now - 5 * 60_000, now), "5m ago");
     assert_eq!(relative_entry_time(now - 5 * 3_600_000, now), "5h ago");

@@ -89,10 +89,7 @@ fn preferences_round_trip_through_storage() {
             !mouse_gestures_forwarded(store, 0),
             "a zero tracking mode forwards nothing"
         );
-        assert!(
-            !mouse_gestures_forwarded(store, 2),
-            "the device says no"
-        );
+        assert!(!mouse_gestures_forwarded(store, 2), "the device says no");
         assert!(set_mouse_forward(store, &storage, true));
         assert!(
             mouse_gestures_forwarded(store, 2),
@@ -137,7 +134,10 @@ fn preferences_round_trip_through_storage() {
     assert!(store.prefs.copy_on_select);
     assert!(store.prefs.keyboard_resize);
     assert!(!store.prefs.keyterm_biasing);
-    assert!(!store.prefs.mouse_forward);
+    assert!(
+        store.prefs.mouse_forward,
+        "the stored \"1\" was this flag's LAST write, so the reboot reads it back on"
+    );
     assert_eq!(store.prefs.predict, PredictMode::Always);
     assert_eq!(store.prefs.term_font_px, 22);
     assert!(store.prefs.notify.desktop);

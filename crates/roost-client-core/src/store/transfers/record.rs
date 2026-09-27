@@ -26,7 +26,6 @@ impl TransferDirection {
     }
 }
 
-
 /// Where a transfer is in its life.
 ///
 /// `Stalled` is the one state v2 has no name for: a card that stopped advancing.

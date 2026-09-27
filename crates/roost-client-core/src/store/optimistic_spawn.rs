@@ -275,13 +275,13 @@ impl SpawnLedger {
     /// leaves a tombstone as well as an entry.
     fn relevance(&self, ticket: &SpawnTicket) -> Option<SupersededReason> {
         match self.entries.get(&ticket.session_id) {
-            Some(entry) if entry.ticket.attempt != ticket.attempt => Some(
-                if entry.ticket.attempt > ticket.attempt {
+            Some(entry) if entry.ticket.attempt != ticket.attempt => {
+                Some(if entry.ticket.attempt > ticket.attempt {
                     SupersededReason::ReplacedByNewerAttempt
                 } else {
                     SupersededReason::NeverExisted
-                },
-            ),
+                })
+            }
             Some(entry) if entry.state != EntryState::Pending => {
                 Some(SupersededReason::AlreadySettled)
             }

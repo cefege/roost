@@ -22,7 +22,8 @@ pub fn merge_global_search_matches(
     incoming: &[GlobalSearchMatch],
 ) -> Vec<GlobalSearchMatch> {
     let mut merged = current.to_vec();
-    let mut identities: BTreeSet<String> = current.iter().map(GlobalSearchMatch::identity).collect();
+    let mut identities: BTreeSet<String> =
+        current.iter().map(GlobalSearchMatch::identity).collect();
     for candidate in incoming {
         if identities.insert(candidate.identity()) {
             merged.push(candidate.clone());
@@ -48,7 +49,8 @@ pub fn reconcile_global_search_partials(
         .cloned()
         .collect();
     let mut merged = retained.clone();
-    let mut identities: BTreeSet<String> = retained.iter().map(GlobalSearchPartial::identity).collect();
+    let mut identities: BTreeSet<String> =
+        retained.iter().map(GlobalSearchPartial::identity).collect();
     for candidate in incoming {
         if identities.insert(candidate.identity()) {
             merged.push(candidate.clone());

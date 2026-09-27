@@ -36,11 +36,7 @@ pub struct TerminalCellGeometry {
 /// application a column past `cols` or a row past `rows` — which real TUIs
 /// mishandle rather than ignore. A gesture in the margin belongs to the
 /// nearest edge cell.
-pub fn cell_from_point(
-    geometry: TerminalCellGeometry,
-    client_x: f64,
-    client_y: f64,
-) -> (u32, u32) {
+pub fn cell_from_point(geometry: TerminalCellGeometry, client_x: f64, client_y: f64) -> (u32, u32) {
     let column = 1 + ((client_x - geometry.left) / geometry.cell_width).floor() as i64;
     let row = 1 + ((client_y - geometry.top) / geometry.row_height).floor() as i64;
     (

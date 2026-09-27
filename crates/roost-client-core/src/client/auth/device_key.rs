@@ -36,16 +36,16 @@ use std::cell::RefCell;
 
 mod probe;
 
-use crate::client::auth::keystore::{
-    DEVICE_KEY_SLOT, DeviceKey, KEY_MINTED_FLAG, KeyAdmission, KeyStoreError, RotationStage,
-    SecureKeyStore,
-};
 use crate::client::auth::jwt::{
     CoordinatorJwt, JWT_CACHE_TTL_MS, bearer_for_signing, build_unsigned_jwt, public_key_b64,
 };
 use crate::client::auth::key_rotation::{
     DeviceKeyProbe, DeviceKeyRotator, ResetOutcome, RotationError, RotationOutcome,
     RotationRecovery, RotationRequest,
+};
+use crate::client::auth::keystore::{
+    DEVICE_KEY_SLOT, DeviceKey, KEY_MINTED_FLAG, KeyAdmission, KeyStoreError, RotationStage,
+    SecureKeyStore,
 };
 use crate::platform::{Clock, KeyValueStore};
 
@@ -99,9 +99,14 @@ impl std::fmt::Debug for DeviceKeyManager<'_> {
             .debug_struct("DeviceKeyManager")
             .field(
                 "fingerprint",
-                &cached.as_ref().map(|cached| cached.info.fingerprint.as_str()),
+                &cached
+                    .as_ref()
+                    .map(|cached| cached.info.fingerprint.as_str()),
             )
-            .field("credential_cached", &cached.as_ref().is_some_and(|c| c.jwt.is_some()))
+            .field(
+                "credential_cached",
+                &cached.as_ref().is_some_and(|c| c.jwt.is_some()),
+            )
             .finish()
     }
 }
@@ -292,11 +297,7 @@ impl<'host> DeviceKeyManager<'host> {
     }
 
     /// Take a key into use, refusing one whose private half is extractable.
-    fn adopt(
-        &self,
-        key: DeviceKey,
-        slot: &'static str,
-    ) -> Result<CurrentKeyInfo, KeyStoreError> {
+    fn adopt(&self, key: DeviceKey, slot: &'static str) -> Result<CurrentKeyInfo, KeyStoreError> {
         let descriptor = self.store.describe(key)?;
         if descriptor.extractable {
             return Err(KeyStoreError::ExtractableKeyRefused { slot });

@@ -10,12 +10,11 @@
 //! which leaves a ceremony polling for a request that does not exist.
 
 use roost_client_core::client::auth::{
-    CeremonyStore, DeviceKeyManager, FixedRandomSource, KeyAdmission,
-    MemorySecureKeyStore, PAIR_APPROVAL_STORAGE_KEY, PAIRING_CEREMONY_STORAGE_KEY,
-    PAIRING_CEREMONY_VERSION, PairApproval, PairPollStatus, PairStage, PairingError,
-    PairingSession, ScriptedRandomSource, compact_pair_verification_code,
-    generate_pair_request_id, generate_pair_requester_token, generate_pair_verification_code,
-    normalize_pair_request_id, normalize_pair_requester_token,
+    CeremonyStore, DeviceKeyManager, FixedRandomSource, KeyAdmission, MemorySecureKeyStore,
+    PAIR_APPROVAL_STORAGE_KEY, PAIRING_CEREMONY_STORAGE_KEY, PAIRING_CEREMONY_VERSION,
+    PairApproval, PairPollStatus, PairStage, PairingError, PairingSession, ScriptedRandomSource,
+    compact_pair_verification_code, generate_pair_request_id, generate_pair_requester_token,
+    generate_pair_verification_code, normalize_pair_request_id, normalize_pair_requester_token,
     normalize_pair_verification_code,
 };
 use roost_client_core::{MemoryClock, MemoryKeyValueStore};
@@ -30,15 +29,19 @@ fn ceremony_entropy_has_the_widths_the_wire_declares_and_one_spelling() {
     let request_id = generate_pair_request_id(&source).expect("request id");
     let token = generate_pair_requester_token(&source).expect("token");
 
-    assert_eq!(request_id.len(), 32, "16 bytes, 32 lowercase hex characters");
+    assert_eq!(
+        request_id.len(),
+        32,
+        "16 bytes, 32 lowercase hex characters"
+    );
     assert_eq!(token.len(), 64, "32 bytes, 64 lowercase hex characters");
     assert_eq!(request_id, "ab".repeat(16));
     assert_eq!(token, "ab".repeat(32));
-    assert_eq!(normalize_pair_request_id(&request_id), Some(request_id.clone()));
     assert_eq!(
-        normalize_pair_requester_token(&token),
-        Some(token.clone())
+        normalize_pair_request_id(&request_id),
+        Some(request_id.clone())
     );
+    assert_eq!(normalize_pair_requester_token(&token), Some(token.clone()));
 }
 
 #[test]
@@ -49,7 +52,11 @@ fn a_value_with_a_second_spelling_is_not_the_value() {
     assert_eq!(normalize_pair_request_id(&id.to_uppercase()), None);
     assert_eq!(normalize_pair_requester_token(&"AB".repeat(32)), None);
     assert_eq!(normalize_pair_request_id(&id[..31]), None, "one short");
-    assert_eq!(normalize_pair_request_id(&format!("{id}0")), None, "one long");
+    assert_eq!(
+        normalize_pair_request_id(&format!("{id}0")),
+        None,
+        "one long"
+    );
     assert_eq!(normalize_pair_request_id(&"g".repeat(32)), None, "not hex");
 }
 
@@ -67,9 +74,8 @@ fn a_verification_code_is_six_digits_and_a_draw_above_the_limit_is_discarded() {
     // 0x00010203 = 66_051 renders as 066051. Only a scripted source can state
     // this — the rejection window is the top 0.023% of the u32 range, and a
     // counting source's highest reachable draw is 0xff000102.
-    let code =
-        generate_pair_verification_code(&ScriptedRandomSource::rejecting_then(0x0001_0203))
-            .expect("code");
+    let code = generate_pair_verification_code(&ScriptedRandomSource::rejecting_then(0x0001_0203))
+        .expect("code");
     assert_eq!(code, "066051");
 
     // A code the human typed or pasted arrives with spaces in it often enough
@@ -80,7 +86,11 @@ fn a_verification_code_is_six_digits_and_a_draw_above_the_limit_is_discarded() {
         normalize_pair_verification_code(&compact_pair_verification_code("430-090")),
         None
     );
-    assert_eq!(normalize_pair_verification_code("43009"), None, "five digits");
+    assert_eq!(
+        normalize_pair_verification_code("43009"),
+        None,
+        "five digits"
+    );
     assert_eq!(normalize_pair_verification_code("4300900"), None, "seven");
 }
 
@@ -101,7 +111,10 @@ fn a_pair_request_carries_the_public_key_and_never_the_private_half() {
         !rendered.contains(private_hex.as_str()),
         "the request that leaves the origin must not carry the private key"
     );
-    assert_eq!(request.ssh_pubkey_b64, keys.public_key_b64().expect("public key"));
+    assert_eq!(
+        request.ssh_pubkey_b64,
+        keys.public_key_b64().expect("public key")
+    );
     assert_eq!(request.label, "laptop");
     assert_eq!(request.ceremony_version, PAIRING_CEREMONY_VERSION);
     assert_eq!(
@@ -109,10 +122,7 @@ fn a_pair_request_carries_the_public_key_and_never_the_private_half() {
         session.ceremony().ephemeral_id,
         "the request names the ceremony that generated it"
     );
-    assert_eq!(
-        request.requester_token,
-        session.ceremony().requester_token
-    );
+    assert_eq!(request.requester_token, session.ceremony().requester_token);
 }
 
 /// A probe that must never be reached; the manager's public key needs no probe.
@@ -183,7 +193,10 @@ fn a_ceremony_moves_through_its_stages_and_refuses_the_ones_it_is_not_in() {
         status: "awaiting_notary".to_string(),
         expires_at_ms: 600_000,
     });
-    assert_eq!(status, PairPollStatus::Unknown("awaiting_notary".to_string()));
+    assert_eq!(
+        status,
+        PairPollStatus::Unknown("awaiting_notary".to_string())
+    );
     assert_eq!(status.as_wire(), None);
     assert!(!status.is_terminal());
 
@@ -204,7 +217,8 @@ fn a_ceremony_moves_through_its_stages_and_refuses_the_ones_it_is_not_in() {
     assert_eq!(confirm.ephemeral_id, id);
 
     // A wrong code is an answer, not a failure: the ceremony stays live.
-    session.on_confirm_response(&roost_client_core::client::auth::PairConfirmResponse { ok: false });
+    session
+        .on_confirm_response(&roost_client_core::client::auth::PairConfirmResponse { ok: false });
     assert_eq!(session.stage(), PairStage::VerificationRequired);
     session.on_confirm_response(&roost_client_core::client::auth::PairConfirmResponse { ok: true });
     assert_eq!(session.stage(), PairStage::Completed);
@@ -227,20 +241,17 @@ fn every_terminal_status_ends_the_ceremony() {
         ("verification_failed", PairPollStatus::VerificationFailed),
         ("completed", PairPollStatus::Completed),
     ] {
-        let mut session =
-            PairingSession::create(&FixedRandomSource::new(0x44)).expect("ceremony");
+        let mut session = PairingSession::create(&FixedRandomSource::new(0x44)).expect("ceremony");
         let id = session.ceremony().ephemeral_id.clone();
         session
             .on_create_response(&roost_client_core::client::auth::PairCreateResponse {
                 ephemeral_id: id,
             })
             .expect("created");
-        let status = session.on_poll_response(
-            &roost_client_core::client::auth::PairPollResponse {
-                status: wire.to_string(),
-                expires_at_ms: 1,
-            },
-        );
+        let status = session.on_poll_response(&roost_client_core::client::auth::PairPollResponse {
+            status: wire.to_string(),
+            expires_at_ms: 1,
+        });
         assert_eq!(status, expected);
         assert_eq!(status.as_wire(), Some(wire));
         assert!(status.is_terminal(), "{wire} must end the ceremony");

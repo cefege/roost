@@ -15,8 +15,8 @@
 //! Ported from `packages/protocol/src/pairing.ts`; the limits are in
 //! `protocol/spec/auth-and-pairing.md:38-44`.
 
-use std::fmt;
 use std::collections::VecDeque;
+use std::fmt;
 
 /// The ceremony version this client speaks.
 ///
@@ -101,18 +101,14 @@ impl RandomSource for FixedRandomSource {
 }
 
 /// A 16-byte request id as 32 lowercase hex characters.
-pub fn generate_pair_request_id(
-    source: &dyn RandomSource,
-) -> Result<String, CeremonyError> {
+pub fn generate_pair_request_id(source: &dyn RandomSource) -> Result<String, CeremonyError> {
     let mut bytes = [0u8; PAIR_REQUEST_ID_BYTES];
     source.fill_bytes(&mut bytes)?;
     Ok(lower_hex(&bytes))
 }
 
 /// A 32-byte requester token as 64 lowercase hex characters.
-pub fn generate_pair_requester_token(
-    source: &dyn RandomSource,
-) -> Result<String, CeremonyError> {
+pub fn generate_pair_requester_token(source: &dyn RandomSource) -> Result<String, CeremonyError> {
     let mut bytes = [0u8; PAIR_REQUESTER_TOKEN_BYTES];
     source.fill_bytes(&mut bytes)?;
     Ok(lower_hex(&bytes))
@@ -222,9 +218,7 @@ impl RandomSource for ScriptedRandomSource {
 }
 
 /// A six-digit verification code, drawn without bias.
-pub fn generate_pair_verification_code(
-    source: &dyn RandomSource,
-) -> Result<String, CeremonyError> {
+pub fn generate_pair_verification_code(source: &dyn RandomSource) -> Result<String, CeremonyError> {
     loop {
         let mut bytes = [0u8; 4];
         source.fill_bytes(&mut bytes)?;
@@ -270,7 +264,10 @@ pub fn normalize_pair_verification_code(value: &str) -> Option<String> {
 /// whitespace goes: a dash is a different value, and quietly accepting one would
 /// be accepting a code nobody generated.
 pub fn compact_pair_verification_code(value: &str) -> String {
-    value.chars().filter(|character| !character.is_whitespace()).collect()
+    value
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect()
 }
 
 /// Whether `value` is exactly `expected` lowercase hex characters.

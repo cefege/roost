@@ -10,6 +10,7 @@
 use crate::cell_renderer::CellGridRenderer;
 use crate::cell_renderer::scrollback::{BLOCK_CLASS, GAP_CLASS};
 use crate::cell_renderer_dom::{detach, effective_row_height, size_scrollback_block};
+use crate::element_style::set_style_property;
 use crate::painted_history::{MAX_HELD_SCROLLBACK_ROWS, plan_eviction};
 
 impl CellGridRenderer {
@@ -129,7 +130,7 @@ impl CellGridRenderer {
             return true;
         }
         self.painted_spacer_height = height.clone();
-        self.spacer.style().set_property("height", &height);
+        set_style_property(&self.spacer, "height", &height);
         true
     }
 

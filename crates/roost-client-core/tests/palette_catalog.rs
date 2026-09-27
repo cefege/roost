@@ -17,7 +17,6 @@
 //! `a_palette_row_carries_the_credential_generation_its_action_captured` must fail.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use roost_client_core::store::navigation::{

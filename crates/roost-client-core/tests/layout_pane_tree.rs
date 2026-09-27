@@ -101,10 +101,7 @@ fn reconcile_prunes_dead_tabs_and_collapses_only_the_pane_the_prune_emptied() {
     // The same prune, emptying p2 as well: now p2 collapses into p1, and the
     // collapse is a layout decision the prune caused rather than a coincidence.
     let reconciled = reconcile(&layout, &session_ids(&[ALPHA]));
-    assert_eq!(
-        all_leaves(&reconciled.root).len(),
-        1
-    );
+    assert_eq!(all_leaves(&reconciled.root).len(), 1);
     assert!(find_leaf(&reconciled.root, "p1").is_some());
     assert!(find_leaf(&reconciled.root, "p2").is_none());
 }
@@ -177,10 +174,7 @@ fn a_move_between_panes_selects_the_moved_tab_and_closes_the_pane_it_emptied() {
     let moved = move_tab(&layout, ALPHA, "p2", None);
     // p1 held one tab and the move took it, so p1 collapses into p2 rather than
     // sitting in the deck as a pane with no strip and no way to close.
-    assert_eq!(
-        all_leaves(&moved.root).len(),
-        1
-    );
+    assert_eq!(all_leaves(&moved.root).len(), 1);
     assert_eq!(tabs_of(&moved.root, "p2"), session_ids(&[BETA, ALPHA]));
     assert_eq!(moved.focused_pane_id, "p2");
     assert_eq!(
@@ -202,16 +196,13 @@ fn closing_the_last_tab_of_a_pane_collapses_it_into_its_sibling() {
     };
     let after_one = close_tab(&layout, ALPHA);
     assert_eq!(tabs_of(&after_one.root, "p1"), session_ids(&[BETA]));
-    assert_eq!(
-        all_leaves(&after_one.root).len(),
-        2
-    );
+    assert_eq!(all_leaves(&after_one.root).len(), 2);
 
-    let after_all = close_tab(&layout, BETA);
-    assert_eq!(
-        all_leaves(&after_all.root).len(),
-        1
-    );
+    // BETA is p1's LAST tab only after ALPHA has gone, so the second close
+    // chains off the first; closing it from the original two-tab pane leaves
+    // p1 with ALPHA and collapses nothing.
+    let after_all = close_tab(&after_one, BETA);
+    assert_eq!(all_leaves(&after_all.root).len(), 1);
     assert_eq!(tabs_of(&after_all.root, "p2"), session_ids(&[GAMMA]));
     // Focus followed the collapse rather than naming a pane that is gone.
     assert!(find_leaf(&after_all.root, &after_all.focused_pane_id).is_some());

@@ -17,8 +17,8 @@
 //! `apps/web/src/components/browse/browseDirectoryListing.ts`. Depends on
 //! `browse_entries`, `browse_paths` and `roost_protocol::wire`.
 
-use std::collections::BTreeMap;
 use roost_protocol::wire::{Session, SessionId, WorkerFp};
+use std::collections::BTreeMap;
 
 use crate::store::browse_entries::BrowseEntry;
 use crate::store::browse_paths::{BROWSE_HOME, BrowsePathOps};

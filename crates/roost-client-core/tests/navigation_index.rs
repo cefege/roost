@@ -17,7 +17,6 @@
 //! must fail.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use roost_client_core::ClientCore;
@@ -240,7 +239,9 @@ fn every_agent_level_token_maps_onto_exactly_one_attention_state() {
 
 #[test]
 fn reachability_is_the_routable_set_when_there_is_one_and_freshness_before_it() {
-    let worker = worker(MACHINE, 1_699_999_000_000);
+    // Fresh by a second: the window is 90s, and every assertion here measures
+    // against `now = 1_700_000_000_000`.
+    let worker = worker(MACHINE, 1_700_000_000_000 - 1_000);
     let routable: BTreeSet<String> = BTreeSet::from([OTHER_MACHINE.to_owned()]);
     assert!(
         !worker_online(&worker, Some(&routable), 1_700_000_000_000),

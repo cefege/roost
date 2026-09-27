@@ -22,7 +22,10 @@ use roost_client_core::KeyValueStore as _;
 use support::auth::{LostRaceStore, ScriptedProbe, store_with_current};
 
 /// A store with a current key already in it, for a manager that must not mint.
-fn filled() -> (MemorySecureKeyStore, roost_client_core::client::auth::DeviceKey) {
+fn filled() -> (
+    MemorySecureKeyStore,
+    roost_client_core::client::auth::DeviceKey,
+) {
     let store = MemorySecureKeyStore::new();
     let key = store_with_current(&store);
     (store, key)
@@ -34,7 +37,9 @@ fn the_current_key_slot_is_written_with_add_and_a_second_add_is_refused() {
     let first = store.generate().expect("generate");
     let second = store.generate().expect("generate");
 
-    store.add_current(first).expect("the first add fills the slot");
+    store
+        .add_current(first)
+        .expect("the first add fills the slot");
     assert_eq!(
         store.add_current(second),
         Err(KeyStoreError::AlreadyPresent),
@@ -59,7 +64,10 @@ fn the_current_key_slot_is_written_with_add_and_a_second_add_is_refused() {
         store.delete_current().expect("delete"),
         "the revoke path removes it"
     );
-    assert!(!store.delete_current().expect("delete"), "and reports it was gone");
+    assert!(
+        !store.delete_current().expect("delete"),
+        "and reports it was gone"
+    );
 }
 
 #[test]
@@ -96,8 +104,18 @@ fn two_concurrent_first_boots_converge_on_exactly_one_key() {
         2,
         "exactly the two raced keys were minted, and no third"
     );
+    // The flag belongs to the MINTING path, and this fixture filled the slot
+    // itself — v2 marks it only once its own `addCurrentWebKey` resolves
+    // (`web-key.ts:176-177`), never on the adopt-an-existing arm. So the
+    // assertion needs a manager that really did a first boot.
+    let virgin = MemorySecureKeyStore::new();
+    let virgin_flags = MemoryKeyValueStore::new();
+    let probe = ScriptedProbe::always(KeyAdmission::Authorized);
+    DeviceKeyManager::new(&virgin, &virgin_flags, &probe, &clock)
+        .load_or_generate()
+        .expect("first boot");
     assert_eq!(
-        flags.get(roost_client_core::client::auth::KEY_MINTED_FLAG),
+        virgin_flags.get(roost_client_core::client::auth::KEY_MINTED_FLAG),
         Some("1".to_string()),
         "the profile records that a key was minted, so a later eviction is visible"
     );
@@ -113,7 +131,9 @@ fn a_first_boot_that_loses_the_race_adopts_the_winners_key() {
     let clock = MemoryClock::new();
     let keys = DeviceKeyManager::new(&store, &flags, &probe, &clock);
 
-    let info = keys.load_or_generate().expect("the loser adopts the winner");
+    let info = keys
+        .load_or_generate()
+        .expect("the loser adopts the winner");
     assert_eq!(
         info.fingerprint,
         store.describe(winner).expect("describe").fingerprint,

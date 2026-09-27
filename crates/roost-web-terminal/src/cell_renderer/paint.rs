@@ -19,6 +19,7 @@ use crate::cell_renderer_dom::{
 };
 use crate::cell_row::dom::render_row;
 use crate::cell_row::{FindHit, row_hash};
+use crate::element_style::set_style_property;
 use roost_protocol::cell::CellRow;
 
 impl CellGridRenderer {
@@ -106,10 +107,11 @@ impl CellGridRenderer {
             let index = self.row_elements.len();
             let row = &frame.viewport_rows[index];
             let (hits, active_col) = self.hits_for(viewport_base + index as u32);
+            let hash = row_hash(row, hits, active_col);
             let element = render_row(row, &self.doc, hits, active_col)?;
             self.insert_viewport_row(&element);
             self.row_elements.push(element);
-            self.row_hashes.push(row_hash(row, hits, active_col));
+            self.row_hashes.push(hash);
         }
         self.attach_viewport_overlays();
         Ok(())
@@ -157,9 +159,11 @@ impl CellGridRenderer {
             let _ = self
                 .cursor
                 .set_attribute("data-visible", if visible { "true" } else { "false" });
-            self.cursor
-                .style()
-                .set_display(if visible { "block" } else { "none" });
+            set_style_property(
+                &self.cursor,
+                "display",
+                if visible { "block" } else { "none" },
+            );
         }
         if !visible {
             return;
@@ -169,7 +173,7 @@ impl CellGridRenderer {
             let _ = self
                 .cursor
                 .set_attribute("data-row", &frame.cursor_row.to_string());
-            self.cursor.style().set_top(&format!("{}lh", frame.cursor_row));
+            set_style_property(&self.cursor, "top", &format!("{}lh", frame.cursor_row));
         }
         let column = self.predicted_col.unwrap_or(frame.cursor_col);
         if self.painted_cursor_col != i64::from(column) {
@@ -177,17 +181,14 @@ impl CellGridRenderer {
             let _ = self
                 .cursor
                 .set_attribute("data-column", &column.to_string());
-            self.cursor.style().set_left(&format!("{column}ch"));
+            set_style_property(&self.cursor, "left", &format!("{column}ch"));
         }
     }
 
     /// Publish the grid's column count so the CSS paints exactly `cols` wide.
     pub(crate) fn set_grid_width(&mut self) {
-        self.painted_cols = paint_cell_grid_width(
-            &self.container,
-            self.frame.as_ref(),
-            self.painted_cols,
-        );
+        self.painted_cols =
+            paint_cell_grid_width(&self.container, self.frame.as_ref(), self.painted_cols);
     }
 
     /// Toggle the alternate-screen class for the accepted frame.
@@ -243,7 +244,7 @@ impl CellGridRenderer {
                 continue;
             }
             for child_index in 0..block.children().length() {
-                let Some(child) = block.children().get(child_index) else {
+                let Some(child) = block.children().item(child_index) else {
                     continue;
                 };
                 if child.get_attribute("data-row-index").as_deref() != Some(wanted.as_str()) {

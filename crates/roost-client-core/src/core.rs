@@ -68,8 +68,7 @@ impl ClientCore {
         // tab does not read at boot is a ledger that starts empty on every
         // reload, and a released occupant whose completion was already
         // delivered then stays on screen until the profile is closed.
-        store.agent_seen =
-            AgentSeenLedger::decode(storage.get(AGENT_SEEN_STORAGE_KEY).as_deref());
+        store.agent_seen = AgentSeenLedger::decode(storage.get(AGENT_SEEN_STORAGE_KEY).as_deref());
         Self {
             store,
             clock,

@@ -8,8 +8,6 @@
 //! claim coverage it does not have, and every later interval query would answer
 //! from that lie.
 
-use web_sys::Element;
-
 use crate::cell_renderer::CellGridRenderer;
 use crate::cell_renderer_dom::DomResult;
 use crate::painted_history::page_is_contiguous;
@@ -29,7 +27,7 @@ impl CellGridRenderer {
         let Some(frame_total) = self.frame.as_ref().map(|frame| frame.scrollback_total) else {
             return false;
         };
-        let Some(&start) = rows.first() else {
+        let Some(start) = rows.first().map(|row| row.index) else {
             return false;
         };
         let Some(end) = start.checked_add(u32::try_from(rows.len()).unwrap_or(u32::MAX)) else {
@@ -44,7 +42,10 @@ impl CellGridRenderer {
         if end > missing.end {
             return false;
         }
-        if !matches!(self.insert_page_into_placeholder(rows, start, end), Ok(true)) {
+        if !matches!(
+            self.insert_page_into_placeholder(rows, start, end),
+            Ok(true)
+        ) {
             return false;
         }
         self.painted.insert_page(rows);
@@ -74,7 +75,7 @@ impl CellGridRenderer {
         let Some(frame_total) = self.frame.as_ref().map(|frame| frame.scrollback_total) else {
             return false;
         };
-        let Some(&start) = rows.first() else {
+        let Some(start) = rows.first().map(|row| row.index) else {
             return false;
         };
         let Some(end) = start.checked_add(u32::try_from(rows.len()).unwrap_or(u32::MAX)) else {
@@ -143,14 +144,4 @@ impl CellGridRenderer {
 /// pixel offset in range instead of wrapping.
 pub(crate) fn to_row_index(absolute: u64) -> u32 {
     u32::try_from(absolute).unwrap_or(u32::MAX)
-}
-
-/// Read a `data-*` row bound off a gap element, defaulting to zero for a
-/// missing or malformed attribute: a gap with no range is one this renderer
-/// never sized, and guessing a range for it would claim pixels nobody reserved.
-pub(crate) fn attribute_u32(element: &Element, name: &str) -> u32 {
-    element
-        .get_attribute(name)
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(0)
 }

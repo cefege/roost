@@ -162,11 +162,7 @@ pub fn compact_leaf_for_layout<'layout>(
 /// `FnOnce` would be consumed by the first subtree the walk reached, which is
 /// whichever one happened to be walked first rather than the one the caller
 /// named.
-pub(crate) fn update_leaf<Edit>(
-    node: &PaneNode,
-    pane_id: &str,
-    edit: &mut Edit,
-) -> PaneNode
+pub(crate) fn update_leaf<Edit>(node: &PaneNode, pane_id: &str, edit: &mut Edit) -> PaneNode
 where
     Edit: FnMut(&PaneLeaf) -> PaneNode,
 {

@@ -16,7 +16,6 @@
 //! `a_pending_close_hides_the_row_and_an_undo_puts_it_back` must fail.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-
 use roost_client_core::ClientCore;
 use roost_client_core::store::paths::ExactWorkerPaths;
 use roost_client_core::store::pending_close::{

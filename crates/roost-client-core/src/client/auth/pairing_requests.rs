@@ -107,4 +107,3 @@ pub struct PairApprovalStatusRequest {
     /// The request the approver bound a code to.
     pub ephemeral_id: String,
 }
-

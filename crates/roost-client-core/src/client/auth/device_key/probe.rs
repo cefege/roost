@@ -7,8 +7,8 @@
 //! may read the parent's private store fields without loosening them for the
 //! whole crate — the seam `global_search/page.rs` already uses in this crate.
 
-use crate::client::auth::keystore::{DeviceKey, KeyAdmission, KeyStoreError, ROTATION_STAGE_SLOT};
 use crate::client::auth::key_rotation::{RotationRecovery, recover_rotation};
+use crate::client::auth::keystore::{DeviceKey, KeyAdmission, KeyStoreError, ROTATION_STAGE_SLOT};
 
 use super::DeviceKeyManager;
 

@@ -232,7 +232,10 @@ fn stand_in_digest(public: &[u8; 32]) -> [u8; 32] {
 fn public_bytes(generation: u64) -> [u8; 32] {
     let mut bytes = [0u8; 32];
     for (index, byte) in bytes.iter_mut().enumerate() {
-        *byte = generation.wrapping_mul(17).wrapping_add(index as u64).wrapping_add(0xa5) as u8;
+        *byte = generation
+            .wrapping_mul(17)
+            .wrapping_add(index as u64)
+            .wrapping_add(0xa5) as u8;
     }
     bytes
 }

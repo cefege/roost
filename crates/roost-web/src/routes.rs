@@ -1,13 +1,15 @@
-//! The URL grammar: what path means what, and nothing that renders.
+//! The URL grammar: what path means what, and nothing that renders. Owned by
+//! the track lead and depended on by the router, by every component that links,
+//! and by the Playwright specs, which navigate by these exact strings. The
+//! grammar is decided here so a component never re-derives "is this a terminal
+//! link or a file link" from the shape of a path.
 //!
-//! Owned by the track lead and depended on by the router, by every component
-//! that links, and by the Playwright specs, which navigate by these exact
-//! strings. The grammar is decided here so that a component never re-derives "is
-//! this a terminal link or a file link" from the shape of a path.
-//!
-//! Patterns come from the route table the plan fixes: `/`, `/s/:sessionId`,
-//! `/t/:workerFp/*folderPath`, `/settings/:pane?`, `/pair`, `/help`, `/design`,
-//! `/file/:workerFp/*path`, `/browse[/:workerFp]`, `/search`.
+//! The patterns are the route table the plan fixes — `/`, `/s/:sessionId`,
+//! `/t/:workerFp/*folderPath`, the legacy `/w/:workspaceId` and
+//! `/w/:workspaceId/t/:channelId`, `/settings/:pane?`, `/pair`, `/help`,
+//! `/design`, `/file/:workerFp/*path`, `/browse[/:workerFp]`, `/search` — and
+//! their rules are exercised through the public surface in
+//! `crates/roost-web/tests/routes.rs`.
 
 /// One route, and what the URL carried.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,6 +27,17 @@ pub enum Route {
         worker_fp: String,
         /// The folder, as `/`-separated segments with no leading slash.
         folder_path: String,
+    },
+    /// `/w/:workspaceId` and `/w/:workspaceId/t/:channelId` — the legacy
+    /// workspace form, kept so an old bookmark resolves instead of landing on
+    /// the not-found page. It is a NAME for a session, not a second session
+    /// route: `/w/...` is always resolved to the session it addresses before
+    /// anything renders.
+    Workspace {
+        /// The legacy workspace id.
+        workspace_id: String,
+        /// The legacy channel id, when the URL named one.
+        channel_id: Option<String>,
     },
     /// `/settings/:pane?` — the settings shell, optionally on one pane.
     Settings {
@@ -75,6 +88,10 @@ impl Route {
             worker_fp: String::new(),
             folder_path: String::new(),
         },
+        Route::Workspace {
+            workspace_id: String::new(),
+            channel_id: None,
+        },
         Route::Settings { pane: None },
         Route::Pair,
         Route::Help,
@@ -115,6 +132,14 @@ impl Route {
                 _ => Route::Unknown {
                     path: path.to_string(),
                 },
+            },
+            Some("w") if decoded.len() == 2 => Route::Workspace {
+                workspace_id: decoded[1].clone(),
+                channel_id: None,
+            },
+            Some("w") if decoded.len() == 4 && decoded[2] == "t" => Route::Workspace {
+                workspace_id: decoded[1].clone(),
+                channel_id: Some(decoded[3].clone()),
             },
             Some("settings") if decoded.len() <= 2 => Route::Settings {
                 pane: decoded.get(1).cloned(),
@@ -160,6 +185,13 @@ impl Route {
                 worker_fp,
                 folder_path,
             } => format!("/t/{worker_fp}/{folder_path}"),
+            Self::Workspace {
+                workspace_id,
+                channel_id,
+            } => match channel_id {
+                Some(channel_id) => format!("/w/{workspace_id}/t/{channel_id}"),
+                None => format!("/w/{workspace_id}"),
+            },
             Self::Settings { pane } => match pane {
                 Some(pane) => format!("/settings/{pane}"),
                 None => "/settings".to_string(),
@@ -204,133 +236,4 @@ fn percent_decode(value: &str) -> Option<String> {
         }
     }
     String::from_utf8(decoded).ok()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::Route;
-
-    #[test]
-    fn the_root_is_the_workbench_and_a_trailing_slash_is_the_same_page() {
-        assert_eq!(Route::parse("/"), Route::Home);
-        assert_eq!(Route::parse(""), Route::Home);
-        assert_eq!(Route::parse("/?tab=1"), Route::Home);
-    }
-
-    #[test]
-    fn a_session_path_carries_the_session_and_nothing_else() {
-        assert_eq!(
-            Route::parse("/s/abc123"),
-            Route::Session {
-                session_id: "abc123".to_string()
-            }
-        );
-        // A second segment is not a session id; it is a different URL, and
-        // answering it with the first session's page is how a mistyped link
-        // opens the wrong terminal.
-        assert!(matches!(
-            Route::parse("/s/abc123/extra"),
-            Route::Unknown { .. }
-        ));
-    }
-
-    #[test]
-    fn a_terminal_path_keeps_the_whole_folder_below_the_worker() {
-        // The folder is a catch-all: a path segment is legal in a folder name and
-        // truncating at the first one sends the terminal somewhere else.
-        assert_eq!(
-            Route::parse("/t/aa11/src/deep/nested/folder"),
-            Route::Terminal {
-                worker_fp: "aa11".to_string(),
-                folder_path: "src/deep/nested/folder".to_string()
-            }
-        );
-    }
-
-    #[test]
-    fn a_settings_pane_is_optional_and_nothing_more() {
-        assert_eq!(Route::parse("/settings"), Route::Settings { pane: None });
-        assert_eq!(
-            Route::parse("/settings/machines"),
-            Route::Settings {
-                pane: Some("machines".to_string())
-            }
-        );
-        assert!(matches!(
-            Route::parse("/settings/a/b"),
-            Route::Unknown { .. }
-        ));
-    }
-
-    #[test]
-    fn browse_is_optional_too_and_never_guesses_a_worker() {
-        assert_eq!(Route::parse("/browse"), Route::Browse { worker_fp: None });
-        assert_eq!(
-            Route::parse("/browse/aa11"),
-            Route::Browse {
-                worker_fp: Some("aa11".to_string())
-            }
-        );
-    }
-
-    #[test]
-    fn an_unknown_path_is_named_rather_than_falling_through_to_home() {
-        let parsed = Route::parse("/nope");
-        assert_eq!(
-            parsed,
-            Route::Unknown {
-                path: "/nope".to_string()
-            }
-        );
-        // The round trip is what makes a not-found page able to show the URL it
-        // could not answer.
-        assert_eq!(parsed.to_path(), "/nope");
-    }
-
-    #[test]
-    fn a_file_path_needs_both_a_worker_and_a_path() {
-        assert_eq!(
-            Route::parse("/file/aa11/etc/hosts"),
-            Route::File {
-                worker_fp: "aa11".to_string(),
-                path: "etc/hosts".to_string()
-            }
-        );
-        assert!(matches!(Route::parse("/file/aa11"), Route::Unknown { .. }));
-    }
-
-    #[test]
-    fn every_route_with_captures_round_trips_through_its_own_path() {
-        // A link built from a route and a link typed by a reader have to be the
-        // same string, or a copied URL stops working.
-        let routes = [
-            Route::Home,
-            Route::Session {
-                session_id: "abc".to_string(),
-            },
-            Route::Terminal {
-                worker_fp: "aa11".to_string(),
-                folder_path: "src/deep".to_string(),
-            },
-            Route::Settings { pane: None },
-            Route::Settings {
-                pane: Some("machines".to_string()),
-            },
-            Route::Pair,
-            Route::Help,
-            Route::Design,
-            Route::File {
-                worker_fp: "aa11".to_string(),
-                path: "etc/hosts".to_string(),
-            },
-            Route::Browse { worker_fp: None },
-            Route::Browse {
-                worker_fp: Some("aa11".to_string()),
-            },
-            Route::Search,
-        ];
-        for route in routes {
-            assert_eq!(Route::parse(&route.to_path()), route, "{route:?}");
-        }
-    }
 }

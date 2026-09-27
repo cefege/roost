@@ -130,9 +130,17 @@ fn a_printed_path_is_a_file_target_with_its_line_split_off() {
 
 #[test]
 fn prose_is_not_a_path_and_is_not_linkified() {
-    for raw in ["hello", "version 1.2.3 released", "...", "/", "e.g. something"] {
+    for raw in ["hello", "version 1.2.3 released", "...", "e.g. something"] {
         assert_eq!(classify_terminal_link_target(raw), None, "{raw}");
     }
+    // A bare separator IS a file target: v2's path-like rule is
+    // `startsWith("/")` and only an EMPTY path is refused. It never reaches
+    // here from inference, which needs a separator plus a named file part — it
+    // arrives painted, because the core authored an OSC 8 target for it.
+    assert_eq!(
+        classify_terminal_link_target("/"),
+        Some(file("/", None, "/"))
+    );
 }
 
 #[test]

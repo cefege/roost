@@ -9,11 +9,13 @@
 //! rows left the grid, so the renderer never infers them.
 
 use web_sys::Element;
-use roost_protocol::cell::CellRow;
 
-use crate::cell_renderer_dom::{DomResult, as_node, create_div, detach, size_scrollback_block};
 use crate::block_placeholder::{SCROLLBACK_BLOCK_ROWS, block_placeholder};
+use crate::cell_renderer::CellGridRenderer;
+use crate::cell_renderer_dom::{DomResult, as_node, create_div, detach, size_scrollback_block};
+use crate::element_style::{remove_style_property, set_style_property};
 use roost_client_core::terminal::history::HistoryRange;
+use roost_protocol::cell::CellRow;
 
 /// The class on a block of painted rows. Its child count is the eviction unit.
 pub(crate) const BLOCK_CLASS: &str = "cell-block";
@@ -25,11 +27,9 @@ impl CellGridRenderer {
     /// total. Saturating, because the arithmetic compares against a `u32` and a
     /// total past that cannot name a row any browser painted.
     pub(crate) fn history_total(&self) -> u32 {
-        self.frame
-            .as_ref()
-            .map_or(0, |frame| {
-                u32::try_from(frame.scrollback_total).unwrap_or(u32::MAX)
-            })
+        self.frame.as_ref().map_or(0, |frame| {
+            u32::try_from(frame.scrollback_total).unwrap_or(u32::MAX)
+        })
     }
 
     /// The current number of children in the history sheet.
@@ -39,7 +39,7 @@ impl CellGridRenderer {
 
     /// One child of the history sheet, by position.
     pub(crate) fn child_at(&self, index: u32) -> Option<Element> {
-        self.scrollback.children().get(index)
+        self.scrollback.children().item(index)
     }
 
     /// Close the OPEN tail block: stamp its exact height and let the browser
@@ -55,9 +55,8 @@ impl CellGridRenderer {
         let rows = self.cur_block_rows;
         let row_height = self.row_height();
         size_scrollback_block(&block, rows, row_height);
-        let style = block.style();
-        style.remove_property("overflow-anchor");
-        style.remove_property("content-visibility");
+        remove_style_property(&block, "overflow-anchor");
+        remove_style_property(&block, "content-visibility");
         if retain_tail {
             return;
         }
@@ -78,9 +77,7 @@ impl CellGridRenderer {
             if child.class_name() == GAP_CLASS {
                 let rows = attribute_u32(&child, "data-end-row")
                     .saturating_sub(attribute_u32(&child, "data-start-row"));
-                child
-                    .style()
-                    .set_property("height", &block_placeholder(rows, row_height));
+                set_style_property(&child, "height", &block_placeholder(rows, row_height));
             } else {
                 size_scrollback_block(&child, child.children().length(), row_height);
             }
@@ -103,14 +100,13 @@ impl CellGridRenderer {
         let _ = gap.set_attribute("data-start-row", &start.to_string());
         let _ = gap.set_attribute("data-end-row", &end.to_string());
         let row_height = self.row_height();
-        gap.style()
-            .set_property("height", &block_placeholder(end - start, row_height));
+        set_style_property(gap, "height", &block_placeholder(end - start, row_height));
     }
 
     pub(crate) fn create_gap(&mut self, start: u32, end: u32) -> DomResult<Element> {
         let gap = create_div(&self.doc)?;
         gap.set_class_name(GAP_CLASS);
-        gap.style().set_property("overflow-anchor", "none");
+        set_style_property(&gap, "overflow-anchor", "none");
         self.set_gap_range(&gap, start, end);
         Ok(gap)
     }
@@ -125,11 +121,9 @@ impl CellGridRenderer {
         opens_tail: bool,
     ) -> DomResult<()> {
         let mut offset = 0usize;
-        if reuse_tail
-            && let Some(block) = self.cur_block.clone()
-        {
-            block.style().set_property("overflow-anchor", "none");
-            block.style().set_property("content-visibility", "visible");
+        if reuse_tail && let Some(block) = self.cur_block.clone() {
+            set_style_property(&block, "overflow-anchor", "none");
+            set_style_property(&block, "content-visibility", "visible");
             while offset < rows.len() && self.cur_block_rows < SCROLLBACK_BLOCK_ROWS {
                 let row = self.render_scrollback_row(&rows[offset])?;
                 block.append_child(&row).ok();
@@ -172,8 +166,8 @@ impl CellGridRenderer {
             // rendering-lifecycle time, not on append, so appending into a
             // locked tail leaves the scroll height stale and every bottom check
             // reads a bottom that no longer exists.
-            block.style().set_property("overflow-anchor", "none");
-            block.style().set_property("content-visibility", "visible");
+            set_style_property(&block, "overflow-anchor", "none");
+            set_style_property(&block, "content-visibility", "visible");
             self.cur_block = Some(block);
             self.cur_block_rows = last_rows;
         }

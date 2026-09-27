@@ -36,7 +36,9 @@ fn a_generated_key_is_non_extractable_and_nothing_the_store_hands_back_carries_i
     let info = keys.load_or_generate().expect("a first boot mints a key");
     assert!(!info.extractable, "a generated key must not be extractable");
 
-    let key = store.current_key().expect("the minted key is the current one");
+    let key = store
+        .current_key()
+        .expect("the minted key is the current one");
     let descriptor = store.describe(key).expect("the key is describable");
     assert!(
         !descriptor.extractable,
@@ -59,7 +61,10 @@ fn a_generated_key_is_non_extractable_and_nothing_the_store_hands_back_carries_i
         ("the handle's debug form", format!("{key:?}")),
         (
             "the credential",
-            keys.sign_coordinator_jwt().expect("a token").token().to_string(),
+            keys.sign_coordinator_jwt()
+                .expect("a token")
+                .token()
+                .to_string(),
         ),
     ] {
         assert!(
@@ -131,10 +136,7 @@ fn rotation_admits_the_old_key_for_exactly_its_window_and_the_new_one_afterwards
         RotationRecovery::Promoted
     );
     assert_eq!(
-        recover_rotation(
-            KeyAdmission::Authorized,
-            Some(KeyAdmission::Authorized)
-        ),
+        recover_rotation(KeyAdmission::Authorized, Some(KeyAdmission::Authorized)),
         RotationRecovery::Promoted
     );
     // NOT the other way round. Every unanswered question is ambiguous, in both
@@ -175,7 +177,8 @@ fn a_completed_rotation_promotes_the_new_key_and_the_old_one_stops_signing() {
 
     let mut rotator = RecordingRotator::accepting("rotated-device");
     assert_eq!(
-        keys.rotate_current(&mut rotator, "laptop").expect("accepted"),
+        keys.rotate_current(&mut rotator, "laptop")
+            .expect("accepted"),
         RotationOutcome::Rotated
     );
     let asked = rotator.requests();
@@ -272,7 +275,10 @@ fn an_interrupted_rotation_is_resolved_by_probing_and_never_by_guessing() {
     let info = keys.load_or_generate().expect("load");
     assert_eq!(store.current_key(), Some(keep), "the device kept its key");
     assert_eq!(store.rotation_stage(), None, "the stage was discarded");
-    assert_eq!(info.fingerprint, store.describe(keep).expect("d").fingerprint);
+    assert_eq!(
+        info.fingerprint,
+        store.describe(keep).expect("d").fingerprint
+    );
     assert_eq!(probe.remaining(), 0, "both questions were asked");
 
     // The coordinator enrolled the replacement before the tab died: promote it,

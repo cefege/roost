@@ -64,7 +64,10 @@ fn query(text: &str) -> GlobalSearchQuery {
 /// that issued it, so a test can answer THAT page rather than a fresh one.
 fn started(text: &str) -> (GlobalSearchController, GlobalSearchRequest) {
     let mut controller = GlobalSearchController::new();
-    assert_eq!(controller.set_search(query(text), 1_000), SetSearchOutcome::Debouncing);
+    assert_eq!(
+        controller.set_search(query(text), 1_000),
+        SetSearchOutcome::Debouncing
+    );
     let request = controller
         .take_first_page("search-1", 7, 1_000 + GLOBAL_SEARCH_DEBOUNCE_MS)
         .expect("the debounce has ended");
@@ -181,7 +184,11 @@ fn a_failed_page_is_retryable_and_a_page_from_another_search_does_not_publish_it
         &again.search_id,
         &page(vec![], vec![], None, 0, 0),
     ));
-    assert_eq!(controller.results().error, None, "an answer clears the failure");
+    assert_eq!(
+        controller.results().error,
+        None,
+        "an answer clears the failure"
+    );
 }
 
 #[test]
@@ -251,4 +258,3 @@ fn a_credential_boundary_clears_the_results_and_restores_the_query_afterwards() 
         "the restored search is the one the viewer last asked for"
     );
 }
-

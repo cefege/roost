@@ -41,7 +41,7 @@ use crate::cell_renderer_dom::{
 use crate::cell_row::FindHit;
 use crate::painted_history::PaintedHistory;
 use crate::presentation::{RendererIncidentObserver, RendererTerminalModeSnapshot};
-use crate::reader_intent::{ReaderAnchor, ReaderIntent, ReaderState};
+use crate::reader_intent::{ReaderAnchor, ReaderState};
 
 /// The painted terminal grid for one pane.
 ///
@@ -259,10 +259,7 @@ impl CellGridRenderer {
 
     /// Install the incident recorder. `None` is the production state: the
     /// renderer's boundaries are then free.
-    pub fn set_incident_observer(
-        &mut self,
-        observer: Option<Box<dyn RendererIncidentObserver>>,
-    ) {
+    pub fn set_incident_observer(&mut self, observer: Option<Box<dyn RendererIncidentObserver>>) {
         self.incident_observer = observer;
     }
 

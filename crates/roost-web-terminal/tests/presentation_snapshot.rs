@@ -109,14 +109,8 @@ fn projection(reader_intent: ReaderIntent) -> RendererProjection {
 
 #[test]
 fn a_paint_presentation_reports_the_reserved_pixels_on_both_sides_of_the_painted_rows() {
-    let presented = create_renderer_paint_presentation(
-        &painted(10..14),
-        "160.00px",
-        20,
-        16.0,
-        None,
-        None,
-    );
+    let presented =
+        create_renderer_paint_presentation(&painted(10..14), "160.00px", 20, 16.0, None, None);
     assert_eq!(presented.head_spacer_px, 160.0);
     assert_eq!(presented.tail_gap_px, 320.0);
     assert_eq!(presented.rows.len(), 4);
@@ -150,8 +144,7 @@ fn the_paint_window_follows_the_reader_when_the_history_is_longer_than_it() {
 #[test]
 fn the_paint_window_is_the_newest_rows_when_the_reader_is_not_parked() {
     let history = painted(0..2000);
-    let presented =
-        create_renderer_paint_presentation(&history, "0.00px", 0, 16.0, None, Some(64));
+    let presented = create_renderer_paint_presentation(&history, "0.00px", 0, 16.0, None, Some(64));
     let first = presented.rows.first().map(|painted| painted.index);
     let last = presented.rows.last().map(|painted| painted.index);
     assert_eq!(first, Some(1936));

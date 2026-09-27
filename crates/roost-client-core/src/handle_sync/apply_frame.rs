@@ -138,7 +138,11 @@ pub(super) fn apply_frame(
             // the acknowledgement ledger, both of which live in the
             // projection. A refused report changes nothing, so it must not
             // move the revision a host subscribes to.
-            if store.agent_status.apply_update(update, &store.agent_seen).is_some() {
+            if store
+                .agent_status
+                .apply_update(update, &store.agent_seen)
+                .is_some()
+            {
                 store.note_change();
             }
         }

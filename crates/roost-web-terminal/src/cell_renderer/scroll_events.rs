@@ -11,8 +11,11 @@
 
 use crate::cell_renderer::CellGridRenderer;
 use crate::cell_renderer_dom::effective_row_height;
+use crate::element_style::{scroll_top_of, set_scroll_top_of};
 use crate::presentation::{LiveInteractionResult, NO_LIVE_INTERACTION_RESULT};
-use crate::reader_intent::{ReaderIntent, ReaderIntentReason, ScrollBoxGeometry, follows_scroll_bottom};
+use crate::reader_intent::{
+    ReaderIntent, ReaderIntentReason, ScrollBoxGeometry, follows_scroll_bottom,
+};
 use roost_client_core::terminal::history::HistoryRange;
 
 impl CellGridRenderer {
@@ -23,7 +26,10 @@ impl CellGridRenderer {
 
     /// Whether a reader inside the follow band is riding the live tail.
     pub fn follows_bottom(&self) -> bool {
-        follows_scroll_bottom(self.scroll_box_geometry(), effective_row_height(self.row_height()))
+        follows_scroll_bottom(
+            self.scroll_box_geometry(),
+            effective_row_height(self.row_height()),
+        )
     }
 
     /// The exact bottom clamp, which is zero when the box has no range at all.
@@ -47,7 +53,7 @@ impl CellGridRenderer {
     }
 
     pub(crate) fn scroll_top(&self) -> f64 {
-        self.container.scroll_top()
+        scroll_top_of(&self.container)
     }
 
     pub(crate) fn scroll_height(&self) -> f64 {
@@ -67,7 +73,7 @@ impl CellGridRenderer {
     fn write_scroll_top(&mut self, value: f64) {
         let before = self.scroll_top();
         if before != value {
-            self.container.set_scroll_top(value);
+            set_scroll_top_of(&self.container, value);
         }
         let after = self.scroll_top();
         if after != before && self.owned_scroll_epoch == 0 {

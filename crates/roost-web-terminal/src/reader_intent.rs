@@ -58,10 +58,7 @@ impl ReaderIntentReason {
     /// bottom loses nothing, so it is the one class a box resize or a hold
     /// release may end.
     pub fn is_position_only(self) -> bool {
-        matches!(
-            self,
-            Self::NativeScroll | Self::Wheel | Self::Touch
-        )
+        matches!(self, Self::NativeScroll | Self::Wheel | Self::Touch)
     }
 }
 
@@ -146,7 +143,9 @@ impl ReaderState {
     pub fn enter_reading(&mut self, reason: ReaderIntentReason) -> EnterReadingOutcome {
         if reason == ReaderIntentReason::Selection
             && self.intent == ReaderIntent::Reading
-            && self.reason.is_some_and(|held| held != ReaderIntentReason::Selection)
+            && self
+                .reason
+                .is_some_and(|held| held != ReaderIntentReason::Selection)
         {
             return EnterReadingOutcome::AnchorOnly;
         }
@@ -199,11 +198,7 @@ impl ReaderState {
     /// park once the box has no scroll range: there, no scroll event can exist
     /// and no anchor is reachable. A park with range keeps its interval —
     /// reaching the bottom, or the next frame's settle, resumes that one.
-    pub fn should_flush_after_release(
-        &self,
-        no_scroll_range: bool,
-        follows_bottom: bool,
-    ) -> bool {
+    pub fn should_flush_after_release(&self, no_scroll_range: bool, follows_bottom: bool) -> bool {
         if self.holding() {
             return false;
         }
@@ -211,10 +206,14 @@ impl ReaderState {
             .reason
             .is_some_and(ReaderIntentReason::is_position_only)
             && follows_bottom;
-        self.intent == ReaderIntent::Reading
+        // The conjunction below is v2's KEEP-the-park guard, which early-returns
+        // NO_LIVE_INTERACTION_RESULT; anything it does not cover resumes. Answer
+        // the question the name asks — should this release flush — so the guard
+        // is negated rather than returned.
+        !(self.intent == ReaderIntent::Reading
             && self.reason != Some(ReaderIntentReason::Selection)
             && !no_scroll_range
-            && !band_follower
+            && !band_follower)
     }
 
     /// Admit a resume, and say whether it must pin the bottom.
@@ -317,10 +316,9 @@ pub fn follows_scroll_bottom(box_geometry: ScrollBoxGeometry, row_height: f64) -
     } else {
         DEFAULT_CELL_ROW_PX
     };
-    let distance = (box_geometry.scroll_height
-        - box_geometry.client_height
-        - box_geometry.scroll_top)
-        .max(0.0);
+    let distance =
+        (box_geometry.scroll_height - box_geometry.client_height - box_geometry.scroll_top)
+            .max(0.0);
     distance <= f64::from(BOTTOM_FOLLOW_SLACK_ROWS) * row
 }
 

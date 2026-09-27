@@ -31,10 +31,7 @@ pub struct ScriptedProbe {
 
 impl ScriptedProbe {
     /// A probe that answers `answers` in order, then `default`.
-    pub fn new(
-        answers: impl IntoIterator<Item = KeyAdmission>,
-        default: KeyAdmission,
-    ) -> Self {
+    pub fn new(answers: impl IntoIterator<Item = KeyAdmission>, default: KeyAdmission) -> Self {
         Self {
             answers: RefCell::new(answers.into_iter().collect()),
             default,

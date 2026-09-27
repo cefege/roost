@@ -250,7 +250,11 @@ impl AgentStatusProjection {
     /// An authoritative session upsert starts a fresh browser lifecycle fence.
     pub fn mark_session_open(&mut self, session_id: &SessionId) {
         self.closed.remove(session_id);
-        if let Some(closed) = self.closed_order.iter().position(|closed| closed == session_id) {
+        if let Some(closed) = self
+            .closed_order
+            .iter()
+            .position(|closed| closed == session_id)
+        {
             self.closed_order.remove(closed);
         }
         // Clearing `closed` is NOT enough to reopen a session. `clear_session`
@@ -381,8 +385,6 @@ fn arrival_identity(update: &AgentStatusUpdate) -> String {
 /// completion it earned.
 fn released_occupant_is_spent(status: &AgentStatus, seen: &AgentSeenLedger) -> bool {
     status.common.occupant_exited
-        && derive_agent_status_level(
-            Some(status),
-            Some(seen.acknowledged_revision(status)),
-        ) != crate::client::agents::status_policy::AgentStatusLevel::Done
+        && derive_agent_status_level(Some(status), Some(seen.acknowledged_revision(status)))
+            != crate::client::agents::status_policy::AgentStatusLevel::Done
 }

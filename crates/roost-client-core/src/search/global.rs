@@ -72,7 +72,10 @@ impl GlobalSearchPartialReason {
     /// replaced it.
     #[must_use]
     pub const fn is_terminal(self) -> bool {
-        matches!(self, Self::MatchLimit | Self::HistoryEvicted | Self::SessionClosed)
+        matches!(
+            self,
+            Self::MatchLimit | Self::HistoryEvicted | Self::SessionClosed
+        )
     }
 }
 

@@ -21,6 +21,7 @@ pub mod cell_geometry;
 pub mod cell_renderer;
 pub mod cell_renderer_dom;
 pub mod cell_row;
+pub mod element_style;
 pub mod link_target;
 pub mod painted_history;
 pub mod presentation;

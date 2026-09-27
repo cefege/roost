@@ -50,7 +50,8 @@ fn the_palette_maps_theme_vars_then_the_cube_then_the_grayscale_ramp() {
     assert_eq!(ansi256_to_css(15), "var(--term-color-15)");
     assert_eq!(ansi256_to_css(16), "rgb(0,0,0)");
     assert_eq!(ansi256_to_css(21), "rgb(0,0,255)");
-    assert_eq!(ansi256_to_css(51), "rgb(0,255,0)");
+    // Cube arithmetic is `(index - 16)`: 35 is r=0, g=35/6=5, b=35%6=5 — cyan.
+    assert_eq!(ansi256_to_css(51), "rgb(0,255,255)");
     assert_eq!(ansi256_to_css(232), "rgb(8,8,8)");
     assert_eq!(ansi256_to_css(255), "rgb(238,238,238)");
 }
@@ -58,7 +59,10 @@ fn the_palette_maps_theme_vars_then_the_cube_then_the_grayscale_ramp() {
 #[test]
 fn a_default_background_is_not_emitted_so_the_container_shows_through() {
     assert_eq!(span_style(&span("hi", 2)), "color:var(--term-color-7)");
-    let coloured = CellSpan { bg: 1, ..span("hi", 2) };
+    let coloured = CellSpan {
+        bg: 1,
+        ..span("hi", 2)
+    };
     assert_eq!(
         span_style(&coloured),
         "color:var(--term-color-7);background:var(--term-color-1)"
@@ -86,7 +90,11 @@ fn a_true_color_span_is_painted_as_the_hex_the_core_sent() {
         fg_rgb: Some(0x00a0_b0c0),
         ..span("x", 1)
     };
-    assert!(span_style(&true_color).contains("color:#a0b0c0"), "{}", span_style(&true_color));
+    assert!(
+        span_style(&true_color).contains("color:#a0b0c0"),
+        "{}",
+        span_style(&true_color)
+    );
 }
 
 #[test]
@@ -99,14 +107,20 @@ fn the_decoration_half_carries_no_colour_so_a_find_class_can_own_it() {
     assert!(!decoration.contains("color"), "{decoration}");
     assert!(!decoration.contains("background"), "{decoration}");
     assert!(decoration.contains("font-weight:bold"), "{decoration}");
-    assert!(decoration.contains("text-decoration:underline line-through"), "{decoration}");
+    assert!(
+        decoration.contains("text-decoration:underline line-through"),
+        "{decoration}"
+    );
 }
 
 #[test]
 fn an_atomic_span_pins_its_box_to_its_declared_columns() {
     let wide = span("\u{4e2d}", 2);
     let decoration = span_decoration_style(&wide);
-    assert!(decoration.contains("display:inline-block;width:2ch"), "{decoration}");
+    assert!(
+        decoration.contains("display:inline-block;width:2ch"),
+        "{decoration}"
+    );
     assert!(
         !span_decoration_style(&span("ab", 2)).contains("inline-block"),
         "a coalesced narrow run needs no box"
@@ -142,7 +156,10 @@ fn a_narrow_run_splits_at_every_match_boundary() {
 fn a_match_running_past_the_end_never_produces_an_empty_tail() {
     let run = span("abcd", 4);
     let slices = span_slices(&run, &[FindHit { col: 2, len: 9 }], None);
-    assert_eq!(described(&slices), vec![(0, 2, false, false), (2, 2, true, false)]);
+    assert_eq!(
+        described(&slices),
+        vec![(0, 2, false, false), (2, 2, true, false)]
+    );
     let text: String = slices
         .iter()
         .map(|slice| slice_text(&run, slice.start, slice.columns))
@@ -179,7 +196,10 @@ fn the_row_hash_distinguishes_exactly_what_the_painter_paints() {
     let base = row(vec![span("abc", 3)]);
     let hits = [FindHit { col: 1, len: 1 }];
     assert_eq!(row_hash(&base, None, None), row_hash(&base, None, None));
-    assert_ne!(row_hash(&base, None, None), row_hash(&base, Some(&hits), None));
+    assert_ne!(
+        row_hash(&base, None, None),
+        row_hash(&base, Some(&hits), None)
+    );
     assert_ne!(
         row_hash(&base, Some(&hits), None),
         row_hash(&base, Some(&hits), Some(1))
@@ -193,7 +213,10 @@ fn the_row_hash_distinguishes_exactly_what_the_painter_paints() {
     let split = row(vec![span("a", 1), span("bc", 2)]);
     assert_ne!(row_hash(&base, None, None), row_hash(&split, None, None));
     // So is a different flag bit on the same cells.
-    let bold = row(vec![CellSpan { flags: CELL_BOLD, ..span("abc", 3) }]);
+    let bold = row(vec![CellSpan {
+        flags: CELL_BOLD,
+        ..span("abc", 3)
+    }]);
     assert_ne!(row_hash(&base, None, None), row_hash(&bold, None, None));
 }
 
@@ -215,7 +238,10 @@ fn the_row_hash_folds_link_identity_without_hashing_the_whole_uri() {
         link_key: Some("k1".to_string()),
         ..span("x", 1)
     };
-    assert_ne!(row_hash(&plain, None, None), row_hash(&row(vec![painted.clone()]), None, None));
+    assert_ne!(
+        row_hash(&plain, None, None),
+        row_hash(&row(vec![painted.clone()]), None, None)
+    );
     assert_ne!(
         row_hash(&row(vec![painted.clone()]), None, None),
         row_hash(&row(vec![other_key]), None, None)
@@ -237,5 +263,8 @@ fn an_astral_scalar_hashes_by_code_unit_so_two_of_them_separate() {
 fn the_stamped_grid_occupancy_is_columns_never_code_units() {
     let wide = row(vec![span("\u{4e2d}\u{6587}", 4)]);
     assert_eq!(row_column_count(&wide), 4);
-    assert_eq!(wide.spans.iter().next().map(|span| span.text.len()), Some(6));
+    assert_eq!(
+        wide.spans.iter().next().map(|span| span.text.len()),
+        Some(6)
+    );
 }

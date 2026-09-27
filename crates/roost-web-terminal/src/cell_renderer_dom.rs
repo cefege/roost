@@ -13,22 +13,34 @@
 //! implements `AsRef` for its whole IDL chain, so an `as_ref()` on one is
 //! ambiguous between `Node`, `Element` and the document.
 
+use wasm_bindgen::JsCast;
 use web_sys::{Document, Element, HtmlElement, Node};
 
 use crate::block_placeholder::{DEFAULT_CELL_ROW_PX, block_placeholder};
 use crate::cell_geometry::{TerminalCellGeometry, grid_geometry_from_box};
+use crate::element_style::set_style_property;
 use roost_protocol::cell::{CellGridFrame, spans_text};
 
-/// The only way element creation fails: a tag name the document rejects. Every
-/// tag here is a constant, so this names an unreachable state rather than a
-/// runtime condition a caller must handle. The renderer leaves the DOM
-/// untouched when it happens, and its reconcile watermark repairs on the next
-/// frame.
+/// The only two ways element creation fails: a tag name the document rejects,
+/// and a `div` that comes back as something the renderer cannot stamp inline
+/// styles on. Every tag here is a constant, so these name unreachable states
+/// rather than runtime conditions a caller must handle. The renderer leaves the
+/// DOM untouched when one happens, and its reconcile watermark repairs on the
+/// next frame.
 #[derive(Debug, thiserror::Error)]
 pub enum DomSetupError {
     /// The document refused to create one of the renderer's fixed elements.
     #[error("the document refused to create a {tag} element")]
     RefusedTag {
+        /// The tag the renderer asked for.
+        tag: String,
+    },
+    /// The document produced a tag the renderer stamps inline styles on, but
+    /// not as an HTML element — an XML document's `div`, where `style` has
+    /// nowhere to land. The renderer's geometry would be derived from reserved
+    /// pixels the element never reserves.
+    #[error("the document produced a {tag} that is not an HTML element")]
+    NotHtmlElement {
         /// The tag the renderer asked for.
         tag: String,
     },
@@ -77,7 +89,7 @@ pub fn as_node(element: &Element) -> &Node {
 
 /// One HTML element as the node every structural `Node` call takes.
 pub fn html_as_node(element: &HtmlElement) -> &Node {
-    AsRef::<Element>::as_ref(element)
+    AsRef::<Node>::as_ref(element)
 }
 
 /// Create one of the renderer's fixed `div` elements.
@@ -102,7 +114,9 @@ pub fn create_span(doc: &Document) -> DomResult<Element> {
 /// overlays have to be re-appended exactly when they are no longer children of
 /// the viewport rather than merely when their contents differ.
 pub fn is_child_of(child: &Element, parent: &Element) -> bool {
-    std::ptr::eq(child.parent_node().as_ref(), Some(as_node(parent)))
+    child
+        .parent_node()
+        .is_some_and(|owner| std::ptr::eq(&owner, as_node(parent)))
 }
 
 /// Create the renderer's element tree inside `container`.
@@ -110,9 +124,7 @@ pub fn is_child_of(child: &Element, parent: &Element) -> bool {
 /// The container's class list ends up holding BOTH `wterm` and `cell-grid`,
 /// and it takes `role=log` so assistive technology reads the terminal as a log
 /// rather than as layout.
-pub fn create_cell_renderer_elements(
-    container: &Element,
-) -> DomResult<CellRendererElements> {
+pub fn create_cell_renderer_elements(container: &Element) -> DomResult<CellRendererElements> {
     let doc = container
         .owner_document()
         .ok_or_else(|| DomSetupError::RefusedTag {
@@ -121,13 +133,17 @@ pub fn create_cell_renderer_elements(
     let _ = container.class_list().add_2("wterm", "cell-grid");
     let _ = container.set_attribute("role", "log");
     let spacer = classed_div(&doc, "cell-sb-spacer")?;
-    spacer.style().set_property("height", "0px");
+    set_style_property(&spacer, "height", "0px");
     let scrollback = classed_div(&doc, "cell-scrollback")?;
     let viewport = classed_div(&doc, "cell-viewport")?;
-    viewport.style().set_position("relative");
+    set_style_property(&viewport, "position", "relative");
     let cursor = classed_div(&doc, "cell-cursor")?;
     let ghosts = classed_div(&doc, "cell-ghosts")?;
-    let spacer = HtmlElement::from(spacer);
+    let spacer: HtmlElement = spacer
+        .dyn_into()
+        .map_err(|_| DomSetupError::NotHtmlElement {
+            tag: "div".to_string(),
+        })?;
     let _ = container.append_child(html_as_node(&spacer));
     let _ = container.append_child(as_node(&scrollback));
     let _ = container.append_child(as_node(&viewport));
@@ -172,9 +188,11 @@ pub fn replace_element(old: &Element, new: &Element) {
 /// skipped understates `scrollHeight` until it materializes — and every scroll
 /// position in the pane is derived from that number.
 pub fn size_scrollback_block(block: &Element, rows: u32, row_height: f64) {
-    block
-        .style()
-        .set_property("contain-intrinsic-size", &block_placeholder(rows, row_height));
+    set_style_property(
+        block,
+        "contain-intrinsic-size",
+        &block_placeholder(rows, row_height),
+    );
 }
 
 /// The ghost overlay boxes for a set of remote cursors.
@@ -193,7 +211,8 @@ pub fn create_ghost_elements(doc: &Document, ghosts: &[GhostCursor]) -> Vec<Elem
                 "title",
                 ghost.label.as_deref().unwrap_or(&ghost.operator_id),
             );
-            box_element.style().set_property(
+            set_style_property(
+                &box_element,
                 "transform",
                 &format!("translate({}ch, {}lh)", ghost.x, ghost.y),
             );
@@ -238,13 +257,13 @@ pub fn measure_cell_row_height(doc: &Document, viewport: &Element) -> f64 {
         return 0.0;
     };
     probe.set_class_name("cell-row");
-    probe.style().set_position("absolute");
-    probe.style().set_visibility("hidden");
+    set_style_property(&probe, "position", "absolute");
+    set_style_property(&probe, "visibility", "hidden");
     probe.set_text_content(Some(" "));
     if viewport.append_child(&probe).is_err() {
         return 0.0;
     }
-    let height = probe.get_bounding_client_rect().map_or(0.0, |rect| rect.height());
+    let height = probe.get_bounding_client_rect().height();
     detach(&probe);
     height
 }
@@ -257,8 +276,15 @@ pub fn viewport_cell_geometry(
     viewport: &Element,
     row_height: f64,
 ) -> Option<TerminalCellGeometry> {
-    let rect = viewport.get_bounding_client_rect().ok()?;
-    grid_geometry_from_box(cols, rows, rect.left(), rect.top(), rect.width(), row_height)
+    let rect = viewport.get_bounding_client_rect();
+    grid_geometry_from_box(
+        cols,
+        rows,
+        rect.left(),
+        rect.top(),
+        rect.width(),
+        row_height,
+    )
 }
 
 /// Toggle the alternate-screen class, returning the state now painted.
@@ -269,7 +295,10 @@ pub fn sync_alternate_screen(
 ) -> bool {
     let active = frame.is_some_and(|frame| frame.alt_screen);
     if Some(active) != painted {
-        let _ = container.class_list().toggle("alt-active", active);
+        // `classList` exposes only a TOGGLING `toggle`, so the state this call
+        // lands on is the guard's own watermark rather than a re-read: the call
+        // happens exactly when the class is not yet `active`.
+        let _ = container.class_list().toggle("alt-active");
     }
     active
 }
@@ -288,9 +317,7 @@ pub fn paint_cell_grid_width(
     if Some(frame.cols) == painted {
         return painted;
     }
-    container
-        .style()
-        .set_property("--cell-cols", &frame.cols.to_string());
+    set_style_property(container, "--cell-cols", &frame.cols.to_string());
     Some(frame.cols)
 }
 

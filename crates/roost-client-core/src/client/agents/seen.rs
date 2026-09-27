@@ -21,7 +21,7 @@ use roost_protocol::wire::{
     AgentOccupantId, AgentStatus, AgentStatusIdentity, AgentStatusSource, SessionId, StatusEpoch,
 };
 
-use crate::client::agents::status_policy::{LEGACY_IDENTITY_KEY, AgentStatusRevisionToken};
+use crate::client::agents::status_policy::{AgentStatusRevisionToken, LEGACY_IDENTITY_KEY};
 
 /// Where a host persists the ledger. One key, so a second tab finds it.
 pub const AGENT_SEEN_STORAGE_KEY: &str = "roost.agentSeen.v2";
@@ -222,9 +222,7 @@ impl AgentSeenLedger {
         if status.common.revision <= self.acknowledged_revision(status) {
             return false;
         }
-        self.merge(&[crate::client::agents::status_policy::agent_status_revision_token(
-            status,
-        )])
+        self.merge(&[crate::client::agents::status_policy::agent_status_revision_token(status)])
     }
 
     /// Forget every acknowledgement for one session.

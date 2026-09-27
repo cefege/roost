@@ -142,11 +142,10 @@ impl SyncFrame {
     /// `SyncState::may_apply` still consults the domain table for it.
     pub const fn domain(&self) -> Option<SyncDomain> {
         match self {
-            Self::DomainReady { domain, .. }
-            | Self::DomainReset { domain, .. } => Some(*domain),
-            Self::CellGrid { .. }
-            | Self::CellGridChunk { .. }
-            | Self::AgentStatus { .. } => Some(SyncDomain::Terminal),
+            Self::DomainReady { domain, .. } | Self::DomainReset { domain, .. } => Some(*domain),
+            Self::CellGrid { .. } | Self::CellGridChunk { .. } | Self::AgentStatus { .. } => {
+                Some(SyncDomain::Terminal)
+            }
             Self::Subscribed { .. }
             | Self::SessionEvent { .. }
             | Self::SessionsSnapshot { .. }

@@ -14,9 +14,7 @@ use roost_protocol::cell::{CellGridFrame, CellRow};
 
 use crate::cell_renderer::CellGridRenderer;
 use crate::cell_renderer_dom::DomResult;
-use crate::presentation::{
-    RendererEpochSeq, RendererIncidentPhase, RendererTerminalModeSnapshot,
-};
+use crate::presentation::{RendererEpochSeq, RendererIncidentPhase, RendererTerminalModeSnapshot};
 
 impl CellGridRenderer {
     /// Bring the painted DOM in line with the accepted frame.
@@ -69,11 +67,7 @@ impl CellGridRenderer {
     /// The spacer is synced BEFORE the history is wiped, so the scroll maximum
     /// never dips under a reader's `scrollTop` and dumps them into stale space
     /// on the way to the live bottom.
-    pub(crate) fn render_full(
-        &mut self,
-        follow_tail: bool,
-        should_pin: bool,
-    ) -> DomResult<()> {
+    pub(crate) fn render_full(&mut self, follow_tail: bool, should_pin: bool) -> DomResult<()> {
         let Some(frame) = self.frame.clone() else {
             return Ok(());
         };
@@ -81,9 +75,8 @@ impl CellGridRenderer {
         // replaces the nodes that carry it.
         self.observe(RendererIncidentPhase::PreDestructive, None);
         self.measure_row_height();
-        self.painted_sb_base = crate::cell_renderer::history_page::to_row_index(
-            frame.scrollback_total,
-        );
+        self.painted_sb_base =
+            crate::cell_renderer::history_page::to_row_index(frame.scrollback_total);
         self.scrollback_layout_end = frame.scrollback_total;
         self.gap_rows = 0;
         self.tail_gap = None;
@@ -148,9 +141,7 @@ impl CellGridRenderer {
             bracketed_paste: frame.bracketed_paste,
         });
         self.observe(RendererIncidentPhase::PostReconcile, None);
-        if first_reconcile
-            && let Some(callback) = self.on_first_reconcile.take()
-        {
+        if first_reconcile && let Some(callback) = self.on_first_reconcile.take() {
             callback();
         }
         if let Some(callback) = self.on_reconcile.as_ref() {
@@ -166,9 +157,7 @@ impl CellGridRenderer {
     /// The canonical `(epoch, seq)` pair.
     pub(crate) fn canonical_watermark(&self) -> RendererEpochSeq {
         RendererEpochSeq {
-            grid_epoch: self
-                .canonical_frame()
-                .map(|frame| frame.grid_epoch.clone()),
+            grid_epoch: self.canonical_frame().map(|frame| frame.grid_epoch.clone()),
             seq: self.canonical_frame().map(|frame| frame.seq),
         }
     }

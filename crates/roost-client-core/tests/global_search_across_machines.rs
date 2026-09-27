@@ -71,7 +71,10 @@ fn query(text: &str) -> GlobalSearchQuery {
 /// that issued it, so a test can answer THAT page rather than a fresh one.
 fn started(text: &str) -> (GlobalSearchController, GlobalSearchRequest) {
     let mut controller = GlobalSearchController::new();
-    assert_eq!(controller.set_search(query(text), 1_000), SetSearchOutcome::Debouncing);
+    assert_eq!(
+        controller.set_search(query(text), 1_000),
+        SetSearchOutcome::Debouncing
+    );
     let request = controller
         .take_first_page("search-1", 7, 1_000 + GLOBAL_SEARCH_DEBOUNCE_MS)
         .expect("the debounce has ended");
@@ -103,8 +106,7 @@ fn the_first_page_is_debounced_and_sends_the_coordinators_own_limits() {
     assert_eq!(request.cursor, None);
     assert_eq!(request.call_id, 3);
     assert_eq!(
-        request.max_sessions,
-        GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS as u32,
+        request.max_sessions, GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS as u32,
         "the cap is the coordinator's, because the coordinator is what does the \
          scanning"
     );
@@ -142,7 +144,11 @@ fn results_from_three_machines_survive_one_merge_and_the_fleet_count_is_publishe
         "the first page publishes"
     );
     let results = controller.results();
-    assert_eq!(results.matches.len(), 2, "rows from both machines are published");
+    assert_eq!(
+        results.matches.len(),
+        2,
+        "rows from both machines are published"
+    );
     assert_eq!(results.searched_sessions, 2);
     assert_eq!(
         results.eligible_sessions, 9,
@@ -168,7 +174,8 @@ fn results_from_three_machines_survive_one_merge_and_the_fleet_count_is_publishe
     ));
     let results = controller.results();
     assert_eq!(
-        results.matches.len(), 3,
+        results.matches.len(),
+        3,
         "the third machine's row joined the list: a search that answered for \
          only the machines this browser is connected to would have published two"
     );

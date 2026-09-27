@@ -154,4 +154,3 @@ pub fn redeem_pair_token(
         }
     }
 }
-

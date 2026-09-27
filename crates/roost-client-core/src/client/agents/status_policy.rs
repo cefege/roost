@@ -263,10 +263,7 @@ pub fn agent_status_level_token_for(
     status: Option<&AgentStatus>,
     acknowledged_revision: Option<i64>,
 ) -> &'static str {
-    agent_status_level_token(derive_agent_status_level(
-        status,
-        acknowledged_revision,
-    ))
+    agent_status_level_token(derive_agent_status_level(status, acknowledged_revision))
 }
 
 /// Whether a status carries a completion this profile has not acknowledged.
@@ -356,7 +353,8 @@ pub fn fold_agent_status_levels(
         if candidate != AgentStatusLevel::Unknown {
             total += 1;
         }
-        if agent_status_presentation(candidate).priority > agent_status_presentation(level).priority {
+        if agent_status_presentation(candidate).priority > agent_status_presentation(level).priority
+        {
             level = candidate;
         }
     }

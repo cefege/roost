@@ -15,109 +15,19 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod support;
+
 use std::collections::BTreeSet;
 
 use roost_client_core::client::sync::{
-    AbortReason, EnqueueOutcome, InstalledLink, QueuedFrame, SYNC_DISPATCH_QUEUE_MAX, SyncDispatch,
-    can_accept_sync_link, can_open_sync_link, classify_close,
+    EnqueueOutcome, QueuedFrame, SYNC_DISPATCH_QUEUE_MAX, SyncDispatch, classify_close,
 };
-use roost_client_core::effect::{Effect, SyncCommand};
 use roost_client_core::event::ClientEvent;
-use roost_client_core::{ClientCore, SyncDomain, SyncFrame, WireEvent};
-use roost_protocol::wire::{ChannelId, SessionEvent, SessionId, SessionKind, WorkerFp};
-
-const TAB: &str = "tab-7f3a";
-const EPOCH: &str = "epoch-1";
-const SESSION: &str = "00000000-0000-4000-8000-00000000000a";
-const WORKER_FP: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-/// The domain generation every fixture link announces.
-const DOMAIN_GENERATION: u64 = 1;
-
-fn session_event(event_id: u64) -> SyncFrame {
-    SyncFrame::SessionEvent {
-        event: WireEvent(SessionEvent::Opened {
-            session_id: SessionId::try_from(SESSION).expect("a valid session id"),
-            worker_fp: WorkerFp::try_from(WORKER_FP).expect("a valid fingerprint"),
-            channel: ChannelId::try_from(0_i64).expect("a valid channel"),
-            session_kind: SessionKind::Shell,
-            cwd: "/repo".to_owned(),
-            ts: 1,
-            trace_id: None,
-        }),
-        event_id,
-    }
-}
-
-/// Dial, complete the handshake, announce the workers domain, hydrate, and close
-/// that domain's snapshot/live gap. Returns the generation the socket took.
-///
-/// A second call replaces the first socket's link, so a caller that wants the old
-/// one still open has to say so itself: `SyncState::open_link` refuses to install
-/// a second live link, which is what stops two sockets being current at once.
-fn open_ready_link(core: &mut ClientCore, socket_id: &str) -> u64 {
-    let effects = core.handle(ClientEvent::DialRequested);
-    let generation = match effects.as_slice() {
-        [Effect::DialSync { generation, .. }] => *generation,
-        other => panic!("expected exactly one dial, got {other:?}"),
-    };
-    core.handle(ClientEvent::SyncLinkOpened {
-        generation,
-        socket_id: socket_id.to_owned(),
-        process_epoch: EPOCH.to_owned(),
-    });
-    core.handle(ClientEvent::SyncFrameReceived {
-        generation,
-        delivery_seq: 0,
-        frame: SyncFrame::Subscribed {
-            socket_id: socket_id.to_owned(),
-            process_epoch: EPOCH.to_owned(),
-            domains: vec![(SyncDomain::Workers, DOMAIN_GENERATION, true)],
-            // `true` is the coordinator stating that THIS client is subscribed to
-            // the domain on THIS socket (`sync.proto:115-125`), and it has to be
-            // `true` for a `domain_ready` to follow: `may_apply` admits live
-            // traffic only where a domain is `subscribed && ready`, and
-            // `install_subscribed` stores this flag verbatim. Announcing `false`
-            // and then sending `domain_ready` describes a sequence the
-            // coordinator never produces — it would not close the snapshot/live
-            // gap for a domain it had just said we were not subscribed to — and
-            // every application frame below was being refused at that gate.
-        },
-    });
-    core.handle(ClientEvent::HydrationCompleted { generation });
-    core.handle(ClientEvent::SyncFrameReceived {
-        generation,
-        delivery_seq: 0,
-        frame: SyncFrame::DomainReady {
-            domain: SyncDomain::Workers,
-            generation: DOMAIN_GENERATION,
-            snapshot_token: None,
-        },
-    });
-    assert!(core.store().sync.accepts(generation));
-    generation
-}
-
-/// The recovery cursor, read the way a reconnect reads it: as the `since` the
-/// next dial will send.
-fn cursor_on_next_dial(core: &mut ClientCore) -> u64 {
-    let effects = core.handle(ClientEvent::DialRequested);
-    match effects.as_slice() {
-        [Effect::DialSync { dial, .. }] => dial.since,
-        other => panic!("expected exactly one dial, got {other:?}"),
-    }
-}
-
-fn acks(effects: &[Effect]) -> usize {
-    effects
-        .iter()
-        .filter(|effect| matches!(effect, Effect::SendSync(SyncCommand::Ack { .. })))
-        .count()
-}
-
-fn enqueue(dispatch: &mut SyncDispatch, generation: u64, seq: u64, event_id: u64) {
-    let frame = QueuedFrame::new(generation, seq, "sock-one", session_event(event_id));
-    assert_eq!(dispatch.enqueue(frame), EnqueueOutcome::Queued);
-}
+use roost_client_core::{ClientCore, SyncFrame};
+use roost_protocol::wire::SessionId;
+use support::sync_reconnect::{
+    SESSION, TAB, acks, cursor_on_next_dial, enqueue, open_ready_link, session_event,
+};
 
 #[test]
 fn the_queue_bound_drops_the_oldest_and_says_so() {
@@ -281,7 +191,6 @@ fn a_credential_boundary_drops_the_frames_keyed_to_it() {
     core.handle(applied.into_event());
     assert_eq!(cursor_on_next_dial(&mut core), 10);
 
-
     // `take` DRAINED, so the queue is empty and there is nothing for a
     // credential boundary to drop. Enqueue one more so the assertion below is
     // about the boundary and not about the drain — expecting `clear()` to
@@ -293,99 +202,6 @@ fn a_credential_boundary_drops_the_frames_keyed_to_it() {
     // The cursor went with the credential, so the next socket's initial history
     // is not skipped (`docs/phase4-client-contract.md` §7).
     assert_eq!(cursor_on_next_dial(&mut core), 0);
-}
-
-#[test]
-fn state_from_a_previous_generation_is_refused_after_a_new_one_opens() {
-    let mut core = ClientCore::in_memory(TAB);
-    let first = open_ready_link(&mut core, "sock-one");
-    core.handle(ClientEvent::SyncLinkClosed {
-        generation: first,
-        close_code: Some(1006),
-    });
-    let second = open_ready_link(&mut core, "sock-two");
-    assert_ne!(first, second);
-
-    // A close naming the OLD generation is not this socket's close. If it were
-    // honoured, a credential verdict meant for a socket nobody is using would
-    // stop the dial loop.
-    let before = core.store().revision();
-    let effects = core.handle(ClientEvent::SyncLinkClosed {
-        generation: first,
-        close_code: Some(4001),
-    });
-    assert!(effects.is_empty());
-    assert_eq!(core.store().revision(), before, "nothing was mutated");
-    assert!(
-        !core.store().sync.auth_revoked,
-        "a verdict for a retired socket must not stop this one"
-    );
-    assert!(core.store().sync.accepts(second));
-    assert_eq!(core.store().sync.socket_id(), Some("sock-two"));
-    assert_eq!(core.store().sync.link_generation(), Some(second));
-}
-
-#[test]
-fn a_socket_from_a_replaced_generation_is_neither_adopted_nor_read() {
-    let mut link = InstalledLink::empty();
-    link.dialled(1);
-    assert!(link.opened(1));
-    assert!(can_open_sync_link(&link, 1));
-    assert!(can_accept_sync_link(&link, 1));
-
-    // The host replaces the socket. The old handle can still deliver into its
-    // callbacks, and adopting it would install a generation the store has already
-    // retired.
-    link.dialled(2);
-    assert!(!link.opened(1), "a replaced socket must not be adopted");
-    assert!(!can_accept_sync_link(&link, 1));
-    assert!(
-        !link.retire(1, AbortReason::Manual),
-        "a replaced link is not retired a second time"
-    );
-    assert_eq!(link.abort_reason(), None);
-    assert!(link.opened(2));
-    assert!(can_accept_sync_link(&link, 2));
-    assert_eq!(link.generation(), Some(2));
-
-    // A link retired for a reason is not adoptable, and stops accepting BEFORE it
-    // is closed — a frame between the two states would be applied to a
-    // generation this side has already given up.
-    link.retire(2, AbortReason::TerminalLiveness);
-    assert!(!can_open_sync_link(&link, 2));
-    assert!(!can_accept_sync_link(&link, 2));
-    assert!(
-        link.is_open(),
-        "retiring stops accepting; it does not close"
-    );
-    assert_eq!(link.abort_reason(), Some(AbortReason::TerminalLiveness));
-    link.closed(2);
-    assert!(!link.is_open());
-    assert_eq!(
-        link.abort_reason(),
-        Some(AbortReason::TerminalLiveness),
-        "a close does not erase the reason the link was retired for"
-    );
-}
-
-#[test]
-fn a_revoked_credential_stops_the_dial_loop() {
-    let mut core = ClientCore::in_memory(TAB);
-    let generation = open_ready_link(&mut core, "sock-one");
-
-    core.handle(ClientEvent::SyncLinkClosed {
-        generation,
-        close_code: Some(4001),
-    });
-    assert!(core.store().sync.auth_revoked);
-
-    let effects = core.handle(ClientEvent::DialRequested);
-    assert!(
-        !effects
-            .iter()
-            .any(|effect| matches!(effect, Effect::DialSync { .. })),
-        "a revoked credential must not be presented again"
-    );
 }
 
 #[test]

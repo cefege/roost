@@ -36,7 +36,7 @@ pub fn block_placeholder(rows: u32, row_height: f64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{block_placeholder, DEFAULT_CELL_ROW_PX, SCROLLBACK_BLOCK_ROWS};
+    use super::{DEFAULT_CELL_ROW_PX, SCROLLBACK_BLOCK_ROWS, block_placeholder};
 
     #[test]
     fn a_measured_block_height_is_two_decimals_of_rows_times_row_height() {

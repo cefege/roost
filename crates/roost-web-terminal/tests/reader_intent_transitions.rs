@@ -62,10 +62,9 @@ fn dismissing_a_find_downgrades_the_park_without_moving_it() {
     assert_eq!(state.intent(), ReaderIntent::Reading);
     assert_eq!(state.reason(), Some(ReaderIntentReason::NativeScroll));
     assert!(
-        !state
+        state
             .reason()
-            .is_some_and(ReaderIntentReason::is_position_only)
-            .not(),
+            .is_some_and(ReaderIntentReason::is_position_only),
         "a dismissed find park is an ordinary scroll park any resume can release"
     );
 }
@@ -134,8 +133,14 @@ fn a_hold_release_is_offered_only_where_a_resume_could_actually_end_the_park() {
 fn a_surviving_hold_outranks_a_resume_and_leaves_the_reader_state_truthful() {
     let mut state = live();
     state.set_armed_hold(true);
-    let admission = state.begin_resume(true, false);
-    assert!(admission.admitted, "an explicit local interaction clears the holds");
+    // A local keystroke is v2's `prepareLiveInteraction`: it clears the holds
+    // AND is explicit, so it pins. `clear_holds` alone never pins — v2 has no
+    // callsite that clears holds without also being explicit.
+    let admission = state.begin_resume(true, true);
+    assert!(
+        admission.admitted,
+        "an explicit local interaction clears the holds"
+    );
     assert!(admission.pin_on_resume);
 
     let mut both = live();
@@ -143,7 +148,10 @@ fn a_surviving_hold_outranks_a_resume_and_leaves_the_reader_state_truthful() {
     both.set_armed_hold(true);
     let refused = both.begin_resume(false, false);
     assert!(!refused.admitted);
-    assert_eq!(both.hold_mask(), RENDERER_HOLD_SELECTION | RENDERER_HOLD_LINK);
+    assert_eq!(
+        both.hold_mask(),
+        RENDERER_HOLD_SELECTION | RENDERER_HOLD_LINK
+    );
     assert_eq!(
         both.intent(),
         ReaderIntent::Reading,

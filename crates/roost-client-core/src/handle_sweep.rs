@@ -47,7 +47,11 @@ pub fn handle_sweep(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
     // CONVERSATION between two reports and an acknowledgement: a released
     // occupant's row outlives the frame that released it until this profile has
     // been told, and no single report can know that.
-    if !store.agent_status.retire_spent_released(&store.agent_seen).is_empty() {
+    if !store
+        .agent_status
+        .retire_spent_released(&store.agent_seen)
+        .is_empty()
+    {
         store.note_change();
     }
 

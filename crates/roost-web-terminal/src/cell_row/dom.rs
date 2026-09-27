@@ -32,9 +32,8 @@ pub fn render_row(
     element.set_class_name("cell-row");
     let _ = element.set_attribute(ROW_COLUMNS_ATTR, &row_column_count(row).to_string());
     if row.spans.is_empty() {
-        if let Ok(text) = doc.create_text_node(" ") {
-            let _ = element.append_child(&text);
-        }
+        let text = doc.create_text_node(" ");
+        let _ = element.append_child(&text);
         return Ok(element);
     }
     // A row carries no highlight class at all until a match actually lands in
@@ -114,7 +113,11 @@ fn paint_span(
         // A highlighted piece hands colour to the `.cell-find-hit` class and
         // keeps only the run's DECORATION, because an inline colour would beat
         // the class rule and leave matches on styled output un-highlighted.
-        let style = if slice.highlighted { &decoration } else { &run_style };
+        let style = if slice.highlighted {
+            &decoration
+        } else {
+            &run_style
+        };
         let text = slice_text(span, slice.start, slice.columns);
         append_slice(host, doc, style, Some(slice), &text)?;
     }

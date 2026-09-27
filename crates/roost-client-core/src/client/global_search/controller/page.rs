@@ -12,14 +12,14 @@ use roost_protocol::terminal_search::{
 };
 use roost_protocol::wire::SessionId;
 
-use crate::client::global_search::reconcile::{
-    merge_global_search_matches, reconcile_global_search_partials,
-};
-use crate::search::global::{GlobalSearchMatch, GlobalSearchPartialReason, GlobalSearchResponse};
 use super::{
     GLOBAL_SEARCH_DEBOUNCE_MS, GlobalSearchController, GlobalSearchQuery, GlobalSearchRequest,
     GlobalSearchResults, OutstandingPage, SetSearchOutcome,
 };
+use crate::client::global_search::reconcile::{
+    merge_global_search_matches, reconcile_global_search_partials,
+};
+use crate::search::global::{GlobalSearchMatch, GlobalSearchPartialReason, GlobalSearchResponse};
 
 impl GlobalSearchController {
     /// Fold one coordinator page in, returning whether it changed what a reader

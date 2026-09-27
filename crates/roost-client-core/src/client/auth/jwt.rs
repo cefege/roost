@@ -99,11 +99,9 @@ impl CoordinatorJwt {
             token: unsigned.assemble(signature),
             kid: unsigned.kid.clone(),
             issued_at_ms,
-            expires_at_ms: issued_at_ms
-                .saturating_add(JWT_LIFETIME_SECS.saturating_mul(1_000)),
+            expires_at_ms: issued_at_ms.saturating_add(JWT_LIFETIME_SECS.saturating_mul(1_000)),
         }
     }
-
 }
 
 /// A token's two unsigned segments and the exact bytes its signature covers.
@@ -150,8 +148,10 @@ pub fn build_unsigned_jwt(kid: &str, now_ms: u64) -> UnsignedJwt {
         "iat": issued_at_secs,
         "exp": issued_at_secs.saturating_add(i64::try_from(JWT_LIFETIME_SECS).unwrap_or(i64::MAX)),
     });
-    let header_segment = BASE64_URL_SAFE_NO_PAD.encode(serde_json::to_string(&header).unwrap_or_default());
-    let payload_segment = BASE64_URL_SAFE_NO_PAD.encode(serde_json::to_string(&payload).unwrap_or_default());
+    let header_segment =
+        BASE64_URL_SAFE_NO_PAD.encode(serde_json::to_string(&header).unwrap_or_default());
+    let payload_segment =
+        BASE64_URL_SAFE_NO_PAD.encode(serde_json::to_string(&payload).unwrap_or_default());
     UnsignedJwt {
         signing_input: format!("{header_segment}.{payload_segment}"),
         kid: kid.to_string(),

@@ -140,7 +140,11 @@ fn is_valid_http_authority(authority: &str) -> bool {
         {
             return false;
         }
-        (&authority[..rest.len() + close + 1], port)
+        // `rest` is `authority` minus its `[`, so the closing bracket sits at
+        // `close + 1` in `authority` and the host runs to `close + 2`. Slicing
+        // from `rest`'s own length instead ran one byte past the authority and
+        // panicked on every bracketed literal with a port.
+        (&authority[..close + 2], port)
     } else {
         match authority.rsplit_once(':') {
             Some((host, port)) => (host, Some(port)),
@@ -186,10 +190,10 @@ fn classify_file_uri(raw: &str) -> Option<TerminalLinkTarget> {
     };
     let mut raw_path = percent_decode(path_part)?;
     // WHATWG file URLs spell a Windows drive as `/C:/path`.
-    if let Some(stripped) = raw_path.strip_prefix('/') {
-        if is_windows_drive_absolute(stripped) {
-            raw_path = stripped.to_string();
-        }
+    if let Some(stripped) = raw_path.strip_prefix('/')
+        && is_windows_drive_absolute(stripped)
+    {
+        raw_path = stripped.to_string();
     }
     let (path, line) = match fragment_line {
         Some(line) => (raw_path, Some(line)),
@@ -207,10 +211,7 @@ fn classify_file_uri(raw: &str) -> Option<TerminalLinkTarget> {
 /// no leading zero. Anything else means the target is not a file view request.
 fn parse_line_fragment(fragment: &str) -> Option<u32> {
     let digits = fragment.strip_prefix('L')?;
-    if digits.is_empty()
-        || digits.starts_with('0')
-        || !is_ascii_digits(digits)
-        || digits.len() > 9
+    if digits.is_empty() || digits.starts_with('0') || !is_ascii_digits(digits) || digits.len() > 9
     {
         return None;
     }
@@ -276,7 +277,9 @@ fn has_uri_scheme(raw: &str) -> bool {
     characters
         .next()
         .is_some_and(|character| character.is_ascii_alphabetic())
-        && characters.all(|character| character.is_ascii_alphanumeric() || matches!(character, '+' | '-' | '.'))
+        && characters.all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '+' | '-' | '.')
+        })
 }
 
 fn is_windows_drive_absolute(raw: &str) -> bool {
@@ -315,7 +318,9 @@ fn is_explicit_file_name(raw: &str) -> bool {
         return false;
     }
     let mut characters = extension.chars();
-    characters.next().is_some_and(|character| character.is_ascii_alphabetic())
+    characters
+        .next()
+        .is_some_and(|character| character.is_ascii_alphabetic())
         && characters.by_ref().take(15).all(is_word_character)
         && characters.next().is_none()
 }

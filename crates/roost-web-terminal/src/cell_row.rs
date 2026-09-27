@@ -144,10 +144,13 @@ pub fn span_decoration_style(span: &CellSpan) -> String {
     if span.flags & CELL_STRIKE != 0 {
         decorations.push("line-through");
     }
-    if !decorations.is_empty() {
-        parts.push("text-decoration");
-        parts.extend(decorations);
-    }
+    // ONE declaration with its keywords space-joined: `text-decoration;underline`
+    // is not CSS, so a styled run silently lost both its underline and its
+    // strike. Bound as an owned `Option` so the borrowed slice outlives the
+    // `parts` vector that points at it.
+    let decoration =
+        (!decorations.is_empty()).then(|| format!("text-decoration:{}", decorations.join(" ")));
+    parts.extend(decoration.as_deref());
     if span.flags & CELL_INVISIBLE != 0 {
         parts.push("visibility:hidden");
     }
@@ -170,10 +173,13 @@ pub fn span_style(span: &CellSpan) -> String {
     } else {
         (foreground, background)
     };
-    let mut parts: Vec<&str> = vec![&format!("color:{foreground}")];
-    if span.bg != DEFAULT_COLOR || span.bg_rgb.is_some() || reverse {
-        parts.push(&format!("background:{background}"));
-    }
+    let color = format!("color:{foreground}");
+    // Built as an owned `Option` rather than inside the push, so the borrowed
+    // declaration outlives the `parts` vector that points at it.
+    let fill = (span.bg != DEFAULT_COLOR || span.bg_rgb.is_some() || reverse)
+        .then(|| format!("background:{background}"));
+    let mut parts: Vec<&str> = vec![&color];
+    parts.extend(fill.as_deref());
     let decoration = span_decoration_style(span);
     if !decoration.is_empty() {
         parts.push(&decoration);
@@ -205,9 +211,7 @@ pub fn span_slices(span: &CellSpan, hits: &[FindHit], active_col: Option<u32>) -
         let whole = SpanSlice {
             start: 0,
             columns: span.columns,
-            highlighted: hits
-                .iter()
-                .any(|hit| overlaps(hit, 0, span.columns)),
+            highlighted: hits.iter().any(|hit| overlaps(hit, 0, span.columns)),
             active: false,
         };
         let mut slices = vec![whole];
@@ -310,20 +314,23 @@ pub fn row_hash(row: &CellRow, hits: Option<&[FindHit]>, active_col: Option<u32>
         hash = fold(hash, span.fg.into());
         hash = fold(hash, span.bg.into());
         hash = fold(hash, span.flags.into());
-        hash = fold(hash, span.fg_rgb.map_or(u32::MAX, |rgb| rgb));
-        hash = fold(hash, span.bg_rgb.map_or(u32::MAX, |rgb| rgb));
+        hash = fold(hash, span.fg_rgb.unwrap_or(u32::MAX));
+        hash = fold(hash, span.bg_rgb.unwrap_or(u32::MAX));
         match span.link_key.as_deref() {
             None => hash = fold(hash, 0),
             Some(key) => {
-                hash = fold(hash, u32::try_from(key.encode_utf16().count()).unwrap_or(u32::MAX) + 1);
+                hash = fold(
+                    hash,
+                    u32::try_from(key.encode_utf16().count()).unwrap_or(u32::MAX) + 1,
+                );
                 for unit in key.encode_utf16() {
                     hash = fold(hash, u32::from(unit));
                 }
                 hash = fold(
                     hash,
-                    span.link_uri
-                        .as_deref()
-                        .map_or(0, |uri| u32::try_from(uri.encode_utf16().count()).unwrap_or(u32::MAX)),
+                    span.link_uri.as_deref().map_or(0, |uri| {
+                        u32::try_from(uri.encode_utf16().count()).unwrap_or(u32::MAX)
+                    }),
                 );
             }
         }

@@ -45,14 +45,8 @@ impl CellGridRenderer {
         self.reader.reconcile_block_reason(
             self.reader_pending_frame.is_some(),
             self.pending_render,
-            (
-                canonical.grid_epoch.as_deref(),
-                canonical.seq,
-            ),
-            (
-                reconciled.grid_epoch.as_deref(),
-                reconciled.seq,
-            ),
+            (canonical.grid_epoch.as_deref(), canonical.seq),
+            (reconciled.grid_epoch.as_deref(), reconciled.seq),
         )
     }
 
@@ -67,6 +61,7 @@ impl CellGridRenderer {
         Some(BackfillAnchor {
             sb_base: self.painted_sb_base,
             cols: frame.cols,
+            total: frame.scrollback_total,
             grid_epoch: frame.grid_epoch.clone(),
         })
     }

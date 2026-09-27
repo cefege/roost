@@ -11,6 +11,7 @@ description = "The imperative web-sys terminal renderer plus its input, IME, mou
 workspace = true
 
 [dependencies]
+js-sys = { workspace = true }
 roost-client-core = { workspace = true }
 roost-protocol = { workspace = true }
 thiserror = { workspace = true }
@@ -28,9 +29,11 @@ features = [
   "CssStyleDeclaration",
   "Document",
   "DomRect",
+  "DomTokenList",
   "Element",
   "Event",
   "EventTarget",
+  "HtmlCollection",
   "HtmlElement",
   "InputEvent",
   "KeyboardEvent",

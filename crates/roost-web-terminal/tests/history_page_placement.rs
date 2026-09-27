@@ -51,7 +51,10 @@ fn the_held_row_cap_is_two_thousand() {
 fn a_page_is_admitted_only_when_it_is_exactly_the_interval_it_claims() {
     let rows = page(10, 4);
     assert!(page_is_contiguous(&rows, 10, 14));
-    assert!(!page_is_contiguous(&rows, 10, 15), "short of the interval it claims");
+    assert!(
+        !page_is_contiguous(&rows, 10, 15),
+        "short of the interval it claims"
+    );
     assert!(!page_is_contiguous(&rows, 11, 14), "offset by one");
     assert!(!page_is_contiguous(&rows, 14, 10), "inverted");
 
@@ -76,7 +79,9 @@ fn a_page_inserted_above_the_head_lands_in_sorted_position() {
 #[test]
 fn a_reserved_gap_between_two_painted_intervals_is_a_first_class_state() {
     let store = painted(&[0, 1, 2, 50, 51]);
-    let missing = store.missing_range_at(100, 30).expect("row 30 is unpainted");
+    let missing = store
+        .missing_range_at(100, 30)
+        .expect("row 30 is unpainted");
     assert_eq!((missing.start, missing.end), (3, 50));
     assert!(store.missing_range_at(100, 0).is_none(), "row 0 is painted");
     assert!(store.missing_range_at(100, 100).is_none(), "past the total");
@@ -96,23 +101,35 @@ fn a_range_is_painted_only_when_every_row_of_it_is() {
     assert!(store.has_range(10, 0, 3));
     assert!(!store.has_range(10, 0, 4));
     assert!(!store.has_range(10, 3, 6), "row 3 and 4 are both unpainted");
-    assert!(!store.has_range(10, 0, 0), "an empty range is never a request");
+    assert!(
+        !store.has_range(10, 0, 0),
+        "an empty range is never a request"
+    );
 }
 
 #[test]
 fn eviction_moves_the_painted_base_to_one_past_the_last_dropped_row() {
-    let store = painted(&[0, 1, 2, 10, 11, 12]);
-    assert_eq!(store.evict_leading(3), Some(10));
+    let mut store = painted(&[0, 1, 2, 10, 11, 12]);
+    // One PAST the last dropped row, not the first still-painted one: the head
+    // gap an eviction leaves begins at `dropped + 1`, and it only collapses
+    // while its start equals the painted base.
+    assert_eq!(store.evict_leading(3), Some(3));
     assert_eq!(store.indices(), &[10, 11, 12]);
     assert_eq!(store.evict_leading(0), Some(10));
-    assert!(store.evict_leading(9).is_none(), "more than the store holds");
+    assert!(
+        store.evict_leading(9).is_none(),
+        "more than the store holds"
+    );
 }
 
 #[test]
 fn a_store_inside_the_cap_evicts_nothing() {
     let store = painted(&[0, 1, 2, 3]);
     assert!(plan_eviction(&store, MAX_HELD_SCROLLBACK_ROWS, 250).is_none());
-    assert!(plan_eviction(&store, 2, 0).is_none(), "no leading block means no step");
+    assert!(
+        plan_eviction(&store, 2, 0).is_none(),
+        "no leading block means no step"
+    );
 }
 
 #[test]
@@ -121,7 +138,10 @@ fn eviction_drops_no_more_than_the_leading_block_holds() {
     let step = plan_eviction(&store, 4, 6).expect("two rows over the cap");
     assert_eq!(step.rows, 2);
     assert_eq!(step.next_base, Some(2));
-    assert!(!step.removes_block, "the block keeps the four rows that stay");
+    assert!(
+        !step.removes_block,
+        "the block keeps the four rows that stay"
+    );
 }
 
 #[test]
@@ -137,7 +157,10 @@ fn eviction_takes_the_whole_block_when_the_cap_clears_it_exactly() {
 fn eviction_never_reaches_past_the_end_of_the_leading_block() {
     let store = painted(&[0, 1, 2, 3, 4]);
     let step = plan_eviction(&store, 0, 2).expect("the cap asks for more than one block");
-    assert_eq!(step.rows, 2, "one step drops one block, then the loop asks again");
+    assert_eq!(
+        step.rows, 2,
+        "one step drops one block, then the loop asks again"
+    );
     assert_eq!(step.next_base, Some(2));
     assert!(step.removes_block);
 }
@@ -148,19 +171,29 @@ fn a_pre_paid_demand_exposes_the_gap_above_the_window_and_not_the_visible_one() 
     // 90. A demand widened upward names the interval the reader is scrolling
     // TOWARD, so the blank sliver on screen and the next several screens behind
     // it arrive in one round trip.
-    let store = painted(&[0, 1, 2, 100]);
+    let store = painted(&[89, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109]);
     let target = store
-        .missing_range_at_scroll(200, 100.0, 0.0, 200.0, 20.0, 20)
+        .missing_range_at_scroll(200, 2000.0, 0.0, 200.0, 20.0, 10)
         .expect("rows 90..100 are unpainted");
     assert_eq!(target.missing.start, 90);
     assert_eq!(target.missing.end, 100);
     assert_eq!(target.focus_row, 90);
-    assert_eq!((target.in_window.start, target.in_window.end), (90, 110));
+    // The window is fully painted, so the part of the demand inside it is the
+    // gap's own lower edge — `in_window.end` is the WINDOW's end, not the gap's.
+    assert_eq!((target.in_window.start, target.in_window.end), (90, 100));
 }
 
 #[test]
 fn a_fully_painted_window_demands_nothing() {
     let store = painted(&(0..200).collect::<Vec<u32>>());
-    assert!(store.missing_range_at_scroll(200, 0.0, 0.0, 200.0, 20.0, 20).is_none());
-    assert!(store.missing_range_at_scroll(200, 0.0, 0.0, 0.0, 20.0, 20).is_none());
+    assert!(
+        store
+            .missing_range_at_scroll(200, 0.0, 0.0, 200.0, 20.0, 20)
+            .is_none()
+    );
+    assert!(
+        store
+            .missing_range_at_scroll(200, 0.0, 0.0, 0.0, 20.0, 20)
+            .is_none()
+    );
 }

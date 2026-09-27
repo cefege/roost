@@ -138,7 +138,10 @@ pub enum RotationRecovery {
 /// an unanswered question is how a working device key gets deleted; and an
 /// ambiguous stage is never `Promoted`, whatever the old key says, because
 /// promoting on an unanswered question is how an unauthorized key gets installed.
-pub const fn recover_rotation(staged: KeyAdmission, current: Option<KeyAdmission>) -> RotationRecovery {
+pub const fn recover_rotation(
+    staged: KeyAdmission,
+    current: Option<KeyAdmission>,
+) -> RotationRecovery {
     match staged {
         KeyAdmission::Authorized => RotationRecovery::Promoted,
         KeyAdmission::Ambiguous => RotationRecovery::Ambiguous,

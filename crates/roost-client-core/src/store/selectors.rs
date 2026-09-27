@@ -58,7 +58,10 @@ pub fn live_session_ids_for_folder(
 }
 
 /// One session by id.
-pub fn session_by_id<'session>(store: &'session Store, session_id: &str) -> Option<&'session Session> {
+pub fn session_by_id<'session>(
+    store: &'session Store,
+    session_id: &str,
+) -> Option<&'session Session> {
     store
         .sessions
         .session(&roost_protocol::wire::SessionId::try_from(session_id.to_owned()).ok()?)

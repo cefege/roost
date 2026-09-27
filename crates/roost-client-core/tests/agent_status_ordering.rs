@@ -15,7 +15,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_client_core::client::agents::{
-    AgentSeenLedger, AgentStatusProjection, derive_agent_status_level, AgentStatusLevel,
+    AgentSeenLedger, AgentStatusLevel, AgentStatusProjection, derive_agent_status_level,
 };
 use roost_protocol::wire::{
     AgentId, AgentOccupantId, AgentRuntimeState, AgentStatus, AgentStatusFields, AgentStatusSource,
@@ -57,11 +57,7 @@ fn report(session: &str, revision: i64, state: AgentRuntimeState) -> AgentStatus
 }
 
 /// An identified report from a replacement occupant of the same epoch.
-fn replacement_report(
-    session: &str,
-    revision: i64,
-    state: AgentRuntimeState,
-) -> AgentStatusUpdate {
+fn replacement_report(session: &str, revision: i64, state: AgentRuntimeState) -> AgentStatusUpdate {
     let mut update = report(session, revision, state);
     update.common.occupant_id = Some(AgentOccupantId::try_from(OCCUPANT_B).expect("an occupant"));
     update
@@ -89,8 +85,7 @@ fn retained(projection: &AgentStatusProjection, session: &str) -> Option<AgentSt
 }
 
 fn state_of(projection: &AgentStatusProjection, session: &str) -> Option<(AgentRuntimeState, i64)> {
-    retained(projection, session)
-        .map(|status| (status.common.state, status.common.revision))
+    retained(projection, session).map(|status| (status.common.state, status.common.revision))
 }
 
 #[test]
@@ -304,7 +299,10 @@ fn a_deletion_removes_the_row_and_leaves_the_revision_floor_behind_it() {
 
     let removed = projection.apply_update(&deletion(SESSION_A, 31), &seen);
     let change = removed.expect("a deletion is a change");
-    assert_eq!(change.previous.map(|status| status.common.revision), Some(30));
+    assert_eq!(
+        change.previous.map(|status| status.common.revision),
+        Some(30)
+    );
     assert!(change.next.is_none());
     assert!(projection.status(&session_id(SESSION_A)).is_none());
     assert_eq!(
@@ -338,12 +336,18 @@ fn a_released_occupants_row_is_spent_once_its_completion_is_acknowledged() {
     );
     assert_eq!(projection.spent_released_count(&seen), 0);
 
-    assert!(seen.mark_seen(&held), "the first acknowledgement moves the ledger");
+    assert!(
+        seen.mark_seen(&held),
+        "the first acknowledgement moves the ledger"
+    );
     assert_eq!(projection.spent_released_count(&seen), 1);
     let retired = projection.retire_spent_released(&seen);
     assert_eq!(retired.len(), 1);
     assert_eq!(
-        retired[0].previous.as_ref().map(|status| status.common.revision),
+        retired[0]
+            .previous
+            .as_ref()
+            .map(|status| status.common.revision),
         Some(4)
     );
     assert!(projection.status(&session_id(SESSION_A)).is_none());
@@ -360,7 +364,10 @@ fn a_second_sessions_row_is_untouched_by_another_sessions_report() {
     let late_b = report(SESSION_B, 98, AgentRuntimeState::Idle);
     assert_eq!(projection.apply_update(&late_b, &seen), None);
 
-    assert_eq!(state_of(&projection, SESSION_A), Some((AgentRuntimeState::Working, 1)));
+    assert_eq!(
+        state_of(&projection, SESSION_A),
+        Some((AgentRuntimeState::Working, 1))
+    );
     assert_eq!(
         projection.arrival(&session_id(SESSION_A)),
         arrival_a,

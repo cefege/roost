@@ -29,7 +29,10 @@ pub struct RendererEpochSeq {
 /// Immutable grid identity and absolute range used to validate one history page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackfillAnchor {
-    /// First painted history row; everything above it is reserved, not painted.
+    /// The painted HEAD BASE — the splice boundary the DOM can be prepended at
+    /// and evicted to. Rows from it up are painted; an eviction moves it to one
+    /// past the last row it dropped, so the head gap that eviction leaves can
+    /// still collapse against it.
     pub sb_base: u32,
     /// Columns the grid paints, which a backfilled page must match.
     pub cols: u32,
@@ -129,7 +132,8 @@ pub struct RendererProjection {
     pub follows_bottom: bool,
     /// The painted immutable history, ascending.
     pub painted_history: Vec<CellRow>,
-    /// First painted history row.
+    /// The painted head base — the splice boundary, one past the last evicted
+    /// row rather than the first still-painted one.
     pub painted_sb_base: u32,
     /// One past the last row the scroll space reserves.
     pub scrollback_layout_end: u64,
@@ -184,13 +188,13 @@ pub fn create_renderer_paint_presentation(
 ) -> RendererPaintPresentation {
     let row_limit = row_limit_override.unwrap_or(PAINT_PRESENTATION_ROW_LIMIT);
     let mut start = painted.len().saturating_sub(row_limit);
-    if let Some(anchor) = reader_anchor {
-        if painted.len() > row_limit {
-            let at = painted.partition_point(|row| row.index < anchor.row);
-            start = at
-                .saturating_sub(row_limit / 2)
-                .min(painted.len().saturating_sub(row_limit));
-        }
+    if let Some(anchor) = reader_anchor
+        && painted.len() > row_limit
+    {
+        let at = painted.partition_point(|row| row.index < anchor.row);
+        start = at
+            .saturating_sub(row_limit / 2)
+            .min(painted.len().saturating_sub(row_limit));
     }
     let pitch = if row_height > 0.0 {
         row_height
@@ -207,10 +211,28 @@ pub fn create_renderer_paint_presentation(
                 text: spans_text(&row.spans),
             })
             .collect(),
-        head_spacer_px: painted_spacer_height.parse::<f64>().unwrap_or(0.0),
+        head_spacer_px: parse_css_px(painted_spacer_height),
         tail_gap_px: gap_rows as f64 * pitch,
         reader_anchor,
     }
+}
+
+/// The pixel count a CSS length string names, unit stripped.
+///
+/// The spacer is stamped as `"{:.2}px"`, and v2 reads it with `parseFloat`,
+/// which stops at the first non-numeric character. A strict whole-string parse
+/// reads every reserved height as zero — a diagnostics surface that reports a
+/// full head spacer as empty. A value that is not a finite pixel count is zero
+/// rather than NaN, which is what v2's `|| 0` gives it.
+fn parse_css_px(value: &str) -> f64 {
+    value
+        .trim()
+        .trim_end_matches("px")
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|pixels| pixels.is_finite())
+        .unwrap_or(0.0)
 }
 
 /// Build the presentation snapshot the smoke API publishes and diagnostics diff.
@@ -235,7 +257,8 @@ pub fn create_renderer_presentation_snapshot(
             bracketed_paste: frame.bracketed_paste,
         }),
         reconciled_mode: state.reconciled_mode,
-        canonical_cursor: canonical.map(|frame| (frame.cursor_visible, frame.cursor_row, frame.cursor_col)),
+        canonical_cursor: canonical
+            .map(|frame| (frame.cursor_visible, frame.cursor_row, frame.cursor_col)),
         painted_cursor_visible: state.painted_cursor_visible,
         painted_cursor_row: (state.painted_cursor_visible == Some(true))
             .then_some(state.painted_cursor_row)

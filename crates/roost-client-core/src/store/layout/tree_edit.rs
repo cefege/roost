@@ -31,30 +31,33 @@ use super::tree::{
 pub fn reconcile(layout: &PaneLayout, live_ids: &[String]) -> PaneLayout {
     let live: BTreeSet<&str> = live_ids.iter().map(String::as_str).collect();
     let mut emptied_by_prune: BTreeSet<String> = BTreeSet::new();
-    let pruned = map_leaves(&normalize_split_ratios(&layout.root), &mut |leaf: &PaneLeaf| {
-        let tabs: Vec<String> = leaf
-            .tabs
-            .iter()
-            .filter(|tab| live.contains(tab.as_str()))
-            .cloned()
-            .collect();
-        if tabs.len() == leaf.tabs.len() {
-            return leaf.clone();
-        }
-        if !leaf.tabs.is_empty() && tabs.is_empty() {
-            emptied_by_prune.insert(leaf.pane_id.clone());
-        }
-        let selected_tab = if live.contains(leaf.selected_tab.as_str()) {
-            leaf.selected_tab.clone()
-        } else {
-            tabs.first().cloned().unwrap_or_default()
-        };
-        PaneLeaf {
-            pane_id: leaf.pane_id.clone(),
-            tabs,
-            selected_tab,
-        }
-    });
+    let pruned = map_leaves(
+        &normalize_split_ratios(&layout.root),
+        &mut |leaf: &PaneLeaf| {
+            let tabs: Vec<String> = leaf
+                .tabs
+                .iter()
+                .filter(|tab| live.contains(tab.as_str()))
+                .cloned()
+                .collect();
+            if tabs.len() == leaf.tabs.len() {
+                return leaf.clone();
+            }
+            if !leaf.tabs.is_empty() && tabs.is_empty() {
+                emptied_by_prune.insert(leaf.pane_id.clone());
+            }
+            let selected_tab = if live.contains(leaf.selected_tab.as_str()) {
+                leaf.selected_tab.clone()
+            } else {
+                tabs.first().cloned().unwrap_or_default()
+            };
+            PaneLeaf {
+                pane_id: leaf.pane_id.clone(),
+                tabs,
+                selected_tab,
+            }
+        },
+    );
     let mut root = collapse_empties(&pruned, &emptied_by_prune);
     let placed: BTreeSet<&str> = all_leaves(&root)
         .iter()

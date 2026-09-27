@@ -30,7 +30,10 @@ impl CellGridRenderer {
     /// partial checkpoint overwrite a whole grid, and nothing afterwards could
     /// prove the rows it dropped.
     pub fn apply_full_frame(&mut self, incoming: &CellGridFrame) -> bool {
-        self.observe(RendererIncidentPhase::PreApply, Some(RendererFrameMode::Full));
+        self.observe(
+            RendererIncidentPhase::PreApply,
+            Some(RendererFrameMode::Full),
+        );
         if !incoming.full || incoming.viewport_rows.len() != incoming.rows as usize {
             return false;
         }
@@ -75,7 +78,10 @@ impl CellGridRenderer {
     /// resurrecting a superseded one. An invalid chain is refused whole: a
     /// batch that half-applied would paint a grid no frame ever described.
     pub fn apply_delta_frames(&mut self, deltas: &[CellGridFrame]) -> bool {
-        self.observe(RendererIncidentPhase::PreApply, Some(RendererFrameMode::Delta));
+        self.observe(
+            RendererIncidentPhase::PreApply,
+            Some(RendererFrameMode::Delta),
+        );
         let Some(base) = self.reader_pending_frame.as_ref().or(self.frame.as_ref()) else {
             return false;
         };
