@@ -3093,6 +3093,31 @@ and wrong about the test**, and following its suggestion destroyed the coverage.
 Which is also why a clippy run is worth repeating even when it is clean: **the
 run after a fix is a check on the fix, not only on the code.**
 
+### The ladder substitutes for the total, and the stopping target is the evidence
+
+Clippy on stable has no `--keep-going`, so a crate without the flag is measured
+one failing target at a time. **The target a run stopped at is the evidence that
+the previous fix worked** — a run that got strictly further is a run whose
+predecessor's finding is gone — and you get that from the exit code you already
+had to look at.
+
+| run | stopped at | diagnostics |
+|---|---|---|
+| A | `connect_interceptor` | 2, fixed |
+| B | `prefs_persistence` | 2, **different ones**, fixed |
+| C | … | … |
+
+**Without the flag you lose the total; what you keep is the DISTANCE, and the
+distance is monotonic as you fix what each run finds.** It takes N runs instead
+of one, and each is cheap against a warm target directory.
+
+**Two things not to claim from it.** The counts must never be summed — two and two
+are two floors from two different stopping points, not four of lint debt. And a
+target that happens to sort late is **not** a reached target: on one track a
+stopping point moved alphabetically forward and nearly read as coverage of a
+fixture four positions earlier. **Only a run that reaches the END of the target
+list settles anything**, and `exit 0` is then a total.
+
 ### The discriminator, measured rather than assumed
 
 On the web track, of the clippy suggestions actually applied, **one in seven was
@@ -3410,6 +3435,19 @@ failure mode this list exists to prevent.**
 > it to that copy.** `cargo xtask lint` is where a duplicated table belongs — a
 > rule flagging a crate whose `[lints]` is not `workspace = true` and which
 > defines a key the workspace table also defines. **That rule is written**, as
+> `xtask/src/lint_table.rs`, with `roost-keeper` as the one `COPY_EXEMPT` entry.
+>
+> **M1 now carries a second consequence, measured.** `xtask/src/fixture_allow.rs`
+> requires every test binary attaching a shared fixture to declare
+> `#![allow(clippy::unwrap_used, clippy::expect_used)]` at its own root, because
+> the allow is a property of the COMPILATION UNIT and a fixture's own
+> declaration does not reach its consumers. On `v3` it reports **7 violations** in
+> `roost-keeper`'s test binaries, and those files carry the declaration on
+> `v3-worker` and not here — so **this merge turns `cargo xtask lint` red, and that
+> is the rule working rather than the merge breaking something.** The rule
+> recognises both attachment forms, `mod <dir>;` and `#[path = "<dir>/mod.rs"]`,
+> because a name-only scan misses the second and that is the form a fixture with
+> several consumers is most likely to use.
 > `xtask/src/lint_table.rs`, with `roost-keeper` as the one `COPY_EXEMPT` entry.
 >
 > **PREDICTED, NOT DISCOVERED.** The workspace clippy was clean at `b13c2e05`,
