@@ -1127,6 +1127,38 @@ about any of them; a clippy figure is a figure about lints. Neither is a figure
 about assertions, and the track's other numbers being green is not a reason to
 believe any assertion has ever run.
 
+### A grep cannot read direction, so the direction must be NAMED
+
+**This is the closure of the reachability-guard problem, and it took three versions
+of one test to get there — which is the honest count.**
+
+**v1 failed open.** It grepped for a file mentioning `snapshot_reap_ids` that did
+not *declare* it, and `events/append_transaction.rs:78` **builds** the field without
+declaring it. **A producer satisfied a test written for a consumer: six of six
+green, on a capability with no consumer.** Not a loose pattern — the wrong question.
+
+**v2 asked a better question** (does anything set `defer_snapshot_reap: true`? —
+which only a caller constructing `AppendOptions` to defer can) and went red, which
+was correct. But it had **one conjunct where the property has two**, so it would
+have gone green one commit before the defect closed.
+
+**v3 names the producers.** The four files that legitimately contain the field are
+listed explicitly — `events/append.rs`, `events/append_publication.rs`,
+`events/append_transaction.rs`, `events/pending_publications.rs` — and **a file
+outside that set must contain it.** The test is one property with two conjuncts, and
+its three states are each unambiguous: nothing sets the flag; the flag is set and
+nothing outside the producer set reads what it returns; a file outside the set reads
+it, which is green and **green means the defect is closed**.
+
+**The rule, and it generalises past this test: an instrument that cannot
+distinguish a producer from a consumer cannot guard a consumer.** `grep` reads names
+and not direction, so the direction has to be stated — as a named set, which is
+checkable, rather than as a pattern somebody tightens until it stops passing.
+
+**The failure direction is the reason this is safe: if a fifth producer is added and
+the set is not updated, the test REFUSES a real reader.** That is a bug report. The
+v1 failure — a producer quietly satisfying a consumer's test — was silence.
+
 ### A construction that type-checks and cannot execute is its own defect class
 
 **Found on the worker track, and the compiler is silent about it by construction.**
