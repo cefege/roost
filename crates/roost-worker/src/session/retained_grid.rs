@@ -181,6 +181,15 @@ fn narrow(index: u64) -> u32 {
 /// strength of being documented and tested. The cost is one `Arc` bump, because
 /// `CellRow`'s spans are already behind an `Arc`; the benefit is a type with
 /// one representation instead of two, one of which was fiction.
+///
+/// ONE PRODUCER, AND A SECOND ONE COSTS A WIRE PIN. `RetainedGrid::row` is the
+/// only thing in the crate that builds this, and `tests/cell_row_json.rs` is
+/// the only test of how it SPELLS itself — so a second representation added
+/// later would ship with nothing comparing the two, and a field order that
+/// quietly diverges is a browser painting a colour the worker never observed.
+/// That is why the test builds through `owned` rather than around it: it pins
+/// the production path. If you add a variant, it needs a case in that test
+/// before it needs anything else.
 #[derive(Debug, Clone)]
 pub struct CellRowJson(CellRow);
 
