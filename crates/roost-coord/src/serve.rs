@@ -25,8 +25,13 @@ use anyhow::Context as _;
 use roost_host::CoordConfig;
 use roost_platform::HostPlatform;
 
+use crate::auth::cf_access::{cloudflare_access_configured, install_cloudflare_jwks};
+use crate::auth::cf_access_keyring::RsaJwks;
 use crate::coord_core::CoordCore;
-use crate::http::listener::{ListenerState, build_router, resolve_bind};
+use crate::coord_core::boot_facts::BootFacts;
+use crate::coord_core::seams::{CoordTerminal, WorkerRouteIndex};
+use crate::http::listener::{ListenerState, build_router};
+use crate::push::PushRuntime;
 use crate::rpc::service::CoordinatorServiceImpl;
 use crate::services::CoordServices;
 
@@ -75,7 +80,7 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
     let boot_ms = now_ms();
     let process_epoch = process_epoch();
 
-    let bind = resolve_bind(&boot.config.bind)
+    let bind = crate::http::bind::resolve_bind(&boot.config.bind)
         .with_context(|| format!("coordinator bind {}", boot.config.bind))?;
 
     // The listener's admission gate needs the RESOLVED port, and `:0` only
@@ -110,9 +115,39 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
         "startup janitor complete"
     );
 
-    let services = Arc::new(CoordServices::new(database));
+    // The boot facts are filled from what boot already established -- the
+    // tenancy scope the invariant above just enforced, the config the caller
+    // resolved, and this process's identity. Every handler reads them from
+    // `core.services.boot` rather than carrying its own copy, so a fact cannot
+    // be right in one domain and absent in another.
+    let boot_facts = BootFacts {
+        tenant: Some(tenant.clone()),
+        config: Some(Arc::new(boot.config.clone())),
+        process_epoch: process_epoch.clone(),
+        boot_ms,
+    };
 
-    let core = CoordCore::new(Arc::clone(&services));
+    // The Access key ring is installed ONCE, here, and only when Access is
+    // configured. Without this line the gate is still fail-closed — an absent
+    // ring refuses every assertion rather than believing one — but a FRONTED
+    // coordinator refuses every pairing request it was built to authenticate,
+    // with nothing anywhere saying the ring was never installed.
+    if cloudflare_access_configured(&boot.config) {
+        install_cloudflare_jwks(Arc::new(RsaJwks::default()))?;
+    }
+    let services = Arc::new(CoordServices::booted(database, boot_facts));
+
+    // The push runtime is built from the tenancy scope and the operator's
+    // allowlist, both of which are boot-order facts: a push surface with no
+    // dashboard has nowhere to scope a subscription row, and an empty
+    // allowlist is how the operator switches the whole surface off.
+    let push = PushRuntime::new(
+        tenant.dashboard_id.clone(),
+        boot.config.push_allowed_origins.clone(),
+    );
+
+    let terminal = terminal_seams(&services);
+    let core = CoordCore::with_terminal_and_push(Arc::clone(&services), terminal, push);
 
     let service = Arc::new(CoordinatorServiceImpl::new(
         core,
@@ -135,13 +170,19 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
     // Cloned: the maintenance schedulers below need the same services, and a
     // backup scheduled before the port is accepting would compete with the very
     // startup it protects.
-    let router = build_router(Arc::clone(&state));
+    let mounted = build_router(Arc::clone(&state));
     let listener = tokio::net::TcpListener::bind(bind)
         .await
         .with_context(|| format!("coordinator listen on {bind}"))?;
     let local = listener
         .local_addr()
         .with_context(|| "coordinator local address".to_string())?;
+    // The admission gate's allowlist names the RESOLVED port, so it cannot be
+    // built until the OS has reported which port this bind got. Between the
+    // bind and this line the gate answers `503 listener unavailable` to every
+    // request rather than guessing a port -- and `local.port()` is 0 only for
+    // the instant between the two.
+    mounted.publish_bound_port(local.port());
     tracing::info!(bind = %local, uptime_ms = now_ms().saturating_sub(boot_ms), "coordinator listening");
 
     // Boot step 9 (contract §1.1): maintenance, scheduled AFTER the listener.
@@ -154,13 +195,52 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
         boot.config.audit_retention_days,
     );
 
-    axum::serve(
+    // Boot step 9, the pair-request half: a sweep that reclaims a request whose
+    // deadline passed while this coordinator was DOWN. It runs before its first
+    // sleep, so the reclaim is at boot rather than a minute later -- a live
+    // pair request past its expiry is a credential until something notices.
+    //
+    // The SENDER is held here and the receiver is what the sweep consumes, and
+    // the stop is two halves rather than one: dropping the sender tells a sweep
+    // blocked in `changed()` to return, and `stop()` then waits out the tick
+    // already in flight. A sweep that cannot be stopped is a leak with a name;
+    // one stopped without waiting logs after its owner is gone. Passing `None`
+    // here would be the unstoppable sweep, and is for tests only.
+    let (pair_shutdown, pair_stopped) = tokio::sync::watch::channel(false);
+    let pair_retention = crate::auth::pairing::spawn_pair_request_retention(
+        Arc::clone(&state.services),
+        pair_stopped,
+    );
+
+    let served = axum::serve(
         listener,
-        router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        mounted
+            .router
+            .into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown_signal())
-    .await
-    .context("coordinator listener")
+    .await;
+
+    drop(pair_shutdown);
+    pair_retention.stop().await;
+
+    served.context("coordinator listener")
+}
+
+/// The terminal collaborators a booted coordinator hands the workers domain.
+///
+/// The byte hub is the real route index. The view hub is a real object but has
+/// no production `TerminalViewLifecycle` yet, and `NoTerminalSeams` is this
+/// crate's documented answer for a seam that has no collaborator -- a type
+/// that answers `None` for a geometry it has never seen, rather than a hub that
+/// claims no session is being watched when the registry behind it was never
+/// consulted.
+fn terminal_seams(services: &CoordServices) -> CoordTerminal {
+    let routes: std::sync::Arc<dyn WorkerRouteIndex> = services.byte_hub.clone();
+    CoordTerminal::new(
+        routes,
+        std::sync::Arc::new(crate::coord_core::NoTerminalSeams),
+    )
 }
 
 /// The platform's termination signal, or a never-completing future elsewhere.

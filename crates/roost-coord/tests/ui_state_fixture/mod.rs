@@ -143,10 +143,16 @@ impl UiStateFixture {
             let now_ms = Arc::clone(&now_ms);
             Arc::new(move || *now_ms.lock().unwrap_or_else(|error| error.into_inner()))
         };
-        let services = Arc::new(CoordServices::new(database));
+        // The handlers read the runtime from the services rather than taking it
+        // as a parameter, so the fixture's clock has to be the one installed
+        // there: a handler that reached a second runtime would expire against a
+        // clock this test never moves.
+        let mut services = CoordServices::new(database);
+        let runtime = UiStateRuntime::with_clock(clock);
+        services.ui_state = runtime.clone();
         Self {
-            core: CoordCore::new(services),
-            runtime: UiStateRuntime::with_clock(clock),
+            core: CoordCore::new(Arc::new(services)),
+            runtime,
             account_id: tenant.account_id,
             root,
             now_ms,
