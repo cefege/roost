@@ -1926,11 +1926,22 @@ Everything measured on 2026-09-27 while the tracks were running is in the
 sections above, and each says which tree it was measured on:
 
 - **EXPECTED RED** — the one deliberately red test, its commit, and its green condition.
-- **The gate ratchets** — `AwaitingDomainPort` 27, `UnwiredInV2` 16, `UNFINISHED` 3, worker `UNIMPLEMENTED` 6, `todo!` 0.
+- **The gate ratchets** — on `v3` @ `ee72e0f1`: `AwaitingDomainPort` 27,
+  `UnwiredInV2` 16, `UNFINISHED` 3 (all three `#[ignore]` attributes, in
+  `push_sender_bounds.rs:175` and `sync_v2_send_queue.rs:215,257`), `todo!` 0.
+  On `v3-worker` @ `57bd7f74`: `UNIMPLEMENTED` **2**, down from 6 — and both are
+  comments, `runtime/mod.rs:283` (the local door) and `link_serve.rs:113`. **A
+  number here belongs to the tree it was taken on**, and the worker's moves
+  while its track is live. The `6` this line carried for hours was never
+  re-measured, and I cannot confirm it was ever true — it was copied forward
+  from a report, which is the failure this file exists to prevent.
 - **`xtask lint` on `v3`** — all ten violations enumerated, and what each track's merge clears.
 - **The unreached-module rule** — the guarded sweep, its canary, and the eight files it found on `v3-web`.
 - **The import check** — why it recomputes its counts and restates the fingerprint filter in its own SQL.
 - **The instruments** — four findings whose common shape is a check that could not see the thing it claimed to check.
+- **The CLI cutover gate** — 399/0/0 twice at `a13c385d`, why two agreeing logs
+  are not one log twice, `import-v2`'s first execution, and the flake those two
+  green runs do not disprove.
 
 ## Perf numbers worth not regressing
 
