@@ -3010,6 +3010,55 @@ say **what in `src/` calls the thing it covers.** "The test passes" and "the
 subject of the test is reachable" are different claims, and a suite can be
 entirely green while every one of its subjects is dead code.
 
+**AMENDED, because the obvious implementation of that requirement is a grep, and
+a grep cannot answer this question.** A crate-wide reachability audit was run
+while holding a worktree and reported **88 modules with zero external
+references** -- including `sync_ws::egress`, `agents::status_hub`,
+`http::upgrade`, `rpc::service_impl` and the whole `auth/pairing/*` tree. It was
+wrong, and it was disproved two independent ways:
+
+- **A bad exclusion rule ate the evidence.** For a module that is a *file*
+  rather than a directory, the audit excluded its whole parent directory as
+  "inside itself" -- so for `http::upgrade` it discarded every sibling under
+  `src/http/`, including `listener.rs:67`, which is the import that reaches it.
+  The text was in the file it threw away before searching it.
+- **The pattern cannot see inherent impls at all.** `sync_ws/egress.rs:81` is
+  `impl SyncV2Session`, reached purely by being declared and compiled. There is
+  no import of it anywhere, **by design**, so "0 references" is the EXPECTED
+  output for a whole category of correct code.
+
+**Three things cannot distinguish "nothing calls it" from "my search cannot see
+it":**
+
+1. **Name collisions** -- proven twice in one session. `RetainedFrame` and
+   `EnqueueOutcome` each exist in two modules with different meanings, and both
+   enums have a `Dropped` variant, so variant-level search fails too.
+2. **Relative and re-exported paths** -- `super::`, `self::`, a parent's
+   `pub use`, or a `mod.rs` re-export all reach a module without its full path
+   ever appearing.
+3. **Inherent impls and `mod` declarations** -- reached by being compiled,
+   invisible to any reference count.
+
+**So the requirement is stated as a method, not as a grep:**
+
+> **Name a caller as `file:line`, never as a count.** A count is a claim about a
+> search; a `file:line` is a fact a reader can walk to.
+>
+> **Any claim of ZERO callers carries a stated reason it is not a search
+> artefact** -- either the symbol is unreachable by construction, or every
+> candidate hit was disambiguated by hand.
+>
+> **Silence is not acceptable for zero.** Zero is the one number that needs
+> evidence the most, and it is the number most likely to be produced by a search
+> that could not have found anything.
+
+A table of module names with a zero in a column is indistinguishable from a real
+audit table, which is why 88 phantom findings would have passed a glance. The
+`worker_link` result survives precisely because it was not produced that way:
+symbols were enumerated, two collisions were **disambiguated by reading both
+definitions**, and the claim was then corroborated with a path-based import
+check that a name collision cannot defeat.
+
 **The second instance is 661 lines, and it is not documented anywhere.**
 `worker_link/announced_barrier.rs` (330) + `announced_types.rs` (239) +
 `rate_window.rs` (92) are contract §7.3 and §7.5 — the announced-channel barrier
