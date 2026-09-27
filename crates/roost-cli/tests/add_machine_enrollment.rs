@@ -77,10 +77,6 @@ impl Drop for TempTree {
     }
 }
 
-fn empty_installed() -> InstalledEnvironment {
-    InstalledEnvironment::new()
-}
-
 #[test]
 fn the_door_comes_from_the_installed_definition_and_the_shell_cannot_override_it() {
     let tree = TempTree::new("installed-wins");

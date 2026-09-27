@@ -23,6 +23,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use roost_host::coord_config_loader::ENV_WEB_DIST_PATH;
 use roost_host::{EnvSource, HostPlatform};
 use roost_worker::runtime::boot::ENV_COORDINATOR_URL;
 use tracing::info;
@@ -33,8 +34,9 @@ use crate::deploy::codes;
 use crate::deploy::identity::{ALLOW_DIRTY_ENV, DIRTY_SUFFIX, local_git_sha_or_die};
 use crate::quickstart::install::{
     LocalPrograms, deploy_local_definition, install_programs, prepare_service_directories,
-    report_change, service_dir,
+    report_change, report_rotation, service_dir,
 };
+use crate::quickstart::web_source::install_web_bundle;
 use crate::services::install::release_bin_dir;
 use crate::services::service_environment::{ENV_BOOTSTRAP_TOKEN, ENV_WORKER_LABEL};
 use crate::services::service_spec::{ServiceRole, ServiceSpec};
@@ -169,11 +171,15 @@ pub fn worker_spec(
     platform: HostPlatform,
     bin_dir: &Path,
     credentials: &JoinCredentials,
+    web_dir: Option<&Path>,
 ) -> Result<ServiceSpec, CommandFailure> {
     let decided = credentials.decided_settings();
     let install_env = install_environment(env, &decided);
     let program = bin_dir.join(ROOST_PROGRAM);
-    let resolved = ServiceSpec::resolve(ServiceRole::Worker, &install_env, platform, &program)?;
+    let mut resolved = ServiceSpec::resolve(ServiceRole::Worker, &install_env, platform, &program)?;
+    if let Some(web_dir) = web_dir {
+        resolved = resolved.with_setting(ENV_WEB_DIST_PATH, web_dir.display().to_string());
+    }
     Ok(resolved.with_decided_one_shots(&decided))
 }
 
@@ -189,10 +195,15 @@ pub async fn run(env: &dyn EnvSource) -> Result<ExitCode, CommandFailure> {
     let bin_dir = release_bin_dir(env, platform)?;
     install_programs(&programs, &bin_dir)?;
 
-    let spec = worker_spec(env, platform, &bin_dir, &credentials)?;
+    let web_dir = install_web_bundle(env, &bin_dir).await?;
+    let spec = worker_spec(env, platform, &bin_dir, &credentials, web_dir.as_deref())?;
     prepare_service_directories(&spec)?;
     let outcome = deploy_local_definition(&spec, platform, &service_dir).await?;
     report_change(&outcome, "joiner installed the worker definition");
+
+    report_rotation(ServiceRole::Worker, env, platform);
+
+    report_rotation(ServiceRole::Worker, env, platform);
 
     info!(build_sha = %build_sha, label = %spec.label, "join settled");
     println!("Joined {}.", spec.label);
@@ -343,6 +354,7 @@ mod tests {
                 (ENV_COORDINATOR_URL, "https://a.example"),
                 (ENV_BOOTSTRAP_TOKEN, "roost_bt_secret"),
             ]),
+            None,
         )
         .expect("a worker spec resolves");
         let rendered = render_definition(&spec, HostPlatform::Linux)

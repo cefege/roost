@@ -34,7 +34,7 @@ const ARRANGE_PRESETS: [&str; 5] = ["even", "rows", "tiled", "main-vertical", "b
 /// Every tab that has reported state, one block per tab.
 pub async fn state(
     api: &CoordinatorApi,
-    args: &Invocation,
+    _args: &Invocation,
     out: &mut dyn ApiOutput,
 ) -> Result<ExitCode, CommandFailure> {
     let response = api

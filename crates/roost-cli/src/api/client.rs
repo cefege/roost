@@ -39,9 +39,23 @@ use crate::deploy::keeper_client::COORD_URL_ENV;
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// A coordinator this command can address.
+///
+/// Hand-written rather than derived: the generated Connect client holds an HTTP
+/// connector that is not `Debug`, and a derived impl would fail rather than
+/// teach anything. What an operator needs from a `{:?}` here is the origin —
+/// the one fact that says WHICH coordinator a failure came from.
 pub struct CoordinatorApi {
     origin: String,
     client: CoordinatorServiceClient<HttpClient>,
+}
+
+impl std::fmt::Debug for CoordinatorApi {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CoordinatorApi")
+            .field("origin", &self.origin)
+            .finish_non_exhaustive()
+    }
 }
 
 impl CoordinatorApi {

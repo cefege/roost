@@ -28,6 +28,7 @@
 use std::path::{Path, PathBuf};
 
 use roost_host::EnvSource;
+use roost_host::coord_config_loader::ENV_WEB_DIST_PATH;
 use tracing::{info, warn};
 
 use crate::deploy::apply_release::{
@@ -45,6 +46,7 @@ use crate::services::deploy_transaction::{
 };
 use crate::services::service_control::PlatformServiceManager;
 use crate::services::service_spec::{ServiceRole, ServiceSpec};
+use crate::services::web_bundle;
 
 /// Run the apply, and return the report the deploying box reads.
 ///
@@ -139,14 +141,34 @@ async fn apply(manifest_bytes: &[u8], env: &dyn EnvSource) -> Result<ApplyReport
     install_release(&staged.join(RELEASE_BIN_DIR), &bin_dir)
         .map_err(|cause| ApplyReport::new(ApplyOutcome::Refused, cause))?;
 
-    let install_env = install_environment(env, &manifest.environment);
+    // The bundle, then the path that names it. Stamped HERE rather than carried
+    // in the manifest, because only this machine can say where its own release
+    // root is: a path decided on the deploying box is a path into ITS version
+    // tree, and the value would survive a settlement that deletes it. This is
+    // the re-stamp, not a preservation.
+    let mut decided = manifest.environment.clone();
+    if let Some(staged_web) = staged_web(&staged) {
+        let web_dir = web_bundle::release_web_dir(&bin_dir);
+        let installed = web_bundle::install_from_dir(&staged_web, &web_dir)
+            .map_err(|cause| ApplyReport::new(ApplyOutcome::Refused, cause.to_string()))?;
+        info!(
+            release = %release_dir.display(),
+            files = installed.files,
+            "remote apply installed the staged web bundle"
+        );
+        decided.insert(ENV_WEB_DIST_PATH.to_string(), web_dir.display().to_string());
+    } else {
+        decided.remove(ENV_WEB_DIST_PATH);
+    }
+
+    let install_env = install_environment(env, &decided);
     let spec = match ServiceSpec::resolve(
         ServiceRole::Worker,
         &install_env,
         platform,
         &bin_dir.join(ROOST_PROGRAM),
     ) {
-        Ok(spec) => spec.with_decided_one_shots(&manifest.environment),
+        Ok(spec) => spec.with_decided_one_shots(&decided),
         Err(error) => {
             return Err(ApplyReport::new(
                 ApplyOutcome::Refused,
@@ -211,6 +233,15 @@ async fn apply(manifest_bytes: &[u8], env: &dyn EnvSource) -> Result<ApplyReport
             },
         },
     )
+}
+
+/// The staged `web/` directory, when this deploy shipped one.
+fn staged_web(staged: &Path) -> Option<PathBuf> {
+    let candidate = staged.join(web_bundle::WEB_DIR_NAME);
+    candidate
+        .join(web_bundle::WEB_INDEX)
+        .is_file()
+        .then_some(candidate)
 }
 
 /// Retire the release the definition used to point at, once the new one is proven

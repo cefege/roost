@@ -197,7 +197,7 @@ fn a_dry_run_renders_a_worker_definition_with_a_named_placeholder_and_no_real_gr
         (roost_host::WORKER_DATA_DIR_ENV, &text("data/worker")),
     ]);
     let endpoint = roost_cli::quickstart::endpoint::fresh_endpoint(None).expect("a fresh endpoint");
-    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, false)
+    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, None, false)
         .expect("the plan resolves on a machine with nothing installed");
     let rendered = resolved
         .worker

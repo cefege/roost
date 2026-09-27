@@ -131,3 +131,11 @@ impl FleetRuntime for FakeWorld {
         Ok(())
     }
 }
+
+/// **THE OTHER HALF OF THE SAME ANSWER.** Both implementors of `FleetRuntime`
+/// carry one of these, so "the trait has a `Sync` supertrait" is a claim about
+/// every implementor rather than about the trait declaration alone.
+const _: () = {
+    const fn assert_sync<T: Sync + ?Sized>() {}
+    assert_sync::<FakeWorld>();
+};

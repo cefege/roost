@@ -84,7 +84,10 @@ fn coordinator_settings(
     );
     for (name, value) in [
         (ENV_WEB_DIST_PATH, optional_path(&config.web_dist_path)),
-        (ENV_COORDINATOR_PUBLIC_URL, optional_text(&config.public_url)),
+        (
+            ENV_COORDINATOR_PUBLIC_URL,
+            optional_text(&config.public_url),
+        ),
         (ENV_WEB_PUBLIC_URL, optional_text(&config.web_public_url)),
     ] {
         settings.insert(name.to_string(), value);
@@ -97,7 +100,10 @@ fn coordinator_settings(
     // is a coordinator that will not boot. v2 never wrote either key, so
     // omitting one nothing configured is also the parity answer.
     for (name, value) in [
-        (ENV_CF_ACCESS_TEAM_DOMAIN, config.cf_access_team_domain.as_deref()),
+        (
+            ENV_CF_ACCESS_TEAM_DOMAIN,
+            config.cf_access_team_domain.as_deref(),
+        ),
         (ENV_CF_ACCESS_AUD, config.cf_access_aud.as_deref()),
     ] {
         if let Some(value) = value.filter(|value| !value.trim().is_empty()) {

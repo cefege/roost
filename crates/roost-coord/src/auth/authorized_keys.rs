@@ -5,6 +5,12 @@
 //! meets the database, so it is the only place the `authorized_keys ->
 //! account_devices -> accounts` and `authorized_keys -> workers` joins live.
 //!
+//! **NO v2 DATABASE IS EVER READ FROM HERE.** The keys this module resolves
+//! are the ones this install paired, and they arrive by `roost import-v2`
+//! reading a v2 database read-only, once, before the first boot — never by the
+//! coordinator opening one, and never by an auth path that had to understand a
+//! file belonging to a product that is being replaced.
+//!
 //! WHY THE JOINS ARE SEPARATE QUERIES AND NOT ONE. `resolveCallerPrincipal`
 //! left-joins both and then refuses a key that has BOTH
 //! (`apps/coord/src/auth/auth-principal.ts:66`): "A key must never acquire two

@@ -27,6 +27,7 @@ use roost_host::{EnvSource, HostPlatform};
 use tracing::info;
 
 use crate::command_error::CommandFailure;
+pub use crate::update::assets::{WEB_ASSET_NAME, keeper_release_asset_name, release_asset_name};
 use crate::update::candidate::{self, CandidateError, VerifiedCandidate};
 
 /// The GitHub repository every release is published from, named in both URLs
@@ -88,40 +89,6 @@ impl ReleaseListing {
             tag: String::new(),
             arch: String::new(),
         }
-    }
-}
-
-/// The release asset a platform/arch pair installs from.
-///
-/// `roost` stays unsuffixed for macOS arm64: it is byte-identical to
-/// `roost-darwin-arm64` and exists so older release links keep resolving. The
-/// installer mirrors this table, and a name present in one and absent from the
-/// other is a 404 on one platform only — the shape of bug that ships.
-pub fn release_asset_name(
-    platform: HostPlatform,
-    arch: &str,
-) -> Result<&'static str, CommandFailure> {
-    match (platform, normalized_arch(arch)?) {
-        (HostPlatform::MacOs, "arm64") => Ok("roost"),
-        (HostPlatform::MacOs, "x64") => Ok("roost-darwin-x64"),
-        (HostPlatform::Linux, "x64") => Ok("roost-linux-x64"),
-        (HostPlatform::Linux, "arm64") => Ok("roost-linux-arm64"),
-        (unsupported, _) => Err(CommandFailure::generic(format!(
-            "no published roost binary for {}",
-            unsupported.display_name()
-        ))),
-    }
-}
-
-/// The architecture names a release pipeline and a Rust build disagree about,
-/// folded to the release pipeline's spelling.
-fn normalized_arch(arch: &str) -> Result<&'static str, CommandFailure> {
-    match arch {
-        "x86_64" | "amd64" | "x64" => Ok("x64"),
-        "aarch64" | "arm64" => Ok("arm64"),
-        other => Err(CommandFailure::generic(format!(
-            "no published roost binary for architecture {other:?}"
-        ))),
     }
 }
 
@@ -217,6 +184,59 @@ pub async fn download_and_verify(
     asset: &str,
     executable: &Path,
 ) -> Result<VerifiedCandidate, CandidateError> {
+    let (staged, file) = candidate::open_candidate(executable)?;
+    let (url, sha256) = match verified_download(env, tag, asset, file).await {
+        Ok(verified) => verified,
+        Err(failure) => {
+            let _ = std::fs::remove_file(&staged);
+            return Err(failure);
+        }
+    };
+    let verified = VerifiedCandidate {
+        path: staged,
+        sha256,
+        url,
+    };
+    // The bytes are read back from disk before anything may rename them, because
+    // what gets installed is the file as it is NOW, not the body as it arrived.
+    if let Err(failure) = candidate::confirm_staged_bytes(&verified) {
+        let _ = std::fs::remove_file(&verified.path);
+        return Err(failure);
+    }
+    Ok(verified)
+}
+
+/// Download one asset and prove it, writing the body into `file`.
+///
+/// The one verification this crate performs, for every asset it fetches from a
+/// release: the published digest is read BEFORE the body is requested, and a
+/// body that fails its check leaves `file` truncated rather than complete. The
+/// binary, the keeper and the web bundle are three fetches, and three copies
+/// of this would be three chances to ship one of them unverified — which is
+/// the defect the previous single-asset shape could not have, and would have
+/// grown the moment a second asset existed.
+pub async fn download_verified_to(
+    env: &dyn EnvSource,
+    tag: &str,
+    asset: &str,
+    file: std::fs::File,
+) -> Result<String, CandidateError> {
+    verified_download(env, tag, asset, file)
+        .await
+        .map(|(_url, sha256)| sha256)
+}
+
+/// Fetch the sidecar, fetch the body, and refuse a body that does not match.
+///
+/// Returns the URL it fetched and the digest the bytes actually hashed to, so a
+/// caller that stages beside an executable and a caller that stages into a
+/// temporary file both record where the bytes came from.
+async fn verified_download(
+    env: &dyn EnvSource,
+    tag: &str,
+    asset: &str,
+    file: std::fs::File,
+) -> Result<(String, String), CandidateError> {
     let base = release_base_url(env, tag);
     let url = format!("{}/{asset}", base.trim_end_matches('/'));
     let client = reqwest::Client::builder()
@@ -227,16 +247,8 @@ pub async fn download_and_verify(
             cause: error.to_string(),
         })?;
     let expected = fetch_published_digest(&client, &url, asset).await?;
-    let (staged, file) = candidate::open_candidate(executable)?;
-    let received = match stream_to_file(&client, &url, asset, file).await {
-        Ok(digest) => digest,
-        Err(failure) => {
-            let _ = std::fs::remove_file(&staged);
-            return Err(failure);
-        }
-    };
+    let received = stream_to_file(&client, &url, asset, file).await?;
     if received != expected {
-        let _ = std::fs::remove_file(&staged);
         return Err(CandidateError::DigestMismatch {
             asset: asset.to_string(),
             expected,
@@ -244,18 +256,33 @@ pub async fn download_and_verify(
         });
     }
     info!(asset, sha256 = %received, "release asset verified against its published digest");
-    let verified = VerifiedCandidate {
-        path: staged,
-        sha256: received,
-        url,
+    Ok((url, received))
+}
+
+/// Whether this release published a sidecar for `asset`.
+///
+/// Asked before an OPTIONAL asset is requested, so that a release predating one
+/// asset is a release that installs rather than a 404 that aborts a deploy. The
+/// sidecar is the probe rather than the body deliberately: it is one small
+/// request, and a body that does not exist is a body worth never asking for.
+pub async fn sidecar_is_published(env: &dyn EnvSource, tag: &str, asset: &str) -> bool {
+    let base = release_base_url(env, tag);
+    let url = format!(
+        "{}/{asset}{}",
+        base.trim_end_matches('/'),
+        candidate::SIDECAR_SUFFIX
+    );
+    let Ok(client) = reqwest::Client::builder()
+        .timeout(CHECKSUM_DEADLINE)
+        .build()
+    else {
+        return false;
     };
-    // The bytes are read back from disk before anything may rename them, because
-    // what gets installed is the file as it is NOW, not the body as it arrived.
-    if let Err(failure) = candidate::confirm_staged_bytes(&verified) {
-        let _ = std::fs::remove_file(&verified.path);
-        return Err(failure);
-    }
-    Ok(verified)
+    client
+        .get(url)
+        .send()
+        .await
+        .is_ok_and(|response| response.status().is_success())
 }
 
 /// The digest the release published, refusing anything that is not one.
