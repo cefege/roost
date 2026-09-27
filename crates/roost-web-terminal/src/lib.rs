@@ -23,6 +23,7 @@ pub mod cell_renderer_dom;
 pub mod cell_row;
 pub mod echo_overlay;
 pub mod element_style;
+pub mod input;
 pub mod link_target;
 pub mod links;
 pub mod mouse_forward;
