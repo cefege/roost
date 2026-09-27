@@ -9,6 +9,8 @@
 //! visible on screen, which is why the race has its own file rather than a
 //! paragraph in the happy path.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 mod support;
 
 use roost_client_core::client::auth::{

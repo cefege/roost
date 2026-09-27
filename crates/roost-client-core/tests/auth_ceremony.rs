@@ -9,6 +9,8 @@
 //! echoes a request id this browser did not generate is treated as success,
 //! which leaves a ceremony polling for a request that does not exist.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use roost_client_core::client::auth::{
     CeremonyStore, DeviceKeyManager, FixedRandomSource, KeyAdmission, MemorySecureKeyStore,
     PAIR_APPROVAL_STORAGE_KEY, PAIRING_CEREMONY_STORAGE_KEY, PAIRING_CEREMONY_VERSION,

@@ -9,6 +9,8 @@
 //! `apps/web/tests/client/attachments/attachmentInsertion.test.ts` can pair them
 //! one for one.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use roost_client_core::ClientCore;
 use roost_client_core::client::attachments::grant::{
     AttachmentDirectGrant, AttachmentDirectGrantRequest, AttachmentDirectGrantResponse,

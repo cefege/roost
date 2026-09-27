@@ -12,13 +12,15 @@
 //! `the_outbound_queue_fragments_a_frame_and_keeps_it_until_the_send_is_accepted`
 //! must fail on its packet-count assertion.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use roost_client_core::client::attachments::packets::assembler::AttachmentPacketAssembler;
 use roost_client_core::client::attachments::packets::lanes::AttachmentPeerPacketLanes;
 use roost_client_core::client::attachments::packets::queue::AttachmentPacketQueue;
 use roost_client_core::client::attachments::packets::{
-    ATTACHMENT_PACKET_HEADER_BYTES, ATTACHMENT_PACKET_MAX_BYTES,
-    ATTACHMENT_PACKET_MAX_PAYLOAD_BYTES, ATTACHMENT_PACKET_STALL_MS, AttachmentPacketError,
-    AttachmentPacketHeader, PeerLane, encode_attachment_packet, parse_attachment_packet,
+    ATTACHMENT_PACKET_HEADER_BYTES, ATTACHMENT_PACKET_MAX_PAYLOAD_BYTES,
+    ATTACHMENT_PACKET_STALL_MS, AttachmentPacketError, AttachmentPacketHeader, PeerLane,
+    encode_attachment_packet, parse_attachment_packet,
 };
 
 // ---------------------------------------------------------------- the packet

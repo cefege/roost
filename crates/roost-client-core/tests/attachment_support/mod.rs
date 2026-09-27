@@ -21,16 +21,18 @@
 //! `fences_a_mismatched_door_and_advances_a_pre_send_loopback_failure_to_webrtc`
 //! must fail.
 
+// Each binary compiles this module whole, so a fixture one of them does not
+// use reads as dead in that binary and not in the other. That is the cost of
+// sharing, not a fault in the fixture.
+#![allow(dead_code)]
+
 use roost_client_core::client::attachments::direct::{
-    AttachmentDirectEnvironment, AttachmentDirectUploadRequest, DirectAttempt, DirectRoute,
-    DirectUnavailableReason, LocalWorkerDoor, RouteOpen, upload_attachment_direct,
+    AttachmentDirectEnvironment, LocalWorkerDoor, RouteOpen,
 };
 use roost_client_core::client::attachments::grant::{
     AttachmentDirectGrant, AttachmentDirectGrantRequest, AttachmentDirectGrantResponse,
 };
-use roost_client_core::client::attachments::transfer::{
-    AttachmentTransferCarrierError, MAX_SAFE_TOTAL_BYTES,
-};
+use roost_client_core::client::attachments::transfer::AttachmentTransferCarrierError;
 
 /// What a fake environment answers, and what it recorded.
 pub struct FakeEnvironment {

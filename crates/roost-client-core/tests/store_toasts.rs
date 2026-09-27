@@ -9,6 +9,8 @@
 //! `add_toast` push onto a `Vec` instead of a map keyed by `ToastId`, and
 //! `the_same_event_cannot_produce_two_toasts` must fail.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use roost_client_core::ClientCore;
 use roost_client_core::store::Store;
 use roost_client_core::store::toasts::{

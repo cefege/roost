@@ -10,6 +10,8 @@
 //! `settle_spawn_rejected`, delete the `relevance` guard at the top, and
 //! `a_superseded_spawn_answer_does_not_roll_back_the_newer_attempt` must fail.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use roost_client_core::ClientCore;
 use roost_client_core::store::Store;
 use roost_client_core::store::optimistic_spawn::{

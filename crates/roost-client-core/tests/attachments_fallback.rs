@@ -11,15 +11,13 @@ mod attachment_support;
 
 use attachment_support::*;
 use roost_client_core::client::attachments::direct::{
-    AttachmentDirectEnvironment, AttachmentDirectUploadRequest, DirectAttempt, DirectRoute,
-    DirectUnavailableReason, LocalWorkerDoor, RouteOpen, upload_attachment_direct,
+    AttachmentDirectUploadRequest, DirectAttempt, DirectRoute, DirectUnavailableReason, RouteOpen,
+    upload_attachment_direct,
 };
 use roost_client_core::client::attachments::grant::{
-    AttachmentDirectGrant, AttachmentDirectGrantRequest, AttachmentDirectGrantResponse,
+    AttachmentDirectGrantRequest, AttachmentDirectGrantResponse,
 };
-use roost_client_core::client::attachments::transfer::{
-    AttachmentTransferCarrierError, MAX_SAFE_TOTAL_BYTES,
-};
+use roost_client_core::client::attachments::transfer::MAX_SAFE_TOTAL_BYTES;
 
 fn request() -> AttachmentDirectUploadRequest {
     AttachmentDirectUploadRequest {

@@ -15,6 +15,8 @@
 //! arm, and `a_completed_transfer_verifies_its_digest_before_the_path_is_recorded`
 //! must fail.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use roost_client_core::ClientCore;
 use roost_client_core::client::attachments::transfer::ledger::{
     begin_upload_card, settle_upload_card,
