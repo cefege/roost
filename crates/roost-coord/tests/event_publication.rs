@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use event_support::{
     DASHBOARD_ID, EventFixture, RecordingEffects, Step, closed_event, fingerprint, live_session,
     opened_event, respawned_event, session_id, snapshot_event, worker_caller, workspace_id,
+    the_deferred_append_path_has_an_execution_path,
 };
 use roost_coord::events::append::{AppendOptions, append_event};
 use roost_coord::events::bus_messages::SessionBusMessage;
@@ -320,6 +321,18 @@ async fn a_deferred_reap_waits_for_the_callers_readiness_barrier() {
     .expect("the snapshot commits");
 
     assert_eq!(result.snapshot_reap_ids, vec![session.as_str().to_owned()]);
+    // THE REACHABILITY GUARD, and the reason this test is RED. The assertion
+    // above proves the ids come back CORRECT; this one proves the path that
+    // consumes them is ever TAKEN. Until the worker link sets the flag and
+    // drains the ids, the whole deferred-append capability is inert and these
+    // assertions are camouflage.
+    assert!(
+        the_deferred_append_path_has_an_execution_path(),
+        "nothing sets `defer_snapshot_reap`, so the deferred-append capability has \
+         no execution path: `EventLog::append_event` has no production caller, so \
+         a force-closed PTY on an offline worker is never killed. GREEN WHEN: the \
+         worker link appends with the flag set and drains the returned ids."
+    );
     assert!(
         !fixture
             .steps()

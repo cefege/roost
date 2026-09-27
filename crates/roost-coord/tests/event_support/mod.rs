@@ -392,3 +392,46 @@ pub fn snapshot_event(
 pub fn worker_caller(worker_fp: &WorkerFp, client_seq: u64) -> Caller {
     Caller::worker(worker_fp.clone(), client_seq, DASHBOARD_ID)
 }
+
+/// Whether the DEFERRED-APPEND PATH has an execution path at all.
+///
+/// THE CAMOUFLAGE THIS EXISTS TO DEFEAT. `event_publication.rs` asserts that
+/// the ids come back correctly, and that is exactly what makes the capability
+/// look covered while nothing consumes it. **A passing assertion on unreachable
+/// code reads as coverage and is more dangerous than no test at all** — a
+/// missing assertion looks like a gap that invites a question, and a passing one
+/// closes it.
+///
+/// WHY THIS ASKS ABOUT THE FLAG AND NOT ABOUT THE IDS. The first version of this
+/// guard grepped `src/` for a file that mentions `snapshot_reap_ids` without
+/// declaring it, and **it passed — on a capability with no consumer**, because
+/// `append_transaction.rs` builds the field and does not declare it, so a
+/// PRODUCER satisfied a test written for a CONSUMER. That is this session's own
+/// class of defect, committed by the guard meant to catch it, and the fix is to
+/// ask a question grep can answer without ambiguity.
+///
+/// `defer_snapshot_reap: true` can only be written by a caller constructing
+/// `AppendOptions` to defer. The declaration, the `Debug` field and the read
+/// inside `build_result` are the only other mentions of the name and none of
+/// them can produce a `true` — so this returns true if and only if some
+/// production caller defers, and false while the only caller that would is the
+/// unwritten worker link.
+pub fn the_deferred_append_path_has_an_execution_path() -> bool {
+    roost_src_files().any(|source| source.contains("defer_snapshot_reap: true"))
+}
+
+/// Every `.rs` file under the crate's `src/`, as text.
+///
+/// `src/` only, and not `tests/`: counting assertions in the test tree would
+/// make this guard its own camouflage.
+fn roost_src_files() -> impl Iterator<Item = String> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    std::fs::read_dir(root)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().is_dir())
+        .flat_map(|domain| std::fs::read_dir(domain.path()).into_iter().flatten().flatten())
+        .filter(|file| file.path().extension().is_some_and(|ext| ext == "rs"))
+        .filter_map(|file| std::fs::read_to_string(file.path()).ok())
+}
