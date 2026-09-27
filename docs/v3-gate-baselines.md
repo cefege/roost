@@ -612,38 +612,41 @@ at their root — `tests/channel_history.rs`, `keeper_daemon.rs`, `keeper_dispat
 `keeper_socket_protocol.rs`. A crate-level allow is a property of the compilation
 unit, so every helper site becomes a clippy error the moment clippy runs.
 
-**A TRIAL MERGE MEASURED WHAT THE WORKER MERGE ACTUALLY DOES, and the answer
-corrected the guess above.** Scratch worktree at `v3`, `git merge
-origin/v3-worker` → **`ad68563f`, CLEAN, zero conflicts.** Guarded sweep on the
-merged tree, canary-checked:
+**TRIAL MERGES MEASURED WHAT EACH TRACK'S MERGE ACTUALLY DOES. All ten of `v3`'s
+violations are enumerated here, because an earlier version of this entry named
+seven and then inferred the other three — which is the exact mistake this file
+exists to prevent.**
 
-| |`v3` now|after merging `v3-worker`|
-|---|---:|---:|
-|inputs checked|2111|**2412**|
-|unreached modules|0|**0**|
-|`xtask lint` violations|**10**|**2**|
+`v3` alone: **2111 inputs, 0 unreached, 10 violations.**
 
-**So the seven keeper `fixture_allow` findings DO clear on the worker merge** —
-that part of the guess was right, and it is now measured rather than inferred.
-**But the merge is not a lint-to-zero event.** The two survivors are both the
-SIZE cap, and both are CLI-track files, not worker files:
+|violation|file|
+|---|---|
+|size, 432 lines against a 400 baseline|`crates/roost-cli/tests/command_tree_shape.rs`|
+|size, 409 lines against a 400 baseline|`crates/roost-cli/tests/update_self_replace.rs`|
+|lint table: exempt, but its COPY restates only `[unsafe_code]`, so `expect_used`, `missing_debug_implementations`, `rust_2018_idioms`, `todo`, `unimplemented` and `unwrap_used` do not apply to the crate at all — *an exemption is a permission, not a substitute for the table*|`crates/roost-keeper/Cargo.toml`|
+|fixture `support` compiled without a crate-level `unwrap_used`/`expect_used` allow, 7 binaries|`roost-keeper/tests/{channel_history, keeper_daemon, keeper_dispatch, keeper_endpoint, keeper_lifecycle, keeper_socket, keeper_socket_protocol}.rs`|
 
-- `crates/roost-cli/tests/command_tree_shape.rs` — **432 lines**, cap 400, baseline 400
-- `crates/roost-cli/tests/update_self_replace.rs` — **409 lines**, cap 400, baseline 400
+Merging each track into a throwaway worktree, guarded sweep on the result:
 
-These are the two size splits the CLI lead made, and they are already fixed on
-`v3-cli` (`3213f798`) — `v3-worker` at `e6a1e8b0` simply predates that. **So
-`v3` needs `v3-cli` merged as well as `v3-worker` before `xtask lint` can read
-0, and merging the worker track alone leaves it at 2.** The scratch worktree was
-removed; nothing about this measurement touched `v3`.
+|tree|head|conflicts|inputs|unreached|violations|
+|---|---|---:|---:|---:|---:|
+|`v3`|`278c6910`|—|2111|0|**10**|
+|`v3` + `v3-cli`|`c506d4cf`|**0**|2124|0|**8**|
+|`v3` + `v3-cli` + `v3-worker`|`813e6639`|**0**|2425|0|**0**|
 
-**THE LESSON, which is the same one as the PATH trap and the guard that passed:**
-this entry first said "they resolve when `v3-worker` merges" as though it were
-known. It was an inference from two sweeps, and it was wrong about the total —
-the merge would have landed lint at 2, not 0. **One command in a throwaway
-worktree would have answered it before the sentence was written**, and the
-sentence would then have been a measurement instead of a guess with a
-confident verb. The merge is cheap; being wrong about it is not.
+**SO: THE CLI MERGE CLEARS THE TWO SIZE VIOLATIONS and the worker merge clears
+the other eight — 7 fixture allows plus the `roost-keeper/Cargo.toml` lint
+table. Merging `v3-cli` alone leaves 8; merging the worker track alone leaves
+2. Only both together read 0, and both are conflict-free.**
+
+**An earlier version of this entry had the attribution backwards twice.** It
+said the size violations were "brought in" by the worker merge — they are `v3`'s
+own, and the CLI merge is what clears them. And it named `v3-cli` as the fix for
+them while that was still an inference, which happened to be correct and was
+recorded as though it were known. **Both errors came from reasoning about merges
+instead of running them**, and one command in a throwaway worktree answers the
+question in under two seconds. The scratch worktrees were removed; neither
+measurement touched `v3`.
 
 The new unreached-module rule contributes 0 of these.** Verified by stashing it:
 10 violations before, 10 after, with inputs checked going 1480 → 2111.
