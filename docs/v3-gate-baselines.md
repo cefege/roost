@@ -773,6 +773,33 @@ that. A hardcoded 26/26/241/7 then fails on a difference that is **correct v2
 state** — a device paired or a key revoked since — and the operator spends the
 debugging session on the importer instead of on the thing that changed.
 
+**AND `roost import-v2` IS COVERED AT THE UNIT LEVEL — 19 named tests across two
+binaries, and two of them are guards on the two properties most likely to rot.**
+
+|plan requirement|test|
+|---|---|
+|first run, filtered set, machine keys excluded|`a_first_run_carries_the_browser_and_leaves_the_machines_behind`|
+|re-run adds a device, applies a revocation|`a_re_run_carries_a_browser_paired_later_and_overwrites_nothing`, `a_re_run_revokes_a_key_the_target_still_holds`|
+|different-account target refused|`a_target_belonging_to_another_install_is_refused`, `a_target_holding_another_install_is_refused_by_name`|
+|live coordinator refused|`a_running_coordinator_is_the_only_state_that_refuses_the_import`|
+|`--dry-run` writes nothing|`a_dry_run_writes_nothing_and_reports_what_a_real_run_would_do`|
+
+**The two that matter most are the ones nobody was asked for.**
+`the_filter_is_the_same_predicate_aliased_and_unaliased` asserts the fingerprint
+predicate appears in both its aliased and unaliased form — **so editing one copy
+and not the other fails the suite.** That is a guard on the guard, and it is the
+same discipline as the gate recomputing the count in its own SQL: *the importer's
+filter must not be the only statement of it.* And
+`a_dry_run_does_not_migrate_a_target_that_is_already_there` covers the subtlety
+that a dry run must not open the target through the coordinator's own DB open
+function, because that function runs migrations and a `--dry-run` that migrates
+is not a dry run.
+
+**What is NOT covered: the end-to-end run against the real 392 MB backup.** That
+is S3.3, and it is the first step in Stage 4 that writes to a database nothing
+can undo. The unit layer says the row selection, the refusals and the filter are
+right; it does not say the real file opens, reads under WAL, and yields 26/26/7.
+
 **SO THE GATE RECOMPUTES from whichever backup it inflates, by its own SQL, and
 prints that file's sha256 so a run is attributable.** The count is not the point;
 the *filter* is, and the filter cannot be recomputed by calling the importer:
