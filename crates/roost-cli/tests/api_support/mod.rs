@@ -40,7 +40,12 @@ use roost_proto::{
 };
 
 /// The status a session's agent is in, fenced to a named occupant.
-pub const SESSION_ID: &str = "session-1";
+///
+/// A UUID because the generated `AgentStatusView` validates `session_id` as
+/// one: a fixture the coordinator's own validation rejects cannot exercise
+/// the CLI it exists to test. A separate value from `status_epoch` and
+/// `occupant_id`, which are different concepts carrying their own ids.
+pub const SESSION_ID: &str = "33333333-3333-4333-8333-333333333333";
 
 /// What this process's coordinator answers.
 ///
@@ -61,7 +66,7 @@ pub struct Fixture {
     // The read counter that pairs `first_status` with `second_status` is NOT a
     // canned value and does not live here — it belongs to the router, which is
     // what serves the reads. As a field it had to be private, and one private
-    // field makes `..Default::default()` illegal from every test outside this
+    // field makes ..Default::default() illegal from every test outside this
     // module, so nine call sites could not build a fixture at all.
 }
 
@@ -69,6 +74,35 @@ impl Fixture {
     /// A status an agent is in, fenced to a named occupant.
     #[must_use]
     pub fn status(state: &str, revision: u64) -> AgentStatusView {
+        Self::status_fenced(
+            state,
+            revision,
+            "11111111-1111-4111-8111-111111111111",
+            "22222222-2222-4222-8222-222222222222",
+        )
+    }
+
+    /// The same status under a LATER occupant, which is what a replacement
+    /// looks like on the wire. `same_agent_status_occupant` compares the
+    /// epoch AND the occupant, so both have to move; a fixture built only from
+    /// `status` carries one identity forever and cannot express a wait whose
+    /// occupant was replaced, which is why that branch had no coverage.
+    #[must_use]
+    pub fn status_after_replacement(state: &str, revision: u64) -> AgentStatusView {
+        Self::status_fenced(
+            state,
+            revision,
+            "33333333-3333-4333-8333-333333333331",
+            "33333333-3333-4333-8333-333333333332",
+        )
+    }
+
+    fn status_fenced(
+        state: &str,
+        revision: u64,
+        status_epoch: &str,
+        occupant_id: &str,
+    ) -> AgentStatusView {
         AgentStatusView {
             session_id: SESSION_ID.to_string(),
             agent_id: "omp".to_string(),
@@ -78,8 +112,8 @@ impl Fixture {
             completed_revision: revision,
             updated_at: 1_700_000_000.0,
             active: true,
-            status_epoch: Some("11111111-1111-4111-8111-111111111111".to_string()),
-            occupant_id: Some("22222222-2222-4222-8222-222222222222".to_string()),
+            status_epoch: Some(status_epoch.to_string()),
+            occupant_id: Some(occupant_id.to_string()),
             source: Some("integration".to_string()),
             promptable: true,
             ..Default::default()

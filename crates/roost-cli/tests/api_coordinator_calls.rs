@@ -240,7 +240,7 @@ async fn a_wait_that_times_out_exits_one_and_names_the_state_it_was_still_in() {
 
 #[tokio::test]
 async fn a_wait_reports_the_state_it_was_pinned_to_when_the_occupant_was_replaced() {
-    let replaced = Fixture::status("idle", 40);
+    let replaced = Fixture::status_after_replacement("idle", 40);
     let (origin, server) = api_support::serve(Fixture {
         first_status: Some(Fixture::status("working", 3)),
         second_status: Some(replaced),
@@ -307,9 +307,14 @@ async fn no_readout_puts_the_credential_anywhere_near_stdout() {
         .expect("the fixture origin is an http origin");
     let mut out = Captured::default();
 
-    agents::list(&api, &invocation("agents", &[]), &mut out)
+    let code = agents::list(&api, &invocation("agents", &[]), &mut out)
         .await
-        .expect_err("there is no agent status in this fixture");
+        .expect("the coordinator answered");
+    assert_eq!(code, ExitCode::SUCCESS);
+    // `list` prints its header even with nothing to list, so the scan below
+    // reads real output. Asserting the header arrived keeps this test from
+    // passing without ever having produced a line to scan.
+    assert!(!out.answers.is_empty(), "list must print a header: {out:?}");
 
     for line in out.answers.iter().chain(out.progress.iter()) {
         assert!(
