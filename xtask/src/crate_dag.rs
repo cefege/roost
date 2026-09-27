@@ -72,12 +72,22 @@ const ALLOWED: &[(&str, &[&str])] = &[
             "roost-observability",
         ],
     ),
+    // `roost-proto` is here because the worker CALLS a generated Connect
+    // service -- `AuthRedeemWorker` to redeem `ENV_BOOTSTRAP_TOKEN`,
+    // `WorkersHeartbeat` to report liveness -- and the generated client stubs
+    // live there. It is the same edge `roost-coord` takes below, reached from
+    // the other side. `roost-protocol` does not re-export those stubs, and
+    // should not: the client half of connectrpc pulls `mio` in through hyper,
+    // which does not build for `wasm32-unknown-unknown`, and `roost-protocol`
+    // is on the browser's dependency path. A re-export there would trade one
+    // narrow edge for a broken target.
     (
         "roost-worker",
         &[
             "roost-term",
             "roost-keeper",
             "roost-host",
+            "roost-proto",
             "roost-protocol",
             "roost-platform",
             "roost-observability",
@@ -330,6 +340,24 @@ mod tests {
         assert!(
             cli.1.contains(&"roost-proto"),
             "roost-cli cannot dial a Connect service without roost-proto"
+        );
+    }
+
+    /// The worker redeems a bootstrap token and heartbeats through generated
+    /// Connect clients. If this edge is dropped the worker still COMPILES — it
+    /// just cannot reach the service it is required to call, which is the shape
+    /// of dependency defect the gate exists to turn into a deliberate edit
+    /// rather than a surprise discovered during a deploy.
+    #[test]
+    fn the_worker_may_reach_the_generated_service_clients() {
+        let registered = allowlist();
+        let worker = registered
+            .iter()
+            .find(|(name, _)| *name == "roost-worker")
+            .expect("roost-worker is a workspace member");
+        assert!(
+            worker.1.contains(&"roost-proto"),
+            "roost-worker cannot call AuthRedeemWorker or WorkersHeartbeat without roost-proto"
         );
     }
 
