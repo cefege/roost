@@ -43,7 +43,7 @@ use crate::quickstart::endpoint::QuickstartEndpoint;
 use crate::quickstart::grant::{GrantKind, mint_host_grant};
 use crate::quickstart::install::{
     LocalPrograms, deploy_local_definition, install_programs, prepare_service_directories,
-    report_change, service_dir,
+    report_change, report_rotation, service_dir,
 };
 use crate::services::install::{default_program_path, release_bin_dir};
 use crate::services::service_environment::ENV_BOOTSTRAP_TOKEN;
@@ -181,6 +181,10 @@ async fn install_everything(
     eprintln!(">> installing {}", worker_spec.label);
     let worker_outcome = deploy_local_definition(&worker_spec, platform, &service_dir).await?;
     report_change(&worker_outcome, "quickstart installed the worker");
+
+    for role in ServiceRole::ALL {
+        report_rotation(role, env, platform);
+    }
 
     self_link::run()?;
     print_completion(env, platform, &endpoint);

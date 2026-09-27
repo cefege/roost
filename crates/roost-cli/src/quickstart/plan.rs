@@ -29,6 +29,7 @@ use roost_host::{EnvSource, HostPlatform, ProtocolResult};
 use crate::quickstart::endpoint::QuickstartEndpoint;
 use crate::services::definition_text::render_definition;
 use crate::services::install::{default_program_path, release_bin_dir};
+use crate::services::logrotate::{RotationPlan, rotation_plan};
 use crate::services::service_spec::{ServiceRole, ServiceSpec};
 use crate::status::service_definition::{InstalledEnvironment, parse_installed_environment};
 
@@ -64,6 +65,10 @@ pub struct QuickstartPlan {
     /// Whether a worker is already installed. A rerun never replaces a healthy
     /// worker or its keeper, so the plan says so rather than implying a swap.
     pub worker_already_installed: bool,
+    /// The log rotation each role would get, in [`ServiceRole::ALL`] order, or
+    /// the reason one of them gets none. Resolved through the same function the
+    /// install uses, so a dry run cannot describe a rotation a real run skips.
+    pub rotation: Vec<RotationPlan>,
 }
 
 /// Resolve the whole plan, touching nothing.
@@ -108,6 +113,10 @@ pub fn resolve_plan(
 
     let link_program = installed_release_program(env, platform)
         .unwrap_or_else(|| default_program_path(env, platform).unwrap_or_else(|_| program.clone()));
+    let rotation = ServiceRole::ALL
+        .into_iter()
+        .map(|role| rotation_plan(env, platform, role))
+        .collect::<ProtocolResult<Vec<RotationPlan>>>()?;
     Ok(QuickstartPlan {
         coordinator_already_installed: installed_coordinator.is_some(),
         worker_already_installed: installed_worker,
@@ -122,6 +131,7 @@ pub fn resolve_plan(
                 .join(crate::deploy::apply_release::ROOST_PROGRAM),
             link_program,
         ),
+        rotation,
     })
 }
 
@@ -222,11 +232,41 @@ pub fn print_plan(plan: &QuickstartPlan, platform: HostPlatform) {
             .definition_text(platform)
             .unwrap_or_else(|error| format!("<this platform renders no definition: {error}>"))
     );
+    println!("--- log rotation ---");
+    print_rotation(plan);
     eprintln!(
         "The worker definition above carries the placeholder grant {}; a real run mints a \
          one-shot grant in its place and never prints it.",
         crate::quickstart::grant::PLACEHOLDER_BEARER
     );
+}
+
+/// The rotation files a real run would write, in full, or the one line saying
+/// why there are none.
+///
+/// Full text, like the definitions above it: "here is the file that would be
+/// written" is the answer a dry run exists to give, and a summary of it is how
+/// an operator says yes to a rotation that names a directory their machine does
+/// not have.
+fn print_rotation(plan: &QuickstartPlan) {
+    let mut rendered_any = false;
+    for (role, rotation) in ServiceRole::ALL.iter().zip(&plan.rotation) {
+        match rotation {
+            RotationPlan::Skipped(reason) => {
+                println!("  {}: {reason}", role.display_name());
+            }
+            RotationPlan::Files(files) => {
+                for file in files {
+                    println!("--- {} ({}) ---", file.path.display(), role.display_name());
+                    println!("{}", file.text);
+                    rendered_any = true;
+                }
+            }
+        }
+    }
+    if !rendered_any {
+        println!();
+    }
 }
 
 fn print_service(heading: &str, service: &PlannedService, platform: HostPlatform, extra: &str) {

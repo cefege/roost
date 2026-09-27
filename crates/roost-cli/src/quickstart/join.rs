@@ -33,7 +33,7 @@ use crate::deploy::codes;
 use crate::deploy::identity::{ALLOW_DIRTY_ENV, DIRTY_SUFFIX, local_git_sha_or_die};
 use crate::quickstart::install::{
     LocalPrograms, deploy_local_definition, install_programs, prepare_service_directories,
-    report_change, service_dir,
+    report_change, report_rotation, service_dir,
 };
 use crate::services::install::release_bin_dir;
 use crate::services::service_environment::{ENV_BOOTSTRAP_TOKEN, ENV_WORKER_LABEL};
@@ -193,6 +193,8 @@ pub async fn run(env: &dyn EnvSource) -> Result<ExitCode, CommandFailure> {
     prepare_service_directories(&spec)?;
     let outcome = deploy_local_definition(&spec, platform, &service_dir).await?;
     report_change(&outcome, "joiner installed the worker definition");
+
+    report_rotation(ServiceRole::Worker, env, platform);
 
     info!(build_sha = %build_sha, label = %spec.label, "join settled");
     println!("Joined {}.", spec.label);
