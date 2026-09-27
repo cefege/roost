@@ -10,12 +10,33 @@
 
 use std::collections::BTreeSet;
 
-use cargo_metadata::MetadataCommand;
+use cargo_metadata::{DependencyKind, MetadataCommand};
 
 use crate::violation::Violation;
 
 const RULE: &str = "boundaries: crate dependency edges must appear in the allowlist";
+const RULE_DEV: &str = "boundaries: crate dev-dependency edges must appear in the dev allowlist";
 const MEMORY: &str = "CLAUDE.md — repository layout";
+
+/// The allowed internal DEV-dependencies of every workspace member.
+///
+/// A dev edge is a different architectural fact from a library edge: a test
+/// that boots a coordinator to prove the client folds what the backend ships
+/// does not make the client depend on the coordinator at runtime. Folding the
+/// two together is what pushes an author to widen [`ALLOWED`] for everybody,
+/// or to move the test somewhere it does not belong, and a gate that can be
+/// satisfied that way stops being a gate. Kept as its own list so a dev edge
+/// is still a deliberate edit, and a crate absent from it may have none.
+const ALLOWED_DEV: &[(&str, &[&str])] = &[
+    // The Phase 4 gate: an in-process coordinator and worker in temporary
+    // directories, a paired device, a spawned session, and `echo MARKER`
+    // asserted in the replica's viewport. Nothing else proves the client's
+    // fold is the backend's shipping behaviour rather than a test fixture's.
+    (
+        "roost-client-core",
+        &["roost-coord", "roost-worker", "roost-keeper"],
+    ),
+];
 
 /// The allowed internal dependencies of every workspace member.
 const ALLOWED: &[(&str, &[&str])] = &[
@@ -51,12 +72,22 @@ const ALLOWED: &[(&str, &[&str])] = &[
             "roost-observability",
         ],
     ),
+    // `roost-proto` is here because the worker CALLS a generated Connect
+    // service -- `AuthRedeemWorker` to redeem `ENV_BOOTSTRAP_TOKEN`,
+    // `WorkersHeartbeat` to report liveness -- and the generated client stubs
+    // live there. It is the same edge `roost-coord` takes below, reached from
+    // the other side. `roost-protocol` does not re-export those stubs, and
+    // should not: the client half of connectrpc pulls `mio` in through hyper,
+    // which does not build for `wasm32-unknown-unknown`, and `roost-protocol`
+    // is on the browser's dependency path. A re-export there would trade one
+    // narrow edge for a broken target.
     (
         "roost-worker",
         &[
             "roost-term",
             "roost-keeper",
             "roost-host",
+            "roost-proto",
             "roost-protocol",
             "roost-platform",
             "roost-observability",
@@ -145,13 +176,33 @@ pub fn run() -> crate::ratchet::CheckOutcome {
             ));
             continue;
         };
-        let actual: BTreeSet<String> = package
-            .dependencies
-            .iter()
-            .map(|dependency| dependency.name.to_string())
-            .filter(|name| internal_names.contains(name))
-            .collect();
-        violations.extend(edges_outside_allowlist(&crate_name, &actual, allowed));
+        let (library, dev) = split_internal_edges(package, &internal_names);
+        violations.extend(edges_outside_allowlist(
+            &crate_name,
+            &library,
+            allowed,
+            RULE,
+            "is not allowed; permitted",
+        ));
+        // A dev edge to a crate the library may already reach is REDUNDANT
+        // rather than new: `roost-coord` naming `roost-protocol` in both
+        // tables states the same dependency twice, and cargo unifies them.
+        // Only an edge the library list does not already permit is a fact
+        // worth gating, which is the one `ALLOWED_DEV` exists to record.
+        let mut dev_permitted: Vec<&str> = allowed.to_vec();
+        dev_permitted.extend_from_slice(
+            ALLOWED_DEV
+                .iter()
+                .find(|(name, _)| *name == crate_name)
+                .map_or(&[][..], |(_, permitted)| *permitted),
+        );
+        violations.extend(edges_outside_allowlist(
+            &crate_name,
+            &dev,
+            &dev_permitted,
+            RULE_DEV,
+            "is not an allowed dev-dependency; permitted",
+        ));
     }
     crate::ratchet::CheckOutcome {
         checked: members.len(),
@@ -163,6 +214,8 @@ fn edges_outside_allowlist(
     crate_name: &str,
     actual: &BTreeSet<String>,
     allowed: &[&str],
+    rule: &str,
+    phrase: &str,
 ) -> Vec<Violation> {
     let permitted: BTreeSet<&str> = allowed.iter().copied().collect();
     actual
@@ -173,14 +226,48 @@ fn edges_outside_allowlist(
                 format!("crates/{crate_name}/Cargo.toml"),
                 0,
                 format!(
-                    "depends on `{dependency}`, which is not allowed; permitted: [{}]",
+                    "depends on `{dependency}`, which {phrase}: [{}]",
                     allowed.join(", ")
                 ),
-                RULE,
+                rule,
                 MEMORY,
             )
         })
         .collect()
+}
+
+/// A member's internal edges, split into the two architectural questions.
+///
+/// The split is by dependency KIND, not by name, so a crate cannot pass the
+/// library rule by declaring an edge as a dev dependency and then depending
+/// on it from `src/` — that is a compile error there, and the point of the
+/// split is only to let a test reach what its own library may not.
+fn split_internal_edges(
+    package: &cargo_metadata::Package,
+    internal_names: &BTreeSet<String>,
+) -> (BTreeSet<String>, BTreeSet<String>) {
+    let mut library = BTreeSet::new();
+    let mut dev = BTreeSet::new();
+    for dependency in &package.dependencies {
+        if !internal_names.contains(&dependency.name.to_string()) {
+            continue;
+        }
+        if is_dev_edge(&dependency.kind) {
+            dev.insert(dependency.name.to_string());
+        } else {
+            library.insert(dependency.name.to_string());
+        }
+    }
+    (library, dev)
+}
+
+/// Whether a dependency edge is a dev edge.
+///
+/// A manifest that names no kind is a normal dependency, so the check is a
+/// comparison rather than an absence test: reading "unstated" as a dev edge
+/// would silently un-gate every crate that writes `dep = "1.0"`.
+fn is_dev_edge(kind: &DependencyKind) -> bool {
+    matches!(kind, DependencyKind::Development)
 }
 
 /// The allowlist keyed by crate name, so a self-test can assert the rule is
@@ -193,9 +280,19 @@ pub fn allowlist() -> Vec<(&'static str, Vec<&'static str>)> {
         .collect()
 }
 
+/// The dev allowlist keyed by crate name, for the same self-test reason.
+#[cfg(test)]
+pub fn dev_allowlist() -> Vec<(&'static str, Vec<&'static str>)> {
+    ALLOWED_DEV
+        .iter()
+        .map(|(name, allowed)| (*name, allowed.to_vec()))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::allowlist;
+    use super::{allowlist, dev_allowlist, is_dev_edge};
+    use cargo_metadata::DependencyKind;
 
     #[test]
     fn every_workspace_member_has_an_allowlist_entry() {
@@ -244,5 +341,57 @@ mod tests {
             cli.1.contains(&"roost-proto"),
             "roost-cli cannot dial a Connect service without roost-proto"
         );
+    }
+
+    /// The worker redeems a bootstrap token and heartbeats through generated
+    /// Connect clients. If this edge is dropped the worker still COMPILES — it
+    /// just cannot reach the service it is required to call, which is the shape
+    /// of dependency defect the gate exists to turn into a deliberate edit
+    /// rather than a surprise discovered during a deploy.
+    #[test]
+    fn the_worker_may_reach_the_generated_service_clients() {
+        let registered = allowlist();
+        let worker = registered
+            .iter()
+            .find(|(name, _)| *name == "roost-worker")
+            .expect("roost-worker is a workspace member");
+        assert!(
+            worker.1.contains(&"roost-proto"),
+            "roost-worker cannot call AuthRedeemWorker or WorkersHeartbeat without roost-proto"
+        );
+    }
+
+    /// A dev edge that is not an edge the crate's LIBRARY may take is the whole
+    /// reason the split exists, and a test that cannot see the split would let
+    /// the Phase 4 gate be written as a `roost-client-core` library edge —
+    /// which is exactly the dependency direction the allowlist forbids.
+    #[test]
+    fn a_dev_edge_is_not_also_a_library_edge() {
+        let library = allowlist();
+        for (crate_name, dev) in dev_allowlist() {
+            let permitted = library
+                .iter()
+                .find(|(name, _)| *name == crate_name)
+                .map(|(_, allowed)| allowed.clone())
+                .unwrap_or_default();
+            for dependency in dev {
+                assert!(
+                    !permitted.contains(&dependency),
+                    "{crate_name} reaches {dependency} only as a dev-dependency; \
+                     listing it as a library edge too makes the split meaningless"
+                );
+            }
+        }
+    }
+
+    /// A manifest that writes `dep = "1.0"` names no kind, and cargo reports
+    /// that as a normal dependency. Reading the default as a dev edge would
+    /// silently un-gate every crate that never states one, which is most of
+    /// them — so the predicate is asked about the real default here rather
+    /// than about a hypothetical.
+    #[test]
+    fn the_default_dependency_kind_is_a_library_edge() {
+        assert!(!is_dev_edge(&DependencyKind::Normal));
+        assert!(is_dev_edge(&DependencyKind::Development));
     }
 }

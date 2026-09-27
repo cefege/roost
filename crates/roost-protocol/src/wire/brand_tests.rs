@@ -3,7 +3,6 @@
 
 use super::brand::*;
 
-
 const FINGERPRINT: &str = "abababababababababababababababababababababababababababababababab";
 const SESSION: &str = "00000000-0000-4000-8000-000000000001";
 
