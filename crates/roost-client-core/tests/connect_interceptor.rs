@@ -238,7 +238,7 @@ fn a_device_auth_refusal_is_the_device_and_a_proxy_refusal_is_not() {
         AuthFailureKind::Device
     );
     assert_eq!(
-        classify_auth_failure(&[device.clone()], "WorkersList"),
+        classify_auth_failure(std::slice::from_ref(&device), "WorkersList"),
         AuthFailureKind::Device
     );
     // Not the device layer.
@@ -261,7 +261,7 @@ fn a_device_auth_refusal_is_the_device_and_a_proxy_refusal_is_not() {
     // carries someone else's chain, and showing the pairing page to a user whose
     // pairing is fine is the expensive mistake.
     assert_eq!(
-        classify_auth_failure(&[device.clone()], "AuthCoordIdentity"),
+        classify_auth_failure(std::slice::from_ref(&device), "AuthCoordIdentity"),
         AuthFailureKind::Retryable
     );
     assert_eq!(
