@@ -2577,3 +2577,42 @@ different fix pattern than the one the immediate code tempts you toward, the ent
 after the tempting fix already failed. Add a new entry only after a NEW root cause is confirmed AND a
 regression test (or a `scripts/lint-roost.ts` rule) exists for it; an entry without a guard is a promise
 the repo cannot keep.
+
+### A guard that greps for a name accepts the producer as the consumer
+
+**Symptom** — a reachability test that searches `src/` for a file mentioning `<field>`
+(or `<Type>`) without *declaring* it passes green while nothing consumes the value. The
+first version of this guard was six of six green, on a capability with no execution
+path: `crates/roost-coord/src/events/append_transaction.rs:78` **builds**
+`snapshot_reap_ids` without declaring it, so the producer satisfied a test written for
+a consumer.
+
+**Wrong** — grep for the name. A name has a producer and a consumer and grep cannot
+tell them apart, so the test's subject is the *string* rather than the **direction of
+the data**. It reports success while looking like it tests the right thing, which is
+the worst of the available combinations: a green suite resting on a false claim.
+Merely tightening the pattern does not fix the category.
+
+**Right** — grep for something only the CONSUMER can do. Here: does anything set
+`defer_snapshot_reap: true`? Only a caller constructing `AppendOptions` to defer can
+write one; the declaration (`events/append.rs:274`), the `Debug` field (`:284`) and the
+read inside `build_result` (`:367`) are the only other mentions of the name and none of
+them can produce a `true`. That question is unambiguous for a structural reason, not a
+stricter-pattern reason.
+
+**THE RULE, because this is the second time tonight and the same author wrote both:**
+a test whose subject is a **value** asks whether the value is right; a test whose
+subject is a **path** asks whether anything walks it. Those are different questions and
+only the second survives a green run. `green` and `correct` are different properties and
+the exit code only shows you one of them.
+
+**Guard** — `crates/roost-coord/tests/event_publication.rs`:
+`a_deferred_reap_waits_for_the_callers_readiness_barrier`. **Red by design at
+`c02cb9dc`**, and it stays red until the worker link appends with the flag set and
+drains the returned ids — the failure message carries that green condition verbatim, so
+the test is a specification rather than a failure. Do not soften it into a passing
+assertion, and do not "fix" it by editing what it asks: a softened guard is this
+defect with a green suite on top. The two tests beside it assert the returned ids come
+back correctly, which is the value question, and passing them is not evidence about
+this one.
+
