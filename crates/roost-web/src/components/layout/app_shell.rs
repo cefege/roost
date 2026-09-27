@@ -218,7 +218,26 @@ mod tests {
         // wrote a height would be a second answer to the soft-keyboard question,
         // and a PTY resize repaints a full-screen TUI in place.
         let style = sidebar_width_style(280, false);
-        assert_eq!(style.matches("--").count(), 6, "three properties, opened and closed");
+        // Count the NAMES, not the `--` tokens: a property whose value is
+        // `var(--other)` contributes two tokens, so counting tokens tests an
+        // arithmetic detail of the spelling rather than the property itself.
+        let names: Vec<&str> = style
+            .split(';')
+            .filter_map(|declaration| declaration.split_once(':'))
+            .map(|(name, _)| name.trim())
+            .filter(|name| name.starts_with("--"))
+            .collect();
+        assert_eq!(names.len(), 3, "three custom properties, got {names:?}");
+        for expected in [
+            SIDEBAR_EXPANDED_WIDTH_VAR,
+            SIDEBAR_WIDTH_VAR,
+            SIDEBAR_RESIZER_ACTIVE_WIDTH_VAR,
+        ] {
+            assert!(names.contains(&expected), "{expected} missing from {names:?}");
+        }
+        // A `var()` REFERENCE is not a declaration, so the list above stays three
+        // while the string still names five tokens.
+        assert!(style.contains("var(--workbench-sidebar-expanded-width)"));
         assert!(!style.contains("height"));
     }
 

@@ -1,4 +1,4 @@
-//! The desktop status bar: coordinator reachability, the active session's
+//! The desktop status bar: the active session's
 //! machine, its agent, the session's context, and the fleet counts. Ported from
 //! `apps/web/src/components/layout/WorkbenchStatusBar.tsx`.
 //!
@@ -6,11 +6,18 @@
 //! no synthetic source-control status, no "connected" claim the transport has
 //! not made, and no item whose absence would read as a fault.
 //!
-//! The coordinator word is `shell_metrics::coordinator_state`, which takes the
-//! clock and the page-visibility flag as parameters. That is what makes "the
-//! coordinator went stale" a test instead of a rendering accident. The agent
-//! word is `roost_client_core`'s own presentation table, so the status bar and
-//! the agent sidebar chips cannot spell "needs input" two ways.
+//! THE COORDINATOR ITEM IS ABSENT, DELIBERATELY. v2 reads a health snapshot the
+//! sync socket publishes; this port has no such publisher. The previous shape
+//! hard-coded `last_attempt_failed: false` with no `last_success_ms`, so
+//! `coordinator_state` could only ever answer `Syncing` — a status bar
+//! permanently grey and permanently mid-sync, which is a claim about the system
+//! that is not true. `shell_metrics::coordinator_state` is still there, still
+//! pure and still tested, and the item returns the moment a health source exists
+//! to feed it; nothing has to be re-derived when it does.
+//!
+//! The agent word IS shown, because it has a real source:
+//! `roost_client_core`'s own presentation table, so the status bar and the
+//! agent sidebar chips cannot spell "needs input" two ways.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -24,7 +31,7 @@ use roost_client_core::store::navigation::worker_online;
 use roost_protocol::wire::{Session, SessionStatus};
 
 use super::shell_metrics::{
-    CoordinatorHealth, CoordinatorState, coordinator_state, session_context, workbench_title,
+    CoordinatorState, session_context, workbench_title,
 };
 use crate::components::design_icon::StatusDot;
 use crate::components::layout::app_shell::is_terminal_route;
@@ -42,8 +49,17 @@ pub struct Reading {
 /// two different moments of the store.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatusReadings {
-    /// What the bar says about the coordinator.
-    pub coordinator: CoordinatorState,
+    /// What the bar says about the coordinator, or `None` when this build has
+    /// no health source and therefore no honest word to print.
+    ///
+    /// ABSENT IS THE HONEST STATE. v2 reads a health snapshot the sync socket
+    /// publishes on `window`; this port has no such publisher, and the previous
+    /// shape hard-coded `last_attempt_failed: false` with no `last_success_ms`,
+    /// which can only ever read `Syncing` — a status bar permanently grey and
+    /// permanently mid-sync is a claim about the system that is not true. An
+    /// operator seeing no status can tell it apart from a healthy one; an
+    /// operator seeing `Syncing` forever cannot.
+    pub coordinator: Option<CoordinatorState>,
     /// The active session's machine, when the route names a session.
     pub machine: Option<Reading>,
     /// The active session's agent, when it has a status worth showing.
@@ -93,12 +109,14 @@ pub fn StatusBar(path: String) -> Element {
             "data-testid": "workbench-status-bar",
             "aria-label": "Workbench status",
             div { class: "workbench-status-bar__left",
-                span {
-                    class: "workbench-status-item",
-                    "data-testid": "workbench-status-sync",
-                    "data-status": coordinator.status(),
-                    StatusDot { status: coordinator.status().to_string() }
-                    span { {coordinator.label()} }
+                if let Some(coordinator) = coordinator {
+                    span {
+                        class: "workbench-status-item",
+                        "data-testid": "workbench-status-sync",
+                        "data-status": coordinator.status(),
+                        StatusDot { status: coordinator.status().to_string() }
+                        span { {coordinator.label()} }
+                    }
                 }
                 if let Some(reading) = machine {
                     span {
@@ -145,15 +163,7 @@ pub fn StatusBar(path: String) -> Element {
 fn read_status(path: &str, core: &Rc<RefCell<ClientCore>>, now_ms: i64) -> StatusReadings {
     let borrowed = core.borrow();
     let store = borrowed.store();
-    let coordinator = coordinator_state(
-        store.account_id.is_some(),
-        CoordinatorHealth {
-            last_attempt_failed: false,
-            last_success_ms: None,
-            page_visible: page_visible(),
-            now_ms,
-        },
-    );
+    let _ = (store.account_id.as_deref(), page_visible(), now_ms);
     let open_sessions = store
         .sessions
         .sessions()
@@ -201,7 +211,7 @@ fn read_status(path: &str, core: &Rc<RefCell<ClientCore>>, now_ms: i64) -> Statu
         })
     });
     StatusReadings {
-        coordinator,
+        coordinator: None,
         machine,
         agent,
         context,
@@ -273,7 +283,7 @@ mod tests {
 
     fn bar(open: usize, online: usize, total: usize) -> StatusReadings {
         StatusReadings {
-            coordinator: CoordinatorState::Synced,
+            coordinator: None,
             machine: None,
             agent: None,
             context: None,
@@ -321,12 +331,14 @@ mod tests {
     }
 
     #[test]
-    fn a_client_that_has_never_identified_its_credential_reads_as_syncing() {
-        // The bar's first paint is before the first RPC answers. Calling that
-        // "Synced" would claim a round trip that has not happened.
+    fn the_coordinator_item_is_absent_rather_than_permanently_syncing() {
+        // THE WHOLE POINT. With no health source the only words available are
+        // `Syncing` forever or a fabricated model, and both are claims the
+        // client cannot support. An absent item is distinguishable from a
+        // healthy one; a permanent `Syncing` is not.
         let core = ClientCore::in_memory("tab-test");
         let readings = read_status("/", &Rc::new(RefCell::new(core)), 1_000);
-        assert_eq!(readings.coordinator, CoordinatorState::Syncing);
+        assert_eq!(readings.coordinator, None);
     }
 
     #[test]

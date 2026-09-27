@@ -18,7 +18,7 @@ use crate::client::carriers::grant::{GrantInput, GrantLifecycle, GrantSweep};
 use crate::client::carriers::loopback::LoopbackProbe;
 use crate::client::carriers::transport_trait::PeerSignalling;
 use crate::client::carriers::{
-    CarrierEffect, CarrierEnvironment, CarrierFault, FallbackReason, GrantPhase, PeerAnswer,
+    CarrierEffect, CarrierEnvironment, CarrierFault, PeerAnswer,
     PeerAttempt, PeerPhase, ReadyTuple, SignallingInput, SignallingSnapshot,
 };
 use crate::terminal::token::TerminalTransport;
