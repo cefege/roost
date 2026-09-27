@@ -882,13 +882,28 @@ inferred after one:**
 row, and a row flips only in the same commit whose `service_impl.rs` arm calls
 the real handler. The ratchet is doing its job by not moving.
 
-**`v3-worker` @ `57bd7f74` is at 2 `UNIMPLEMENTED`, down from `v3`'s 6** — and
-that comparison is measured on both trees, not inferred. On `v3` the six are
-`credential.rs:38`, `link_wire.rs:39`, `snapshot_source.rs:39`,
-`runtime/mod.rs:140` and `:170`, and `link_serve.rs:98`. On `v3-worker` the two
-that remain are `runtime/mod.rs:283` (the local door) and
-`runtime/link_serve.rs:113` (the hello `capabilities` list); `credential.rs`,
+**`v3-worker` @ `57bd7f74` is at 2 `UNIMPLEMENTED`, down from `v3`'s 6** — both
+figures measured on committed trees. On `v3` @ `dbf0edd2` the six are
+`runtime/credential.rs:38`, `runtime/link_wire.rs:39`,
+`runtime/snapshot_source.rs:39`, `runtime/mod.rs:140` and `:170`, and
+`runtime/link_serve.rs:98`. On `v3-worker` @ `57bd7f74` two remain,
+`runtime/mod.rs` and `runtime/link_serve.rs` — the latter being the hello
+`capabilities` list that 2W-BOOT is briefed to close. `credential.rs`,
 `link_wire.rs`, `snapshot_source.rs` and the reconcile block are closed.
+
+**The worker's working tree reads 0 and has NO SHA.** It is four modified and six
+untracked files deep into the root construction, and a figure from it belongs to
+no commit. I nearly wrote "1" here for the same reason: read a dirty tree, got a
+number, and attributed it to a clean SHA two minutes stale.
+
+**A correction worth keeping, because I made it twice.** I read "v3 lacks the
+worker's `session/` tree" and concluded there was no figure there to have been 6.
+The markers are in `runtime/`, not `session/` — and the very list in that same
+sentence named `credential.rs`, `link_wire.rs` and `snapshot_source.rs` as the
+closed ones. A true premise, a false conclusion, and two commits made while the
+doubt stood. The 6 was measured. **Reproduce a figure at the tree it names, not
+at the neighbour of that tree, and not at the directory that happens to be
+missing.**
 
 **AND THAT EXPOSED A CONTRADICTION IN THE PLAN, recorded here so the gate is not
 failed for someone else's sequencing error.** 2W-DOOR, the local door, was
@@ -1975,7 +1990,7 @@ Everything measured on 2026-09-27 while the tracks were running is in the
 sections above, and each says which tree it was measured on:
 
 - **EXPECTED RED** — the one deliberately red test, its commit, and its green condition.
-- **The gate ratchets** — on `v3` @ `ee72e0f1`: `AwaitingDomainPort` 27,
+- **The gate ratchets** — on `v3` @ `dbf0edd2`: `AwaitingDomainPort` 27,
   `UnwiredInV2` 16, `UNFINISHED` 3 (all three `#[ignore]` attributes, in
   `push_sender_bounds.rs:175` and `sync_v2_send_queue.rs:215,257`), `todo!` 0.
   Worker `UNIMPLEMENTED`: **6 on `v3`**, **2 on `v3-worker` @ `57bd7f74`** — both
