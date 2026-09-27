@@ -51,7 +51,11 @@ pub struct Fixture {
     pub first_status: Option<AgentStatusView>,
     pub second_status: Option<AgentStatusView>,
     pub wait_outcome: Option<AgentPromptWaitOutcome>,
-    reads: Arc<AtomicUsize>,
+    // The read counter that pairs `first_status` with `second_status` is NOT a
+    // canned value and does not live here — it belongs to the router, which is
+    // what serves the reads. As a field it had to be private, and one private
+    // field makes `..Default::default()` illegal from every test outside this
+    // module, so nine call sites could not build a fixture at all.
 }
 
 impl Fixture {
@@ -99,6 +103,10 @@ fn router(fixture: Fixture) -> connectrpc::Router {
     let status = fixture.clone();
     let listed = fixture.clone();
     let wait = fixture;
+    // Shared across requests by the `AgentStatusGet` handler, so "the first read
+    // and the second read" is a property of the served conversation rather than
+    // of the canned values a test hands in.
+    let status_reads = Arc::new(AtomicUsize::new(0));
     let mut router = connectrpc::Router::new();
     router = mount(
         router,
@@ -132,10 +140,10 @@ fn router(fixture: Fixture) -> connectrpc::Router {
         roost_proto::COORDINATOR_SERVICE_AGENT_STATUS_GET_SPEC,
         handler_fn(move |_ctx, _request: AgentStatusGetRequest| {
                 let status = status.clone();
-                let first = status.reads.fetch_add(1, Ordering::SeqCst) == 0;
+                let status_reads = Arc::clone(&status_reads);
                 async move {
                     Ok(connectrpc::Response::new(AgentStatusGetResponse {
-                        status: field(if first {
+                        status: field(if status_reads.fetch_add(1, Ordering::SeqCst) == 0 {
                             status.first_status.clone()
                         } else {
                             status.second_status.clone().or(status.first_status.clone())

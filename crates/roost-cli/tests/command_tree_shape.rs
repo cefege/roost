@@ -116,7 +116,22 @@ fn an_unknown_subcommand_is_refused_rather_than_guessed() {
 
 #[test]
 fn a_bare_invocation_with_no_subcommand_is_a_usage_error() {
-    assert!(Cli::try_parse_from(["roost"]).is_err());
+    // MEASURED, not assumed. `Cli` sets BOTH `subcommand_required` and
+    // `arg_required_else_help` (src/lib.rs), so two kinds were live candidates
+    // and they are opposites in intent: `MissingSubcommand` refuses, while
+    // `DisplayHelpOnMissingArgumentOrSubcommand` prints the help. A bare `roost`
+    // prints the help — which is the right call for an operator who typed the
+    // name and nothing else, and the wrong one to guess at.
+    //
+    // This used to be a bare `is_err()`, which stayed green if either setting
+    // were flipped and some unrelated rule started refusing instead. Pinned to
+    // the kind so a change to either setting has to be a decision.
+    let error = Cli::try_parse_from(["roost"]).expect_err("a bare roost must not run");
+    assert_eq!(
+        error.kind(),
+        ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand,
+        "a bare `roost` must print the help, and this says which rule did it"
+    );
 }
 
 #[test]
