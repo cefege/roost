@@ -3108,6 +3108,56 @@ figure the contract's §1 actually asks for is the resolver one:
 
 **State the scope, or state the resolver figure. Do not publish the bare count.**
 
+## Merge-time decisions, and why they are here rather than in a merge body
+
+A merge commit's default body records that a merge happened and **nothing about
+the three conflicts it resolved.** So the reasoning lives only in peer messages,
+which is the same defect as a row in a message: a thing that exists in one place,
+that place is not durable. And it cannot be fixed by amending — the merge is
+commits back and the tree is live, so **rewriting history to improve a message
+is precisely the destructive move this file keeps warning about.**
+
+**So the decisions are recorded here, as properties rather than as shas.** A
+property survives the branch moving; a merge body from five commits back does
+not, and neither does a handoff note.
+
+### `2a30ed73` — merge of `origin/v3` into `v3-coord`, three conflicts
+
+**1. `crates/roost-keeper/tests/codec_wire.rs` — taken from `origin/v3`, no
+coord content lost.** Both sides agreed on the import list and v3's is a **strict
+superset**: it adds `KEEPER_MAX_MUX_FRAME_BYTES`, the residue from the
+`codec_wire` split. These are the *worker* track's files and the branch rule
+says a non-coord conflict is the integrator's; it was resolved mechanically
+because there was no decision to make, and flagged at the time for that reason.
+**The reusable shape is not the outcome but why it was safe: a strict superset on
+a contested hunk loses nothing from either side.**
+
+**2. `crates/roost-keeper/tests/codec_wire_bounds.rs` — taken from `origin/v3`,
+formatting only.** Coord's side was a single un-wrapped `use` line; v3's is the
+rustfmt-wrapped form. No semantic difference. **Coord's side being un-wrapped is
+itself a small finding** — it says `cargo fmt` had not been run across that file
+in the coord tree, which is the residue `fmt --check` surfaces anyway.
+
+**3. `docs/phase3-coord-contract.md` §4.11 — a genuine two-sided prose merge,
+and the only one of the three that involved judgement.** Both sides agree the
+count is 32. Coord's fuller version was kept — the one naming
+`RATE_LIMITED_METHODS`'s 32-for-the-same-reason and the per-entry exclusions —
+and v3's two unique facts folded in: the `:16-64` line reference, and that
+`PAIR_POLL_ROUTE` resolves to `/roost.v1.CoordinatorService/PairPoll` and so
+appears as a bare identifier rather than a quoted literal.
+
+> **Two sides can agree on every number and still each hold a fact the other
+> lacks, so the merge is a UNION OF FACTS and not a choice between texts.**
+
+That is the reusable shape, and it is the reason prose conflicts are not
+resolvable by picking a side the way a code conflict can be.
+
+**One boundary crossed deliberately and flagged:** item 3 is integrator-owned and
+was edited inside a coord merge, because the two texts had to be reconciled
+rather than chosen between. The property — *both sides agree the count is 32, and
+each holds a fact the other lacks* — is what a later reader needs, and the file
+it is in is the contract rather than a track's.
+
 ## Name the act of reading the state, never the value you read
 
 Everything in this programme that was **captured at write time and consumed at
