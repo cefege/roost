@@ -6,8 +6,8 @@
 //! spec changing means one of the two is now wrong.
 
 use roost_keeper::codec::{
-    CodecError, FrameDecoder, KEEPER_MAX_INPUT_BYTES, MuxFrame, MuxFrameType, StreamEvent,
-    read_sequence, read_u32, write_sequence,
+    CodecError, FrameDecoder, KEEPER_MAX_INPUT_BYTES, KEEPER_MAX_MUX_FRAME_BYTES, MuxFrame,
+    MuxFrameType, StreamEvent, read_sequence, read_u32, write_sequence,
 };
 use roost_keeper::frames::{SpawnAck, SpawnRequest};
 use roost_keeper::payloads::{
@@ -50,7 +50,6 @@ fn an_oversized_length_fails_instead_of_allocating() {
         matches!(events.as_slice(), [StreamEvent::Failed(CodecError::FrameTooLarge(n))] if *n == KEEPER_MAX_MUX_FRAME_BYTES + 1)
     );
 }
-
 
 /// A socket read splits wherever it likes. A decoder that assumed one frame per
 /// read would corrupt every large PTY burst, so the split is driven byte by

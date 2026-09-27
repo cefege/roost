@@ -11,11 +11,29 @@ use crate::source_tree;
 const BASELINE: &str = "xtask/design-raw-baseline.json";
 const RULE: &str = "design: no NEW raw color/px-font values — use --md-*/--surface-*/--text-* + the type ramp (ratcheted)";
 const MEMORY: &str = "CLAUDE.md — design system";
-/// The files that declare the tokens. Everything else references them.
-const TOKEN_FILES: [&str; 3] = [
-    "assets/theme-vars.css",
-    "assets/md-tokens.css",
-    "assets/syntax-vars.css",
+/// The files that DECLARE the tokens. Everything else references them.
+///
+/// Matched by FILE NAME, not by a path suffix. The suffix form
+/// (`assets/theme-vars.css`) silently stopped matching the moment a file sat
+/// one directory deeper (`assets/styles/theme-vars.css`), which is how this
+/// list came to name `md-tokens.css` — a file that has never existed in
+/// either tree — while `md/tokens.css` went ungated. A rule that quietly
+/// stops looking is worse than a noisy one, so the match is on the part of the
+/// path a reorganisation does not move.
+///
+/// Ported from v2's `RAW_VALUE_ALLOW` in `scripts/lint-roost.ts`, which is the
+/// authority for what a definition file is. `icon.css` is on this list because
+/// it DECLARES the `.md-icon` font-size utility that `.md-icon--sm` / `--lg`
+/// reference — its px values are the declaration, not drift. `themes.rs` and
+/// `agents.rs` are here because raw hex is the SOURCE of the canonical palette
+/// in both, not a hardcoded copy of it.
+const TOKEN_FILES: [&str; 6] = [
+    "theme-vars.css",
+    "tokens.css",
+    "icon.css",
+    "voice-input.css",
+    "themes.rs",
+    "agents.rs",
 ];
 
 fn describe(observed: usize, allowed: usize) -> String {
@@ -108,7 +126,9 @@ pub fn run(update_baseline: bool) -> RatchetOutcome {
 }
 #[cfg(test)]
 mod tests {
-    use super::{has_hex_color, has_px_font_size, is_raw_value_line, strip_var_fallbacks};
+    use super::{
+        has_hex_color, has_px_font_size, is_raw_value_line, is_scanned, strip_var_fallbacks,
+    };
 
     #[test]
     fn flags_a_raw_hex_color() {
@@ -159,5 +179,29 @@ mod tests {
             ),
             "color: ; background: ;"
         );
+    }
+
+    /// The regression this list carries is a MATCHING defect, not a naming one:
+    /// it named `assets/theme-vars.css`, and the day the file sat one level
+    /// deeper the exemption stopped applying while the rule reported nothing.
+    /// A rule that quietly stops looking is worse than a noisy one, so the
+    /// nesting depth is asserted rather than assumed.
+    #[test]
+    fn an_exemption_survives_a_directory_move() {
+        for nested in [
+            "crates/roost-web/assets/styles/theme-vars.css",
+            "crates/roost-web/assets/theme-vars.css",
+            "crates/roost-web/src/components/Settings/md/tokens.css",
+            "crates/roost-web/src/components/Settings/md/icon.css",
+        ] {
+            assert!(
+                !is_scanned(nested),
+                "{nested} declares tokens and is exempt"
+            );
+        }
+        assert!(is_scanned("crates/roost-web/assets/styles/sidebar.css"));
+        assert!(is_scanned(
+            "crates/roost-web/src/components/Settings/md/Button.css"
+        ));
     }
 }

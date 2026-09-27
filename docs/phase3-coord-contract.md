@@ -875,15 +875,16 @@ is a socket whose credential outlived its ceiling. See §9.
 `apps/coord/src/middleware/rate-limit.ts`.
 
 - Bucket key: `route path` + `NUL` + client address. **The route list is by
-  exact RPC name, 32 entries** — not a prefix, because *"Prior shape
+  exact RPC name, 32 entries** (`:16-64`) — not a prefix, because *"Prior shape
   used prefix `/roost.v1.CoordinatorService/Workspaces` which matched
   WorkspacesList (called on every SPA bootstrap + visibilitychange focus
   refresh), eating the same 100/min bucket as create/update/delete
   mutations."* (`:7-14`)
 
   **32, and the count is a trap worth stating: 31 quoted string literals plus
-  the `PAIR_POLL_ROUTE` constant (`:15`), which appears as an identifier and is
-  therefore missed by anything that counts quotes.** Three numbers have
+  the `PAIR_POLL_ROUTE` constant (`:15`), which resolves to
+  `/roost.v1.CoordinatorService/PairPoll` and therefore appears in the set as a
+  bare identifier, missed by anything that counts quotes.** Three numbers have
   circulated for this one line — 44 (an earlier draft of this section), 31
   (the quote count) and 32 (the measured one) — and the port's
   `middleware/rate_limit.rs::RATE_LIMITED_METHODS` is 32 for the same reason:

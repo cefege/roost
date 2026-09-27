@@ -1,7 +1,9 @@
 //! The frame-length bounds on the keeper wire codec, split out of
 //! `codec_wire.rs` so neither file sits at the cap after `cargo fmt`.
 
-use roost_keeper::codec::{CodecError, FrameDecoder, MUX_FRAME_HEADER_BYTES, MuxFrameType, StreamEvent};
+use roost_keeper::codec::{
+    CodecError, FrameDecoder, MUX_FRAME_HEADER_BYTES, MuxFrameType, StreamEvent,
+};
 
 fn frame_events(bytes: &[u8]) -> Vec<StreamEvent> {
     FrameDecoder::new().push(bytes)

@@ -2548,7 +2548,8 @@ prefer the account that quotes its own output.
 | W4 | A delta too large for one part escalates to a full | `session/emit.rs::build_frame`: delete the `encoded_cell_grid_frame_size(&wire) > CELL_GRID_PART_MAX_BYTES` escalation | `a_delta_too_large_for_one_part_is_escalated_to_a_full` | unrun |
 | W5 | The retained floor stays the offset before the oldest retained byte | `session/types.rs::append_retained`: `head_seq += self.scrollback.len()` instead of `chunk.len()` | `the_history_floor_is_the_offset_before_the_oldest_retained_byte` + 2 | **OBSERVED** — 3 named tests failed, in `734982d1` |
 | W6 | A keeper control credential is recognised whatever its case | `shell_spec.rs::is_keeper_control_key`: drop `to_ascii_uppercase()` | `a_keeper_control_credential_is_recognised_whatever_its_case` | **OBSERVED** in `734982d1`. **Re-run:** W1's credential cutover landed after that observation. |
-| W7 | A frame from `Box<dyn TerminalCore>` is byte-identical to one from `AlacrittyCore` | the `&dyn TerminalCore` widening in `roost-term` | no test yet — this row needs one written | unrun. A widening that silently changed frame bytes is exactly the defect nobody is looking for. |
+| W7 | A frame from `Box<dyn TerminalCore>` is byte-identical to one from `AlacrittyCore` | the `&dyn TerminalCore` widening in `roost-term` | `crates/roost-term/tests/dyn_dispatch_parity.rs` | **SATISFIED — the test the row asked for exists and was written and run.** This row said "no test yet" until `WorkerLeadW` checked the crate rather than the row. A row table that reports a missing test without looking is the "A check that quietly stopped looking" entry above, one layer down. |
+| W2 | A delta past the row cap escalates to a full frame, never a silent hole | `roost-term/src/emitter.rs:127`: `> LIVE_DELTA_SCROLLBACK_ROWS_CAP` → `> u64::MAX` | `a_delta_past_the_row_cap_becomes_a_viewport_only_full` | **BLOCKED ON THE TEST, NOT THE MUTATION.** The named test is in no file under `crates/roost-term`, so the row cannot be run at all until somebody writes it. **The only row guarding behaviour inside a COMPLETED ported crate**, and the one gap in this table that is a missing artefact rather than an unrun check. Assigned to the worker track; the spec is `docs/phase4-client-contract.md` §6.2 full-before-delta, §6.3 the delta fence, §6.4 chunked baselines. |
 | W8 | A spawn's ack is correlated 1:1 with its request under concurrency | keeper pool dispatch | W4's ack-correlation test | unrun |
 | W9 | A read against a replaced grid epoch is REFUSED | `retained_grid.rs describe`, the `EpochBinding::new(...)` argument: replace `record.cell_emit.grid_epoch()` with a constant | `a_read_against_a_replaced_grid_epoch_is_refused` | **OBSERVED** (W2c) |
 | W10 | A page over the ceiling is CLAMPED, not refused | `retained_grid.rs describe`, the `total:` field: use `origin` without adding the retained count | `a_page_larger_than_the_ceiling_is_clamped_not_refused` | **OBSERVED** |
@@ -2806,3 +2807,137 @@ proof.
   port's.** The port does `buckets.retain(|_, bucket| now < bucket.reset_at)`,
   dropping what has expired and reaching the fail-closed refusal only when the
   survivors alone fill the ceiling. Same guarantee, different mechanism.
+
+---
+
+## The integrator merge carry list
+
+Things that live on a track branch, are correct there, and would be easy to lose
+at a checkpoint merge. The integrator takes each of these deliberately rather
+than letting a merge resolve it by accident. **A row that is present and says
+"this is why" is a promise the repo can keep; a row that is absent is the
+failure mode this list exists to prevent.**
+
+> **M1 is AMENDED, and the amendment is load-bearing.** The hunk as committed in
+> `d02d6ec3` **breaks the workspace**: cargo rejects a manifest that both
+> inherits the workspace lint table and overrides a value in it, so
+> `[lints] workspace = true` alongside `[lints.rust]` is a hard manifest error,
+> not a warning. `roost-keeper` is a dependency of `roost-coord` as well as
+> `roost-worker`, so that hunk would stop **every** track building anything.
+> The checkpoint merge must take `WorkerLeadW2`'s corrected form — the whole
+> table restated in `crates/roost-keeper/Cargo.toml` with the single
+> `unsafe_code` override — and take it **deliberately**, because the corrected
+> form conflicts with `v3`'s and would otherwise be resolved by whichever side
+> a merge happened to prefer.
+>
+> The corrected form is the only one of the three available. Inheriting and
+> losing the override is not implementable: installing a signal handler has no
+> safe API, so the `unsafe` at `crates/roost-keeper/src/bin/roost-keeper.rs:162`
+> cannot be refactored away without changing what the keeper does on SIGTERM.
+> The cost of the copy is real and belongs in the file rather than in a commit
+> body: **a new workspace lint does not reach `roost-keeper` until someone adds
+> it to that copy.** `cargo xtask lint` is where a duplicated table belongs — a
+> rule flagging a crate whose `[lints]` is not `workspace = true` and which
+> defines a key the workspace table also defines. **That rule is owed to the
+> integrator and is not yet written.**
+
+| # | Carried on | What | Why it is on the list rather than merged already |
+| M1 | `v3-worker`, **`WorkerLeadW2`'s corrected form — not `d02d6ec3`** | `crates/roost-keeper/Cargo.toml` restates the workspace lint table in full, with one `unsafe_code = "allow"` override | Per-ref measured: `roost-worker`'s branch is the only one with the change, and the file is byte-identical to `v3` on `v3-coord`, `v3-web` and `v3-cli` — so the *original* hunk would have merged one-sided and silently. It also would not have parsed. Without this the crate is outside `[workspace.lints]` entirely, so `expect_used`, `unwrap_used` and `unsafe_code = "forbid"` never applied to it, 19 production `expect()`s survived, and `cargo clippy --workspace --all-targets -- -D warnings` passed over it **by not applying**. See the amendment above. |
+| M2 | `v3-coord` @ `edac76e2`+ | `roost_coord::auth::bootstrap_tokens::mint_host_bootstrap_token` | `roost-cli` restates four coordinator values — the column list, the `roost_bt_` bearer format, the 24h TTL, the SHA-256 digest — because `v3-cli` has never merged `v3-coord` and cannot compile a call to a function it does not have. **A fork that compiles and carries a header is worse than one that fails**, because a reviewer can skip it. Carried so the CLI checkpoint deliberately takes the coord side. |
+| M3 | `v3` @ `31e77d95` | the `AgentStatusOrder` identified-over-legacy arm | A deliberate superset of v2. It lives in the shared crate because a coord-only rule re-creates the drift this module removes, in the direction where a client shows a status its coordinator has retired. The coord checkpoint deletes its own copy; if the merge takes `v3`'s side of `agents/status_order.rs` the arm silently reverts. **ONE test pins it, not two:** `the_list_answers_in_session_id_order_with_derived_promptability` at `tests/agent_status_rpc.rs:191`, asserted `:224-227` — legacy rev 5 held, then identified rev 6 must be Stale. The other candidate sends revision 1, the guard's condition is `revision > 1`, so it never fires and passes either way. |
+| M4 | `v3-worker` snap `87ee7b0e` | 34 paths of uncommitted W-C and W-2 work | Pushed as a snapshot, never committed. Until the worker checkpoint, the wave's code fixes exist only in that ref. **The worker track has twice now been one context-end from losing a wave** — this row is the reason the next one will not be. |
+
+## Three lessons from the four-track wave, and each one cost a real defect
+
+### A count is a claim about COVERAGE, and the question is always what the tool never reached
+
+`cargo check --all-targets` **without** `--keep-going` stops at the first failing
+target. Every track in this programme ran it, every track reported a number, and
+every number was a floor. The worker track's `--keep-going` run returned **~56
+errors across 14 test targets** after a lib that was already clean — and those
+test targets **had never been compiled in this project's history**. "The worker
+builds" and "the worker's tests build" are two claims and only the first had ever
+been true.
+
+`--keep-going` is the fix for the flag case. It is **not** the fix for the
+ordering case, and a slice proved the second independently: its run aborted on a
+stray brace it had introduced mid-edit, so "38 errors" meant *38 up to the first
+syntax error in a lib target*, and everything downstream was unmeasured. The
+honest statement for that slice was **"no error count at all"**, which is what
+the slice eventually said.
+
+The pattern generalises past rustc. `--all-targets` sounds total and was not, for
+a reason that had nothing to do with the flag.
+
+### A pass count is not a gate, because the deny-class lints are CLIPPY lints
+
+`expect_used` and `unwrap_used` are **clippy** lints. `cargo check` and
+`cargo test` cannot see them. A crate can compile, pass every test across 22
+binaries, and fail `cargo clippy --workspace --all-targets -- -D warnings` — and
+it did: `roost-keeper` sat at "131 passed / 0 failed" while carrying 18
+production `expect()` sites, reported to the integrator as a sign-off.
+
+CI enforces clippy in exactly one place (`.github/workflows/ci.yml:26`), so a
+crate signed off on `cargo test` was never signed off at all. **Run clippy per
+crate, one at a time, and never infer one crate's result from another's or from
+a workspace build.** The same crate had a second gate waiting behind the first:
+turning on the inherited table promotes `missing_debug_implementations = "warn"`
+to an error, and five `pub` types with no `Debug` were enumerated by reading
+before a single one was compiled.
+
+### `is_err()` claims that SOMETHING did, and a test that names a rule must pin the rule
+
+`assert!(restore(&payload).is_err())` was satisfied by a `NotARecord` parse
+failure and had nothing to do with the depth bound, the ratio bound, the unheld
+selection or the absent focus the test was named for. **Four separate rules, one
+assertion, zero coverage, green forever.**
+
+`assert!(matches!(restore(&payload), Err(LayoutRecordsError::Malformed { .. })))`
+does not. Adopted in one broadcast, it found **five real defects in three
+slices** before the next hour was out: two bare `is_err()` in the CLI's
+`command_tree_shape.rs` that could not tell `subcommand_required` from any other
+parse failure; a `RotationError` assertion that could not tell the
+coordinator's *considered refusal* from a local `KeyStoreError`; a second that
+could not tell "the coordinator said no" from "nobody answered", which is the
+entire distinction its test exists for; a `PairingError` assertion that an
+entropy failure satisfied; and one latent `SpawnRefusal` case that was right by
+coincidence today and would have absorbed a new variant silently tomorrow.
+
+The rule is greppable and it is cheap: **`is_err()` and `is_none()` in a test
+target are where this hides**, and pinning is load-bearing only where a `Result`
+could fail more than one way. An `Option` with a single documented refusal is
+already pinned.
+
+**And the sibling shape, which is the same defect wearing a comment.** Three
+findings in one slice were a doc that stated the correct rule sitting next to
+code that did something else: `restore` with a header promising
+`validate_stored`; `dismiss_at_ms` armed for `Failed` against a field documented
+"Stays until the user closes it"; `relevance` against a doc promising the late
+rejection changes nothing. A `drop` called on a **reference** is the same thing —
+`drop` takes ownership, so on a `&T` it drops the borrow and the guard is not
+released where the author believed. The question for any file is not **"does it
+compile"** but **"does every comment in it describe what the adjacent line
+does."**
+
+### A pattern that cannot match a legal form returns a confident negative
+
+Two of these, from the same hour, and the second is worse:
+
+- `grep -L 'lints.*workspace'` is line-oriented; `[lints]` and `workspace = true`
+  are on **two** lines in every manifest here, so the pattern could never match
+  and `-L` reported **all thirteen** crates as outside the lint table. The
+  integrator broadcast it; four agents caught it. A command that reports 100% of
+  crates as broken is reporting on itself, not on the tree.
+- `^\[lints\]` with a closing bracket matches `[lints]` and **cannot match
+  `[lints.rust]`** — which is a legal form of the thing being searched for. That
+  confident negative became "no `[lints]` table anywhere in the file", and the
+  file had one.
+
+**Ask what a command could have detected before reporting what it found**, and
+name the branch a manifest finding was measured on: a finding about a file is
+meaningless without the tree, and this one produced a genuine six-way
+disagreement that turned out to be two correct measurements of two different
+branches. A measurement must also say **what it contradicts** — a report that
+agrees with nothing is a report nobody checks, and the agent who named the
+conflict instead of resolving it is the reason that one was diagnosed as branch
+skew rather than as an error.

@@ -50,7 +50,10 @@ pub fn run() -> crate::ratchet::CheckOutcome {
             }
         }
     }
-    crate::ratchet::CheckOutcome { checked, violations }
+    crate::ratchet::CheckOutcome {
+        checked,
+        violations,
+    }
 }
 
 fn is_exempt(relative: &str) -> bool {
