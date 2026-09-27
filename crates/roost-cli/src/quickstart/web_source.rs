@@ -11,10 +11,8 @@
 //! the update that follows it is a machine whose page changes under it.
 
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
 
 use roost_host::EnvSource;
-use roost_protocol::ProtocolError;
 
 use crate::command_error::CommandFailure;
 use crate::services::web_bundle;

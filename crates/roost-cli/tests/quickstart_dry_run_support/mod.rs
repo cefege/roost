@@ -11,8 +11,6 @@ use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use roost_cli::quickstart::endpoint::QuickstartEndpoint;
-pub use roost_cli::quickstart::endpoint::fresh_endpoint;
 use roost_host::MapEnv;
 
 /// A throwaway tree that removes itself, standing in for a machine with no
@@ -37,11 +35,6 @@ impl TempMachine {
     }
 
     /// An account with a home and nothing else under it.
-    /// The tree's root, for a test that needs to build a fixture inside it.
-    pub fn root(&self) -> &Path {
-        &self.root
-    }
-
     pub fn environment(&self) -> MapEnv {
         let text = |relative: &str| self.root.join(relative).display().to_string();
         MapEnv::new()

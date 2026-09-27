@@ -17,16 +17,15 @@
 //! `roost-keeper`. Conflating them is a deploy that fetched two files and then
 //! reported that the release ships no keeper.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use roost_host::{EnvSource, HostPlatform};
 use tracing::info;
 
 use crate::command_error::CommandFailure;
-use crate::deploy::apply_release::{KEEPER_PROGRAM, RELEASE_BIN_DIR, ROOST_PROGRAM};
+use crate::deploy::apply_release::{RELEASE_BIN_DIR, ROOST_PROGRAM};
 use crate::deploy::codes;
 use crate::deploy::release::{StagedRelease, read_keeper_contract, release_digest};
-use crate::services::web_bundle;
 use crate::update::assets::{WEB_ASSET_NAME, keeper_release_asset_name, release_asset_name};
 
 /// The release a tag publishes, fetched rather than built, staged in the same

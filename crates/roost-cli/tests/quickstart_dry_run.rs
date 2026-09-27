@@ -10,20 +10,19 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeMap;
-use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use roost_cli::quickstart::endpoint::{EndpointMode, installed_endpoint};
 
 mod quickstart_dry_run_support;
 
-pub use quickstart_dry_run_support::fresh_endpoint;
 use quickstart_dry_run_support::{TempMachine, tree_snapshot};
+use roost_cli::quickstart::endpoint::fresh_endpoint;
 use roost_cli::quickstart::plan;
 use roost_cli::services::definition_text::render_definition;
 use roost_cli::services::service_spec::{ServiceRole, ServiceSpec};
 use roost_cli::status::service_definition::parse_installed_environment;
-use roost_host::{HostPlatform, MapEnv};
+use roost_host::HostPlatform;
 
 #[test]
 fn a_dry_run_resolves_both_services_on_a_machine_with_nothing_installed() {

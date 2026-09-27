@@ -36,7 +36,6 @@ use tracing::info;
 use crate::command_error::CommandFailure;
 use crate::quickstart::web_source;
 use crate::services::web_bundle;
-use crate::services::web_bundle::InstalledBundle;
 use crate::update::journal::KeeperRecord;
 use crate::update::local_keeper::{decide_keeper_action, local_keeper, self_update_service_dir};
 use crate::update::recovery::RecoveryOutcome;

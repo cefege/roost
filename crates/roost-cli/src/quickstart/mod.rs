@@ -38,9 +38,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::Args;
-use roost_host::coord_config_loader::ENV_WEB_DIST_PATH;
 use roost_host::{HostPlatform, ProcessEnv};
-use roost_worker::runtime::boot::ENV_COORDINATOR_URL;
 
 use crate::command_error::CommandFailure;
 use crate::quickstart::endpoint::QuickstartEndpoint;
@@ -52,8 +50,7 @@ use crate::quickstart::install::{
 use crate::quickstart::specs::{coordinator_spec, local_worker_spec};
 use crate::quickstart::web_source::install_local_bundle;
 use crate::services::install::{default_program_path, release_bin_dir};
-use crate::services::service_environment::ENV_BOOTSTRAP_TOKEN;
-use crate::services::service_spec::{ServiceRole, ServiceSpec};
+use crate::services::service_spec::ServiceRole;
 use crate::services::web_bundle::validate as validate_bundle;
 use crate::status::{collect, render};
 use crate::wall_clock;

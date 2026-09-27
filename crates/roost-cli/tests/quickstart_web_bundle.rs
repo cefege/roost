@@ -23,12 +23,12 @@ use roost_host::HostPlatform;
 fn a_dry_run_names_the_bundle_in_both_definitions_and_copies_nothing() {
     let machine = TempMachine::new("bundle");
     let env = machine.environment();
-    let source = machine.root().join("somewhere/apps/web/dist");
+    let source = machine.root.join("somewhere/apps/web/dist");
     std::fs::create_dir_all(&source).expect("the bundle directory is created");
     std::fs::write(source.join("index.html"), b"<html></html>\n").expect("the index is written");
 
     let endpoint = fresh_endpoint(None).expect("a loopback endpoint");
-    let before = tree_snapshot(machine.root());
+    let before = tree_snapshot(&machine.root);
     let resolved = plan::resolve_plan(
         &env,
         HostPlatform::Linux,
@@ -75,7 +75,7 @@ fn a_dry_run_names_the_bundle_in_both_definitions_and_copies_nothing() {
 
     assert_eq!(
         before,
-        tree_snapshot(machine.root()),
+        tree_snapshot(&machine.root),
         "a dry run copied the bundle, or staged anything beside the release"
     );
     assert!(
