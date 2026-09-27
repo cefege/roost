@@ -20,6 +20,7 @@ use crate::deploy::DeployArgs;
 use crate::deploy::codes;
 use crate::deploy::identity;
 use crate::deploy::identity_env::{self, Ambient};
+use crate::services::web_bundle;
 use crate::services::service_environment::{
     ENV_BOOTSTRAP_TOKEN, ENV_REACHABLE_ADDR, ENV_WORKER_LABEL,
 };
@@ -88,6 +89,37 @@ pub fn validate(args: &DeployArgs) -> Result<(), CommandFailure> {
             codes::USAGE,
             "--allow-unpublished-local is restricted to the localhost quickstart path",
         ));
+    }
+    if let Some(tag) = &args.release {
+        if tag.trim().is_empty()
+            || tag.chars().any(|character| character.is_control())
+            || tag.contains('/')
+        {
+            return Err(codes::refuse(
+                codes::USAGE,
+                "--release must be a single-line published tag, with no path separator",
+            ));
+        }
+        // Each of these is an instruction about WHICH build to install, and
+        // with --release the tag is that build. Accepting them alongside it
+        // would be accepting two answers and silently preferring one, which is
+        // how a deploy reports a build nobody asked for.
+        for (flag, other) in [
+            ("--expected-sha", args.expected_sha.is_some()),
+            ("--source-root", args.source_root.is_some()),
+            ("--coordinator-release", args.coordinator_release),
+        ] {
+            if other {
+                return Err(codes::refuse(
+                    codes::USAGE,
+                    format!("--release cannot combine with {flag}: the tag is the build identity"),
+                ));
+            }
+        }
+    }
+    if let Some(source) = &args.web_dist {
+        web_bundle::validate(source)
+            .map_err(|error| codes::refuse(codes::USAGE, error.to_string()))?;
     }
     Ok(())
 }

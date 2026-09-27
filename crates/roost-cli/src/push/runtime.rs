@@ -117,6 +117,10 @@ impl<'a> FleetRuntime<'a> {
             allow_unpublished_local: false,
             coordinator_release: false,
             force_live: false,
+            // `roost push` always builds from its own checkout, so neither of
+            // the flags that redirect an install at something else is set here.
+            web_dist: None,
+            release: None,
         }
     }
 

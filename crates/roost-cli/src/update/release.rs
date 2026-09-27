@@ -332,6 +332,25 @@ async fn verified_download(
     Ok((url, received))
 }
 
+/// Whether this release published a sidecar for `asset`.
+///
+/// Asked before an OPTIONAL asset is requested, so that a release predating one
+/// asset is a release that installs rather than a 404 that aborts a deploy. The
+/// sidecar is the probe rather than the body deliberately: it is one small
+/// request, and a body that does not exist is a body worth never asking for.
+pub async fn sidecar_is_published(env: &dyn EnvSource, tag: &str, asset: &str) -> bool {
+    let base = release_base_url(env, tag);
+    let url = format!("{}/{asset}{}", base.trim_end_matches('/'), candidate::SIDECAR_SUFFIX);
+    let Ok(client) = reqwest::Client::builder().timeout(CHECKSUM_DEADLINE).build() else {
+        return false;
+    };
+    client
+        .get(url)
+        .send()
+        .await
+        .is_ok_and(|response| response.status().is_success())
+}
+
 /// The digest the release published, refusing anything that is not one.
 ///
 /// The parse is deliberately wide and that width is load-bearing:

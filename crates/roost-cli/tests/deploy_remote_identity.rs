@@ -249,6 +249,8 @@ fn a_first_install_the_shell_is_authorized_for_carries_its_grant() {
         allow_unpublished_local: false,
         coordinator_release: false,
         force_live: false,
+        web_dist: None,
+        release: None,
     };
     let token = BTreeMap::from([(ENV_BOOTSTRAP_TOKEN.to_string(), "one-shot".to_string())]);
     let armed = invocation::definition_environment(
