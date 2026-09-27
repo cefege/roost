@@ -14,7 +14,9 @@ use std::path::PathBuf;
 use roost_platform::HostPlatform;
 use roost_protocol::{ProtocolError, ProtocolResult};
 
-use crate::env::{EnvSource, HOME_ENV, XDG_DATA_HOME_ENV, XDG_STATE_HOME_ENV};
+use crate::env::{
+    EnvSource, HOME_ENV, XDG_CONFIG_HOME_ENV, XDG_DATA_HOME_ENV, XDG_STATE_HOME_ENV,
+};
 
 /// The launchd label the coordinator installs under on macOS.
 pub const COORD_LABEL_DARWIN: &str = "com.roost.coordinator-v3";
@@ -92,6 +94,35 @@ const XDG_DATA_DEFAULT_LEAF: &str = "share";
 
 /// The XDG default for mutable state, when `XDG_STATE_HOME` is unset.
 const XDG_STATE_DEFAULT_LEAF: &str = "state";
+/// The XDG default for configuration, when `XDG_CONFIG_HOME` is unset.
+///
+/// **Not under `.local`,** which is what separates this root from data and
+/// state, and is why it is its own constant rather than a `default_leaf` on
+/// `xdg_root`.
+const XDG_CONFIG_DEFAULT_LEAF: &str = ".config";
+
+/// The user's configuration root, per the XDG base-directory specification.
+///
+/// Public because the rule is not only this crate's: systemd user units land in
+/// `<config>/systemd/user` and `logrotate.d` fragments in `<config>/logrotate.d`.
+/// A caller that restates the default is a second implementation of a rule with
+/// one owner, which is the defect class this repository pays for most.
+pub fn config_root(env: &dyn EnvSource) -> ProtocolResult<PathBuf> {
+    Ok(match non_empty(env, XDG_CONFIG_HOME_ENV) {
+        Some(root) => PathBuf::from(root),
+        None => home_dir(env)?.join(XDG_CONFIG_DEFAULT_LEAF),
+    })
+}
+
+/// The user's mutable-state root, per the XDG base-directory specification.
+///
+/// Public for the same reason as `config_root`: the `logrotate` state ledger
+/// lives here, and a caller that resolves `XDG_STATE_HOME` itself has forked the
+/// rule rather than called it.
+pub fn state_root(env: &dyn EnvSource) -> ProtocolResult<PathBuf> {
+    xdg_root(env, XDG_STATE_HOME_ENV, XDG_STATE_DEFAULT_LEAF)
+}
+
 
 /// Where the worker keeps its durable state.
 pub fn worker_data_dir(env: &dyn EnvSource, platform: HostPlatform) -> ProtocolResult<PathBuf> {
