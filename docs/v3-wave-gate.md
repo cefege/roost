@@ -3072,6 +3072,35 @@ fully-built directory has a **safe-looking success mode**, so it propagates on
 the evidence of a run that was never a test. Same class: an instrument that
 reports success in a state where it was not exercised.
 
+## Standing unverified state, and why it is here rather than in a commit
+
+**A commit body decays; this does not.** A warning that lives in a conversation
+has a shorter life than the code it describes, and a commit message is read once
+at `git log` and never again. So an unverified state is recorded **here** — in
+the document a lead actually reads when they open a slice — and the entry is
+removed only when a compiler has seen the code.
+
+This arose because the obvious home was unavailable and the unavailability was
+the lesson: the commit carrying the change was **already published on two
+remotes**, so its message could not be amended; and the working tree was
+**clean**, so there was no diff for a warning to ride on. Putting it in the next
+commit would have relocated the defect rather than fixed it — a reader auditing
+that commit for its own stated scope would have found an unverified-state
+warning about three lines in a file it never mentions.
+
+| Where | What is unverified | The one failure mode reading could not exclude |
+|---|---|---|
+| `crates/roost-worker/src/runtime/bootstrap_redeem/label.rs:32,40,79` | `LabelSources`, `HostLabelSources`, `resolve_worker_label` are `pub(super)`, narrowed from `pub` with **no compiler having seen the change** | a `pub(super)` item reached through `use super::{..}` from a `#[cfg(test)]` child |
+
+Every other line in that module is also unbuilt; **these three are unbuilt *and*
+edited after the last full read.** The whole of
+`crates/roost-worker/src/runtime/bootstrap_redeem/` is 661 lines across three
+files and has never been through a compiler.
+
+**Remove this entry when `cargo check -p roost-worker --lib` has been run over
+the module**, not when the tests pass — a test run needs the lib, and the lib is
+what these three lines are in.
+
 ## Coordinator track — tasks (S2)
 
 | # | Edit | Test that must fail |
