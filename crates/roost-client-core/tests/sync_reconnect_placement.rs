@@ -71,7 +71,16 @@ fn open_ready_link(core: &mut ClientCore, socket_id: &str) -> u64 {
         frame: SyncFrame::Subscribed {
             socket_id: socket_id.to_owned(),
             process_epoch: EPOCH.to_owned(),
-            domains: vec![(SyncDomain::Workers, DOMAIN_GENERATION, false)],
+            domains: vec![(SyncDomain::Workers, DOMAIN_GENERATION, true)],
+            // `true` is the coordinator stating that THIS client is subscribed to
+            // the domain on THIS socket (`sync.proto:115-125`), and it has to be
+            // `true` for a `domain_ready` to follow: `may_apply` admits live
+            // traffic only where a domain is `subscribed && ready`, and
+            // `install_subscribed` stores this flag verbatim. Announcing `false`
+            // and then sending `domain_ready` describes a sequence the
+            // coordinator never produces — it would not close the snapshot/live
+            // gap for a domain it had just said we were not subscribed to — and
+            // every application frame below was being refused at that gate.
         },
     });
     core.handle(ClientEvent::HydrationCompleted { generation });
@@ -272,6 +281,12 @@ fn a_credential_boundary_drops_the_frames_keyed_to_it() {
     core.handle(applied.into_event());
     assert_eq!(cursor_on_next_dial(&mut core), 10);
 
+
+    // `take` DRAINED, so the queue is empty and there is nothing for a
+    // credential boundary to drop. Enqueue one more so the assertion below is
+    // about the boundary and not about the drain — expecting `clear()` to
+    // return a frame the previous line already removed asserted nothing.
+    enqueue(&mut dispatch, generation, 3, 12);
     core.handle(ClientEvent::CredentialsDiscarded);
     assert_eq!(dispatch.clear(), 1, "the frame still held went with it");
     assert!(dispatch.is_empty());

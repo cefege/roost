@@ -284,15 +284,19 @@ fn chrome_and_preference_mutations_each_bump_the_revision_exactly_once() {
         "a width of 199 clamps to the same minimum 0 did, so it changed nothing \
          and must not bump"
     );
-    assert_no_bump(
-        &mut core,
-        "a sidebar width past the maximum clamps to the maximum",
-        |store| {
-            set_sidebar_width(store, &storage, SIDEBAR_WIDTH_MAX);
-            let before = store.revision();
-            set_sidebar_width(store, &storage, SIDEBAR_WIDTH_MAX + 1);
-            assert_eq!(store.revision(), before);
-        },
+    // The same shape as the minimum case above, and for the same reason: the
+    // first call in this closure DOES move the width, so wrapping the pair in
+    // `assert_no_bump` made the helper measure the setup rather than the rule.
+    // What the rule says is that the SECOND call changes nothing, because
+    // `SIDEBAR_WIDTH_MAX + 1` clamps to the maximum the first call just wrote.
+    set_sidebar_width(core.store_mut(), &storage, SIDEBAR_WIDTH_MAX);
+    let after_max = core.store().revision();
+    set_sidebar_width(core.store_mut(), &storage, SIDEBAR_WIDTH_MAX + 1);
+    assert_eq!(
+        core.store().revision(),
+        after_max,
+        "a width one past the maximum clamps to the maximum just written, so it \
+         changed nothing and must not bump"
     );
     assert_eq!(core.store().ui.sidebar_width, SIDEBAR_WIDTH_MAX);
     assert_eq!(clamp_sidebar_width(0), SIDEBAR_WIDTH_MIN);
