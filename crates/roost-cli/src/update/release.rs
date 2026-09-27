@@ -2,6 +2,13 @@
 //! machine's disk. Called by `update::mod`; depends on the update group's
 //! candidate module and on `reqwest`, and on nothing else in this crate.
 //!
+//! **A v3 binary may only install a v3 release.** This repository publishes
+//! both series from one tag namespace, so "the newest release" is a TypeScript
+//! build today and a Rust build the day after. Resolution is therefore the
+//! GitHub releases LISTING filtered to `v3.`, and the download names the tag it
+//! chose: a `latest/download` URL verifies its own sidecar's digest perfectly
+//! while handing this binary a different program.
+//!
 //! The origin is resolved once, here, from one variable. v2's self-updater
 //! hardcoded the GitHub origin while the deploy paths honoured
 //! `ROOST_RELEASE_BASE_URL`, so `roost update` could not be pointed at a mirror
@@ -22,16 +29,33 @@ use tracing::info;
 use crate::command_error::CommandFailure;
 use crate::update::candidate::{self, CandidateError, VerifiedCandidate};
 
-/// The GitHub repository every release is published from.
+/// The GitHub repository every release is published from, named in both URLs
+/// below rather than concatenated into them: a `const` cannot be built from
+/// another, and two literals that have to agree are better as two literals
+/// that a test can compare.
 pub const RELEASE_REPOSITORY: &str = "cefege/roost";
 
 /// The directory release assets are downloaded from, and this crate's ONLY read
 /// of the mirror variable.
 pub const RELEASE_BASE_URL_ENV: &str = "ROOST_RELEASE_BASE_URL";
 
-/// The origin used when no mirror is configured.
-pub const DEFAULT_RELEASE_BASE_URL: &str =
-    "https://github.com/cefege/roost/releases/latest/download";
+/// The GitHub REST listing every published release, newest first. The `latest`
+/// endpoint is deliberately not used: it answers with the newest release of
+/// ANY series, and this repository's newest release today is a v2 binary.
+pub const RELEASE_API_URL: &str = "https://api.github.com/repos/cefege/roost/releases?per_page=100";
+
+/// Where a tag's assets live when no mirror is configured.
+pub const RELEASE_DOWNLOAD_ORIGIN: &str = "https://github.com/cefege/roost/releases/download";
+
+/// The tag prefix a release must carry to be installable by this binary.
+///
+/// THE WHOLE POINT OF THIS FILTER. `releases/latest` answers `v0.5.0`, a
+/// TypeScript build, and a digest-verified download of it would replace a Rust
+/// `roost` with a Bun one that answers none of the commands this contract
+/// documents. Drafts are excluded because a draft has no assets anybody can
+/// fetch, and pre-releases are INCLUDED because the fleet runs `v3.0.0-rc.N`
+/// until `v3.0.0` exists.
+pub const INSTALLABLE_TAG_PREFIX: &str = "v3.";
 
 /// How long a checksum sidecar may take. It is a 65-byte file, so this is
 /// patience rather than a transfer budget.
@@ -101,27 +125,58 @@ fn normalized_arch(arch: &str) -> Result<&'static str, CommandFailure> {
     }
 }
 
-/// The directory release assets are downloaded from.
-pub fn release_base_url(env: &dyn EnvSource) -> String {
+/// The newest installable tag in a GitHub releases listing, or an empty tag
+/// when the listing holds none.
+///
+/// Pure over the response body, so the choice this command makes is decidable
+/// without a network. A v2 tag, a draft, and a body that is not a listing are
+/// all "nothing to install", and a listing whose newest entry is `v0.5.0` with
+/// `v3.0.0-rc.1` beneath it resolves to the rc — which is exactly what a
+/// newest-of-any-series rule gets wrong.
+pub fn newest_installable_tag(releases: &serde_json::Value) -> String {
+    releases
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|entry| entry.get("draft").and_then(serde_json::Value::as_bool) != Some(true))
+        .find_map(|entry| {
+            let tag = entry
+                .get("tag_name")
+                .and_then(serde_json::Value::as_str)?
+                .trim();
+            tag.starts_with(INSTALLABLE_TAG_PREFIX)
+                .then(|| tag.to_string())
+        })
+        .unwrap_or_default()
+}
+
+/// The directory one tag's assets are downloaded from, which is the mirror when
+/// one is configured and the resolved tag's own directory when it is not.
+///
+/// A tag, never `latest`: `releases/latest/download` resolves to whatever
+/// series published last, so the bytes a verified download fetched and the tag
+/// this command records in its journal would be two different releases.
+pub fn release_base_url(env: &dyn EnvSource, tag: &str) -> String {
     env.get(RELEASE_BASE_URL_ENV)
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| DEFAULT_RELEASE_BASE_URL.to_string())
+        .unwrap_or_else(|| format!("{RELEASE_DOWNLOAD_ORIGIN}/{tag}"))
 }
 
-/// Ask the origin which release is newest.
-pub async fn fetch_latest_release_tag(
-    env: &dyn EnvSource,
-    arch: &str,
-) -> Result<ReleaseListing, CommandFailure> {
+/// Ask GitHub which installable release is newest.
+///
+/// No environment: the listing is GitHub's, and the one origin an operator may
+/// substitute is the one the ASSETS come from, which [`release_base_url`]
+/// resolves. A mirror that also republished the listing would be a second
+/// release index to keep in step with the first, for no origin this command
+/// cannot already be pointed at.
+pub async fn fetch_latest_release_tag(arch: &str) -> Result<ReleaseListing, CommandFailure> {
     let client = reqwest::Client::builder()
         .timeout(LISTING_DEADLINE)
         .build()
         .map_err(|error| CommandFailure::generic(error.to_string()))?;
     let response = client
-        .get(format!(
-            "https://api.github.com/repos/{RELEASE_REPOSITORY}/releases/latest"
-        ))
+        .get(RELEASE_API_URL)
         .header("accept", "application/vnd.github+json")
         .send()
         .await;
@@ -134,12 +189,7 @@ pub async fn fetch_latest_release_tag(
     let Ok(value) = response.json::<serde_json::Value>().await else {
         return Ok(ReleaseListing::none());
     };
-    let tag = value
-        .get("tag_name")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default()
-        .trim()
-        .to_string();
+    let tag = newest_installable_tag(&value);
     if tag.is_empty() {
         return Ok(ReleaseListing::none());
     }
@@ -149,18 +199,25 @@ pub async fn fetch_latest_release_tag(
     })
 }
 
-/// Download one release asset and prove it against the digest the release
-/// published, staging it beside the executable it will replace.
+/// Download one release asset from one tag's directory and prove it against the
+/// digest the release published, staging it beside the executable it replaces.
+///
+/// The tag is an argument, not something re-derived from the origin, because
+/// the digest proves the BYTES and nothing about which release published them:
+/// a `…/latest/download` URL fetches whatever series published last and passes
+/// that sidecar's own check, which is how a v3 binary ends up replaced by a v2
+/// one with every verification green.
 ///
 /// The staging path is removed on every failure path, including a digest
 /// mismatch, so a rejected candidate never survives the attempt. A candidate
 /// left behind is a file a later confused step could pick up.
 pub async fn download_and_verify(
     env: &dyn EnvSource,
+    tag: &str,
     asset: &str,
     executable: &Path,
 ) -> Result<VerifiedCandidate, CandidateError> {
-    let base = release_base_url(env);
+    let base = release_base_url(env, tag);
     let url = format!("{}/{asset}", base.trim_end_matches('/'));
     let client = reqwest::Client::builder()
         .timeout(ASSET_DEADLINE)
@@ -229,14 +286,14 @@ async fn fetch_published_digest(
             status: response.status().as_u16(),
         });
     }
-    let text = response.text().await.map_err(|error| {
-        CandidateError::ChecksumUnreachableCause {
+    let text = response
+        .text()
+        .await
+        .map_err(|error| CandidateError::ChecksumUnreachableCause {
             asset: asset.clone(),
             cause: error.to_string(),
-        }
-    })?;
-    candidate::parse_published_digest(&text)
-        .ok_or(CandidateError::ChecksumMalformed { asset })
+        })?;
+    candidate::parse_published_digest(&text).ok_or(CandidateError::ChecksumMalformed { asset })
 }
 
 /// Stream a body to an open file, hashing as it goes so a release binary is
@@ -251,14 +308,12 @@ async fn stream_to_file(
     use std::io::Write;
 
     let asset = asset.to_string();
-    let mut response = client
-        .get(url.to_string())
-        .send()
-        .await
-        .map_err(|error| CandidateError::DownloadFailed {
+    let mut response = client.get(url.to_string()).send().await.map_err(|error| {
+        CandidateError::DownloadFailed {
             asset: asset.clone(),
             cause: error.to_string(),
-        })?;
+        }
+    })?;
     if !response.status().is_success() {
         return Err(CandidateError::DownloadUnreachable {
             asset,
@@ -266,17 +321,21 @@ async fn stream_to_file(
         });
     }
     let mut hasher = sha2::Sha256::new();
-    while let Some(chunk) = response.chunk().await.map_err(|error| {
-        CandidateError::DownloadFailed {
-            asset: asset.clone(),
-            cause: error.to_string(),
-        }
-    })? {
+    while let Some(chunk) =
+        response
+            .chunk()
+            .await
+            .map_err(|error| CandidateError::DownloadFailed {
+                asset: asset.clone(),
+                cause: error.to_string(),
+            })?
+    {
         hasher.update(&chunk);
-        file.write_all(&chunk).map_err(|error| CandidateError::Unwritable {
-            path: PathBuf::from(url),
-            cause: error.to_string(),
-        })?;
+        file.write_all(&chunk)
+            .map_err(|error| CandidateError::Unwritable {
+                path: PathBuf::from(url),
+                cause: error.to_string(),
+            })?;
     }
     file.flush().map_err(|error| CandidateError::Unwritable {
         path: PathBuf::from(url),

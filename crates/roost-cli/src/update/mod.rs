@@ -68,7 +68,7 @@ pub async fn run(_args: &UpdateArgs) -> Result<ExitCode, CommandFailure> {
     let service_dir = self_update_service_dir(&env, platform)?;
     resolve_recovery_first(&service_dir)?;
     let identity = roost_host::build_identity(&env);
-    let listing = release::fetch_latest_release_tag(&env, host_arch(platform)).await?;
+    let listing = release::fetch_latest_release_tag(host_arch(platform)).await?;
     if listing.tag.is_empty() {
         println!(">> {NO_PUBLISHED_RELEASE}");
         return Ok(ExitCode::SUCCESS);
@@ -88,7 +88,7 @@ pub async fn run(_args: &UpdateArgs) -> Result<ExitCode, CommandFailure> {
         asset,
         "roost update resolving the latest release",
     );
-    let verified = release::download_and_verify(&env, asset, &executable)
+    let verified = release::download_and_verify(&env, &listing.tag, asset, &executable)
         .await
         .map_err(refusal)?;
     let installed = read_installed(&executable).map_err(refusal)?;

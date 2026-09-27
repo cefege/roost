@@ -19,10 +19,14 @@
 use roost_cli::status::update_state::{WorkerUpdateState, worker_update_label};
 use roost_cli::update::candidate::parse_published_digest;
 use roost_cli::update::release::{
-    DEFAULT_RELEASE_BASE_URL, RELEASE_BASE_URL_ENV, release_asset_name, release_base_url,
+    RELEASE_API_URL, RELEASE_BASE_URL_ENV, RELEASE_DOWNLOAD_ORIGIN, RELEASE_REPOSITORY,
+    newest_installable_tag, release_asset_name, release_base_url,
 };
-use roost_cli::update::{ALREADY_LATEST, NO_PUBLISHED_RELEASE, canonical_release_version, needs_update};
+use roost_cli::update::{
+    ALREADY_LATEST, NO_PUBLISHED_RELEASE, canonical_release_version, needs_update,
+};
 use roost_host::{HostPlatform, MapEnv};
+use serde_json::json;
 
 /// Every published asset name, one per platform this product ships. A name
 /// present in one row and absent from another is a 404 on one platform only,
@@ -115,19 +119,71 @@ fn something_that_is_not_a_release_version_is_refused_rather_than_compared() {
 fn a_configured_mirror_replaces_the_github_origin() {
     let mirrored = MapEnv::new().with(RELEASE_BASE_URL_ENV, "https://mirror.internal/roost");
     assert_eq!(
-        release_base_url(&mirrored),
-        "https://mirror.internal/roost"
+        release_base_url(&mirrored, "v3.0.0"),
+        "https://mirror.internal/roost",
+        "a mirror is the operator's choice of origin and outranks the tag's own directory"
     );
     assert_eq!(
-        release_base_url(&MapEnv::new()),
-        DEFAULT_RELEASE_BASE_URL,
-        "with no mirror configured the GitHub origin is used"
+        release_base_url(&MapEnv::new(), "v3.0.0"),
+        format!("{RELEASE_DOWNLOAD_ORIGIN}/v3.0.0"),
+        "with no mirror the RESOLVED TAG's directory is used, never `latest`"
     );
     assert_eq!(
-        release_base_url(&MapEnv::new().with(RELEASE_BASE_URL_ENV, "   ")),
-        DEFAULT_RELEASE_BASE_URL,
+        release_base_url(&MapEnv::new().with(RELEASE_BASE_URL_ENV, "   "), "v3.0.0"),
+        format!("{RELEASE_DOWNLOAD_ORIGIN}/v3.0.0"),
         "an empty mirror variable is no mirror, not the empty origin"
     );
+}
+
+/// The self-updater must never install another series. This repository's
+/// newest release today is a TypeScript `roost`, and a digest-verified download
+/// of it would pass every check this module makes and replace a Rust binary
+/// with a Bun one that answers none of this contract's commands.
+#[test]
+fn only_a_v3_tag_is_installable() {
+    let listing = json!([
+        {"tag_name": "v0.5.0", "draft": false},
+        {"tag_name": "v3.0.0-rc.1", "draft": false},
+        {"tag_name": "v3.0.0-rc.0", "draft": false},
+    ]);
+    assert_eq!(
+        newest_installable_tag(&listing),
+        "v3.0.0-rc.1",
+        "a v2 tag above a v3 rc must not win: the rc is the newest INSTALLABLE release, and \
+         pre-releases count because the fleet runs them until v3.0.0"
+    );
+    assert_eq!(
+        newest_installable_tag(&json!([{"tag_name": "v0.5.0"}, {"tag_name": "v0.4.0"}])),
+        "",
+        "a listing with no v3 tag names nothing, which is the `no published release` answer \
+         rather than a v2 download: {NO_PUBLISHED_RELEASE}"
+    );
+    assert_eq!(
+        newest_installable_tag(&json!([
+            {"tag_name": "v3.0.0-rc.2", "draft": true},
+            {"tag_name": "v3.0.0-rc.1", "draft": false},
+        ])),
+        "v3.0.0-rc.1",
+        "a draft has no assets anybody can fetch, so the next published tag is the answer"
+    );
+    assert_eq!(
+        newest_installable_tag(&json!({"message": "Not Found"})),
+        "",
+        "a body that is not a listing names nothing"
+    );
+}
+
+/// The listing and the download are two literals, so the repository they name
+/// is asserted rather than assumed: a listing from one repository and assets
+/// from another is a digest check against somebody else's sidecar.
+#[test]
+fn the_listing_and_the_download_name_the_same_repository() {
+    for origin in [RELEASE_API_URL, RELEASE_DOWNLOAD_ORIGIN] {
+        assert!(
+            origin.contains(RELEASE_REPOSITORY),
+            "{origin} must name {RELEASE_REPOSITORY}"
+        );
+    }
 }
 
 /// A sidecar is read in every shape a release pipeline or a mirror writes it,
