@@ -281,6 +281,46 @@ failing open.
 `roost-keeper` on the same branch: `cargo test -p roost-keeper --no-fail-fast`,
 **two agreeing runs, 23 binaries, 0 failed.**
 
+
+### Two process rules, and both were bought the same way
+
+**A verbal handoff has no receipt.** A slice's third file went uncommitted for
+two hours because the author messaged the lead "the dirty file is yours to
+stage", reported to the integrator "WorkerLead2 is staging it", and then treated
+it as done. Two accurate reports; between them they created a belief, in both
+people, that a handover had happened. **No `git status` catches a file both
+parties have agreed is someone else's problem.**
+
+The narrow rule that would have caught it: **when you hand a file to another
+agent, name it in a message to the integrator as well, and say explicitly whether
+it is committed.** Not "X has it" — "X has it, it is NOT yet committed, and I
+have re-pushed a snapshot containing it". The author also had a snapshot and a
+message; what was missing was one line saying which of their files the snapshot
+did and did not contain.
+
+**And the complementary half, which is the one that generalises: read
+`git status` yourself and do not trust a list.** The author named two files
+because that is what they believed they had authored. A person listing their own
+work lists what they are thinking about. The rule that actually caught it was
+the integrator running `git status` and comparing, because **that check does not
+depend on the sibling having kept accurate track.** Both halves are needed: the
+list is a question to ask, never a source to trust.
+
+**A green test does not check where its subject is called from.** An enrollment
+call placed *after* the link dial satisfies every test in its own binary, because
+the tests exercise the function rather than its position in the boot — and being
+after the dial is the defect the slice existed to fix. The same shape as a
+`#[repr]`-less enum whose `name()` indexes an array (reorders silently, every log
+line stays plausible) and as a doc comment naming an implementation that does not
+exist (compiles, reads as settled, implements nothing).
+
+**All three are the same class: something that typechecks and reads plausibly
+while being wrong.** The defences are structural, not vigilance — a test that
+pins the coupling, a commit body that states where each call sits in the order, a
+comment that says what a type actually is. **So: when a reviewer is about to
+accept "it compiles", the question is what position the code is in, not whether
+it builds.** Read the order before the green.
+
 ### Keeper client: the plan's premise was stale
 
 The plan recorded three open keeper-client defects on `v3-worker`
