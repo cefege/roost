@@ -4396,7 +4396,7 @@ dependencies = [
  "ed25519-dalek",
  "futures-util",
  "hex",
- "reqwest",
+ "reqwest 0.13.5",
  "roost-host",
  "roost-observability",
  "roost-platform",
@@ -4514,6 +4514,7 @@ dependencies = [
 name = "roost-web-terminal"
 version = "3.0.0"
 dependencies = [
+ "js-sys",
  "roost-client-core",
  "roost-protocol",
  "thiserror 2.0.21",
