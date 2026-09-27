@@ -564,48 +564,64 @@ apart at exactly the rate the tree moves.
 A gate that cannot run the suite at all has proved nothing. Say so rather
 than reporting a partial pass as a green one.
 
-### What Phase 6.4 actually costs: 102 guards, classified
+### What Phase 6.4 costs: run the classifier, do not read a table
 
-Step 6.4 re-points every `**Guard**` naming a path the TS deletion removes, and no
-entry may end up with a guard pointing at nothing. Counted per ENTRY — parsing each
-`###` block, taking the text from `**Guard**` to the next heading. Counting LINES
-instead gives 155 against 102 entries, which is impossible: a line count also matches
-`**Wrong**`/`**Right**` prose and double-counts the 10 entries naming two paths.
+**There is deliberately no count in this section.** It was hand-maintained and corrected
+three times — 155 lines, then 70 and 8, then 67 and 12 — because every correction was a
+stale number and each cost a turn. **6.4 runs the classifier below against its own tree;
+a table written today describes a tree that will not exist on 6.4.** What survives is the
+part that does not go stale:
 
-These five buckets are a verified partition — they sum to 102, every entry in exactly one:
+- **The `L11` / `lint-roost.ts` guards go dead with the TS job.** 6.4 deletes the script
+  *and* the TS invariants CI job, so every guard citing one loses its enforcement. These
+  need re-expressing in `xtask lint` — a different kind of change from a test, and the
+  only bucket here that is not mechanical.
+- **Two entries have no guard at all**, which the index's own rule forbids: `A defaulted
+  injectable host function loses its receiver` and `Roost never owns the agent session`.
+  The first explains why — "Bun unit tests pass either way; only the live/Playwright
+  browser pass exercises the receiver" — which is a real reason and not an excuse, but a
+  reason is not a guard. **Neither is findable by a grep over the tree, so 6.4 would pass
+  them by default.** They need a test written, not a path edited.
+- **`smoke/` guards are safe.** The plan kept smoke TypeScript as the oracle rather than
+  porting it, so those guards keep working untouched. This is the one place the TS
+  deletion is a benefit, and it is worth remembering as one.
+- **Per-entry counting is required and a line count is not a substitute.** Counting lines
+  across the file also matches `**Wrong**`/`**Right**` prose and double-counts entries
+  naming two paths. Both happened; the second produced a bucket summing to 105 against 102
+  entries.
 
-|bucket|entries|what 6.4 does|
-|---|---:|---|
-|name a deleted TS path and still need re-pointing|**67**|re-point to a Rust test; write the test where none exists|
-|cite `scripts/lint-roost.ts` or an `L11` rule, and nothing else deleted|**11**|re-express in `xtask lint`, or delete the rule|
-|name `smoke/`|**17**|**nothing** — smoke stays TypeScript, it is the oracle|
-|already name a Rust test|**5**|nothing|
-|**no guard at all**|**2**|**write one**|
+```bash
+python3 - <<'PYEOF'
+import re
+txt = open('docs/FAILURE-INDEX.md').read()
+blocks = re.split(r'^### ', txt, flags=re.M)[1:]
+DELETED = ['apps/roost-cli/', 'apps/worker/', 'apps/coord/', 'apps/web/', 'packages/']
+b = {k: [] for k in ('repoint', 'lint', 'smoke', 'rust', 'noguard')}
+for blk in blocks:
+    head = blk.split('\n', 1)[0].strip()
+    m = re.search(r'\*\*Guard\*\*\s*(.*?)(?=\n#{2,3} |\Z)', blk, re.S)
+    g = ' '.join(m.group(1).split()) if m else ''
+    cites_lint = ('lint-roost' in g) or ('L11' in g)
+    hits = [p for p in DELETED if re.search(re.escape(p) + r'[A-Za-z0-9_./-]*', g)]
+    # a packages/ mention beside a Rust test AND a "was" marker is HISTORY, not a live ref
+    hist = ('packages/' in hits and re.search(r'\(?\bwas\b', g)
+            and re.search(r'crates/[a-z-]+/tests/[A-Za-z0-9_./-]+', g))
+    if hits and not hist:            b['repoint'].append(head)
+    elif cites_lint:                 b['lint'].append(head)
+    elif 'smoke/' in g:              b['smoke'].append(head)
+    elif re.search(r'crates/[a-z-]+/tests/', g): b['rust'].append(head)
+    else:                            b['noguard'].append(head)
+total = sum(len(v) for v in b.values())
+for k, v in b.items():
+    print(f'{k:<9} {len(v):>4}')
+print(f'{"PARTITION":<9} {total:>4} of {len(blocks)} entries')
+assert total == len(blocks), 'BUCKETS DO NOT PARTITION THE INDEX'
+print(f'touched by 6.4: {len(b["repoint"]) + len(b["lint"]) + len(b["noguard"])}')
+PYEOF
+```
 
-Per deleted path, among the 67 needing re-pointing: `apps/web/src` 34,
-`apps/coord` 18, `apps/worker` 16, `apps/roost-cli` 7, `packages/` 6 — and **10 name
-more than one**, so those do not sum to 67 either. One more entry cites a lint
-rule *and* names a deleted path, so the lint total is 12 against these 11.
-
-**So Phase 6.4 touches 80 entries, and only 67 are mechanical
-re-points.** The 11 lint entries are a different kind of change — a rule, not
-a test — and the 17 smoke guards stay safe precisely because the plan kept smoke as
-the oracle rather than porting it.
-
-**Two corrections, both understating the work.** The lint count is **12, not 8** — four
-guards say only `L11` and never name the script, so a literal `scripts/lint-roost.ts`
-grep misses them; and because 6.4 deletes the script *and* the TS invariants job, all
-twelve go dead. And **3 of an earlier 70 were inflated**: they already name a Rust test
-and mention `packages/…` only inside a `(was …)` note, so they are historical rather
-than live references. The fourth guard naming `packages/` is a genuine live reference —
-`apps/web/tests/browser/diag.test.ts`, with no Rust equivalent.
-
-**AND TWO ENTRIES HAVE NO GUARD AT ALL, which the index's own rule forbids.**
-`A defaulted injectable host function loses its receiver` and `Roost never owns the agent
-session`. The first explains why — "Bun unit tests pass either way; only the live/Playwright
-browser pass exercises the receiver" — which is a real reason and not an excuse, but a
-reason is not a guard. Both name live properties, and **neither is findable by a grep over
-the tree**, so 6.4 would pass them by default. They need a test written, not a path edited.
+The `assert` is the part that matters. It is the check both hand-written versions
+lacked, and it is what caught them.
 
 ### The import check RECOMPUTES its expected counts, and restates the filter
 

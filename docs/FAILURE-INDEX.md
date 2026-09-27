@@ -2606,13 +2606,22 @@ subject is a **path** asks whether anything walks it. Those are different questi
 only the second survives a green run. `green` and `correct` are different properties and
 the exit code only shows you one of them.
 
-**Guard** — `crates/roost-coord/tests/event_publication.rs`:
-`a_deferred_reap_waits_for_the_callers_readiness_barrier`. **Red by design at
-`c02cb9dc`**, and it stays red until the worker link appends with the flag set and
-drains the returned ids — the failure message carries that green condition verbatim, so
-the test is a specification rather than a failure. Do not soften it into a passing
-assertion, and do not "fix" it by editing what it asks: a softened guard is this
-defect with a green suite on top. The two tests beside it assert the returned ids come
-back correctly, which is the value question, and passing them is not evidence about
-this one.
+**Guard** — `crates/roost-coord/tests/event_publication.rs`,
+`a_deferred_reap_waits_for_the_callers_readiness_barrier`, **at `c02cb9dc` on
+`v3-coord`. It is not on `v3` until the 2C-GATE merge.**
+
+**Read that twice, because it is this entry's own trap.** A test of the *same name*
+already exists on `v3` at `event_publication.rs:288`, and its body is the value-only
+version — the camouflage this entry is about. **So following this Guard on `v3` today
+lands on a green test that does not check the path: the name matches and the body does
+not.** That is why the commit is cited rather than the file. A file and a test name are
+not a citation; a commit is.
+
+At `c02cb9dc` the test is **red by design**, asking only whether anything sets
+`defer_snapshot_reap: true`, and it stays red until the worker link appends with the
+flag set and drains the returned ids — the failure message carries that green condition
+verbatim, so the test is a specification rather than a failure. Do not soften it into a
+passing assertion, and do not "fix" it by editing what it asks: a softened guard is this
+defect with a green suite on top. The two value tests beside it assert the returned ids
+come back correctly, and passing them is not evidence about this one.
 
