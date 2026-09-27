@@ -577,6 +577,74 @@ wrapper can tell "refused, and do not retry" from "failed, try again" without
 knowing which of the three it is talking to.
 ---
 
+## `roost self-link`
+
+```
+roost self-link
+```
+
+**This entry is a first specification, not a port record.** `roost self-link`
+appears in no v2 source and in no earlier revision of this document; the
+programme plan named it and it had to be designed. Everything below is
+specified here so that the behaviour has an authority that is not the
+implementation, and so the Phase 7 cutover can rely on it. Where v2 has
+nothing to say, that is recorded rather than papered over.
+
+Makes `~/.local/bin/roost` point at the installed release's `roost`. The
+cutover runs it on a machine whose link may be absent, stale, or still pointing
+at v2, unattended — so the failure modes below are part of the contract rather
+than implementation detail.
+
+**Arguments: none.** The link target is resolved, never configured, so a flag
+here would be an argument this command does not have.
+
+**Output.** The outcome on stdout as one word the operator reads — `created`,
+`repaired`, or `unchanged` — plus, on stderr, a line naming the target the link
+now points at. If `~/.local/bin` is not on this account's `PATH` it says so and
+names the directory, because a correct link that nothing can find is not a
+working install. Exit 0 on all three outcomes.
+
+**The target is resolved, never configured.** It is the `roost` inside the
+release directory the **installed service definition** names, and only when
+nothing is installed does it fall back to this build's own default program
+path. The installed definition is the authority because an operator who moved
+the versions directory did it by editing the unit, and the unit is the only
+thing that survives.
+
+**What "still pointing at v2" means, and how the command tells.** The target is
+compared for **equality against a resolved path**. A v3 release directory and a
+v2 one are different directories, so inequality is the fact. It explicitly does
+**not** match on a `~/.roost` path prefix: that is a guess about a layout this
+command does not own. **The old target is printed by name to stderr before
+> repointing**, so a v2 link is visible in the transcript rather than silently
+replaced.
+
+**Exit codes.**
+
+| Situation | Code | What it does |
+|---|---|---|
+| created / repaired / unchanged | 0 | link is or now points at the resolved target |
+| the resolved target does not exist | 1 | **no link is created**; names the absolute path it looked for, states the release is not installed, and names `roost quickstart` as the remedy |
+| `~/.local/bin/roost` is a regular file | 1 | **refuses**; names the path and says exactly `rm ~/.local/bin/roost` and re-run |
+| `~/.local/bin/roost` is a directory | 1 | **refuses**, named. Never `remove_dir_all` on a path under `~/.local/bin` |
+| broken symlink | 0 | **repairs** — it carries no content, so replacing it destroys nothing |
+| symlink to anything else, v2 included | 0 | **repairs**, after printing the old target to stderr |
+
+**No link is created when the target is missing, deliberately.** A dangling
+`roost` on `PATH` is worse than none: it makes `roost` fail confusingly for
+every later command rather than fail once, clearly, at the point of
+installation.
+
+**A real file is refused rather than clobbered.** It may be the operator's own
+script, and they are one `rm` from repairing it.
+
+**The replace is symlink-to-a-temp-name plus `rename`**, so a cutover
+interrupted between the two leaves the old link intact rather than a
+half-written one. The command is **idempotent**: a second run reports
+`unchanged` and rewrites nothing.
+
+---
+
 ## Not in the tree yet
 
 These are part of the Phase 6 command list and are **not implemented in this
