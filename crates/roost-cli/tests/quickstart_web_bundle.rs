@@ -48,12 +48,18 @@ fn a_dry_run_names_the_bundle_in_both_definitions_and_copies_nothing() {
         "the bundle is the release's own directory, beside bin/: {}",
         web_dir.display()
     );
-    assert!(
-        web_dir
-            .parent()
-            .is_some_and(|root| root.join("bin").is_dir()),
-        "and the release's bin/ is its sibling: {}",
-        web_dir.display()
+    let release_dir = resolved
+        .coordinator
+        .spec
+        .program
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("the plan's program sits two levels under a release directory");
+    assert_eq!(
+        web_dir.parent(),
+        Some(release_dir),
+        "the bundle is the release's own directory, a sibling of the bin/ its executables went \
+         into — which is what makes retiring the release retire the page with it"
     );
 
     for service in [&resolved.coordinator, &resolved.worker] {
