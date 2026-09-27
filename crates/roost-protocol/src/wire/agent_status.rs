@@ -285,8 +285,7 @@ pub fn is_identified_agent_status(status: &AgentStatusFields) -> bool {
 pub mod order;
 
 pub use order::{
-    MAX_RETIRED_EPOCHS, AgentStatusOrder, same_agent_identity_occupant,
-    same_agent_status_occupant,
+    AgentStatusOrder, MAX_RETIRED_EPOCHS, same_agent_identity_occupant, same_agent_status_occupant,
 };
 
 #[cfg(test)]
