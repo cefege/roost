@@ -51,9 +51,15 @@ fn identity() -> SessionIdentity {
 /// A record whose core has already produced enough output to have scrolled, so
 /// its grid holds real history rather than a viewport and nothing else.
 fn record() -> SessionRecord {
+    record_holding(LINES)
+}
+
+/// The same record over a grid of `lines` rows, for a test whose property needs
+/// a page of a particular SIZE rather than merely a page.
+fn record_holding(lines: usize) -> SessionRecord {
     let mut core = AlacrittyCore::new(24, ROWS);
     let mut output = String::new();
-    for index in 0..LINES {
+    for index in 0..lines {
         output.push_str(&format!("line{index}\r\n"));
     }
     core.write(output.as_bytes());
@@ -180,13 +186,19 @@ fn a_full_page_takes_more_than_one_slice() {
     );
 }
 
-/// A read that loses its authority BETWEEN SLICES must not be presentable as a
-/// page. The walk stops at a slice boundary, so a partial result is always a
-/// whole number of slices — which is what makes "abandon or resume" a decision a
-/// caller can actually take rather than a hole nobody can see.
 #[tokio::test]
 async fn a_read_stopped_between_slices_leaves_no_half_taken_page() {
-    let (table, _held) = table();
+    // A GRID BIG ENOUGH FOR THE PREMISE. The property is that authority lost
+    // between slices leaves no half-taken page, and `walk_page` consults
+    // `continue_read` once per SLICE — so a page that fits in one slice never
+    // asks twice, and this test could only ever assert the opposite of what its
+    // name says. The default fixture holds six rows, which is one slice; this
+    // one holds two full slices plus a part, so the walk takes two, is refused
+    // the third, and stops on a boundary.
+    let table = Arc::new(SessionTable::default());
+    let _held = table
+        .insert(record_holding(SCROLLBACK_SLICE_ROWS as usize * 2 + 10))
+        .expect("the table admits a session");
     let grid = SessionGrid::new(table);
     let described = grid
         .describe(session(SESSION))
