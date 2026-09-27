@@ -860,18 +860,13 @@ is worse than an error, because nothing prompts anyone to look again.
 export PATH="$HOME/.cargo/bin:$PATH"
 BIN=/home/almalinux/repos/roost-v3/target-gate/debug/xtask
 
-# CANARY: a throwaway root with exactly one orphan, so the expected figure can
-# never go stale. A live tree's count FALLS as the work succeeds, and a canary
-# pinned to a number starts failing on a healthy tree.
+# CANARY: a FROZEN fixture that contains exactly one orphan by construction.
+# Measured, not assumed: it prints "checked 23 inputs" and exactly 1 violation.
 canary() {
-  R=$(mktemp -d); mkdir -p "$R/crates/probe/src"
-  : > "$R/crates/probe/src/lib.rs"
-  : > "$R/crates/probe/src/orphan.rs"          # named by nothing
-  : > "$R/crates/probe/Cargo.toml"
-  OUT=$(ROOST_REPO_ROOT="$R" "$BIN" lint 2>&1)
-  N=$(printf '%s' "$OUT" | grep -c 'not reached\|not reachable')
-  rm -rf "$R"
-  [ "$N" = 1 ] && echo "canary OK" || { echo "CANARY FAILED (got $N) — every number below is fiction"; exit 1; }
+  OUT=$(ROOST_REPO_ROOT=/home/almalinux/repos/roost-v3/xtask/fixtures/unreached-canary "$BIN" lint 2>&1)
+  printf '%s' "$OUT" | grep -q '^xtask: checked' || { echo "CANARY: the tool failed"; return 1; }
+  N=$(printf '%s' "$OUT" | grep -c 'not reachable from any crate root')
+  [ "$N" = 1 ] && echo "canary OK — the instrument can see" || { echo "CANARY FAILED (got $N) — every number below is fiction"; return 1; }
 }
 
 sweep() {
@@ -883,11 +878,17 @@ sweep() {
     "$(printf '%s' "$OUT" | grep -c 'not reachable from any crate root')" \
     "$(printf '%s' "$OUT" | grep '^xtask: checked')"
 }
-canary
+canary || exit 1
 for w in roost-v3 roost-v3-coord roost-v3-worker roost-v3-web roost-v3-cli roost-v3-cli2; do
   sweep "/home/almalinux/repos/$w" "$w"
 done
 ```
+
+**The fixture is three files and it is in the tree, not generated.** `lib.rs`
+names one module and leaves `orphan.rs` unmentioned; the other rules stay quiet on
+a bare crate, so the count is unambiguous. **Run it once when you change the
+rule, and again when a sweep looks wrong** — an unexercised canary is the same
+defect as an unexercised guard.
 
 **THE FLAW THIS REPLACES, and it is the same shape as everything else in this
 file.** The first version of the canary was *"v3-web must print 8"*, taken when
