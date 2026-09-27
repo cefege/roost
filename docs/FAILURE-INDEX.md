@@ -1549,6 +1549,42 @@ throw retires the peer.
 **Guard** — `smoke/terminal/` — `"browser smoke flow creates and cleans its resources"` (drives pane close end
 to end).
 
+### A `u32::MAX` pid is `kill(-1)`, and one test call SIGINTs the whole user session
+
+**Symptom** — "every omp session died at once / all the agent sessions vanished and nothing crashed", with
+`"Session exit recorded" … "reason":"sigint","kind":"signal"` in every track's log in the same second, and the
+journal showing `systemd[...user manager]: Received SIGINT from PID N (kill)` immediately followed by
+`Activating special unit Exit the Session`.
+
+**Wrong** — reach for "a pid that cannot exist" in a test or a shutdown path by passing a sentinel like `u32::MAX`
+into a `u32` pid API, assuming a pid that names no process also cannot name a group. It can: `kill` parses its
+operand into a **signed** `pid_t`, so `4294967295` wraps to `-1` (every process the user may signal) and `0` is the
+caller's own process group. The unit test in `crates/roost-cli/src/dev/signal.rs` sent exactly that, so every
+`cargo test -p roost-cli` SIGINTed the systemd user manager, the Roost worker hosting the terminals, and every
+agent session the user owned. Measured on this host: four such shutdowns at 02:25:15, 03:08:02, 08:31:30 and
+09:35:13 on 2026-09-27, each 100–233 s after a `cargo test -p roost-cli` — the time to reach the lib unit tests.
+Reproduced inside `unshare -Urpf --mount-proc` with a SIGINT-default sentinel: the old test killed the sentinel
+AND still FAILED, because `kill(-1)` succeeds, so `send` reported `Ok(())` instead of `Refused`. The test binary
+usually outlives its own `kill(-1)`, which is why this presented as an intermittent session wipe rather than an
+obvious test failure — and why a green-looking run on an unpatched tree proves nothing.
+
+**Right** — refuse at the boundary, before anything is spawned: `dev::signal::send` returns
+`SignalError::NotASingleProcess { pid }` when `pid == 0 || i32::try_from(pid).is_err()`
+(`crates/roost-cli/src/dev/signal.rs`). Mind where the signed parse actually happens: this module shells out to
+the `kill` PROGRAM because the crate forbids `unsafe` and `Child::kill` is SIGKILL-only, so the wrap lives in
+another binary and only a guard at the call site can prevent it. The one production caller needed no change —
+`supervisor.rs`'s `signal_the_live` already had a catch-all `Err(failure)` arm, and its pids are all `Child::id()`.
+
+**Guard** — `crates/roost-cli/src/dev/signal.rs` unit tests:
+`a_pid_kill_would_read_as_a_group_or_as_everyone_is_refused_before_anything_is_sent` (0, `u32::MAX` and
+`1 << 31` never reach the program) and `a_pid_that_no_longer_exists_is_refused_rather_than_reported_as_sent`
+(Linux-only; uses `pid_max` from `/proc`, which Linux never allocates — macOS has no `/proc` and would need a
+different nonexistent pid). The TS side already encoded the same invariant independently at
+`apps/worker/src/keeper/keeper-process-reap.ts`: its deliberate `process.kill(-leader, "SIGTERM")` group signal is
+guarded by `if (leader > 1)`, which structurally excludes `-1`. The other `kill` shell-outs are safe for a reason
+worth stating so nobody "fixes" them: `status/service_probe.rs` signals `child.id()` of a probe it spawned, and
+`crates/roost-cli/tests/dev_fan_out.rs` signals `std::process::id()`.
+
 ### A worker throttled by its own cgroup looks healthy
 
 **Symptom** — "a worker shows offline/down in the SPA while `systemctl --user status roost-worker` says active (running) and the host has GBs free / worker log silent for minutes then `link_stale_no_downstream` + `listChannels timed out` + `heartbeat beat failed [unavailable] HTTP 502` / coord `worker-ws close`→`open` gap of ~361s"
