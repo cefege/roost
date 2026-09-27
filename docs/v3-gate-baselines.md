@@ -509,6 +509,32 @@ apart at exactly the rate the tree moves.
   of the error is the lesson: **a trigger is a claim about what a gate
   exercises, so it has to be read off the specs the gate runs** and not off
   which wave happens to be finishing.
+
+### A green check on a file nothing includes is not a check
+
+A draft put a struct field inside an `impl` block. Rust reports that as an
+error, **but only if it looks at the file** — and it did not, because the
+module had not been registered in `mod.rs`. So a `cargo check` run against the
+tree came back **clean** while the file being written could not possibly
+compile. The lead deleted the file rather than push it, and the finding is
+recorded because the shape recurs: **a check that returns zero because the
+compiler was never pointed at the thing you changed is not evidence about
+anything.**
+
+The rule: **register the module in the same edit that writes it.** If a file has
+to be written in stages, the stage boundary is where the `mod` line goes — not at
+the end, and not in a follow-up. A sibling crate in this programme has the same
+exposure in a different form: a test binary that compiles a shared fixture
+without declaring its allow *at its root* was invisible to clippy for the same
+reason, and the lint only saw it once the binary was on the list.
+
+**The general form, and it is the fourth instance today:** an instrument that
+cannot see the thing reports success. A sweep that counts only its surplus
+removals reports zero for a sweep that emptied the directory. A rate window that
+matches nothing is zero violations. A `SpawnNotAcknowledged` under load reads as
+a refused spawn. **Ask what the check could have detected before consuming what
+it returned** — that question has caught more real defects today than any
+individual test.
 - **Phase 4** is not Playwright — it is
   `crates/roost-client-core/tests/headless_client.rs`, an in-process Rust
   coord + worker that must paint a `MARKER` into a replica viewport.
