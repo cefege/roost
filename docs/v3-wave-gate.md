@@ -2748,6 +2748,62 @@ reconnecting client got a frame it could not place and the cursor never advanced
 a frame cannot leave the directory without its meta; this row is what proves the
 type-level guarantee survives the next edit.
 
+## Coordinator track — C5 (red to green), rows re-verified and re-pointed at `26782410`
+
+Every target below was re-checked against the tree as it stands by the lead who
+was holding the worktree, and **two line numbers moved** because the
+`AgentStatusOrder` import cut took a line out of `status_hub.rs`. A row naming
+a line that has moved is a row that cannot be run, and a row that cannot be run
+reads as a row that was not needed.
+
+| # | Property | Edit | Test that must fail | State |
+|---|---|---|---|---|
+| C12 | A queued frame is charged to the window, once | `sync_ws/egress.rs:162` — `self.record_sent(encoded_len, now_ms)` → `reserved` | the `sync_feed_adapters` close-frame case (`delivery_seq == 2`, not 1) | re-verified current; `reserved` is in scope at `:121` |
+| C13 | The queue path still charges on its own | delete `sync_ws/send_queue.rs:264-266` | the same close-frame case, by a second route | re-verified current |
+| C14 | The control path does **not** charge | delete `sync_ws/egress.rs:163` | none — see the state column | **PRE-REGISTERED AS NOT EXPECTED TO BITE.** `control_frames.rs:62` sets `delivery_seq = 0` deliberately and `ack_window.rs:142` documents it. Recorded so nobody later reads its silence as coverage |
+| C15 | An identified report above a legacy frame's first revision is refused | delete `agents/status_hub.rs:272` — `tables.active.remove(&session_id);` | `the_list_answers_in_session_id_order_with_derived_promptability` (`tests/agent_status_rpc.rs:191`, asserted `:224-227`) | **re-pointed 273 → 272.** The other candidate, `a_legacy_frame_yields_permanently_once_an_identified_occupant_is_accepted`, sends revision 1 and the guard needs `revision > 1`, so it passes either way and **is not a pin** |
+| C16 | The `ws://` twin reaches the served policy | delete `middleware/security.rs:104` — `connect_origins.push(websocket_twin(declared));` | the assembled-CSP assertion in `middleware_security_headers` | re-verified current. **The test builds the policy the way a coordinator builds it**; the earlier row naming a direct `build_csp` call was dead text, because no test calls it directly any more |
+| C17 | Presence is addressed to another viewer, not the author's own | `sync_ws/feed/presence.rs:59`, `:53`, `:59`, `:78` — four rows, one per property | `sync_feed_volatile` | re-verified verbatim current after the merge |
+
+**Two rows cannot be re-pointed, only re-registered, and the distinction
+matters.** `M1-MOUNTED` and `M1-PREFLIGHT` are named in commit `1a384d7c`'s body
+as NEVER RUN, but **their row text was never written into the repository** — the
+names exist and the rows do not. So there is nothing to correct; there is
+something to write. Recorded here rather than papered over, because a row that
+is present and says "this has to be written" is a promise, and a row that is
+absent is the failure mode this table exists to prevent. The seams are live and
+findable: the mount is `security_layer` at `middleware/security.rs:240`, wired
+at `http/listener.rs:209`; the preflight is `preflight_response` at
+`security.rs:232`, which calls the same `apply_security_headers` at `:235`.
+
+**A harness is written and inert**, outside the worktree at
+`/tmp/coord-mutate.sh`: backs the file up outside the tree, refuses to mutate
+if the backup does not match, verifies the restore by sha256 in an
+`EXIT`/`INT`/`TERM` trap, and reports a compile failure as INCONCLUSIVE rather
+than as a pass.
+
+**Zero of these rows has been run.** The C5 gate needs all eight — C12 through
+C17 plus the two registrations — and each must state must-fail AND
+must-still-pass. A non-compiling mutation is INCONCLUSIVE, and a row run
+against a red baseline is BIT-with-unestablished-isolation.
+
+### The clippy floor this track has not beaten, and why it is structural
+
+`cargo clippy` on stable 1.98.1 **has no `--keep-going`.** It stops at the first
+failing target, so every test target scheduled after it is never linted at all.
+That makes a clippy number a **floor by construction** — a property of the
+tool, not of the tree — and two agreeing clippy runs will agree and both be
+floors, exactly as two agreeing test runs can.
+
+The last measured pass stopped at `tasks_queue` on
+`tests/tasks_support/mod.rs:103` (`useless use of format!`) and never reached
+six shared fixture modules holding **62 `unwrap`/`expect` sites** with no
+`#![allow]` header: `auth_device_support` (10), `sync_feed_support` (9),
+`tasks_support` (13), `terminal_screen_support` (1 unwrap + 7 expect),
+`terminal_view_support` (4 in `mod.rs` + 10 in `sink.rs`), `workspaces_support`
+(8). **62 is a count of sites in modules that have not been linted, not a count
+of defects.** Whether any of them fires is unmeasured.
+
 ## Coordinator track — tasks (S2)
 
 | # | Edit | Test that must fail |
