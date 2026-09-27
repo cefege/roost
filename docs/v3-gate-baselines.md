@@ -967,6 +967,57 @@ snapshotted three times on SHA-suffixed refs before this was noticed, so no work
 was ever one `git gc` from gone. What was missing was the *current* state, and what
 the first attempt of that missed was the one new file.
 
+### `drop()` in an async fn: the compiler hears two different things
+
+**The second instance of the class above, found in the same cascade, and the one
+most likely to recur across every async lock in this codebase.**
+
+A `MutexGuard` was released with an explicit `drop()` in one branch rather than by
+scope. **`drop()` sets a drop flag, and while that flag is set the borrow checker
+still treats the guard as live across every subsequent `await`** — so the future
+came out `!Send` and took `SessionManager` with it. Scoping is the only form the
+borrow checker can prove.
+
+**The shape: an explicit `drop()` tells the compiler the value is gone, while the
+borrow checker's drop-flag analysis says it is still live. The two are answering
+different questions, and the second is the one that governs `Send`.** "Drop it
+early" is a reasonable instruction and a trap inside an `async fn`.
+
+**And the evening's pattern, now three: the surface is always an ordinary guard
+and the real constraint is one layer out.** The deferred-append drain, the
+`CoordServices` fields, and now a `MutexGuard` released by `drop()` rather than by
+scope. In all three the thing that looked like the problem was a lock or a handle,
+and the thing that was actually the problem was a lifetime, a caller, or a bound.
+
+### A green branch is not a tested branch
+
+**Found on the worker track, whose every published number was green.** `clippy
+-D warnings` = 0, `cargo check --all-targets` = 0 errors, `xtask lint` = 0 — and
+**seven assertions in three test binaries that nobody had ever executed.** They
+were red for as long as the branch existed, because the binaries were never run.
+
+The only reason it is known now is that a change made those binaries fail *more*,
+which forced the question. Measured by stashing the WIP and running the three
+binaries at the earlier commit:
+
+|binary|at `e6a1e8b0`|with the change|
+|---|---|---|
+|`session_cell_emit`|3 passed / **5 failed**|3 passed / **5 failed**|
+|`session_binding`|2 passed / **1 failed**|2 passed / **1 failed**|
+|`session_adoption`|6 passed / **1 failed**|5 passed / **2 failed**|
+
+**Seven of the eight are pre-existing and exactly one is new.** So "8 failing"
+meant "there were seven and I added one" rather than "I broke eight things" — and
+that distinction is only available because the baseline was taken. It went into the
+commit body as a before/after table, which is the right place: a regression found
+by your own baseline is a better record than one found by someone else later.
+
+**The general rule: a gate that runs a SUBSET of the tests is evidence about that
+subset.** `cargo check --all-targets` compiles every target and asserts nothing
+about any of them; a clippy figure is a figure about lints. Neither is a figure
+about assertions, and the track's other numbers being green is not a reason to
+believe any assertion has ever run.
+
 ### A construction that type-checks and cannot execute is its own defect class
 
 **Found on the worker track, and the compiler is silent about it by construction.**
