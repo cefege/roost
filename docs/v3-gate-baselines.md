@@ -564,6 +564,42 @@ apart at exactly the rate the tree moves.
 A gate that cannot run the suite at all has proved nothing. Say so rather
 than reporting a partial pass as a green one.
 
+### EXPECTED RED: `a_deferred_reap_waits_for_the_callers_readiness_barrier`
+
+**Read this before the 2C-GATE merge and before the S3.0 workspace run. One test
+is red on purpose, and it is not a regression.**
+
+| | |
+|---|---|
+|**test**|`crates/roost-coord/tests/event_publication.rs::a_deferred_reap_waits_for_the_callers_readiness_barrier`|
+|**introduced**|`c02cb9dc` on `v3-coord` — reaches `v3` at the 2C-GATE merge, not before|
+|**measured**|`cargo test -p roost-coord --test event_publication` = **5 passed / 1 failed**|
+|**green when**|the worker link appends with `defer_snapshot_reap` set **and drains the returned ids** — that is `connection.rs`, in C-B|
+
+**The test asks one question: does anything set `defer_snapshot_reap: true`?** Only
+a caller constructing `AppendOptions` to defer can write one. The declaration
+(`events/append.rs:274`), the `Debug` field (`:284`) and the read inside
+`build_result` (`:367`) are the only other mentions and none can produce a `true`.
+
+**IT MUST NOT BE "FIXED" BY EDITING WHAT IT ASKS.** A softened guard is this defect
+with a green suite on top, which is how it was found once already: the first version
+of this test grepped for a file mentioning the field without declaring it, and
+`append_transaction.rs:78` *builds* the field without declaring it — so **a producer
+satisfied a test written for a consumer, six of six green, on a capability with no
+consumer.** The replacement exists because a name has both a producer and a
+consumer and a grep cannot tell them apart.
+
+**Blast radius while it is red, so nobody escalates it as an outage.** The durable
+effective snapshot has already omitted the force-closed ids, so **no route is
+resurrected** and no browser sees a stale session. What is lost is prompt cleanup: a
+force-closed PTY on an offline worker is never killed and becomes one stale session
+row per occurrence, until the worker returns or is deleted. **A coordinator that has
+never had an offline force-close has never hit this**, which is why no green suite
+ever mentioned it.
+
+**If S3.0 reports this failure, the run is correct and the gate is not met until
+`connection.rs` lands. Do not bisect it, do not soften it, do not skip it.**
+
 ### What Phase 6.4 costs: run the classifier, do not read a table
 
 **There is deliberately no count in this section.** It was hand-maintained and corrected
