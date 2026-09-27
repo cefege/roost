@@ -1929,12 +1929,13 @@ sections above, and each says which tree it was measured on:
 - **The gate ratchets** — on `v3` @ `ee72e0f1`: `AwaitingDomainPort` 27,
   `UnwiredInV2` 16, `UNFINISHED` 3 (all three `#[ignore]` attributes, in
   `push_sender_bounds.rs:175` and `sync_v2_send_queue.rs:215,257`), `todo!` 0.
-  On `v3-worker` @ `57bd7f74`: `UNIMPLEMENTED` **2**, down from 6 — and both are
-  comments, `runtime/mod.rs:283` (the local door) and `link_serve.rs:113`. **A
-  number here belongs to the tree it was taken on**, and the worker's moves
-  while its track is live. The `6` this line carried for hours was never
-  re-measured, and I cannot confirm it was ever true — it was copied forward
-  from a report, which is the failure this file exists to prevent.
+  On `v3-worker` @ `57bd7f74`: `UNIMPLEMENTED` **2**, and both are
+  comments, `runtime/mod.rs:283` (the local door) and `link_serve.rs:113`. The
+  line previously carried `6` with **no tree named at all**, which is the habit
+  this file exists to break: a number with no tree beside it cannot be checked
+  against anything, and I cannot confirm the `6` was ever true — it was copied
+  forward from a report rather than measured here. Whether it was ever 6 is a
+  separate question I have not answered, and this line does not claim it moved.
 - **`xtask lint` on `v3`** — all ten violations enumerated, and what each track's merge clears.
 - **The unreached-module rule** — the guarded sweep, its canary, and the eight files it found on `v3-web`.
 - **The import check** — why it recomputes its counts and restates the fingerprint filter in its own SQL.
