@@ -112,11 +112,14 @@ fn peer_open() -> (Signalling, u64) {
     peer.step(SignallingInput::LocalDoorAnswered {
         worker_fp: String::new(),
     });
-    let attempt_id = match peer.step(SignallingInput::OfferReady {
-        attempt_id: 1,
-        offer_sdp: usable_sdp(),
-    }) {
-        [CarrierEffect::NegotiateOffer { attempt_id, .. }] => attempt_id,
+    let attempt_id = match peer
+        .step(SignallingInput::OfferReady {
+            attempt_id: 1,
+            offer_sdp: usable_sdp(),
+        })
+        .as_slice()
+    {
+        [CarrierEffect::NegotiateOffer { attempt_id, .. }] => *attempt_id,
         other => panic!("a page on another machine must negotiate a peer, got {other:?}"),
     };
     (peer, attempt_id)

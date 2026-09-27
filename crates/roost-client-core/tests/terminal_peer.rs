@@ -118,7 +118,7 @@ fn authenticating() -> (Signalling, u64) {
         })
         .as_slice()
     {
-        [CarrierEffect::NegotiateOffer { attempt_id, .. }] => attempt_id,
+        [CarrierEffect::NegotiateOffer { attempt_id, .. }] => *attempt_id,
         other => panic!("a page on another machine must negotiate a peer, got {other:?}"),
     };
     peer.step(SignallingInput::AnswerReceived {

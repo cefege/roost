@@ -339,7 +339,7 @@ fn a_completed_transfer_verifies_its_digest_before_the_path_is_recorded() {
         "no path is recorded for a refused chunk"
     );
     assert_eq!(
-        settle_upload_card(core.store_mut(), "upload-a", Err(reason_of(&refused)), 1),
+        settle_upload_card(core.store_mut(), "upload-a", Err(&refused.reason), 1),
         true
     );
     assert_eq!(
@@ -350,8 +350,4 @@ fn a_completed_transfer_verifies_its_digest_before_the_path_is_recorded() {
         Some(TransferState::Failed),
         "a transfer whose digest did not verify is a failure, not a done card"
     );
-}
-
-fn reason_of(error: &AttachmentTransferCarrierError) -> String {
-    error.reason.clone()
 }
