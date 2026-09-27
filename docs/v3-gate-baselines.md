@@ -626,18 +626,31 @@ exists to prevent.**
 |lint table: exempt, but its COPY restates only `[unsafe_code]`, so `expect_used`, `missing_debug_implementations`, `rust_2018_idioms`, `todo`, `unimplemented` and `unwrap_used` do not apply to the crate at all — *an exemption is a permission, not a substitute for the table*|`crates/roost-keeper/Cargo.toml`|
 |fixture `support` compiled without a crate-level `unwrap_used`/`expect_used` allow, 7 binaries|`roost-keeper/tests/{channel_history, keeper_daemon, keeper_dispatch, keeper_endpoint, keeper_lifecycle, keeper_socket, keeper_socket_protocol}.rs`|
 
-Merging each track into a throwaway worktree, guarded sweep on the result:
+Merging each track into a throwaway worktree, guarded sweep on the result. **The
+first attempt used `origin/v3-cli` at `b7d09150`, which was five commits stale —
+`v3-cli` had unpushed work. It was pushed and the measurement repeated against
+the real ref, and the answer did not change:**
 
-|tree|head|conflicts|inputs|unreached|violations|
-|---|---|---:|---:|---:|---:|
-|`v3`|`278c6910`|—|2111|0|**10**|
-|`v3` + `v3-cli`|`c506d4cf`|**0**|2124|0|**8**|
-|`v3` + `v3-cli` + `v3-worker`|`813e6639`|**0**|2425|0|**0**|
+|step|head|conflicts|
+|---|---|---:|
+|`v3` + `origin/v3-cli@3213f798`|`c2939939`|**0**|
+|… + `origin/v3-worker@e6a1e8b0`|`3258073e`|**0**|
 
-**SO: THE CLI MERGE CLEARS THE TWO SIZE VIOLATIONS and the worker merge clears
-the other eight — 7 fixture allows plus the `roost-keeper/Cargo.toml` lint
-table. Merging `v3-cli` alone leaves 8; merging the worker track alone leaves
-2. Only both together read 0, and both are conflict-free.**
+**`v3` + `v3-cli` + `v3-worker` = `xtask: checked 2425 inputs`, 0 unreached, 0
+violations.** Canary-guarded: the sweep fails loudly if `xtask` did not print its
+`checked N inputs` line, so this zero is a measurement and not a failed run.
+
+**AND THE FIVE COMMITS ALMOST DID NOT SURVIVE.** `v3-cli` held 5 unpushed commits
+— two `roost-host` commits putting the XDG config and state roots behind a public
+API, two docs, and a merge — plus 144 uncommitted lines in
+`roost-cli/tests/dev_fan_out.rs`, and **the lead whose session owned them is
+dead.** Under the plan's snapshot rule the integrator pushed the branch
+(`b7d09150..3213f798`) and the uncommitted work to `refs/heads/v3-cli-snap`
+(`043a7961`). **Both are on the remote; the working tree was left intact.**
+
+**That near-miss is why the sweep has a canary and the merges are trial runs.**
+Work that exists in one worktree owned by a finished session is one `git gc`
+away from gone, and nothing in the build or the tests reports it.
 
 **An earlier version of this entry had the attribution backwards twice.** It
 said the size violations were "brought in" by the worker merge — they are `v3`'s
