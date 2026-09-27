@@ -246,14 +246,22 @@ fn a_channel_history_is_refused_because_the_keeper_reports_no_head() {
 fn the_applied_geometry_survives_the_worker_that_set_it() {
     let fixture = KeeperFixture::start();
     let _serialised = exclusive();
-    let pool = fixture.pool();
     let (binding, _) = session("geometry-2");
-    let spawned = opened(
-        pool.spawn(&sh_spec(&["-c", "sleep 30"], &[]), 80, 24, Arc::new(binding)),
-        "the keeper opens a real PTY",
-    );
-    KeeperChannels::resize_channel(pool.as_ref(), spawned.channel_id, 1, 132, 43)
-        .expect("the keeper applies the first sequence");
+    let spawned = {
+        let pool = fixture.pool();
+        let spawned = opened(
+            pool.spawn(&sh_spec(&["-c", "sleep 30"], &[]), 80, 24, Arc::new(binding)),
+            "the keeper opens a real PTY",
+        );
+        KeeperChannels::resize_channel(pool.as_ref(), spawned.channel_id, 1, 132, 43)
+            .expect("the keeper applies the first sequence");
+        spawned
+        // `pool` is dropped HERE, at the end of this block, and that is the
+        // point: the fixture's keeper serves ONE connection at a time
+        // (`KeeperFixture::start`'s accept/serve loop), so a second pool
+        // cannot be answered while the first is still connected. A restarted
+        // worker has no first connection, which is what the block models.
+    };
 
     let fresh = restarted_pool(&fixture);
     let applied = KeeperChannels::terminal_state(fresh.as_ref(), spawned.channel_id)
