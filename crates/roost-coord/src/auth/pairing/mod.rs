@@ -24,6 +24,7 @@ pub mod confirmation;
 pub mod provenance;
 pub mod retention;
 pub mod rows;
+pub mod rows_read;
 pub mod rpc_support;
 pub mod secrets;
 pub mod status;
