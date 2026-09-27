@@ -1817,14 +1817,23 @@ merge of all five tracks into `v3` at `a41f9d38` — **zero conflicts at every s
 xtask: checked 2744 inputs   unreached 0   violations 16
   14  size — files stay <=400 lines          (8 roost-client-core, 6 roost-web-terminal)
    2  tests — a fixture reached from a binary that does not declare the allow
-                                                (1 roost-worker, 1 roost-coord)
+            roost-web-terminal/tests/mouse_forwarding.rs  and  mouse_reporting.rs,
+            both compiling the shared `mouse_forwarding_support` fixture
 ```
 
 **`v3`'s own ten are GONE, and that is the merge-order prediction confirmed.** The
 two `roost-cli` size violations cleared with `v3-cli`; the `roost-keeper/Cargo.toml`
 lint table and the seven keeper `fixture_allow` findings cleared with `v3-worker`.
-**Nothing is inherited from `v3` any more**, so `xtask lint` is now entirely the
-leads' own work: twelve size splits on the web track, and two fixture allows.
+**Nothing is inherited from `v3` any more**, so `xtask lint` is now entirely one
+lead's work: **all sixteen are the web track's** — fourteen size splits and the two
+`mouse_forwarding_support` fixture allows, both in `roost-web-terminal/tests/`.
+
+**An earlier reading of this same sweep put one fixture allow on `roost-worker` and
+one on `roost-coord`. That was wrong, and it was wrong the same way as most of the
+mistakes in this file: the per-crate summary was read as an attribution when the
+finding names its own files, and the files say `roost-web-terminal` twice.** The
+correct attribution is the one the rule prints per violation, not the one a grouped
+count suggests.
 
 **`unreached 0` across the whole merge** — every module in every crate is
 registered, which is the property the unreached-module rule exists to protect and
