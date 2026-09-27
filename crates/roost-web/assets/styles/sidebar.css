@@ -474,7 +474,7 @@
   justify-content: center;
   background: var(--md-sys-color-primary-container);
   color: var(--md-sys-color-on-primary-container);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--md-shadow) 45%, transparent);
   -webkit-tap-highlight-color: transparent;
   transition: background-color 150ms var(--md-ease-emphasized),
               color 150ms var(--md-ease-emphasized),
@@ -485,7 +485,7 @@
 .deck-new-fab[data-armed="true"] {
   background: var(--md-sys-color-primary);
   color: var(--md-sys-color-on-primary);
-  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5),
+  box-shadow: 0 8px 26px color-mix(in srgb, var(--md-shadow) 50%, transparent),
               0 0 0 12px color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent);
 }
 
@@ -608,7 +608,7 @@
   text-overflow: ellipsis;
 }
 .terminal-card-subtitle {
-  font-size: 11px;
+  font-size: var(--md-label-s-size);
   color: var(--text-mid);
   white-space: nowrap;
   overflow: hidden;
