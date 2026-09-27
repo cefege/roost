@@ -47,10 +47,6 @@ use super::service::{
     misc_health_reply, now_ms, sync_moved_stream,
 };
 
-use crate::auth::rpc_identity::handle_auth_coord_identity;
-use crate::diagnostics::diag_log::handle_diag_debug_log_batch;
-use crate::diagnostics::rpc_audit::handle_audit_list;
-use crate::diagnostics::rpc_metrics::handle_misc_metrics;
 use crate::agents::rpc_status::{
     handle_agent_config_get, handle_agent_config_set, handle_agent_status_get,
     handle_agent_status_list, handle_agent_status_wait,
@@ -61,11 +57,15 @@ use crate::auth::rpc_bootstrap::{
 use crate::auth::rpc_devices::{
     handle_auth_logout, handle_devices_list, handle_devices_revoke, handle_devices_rotate_current,
 };
+use crate::auth::rpc_identity::handle_auth_coord_identity;
 use crate::auth::rpc_pairing::{
     handle_pair_approval_status, handle_pair_approve, handle_pair_confirm, handle_pair_create,
     handle_pair_deny, handle_pair_list, handle_pair_poll,
 };
 use crate::deploy::keeper_update::handle_workers_prepare_keeper_update;
+use crate::diagnostics::diag_log::handle_diag_debug_log_batch;
+use crate::diagnostics::rpc_audit::handle_audit_list;
+use crate::diagnostics::rpc_metrics::handle_misc_metrics;
 use crate::diagnostics::rpc_transcription::{
     handle_transcription_get_config, handle_transcription_grant_token,
     handle_transcription_set_config, handle_transcription_test,

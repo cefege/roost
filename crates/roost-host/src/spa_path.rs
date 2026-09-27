@@ -12,14 +12,15 @@
 //! Ported from `packages/host/src/spa.ts` over contract §6.2. The rules it
 //! keeps, and why each exists:
 //!
-//! - a real file is served; a path under `assets/` that is not one 404s
-//!   (content-hashed bundles must never fall back to HTML, or a stale bundle
-//!   reference downloads a page and reports it as a bundle); anything else
-//!   gets `index.html`, which is what makes `/s/:id` deep links work;
+//! - A real file is served. A path under `assets/` that is not one 404s,
+//!   because a content-hashed bundle must never fall back to HTML: a stale
+//!   bundle reference would download a page and report it as a bundle.
+//! - Anything else gets `index.html`, which is what makes `/s/:id` deep links
+//!   work. They are not files and not under `assets/`, so they are pages.
 //! - `..` and absolute paths are refused before any filesystem read, and the
-//!   request path is used VERBATIM — it is never percent-decoded, so `%2e%2e`
-//!   looks for a file literally named `%2e%2e` and finds nothing;
-//! - a root with no `index.html` answers `NotFound` for everything, which is
+//!   request path is used VERBATIM: it is never percent-decoded, so `%2e%2e`
+//!   looks for a file literally named `%2e%2e` and finds nothing.
+//! - A root with no `index.html` answers `NotFound` for everything, which is
 //!   the state a boot-time log line must report rather than a 404 per page.
 //!
 //! Depends on `std` alone. Callers: `roost-coord::http::spa`, and the worker's
@@ -50,14 +51,15 @@ pub enum SpaTarget {
     /// Not a file and not under `assets/`: serve the shell, let the router in
     /// the bundle resolve the path. `file` is the root's `index.html`.
     IndexFallback { file: PathBuf },
-    /// 404. A path that resolves to nothing, a traversal, an `assets/` miss, or
-    /// any request at all when the root holds no build.
+    /// A 404: a path that resolves to nothing, a traversal, an `assets/` miss,
+    /// or any request at all when the root holds no build.
     NotFound,
 }
 
 /// The `Cache-Control` value for a served path, relative to the build root.
 ///
-/// v2's four cases and the reason each exists: the shell must never be cached
+/// The four cases from `spa.ts:117-148` and the reason each exists: the shell
+/// must never be cached
 /// (a deploy that changes it is invisible to a returning browser), a
 /// content-hashed `assets/` name is immutable by construction, the four woff2
 /// faces are stable-named and large enough that `no-cache` revalidates all of
@@ -78,7 +80,7 @@ pub fn cache_control_for(rel: &str) -> &'static str {
 
 /// The `Content-Type` for a path, or `application/octet-stream`.
 ///
-/// v2's table verbatim. An unknown extension is deliberately the generic binary
+/// `spa.ts:17-30` verbatim. An unknown extension is deliberately the generic
 /// type rather than a guess: a wrong `text/*` on an image is a
 /// content-confusion bug, and a missing one is only a download.
 #[must_use]
@@ -146,7 +148,7 @@ pub fn accepts_gzip(accept_encoding: &str) -> bool {
                 .strip_prefix("q")
                 .and_then(|rest| rest.trim_start().strip_prefix('='))
             {
-                accepted = weight.trim().parse::<f64>().map_or(false, |q| q > 0.0);
+                accepted = weight.trim().parse::<f64>().is_ok_and(|q| q > 0.0);
             }
         }
         if coding == "gzip" {
@@ -185,10 +187,10 @@ pub fn resolve(dist_root: &Path, request_path: &str, accept_encoding: &str) -> S
     if reaches_outside(relative) {
         return SpaTarget::NotFound;
     }
-    if !relative.is_empty() {
-        if let Some(file) = contained_file(dist_root, relative) {
-            return asset(dist_root, file, accept_encoding);
-        }
+    if !relative.is_empty()
+        && let Some(file) = contained_file(dist_root, relative)
+    {
+        return asset(dist_root, file, accept_encoding);
     }
     if relative.starts_with(ASSETS_PREFIX) {
         return SpaTarget::NotFound;
@@ -199,7 +201,8 @@ pub fn resolve(dist_root: &Path, request_path: &str, accept_encoding: &str) -> S
 /// Whether a request path was reaching for something outside the build.
 ///
 /// Refused OUTRIGHT rather than left to the deep-link rule, and that is the one
-/// place this resolver is stricter than v2: `..` is never a client route, so
+/// place this resolver is stricter than the source it is ported from: `..` is
+/// never a client route, so
 /// answering the shell for it would turn a probe that was reaching outward into
 /// a 200. The request path is never percent-decoded, so `%2e%2e` is a filename
 /// rather than a traversal and finds nothing.

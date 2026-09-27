@@ -136,10 +136,16 @@ pub fn served_csp(config: &CoordConfig) -> String {
 fn write_dist(root: &Path) -> PathBuf {
     let dist = root.join("dist");
     std::fs::create_dir_all(dist.join("assets")).expect("the build's directory");
-    std::fs::write(dist.join("index.html"), b"<!doctype html><title>roost</title>")
-        .expect("the build's shell");
-    std::fs::write(dist.join("assets/app.a1b2c3.js"), b"export const shell = 1;")
-        .expect("the build's bundle");
+    std::fs::write(
+        dist.join("index.html"),
+        b"<!doctype html><title>roost</title>",
+    )
+    .expect("the build's shell");
+    std::fs::write(
+        dist.join("assets/app.a1b2c3.js"),
+        b"export const shell = 1;",
+    )
+    .expect("the build's bundle");
     std::fs::write(dist.join("favicon.ico"), b"icon").expect("the build's icon");
     dist
 }

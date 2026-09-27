@@ -63,7 +63,12 @@ pub async fn prepare_export_snapshot(database: &CoordDb) -> Result<ExportSnapsho
         .parent()
         .ok_or(ExportError::NoDirectory)?
         .to_path_buf();
-    let pruned = sweep_export_snapshots(&directory, EXPORT_SNAPSHOT_TTL, EXPORT_SNAPSHOT_MAX_RESIDENT - 1).await;
+    let pruned = sweep_export_snapshots(
+        &directory,
+        EXPORT_SNAPSHOT_TTL,
+        EXPORT_SNAPSHOT_MAX_RESIDENT - 1,
+    )
+    .await;
     if pruned > 0 {
         tracing::info!(count = pruned, "db export snapshots pruned");
     }

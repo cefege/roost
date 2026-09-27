@@ -16,11 +16,11 @@ mod diagnostics_support;
 
 use connectrpc::ErrorCode;
 use diagnostics_support::{AuditFixture, device, legacy_browser, worker};
+use roost_coord::auth::rpc_identity::handle_auth_coord_identity;
 use roost_coord::diagnostics::diag_log::handle_diag_debug_log_batch;
 use roost_coord::diagnostics::rpc_audit::handle_audit_list;
 use roost_coord::diagnostics::rpc_metrics::handle_misc_metrics;
 use roost_coord::diagnostics::telemetry::{MAX_TELEMETRY_KEYS, OVERFLOW_KEY};
-use roost_coord::auth::rpc_identity::handle_auth_coord_identity;
 use roost_host::{CoordConfig, CoordConfigInput};
 use roost_proto as proto;
 
@@ -33,7 +33,11 @@ fn empty_request() -> proto::AuditListRequest {
 #[tokio::test]
 async fn the_audit_page_is_newest_first_and_its_cursor_is_the_last_row() {
     let fixture = AuditFixture::new("page").await;
-    for (method, status) in [("MiscHealth", 200_u16), ("MiscHealth", 503), ("MiscMetrics", 200)] {
+    for (method, status) in [
+        ("MiscHealth", 200_u16),
+        ("MiscHealth", 503),
+        ("MiscMetrics", 200),
+    ] {
         fixture
             .record("fp-one", method, "/roost.v1.CoordinatorService/x", status)
             .await;
@@ -53,7 +57,11 @@ async fn the_audit_page_is_newest_first_and_its_cursor_is_the_last_row() {
     assert_eq!(first.body.rows.len(), 2);
     assert_eq!(first.body.rows[0].method, "MiscMetrics");
     assert_eq!(first.body.rows[1].method, "MiscHealth");
-    let cursor = first.body.next_cursor.clone().expect("two rows of three is a next page");
+    let cursor = first
+        .body
+        .next_cursor
+        .clone()
+        .expect("two rows of three is a next page");
     assert_eq!(cursor, first.body.rows[1].id.to_string());
 
     let second = handle_audit_list(&fixture.core, &device(), {
@@ -65,7 +73,10 @@ async fn the_audit_page_is_newest_first_and_its_cursor_is_the_last_row() {
     .await
     .expect("the second page");
     assert_eq!(second.body.rows.len(), 1);
-    assert_eq!(second.body.rows[0].status, 503);
+    // Newest first, so the page order is Metrics/200, Health/503, Health/200 and
+    // the keyset boundary leaves the oldest row, not the newest.
+    assert_eq!(second.body.rows[0].status, 200);
+    assert_eq!(second.body.rows[0].method, "MiscHealth");
     assert!(
         second.body.next_cursor.is_none(),
         "the last page has no next, even though the statement always reads one row further"
@@ -76,13 +87,28 @@ async fn the_audit_page_is_newest_first_and_its_cursor_is_the_last_row() {
 async fn a_filter_names_one_caller_or_one_method_and_a_joined_label() {
     let fixture = AuditFixture::new("filter").await;
     fixture
-        .record("fp-one", "MiscHealth", "/roost.v1.CoordinatorService/Health", 200)
+        .record(
+            "fp-one",
+            "MiscHealth",
+            "/roost.v1.CoordinatorService/Health",
+            200,
+        )
         .await;
     fixture
-        .record("fp-two", "MiscMetrics", "/roost.v1.CoordinatorService/Metrics", 200)
+        .record(
+            "fp-two",
+            "MiscMetrics",
+            "/roost.v1.CoordinatorService/Metrics",
+            200,
+        )
         .await;
     fixture
-        .record("fp-two", "AuditList", "/roost.v1.CoordinatorService/Audit", 200)
+        .record(
+            "fp-two",
+            "AuditList",
+            "/roost.v1.CoordinatorService/Audit",
+            200,
+        )
         .await;
 
     let by_caller = handle_audit_list(&fixture.core, &device(), {
@@ -96,7 +122,11 @@ async fn a_filter_names_one_caller_or_one_method_and_a_joined_label() {
     // The label is JOINED at read time, never stored on the row: the write path
     // does not know it, so a rename in the keys table reaches the audit pane.
     assert!(
-        by_caller.body.rows.iter().all(|row| row.caller_label.is_some()),
+        by_caller
+            .body
+            .rows
+            .iter()
+            .all(|row| row.caller_label.is_some()),
         "every row names a key the coordinator holds: {:?}",
         by_caller
             .body
@@ -121,7 +151,12 @@ async fn a_filter_names_one_caller_or_one_method_and_a_joined_label() {
 async fn a_machine_may_not_read_the_audit_log() {
     let fixture = AuditFixture::new("authority").await;
     fixture
-        .record("fp-one", "MiscHealth", "/roost.v1.CoordinatorService/Health", 200)
+        .record(
+            "fp-one",
+            "MiscHealth",
+            "/roost.v1.CoordinatorService/Health",
+            200,
+        )
         .await;
 
     // The audit log is the operator's record of who did what, including the
@@ -141,21 +176,41 @@ async fn a_bounded_label_map_stops_a_probe_loop_from_growing_it() {
         telemetry.record_audit_telemetry(&format!("/probe/{probe}"), 404);
     }
     let snapshot = telemetry.snapshot();
-    // The cap is the only thing standing between a caller that invents a path
-    // per request and a map that never stops growing.
+    // The bound is the cap PLUS the overflow key, which is v2's shape exactly
+    // (`telemetry.ts:18-25`): a map is full at 256 distinct labels and every
+    // further label folds into `<other>` rather than being dropped, so an
+    // operator can still see that probes happened after the cap was reached.
     assert_eq!(
         snapshot.requests.len(),
-        MAX_TELEMETRY_KEYS,
-        "the map is bounded at the cap, not at the number of probes"
+        MAX_TELEMETRY_KEYS + 1,
+        "the map is bounded by the cap and the overflow key, not by the \
+         number of probes"
     );
-    assert_eq!(snapshot.errors.get(OVERFLOW_KEY).copied(), Some(10));
+    assert_eq!(
+        snapshot.errors.get(OVERFLOW_KEY).copied(),
+        Some(10),
+        "every probe past the cap is counted, not discarded"
+    );
     assert_eq!(snapshot.total_requests, MAX_TELEMETRY_KEYS as u64 + 10);
 
-    let reported = handle_misc_metrics(&fixture.core, &device(), proto::MiscMetricsRequest::default())
-        .await
-        .expect("the operator's own metrics");
+    let reported = handle_misc_metrics(
+        &fixture.core,
+        &device(),
+        proto::MiscMetricsRequest::default(),
+    )
+    .await
+    .expect("the operator's own metrics");
     assert_eq!(reported.body.total_errors, MAX_TELEMETRY_KEYS as u64 + 10);
-    assert_eq!(reported.body.uptime_ms, snapshot.uptime_ms);
+    // Monotonic, NOT equal: the two reads are of a running clock and the RPC
+    // happens between them. Asserting equality here would make this test a coin
+    // flip on a loaded machine, which is worse than no assertion — it teaches a
+    // reader that a red run here is noise.
+    assert!(
+        reported.body.uptime_ms >= snapshot.uptime_ms,
+        "uptime went backwards: {} then {}",
+        snapshot.uptime_ms,
+        reported.body.uptime_ms
+    );
 }
 
 #[tokio::test]
@@ -176,9 +231,13 @@ async fn a_2xx_is_counted_once_and_a_4xx_is_counted_twice() {
 #[tokio::test]
 async fn metrics_are_the_operator_readout_and_not_a_strangers() {
     let fixture = AuditFixture::new("metrics-authority").await;
-    let refused = handle_misc_metrics(&fixture.core, &worker(), proto::MiscMetricsRequest::default())
-        .await
-        .expect_err("a machine is not the operator");
+    let refused = handle_misc_metrics(
+        &fixture.core,
+        &worker(),
+        proto::MiscMetricsRequest::default(),
+    )
+    .await
+    .expect_err("a machine is not the operator");
     assert_eq!(refused.code, ErrorCode::Unauthenticated);
 }
 
@@ -253,15 +312,26 @@ async fn a_browser_may_not_upload_diagnostics_and_a_machine_may_not_either() {
     );
 }
 
+/// A coordinator config with the three paths the loader requires and nothing
+/// else: this row answers from the ORIGIN settings, so the paths only have to
+/// parse, and a handler test has no business standing up a real data directory.
+fn declared_origin(public_url: Option<&str>, web_public_url: Option<&str>) -> CoordConfig {
+    CoordConfig::parse(CoordConfigInput {
+        db_path: Some("/nonexistent/coord.db".into()),
+        authorized_keys_path: Some("/nonexistent/authorized_keys".into()),
+        log_dir: Some("/nonexistent/logs".into()),
+        public_url: public_url.map(str::to_owned),
+        web_public_url: web_public_url.map(str::to_owned),
+        ..CoordConfigInput::default()
+    })
+    .expect("a coordinator config")
+}
+
 #[test]
 fn the_coordinator_answers_its_own_identity_without_a_credential() {
     // `roost quickstart` blocks on this row before it has installed anything,
     // so it is the one RPC a caller reaches with no credential at all.
-    let front_door = CoordConfig::parse(CoordConfigInput {
-        public_url: Some("https://desk.example.com".to_owned()),
-        ..CoordConfigInput::default()
-    })
-    .expect("a coordinator config");
+    let front_door = declared_origin(Some("https://desk.example.com"), None);
     let answer = handle_auth_coord_identity(&front_door, "abc123")
         .expect("a public answer")
         .body;
@@ -276,11 +346,7 @@ fn the_coordinator_answers_its_own_identity_without_a_credential() {
     // declared neither answers with an empty origin rather than an error: the
     // browser asked what it is talking to, and "nothing declared" is a truth
     // about the deployment rather than a failure of the query.
-    let web_only = CoordConfig::parse(CoordConfigInput {
-        web_public_url: Some("https://web.example.com".to_owned()),
-        ..CoordConfigInput::default()
-    })
-    .expect("a coordinator config");
+    let web_only = declared_origin(None, Some("https://web.example.com"));
     assert_eq!(
         handle_auth_coord_identity(&web_only, "sha")
             .expect("a public answer")
@@ -288,8 +354,7 @@ fn the_coordinator_answers_its_own_identity_without_a_credential() {
             .public_url,
         "https://web.example.com"
     );
-    let undeclared =
-        CoordConfig::parse(CoordConfigInput::default()).expect("a coordinator config");
+    let undeclared = declared_origin(None, None);
     assert!(
         handle_auth_coord_identity(&undeclared, "sha")
             .expect("a public answer")

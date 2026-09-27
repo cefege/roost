@@ -67,8 +67,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 
 use crate::coord_core::CoordCore;
-use crate::http::upgrade::{sync_upgrade, worker_upgrade};
 use crate::http::spa::{self, SpaMount};
+use crate::http::upgrade::{sync_upgrade, worker_upgrade};
 use crate::maintenance::export_snapshot::{
     EXPORT_DOWNLOAD_NAME, ExportSnapshot, prepare_export_snapshot, schedule_reclaim,
 };

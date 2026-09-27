@@ -34,7 +34,6 @@
 /// its audit row yet: `AuditRecord::connect` does not exist, so there is no
 /// Connect-side hook to hang the call on. The counter is honest about the
 /// surfaces that exist rather than reporting zeros for a path it never saw.
-
 use std::sync::Arc;
 
 use axum::extract::{Request, State};

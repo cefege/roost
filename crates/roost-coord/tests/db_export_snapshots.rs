@@ -145,7 +145,10 @@ async fn a_sweep_drops_the_past_the_age_bound_and_then_the_surplus() {
     let before = resident_copies(fixture.data_dir()).len();
     let removed = sweep_export_snapshots(fixture.data_dir(), Duration::from_secs(900), 1).await;
     let after = resident_copies(fixture.data_dir()).len();
-    assert!(after <= 1, "a keep count of one leaves at most one: {after}");
+    assert!(
+        after <= 1,
+        "a keep count of one leaves at most one: {after}"
+    );
     assert_eq!(
         removed,
         before - after,
@@ -172,7 +175,9 @@ async fn a_sweep_never_touches_a_file_that_is_not_an_export_copy() {
     let database = fixture.database.path().to_path_buf();
     let neighbour = fixture.data_dir().join("coordinator_v3.db-wal");
     std::fs::write(&neighbour, b"wal").expect("a neighbouring file");
-    let mislabelled = fixture.data_dir().join(format!("{EXPORT_SNAPSHOT_PREFIX}notes.txt"));
+    let mislabelled = fixture
+        .data_dir()
+        .join(format!("{EXPORT_SNAPSHOT_PREFIX}notes.txt"));
     std::fs::write(&mislabelled, b"not a copy").expect("a mislabelled file");
 
     prepare_export_snapshot(&fixture.database)

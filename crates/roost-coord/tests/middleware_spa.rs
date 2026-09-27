@@ -27,7 +27,12 @@ async fn serving_dist() -> ListenerFixture {
     .await
 }
 
-#[tokio::test]
+// `multi_thread` is load-bearing and not a style choice: the fixture's `get` is
+// a BLOCKING socket read, and on a current-thread runtime the read starves the
+// task `axum::serve` was spawned onto, so the request is never answered and the
+// test fails on a ten-second read timeout rather than on anything to do with
+// the SPA. The other listener-backed binaries in this crate already say this.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_deep_link_is_the_shell_and_a_bundle_is_the_bundle() {
     let fixture = serving_dist().await;
 
@@ -60,10 +65,13 @@ async fn a_deep_link_is_the_shell_and_a_bundle_is_the_bundle() {
         bundle.header("cache-control"),
         Some("public, max-age=31536000, immutable")
     );
-    assert_eq!(fixture.get("/favicon.ico").header("cache-control"), Some("no-cache"));
+    assert_eq!(
+        fixture.get("/favicon.ico").header("cache-control"),
+        Some("no-cache")
+    );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_missing_bundle_is_a_404_and_never_the_shell() {
     let fixture = serving_dist().await;
     let response = fixture.get("/assets/gone.deadbe.js");
@@ -72,10 +80,14 @@ async fn a_missing_bundle_is_a_404_and_never_the_shell() {
         !response.body.contains("<title>roost</title>"),
         "a content-hashed bundle that is gone must not download as a page"
     );
-    assert_eq!(fixture.get("/").status, 200, "the shell itself still serves");
+    assert_eq!(
+        fixture.get("/").status,
+        200,
+        "the shell itself still serves"
+    );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_client_that_admits_gzip_gets_one_and_one_that_does_not_does_not() {
     let fixture = serving_dist().await;
     let compressed = fixture.request(
@@ -85,7 +97,12 @@ async fn a_client_that_admits_gzip_gets_one_and_one_that_does_not_does_not() {
     );
     assert_eq!(compressed.status, 200);
     assert_eq!(compressed.header("content-encoding"), Some("gzip"));
-    assert_eq!(compressed.header("vary"), Some("accept-encoding"));
+    // `vary` is a LIST and the CORS layer, which runs outside this one, adds
+    // its own tokens to whatever is already there. Both tokens have to survive
+    // or a shared cache makes a decision this response never took.
+    let vary = compressed.header("vary").unwrap_or_default();
+    assert!(vary.contains("accept-encoding"), "vary: {vary}");
+    assert!(vary.contains("origin"), "vary: {vary}");
     // The body really is gzip: a decompressor that reads the magic bytes is the
     // only way to prove the header and the bytes agree.
     assert_eq!(&compressed.raw_body[..2], &[0x1f, 0x8b]);
@@ -103,10 +120,11 @@ async fn a_client_that_admits_gzip_gets_one_and_one_that_does_not_does_not() {
     assert!(identity.body.contains("export const shell"));
     // `vary` rides with the identity answer too: a shared cache that kept it
     // would hand it to the client above.
-    assert_eq!(identity.header("vary"), Some("accept-encoding"));
+    let vary = identity.header("vary").unwrap_or_default();
+    assert!(vary.contains("accept-encoding"), "vary: {vary}");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_rpc_path_still_reaches_connect() {
     let fixture = serving_dist().await;
     // A Connect method the coordinator answers, and one it does not: both must
@@ -120,10 +138,14 @@ async fn an_rpc_path_still_reaches_connect() {
             ("connect-protocol-version", "1"),
         ],
     );
+    // The assertion is that the answer came from CONNECT, not from the front
+    // door, and deliberately not that it is a 200: a hand-rolled unary with no
+    // envelope is refused by Connect itself, and that refusal is the proof the
+    // path reached the service. What it must never be is a page.
     assert_eq!(
-        answered.header("content-type").map(str::to_owned),
-        Some("application/json".to_owned()),
-        "Connect answered something other than a Connect body: {}",
+        answered.header("content-type"),
+        Some("application/json"),
+        "an RPC path was answered by something other than Connect: {}",
         answered.body
     );
     assert!(
@@ -137,7 +159,7 @@ async fn an_rpc_path_still_reaches_connect() {
     assert_eq!(retired.status, 410);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_api_namespace_and_the_sockets_are_not_pages() {
     let fixture = serving_dist().await;
     // `/api/db-export` is a route that refuses anything not on this host; what
@@ -161,7 +183,7 @@ async fn the_api_namespace_and_the_sockets_are_not_pages() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_page_path_that_is_not_a_get_or_a_head_is_refused() {
     let fixture = serving_dist().await;
     for method in ["POST", "PUT", "DELETE"] {
@@ -183,7 +205,7 @@ async fn a_page_path_that_is_not_a_get_or_a_head_is_refused() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_coordinator_with_no_build_404s_every_page_and_says_so() {
     let fixture = ListenerFixture::start("spa-absent", FixtureConfig::default()).await;
     for path in ["/", "/s/01HQ8Z", "/assets/app.a1b2c3.js"] {
@@ -198,7 +220,15 @@ async fn a_coordinator_with_no_build_404s_every_page_and_says_so() {
     let rpc = fixture.request(
         "POST",
         "/roost.v1.CoordinatorService/MiscHealth",
-        &[("content-type", "application/json")],
+        &[
+            ("content-type", "application/json"),
+            ("connect-protocol-version", "1"),
+        ],
     );
-    assert_eq!(rpc.status, 200);
+    assert_eq!(
+        rpc.header("content-type"),
+        Some("application/json"),
+        "a missing build must not reach the RPC surface either: {}",
+        rpc.body
+    );
 }

@@ -75,7 +75,11 @@ impl SpaMount {
 
 /// The middleware `http::listener` mounts. See the module header for the order
 /// this preserves and the paths it declines to claim.
-pub async fn spa_layer(State(mount): State<Arc<SpaMount>>, request: Request, next: Next) -> Response {
+pub async fn spa_layer(
+    State(mount): State<Arc<SpaMount>>,
+    request: Request,
+    next: Next,
+) -> Response {
     // Read, never destructured: a request this layer passes through has to
     // reach the router whole, body and all.
     let path = request.uri().path().to_owned();
@@ -97,7 +101,9 @@ pub async fn spa_layer(State(mount): State<Arc<SpaMount>>, request: Request, nex
 /// Whether a path belongs to a surface that is not the SPA: Connect, the API
 /// namespace, or one of the two socket upgrades.
 fn owns_another_surface(path: &str) -> bool {
-    path.starts_with(CONNECT_PATH_PREFIX) || path.starts_with(API_PREFIX) || path.starts_with(WS_PREFIX)
+    path.starts_with(CONNECT_PATH_PREFIX)
+        || path.starts_with(API_PREFIX)
+        || path.starts_with(WS_PREFIX)
 }
 
 /// The `Accept-Encoding` header, or the empty string. Absent is not `*`: a
@@ -170,7 +176,9 @@ async fn load(
     if compress {
         return compressed(file, mount).await.map(Some);
     }
-    tokio::fs::read(file).await.map(|bytes| Some(Bytes::from(bytes)))
+    tokio::fs::read(file)
+        .await
+        .map(|bytes| Some(Bytes::from(bytes)))
 }
 
 /// The memoized gzip body for `file`, compressed on a miss.
@@ -221,7 +229,11 @@ fn response(
         headers.insert(header::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
     }
     if let Some(bytes) = body.as_ref() {
-        set(&mut headers, header::CONTENT_LENGTH, &bytes.len().to_string());
+        set(
+            &mut headers,
+            header::CONTENT_LENGTH,
+            &bytes.len().to_string(),
+        );
     }
     let sent = body.filter(|_| !head_only).unwrap_or_default();
     let mut response = (StatusCode::OK, headers).into_response();

@@ -122,5 +122,7 @@ fn increment(counter: &Mutex<BTreeMap<String, u64>>, key: &str) {
 }
 
 fn flatten(counter: &Mutex<BTreeMap<String, u64>>) -> BTreeMap<String, u64> {
-    counter.lock().map_or_else(|_| BTreeMap::new(), |held| held.clone())
+    counter
+        .lock()
+        .map_or_else(|_| BTreeMap::new(), |held| held.clone())
 }

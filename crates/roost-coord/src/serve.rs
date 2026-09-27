@@ -162,7 +162,9 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
     // Chosen ONCE, here, and reported either way. A missing build otherwise
     // presents only as a 404 on every page, which reads like an edge or DNS
     // fault rather than as a path the operator misspelled (`main.ts:113-120`).
-    let spa = Arc::new(SpaMount::from_dist_path(boot.config.web_dist_path.as_deref()));
+    let spa = Arc::new(SpaMount::from_dist_path(
+        boot.config.web_dist_path.as_deref(),
+    ));
     match spa.root() {
         Some(root) => tracing::info!(web_dist_path = %root.display(), "spa source: disk"),
         None => tracing::error!(

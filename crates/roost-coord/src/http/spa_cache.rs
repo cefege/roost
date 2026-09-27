@@ -44,7 +44,10 @@ impl SpaCache {
     /// file state.
     pub fn get(&self, file: &Path, state: &FileState) -> Option<Bytes> {
         let entries = self.entries.lock().ok()?;
-        entries.iter().find(|entry| entry.matches(file, state)).map(|e| e.body.clone())
+        entries
+            .iter()
+            .find(|entry| entry.matches(file, state))
+            .map(|e| e.body.clone())
     }
 
     /// Hold `body` for `file`, evicting the oldest entry once the memo is full.
@@ -93,4 +96,3 @@ impl Entry {
         self.file == file && self.modified == state.modified && self.len == state.len
     }
 }
-

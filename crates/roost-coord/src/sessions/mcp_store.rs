@@ -57,13 +57,35 @@ pub async fn within_store_deadline<T>(
 
 /// What a failed statement means to a caller.
 ///
-/// A `PoolTimedOut` IS the deadline arm, reached a few microseconds earlier by
-/// the pool's own timer: the coordinator keeps one connection, both timers are
-/// armed from the same [`STORE_DEADLINE`], and the one that fires first is a
-/// race. Answering it `Internal` would report "your statement failed" for a
-/// statement that never started, which is the one thing the status cannot mean
-/// — a browser does not retry those. Every other error is a real statement
-/// failure and stays `Internal`.
+/// READ THIS BEFORE GENERALISING IT. `PoolTimedOut` is a condition v3
+/// INVENTED and v2 has no analogue for: v2's store is one connection with no
+/// pool, so it can be genuinely busy but can never fail to hand one out. The
+/// parity rule therefore has no v2 answer to select here, and the answer is
+/// this domain's own.
+///
+/// This domain answers `Unavailable` because v2's publish path establishes it:
+/// a relay publish that cannot be stored is a call the browser retries, and
+/// `handlers-mcp.ts` never wrote a row a caller could be told to fix.
+///
+/// **FIVE SITES MUST STAY `Internal`,** and this is the list that stops the
+/// "fix": `push/rpc.rs`, `ui_state/fence.rs`, `workers/rpc.rs`,
+/// `sessions/tasks.rs` and `diagnostics/rpc_transcription.rs` all map a store
+/// error to `Internal` with a blanket `.to_string()`. Their domains DO have a
+/// v2 answer, and it is `Internal` — v2 reports a busy database that way — so
+/// propagating this mapping would be a parity regression on five methods in
+/// order to make one shape.
+///
+/// A shared helper for store errors is still the right destination, but it has
+/// to take the domain's DECLARED mapping as an argument rather than hard-code
+/// one. A helper that hard-codes `Unavailable` is this same bug one level up.
+///
+/// Within this domain the rest is mechanical: a `PoolTimedOut` IS the deadline
+/// arm, reached a few microseconds earlier by the pool's own timer, because the
+/// coordinator keeps one connection and both timers are armed from the same
+/// [`STORE_DEADLINE`]. Answering it `Internal` would report "your statement
+/// failed" for a statement that never started, which is the one thing the
+/// status cannot mean — a browser does not retry those. Every other error is a
+/// real statement failure and stays `Internal`.
 fn refusal_for(method: &'static str, error: sqlx::Error) -> ConnectError {
     if matches!(error, sqlx::Error::PoolTimedOut) {
         tracing::error!(

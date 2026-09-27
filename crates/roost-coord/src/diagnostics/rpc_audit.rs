@@ -112,7 +112,12 @@ async fn read_page(
          AND (?3 IS NULL OR a.method = ?3) \
          ORDER BY a.id DESC LIMIT ?4",
     )
-    .bind(request.cursor.as_deref().and_then(|value| value.parse::<i64>().ok()))
+    .bind(
+        request
+            .cursor
+            .as_deref()
+            .and_then(|value| value.parse::<i64>().ok()),
+    )
     .bind(request.caller_fp.as_deref())
     .bind(request.method.as_deref())
     .bind(i64::from(limit) + 1);
