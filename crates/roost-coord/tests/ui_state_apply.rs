@@ -18,8 +18,8 @@ use roost_coord::events::bus_messages::UiBusMsg;
 use roost_coord::ui_state::layout_apply::UiLayoutApplyTarget;
 use roost_coord::ui_state::rpc::{handle_ui_apply_layout, handle_ui_report_state};
 use roost_proto as proto;
-use roost_proto::buffa::MessageField;
 use roost_proto::__buffa::oneof::ui_command::Command;
+use roost_proto::buffa::MessageField;
 use ui_state_fixture::{
     FOREIGN_SESSION_ID, SESSION_ID, UiStateFixture, browser_fingerprint, collect_ui_bus,
     layout_document, report_request,
@@ -73,7 +73,9 @@ async fn an_apply_reserves_the_named_socket_and_resolves_with_its_acknowledgemen
             if !matches!(command.command, Some(Command::ApplyLayout(_))) {
                 return;
             }
-            sink.lock().expect("the bus sink lock").push(message.clone());
+            sink.lock()
+                .expect("the bus sink lock")
+                .push(message.clone());
             runtime.layout_applies().accept_result(
                 &acknowledging,
                 &proto::UiApplyLayoutResult {
@@ -119,7 +121,8 @@ async fn an_apply_reserves_the_named_socket_and_resolves_with_its_acknowledgemen
         panic!("the published command is an applyLayout");
     };
     assert_eq!(
-        apply.document
+        apply
+            .document
             .as_option()
             .map(|document| document.bindings[0].session_id.clone()),
         Some(SESSION_ID.to_owned())
@@ -186,7 +189,9 @@ async fn an_apply_naming_an_unpersisted_session_is_refused_before_any_reservatio
     })
     .await;
     assert_eq!(
-        result.expect_err("an apply naming an unpersisted session is refused").code,
+        result
+            .expect_err("an apply naming an unpersisted session is refused")
+            .code,
         ErrorCode::NotFound
     );
     assert!(

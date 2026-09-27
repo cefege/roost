@@ -3,15 +3,14 @@
 //! that no longer exists.
 
 mod browser_command_support;
+use browser_command_support::{
+    EPOCH, FINGERPRINT, SESSION, command, dispatch, floor, frame_of, harness, only, session,
+};
 use roost_worker::browser_commands::scrollback_page::GridDescription;
 use roost_worker::browser_commands::search::Searches;
+use roost_worker::browser_commands::search_cancellation::{MAX_TOMBSTONES, TOMBSTONE_TTL};
 use roost_worker::scrollback_read::EpochBinding;
 use serde_json::json;
-use browser_command_support::{
-    EPOCH, FINGERPRINT, SESSION, command, dispatch, floor, frame_of, harness, only, session};
-use roost_worker::browser_commands::search_cancellation::{MAX_TOMBSTONES, TOMBSTONE_TTL};
-
-
 
 /// A PAGE THAT STOPPED AT AN EDGE SAYS WHICH. A client that is told nothing
 /// retries forever; a client that is told "evicted" can name the floor it is

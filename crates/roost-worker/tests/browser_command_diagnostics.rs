@@ -2,11 +2,8 @@
 //! rule both keep: no terminal text crosses the trust boundary.
 
 mod browser_command_support;
+use browser_command_support::{command, dispatch, frame_of, harness, only};
 use serde_json::json;
-use browser_command_support::{
-    command, dispatch, frame_of, harness, only};
-
-
 
 /// A SNAPSHOT ANSWERS WITH THE WORKER'S OWN STATE and nothing the terminal
 /// produced.

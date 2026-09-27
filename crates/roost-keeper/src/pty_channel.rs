@@ -111,6 +111,27 @@ impl PtyChannel {
             .map_err(|err| SpawnError::Pty(err.to_string()))?;
 
         let mut command = CommandBuilder::new(&spec.program);
+        // The child gets the spec's environment and NOTHING else.
+        //
+        // `CommandBuilder` wraps `std::process::Command`, which INHERITS the
+        // spawning process's environment, so without this call every PTY on
+        // the machine inherits the keeper's own — including
+        // `ROOST_KEEPER_CAPABILITY` and its siblings, which is exactly what
+        // `keeperEndpointFromArgument` reads to talk to this keeper. A PTY
+        // that inherits the control credential hands every command the user
+        // runs the ability to speak to the keeper as this worker, which means
+        // every terminal on the machine.
+        //
+        // v2 did not have this problem, and the reason is the point: `Bun.spawn`
+        // treats its `env` option as a REPLACE, and v2's shell spec built that
+        // value deliberately — a curated set read out of the worker's own
+        // service environment plus an overlay (`shell-spec.ts`'s `environment`
+        // and `envOverlay`). So clearing here is exact v2 parity, not a
+        // tightening: the keeper is a faithful executor that applies what it
+        // was told, and the decision about which variables a login shell
+        // needs belongs in one place — the worker's `resolve_shell_spec`,
+        // which is where v2 had it.
+        command.env_clear();
         for arg in &spec.args {
             command.arg(arg);
         }

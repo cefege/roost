@@ -67,17 +67,26 @@ fn main() -> ExitCode {
 fn lint(arguments: &LintArgs) -> ExitCode {
     let mut violations: Vec<Violation> = Vec::new();
     let mut snapshots: Vec<String> = Vec::new();
+    let mut checked = 0;
 
     match file_size::run(arguments.update_size_baseline) {
-        RatchetOutcome::Regressions(found) => violations.extend(found),
+        RatchetOutcome::Regressions(found) => {
+            checked += found.checked;
+            violations.extend(found.violations);
+        }
         RatchetOutcome::BaselineRewritten { file_count, total } => {
             snapshots.push(format!("{file_count} files, {total} lines"));
         }
     }
-    violations.extend(crate_dag::run());
-    violations.extend(stdout_rule::run());
+    for outcome in [crate_dag::run(), stdout_rule::run()] {
+        checked += outcome.checked;
+        violations.extend(outcome.violations);
+    }
     match design_raw::run(arguments.update_design_baseline) {
-        RatchetOutcome::Regressions(found) => violations.extend(found),
+        RatchetOutcome::Regressions(found) => {
+            checked += found.checked;
+            violations.extend(found.violations);
+        }
         RatchetOutcome::BaselineRewritten { file_count, total } => {
             snapshots.push(format!("{file_count} files, {total} raw-value lines"));
         }
@@ -86,6 +95,11 @@ fn lint(arguments: &LintArgs) -> ExitCode {
     for snapshot in snapshots {
         println!("xtask: re-baselined — {snapshot}");
     }
+    // The coverage count is printed on every run, violation or not. Without it
+    // a check that silently stopped reading its input is indistinguishable from
+    // one that read everything: both print the same verdict, and a clean
+    // verdict is exactly what a gate is looking for.
+    println!("xtask: checked {checked} inputs");
     if violations.is_empty() {
         println!("xtask: 0 violations");
         return ExitCode::SUCCESS;

@@ -12,11 +12,13 @@ import { describe, expect, test } from "bun:test";
 
 import {
 	SMOKE_COORD_EXECUTABLE_ENV,
+	SMOKE_WEB_DIST_ENV,
 	SMOKE_WORKER_EXECUTABLE_ENV,
 	SmokeStackConfigurationError,
 	coordinatorRuntimeOverrides,
 	isMixedStack,
 	resolveSmokeStackExecutables,
+	resolveSmokeWebDist,
 	smokeStackDescription,
 } from "./terminal/stack-executables.ts";
 import { listeningBind } from "./terminal/stack-coordinator.ts";
@@ -43,8 +45,9 @@ test("an unparameterised run uses the TypeScript stack on both sides", () => {
 	expect(stack.coordExecutable).toBeNull();
 	expect(isMixedStack(stack)).toBe(false);
 	expect(smokeStackDescription(stack)).toBe(
-		"smoke stack: coordinator=typescript worker=typescript",
+		"smoke stack: coordinator=typescript worker=typescript web=apps/web/dist",
 	);
+	expect(stack.webDist).toBeNull();
 });
 
 // An empty or whitespace value is a shell variable that expanded to nothing.
@@ -143,7 +146,7 @@ test("a coordinator knob launches that binary with the coord subcommand", () => 
 		...coordinatorRuntimeOverrides(stack),
 	})).toEqual({ command: executable, args: ["coord"] });
 	expect(smokeStackDescription(stack)).toBe(
-		`smoke stack: coordinator=rust(${executable}) worker=typescript`,
+		`smoke stack: coordinator=rust(${executable}) worker=typescript web=apps/web/dist`,
 	);
 	expect(isMixedStack(stack)).toBe(true);
 });
@@ -172,8 +175,47 @@ test("both knobs set launches both binaries", () => {
 		"/tmp",
 	);
 	expect(smokeStackDescription(stack)).toBe(
-		`smoke stack: coordinator=rust(${coord}) worker=rust(${worker})`,
+		`smoke stack: coordinator=rust(${coord}) worker=rust(${worker}) web=apps/web/dist`,
 	);
+});
+
+// A Rust SPA is a different directory with the same contract, so it is a knob
+// rather than a second harness. A directory that resolves must be usable as
+// one: `index.html` is the entry point every browser spec opens, and a
+// directory without it is a build that produced assets and no page.
+test("a web dist knob is resolved when it is a built SPA directory", () => {
+	const dir = mkdtempSync(join(tmpdir(), "roost-smoke-web-"));
+	writeFileSync(join(dir, "index.html"), "<!doctype html><title>roost</title>");
+	expect(resolveSmokeWebDist({ [SMOKE_WEB_DIST_ENV]: dir }, "/tmp")).toBe(dir);
+	expect(resolveSmokeWebDist({}, "/tmp")).toBeNull();
+	expect(smokeStackDescription(resolveSmokeStackExecutables({ [SMOKE_WEB_DIST_ENV]: dir }, "/tmp")))
+		.toContain(`web=${dir}`);
+});
+
+// A directory that exists but has no entry point is the failure that reads as
+// a product bug for the next hour, so it is refused here, by variable name.
+test("a web dist directory without an index.html is refused and named", () => {
+	const dir = mkdtempSync(join(tmpdir(), "roost-smoke-web-empty-"));
+	try {
+		resolveSmokeWebDist({ [SMOKE_WEB_DIST_ENV]: dir }, "/tmp");
+		throw new Error("expected a refusal");
+	} catch (error) {
+		expect(error).toBeInstanceOf(SmokeStackConfigurationError);
+		expect((error as Error).message).toContain(SMOKE_WEB_DIST_ENV);
+		expect((error as Error).message).toContain("no index.html");
+	}
+});
+
+// The knob names a DIRECTORY; a file is a typo that the executable-bit check
+// would not catch, because a served file is not a page.
+test("a web dist file is refused rather than served", () => {
+	const { notExecutable } = fixtures();
+	try {
+		resolveSmokeWebDist({ [SMOKE_WEB_DIST_ENV]: notExecutable }, "/tmp");
+		throw new Error("expected a refusal");
+	} catch (error) {
+		expect((error as Error).message).toContain("it is not a directory");
+	}
 });
 
 // The startup bind is read out of the log, and the two implementations
