@@ -36,6 +36,10 @@ roost-web-terminal = { path = "crates/roost-web-terminal" }
 # first-class target of this workspace. Connect's compression is per-request
 # opt-in, so nothing in the contract needs it. `roost-coord` re-enables
 # `server` and `axum` for itself; Cargo unifies the two within one build.
+# `client` is NOT here: it drags in `mio` through hyper, and the browser client
+# is a first-class target of this workspace. `crates/roost-cli` asks for it
+# itself, which keeps `roost3 api <verb>` able to dial a Connect service
+# without making `wasm32-unknown-unknown` unbuildable.
 connectrpc = { version = "0.9.1", default-features = false, features = ["json", "gzip"] }
 
 # Runtime and transport.

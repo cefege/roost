@@ -228,4 +228,21 @@ mod tests {
             );
         }
     }
+
+    /// The CLI is the one member that both IMPLEMENTS nothing of the generated
+    /// service and still needs its types: `roost3 api <verb>` dials a
+    /// coordinator with the generated client. Without the edge the gate would
+    /// pass on a tree where the verb cannot be written at all.
+    #[test]
+    fn the_cli_may_reach_the_generated_service_types() {
+        let registered = allowlist();
+        let cli = registered
+            .iter()
+            .find(|(name, _)| *name == "roost-cli")
+            .expect("roost-cli is a workspace member");
+        assert!(
+            cli.1.contains(&"roost-proto"),
+            "roost-cli cannot dial a Connect service without roost-proto"
+        );
+    }
 }
