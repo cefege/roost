@@ -503,6 +503,46 @@ gap: v2 installs nothing on macOS.** `apps/coord/scripts/install.sh:601` and
 `roost` that installed a `logrotate.d` fragment on macOS would be *less* faithful
 than one that does not.
 
+### CLI cutover gate, at `a13c385d`: 399/0/0 twice, and `import-v2` run for the first time
+
+`v3-cli-cutover` @ `a13c385d`, the tree that supersedes the `fa61f851` entry
+above. That entry is left as it was written: it is scoped to that SHA, so "not
+green" stays a true statement about it rather than being edited to look better
+than events were.
+
+Two full-suite runs, 46 test binaries each:
+
+- run A: **399 passed / 0 failed / 0 ignored**
+- run B: **399 passed / 0 failed / 0 ignored**
+
+**These are two independent runs, not one run recorded twice** — worth settling
+rather than assuming, because identical totals are exactly what a duplicated log
+also looks like. The two files differ at byte 4444, their compile times are 2m35s
+and 2m43s, they carry 15 versus 14 distinct per-binary timings, and **test
+execution order differs**, which is cargo's parallel scheduling. A copied file
+matches byte for byte; a stripped extract has no per-test lines. These have 399
+of them, one per test.
+
+`import_v2_copy` **9 passed** and `import_v2_plan` **10 passed** — **19 passed,
+0 failed, the first time any of them has ever run.** The row selection, the
+different-account refusal and the fingerprint filter all work against a real
+fixture database. This is the first evidence any of it does.
+
+**The `dev_fan_out` flake recorded above is neither fixed nor addressed.** The
+fix `2L.1c` ported is `the_strict_probe_refuses_a_child_that_never_beat`, whose
+subject is a probe that quietly defaults to empty; the flaky test is
+`a_server_that_cannot_start_names_itself_and_stops_what_already_ran`, a server
+that cannot start. Different concerns. **399/0/0 twice therefore does not prove
+the flake is gone**, and a red there on any later run is the known, pre-existing,
+load-dependent flake rather than a regression. Re-run that target isolated once
+and record both results if it does.
+
+`clippy -D warnings` is **not** claimed on this tree: the splits' rewiring left
+12 unused-import errors, and fixing them produced a further 6 of the opposite
+kind. The gate closes only on the tree that ships, and it must be re-run on the
+merged result — a figure taken on `a13c385d` does not describe `v3` after a
+merge.
+
 ### Keeper client: the plan's premise was stale
 
 The plan recorded three open keeper-client defects on `v3-worker`
