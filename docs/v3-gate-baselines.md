@@ -950,8 +950,24 @@ is worse than an error, because nothing prompts anyone to look again.
 
 **SO THE SWEEP GUARDS ITS OWN OUTPUT — and the canary is STRUCTURAL, not numeric.**
 
+**RUN IT FROM A WORKSPACE.** `ROOST_REPO_ROOT` redirects the *walk* but
+`xtask lint` still shells out to `cargo metadata`, **which runs in the process's
+working directory**. Run it from outside a Cargo workspace and every tree reports
+
+```
+xtask: cargo metadata failed: `cargo metadata` exited with an error:
+error: could not find `Cargo.toml` in /home/almalinux/repos/roost or any parent directory
+```
+
+which is a **failed run wearing the shape of a result** — the same family as the
+`PATH` trap and the one-assertion canary. A helper that prints `TOOL FAILED` without
+the message will hide the cause; **print the first line of the output when the
+`checked N inputs` line is missing**, because "the tool failed" and "the tool failed
+for a reason nobody can guess" are different problems.
+
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"
+cd /home/almalinux/repos/roost-v3        # or ANY cargo workspace
 BIN=/home/almalinux/repos/roost-v3/target-gate/debug/xtask
 
 # CANARY: a FROZEN fixture that contains exactly one orphan by construction.
