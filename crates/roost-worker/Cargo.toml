@@ -45,6 +45,11 @@ sqlx = { workspace = true, features = ["sqlite", "runtime-tokio", "macros", "mig
 str0m.workspace = true
 
 [dev-dependencies]
+# The enrollment round trip needs a Connect SERVER to redeem against: the
+# redemption and the registration are two calls over a socket, and a test that
+# stubs them proves only that the worker called something. `server` is a
+# dev-only feature — the worker itself only ever dials.
+connectrpc = { workspace = true, features = ["client", "server"] }
 tokio = { workspace = true, features = ["net", "rt", "rt-multi-thread", "macros", "time"] }
 tokio-tungstenite = { workspace = true, features = ["handshake"] }
 

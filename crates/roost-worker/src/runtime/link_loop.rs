@@ -1,28 +1,14 @@
-//! The outbound coordinator link: the reconnect ladder, the three-stage
-//! application barrier, and the outbox drain that feeds them. Owned by `serve`,
-//! which is the only caller that starts it.
+//! The coordinator link's own state: who this worker is, the writer's mirror of
+//! the durable queue, and the authorisation slot. Owned by `serve` through
+//! [`LinkLoop::run`], and reached by [`super::link_serve`] and
+//! [`super::link_drain`], which is why the fields are `pub(super)`.
 //!
-//! It composes three delivered pieces and owns none of their rules. The ladder
-//! is [`crate::backoff`] through [`super::reconnect::ReconnectPolicy`], the
-//! ordering is [`crate::link_barrier::Pump`], and the lanes and their caps are
-//! [`crate::outbox::Outbox`]. What lives here is the one thing those three
-//! cannot express between them: how a durable event gets from a producer, into
-//! the pump, and onto the socket in the order the pump selected, with exactly
-//! one in flight.
-//!
-//! The file is split in three along the seam that matters. This one owns the
-//! lifecycle — dialling, the ladder, and the loop that never gives up.
-//! [`super::link_serve`] owns one dial's socket life, and [`super::link_drain`]
-//! owns what goes on it. The struct's fields are `pub(super)` for exactly that
-//! reason and no other: three files implementing one type, with the state
-//! shared between them, is the shape the type's size forces.
-//!
-//! Which brings the mirror. The pump assigns the sequence and admits one
-//! durable event at a time, but it does not hand its queue back to the writer,
-//! so the writer keeps its own copy in the same order. That is the only state
-//! here the barrier does not already have, and it is bounded by the outbox's own
-//! ceilings — a frame held in the mirror must cost no more than one held in the
-//! outbox would.
+//! It composes delivered pieces and owns none of their rules: the ladder is
+//! [`crate::backoff`], the ordering is [`crate::link_barrier::Pump`], the lanes
+//! are [`crate::outbox::Outbox`]. What is here is what those three cannot
+//! express between them, and it is split along that seam — `durable.rs` owns the
+//! rows, `volatile.rs` the two superseding producers, `cell_sink.rs` the
+//! coordinator's cell receiver, and `reconnect_loop.rs` the loop over dials.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -32,14 +18,22 @@ use roost_protocol::wire::WorkerFp;
 
 use crate::backoff::LinkHealth;
 use crate::link_barrier::{Barrier, Pump};
-use crate::link_dial::{CoordinatorEndpoint, dial};
+use crate::event_store::Journal;
+use crate::link_dial::CoordinatorEndpoint;
 use crate::outbox::{AdmitError, Admitted, Lane, Outbox, PENDING_BYTES_CAP};
 
 use super::credential::CredentialSource;
 use super::link_wire::LinkWire;
 use super::reconnect::{Escalation, ReconnectPolicy};
 use super::snapshot_source::SnapshotSource;
-use super::stop::{LinkEndOutcome, StopReason, StopSignal, verdict_for_link_end};
+pub mod browser;
+pub mod cell_sink;
+pub mod durable;
+pub mod reconnect_loop;
+pub mod volatile;
+
+pub use browser::BrowserLink;
+pub use cell_sink::CoordinatorCellSink;
 
 /// How long one dial may take before it counts as a non-open dial.
 ///
@@ -76,6 +70,8 @@ pub const SNAPSHOT_STARVATION: std::time::Duration = std::time::Duration::from_s
 /// What a browser command is answered with while nothing can execute one.
 pub const NO_SESSION_LAYER_REFUSAL: &str =
     "this worker build has no session layer, so it cannot execute browser commands";
+
+
 
 /// Who this worker is to the coordinator, in the fields the hello carries.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,6 +111,8 @@ pub struct LinkLoop {
     pub(super) wire: Arc<dyn LinkWire>,
     pub(super) snapshot: Arc<dyn SnapshotSource>,
     pub(super) credential: Arc<dyn CredentialSource>,
+    /// Where a browser command goes, and where its answers come back.
+    pub(super) browser: BrowserLink,
     pub(super) outbox: Outbox,
     pub(super) pump: Pump,
     pub(super) policy: ReconnectPolicy,
@@ -125,6 +123,15 @@ pub struct LinkLoop {
     pub(super) wake: Arc<tokio::sync::Notify>,
     /// When the barrier entered `snapshot`, for the starvation bound.
     pub(super) snapshot_since: Option<Instant>,
+    /// The durable outbox this link replays from. `None` until one is attached,
+    /// and `durable.rs` owns everything that depends on which it is.
+    pub(super) durable_rows: Option<Arc<Journal>>,
+    /// Acknowledgements the frame handler recorded and the drain has not yet
+    /// retired. `durable.rs` owns the rule that decides what happens to them.
+    pub(super) pending_acks: Vec<u64>,
+    /// The coordinator's cell receiver, which is `&self` and so cannot be the
+    /// link's own lane. `cell_sink.rs` owns it and the link only drains it.
+    pub(super) cell_sink: Option<Arc<CoordinatorCellSink>>,
     pub(super) links_opened: u64,
     pub(super) redisials: u64,
 }
@@ -155,12 +162,14 @@ impl LinkLoop {
         wire: Arc<dyn LinkWire>,
         snapshot: Arc<dyn SnapshotSource>,
         credential: Arc<dyn CredentialSource>,
+        browser: BrowserLink,
     ) -> Self {
         Self {
             endpoint,
             identity,
             wire,
             snapshot,
+            browser,
             credential,
             outbox: Outbox::default(),
             pump: Pump::new(),
@@ -172,6 +181,9 @@ impl LinkLoop {
             snapshot_since: None,
             links_opened: 0,
             redisials: 0,
+            durable_rows: None,
+            pending_acks: Vec::new(),
+            cell_sink: None,
         }
     }
 
@@ -268,99 +280,6 @@ impl LinkLoop {
         self.wake.notify_one();
     }
 
-    /// Run until the process is asked to stop.
-    ///
-    /// Returns only for a stop. Every other ending of a link is a reconnect, and
-    /// a worker that gave up on a coordinator would take the local door — and
-    /// every browser on this machine — down with it.
-    pub async fn run(mut self, mut stop: StopSignal) -> StopReason {
-        if !self.snapshot.is_active() {
-            tracing::error!(
-                "no snapshot provider is installed, so the link's barrier will never be released \
-                 past the snapshot stage and this worker will carry no live traffic"
-            );
-        }
-        loop {
-            if let Some(reason) = stop.reason() {
-                return reason;
-            }
-            let attempt = self.policy.begin_dial();
-            tracing::info!(attempt, coordinator = %self.endpoint.url(), "dialling the coordinator");
-            let credential = match self.credential.mint() {
-                Ok(credential) => credential,
-                Err(error) => {
-                    self.report_dial_failure(attempt, &error.to_string());
-                    self.wait_before_next_dial(&mut stop).await;
-                    continue;
-                }
-            };
-            let link = match dial(&self.endpoint, &credential, DIAL_TIMEOUT).await {
-                Ok(link) => link,
-                Err(error) => {
-                    self.report_dial_failure(attempt, &error.to_string());
-                    self.wait_before_next_dial(&mut stop).await;
-                    continue;
-                }
-            };
-            self.policy.note_link_opened(Instant::now());
-            self.links_opened += 1;
-            tracing::info!(
-                attempt,
-                links_opened = self.links_opened,
-                "the coordinator link is open"
-            );
-            let end = super::link_serve::serve(&mut self, link, &mut stop).await;
-            if let Some(escalation) = self.policy.note_link_dropped() {
-                report_escalation(escalation);
-            }
-            self.pump.on_disconnect();
-            self.authorised = None;
-            self.snapshot_since = None;
-            match verdict_for_link_end(&end) {
-                // A disconnect is never a shutdown. The keeper holds the PTYs
-                // and is still serving; this link is one route to a coordinator
-                // and the local door is another.
-                LinkEndOutcome::Redial => {
-                    self.redisials += 1;
-                    tracing::info!(
-                        reason = ?end,
-                        redisials = self.redisials,
-                        "the coordinator link ended; redialling"
-                    );
-                }
-                LinkEndOutcome::Stop(reason) => {
-                    tracing::info!(reason = %reason, "the coordinator link closed for a stop");
-                    return reason;
-                }
-            }
-        }
-    }
-
-    fn report_dial_failure(&mut self, attempt: u32, reason: &str) {
-        if let Some(escalation) = self.policy.note_dial_failed() {
-            report_escalation(escalation);
-        }
-        tracing::warn!(
-            attempt,
-            reason,
-            "the coordinator link did not open; redialling"
-        );
-    }
-
-    async fn wait_before_next_dial(&self, stop: &mut StopSignal) {
-        let delay = self.policy.next_delay();
-        tracing::info!(
-            delay_ms = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX),
-            "waiting before the next dial"
-        );
-        tokio::select! {
-            biased;
-            reason = stop.requested() => {
-                tracing::info!(reason = %reason, "stopping while waiting to dial");
-            }
-            () = tokio::time::sleep(delay) => {}
-        }
-    }
 }
 
 /// Why a frame was not offered to the outbox.
@@ -370,6 +289,11 @@ pub enum AdmitRefusal {
     DurableHasItsOwnPath,
     #[error(transparent)]
     Outbox(#[from] AdmitError),
+
+    #[error("an unidentified agent status names no session or occupant, so no reader could place it")]
+    UnidentifiedAgentStatus,
+    #[error("a {label} frame did not encode: {reason}")]
+    Unencodable { label: String, reason: String },
 }
 
 /// Why a durable event was refused.

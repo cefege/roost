@@ -162,6 +162,18 @@ pub fn worker_fp() -> WorkerFp {
     .expect("the test fingerprint is well formed")
 }
 
+/// A coordinator-minted stream id for `index`.
+///
+/// `CellGridFrame`'s identity admission requires a UUID (`roost_protocol::
+/// viewport::is_terminal_uuid`): a stream id that is not one is a coordinator
+/// that never minted it, and the emitter refuses to build a frame for it — so
+/// a fixture that used `stream-1` produced no frames at all and every later
+/// assertion saw the withheld baseline instead. One shape, many values, so
+/// tests that need two distinct streams still have two.
+pub fn stream_id(index: u32) -> String {
+    format!("00000000-0000-4000-8000-{index:012x}")
+}
+
 pub fn shell_spec(cwd: &str) -> ShellSpec {
     ShellSpec {
         version: 1,

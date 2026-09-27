@@ -146,6 +146,31 @@ impl Pump {
         self.acked
     }
 
+
+    /// Resume the sequence at `next_seq`, so this barrier's numbers continue
+    /// one the durable outbox has already used.
+    ///
+    /// The barrier allocates the sequence the coordinator acknowledges under and
+    /// the outbox allocates the sequence a row is STORED under, and they are one
+    /// space. A fresh `Pump` starts at 1, so a worker that restarted with rows
+    /// still waiting would replay them under sequences the barrier has never
+    /// issued, and every acknowledgement for them would read as a stale one:
+    /// the barrier would sit in `replay` for ever with the outbox full.
+    ///
+    /// Refuses a seed once anything has been enqueued, because a barrier whose
+    /// counter moved under it has already issued a sequence, and re-issuing that
+    /// number is the one defect this whole design exists to prevent.
+    pub fn seed_next_sequence(&mut self, next_seq: u64) -> Result<(), SeedRefusal> {
+        if self.next_seq != 1 || !self.durable.is_empty() || self.in_flight.is_some() {
+            return Err(SeedRefusal {
+                next_seq,
+                issued: self.next_seq,
+            });
+        }
+        self.next_seq = next_seq.max(1);
+        Ok(())
+    }
+
     /// The socket came up. Not application-ready.
     pub fn on_open(&mut self) -> Action {
         self.barrier = Barrier::Open;
@@ -291,4 +316,14 @@ impl Pump {
             Barrier::Snapshot => Action::Wait,
         }
     }
+}
+
+/// Why a barrier refused to be reseeded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("the barrier already issued up to {issued}, so it cannot resume at {next_seq}")]
+pub struct SeedRefusal {
+    /// The sequence the caller asked to resume at.
+    pub next_seq: u64,
+    /// The highest sequence this barrier has already handed out.
+    pub issued: u64,
 }

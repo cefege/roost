@@ -25,6 +25,7 @@ pub use boot::{WorkerBoot, WorkerOverrides};
 pub mod boot_order;
 pub mod bootstrap_redeem;
 pub mod credential;
+pub mod deps;
 pub mod keeper_boot;
 pub mod keeper_probe;
 pub mod link_drain;
@@ -40,11 +41,12 @@ use std::sync::Arc;
 use anyhow::Context as _;
 use roost_host::ProcessEnv;
 
+use crate::event_store::database::{DATABASE_FILE_NAME, Journal};
 use crate::link_dial::CoordinatorEndpoint;
 use boot_order::{BootSequence, Readiness, StepId};
 use credential::WorkerKeyCredential;
 use keeper_boot::KeeperBootOutcome;
-use link_loop::{LinkLoop, WorkerIdentity};
+use link_loop::{BrowserLink, CoordinatorCellSink, LinkLoop, WorkerIdentity};
 use link_wire::ProtoLinkWire;
 use snapshot_source::NoSnapshot;
 use stop::{StopRequests, stop_requests_from_signals};
@@ -159,7 +161,7 @@ pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result
     //    cost this process them.
     let endpoint =
         CoordinatorEndpoint::new(boot.coordinator_base.clone(), boot.fingerprint.as_str())?;
-    let link = LinkLoop::new(
+    let mut link = LinkLoop::new(
         endpoint,
         WorkerIdentity {
             worker_fp: boot.fingerprint.clone(),
@@ -169,7 +171,45 @@ pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result
         Arc::new(ProtoLinkWire),
         Arc::new(NoSnapshot),
         Arc::new(WorkerKeyCredential::new(boot.worker_key_path.clone())),
+        // The command pump is detached until this function builds the session
+        // manager: there is no session layer yet, so a browser command is
+        // refused with a cause rather than answered by a stub. The replacement
+        // is one line — `BrowserLink::connect(deps)` over
+        // `deps::WorkerCapabilities` — and it lands with the manager.
+        BrowserLink::detached(),
     );
+
+    // The durable outbox is opened BEFORE the link is told about it, because
+    // attaching is what makes the barrier resume at the outbox's high water
+    // mark: a link that starts its sequence at 1 while rows it must replay are
+    // numbered from a higher one would wait for ever for an acknowledgement it
+    // never issued. A store that cannot be opened is a boot refusal, not a
+    // warning — a worker that accepted sessions it could not record would
+    // leave the coordinator believing a dead session is alive.
+    let outbox_path = boot.data_dir.join(DATABASE_FILE_NAME);
+    let outbox = Arc::new(
+        Journal::open(&outbox_path)
+            .await
+            .with_context(|| format!("the durable outbox at {} could not be opened", outbox_path.display()))?,
+    );
+    // Logged, not propagated: a stats read that fails says the store is
+    // answering, which is the only thing the line is for. The open above
+    // already refused anything that is not.
+    match outbox.stats().await {
+        Ok(stats) => tracing::info!(
+            path = %outbox_path.display(),
+            rows = stats.rows,
+            resumed_at = outbox.handed_over_at(),
+            "the durable outbox is open and the barrier resumes at its high water mark"
+        ),
+        Err(error) => tracing::warn!(
+            path = %outbox_path.display(),
+            %error,
+            "the durable outbox is open but its row count could not be read"
+        ),
+    }
+    link.attach_durable_outbox(outbox);
+    link.attach_cell_sink(Arc::new(CoordinatorCellSink::new(Arc::new(ProtoLinkWire))));
     let because = sequence.complete(StepId::CoordinatorLink);
     tracing::info!(
         step = StepId::CoordinatorLink.name(),

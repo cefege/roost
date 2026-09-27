@@ -25,7 +25,7 @@ use roost_protocol::wire::WorkerFp;
 use roost_protocol::wire::coord_worker::{CoordWorkerDownstream, CoordWorkerUpstream};
 use roost_worker::link_dial::CoordinatorEndpoint;
 use roost_worker::runtime::credential::{CredentialError, CredentialSource};
-use roost_worker::runtime::link_loop::{LinkLoop, WorkerIdentity};
+use roost_worker::runtime::link_loop::{BrowserLink, LinkLoop, WorkerIdentity};
 use roost_worker::runtime::link_wire::{LinkWire, WireError};
 use roost_worker::runtime::snapshot_source::{NoSnapshot, SnapshotError, SnapshotSource};
 use roost_worker::runtime::stop::{
@@ -169,6 +169,7 @@ async fn a_dropped_link_is_a_reconnect_and_a_stop_is_a_stop() {
             Arc::new(NameCodec),
             Arc::new(NoSnapshot),
             Arc::new(FixedCredential),
+            BrowserLink::detached(),
         )
         .run(stop),
     );

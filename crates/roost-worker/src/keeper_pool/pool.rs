@@ -363,7 +363,11 @@ impl KeeperPool {
     /// keeper simply did not answer in time is a wedged keeper, and declaring
     /// every session lost over one unanswered resize would take the machine's
     /// terminals away for a condition a retry fixes.
-    fn request<T>(
+    ///
+    /// `pub(crate)` rather than private because `session_seam` is a sibling
+    /// that answers `KeeperChannels` from the same connection, and a second
+    /// request path would be a second answer to "has this keeper gone".
+    pub(crate) fn request<T>(
         &self,
         use_client: impl FnOnce(&KeeperClient) -> Result<T, ClientError>,
     ) -> Result<T, PoolError> {

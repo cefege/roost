@@ -42,6 +42,13 @@ pub struct GridDescription {
     /// Every row the grid holds, dropped and retained together.
     pub total: u32,
     pub cols: u16,
+    /// The live viewport's height.
+    ///
+    /// Separate from `total` because the newest row a caller may name is one
+    /// past the last history row PLUS the viewport, and a description without
+    /// it can only say where history ends — which is the row a search starts
+    /// from, not the one it may scan up to.
+    pub viewport_rows: u16,
 }
 
 /// A session's retained grid, as a page request reads it.
