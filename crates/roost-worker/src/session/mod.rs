@@ -27,6 +27,7 @@ pub mod raw_metadata;
 pub mod resize;
 pub mod respawn;
 pub mod resume;
+mod resume_core;
 pub mod retained_grid;
 pub mod ring;
 pub mod scrollback;
