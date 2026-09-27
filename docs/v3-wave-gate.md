@@ -2789,10 +2789,42 @@ tool, not of the tree — and two agreeing clippy runs will agree and both be
 floors, exactly as two agreeing test runs can.
 
 **The "62 ungated `unwrap`/`expect` sites" figure that was carried here is a
-MISCOUNT** and has been removed: every fixture with such sites either declares
-the allow itself or has all its consumers declare it. The clippy sequence on this
-track found **7 real defects** instead, and every one was invisible to `cargo
-check` and `cargo test`.
+MISCOUNT** and the real figure is smaller than any of the numbers that carried
+it: **six module roots need a declaration, not 62 sites.** 52 occurrences across
+six `mod.rs` files, each needing one `#![allow(clippy::unwrap_used,
+clippy::expect_used)]` header of the kind `workers_support/mod.rs:16` and
+`keeper_update_support/mod.rs` already establish:
+
+| fixture `mod.rs` | occurrences | needs a declaration |
+|---|---:|---|
+| `tasks_support` | 13 | yes |
+| `auth_device_support` | 10 | yes |
+| `sync_feed_support` | 9 | yes |
+| `terminal_screen_support` | 8 | yes |
+| `workspaces_support` | 8 | yes |
+| `terminal_view_support` | 4 | yes |
+
+**A seventh edit would have been redundant, and the reason generalises:** an
+inner attribute on a module applies to that module *and its children*, so
+`terminal_view_support/mod.rs`'s header already covers its `sink.rs` — which is
+why `push_fixture` has a header on `transport.rs:8` that it does not need.
+
+**Two claims about these six files disagreed, and the disagreement is the
+point.** A clippy run reported that every fixture either declares the allow or
+has all its consumers declare it; a direct file inspection reported these six
+need one each. **The clippy run stopped at `tasks_queue` and never reached
+them**, so its answer was an inference from a run that had not been there. The
+inspection is the evidence.
+
+**This is a PREDICTION BEING TESTED, not a count.** What is measured is which
+files contain what; what is NOT measured is whether clippy flags them. If a run
+comes back clean on those six with no changes, then the `clippy.toml` exemption
+*does* reach fixture modules and the rule in `phase3-coord-contract.md` §11 is
+wrong — **which is a more interesting result than the six edits, and exactly
+what a prediction is for.**
+
+Separately, the clippy sequence on this track found **7 real defects**, and
+every one was invisible to `cargo check` and `cargo test`.
 
 
 ## Worker track — the one OBSERVED row
