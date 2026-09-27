@@ -543,6 +543,52 @@ kind. The gate closes only on the tree that ships, and it must be re-run on the
 merged result — a figure taken on `a13c385d` does not describe `v3` after a
 merge.
 
+### The CLI gate re-run on the MERGED tree, at `2cdd0e04`
+
+`v3` @ `2cdd0e04` — the commit that merged `v3-cli-cutover` into the trunk.
+The figure above was taken on `a13c385d`, which is **not** this tree, so it does
+not describe it. This one does.
+
+| Criterion | Result |
+|---|---|
+| `cargo test -p roost-cli --no-fail-fast` | **399 passed / 0 failed / 0 ignored, twice**, both exit 0, 46 binaries per run |
+| `cargo clippy -p roost-cli --all-targets -- -D warnings` | **0 errors** |
+| `cargo fmt -p roost-cli -- --check` | clean |
+| `cargo xtask lint` | **0 violations under `crates/roost-cli`** |
+
+**This is the CRATE gate, not the workspace gate.** It says the CLI is green in
+company with `roost-host`; it says nothing about `roost-coord` or
+`roost-worker`, and the merge changed a shared crate's contract —
+`roost-host`'s `pub trait EnvSource` gained a `Sync` supertrait — which a
+single-crate gate structurally cannot exercise. The workspace gate
+(`cargo test --workspace` twice, clippy, lint, fmt) is S3.0 and **has not run
+since the merge.** Do not read this entry as the workspace gate.
+
+**The two runs are independent, and that is worth stating rather than
+assuming**, because identical totals are exactly what a duplicated log looks
+like. They differ, with compile times 2m08s and 2m17s. A copied file matches byte
+for byte; a stripped extract has no per-test lines, and these carry 399 of them.
+
+`import-v2`, now on the merged tree as well: `import_v2_copy` **9 passed**,
+`import_v2_plan` **10 passed**. **19 passed, 0 failed**, and still the first time
+any of them has run. The row selection, the different-account refusal and the
+fingerprint filter have evidence against a real fixture rather than a claim.
+
+**The `dev_fan_out` flake, still not fixed and still not claimed to be.** Four
+consecutive greens under load — two at `d5c828f9` and two here — after it failed
+twice at `fa61f851`. The honest phrasing is the one the gate's own README uses:
+**passed under load at this SHA, not fixed.** Four green runs are evidence about
+the machine as much as about the test. If it reappears, re-run that target
+isolated once and record both results.
+
+**The runs are committed, and that is not a detail.** All six log files are on
+the branch under `gate-evidence/`, added with `git add -f` because the repo
+ignores `*.log`. Until then the only evidence for the number this merge rests on
+was four files in a worktree, and `git worktree remove` would have taken it. The
+README names which run is current and which is superseded, and **keeps** the
+superseded entries: `a13c385d`'s tests were green while its clippy was red,
+which is the whole reason a green test figure alone never certified this branch.
+
 ### Keeper client: the plan's premise was stale
 
 The plan recorded three open keeper-client defects on `v3-worker`
