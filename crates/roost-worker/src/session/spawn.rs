@@ -145,7 +145,7 @@ pub enum SpawnRefusal {
     Event(#[from] SessionEventError),
 }
 
-pub fn spawn_shell(
+pub async fn spawn_shell(
     context: &SpawnContext<'_>,
     opened_reservation: Reservation,
     close_reservation: Reservation,
@@ -226,19 +226,19 @@ pub fn spawn_shell(
     {
         Ok(child_pid) => child_pid,
         Err(reason) => {
-            release_both(context.events, opened_reservation, close_reservation);
+            release_both(context.events, opened_reservation, close_reservation).await;
             return Err(SpawnRefusal::KeeperRefused { channel_id, reason });
         }
     };
     record.child_pid = Some(child_pid);
-    if let Err(error) = context.events.emit(&opened, Some(opened_reservation)) {
+    if let Err(error) = context.events.emit(&opened, Some(opened_reservation)).await {
         context.spawner.kill_channel(channel_id);
-        release_both(context.events, opened_reservation, close_reservation);
+        release_both(context.events, opened_reservation, close_reservation).await;
         return Err(SpawnRefusal::Event(error));
     }
     // The future close's claim is now committed: it no longer blocks a snapshot,
     // and nobody else may take its capacity.
-    context.events.hold(close_reservation);
+    context.events.hold(close_reservation).await;
     if let Err(refusal) = record.fsm.send(ChannelEvent::Attach) {
         tracing::warn!(%channel_id, reason = %refusal.reason(), "a spawned channel refused its attach");
     }
@@ -286,9 +286,9 @@ fn spawn_event(
 
 /// Give both claims back. A spawn that failed after reserving must not leave the
 /// store's capacity spent on events that will never be written.
-fn release_both(events: &dyn SessionEventSink, opened: Reservation, close: Reservation) {
-    events.release(opened);
-    events.release(close);
+async fn release_both(events: &dyn SessionEventSink, opened: Reservation, close: Reservation) {
+    events.release(opened).await;
+    events.release(close).await;
 }
 
 /// The spawn/resume cwd as the session record will report it.

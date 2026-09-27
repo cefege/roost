@@ -14,7 +14,7 @@
 //! a tombstone: an orphan whose keeper died is otherwise unkillable.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use roost_observability::clock::EventClock;
 use roost_protocol::wire::brand::{SessionId, WorkerFp};
@@ -175,6 +175,21 @@ pub struct SessionManager {
     /// The stillborn births this worker has seen, and whether they say the
     /// keeper itself is handing out PTYs that print nothing.
     pub(super) dead_births: DeadBirths,
+    /// This manager, as an owned handle, for the futures it builds.
+    ///
+    /// `Weak`, and set at CONSTRUCTION rather than default: `SessionLifecycle`'s
+    /// methods return `Boxed<T>`, which is `Pin<Box<dyn Future + Send +
+    /// 'static>>`, and a `&self` receiver cannot put itself into a `'static`
+    /// future. So a method reached through `Arc<dyn SessionLifecycle>` clones
+    /// this, upgrades it, and builds its future from the OWNED `Arc` — which is
+    /// what makes that future `Send + 'static` while the trait keeps `&self` and
+    /// stays dyn compatible. `Arc` on the receiver was the other answer and the
+    /// compiler refused it: an undispatchable receiver cannot back a `dyn`.
+    ///
+    /// `Weak` and not `Arc` so the manager does not own itself. `new` returns
+    /// `Arc<Self>` precisely so this is never absent — a handle that could be
+    /// missing before it is needed is a handle that will be.
+    self_handle: Weak<Self>,
     /// The highest resize sequence asked of the keeper, per channel. Seeded
     /// from what the keeper reports it applied, because this worker's own count
     /// begins at zero and the keeper rejects a sequence it has already applied.
@@ -210,8 +225,15 @@ impl SessionManager {
         clock: Arc<dyn EventClock>,
         spawner: Arc<dyn ShellSpawner>,
         resolver: Arc<dyn ShellSpecResolver>,
-    ) -> Self {
-        Self {
+    ) -> Arc<Self> {
+        // `new_cyclic`, and the reason is not style. `Arc::get_mut` requires
+        // the weak count to be ZERO, so filling the handle after construction
+        // could never succeed — the struct's own placeholder `Weak` is already a
+        // weak reference, and the `expect` below proved it at runtime rather
+        // than at compile time. `new_cyclic` hands the `Weak` to the closure, so
+        // the handle is correct from the first instant and there is no window in
+        // which `owned()` could return `None` on a manager that exists.
+        Arc::new_cyclic(|self_handle| Self {
             worker_fp,
             sessions,
             events,
@@ -225,13 +247,26 @@ impl SessionManager {
             channels: Mutex::new(crate::strays::ChannelAllocator::new()),
             recently_closed: Mutex::new(HashMap::new()),
             resize_seqs: Mutex::new(HashMap::new()),
-        }
+            self_handle: self_handle.clone(),
+        })
+    }
+
+    /// This manager as an owned handle, for a future that must outlive `&self`.
+    ///
+    /// `None` is a DURABILITY REFUSAL and it fails closed, deliberately. If no
+    /// `Arc<SessionManager>` exists then nothing owns this manager, so a
+    /// capacity claim taken through it could not be tied to anything durable —
+    /// which is exactly the condition the reservation exists to refuse. A caller
+    /// that cannot be given a durable sink is told so rather than answered.
+    pub fn owned(&self) -> Option<Arc<Self>> {
+        self.self_handle.upgrade()
     }
 
     /// Claim durable capacity for one event of this session's own.
-    pub fn reserve(&self, kind: DurableEventKind) -> Result<Reservation, Refusal> {
+    pub async fn reserve(&self, kind: DurableEventKind) -> Result<Reservation, Refusal> {
         self.events
             .reserve(kind)
+            .await
             .map_err(|error| Refusal::failed("sessions", error.to_string()))
     }
 
@@ -240,7 +275,7 @@ impl SessionManager {
     /// keeper's own exit after a kill, or a kill after it — finds nothing to
     /// close and emits nothing. That is the exactly-once property, and it is
     /// why this takes `&self`: two callers reach it concurrently.
-    pub fn close_channel(
+    pub async fn close_channel(
         &self,
         channel_id: u16,
         exit_code: Option<i32>,
@@ -248,25 +283,45 @@ impl SessionManager {
         let Some(entry) = self.sessions.forget(channel_id) else {
             return Ok(SessionOutcome::Killed);
         };
-        let mut record = entry
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let session_id = record.session_id().clone();
-        let branded_channel_id = record.channel_id();
-        let trace_id = record.identity.session_trace_id.clone();
-        let now_ms = self.clock.now_epoch_ms();
-        let reservation = record.close_reservation;
-        let head_seq = record.head_seq;
-        super::respawn::note_birth(self, &record, now_ms);
-        let transition = record
-            .fsm
-            .close(exit_code)
-            .map_err(|refusal| Refusal::failed("sessions", refusal.reason()))?;
-        let Some(closed_code) = transition.closes else {
-            self.events.release(reservation);
+        // EVERYTHING THAT NEEDS THE RECORD HAPPENS INSIDE THIS BLOCK, so the
+        // guard goes out of SCOPE before the first `.await` below rather than
+        // being dropped by hand. That distinction is load-bearing and it cost a
+        // compile to find: an explicit `drop(record)` in one branch leaves a
+        // drop flag, and with a drop flag the compiler still considers the
+        // `MutexGuard` live across every await in the function — which makes
+        // this future `!Send` and takes `SessionManager` with it. Scoping is the
+        // only version the borrow checker can prove.
+        let (session_id, branded_channel_id, trace_id, now_ms, reservation, head_seq, closes) = {
+            let mut record = entry
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let session_id = record.session_id().clone();
+            let branded_channel_id = record.channel_id();
+            let trace_id = record.identity.session_trace_id.clone();
+            let now_ms = self.clock.now_epoch_ms();
+            let reservation = record.close_reservation;
+            let head_seq = record.head_seq;
+            super::respawn::note_birth(self, &record, now_ms);
+            let transition = record
+                .fsm
+                .close(exit_code)
+                .map_err(|refusal| Refusal::failed("sessions", refusal.reason()))?;
+            (
+                session_id,
+                branded_channel_id,
+                trace_id,
+                now_ms,
+                reservation,
+                head_seq,
+                transition.closes,
+            )
+        };
+        let Some(closed_code) = closes else {
+            // No guard to release here: the block above already ended.
+            self.events.release(reservation).await;
             return Err(Refusal::failed(
                 "sessions",
-                format!("channel {channel_id} left {transition:?} without closing"),
+                format!("channel {channel_id} closed without ending: {closes:?}"),
             ));
         };
         let event = SessionEvent::Closed {
@@ -275,9 +330,8 @@ impl SessionManager {
             ts: now_ms,
             trace_id: Some(trace_id),
         };
-        let recorded = self.events.emit(&event, Some(reservation));
-        drop(record);
-        drop(entry);
+        // No guard is in scope here either, for the same reason as above.
+        let recorded = self.events.emit(&event, Some(reservation)).await;
         self.cells
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -335,7 +389,7 @@ impl SessionManager {
     /// session this worker NEVER held. One it held already emitted its `closed`;
     /// an orphan still needs one, because a row whose keeper died can never be
     /// closed from a browser.
-    fn tombstone(&self, session_id: &SessionId) -> Result<SessionOutcome, Refusal> {
+    async fn tombstone(&self, session_id: &SessionId) -> Result<SessionOutcome, Refusal> {
         let now_ms = self.clock.now_epoch_ms();
         if self.is_recently_closed(session_id, now_ms) {
             tracing::debug!(
@@ -352,7 +406,8 @@ impl SessionManager {
         };
         match self
             .events
-            .emit(&event, Some(self.reserve(DurableEventKind::Closed)?))
+            .emit(&event, Some(self.reserve(DurableEventKind::Closed).await?))
+            .await
         {
             Ok(()) => {
                 tracing::info!(
@@ -375,9 +430,12 @@ impl SessionManager {
     /// End a session on a browser's request. A kill SUPERSEDES rather than
     /// queues: the record is closed here and now and the PTY write is not
     /// waited on, because a closed pane must not outlive its request.
-    pub fn kill_held_session(&self, session_id: &SessionId) -> Result<SessionOutcome, Refusal> {
+    pub async fn kill_held_session(
+        &self,
+        session_id: &SessionId,
+    ) -> Result<SessionOutcome, Refusal> {
         let Some(channel_id) = self.sessions.channel_of(session_id) else {
-            return self.tombstone(session_id);
+            return self.tombstone(session_id).await;
         };
         if let Err(fault) = self.keeper.kill_channel(channel_id) {
             // A keeper that has already lost the channel is the case the close
@@ -390,6 +448,6 @@ impl SessionManager {
                 "the keeper would not take a kill; the session is closed anyway"
             );
         }
-        self.close_channel(channel_id, Some(0))
+        self.close_channel(channel_id, Some(0)).await
     }
 }

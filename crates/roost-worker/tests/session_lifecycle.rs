@@ -17,14 +17,15 @@ use session_support::{Harness, NOW, OTHER, SESSION, session_id};
 /// A SESSION THAT ENDS TWICE IS ONE CLOSE. The second kill finds no record, so
 /// it takes the tombstone path — and a session this worker closed itself is not
 /// tombstoned, because the coordinator already holds its `closed`.
-#[test]
-fn a_session_that_ends_twice_emits_one_close() {
+#[tokio::test]
+async fn a_session_that_ends_twice_emits_one_close() {
     let harness = Harness::new();
     harness.install(SESSION, 7, "/home/user/project", "/home/user/project");
     assert_eq!(
         harness
             .manager
             .kill_held_session(&session_id(SESSION))
+            .await
             .unwrap(),
         SessionOutcome::Killed
     );
@@ -37,6 +38,7 @@ fn a_session_that_ends_twice_emits_one_close() {
         harness
             .manager
             .kill_held_session(&session_id(SESSION))
+            .await
             .unwrap(),
         SessionOutcome::Killed,
         "a kill of a session this worker already ended is not an error"
@@ -62,13 +64,14 @@ fn a_session_that_ends_twice_emits_one_close() {
 
 /// A SESSION THIS WORKER NEVER HELD still gets a tombstone, because a row whose
 /// keeper died can never be closed from a browser otherwise.
-#[test]
-fn a_kill_of_an_orphan_publishes_a_tombstone() {
+#[tokio::test]
+async fn a_kill_of_an_orphan_publishes_a_tombstone() {
     let harness = Harness::new();
     assert_eq!(
         harness
             .manager
             .kill_held_session(&session_id(OTHER))
+            .await
             .unwrap(),
         SessionOutcome::Killed
     );
@@ -84,8 +87,8 @@ fn a_kill_of_an_orphan_publishes_a_tombstone() {
 
 /// A CLOSE THAT CANNOT BE RECORDED IS ITS OWN OUTCOME, because no retry fixes a
 /// coordinator that will believe a dead session is alive forever.
-#[test]
-fn an_unrecordable_close_reports_durability_lost() {
+#[tokio::test]
+async fn an_unrecordable_close_reports_durability_lost() {
     let harness = Harness::new();
     harness.install(SESSION, 7, "/home/user/project", "/home/user/project");
     *harness.sink.fail_next.lock().expect("held") = true;
@@ -93,6 +96,7 @@ fn an_unrecordable_close_reports_durability_lost() {
         harness
             .manager
             .kill_held_session(&session_id(SESSION))
+            .await
             .unwrap(),
         SessionOutcome::DurabilityLost
     );
@@ -101,8 +105,8 @@ fn an_unrecordable_close_reports_durability_lost() {
 
 /// A CLAIM ANSWERS WITH THE FLOOR WHEN THE VIEWER FELL BELOW IT, because a
 /// window this worker cannot address is not a window it may serve.
-#[test]
-fn a_claim_from_below_the_floor_answers_the_floor() {
+#[tokio::test]
+async fn a_claim_from_below_the_floor_answers_the_floor() {
     let harness = Harness::new();
     harness.install(SESSION, 7, "/home/user/project", "/home/user/project");
     harness
@@ -111,12 +115,18 @@ fn a_claim_from_below_the_floor_answers_the_floor() {
             record.append_retained(b"0123456789");
         })
         .expect("live");
-    let answered = harness.manager.claim_viewer(&session_id(SESSION), Some(3));
+    let answered = harness
+        .manager
+        .claim_viewer(&session_id(SESSION), Some(3))
+        .await;
     assert_eq!(
         answered.unwrap(),
         SessionOutcome::Attached { replay_offset: 3 }
     );
-    let clamped = harness.manager.claim_viewer(&session_id(SESSION), Some(99));
+    let clamped = harness
+        .manager
+        .claim_viewer(&session_id(SESSION), Some(99))
+        .await;
     assert_eq!(
         clamped.unwrap(),
         SessionOutcome::Attached { replay_offset: 10 },
@@ -157,8 +167,8 @@ async fn the_kill_arm_answers_with_what_the_close_path_did() {
 /// the same record a moment later with a byte on it is not, because a real
 /// shell prints a prompt before it exits; and a child that lived long enough is
 /// ordinary whatever it printed.
-#[test]
-fn a_fast_child_with_no_output_is_stillborn_and_one_with_output_is_not() {
+#[tokio::test]
+async fn a_fast_child_with_no_output_is_stillborn_and_one_with_output_is_not() {
     let harness = Harness::new();
     harness.install(SESSION, 7, "/home/user/project", "/home/user/project");
     let silent = harness

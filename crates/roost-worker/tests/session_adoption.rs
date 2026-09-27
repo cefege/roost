@@ -6,6 +6,7 @@
 
 mod session_support;
 
+use futures_util::FutureExt as _;
 use std::sync::Arc;
 
 use roost_keeper::history::HistoryRecord;
@@ -71,7 +72,12 @@ fn an_adoption_seeds_the_head_from_the_keeper_not_from_the_retained_bytes() {
     // that has already been reduced to a bool, so a failure prints `false` and
     // says nothing about which claim was refused.
     assert!(
-        harness.sink.reserve(DurableEventKind::Closed).is_ok(),
+        harness
+            .sink
+            .reserve(DurableEventKind::Closed)
+            .now_or_never()
+            .expect("a reserve against the in-memory fake is ready at once")
+            .is_ok(),
         "the claim the adoption consumed is the one it was given"
     );
 }
@@ -137,6 +143,8 @@ fn three_stillborn_births_in_the_window_say_the_keeper_is_degraded() {
                 .kill_held_session(&session_id(&format!(
                     "00000000-0000-4000-8000-00000000000{index}"
                 )))
+                .now_or_never()
+                .expect("a kill against the in-memory fakes completes at once")
                 .expect("a held session"),
             SessionOutcome::Killed
         );
