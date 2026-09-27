@@ -684,12 +684,27 @@ them. But the one candidate that mattered was invisible to both a diff review an
 a passing test suite, and the filter that found it is one `grep`.
 
 **THE RULE THIS PRODUCES, and it is the only one here that closes the class
-rather than the instance.** Six capabilities have now been found unreachable by
+rather than the instance.** Seven capabilities have now been found unreachable by
 one instrument — `adopt_survivor`, `WorkerCapabilities`, `cell_row_json`, the
-`LiveEffects` pair, the coordinator's `ClientSeqCursor`, and the whole deferred-
-append path including its flag, its store field, its claim hand-back and two
-green tests. In every case the instrument was `grep` for the type or the field,
-and in every case a review, a diff read, and a passing suite had all missed it.
+`LiveEffects` pair, the coordinator's `ClientSeqCursor`, the whole deferred-append
+path including its flag, its store field, its claim hand-back and two green tests,
+and `WorkerRouteIndex::bind`. In every case the instrument was a `grep` for the type
+or the field, and in every case a review, a diff read, and a passing suite had all
+missed it.
+
+**THE COUNT WILL KEEP MOVING, so do not cite it — grep, and add to the list.** A
+number in this file is a number from the day it was written, and the day this class
+grew from six to seven the only thing that changed was that someone ran the filter
+again. The list is the durable part; the tally is not.
+
+**AND THE SEVENTH INVERTS THE PATTERN, which is why it is the one worth having.**
+The first six are code nobody calls — dead weight. `WorkerRouteIndex::bind` is a call
+nobody has made *yet*: it is a method the tree **needed and did not have**, so its
+absence was going to force a new public API invented to paper over it. **That is a
+stronger argument for the filter than the other six, because it is not only finding
+code nobody calls — it is finding the calls nobody has made yet, and the gap between
+those two is exactly where a new interface gets invented.** A filter that only found
+dead weight would be a cleanup tool; this one finds the seams the next commit needs.
 
 **So: assert reachability, in the tests that already cover the capability.** A
 test that proves a value is right is not the same claim as a test that proves
