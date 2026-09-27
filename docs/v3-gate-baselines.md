@@ -836,14 +836,13 @@ inferred after one:**
 row, and a row flips only in the same commit whose `service_impl.rs` arm calls
 the real handler. The ratchet is doing its job by not moving.
 
-**`v3-worker` @ `57bd7f74` is at 2 `UNIMPLEMENTED`** — `credential.rs`,
-`link_wire.rs`, `snapshot_source.rs` and the reconcile block are closed; the two
+**`v3-worker` @ `57bd7f74` is at 2 `UNIMPLEMENTED`, down from `v3`'s 6** — and
+that comparison is measured on both trees, not inferred. On `v3` the six are
+`credential.rs:38`, `link_wire.rs:39`, `snapshot_source.rs:39`,
+`runtime/mod.rs:140` and `:170`, and `link_serve.rs:98`. On `v3-worker` the two
 that remain are `runtime/mod.rs:283` (the local door) and
-`runtime/link_serve.rs:113` (the hello `capabilities` list). This line previously
-read *"down from `v3`'s 6"*, and both halves of that were wrong: `v3` does not
-carry the worker's `session/` tree at all, so there was no figure there to have
-been 6, and no measurement of 6 on `v3-worker` was ever taken to have dropped
-from. It also cited `runtime/mod.rs:282`, which the tree has since moved past.
+`runtime/link_serve.rs:113` (the hello `capabilities` list); `credential.rs`,
+`link_wire.rs`, `snapshot_source.rs` and the reconcile block are closed.
 
 **AND THAT EXPOSED A CONTRADICTION IN THE PLAN, recorded here so the gate is not
 failed for someone else's sequencing error.** 2W-DOOR, the local door, was
@@ -1929,17 +1928,13 @@ the first time it has been checked on a merged tree.
 Everything measured on 2026-09-27 while the tracks were running is in the
 sections above, and each says which tree it was measured on:
 
-- **EXPECTED RED** — the one deliberately red test, its commit, and its green condition.
 - **The gate ratchets** — on `v3` @ `ee72e0f1`: `AwaitingDomainPort` 27,
   `UnwiredInV2` 16, `UNFINISHED` 3 (all three `#[ignore]` attributes, in
   `push_sender_bounds.rs:175` and `sync_v2_send_queue.rs:215,257`), `todo!` 0.
-  On `v3-worker` @ `57bd7f74`: `UNIMPLEMENTED` **2**, and both are
-  comments, `runtime/mod.rs:283` (the local door) and `link_serve.rs:113`. The
-  line previously carried `6` with **no tree named at all**, which is the habit
-  this file exists to break: a number with no tree beside it cannot be checked
-  against anything, and I cannot confirm the `6` was ever true — it was copied
-  forward from a report rather than measured here. Whether it was ever 6 is a
-  separate question I have not answered, and this line does not claim it moved.
+  Worker `UNIMPLEMENTED`: **6 on `v3`**, **2 on `v3-worker` @ `57bd7f74`** — both
+  measured, and the distance between them is the worker track landing. The
+  detail, with the file and line of each marker on each tree, is in the worker's
+  own entry below.
 - **`xtask lint` on `v3`** — all ten violations enumerated, and what each track's merge clears.
 - **The unreached-module rule** — the guarded sweep, its canary, and the eight files it found on `v3-web`.
 - **The import check** — why it recomputes its counts and restates the fingerprint filter in its own SQL.
