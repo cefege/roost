@@ -190,7 +190,7 @@ impl SessionManager {
             );
             drop(delivery);
             drop(record);
-            report_capture_loss(&session_id, raw, loss);
+            report_capture_loss(session_id.as_str(), raw, loss);
             return Ok(outcome);
         }
         let (outcome, loss) = self.close_capture(
@@ -201,7 +201,7 @@ impl SessionManager {
         );
         drop(delivery);
         drop(record);
-        report_capture_loss(&session_id, raw, loss);
+        report_capture_loss(session_id.as_str(), raw, loss);
         tracing::info!(
             session_id = %session_id,
             channel_id = raw,
