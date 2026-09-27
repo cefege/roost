@@ -38,6 +38,9 @@ serde_json.workspace = true
 sha2.workspace = true
 sqlx = { workspace = true, features = ["sqlite", "runtime-tokio", "macros", "migrate"] }
 thiserror.workspace = true
+# The export route streams a database copy of unbounded size into a response
+# body; `tokio_util::io::ReaderStream` is the named seam for a file as a body.
+tokio-util = { workspace = true, features = ["io"] }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true

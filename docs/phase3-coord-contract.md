@@ -1267,6 +1267,25 @@ Caching: `index.html` → `no-cache, no-store, must-revalidate`; `assets/` →
 `public, max-age=31536000, immutable`; `fonts/*` → `public, max-age=604800`;
 everything else stable → `no-cache`.
 
+**THE MOUNT IS A MIDDLEWARE OUTSIDE THE ROUTER, NOT A `Router::fallback`.**
+This is a deliberate departure from the plan's wording ("the router fallback,
+before the Connect service") and it is a better mechanism for the same
+requirement, not a different requirement. `Router::fallback` fires only when
+nothing else matched; middleware must pass through explicitly. That
+difference is load-bearing for the two WebSocket upgrades: a fallback cannot
+shadow a mounted route, while a middleware that forgot one exclusion could —
+and the exclusion list (`/roost.`, `/ws/`, `/api/`) is a list that a future
+`/ws/*` upgrade can be added to by forgetting. The two `Admitted` arms in
+`http/upgrade.rs` are mounted routes, and this is the property that makes
+adding them safe.
+
+The order it preserves is v2's, from the one fetch handler
+(`apps/coord/src/coord-factory.ts:167-196`): Connect first, then the export,
+then `/api/*`, then the SPA — with the upgrades and the export reached through
+the router untouched. The path decision itself is
+`roost_host::spa_path::resolve`, pure and shared with the worker's local door,
+so the two front doors cannot drift.
+
 ### 6.3 Health, metrics, and TLS
 
 **There is no `/health` HTTP route and no `/metrics` route.** Health is (a) the

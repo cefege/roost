@@ -15,7 +15,9 @@
 //! - the resync retry, once a heartbeat per generation, so one gap is one request
 //!   rather than a storm;
 //! - the view heartbeat, so a pane that has gone quiet releases the session's
-//!   minimum size after the park grace instead of pinning it forever.
+//!   minimum size after the park grace instead of pinning it forever;
+//! - the agent-status acknowledgement write, and the retirement of the released
+//!   occupants this profile has already been told about.
 //!
 //! Depends on `effect`, `store` and `terminal`; called only by `handle_event`.
 
@@ -32,10 +34,36 @@ pub fn handle_sweep(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
         out.push(Effect::PersistWatermark { event_id });
     }
 
+    // The acknowledgement ledger second, and for the same reason: one write per
+    // sweep no matter how many rows the reader looked at since the last one.
+    if store.agent_seen_dirty {
+        store.agent_seen_dirty = false;
+        out.push(Effect::PersistAgentSeen {
+            encoded: store.agent_seen.encode(),
+        });
+    }
+
+    // Retiring is here rather than on the frame because retirement is a
+    // CONVERSATION between two reports and an acknowledgement: a released
+    // occupant's row outlives the frame that released it until this profile has
+    // been told, and no single report can know that.
+    if !store
+        .agent_status
+        .retire_spent_released(&store.agent_seen)
+        .is_empty()
+    {
+        store.note_change();
+    }
+
     let session_ids: Vec<String> = store.terminal.keys().cloned().collect();
     for session_id in session_ids {
-        if let Some(replica) = store.terminal_mut_if_present(&session_id) {
-            replica.sweep(now_ms);
+        let dropped = store
+            .terminal_mut_if_present(&session_id)
+            .is_some_and(|replica| replica.sweep(now_ms));
+        if dropped {
+            // `sweep` reports that it dropped a stalled partial, which clears
+            // the in-flight flag and may latch a repair behind it.
+            store.note_change();
         }
         request_repair_if_due(store, &session_id, now_ms, out);
         republish_due_views(store, &session_id, now_ms, out);
@@ -43,12 +71,18 @@ pub fn handle_sweep(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
 
     // Held input. A batch that waited out its admission is REFUSED, not sent:
     // nothing left the client, so refusing it cannot lose a keystroke.
+    let mut refused_any = false;
     for outcome in store.input.sweep_held(now_ms) {
+        refused_any = true;
         tracing::info!(
             target: "terminal",
             input_seq = outcome.input_seq(),
             "held terminal input refused at its admission timeout"
         );
+    }
+
+    if refused_any {
+        store.note_change();
     }
 }
 

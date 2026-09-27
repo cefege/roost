@@ -30,6 +30,22 @@ pub const SYNC_WATERMARK_KEY: &str = "roost.syncLastEventId";
 /// the socket: redialing would present the same rejected credential, so the
 /// client stops and reports instead of looping.
 pub const SYNC_AUTH_REVOKED_CLOSE_CODE: u16 = 4_001;
+/// Close code the coordinator uses when backpressure ends the socket: the
+/// application window was exceeded, so records are held rather than dropped and
+/// the client is expected to redial and resume from its cursor.
+///
+/// The coordinator names the same value `SYNC_CONNECTION_REJECTION_CLOSE_CODE`
+/// (`protocol/spec/sync.md:47`); 1013 is the RFC 6455 "try again later" code and
+/// both ends mean the same thing by it.
+pub const SYNC_BACKPRESSURE_CLOSE_CODE: u16 = 1_013;
+
+/// Close code THIS client uses to end a socket whose generation is finished,
+/// after a terminal liveness timeout.
+///
+/// Client-initiated on purpose: the coordinator cannot distinguish "this tab gave
+/// up on a dead worker" from "this tab went away", and a 1013 from the other
+/// side would read as coordinator backpressure and start a redial storm.
+pub const SYNC_GENERATION_RETIRED_CLOSE_CODE: u16 = 4_000;
 
 /// How many pre-hydration frames are retained before the oldest is dropped.
 ///

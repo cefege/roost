@@ -7,10 +7,63 @@
 //! Depends on `roost_protocol` for the session projection, and on the terminal
 //! and sync modules for their own state. It adds no rules of its own.
 
+pub mod browse_entries;
+pub mod browse_machine;
+pub mod browse_paths;
+pub mod browse_state;
+pub mod layout;
+pub mod mutations;
+pub mod navigation;
+pub mod optimistic_spawn;
+pub mod palette;
+pub mod paths;
+pub mod pending_close;
+pub mod prefs;
+pub mod root;
+pub mod selectors;
+pub mod spotlight;
+pub mod toasts;
+pub mod transfers;
+pub mod ui;
+
+pub use mutations::{PairRequest, delete_pair_request, delete_worker, replace_workers};
+pub use navigation::{
+    NavigationSearchAttention, NavigationSearchDocument, NavigationSources,
+    project_navigation_search_documents,
+};
+pub use optimistic_spawn::{
+    ClientOnlySession, SpawnSettlement, SpawnTicket, begin_optimistic_spawn, settle_spawn_rejected,
+};
+pub use paths::{ExactWorkerPaths, WorkerPaths};
+pub use pending_close::CloseLabels;
+pub use root::{BrowserAccessState, captured_generation_is_current};
+pub use spotlight::Spotlight;
+pub use toasts::{Toast, ToastId, ToastKind, ToastSource};
+pub use transfers::{Transfer, TransferDirection, TransferState};
+
+/// The wire vocabulary a host needs to CALL these selectors and build the rows
+/// the projections take.
+///
+/// Re-exported rather than left to a second dependency edge: `SessionPlane`
+/// already hands out `&Session` and `SessionMap` publicly
+/// (`sessions.rs:50-56`), so the types this module traffics in are already part of
+/// this crate's API. A host — and this crate's own behaviour tests — should not
+/// need a `roost-protocol` dependency to name a row.
+pub use roost_protocol::wire::{
+    ChannelId, McpRelay, Session, SessionId, SessionKind, SessionMap, SessionStatus, Worker,
+    WorkerFp, WorkerOs, WorkspaceId,
+};
+
 use std::collections::BTreeMap;
 
 use crate::search::FindMatch;
 use crate::sessions::SessionPlane;
+use crate::store::optimistic_spawn::SpawnLedger;
+use crate::store::pending_close::PendingCloses;
+use crate::store::prefs::Prefs;
+use crate::store::toasts::ToastStack;
+use crate::store::transfers::TransferStack;
+use crate::store::ui::UiState;
 use crate::sync::SyncState;
 use crate::terminal::session::TerminalSession;
 use crate::terminal::token::TerminalToken;
@@ -42,17 +95,95 @@ pub struct Store {
     /// row carries its own grid epoch, and a list rebuilt from the replica would
     /// re-point old results at whatever the grid has become.
     pub find_results: BTreeMap<String, Vec<FindMatch>>,
+    /// The worker registry, by fingerprint. Mutated only through
+    /// `store::mutations`, which is where the bootstrap list lands.
+    pub workers: BTreeMap<String, Worker>,
+    /// Advances whenever this browser's authenticated resources become obsolete.
+    /// Work that captured an older generation may no longer write.
+    pub auth_generation: u64,
+    /// Whether this browser's device key is trusted. `checking` until the
+    /// protected sessions snapshot publishes, which is the closed default.
+    pub browser_access_state: BrowserAccessState,
+
+    /// The notification cards, their identity, and their deadlines. Mutated
+    /// only through `store::toasts`.
+    pub toasts: ToastStack,
+    /// The upload/download cards. Mutated only through `store::transfers`.
+    pub transfers: TransferStack,
+    /// Which session is floated, and how many panes the deck shows. Mutated
+    /// only through `store::spotlight`.
+    pub spotlight: Spotlight,
+    /// Chrome state that is not a session: the sidebar, the drawer, the
+    /// folder view. Mutated only through `store::ui`.
+    pub ui: UiState,
+    /// Per-device preferences. Loaded once at boot and persisted by the same
+    /// functions that change it, so a stored value and its in-memory value
+    /// cannot disagree. Mutated only through `store::prefs`.
+    pub prefs: Prefs,
+
+    /// Per-session agent status, projected through the SHARED ordering
+    /// predicate in `roost_protocol::wire::agent_status::order` rather than
+    /// one restated here. v2 had a second copy in the web store that could
+    /// disagree with the coordinator's, and a client showing a stale status
+    /// has nothing to contradict it.
+    pub agent_status: crate::client::agents::AgentStatusProjection,
+    /// Which occupant and epoch this browser has already seen, so a report
+    /// that arrives after the one it supersedes is dropped rather than
+    /// applied and then re-dropped by the projection.
+    pub agent_seen: crate::client::agents::AgentSeenLedger,
+    /// Whether the acknowledgement ledger owes the host a write.
+    ///
+    /// Latched by the acknowledgement paths and cleared by the sweep that emits
+    /// `Effect::PersistAgentSeen`, which is what makes a burst of
+    /// acknowledgements one write. Initialise it to `false` in `Store::new`.
+    pub agent_seen_dirty: bool,
+    /// Machine-scoped browse state. Keyed by machine, not by path: two
+    /// machines can hold the same folder path and a path is not an identity.
+    pub browse: crate::store::browse_state::BrowseState,
+    /// The fleet-wide content search: one outstanding page, a client-minted
+    /// search id, and the reconciliation a cursor-paged answer needs.
+    pub global_search: crate::client::global_search::GlobalSearchController,
+    /// In-flight optimistic spawns, and the tombstones of the ones a user
+    /// retracted. Mutated only through `store::optimistic_spawn`.
+    pub spawns: SpawnLedger,
+    /// Sessions whose close is waiting out its undo window. Mutated only
+    /// through `store::pending_close`.
+    pub pending_closes: PendingCloses,
+    /// The MCP relays the coordinator published. Mutated only through
+    /// `store::mutations`.
+    pub mcp_relays: BTreeMap<String, McpRelay>,
+    /// Pair requests this browser is waiting on, keyed by their ephemeral id.
+    /// Mutated only through `store::mutations`.
+    pub pair_requests: BTreeMap<String, PairRequest>,
+
     /// The next Connect call id, so a result is correlated with its call.
     next_call_id: u64,
     /// The next staging attempt id. Monotonic, so a slow fold cannot overwrite a
     /// newer one.
     pub next_attempt_id: u64,
+    /// How many mutations this store has accepted.
+    ///
+    /// A host reads it after every `handle` and repaints the chrome when it
+    /// moved. A COUNTER rather than a flag, for two reasons that are the same
+    /// reason: "has anything changed since I looked" is a comparison, and a
+    /// comparison cannot be lost by a reader that looked twice or by a writer
+    /// that fired twice between two reads. A boolean has to be cleared, and
+    /// "who clears it, and when" is a second question with a second wrong
+    /// answer — a reader that clears what it has not read yet loses a repaint,
+    /// and one that never clears repaints per event.
+    ///
+    /// It moves where a mutation LANDS, not once per `handle`. A keepalive and
+    /// a cell frame the fold refused both reach `handle` and change nothing,
+    /// and a host that repaints per control frame turns a busy socket into a
+    /// busy main thread. `note_change` is the only thing that moves it.
+    revision: u64,
 }
 
 impl Store {
     /// An empty store, presenting `tab_id` on every dial.
     pub fn new(sync: SyncState, tab_id: impl Into<String>) -> Self {
         Self {
+            revision: 0,
             sessions: SessionPlane::new(),
             sync,
             tab_id: tab_id.into(),
@@ -60,10 +191,31 @@ impl Store {
             account_id: None,
             terminal: BTreeMap::new(),
             routes: RouteRegistry::new(),
+            workers: BTreeMap::new(),
+            auth_generation: 0,
+            browser_access_state: BrowserAccessState::Checking,
             input: InputRouter::new(),
             find_results: BTreeMap::new(),
             next_call_id: 1,
             next_attempt_id: 1,
+            // The four slices a sibling added to this struct; their declarations
+            // are here and their zero-arg constructors are wired here, because a
+            // field with no initialiser does not compile and this file is the one
+            // that owns the constructor.
+            agent_status: crate::client::agents::AgentStatusProjection::new(),
+            agent_seen: crate::client::agents::AgentSeenLedger::new(),
+            agent_seen_dirty: false,
+            browse: crate::store::browse_state::BrowseState::new(),
+            global_search: crate::client::global_search::GlobalSearchController::new(),
+            toasts: ToastStack::new(),
+            transfers: TransferStack::new(),
+            spotlight: Spotlight::new(),
+            ui: UiState::new(),
+            prefs: Prefs::new(),
+            spawns: SpawnLedger::new(),
+            pending_closes: PendingCloses::new(),
+            mcp_relays: BTreeMap::new(),
+            pair_requests: BTreeMap::new(),
         }
     }
 
@@ -86,6 +238,20 @@ impl Store {
     /// A session's replica, mutable, if one exists.
     pub fn terminal_mut_if_present(&mut self, session_id: &str) -> Option<&mut TerminalSession> {
         self.terminal.get_mut(session_id)
+    }
+
+    /// How many mutations this store has accepted.
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// Record that a mutation landed here.
+    ///
+    /// `pub(crate)` because the only writers are the `handle_*` functions in
+    /// this crate, and a host that wrote the store itself would be a second
+    /// state machine with a revision nobody increments.
+    pub(crate) fn note_change(&mut self) {
+        self.revision += 1;
     }
 
     /// The generation the client is currently fenced to, from the live socket.
@@ -117,5 +283,10 @@ impl Store {
         self.terminal.remove(session_id);
         self.find_results.remove(session_id);
         self.input.set_phase(session_id, InputPhase::Closed);
+        // A card whose button reveals a session that no longer exists is a button
+        // that navigates to nothing, so the cards go with the session. The inner
+        // form does NOT note the change: this method has never bumped, and the
+        // caller that owns the teardown notes it once for all four writes.
+        crate::store::toasts::remove_toasts_for_session(&mut self.toasts, session_id);
     }
 }

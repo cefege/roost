@@ -136,14 +136,379 @@ style,class_list}` are missing from the manifest. It went unnoticed because
 `crates/roost-cli/src/dev/signal.rs` is the fixed version everywhere. The
 dangerous version of that file exists on no branch in this family.
 
+## Track gates as they land
+
+### CLI: `v3-cli` @ `b35f0f65`, merged into `v3` as `0ad703be`
+
+`cargo test -p roost-cli --no-fail-fast`, **two agreeing runs**: all 37
+`test result:` lines read `ok`, 0 failed anywhere, both times. The baseline on
+this branch was **17 failures across 11 binaries**.
+
+**The merge itself is verified, which is a separate claim from the suite.**
+`cargo check --workspace --all-targets` on `v3` @ `0ad703be`: **0 errors**,
+finished clean. That merge carried 24,231 insertions across 116 files including
+a 45-file rustfmt reformat, and a green suite on the branch says nothing about
+whether the merge broke a sibling crate. This is the check that says so, and it
+is cheap next to a full test build, so it is the one to reach for after any
+track merge rather than discovering the answer inside a gate.
+
+**Thirteen warnings came over with it, and they decide the clippy gate on their
+own** under `-D warnings`: unused `code` (`api/agent_prompt.rs:102`), `args`
+(`api/scrollback.rs:109`), `row` (`api/ui.rs:37`) and a missing `Debug` on
+`api/client.rs:42` and `quickstart/install.rs:55`; unused `with`; and unused
+imports or bindings in `deploy_release_path.rs`, `deploy_release_stage.rs`,
+`update_recovery.rs` and `update_self_replace.rs`. They are pre-existing on
+`v3-cli` and owed there, and the fix is to delete the dead binding rather than
+to allow the warning away — an allowed warning is a lint rule that has stopped
+existing.
+
+The 17 were **6 product defects and 11 wrong expectations**, and the split held
+under re-reading. It is worth recording WHY, because "17 red" reads as a broken
+port and it was not: the product defects were a payload preview that trimmed
+where v2 collapsed in place; a dial-URL resolution that asked
+installed-then-ambient *per name* so a shell exporting the most specific name
+outranked the installed definition and silently enrolled the next machine at the
+wrong door; a service spec that took `GIT_SHA` from the running binary's
+compile-time stamp, so every definition named a commit nobody installed; a
+failed commit decision exiting 1 instead of 8, which a wrapper reads as
+"retry the same transaction"; and — the one that would have broken the cutover —
+booleans written with Rust's `Display` (`ROOST_TRUST_PROXY=true`) where the
+loader reads `== "1"` and `parse_terminal_peer_enabled` refuses `true`
+outright, so installs came up with the wrong front-door policy or would not
+boot at all.
+
+That last one had a second defect behind it, found by following the failure one
+assertion further rather than stopping at the fix: the Cloudflare Access pair
+was written BLANK when unset, and the host refused a blank team domain while
+`normalize_https_origin` reads a blank public URL as unset. **Every coordinator
+installed without Cloudflare Access got a definition it could not boot from.**
+The root cause was in the host loader and is fixed there; the CLI omission is
+kept as v2 parity. A test that stops at the assertion it was given will find
+the surface, not the cause.
+
+`clippy -D warnings` and `xtask lint` were **not run** on that branch — the
+build queue was spent getting the push out. Six pre-existing `roost-cli`
+warnings are still owed there, and `xtask lint` has never been run in its
+workspace form by anyone.
+
+### Web: the first published gate, and the six values it deliberately leaves
+
+`v3-web` @ `b10646fc`, merged into `v3`. `cargo test -p roost-client-core
+-p roost-web-terminal --no-fail-fast`, **two agreeing runs: 47 binaries, 320
+passed, 0 failed, 0 ignored.** `wasm32-unknown-unknown` clean, clippy `-D
+warnings` 0, `xtask fmt` clean.
+
+**The 51 errors were not a `cfg` gap, and knowing why changed the fix.** The
+sibling `impl` files had been written against a *different web-sys than the
+lockfile pins*: 0.3.106 has no `Element::style` (it is on `HtmlElement`),
+`get_bounding_client_rect` returns `DomRect` and not `Result`,
+`Document::create_text_node` returns `Text` and not `Result`, `HtmlCollection`
+has no `get`. The fix was therefore a new seam, not a gate — `element_style.rs`
+owning the two properties the stable surface does not expose. And inside it, a
+choice worth keeping: **`scrollTop` is read and written as a `double` via
+`js_sys::Reflect`, because the `i32` accessor rounds a reader that moved half a
+row to *unmoved*** — which is exactly the state the follow-band predicate and
+the owned-write check are asked about. A rounding accessor would make those two
+predicates unanswerable.
+
+**All four web mutation rows bit**, against a gate doc that recorded one
+historically did not. Two results inside that: **M-U1 bit wider than
+pre-registered** (9 tests, not the predicted one), which means the edit sits
+under more behaviour than the row's author knew; and **M-U3's control was
+passing for the wrong reason** — green because the defect under test had
+inverted its own guard, so it proved the control worked and proved nothing
+about the property. Only running the row tells you which of the two you have.
+
+**Six raw values remain in `sidebar.css`, and the baseline now says six.** v2
+baselined this same file at **35** and never drove it to zero, so this is
+inherited debt and the number is going down (35 → 9 → 6). Three mapped with no
+judgement at all; the remaining six are a U-3 design decision and are listed
+here so the next person is not rediscovering them:
+
+| Line | Selector | Value | Why it is not a lookup |
+|---|---|---|---|
+| 432 | `.mobile-deck-count` | `13px` | ramp has 12 and 14, no 13. The sibling `--fraction` block already uses `var(--md-label-m-size)`, so it reads as an off-ramp one-off — but 13 → 12 or 14 changes the badge |
+| 604 | `.terminal-card-title` | `13px` | same off-ramp, one step |
+| 673 | `.terminal-card-preview-glyph` | `40px` | `--md-display-s-size` is 36px; the 40px in the tree is a `-line` token, not a size |
+| 384 | `.roost-zzz-1` | `6px` | decorative floating badge digit, deliberately below the ramp floor of 11px |
+| 385 | `.roost-zzz-2` | `8px` | same; 8px exists only as `--md-space-2`, which would be a spacing token doing a type job |
+| 659 | `.terminal-card-preview-text` | `7px` | a monospace preview scaled to fit a 28px card |
+The last three would need **ramp steps added**, which is designing. A baseline
+set at six is the ratchet doing its job — hold the line here, drive it down from
+here — and a baseline set at nine without the migration would have been the
+opposite. The distinction is not the number, it is whether the number came down
+first.
+
+### Coordinator: `v3-coord` @ `81e492b6`
+
+`cargo test -p roost-coord -p roost-host --no-fail-fast`, **two agreeing runs:
+728 passed / 0 failed / 0 ignored**, both times. `roost_host --test spa_path`
+7/7; `middleware_spa` 7/7; `diagnostics_rpc` 9/9. Clippy and `xtask fmt` were
+re-run after the last edits and their results are reported, not predicted.
+
+**The ratchet moved 31 → 27 `AwaitingDomainPort`**, each row flipped in the same
+commit whose `service_impl.rs` arm calls real code: `AuthCoordIdentity`,
+`MiscMetrics`, `AuditList`, `DiagDebugLogBatch`.
+
+**`mcp_relays_authority::a_publish_the_store_cannot_answer_is_refused_inside_the_busy_timeout` PASSES.** That is the test this whole programme held open from its first measurement, and it is settled by a run rather than by an argument. The cause was a race the reading had missed: the deadline arm already answered `Unavailable`, but the pool's own `acquire_timeout` is the *same* 5 s as `STORE_DEADLINE`, so `sqlx::Error::PoolTimedOut` won the race into the blanket `Internal` mapping. "A connection that was not free is not a statement that failed."
+
+**And the propagation was deliberately refused.** Five other sites map `PoolTimedOut → Internal` — `push/rpc.rs`, `ui_state/fence.rs`, `workers/rpc.rs`, `sessions/tasks.rs`, `rpc_transcription.rs` — and v2 has no pool and reports a busy database as `Internal`. Propagating would have been a parity regression on five methods to make one uniform, i.e. optimising for a shape rather than for a behaviour. **The mapping belongs in one shared helper that takes the domain's declared answer**, so it cannot drift, without silently rewriting five of them.
+
+**Four defects the verification found, and three of them are the reason it was worth running.** One is a live production bug on the front door:
+
+- **`middleware/security.rs` overwrote `Vary`.** The CORS layer runs *outside* the SPA, so it sets the header *last*, and its `insert` dropped `accept-encoding` — the token that says a bundle's two answers differ. A shared cache would have handed a gzipped body to a client that refused gzip. Fixed by merging (`append_vary`) rather than replacing, and the SPA test now asserts BOTH tokens survive so neither layer can regress alone. **The generalisable part: a layer that touches a response header is a candidate for this class whenever the composition order changes, and the order is what makes it possible.**
+- **`middleware_spa` used `#[tokio::test]`** whose current-thread runtime starves the task `axum::serve` is spawned onto, and the fixture's `get` is a *blocking* socket read. All seven failed on a 10 s read timeout and **none of them were about the SPA**. Any new listener-backed test binary needs `flavor = "multi_thread"`.
+- The export sweep counted only its surplus removals, so a boot sweep emptied the directory and reported zero.
+- `roost-host` forbids the literal `v2` anywhere in the crate, and the citations broke its install-identity test.
+
+**Three of the lead's own assertions were wrong about correct code**, and one of those is the finding: it compared two reads of a running clock, which is a coin flip on a loaded machine. **A flaky test is worse than no test** — it spends the reader's trust and returns nothing. Delete it or bound it; do not re-run until green and call that a pass.
+
+`xtask lint` reports 2 violations, both in `crates/roost-keeper/tests/`, and both are `v3`'s rather than this track's: the worker branch has carried the restated keeper lint table and all seven binary-level allows since `84be2a9d`, and they clear when that branch merges. The gate number is 2 pending a queued merge, not 2 with a caveat.
+
+**The permanent backstop, and why the direction it checks is the one that matters.**
+`crates/roost-coord/tests/method_route_implementation.rs` checks the method
+table against the **IMPL**, where `method_route_coverage.rs` checks it against
+the **PROTO**. The proto direction cannot lie silently; the impl direction can: a
+row marked `Implemented` whose arm is still `delegated_reply` compiles, passes
+every other test in the tree, and tells a reader the method works.
+
+**It found one on its first run, and the shape of the symptom is the argument for
+it.** `Sync` was marked `Implemented` with no `fn sync` arm — correct, not a
+defect: the retired Connect Sync is answered by a *mounted route* returning 410
+before `ConnectRpcService` opens a stream, because a throwing stub would keep the
+runtime's abort-listener crash path reachable. So a row and its arm coming apart
+produces **not a compile error but a 410 that reads like a routing bug**, which
+sends the next person to the router instead of to the table. That is the worst
+shape a defect can have, and it is invisible to every other check in the tree.
+
+Four guards make the exception set survive contact: `TRANSPORT_ANSWERED` holds
+`Sync` **and a second test asserts that list is exactly the set of `Implemented`
+rows with no arm** (a documented exception with no bound on its number is a
+ratchet with the pin removed); all 16 `UnwiredInV2` delegations are asserted
+**correct**, so nobody "fixes" one into a handler; the implemented count is
+asserted **above 50**, so the main test cannot be satisfied by emptying the
+column; and the test asserts that it read the file `CoordinatorService` is
+actually implemented in — without that it would prove a table true of a file
+nobody uses.
+### Worker: first-ever total, `v3-worker` @ `8a85f523`
+
+`cargo test -p roost-worker -p roost-keeper -p roost-term --no-fail-fast`, **one
+run: 530 passed / 48 failed / 0 ignored, 83 binaries.** No worker total had ever
+been recorded before this. **This is a triage baseline and NOT a gate figure** —
+one run is not two, and the tree moved substantially afterwards.
+
+The finding that matters is the composition of the 48: they collapse to a handful
+of root causes, and **exactly ONE is a product defect**. A reviewer who reads
+"48 failing" and concludes "this port is broken" would be wrong.
+
+**The first decomposition published here was an UNDERCOUNT, and the correction is
+the useful part.** It said seventeen failures were one fixture constant and nine
+were one fixture shape. The real extent is **sixteen call sites** of the non-UUID
+cell stream id — not four — across `session_cell_sink.rs`, `session_cell_emit.rs`
+and `session_raw_metadata.rs`, so `next_cell_frame` returned `Unbuildable` and
+every later assertion saw `Withheld(BaselineOwed)`; and **every `WorkerFp` literal
+in the tree is 63 hex characters rather than 64**, across four files including the
+17-test `session_support` fixture. Three binaries also hit an unset `HOME`
+independently, which is a property of `WorkerBoot::resolve` and not of any one
+fixture. The total was right; the explanation of it was not. A published
+decomposition that turns out to undercount is worse than none — it sends the
+next reader hunting one bug where there were sixteen.
+
+The lesson generalises past this number: **triage a count to its root causes,
+then verify the extent of each cause before you publish it.** A decomposition is a
+claim about every row in the count, and it is as wrong as a count is if it
+undercounts one of them.
+
+The real one is worth its own paragraph. `host/install.rs`'s `closing_quote`
+returned the index PAST the closing quote, so `split_once('=')` produced a
+variable name with a leading `"` that matched no key, and **every systemd scrub
+took the "nothing on this line is the key" branch and reported `removed: false`**.
+A redeemed bootstrap token survived in the unit; a spent force-live-retire
+authorisation survived to re-authorise killing every PTY on the next restart.
+Twenty-nine lines of span arithmetic, and a credential and an authorisation both
+failing open.
+
+`roost-keeper` on the same branch: `cargo test -p roost-keeper --no-fail-fast`,
+**two agreeing runs, 23 binaries, 0 failed.**
+
+
+### Two process rules, and both were bought the same way
+
+**A verbal handoff has no receipt.** A slice's third file went uncommitted for
+two hours because the author messaged the lead "the dirty file is yours to
+stage", reported to the integrator "WorkerLead2 is staging it", and then treated
+it as done. Two accurate reports; between them they created a belief, in both
+people, that a handover had happened. **No `git status` catches a file both
+parties have agreed is someone else's problem.**
+
+The narrow rule that would have caught it: **when you hand a file to another
+agent, name it in a message to the integrator as well, and say explicitly whether
+it is committed.** Not "X has it" — "X has it, it is NOT yet committed, and I
+have re-pushed a snapshot containing it". The author also had a snapshot and a
+message; what was missing was one line saying which of their files the snapshot
+did and did not contain.
+
+**And the complementary half, which is the one that generalises: read
+`git status` yourself and do not trust a list.** The author named two files
+because that is what they believed they had authored. A person listing their own
+work lists what they are thinking about. The rule that actually caught it was
+the integrator running `git status` and comparing, because **that check does not
+depend on the sibling having kept accurate track.** Both halves are needed: the
+list is a question to ask, never a source to trust.
+
+**A green test does not check where its subject is called from.** An enrollment
+call placed *after* the link dial satisfies every test in its own binary, because
+the tests exercise the function rather than its position in the boot — and being
+after the dial is the defect the slice existed to fix. The same shape as a
+`#[repr]`-less enum whose `name()` indexes an array (reorders silently, every log
+line stays plausible) and as a doc comment naming an implementation that does not
+exist (compiles, reads as settled, implements nothing).
+
+**All three are the same class: something that typechecks and reads plausibly
+while being wrong.** The defences are structural, not vigilance — a test that
+pins the coupling, a commit body that states where each call sits in the order, a
+comment that says what a type actually is. **So: when a reviewer is about to
+accept "it compiles", the question is what position the code is in, not whether
+it builds.** Read the order before the green.
+
+### A consistency test cannot catch a joint violation
+
+The boot order is a fixed array, and `StepId` is a `#[repr]`-less enum whose
+`name()` indexes it by `step as usize`. A new test was written to pin the
+coupling, then **mutated by swapping the two middle `BOOT_ORDER` rows with the
+enum untouched** — the exact rename-everything failure.
+
+**The new test passed.** The pre-existing test, which hard-codes the expected
+name vector, caught it.
+
+The reason is the finding: **a test that only ever asks "do these two artifacts
+agree?" is structurally incapable of catching "both artifacts are wrong in the
+same way."** After the swap, `StepId::KeeperAdmission`'s arm still points at
+index 1, index 1 now says `coordinator-link`, and the enum and the array agree
+perfectly. The new test checked a **consistency** property; the mutation
+violated a **correctness** property. And **nothing inside the crate knows the
+correct boot order** — the enum has no independent idea what the right order is,
+so the only oracle is a human-written expectation.
+
+The new tests are still worth keeping, for the two failures a name vector
+genuinely cannot see: a step appended to one artifact and not the other (where
+`StepId::ALL.len() != BOOT_ORDER.len()` is a panic in `complete` otherwise), and
+two rows claiming the same name, which is what a partial swap that copies one
+name over the other looks like. **But they are subordinate to the name vector,
+and a mutation that changes the name vector is a mutation changing the only
+place the correct order exists** — which is a review checkpoint the reorder
+wants, not a cost.
+
+**When a mutation does not fail the test you expected it to fail, that is a
+finding about the test, not a failed experiment.** This is the second time in one
+day a test believed to be guarding a property turned out to guard a different
+one — the other was M-U3, whose control passed *because the defect under test
+had inverted its own guard*. The rule that follows: **publish which test
+actually bit.** The instinct to quietly swap in the test that failed would have
+destroyed the information, and the information is the result.
+
+**And the failure message is the deliverable as much as the test is.** The
+pre-existing assertion printed `left: ["identity", "coordinator-link", …]`
+against `right: ["identity", "keeper-admission", …]` with the architecture named
+in the assertion text: the whole drift in one line. A well-formed assertion
+carries more than a paragraph explaining it, and the paragraph is the thing to
+override.
+
+**One operational rule from the same run: do not mutate a tree a test is
+reading.** The `BOOT_ORDER` file was restored from a copy while `cargo test` was
+still running against it. The restore was verified byte-identical with `diff -q`,
+which made that instance recoverable — but a test reading a file while you write
+it produces a result about neither version. Kill the run, mutate, re-run.
+
+### The rig, not the port: three reds in one track that all pointed at the wrong seam
+
+The worker track produced three failures in one session whose cause was the
+fixture or the test rather than the code under test. **The product was correct in
+all three**, and in one of them the *first half of the same test was already
+correct*.
+
+| The test said | The truth |
+|---|---|
+| 24 retained bytes | the literal `b"before anything was armed"` is 25 bytes |
+| "the bootstrap token is not spendable" | `Fixture::start` seeds an issued token with an **empty** binding meaning nobody has spent it, and `redeem` fell through to "spent by somebody else" — a **three-state** thing collapsed into two |
+| `build_sha(&MapEnv::new()) == None`, asserted unconditionally | the constant is derived from git **at compile time**, so whether it is `None` is a property of the **tree**, not the test. `left: Some("d7675361…")` reads as a build-identity defect and is not one |
+
+The third is the sharpest, because the `match` two lines above the failing
+assertion already branched on that same constant and handled both cases
+correctly. **Only the closing assertion ignored it.** `build_identity` preferring
+the compiled stamp is correct, and a compiled build having an answer with no
+environment supplied is not a leak.
+
+**The cost is not the reds. It is that a reader who works out that the cause is
+the rig stops trusting the file** — and the next real defect in it goes unread
+for the same reason the last one was misread. So each of these is written up in
+the commit that fixed it, and the pattern is here for the next track that meets
+it.
+
+**The shape to recognise:** *a failure whose message points at the product, where
+the message is produced by something that was never under test.* Ask what the
+failure is actually **about** before fixing what it appears to be about. Twice
+today the cheap explanation was load and twice the serialised or quiet re-run
+killed it; twice the plausible cause was the rig.
+
+**And a related habit, from a lead that suspected a sibling's files and was
+wrong:** it wrote "almost certainly WorkerStore's, but I am not asserting that
+without the name" — the hedge was correct — and then, after measuring, published
+the reversal in the same message as its own fix. **A number stays readable
+because people correct it in public.** A lead that quietly drops a suspicion
+leaves the next reader unable to tell whether it was ever a suspicion.
+
+### Keeper client: the plan's premise was stale
+
+The plan recorded three open keeper-client defects on `v3-worker`
+(`wait_for_reply` discarding non-matching frames, six missing client frames,
+`resize()` discarding the applied seq and geometry). **All three were already
+fixed** by commits `94bab2b7` and `be68afa0`, merged in at `8a85f523`, with 14
+tests covering them. The plan was reading a doc line the branch had moved past.
+The deferral was proved with a mutation rather than an assertion: reverting
+`client_frames.rs:121` to the pre-fix drop gives **0 passed / 2 failed**, both
+`left: []`.
+
+The lesson is the one this file exists to enforce. A defect list in a plan is a
+hypothesis about a tree; a measurement is a fact about one, and the two drift
+apart at exactly the rate the tree moves.
+
 
 ## How to read a later gate
 
 - **Phase 2** (Rust worker, TS coord): no spec that passed in the baseline
   may fail. `terminal-delivery.spec.ts:15` ("browser smoke flow creates and
   cleans its resources") is the load-bearing one and must pass.
-- **Phase 3** (Rust coord, then both): same rule, with
-  `ROOST_SMOKE_COORD_EXECUTABLE` set alone first, then with both.
+  **Its ONLY trigger is the worker track being green** — `UNIMPLEMENTED` at
+  zero, all nine `SessionManager` collaborators with production impls, the
+  composition root wired. A worker that cannot construct a `SessionManager`
+  cannot spawn a PTY, and this gate is exactly "can this worker spawn a PTY".
+  **The Rust coordinator is not in this gate at all**: the coordinator is the
+  TypeScript one, and `ROOST_SMOKE_COORD_EXECUTABLE` is unset. Reading C-B as
+  Phase 2's trigger is wrong, and it was written here first and corrected.
+- **Phase 3** (Rust coord, then both): no spec that passed in the baseline may
+  fail, with `ROOST_SMOKE_COORD_EXECUTABLE` set alone first, then with both.
+  **Its trigger is the WHOLE coordinator track green — C-B *and* C-C, which is
+  `AwaitingDomainPort` at 0. Not C-B alone.**
+  The terminal specs drive the whole session lifecycle through the
+  coordinator's Connect API — workspace create, terminal open, spawn, attach,
+  input, scrollback, search, attachment, pane close. **Those are the C-C rows**
+  (10 sessions, 11 attachments, 2 search, 1 agent prompt, 2 deploy). Without C-C
+  the Rust coordinator answers them `Unimplemented`, so **C-B alone produces a
+  working link that carries no method handlers, and the run fails on its first
+  spec.** C-B is necessary and not sufficient.
+  The "both" run needs all of that plus the worker, and the two halves fail
+  differently enough that neither check covers the other: the coordinator's
+  fails **loudly at startup** (a 401 on every link, no socket at all), while a
+  worker that opens a socket and then cannot serve a session fails **silently
+  at runtime**. A green coordinator run would not catch the second, and a green
+  Phase 2 would not catch the first.
+  **This file has now been wrong about the Phase 2 and Phase 3 triggers twice**
+  — first crediting C-B with Phase 2, then crediting C-B alone with Phase 3.
+  Both corrections are recorded rather than quietly replaced, because the shape
+  of the error is the lesson: **a trigger is a claim about what a gate
+  exercises, so it has to be read off the specs the gate runs** and not off
+  which wave happens to be finishing.
 - **Phase 4** is not Playwright — it is
   `crates/roost-client-core/tests/headless_client.rs`, an in-process Rust
   coord + worker that must paint a `MARKER` into a replica viewport.
@@ -153,6 +518,205 @@ dangerous version of that file exists on no branch in this family.
 
 A gate that cannot run the suite at all has proved nothing. Say so rather
 than reporting a partial pass as a green one.
+
+### A green check on a file nothing includes is not a check
+
+A draft put a struct field inside an `impl` block. Rust reports that as an
+error, **but only if it looks at the file** — and it did not, because the
+module had not been registered in `mod.rs`. So a `cargo check` run against the
+tree came back **clean** while the file being written could not possibly
+compile. The lead deleted the file rather than push it, and the finding is
+recorded because the shape recurs: **a check that returns zero because the
+compiler was never pointed at the thing you changed is not evidence about
+anything.**
+
+The rule: **register the module in the same edit that writes it.** If a file has
+to be written in stages, the stage boundary is where the `mod` line goes — not at
+the end, and not in a follow-up. A sibling crate in this programme has the same
+exposure in a different form: a test binary that compiles a shared fixture
+without declaring its allow *at its root* was invisible to clippy for the same
+reason, and the lint only saw it once the binary was on the list.
+
+
+**The second instance was found by probing rather than by reading, and the first
+draft of this entry had both of its facts backwards.** A build directory was
+removed out from under a track, and the command was
+`flock <dir>/.roost-build.lock cargo check … 2>&1 | grep -E '^error'`. It came
+back in **0.22 s with no output** on a crate whose check takes 50 seconds, and
+was read as clean. What actually happened, established by probing `flock`
+directly:
+
+1. **`flock` CREATES the lock file it is given.** With the lock file moved away,
+   `flock <dir>/.roost-build.lock true` exits 0 and recreates it. **So the
+   existence of the lock file proves nothing** — it is created on first use, not
+   found. A guard that tests whether the lock is present is testing something
+   `flock` manufactures.
+2. **A missing parent DIRECTORY makes `flock` fail**, with exit 66 and
+   `cannot open lock file`. So the guard this file would naturally carry —
+   *"if `flock` fails, stop"* — **did** have something to fire on, and `flock`
+   **did** fail correctly. It was not defeated by `flock`; it was defeated by
+   nobody reading the exit status.
+3. **The pipeline then hid the failure twice over.** `grep -E '^error'` matched
+   nothing, so it exited 1 — but what was read was the *output*, which was empty,
+   and empty was read as clean. And the structural hazard runs the other way
+   too: without `pipefail` a pipeline's status is the **last** command's, so a
+   cargo failure that `grep` *does* match on becomes a pipeline exit of 0. A
+   green exit from `| grep` can mean the build failed and was filtered into
+   nothing.
+
+So the rules, corrected: **a lock that is CREATED rather than FOUND proves
+nothing about what is behind it**, so assert the directory; **`set -o pipefail`
+so a real failure is not masked by a filter that swallowed it**; and **check the
+exit status, not only the output**, because the most dangerous thing a failed
+build produces is no output at all.
+
+```sh
+set -o pipefail
+export CARGO_TARGET_DIR=<worktree>/target-track
+test -d "$CARGO_TARGET_DIR" || { echo "MISSING TARGET DIR" >&2; exit 1; }
+flock "$CARGO_TARGET_DIR/.roost-build.lock" cargo "$@"
+```
+
+`test -d "$CARGO_TARGET_DIR"` and not `test -d <path>`: the hazard is specifically
+that the variable names a path `cargo` will silently ignore, so the thing to
+assert is the **variable's value**, which cannot pass on a typo between the
+brief's path and the worktree's.
+
+**The four silences, which are one class and not four small mistakes.** A filter
+that matches nothing; a package that no longer exists; a `--test` that names no
+target (which prints a *suggestion*, and reads past easily); and a missing target
+directory. Each was met separately and filed as its own incident. **Silence is
+the only output all four share**, and grouping them is what makes `test -d` a
+rule rather than a patch for one evening.
+
+### A commented-out `pub mod` is a silent un-registration, and the rule for it is NOT a marker list
+
+A subagent disabled three module registrations in a row with
+`// TEMP-DISABLED pub mod predictive_echo;`, then `// TEMP pub mod
+attachments;`. Each one **removes a module without failing where the edit was
+made**: the files stay, the crate still compiles, and the failure surfaces in a
+different crate as `could not find predictive_echo in client` — four files from
+the cause, phrased as a missing module rather than a commented-out line. The
+reader goes looking for a file that is present. It is the same class as a green
+check that never ran, and it cost a lead three restores and a build cycle.
+
+**The marker names are unbounded, so a lint listing them is not the fix.** A rule
+naming `TEMP`, `FIXME`, `XXX` and `for now` passes on the next spelling. And the
+obvious shape test — a `mod` or `use` with a `;` after it — **flags real prose in
+this repository**: `// happens to declare \`mod api_support;\`.` quotes a
+declaration and disables nothing, and `// this use of the term is deliberate` has
+a `use` in it. A lint that cries wolf on the first file it reads is worse than
+no lint, because the next occurrence is ignored.
+
+**So the rule was written, made its own tests pass, flagged prose, and was
+deleted.** A gate that is broken is worse than a gate that is absent, and an
+optional rule is not worth a broken `xtask`. What survives is the rule written
+here rather than in code:
+
+- **A module is registered, or it is not in the tree. There is no third state,
+  and no marker that temporarily un-registers one.** An unregistered file is
+  **never compiled** — it is unchecked text, which is exactly the "green check on
+  a file nothing includes" case in the section above. Every type drift in it
+  stays invisible until somebody writes the code that reaches it.
+- So a module written and not yet reachable is **registered anyway, and reported
+  as "declared, no adapter yet."** A trait with no implementation compiles fine
+  once registered — at worst a `dead_code` warning, which is allowable per item
+  with a reason. Unregistered, it is not checked against the crate's types at
+  all, which is strictly worse than a warning.
+- If a slice needs a registration it does not own, it says so in its report and
+  the integrator writes the line. A slice that cannot compile without a `mod` it
+  does not own is reporting a dependency, not working around one.
+- Whoever eventually writes the lint should match a bare `mod`/`use` token within
+  the first few words of a `//` comment **and** a `;` on that line, and should
+  carry the two prose lines above as named regression tests, because a version
+  that flagged them would be reverted by the first person who met it.
+
+**The backstop, scoped so it does not become a superstition: a check faster than
+the crate has ever checked has not checked.** It bites on `cargo check` and
+`cargo test`, and explicitly **not** on a source-tree scan — `cargo xtask lint`
+walks files and counts lines, so 0.62 s for it is genuinely fast and does mean
+what it says. A rule that fires on every fast result trains people to ignore it.
+
+**A gate that reports nothing is not a gate that passed.**
+
+**The general form, and it is the fourth instance today:** an instrument that
+cannot see the thing reports success. A sweep that counts only its surplus
+removals reports zero for a sweep that emptied the directory. A rate window that
+matches nothing is zero violations. A `SpawnNotAcknowledged` under load reads as
+a refused spawn. **Ask what the check could have detected before consuming what
+it returned** — that question has caught more real defects today than any
+individual test.
+
+### Two more, both of which cost a whole agent-hour to learn
+
+**A diagnosis that survives only the fix it proposed is not a diagnosis.** A
+worker test failed on a 5 s `SpawnNotAcknowledged`, which reads exactly like the
+load story above, so the explanation was load. It died on a **serialised** re-run
+— same result, no other track building — and what was underneath was
+`KeeperFixture::start`: a strict accept/serve loop that serves exactly ONE
+connection at a time. A test holding the first pool alive across a second
+connect makes that second `connect` retry to the timeout, and the failure it
+produces **names a SPAWN rather than a connect**. So the rig lied about which
+seam it broke, and the plausible cause pointed at the product.
+
+The rule is not "be more careful". It is: **if your explanation is load, and the
+re-run under quiet conditions reproduces it, your explanation was wrong.** Load
+is the cheapest available explanation and it is the one most likely to be
+assumed rather than eliminated.
+
+**A test red for a reason unrelated to what it tests trains a reader to ignore a
+red in that file.** Two of this track's reds were literal-versus-assertion, not
+logic: one asserted 24 for a 25-byte literal, another named a spawn when the
+rig had broken a connect. Neither is expensive to fix, and both are expensive to
+leave, because the cost is not the wrong assertion — it is that the file stops
+being read. **When a test fails, check what the failure is actually about before
+fixing what it appears to be about.**
+
+**And the one that is a process rule rather than a testing rule: a shared
+working directory is not yours.** `git add -A` across a tree three agents were
+editing captured a sibling's uncommitted fix in its pre-fix state and silently
+reverted their work; neither noticed until a test failed, and the fix existed in
+exactly one place for as long as that took. Stage an **explicit path list** and
+ping the owner before committing anything you did not write. `-A` cannot
+distinguish "I read this and it is right" from "this was on disk", and on a
+shared tree the second is most of it. An unstaged file is a five-second fix; a
+wrong commit is a red tree for everyone.
+
+
+### Two ways to misread a red run before you have read it
+
+**A `SpawnNotAcknowledged { timeout: 5s }` under load is LOAD, not a refused
+spawn.** `SPAWN_ACK_TIMEOUT` is 5 s and it is not a fixture's to widen. A test
+binary that opens REAL PTYs competes with every other thing compiling on the
+machine, and the first observed instance came from a real keeper starved by
+three concurrent track builds. At a gate, that failure is evidence about the
+machine. Reading it as a product-seam defect sends you to debug a keeper that
+was never asked a question it could not answer, and the expensive part is the
+hours, not the mistake. **If a spawn timeout is the only red, re-run it with
+the machine otherwise idle before believing it.**
+
+This is the same shape as the known `terminal-peer.spec.ts:263` deviation: a
+spec that passes isolated and fails under full load is a load signal until a
+quiet full run says otherwise.
+
+**A compile error in one crate is a COMPILE error, not a verdict on the port.**
+The worker track's first recorded total was 48 failures across 83 binaries, and
+it would have been easy to read that as a broken port. Twenty-nine lines of
+span arithmetic in a systemd scrub were the only product defect in it; the
+other 47 were seven fixture-shape problems — a `WorkerFp` that wants 64 hex
+where the fixture passed a UUID, a cell stream id that must be a UUID, an unset
+`HOME`. **Triage a red count to its root causes before you characterise it.**
+A count and a character are different claims, and only one of them is
+supported by the number.
+
+**A test that has never RUN is a liability, and a red one is information.** Five
+named tests in the worker track were written and never executed, blocked behind
+a `String`/`&str` in a fixture. Reporting them as "the slice is written" would
+have been a claim about bytes rather than about behaviour, and the gate would
+have inherited four of them as unverified. When a figure is unrun, say
+`unrun` — an unrun gate item labelled unrun costs nothing, and a claimed one
+costs the gate.
+
 
 ## Perf numbers worth not regressing
 
