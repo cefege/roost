@@ -5,7 +5,7 @@
 //! row painter works in grid units. Nothing here reads a DOM, so every
 //! placement the overlay can produce is decidable in a test.
 
-use roost_client_core::client::predictive_echo::report::{EchoPaint, PredictedCell};
+use roost_client_core::client::predictive_echo::{EchoPaint, PredictedCell};
 
 /// The overlay's own class on the pane's viewport.
 pub const OVERLAY_CLASS: &str = "cell-predict";
