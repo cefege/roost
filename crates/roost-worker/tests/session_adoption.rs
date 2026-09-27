@@ -67,9 +67,11 @@ fn an_adoption_seeds_the_head_from_the_keeper_not_from_the_retained_bytes() {
         })
         .expect("the adopted session is live");
     assert_eq!(recorded, (13, 4, 9));
-    assert_eq!(
+    // `assert!`, not `assert_eq!(.., true)`: the second form asserts on a value
+    // that has already been reduced to a bool, so a failure prints `false` and
+    // says nothing about which claim was refused.
+    assert!(
         harness.sink.reserve(DurableEventKind::Closed).is_ok(),
-        true,
         "the claim the adoption consumed is the one it was given"
     );
 }
