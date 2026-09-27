@@ -1490,6 +1490,38 @@ could revive a released claim, because the admission guard was unreachable for
 release-created claims. **A vacuous test is not merely wasted; it is a place
 where a real defect goes to hide.**
 
+## A rule you built a guard for, and then did not apply, is worse than no guard
+
+The equalising statement landed in the wrong function because the edit was a
+scripted replace **anchored on a line that appears in both tests** — so it hit
+the first occurrence. The author already had a `NOT UNIQUE — refusing to guess`
+guard in the mutation harness for precisely this hazard, had written it down as a
+rule, and then made an edit that violated it **while quoting the rule in the same
+commit body.**
+
+> **A guard you built for a hazard and then did not apply is worse than never
+> having built it** — because its existence makes the hazard feel handled, and
+> "we have a rule about that" is what a reader (and its author) stops thinking
+> at.
+
+**The check belongs where the mistake is made, not only where the mistake was
+first seen.** A guard in the mutation harness protects mutations; the same guard
+belongs in *every scripted edit*, because **an ambiguous anchor is a property of
+the text, not of the tool you happen to be running.**
+
+**And the structural note, which is the part that generalises past this bug:**
+
+> **"Unverified" is honest, and it is not a substitute for looking.** A commit
+> that says *"I did not verify this"* still has to be **internally consistent**,
+> and this one was not — the comment sat in one function and the statement in
+> another, and **either** check would have caught it: read the body the comment is
+> in, or run the test.
+
+**So a claim of non-verification is not a substitute for the cheap check that was
+available anyway.** Declining to claim a result is honest; declining to *look*,
+when looking costs one read, is not. **The two are independent, and only one of
+them is free.**
+
 ## A FIX IN A TEST THAT DOES NOT ASSERT THE PROPERTY FIXES NOTHING
 
 The first attempt at establishing the ordering premise was placed in
