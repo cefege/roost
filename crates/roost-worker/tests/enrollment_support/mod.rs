@@ -56,6 +56,12 @@ impl Coordinator {
         let fingerprint = fingerprint_of(&public_key);
         let mut spent = self.spent.lock().expect("held");
         match spent.get(&request.token) {
+            // An EMPTY binding is the seeded state of a token nobody has spent:
+            // `Fixture::start` records the tokens it issued without naming a
+            // holder, and "issued but unspent" is a third state, not the same
+            // as "spent by somebody else". Collapsing the two is what made a
+            // first redemption of a valid token arrive as a refusal.
+            Some(bound) if bound.is_empty() => {}
             // v2's rule, and the one that makes a redeploy's re-offered token
             // cost one round trip rather than a refusal: a token already spent
             // by THIS key is a success.
