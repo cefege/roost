@@ -2818,11 +2818,33 @@ than letting a merge resolve it by accident. **A row that is present and says
 "this is why" is a promise the repo can keep; a row that is absent is the
 failure mode this list exists to prevent.**
 
+> **M1 is AMENDED, and the amendment is load-bearing.** The hunk as committed in
+> `d02d6ec3` **breaks the workspace**: cargo rejects a manifest that both
+> inherits the workspace lint table and overrides a value in it, so
+> `[lints] workspace = true` alongside `[lints.rust]` is a hard manifest error,
+> not a warning. `roost-keeper` is a dependency of `roost-coord` as well as
+> `roost-worker`, so that hunk would stop **every** track building anything.
+> The checkpoint merge must take `WorkerLeadW2`'s corrected form — the whole
+> table restated in `crates/roost-keeper/Cargo.toml` with the single
+> `unsafe_code` override — and take it **deliberately**, because the corrected
+> form conflicts with `v3`'s and would otherwise be resolved by whichever side
+> a merge happened to prefer.
+>
+> The corrected form is the only one of the three available. Inheriting and
+> losing the override is not implementable: installing a signal handler has no
+> safe API, so the `unsafe` at `crates/roost-keeper/src/bin/roost-keeper.rs:162`
+> cannot be refactored away without changing what the keeper does on SIGTERM.
+> The cost of the copy is real and belongs in the file rather than in a commit
+> body: **a new workspace lint does not reach `roost-keeper` until someone adds
+> it to that copy.** `cargo xtask lint` is where a duplicated table belongs — a
+> rule flagging a crate whose `[lints]` is not `workspace = true` and which
+> defines a key the workspace table also defines. **That rule is owed to the
+> integrator and is not yet written.**
+
 | # | Carried on | What | Why it is on the list rather than merged already |
-|---|---|---|---|
-| M1 | `v3-worker` @ `d02d6ec3` | `crates/roost-keeper/Cargo.toml` gains `[lints]` / `workspace = true` above the existing `[lints.rust]` block | **Per-ref measured:** `v3-worker` INHERITS; `v3`, `v3-coord`, `v3-web`, `v3-cli`, `v3-cli-docs` all MISSING, and the file is byte-identical to `v3` on all four. So the three-way merge is one-sided and takes `v3-worker`'s hunk with **no conflict** — which is a silent fix, not a deliberate one. Without the inheritance the crate is outside `[workspace.lints]`, so `expect_used`, `unwrap_used` and `unsafe_code = "forbid"` never applied to it and `cargo clippy --workspace --all-targets -- -D warnings` passes over it by not applying. The commit that takes it should say so. |
+| M1 | `v3-worker`, **`WorkerLeadW2`'s corrected form — not `d02d6ec3`** | `crates/roost-keeper/Cargo.toml` restates the workspace lint table in full, with one `unsafe_code = "allow"` override | Per-ref measured: `roost-worker`'s branch is the only one with the change, and the file is byte-identical to `v3` on `v3-coord`, `v3-web` and `v3-cli` — so the *original* hunk would have merged one-sided and silently. It also would not have parsed. Without this the crate is outside `[workspace.lints]` entirely, so `expect_used`, `unwrap_used` and `unsafe_code = "forbid"` never applied to it, 19 production `expect()`s survived, and `cargo clippy --workspace --all-targets -- -D warnings` passed over it **by not applying**. See the amendment above. |
 | M2 | `v3-coord` @ `edac76e2`+ | `roost_coord::auth::bootstrap_tokens::mint_host_bootstrap_token` | `roost-cli` restates four coordinator values — the column list, the `roost_bt_` bearer format, the 24h TTL, the SHA-256 digest — because `v3-cli` has never merged `v3-coord` and cannot compile a call to a function it does not have. **A fork that compiles and carries a header is worse than one that fails**, because a reviewer can skip it. Carried so the CLI checkpoint deliberately takes the coord side. |
-| M3 | `v3` @ `eb923a42`+ | the `AgentStatusOrder` identified-over-legacy arm | A deliberate superset of v2 that two coord tests are load-bearing for. It lives in the shared crate because a coord-only rule re-creates the drift this module removes, in the direction where a client shows a status its coordinator has retired. The coord checkpoint deletes its own copy; if the merge takes `v3`'s side of `agents/status_order.rs` the guard silently reverts and two green tests go red. |
+| M3 | `v3` @ `31e77d95` | the `AgentStatusOrder` identified-over-legacy arm | A deliberate superset of v2. It lives in the shared crate because a coord-only rule re-creates the drift this module removes, in the direction where a client shows a status its coordinator has retired. The coord checkpoint deletes its own copy; if the merge takes `v3`'s side of `agents/status_order.rs` the arm silently reverts. **ONE test pins it, not two:** `the_list_answers_in_session_id_order_with_derived_promptability` at `tests/agent_status_rpc.rs:191`, asserted `:224-227` — legacy rev 5 held, then identified rev 6 must be Stale. The other candidate sends revision 1, the guard's condition is `revision > 1`, so it never fires and passes either way. |
 | M4 | `v3-worker` snap `87ee7b0e` | 34 paths of uncommitted W-C and W-2 work | Pushed as a snapshot, never committed. Until the worker checkpoint, the wave's code fixes exist only in that ref. **The worker track has twice now been one context-end from losing a wave** — this row is the reason the next one will not be. |
 
 ## Three lessons from the four-track wave, and each one cost a real defect
