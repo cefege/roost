@@ -2954,12 +2954,22 @@ say **what in `src/` calls the thing it covers.** "The test passes" and "the
 subject of the test is reachable" are different claims, and a suite can be
 entirely green while every one of its subjects is dead code.
 
-The three instances in this programme are the same defect at three sizes: a
+**Why no mutation row would ever expose it, which is the sharper half.**
+`sync_feed_bus_coverage.rs` **cannot fail**: it asserts that thirteen
+bus-to-adapter pairs are internally consistent, and every line it can delete is
+correct, because consistency is not reachability. The test is not weak -- it is
+answering a different question from the one its name implies, and a mutation
+row mutates the code, not the question. So "run a mutation on it" is not a
+remedy here, and a gate that only knows how to mutate will report this class
+clean forever.
+
+**The question no gate asks is: what is this test exercising, and does anything
+in production call it?** A seam with no caller reads as finished -- which is why
+this file already carries an entry for "a seam that looks complete".
+
+Three instances in this programme, one defect at three sizes: a
 `collapsible_if` in one line of a file reported verified, a `ShellSpecResolver`
-trait with no implementation, and a whole module. The question no gate asks is
-*what is this test exercising, and does anything in production call it?* A seam
-with no caller reads as finished -- that is why the entry above is called "a
-seam that looks complete".
+trait with no implementation, and a whole module.
 
 ### A pattern that cannot match a legal form returns a confident negative
 
