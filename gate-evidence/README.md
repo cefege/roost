@@ -4,11 +4,13 @@ Raw `cargo test -p roost-cli --no-fail-fast` output for each run behind a
 published figure. A figure with no run behind it is not a figure, and a
 `git worktree remove` deleting the only copy of the run is how that happens.
 
-**Current: `d5c828f9` — 399 passed / 0 failed / 0 ignored, twice.**
-`gate-run-A-d5c828f9.log` and `gate-run-B-d5c828f9.log`. Two real runs, not one
-run copied: different per-binary timings, different test execution order.
+**Current: `2cdd0e04` — 399 passed / 0 failed / 0 ignored, twice.**
+`gate-run-A-2cdd0e04.log` and `gate-run-B-2cdd0e04.log`. This is the SHA merged
+into `v3`, so the figure describes the tree that ships rather than a branch
+head. Two real runs, not one run copied: different per-binary timings,
+different test execution order.
 
-The other four criteria on the same SHA:
+The four criteria on `2cdd0e04`:
 
 | Criterion | Command | Result |
 | --- | --- | --- |
@@ -21,6 +23,11 @@ The other four criteria on the same SHA:
 10/0 — **19 passed, 0 failed**.
 
 ## Superseded
+
+`d5c828f9` — 399 / 0 / 0 twice, clippy 0, fmt clean, lint 0, on all four
+criteria. `crates/roost-cli` is byte-identical between `d5c828f9` and
+`2cdd0e04`; the only change is this directory. Kept because the figure a branch
+head carries and the figure `v3` carries should both be readable.
 
 `a13c385d` — 399 / 0 / 0 twice (`gate-run-A-a13c385d.log`,
 `gate-run-B-a13c385d.log`). Clippy was **red** on that tree: the splits left
