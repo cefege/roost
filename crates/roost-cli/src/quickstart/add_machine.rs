@@ -41,7 +41,7 @@ use crate::wall_clock;
 /// The script a new machine runs, in the order its own usage text shows it. The
 /// same URL `join.sh` documents, so the command printed here and the command
 /// the script describes cannot drift apart silently.
-const JOIN_SCRIPT_URL: &str = "https://raw.githubusercontent.com/cefege/roost/main/join.sh";
+const JOIN_SCRIPT_URL: &str = "https://raw.githubusercontent.com/cefege/roost/v3/join.sh";
 
 /// The two dial variables the installed definition may declare, most specific
 /// first. The first is an explicit worker target, the second is the door worker

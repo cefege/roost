@@ -187,6 +187,39 @@ fn the_script_publishes_the_v3_branch_and_not_the_one_that_still_holds_v2() {
     );
 }
 
+/// The enrolment command and the script are one change, not two, and this is
+/// what holds them together: the URL the command PRINTS is the URL the script
+/// names in the refusal it prints when the grant is missing. An operator reads
+/// the second one when the first one fails, so a constant that drifts from the
+/// script's own text sends them to a URL that does not exist.
+///
+/// The command itself is not called here: a grant can only be minted against a
+/// coordinator's database, and this property is about the two documents
+/// agreeing, not about the grant. So the constant is read where it is declared.
+#[test]
+fn the_command_and_the_script_name_the_same_url() {
+    let source = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/quickstart/add_machine.rs"),
+    )
+    .expect("add_machine.rs is readable");
+    let url = source
+        .lines()
+        .find(|line| line.trim_start().starts_with("const JOIN_SCRIPT_URL"))
+        .and_then(|line| line.split('"').nth(1))
+        .unwrap_or_else(|| panic!("JOIN_SCRIPT_URL is declared as a literal: {source}"));
+    let script = std::fs::read_to_string(join_script()).expect("join.sh is readable");
+    assert!(
+        script.contains(url),
+        "the command prints {url} and join.sh never names it, so the two documents an \
+         operator reads disagree"
+    );
+    assert!(
+        url.contains("/v3/join.sh"),
+        "a URL on `main` resolves to whichever generation `main` points at, and `main` is v2 \
+         until the cutover fast-forwards it: {url}"
+    );
+}
+
 #[test]
 fn the_digest_line_claims_only_what_a_digest_establishes() {
     let script = std::fs::read_to_string(join_script()).expect("join.sh is readable");
