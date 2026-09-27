@@ -178,7 +178,11 @@ fn preserves_text_ctrl_alt_and_meta_ownership() {
         None,
         "a real Meta shortcut belongs to the browser, and the pane sends nothing"
     );
-    assert_eq!(KeyKind::from_dom_key("Dead").to_bytes(false), None);
+    assert_eq!(
+        KeyKind::from_dom_key("Dead"),
+        None,
+        "a dead key has no named form, so the browser's text services own it"
+    );
     assert_eq!(
         KeyChord::printable('x').composing().to_bytes(false),
         None,
