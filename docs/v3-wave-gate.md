@@ -3359,16 +3359,18 @@ warning about three lines in a file it never mentions.
 
 | Where | What is unverified | The one failure mode reading could not exclude |
 |---|---|---|
-| `crates/roost-worker/src/runtime/bootstrap_redeem/label.rs:32,40,79` | `LabelSources`, `HostLabelSources`, `resolve_worker_label` are `pub(super)`, narrowed from `pub` with **no compiler having seen the change** | a `pub(super)` item reached through `use super::{..}` from a `#[cfg(test)]` child |
 
-Every other line in that module is also unbuilt; **these three are unbuilt *and*
-edited after the last full read.** The whole of
-`crates/roost-worker/src/runtime/bootstrap_redeem/` is 661 lines across three
-files and has never been through a compiler.
+**Nothing is outstanding.** The last row, the `pub(super)` narrowing in
+`crates/roost-worker/src/runtime/bootstrap_redeem/label.rs`, was retired on
+2026-09-27 by `cargo check -p roost-worker --all-targets` at `v3-worker@e3ce4c33`:
+0 errors. `--all-targets` covers both halves of the failure the row named — the
+lib the three lines were in, and the `#[cfg(test)]` children that could have
+reached them through `use super::{..}`. It also settles the 661 lines around
+them, which the row called unbuilt: `runtime/mod.rs` declares the module
+unconditionally, so nothing in `bootstrap_redeem/` is behind a `cfg`.
 
-**Remove this entry when `cargo check -p roost-worker --lib` has been run over
-the module**, not when the tests pass — a test run needs the lib, and the lib is
-what these three lines are in.
+Add a row the moment a change is made that no compiler has seen, and delete it
+the moment one has.
 
 ## Two rules about WHERE a mutation goes, both from a row that would have measured nothing
 

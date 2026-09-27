@@ -1,0 +1,210 @@
+name: release
+
+# v3 releases. A tag matching v3.* builds the two programs every machine runs
+# plus the web bundle, and publishes them as a pre-release while the tag
+# carries a -rc suffix.
+#
+# ASSET NAMES ARE A CONTRACT, NOT A NAMING PREFERENCE. The updater resolves
+# them in crates/roost-cli/src/update/release.rs::release_asset_name, and the
+# deploy path resolves the same two programs in crates/roost-cli/src/deploy/.
+# A release whose assets are named differently is a release that installs
+# nothing, and the failure surfaces on a remote machine with no diagnostic. The
+# table below is that function, spelled out:
+#
+#   aarch64-unknown-linux-gnu   roost-linux-arm64   roost-keeper-linux-arm64
+#   x86_64-unknown-linux-gnu    roost-linux-x64     roost-keeper-linux-x64
+#   aarch64-apple-darwin        roost               roost-keeper
+#   x86_64-apple-darwin         roost-darwin-x64    roost-keeper-darwin-x64
+#
+# Every asset ships a `<asset>.sha256` sidecar, which is
+# update::candidate::SIDECAR_SUFFIX. The sidecar is written by sha256sum, whose
+# `<hash>  <file>` shape update::candidate::parse_published_digest accepts, so a
+# mirror that regenerates sidecars with the same tool produces identical bytes.
+on:
+  push:
+    tags: ['v3.*']
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    name: verify the tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+
+      # The rust job's gate steps, unchanged, plus the working-tree check that
+      # ci.yml omits. A release must not ship bytes no one committed, and a
+      # formatter that rewrites files in CI is a gate that reports success.
+      - name: fmt
+        run: |
+          cargo xtask fmt
+          git diff --exit-code
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: test
+        run: cargo test --workspace --no-fail-fast
+      - name: repo invariants
+        run: cargo xtask lint
+      - name: vendored terminal core
+        run: cargo test --manifest-path third_party/alacritty_terminal/Cargo.toml
+
+      # The terminal suite against the RELEASE binaries, not a debug build: the
+      # artifacts published below are these bytes, and a gate run on other bytes
+      # says nothing about them. The smoke stack drives the worker as
+      # `roost worker`, so one binary is both variables.
+      - name: release binaries
+        run: cargo build --release -p roost-cli -p roost-keeper
+      - name: web bundle
+        run: bun run --cwd apps/web build
+      - name: playwright install
+        run: bunx playwright install --with-deps chromium firefox
+      - name: terminal (release coord, release worker, release web)
+        env:
+          ROOST_SMOKE_COORD_EXECUTABLE: ${{ github.workspace }}/target/release/roost
+          ROOST_SMOKE_WORKER_EXECUTABLE: ${{ github.workspace }}/target/release/roost
+          ROOST_SMOKE_WEB_DIST: ${{ github.workspace }}/apps/web/dist
+        run: bun run test:terminal
+
+  build:
+    name: ${{ matrix.asset }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - triple: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+            asset: roost-linux-x64
+            keeper: roost-keeper-linux-x64
+          - triple: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+            asset: roost-linux-arm64
+            keeper: roost-keeper-linux-arm64
+          - triple: aarch64-apple-darwin
+            runner: macos-15
+            asset: roost
+            keeper: roost-keeper
+          - triple: x86_64-apple-darwin
+            runner: macos-15
+            asset: roost-darwin-x64
+            keeper: roost-keeper-darwin-x64
+            cross: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: cross toolchain
+        if: matrix.cross
+        run: rustup target add ${{ matrix.triple }}
+      # A cross build names its output directory; a native one does not. The
+      # path is computed rather than branched so the copy step is the same step.
+      - name: build
+        run: |
+          mkdir -p dist
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cargo build --release -p roost-cli -p roost-keeper --target ${{ matrix.triple }}
+            out="target/${{ matrix.triple }}/release"
+          else
+            cargo build --release -p roost-cli -p roost-keeper
+            out="target/release"
+          fi
+          cp "$out/roost" "dist/${{ matrix.asset }}"
+          cp "$out/roost-keeper" "dist/${{ matrix.keeper }}"
+      # macOS runners have no sha256sum. The sidecar is emitted with the tool
+      # the runner has, and update::candidate::parse_published_digest accepts
+      # both shapes, so a mirror regenerating with either tool still verifies.
+      - name: digests
+        run: |
+          cd dist
+          if command -v sha256sum > /dev/null; then
+            for f in *; do sha256sum "$f" > "$f.sha256"; done
+          else
+            for f in *; do shasum -a 256 "$f" > "$f.sha256"; done
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.triple }}
+          path: dist/*
+
+  web:
+    name: web bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      # VITE_ROOST_SMOKE is deliberately unset. The window.__smoke backdoor is
+      # the Playwright suite's only handle on a real browser, and a production
+      # bundle that carries it ships a control channel to every browser that
+      # loads the product. The assertion below fails the release rather than
+      # publishing a bundle with the door in it.
+      - name: build
+        run: bun run --cwd apps/web build
+      - name: no smoke backdoor
+        run: |
+          if grep -rl '__smoke' apps/web/dist; then
+            echo "::error::the production web bundle contains __smoke; refusing to release it"
+            exit 1
+          fi
+      - name: pack
+        run: |
+          tar --sort=name --owner=0 --group=0 --numeric-owner -czf roost-web.tar.gz -C apps/web dist
+          sha256sum roost-web.tar.gz > roost-web.tar.gz.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-bundle
+          path: |
+            roost-web.tar.gz
+            roost-web.tar.gz.sha256
+
+  publish:
+    name: publish ${{ github.ref_name }}
+    needs: [verify, build, web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: incoming
+      - name: gather
+        run: |
+          mkdir -p release
+          find incoming -type f -exec mv -t release {} +
+          ls -l release
+      - name: prove every sidecar
+        # A published release whose sidecar does not match its asset is a
+        # release no machine can install, and the machine that finds out is
+        # always a remote one. Verified here, where the fix is one commit.
+        run: |
+          cd release
+          for f in *; do
+            case "$f" in
+              *.sha256) continue ;;
+            esac
+            sha256sum -c "$f.sha256"
+          done
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A -rc tag is a pre-release, which is what `roost update`'s listing
+          # walk expects to find before v3.0.0 exists.
+          if [[ "${{ github.ref_name }}" == *-rc* ]]; then
+            prerelease=--prerelease
+          else
+            prerelease=
+          fi
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes $prerelease \
+            release/*

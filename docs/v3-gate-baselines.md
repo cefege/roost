@@ -107,6 +107,36 @@ faced. The carry list predicts that merge turns the workspace clippy red, so **a
 clean workspace clippy on `v3` is a statement about `v3` and not about the
 programme.**
 
+## Where each track stood after it took `v3`, 2026-09-27
+
+Every track branch was merged to `v3` on 2026-09-27, and each was then
+measured with `cargo check --workspace --all-targets` in its own worktree. This
+is a COMPILE count, not a test count: it is the lower bound a track lead starts
+from, recorded so a later track number can be read as progress rather than as
+a fresh surprise.
+
+| Track | Tree | `cargo check --workspace --all-targets` |
+|---|---|---|
+| CLI | `v3-cli` @ `7fbea312` | **0 errors** |
+| Worker | `v3-worker` @ `8a85f523` | **0 errors** |
+| Web | `v3-web` @ `13ce9833` | **51 errors**, all in `roost-web-terminal` (lib and lib test) |
+| Coordinator | `v3-coord` @ `3b043a6b` | not re-measured; its work is already merged into `v3` |
+
+**The web number is a real defect and it was invisible to CI.** `roost-web-terminal`
+fails with the SAME 51 errors on `wasm32-unknown-unknown` as on the host, so it
+is not a `cfg`-gating gap — it is a half-finished refactor. The renderer was
+being split into sibling `impl` files (`cell_renderer/{scrollback,eviction,
+history_page}.rs`) and those modules call `CellGridRenderer` methods and types
+that do not exist on the parent; `web-sys` features for `Element::{children,
+style,class_list}` are missing from the manifest. It went unnoticed because
+`ci.yml`'s wasm job builds neither `roost-web` nor `roost-web-terminal`.
+
+**The `kill(-1)` test, run before any `cargo test -p roost-cli`:** commit
+`56a6bb59` is an ancestor of every track branch, so
+`crates/roost-cli/src/dev/signal.rs` is the fixed version everywhere. The
+dangerous version of that file exists on no branch in this family.
+
+
 ## How to read a later gate
 
 - **Phase 2** (Rust worker, TS coord): no spec that passed in the baseline
