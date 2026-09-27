@@ -262,7 +262,10 @@ async fn install_web_bundle(
 
 /// Fetch the release's `roost-web.tar.gz` and prove it against the digest the
 /// same release published for it.
-pub async fn download_web_bundle(env: &dyn EnvSource, tag: &str) -> Result<PathBuf, CommandFailure> {
+pub async fn download_web_bundle(
+    env: &dyn EnvSource,
+    tag: &str,
+) -> Result<PathBuf, CommandFailure> {
     let path = std::env::temp_dir().join(format!("roost-web-{tag}.tar.gz"));
     let file = std::fs::File::create(&path).map_err(|error| {
         CommandFailure::generic(format!(

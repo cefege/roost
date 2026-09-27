@@ -271,7 +271,7 @@ fn a_dry_run_of_a_rerun_keeps_the_installed_front_door() {
         Some(&installed),
         false,
     )
-        .expect("the rerun plan resolves");
+    .expect("the rerun plan resolves");
     assert!(resolved.coordinator_already_installed);
     let unit_text = resolved
         .coordinator
@@ -317,13 +317,17 @@ fn a_dry_run_names_the_bundle_in_both_definitions_and_copies_nothing() {
         web_dir.display()
     );
     assert!(
-        web_dir.parent().is_some_and(|root| root.join("bin").is_dir() || root.join("bin").ends_with("bin")),
+        web_dir
+            .parent()
+            .is_some_and(|root| root.join("bin").is_dir() || root.join("bin").ends_with("bin")),
         "and the release's bin/ is its sibling: {}",
         web_dir.display()
     );
 
     for service in [&resolved.coordinator, &resolved.worker] {
-        let text = service.definition_text(HostPlatform::Linux).expect("a linux unit renders");
+        let text = service
+            .definition_text(HostPlatform::Linux)
+            .expect("a linux unit renders");
         assert!(
             text.contains("ROOST_WEB_DIST_PATH") && text.contains(&web_dir.display().to_string()),
             "both the coordinator and the worker door read this directory, so both definitions \
@@ -358,9 +362,8 @@ fn a_dry_run_without_a_bundle_leaves_each_definition_saying_nothing_is_served() 
     let machine = TempMachine::new("no-bundle");
     let env = machine.environment();
     let endpoint = fresh_endpoint(None).expect("a loopback endpoint");
-    let resolved =
-        plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, None, false)
-            .expect("the plan resolves with no bundle");
+    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, None, false)
+        .expect("the plan resolves with no bundle");
 
     assert_eq!(resolved.web_dir, None);
     let coordinator = resolved

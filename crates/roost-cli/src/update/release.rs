@@ -340,8 +340,15 @@ async fn verified_download(
 /// request, and a body that does not exist is a body worth never asking for.
 pub async fn sidecar_is_published(env: &dyn EnvSource, tag: &str, asset: &str) -> bool {
     let base = release_base_url(env, tag);
-    let url = format!("{}/{asset}{}", base.trim_end_matches('/'), candidate::SIDECAR_SUFFIX);
-    let Ok(client) = reqwest::Client::builder().timeout(CHECKSUM_DEADLINE).build() else {
+    let url = format!(
+        "{}/{asset}{}",
+        base.trim_end_matches('/'),
+        candidate::SIDECAR_SUFFIX
+    );
+    let Ok(client) = reqwest::Client::builder()
+        .timeout(CHECKSUM_DEADLINE)
+        .build()
+    else {
         return false;
     };
     client

@@ -38,10 +38,10 @@ use crate::deploy::codes;
 use crate::deploy::machine_txn::{self, MachineTransaction, TransactionKind};
 use crate::services::deploy_journal::DeployJournal;
 use crate::services::deploy_transaction::{DeployOutcome, deploy_service_definition};
-use crate::services::logrotate::{RotationOutcome, install_rotation};
 use crate::services::install::{
     InstallOutcome, ensure_service_directories, install_release_programs,
 };
+use crate::services::logrotate::{RotationOutcome, install_rotation};
 use crate::services::service_control::PlatformServiceManager;
 use crate::services::service_spec::{ServiceRole, ServiceSpec};
 use crate::wall_clock;

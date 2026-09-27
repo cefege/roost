@@ -148,7 +148,8 @@ fn a_release_is_only_the_two_programs_under_a_bin_directory() {
     std::fs::write(profile.join("build/out"), b"junk").unwrap();
     std::fs::write(profile.join("incremental"), b"junk").unwrap();
 
-    let bin_dir = release::assemble_release_tree(&profile, None).expect("the release tree is assembled");
+    let bin_dir =
+        release::assemble_release_tree(&profile, None).expect("the release tree is assembled");
 
     // The programs are under `bin/`, byte for byte, and they are the ONLY
     // things under it.

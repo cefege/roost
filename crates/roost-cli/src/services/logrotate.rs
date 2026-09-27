@@ -107,7 +107,6 @@ pub fn first_installed(mut candidates: impl Iterator<Item = PathBuf>) -> Option<
     candidates.find(|candidate| candidate.is_file())
 }
 
-
 /// One file an install writes, with the bytes it writes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LogrotateFile {
@@ -265,4 +264,3 @@ pub const SKIP_MACOS: &str =
 /// Why a Linux box with no `logrotate` gets none.
 pub const SKIP_NO_BINARY: &str =
     "no logrotate program is installed here, so its logs will grow unbounded";
-

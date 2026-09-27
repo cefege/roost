@@ -17,9 +17,9 @@ mod release_support;
 use std::path::PathBuf;
 
 use release_support::{FakeAsset, FakeRelease};
+use roost_cli::deploy::DeployArgs;
 use roost_cli::deploy::invocation::validate;
 use roost_cli::deploy::release::fetch_release;
-use roost_cli::deploy::DeployArgs;
 use roost_cli::update::release::{
     RELEASE_BASE_URL_ENV, WEB_ASSET_NAME, keeper_release_asset_name, release_asset_name,
 };
@@ -64,11 +64,19 @@ fn environment(base_url: &str) -> MapEnv {
 #[tokio::test]
 async fn a_release_deploy_installs_the_published_bytes_rather_than_anything_built_here() {
     let origin = origin_with(Vec::new());
-    let staged = fetch_release(&environment(&origin.base_url), TAG, HostPlatform::Linux, "x86_64")
-        .await
-        .expect("the published release is fetched");
+    let staged = fetch_release(
+        &environment(&origin.base_url),
+        TAG,
+        HostPlatform::Linux,
+        "x86_64",
+    )
+    .await
+    .expect("the published release is fetched");
 
-    assert_eq!(staged.git_sha, TAG, "the tag is this deploy's build identity");
+    assert_eq!(
+        staged.git_sha, TAG,
+        "the tag is this deploy's build identity"
+    );
     // The PUBLISHED name is per-platform; the INSTALLED name is not. This pairs
     // the two, because a deploy that fetched `roost-linux-x64` into a tree that
     // everything downstream expects to hold `roost` would install two files and
@@ -118,9 +126,14 @@ async fn a_release_deploy_installs_the_published_bytes_rather_than_anything_buil
 #[tokio::test]
 async fn a_release_that_publishes_no_bundle_leaves_the_target_with_no_bundle() {
     let origin = origin_with(Vec::new());
-    let staged = fetch_release(&environment(&origin.base_url), TAG, HostPlatform::Linux, "x86_64")
-        .await
-        .expect("the release is fetched");
+    let staged = fetch_release(
+        &environment(&origin.base_url),
+        TAG,
+        HostPlatform::Linux,
+        "x86_64",
+    )
+    .await
+    .expect("the release is fetched");
     assert_eq!(
         staged.web, None,
         "a release predating the bundle installs and runs; refusing it would make deploying an \
@@ -131,8 +144,13 @@ async fn a_release_that_publishes_no_bundle_leaves_the_target_with_no_bundle() {
 #[tokio::test]
 async fn a_release_that_publishes_a_bundle_stages_it_beside_the_binaries() {
     let origin = origin_with(vec![FakeAsset::named(WEB_ASSET_NAME, "not-a-bundle")]);
-    let staged = fetch_release(&environment(&origin.base_url), TAG, HostPlatform::Linux, "x86_64")
-        .await;
+    let staged = fetch_release(
+        &environment(&origin.base_url),
+        TAG,
+        HostPlatform::Linux,
+        "x86_64",
+    )
+    .await;
     // The body here is not a real gzip, so the fetch proves it got as far as
     // staging and unpacking, and the refusal names the unpack step rather than
     // the download. Either way the sidecar was verified first: an unverified
@@ -162,15 +180,24 @@ fn a_release_is_refused_against_a_tag_that_is_not_one() {
 #[test]
 fn a_release_tag_and_a_local_build_identity_are_two_answers_to_one_question() {
     for (flag, mutate) in [
-        ("--expected-sha", Box::new(|a: &mut DeployArgs| {
-            a.expected_sha = Some("0".repeat(40));
-        }) as Box<dyn Fn(&mut DeployArgs)>),
-        ("--source-root", Box::new(|a: &mut DeployArgs| {
-            a.source_root = Some(PathBuf::from("/tmp"));
-        })),
-        ("--coordinator-release", Box::new(|a: &mut DeployArgs| {
-            a.coordinator_release = true;
-        })),
+        (
+            "--expected-sha",
+            Box::new(|a: &mut DeployArgs| {
+                a.expected_sha = Some("0".repeat(40));
+            }) as Box<dyn Fn(&mut DeployArgs)>,
+        ),
+        (
+            "--source-root",
+            Box::new(|a: &mut DeployArgs| {
+                a.source_root = Some(PathBuf::from("/tmp"));
+            }),
+        ),
+        (
+            "--coordinator-release",
+            Box::new(|a: &mut DeployArgs| {
+                a.coordinator_release = true;
+            }),
+        ),
     ] {
         let mut invocation = args("host");
         mutate(&mut invocation);

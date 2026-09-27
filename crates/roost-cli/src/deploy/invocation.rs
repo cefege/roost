@@ -20,10 +20,10 @@ use crate::deploy::DeployArgs;
 use crate::deploy::codes;
 use crate::deploy::identity;
 use crate::deploy::identity_env::{self, Ambient};
-use crate::services::web_bundle;
 use crate::services::service_environment::{
     ENV_BOOTSTRAP_TOKEN, ENV_REACHABLE_ADDR, ENV_WORKER_LABEL,
 };
+use crate::services::web_bundle;
 use roost_worker::runtime::boot::ENV_COORDINATOR_URL;
 
 /// Everything wrong with the invocation, refused before anything is touched.

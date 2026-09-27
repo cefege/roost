@@ -33,7 +33,10 @@ pub struct FakeAsset {
 impl FakeAsset {
     /// A plain marker body, for an asset nothing executes.
     pub fn named(name: &str, marker: &str) -> Self {
-        Self::with_body(name, format!("# roost asset\n# marker: {marker}\n").into_bytes())
+        Self::with_body(
+            name,
+            format!("# roost asset\n# marker: {marker}\n").into_bytes(),
+        )
     }
 
     /// A `roost` stand-in that is a REAL program.
@@ -100,14 +103,22 @@ impl FakeRelease {
         for asset in assets {
             for file_name in [asset.name.clone(), format!("{}.sha256", asset.name)] {
                 std::fs::write(root.join(&file_name), &asset.body)
-                    .or_else(|_| std::fs::write(root.join(&file_name), format!("{}  {}\n", asset.sha256, asset.name)))
+                    .or_else(|_| {
+                        std::fs::write(
+                            root.join(&file_name),
+                            format!("{}  {}\n", asset.sha256, asset.name),
+                        )
+                    })
                     .expect("the asset is written to the origin's directory");
             }
             served.insert(asset.name.clone(), asset);
         }
 
         let listener = TcpListener::bind("127.0.0.1:0").expect("the origin binds a loopback port");
-        let port = listener.local_addr().expect("the bound address is readable").port();
+        let port = listener
+            .local_addr()
+            .expect("the bound address is readable")
+            .port();
         let served = Arc::new(served);
         let answering = Arc::clone(&served);
         std::thread::spawn(move || {

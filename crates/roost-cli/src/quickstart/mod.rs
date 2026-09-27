@@ -126,7 +126,13 @@ pub async fn run(args: &QuickstartArgs) -> Result<ExitCode, CommandFailure> {
     };
 
     if args.dry_run {
-        return dry_run(&env, platform, endpoint, args.web_dist.as_deref(), installed.as_ref());
+        return dry_run(
+            &env,
+            platform,
+            endpoint,
+            args.web_dist.as_deref(),
+            installed.as_ref(),
+        );
     }
     install_everything(&env, platform, endpoint, args.web_dist.as_deref()).await
 }
@@ -196,8 +202,14 @@ async fn install_everything(
     )
     .await?;
 
-    let worker_spec =
-        local_worker_spec(env, platform, &bin_dir, &endpoint, &grant, web_dir.as_deref())?;
+    let worker_spec = local_worker_spec(
+        env,
+        platform,
+        &bin_dir,
+        &endpoint,
+        &grant,
+        web_dir.as_deref(),
+    )?;
     prepare_service_directories(&worker_spec)?;
     eprintln!(">> installing {}", worker_spec.label);
     let worker_outcome = deploy_local_definition(&worker_spec, platform, &service_dir).await?;

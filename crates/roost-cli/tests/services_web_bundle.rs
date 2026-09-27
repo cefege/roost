@@ -41,11 +41,8 @@ impl Scratch {
     fn bundle(&self, name: &str, marker: &str) -> PathBuf {
         let dir = self.root.join(name);
         std::fs::create_dir_all(dir.join("assets")).expect("the bundle directory is created");
-        std::fs::write(
-            dir.join(WEB_INDEX),
-            format!("<html>{marker}</html>\n"),
-        )
-        .expect("the index is written");
+        std::fs::write(dir.join(WEB_INDEX), format!("<html>{marker}</html>\n"))
+            .expect("the index is written");
         std::fs::write(dir.join("assets/app.js"), format!("// {marker}\n"))
             .expect("the asset is written");
         dir
@@ -82,7 +79,10 @@ fn a_directory_without_an_index_is_not_a_bundle_and_the_refusal_names_it() {
     );
 
     let missing = scratch.root.join("not-there");
-    assert!(validate(&missing).is_err(), "a path that is not there is not a bundle");
+    assert!(
+        validate(&missing).is_err(),
+        "a path that is not there is not a bundle"
+    );
 }
 
 #[test]
@@ -124,7 +124,8 @@ fn a_refused_install_leaves_the_previous_bundle_serving() {
 
     let not_a_bundle = scratch.root.join("broken");
     std::fs::create_dir_all(&not_a_bundle).expect("the directory is created");
-    let failure = install_from_dir(&not_a_bundle, &destination).expect_err("a broken source is refused");
+    let failure =
+        install_from_dir(&not_a_bundle, &destination).expect_err("a broken source is refused");
     assert!(failure.to_string().contains(WEB_INDEX));
 
     assert_eq!(
@@ -160,7 +161,10 @@ fn a_release_tarball_installs_from_either_layout_the_pipeline_might_emit() {
             .stdin(std::process::Stdio::null())
             .output()
             .expect("tar runs");
-        assert!(tar.status.success(), "the fixture archive is built: {label}");
+        assert!(
+            tar.status.success(),
+            "the fixture archive is built: {label}"
+        );
 
         let destination = scratch.root.join("versions/3.0.0").join(WEB_DIR_NAME);
         let installed = install_from_tarball(&archive, &destination)

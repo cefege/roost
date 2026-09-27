@@ -12,8 +12,9 @@
 use std::path::{Path, PathBuf};
 
 use roost_cli::services::logrotate::{
-    CONF_DIR_NAME, RotationOutcome, SERVICE_FILE_NAME, SKIP_MACOS, SKIP_NO_BINARY, STATUS_FILE_NAME,
-    TIMER_FILE_NAME, conf_dir, first_installed, install_rotation, plan_files, status_path,
+    CONF_DIR_NAME, RotationOutcome, SERVICE_FILE_NAME, SKIP_MACOS, SKIP_NO_BINARY,
+    STATUS_FILE_NAME, TIMER_FILE_NAME, conf_dir, first_installed, install_rotation, plan_files,
+    status_path,
 };
 use roost_cli::services::service_spec::ServiceRole;
 use roost_cli::services::systemd_unit::{STDERR_FILE, STDOUT_FILE};
@@ -67,12 +68,18 @@ fn a_role_owns_one_entry_and_the_pair_of_units_is_shared() {
         "each role's entry names its own log files, so they cannot be one shared file"
     );
     assert!(
-        coordinator[0].0.to_string_lossy().ends_with("roost3-coord.conf"),
+        coordinator[0]
+            .0
+            .to_string_lossy()
+            .ends_with("roost3-coord.conf"),
         "an operator reads the entry's name to know which service it rotates: {}",
         coordinator[0].0.display()
     );
     assert!(
-        worker[0].0.to_string_lossy().ends_with("roost3-worker.conf"),
+        worker[0]
+            .0
+            .to_string_lossy()
+            .ends_with("roost3-worker.conf"),
         "{}",
         worker[0].0.display()
     );
@@ -150,7 +157,9 @@ fn the_state_root_follows_xdg_state_home_and_a_blank_one_falls_back() {
     env.set("XDG_STATE_HOME", "/xdg/state");
     assert_eq!(
         status_path(&env).expect("resolves"),
-        PathBuf::from("/xdg/state").join("roost").join(STATUS_FILE_NAME)
+        PathBuf::from("/xdg/state")
+            .join("roost")
+            .join(STATUS_FILE_NAME)
     );
 
     env.set("XDG_STATE_HOME", "");

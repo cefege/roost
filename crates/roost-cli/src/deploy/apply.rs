@@ -156,10 +156,7 @@ async fn apply(manifest_bytes: &[u8], env: &dyn EnvSource) -> Result<ApplyReport
             files = installed.files,
             "remote apply installed the staged web bundle"
         );
-        decided.insert(
-            ENV_WEB_DIST_PATH.to_string(),
-            web_dir.display().to_string(),
-        );
+        decided.insert(ENV_WEB_DIST_PATH.to_string(), web_dir.display().to_string());
     } else {
         decided.remove(ENV_WEB_DIST_PATH);
     }
@@ -241,7 +238,10 @@ async fn apply(manifest_bytes: &[u8], env: &dyn EnvSource) -> Result<ApplyReport
 /// The staged `web/` directory, when this deploy shipped one.
 fn staged_web(staged: &Path) -> Option<PathBuf> {
     let candidate = staged.join(web_bundle::WEB_DIR_NAME);
-    candidate.join(web_bundle::WEB_INDEX).is_file().then_some(candidate)
+    candidate
+        .join(web_bundle::WEB_INDEX)
+        .is_file()
+        .then_some(candidate)
 }
 
 /// Retire the release the definition used to point at, once the new one is proven

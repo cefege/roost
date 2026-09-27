@@ -201,10 +201,12 @@ pub async fn build_release(
     }
     let bin_dir = assemble_release_tree(&profile_dir, web_dist)?;
     let keeper_contract = read_keeper_contract(&bin_dir.join(ROOST_PROGRAM))?;
-    let web = web_dist.map(|_| bin_dir.parent().map_or_else(
-        || bin_dir.join(crate::services::web_bundle::WEB_DIR_NAME),
-        |staging| staging.join(crate::services::web_bundle::WEB_DIR_NAME),
-    ));
+    let web = web_dist.map(|_| {
+        bin_dir.parent().map_or_else(
+            || bin_dir.join(crate::services::web_bundle::WEB_DIR_NAME),
+            |staging| staging.join(crate::services::web_bundle::WEB_DIR_NAME),
+        )
+    });
     Ok(StagedRelease {
         digest: release_digest(&bin_dir)?,
         local_dir: bin_dir,
@@ -434,7 +436,10 @@ pub async fn fetch_release(
     std::fs::create_dir_all(&bin_dir).map_err(|error| {
         codes::refuse(
             codes::BUILD_FAILED,
-            format!("cannot create the release tree at {}: {error}", staging.display()),
+            format!(
+                "cannot create the release tree at {}: {error}",
+                staging.display()
+            ),
         )
     })?;
     let staged = fetch_into(env, tag, platform, arch, &bin_dir).await;
@@ -508,7 +513,10 @@ async fn fetch_web(env: &dyn EnvSource, tag: &str, bin_dir: &Path) -> Result<(),
     let staging = bin_dir.parent().unwrap_or(bin_dir);
     let asset = update::release::WEB_ASSET_NAME;
     if !update::release::sidecar_is_published(env, tag, asset).await {
-        info!(tag, "this release publishes no web bundle, so the target keeps serving whatever it has");
+        info!(
+            tag,
+            "this release publishes no web bundle, so the target keeps serving whatever it has"
+        );
         return Ok(());
     }
     let archive = staging.join(asset);

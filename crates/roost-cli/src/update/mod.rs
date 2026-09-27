@@ -33,11 +33,11 @@ use roost_host::{EnvSource, HostPlatform, ProcessEnv};
 use tracing::info;
 
 use crate::command_error::CommandFailure;
+use crate::services::web_bundle;
 use crate::update::journal::KeeperRecord;
 use crate::update::local_keeper::{decide_keeper_action, local_keeper, self_update_service_dir};
 use crate::update::recovery::RecoveryOutcome;
 use crate::update::release::{host_arch, release_asset_name};
-use crate::services::web_bundle;
 use crate::update::rollout::{InstalledBinary, ReplaceOutcome, read_installed};
 
 /// What this command prints when there is nothing to do. Its own table,
@@ -127,12 +127,10 @@ pub async fn run(_args: &UpdateArgs) -> Result<ExitCode, CommandFailure> {
 /// because the alternative is writing `~/web` and leaving the operator to find
 /// it.
 async fn install_web_bundle(env: &dyn EnvSource, executable: &Path, tag: &str) {
-    let release_dir = executable
-        .parent()
-        .filter(|bin_dir| {
-            bin_dir.file_name().and_then(std::ffi::OsStr::to_str)
-                == Some(crate::deploy::apply_release::RELEASE_BIN_DIR)
-        });
+    let release_dir = executable.parent().filter(|bin_dir| {
+        bin_dir.file_name().and_then(std::ffi::OsStr::to_str)
+            == Some(crate::deploy::apply_release::RELEASE_BIN_DIR)
+    });
     let Some(bin_dir) = release_dir else {
         eprintln!(
             ">> {} is not inside a release's bin directory, so no web bundle was installed \
@@ -150,7 +148,9 @@ async fn install_web_bundle(env: &dyn EnvSource, executable: &Path, tag: &str) {
             // update as failed and send the operator to re-run a swap that has
             // already happened.
             eprintln!(">> the {tag} web bundle could not be installed: {failure}");
-            eprintln!(">> the coordinator and worker keep serving whatever bundle is already there");
+            eprintln!(
+                ">> the coordinator and worker keep serving whatever bundle is already there"
+            );
             return;
         }
     };

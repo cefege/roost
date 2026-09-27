@@ -84,7 +84,9 @@ pub async fn run(args: &DeployArgs) -> Result<ExitCode, CommandFailure> {
     let triple = release::target_triple(platform, &arch)?;
     let mut staged = match &args.release {
         Some(tag) => {
-            progress(format!(">> fetching the published {tag} release for {triple}"));
+            progress(format!(
+                ">> fetching the published {tag} release for {triple}"
+            ));
             release::fetch_release(&roost_host::ProcessEnv::new(), tag, platform, &arch).await?
         }
         None => {

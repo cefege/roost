@@ -39,9 +39,10 @@ pub const WEB_INDEX: &str = "index.html";
 /// Where a release's bundle lives, given the `bin` directory that release
 /// installed its executables into.
 pub fn release_web_dir(bin_dir: &Path) -> PathBuf {
-    bin_dir
-        .parent()
-        .map_or_else(|| bin_dir.join(WEB_DIR_NAME), |root| root.join(WEB_DIR_NAME))
+    bin_dir.parent().map_or_else(
+        || bin_dir.join(WEB_DIR_NAME),
+        |root| root.join(WEB_DIR_NAME),
+    )
 }
 
 /// Where this build's bundle belongs on this machine.
@@ -64,7 +65,10 @@ pub struct InstalledBundle {
 /// release's hashed asset files beside the new one's, and an index still
 /// referencing a file name the new build does not ship is a page that loads its
 /// shell and never its code.
-pub fn install_from_dir(source: &Path, destination: &Path) -> Result<InstalledBundle, InstallError> {
+pub fn install_from_dir(
+    source: &Path,
+    destination: &Path,
+) -> Result<InstalledBundle, InstallError> {
     validate(source)?;
     let parent = parent_of(destination)?;
     std::fs::create_dir_all(parent).map_err(|error| InstallError::Io {
