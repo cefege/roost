@@ -68,7 +68,8 @@ impl FakeWorld {
     }
 
     fn lock<T>(&self, cell: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-        cell.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        cell.lock()
+            .unwrap_or_else(move |poisoned| poisoned.into_inner())
     }
 }
 

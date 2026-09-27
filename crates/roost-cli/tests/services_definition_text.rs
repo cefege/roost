@@ -211,6 +211,16 @@ fn a_one_shot_grant_is_never_carried_into_a_definition() {
         roost_platform::KEEPER_FORCE_LIVE_RETIRE_ENV.to_string(),
         "yes".to_string(),
     )]));
+    assert_eq!(
+        armed
+            .environment
+            .get(roost_platform::KEEPER_FORCE_LIVE_RETIRE_ENV)
+            .map(String::as_str),
+        Some("yes"),
+        "arming is the caller's explicit act: the same resolve that dropped the \
+         grant a moment ago has to carry this one, or `with_decided_one_shots` \
+         is a no-op and the deploy is armed by nothing"
+    );
 }
 
 /// The grant has to reach the BYTES a service manager reads, not just the spec
@@ -231,7 +241,8 @@ fn a_decided_one_shot_reaches_the_rendered_definition() {
     ]);
     let armed = spec(ServiceRole::Worker, HostPlatform::Linux, Path::new(HOME))
         .with_decided_one_shots(&decided);
-    let unit = render_definition(&armed, HostPlatform::Linux);
+    let unit = render_definition(&armed, HostPlatform::Linux)
+        .expect("a worker unit with a decided one-shot renders");
     assert!(
         unit.contains("ROOST_BOOTSTRAP_TOKEN=one-shot"),
         "a decided enrollment token has to be in the unit the worker runs from:\n{unit}"
@@ -249,7 +260,8 @@ fn a_decided_one_shot_reaches_the_rendered_definition() {
     // the fleet inheriting a credential because one operator's shell had one.
     let unarmed =
         spec(ServiceRole::Worker, HostPlatform::Linux, Path::new(HOME));
-    let unit = render_definition(&unarmed, HostPlatform::Linux);
+    let unit = render_definition(&unarmed, HostPlatform::Linux)
+        .expect("a worker unit with nothing decided renders");
     assert!(!unit.contains("ROOST_BOOTSTRAP_TOKEN"));
     assert!(!unit.contains(roost_platform::KEEPER_FORCE_LIVE_RETIRE_ENV));
 }
@@ -266,7 +278,7 @@ fn a_decided_one_shot_reaches_the_rendered_definition() {
 #[test]
 fn a_chosen_worker_label_reaches_the_rendered_definition() {
     let env = environment(Path::new(HOME)).with("ROOST_WORKER_LABEL", "studio");
-    let spec = ServiceSpec::resolve_with_host_memory(
+    let labelled = ServiceSpec::resolve_with_host_memory(
         ServiceRole::Worker,
         &env,
         HostPlatform::Linux,
@@ -274,7 +286,8 @@ fn a_chosen_worker_label_reaches_the_rendered_definition() {
         8 * 1024 * 1024 * 1024,
     )
     .expect("a worker spec resolves");
-    let unit = render_definition(&spec, HostPlatform::Linux);
+    let unit = render_definition(&labelled, HostPlatform::Linux)
+        .expect("a worker unit with a chosen label renders");
     assert!(
         unit.contains("ROOST_WORKER_LABEL=studio"),
         "the name a deploy was told to enroll under has to be in the unit:\n{unit}"
@@ -285,7 +298,8 @@ fn a_chosen_worker_label_reaches_the_rendered_definition() {
     let unit = render_definition(
         &spec(ServiceRole::Worker, HostPlatform::Linux, Path::new(HOME)),
         HostPlatform::Linux,
-    );
+    )
+    .expect("a worker unit with no chosen label renders");
     assert!(!unit.contains("ROOST_WORKER_LABEL"));
 }
 

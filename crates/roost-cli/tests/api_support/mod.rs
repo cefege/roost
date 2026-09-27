@@ -204,6 +204,12 @@ fn outcome_name(outcome: Option<AgentPromptWaitOutcome>) -> String {
         Some(AgentPromptWaitOutcome::OccupantChanged) => "occupant_changed",
         Some(AgentPromptWaitOutcome::SessionClosed) => "session_closed",
         Some(AgentPromptWaitOutcome::PromptStalled) => "prompt_stalled",
+        // The product refuses this one (`wait_outcome_name` maps UNSPECIFIED to
+        // "a wait outcome this build does not know"), so the fake must never
+        // publish it. It renders to a name no real outcome collides with,
+        // which makes a coordinator that did publish it fail the assertion
+        // instead of reading as a timeout.
+        Some(AgentPromptWaitOutcome::AGENT_PROMPT_WAIT_OUTCOME_UNSPECIFIED) => "unspecified",
         None => "timed_out",
     }
     .to_string()

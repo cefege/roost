@@ -95,7 +95,7 @@ fn assert_handled(dir: &Path, name: &str) {
     );
 }
 
-fn stop_within_deadline(stack: &mut DevStack, forwarded: TerminationSignal) {
+async fn stop_within_deadline(stack: &mut DevStack, forwarded: TerminationSignal) {
     let stopped = tokio::time::timeout(DEADLINE, stack.stop(forwarded))
         .await
         .unwrap_or_else(|_| panic!("the dev stack was still running after {DEADLINE:?}"));
@@ -136,7 +136,7 @@ async fn a_sigint_reaches_every_child_and_none_outlives_the_command() {
         .await
         .expect("the watch never saw the signal this process was sent");
     assert_eq!(received, Some(TerminationSignal::Interrupt));
-    stop_within_deadline(&mut stack, TerminationSignal::Interrupt);
+    stop_within_deadline(&mut stack, TerminationSignal::Interrupt).await;
 
     for name in [COORDINATOR, WORKER, WEB] {
         assert_handled(&dir, name);
@@ -166,7 +166,7 @@ async fn a_server_that_exits_alone_takes_the_other_two_with_it() {
         .expect("no dev server was left running");
     assert_eq!(exit.name, WEB);
     assert_eq!(exit.code, Some(3));
-    stop_within_deadline(&mut stack, TerminationSignal::Interrupt);
+    stop_within_deadline(&mut stack, TerminationSignal::Interrupt).await;
 
     assert_handled(&dir, COORDINATOR);
     assert_handled(&dir, WORKER);
@@ -182,7 +182,7 @@ async fn a_child_that_ignores_the_signal_is_killed_after_the_grace() {
     await_started(&dir, &[COORDINATOR]);
 
     let stopping = Instant::now();
-    stop_within_deadline(&mut stack, TerminationSignal::Interrupt);
+    stop_within_deadline(&mut stack, TerminationSignal::Interrupt).await;
 
     // Reported gone before the grace elapsed would mean the child was reaped
     // without ever being asked politely, which is the state this escalation

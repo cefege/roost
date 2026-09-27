@@ -17,6 +17,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::{Path, PathBuf};
+use std::os::unix::fs::PermissionsExt;
 
 use roost_cli::update::journal::KeeperRecord;
 use roost_cli::update::keeper::{

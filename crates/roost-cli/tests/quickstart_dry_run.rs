@@ -134,6 +134,7 @@ fn a_dry_run_renders_the_definitions_a_real_run_would_install() {
     let machine = TempMachine::new("renders");
     let env = machine.environment();
     let endpoint = fresh_endpoint(None).expect("a loopback endpoint");
+    let endpoint_origin = endpoint.loopback_origin();
     let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, false)
         .expect("the plan resolves");
 
@@ -158,7 +159,7 @@ fn a_dry_run_renders_the_definitions_a_real_run_would_install() {
         .definition_text(HostPlatform::Linux)
         .expect("a linux unit renders");
     assert!(
-        coordinator_text.contains(&endpoint.loopback_origin().replace("http://", "127.0.0.1:")),
+        coordinator_text.contains(&endpoint_origin.replace("http://", "127.0.0.1:")),
         "the unit states the bind the coordinator will actually use:\n{coordinator_text}"
     );
 }
@@ -266,6 +267,7 @@ fn the_dry_run_definition_is_the_text_the_install_would_write() {
     let machine = TempMachine::new("same-text");
     let env = machine.environment();
     let endpoint = fresh_endpoint(None).expect("a loopback endpoint");
+    let endpoint_origin = endpoint.loopback_origin();
     let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, false)
         .expect("the plan resolves");
 
@@ -279,7 +281,7 @@ fn the_dry_run_definition_is_the_text_the_install_would_write() {
     let reparsed = parse_installed_environment(&independent, HostPlatform::Linux);
     assert_eq!(
         reparsed.get("ROOST_COORDINATOR_URL").map(String::as_str),
-        Some(endpoint.loopback_origin().as_str()),
+        Some(endpoint_origin.as_str()),
         "and the printed text is one the installed-definition reader understands: {reparsed:?}"
     );
 }

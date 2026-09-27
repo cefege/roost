@@ -7,6 +7,7 @@
 //! disappears or changes its arguments breaks all three without any Rust test
 //! failing, so the surface is asserted here by name.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
 
 use roost_cli::doctor::window::{DEFAULT_WINDOW_LABEL, parse_window};
@@ -15,7 +16,13 @@ use roost_cli::{Cli, Command};
 /// Every subcommand the crate's dispatcher answers, in the order `--help`
 /// prints them. The list is the contract `docs/phase6-cli-contract.md`
 /// documents; a command added here must be documented there in the same change.
-const SUBCOMMANDS: [&str; 18] = [
+///
+/// **25, not 21.** 21 is v2's operator-and-daemon surface: v2's 23 command keys
+/// minus the two v3 dropped (`cutover`, `__windows-updater-broker`). v3 adds
+/// four `__remote-*` target-side commands that v2 never had, and a deploy runs
+/// them over ssh. Asserting 21 would drop exactly the four commands this file
+/// exists to protect, and they would drop silently.
+const SUBCOMMANDS: [&str; 25] = [
     "coord",
     "worker",
     "keeper",
@@ -25,23 +32,32 @@ const SUBCOMMANDS: [&str; 18] = [
     "logs",
     "deploy",
     "keeper-refresh",
+    "api",
+    "quickstart",
+    "push",
+    "join",
+    "add-machine",
+    "dev",
+    "self-link",
+    "__remote-facts",
+    "__remote-evidence",
+    "__remote-transaction",
+    "__remote-apply",
     "state",
     "reset",
     "skill",
     "test",
     "__keeper-contract",
-    "__remote-facts",
-    "__remote-evidence",
-    "__remote-transaction",
-    "__remote-apply",
 ];
 
 #[test]
 fn every_documented_subcommand_parses_with_no_arguments() {
     for name in SUBCOMMANDS {
-        // The two commands with a required argument are exercised with the
+        // The commands with a required argument are exercised with the
         // argument `--help` says they need, because "it parses" is a claim
-        // about the command, not about its argument being optional.
+        // about the command, not about its argument being optional. The rest
+        // parse bare, which is itself part of the claim: a subcommand that
+        // demands an argument nobody has a reason to supply is a surprise.
         let argv: Vec<String> = match name {
             "keeper" => vec![
                 "roost".to_string(),
@@ -58,6 +74,12 @@ fn every_documented_subcommand_parses_with_no_arguments() {
                 "roost".to_string(),
                 name.to_string(),
                 "host.test".to_string(),
+            ],
+            "add-machine" => vec![
+                "roost".to_string(),
+                name.to_string(),
+                "--platform".to_string(),
+                "linux".to_string(),
             ],
             "__remote-transaction" => vec![
                 "roost".to_string(),
@@ -76,18 +98,18 @@ fn every_documented_subcommand_parses_with_no_arguments() {
 #[test]
 fn an_unknown_subcommand_is_refused_rather_than_guessed() {
     // The v2 spellings that are deliberately gone: a command that silently
-    // became something else would be worse than one that says it does not exist.
-    for gone in [
-        "cutover",
-        "__windows-updater-broker",
-        "quickstart",
-        "push",
-        "api",
-        "dev",
-    ] {
-        assert!(
-            Cli::try_parse_from(["roost", gone]).is_err(),
-            "{gone} must not parse: it is not in the tree"
+    // became something else would be worse than one that says it does not
+    // exist. `quickstart`, `push`, `api` and `dev` were on this list once and
+    // L2–L6 landed all four, so this is now the two real drops and no more.
+    for gone in ["cutover", "__windows-updater-broker"] {
+        let error = Cli::try_parse_from(["roost", gone])
+            .err()
+            .unwrap_or_else(|| panic!("{gone} parsed: it is in the tree"));
+        assert_eq!(
+            error.kind(),
+            ErrorKind::InvalidSubcommand,
+            "{gone} must be refused AS AN UNKNOWN SUBCOMMAND, not by some other \
+             rule that happens to fire first"
         );
     }
 }

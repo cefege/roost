@@ -13,6 +13,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::PathBuf;
+use std::os::unix::fs::PermissionsExt;
 
 use roost_cli::services::deploy_journal::sha256_hex;
 use roost_cli::update::journal::{KeeperRecord, SELF_UPDATE_JOURNAL_SCHEMA, SelfUpdateJournal};

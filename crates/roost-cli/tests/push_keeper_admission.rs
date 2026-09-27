@@ -186,6 +186,10 @@ fn a_rollback_is_proved_against_the_keeper_that_is_running_now() {
 fn one_unadoptable_keeper_defers_only_its_own_machine_and_leaves_the_fleet_rolling() {
     let studio = worker("studio", "studio.example.test", Some(PRIOR), 0);
     let loft = worker("loft", "loft.example.test", Some(PRIOR), 2);
+    // Read before the roster takes it: the assertion below is that the machine
+    // holding live PTYs is the deferred one, which needs the count to outlive
+    // the move into the roster.
+    let loft_sessions = loft.coordinator_open_session_ids.len();
     let behind = with(
         worker("shed", "shed.example.test", Some(PRIOR), 0),
         Some(PRIOR),
@@ -215,7 +219,7 @@ fn one_unadoptable_keeper_defers_only_its_own_machine_and_leaves_the_fleet_rolli
     assert_eq!(admitted.deferred.len(), 1);
     assert_eq!(admitted.deferred[0].label, "loft");
     assert_eq!(
-        loft.coordinator_open_session_ids.len(),
+        loft_sessions,
         2,
         "the deferred machine is the one holding live PTYs, and nobody else's"
     );

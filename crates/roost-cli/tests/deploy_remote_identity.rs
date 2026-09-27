@@ -351,7 +351,8 @@ fn every_value_a_deploy_composes_can_reach_a_definition() {
     .expect("a worker spec resolves against a complete environment")
     .with_decided_one_shots(&decided);
 
-    let rendered = render_definition(&spec, HostPlatform::Linux);
+    let rendered = render_definition(&spec, HostPlatform::Linux)
+        .expect("a decided one-shot renders against a complete environment");
     for (key, value) in &decided {
         assert!(
             rendered.contains(&format!("{key}={value}")),
