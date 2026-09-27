@@ -320,7 +320,7 @@ impl ShellSpecResolver for FixedResolver {
 /// second copy would be a second answer to "what does a hand-built binding
 /// parse into", which is how a binding ends up writing to a recorder no
 /// assertion reads.
-pub struct SharedDelivery(pub Arc<RecordingDelivery>);
+struct SharedDelivery(Arc<RecordingDelivery>);
 
 impl ChannelDelivery for SharedDelivery {
     fn ingest_output(&self, record: &mut SessionRecord, chunk: &[u8], now_ms: i64) {

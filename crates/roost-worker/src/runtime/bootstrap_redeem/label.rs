@@ -29,7 +29,7 @@ const HOSTNAME_ENV: &str = "HOSTNAME";
 /// one: the answer a label falls back to is a fact about the box the test did
 /// not run on, and reading it on every test would make a label test a
 /// hostname test.
-pub trait LabelSources {
+pub(super) trait LabelSources {
     /// The host name of the machine under `platform`, or `None` when it has
     /// none to give.
     fn host_name(&self, platform: HostPlatform) -> Option<String>;
@@ -37,7 +37,7 @@ pub trait LabelSources {
 
 /// The label source that reads this host.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct HostLabelSources;
+pub(super) struct HostLabelSources;
 
 impl LabelSources for HostLabelSources {
     fn host_name(&self, platform: HostPlatform) -> Option<String> {
@@ -76,7 +76,7 @@ impl LabelSources for HostLabelSources {
 /// refusal an operator can read.
 ///
 /// [`WorkerBoot::resolve`]: crate::runtime::boot::WorkerBoot::resolve
-pub fn resolve_worker_label(
+pub(super) fn resolve_worker_label(
     env: &dyn EnvSource,
     platform: HostPlatform,
     sources: &dyn LabelSources,
