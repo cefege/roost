@@ -180,14 +180,27 @@ run: 530 passed / 48 failed / 0 ignored, 83 binaries.** No worker total had ever
 been recorded before this. **This is a triage baseline and NOT a gate figure** —
 one run is not two, and the tree moved substantially afterwards.
 
-The finding that matters is the composition of the 48: they collapse to **eight
-root causes, and only ONE is a product defect**. Seventeen are a single fixture
-constant (`WorkerFp` wants 64 lowercase hex, the fixture passed a UUID); nine are
-a single fixture shape (a cell stream id must be a UUID, so `next_cell_frame`
-returned `Unbuildable` and every later assertion saw `Withheld(BaselineOwed)`);
-three are an unset `HOME`; one was a fake that logged a release without
-releasing it. A reviewer who reads "48 failing" and concludes "this port is
-broken" would be wrong.
+The finding that matters is the composition of the 48: they collapse to a handful
+of root causes, and **exactly ONE is a product defect**. A reviewer who reads
+"48 failing" and concludes "this port is broken" would be wrong.
+
+**The first decomposition published here was an UNDERCOUNT, and the correction is
+the useful part.** It said seventeen failures were one fixture constant and nine
+were one fixture shape. The real extent is **sixteen call sites** of the non-UUID
+cell stream id — not four — across `session_cell_sink.rs`, `session_cell_emit.rs`
+and `session_raw_metadata.rs`, so `next_cell_frame` returned `Unbuildable` and
+every later assertion saw `Withheld(BaselineOwed)`; and **every `WorkerFp` literal
+in the tree is 63 hex characters rather than 64**, across four files including the
+17-test `session_support` fixture. Three binaries also hit an unset `HOME`
+independently, which is a property of `WorkerBoot::resolve` and not of any one
+fixture. The total was right; the explanation of it was not. A published
+decomposition that turns out to undercount is worse than none — it sends the
+next reader hunting one bug where there were sixteen.
+
+The lesson generalises past this number: **triage a count to its root causes,
+then verify the extent of each cause before you publish it.** A decomposition is a
+claim about every row in the count, and it is as wrong as a count is if it
+undercounts one of them.
 
 The real one is worth its own paragraph. `host/install.rs`'s `closing_quote`
 returned the index PAST the closing quote, so `split_once('=')` produced a
@@ -233,6 +246,42 @@ apart at exactly the rate the tree moves.
 
 A gate that cannot run the suite at all has proved nothing. Say so rather
 than reporting a partial pass as a green one.
+
+### Two more, both of which cost a whole agent-hour to learn
+
+**A diagnosis that survives only the fix it proposed is not a diagnosis.** A
+worker test failed on a 5 s `SpawnNotAcknowledged`, which reads exactly like the
+load story above, so the explanation was load. It died on a **serialised** re-run
+— same result, no other track building — and what was underneath was
+`KeeperFixture::start`: a strict accept/serve loop that serves exactly ONE
+connection at a time. A test holding the first pool alive across a second
+connect makes that second `connect` retry to the timeout, and the failure it
+produces **names a SPAWN rather than a connect**. So the rig lied about which
+seam it broke, and the plausible cause pointed at the product.
+
+The rule is not "be more careful". It is: **if your explanation is load, and the
+re-run under quiet conditions reproduces it, your explanation was wrong.** Load
+is the cheapest available explanation and it is the one most likely to be
+assumed rather than eliminated.
+
+**A test red for a reason unrelated to what it tests trains a reader to ignore a
+red in that file.** Two of this track's reds were literal-versus-assertion, not
+logic: one asserted 24 for a 25-byte literal, another named a spawn when the
+rig had broken a connect. Neither is expensive to fix, and both are expensive to
+leave, because the cost is not the wrong assertion — it is that the file stops
+being read. **When a test fails, check what the failure is actually about before
+fixing what it appears to be about.**
+
+**And the one that is a process rule rather than a testing rule: a shared
+working directory is not yours.** `git add -A` across a tree three agents were
+editing captured a sibling's uncommitted fix in its pre-fix state and silently
+reverted their work; neither noticed until a test failed, and the fix existed in
+exactly one place for as long as that took. Stage an **explicit path list** and
+ping the owner before committing anything you did not write. `-A` cannot
+distinguish "I read this and it is right" from "this was on disk", and on a
+shared tree the second is most of it. An unstaged file is a five-second fix; a
+wrong commit is a red tree for everyone.
+
 
 ### Two ways to misread a red run before you have read it
 
