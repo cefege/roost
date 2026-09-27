@@ -564,6 +564,23 @@ apart at exactly the rate the tree moves.
 A gate that cannot run the suite at all has proved nothing. Say so rather
 than reporting a partial pass as a green one.
 
+### An instrument that reports success while doing nothing
+
+**This is the through-line of the whole 2026-09-27 session, and it was found four times before anyone named it.** Each instance looks like it is doing its job, and in three of the four there was a passing gate behind it.
+
+| The instrument | What it reported | What it did |
+|---|---|---|
+| `middleware/security.rs` overwriting `Vary` | a response with headers | dropped `accept-encoding`, so a shared cache could hand a gzipped body to a client that refused gzip |
+| `CoordTerminal`'s `Debug` | two collaborator type names | `type_name::<Self>()` for both fields — it named the container twice, under a comment saying the point was to name which were wired |
+| `SocketClose::Default` | a close code | none, and the absence *was* the instruction: a durable append that threw means reconnect and replay, and any code tells the worker to back off instead |
+| `LiveEffects` | — | prevented by its own doc, *"no default bodies, because a default that silently does nothing is exactly the history-corrupting drop this subsystem exists to prevent"* |
+
+**The common shape is a component whose output is indistinguishable from its output when the work is absent.** A missing header, a duplicated type name, an absent close code, a defaulted effect: in each case the failure appears somewhere *else* — a cache serves the wrong bytes, a reader concludes a seam is reporting, a worker backs off, a PTY is never killed. Nothing points back.
+
+**The defences, and they are not the same defence in each case.** A merge rather than an `insert`; a name captured at the wiring site so it cannot derive from `Self`; a test that asserts the *absence* is load-bearing; a doc that forbids defaults. Three of those four are structural and one is a comment, and **the comment is the weak one** — which is why the `LiveEffects` methods want tests as well as the doc.
+
+**And the general question, which is the same one this file keeps asking in a different costume: what could this check have detected before you consumed what it returned?** A gate that cannot see the thing prints the same verdict as one that can. That is now five instances here — this one, the unregistered module, the unregistered `WorkerCapabilities`, the `flock` on a missing directory, and the compile quoted as a gate.
+
 ### A green check on a file nothing includes is not a check
 
 A draft put a struct field inside an `impl` block. Rust reports that as an
