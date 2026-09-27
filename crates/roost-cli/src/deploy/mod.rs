@@ -87,6 +87,22 @@ pub struct DeployArgs {
     /// holds, for this deploy only.
     #[arg(long)]
     pub force_live: bool,
+    /// The built web bundle to ship with this release, and to point the
+    /// target's definition at. It must hold an `index.html`; a directory
+    /// without one is refused before anything is staged, because a worker
+    /// serving it answers 404 for every URL and reports itself healthy.
+    #[arg(long, value_name = "DIR")]
+    pub web_dist: Option<PathBuf>,
+    /// Fetch this release's published binaries and bundle from GitHub instead
+    /// of building them here.
+    ///
+    /// This is the only way a coordinator can reach a machine it cannot build
+    /// for: an x86_64 Linux coordinator cannot produce an aarch64 or a macOS
+    /// binary, and three of the production machines are exactly that. The tag
+    /// is the build identity this deploy installs, and it is proved against the
+    /// digest the release published rather than against this checkout's HEAD.
+    #[arg(long, value_name = "TAG")]
+    pub release: Option<String>,
 }
 
 /// `roost keeper-refresh <host>` — shut a target's keeper down empty, under the
