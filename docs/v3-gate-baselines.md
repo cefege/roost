@@ -297,6 +297,24 @@ run: 530 passed / 48 failed / 0 ignored, 83 binaries.** No worker total had ever
 been recorded before this. **This is a triage baseline and NOT a gate figure** —
 one run is not two, and the tree moved substantially afterwards.
 
+**THE FIGURE ABOVE IS A COMPILE, NOT A GATE, and this entry did not say so
+until now.** Every "0 errors, 0 warnings" reported for this track on 2026-09-27
+was `cargo check -p roost-worker --all-targets`, which compiles and does not run
+clippy lints. The track gate is `cargo clippy -p roost-worker -p roost-keeper
+--all-targets -- -D warnings = 0`, and **the first measurement of it found 7
+errors** across six files and four slices — one too-many-arguments, two
+large-`Err`-variant, two unneeded-`Ok`-with-`?`, one useless conversion, one
+`clone` on a `Copy` type. All seven predate every commit made that day, and none
+would have surfaced under `cargo check`. The branch carried a compile-clean
+reading for hours because the wrong command was quoted as the gate — **including
+by the integrator, in this file, before it was corrected.**
+
+That is the general form below, and its fifth instance: **a compile is not a
+gate, and the number that reads like one is the dangerous one.** A measurement is
+only a measurement of what it measured. This paragraph is the correction, not the
+replacement — the 48-failure triage stands, because `cargo test` was genuinely
+run for it.
+
 The finding that matters is the composition of the 48: they collapse to a handful
 of root causes, and **exactly ONE is a product defect**. A reviewer who reads
 "48 failing" and concludes "this port is broken" would be wrong.
@@ -646,6 +664,39 @@ matches nothing is zero violations. A `SpawnNotAcknowledged` under load reads as
 a refused spawn. **Ask what the check could have detected before consuming what
 it returned** — that question has caught more real defects today than any
 individual test.
+
+### A SQLite digest is only comparable after every connection is closed
+
+**The rule: anything that compares a database file byte for byte must close
+every connection to it first, and the comparison must say when it took its
+snapshot.**
+
+SQLite checkpoints its WAL and writes the main file when the **last connection
+to a WAL database closes** — not when a write happens. So a database can be
+byte-identical at the moment a function returns and different a moment later,
+with no writer in between. An assertion that hashes the file inside the function
+that used it is a race with a timer on it, and it fails intermittently in a way
+that reads as corruption.
+
+This is not only a test artefact and it was not found by a test. **`roost
+import-v2 --dry-run` has to answer "what would change" about a target
+coordinator database, and Stage 3.3's install gate and Stage 4's cutover both
+compare digests across a live coordinator.** A false difference there reads as
+"the import corrupted the database", which is the one conclusion an operator
+cannot afford to draw and cannot easily disprove. So:
+
+- Close the pool explicitly before any caller reads the file, and say so in the
+  assertion's own text — an assertion that does not say when it snapshots is the
+  defect.
+- **And a digest is not the right instrument for a live database anyway.** A
+  count of the rows that matter is what proves the import did its job; the digest
+  is what proves nothing moved, and for that the file must be closed first.
+
+The related discovery, from the same work: `roost_coord::db::open` **runs the
+migrations**, so a command that promises not to touch a database must not reach
+it through that function even to look. `--dry-run` asking a read-only handle
+whether the target has an `accounts` table, and reporting a first run when it
+does not, is the shape that keeps the promise.
 
 ### Two more, both of which cost a whole agent-hour to learn
 
