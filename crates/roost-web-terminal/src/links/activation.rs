@@ -113,7 +113,7 @@ pub enum LinkActivation {
 
 impl LinkActivation {
     /// The terminal-authored target, which is also the hover text.
-    pub const fn display(&self) -> &str {
+    pub fn display(&self) -> &str {
         match self {
             Self::OpenExternal { display, .. } | Self::OpenWorkerFile { display, .. } => {
                 display

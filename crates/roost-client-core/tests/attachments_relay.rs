@@ -9,6 +9,9 @@
 //! The v2 names are kept verbatim, from
 //! `apps/web/tests/attachmentsDirectFallback.test.ts`.
 
+#[path = "attachment_support/mod.rs"]
+mod attachment_support;
+use attachment_support::FakeEnvironment;
 use roost_client_core::client::attachments::direct::relay::{RELAY_CHUNK_BYTES, RelayUpload};
 use roost_client_core::client::attachments::direct::{
     AttachmentDirectEnvironment, AttachmentDirectUploadRequest, DirectAttempt,

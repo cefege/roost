@@ -20,11 +20,11 @@ use roost_client_core::client::attachments::grant::{
 };
 use roost_client_core::client::attachments::packets::assembler::AttachmentPacketAssembler;
 use roost_client_core::client::attachments::packets::{
-    ATTACHMENT_PACKET_MAX_BYTES, PeerLane,
+    ATTACHMENT_PACKET_MAX_BYTES, AttachmentPacketHeader, PeerLane, encode_attachment_packet,
 };
 use roost_client_core::client::attachments::peer::AttachmentPeerTransfer;
 use roost_client_core::client::attachments::transfer::receipt::AttachmentTransferStatus;
-use roost_client_core::client::attachments::transfer::{
+use roost_client_core::client::attachments::transfer::
     AttachmentTransferAck, DIRECT_CHUNK_BYTES, DirectUpload, InFlightChunk, SliceRequest,
 };
 use roost_proto::buffa::Message;
@@ -91,6 +91,7 @@ fn server_packet(message_id: u32, frame: ServerFrame) -> Vec<u8> {
 /// A worker's Ready for the tuple both carriers authenticate.
 fn ready_frame() -> ServerFrame {
     ServerFrame::Ready(Box::new(AttachmentTransferReady {
+        __buffa_unknown_fields: Default::default(),
         worker_fingerprint: "worker-a".to_owned(),
         worker_epoch: "epoch-a".to_owned(),
         session_id: "session-a".to_owned(),
@@ -101,6 +102,7 @@ fn ready_frame() -> ServerFrame {
 /// Any server frame, as the bytes a socket delivers.
 fn server_frame_bytes(frame: ServerFrame) -> Vec<u8> {
     AttachmentTransferServerFrame {
+        __buffa_unknown_fields: Default::default(),
         frame: Some(frame),
         ..Default::default()
     }
@@ -110,6 +112,7 @@ fn server_frame_bytes(frame: ServerFrame) -> Vec<u8> {
 /// The worker's acknowledgement for one chunk, echoing its own digest.
 fn ack_frame(chunk: &InFlightChunk, bytes_received: u64) -> ServerFrame {
     ServerFrame::Ack(Box::new(ProtoAck {
+        __buffa_unknown_fields: Default::default(),
         upload_id: chunk.upload_id.clone(),
         seq: chunk.seq,
         bytes_received,
@@ -186,7 +189,7 @@ fn fragments_attachment_frames_on_separate_ordered_channels_and_completes_from_a
     assert_eq!(control_messages.len(), 1);
     let hello = AttachmentTransferClientFrame::decode_from_slice(&control_messages[0])
         .expect("the hello is a client frame");
-    let ClientFrame::Hello(hello) = hello.frame else {
+    let Some(ClientFrame::Hello(hello)) = hello.frame else {
         panic!("the attachment peer must authenticate before it sends anything");
     };
     assert_eq!(hello.grant_id, "grant-a");
@@ -226,7 +229,7 @@ fn fragments_attachment_frames_on_separate_ordered_channels_and_completes_from_a
     assert_eq!(data_messages.len(), 1, "one chunk is one logical message");
     let sent = AttachmentTransferClientFrame::decode_from_slice(&data_messages[0])
         .expect("the chunk is a client frame");
-    let ClientFrame::Chunk(sent) = sent.frame else {
+    let Some(ClientFrame::Chunk(sent)) = sent.frame else {
         panic!("the data lane carries chunks");
     };
     assert_eq!((sent.upload_id.as_str(), sent.seq, sent.offset), ("upload-a", 0, 0));
@@ -272,7 +275,7 @@ fn authenticates_then_sends_direct_bytes_in_order_and_advances_progress_from_ack
         .expect("the socket authenticates");
     let hello = AttachmentTransferClientFrame::decode_from_slice(&hello_bytes)
         .expect("the hello is a client frame");
-    let ClientFrame::Hello(hello) = hello.frame else {
+    let Some(ClientFrame::Hello(hello)) = hello.frame else {
         panic!("the loopback carrier authenticates with a hello");
     };
     assert_eq!(hello.grant_id, "grant-a");
@@ -312,7 +315,7 @@ fn authenticates_then_sends_direct_bytes_in_order_and_advances_progress_from_ack
             .expect("a ready carrier sends a chunk");
         let frame = AttachmentTransferClientFrame::decode_from_slice(&frame_bytes)
             .expect("the chunk is a client frame");
-        let ClientFrame::Chunk(frame) = frame.frame else {
+        let Some(ClientFrame::Chunk(frame)) = frame.frame else {
             panic!("the loopback carrier sends chunks");
         };
         sent.push((frame.seq, frame.offset, frame.last, frame.data.clone()));
@@ -354,7 +357,7 @@ fn requests_direct_status_on_the_authenticated_control_socket() {
         .expect("a ready carrier may ask for a receipt");
     let request = AttachmentTransferClientFrame::decode_from_slice(&request_bytes)
         .expect("the request is a client frame");
-    let ClientFrame::StatusRequest(request) = request.frame else {
+    let Some(ClientFrame::StatusRequest(request)) = request.frame else {
         panic!("the control socket carries the status request");
     };
     assert_eq!(request.upload_id, "upload-a");
@@ -373,6 +376,7 @@ fn requests_direct_status_on_the_authenticated_control_socket() {
         panic!("the worker's status settles the receipt in flight");
     };
     let AttachmentTransferStatus {
+        __buffa_unknown_fields: Default::default(),
         upload_id,
         next_seq,
         bytes_received,

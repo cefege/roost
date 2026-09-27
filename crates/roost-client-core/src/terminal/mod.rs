@@ -15,6 +15,7 @@
 
 pub mod frame_fold;
 pub mod history;
+pub mod history_backfill;
 pub mod input;
 pub mod repair;
 pub mod routes;

@@ -21,13 +21,14 @@ pub struct PaneInputs<'a> {
 
 /// Which way a textarea selection runs, which the browser needs to place the
 /// caret correctly.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum SelectionDirection {
     /// Anchor before focus.
     Forward,
     /// Focus before anchor.
     Backward,
     /// A bare caret, or a browser that reported nothing.
+    #[default]
     None,
 }
 

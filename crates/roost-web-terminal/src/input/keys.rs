@@ -6,7 +6,7 @@
 //! application on every platform, and a key that encodes differently on two
 //! of them is a bug in the shell behind it.
 
-use crate::input::chord::{KeyChord, KeyKind};
+use crate::input::chord::{KeyChord, KeyKind, NamedKey};
 
 /// The three bytes a focus report is written as under DECSET 1004. The
 /// application asked WHICH SURFACE owns the keyboard, and only a real focus
@@ -69,12 +69,12 @@ pub const fn modifier_parameter(shift: bool, alt: bool, ctrl: bool) -> u32 {
 /// share. The two modes differ only in the introducer, so they are one entry.
 fn navigation(kind: KeyKind) -> Option<(&'static str, &'static str, char)> {
     let entry = match kind {
-        KeyKind::ArrowUp => ("\x1b[A", "\x1bOA", 'A'),
-        KeyKind::ArrowDown => ("\x1b[B", "\x1bOB", 'B'),
-        KeyKind::ArrowRight => ("\x1b[C", "\x1bOC", 'C'),
-        KeyKind::ArrowLeft => ("\x1b[D", "\x1bOD", 'D'),
-        KeyKind::Home => ("\x1b[H", "\x1bOH", 'H'),
-        KeyKind::End => ("\x1b[F", "\x1bOF", 'F'),
+        KeyKind::Named(NamedKey::ArrowUp) => ("\x1b[A", "\x1bOA", 'A'),
+        KeyKind::Named(NamedKey::ArrowDown) => ("\x1b[B", "\x1bOB", 'B'),
+        KeyKind::Named(NamedKey::ArrowRight) => ("\x1b[C", "\x1bOC", 'C'),
+        KeyKind::Named(NamedKey::ArrowLeft) => ("\x1b[D", "\x1bOD", 'D'),
+        KeyKind::Named(NamedKey::Home) => ("\x1b[H", "\x1bOH", 'H'),
+        KeyKind::Named(NamedKey::End) => ("\x1b[F", "\x1bOF", 'F'),
         _ => return None,
     };
     Some(entry)
@@ -83,18 +83,18 @@ fn navigation(kind: KeyKind) -> Option<(&'static str, &'static str, char)> {
 /// The keys xterm writes as `CSI n ~`, and their `n`.
 fn tilde_code(kind: KeyKind) -> Option<u32> {
     let code = match kind {
-        KeyKind::Insert => 2,
-        KeyKind::Delete => 3,
-        KeyKind::PageUp => 5,
-        KeyKind::PageDown => 6,
-        KeyKind::Function(5) => 15,
-        KeyKind::Function(6) => 17,
-        KeyKind::Function(7) => 18,
-        KeyKind::Function(8) => 19,
-        KeyKind::Function(9) => 20,
-        KeyKind::Function(10) => 21,
-        KeyKind::Function(11) => 23,
-        KeyKind::Function(12) => 24,
+        KeyKind::Named(NamedKey::Insert) => 2,
+        KeyKind::Named(NamedKey::Delete) => 3,
+        KeyKind::Named(NamedKey::PageUp) => 5,
+        KeyKind::Named(NamedKey::PageDown) => 6,
+        KeyKind::Named(NamedKey::Function(5)) => 15,
+        KeyKind::Named(NamedKey::Function(6)) => 17,
+        KeyKind::Named(NamedKey::Function(7)) => 18,
+        KeyKind::Named(NamedKey::Function(8)) => 19,
+        KeyKind::Named(NamedKey::Function(9)) => 20,
+        KeyKind::Named(NamedKey::Function(10)) => 21,
+        KeyKind::Named(NamedKey::Function(11)) => 23,
+        KeyKind::Named(NamedKey::Function(12)) => 24,
         _ => return None,
     };
     Some(code)
@@ -103,10 +103,10 @@ fn tilde_code(kind: KeyKind) -> Option<u32> {
 /// The four function keys xterm writes as `SS3 x` rather than `CSI n ~`.
 fn ss3_final(kind: KeyKind) -> Option<char> {
     let final_byte = match kind {
-        KeyKind::Function(1) => 'P',
-        KeyKind::Function(2) => 'Q',
-        KeyKind::Function(3) => 'R',
-        KeyKind::Function(4) => 'S',
+        KeyKind::Named(NamedKey::Function(1)) => 'P',
+        KeyKind::Named(NamedKey::Function(2)) => 'Q',
+        KeyKind::Named(NamedKey::Function(3)) => 'R',
+        KeyKind::Named(NamedKey::Function(4)) => 'S',
         _ => return None,
     };
     Some(final_byte)
@@ -115,10 +115,10 @@ fn ss3_final(kind: KeyKind) -> Option<char> {
 /// The four keys whose bytes are themselves, with or without the Alt prefix.
 fn simple_bytes(kind: KeyKind) -> Option<&'static str> {
     let bytes = match kind {
-        KeyKind::Enter => "\r",
-        KeyKind::Backspace => "\x7f",
-        KeyKind::Tab => "\t",
-        KeyKind::Escape => "\x1b",
+        KeyKind::Named(NamedKey::Enter) => "\r",
+        KeyKind::Named(NamedKey::Backspace) => "\x7f",
+        KeyKind::Named(NamedKey::Tab) => "\t",
+        KeyKind::Named(NamedKey::Escape) => "\x1b",
         _ => return None,
     };
     Some(bytes)
@@ -155,7 +155,7 @@ pub fn terminal_key_sequence(chord: &KeyChord, cursor_keys_application: bool) ->
     {
         return ctrl_byte(character).map(|byte| byte.to_string());
     }
-    if chord.kind == KeyKind::Enter && chord.modifiers.shift {
+    if chord.kind == KeyKind::Named(NamedKey::Enter) && chord.modifiers.shift {
         return Some(format!(
             "\x1b[13;{}u",
             modifier_parameter(
@@ -165,7 +165,7 @@ pub fn terminal_key_sequence(chord: &KeyChord, cursor_keys_application: bool) ->
             )
         ));
     }
-    if chord.kind == KeyKind::Tab
+    if chord.kind == KeyKind::Named(NamedKey::Tab)
         && chord.modifiers.shift
         && !chord.modifiers.alt
         && !chord.modifiers.ctrl

@@ -29,7 +29,7 @@ const CB_X10_RELEASE: u8 = 3;
 /// byte itself runs to 255 — so the largest nameable cell is xterm's
 /// `MOUSE_LIMIT`.
 const X10_BIAS: u8 = 32;
-const X10_MAX_CELL: u32 = u32::from(u8::MAX) - u32::from(X10_BIAS);
+const X10_MAX_CELL: u32 = u8::MAX as u32 - X10_BIAS as u32;
 
 const ESC: u8 = 0x1b;
 const LEFT_BRACKET: u8 = 0x5b;

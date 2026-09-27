@@ -36,7 +36,8 @@ impl LocalWorkerDoor {
             "https" | "wss" => "wss",
             _ => "ws",
         };
-        format!("{socket_scheme}://{rest}{loopback::LOOPBACK_PATH}")
+        let path = loopback::LOOPBACK_PATH;
+        format!("{socket_scheme}://{rest}{path}")
     }
 }
 

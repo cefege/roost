@@ -11,7 +11,7 @@
 /// The three `BrowserOwned` spellings are what a browser reports for a key it
 /// is still resolving — a dead key awaiting composition, an IME key, a key the
 /// platform could not identify — and all three belong to the text services.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyKind {
     /// One printable code point, astral characters included.
     Printable(char),
@@ -88,6 +88,9 @@ impl NamedKey {
             Self::Backspace => "Backspace",
             Self::Tab => "Tab",
             Self::Escape => "Escape",
+            // A function number outside F1-F12 is not a key a browser reports,
+            // and a fabricated name would be a lie the encoder then acts on.
+            Self::Function(_) => "",
         }
     }
 

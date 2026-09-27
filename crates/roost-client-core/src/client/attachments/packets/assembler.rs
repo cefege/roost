@@ -9,6 +9,7 @@ use super::{
     AttachmentPacketError, AttachmentPacketQuota, PeerLane, parse_attachment_packet,
 };
 
+#[derive(Debug, PartialEq, Eq)]
 struct PartialMessage {
     message_id: u32,
     total_bytes: usize,

@@ -4,7 +4,7 @@
 //! `attachmentPeer.ts`. Depends on `conversation` for the frame rules,
 //! `packets` for framing, and `signaling` for the SDP.
 
-pub mod conversation;
+pub use super::conversation;
 
 use roost_proto::buffa::Message;
 use roost_proto::{
@@ -160,7 +160,7 @@ impl AttachmentPeerTransfer {
             chunk_sha256: chunk.chunk_sha256.clone(),
             ..Default::default()
         };
-        if !self.queue_frame(PeerLane::Data, &encode_client_frame(ClientFrame::Chunk(frame))) {
+        if !self.queue_frame(PeerLane::Data, &encode_client_frame(ClientFrame::Chunk(Box::new(frame)))) {
             let reason = "attachment peer could not queue a chunk";
             return Err(self.conversation.fail_ack(reason, false));
         }
@@ -177,7 +177,7 @@ impl AttachmentPeerTransfer {
             upload_id: upload_id.to_owned(),
             ..Default::default()
         };
-        let encoded = encode_client_frame(ClientFrame::StatusRequest(frame));
+        let encoded = encode_client_frame(ClientFrame::StatusRequest(Box::new(frame)));
         if !self.queue_frame(PeerLane::Control, &encoded) {
             return Err(self.conversation.fail_status(
                 "attachment peer could not request status",
@@ -332,7 +332,10 @@ impl AttachmentPeerTransfer {
         if !self.conversation.is_ready() {
             // Ready first, on control, and nothing else: a peer that opens with
             // an acknowledgement has not authenticated anything.
-            let ServerFrame::Ready(ready) = &frame.frame else {
+            let Some(inner) = frame.frame.as_ref() else {
+                return Err(self.finish("attachment peer received an invalid frame"));
+            };
+            let ServerFrame::Ready(ready) = inner else {
                 return Err(self.finish("attachment peer required Ready first"));
             };
             if lane != PeerLane::Control {
@@ -346,11 +349,14 @@ impl AttachmentPeerTransfer {
             return Err(self.finish("attachment peer received an invalid frame"));
         }
         self.ack_deadline_armed = false;
-        match &frame.frame {
+        let Some(inner) = frame.frame.as_ref() else {
+            return Err(self.finish("attachment peer received an invalid frame"));
+        };
+        match inner {
             ServerFrame::Ack(ack) => self.conversation.settle_ack(ack),
             ServerFrame::Status(status) => self.conversation.settle_status(&status_from(status)),
             ServerFrame::Closed(_) => Err(self.finish("attachment peer closed")),
-            ServerFrame::Ready(_) | None => {
+            ServerFrame::Ready(_) => {
                 Err(self.finish("attachment peer received an invalid frame"))
             }
         }

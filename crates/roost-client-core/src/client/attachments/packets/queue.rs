@@ -11,12 +11,14 @@ use super::{
     AttachmentPacketHeader, AttachmentPacketQuota, PeerLane, encode_attachment_packet,
 };
 
+#[derive(Debug, PartialEq, Eq)]
 struct QueuedMessage {
     message_id: u32,
     bytes: Vec<u8>,
     offset_bytes: u32,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 struct PendingFragment {
     message_id: u32,
     payload_bytes: usize,

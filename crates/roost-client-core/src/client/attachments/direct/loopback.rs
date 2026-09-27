@@ -96,7 +96,7 @@ impl LoopbackTransfer {
                 self.sent_chunk(),
             ));
         }
-        Ok(encode_client_frame(ClientFrame::Hello(self.grant.hello(""))))
+        Ok(encode_client_frame(ClientFrame::Hello(Box::new(self.grant.hello("")))))
     }
 
     /// Take the carrier for one chunk and frame it.
@@ -115,7 +115,7 @@ impl LoopbackTransfer {
             chunk_sha256: chunk.chunk_sha256.clone(),
             ..Default::default()
         };
-        Ok(encode_client_frame(ClientFrame::Chunk(frame)))
+        Ok(encode_client_frame(ClientFrame::Chunk(Box::new(frame))))
     }
 
     /// The socket write failed outright, so the bytes provably never left.
@@ -137,7 +137,7 @@ impl LoopbackTransfer {
             upload_id: upload_id.to_owned(),
             ..Default::default()
         };
-        Ok(encode_client_frame(ClientFrame::StatusRequest(frame)))
+        Ok(encode_client_frame(ClientFrame::StatusRequest(Box::new(frame))))
     }
 
     /// Accept one inbound frame.
@@ -148,17 +148,23 @@ impl LoopbackTransfer {
         let frame = AttachmentTransferServerFrame::decode_from_slice(frame)
             .map_err(|_| self.close("attachment loopback received an invalid frame"))?;
         if !self.conversation.is_ready() {
-            let ServerFrame::Ready(ready) = &frame.frame else {
+            let Some(inner) = frame.frame.as_ref() else {
+                return Err(self.close("attachment loopback received an invalid frame"));
+            };
+            let ServerFrame::Ready(ready) = inner else {
                 return Err(self.close("attachment loopback required Ready first"));
             };
             self.conversation.admit_ready(ready)?;
             return Ok(ConversationOutcome::Ready);
         }
-        match &frame.frame {
+        let Some(inner) = frame.frame.as_ref() else {
+            return Err(self.close("attachment loopback received an invalid frame"));
+        };
+        match inner {
             ServerFrame::Ack(ack) => self.conversation.settle_ack(ack),
             ServerFrame::Status(status) => self.conversation.settle_status(&status_from(status)),
             ServerFrame::Closed(_) => Err(self.close("attachment loopback closed")),
-            ServerFrame::Ready(_) | None => {
+            ServerFrame::Ready(_) => {
                 Err(self.close("attachment loopback received an invalid frame"))
             }
         }

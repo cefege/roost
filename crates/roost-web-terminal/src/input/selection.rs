@@ -21,7 +21,7 @@ use crate::reader_intent::RENDERER_HOLD_SELECTION;
 /// The adapter's identity for one DOM node. The guard compares these instead
 /// of holding a DOM reference, so a capture survives only while the node it
 /// named is genuinely still there.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DomNodeId(pub u32);
 
 /// One painted row a capture depends on. A repair that replaced the nodes
@@ -35,7 +35,7 @@ pub struct OwnedRow {
 }
 
 /// One endpoint of a native selection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SelectionEndpoint {
     /// The node's identity.
     pub node: DomNodeId,
