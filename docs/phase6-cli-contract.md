@@ -508,7 +508,7 @@ Paths are relative to the repository root; tests to `crates/roost-cli/tests/`.
 | A fresh macOS account has no LaunchAgents directory | `services/install.rs::ensure_service_directories` creates the data directory, the log directory **and the definition's own parent**; `deploy/apply.rs::apply` calls it before anything is staged into that parent | `services_install_idempotence.rs` — `the directories a service needs are created before the first definition` |
 | A remote deploy hands the target the deploying box's identity | `deploy/identity_env.rs::DEPLOY_IDENTITY_ENV_FLAGS` names the identity keys and the flag that supplies each; `resolve_deploy_env_value` takes an explicit `EnvTarget` and gives an identity key **no ambient fallback at all** for `EnvTarget::Remote`; `resolve_remote_deploy_identity` refuses with exit 6 when the deploying shell exported that key and nothing else resolved it | `deploy_remote_identity.rs` — `an_identity_key_never_resolves_from_the_deploying_shell`, `an_ambient_identity_export_refuses_and_names_the_flag`, `an_unresolvable_identity_with_nothing_exported_is_allowed` |
 | Roost cannot upgrade the integration asset Roost installed | **Not in this command's path, and not yet ported.** The asset installer lives in the worker (`agents/{install,manifests}.rs`, Track W slice W7b) and v3 has no agent-integration installer, so a v3 deploy installs no integration asset and cannot produce the symptom. Recorded here so the absence is not read as coverage — the guard has to land with that slice, and it is `hasIntegrationOwnership` accepting the marker as a whitespace-delimited token on **any** `//` line, never a positional window | not yet — see the Track W agents installer |
-| A one-shot deploy flag stops at the installer process | `deploy/identity_env.rs::worker_install_environment` strips `ROOST_BOOTSTRAP_TOKEN` **and** `KEEPER_FORCE_LIVE_RETIRE_ENV` from the prior install; `deploy/invocation.rs::definition_environment` inserts the retire grant only when `--force-live` was actually given, so a value reaches the service only when the definition carries it | `deploy_remote_identity.rs` — `a_deploy_never_carries_a_one_shot_grant_forward`; `services_definition_text.rs` — `a_one_shot_grant_is_never_carried_into_a_definition` |
+| A one-shot deploy flag stops at the installer process | `services/service_spec.rs::ServiceSpec::with_decided_one_shots` is the ONE arming site: it copies `ROOST_BOOTSTRAP_TOKEN` and `KEEPER_FORCE_LIVE_RETIRE_ENV` out of the manifest's **decided** environment onto the resolved spec, and `deploy/apply.rs:149` calls it immediately after `ServiceSpec::resolve`. `deploy/identity_env.rs::worker_install_environment` strips both from a prior install, so a grant is armed for exactly one deploy and is not inherited by the next. **This row previously pointed at `worker_install_environment` and `definition_environment` and was wrong**: both are composition sites, and composition was never where the flag died. `ServiceSpec::resolve` refuses one-shot keys because an ambient environment must never arm a credential — that refusal is correct and was the *only* link in the chain, so "a plain resolve refuses to arm a grant" read in practice as "no grant can ever be armed". The gap was the missing link between the refusal and the writer, not a wrong rule at the refusal. | `services_definition_text.rs` — `a_decided_one_shot_reaches_the_rendered_definition` (the load-bearing one: it asserts on the **rendered unit text** in both directions, that a decided grant reaches the bytes a service manager reads and that an install which decided nothing arms nothing); `a_one_shot_grant_is_never_carried_into_a_definition` holds the resolve-side refusal; `deploy_remote_identity.rs` — `a_deploy_never_carries_a_one_shot_grant_forward` holds never-carried-forward. The worker's side of the same entry — spending the grant at activation — is `crates/roost-worker/src/host/install.rs::spend_keeper_force_live_retire_authorization`, called from `runtime/mod.rs:146` in `serve_until` after keeper admission and before the link, guarded by `crates/roost-worker/tests/worker_retire_authorization.rs`. |
 | Repairing a dead worker demands that the dead worker be running | `deploy/admission.rs::keeper_admission_staging` returns the coordinator's refusal as a **claim about the registry**, and `deploy/keeper_step.rs::decide` is what decides it — against `deploy/target_evidence.rs::installed_service_verdict`. The one probe is `target_worker_evidence_command`: it corroborates darwin with a `launchctl print-disabled` domain query, refuses when `pgrep` is absent, and a keeper **socket file** decides nothing (it outlives the keeper that made it) | `deploy_keeper_admission.rs` — `a_stale_row_over_a_target_running_nothing_stages`, `a_stale_row_over_a_running_worker_still_refuses`, `a_keeper_holding_channels_refuses_even_with_the_worker_stopped`, `an_unknown_never_stages`, `a_keeper_socket_file_decides_nothing`, `the_darwin_probe_distinguishes_an_unreachable_launchd` |
 | A rollback proof no release can satisfy wedges every later deploy | `deploy/apply.rs::apply` calls the already-ported `services::deploy_transaction::resolve_interrupted_deploy` **before it writes anything**, so the definition this deploy replaces is one the machine can actually run | `services_deploy_recovery.rs` — `a_deploy_left_in_flight_is_resolved_before_the_next_one_starts`, `a_journal_whose_shape_this_build_does_not_know_is_refused_rather_than_ignored` |
 | Settlement retires the prior release with a command only a worktree accepts | `deploy/retire.rs::plan_retirement` asks git (`registered_worktrees`, `git worktree list --porcelain`) and otherwise removes the directory outright. The release-root confinement and the symlink refusal run **before** the worktree question, because they are what makes a plain recursive removal safe | `deploy_installed_release.rs` — `a_staged_prior_release_is_retired_without_being_a_worktree`, `retirement_is_confined_to_the_release_root` |
@@ -576,6 +576,124 @@ command, and the rest are shared with `roost deploy` and `roost push` so that a
 wrapper can tell "refused, and do not retry" from "failed, try again" without
 knowing which of the three it is talking to.
 ---
+
+## `roost self-link`
+
+```
+roost self-link
+```
+
+**This entry is a first specification, not a port record.** `roost self-link`
+appears in no v2 source and in no earlier revision of this document; the
+programme plan named it and it had to be designed. Everything below is
+specified here so that the behaviour has an authority that is not the
+implementation, and so the Phase 7 cutover can rely on it. Where v2 has
+nothing to say, that is recorded rather than papered over.
+
+Makes `~/.local/bin/roost` point at the installed release's `roost`. The
+cutover runs it on a machine whose link may be absent, stale, or still pointing
+at v2, unattended — so the failure modes below are part of the contract rather
+than implementation detail.
+
+**Arguments: none.** The link target is resolved, never configured, so a flag
+here would be an argument this command does not have.
+
+**Output.** The outcome on stdout as one word the operator reads — `created`,
+`repaired`, or `unchanged` — plus, on stderr, a line naming the target the link
+now points at. If `~/.local/bin` is not on this account's `PATH` it says so and
+names the directory, because a correct link that nothing can find is not a
+working install. Exit 0 on all three outcomes.
+
+**The target is resolved, never configured.** It is the `roost` inside the
+release directory the **installed service definition** names, and only when
+nothing is installed does it fall back to this build's own default program
+path. The installed definition is the authority because an operator who moved
+the versions directory did it by editing the unit, and the unit is the only
+thing that survives.
+
+**What "still pointing at v2" means, and how the command tells.** The target is
+compared for **equality against a resolved path**. A v3 release directory and a
+v2 one are different directories, so inequality is the fact. It explicitly does
+**not** match on a `~/.roost` path prefix: that is a guess about a layout this
+command does not own. **The old target is printed by name to stderr before
+> repointing**, so a v2 link is visible in the transcript rather than silently
+replaced.
+
+**Exit codes.**
+
+| Situation | Code | What it does |
+|---|---|---|
+| created / repaired / unchanged | 0 | link is or now points at the resolved target |
+| the resolved target does not exist | 1 | **no link is created**; names the absolute path it looked for, states the release is not installed, and names `roost quickstart` as the remedy |
+| `~/.local/bin/roost` is a regular file | 1 | **refuses**; names the path and says exactly `rm ~/.local/bin/roost` and re-run |
+| `~/.local/bin/roost` is a directory | 1 | **refuses**, named. Never `remove_dir_all` on a path under `~/.local/bin` |
+| broken symlink | 0 | **repairs** — it carries no content, so replacing it destroys nothing |
+| symlink to anything else, v2 included | 0 | **repairs**, after printing the old target to stderr |
+
+**No link is created when the target is missing, deliberately.** A dangling
+`roost` on `PATH` is worse than none: it makes `roost` fail confusingly for
+every later command rather than fail once, clearly, at the point of
+installation.
+
+**A real file is refused rather than clobbered.** It may be the operator's own
+script, and they are one `rm` from repairing it.
+
+**The replace is symlink-to-a-temp-name plus `rename`**, so a cutover
+interrupted between the two leaves the old link intact rather than a
+half-written one. The command is **idempotent**: a second run reports
+`unchanged` and rewrites nothing.
+
+---
+
+## The target side: `roost __remote-*`
+
+Four hidden subcommands, all `#[command(hide = true)]`, all taking **no
+arguments**, all reading and writing **standard input and stdout**. They are
+what `roost deploy <host>` runs *on the target*, over ssh. They appear in no
+other section of this document, which is a gap: a machine that has never run a
+deploy cannot tell from the contract that this is what a deploy invokes on it.
+
+| Command | What it does on the target |
+|---|---|
+| `roost __remote-facts` | what this machine has installed — the facts probe, read from the process environment for the command that spawned it |
+| `roost __remote-evidence` | may a release be staged here? one command plus the markers that answer whether a staged release has anything to destroy |
+| `roost __remote-transaction` | take the machine transaction, say so, and **hold it until stdin closes** |
+| `roost __remote-apply` | install the release the manifest on stdin names, and print the report the deploying box reads |
+
+**The wait in `__remote-transaction` is the mechanism, not an artefact of it.**
+Closing this process's input is how the holder says it is done, and **the kernel
+releasing the file lock** is how the machine notices when the holder dies
+without saying anything. So a deploy that loses its ssh connection does not
+leave a machine locked — the lock dies with the process. That is the whole
+reason the command is a process that waits rather than a flag with a timeout,
+and it is not visible from the name.
+
+It blocks on a **blocking thread** rather than through tokio's stdin, which is
+behind a feature this crate does not enable: a transaction holder is a process
+whose only job is to wait, and the thread it waits on is idle by construction.
+
+### The subcommand count is 25, and three different numbers are each correct
+
+`crates/roost-cli/src/lib.rs`'s `Command` enum has **25 variants**, and both
+`name()` and `dispatch()` answer all 25 — checked arm by arm, so there is no
+orphan variant and no arm without one. 20 are visible; 5 are hidden
+(`__keeper-contract` and these four).
+
+- **21** is v2's operator-and-daemon surface: v2's `main.ts` carried 23
+  subcommand keys, minus 2 deliberately dropped (`cutover`,
+  `__windows-updater-broker`). v3 adds 4 v2 did not have — these four.
+- **25** is what the v3 dispatcher actually answers, and it is what
+  `tests/command_tree_shape.rs` asserts, because that file's own doc says its
+  list is *"every subcommand the crate's dispatcher answers"* and it exists
+  precisely because a deploy's journal addresses `__keeper-contract` by string
+  and a deploy addresses the `__remote-*` over ssh. **Asserting 21 would drop
+  exactly the four commands the file exists to protect.**
+- **14 + 7 = 21** is what *this document* covered before this section: 14
+>   under its own `## roost …` headings and 7 in the "Not in the tree yet"
+>   table.
+
+Three correct numbers about three different objects, which is why the count
+disagreed across briefs, the test, and this contract. **25 is the answer.**
 
 ## Not in the tree yet
 

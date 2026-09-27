@@ -200,7 +200,10 @@ mod tests {
                 assert_eq!((file_count, total), (1, 512));
             }
             RatchetOutcome::Regressions(outcome) => {
-                panic!("expected a snapshot, got {} failures", outcome.violations.len())
+                panic!(
+                    "expected a snapshot, got {} failures",
+                    outcome.violations.len()
+                )
             }
         }
     }

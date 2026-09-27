@@ -15,6 +15,12 @@
 //! device opening two tabs walks straight into. The race cases at the bottom
 //! are what pin that shape: they fail against a count-then-insert.
 
+// `unwrap_used` and `expect_used` are denied outside `#[cfg(test)]`, and an
+// integration test is its own crate rather than a module of one, so the
+// exemption has to be stated here rather than inherited. Every panic below
+// is an assertion over a value the test just built.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 mod push_fixture;
 
 use connectrpc::ErrorCode;

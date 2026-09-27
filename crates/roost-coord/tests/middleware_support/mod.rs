@@ -1,0 +1,353 @@
+// A coordinator behind its REAL middleware stack, on a real socket.
+//
+// The single owner of "a migrated database, a bound port and a mounted
+// listener" for the four middleware test binaries. The stack's order is the
+// thing under test, and an order is only observable across a real request, so
+// these tests speak HTTP/1.1 over a loopback socket rather than calling a
+// handler: a refusal that is really decided by an outer layer, and the headers
+// an inner one adds, are both invisible to a unit test of either layer alone.
+//
+// It also owns the other half: a configuration resolved without a boot, for
+// the tests that assert the policy a configuration produces rather than the
+// one a socket returns.
+//
+// `tower::ServiceExt::oneshot` would serve the layer chain just as well -- the
+// layers sit on the `Router`, not on the socket -- and it would be simpler. It
+// cannot carry a PEER ADDRESS, and two of these tests turn on one:
+// `the_export_route_refuses_a_caller_a_front_door_forwarded` tells a loopback
+// peer with no `X-Forwarded-For` (on-host, answered) from the same loopback
+// peer with one (refused `on-host only`), and the only thing that separates
+// them is the `ConnectInfo<SocketAddr>` extension a real connection supplies.
+// Under `oneshot` that test would still compile and would assert nothing.
+//
+// `unwrap`/`expect` are denied outside `#[cfg(test)]`, and an integration test is
+// its own crate rather than a module of one, so the exemption is stated here.
+// Each of the four binaries uses part of this fixture and none uses all of it,
+// so "never used" here means "not used by the binary that happened to compile
+// this module", which is not a defect in the fixture.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(dead_code)]
+
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpStream};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+
+use roost_coord::coord_core::CoordCore;
+use roost_coord::coord_core::boot_facts::BootFacts;
+use roost_coord::http::listener::{ListenerState, build_router};
+use roost_coord::middleware::security::{apply_security_headers, security_options_for_config};
+use roost_coord::rpc::service::CoordinatorServiceImpl;
+use roost_coord::services::CoordServices;
+use roost_host::{CoordConfig, CoordConfigInput};
+
+/// The worker's own loopback SPA, the one browser origin every coordinator
+/// admits without being told about it.
+pub const WORKER_LOCAL_UI_ORIGIN: &str = roost_host::DEFAULT_WORKER_LOCAL_UI_ORIGIN;
+
+/// A host that is not this coordinator. A gate on a loopback bind refuses it
+/// outright; a gate behind a routable bind leaves that job to the front door.
+pub const FOREIGN_HOST: &str = "attacker.example.com";
+
+/// A browser front door the operator both declares and allowlists, which is the
+/// shape that puts one origin in the response policy by two routes.
+pub const FRONT_DOOR: &str = "https://desk.example.com";
+
+/// How this fixture's coordinator is configured.
+pub struct FixtureConfig {
+    /// Whether the operator trusts a front door in front of this listener.
+    pub trust_proxy: bool,
+    /// Whether the bound port reaches the admission gate. `false` is the
+    /// pre-bind state, in which the gate answers `503` to everything.
+    pub publish_port: bool,
+    /// The operator's own CORS entries.
+    pub cors_allowed_origins: Vec<String>,
+    /// The operator's declared browser front door.
+    pub web_public_url: Option<String>,
+    /// Whether an SPA build is available to serve.
+    pub spa_available: bool,
+    /// The bind the operator configured, which decides whether the admission
+    /// gate claims this listener at all: a routable interface has a front door
+    /// doing that gate instead. `None` is the loopback ephemeral bind every
+    /// other fixture uses, and the socket is loopback either way -- only the
+    /// configured bind string differs, which is what the gate reads.
+    pub bind: Option<String>,
+}
+
+impl Default for FixtureConfig {
+    fn default() -> Self {
+        Self {
+            trust_proxy: false,
+            publish_port: true,
+            cors_allowed_origins: Vec::new(),
+            web_public_url: None,
+            spa_available: false,
+            bind: None,
+        }
+    }
+}
+
+/// A coordinator configured but not booting: the paths a boot supplies are
+/// placeholders, because the response policy is resolved from the operator's
+/// own fields and reads none of them.
+///
+/// The front door is both `public_url` and a CORS entry, so the origins a
+/// served policy must list once are reached by the two routes a real
+/// deployment reaches them by.
+pub fn front_door_config(relaxed_csp: bool) -> CoordConfig {
+    CoordConfig::parse(CoordConfigInput {
+        db_path: Some(PathBuf::from("/nonexistent/coord.db")),
+        authorized_keys_path: Some(PathBuf::from("/nonexistent/authorized_keys")),
+        log_dir: Some(PathBuf::from("/nonexistent/logs")),
+        public_url: Some(FRONT_DOOR.to_owned()),
+        cors_allowed_origins: Some(vec![FRONT_DOOR.to_owned()]),
+        relaxed_csp: Some(relaxed_csp),
+        ..CoordConfigInput::default()
+    })
+    .expect("a coordinator config")
+}
+
+/// The `content-security-policy` this configuration makes a coordinator serve,
+/// read off the headers the security layer stamps rather than off the builder.
+///
+/// A browser applies `connect-src` to the WebSocket scheme, so the twin of a
+/// declared door is part of the policy a page is given, and it is derived when
+/// the options are resolved -- which is why a caller that hand-writes the
+/// origin list cannot see what a running coordinator serves.
+pub fn served_csp(config: &CoordConfig) -> String {
+    let mut headers = axum::http::HeaderMap::new();
+    apply_security_headers(&mut headers, &security_options_for_config(config));
+    headers
+        .get(axum::http::header::CONTENT_SECURITY_POLICY)
+        .expect("a content security policy")
+        .to_str()
+        .expect("a visible ASCII policy")
+        .to_owned()
+}
+
+/// A coordinator serving the real router on a real port.
+pub struct ListenerFixture {
+    address: SocketAddr,
+    root: PathBuf,
+    server: tokio::task::JoinHandle<()>,
+}
+
+impl ListenerFixture {
+    /// Boot a coordinator with this configuration and serve it.
+    pub async fn start(label: &str, config: FixtureConfig) -> Self {
+        let root = std::env::temp_dir().join(format!(
+            "roost-middleware-{label}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("a scratch directory");
+        let database_path = root.join("coord.db");
+        let database = roost_coord::db::open(&database_path)
+            .await
+            .expect("a migrated database");
+        // `:0` is the case the admission gate's pre-bind window exists for: the
+        // configured port is not the port the listener gets.
+        let bind = config
+            .bind
+            .clone()
+            .unwrap_or_else(|| "127.0.0.1:0".to_owned());
+        let resolved = CoordConfig::parse(CoordConfigInput {
+            bind: Some(bind),
+            db_path: Some(database_path.clone()),
+            authorized_keys_path: Some(root.join("authorized_keys")),
+            log_dir: Some(root.join("logs")),
+            trust_proxy: Some(config.trust_proxy),
+            cors_allowed_origins: Some(config.cors_allowed_origins.clone()),
+            web_public_url: config.web_public_url.clone(),
+            ..CoordConfigInput::default()
+        })
+        .expect("a coordinator config");
+        let tenant = roost_coord::auth::self_hosted_tenant::ensure_self_hosted_tenant(&database, 0)
+            .await
+            .expect("the self-hosted tenant");
+        let services = Arc::new(CoordServices::booted(
+            database,
+            BootFacts {
+                tenant: Some(tenant),
+                config: Some(Arc::new(resolved.clone())),
+                process_epoch: "epoch-1".to_owned(),
+                boot_ms: 0,
+            },
+        ));
+        let service = Arc::new(CoordinatorServiceImpl::new(
+            CoordCore::new(Arc::clone(&services)),
+            resolved.clone(),
+            "epoch-1".to_owned(),
+            0,
+            "sha".to_owned(),
+        ));
+        let state = Arc::new(ListenerState {
+            service,
+            services,
+            bind: resolved.bind.clone(),
+            web_public_url: resolved.web_public_url.clone(),
+            trust_proxy: resolved.trust_proxy,
+            spa_available: config.spa_available,
+        });
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("a bound listener");
+        let address = listener.local_addr().expect("the bound address");
+        let mounted = build_router(state);
+        if config.publish_port {
+            mounted.publish_bound_port(address.port());
+        }
+        let server = tokio::spawn(async move {
+            let _ = axum::serve(
+                listener,
+                mounted
+                    .router
+                    .into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await;
+        });
+        Self {
+            address,
+            root,
+            server,
+        }
+    }
+
+    /// The `Host` this coordinator answers to, which is the authority its
+    /// admission allowlist is built from.
+    pub fn own_host(&self) -> String {
+        format!("127.0.0.1:{}", self.address.port())
+    }
+
+    /// The port this fixture's listener actually bound.
+    pub fn port(&self) -> u16 {
+        self.address.port()
+    }
+
+    /// Send one request and read one response.
+    ///
+    /// `Host` defaults to this coordinator's own authority, because that is
+    /// what every client of a loopback coordinator sends and what a test that
+    /// means to exercise something other than the gate has to be sending.
+    pub fn request(&self, method: &str, path: &str, headers: &[(&str, &str)]) -> HttpResponse {
+        let mut wire = format!("{method} {path} HTTP/1.1\r\n");
+        let mut saw_host = false;
+        for (name, value) in headers {
+            if name.eq_ignore_ascii_case("host") {
+                saw_host = true;
+            }
+            wire.push_str(&format!("{name}: {value}\r\n"));
+        }
+        if !saw_host {
+            wire.push_str(&format!("Host: {}\r\n", self.own_host()));
+        }
+        // Without this the read below waits for a keep-alive timeout instead of
+        // the response.
+        wire.push_str("Connection: close\r\n\r\n");
+        send(self.address, &wire)
+    }
+
+    /// A `GET`, with this coordinator's own `Host`.
+    pub fn get(&self, path: &str) -> HttpResponse {
+        self.request("GET", path, &[])
+    }
+}
+
+impl Drop for ListenerFixture {
+    fn drop(&mut self) {
+        self.server.abort();
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+/// One response, read off the wire.
+pub struct HttpResponse {
+    /// The status code.
+    pub status: u16,
+    /// The header names, lowercased.
+    pub headers: Vec<(String, String)>,
+    /// The body, with any chunked framing removed.
+    pub body: String,
+}
+
+impl HttpResponse {
+    /// One header's value, matched case-insensitively.
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(header, _)| header.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+    }
+}
+
+fn send(address: SocketAddr, wire: &str) -> HttpResponse {
+    let mut stream = TcpStream::connect(address).expect("a connection to the listener");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .expect("a read deadline");
+    stream.write_all(wire.as_bytes()).expect("the request");
+    let mut raw = Vec::new();
+    stream.read_to_end(&mut raw).expect("the response");
+    parse(&raw)
+}
+
+fn parse(raw: &[u8]) -> HttpResponse {
+    let split = raw
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .expect("a complete response head");
+    let head = String::from_utf8_lossy(&raw[..split]).into_owned();
+    let body = &raw[split + 4..];
+    let mut lines = head.lines();
+    let status = lines
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|code| code.parse::<u16>().ok())
+        .expect("a status line");
+    let headers: Vec<(String, String)> = lines
+        .filter_map(|line| line.split_once(':'))
+        .map(|(name, value)| (name.trim().to_lowercase(), value.trim().to_owned()))
+        .collect();
+    let chunked = headers.iter().any(|(name, value)| {
+        name == "transfer-encoding" && value.to_lowercase().contains("chunked")
+    });
+    HttpResponse {
+        status,
+        headers,
+        body: if chunked {
+            decode_chunked(body)
+        } else {
+            String::from_utf8_lossy(body).into_owned()
+        },
+    }
+}
+
+/// Read a chunked body, so a test asserting on a body never reads framing.
+///
+/// Every bound here comes from the BUFFER, never from the chunk's own claimed
+/// size: a size is a number a peer wrote, and a chunk that claims more bytes
+/// than the body holds must end this decode rather than slice past the end of
+/// it. Clamping the upper end alone is not enough, because the start of the
+/// chunk is derived from the same claim.
+fn decode_chunked(body: &[u8]) -> String {
+    let mut decoded = Vec::new();
+    let mut rest = body;
+    while let Some(end) = rest.windows(2).position(|window| window == b"\r\n") {
+        let claimed = String::from_utf8_lossy(&rest[..end]);
+        let Ok(size) = usize::from_str_radix(claimed.trim().split(';').next().unwrap_or("0"), 16)
+        else {
+            break;
+        };
+        let start = (end + 2).min(rest.len());
+        let stop = start.saturating_add(size).min(rest.len());
+        if size == 0 || stop <= start {
+            break;
+        }
+        decoded.extend_from_slice(&rest[start..stop]);
+        rest = &rest[(stop + 2).min(rest.len())..];
+    }
+    String::from_utf8_lossy(&decoded).into_owned()
+}

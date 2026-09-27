@@ -22,10 +22,21 @@
 //! durable observation) yields permanently once any identified occupant has
 //! been accepted. Two answers to "what is the state of this session" cannot
 //! both be right, and the identified one is the one that can be fenced.
+//!
+//! THIS IS A DELIBERATE SUPERSET OF v2, by exactly one arm. Everything else is
+//! a line-for-line port of `apps/coord/src/agents/agent-status-order.ts`, which
+//! is the more complete of v2's two copies. The added arm is identified-over-
+//! legacy above revision 1; it is marked in `accepts` and the reasoning is
+//! there. It belongs here rather than in the coordinator because the port's
+//! whole argument is that neither end gets its own copy, and a coord-only rule
+//! re-creates the drift in the direction that is hardest to see: a client less
+//! strict than its coordinator shows a status the server has retired.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use super::{AgentStatus, AgentStatusFields, AgentStatusIdentity, AgentStatusUpdate, agent_status_identity};
+use super::{
+    AgentStatus, AgentStatusFields, AgentStatusIdentity, AgentStatusUpdate, agent_status_identity,
+};
 use crate::wire::{AgentOccupantId, AgentRuntimeState, StatusEpoch};
 
 /// Fencing an epoch this many generations old cannot matter -- its occupants are
@@ -153,6 +164,33 @@ impl AgentStatusOrder {
         let Some(held) = previous else {
             return update.active;
         };
+        // A legacy frame is holding the slot and an identified report arrives
+        // above its FIRST revision. Revision 1 is that occupant's opening
+        // report and is accepted; anything above 1 means the identified report
+        // describes work a legacy frame already covered, so accepting it would
+        // move the session's state backwards to something the coordinator has
+        // already superseded. v2 has no equivalent arm -- its `accepts` ends at
+        // `if (!isIdentifiedAgentStatus(previous)) return update.active` -- and
+        // nothing upstream tests identified-over-legacy at all, so v2 is silent
+        // rather than contradicting. The rule is a deliberate TIGHTENING and it
+        // lives here rather than in one end, because the two directions of that
+        // error are both invisible: a coordinator that is stricter than its
+        // clients drops a frame they are waiting for, and a client that is
+        // stricter shows a status its coordinator has already retired. Only
+        // the copy both ends share can refuse both the same way.
+        //
+        //   legacy held, identified at rev 1  -> Accepted  (first report)
+        //   legacy held, identified at rev 6  -> Stale     (already covered)
+        //
+        // Two earlier attempts to get here by TIGHTENING the legacy branch
+        // above were both wrong, and each died on the first test, because a
+        // tightening moves one side of a relation and a direction is not a
+        // tightening. Dropping the revision test fixed the second case and
+        // broke the first: necessary and insufficient, which is what pointed
+        // at the missing dimension.
+        if agent_status_identity(&held.common).is_none() && update.common.revision > 1 {
+            return false;
+        }
         if agent_status_identity(&held.common).is_none() {
             return update.active;
         }
@@ -224,11 +262,16 @@ impl AgentStatusOrder {
     fn advance_identity(&mut self, identity: &AgentStatusIdentity) {
         if let Some(previous_epoch) = self.latest_status_epoch.clone() {
             if previous_epoch != identity.status_epoch {
+                // A new generation replaces every occupant the old one held.
                 self.retire_epoch(&previous_epoch);
-            } else if let Some(previous_occupant) = self.latest_occupant_id.clone() {
-                if previous_occupant != identity.occupant_id {
-                    self.retire_occupant(&previous_epoch, &previous_occupant);
-                }
+            } else if let Some(previous_occupant) = self.latest_occupant_id.clone()
+                && previous_occupant != identity.occupant_id
+            {
+                // Same generation, different occupant: retire that one, so a
+                // reconnecting worker cannot resurrect the agent the session
+                // just replaced. `previous_epoch` is in scope here precisely
+                // because the arm is the else of the comparison that matched.
+                self.retire_occupant(&previous_epoch, &previous_occupant);
             }
         }
         self.latest_status_epoch = Some(identity.status_epoch.clone());

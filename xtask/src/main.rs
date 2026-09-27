@@ -5,7 +5,9 @@
 mod crate_dag;
 mod design_raw;
 mod file_size;
+mod fixture_allow;
 mod fmt;
+mod lint_table;
 mod ratchet;
 mod source_tree;
 mod stdout_rule;
@@ -78,7 +80,12 @@ fn lint(arguments: &LintArgs) -> ExitCode {
             snapshots.push(format!("{file_count} files, {total} lines"));
         }
     }
-    for outcome in [crate_dag::run(), stdout_rule::run()] {
+    for outcome in [
+        crate_dag::run(),
+        stdout_rule::run(),
+        lint_table::run(),
+        fixture_allow::run(),
+    ] {
         checked += outcome.checked;
         violations.extend(outcome.violations);
     }

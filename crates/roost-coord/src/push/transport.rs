@@ -123,9 +123,18 @@ pub struct PushDeliveryRequest {
 /// allocation.
 pub trait PushNotificationTransport: Send + Sync {
     /// Deliver `request`, or say why not.
+    ///
+    /// The two lifetimes are SEPARATE on purpose. Sharing one `'a` says the
+    /// request must live exactly as long as the transport borrow, and every
+    /// caller that holds a request from a different scope -- a row read from a
+    /// pool, an owned request built from it -- stops compiling, with the
+    /// complaint that an `Fn` closure is "not general enough". The returned
+    /// future is tied to `&self` because that is what a transport may borrow
+    /// (its client, its pool); the request is read during the call and need not
+    /// outlive it.
     fn send<'a>(
         &'a self,
-        request: &'a PushDeliveryRequest,
+        request: &PushDeliveryRequest,
     ) -> Pin<Box<dyn Future<Output = Result<(), PushTransportError>> + Send + 'a>>;
 }
 

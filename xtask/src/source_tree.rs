@@ -21,7 +21,18 @@ const SKIP_DIRS: [&str; 9] = [
 /// The workspace root, one level above this crate's manifest directory.
 /// Built by concatenation rather than `Path::parent` so there is no
 /// fallible step here to justify an `expect` in a lint that denies them.
+///
+/// `ROOST_REPO_ROOT` overrides it, so **a gate can be run against a track
+/// worktree before that branch is merged.** The integrator owns the merge, so
+/// discovering that a check fires on an incoming branch by merging it and
+/// watching the gate go red is the expensive way to find out; running the gate
+/// against the branch first costs one environment variable.
 pub fn repo_root() -> PathBuf {
+    if let Ok(override_root) = std::env::var("ROOST_REPO_ROOT")
+        && !override_root.is_empty()
+    {
+        return PathBuf::from(override_root);
+    }
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."))
 }
 

@@ -875,16 +875,44 @@ is a socket whose credential outlived its ceiling. See §9.
 `apps/coord/src/middleware/rate-limit.ts`.
 
 - Bucket key: `route path` + `NUL` + client address. **The route list is by
-  exact RPC name, 44 entries** (`:16-64`) — not a prefix, because *"Prior shape
+  exact RPC name, 32 entries** (`:16-64`) — not a prefix, because *"Prior shape
   used prefix `/roost.v1.CoordinatorService/Workspaces` which matched
   WorkspacesList (called on every SPA bootstrap + visibilitychange focus
   refresh), eating the same 100/min bucket as create/update/delete
   mutations."* (`:7-14`)
+
+  **32, and the count is a trap worth stating: 31 quoted string literals plus
+  the `PAIR_POLL_ROUTE` constant (`:15`), which resolves to
+  `/roost.v1.CoordinatorService/PairPoll` and therefore appears in the set as a
+  bare identifier, missed by anything that counts quotes.** Three numbers have
+  circulated for this one line — 44 (an earlier draft of this section), 31
+  (the quote count) and 32 (the measured one) — and the port's
+  `middleware/rate_limit.rs::RATE_LIMITED_METHODS` is 32 for the same reason:
+  31 literals plus `PAIR_POLL_METHOD`. The two lists are entry for entry the
+  same set; `sessions/tasks.rs::RATE_LIMITED_METHODS`'s neighbours explain each
+  exclusion (`TasksNextPending` is a worker poll, `WorkersRegister` and
+  `WorkersHeartbeat` are fixed cadences, `UiReportState` must keep admitting
+  an existing tab's bounded heartbeats, `TranscriptionGetConfig` and
+  `UiListStates` are reads).
 - Window 60,000 ms; 100 tokens per window for every listed route; **600 for
   `PairPoll` only** (`:66-67`).
-- `RATE_LIMIT_MAX_BUCKETS = 10_000`, with LRU maintenance by insertion order:
-  *"A full map of live buckets fails closed rather than evicting an active limit
-  and giving a churning caller a fresh budget."* (`:99-104`)
+- `RATE_LIMIT_MAX_BUCKETS = 10_000`. **v2 maintains capacity by LRU on
+  insertion order** — *"Map insertion order is kept in least-recently-used
+  order so capacity maintenance examines cold entries first"* (`:96-99`) — and
+  *"A full map of live buckets fails closed rather than evicting an active
+  limit and giving a churning caller a fresh budget."* (`:99-104`)
+
+  **The port does NOT use LRU, and deliberately so.**
+  `middleware/rate_limit.rs:225` reaches capacity and then runs
+  `buckets.retain(|_, bucket| now < bucket.reset_at)`, which drops what has
+  *expired* and keeps every window still inside its 60 s. **Same guarantee, a
+  different mechanism — and the port's is the stronger one here:** a window
+  that is live but cold is a limit v2 would treat as evictable and the port
+  treats as occupying a slot, so a churning caller cannot have its budget
+  dropped by admitting a colder window. The refusal at
+  `rate_limit.rs:228` is reached only when the *survivors* alone fill the
+  ceiling, which is the fail-closed behaviour the v2 comment describes. The
+  mechanism is not an LRU and this section must not describe it as one.
 - `GET`, `HEAD` and `OPTIONS` are exempt (`:237-239`).
 - Over the limit: `429`, `{"error":"rate limit exceeded"}`,
   `retry-after: max(1, ceil(remainingMs/1000))` (`:186-196`).
@@ -1905,6 +1933,37 @@ identical to it (every table's `PRAGMA table_info`, `foreign_key_list`,
 | `tests/upgrade_admission.rs` | both upgrade state machines: every refusal, every status, the origin-before-credential order, the query ban |
 | `tests/transport_windows.rs` | the announced-channel barrier, the ACK window, the rate window, and the socket-wide budget |
 
+### The fixture-allow rule: fixtures declare, test roots may
+
+`unwrap_used` and `expect_used` are **denied workspace-wide** (root
+`Cargo.toml` `[workspace.lints.clippy]`), because a panic on a bad wire value
+in the coordinator is a fleet-visible outage. `clippy.toml` exempts tests
+(`allow-unwrap-in-tests`, `allow-expect-in-tests`) — and that exemption reaches
+**two different things** unevenly, which is the whole reason this rule exists:
+
+| site | what it is | is it exempt? |
+| --- | --- | --- |
+| `tests/foo.rs` | a **test binary root** — its own crate, compiled with `--test` | **YES**, by `clippy.toml` |
+| `tests/<dir>/mod.rs` | a **shared fixture module**, pulled in by `#[path = "…/mod.rs"] mod …;` | **NO** — the allow does not reach it |
+
+So: **fixtures declare, test roots may.** A shared fixture that unwraps must
+state its own
+`#![allow(clippy::unwrap_used, clippy::expect_used)]`, because the exemption it
+is relying on is not the one that covers it.
+
+**The ~94 `#![allow]` headers on test binary roots in this crate are redundant
+and are retained deliberately.** `clippy.toml` already exempts them. They stay
+because removing them is an all-or-none sweep to be decided on one clippy
+measurement, and a half-stripped directory is precisely the "passes on some
+files, fails on others" shape that produced this rule in the first place. **This
+line is not licence to start stripping them directory by directory.**
+
+Why the asymmetry exists, in one sentence: an integration test is its own crate
+rather than a `#[cfg(test)]` module of one, so the lint exemption that keys off
+test-ness covers the crate and not a module compiled into it. Without this rule
+the gate is **red on two fixtures in a directory and green on the other six**,
+and nothing in the output names the real difference.
+
 ## 12. Wave 0 — the seams that had to exist before any domain slice
 
 Recorded here because every domain brief depends on them, and because the
@@ -2149,3 +2208,64 @@ this?", and a weak answer is a bug in the list.
 The general question — whether 400 should count `#[cfg(test)]` lines at all
 — is deferred to the Phase 7 size-policy review, where the measurement can
 be taken over the whole tree rather than argued from one file.
+
+### 12.12 BootFacts, and one runtime per domain
+
+Two rules the domain slices share, both recorded because both are invisible
+from a single domain's file and both are the kind of thing a reader
+re-derives wrongly.
+
+**Boot facts live in one struct, and a missing one is a wiring fault.**
+`coord_core::boot_facts::BootFacts` carries the tenancy scope, the resolved
+config, the process epoch and the boot instant, and it is a field on
+`CoordServices` (`services.rs`), filled by `serve` through
+`CoordServices::booted`. A handler reads it at call time as
+`core.services.boot.require_tenant()` or `require_config()`; a fact the
+process never established is refused as `ConnectError` `Internal` reading
+`coordinator booted without <fact>`.
+
+The refusal is the rule, and the reason is that every default would be a
+belief. A coordinator built by `CoordServices::new` sits on a real migrated
+database with a real dashboard in it; a handler that defaulted the tenant to
+"none" or the config to `CoordConfig::default()` would answer a browser with
+a statement about the deployment that the deployment never made — and the
+`push_allowed_origins: []` default in particular is how a deployment that
+meant to enable Push comes to look like one that chose not to.
+`tests/boot_facts.rs` pins that a populated database does not make the fact
+present, because that is the case a default would silently get wrong.
+
+`CoordServices::new` keeps its signature and builds `BootFacts::unbooted()`.
+That is not a second answer to "what is the tenancy scope": it is the state a
+test and an in-process caller are in, and a handler that needs a fact from it
+is refused rather than answered. `serve` is the only production caller of
+`CoordServices::booted`.
+
+**One field per domain on `CoordServices`, built by a zero-argument `new()`.**
+The twelve fields are `ui_state`, `pairing`, `sessions`, `agents`,
+`attachments`, `search`, `deploy`, `rate_limit`, `telemetry`, `feed`,
+`byte_hub` and `views`. A domain's runtime is reachable as
+`core.services.<domain>` and nowhere else, and its `new()` takes no
+arguments — anything it needs from configuration is read at call time from
+`core.services.boot`.
+
+The zero-argument rule is what makes a config change visible without a
+restart: a constructor argument freezes its value at the moment the process
+started, which for `ROOST_COORDINATOR_PUSH_ALLOWED_ORIGINS` would mean a
+config change needed a coordinator restart to take effect. A slice may ADD
+FIELDS to its runtime and keep `new()` zero-argument; if a slice finds itself
+wanting a constructor parameter, the value it wants is a boot fact, and the
+fix is to add the fact rather than the parameter.
+
+The one-field rule is the same anti-fork rule as §12.11's single service
+impl, applied to state: two instances of a domain's runtime is two answers to
+one question, and only one of them would ever be published to. It is why
+`ui_state` moved from a handler parameter to `core.services.ui_state` — a
+handler that took the runtime as an argument could be called with a runtime
+that is not the coordinator's, and the caller would have no way to tell.
+
+**The handler shape every domain uses.** A Connect method is
+`pub async fn handle_<snake_name>(core: &CoordCore, caller: &Caller,
+request: roost_proto::<Name>Request) -> ServiceResult<roost_proto::<Name>Response>`,
+and each domain's `rpc.rs` exports
+`pub const METHOD_HANDLERS: &[(&str, &str)]` so the single delegation pass in
+`service_impl.rs` is mechanical rather than a hunt.
