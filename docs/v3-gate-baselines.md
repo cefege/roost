@@ -940,6 +940,33 @@ converts a defect into an apparent success.**
 
 **And the general question, which is the same one this file keeps asking in a different costume: what could this check have detected before you consumed what it returned?** A gate that cannot see the thing prints the same verdict as one that can. That is now five instances here — this one, the unregistered module, the unregistered `WorkerCapabilities`, the `flock` on a missing directory, and the compile quoted as a gate.
 
+### The plan's snapshot rule is incomplete: `git stash create` drops new files
+
+**The rule as written is `git push origin $(git stash create):refs/heads/<branch>-snap`.
+It is not sufficient when the uncommitted work includes a NEW file**, because
+`git stash create` captures tracked modifications only. A session with 12 modified
+files and 1 new module produced a snapshot that silently omitted the new module —
+and the omission is invisible, because the ref exists and looks like a snapshot.
+
+**What captures everything, and does not touch the working tree:**
+
+```bash
+export GIT_INDEX_FILE=$(mktemp)
+git read-tree HEAD && git add -A . && TREE=$(git write-tree) && unset GIT_INDEX_FILE
+git push origin "$(git commit-tree "$TREE" -p HEAD -m 'WIP snapshot')":refs/heads/<branch>-snap
+```
+
+Verified by counting files in the resulting tree rather than by trusting the ref:
+`git ls-tree -r --name-only <ref> -- <dir> | wc -l` read **27 against HEAD's 26**,
+and the new module was present. **A snapshot is verified by what its tree contains,
+not by the fact that the push succeeded** — the same rule as every other instrument
+in this file, and the same failure it is describing.
+
+**And the near-miss was smaller than it looked.** The worker track had already
+snapshotted three times on SHA-suffixed refs before this was noticed, so no work
+was ever one `git gc` from gone. What was missing was the *current* state, and what
+the first attempt of that missed was the one new file.
+
 ### A count that cannot tell "added" from "moved" is not a count of additions
 
 **The sixth instrument of the night, and the only one that made a false ACCUSATION
