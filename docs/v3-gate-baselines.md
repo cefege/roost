@@ -1172,6 +1172,55 @@ have inherited four of them as unverified. When a figure is unrun, say
 costs the gate.
 
 
+## Phase gates
+
+**The section the plan requires, created before the first result rather than
+under time pressure.** Every entry carries five things and nothing else, because
+a gate record that omits one of them cannot be compared with the next one:
+
+|field|why it is required|
+|---|---|
+|**tree SHA**|a figure without one belongs to no tree and cannot be re-checked|
+|**date**|the same command on the same SHA can differ across days|
+|**the exact command**|two runs of "the tests" are not comparable|
+|**pass / fail / skip, per run**|the TS baseline's skips are named, so ours must be too|
+|**agreement across runs**|one run is an observation; two agreeing runs is a gate|
+
+**THE TS ORACLE, which every figure below is read against:**
+
+|pass|expected|
+|---|---|
+|correctness (serial)|**142 passed / 0 failed / 3 skipped**|
+|perf (`@serial`)|**15 passed / 0 failed / 3 skipped**|
+
+**The six named skips must keep skipping for the same reason.** A skip that
+starts skipping for a NEW reason is a regression wearing a skip's clothes, and
+it is the one failure mode a pass/fail/skip summary cannot show.
+
+### Gate results
+
+*None recorded yet.* Stage 3 has not run. The three gates, in order:
+
+1. **Phase 2** — `ROOST_SMOKE_WORKER_EXECUTABLE=<release>/roost bun run test:terminal`.
+   The load-bearing spec is `terminal-delivery.spec.ts` *"browser smoke flow
+   creates and cleans its resources"*.
+2. **Phase 3** — the same with `ROOST_SMOKE_COORD_EXECUTABLE` alone, then with both
+   variables. **The "both" run is the stack production will run in Stage 4.**
+3. **Phase 6 install** — the scratch `roost3gate` user, browser pairing, the
+   keeper PID across a deploy, and the import check.
+
+### Where tonight's numbers live, since this file is long
+
+Everything measured on 2026-09-27 while the tracks were running is in the
+sections above, and each says which tree it was measured on:
+
+- **EXPECTED RED** — the one deliberately red test, its commit, and its green condition.
+- **The gate ratchets** — `AwaitingDomainPort` 27, `UnwiredInV2` 16, `UNFINISHED` 3, worker `UNIMPLEMENTED` 6, `todo!` 0.
+- **`xtask lint` on `v3`** — all ten violations enumerated, and what each track's merge clears.
+- **The unreached-module rule** — the guarded sweep, its canary, and the eight files it found on `v3-web`.
+- **The import check** — why it recomputes its counts and restates the fingerprint filter in its own SQL.
+- **The instruments** — four findings whose common shape is a check that could not see the thing it claimed to check.
+
 ## Perf numbers worth not regressing
 
 From the baseline's own instrumentation, since the perf specs assert against
