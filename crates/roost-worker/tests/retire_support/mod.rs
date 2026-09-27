@@ -6,8 +6,17 @@
 //! child process: `runtime::serve_until` spends through `ProcessEnv`, the
 //! process environment is the only channel to it, and mutating it is `unsafe`
 //! in edition 2024, which this workspace forbids outright.
-
+//!
+//! SEVERAL BINARIES INCLUDE THIS AND EACH USES A DIFFERENT SUBSET, so an item
+//! unused by one of them is a statement about that binary and not about the
+//! helper. `worker_retire_authorization` uses all three re-exports below,
+//! `session_resize` uses one, and the binaries that include this module for
+//! `boot()` alone use none — which is why the re-exports are allowed rather
+//! than deleted. `boot_env_support` states the same asymmetry for the same
+//! reason, and deleting a helper because one binary does not call it is how the
+//! next binary re-implements it.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(dead_code, unused_imports)]
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
