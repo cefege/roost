@@ -180,9 +180,22 @@ fn a_pty_path_starts_with_the_package_manager_directories() {
         path.contains("/usr/local/bin:/usr/bin:/bin"),
         "the inherited PATH was dropped rather than kept behind: {path}"
     );
+    // NOT `.starts_with(PTY_PATH_PREFIX)`. The two prefixes DIFFER on purpose
+    // and `tool_path`'s own header says why: the worker's list carries
+    // `/usr/sbin`, which holds root's tools, and a PTY is the user's shell
+    // rather than this daemon. Asserting they match would demand the removal
+    // of a documented difference, and the property worth pinning is the one
+    // the message names: the tool PATH still resolves a tool, and it kept the
+    // PTY PATH behind it rather than dropping it.
+    let tool = tool_path(Some(path), platform());
     assert!(
-        tool_path(Some(path), platform()).starts_with(PTY_PATH_PREFIX),
-        "a tool PATH built from a PTY PATH must still resolve a tool"
+        tool.starts_with("/opt/homebrew/bin:/usr/local/bin:/usr/sbin:/usr/bin:/bin"),
+        "the tool PATH lost the package-manager directories: {tool}"
+    );
+    assert!(
+        tool.contains(path),
+        "a tool PATH built from a PTY PATH must keep that PATH reachable, or a \\
+         tool the user's shell could run is unreachable to the worker: {tool}"
     );
 }
 

@@ -246,21 +246,19 @@ impl HostShellSpecResolver {
     /// a service manager, and `LANG` is often `C`, and both of those reach the
     /// shell as the user's own answer rather than as this daemon's.
     fn common_environment(&self, platform: HostPlatform) -> Vec<(String, String)> {
-        let locale = self
-            .environment
-            .get("LANG")
-            .filter(|value| !value.is_empty())
-            .cloned()
-            .or_else(|| {
-                self.environment
-                    .get("LC_ALL")
-                    .filter(|v| !v.is_empty())
-                    .cloned()
-            })
-            .unwrap_or_else(|| match platform {
-                HostPlatform::MacOs => DEFAULT_DARWIN_LOCALE.to_string(),
-                _ => DEFAULT_LINUX_LOCALE.to_string(),
-            });
+        // NOT inherited, and this is the whole point of the function. The
+        // doc comment above says a worker's `LANG` is "often `C`" and that
+        // reaching the shell is how a browser renders a shell that cannot
+        // draw — and then the code below read `LANG` back out of the
+        // environment and shipped that `C` straight through. The comment and
+        // the code disagreed and the code won, because nothing ran.
+        //
+        // The default is per-platform, not per-machine, so it does not vary
+        // with whoever happened to launch the daemon.
+        let locale = match platform {
+            HostPlatform::MacOs => DEFAULT_DARWIN_LOCALE.to_string(),
+            _ => DEFAULT_LINUX_LOCALE.to_string(),
+        };
         let mut common = vec![
             ("TERM".to_string(), PTY_TERM.to_string()),
             ("COLORTERM".to_string(), PTY_COLORTERM.to_string()),
