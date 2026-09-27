@@ -47,6 +47,39 @@ that makes one of them *run* is a change in platform capability, not a fix.
 The last three are perf cases gated on the same precondition as their
 sibling cases in those files, which do run.
 
+## Deviation: one spec did not reproduce on `v3`, and the baseline is NOT restated
+
+`bun run test:terminal` on `v3` @ `9b9611f1` (the TS stack, `ROOST_SMOKE_WEB_DIST`
+unset) returned **141 passed / 1 failed / 3 skipped** in the correctness pass,
+against this baseline's **142 / 0 / 3**.
+
+The failure: `[firefox-peer] › smoke/terminal/terminal-peer.spec.ts:263` —
+*"invalid offers, unavailable grants, expired grants, and identity mismatches
+fall back without recreating the PTY"*, `@serial`. The stack log line for that
+run reads `smoke stack: coordinator=typescript worker=typescript
+web=apps/web/dist`, which is the default the knob is required to preserve.
+
+**Reproduced twice, in isolation, and it passed both times**: 1 passed in 45.1s
+and 1 passed in 43.0s, same project, same `-g` filter, `--reporter=line`.
+
+**That is not a finding, and the baseline is not being restated.** What the
+isolation runs establish is narrow: the spec is not reproducible in isolation.
+What they do **not** establish is that it is a flake, and the difference matters
+because a claim of "flake" is a claim about cause that nobody has evidence for
+yet. The full run put four Playwright workers plus four Rust tracks' cargo on
+eight cores — load average 25 to 30 during the run, against roughly 8 for the
+isolation runs. A WebRTC offer/grant timeout is exactly the shape that load
+breaks and that recovers on its own, so load is a plausible cause and not a
+measured one.
+
+**The rule for reading this later.** A later gate is held to the full 157 with
+zero tolerance, and this deviation is **unresolved, not forgiven**. The next
+full `test:terminal` on this tree must either come back 142/0/3 — which closes
+it as non-reproducing under load — or reproduce it, which makes it a real
+failure to diagnose. Do not read the two green isolation runs as a cleared
+gate; read them as the only evidence that exists, and note what it does not
+cover.
+
 ## How to read a later gate
 
 - **Phase 2** (Rust worker, TS coord): no spec that passed in the baseline
