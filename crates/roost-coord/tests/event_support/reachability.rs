@@ -50,12 +50,12 @@ pub fn the_deferred_reap_ids_have_a_production_reader() -> bool {
 
 /// Whether the DEFERRED-APPEND PATH has an execution path at all.
 ///
-/// THE CAMOUFLAGE THIS EXISTS TO DEFEAT. `event_publication.rs` asserts that
-/// the ids come back correctly, and that is exactly what makes the capability
-/// look covered while nothing consumes it. **A passing assertion on unreachable
-/// code reads as coverage and is more dangerous than no test at all** — a
-/// missing assertion looks like a gap that invites a question, and a passing one
-/// closes it.
+/// THE CAMOUFLAGE THIS EXISTS TO DEFEAT. The guard in `event_reachability.rs`
+/// asserts that the ids come back correctly, and that is exactly what makes
+/// the capability look covered while nothing consumes it. **A passing assertion
+/// on unreachable code reads as coverage and is more dangerous than no test at
+/// all** — a missing assertion looks like a gap that invites a question, and a
+/// passing one closes it.
 ///
 /// WHY THIS ASKS ABOUT THE FLAG AND NOT ABOUT THE IDS. The first version of this
 /// guard grepped `src/` for a file that mentions `snapshot_reap_ids` without
