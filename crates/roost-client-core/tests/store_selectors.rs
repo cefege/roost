@@ -14,6 +14,8 @@
 //! The mutation experiment for this file is in the slice report: in
 //! `live_session_ids_for_folder`, drop the `is_pending_close` filter, and
 //! `a_pending_close_hides_the_row_and_an_undo_puts_it_back` must fail.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 
 use roost_client_core::ClientCore;
 use roost_client_core::store::paths::ExactWorkerPaths;

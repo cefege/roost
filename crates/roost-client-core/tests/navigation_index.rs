@@ -15,6 +15,8 @@
 //! `project_session`, drop the `last_activity_ms` override so `activity_at` is
 //! always `created_at`, and `a_projected_row_carries_every_field_a_search_can_match`
 //! must fail.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 
 use std::collections::{BTreeMap, BTreeSet};
 

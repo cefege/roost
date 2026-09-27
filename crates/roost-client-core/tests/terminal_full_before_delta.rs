@@ -9,8 +9,6 @@
 //! `a_stale_full_cannot_undo_the_generation_that_answered_it` drives that through
 //! the public entry point, so a reordering of the fold's two arms fails here.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
 mod support;
 
 use roost_client_core::Admission;

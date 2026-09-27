@@ -15,6 +15,8 @@
 //! The mutation experiment for this file is in the slice report: in
 //! `PaletteItem::targeted_action_id`, drop the generation from the id, and
 //! `a_palette_row_carries_the_credential_generation_its_action_captured` must fail.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 
 use std::collections::{BTreeMap, BTreeSet};
 

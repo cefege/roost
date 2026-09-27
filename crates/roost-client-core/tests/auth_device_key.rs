@@ -11,8 +11,6 @@
 //! The first-boot race is in `auth_first_boot_race.rs`, because the interleaving
 //! it needs is its own subject.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
 mod support;
 
 use base64::prelude::{BASE64_STANDARD, Engine as _};
