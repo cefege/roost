@@ -183,7 +183,7 @@ async fn install_everything(
     report_change(&worker_outcome, "quickstart installed the worker");
 
     self_link::run()?;
-    print_completion(&env, platform, &endpoint);
+    print_completion(env, platform, &endpoint);
 
     let collected = collect::collect(&collect::StatusContext {
         env,

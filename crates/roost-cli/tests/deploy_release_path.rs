@@ -48,7 +48,7 @@ fn an_ssh_argv_cannot_be_smuggled_into_by_the_host() {
     let options = &argv[1..separator];
     assert_eq!(options.len() % 2, 0, "options come in pairs: {argv:?}");
     assert!(
-        options.chunks_exact(2).all(|pair| pair[0] == "-o"
+        options.as_chunks::<2>().0.iter().all(|pair| pair[0] == "-o"
             && (SSH_OPTS.contains(&pair[1].as_str()) || pair[1] == "BatchMode=yes")),
         "only the shared options and the caller's explicit ones: {argv:?}"
     );

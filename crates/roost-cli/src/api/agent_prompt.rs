@@ -123,7 +123,7 @@ pub async fn prompt(
     if let Some(outcome) = &wait_outcome {
         out.answer(&format!("wait\t{outcome}"));
     }
-    let settled = input == "accepted" && wait_outcome.as_deref().unwrap_or("matched") == "matched";
+    let settled = input == "accepted" && wait_outcome.unwrap_or("matched") == "matched";
     Ok(if settled {
         ExitCode::SUCCESS
     } else {
