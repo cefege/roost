@@ -707,6 +707,36 @@ measurement touched `v3`.
 The new unreached-module rule contributes 0 of these.** Verified by stashing it:
 10 violations before, 10 after, with inputs checked going 1480 → 2111.
 
+### Stage 4's one irreversible ordering constraint is handled structurally, not procedurally
+
+**The hazard.** `roost import-v2` must run before anything creates the v3
+database, because `ensure_self_hosted_tenant` on an EMPTY database creates a fresh
+account — and an import arriving afterwards cannot reconcile an account it did not
+create. This is the single irreversible ordering step in the plan, and
+`docs/FAILURE-INDEX.md` already has an entry for the `config_root`/`XDG_CONFIG_HOME`
+divergence, which is the same shape: **a producer and a consumer that must agree,
+and can drift.**
+
+**The plan's contingency was to add logic:** *"make quickstart treat an existing DB
+whose tenant validates as a rerun rather than a conflict."*
+
+**No logic needs adding, because both sides already ask the same function:**
+
+```
+import_v2/mod.rs:223       let tenant = self_hosted_tenant::ensure_self_hosted_tenant(&database, now_ms)
+quickstart/grant.rs:164    let tenant = roost_coord::auth::self_hosted_tenant::ensure_self_hosted_tenant(…)
+```
+
+`quickstart/grant.rs:29` says it outright: *"`ensure_self_hosted_tenant` is called,
+not reimplemented."* And `import_v2/mod.rs:16` names the hazard in its own header.
+
+**So the two cannot disagree about what an existing tenant means, because neither
+has an opinion — they ask one function.** That is a structural answer where the plan
+proposed a procedural one, and it means Stage 4.1 has nothing to get wrong beyond
+ordering: run the import before the install. **It also forecloses the failure a
+well-meaning fixer would introduce on the way to 4.1 — adding a second tenant check to
+quickstart, which is precisely how the two would come to disagree.**
+
 ### What Phase 6.4 costs: run the classifier, do not read a table
 
 **There is deliberately no count in this section.** It was hand-maintained and corrected
