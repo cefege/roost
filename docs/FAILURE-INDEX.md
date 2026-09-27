@@ -2606,7 +2606,16 @@ subject is a **path** asks whether anything walks it. Those are different questi
 only the second survives a green run. `green` and `correct` are different properties and
 the exit code only shows you one of them.
 
-**Guard** — `crates/roost-coord/tests/event_publication.rs`,
+**Guard** — **cited by COMMIT, not by file**, because the file is about to move.
+`c02cb9dc` introduced the assertion inside `crates/roost-coord/tests/event_publication.rs`;
+it is being moved to a binary of its own, `event_reachability.rs`, because **the
+guard's subject is reachability and that file's subject is the deferred reap** — they
+shared a file only because the second conjunct was written next to the first. **A
+commit is a fixed point and a file is not**, which is why this entry names the commit
+first. The assertion's own body at `c02cb9dc` is the authority; wherever it lives
+now, that commit holds it.
+
+For reference, as of `c02cb9dc` it lived at:
 `a_deferred_reap_waits_for_the_callers_readiness_barrier`, **at `c02cb9dc` on
 `v3-coord`. It is not on `v3` until the 2C-GATE merge.**
 
