@@ -15,6 +15,14 @@
 //! coordinator that answered "nothing to report". None of these read the source
 //! and none of them assert that a function was called.
 
+// `clippy.toml`'s `allow-unwrap-in-tests` exempts a `#[test]` body, and the
+// command line denies `expect-used` outright. `link_to` and `invocation` are
+// ordinary helpers rather than test bodies, so the exemption never reaches
+// them and each `expect` is an `expect_used` error the moment clippy runs.
+// These panics ARE the assertions: each fires on exactly the value the test
+// says must hold.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 mod api_support;
 
 use std::process::ExitCode;
