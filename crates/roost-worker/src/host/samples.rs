@@ -7,6 +7,14 @@
 //! NEVER FAILS. A sampler that returned an error would mean a heartbeat is not
 //! sent, so a machine that cannot answer `/proc` or `vm_stat` would vanish from
 //! the fleet view rather than report zeros. Every failure here is a zero.
+//!
+//! A PLATFORM WITH NO SAMPLER IS ALSO A ZERO, not a refusal. `host::identity`
+//! answers the same question the other way round — it logs the platform it
+//! cannot describe, because an identity that silently reads as "unset" is a
+//! machine an operator will believe is unenrolled. A counter has no such
+//! reading: zero load and a platform nobody sampled look the same in a fleet
+//! view, and both mean there is nothing to show. Neither is worth an error the
+//! heartbeat would have to be resilient to.
 
 use std::path::PathBuf;
 
@@ -112,7 +120,7 @@ impl HostSampler {
     }
 
     /// (used, total) bytes of physical memory, the way `free` reports them.
-    fn sample_memory(&self) -> (u64, u64) {
+    fn sample_memory(&mut self) -> (u64, u64) {
         match self.platform {
             HostPlatform::MacOs => self.sample_darwin_memory(),
             HostPlatform::Linux => sample_linux_memory(),
@@ -122,7 +130,7 @@ impl HostSampler {
 
     /// Apple's "Memory Used" is wired + compressed + active; Activity Monitor
     /// adds purgeable, which this approximates rather than pretends to match.
-    fn sample_darwin_memory(&self) -> (u64, u64) {
+    fn sample_darwin_memory(&mut self) -> (u64, u64) {
         let Some(dump) = run("vm_stat", &[], None) else {
             return (0, 0);
         };

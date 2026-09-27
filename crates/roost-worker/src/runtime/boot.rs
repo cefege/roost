@@ -187,10 +187,13 @@ impl WorkerBoot {
         if let Some(base) = overrides.coordinator {
             self.coordinator_base = base;
         }
-        if let Some(hex) = overrides.fingerprint {
-            self.fingerprint =
-                WorkerFp::try_from(hex.as_str()).map_err(|_| BootConfigError::BadFingerprint)?;
-        }
+        // The fingerprint is absent from `WorkerOverrides`, and this is the half
+        // of that cutover which has to be true in the code as well as in the
+        // type: an overlay that could set the identity would let a command line
+        // and the key file disagree about which machine this is, and the
+        // coordinator's `authorized_keys` row is written from the key. `check`
+        // below re-validates the fingerprint resolution produced, which is the
+        // only way to set it.
         if let Some(socket) = overrides.keeper_socket {
             self.keeper_socket = PathBuf::from(socket);
         }

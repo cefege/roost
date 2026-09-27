@@ -286,11 +286,11 @@ fn only_the_definition_that_needs_a_reload_gets_one() {
     );
     assert_eq!(
         ServiceDefinition::for_platform(HostPlatform::Linux),
-        Ok(ServiceDefinition::SystemdUserUnit)
+        Some(ServiceDefinition::SystemdUserUnit)
     );
     assert_eq!(
         ServiceDefinition::for_platform(HostPlatform::MacOs),
-        Ok(ServiceDefinition::LaunchAgent)
+        Some(ServiceDefinition::LaunchAgent)
     );
 }
 
@@ -337,21 +337,36 @@ async fn a_definition_that_is_not_there_is_reported_rather_than_assumed_clean() 
 }
 
 /// v3 ships no Windows worker, so there is no definition to edit and no stub
-/// that pretends otherwise. v2 answered `false` here, which reads exactly like a
-/// successful erase of a file nobody checked.
-#[test]
-fn a_platform_with_no_definition_is_refused_rather_than_pretending() {
+/// that pretends otherwise. The answer is `false` — the key was not in the
+/// definition — and it is a real answer rather than an error, because a
+/// platform that keeps no file has nothing that could have carried the value
+/// and nothing failed. The property that matters is that the call stops there:
+/// it must not resolve a path and read a file it has no business reading.
+#[tokio::test]
+async fn a_platform_with_no_definition_reports_nothing_to_erase() {
     assert_eq!(
         ServiceDefinition::for_platform(HostPlatform::Windows),
-        Err(InstallError::UnsupportedPlatform { platform: "win32" }),
-        "v2 answered false here, which is indistinguishable from an erase that \
-         worked on a file that was never checked"
+        None,
+        "v3 keeps no service definition on this platform, so there is no kind \
+         of definition to edit"
     );
-    let refused =
-        ServiceDefinition::for_platform(HostPlatform::Windows).expect_err("windows is not ported");
-    assert!(
-        refused.to_string().contains("not ported"),
-        "the refusal says why, not merely that: {refused}"
+    let scratch = Scratch::new("scrub-no-definition");
+    // A real file holding the very value being spent, at the path a Windows
+    // worker would be pointed at. It must survive untouched: the erase stops
+    // before the read, so nothing here is even opened.
+    let path = written_definition(&scratch, "worker.definition", &launch_agent(), 0o600);
+    let env = environment_over(&path, HostPlatform::Windows);
+    assert_eq!(
+        scrub_service_definition_env(&env, HostPlatform::Windows, BOOTSTRAP_TOKEN_ENV).await,
+        Ok(false),
+        "there was no definition to carry the value, which is the same answer \
+         as a definition that did not carry it — not a failure"
+    );
+    assert_eq!(
+        read_definition(&path),
+        launch_agent(),
+        "a platform with no definition must not read or rewrite one, so the \
+         secret is left exactly where it was"
     );
 }
 

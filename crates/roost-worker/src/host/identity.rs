@@ -11,6 +11,7 @@
 //! SERIALS NEVER ENTER HERE. A machine's serial number is an inventory
 //! identifier, not a display value, and it has no field to travel in.
 
+use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
@@ -46,13 +47,13 @@ fn is_apple_chip(value: &str) -> bool {
 /// because a specification that does not define an escape must not have one
 /// silently removed.
 #[must_use]
-pub fn os_release_value<'a>(source: &'a str, key: &str) -> Option<&'a str> {
+pub fn os_release_value<'a>(source: &'a str, key: &str) -> Option<Cow<'a, str>> {
     source.lines().find_map(|line| {
         let value = line.strip_prefix(key)?.strip_prefix('=')?;
         if value.len() >= 2 && value.starts_with('"') && value.ends_with('"') {
-            Some(unescape(&value[1..value.len() - 1]))
+            Some(Cow::Owned(unescape(&value[1..value.len() - 1])))
         } else {
-            Some(value.trim())
+            Some(Cow::Borrowed(value.trim()))
         }
     })
 }
@@ -134,22 +135,19 @@ pub fn collect_host_identity(
     platform: HostPlatform,
     sources: &dyn IdentitySources,
 ) -> Option<HostIdentity> {
-    if platform == HostPlatform::Windows {
-        // A refusal, not a default: v3 has no Windows sampler, so there is no
-        // honest answer to give for a host v3 does not run on.
-        return None;
-    }
-    let chip = sources
-        .sysctl("machdep.cpu.brand_string")
-        .and_then(|value| normalize_host_identity_text(&serde_json::Value::String(value)))
-        .filter(|chip| is_apple_chip(chip));
+    // Each arm reads only the sources its own platform has, so a refusal needs
+    // no guard above the match: a Windows host still reaches this match, and
+    // still spawns nothing on its way to being told there is no answer for it.
     let identity = match platform {
         HostPlatform::MacOs => HostIdentity {
             hardware_model: sources.sysctl("hw.model"),
-            chip,
+            chip: sources
+                .sysctl("machdep.cpu.brand_string")
+                .and_then(|value| normalize_host_identity_text(&serde_json::Value::String(value)))
+                .filter(|chip| is_apple_chip(chip)),
             linux_distribution: None,
         },
-        _ => {
+        HostPlatform::Linux => {
             let distribution = sources.os_release().and_then(|source| {
                 os_release_value(&source, "PRETTY_NAME")
                     .or_else(|| os_release_value(&source, "NAME"))
@@ -163,7 +161,19 @@ pub fn collect_host_identity(
                 linux_distribution: distribution,
             }
         }
-        HostPlatform::Windows => return None,
+        // A refusal, not a default: v3 has no Windows sampler, so there is no
+        // honest answer to give for a host v3 does not run on. The wire carries
+        // this field as an `Option` (`host_identity_to_proto`), so `None` is
+        // the refusal the record can actually hold; the log is what makes it
+        // say WHICH platform had no answer, rather than reading as a badge
+        // that happens to be missing.
+        HostPlatform::Windows => {
+            tracing::warn!(
+                platform = platform.as_str(),
+                "no host identity was collected: v3 ships no worker for this platform"
+            );
+            return None;
+        }
     };
     normalize_host_identity(&serde_json::to_value(identity).ok()?)
 }

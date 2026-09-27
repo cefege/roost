@@ -140,7 +140,11 @@ pub struct SnapshotCursor {
 ///
 /// Each sink owns its own baseline: a coordinator that cannot accept frames
 /// never stalls or re-baselines a local socket that can paint.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+///
+/// `PartialEq` and not `Eq`: the parked cursor carries generated protobuf parts,
+/// which offer only `PartialEq`, so a hand-written `Eq` over them would claim
+/// an equality law the wire types do not carry.
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct StreamDelivery {
     /// The parked full, while this sink is still receiving its parts.
     pub cursor: Option<SnapshotCursor>,
@@ -296,6 +300,7 @@ impl CellSinkRegistry {
     /// counted as a drop, because a sink that is gone owes nothing.
     pub fn send_frame_to_active(
         &mut self,
+        channel_id: ChannelId,
         frame: &CellGridFrame,
         timings: FrameTimings,
     ) -> CellDeltaFanout {

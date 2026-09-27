@@ -14,7 +14,7 @@
 use base64::prelude::{BASE64_STANDARD, Engine as _};
 
 const OPENSSH_MAGIC: &[u8; 15] = b"openssh-key-v1\0";
-const KEY_TYPE: &[u8] = b"ssh-ed25519";
+const KEY_TYPE: &str = "ssh-ed25519";
 const PEM_BEGIN: &str = "-----BEGIN OPENSSH PRIVATE KEY-----";
 const PEM_END: &str = "-----END OPENSSH PRIVATE KEY-----";
 
@@ -107,7 +107,7 @@ pub(crate) fn parse_openssh_ed25519(pem: &str) -> Result<([u8; 32], [u8; 32]), S
         ));
     }
     let mut public_block = Fields::new(document.string()?);
-    if public_block.string()? != KEY_TYPE {
+    if public_block.string()? != KEY_TYPE.as_bytes() {
         return Err(format!(
             "its key type is not {KEY_TYPE}; this worker signs with ed25519 only"
         ));
@@ -118,7 +118,7 @@ pub(crate) fn parse_openssh_ed25519(pem: &str) -> Result<([u8; 32], [u8; 32]), S
     if first != private_block.word()? {
         return Err("its two integrity words disagree, so the body is damaged".to_string());
     }
-    if private_block.string()? != KEY_TYPE {
+    if private_block.string()? != KEY_TYPE.as_bytes() {
         return Err("its private block names a different key type".to_string());
     }
     if private_block.array::<32>()? != public {
@@ -176,7 +176,7 @@ fn check_padding(private_block: &Fields<'_>) -> Result<(), String> {
 
 fn public_block(public: &[u8; 32]) -> Vec<u8> {
     let mut block = Vec::with_capacity(KEY_TYPE.len() + 4 + public.len());
-    push_string(&mut block, KEY_TYPE);
+    push_string(&mut block, KEY_TYPE.as_bytes());
     push_string(&mut block, public);
     block
 }
@@ -185,14 +185,15 @@ fn private_block(seed: &[u8; 32], public: &[u8; 32]) -> Vec<u8> {
     let mut block = Vec::with_capacity(160);
     block.extend_from_slice(&CHECK_WORD.to_be_bytes());
     block.extend_from_slice(&CHECK_WORD.to_be_bytes());
-    push_string(&mut block, KEY_TYPE);
+    push_string(&mut block, KEY_TYPE.as_bytes());
     push_string(&mut block, public);
     let mut secret = [0u8; 64];
     secret[..32].copy_from_slice(seed);
     secret[32..].copy_from_slice(public);
     push_string(&mut block, &secret);
     push_string(&mut block, b"");
-    for index in 1..=(PAD_BLOCK - block.len() % PAD_BLOCK) % PAD_BLOCK {
+    let padding = (PAD_BLOCK - block.len() % PAD_BLOCK) % PAD_BLOCK;
+    for index in 1..=padding as u8 {
         block.push(index);
     }
     block

@@ -154,17 +154,13 @@ pub async fn keeper_binary_digest(executable: &Path) -> String {
     let read =
         tokio::task::spawn_blocking(move || roost_keeper::keeper::implementation_digest_of(&path));
     match read.await {
-        Ok(Ok(Some(digest))) => digest,
-        Ok(Ok(None)) => {
+        Ok(Some(digest)) => digest,
+        Ok(None) => {
             tracing::warn!("the keeper executable could not be read for digesting");
             String::new()
         }
-        Ok(Err(join_error)) => {
-            tracing::warn!(error = %join_error, "the keeper executable could not be hashed");
-            String::new()
-        }
         Err(join_error) => {
-            tracing::warn!(error = %join_error, "hashing the keeper executable did not finish");
+            tracing::warn!(error = %join_error, "the keeper executable could not be hashed");
             String::new()
         }
     }

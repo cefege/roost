@@ -27,6 +27,7 @@ use std::time::Duration;
 use roost_keeper::client::KeeperClient;
 use roost_keeper::client_error::ClientError;
 use roost_keeper::client_resize::{ResizeOutcome, ResizeUnknownReason};
+use roost_keeper::codec::MuxFrame;
 use roost_keeper::frames::ChannelBinding as KeeperChannelBinding;
 use roost_keeper::payloads::PtyInResult;
 
@@ -39,13 +40,6 @@ use crate::runtime::keeper_boot::KeeperHandle;
 use crate::session::sinks::ChannelBinding;
 use crate::shell_spec::ShellSpec;
 use crate::strays::ChannelAllocator;
-
-/// How long the dispatch loop sleeps when the keeper said nothing.
-///
-/// The keeper's own output tick is 16ms, so this is the shortest sleep that
-/// cannot outrun the producer. A tighter loop would burn a core per worker
-/// doing nothing, which is what this number is for.
-pub const DISPATCH_IDLE: Duration = Duration::from_millis(16);
 
 /// A PTY the keeper opened, and the channel it is addressed by.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -288,6 +282,44 @@ impl KeeperPool {
     /// Whether the pool still believes it has a keeper.
     pub fn is_connected(&self) -> bool {
         self.connected.load(Ordering::SeqCst)
+    }
+
+    /// Take every frame that has already arrived, off the connection.
+    ///
+    /// The connection handle is the discipline, and holding it is this
+    /// method's whole job: the frame that answers a request is handed to the
+    /// waiting caller inside the call holding this same handle, so draining
+    /// under it is what keeps the dispatcher from taking a reply out from
+    /// under the request blocked on it. The frames come back OWNED, so no lock
+    /// is still held once a session is called.
+    pub(crate) fn take_arrived_frames(&self) -> Vec<MuxFrame> {
+        self.keeper.with(|client| {
+            let mut arrived = Vec::new();
+            while let Some(frame) = client.next_event(Duration::ZERO) {
+                arrived.push(frame);
+            }
+            arrived
+        })
+    }
+
+    /// Where a channel's bytes go, or `None` when this worker does not drive it.
+    ///
+    /// The binding is CLONED out from under the table's lock and the lock is
+    /// released before the caller touches it: a session that blocks inside
+    /// `on_output` must not be able to stall the dispatcher for every other
+    /// session, which is what holding that lock across the call would do.
+    pub(crate) fn output_binding_for(&self, channel_id: u16) -> Option<Arc<dyn ChannelBinding>> {
+        self.channels.output_for(channel_id)
+    }
+
+    /// Claim a channel's ending, for exactly one caller.
+    ///
+    /// The claim is taken HERE, under the table's lock, and only the winner is
+    /// handed the binding: a connection that dies while an exit is in flight
+    /// must not produce an exit AND an error for one channel, so the loser of
+    /// that race is the one that finds the channel already gone.
+    pub(crate) fn claim_channel_exit(&self, channel_id: u16) -> Option<Arc<dyn ChannelBinding>> {
+        self.channels.claim_exit(channel_id)
     }
 
     /// The keeper is gone: tell every channel this worker drives, once.

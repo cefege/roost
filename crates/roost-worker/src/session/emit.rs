@@ -13,7 +13,10 @@
 //! it — a delta straight out, a full installed as a per-sink cursor, a repair
 //! stream-wide. The cadence, the raw lane and the cursor are the v2 modules'
 //! own concerns, in [`super::cell_scheduler`], [`super::raw_metadata`] and
-//! [`super::snapshot_cursor`].
+//! [`super::snapshot_cursor`]. The per-channel delivery registry that admits,
+//! invalidates and forgets a stream is [`super::emit_streams`].
+use std::collections::{HashMap, HashSet};
+
 use roost_protocol::cell::frame_chunks::encoded_cell_grid_frame_size;
 use roost_protocol::cell::{CELL_GRID_PART_MAX_BYTES, CellGridFrame, cell_frame_to_proto};
 use roost_protocol::wire::brand::ChannelId;
@@ -123,52 +126,6 @@ impl CellEmitter {
 
     pub fn sinks(&self) -> &CellSinkRegistry {
         &self.sinks
-    }
-
-    /// Adopt a channel's delivery stream under a coordinator-minted generation.
-    ///
-    /// The record's emit state is re-addressed HERE rather than at the first
-    /// emit: a frame naming the placeholder the record was born with would be
-    /// addressed to a generation the coordinator never minted. A full is owed
-    /// immediately; a caller that installs none ships nothing, because every
-    /// later emit is withheld while a sink holds no baseline.
-    pub fn install_stream(&mut self, record: &mut SessionRecord, stream_id: &str) {
-        let channel_id = record.channel_id();
-        record.cell_emit.stream_id = stream_id.to_owned();
-        let stream = self.streams.entry(channel_id).or_default();
-        stream.stream_id = stream_id.to_owned();
-        stream.enabled = true;
-        stream.core_valid = true;
-        self.note_dirty(channel_id);
-        tracing::info!(%channel_id, stream_id, "a terminal delivery stream was installed");
-    }
-    /// The coordinator's own claim on whether this channel produces cells.
-    pub fn set_stream_enabled(&mut self, channel_id: ChannelId, enabled: bool) {
-        if let Some(stream) = self.streams.get_mut(&channel_id) {
-            stream.enabled = enabled;
-        }
-    }
-
-    /// A resize that trapped the core clears this; every later PTY byte takes
-    /// the recovery lane until a new core is adopted.
-    pub fn set_core_valid(&mut self, channel_id: ChannelId, valid: bool) {
-        if let Some(stream) = self.streams.get_mut(&channel_id) {
-            stream.core_valid = valid;
-        }
-    }
-
-    pub fn has_enabled_stream(&self, channel_id: ChannelId) -> bool {
-        self.streams
-            .get(&channel_id)
-            .is_some_and(|stream| stream.enabled && stream.core_valid)
-    }
-
-    /// staged raw bytes, the dirty mark and any hold. A replaced generation
-    /// must not leave a cursor describing a grid that no longer exists.
-    pub fn forget_channel(&mut self, channel_id: ChannelId) {
-        self.streams.remove(&channel_id);
-        self.raw.forget_channel(channel_id);
-        self.cancel(channel_id);
     }
 
     /// Ingest one PTY chunk, synchronously, from the keeper's output binding.

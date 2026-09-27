@@ -93,7 +93,10 @@ pub fn drain_until(keeper: &mut Keeper, predicate: impl Fn(&[u8]) -> bool) -> Ve
     let start = Instant::now();
     let mut seen: Vec<u8> = Vec::new();
     while start.elapsed() < DEADLINE {
-        for frame in keeper.drain_output(8192) {
+        for frame in keeper
+            .drain_output(8192)
+            .expect("a drained chunk is within the frame bound")
+        {
             seen.extend_from_slice(&frame.payload);
         }
         if predicate(&seen) {

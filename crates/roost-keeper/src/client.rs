@@ -13,7 +13,7 @@ use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use crate::client_error::ClientError;
@@ -116,10 +116,8 @@ impl KeeperClient {
         let response: crate::payloads::KeeperHelloResponse = reply
             .parse_json()
             .ok_or_else(|| ClientError::Io("the keeper's hello did not decode".into()))?;
-        self.shared
-            .lock()
-            .expect("the client lock is never held across a wait")
-            .keeper = Some(response.observation);
+        let mut shared = lock_recovered(&self.shared, "shared");
+        shared.keeper = Some(response.observation);
 
         // A feature the client needs and the keeper lacks makes this keeper
         // unusable, and the reason must name the feature: "it did not work" is
@@ -159,10 +157,7 @@ impl KeeperClient {
             .map_err(|err| ClientError::Io(err.to_string()))?;
         let (sender, receiver) = std::sync::mpsc::channel();
         {
-            let mut shared = self
-                .shared
-                .lock()
-                .expect("the client lock is never held across a wait");
+            let mut shared = lock_recovered(&self.shared, "shared");
             shared.pending.insert(channel_id, PendingSpawn { sender });
         }
 
@@ -242,10 +237,7 @@ impl KeeperClient {
     /// A partial frame would desynchronise the keeper's decoder for every frame
     /// after it, so a short write is an error rather than a retry.
     pub(crate) fn write(&self, frame: &MuxFrame) -> Result<(), ClientError> {
-        let mut socket = self
-            .write_half
-            .lock()
-            .expect("the write lock is never held across a wait");
+        let mut socket = lock_recovered(&self.write_half, "write");
         socket
             .write_all(&frame.encode())
             .map_err(|err| ClientError::Io(err.to_string()))?;
@@ -259,6 +251,20 @@ impl KeeperClient {
             shared.pending.remove(&channel_id);
         }
     }
+}
+
+/// Lock a client mutex whose contents survive the panic that poisoned it.
+///
+/// Poisoning says some thread panicked while holding the lock; it says nothing
+/// about whether what the lock guards is still readable. A pending-spawn table
+/// and a socket both are, so the data is recovered and the fault is logged.
+/// What actually matters on this client is lock ORDER — no lock is held across
+/// a wait — and recovering does not endanger that.
+fn lock_recovered<'guard, T>(mutex: &'guard Mutex<T>, which: &str) -> MutexGuard<'guard, T> {
+    mutex.lock().unwrap_or_else(|poisoned| {
+        tracing::warn!("keeper client: the {which} lock was poisoned by a panic; recovering it");
+        poisoned.into_inner()
+    })
 }
 
 impl std::fmt::Debug for KeeperClient {

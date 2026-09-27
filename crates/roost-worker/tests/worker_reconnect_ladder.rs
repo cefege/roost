@@ -50,7 +50,7 @@ impl LinkWire for UnusedCodec {
         &self,
         _frame: &roost_protocol::wire::coord_worker::CoordWorkerUpstream,
     ) -> Result<Vec<u8>, WireError> {
-        Err(WireError::Unavailable {
+        Err(WireError::Unencodable {
             reason: UNREACHED.to_string(),
         })
     }
@@ -59,7 +59,7 @@ impl LinkWire for UnusedCodec {
         &self,
         _bytes: &[u8],
     ) -> Result<roost_protocol::wire::coord_worker::CoordWorkerDownstream, WireError> {
-        Err(WireError::Unavailable {
+        Err(WireError::Undecodable {
             reason: UNREACHED.to_string(),
         })
     }

@@ -22,7 +22,6 @@
 //! history loses nothing, and replays them at the boundary.
 
 use roost_protocol::wire::brand::ChannelId;
-use roost_term::TerminalCore;
 
 use super::history::SbOriginPin;
 use super::lifecycle::SessionManager;
@@ -182,7 +181,7 @@ impl SessionManager {
                 format!("channel {raw} already has an unresolved resize in flight"),
             ));
         }
-        if let Err(fault) = self.keeper.resize_channel(raw, seq, cols, rows) {
+        if self.keeper.resize_channel(raw, seq, cols, rows).is_err() {
             let outcome = self.close_capture(
                 &mut record,
                 &*delivery,
@@ -234,7 +233,7 @@ impl SessionManager {
             tracing::error!(
                 session_id = %session_id,
                 channel_id = channel_id.as_u32(),
-                captured_bytes = captured.bytes,
+                captured_bytes = captured.bytes.len(),
                 "a resize boundary captured more output than the retained window holds; \
                  the geometry was left alone"
             );
@@ -257,7 +256,7 @@ impl SessionManager {
             prev_dropped: before.discarded,
             prev_total: before.total,
             fresh_discarded: after.discarded,
-            fresh_count: after.count,
+            fresh_count: after.retained(),
             previous_replay_floor: record
                 .sb_origin_pin
                 .map_or(0, |previous| previous.replay_floor),
@@ -328,5 +327,13 @@ impl CoreCounters {
             discarded,
             total: discarded + record.terminal_core.scrollback_count() as u64,
         }
+    }
+
+    /// The rows the core still holds, as opposed to the `total` it has ever
+    /// held. A pin's fresh count is a LOSS measure: counting rows the core
+    /// evicted before the resize into it would charge this boundary for
+    /// history the core lost long before it opened.
+    fn retained(&self) -> u64 {
+        self.total.saturating_sub(self.discarded)
     }
 }

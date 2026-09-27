@@ -21,6 +21,13 @@ use std::path::Path;
 /// directory added behind them would be found late.
 pub const PTY_PATH_PREFIX: &str = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin";
 
+/// How long a host tool may run before it is killed and its reading is
+/// discarded. Ten seconds because the slowest caller is `gh`, a network round
+/// trip, and the fastest failure is a tool that has hung on a filesystem it
+/// cannot reach — either way the answer arrives as no reading, and the caller
+/// is a sampling thread that has to come back.
+pub const TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// The `PATH` this worker resolves its own tools against, prefix included.
 ///
 /// The inherited `PATH` is kept behind the prefix rather than replacing it: a

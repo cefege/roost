@@ -12,6 +12,10 @@
 //! `spend_keeper_force_live_retire_authorization` that follows keeper
 //! admission — and `a_force_live_retire_authorisation_is_spent_once_after_admission`
 //! fails: the definition still carries the flag, and no spend event is emitted.
+//! MOVE that same call above the keeper probe, and both of those still pass while
+//! `the_authorisation_is_spent_after_admission_and_before_the_link` fails: an
+//! authorisation spent before the admission that reads it authorises nothing,
+//! and both the definition text and the spend report look exactly right.
 //!
 //! A test unwraps the value it is asserting about: a failure there IS the
 //! assertion failing. The workspace denies unwrap/expect because a panic on a
@@ -27,7 +31,7 @@ mod retire_support;
 
 use std::sync::Mutex;
 
-use retire_support::{Definition, FakeKeeper, platform, spend_events};
+use retire_support::{Definition, FakeKeeper, platform, position_of, spend_events, spends};
 use scratch::Scratch;
 
 /// Both tests set the same process environment variable, because
@@ -54,16 +58,16 @@ async fn a_force_live_retire_authorisation_is_spent_once_after_admission() {
     let outcome = retire_support::serve_once(boot).await;
     assert!(outcome.is_ok(), "the worker refused to boot: {outcome:?}");
 
-    let spend = captured();
+    let events = captured();
+    let spend = spends(&events);
     assert_eq!(
         spend.len(),
         1,
         "the authorisation was spent {n} times, and exactly once is the property",
         n = spend.len()
     );
-    assert_eq!(
+    assert!(
         spend[0],
-        Some(true),
         "the spend did not report the entry it removed"
     );
     let after = definition.read();
@@ -97,11 +101,10 @@ async fn an_activation_with_no_authorisation_to_spend_reports_that_it_had_none()
     let outcome = retire_support::serve_once(boot).await;
     assert!(outcome.is_ok(), "the worker refused to boot: {outcome:?}");
 
-    let spend = captured();
+    let spend = spends(&captured());
     assert_eq!(spend.len(), 1, "the spend was not reported at all");
-    assert_eq!(
-        spend[0],
-        Some(false),
+    assert!(
+        !spend[0],
         "an absent entry was reported as removed"
     );
     assert_eq!(
@@ -109,4 +112,58 @@ async fn an_activation_with_no_authorisation_to_spend_reports_that_it_had_none()
         before,
         "a definition with nothing to spend was rewritten"
     );
+}
+
+/// WHERE the spend lands, which is the half of the property the two tests above
+/// cannot see. They both pass with the call moved to the top of `serve_until`,
+/// and that move is a regression in both directions at once: an authorisation
+/// spent BEFORE keeper admission has been consumed by the admission that read
+/// it, so the operator's destructive deploy silently does nothing, and one spent
+/// after any keeper work leaves a grant in the unit that re-arms on a keeper
+/// that is still holding the PTYs. Neither is visible from the definition text
+/// afterwards, which is why this looks at the event ORDER.
+///
+/// THE MUTATION. Move the `spend_keeper_force_live_retire_authorization` call in
+/// `runtime/mod.rs` from after the `KeeperAdmission` step to before the keeper
+/// is probed, and this fails on the comparison below.
+#[tokio::test]
+async fn the_authorisation_is_spent_after_admission_and_before_the_link() {
+    let _guard = ENVIRONMENT
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let scratch = Scratch::new("retire-order");
+    let platform = platform();
+    let _definition = Definition::write(scratch.root(), platform, true);
+    let boot = retire_support::boot(scratch.root(), platform);
+    let _keeper = FakeKeeper::start(&boot, platform).await;
+    let (captured, _capture) = spend_events();
+
+    let outcome = retire_support::serve_once(boot).await;
+    assert!(outcome.is_ok(), "the worker refused to boot: {outcome:?}");
+
+    let events = captured();
+    let admitted = position_of(&events, "boot: keeper admitted");
+    let spent = events.iter().position(|event| event.removed.is_some());
+    let linked = position_of(&events, "boot: the coordinator link is starting");
+    let admitted = admitted.unwrap_or_else(|| {
+        panic!(
+            "the activation never reported admitting the keeper, so the spend's position is \
+             unprovable: {events:?}"
+        )
+    });
+    let spent = spent.unwrap_or_else(|| {
+        panic!("the activation spent nothing, so its position is unprovable: {events:?}")
+    });
+    assert!(
+        admitted < spent,
+        "the authorisation was spent BEFORE the keeper was admitted, so the admission that \
+         reads it has nothing left to read: {events:?}"
+    );
+    if let Some(linked) = linked {
+        assert!(
+            spent < linked,
+            "the authorisation was spent AFTER the link started, so a restart between the two \
+             re-arms it against a keeper still holding the PTYs: {events:?}"
+        );
+    }
 }

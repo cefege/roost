@@ -63,6 +63,52 @@ pub async fn execute(command: &Command, deps: &Deps) -> Result<Answered, Refusal
     Ok(Answered::Silent)
 }
 
+/// The worker's own answer to a presence statement, which is to record that it
+/// arrived.
+///
+/// This is the production [`PresenceReports`], and it is deliberately thin.
+/// v2's worker held no cursor position and no session title: `apps/worker/src/
+/// browser-commands/browser-command-handler.ts:124-126` groups `cursor-pos`,
+/// `set-title` and `detach` with the fire-and-forget mutations, and nothing
+/// else in `apps/worker/src` reads a cursor or writes a title. Both belong to
+/// the coordinator, which is the side that answers "who is watching this
+/// session" for every client at once — so a worker-side copy would be a second
+/// answer to the same question, kept in step by nothing.
+///
+/// What this type buys is the trace. A presence frame that is neither executed
+/// nor refused is a browser whose cursor updates go nowhere with no line
+/// anywhere saying so, and the question it raises — is the wire alive, or is
+/// this worker ignoring me — is the question an operator actually asks.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WorkerPresence;
+
+impl PresenceReports for WorkerPresence {
+    fn cursor_moved(&self, session_id: SessionId, col: u16, row: u16) {
+        tracing::debug!(
+            session_id = %session_id,
+            col,
+            row,
+            "a viewer's cursor moved; the coordinator owns presence, so the worker keeps none"
+        );
+    }
+
+    fn titled(&self, session_id: SessionId, title: String) {
+        tracing::debug!(
+            session_id = %session_id,
+            title_bytes = title.len(),
+            "a viewer named a session; the coordinator owns the title, so the worker keeps none"
+        );
+    }
+
+    fn viewer_left(&self, session_id: SessionId, browser_id: String) {
+        tracing::debug!(
+            session_id = %session_id,
+            browser_id = %browser_id,
+            "a viewer stopped watching; the coordinator owns the viewer set, so the worker keeps none"
+        );
+    }
+}
+
 /// A column or row the wire admitted as non-negative, narrowed to what a grid
 /// can address.
 fn clamp(value: i64) -> u16 {

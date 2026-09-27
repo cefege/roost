@@ -34,13 +34,11 @@ impl Keeper {
             },
             features,
         };
-        Ok(vec![
-            MuxFrame::json(MuxFrameType::HelloResp, 0, &response)
-                .expect("a hello response is a small JSON object"),
-        ])
+        let hello = MuxFrame::json(MuxFrameType::HelloResp, 0, &response)?;
+        Ok(vec![hello])
     }
 
-    pub fn list_channels(&self) -> Vec<MuxFrame> {
+    pub fn list_channels(&self) -> Result<Vec<MuxFrame>, CodecError> {
         let mut channels: Vec<ChannelBinding> = self
             .channels
             .values()
@@ -55,10 +53,8 @@ impl Keeper {
         // which a HashMap's iteration order does not promise.
         channels.sort_by_key(|binding| binding.channel_id);
         let response = ListChannelsResp { channels };
-        vec![
-            MuxFrame::json(MuxFrameType::ListChannelsResp, 0, &response)
-                .expect("a channel list is small JSON"),
-        ]
+        let answer = MuxFrame::json(MuxFrameType::ListChannelsResp, 0, &response)?;
+        Ok(vec![answer])
     }
 
     /// Answer a conditional shutdown.
@@ -66,17 +62,14 @@ impl Keeper {
     /// The check and the answer are one operation, with no await between them,
     /// so a keeper handed a new PTY cannot retire itself out from under the
     /// channel it was just given. That is the whole reason this frame exists
-    /// separately from `Shutdown`.
-    pub fn shutdown_if_empty(&self) -> Vec<MuxFrame> {
+    pub fn shutdown_if_empty(&self) -> Result<Vec<MuxFrame>, CodecError> {
         let (tag, channel) = if self.channels.is_empty() {
             (MuxFrameType::ShutdownIfEmptyAck, 0)
         } else {
             (MuxFrameType::ShutdownIfEmptyReject, 0)
         };
-        vec![
-            MuxFrame::new(tag, channel, Vec::new())
-                .expect("an empty payload is within every frame bound"),
-        ]
+        let answer = MuxFrame::new(tag, channel, Vec::new())?;
+        Ok(vec![answer])
     }
 
     pub fn spawn(&mut self, frame: &MuxFrame) -> Result<Vec<MuxFrame>, CodecError> {
@@ -113,10 +106,7 @@ impl Keeper {
                     channel_id: request.channel_id,
                     pid,
                 };
-                Ok(vec![
-                    MuxFrame::json(MuxFrameType::SpawnAck, request.channel_id, &ack)
-                        .expect("a spawn ack is small JSON"),
-                ])
+                Ok(vec![MuxFrame::json(MuxFrameType::SpawnAck, request.channel_id, &ack)?])
             }
             Err(err) => {
                 tracing::warn!(
@@ -127,10 +117,11 @@ impl Keeper {
                     channel_id: request.channel_id,
                     error: err.to_string(),
                 };
-                Ok(vec![
-                    MuxFrame::json(MuxFrameType::SpawnErr, request.channel_id, &failure)
-                        .expect("a spawn error is small JSON"),
-                ])
+                Ok(vec![MuxFrame::json(
+                    MuxFrameType::SpawnErr,
+                    request.channel_id,
+                    &failure,
+                )?])
             }
         }
     }
@@ -154,7 +145,7 @@ impl Keeper {
                     input_seq: request.input_seq,
                     reason: PtyInRejectReason::NoSuchChannel,
                 },
-            )]);
+            )?]);
         };
 
         let outcome = channel.pty.write_input(&request.bytes);
@@ -180,7 +171,7 @@ impl Keeper {
             PtyInResult::Reject { .. } => MuxFrameType::PtyInReject,
             PtyInResult::Ambiguous { .. } => MuxFrameType::PtyInAmbiguous,
         };
-        Ok(vec![result_frame(tag, frame.channel_id, result)])
+        Ok(vec![result_frame(tag, frame.channel_id, result)?])
     }
 
     pub fn legacy_resize(&mut self, frame: &MuxFrame) -> Result<Vec<MuxFrame>, CodecError> {
@@ -214,7 +205,7 @@ impl Keeper {
             // The refusal names the sequence it is refusing. A reject that
             // carried a zero instead would leave the client unable to match it
             // to the request, which is a hang wearing a different hat.
-            return Ok(vec![resize_reject(frame.channel_id, request.seq, 1)]);
+            return Ok(vec![resize_reject(frame.channel_id, request.seq, 1)?]);
         };
 
         match channel
@@ -238,7 +229,7 @@ impl Keeper {
                     "keeper: resize refused channel={} error={err}",
                     frame.channel_id
                 );
-                Ok(vec![resize_reject(frame.channel_id, request.seq, 1)])
+                Ok(vec![resize_reject(frame.channel_id, request.seq, 1)?])
             }
         }
     }
@@ -259,14 +250,9 @@ impl Keeper {
     /// is the only source that cannot itself have been evicted.
     pub fn terminal_state(&mut self, frame: &MuxFrame) -> Result<Vec<MuxFrame>, CodecError> {
         let state = self.state_of(frame.channel_id);
-        Ok(vec![
-            MuxFrame::new(
-                MuxFrameType::GetTerminalStateResp,
-                frame.channel_id,
-                state.encode()?,
-            )
-            .expect("a terminal state payload is within every frame bound"),
-        ])
+        let payload = state.encode()?;
+        let response = MuxFrame::new(MuxFrameType::GetTerminalStateResp, frame.channel_id, payload)?;
+        Ok(vec![response])
     }
 
     pub fn state_of(&self, channel_id: u16) -> TerminalState {
@@ -295,13 +281,8 @@ impl Keeper {
             Some(_) => channel.history.records().encode()?,
             None => channel.history.records().encode()?,
         };
-        Ok(vec![
-            MuxFrame::new(
-                MuxFrameType::GetHistoryRecordsResp,
-                frame.channel_id,
-                payload,
-            )
-            .expect("a history payload is within every frame bound"),
-        ])
+        let response =
+            MuxFrame::new(MuxFrameType::GetHistoryRecordsResp, frame.channel_id, payload)?;
+        Ok(vec![response])
     }
 }

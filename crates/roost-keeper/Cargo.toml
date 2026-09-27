@@ -26,6 +26,9 @@ tracing.workspace = true
 [dev-dependencies]
 roost-protocol.workspace = true
 serde_json.workspace = true
+[lints]
+workspace = true
+
 
 [lints.rust]
 # The workspace forbids `unsafe`; this crate is the one place that needs it,

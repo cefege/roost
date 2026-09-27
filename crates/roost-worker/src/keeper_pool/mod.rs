@@ -16,8 +16,9 @@ mod error;
 mod pool;
 mod spawn_spec;
 
+pub use dispatch::DISPATCH_IDLE;
 pub use error::PoolError;
-pub use pool::{DISPATCH_IDLE, KeeperPool, Spawned};
+pub use pool::{KeeperPool, Spawned};
 pub use spawn_spec::{PtyCommand, pty_command};
 
 use std::sync::Arc;

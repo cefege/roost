@@ -8,7 +8,8 @@
 //! WINDOWS IS NOT PORTED. v2 returned early on `win32` and did the equivalent
 //! through a service DACL instead (`apps/worker/src/host/service-definition-env.ts:26`),
 //! so there is nothing here to stub: a Windows worker does not exist in v3, and
-//! a platform with no definition to edit is a refusal.
+//! a platform that keeps no definition carries no entry to erase — the same
+//! `false` v2 answers, and not a failure, because nothing failed.
 //!
 //! The definition itself is written by `roost-cli`'s service installer, the one
 //! owner of what a definition contains. This erases one entry from it.
@@ -38,14 +39,16 @@ pub enum ServiceDefinition {
 }
 
 impl ServiceDefinition {
-    /// The definition kind a platform's worker runs under.
-    pub fn for_platform(platform: HostPlatform) -> Result<Self, InstallError> {
+    /// The definition kind a platform's worker runs under, or `None` on a
+    /// platform that keeps no service definition. `None` is not a failure:
+    /// there is no file that could have carried the key, so erasing nothing is
+    /// the whole of what there was to do.
+    #[must_use]
+    pub const fn for_platform(platform: HostPlatform) -> Option<Self> {
         match platform {
-            HostPlatform::MacOs => Ok(Self::LaunchAgent),
-            HostPlatform::Linux => Ok(Self::SystemdUserUnit),
-            HostPlatform::Windows => Err(InstallError::UnsupportedPlatform {
-                platform: platform.as_str(),
-            }),
+            HostPlatform::MacOs => Some(Self::LaunchAgent),
+            HostPlatform::Linux => Some(Self::SystemdUserUnit),
+            HostPlatform::Windows => None,
         }
     }
 
@@ -64,6 +67,12 @@ impl ServiceDefinition {
 pub enum InstallError {
     #[error("the worker's service definition path could not be resolved: {reason}")]
     Unresolved { reason: String },
+    /// A name that is not a plain environment name. It is interpolated into
+    /// the text both erasers match against, so a name that is not one is
+    /// refused rather than edited by a rule nobody wrote.
+    #[error("{key:?} is not an environment name, so it was refused rather than matched against \
+             the service definition")]
+    NotAnEnvName { key: String },
     #[error("the worker service definition at {path} could not be read: {reason}")]
     Unreadable { path: PathBuf, reason: String },
     #[error("the worker service definition at {path} could not be rewritten: {reason}")]
@@ -73,9 +82,11 @@ pub enum InstallError {
 /// Remove the entry for `key` from the worker's installed service definition.
 /// `true` when the definition carried it.
 ///
-/// `false` is a real answer, not a failure: a value supplied by the ambient
-/// shell of whoever started the service by hand was never in the file, and
-/// erasing nothing is what a correct erasure looks like from out here.
+/// `false` is a real answer, not a failure, and it is the answer twice over: a
+/// value supplied by the ambient shell of whoever started the service by hand
+/// was never in the file, and a platform that keeps no service definition has
+/// no file to have carried it. Erasing nothing is what a correct erasure looks
+/// like from out here.
 pub async fn scrub_service_definition_env(
     env: &dyn EnvSource,
     platform: HostPlatform,
@@ -86,7 +97,9 @@ pub async fn scrub_service_definition_env(
             key: key.to_string(),
         });
     }
-    let definition = ServiceDefinition::for_platform(platform)?;
+    let Some(definition) = ServiceDefinition::for_platform(platform) else {
+        return Ok(false);
+    };
     let path = worker_service_path(env, platform).map_err(|error| InstallError::Unresolved {
         reason: error.to_string(),
     })?;
@@ -250,7 +263,7 @@ fn environment_pairs(line: &str) -> Option<Vec<EnvironmentPair<'_>>> {
             continue;
         }
         let (end, next) = match list[cursor..].strip_prefix('"') {
-            Some(quoted) => closing_quote(&list[cursor + 1..], cursor + 1)?,
+            Some(_) => closing_quote(&list[cursor + 1..], cursor + 1)?,
             None => {
                 let offset = list[cursor..].find(' ').unwrap_or(list.len() - cursor);
                 (cursor + offset, cursor + offset)

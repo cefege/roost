@@ -184,6 +184,8 @@ pub enum CodecError {
     InputTooLarge { name: &'static str, len: u32 },
     #[error("payload is not valid JSON for {name}: {reason}")]
     BadJson { name: &'static str, reason: String },
+    #[error("a frame length prefix is {len} bytes, not the 4 the protocol fixes")]
+    MalformedLengthPrefix { len: usize },
 }
 
 /// Append a big-endian `u64`. Unaligned, like every scalar in the protocol.
@@ -306,7 +308,19 @@ impl FrameDecoder {
         // A frame stays buffered until its whole body has arrived, so the
         // loop ends on an incomplete prefix rather than on a frame count.
         while let Some(prefix) = self.buffered.get(..4) {
-            let claimed = u32::from_be_bytes(prefix.try_into().expect("sliced to 4 bytes"));
+            // `get(..4)` yields `Some` only when four bytes are there, so this
+            // conversion cannot fail. It is written as a refusal rather than a
+            // panic because the reason it cannot fail is the slice on the line
+            // above, and a later edit to that slice must not turn a protocol
+            // detail into a crash on the daemon's serve loop.
+            let Ok(raw_length) = <[u8; 4]>::try_from(prefix) else {
+                events.push(StreamEvent::Failed(CodecError::MalformedLengthPrefix {
+                    len: prefix.len(),
+                }));
+                self.buffered.clear();
+                return events;
+            };
+            let claimed = u32::from_be_bytes(raw_length);
             if claimed > KEEPER_MAX_MUX_FRAME_BYTES {
                 events.push(StreamEvent::Failed(CodecError::FrameTooLarge(claimed)));
                 self.buffered.clear();

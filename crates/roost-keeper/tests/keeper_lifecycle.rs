@@ -99,7 +99,7 @@ fn a_conditional_shutdown_refuses_while_a_channel_is_live() {
     keeper.handle(&MuxFrame::new(MuxFrameType::KillChild, 4, Vec::new()).unwrap());
     let start = Instant::now();
     while keeper.channel_count() > 0 {
-        keeper.reap_exited();
+        keeper.reap_exited().expect("an exit frame is small JSON");
         assert!(start.elapsed() < DEADLINE, "a killed child never exited");
         std::thread::sleep(Duration::from_millis(5));
     }

@@ -198,7 +198,6 @@ impl SessionRecord {
     ) -> Self {
         Self {
             identity,
-            fsm: ChannelFsm::default(),
             close_reservation,
             // NOT `default()`: `ChannelFsm`'s `Default` is the RETIRED state
             // (`None`), and `send` refuses every event from there. A record

@@ -264,26 +264,50 @@ fn plist(with_authorisation: bool) -> String {
     )
 }
 
-/// Record `removed_from_service_definition` from every event emitted on the
-/// current thread, and hand back the reader AND the guard that keeps the
-/// subscriber installed. Dropping the guard uninstalls it mid-test.
+/// One boot event, in the order the activation emitted it.
+///
+/// Ordered rather than counted, because the property this file is about is
+/// WHERE the spend lands and not only that it happened: a spend above keeper
+/// admission destroys an authorisation the admission may not consume, and a
+/// spend that is simply absent is loud while a spend in the wrong place is not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BootEvent {
+    /// The event's message, which is the human-readable name of the transition.
+    pub name: String,
+    /// `removed_from_service_definition`, on the spend event and nowhere else.
+    pub removed: Option<bool>,
+}
+
+/// Record every event on the current thread, and hand back the reader AND the
+/// guard that keeps the subscriber installed. Dropping the guard uninstalls it
+/// mid-test.
 ///
 /// Thread-local on purpose: `install_observability` inside `serve_until` accepts
 /// a subscriber that is already installed, and a global one would also swallow
 /// the events of whatever else this test binary is doing in parallel.
 pub fn spend_events() -> (
-    impl Fn() -> Vec<Option<bool>>,
+    impl Fn() -> Vec<BootEvent>,
     tracing::subscriber::DefaultGuard,
 ) {
-    let recorded: Arc<Mutex<Vec<Option<bool>>>> = Arc::new(Mutex::new(Vec::new()));
+    let recorded: Arc<Mutex<Vec<BootEvent>>> = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&recorded);
     let guard = tracing::subscriber::set_default(SpendCapture(sink));
     let read = move || recorded.lock().expect("the capture lock").clone();
     (read, guard)
 }
 
-/// A subscriber that keeps one `Option<bool>` per spend event.
-struct SpendCapture(Arc<Mutex<Vec<Option<bool>>>>);
+/// Just the spends, in order, out of a whole activation's events.
+pub fn spends(events: &[BootEvent]) -> Vec<bool> {
+    events.iter().filter_map(|event| event.removed).collect()
+}
+
+/// Where in the activation an event with this message was emitted.
+pub fn position_of(events: &[BootEvent], name: &str) -> Option<usize> {
+    events.iter().position(|event| event.name == name)
+}
+
+/// A subscriber that keeps every event this activation emits, in order.
+struct SpendCapture(Arc<Mutex<Vec<BootEvent>>>);
 
 impl tracing::Subscriber for SpendCapture {
     fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
@@ -299,11 +323,15 @@ impl tracing::Subscriber for SpendCapture {
     fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
 
     fn event(&self, event: &tracing::Event<'_>) {
-        let mut visitor = RemovedField(None);
+        let mut visitor = BootEventFields {
+            message: String::new(),
+            removed: None,
+        };
         event.record(&mut visitor);
-        if let Some(removed) = visitor.0 {
-            self.0.lock().expect("the capture lock").push(Some(removed));
-        }
+        self.0.lock().expect("the capture lock").push(BootEvent {
+            name: visitor.message,
+            removed: visitor.removed,
+        });
     }
 
     fn enter(&self, _span: &tracing::span::Id) {}
@@ -311,13 +339,38 @@ impl tracing::Subscriber for SpendCapture {
     fn exit(&self, _span: &tracing::span::Id) {}
 }
 
-/// Reads the one field this test is about, and ignores every other one.
-struct RemovedField(Option<bool>);
+/// Reads the two fields this test is about, and ignores every other one.
+///
+/// `message` rather than `metadata().name()`: the name a `tracing` macro
+/// generates is the file and line it was written at, which moves the moment an
+/// unrelated line is added above it, and a test keyed on that fails for a
+/// reason that has nothing to do with the property.
+struct BootEventFields {
+    message: String,
+    removed: Option<bool>,
+}
 
-impl tracing::field::Visit for RemovedField {
+impl tracing::field::Visit for BootEventFields {
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        if field.name() == "message" {
+            self.message = value.to_owned();
+        }
+    }
+
     fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
         if field.name() == "removed_from_service_definition" {
-            self.0 = Some(value);
+            self.removed = Some(value);
+        }
+    }
+}
+
+impl BootEventFields {
+    /// The default visitor would format every field into a `dyn Debug`; this one
+    /// reads the two that matter, so a capture is not paying to stringify values
+    /// nothing looks at.
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            self.message = format!("{value:?}");
         }
     }
 }

@@ -44,7 +44,7 @@ use boot_order::{BootSequence, Readiness, StepId};
 use credential::WorkerKeyCredential;
 use keeper_boot::KeeperBootOutcome;
 use link_loop::{LinkLoop, WorkerIdentity};
-use link_wire::UnavailableWire;
+use link_wire::ProtoLinkWire;
 use snapshot_source::NoSnapshot;
 use stop::{StopRequests, stop_requests_from_signals};
 
@@ -165,7 +165,7 @@ pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result
             version: boot.worker_version.clone(),
             process_epoch: boot.process_epoch.clone(),
         },
-        Arc::new(UnavailableWire),
+        Arc::new(ProtoLinkWire),
         Arc::new(NoSnapshot),
         Arc::new(WorkerKeyCredential::new(boot.worker_key_path.clone())),
     );

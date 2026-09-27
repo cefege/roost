@@ -13,8 +13,8 @@
 //! one channel ended twice, while a session this worker NEVER held still needs
 //! a tombstone: an orphan whose keeper died is otherwise unkillable.
 
-use std::collections::{HashMap, Mutex, MutexGuard};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use roost_observability::clock::EventClock;
 use roost_protocol::wire::brand::{SessionId, WorkerFp};
@@ -50,7 +50,10 @@ impl SessionTable {
     /// Hold a new record. An id already here is refused rather than overwritten:
     /// replacing one leaves a PTY whose bytes reach a record nobody can address.
     pub fn insert(&self, record: SessionRecord) -> Result<Arc<Mutex<SessionRecord>>, Refusal> {
-        let channel_id = record.channel_id();
+        // The table is keyed by the raw keeper id that every binding and the
+        // resume path already carry; the record's branded id is that same
+        // number in a stronger type.
+        let channel_id = record.channel_id().as_u32() as u16;
         let session_id = record.session_id().clone();
         let mut live = self.lock();
         if live.by_channel.contains_key(&channel_id) || live.by_session.contains_key(&session_id) {
@@ -121,14 +124,6 @@ impl SessionTable {
     /// The record a channel's bytes are delivered into.
     pub(super) fn entry(&self, channel_id: u16) -> Option<Arc<Mutex<SessionRecord>>> {
         self.lock().by_channel.get(&channel_id).map(Arc::clone)
-    }
-    /// Every live session and its channel, in no particular order.
-    pub fn live(&self) -> Vec<(SessionId, u16)> {
-        self.lock()
-            .by_session
-            .iter()
-            .map(|(session, channel)| (session.clone(), *channel))
-            .collect()
     }
 
     /// Remove a channel's record. The returned entry is the last reference, so a
@@ -257,6 +252,7 @@ impl SessionManager {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let session_id = record.session_id().clone();
+        let branded_channel_id = record.channel_id();
         let trace_id = record.identity.session_trace_id.clone();
         let now_ms = self.clock.now_epoch_ms();
         let reservation = record.close_reservation;
@@ -285,7 +281,7 @@ impl SessionManager {
         self.cells
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .forget_channel(channel_id);
+            .forget_channel(branded_channel_id);
         self.mark_recently_closed(&session_id, now_ms);
         match recorded {
             Ok(()) => {

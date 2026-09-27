@@ -1,8 +1,9 @@
 //! The parked full: one immutable snapshot, per-sink cursors over it, and the
 //! sender lifecycle that invalidates them. `session::emit` installs a baseline
-//! here and drains it; `door` and the coordinator link register through these
-//! methods. Depends on `roost_protocol` for the chunk plan and `super::cell_sink`
-//! for the delivery records.
+//! here; [`super::snapshot_cursor_drain`] walks the parked parts out of it.
+//! `door` and the coordinator link register through these methods. Depends on
+//! `roost_protocol` for the chunk plan and `super::cell_sink` for the delivery
+//! records.
 //!
 //! WHY A CURSOR. A full is chunked when it does not fit one part, and a part a
 //! sink refuses is retried while its siblings have moved on. So the full is
@@ -14,6 +15,8 @@
 //! sink still owed a baseline would let a delta reach a sink that cannot
 //! reproduce the screen.
 
+use std::sync::Arc;
+
 use roost_protocol::cell::frame_chunk_validation::assert_cell_grid_snapshot;
 use roost_protocol::cell::frame_chunks::{
     CellGridSnapshotPart, chunk_cell_grid_frame, encoded_cell_grid_frame_size,
@@ -24,7 +27,7 @@ use roost_term::{CellEmitState, scrollback_origin};
 use tracing::warn;
 
 use super::cell_sink::{
-    CellSink, CellSinkResult, FrameTimings, SnapshotCursor, StreamDeliveryAggregate,
+    CellSink, FrameTimings, SnapshotCursor, StreamDeliveryAggregate,
     aggregate_stream_delivery,
 };
 use super::emit::CellEmitter;
@@ -172,54 +175,6 @@ impl CellEmitter {
         channels
     }
 
-    /// Send parked parts until every sink has its last, or one refuses.
-    pub fn drain_snapshot(&mut self, channel_id: ChannelId) -> SnapshotDrain {
-        let parked: Vec<String> = self
-            .streams
-            .get(&channel_id)
-            .map(|stream| {
-                stream
-                    .deliveries
-                    .iter()
-                    .filter(|(_, delivery)| delivery.cursor.is_some())
-                    .map(|(sink_id, _)| sink_id.clone())
-                    .collect()
-            })
-            .unwrap_or_default();
-        if parked.is_empty() {
-            return SnapshotDrain::NoCursor;
-        }
-        for sink_id in parked {
-            loop {
-                if !self.sinks.is_active(&sink_id) {
-                    return SnapshotDrain::Blocked;
-                }
-                let Some((parts, index, snapshot_id, timings)) =
-                    self.cursor_position(channel_id, &sink_id)
-                else {
-                    break;
-                };
-                let Some(part) = parts.get(index) else {
-                    break;
-                };
-                let answer = self
-                    .sinks
-                    .send_part_to_sink(channel_id, &sink_id, part, timings);
-                if answer != CellSinkResult::Sent {
-                    return SnapshotDrain::Blocked;
-                }
-                if !self.sinks.contains(&sink_id) {
-                    self.forget_sink_records(&sink_id);
-                    return SnapshotDrain::Blocked;
-                }
-                if !self.advance_cursor(channel_id, &sink_id, &snapshot_id) {
-                    break;
-                }
-            }
-        }
-        self.complete_stream_baseline(channel_id)
-    }
-
     /// trapped resize, or a snapshot request. Every sink's baseline goes at once:
     /// a frame they could not all reproduce is a frame none may build on.
     pub fn retire_stream_delivery(&mut self, channel_id: ChannelId) {
@@ -277,68 +232,6 @@ impl CellEmitter {
         }
     }
 
-    /// cannot borrow the delivery record it advances.
-    fn cursor_position(
-        &self,
-        channel_id: ChannelId,
-        sink_id: &str,
-    ) -> Option<(Arc<Vec<CellGridSnapshotPart>>, usize, String, FrameTimings)> {
-        let cursor = self
-            .streams
-            .get(&channel_id)?
-            .deliveries
-            .get(sink_id)?
-            .cursor
-            .as_ref()?;
-        Some((
-            Arc::clone(&cursor.parts),
-            cursor.next_part,
-            cursor.snapshot_id.clone(),
-            cursor.timings,
-        ))
-    }
-
-    /// the cursor is no longer the one that was read, which a sink that retired
-    /// the stream can cause from inside its own send: a cursor that no longer
-    /// owns the channel is never advanced, even though the send succeeded.
-    fn advance_cursor(&mut self, channel_id: ChannelId, sink_id: &str, snapshot_id: &str) -> bool {
-        let Some(stream) = self.streams.get_mut(&channel_id) else {
-            return false;
-        };
-        let Some(delivery) = stream.deliveries.get_mut(sink_id) else {
-            return false;
-        };
-        let Some(cursor) = delivery.cursor.as_mut() else {
-            return false;
-        };
-        if cursor.snapshot_id != snapshot_id {
-            return false;
-        }
-        cursor.next_part += 1;
-        if cursor.next_part < cursor.parts.len() {
-            return true;
-        }
-        delivery.cursor = None;
-        delivery.baseline_ready = true;
-        true
-    }
-
-    fn complete_stream_baseline(&mut self, channel_id: ChannelId) -> SnapshotDrain {
-        let aggregate = self.delivery_aggregate(channel_id);
-        if aggregate.snapshot_pending || !aggregate.baseline_ready {
-            return SnapshotDrain::Blocked;
-        }
-        let work_owed = aggregate.baseline_dirty || self.is_dirty(channel_id);
-        if let Some(stream) = self.streams.get_mut(&channel_id) {
-            stream.pending_repair = false;
-            stream.pending_sync_snapshot = false;
-            for delivery in stream.deliveries.values_mut() {
-                delivery.baseline_dirty = false;
-            }
-        }
-        SnapshotDrain::BaselineComplete { work_owed }
-    }
-
     fn force_baseline_for_sink(&mut self, sink_id: &str) {
         let watching: Vec<ChannelId> = self
             .streams
@@ -363,7 +256,7 @@ impl CellEmitter {
         }
     }
 
-    fn forget_sink_records(&mut self, sink_id: &str) {
+    pub(crate) fn forget_sink_records(&mut self, sink_id: &str) {
         for stream in self.streams.values_mut() {
             stream.deliveries.remove(sink_id);
         }

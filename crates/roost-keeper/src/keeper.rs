@@ -171,10 +171,20 @@ impl Keeper {
                     input_seq: 0,
                     reason: PtyInRejectReason::NoSuchChannel,
                 };
-                vec![
-                    MuxFrame::new(MuxFrameType::PtyInReject, frame.channel_id, result.encode())
-                        .expect("a 13-byte payload is within every frame bound"),
-                ]
+                match result_frame(MuxFrameType::PtyInReject, frame.channel_id, result) {
+                    Ok(rejection) => vec![rejection],
+                    // A thirteen-byte payload is nowhere near the frame bound,
+                    // so this arm does not fire. It is answered rather than
+                    // unwrapped because the alternative is a crash on the one
+                    // path a client is waiting on for a refusal.
+                    Err(frame_err) => {
+                        tracing::error!(
+                            "keeper: could not frame a PtyInReject channel={} error={frame_err}",
+                            frame.channel_id
+                        );
+                        Vec::new()
+                    }
+                }
             }
             _ => {
                 // A frame the keeper cannot parse has no sequence to answer
@@ -198,21 +208,15 @@ impl Keeper {
         let per_channel = |frame: &MuxFrame| frame.channel_id != 0;
 
         Ok(match frame.frame_type {
-            MuxFrameType::Ping => vec![
-                MuxFrame::new(MuxFrameType::Pong, 0, Vec::new())
-                    .expect("an empty payload is within every frame bound"),
-            ],
+            MuxFrameType::Ping => vec![MuxFrame::new(MuxFrameType::Pong, 0, Vec::new())?],
             MuxFrameType::Pong => Vec::new(),
 
             MuxFrameType::Hello if control_only(frame) => self.hello(frame)?,
-            MuxFrameType::ListChannels if control_only(frame) => self.list_channels(),
+            MuxFrameType::ListChannels if control_only(frame) => self.list_channels()?,
             MuxFrameType::Shutdown if control_only(frame) => {
-                vec![
-                    MuxFrame::new(MuxFrameType::ShutdownAck, 0, Vec::new())
-                        .expect("an empty payload is within every frame bound"),
-                ]
+                vec![MuxFrame::new(MuxFrameType::ShutdownAck, 0, Vec::new())?]
             }
-            MuxFrameType::ShutdownIfEmpty if control_only(frame) => self.shutdown_if_empty(),
+            MuxFrameType::ShutdownIfEmpty if control_only(frame) => self.shutdown_if_empty()?,
 
             MuxFrameType::Spawn if per_channel(frame) => self.spawn(frame)?,
             MuxFrameType::PtyIn if per_channel(frame) => self.legacy_input(frame),
@@ -250,7 +254,11 @@ impl Keeper {
     /// Called by the socket loop on a tick. Returns nothing for a channel with
     /// nothing to say, which is the common case and must stay cheap: a keeper
     /// that allocates per idle channel is a keeper that burns a core.
-    pub fn drain_output(&mut self, limit: usize) -> Vec<MuxFrame> {
+    ///
+    /// Fallsible because a `PtyOut` payload is the one frame this keeper does
+    /// not size itself: it is whatever the PTY had ready, so the frame bound is
+    /// checked rather than assumed.
+    pub fn drain_output(&mut self, limit: usize) -> Result<Vec<MuxFrame>, CodecError> {
         let mut frames = Vec::new();
         for (channel_id, channel) in self.channels.iter_mut() {
             let Some(bytes) = channel.pty.read_output(limit) else {
@@ -259,12 +267,9 @@ impl Keeper {
             channel.next_output_seq += 1;
             let seq = channel.next_output_seq;
             channel.history.record_output(seq, &bytes);
-            frames.push(
-                MuxFrame::new(MuxFrameType::PtyOut, *channel_id, bytes)
-                    .expect("a drained chunk is within the read limit"),
-            );
+            frames.push(MuxFrame::new(MuxFrameType::PtyOut, *channel_id, bytes)?);
         }
-        frames
+        Ok(frames)
     }
 
     /// Channels whose child has exited and whose output is fully drained.
@@ -272,7 +277,7 @@ impl Keeper {
     /// Reported once each, then the channel is dropped: a channel left behind
     /// would pin its history and answer `ListChannels` with a process that is
     /// gone, which is exactly the lie that makes cross-process resume unsafe.
-    pub fn reap_exited(&mut self) -> Vec<MuxFrame> {
+    pub fn reap_exited(&mut self) -> Result<Vec<MuxFrame>, CodecError> {
         let mut exits = Vec::new();
         let finished: Vec<(u16, Option<i32>)> = self
             .channels
@@ -292,28 +297,27 @@ impl Keeper {
             .collect();
         for (channel_id, exit_code) in finished {
             self.channels.remove(&channel_id);
-            exits.push(
-                MuxFrame::json(MuxFrameType::Exit, channel_id, &ExitFrame { exit_code })
-                    .expect("an exit frame is small JSON"),
-            );
+            exits.push(MuxFrame::json(MuxFrameType::Exit, channel_id, &ExitFrame { exit_code })?);
         }
-        exits
+        Ok(exits)
     }
 }
 
 /// A resize refusal, carrying the sequence it refuses so the client can match
 /// it to the request that provoked it.
-pub(crate) fn resize_reject(channel_id: u16, seq: u64, reason: u8) -> MuxFrame {
+pub(crate) fn resize_reject(channel_id: u16, seq: u64, reason: u8) -> Result<MuxFrame, CodecError> {
     let mut payload = Vec::with_capacity(9);
     write_sequence(&mut payload, seq);
     payload.push(reason);
     MuxFrame::new(MuxFrameType::ResizeReject, channel_id, payload)
-        .expect("a 9-byte payload is within every frame bound")
 }
 
-pub(crate) fn result_frame(tag: MuxFrameType, channel_id: u16, result: PtyInResult) -> MuxFrame {
+pub(crate) fn result_frame(
+    tag: MuxFrameType,
+    channel_id: u16,
+    result: PtyInResult,
+) -> Result<MuxFrame, CodecError> {
     MuxFrame::new(tag, channel_id, result.encode())
-        .expect("a 13-byte payload is within every frame bound")
 }
 
 /// Whether this keeper would accept a shutdown right now. Exposed so the

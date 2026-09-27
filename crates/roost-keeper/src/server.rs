@@ -12,7 +12,7 @@ use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 
-use crate::codec::{FrameDecoder, MuxFrame, StreamEvent};
+use crate::codec::{CodecError, FrameDecoder, MuxFrame, StreamEvent};
 use crate::keeper::Keeper;
 
 /// The longest a single read waits before the loop re-checks its stop flag.
@@ -172,6 +172,11 @@ pub enum ConnectionEnd {
     /// The stream violated the protocol. There is no resynchronisation point,
     /// so the connection ends and the keeper stays up.
     ProtocolViolation,
+    /// The keeper read something it cannot put in a frame, so this connection
+    /// stops being served and the keeper stays up. The drain limit is the
+    /// keeper's own constant, three orders of magnitude under the frame bound,
+    /// so this is a keeper fault rather than anything the worker did.
+    UnframeablePayload,
     /// A write to the worker failed, which is the same thing from here.
     WorkerUnreachable,
 }
@@ -246,6 +251,13 @@ impl Server {
         self.listener.accept().ok().map(|(stream, _)| stream)
     }
 
+    /// A payload the keeper cannot frame: logged with its cause, and reported
+    /// as the end of a connection that can no longer carry correct output.
+    fn unframeable(err: CodecError) -> ConnectionEnd {
+        tracing::error!("keeper: a payload could not be framed: {err}");
+        ConnectionEnd::UnframeablePayload
+    }
+
     /// Serve a single connection to completion, reporting why it ended.
     pub fn serve_one(&mut self, mut stream: UnixStream) -> ConnectionEnd {
         let _ = stream.set_read_timeout(Some(READ_POLL));
@@ -257,11 +269,17 @@ impl Server {
         loop {
             // The tick first, so output flows even while nothing is arriving.
             // A request-driven loop would show nothing until the user typed.
-            let output = self.keeper.drain_output(DRAIN_LIMIT_BYTES);
+            let output = match self.keeper.drain_output(DRAIN_LIMIT_BYTES) {
+                Ok(output) => output,
+                Err(err) => return Self::unframeable(err),
+            };
             if write_frames(&mut stream, &output).is_err() {
                 return ConnectionEnd::WorkerUnreachable;
             }
-            for exit in self.keeper.reap_exited() {
+            for exit in match self.keeper.reap_exited() {
+                Ok(exits) => exits,
+                Err(err) => return Self::unframeable(err),
+            } {
                 if write_frames(&mut stream, &[exit]).is_err() {
                     return ConnectionEnd::WorkerUnreachable;
                 }

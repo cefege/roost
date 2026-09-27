@@ -106,15 +106,26 @@ impl HostWatchers {
         }
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = Arc::clone(&stop);
-        let live = Arc::clone(&self.live);
-        let session = session_id.to_string();
-        let folder = folder.to_string();
-        live.fetch_add(1, Ordering::SeqCst);
+        // Each holder takes its own clone: a handle moved into the closure is
+        // gone for the spawn-failure path below, whether or not the closure
+        // ever runs.
+        let thread_live = Arc::clone(&self.live);
+        let unwatched_live = Arc::clone(&self.live);
+        let watched_session = session_id.to_string();
+        let watched_folder = folder.to_string();
+        thread_live.fetch_add(1, Ordering::SeqCst);
         let thread = std::thread::Builder::new()
             .name(format!("roost-folder-{session_id}"))
             .spawn(move || {
-                watch_folder(session, folder, root_pid, platform, sink, thread_stop);
-                live.fetch_sub(1, Ordering::SeqCst);
+                watch_folder(
+                    watched_session,
+                    watched_folder,
+                    root_pid,
+                    platform,
+                    sink,
+                    thread_stop,
+                );
+                thread_live.fetch_sub(1, Ordering::SeqCst);
             });
         match thread {
             Ok(thread) => {
@@ -129,7 +140,7 @@ impl HostWatchers {
                 true
             }
             Err(error) => {
-                live.fetch_sub(1, Ordering::SeqCst);
+                unwatched_live.fetch_sub(1, Ordering::SeqCst);
                 tracing::error!(%session_id, %error, "a session folder could not be watched");
                 false
             }

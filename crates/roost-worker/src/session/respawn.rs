@@ -4,16 +4,17 @@ use std::sync::{Arc, Mutex};
 use roost_protocol::wire::brand::{ChannelId, SessionId, TraceId};
 use roost_protocol::wire::event::SessionEvent;
 
-use super::binding::{CellDelivery, RecordBinding};
+use super::binding::RecordBinding;
+use super::ids::mint_trace_id;
 use super::lifecycle::SessionManager;
 use super::resume::KeeperFault;
 use super::sinks::ChannelBinding;
-use super::spawn::{self, ShellSpawner, ShellSpecResolver, SpawnContext, SpawnRequest};
+use super::spawn::{self, SpawnContext, SpawnRequest};
 use super::types::SessionRecord;
-use crate::browser_commands::Refusal;
 use crate::browser_commands::session_lifecycle::{
-    Boxed, DEFAULT_COLS, DEFAULT_ROWS, SessionLifecycle, SessionOutcome,
+    DEFAULT_COLS, DEFAULT_ROWS, SessionLifecycle, SessionOutcome,
 };
+use crate::browser_commands::{Boxed, Refusal};
 use crate::channel_fsm::ChannelEvent;
 use crate::event_store::DurableEventKind;
 use crate::strays::{DEAD_BIRTH_LIFETIME, DEAD_BIRTH_THRESHOLD, DEGRADED_WINDOW, Stillborn};
@@ -64,11 +65,7 @@ impl SessionManager {
     /// `None` only when the kernel CSPRNG cannot be read, which is the
     /// condition the worker's signing key refuses on too.
     pub fn trace_id(&self) -> Option<TraceId> {
-        use std::io::Read;
-        let mut source = std::fs::File::open("/dev/urandom").ok()?;
-        let mut bytes = [0_u8; roost_observability::trace::TRACE_ID_BYTES];
-        source.read_exact(&mut bytes).ok()?;
-        TraceId::try_from(roost_observability::trace::trace_id_from_bytes(bytes)).ok()
+        TraceId::try_from(mint_trace_id().ok()?).ok()
     }
 }
 
@@ -157,7 +154,7 @@ impl SessionManager {
         cols: u16,
         rows: u16,
     ) -> Result<SessionOutcome, Refusal> {
-        self.open_under(session_id, folder, true, cols, rows)
+        self.open_under(Some(session_id), folder, true, cols, rows)
     }
 
     /// Spawn a brand new shell, under a caller-minted id when one was named.

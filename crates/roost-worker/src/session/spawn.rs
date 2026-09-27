@@ -16,7 +16,7 @@
 use std::sync::Arc;
 
 use roost_protocol::viewport::{TerminalGeometry, is_terminal_geometry};
-use roost_protocol::wire::brand::{ChannelId, SessionId, WorkerFp};
+use roost_protocol::wire::brand::{ChannelId, SessionId, TraceId, WorkerFp};
 use roost_protocol::wire::event::SessionEvent;
 use roost_protocol::wire::session::SessionKind;
 use roost_term::{AlacrittyCore, CellEmitState, TerminalCore};
@@ -117,6 +117,8 @@ pub enum SpawnRefusal {
     Unresolvable { cwd: String, reason: String },
     #[error("a minted session identity is not a uuid: {0}")]
     MintedId(String),
+    #[error("a minted trace id is not the shape trace ids validate: {0}")]
+    MintedTraceId(String),
     #[error("the keeper refused to open channel {channel_id}: {reason}")]
     KeeperRefused {
         channel_id: ChannelId,
@@ -190,7 +192,8 @@ pub fn spawn_shell(
             socket_path: format!("mux:{channel_id}"),
             cwd,
             shell_spec: spec.clone(),
-            session_trace_id: mint_trace_id()?,
+            session_trace_id: TraceId::try_from(mint_trace_id()?)
+                .map_err(|error| SpawnRefusal::MintedTraceId(error.to_string()))?,
             spawned_at_ms: now_ms,
         },
         close_reservation,

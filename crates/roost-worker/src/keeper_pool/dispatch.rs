@@ -21,8 +21,14 @@ use std::time::Duration;
 use roost_keeper::codec::{MuxFrame, MuxFrameType};
 use roost_keeper::frames::ExitFrame;
 
-use super::DISPATCH_IDLE;
 use super::pool::KeeperPool;
+
+/// How long the dispatch loop sleeps when the keeper said nothing.
+///
+/// The keeper's own output tick is 16ms, so this is the shortest sleep that
+/// cannot outrun the producer. A tighter loop would burn a core per worker
+/// doing nothing, which is what this number is for.
+pub const DISPATCH_IDLE: Duration = Duration::from_millis(16);
 
 /// Deliver until the pool is gone.
 pub(super) fn dispatch_loop(pool: &Weak<KeeperPool>) {
@@ -47,13 +53,7 @@ impl KeeperPool {
     /// that held the handle across a wait would put every keystroke behind the
     /// keeper's silence.
     pub(crate) fn dispatch_ready(&self) -> usize {
-        let frames = self.keeper.with(|client| {
-            let mut arrived = Vec::new();
-            while let Some(frame) = client.next_event(Duration::ZERO) {
-                arrived.push(frame);
-            }
-            arrived
-        });
+        let frames = self.take_arrived_frames();
         let delivered = frames.len();
         for frame in frames {
             self.route(frame);
@@ -64,7 +64,7 @@ impl KeeperPool {
     /// Hand one frame to the session it belongs to.
     fn route(&self, frame: MuxFrame) {
         match frame.frame_type {
-            MuxFrameType::PtyOut => match self.channels.output_for(frame.channel_id) {
+            MuxFrameType::PtyOut => match self.output_binding_for(frame.channel_id) {
                 Some(output) => output.on_output(&frame.payload),
                 // Bytes for a channel this worker does not drive: an adopted
                 // keeper's channel before adoption, or the tail after an exit.
@@ -106,7 +106,7 @@ impl KeeperPool {
     /// for one channel, and the loser of that race is the one that finds the
     /// channel already gone.
     fn end_channel(&self, channel_id: u16, exit_code: Option<i32>) {
-        match self.channels.claim_exit(channel_id) {
+        match self.claim_channel_exit(channel_id) {
             Some(output) => {
                 output.on_exit(exit_code);
                 tracing::info!(channel_id, ?exit_code, "a keeper channel ended");
