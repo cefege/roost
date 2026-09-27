@@ -1928,13 +1928,14 @@ the first time it has been checked on a merged tree.
 Everything measured on 2026-09-27 while the tracks were running is in the
 sections above, and each says which tree it was measured on:
 
+- **EXPECTED RED** — the one deliberately red test, its commit, and its green condition.
 - **The gate ratchets** — on `v3` @ `ee72e0f1`: `AwaitingDomainPort` 27,
   `UnwiredInV2` 16, `UNFINISHED` 3 (all three `#[ignore]` attributes, in
   `push_sender_bounds.rs:175` and `sync_v2_send_queue.rs:215,257`), `todo!` 0.
   Worker `UNIMPLEMENTED`: **6 on `v3`**, **2 on `v3-worker` @ `57bd7f74`** — both
   measured, and the distance between them is the worker track landing. The
   detail, with the file and line of each marker on each tree, is in the worker's
-  own entry below.
+  own entry above.
 - **`xtask lint` on `v3`** — all ten violations enumerated, and what each track's merge clears.
 - **The unreached-module rule** — the guarded sweep, its canary, and the eight files it found on `v3-web`.
 - **The import check** — why it recomputes its counts and restates the fingerprint filter in its own SQL.
