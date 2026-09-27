@@ -144,6 +144,24 @@ dangerous version of that file exists on no branch in this family.
 `test result:` lines read `ok`, 0 failed anywhere, both times. The baseline on
 this branch was **17 failures across 11 binaries**.
 
+**The merge itself is verified, which is a separate claim from the suite.**
+`cargo check --workspace --all-targets` on `v3` @ `0ad703be`: **0 errors**,
+finished clean. That merge carried 24,231 insertions across 116 files including
+a 45-file rustfmt reformat, and a green suite on the branch says nothing about
+whether the merge broke a sibling crate. This is the check that says so, and it
+is cheap next to a full test build, so it is the one to reach for after any
+track merge rather than discovering the answer inside a gate.
+
+**Thirteen warnings came over with it, and they decide the clippy gate on their
+own** under `-D warnings`: unused `code` (`api/agent_prompt.rs:102`), `args`
+(`api/scrollback.rs:109`), `row` (`api/ui.rs:37`) and a missing `Debug` on
+`api/client.rs:42` and `quickstart/install.rs:55`; unused `with`; and unused
+imports or bindings in `deploy_release_path.rs`, `deploy_release_stage.rs`,
+`update_recovery.rs` and `update_self_replace.rs`. They are pre-existing on
+`v3-cli` and owed there, and the fix is to delete the dead binding rather than
+to allow the warning away — an allowed warning is a lint rule that has stopped
+existing.
+
 The 17 were **6 product defects and 11 wrong expectations**, and the split held
 under re-reading. It is worth recording WHY, because "17 red" reads as a broken
 port and it was not: the product defects were a payload preview that trimmed
