@@ -13,5 +13,8 @@
 
 pub mod announced_barrier;
 pub mod announced_types;
+pub mod conn_types;
+pub mod frame_queue;
+pub mod keepalive;
 pub mod rate_window;
 pub mod upgrade_admission;
