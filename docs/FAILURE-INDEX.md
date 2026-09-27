@@ -2577,35 +2577,3 @@ different fix pattern than the one the immediate code tempts you toward, the ent
 after the tempting fix already failed. Add a new entry only after a NEW root cause is confirmed AND a
 regression test (or a `scripts/lint-roost.ts` rule) exists for it; an entry without a guard is a promise
 the repo cannot keep.
-
-### A capability that is implemented, tested, and never called
-
-**Symptom** — `grep -rn '<TypeName>' crates/<crate>/src` returns only its own definition, its own `impl`,
-a comment, and nothing that constructs it; or `grep -rn '<field>' crates/` outside its own module returns
-only the producer clones and the tests. Six were found this way in one day: `adopt_survivor`,
-`WorkerCapabilities`, `cell_row_json`, the terminal-domain `LiveEffects` pair, `ClientSeqCursor`, and the
-coordinator's entire deferred-append path — its `defer_snapshot_reap` flag, its `snapshot_reap_ids` field,
-the store column, and the `ClaimOutcome::Claimed` hand-back, all present and all unreachable.
-
-**Wrong** — reading the green test as evidence the capability works. A reachable test proves the value is
-*right*; it says nothing about whether anything *asks* for it. And the test actively camouflages the gap,
-because it is reachable and so the suite looks covered — **which is strictly worse than no test**: a missing
-assertion reads as a gap, and a passing assertion on unreachable code reads as success. Every one of the six
-survived both a careful diff review and a full green suite. One `grep` found all six.
-
-The second error is looking for what is missing *inside* a capability rather than for who would *call* it.
-That is how a drain gets specified for a path whose only possible caller is unwritten — and a drain whose
-caller does not exist is an invisible stub wearing a signature, and it looks like a delivered line item.
-
-**Right** — when a capability looks inert, ask **who would call it** before asking what is missing inside it,
-and land that caller in the same commit as the thing it makes reachable. Where the caller genuinely belongs
-to a later slice, say so in the body and carry the bounded blast radius explicitly; a located blocker beats
-a green commit that changes nothing observable.
-
-**Guard** — assert reachability **in the test that already covers the capability**: that the produced value
-has a production reader. A test that proves a value is right is not the same claim as a test that proves
-something asks for it, and only the second catches this class. It belongs in the existing test rather than a
-new file, because that test is where the camouflage already is. Landing in
-`crates/roost-coord/tests/event_publication.rs`: the two tests that assert the deferred-append ids come back
-correctly also assert those ids have a production reader, so they fail the moment the capability goes inert.
-If that assertion is not there, this entry is describing a rule, not a guard.
