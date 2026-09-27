@@ -940,6 +940,43 @@ converts a defect into an apparent success.**
 
 **And the general question, which is the same one this file keeps asking in a different costume: what could this check have detected before you consumed what it returned?** A gate that cannot see the thing prints the same verdict as one that can. That is now five instances here — this one, the unregistered module, the unregistered `WorkerCapabilities`, the `flock` on a missing directory, and the compile quoted as a gate.
 
+### A count that cannot tell "added" from "moved" is not a count of additions
+
+**The sixth instrument of the night, and the only one that made a false ACCUSATION
+rather than a false pass.** A commit reported as *"33 insertions, 15 deletions,
+all whitespace and line-wrapping"* was checked with two instruments and declared
+to contain new test code:
+
+- `git diff | grep '^\+'` — **prints only added lines, so a reflowed assertion
+  looks like a new one.** Wrapping `assert_eq!(SocketClose::QueueOverflow.code(),
+  Some(CLOSE_QUEUE_OVERFLOW));` into four lines puts the name on a `+` line
+  although nothing was added.
+- `git show $c -- <file> | grep -c CLOSE_QUEUE_OVERFLOW` — **`git show` prints
+  `-` lines too, so a reflow counts exactly like an addition.** It returned 4.
+
+**The report was true. The commit was pure formatting, and the arithmetic agrees:
+three one-line `assert_eq!`s wrapped to four give +12/−3, one `assert!` gives
++4/−1, the `use` block expanding gives +3/−1, and the import line about +2/−0 —
+roughly +21/−5, which is the stat exactly.**
+
+**What settles it, and it costs one command:**
+
+```bash
+git diff -w --word-diff <a> <b> -- <file>   # empty or whitespace-only => a reflow
+git show <rev>:<file> | tr '\n' ' ' | tr -s ' ' | grep -o '<pattern>' | wc -l
+```
+
+The second counts ASSERTION STATEMENTS rather than lines mentioning one, so both
+commits answer 5 close-code and 3 keepalive — identical, and nothing was added.
+
+**The general rule, and it is the same as every other entry here: an instrument
+has to be able to fail before its number means anything.** `--stat` counts lines,
+`grep` counts mentions, and both read a moved line as a new one. **A measurement
+that cannot distinguish two cases cannot support a conclusion drawn across them**,
+and the tell is that two instruments agreed — which felt like confirmation and was
+in fact the same blindness twice, pointing the same way because they were the
+same kind of instrument.
+
 ### A green check on a file nothing includes is not a check
 
 A draft put a struct field inside an `impl` block. Rust reports that as an
