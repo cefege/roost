@@ -3055,6 +3055,51 @@ it":**
 A table of module names with a zero in a column is indistinguishable from a real
 audit table, which is why 88 phantom findings would have passed a glance.
 
+**The general answer, and it is not a discipline: you cannot grep a negative,
+but you can make it uncompilable.** The three rules above ask a person to
+remember to supply a reason a zero is real. There is a check that either passes
+or does not, and it costs one edit per module:
+
+> **Privatise the symbol. If the crate still builds, nothing outside the module
+> was using it — and that is a compiler fact, not a search result.**
+
+`AnnouncedBarrier`, `DurableEventWindow` and the `announced_types` surface are
+the test case. Drop each to `pub(crate)` or private, run
+`cargo check -p roost-coord`, and a clean check **proves** the 661 lines are
+unreachable, because any external use would now be a visibility error. If it
+does not compile, the search artefact is found in the same step.
+
+This is the only way to prove a negative of this shape to compiler grade, and it
+is worth doing to `worker_link` when C2 opens because it is cheap and it
+settles the question rather than arguing about it. **A handoff that says "I
+believed this was uncalled" should say instead "I made it private and it still
+built."**
+
+**What replaced a count, as the worked example.** The `feed/` claim was first
+"17 `pub` symbols with zero callers", corrected down from 19. Restating it as
+`file:line` produced a better claim underneath: **the engine that owns every
+adapter does not exist.** `feed/mod.rs:19-24` names `sync_ws::socket` and
+`sync_ws::driver`; `src/sync_ws/socket.rs` and `src/sync_ws/driver.rs` are
+**absent**, and `mod socket` / `mod driver` are declared nowhere in `src/` —
+`sync_ws/mod.rs:26-41` declares sixteen modules and neither is among them. No
+symbol names are involved, module declarations cannot be spelled relatively, and
+there is nothing to exclude, so it is immune to all three artefacts. And it
+**explains** the zeros rather than resting on them: the adapters are uncalled
+because the thing that would call them was never written.
+
+**And an asymmetry worth carrying.** `feed/` is a **documented** deferral — its
+own module header names the future owner. `worker_link`'s 661 lines have **no
+such structural explanation**: the consumer is simply absent, with no file naming
+a future owner. Same symptom, different defect, and the difference is whether
+anyone wrote down that they knew.
+
+**One honest boundary, from the agent that produced it:** the `worker_link`
+conclusion is **verified by a single independent check, not by the full method**
+— symbols enumerated, two collisions disambiguated by reading both definitions,
+then corroborated by one path-based import query. That is stronger than a count
+and weaker than a compiler fact, and it should be described that way rather than
+as settled.
+
 **And the mirror false positive, which is the same defect pointing the other
 way.** `grep -rn "Command::new" crates/ | grep -i tail`, run to prove nothing
 spawns `tailscale`, returned **1** -- `Command::new("tail")` in
