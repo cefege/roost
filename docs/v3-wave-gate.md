@@ -3370,6 +3370,59 @@ files and has never been through a compiler.
 the module**, not when the tests pass — a test run needs the lib, and the lib is
 what these three lines are in.
 
+## Two rules about WHERE a mutation goes, both from a row that would have measured nothing
+
+### A site whose value the test reads is not an independent lever
+
+Row W2's test, `crates/roost-term/tests/emitter_row_cap.rs`, **derives its own
+input from the constant it guards**:
+
+```rust
+let overflow = LIVE_DELTA_SCROLLBACK_ROWS_CAP as usize + 64;   // :60
+assert!(growth > LIVE_DELTA_SCROLLBACK_ROWS_CAP, ...);          // :68
+```
+
+So mutating the constant to `u64::MAX` moves the test's overflow, its scroll
+amount **and** its precondition together. `growth` still exceeds the cap, the
+precondition still holds, the escalation still fires, **and the test passes.**
+
+**That is not a weak test — it is a test that survives a legitimate cap retune**,
+which is why the author wrote it that way. It is also why the constant's
+*definition* is a decoy that reads as plausible, and only the comparison at
+`emitter.rs:127` disables the arm. Three spellings exist: the definition at
+`:29`, the arm at `:127`, and a **re-export** at `roost-term/src/lib.rs:54` that
+compiles identically and changes nothing.
+
+> **Before choosing a mutation site, ask what the test READS.** A site whose
+> value the test consumes is not a lever, and its silence is not a finding.
+
+### A correct decoy in the same file defeats a pattern-matched mutation
+
+`crates/roost-cli/src/push/admission.rs` has **two** places that compare a
+keeper against a contract. `:76` is the one under test. `:127-128`,
+`rollback_keeper_update`, **legitimately** compares the keeper against *itself*,
+and its own doc says why: a rollback ships no new keeper and restores the one
+the machine had.
+
+> **A mutation aimed "at keeper-compared-against-itself" by pattern hits the
+> correct instance and leaves the one under test untouched** — and then reports
+> that the row does not bite, which is a confident and completely wrong finding.
+
+So: **point a mutation at a `file:line`, never at a pattern.** The wrong-file
+failure and this one are the same defect in different clothes — a mutation that
+lands somewhere other than the property under test and reports its silence as
+coverage. The difference is that here the decoy is *correct code*, so the
+mutation produces no error at all rather than an obvious one.
+
+### And the row's own attribution can be wrong while its text is right
+
+`L2-3` named `classify_fleet_keeper_updates`; that function's first parameter is
+`targets: &[FleetRolloutTarget]`, and the comparison is one level down at
+`push/admission.rs:76`. **The recorded mutation text was exactly right and only
+the function it was attributed to was wrong** — which is invisible until
+someone reads the signature, and is why a row names the line rather than the
+enclosing symbol.
+
 ## Coordinator track — tasks (S2)
 
 | # | Edit | Test that must fail |
