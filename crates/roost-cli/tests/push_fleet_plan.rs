@@ -14,9 +14,7 @@ mod push_fixture;
 
 use std::collections::BTreeSet;
 
-use push_fixture::{
-    contract, digest, journaled_update, observation, participant, worker, with,
-};
+use push_fixture::{contract, digest, journaled_update, observation, participant, with, worker};
 
 use roost_cli::deploy::codes;
 use roost_cli::push::plan::{
@@ -73,7 +71,11 @@ fn a_fingerprint_that_two_rows_claim_is_refused_before_a_single_target_is_chosen
     );
 
     let problems = fleet_worker_identity_problems(&roster);
-    assert_eq!(problems.len(), 1, "exactly one identity defect: {problems:?}");
+    assert_eq!(
+        problems.len(),
+        1,
+        "exactly one identity defect: {problems:?}"
+    );
     assert!(
         problems[0].contains(&claimed) && problems[0].contains("duplicate"),
         "the operator must be shown which identity is claimed twice: {}",
@@ -91,7 +93,9 @@ fn a_registry_fingerprint_that_is_not_a_full_identity_refuses_the_whole_push() {
     let problems = fleet_worker_identity_problems(&[short, shouted]);
     assert_eq!(problems.len(), 2, "both malformed rows: {problems:?}");
     assert!(
-        problems.iter().any(|line| line.contains("invalid worker fingerprint")),
+        problems
+            .iter()
+            .any(|line| line.contains("invalid worker fingerprint")),
         "a fingerprint that is not 64 lowercase hex is not an identity: {problems:?}"
     );
 }
@@ -103,6 +107,12 @@ fn an_address_ssh_could_be_handed_is_refused_instead_of_quoted_and_hoped_for() {
         "studio host",
         "studio/../etc",
         "-oProxyCommand=id",
+        // A `user@host` form is ssh's own syntax, and it is also an argv a
+        // deploy has no reason to synthesize: the ssh config on the deploying
+        // box already names the user, so a value carrying one is either a
+        // registry row that has been tampered with or a field that was never
+        // this one. Neither may reach an ssh argv.
+        "deploy@studio-1.local:2222",
         "",
         "  ",
     ] {
@@ -117,9 +127,9 @@ fn an_address_ssh_could_be_handed_is_refused_instead_of_quoted_and_hoped_for() {
         "a well-formed FQDN with a trailing root dot is addressable"
     );
     assert_eq!(
-        safe_ssh_target("deploy@studio-1.local:2222").as_deref(),
-        Some("deploy@studio-1.local:2222"),
-        "a user, a dash and a port are all ssh's own syntax"
+        safe_ssh_target("studio-1.local:2222").as_deref(),
+        Some("studio-1.local:2222"),
+        "a dash and a port are ssh's own syntax and are addressable"
     );
 }
 
@@ -158,12 +168,25 @@ fn a_machine_that_cannot_be_converged_now_is_deferred_and_not_counted_as_a_parti
     let third = "3333333333333333333333333333333333333333";
     let roster = vec![
         worker("studio", "studio.example.test", Some(PRIOR), 0),
-        with(worker("loft", "loft.example.test", Some(PRIOR), 0), Some(PRIOR), true),
-        with(worker("shed", "shed.example.test", Some(PRIOR), 0), Some(third), false),
+        with(
+            worker("loft", "loft.example.test", Some(PRIOR), 0),
+            Some(PRIOR),
+            true,
+        ),
+        with(
+            worker("shed", "shed.example.test", Some(PRIOR), 0),
+            Some(third),
+            false,
+        ),
     ];
 
+    // Reachability is upstream of staleness and is decided here, by the
+    // caller: `loft` is dialled and answering, and is deferred because its
+    // commit is old, while `shed` was never dialled at all. Keeping `loft` out
+    // of the reachable set would make both deferrals read "not reachable" and
+    // the report would name neither cause.
     let partition =
-        partition_fleet_for_rollout(&candidates, &roster, &routable(&["studio"]), PRIOR);
+        partition_fleet_for_rollout(&candidates, &roster, &routable(&["studio", "loft"]), PRIOR);
 
     assert_eq!(
         partition.participants.len(),
@@ -190,7 +213,10 @@ fn a_machine_that_cannot_be_converged_now_is_deferred_and_not_counted_as_a_parti
 
     let lines = deferred_fleet_report_lines(&partition.deferred);
     let report = lines.join("\n");
-    assert!(report.contains("2 machines deferred — update pending:"), "{report}");
+    assert!(
+        report.contains("2 machines deferred — update pending:"),
+        "{report}"
+    );
     assert!(report.contains("loft: stale"), "{report}");
     assert!(report.contains("roost deploy <host>"), "{report}");
 }
@@ -269,7 +295,12 @@ fn a_deferred_machine_reporting_either_end_of_the_rollout_is_not_a_finding() {
         false,
     );
     let never_reported = with(worker("attic", "attic.example.test", None, 0), None, false);
-    let roster = vec![on_prior, deferred_on_prior, deferred_on_target, never_reported];
+    let roster = vec![
+        on_prior,
+        deferred_on_prior,
+        deferred_on_target,
+        never_reported,
+    ];
 
     let problems = convergence::fleet_convergence_problems(
         &roster,

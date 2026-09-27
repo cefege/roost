@@ -99,8 +99,7 @@ pub async fn cancel(
 /// A row's payload with its runs of whitespace collapsed, so a task carrying a
 /// pretty-printed document still occupies one line.
 fn preview(payload: &str) -> String {
-    let collapsed: Vec<&str> = payload.split_whitespace().collect();
-    let joined = collapsed.join(" ");
+    let joined = collapse_runs(payload);
     if joined.chars().count() <= PAYLOAD_PREVIEW_BYTES {
         return joined;
     }
@@ -111,6 +110,32 @@ fn preview(payload: &str) -> String {
     format!("{head}…")
 }
 
+/// A row's payload with every run of whitespace collapsed to one space.
+///
+/// Not the same as splitting on whitespace and joining: that trims the ends,
+/// and a payload whose pretty-printing starts on the next line would lose the
+/// space the document had. v2 replaced each run in place, and the column it
+/// produced is the one a reader compares against a stored payload.
+fn collapse_runs(payload: &str) -> String {
+    let mut collapsed = String::with_capacity(payload.len());
+    let mut pending_space = false;
+    for character in payload.chars() {
+        if character.is_whitespace() {
+            pending_space = true;
+            continue;
+        }
+        if pending_space {
+            collapsed.push(' ');
+            pending_space = false;
+        }
+        collapsed.push(character);
+    }
+    if pending_space {
+        collapsed.push(' ');
+    }
+    collapsed
+}
+
 #[cfg(test)]
 mod tests {
     use super::preview;
@@ -118,7 +143,7 @@ mod tests {
     #[test]
     fn a_pretty_printed_payload_still_occupies_one_row() {
         let row = preview("{\n  \"a\": 1,\n  \"b\": 2\n}");
-        assert_eq!(row, "{\"a\": 1, \"b\": 2}");
+        assert_eq!(row, "{ \"a\": 1, \"b\": 2 }");
     }
 
     #[test]

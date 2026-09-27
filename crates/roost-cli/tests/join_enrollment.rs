@@ -36,7 +36,14 @@ impl TempCheckout {
         tree.git(&["init", "--quiet", "--initial-branch=main", "."]);
         tree.git(&["config", "user.email", "join-test@roost.invalid"]);
         tree.git(&["config", "user.name", "join test"]);
-        tree.git(&["add", "."]);
+        // A commit of an empty tree is refused, and a repository that has no
+        // commit has no identity to prove — so the checkout needs one file
+        // staged before the first commit, and a signing key the machine running
+        // this test may not have.
+        tree.git(&["config", "commit.gpgsign", "false"]);
+        std::fs::write(tree.root.join("joined.rs"), b"fn main() {}\n")
+            .expect("the first committed file is written");
+        tree.git(&["add", "joined.rs"]);
         tree.git(&["commit", "--quiet", "-m", "a clean snapshot"]);
         tree
     }
@@ -87,8 +94,11 @@ fn a_join_with_neither_variable_names_the_coordinator_url_first() {
 
 #[test]
 fn a_join_with_a_url_but_no_grant_names_the_grant() {
-    let failure = read_credentials(&environment(&[("ROOST_COORDINATOR_URL", "https://a.example")]))
-        .expect_err("the grant is missing");
+    let failure = read_credentials(&environment(&[(
+        "ROOST_COORDINATOR_URL",
+        "https://a.example",
+    )]))
+    .expect_err("the grant is missing");
     assert_eq!(failure.code, 1);
     assert!(
         failure.message.contains("ROOST_BOOTSTRAP_TOKEN is not set"),
@@ -176,8 +186,14 @@ fn a_dry_run_renders_a_worker_definition_with_a_named_placeholder_and_no_real_gr
     let text = |relative: &str| root.join(relative).display().to_string();
     let env = environment(&[
         ("HOME", &text("home")),
-        (roost_host::COORD_UNIT_ENV, &text("unit/roost3-coord.service")),
-        (roost_host::WORKER_UNIT_ENV, &text("unit/roost3-worker.service")),
+        (
+            roost_host::COORD_UNIT_ENV,
+            &text("unit/roost3-coord.service"),
+        ),
+        (
+            roost_host::WORKER_UNIT_ENV,
+            &text("unit/roost3-worker.service"),
+        ),
         (roost_host::WORKER_DATA_DIR_ENV, &text("data/worker")),
     ]);
     let endpoint = roost_cli::quickstart::endpoint::fresh_endpoint(None).expect("a fresh endpoint");

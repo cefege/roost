@@ -33,7 +33,9 @@ use roost_worker::runtime::boot::ENV_COORDINATOR_URL;
 
 use crate::command_error::CommandFailure;
 use crate::quickstart::grant::{GrantKind, OneShotGrant, mint_host_grant};
-use crate::status::service_definition::{InstalledEnvironment, declared_value, parse_installed_environment};
+use crate::status::service_definition::{
+    InstalledEnvironment, declared_value, parse_installed_environment,
+};
 use crate::wall_clock;
 
 /// The script a new machine runs, in the order its own usage text shows it. The
@@ -63,8 +65,7 @@ pub enum EnrollmentPlatform {
 impl EnrollmentPlatform {
     /// The names `--platform` accepts, and what each is called in the printed
     /// line.
-    pub const NAMES: [(&'static str, Self); 2] =
-        [("macos", Self::Macos), ("linux", Self::Linux)];
+    pub const NAMES: [(&'static str, Self); 2] = [("macos", Self::Macos), ("linux", Self::Linux)];
 
     /// Parse a `--platform` value, refusing anything else by name.
     ///
@@ -153,11 +154,7 @@ pub async fn run(args: &AddMachineArgs) -> Result<ExitCode, CommandFailure> {
 ///
 /// The only caller of the bearer in the whole crate. Everything else in this
 /// module handles a grant as an opaque value.
-pub fn enrollment_command(
-    coordinator_url: &str,
-    grant: &OneShotGrant,
-    label: &str,
-) -> String {
+pub fn enrollment_command(coordinator_url: &str, grant: &OneShotGrant, label: &str) -> String {
     shell_enrollment_command(coordinator_url, grant.expose(), label)
 }
 
@@ -168,18 +165,17 @@ pub fn enrollment_command(
 /// grant is a credential being pasted into a shell, and a URL or a machine name
 /// carrying a quote or a `;` must not be able to turn an enrollment command
 /// into something else.
-pub fn shell_enrollment_command(
-    coordinator_url: &str,
-    bearer: &str,
-    label: &str,
-) -> String {
+pub fn shell_enrollment_command(coordinator_url: &str, bearer: &str, label: &str) -> String {
     let label_setting = if label.is_empty() {
         String::new()
     } else {
         format!(" ROOST_WORKER_LABEL={}", shell_single_quote(label))
     };
     let grant_setting = format!("ROOST_BOOTSTRAP_TOKEN={}", shell_single_quote(bearer));
-    let url_setting = format!("{ENV_COORDINATOR_URL}={}", shell_single_quote(coordinator_url));
+    let url_setting = format!(
+        "{ENV_COORDINATOR_URL}={}",
+        shell_single_quote(coordinator_url)
+    );
     format!("curl -fsSL {JOIN_SCRIPT_URL} | {url_setting} {grant_setting}{label_setting} bash")
 }
 
@@ -205,10 +201,7 @@ fn grant_label(label: &str) -> &str {
 /// install. A damaged definition is not an error here: `add-machine` is run by
 /// hand on a machine that may have no coordinator at all, and the refusal below
 /// is a better answer than a parse failure.
-pub fn installed_coordinator(
-    env: &dyn EnvSource,
-    platform: HostPlatform,
-) -> InstalledEnvironment {
+pub fn installed_coordinator(env: &dyn EnvSource, platform: HostPlatform) -> InstalledEnvironment {
     let Ok(definition_path) = roost_host::coord_service_path(env, platform) else {
         return InstalledEnvironment::new();
     };
@@ -225,14 +218,18 @@ pub fn installed_coordinator(
 /// and a shell that happens to export a different one must not silently enroll
 /// the next machine somewhere else.
 pub fn dial_url(installed: &InstalledEnvironment, ambient: &dyn EnvSource) -> Option<String> {
-    DIAL_URL_NAMES
+    // Two whole passes, not one pass per name. A per-name pass answers "is
+    // ENV_COORDINATOR_URL in the installed definition, and if not in the
+    // shell?" — so a shell that exports the most specific name outranks an
+    // installed definition that declares a different one, which is the exact
+    // silent mis-enrollment this refuses. The installed definition is
+    // therefore searched whole, in its own order, before the shell is read at
+    // all.
+    let declared = DIAL_URL_NAMES
         .iter()
-        .find_map(|name| {
-            declared_value(installed, name)
-                .map(str::to_string)
-                .or_else(|| ambient.get(name))
-        })
-        .and_then(|declared| worker_dialable_origin(&declared).ok().flatten())
+        .find_map(|name| declared_value(installed, name).map(str::to_string))
+        .or_else(|| DIAL_URL_NAMES.iter().find_map(|name| ambient.get(name)));
+    declared.and_then(|declared| worker_dialable_origin(&declared).ok().flatten())
 }
 
 /// Normalize a declared door to something a worker on ANOTHER machine can dial.
@@ -245,12 +242,13 @@ pub fn worker_dialable_origin(declared: &str) -> Result<Option<String>, CommandF
     if declared.trim().is_empty() {
         return Ok(None);
     }
-    let origin = normalize_https_origin(Some(declared.trim()), DIAL_URL_NAMES[0])?.ok_or_else(|| {
-        CommandFailure::generic(format!(
-            "{} is declared but is not a usable HTTPS origin",
-            DIAL_URL_NAMES[0]
-        ))
-    })?;
+    let origin =
+        normalize_https_origin(Some(declared.trim()), DIAL_URL_NAMES[0])?.ok_or_else(|| {
+            CommandFailure::generic(format!(
+                "{} is declared but is not a usable HTTPS origin",
+                DIAL_URL_NAMES[0]
+            ))
+        })?;
     if is_loopback_host(&origin) {
         return Ok(None);
     }

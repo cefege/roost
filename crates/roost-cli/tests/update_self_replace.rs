@@ -23,7 +23,8 @@ use roost_cli::services::deploy_journal::sha256_hex;
 use roost_cli::update::candidate::VerifiedCandidate;
 use roost_cli::update::journal::{KeeperRecord, PREVIOUS_EXECUTABLE_SUFFIX, SelfUpdateJournal};
 use roost_cli::update::rollout::{
-    EXECUTABLE_MODE, InstalledBinary, ReplaceError, read_installed, replace_executable, restore_previous,
+    EXECUTABLE_MODE, InstalledBinary, ReplaceError, read_installed, replace_executable,
+    restore_previous,
 };
 
 /// A throwaway install directory, removed when the test ends.
@@ -107,7 +108,9 @@ fn mode_of(path: &Path) -> u32 {
 }
 
 fn inode_of(path: &Path) -> u64 {
-    std::fs::metadata(path).expect("the file has metadata").ino()
+    std::fs::metadata(path)
+        .expect("the file has metadata")
+        .ino()
 }
 
 fn no_keeper() -> Option<KeeperRecord> {
@@ -283,10 +286,22 @@ fn a_successful_replace_leaves_no_temporary_file_beside_the_target() {
     )
     .expect("the replace settles");
 
+    let entries = install.entries();
     assert_eq!(
-        install.entries(),
-        vec!["roost".to_string()],
-        "the install directory holds the binary and nothing else"
+        entries,
+        vec!["roost".to_string(), "service".to_string()],
+        "the install directory holds the binary and the service directory the fixture made, \
+         and nothing else"
+    );
+    assert!(
+        entries.iter().all(|entry| !entry.contains("candidate")),
+        "the staged candidate is gone after the swap: {entries:?}"
+    );
+    assert!(
+        !entries
+            .iter()
+            .any(|entry| entry == &format!("roost.{PREVIOUS_EXECUTABLE_SUFFIX}")),
+        "the retained previous copy is renamed over, not left beside the target: {entries:?}"
     );
     assert!(
         !SelfUpdateJournal::path_in(&install.service_dir()).exists(),

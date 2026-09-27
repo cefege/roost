@@ -109,7 +109,10 @@ pub fn run() -> Result<std::process::ExitCode, CommandFailure> {
 /// versions directory did it by editing the unit, and the unit is the only
 /// place that survives. With nothing installed, this build's own default is the
 /// answer — which is the same path a first install will write.
-pub fn release_program(env: &dyn EnvSource, platform: HostPlatform) -> Result<PathBuf, CommandFailure> {
+pub fn release_program(
+    env: &dyn EnvSource,
+    platform: HostPlatform,
+) -> Result<PathBuf, CommandFailure> {
     for role in ServiceRole::ALL {
         let Ok(definition_path) = role.definition_path(env, platform) else {
             continue;
@@ -148,10 +151,16 @@ pub fn write_link(link: &Path, target: &Path) -> Result<LinkOutcome, CommandFail
         )));
     }
     let bin_dir = link.parent().ok_or_else(|| {
-        CommandFailure::generic(format!("{} names no directory to install into", link.display()))
+        CommandFailure::generic(format!(
+            "{} names no directory to install into",
+            link.display()
+        ))
     })?;
     std::fs::create_dir_all(bin_dir).map_err(|error| {
-        CommandFailure::generic(format!("{} could not be created: {error}", bin_dir.display()))
+        CommandFailure::generic(format!(
+            "{} could not be created: {error}",
+            bin_dir.display()
+        ))
     })?;
 
     match std::fs::symlink_metadata(link) {
@@ -177,7 +186,11 @@ pub fn write_link(link: &Path, target: &Path) -> Result<LinkOutcome, CommandFail
         Ok(_) => {}
     }
 
-    let previous = std::fs::read_link(link).ok();
+    // `read_link` answers a DANGLING target as readily as a live one, so the
+    // existence check is what makes a broken link report as `previous: None` —
+    // "replaced a broken link" rather than "was <path>", which would name a
+    // path the operator cannot look at.
+    let previous = std::fs::read_link(link).ok().filter(|path| path.exists());
     if previous.as_deref() == Some(target) && target.is_file() {
         return Ok(LinkOutcome::AlreadyCorrect);
     }

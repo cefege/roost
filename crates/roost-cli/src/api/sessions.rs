@@ -14,8 +14,8 @@ use std::io::Read;
 use std::process::ExitCode;
 
 use roost_proto::{
-    SessionsAssignWorkspaceRequest, SessionsInputRequest, SessionsKillRequest,
-    SessionsListRequest, SessionsRenameRequest, SessionsSpawnRequest,
+    SessionsAssignWorkspaceRequest, SessionsInputRequest, SessionsKillRequest, SessionsListRequest,
+    SessionsRenameRequest, SessionsSpawnRequest,
 };
 use serde::Serialize;
 
@@ -62,11 +62,7 @@ pub async fn list(
         let published = SessionProjection::from_proto(session);
         out.answer(&format!(
             "{}\t{}\t{}\t{}\t{}",
-            published.id,
-            published.worker_fp,
-            published.kind,
-            published.cwd,
-            published.title
+            published.id, published.worker_fp, published.kind, published.cwd, published.title
         ));
     }
     Ok(ExitCode::SUCCESS)
@@ -240,13 +236,14 @@ pub async fn assign(
     // field is optional, and an empty string would be a workspace named "".
     let workspace_id = (workspace != "--").then(|| workspace.to_string());
     let ok = api
-        .answer(api.stub().sessions_assign_workspace(
-            SessionsAssignWorkspaceRequest {
-                session_id: session.to_string(),
-                workspace_id,
-                ..Default::default()
-            },
-        ))
+        .answer(
+            api.stub()
+                .sessions_assign_workspace(SessionsAssignWorkspaceRequest {
+                    session_id: session.to_string(),
+                    workspace_id,
+                    ..Default::default()
+                }),
+        )
         .await?
         .ok;
     out.answer(&ok.to_string());
@@ -300,7 +297,7 @@ mod tests {
     fn an_escape_a_shell_would_have_eaten_reaches_the_terminal() {
         assert_eq!(expand_escapes("a\\nb"), "a\nb");
         assert_eq!(expand_escapes("a\\tb"), "a\tb");
-        assert_eq!(expand_escapes("a\\r"), "a\rb");
+        assert_eq!(expand_escapes("a\\rb"), "a\rb");
     }
 
     #[test]

@@ -159,10 +159,18 @@ pub async fn converge_atomic_fleet<R: FleetRuntime>(
     // Between the proof and the decision the fleet is converged but not
     // committed, so every failure here is still a rollback. `decision_pending`
     // says so: the decision has not been taken, and it may not be un-taken.
-    if let Err(forward) = runtime.begin_finalization().await {
-        // `FleetRuntime` reports a plain `String`; the dispatcher needs the
-        // code with it, and this arm is a rollback, not a settlement.
-        return recover_from(plan, runtime, CommandFailure::generic(forward), false, true).await;
+    if let Err(cause) = runtime.begin_finalization().await {
+        // The decision is the boundary, and failing to record it is a
+        // SETTLEMENT failure rather than a generic one: the fleet is
+        // converged on disk with no record of which commit that was, and a
+        // wrapper that reads exit 1 as "failed, try again" would retry a
+        // transaction the same way. Exit 8 is the code for a transaction that
+        // reached its irreversible point and could not be settled.
+        let undecided = codes::refuse(
+            codes::SETTLEMENT_FAILED,
+            format!("the durable commit decision could not be recorded: {cause}"),
+        );
+        return recover_from(plan, runtime, undecided, false, true).await;
     }
     match finish_atomic_fleet_finalization(plan, runtime).await {
         Ok(()) => Ok(()),
@@ -188,7 +196,9 @@ pub async fn rollback_atomic_fleet<R: FleetRuntime>(
             &[format!("the coordinator could not be restored: {cause}")],
         ));
     }
-    let restored = runtime.prove_fleet(&plan.prior_sha, RolloutAction::Rollback).await;
+    let restored = runtime
+        .prove_fleet(&plan.prior_sha, RolloutAction::Rollback)
+        .await;
     if restored.is_empty() {
         return Ok(());
     }

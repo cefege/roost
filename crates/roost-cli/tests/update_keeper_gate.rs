@@ -16,8 +16,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::path::{Path, PathBuf};
 use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 
 use roost_cli::update::journal::KeeperRecord;
 use roost_cli::update::keeper::{
@@ -25,8 +25,8 @@ use roost_cli::update::keeper::{
 };
 use roost_cli::update::local_keeper::LocalKeeper;
 use roost_protocol::keeper_update::{
-    KEEPER_EMPTY_BINDING_DIGEST, PRESERVE, WORKER_ONLY_SAFE, KeeperContractV1,
-    KeeperRuntimeObservationV1,
+    KEEPER_EMPTY_BINDING_DIGEST, KeeperContractV1, KeeperRuntimeObservationV1, PRESERVE,
+    WORKER_ONLY_SAFE,
 };
 use serde_json::json;
 
@@ -51,7 +51,8 @@ impl Release {
                 .unwrap_or(0)
         ));
         std::fs::create_dir_all(&root).expect("the throwaway release dir is created");
-        let bytes = std::fs::read(env!("CARGO_BIN_EXE_roost")).expect("this crate's binary is readable");
+        let bytes =
+            std::fs::read(env!("CARGO_BIN_EXE_roost")).expect("this crate's binary is readable");
         let candidate = root.join("roost");
         std::fs::write(&candidate, &bytes).expect("the candidate is written");
         std::fs::write(root.join("roost-keeper"), &bytes).expect("the keeper is written");
@@ -139,21 +140,26 @@ fn the_candidate_is_interrogated_by_running_it_not_ask_the_installed_one() {
 fn a_keeper_the_candidate_can_preserve_lets_the_swap_through() {
     let release = Release::new("preserve");
     let probed = probe_candidate_contract(&release.candidate).expect("the candidate answers");
-    let running_contract = contract_with(
-        probed
-            .contract
-            .implementation_digest
-            .as_deref()
-            .expect("the candidate names its keeper binary"),
-        "0f0c0a09",
+    // The running keeper IS the keeper binary beside the candidate, so its
+    // contract is that binary's own. Only the provenance is restated: a build
+    // stamp is not part of admission, and a fixture that invented one is
+    // asserting on a field the shared rule deliberately ignores.
+    let mut running_contract = probed.contract.clone();
+    running_contract.build_sha = "0f0c0a09".to_string();
+    let keeper = local(
+        &running_contract,
+        2,
+        vec![EPOCH, "11111111-1111-4111-8111-111111111111"],
     );
-    let keeper = local(&running_contract, 2, vec![EPOCH, "11111111-1111-4111-8111-111111111111"]);
 
-    let record = admit_candidate(&probed, Some(&RunningKeeper {
-        worker_fingerprint: keeper.worker_fingerprint.clone(),
-        observation: keeper.observation.clone(),
-        open_session_ids: keeper.open_session_ids.clone(),
-    }))
+    let record = admit_candidate(
+        &probed,
+        Some(&RunningKeeper {
+            worker_fingerprint: keeper.worker_fingerprint.clone(),
+            observation: keeper.observation.clone(),
+            open_session_ids: keeper.open_session_ids.clone(),
+        }),
+    )
     .expect("a preservable keeper admits the swap");
 
     assert_eq!(
@@ -180,11 +186,14 @@ fn a_keeper_that_would_have_to_be_replaced_stops_the_update() {
     let other = contract_with(&"d".repeat(64), "0f0c0a09");
     let keeper = local(&other, 0, Vec::new());
 
-    let failure = admit_candidate(&probed, Some(&RunningKeeper {
-        worker_fingerprint: keeper.worker_fingerprint.clone(),
-        observation: keeper.observation.clone(),
-        open_session_ids: keeper.open_session_ids.clone(),
-    }))
+    let failure = admit_candidate(
+        &probed,
+        Some(&RunningKeeper {
+            worker_fingerprint: keeper.worker_fingerprint.clone(),
+            observation: keeper.observation.clone(),
+            open_session_ids: keeper.open_session_ids.clone(),
+        }),
+    )
     .expect_err("a keeper replacement is not a self-replace");
 
     assert!(
@@ -207,11 +216,14 @@ fn a_live_keeper_the_candidate_cannot_preserve_stops_the_update() {
     let session = "22222222-2222-4222-8222-222222222222";
     let keeper = local(&other, 1, vec![session]);
 
-    let failure = admit_candidate(&probed, Some(&RunningKeeper {
-        worker_fingerprint: keeper.worker_fingerprint.clone(),
-        observation: keeper.observation.clone(),
-        open_session_ids: keeper.open_session_ids.clone(),
-    }))
+    let failure = admit_candidate(
+        &probed,
+        Some(&RunningKeeper {
+            worker_fingerprint: keeper.worker_fingerprint.clone(),
+            observation: keeper.observation.clone(),
+            open_session_ids: keeper.open_session_ids.clone(),
+        }),
+    )
     .expect_err("a live keeper that cannot be preserved stops the update");
 
     assert!(

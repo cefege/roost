@@ -19,7 +19,7 @@ mod push_fixture;
 
 use std::collections::BTreeMap;
 
-use push_fixture::{contract, digest, worker, with};
+use push_fixture::{contract, digest, with, worker};
 
 use roost_cli::push::admission::{classify_fleet_keeper_updates, rollback_keeper_update};
 use roost_cli::push::plan::FleetRolloutTarget;
@@ -38,7 +38,10 @@ fn contracts_for(
     target_seed: &str,
 ) -> BTreeMap<String, roost_protocol::keeper_update::KeeperContractV1> {
     let mut contracts = BTreeMap::new();
-    contracts.insert(digest(&format!("fingerprint-{label}")), contract(target_seed));
+    contracts.insert(
+        digest(&format!("fingerprint-{label}")),
+        contract(target_seed),
+    );
     contracts
 }
 
@@ -56,13 +59,14 @@ fn the_same_keeper_binary_is_carried_across_and_the_machine_is_a_participant() {
     let recorded = &admitted.workers[0].keeper_update;
     assert_eq!(recorded.admission.required_action, "preserve");
     assert_eq!(
-        recorded.admission.source_contract_digest,
-        recorded.admission.target_contract_digest,
+        recorded.admission.source_contract_digest, recorded.admission.target_contract_digest,
         "a preserved keeper is proved against the digest the RUNNING keeper reported"
     );
     assert_eq!(
         recorded.source_contract.implementation_digest,
-        row.keeper_runtime.as_ref().and_then(|r| r.running_contract.implementation_digest.clone()),
+        row.keeper_runtime
+            .as_ref()
+            .and_then(|r| r.running_contract.implementation_digest.clone()),
         "the journal names the keeper that is running now, not the one the release ships"
     );
 }
@@ -142,7 +146,8 @@ fn a_machine_whose_target_contract_could_not_be_proved_is_deferred_before_it_is_
         "without the contract the release ships there is no decision to act on"
     );
     assert_eq!(
-        admitted.deferred[0].reason, "target keeper runtime proof is unavailable"
+        admitted.deferred[0].reason,
+        "target keeper runtime proof is unavailable"
     );
 }
 
@@ -160,7 +165,8 @@ fn a_registry_row_that_no_longer_resolves_to_one_machine_is_deferred_rather_than
     assert!(admitted.workers.is_empty());
     assert_eq!(admitted.deferred.len(), 1);
     assert_eq!(
-        admitted.deferred[0].reason, "update admission cannot resolve one worker"
+        admitted.deferred[0].reason,
+        "update admission cannot resolve one worker"
     );
 }
 
@@ -190,20 +196,18 @@ fn one_unadoptable_keeper_defers_only_its_own_machine_and_leaves_the_fleet_rolli
     // holding live PTYs is the deferred one, which needs the count to outlive
     // the move into the roster.
     let loft_sessions = loft.coordinator_open_session_ids.len();
-    let behind = with(
-        worker("shed", "shed.example.test", Some(PRIOR), 0),
-        Some(PRIOR),
-        true,
-    );
-    let roster = vec![studio, loft, behind];
-    let candidates = ["studio", "loft", "shed"]
+    let roster = vec![studio, loft];
+    // Only the two machines this decision is about. A stale row belongs to
+    // `partition_fleet_for_rollout`, which has already dropped it before the
+    // keeper question is asked, so a third candidate here would be testing a
+    // deferral that upstream has made impossible.
+    let candidates = ["studio", "loft"]
         .iter()
         .map(|label| candidate(label))
         .collect::<Vec<_>>();
 
     let mut contracts = contracts_for("studio", "keeper-a");
     contracts.insert(digest("fingerprint-loft"), contract("keeper-b"));
-    contracts.insert(digest("fingerprint-shed"), contract("keeper-a"));
 
     let admitted = classify_fleet_keeper_updates(&candidates, &roster, &contracts);
 
@@ -219,8 +223,7 @@ fn one_unadoptable_keeper_defers_only_its_own_machine_and_leaves_the_fleet_rolli
     assert_eq!(admitted.deferred.len(), 1);
     assert_eq!(admitted.deferred[0].label, "loft");
     assert_eq!(
-        loft_sessions,
-        2,
+        loft_sessions, 2,
         "the deferred machine is the one holding live PTYs, and nobody else's"
     );
 }

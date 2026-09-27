@@ -172,13 +172,20 @@ impl ServiceSpec {
             };
             environment.insert(diagnostic_name.to_string(), value.to_string());
         }
-        let identity = build_identity(env);
-        if identity.build_sha != DEV_BUILD_STAMP {
+        // A definition states what was INSTALLED, so the commit it carries is
+        // the one the caller handed it, not the one this process was built
+        // from. A deploy composes the commit it is shipping and puts it in the
+        // environment it installs against; a binary built from a checkout
+        // stamps itself with that checkout's HEAD, which is a different
+        // commit from every machine's, and it would win here and name a build
+        // nobody installed.
+        let build_sha = handed_build_sha(env).unwrap_or_else(|| build_identity(env).build_sha);
+        if build_sha != DEV_BUILD_STAMP {
             // Both spellings, because the coordinator's status readout and the
             // worker's heartbeat have each always read one of them and a fleet
             // roster that showed one SHA and not the other would look stale.
-            environment.insert(GIT_SHA_ENV.to_string(), identity.build_sha.clone());
-            environment.insert(ROOST_GIT_SHA_ENV.to_string(), identity.build_sha);
+            environment.insert(GIT_SHA_ENV.to_string(), build_sha.clone());
+            environment.insert(ROOST_GIT_SHA_ENV.to_string(), build_sha);
         }
         environment.extend(role_settings(role, env, platform)?);
         Ok(Self {
@@ -234,10 +241,7 @@ impl ServiceSpec {
     /// nobody supplied is not installed; and the next install does not carry it
     /// either, because `deploy::identity_env` strips both from a prior install.
     /// That is what makes each one one-shot.
-    pub fn with_decided_one_shots(
-        mut self,
-        decided: &BTreeMap<String, String>,
-    ) -> Self {
+    pub fn with_decided_one_shots(mut self, decided: &BTreeMap<String, String>) -> Self {
         for name in ONE_SHOT_AUTHORIZATIONS {
             if let Some(value) = decided.get(name) {
                 self.environment.insert(name.to_string(), value.clone());
@@ -255,6 +259,21 @@ impl ServiceSpec {
             definition_path: self.definition_path.clone(),
         }
     }
+}
+
+/// The commit an install was handed, in the service's own order, or `None` when
+/// the caller named none.
+///
+/// A value that is blank or the development stamp names no commit, so it does
+/// not stop the search: a deploy running from a source checkout exports a
+/// stamp that is not a commit, and treating it as one would install a
+/// definition that says `dev` is what is on the machine.
+fn handed_build_sha(env: &dyn EnvSource) -> Option<String> {
+    [GIT_SHA_ENV, ROOST_GIT_SHA_ENV]
+        .into_iter()
+        .filter_map(|name| env.get(name))
+        .map(|value| value.trim().to_string())
+        .find(|value| !value.is_empty() && value != DEV_BUILD_STAMP)
 }
 
 /// A service identity and the file it is installed under.

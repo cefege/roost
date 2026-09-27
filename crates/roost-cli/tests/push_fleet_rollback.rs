@@ -107,7 +107,11 @@ async fn a_fleet_that_converges_commits_the_decision_before_it_touches_a_machine
 
 #[tokio::test]
 async fn a_failure_before_the_decision_moves_every_machine_back_and_keeps_the_rollback_point() {
-    let plan = plan_with(&["studio.example.test", "loft.example.test", "shed.example.test"]);
+    let plan = plan_with(&[
+        "studio.example.test",
+        "loft.example.test",
+        "shed.example.test",
+    ]);
     let world = world(Answers {
         fail_settle: Some(("loft.example.test".to_string(), RolloutAction::Hold)),
         ..Answers::default()
@@ -124,7 +128,7 @@ async fn a_failure_before_the_decision_moves_every_machine_back_and_keeps_the_ro
     );
     assert!(
         failure.message.contains("loft.example.test")
-            && failure.message.contains("re-proven at {PRIOR}"),
+            && failure.message.contains(&format!("re-proven at {PRIOR}")),
         "the operator is told which machine failed and that the fleet is back: {}",
         failure.message
     );
@@ -151,8 +155,9 @@ async fn a_failure_before_the_decision_moves_every_machine_back_and_keeps_the_ro
         "the coordinator is restored only after every machine is back: {asked:?}"
     );
     assert!(
-        asked.iter().any(|entry| *entry
-            == Asked::Prove(PRIOR.to_string(), RolloutAction::Rollback)),
+        asked
+            .iter()
+            .any(|entry| *entry == Asked::Prove(PRIOR.to_string(), RolloutAction::Rollback)),
         "the rollback is proved at the prior commit, not assumed: {asked:?}"
     );
     assert!(
@@ -228,7 +233,7 @@ async fn a_decision_that_could_not_be_recorded_is_not_rolled_back_when_the_coord
 
 #[tokio::test]
 async fn a_decision_that_could_not_be_recorded_is_rolled_back_while_the_coordinator_can_still_go_back()
-{
+ {
     let plan = plan_with(&["studio.example.test", "loft.example.test"]);
     let world = world(Answers {
         fail_commit: true,
@@ -308,14 +313,21 @@ fn the_journal_records_the_participants_and_loses_the_rollback_point_only_on_set
     let journal = FleetJournal::open(&plan, plan.admission_recorded_at_ms);
     assert_eq!(journal.schema, DEPLOY_JOURNAL_SCHEMA);
     assert_eq!(journal.phase, DeployPhase::Swapping);
-    assert!(journal.can_roll_back(), "an in-flight transaction can be restored");
+    assert!(
+        journal.can_roll_back(),
+        "an in-flight transaction can be restored"
+    );
     assert_eq!(journal.participants.len(), 2);
 
     let resumed = journal.plan();
     assert_eq!(resumed.prior_sha, PRIOR);
     assert_eq!(resumed.target_sha, TARGET);
     assert_eq!(
-        resumed.workers.iter().map(|w| w.host.as_str()).collect::<Vec<_>>(),
+        resumed
+            .workers
+            .iter()
+            .map(|w| w.host.as_str())
+            .collect::<Vec<_>>(),
         vec!["studio.example.test", "loft.example.test"],
         "a resumed rollout must address the machines the journal named, not the roster of the day"
     );

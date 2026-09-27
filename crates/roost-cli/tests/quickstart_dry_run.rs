@@ -45,8 +45,14 @@ impl TempMachine {
         let text = |relative: &str| self.root.join(relative).display().to_string();
         MapEnv::new()
             .with("HOME", &text("home"))
-            .with(roost_host::COORD_UNIT_ENV, &text("unit/roost3-coord.service"))
-            .with(roost_host::WORKER_UNIT_ENV, &text("unit/roost3-worker.service"))
+            .with(
+                roost_host::COORD_UNIT_ENV,
+                &text("unit/roost3-coord.service"),
+            )
+            .with(
+                roost_host::WORKER_UNIT_ENV,
+                &text("unit/roost3-worker.service"),
+            )
             .with(roost_host::WORKER_DATA_DIR_ENV, &text("data/worker"))
             .with(roost_host::COORD_DATA_DIR_ENV, &text("data/coord"))
     }
@@ -122,7 +128,11 @@ fn a_dry_run_resolves_both_services_on_a_machine_with_nothing_installed() {
     assert!(!resolved.coordinator_already_installed);
     assert!(!resolved.worker_already_installed);
     assert_eq!(
-        resolved.path_link.0.file_name().and_then(|name| name.to_str()),
+        resolved
+            .path_link
+            .0
+            .file_name()
+            .and_then(|name| name.to_str()),
         Some("roost"),
         "the PATH entry is named for the program, which is `roost`; `roost3` is the unit label"
     );
@@ -134,7 +144,10 @@ fn a_dry_run_renders_the_definitions_a_real_run_would_install() {
     let machine = TempMachine::new("renders");
     let env = machine.environment();
     let endpoint = fresh_endpoint(None).expect("a loopback endpoint");
-    let endpoint_origin = endpoint.loopback_origin();
+    let bind = format!(
+        "ROOST_COORDINATOR_BIND=127.0.0.1:{}",
+        endpoint.loopback_port
+    );
     let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, false)
         .expect("the plan resolves");
 
@@ -159,7 +172,7 @@ fn a_dry_run_renders_the_definitions_a_real_run_would_install() {
         .definition_text(HostPlatform::Linux)
         .expect("a linux unit renders");
     assert!(
-        coordinator_text.contains(&endpoint_origin.replace("http://", "127.0.0.1:")),
+        coordinator_text.contains(&bind),
         "the unit states the bind the coordinator will actually use:\n{coordinator_text}"
     );
 }
@@ -212,7 +225,10 @@ fn a_dry_run_of_a_rerun_keeps_the_installed_front_door() {
     let machine = TempMachine::new("rerun");
     let env = machine.environment();
     let decided: BTreeMap<String, String> = [
-        ("ROOST_COORDINATOR_BIND".to_string(), "127.0.0.1:4200".to_string()),
+        (
+            "ROOST_COORDINATOR_BIND".to_string(),
+            "127.0.0.1:4200".to_string(),
+        ),
         (
             "ROOST_WEB_PUBLIC_URL".to_string(),
             "https://roost.example.com".to_string(),
@@ -274,7 +290,10 @@ fn the_dry_run_definition_is_the_text_the_install_would_write() {
     let spec = &resolved.worker.spec;
     let independent = render_definition(spec, HostPlatform::Linux).expect("renders");
     assert_eq!(
-        resolved.worker.definition_text(HostPlatform::Linux).expect("renders"),
+        resolved
+            .worker
+            .definition_text(HostPlatform::Linux)
+            .expect("renders"),
         independent,
         "the dry run prints what the install writes, not a re-render of it"
     );
