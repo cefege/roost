@@ -11,19 +11,27 @@
 // as a hundred confusing spec failures. That is the whole reason this module
 // exists instead of two `process.env` reads inline.
 
-import { accessSync, constants, statSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { accessSync, constants, existsSync, statSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
 
 /** The worker binary the suite drives. Unset means the TypeScript worker. */
 export const SMOKE_WORKER_EXECUTABLE_ENV = "ROOST_SMOKE_WORKER_EXECUTABLE";
 /** The coordinator binary the suite drives. Unset means the TypeScript one. */
 export const SMOKE_COORD_EXECUTABLE_ENV = "ROOST_SMOKE_COORD_EXECUTABLE";
+/** The SPA build the coordinator serves. Unset means apps/web/dist. */
+export const SMOKE_WEB_DIST_ENV = "ROOST_SMOKE_WEB_DIST";
 
 export interface SmokeStackExecutables {
 	/** The worker binary, or `null` for the TypeScript worker. */
 	workerExecutable: string | null;
 	/** The coordinator binary, or `null` for the TypeScript coordinator. */
 	coordExecutable: string | null;
+	/**
+	 * The SPA build the coordinator serves, or `null` for the working tree's
+	 * `apps/web/dist`. A Rust SPA is a different directory with the same
+	 * contract, so it is a knob rather than a stack-executables field.
+	 */
+	webDist: string | null;
 }
 
 /**
@@ -82,7 +90,31 @@ function validate(variable: string, path: string): string {
 }
 
 /**
- * Resolve and validate both knobs.
+ * Refuse a knob that cannot be served, at the point it is read.
+ *
+ * A directory with no `index.html` is the failure worth naming: a `dx build`
+ * that emitted assets but no entry point, or a path that outlived its build.
+ * The coordinator launched against one answers 404s that read as a product
+ * bug for the next hour instead of as a bad knob.
+ */
+function validateDirectory(variable: string, path: string): string {
+	let stats;
+	try {
+		stats = statSync(path);
+	} catch {
+		throw new SmokeStackConfigurationError(variable, path, "no such directory");
+	}
+	if (!stats.isDirectory()) {
+		throw new SmokeStackConfigurationError(variable, path, "it is not a directory");
+	}
+	if (!existsSync(join(path, "index.html"))) {
+		throw new SmokeStackConfigurationError(variable, path, "it has no index.html");
+	}
+	return path;
+}
+
+/**
+ * Resolve and validate every knob.
  *
  * `env` and `cwd` are parameters so this is testable without mutating the
  * process environment, which is the only way to test the failure paths.
@@ -93,10 +125,27 @@ export function resolveSmokeStackExecutables(
 ): SmokeStackExecutables {
 	const worker = resolveOptional(SMOKE_WORKER_EXECUTABLE_ENV, env[SMOKE_WORKER_EXECUTABLE_ENV], cwd);
 	const coord = resolveOptional(SMOKE_COORD_EXECUTABLE_ENV, env[SMOKE_COORD_EXECUTABLE_ENV], cwd);
+	const web = resolveSmokeWebDist(env, cwd);
 	return {
 		workerExecutable: worker ? validate(SMOKE_WORKER_EXECUTABLE_ENV, worker) : null,
 		coordExecutable: coord ? validate(SMOKE_COORD_EXECUTABLE_ENV, coord) : null,
+		webDist: web,
 	};
+}
+
+/**
+ * The SPA directory a coordinator launch should serve.
+ *
+ * `null` means "the working tree's apps/web/dist", which is the value the
+ * suite has always used and which callers spell themselves because the
+ * repository root is their concern, not this module's.
+ */
+export function resolveSmokeWebDist(
+	env: NodeJS.ProcessEnv = process.env,
+	cwd: string = process.cwd(),
+): string | null {
+	const raw = resolveOptional(SMOKE_WEB_DIST_ENV, env[SMOKE_WEB_DIST_ENV], cwd);
+	return raw ? validateDirectory(SMOKE_WEB_DIST_ENV, raw) : null;
 }
 
 /** Whether this run drives a RUST binary on either side. */
@@ -110,12 +159,15 @@ export function isMixedStack(stack: SmokeStackExecutables): boolean {
  * This is what makes a mixed-stack run legible in CI output: a failing spec
  * that ran against a Rust coordinator and a Rust worker is a different bug
  * from one that ran against the TypeScript pair, and the log line is the only
- * place that distinction is recorded.
+ * place that distinction is recorded. The SPA is named by DIRECTORY rather
+ * than as "rust"/"typescript" because the knob is a path, and a wrong path
+ * that reads as "rust" is a worse report than no report.
  */
 export function smokeStackDescription(stack: SmokeStackExecutables): string {
 	const worker = stack.workerExecutable ? `rust(${stack.workerExecutable})` : "typescript";
 	const coord = stack.coordExecutable ? `rust(${stack.coordExecutable})` : "typescript";
-	return `smoke stack: coordinator=${coord} worker=${worker}`;
+	const web = stack.webDist ?? "apps/web/dist";
+	return `smoke stack: coordinator=${coord} worker=${worker} web=${web}`;
 }
 
 /**

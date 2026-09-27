@@ -14,12 +14,12 @@ use roost_protocol::terminal_capture::{
     TerminalCaptureWorkerAck,
 };
 use roost_protocol::wire::brand::SessionId;
+use roost_worker::browser_commands::Refusal;
 use roost_worker::browser_commands::diagnostics::{CaptureCommand, DiagnosticReports};
 use roost_worker::browser_commands::presence::PresenceReports;
 use roost_worker::browser_commands::scrollback_page::{GridDescription, RetainedGrid};
 use roost_worker::browser_commands::search::{BatchSearch, ScrollbackSearch, SingleSearch};
 use roost_worker::browser_commands::session_lifecycle::{SessionLifecycle, SessionOutcome};
-use roost_worker::browser_commands::Refusal;
 use roost_worker::diag_snapshot::Snapshot;
 use roost_worker::scrollback_read::EpochBinding;
 use serde_json::{Value, json};

@@ -87,14 +87,11 @@ pub async fn handle_ui_report_state(
         .states()
         .report(&fingerprint, &state.tab_id, state.clone())
         .map_err(refuse_report)?;
-    core.services
-        .buses
-        .ui_bus
-        .publish(UiBusMsg::State {
-            fp: fingerprint,
-            tab_id: state.tab_id.clone(),
-            state,
-        });
+    core.services.buses.ui_bus.publish(UiBusMsg::State {
+        fp: fingerprint,
+        tab_id: state.tab_id.clone(),
+        state,
+    });
     ok_response(proto::UiReportStateResponse::default())
 }
 
@@ -117,10 +114,7 @@ pub async fn handle_ui_list_states(
         .into_iter()
         .map(|entry| proto::UiTabState {
             fp: entry.fingerprint.clone(),
-            label: labels
-                .get(&entry.fingerprint)
-                .cloned()
-                .unwrap_or_default(),
+            label: labels.get(&entry.fingerprint).cloned().unwrap_or_default(),
             tab_id: entry.tab_id,
             last_ms: u64::try_from(entry.last_ms).unwrap_or(0),
             state: roost_proto::buffa::MessageField::some(entry.state),
@@ -148,10 +142,9 @@ pub async fn handle_ui_dispatch(
         "UI dispatch target tab id",
         false,
     )?;
-    let command = request
-        .command
-        .as_option()
-        .ok_or_else(|| ConnectError::new(ErrorCode::InvalidArgument, "uiDispatch requires a command"))?;
+    let command = request.command.as_option().ok_or_else(|| {
+        ConnectError::new(ErrorCode::InvalidArgument, "uiDispatch requires a command")
+    })?;
     if matches!(command.command, Some(Command::ApplyLayout(_))) {
         return Err(ConnectError::new(
             ErrorCode::InvalidArgument,
@@ -172,7 +165,8 @@ pub async fn handle_ui_dispatch(
     // The count is the live Sync subscriber count, which is an UPPER bound on
     // the tabs that will execute it; zero is the answer a headless caller needs,
     // because it means nobody is listening at all.
-    let delivered = u32::try_from(core.services.buses.ui_bus.subscriber_count()).unwrap_or(u32::MAX);
+    let delivered =
+        u32::try_from(core.services.buses.ui_bus.subscriber_count()).unwrap_or(u32::MAX);
     core.services.buses.ui_bus.publish(UiBusMsg::Command {
         target_tab_id: request.target_tab_id,
         command: canonical,
@@ -213,9 +207,7 @@ pub async fn handle_ui_apply_layout(
     let document = request
         .document
         .as_option()
-        .ok_or_else(|| {
-            ConnectError::new(ErrorCode::InvalidArgument, "layout document is required")
-        })
+        .ok_or_else(|| ConnectError::new(ErrorCode::InvalidArgument, "layout document is required"))
         .and_then(|document| {
             canonical_layout_document(document)
                 .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))
@@ -237,17 +229,19 @@ pub async fn handle_ui_apply_layout(
     let target_tab_id = request.target_tab_id.clone();
     let requested = runtime
         .layout_applies()
-        .request_apply(&request.target_fingerprint, &request.target_tab_id, move |publication| {
-            buses.ui_bus.publish(UiBusMsg::Apply {
-                target_tab_id: target_tab_id.clone(),
-                target_socket_id: publication.target.socket_id.clone(),
-                correlation_id: publication.correlation_id.clone(),
-                command: command.clone(),
-            });
-        })
-        .map_err(|capacity| {
-            ConnectError::new(ErrorCode::ResourceExhausted, capacity.message())
-        })?;
+        .request_apply(
+            &request.target_fingerprint,
+            &request.target_tab_id,
+            move |publication| {
+                buses.ui_bus.publish(UiBusMsg::Apply {
+                    target_tab_id: target_tab_id.clone(),
+                    target_socket_id: publication.target.socket_id.clone(),
+                    correlation_id: publication.correlation_id.clone(),
+                    command: command.clone(),
+                });
+            },
+        )
+        .map_err(|capacity| ConnectError::new(ErrorCode::ResourceExhausted, capacity.message()))?;
     let resolution = match requested {
         LayoutApplyRequest::TargetGone(resolution) => resolution,
         LayoutApplyRequest::Pending(pending) => pending.await_resolution().await,

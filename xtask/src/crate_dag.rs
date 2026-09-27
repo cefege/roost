@@ -44,7 +44,12 @@ const ALLOWED: &[(&str, &[&str])] = &[
     // this", and the two would disagree on macOS.
     (
         "roost-keeper",
-        &["roost-protocol", "roost-host", "roost-platform", "roost-observability"],
+        &[
+            "roost-protocol",
+            "roost-host",
+            "roost-platform",
+            "roost-observability",
+        ],
     ),
     (
         "roost-worker",
@@ -104,7 +109,7 @@ const ALLOWED: &[(&str, &[&str])] = &[
     ("xtask", &[]),
 ];
 
-pub fn run() -> Vec<Violation> {
+pub fn run() -> crate::ratchet::CheckOutcome {
     let metadata = match MetadataCommand::new().no_deps().exec() {
         Ok(metadata) => metadata,
         Err(error) => {
@@ -148,7 +153,10 @@ pub fn run() -> Vec<Violation> {
             .collect();
         violations.extend(edges_outside_allowlist(&crate_name, &actual, allowed));
     }
-    violations
+    crate::ratchet::CheckOutcome {
+        checked: members.len(),
+        violations,
+    }
 }
 
 fn edges_outside_allowlist(
@@ -219,5 +227,22 @@ mod tests {
                 "{crate_name} lists itself as a dependency"
             );
         }
+    }
+
+    /// The CLI is the one member that both IMPLEMENTS nothing of the generated
+    /// service and still needs its types: `roost3 api <verb>` dials a
+    /// coordinator with the generated client. Without the edge the gate would
+    /// pass on a tree where the verb cannot be written at all.
+    #[test]
+    fn the_cli_may_reach_the_generated_service_types() {
+        let registered = allowlist();
+        let cli = registered
+            .iter()
+            .find(|(name, _)| *name == "roost-cli")
+            .expect("roost-cli is a workspace member");
+        assert!(
+            cli.1.contains(&"roost-proto"),
+            "roost-cli cannot dial a Connect service without roost-proto"
+        );
     }
 }

@@ -27,7 +27,9 @@ const STRUCTURAL_EXEMPTIONS: &[(&str, &str)] = &[(
 /// nor snapshotted, so it cannot accumulate a baseline entry and later be
 /// compared against one.
 fn is_exempt(path: &str) -> bool {
-    STRUCTURAL_EXEMPTIONS.iter().any(|(exempt, _)| *exempt == path)
+    STRUCTURAL_EXEMPTIONS
+        .iter()
+        .any(|(exempt, _)| *exempt == path)
 }
 
 fn describe(observed: usize, allowed: usize) -> String {
@@ -113,7 +115,7 @@ mod tests {
 
     fn violations(counts: &BTreeMap<String, usize>) -> usize {
         match run_ratchet(&retained(counts), &BTreeMap::new(), &spec(), false) {
-            RatchetOutcome::Regressions(found) => found.len(),
+            RatchetOutcome::Regressions(found) => found.violations.len(),
             RatchetOutcome::BaselineRewritten { .. } => 0,
         }
     }

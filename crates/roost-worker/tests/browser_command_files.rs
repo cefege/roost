@@ -2,11 +2,12 @@
 //! listing, a directory, and the home the browse surface starts from.
 
 mod browser_command_support;
-use serde_json::json;
 use browser_command_support::{
     EPOCH, FINGERPRINT, HostPlatform, LocalFiles, MapEnv, base64_decode, command, dispatch,
-    frame_of, harness, only};
+    frame_of, harness, only,
+};
 use roost_worker::browser_commands::file_commands::FileCommands;
+use serde_json::json;
 
 use std::sync::Arc;
 

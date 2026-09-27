@@ -210,7 +210,6 @@ impl SessionEvent {
         }
     }
 
-
     /// Decode and check one event. `value` is the already-decoded JSON.
     pub fn parse(value: Value) -> ProtocolResult<Self> {
         let event: SessionEvent = serde_json::from_value(value)
@@ -364,7 +363,12 @@ mod tests {
                 .and_then(serde_json::Value::as_str)
                 .expect("the tag is a string")
                 .to_owned();
-            assert_eq!(event.kind_name(), tag, "{} disagrees with its own payload", event.kind_name());
+            assert_eq!(
+                event.kind_name(),
+                tag,
+                "{} disagrees with its own payload",
+                event.kind_name()
+            );
         }
     }
 
