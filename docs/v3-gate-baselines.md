@@ -967,6 +967,50 @@ snapshotted three times on SHA-suffixed refs before this was noticed, so no work
 was ever one `git gc` from gone. What was missing was the *current* state, and what
 the first attempt of that missed was the one new file.
 
+### A construction that type-checks and cannot execute is its own defect class
+
+**Found on the worker track, and the compiler is silent about it by construction.**
+A self-referential handle was first filled after the `Arc` was built, with
+`Arc::get_mut`. **`Arc::get_mut` requires the WEAK count to be zero**, and the
+struct's own placeholder `Weak` is already a weak reference — so the write could
+never succeed on any execution. It panicked at runtime on **every**
+`SessionManager::new`; thirteen tests died in 0.00 s with *"the Arc was just made
+and has no other reference"*.
+
+**`cargo check -p roost-worker --all-targets` returned 0 errors, 53.71 s.** The
+library and every test target compiled. **A compile is not evidence that a
+program can run**, and this is the sharpest instance yet of the night's recurring
+shape: something reporting success while the thing it reports on cannot happen.
+
+**The tell is precise and worth memorising: `Arc::get_mut` on a type that holds a
+`Weak` to itself is a write that can never succeed.** The borrow is legal, so the
+type checker has nothing to say; only the runtime refcount knows. The construct
+for a self-referential handle is `Arc::new_cyclic` — the closure receives the
+`Weak`, the handle is correct from the first instant, and there is no window in
+which a live manager could report itself unowned.
+
+**And it is the second time a constraint in a brief turned out to be
+load-bearing for a reason its author did not know.** The brief said the handle
+must be set at construction and not defaulted. The intent was implemented with a
+mechanism that defeats it, and only running the tests found it. **A brief that
+says "not defaulted" is usually carrying a reason; when the reason is a runtime
+one, a reviewer cannot derive it and a test run must.**
+
+### The smoke oracle is runnable — the Stage 3 precondition, verified
+
+Every Stage 3 gate is a `bun run test:terminal` run, and all of them depend on the
+TypeScript tree that 6.4 later deletes. **Checked rather than assumed, at
+`7b576a59`:**
+
+- `test:terminal` → `bun apps/roost-cli/src/main.ts test terminal` — entrypoint present, 5,924 bytes
+- the web bundle — `apps/web/dist/index.html` present (the fallback when `ROOST_SMOKE_WEB_DIST` is unset)
+- Playwright browsers — `chromium-1234`, `chromium_headless_shell-1234`, `ffmpeg-1011` installed
+- `bun` 1.3.14 on PATH
+
+**So Stage 3 is not blocked on infrastructure.** The one number still missing for
+the worker half is the first-ever full `roost-worker` test total, which no commit
+in this programme has recorded.
+
 ### A count that cannot tell "added" from "moved" is not a count of additions
 
 **The sixth instrument of the night, and the only one that made a false ACCUSATION
