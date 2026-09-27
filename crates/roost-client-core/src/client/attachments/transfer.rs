@@ -335,12 +335,9 @@ impl DirectUpload {
         &mut self,
         ack: &AttachmentTransferAck,
     ) -> Result<ChunkSettled, AttachmentTransferCarrierError> {
-        let chunk = self
-            .in_flight
-            .clone()
-            .ok_or_else(|| {
-                AttachmentTransferCarrierError::refused(NOTHING_IN_FLIGHT_REASON, self.sent_chunk())
-            })?;
+        let chunk = self.in_flight.clone().ok_or_else(|| {
+            AttachmentTransferCarrierError::refused(NOTHING_IN_FLIGHT_REASON, self.sent_chunk())
+        })?;
         if ack.bytes_received != chunk.expected_bytes()
             || !is_chunk_sha256(&ack.chunk_sha256)
             || ack.chunk_sha256 != chunk.chunk_sha256

@@ -152,7 +152,11 @@ impl ComposeSelection {
     /// A new capture supersedes the old one entirely, its pending restores
     /// included: an older schedule restoring a newer range is how a stale
     /// caret ends up over text the user has since selected elsewhere.
-    pub fn capture(&mut self, guard: &mut SelectionGuard, inputs: PaneInputs<'_>) -> ComposeEffects {
+    pub fn capture(
+        &mut self,
+        guard: &mut SelectionGuard,
+        inputs: PaneInputs<'_>,
+    ) -> ComposeEffects {
         if !guard.capture(inputs.live, inputs.display) {
             return ComposeEffects::default();
         }
@@ -184,7 +188,11 @@ impl ComposeSelection {
     /// retrying it, and only when no layout transaction still owns it: a
     /// superseded schedule is inert, and releasing on its account would drop a
     /// range the newer transaction is about to restore correctly.
-    pub fn restore(&mut self, guard: &mut SelectionGuard, inputs: PaneInputs<'_>) -> ComposeEffects {
+    pub fn restore(
+        &mut self,
+        guard: &mut SelectionGuard,
+        inputs: PaneInputs<'_>,
+    ) -> ComposeEffects {
         if self.retained_epoch.is_none() {
             return ComposeEffects::default();
         }

@@ -218,7 +218,11 @@ impl SelectionGuard {
     /// this replaces: the pane's global listeners are absent for a whole
     /// foreground withdraw, and a selection dropped inside that window never
     /// produces the edge that would clear it.
-    pub fn sync_hold(&mut self, live: &LiveSelection, retained: Option<&RetainedRange>) -> HoldSync {
+    pub fn sync_hold(
+        &mut self,
+        live: &LiveSelection,
+        retained: Option<&RetainedRange>,
+    ) -> HoldSync {
         let mut lapse = None;
         let suspension_holds = self.suspension_holds_paint(live, retained, &mut lapse);
         let live_range_holds = live.is_live_range() && live.pane_owns_endpoint();
@@ -227,7 +231,6 @@ impl SelectionGuard {
             lapse,
         }
     }
-
 
     /// Whether a yield is armed against the current capture, which is what
     /// tells a composer whose activation succeeded from one whose capture was
@@ -273,7 +276,10 @@ impl SelectionGuard {
         if !self.capture_is_restorable(live, retained) {
             return false;
         }
-        if self.captured.as_ref().is_some_and(|held| held.is_live_range(live))
+        if self
+            .captured
+            .as_ref()
+            .is_some_and(|held| held.is_live_range(live))
             && live.range_count != 1
         {
             self.captured = None;
@@ -290,7 +296,9 @@ impl SelectionGuard {
     /// Whether the document's own range IS the captured one, i.e. whether the
     /// adapter must clear the document's ranges to actually yield them.
     pub fn suspend_clears_ranges(&self, live: &LiveSelection) -> bool {
-        self.captured.as_ref().is_some_and(|held| held.is_live_range(live))
+        self.captured
+            .as_ref()
+            .is_some_and(|held| held.is_live_range(live))
     }
 
     /// Restore the captured range, reporting whether it is still restorable.
@@ -302,7 +310,11 @@ impl SelectionGuard {
         if !self.capture_is_restorable(live, retained) {
             return false;
         }
-        if live.collapsed || !self.captured.as_ref().is_some_and(|held| held.is_live_range(live))
+        if live.collapsed
+            || !self
+                .captured
+                .as_ref()
+                .is_some_and(|held| held.is_live_range(live))
         {
             self.captured = None;
             self.suspended_for = None;

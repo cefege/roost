@@ -17,9 +17,7 @@ use roost_client_core::client::attachments::insertion::safe_attachment_insertion
 use roost_client_core::client::attachments::transfer::ledger::{
     begin_upload_card, record_upload_progress, settle_upload_card,
 };
-use roost_client_core::client::attachments::transfer::{
-    AttachmentTransferResult, is_chunk_sha256,
-};
+use roost_client_core::client::attachments::transfer::{AttachmentTransferResult, is_chunk_sha256};
 use roost_client_core::store::transfers::TransferState;
 
 /// One lowercase hex SHA-256, which is the only digest shape the pipeline
@@ -105,8 +103,14 @@ fn rejects_every_c0_del_and_c1_control_character() {
 
 #[test]
 fn returns_null_on_windows_without_rewriting_the_path() {
-    assert_eq!(safe_attachment_insertion("win32", r"C:\Users\alice\report.txt"), None);
-    assert_eq!(safe_attachment_insertion("win32", "/posix-looking/path.txt"), None);
+    assert_eq!(
+        safe_attachment_insertion("win32", r"C:\Users\alice\report.txt"),
+        None
+    );
+    assert_eq!(
+        safe_attachment_insertion("win32", "/posix-looking/path.txt"),
+        None
+    );
 }
 
 // -------------------------------------------------------------------- grant
@@ -208,8 +212,18 @@ fn a_grants_hello_names_the_whole_authenticated_tuple() {
 fn an_upload_card_reports_acknowledged_bytes_and_settles_once() {
     let mut core = ClientCore::in_memory("tab-attachments");
     begin_upload_card(core.store_mut(), "upload-a", "received.bin", 1_000, 0);
-    assert!(record_upload_progress(core.store_mut(), "upload-a", 512, 10));
-    assert!(record_upload_progress(core.store_mut(), "upload-a", 1_000, 20));
+    assert!(record_upload_progress(
+        core.store_mut(),
+        "upload-a",
+        512,
+        10
+    ));
+    assert!(record_upload_progress(
+        core.store_mut(),
+        "upload-a",
+        1_000,
+        20
+    ));
     let card = core
         .store()
         .transfers
@@ -221,7 +235,12 @@ fn an_upload_card_reports_acknowledged_bytes_and_settles_once() {
     let outcome = AttachmentTransferResult {
         abs_path: WORKER_PATH.to_owned(),
     };
-    assert!(settle_upload_card(core.store_mut(), "upload-a", Ok(&outcome), 30));
+    assert!(settle_upload_card(
+        core.store_mut(),
+        "upload-a",
+        Ok(&outcome),
+        30
+    ));
     assert_eq!(
         core.store()
             .transfers

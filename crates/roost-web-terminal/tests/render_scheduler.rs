@@ -9,7 +9,7 @@
 mod render_scheduler_support;
 
 use render_scheduler_support::{
-    RecordingRenderer, RecordedDelivery, delta_frame, flush_frame, full_frame, offer, row_shell,
+    RecordedDelivery, RecordingRenderer, delta_frame, flush_frame, full_frame, offer, row_shell,
 };
 use roost_web_terminal::scheduler::{ApplyMode, EnqueueDecision, FrameDecision, RenderScheduler};
 
@@ -61,7 +61,10 @@ fn folds_contiguous_deltas_into_one_sparse_paint() {
             appended_rows: 0,
         }
     );
-    assert!(third.armed, "the arrival that opens a batch is the one that arms");
+    assert!(
+        third.armed,
+        "the arrival that opens a batch is the one that arms"
+    );
 
     let fourth = offer(&mut scheduler, &fourth_frame, fourth_canonical, 18);
     assert!(
@@ -122,12 +125,7 @@ fn preserves_a_queued_rebaseline_full_through_its_first_delta() {
         },
         "a full on a NEW stream is a rebaseline, not a stale baseline"
     );
-    offer(
-        &mut scheduler,
-        &after_rebaseline,
-        rebaseline_canonical,
-        10,
-    );
+    offer(&mut scheduler, &after_rebaseline, rebaseline_canonical, 10);
 
     let repair = flush_frame(&mut scheduler, &mut renderer, 14, 0);
     assert_eq!(
@@ -192,12 +190,7 @@ fn repairs_a_queued_sequence_gap_after_ignoring_stale_or_conflicting_fulls() {
     flush_frame(&mut scheduler, &mut renderer, 12, 0);
     assert_eq!(renderer.delta_seqs(), vec![vec![2]]);
 
-    let gapped = offer(
-        &mut scheduler,
-        &delta_frame(4, "D"),
-        full_frame(4, "D"),
-        16,
-    );
+    let gapped = offer(&mut scheduler, &delta_frame(4, "D"), full_frame(4, "D"), 16);
     assert_eq!(
         gapped.decision,
         EnqueueDecision::Coalesced {
@@ -259,7 +252,10 @@ fn parks_canonical_state_without_dom_application() {
 
     scheduler.set_foreground(false);
     assert!(!scheduler.is_foreground());
-    assert!(!scheduler.is_frame_armed(), "parking drops the queued frame");
+    assert!(
+        !scheduler.is_frame_armed(),
+        "parking drops the queued frame"
+    );
     assert!(!scheduler.needs_browser_frame());
 
     let mut latest_canonical = full_frame(2, "B");
@@ -290,7 +286,9 @@ fn parks_canonical_state_without_dom_application() {
     assert_eq!(resumed.mode, Some(ApplyMode::FallbackFull));
     assert_eq!(renderer.full_seqs(), vec![2]);
     assert!(renderer.delta_seqs().is_empty());
-    let delivery = resumed.delivery.expect("the parked batch published a delivery");
+    let delivery = resumed
+        .delivery
+        .expect("the parked batch published a delivery");
     assert_eq!(delivery.frame.seq, 2);
     assert!(!delivery.frame.full);
     assert!(delivery.scrollback_appended);
@@ -298,7 +296,11 @@ fn parks_canonical_state_without_dom_application() {
         delivery.had_wire_full,
         "the baseline full the pane never painted is still in the batch's history"
     );
-    assert_eq!(resumed.queue_delay_ms, Some(20), "a parked batch keeps its original queue clock");
+    assert_eq!(
+        resumed.queue_delay_ms,
+        Some(20),
+        "a parked batch keeps its original queue clock"
+    );
 }
 
 #[test]
@@ -321,4 +323,3 @@ fn cancels_a_queued_frame_on_disposal() {
         "a disposed scheduler retains nothing"
     );
 }
-

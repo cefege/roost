@@ -130,4 +130,3 @@ impl AttachmentDirectEnvironment for FakeEnvironment {
         self.peer.clone()
     }
 }
-

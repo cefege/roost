@@ -259,7 +259,6 @@ impl KeyChord {
     /// own the key. The worker's DECCKM cursor mode decides the arrow and
     /// home/end encoding.
     pub fn to_bytes(&self, cursor_keys_application: bool) -> Option<Vec<u8>> {
-        super::keys::terminal_key_sequence(self, cursor_keys_application)
-            .map(String::into_bytes)
+        super::keys::terminal_key_sequence(self, cursor_keys_application).map(String::into_bytes)
     }
 }

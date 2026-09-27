@@ -12,11 +12,11 @@ pub mod signaling;
 pub mod transport_trait;
 
 pub use faults::{
-    CarrierFault, FaultFallback, FaultState, FallbackReason, PEER_HOLD_DOWN_MS, answer_fault,
+    CarrierFault, FallbackReason, FaultFallback, FaultState, PEER_HOLD_DOWN_MS, answer_fault,
     classify_worker_reason, fallback_effects, ready_fault, retry_delay_ms, sdp_is_usable,
 };
 pub use grant::{
-    DirectGrant, GrantInput, GrantLifecycle, GrantPhase, GrantSweep, GRANT_RETRY_MS, GRANT_RENEW_MS,
+    DirectGrant, GRANT_RENEW_MS, GRANT_RETRY_MS, GrantInput, GrantLifecycle, GrantPhase, GrantSweep,
 };
 pub use loopback::{LOOPBACK_GRACE_MS, LocalWorkerDoor, LoopbackAnswer, LoopbackProbe};
 pub use signaling::Signalling;

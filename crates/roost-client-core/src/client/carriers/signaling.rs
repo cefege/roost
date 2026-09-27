@@ -18,8 +18,8 @@ use crate::client::carriers::grant::{GrantInput, GrantLifecycle, GrantSweep};
 use crate::client::carriers::loopback::LoopbackProbe;
 use crate::client::carriers::transport_trait::PeerSignalling;
 use crate::client::carriers::{
-    CarrierEffect, CarrierEnvironment, CarrierFault, PeerAnswer,
-    PeerAttempt, PeerPhase, ReadyTuple, SignallingInput, SignallingSnapshot,
+    CarrierEffect, CarrierEnvironment, CarrierFault, PeerAnswer, PeerAttempt, PeerPhase,
+    ReadyTuple, SignallingInput, SignallingSnapshot,
 };
 use crate::terminal::token::TerminalTransport;
 
@@ -90,9 +90,9 @@ impl Signalling {
         let mut out = Vec::new();
         match input {
             SignallingInput::WorkerRetired => out.extend(self.retire()),
-            SignallingInput::Demand { session_id, active, .. } => {
-                out.extend(self.demand(session_id, active))
-            }
+            SignallingInput::Demand {
+                session_id, active, ..
+            } => out.extend(self.demand(session_id, active)),
             SignallingInput::Grant(grant) => out.extend(self.grant_step(grant)),
             SignallingInput::LocalDoorAnswered { worker_fp } => {
                 self.loopback.answered(&worker_fp);
@@ -104,9 +104,10 @@ impl Signalling {
                     out.extend(self.start(self.now_ms))
                 }
             }
-            SignallingInput::OfferReady { attempt_id, offer_sdp } => {
-                out.extend(self.offer(attempt_id, offer_sdp))
-            }
+            SignallingInput::OfferReady {
+                attempt_id,
+                offer_sdp,
+            } => out.extend(self.offer(attempt_id, offer_sdp)),
             SignallingInput::AnswerReceived { attempt_id, answer } => {
                 out.extend(self.answer(attempt_id, answer))
             }
@@ -228,7 +229,10 @@ impl Signalling {
             return self.fault(attempt_id, CarrierFault::InvalidOffer, detail);
         }
         self.set_phase(PeerPhase::Negotiating, None);
-        vec![CarrierEffect::NegotiateOffer { attempt_id, offer_sdp }]
+        vec![CarrierEffect::NegotiateOffer {
+            attempt_id,
+            offer_sdp,
+        }]
     }
 
     /// The coordinator answered. The tuple is checked before the SDP because
@@ -249,7 +253,10 @@ impl Signalling {
         }
         self.set_phase(PeerPhase::Authenticating, None);
         let answer_sdp = answer.answer_sdp;
-        vec![CarrierEffect::ApplyAnswer { attempt_id, answer_sdp }]
+        vec![CarrierEffect::ApplyAnswer {
+            attempt_id,
+            answer_sdp,
+        }]
     }
 
     /// A refusal arrived. One naming no attempt is a COORDINATOR failure: the
@@ -339,12 +346,7 @@ impl Signalling {
 
     /// The attempt is over. Everything after is the four fault rules and the
     /// fallback, and nothing here touches the session's Sync authority.
-    fn fault(
-        &mut self,
-        attempt_id: u64,
-        fault: CarrierFault,
-        detail: &str,
-    ) -> Vec<CarrierEffect> {
+    fn fault(&mut self, attempt_id: u64, fault: CarrierFault, detail: &str) -> Vec<CarrierEffect> {
         if self.attempt_id() != Some(attempt_id) {
             return Vec::new();
         }

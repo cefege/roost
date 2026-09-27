@@ -16,9 +16,9 @@ use roost_client_core::client::attachments::packets::assembler::AttachmentPacket
 use roost_client_core::client::attachments::packets::lanes::AttachmentPeerPacketLanes;
 use roost_client_core::client::attachments::packets::queue::AttachmentPacketQueue;
 use roost_client_core::client::attachments::packets::{
-    ATTACHMENT_PACKET_HEADER_BYTES, ATTACHMENT_PACKET_MAX_BYTES, ATTACHMENT_PACKET_MAX_PAYLOAD_BYTES,
-    ATTACHMENT_PACKET_STALL_MS, AttachmentPacketError, AttachmentPacketHeader, PeerLane,
-    encode_attachment_packet, parse_attachment_packet,
+    ATTACHMENT_PACKET_HEADER_BYTES, ATTACHMENT_PACKET_MAX_BYTES,
+    ATTACHMENT_PACKET_MAX_PAYLOAD_BYTES, ATTACHMENT_PACKET_STALL_MS, AttachmentPacketError,
+    AttachmentPacketHeader, PeerLane, encode_attachment_packet, parse_attachment_packet,
 };
 
 // ---------------------------------------------------------------- the packet
@@ -109,7 +109,11 @@ fn a_fragmented_message_reassembles_only_in_order() {
     )
     .expect("encodable");
 
-    assert_eq!(assembler.push(&first, 0), Ok(None), "half a message is not a message");
+    assert_eq!(
+        assembler.push(&first, 0),
+        Ok(None),
+        "half a message is not a message"
+    );
     assert!(assembler.has_partial_message());
     assert_eq!(assembler.push(&second, 10), Ok(Some(whole)));
     assert!(!assembler.has_partial_message());
@@ -197,10 +201,16 @@ fn the_outbound_queue_fragments_a_frame_and_keeps_it_until_the_send_is_accepted(
     assert_eq!(peek(&mut queue).0, first_bytes);
     assert_eq!(queue.message_count(), 1);
 
-    let pending = queue.next_fragment().expect("a packet is owed").expect("a packet");
+    let pending = queue
+        .next_fragment()
+        .expect("a packet is owed")
+        .expect("a packet");
     pending.commit();
     assert_eq!(queue.message_count(), 1, "the frame is only half out");
-    let pending = queue.next_fragment().expect("a packet is owed").expect("a packet");
+    let pending = queue
+        .next_fragment()
+        .expect("a packet is owed")
+        .expect("a packet");
     assert!(pending.final_fragment);
     pending.commit();
     assert_eq!(queue.message_count(), 0);
@@ -219,7 +229,9 @@ fn the_two_lanes_keep_independent_budgets_in_both_directions() {
     // neither may spend the other's.
     let control_budget = PeerLane::Control.queue_max_bytes();
     assert_eq!(
-        lanes.outbound_mut(PeerLane::Control).enqueue(vec![0u8; control_budget]),
+        lanes
+            .outbound_mut(PeerLane::Control)
+            .enqueue(vec![0u8; control_budget]),
         Ok(true)
     );
     assert_eq!(

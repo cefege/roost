@@ -157,7 +157,11 @@ impl AttachmentPacketError {
 
 impl fmt::Display for AttachmentPacketError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "attachment transfer packet rejected: {}", self.as_str())
+        write!(
+            formatter,
+            "attachment transfer packet rejected: {}",
+            self.as_str()
+        )
     }
 }
 

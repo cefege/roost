@@ -31,7 +31,11 @@ pub const STATUS_DOT_STYLESHEET_HREF: &str = "/components/Settings/md/status-dot
 #[component]
 pub fn Icon(name: String, filled: bool) -> Element {
     attach_stylesheet(ICON_STYLESHEET_HREF);
-    let class = if filled { "md-icon md-icon--filled" } else { "md-icon" };
+    let class = if filled {
+        "md-icon md-icon--filled"
+    } else {
+        "md-icon"
+    };
     rsx! {
         span {
             class,
@@ -172,7 +176,10 @@ mod tests {
         // matters — while the label still distinguishes "nothing is running"
         // from "we cannot reach the coordinator".
         assert_eq!(status_token("idle"), status_token("offline"));
-        assert_ne!(CoordinatorState::Syncing.label(), CoordinatorState::Unreachable.label());
+        assert_ne!(
+            CoordinatorState::Syncing.label(),
+            CoordinatorState::Unreachable.label()
+        );
     }
 
     #[test]

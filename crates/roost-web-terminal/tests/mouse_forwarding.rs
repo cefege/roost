@@ -50,7 +50,12 @@ const fn wheel(direction: WheelDirection, col: u32, row: u32) -> MouseReport {
 
 fn with(report: MouseReport, shift: bool, alt: bool, ctrl: bool, meta: bool) -> MouseReport {
     MouseReport {
-        modifiers: MouseModifiers { shift, alt, ctrl, meta },
+        modifiers: MouseModifiers {
+            shift,
+            alt,
+            ctrl,
+            meta,
+        },
         ..report
     }
 }
@@ -96,7 +101,10 @@ fn an_app_that_never_requested_tracking_gets_nothing_whatever_the_gesture() {
         assert_eq!(forwarded_mouse_report(OFF, &report), None);
     }
     let off_x10 = modes(MouseTracking::None, false);
-    assert_eq!(should_forward(off_x10, &press(MouseButton::Left, 1, 1)), None);
+    assert_eq!(
+        should_forward(off_x10, &press(MouseButton::Left, 1, 1)),
+        None
+    );
 }
 
 #[test]
@@ -105,7 +113,10 @@ fn mode_1000_reports_press_and_release_but_never_motion() {
     assert_eq!(sgr_text(SGR_CLICK, &down).as_deref(), Some("\x1b[<0;7;3M"));
     let up = release(MouseButton::Left, 7, 3);
     assert_eq!(sgr_text(SGR_CLICK, &up).as_deref(), Some("\x1b[<0;7;3m"));
-    assert_eq!(forwarded_mouse_report(SGR_CLICK, &motion(MouseButton::Left, true, 8, 3)), None);
+    assert_eq!(
+        forwarded_mouse_report(SGR_CLICK, &motion(MouseButton::Left, true, 8, 3)),
+        None
+    );
 }
 
 #[test]
@@ -116,12 +127,18 @@ fn mode_1002_reports_motion_only_while_a_button_is_held() {
     assert_eq!(sgr_text(SGR, &right).as_deref(), Some("\x1b[<34;8;3M"));
     // A hover: mode 1003 (any-motion) is folded to 0 by the core, so an unheld
     // move is never reportable in any mode Roost can see.
-    assert_eq!(forwarded_mouse_report(SGR, &motion(MouseButton::Left, false, 8, 3)), None);
+    assert_eq!(
+        forwarded_mouse_report(SGR, &motion(MouseButton::Left, false, 8, 3)),
+        None
+    );
 }
 
 #[test]
 fn buttons_and_modifier_bits_land_in_cb_and_shift_alt_keep_the_gesture_native() {
-    assert_eq!(sgr_text(SGR, &press(MouseButton::Right, 3, 4)).as_deref(), Some("\x1b[<2;3;4M"));
+    assert_eq!(
+        sgr_text(SGR, &press(MouseButton::Right, 3, 4)).as_deref(),
+        Some("\x1b[<2;3;4M")
+    );
     for (ctrl, meta, expected) in [
         (false, true, "\x1b[<8;1;1M"),
         (true, false, "\x1b[<16;1;1M"),
@@ -132,8 +149,14 @@ fn buttons_and_modifier_bits_land_in_cb_and_shift_alt_keep_the_gesture_native() 
     }
     // Shift/Alt are Roost's bypass, so they neither forward nor set bit 4.
     for (shift, alt) in [(true, false), (false, true)] {
-        for report in [press(MouseButton::Left, 1, 1), wheel(WheelDirection::Up, 1, 1)] {
-            assert_eq!(forwarded_mouse_report(SGR, &with(report, shift, alt, false, false)), None);
+        for report in [
+            press(MouseButton::Left, 1, 1),
+            wheel(WheelDirection::Up, 1, 1),
+        ] {
+            assert_eq!(
+                forwarded_mouse_report(SGR, &with(report, shift, alt, false, false)),
+                None
+            );
         }
     }
     // Mid-drag the app already owns the button: a modifier pressed after the
@@ -152,21 +175,48 @@ fn buttons_and_modifier_bits_land_in_cb_and_shift_alt_keep_the_gesture_native() 
 
 #[test]
 fn wheel_notches_are_buttons_64_and_65_in_both_encodings() {
-    assert_eq!(sgr_text(SGR, &wheel(WheelDirection::Up, 1, 1)).as_deref(), Some("\x1b[<64;1;1M"));
-    assert_eq!(sgr_text(SGR, &wheel(WheelDirection::Down, 1, 1)).as_deref(), Some("\x1b[<65;1;1M"));
+    assert_eq!(
+        sgr_text(SGR, &wheel(WheelDirection::Up, 1, 1)).as_deref(),
+        Some("\x1b[<64;1;1M")
+    );
+    assert_eq!(
+        sgr_text(SGR, &wheel(WheelDirection::Down, 1, 1)).as_deref(),
+        Some("\x1b[<65;1;1M")
+    );
     let notch = wheel(WheelDirection::Down, 2, 5);
-    assert_eq!(sgr_text(SGR_CLICK, &notch).as_deref(), Some("\x1b[<65;2;5M"));
-    assert_eq!(x10_bytes(&wheel(WheelDirection::Up, 1, 1)), [0x1b, 0x5b, 0x4d, 96, 33, 33]);
-    assert_eq!(x10_bytes(&wheel(WheelDirection::Down, 1, 1)), [0x1b, 0x5b, 0x4d, 97, 33, 33]);
+    assert_eq!(
+        sgr_text(SGR_CLICK, &notch).as_deref(),
+        Some("\x1b[<65;2;5M")
+    );
+    assert_eq!(
+        x10_bytes(&wheel(WheelDirection::Up, 1, 1)),
+        [0x1b, 0x5b, 0x4d, 96, 33, 33]
+    );
+    assert_eq!(
+        x10_bytes(&wheel(WheelDirection::Down, 1, 1)),
+        [0x1b, 0x5b, 0x4d, 97, 33, 33]
+    );
 }
 
 #[test]
 fn without_decset_1006_the_report_is_legacy_x10_bytes_release_included() {
-    assert_eq!(x10_bytes(&press(MouseButton::Left, 1, 1)), [0x1b, 0x5b, 0x4d, 32, 33, 33]);
-    assert_eq!(x10_bytes(&press(MouseButton::Right, 10, 4)), [0x1b, 0x5b, 0x4d, 34, 42, 36]);
-    assert_eq!(x10_bytes(&motion(MouseButton::Left, true, 10, 4)), [0x1b, 0x5b, 0x4d, 64, 42, 36]);
+    assert_eq!(
+        x10_bytes(&press(MouseButton::Left, 1, 1)),
+        [0x1b, 0x5b, 0x4d, 32, 33, 33]
+    );
+    assert_eq!(
+        x10_bytes(&press(MouseButton::Right, 10, 4)),
+        [0x1b, 0x5b, 0x4d, 34, 42, 36]
+    );
+    assert_eq!(
+        x10_bytes(&motion(MouseButton::Left, true, 10, 4)),
+        [0x1b, 0x5b, 0x4d, 64, 42, 36]
+    );
     // X10 has no per-button release: every release is "all buttons up" (3).
-    assert_eq!(x10_bytes(&release(MouseButton::Right, 10, 4)), [0x1b, 0x5b, 0x4d, 35, 42, 36]);
+    assert_eq!(
+        x10_bytes(&release(MouseButton::Right, 10, 4)),
+        [0x1b, 0x5b, 0x4d, 35, 42, 36]
+    );
     let ctrl = with(press(MouseButton::Left, 1, 1), false, false, true, false);
     assert_eq!(x10_bytes(&ctrl), [0x1b, 0x5b, 0x4d, 48, 33, 33]);
 }
@@ -176,14 +226,26 @@ fn x10_coordinates_clamp_at_cell_223_while_sgr_stays_exact() {
     // xterm's MOUSE_LIMIT: cell 223 is the last one the biased byte can name,
     // and it names it as 255. Clamping the BYTE at 223 instead would collapse
     // every column past 191 onto 191 — inside the width of an ordinary pane.
-    assert_eq!(x10_bytes(&press(MouseButton::Left, 191, 200)), [0x1b, 0x5b, 0x4d, 32, 223, 232]);
-    assert_eq!(x10_bytes(&press(MouseButton::Left, 223, 223)), [0x1b, 0x5b, 0x4d, 32, 255, 255]);
-    assert_eq!(x10_bytes(&press(MouseButton::Left, 400, 300)), [0x1b, 0x5b, 0x4d, 32, 255, 255]);
+    assert_eq!(
+        x10_bytes(&press(MouseButton::Left, 191, 200)),
+        [0x1b, 0x5b, 0x4d, 32, 223, 232]
+    );
+    assert_eq!(
+        x10_bytes(&press(MouseButton::Left, 223, 223)),
+        [0x1b, 0x5b, 0x4d, 32, 255, 255]
+    );
+    assert_eq!(
+        x10_bytes(&press(MouseButton::Left, 400, 300)),
+        [0x1b, 0x5b, 0x4d, 32, 255, 255]
+    );
     // Every byte stays one byte: a String would UTF-8 expand everything past 0x7f.
     let far = forwarded_mouse_report(X10, &press(MouseButton::Left, 400, 300));
     assert_eq!(far.expect("a press is reported").len(), 6);
     let far_cell = press(MouseButton::Left, 400, 300);
-    assert_eq!(sgr_text(SGR, &far_cell).as_deref(), Some("\x1b[<0;400;300M"));
+    assert_eq!(
+        sgr_text(SGR, &far_cell).as_deref(),
+        Some("\x1b[<0;400;300M")
+    );
 }
 
 #[test]
@@ -195,7 +257,10 @@ fn buttons_with_no_mouse_report_encoding_are_left_alone() {
     assert_eq!(mouse_button_from_dom(4), None);
     assert_eq!(mouse_button_from_dom(-1), None);
     assert_eq!(mouse_button_from_dom(1), Some(MouseButton::Middle));
-    assert_eq!(sgr_text(SGR, &press(MouseButton::Middle, 1, 1)).as_deref(), Some("\x1b[<1;1;1M"));
+    assert_eq!(
+        sgr_text(SGR, &press(MouseButton::Middle, 1, 1)).as_deref(),
+        Some("\x1b[<1;1;1M")
+    );
 }
 
 #[test]
@@ -207,12 +272,24 @@ fn the_mouse_forward_default_is_on_and_is_the_default_the_store_loads() {
     assert!(MOUSE_FORWARD_DEFAULT);
     let stored_default = roost_client_core::store::prefs::Prefs::default().mouse_forward;
     assert_eq!(stored_default, MOUSE_FORWARD_DEFAULT);
-    assert!(mouse_gestures_forwarded(MOUSE_FORWARD_DEFAULT, MouseTracking::PressRelease));
-    assert!(mouse_gestures_forwarded(MOUSE_FORWARD_DEFAULT, MouseTracking::ButtonMotion));
+    assert!(mouse_gestures_forwarded(
+        MOUSE_FORWARD_DEFAULT,
+        MouseTracking::PressRelease
+    ));
+    assert!(mouse_gestures_forwarded(
+        MOUSE_FORWARD_DEFAULT,
+        MouseTracking::ButtonMotion
+    ));
     // Alt-screen occupancy is NOT the question: an app that never asked keeps
     // the browser's own selection and scroll.
-    assert!(!mouse_gestures_forwarded(MOUSE_FORWARD_DEFAULT, MouseTracking::None));
-    assert!(!mouse_gestures_forwarded(false, MouseTracking::ButtonMotion));
+    assert!(!mouse_gestures_forwarded(
+        MOUSE_FORWARD_DEFAULT,
+        MouseTracking::None
+    ));
+    assert!(!mouse_gestures_forwarded(
+        false,
+        MouseTracking::ButtonMotion
+    ));
 }
 
 // ── native wheel and touch reader intent ──────────────────────────────────
@@ -235,13 +312,19 @@ fn wheel_gestures_with_no_overflow_leave_live_painting_enabled() {
 #[test]
 fn wheel_intent_follows_the_available_direction_at_both_clamped_edges() {
     // Wheel up is clamped at the top; wheel down can move toward the live tail.
-    assert_eq!(intent(NativeGesture::Wheel, pane(0.0), -20.0), NativeScrollIntent::Clamped);
+    assert_eq!(
+        intent(NativeGesture::Wheel, pane(0.0), -20.0),
+        NativeScrollIntent::Clamped
+    );
     assert_eq!(
         intent(NativeGesture::Wheel, pane(0.0), 20.0),
         NativeScrollIntent::Park(ReaderIntentReason::Wheel)
     );
     // Wheel down is clamped at the bottom; wheel up can move into history.
-    assert_eq!(intent(NativeGesture::Wheel, pane(200.0), 20.0), NativeScrollIntent::Clamped);
+    assert_eq!(
+        intent(NativeGesture::Wheel, pane(200.0), 20.0),
+        NativeScrollIntent::Clamped
+    );
     assert_eq!(
         intent(NativeGesture::Wheel, pane(200.0), -20.0),
         NativeScrollIntent::Park(ReaderIntentReason::Wheel)
@@ -253,20 +336,29 @@ fn touch_gestures_with_no_overflow_leave_live_painting_enabled() {
     // A finger moving down scrolls toward history and one moving up toward the
     // live tail, so the sign is inverted before it means anything here.
     for travel in [20.0, -20.0] {
-        assert_eq!(intent(NativeGesture::Touch, NO_OVERFLOW, -travel), NativeScrollIntent::Clamped);
+        assert_eq!(
+            intent(NativeGesture::Touch, NO_OVERFLOW, -travel),
+            NativeScrollIntent::Clamped
+        );
     }
 }
 
 #[test]
 fn touch_intent_follows_the_available_direction_at_both_clamped_edges() {
     // A finger down is clamped at the top; a finger up reaches the live tail.
-    assert_eq!(intent(NativeGesture::Touch, pane(0.0), -20.0), NativeScrollIntent::Clamped);
+    assert_eq!(
+        intent(NativeGesture::Touch, pane(0.0), -20.0),
+        NativeScrollIntent::Clamped
+    );
     assert_eq!(
         intent(NativeGesture::Touch, pane(0.0), 20.0),
         NativeScrollIntent::Park(ReaderIntentReason::Touch)
     );
     // A finger up is clamped at the bottom; a finger down moves into history.
-    assert_eq!(intent(NativeGesture::Touch, pane(200.0), 20.0), NativeScrollIntent::Clamped);
+    assert_eq!(
+        intent(NativeGesture::Touch, pane(200.0), 20.0),
+        NativeScrollIntent::Clamped
+    );
     assert_eq!(
         intent(NativeGesture::Touch, pane(200.0), -20.0),
         NativeScrollIntent::Park(ReaderIntentReason::Touch)
@@ -279,17 +371,30 @@ fn application_forwarding_still_owns_clamped_wheel_and_touch_gestures() {
     // stopped, so the reader is never parked at all — which is why no reader
     // intent is consulted for a gesture forwarding owns.
     let notch = wheel(WheelDirection::Down, 1, 1);
-    assert_eq!(should_forward(SGR, &notch), Some(MouseReportEncoding::Sgr1006));
+    assert_eq!(
+        should_forward(SGR, &notch),
+        Some(MouseReportEncoding::Sgr1006)
+    );
     assert_eq!(sgr_text(SGR, &notch).as_deref(), Some("\x1b[<65;1;1M"));
     // The touch side of the same gesture, and its one-cell-height threshold.
-    assert_eq!(touch_travel_notches(10.0, -9.0), None, "a sub-cell tap changes no state");
+    assert_eq!(
+        touch_travel_notches(10.0, -9.0),
+        None,
+        "a sub-cell tap changes no state"
+    );
     let (notches, direction) = touch_travel_notches(10.0, -20.0).expect("two cells of travel");
     assert_eq!(notches, 2);
-    assert_eq!(sgr_text(SGR, &wheel(direction, 1, 1)).as_deref(), Some("\x1b[<65;1;1M"));
+    assert_eq!(
+        sgr_text(SGR, &wheel(direction, 1, 1)).as_deref(),
+        Some("\x1b[<65;1;1M")
+    );
     // And the pane those notches are on has no overflow at all, so neither
     // direction could have scrolled it: forwarding owns the gesture outright.
     for gesture in [NativeGesture::Wheel, NativeGesture::Touch] {
-        assert_eq!(intent(gesture, NO_OVERFLOW, 20.0), NativeScrollIntent::Clamped);
+        assert_eq!(
+            intent(gesture, NO_OVERFLOW, 20.0),
+            NativeScrollIntent::Clamped
+        );
     }
 }
 
@@ -309,7 +414,10 @@ fn a_native_wheel_bypass_is_guarded_by_the_same_scroll_feasibility() {
     // is still guarded by whether the gesture could move the display.
     let bypass = with(wheel(WheelDirection::Up, 1, 1), true, false, false, false);
     assert_eq!(forwarded_mouse_report(SGR, &bypass), None);
-    assert_eq!(intent(NativeGesture::Wheel, pane(0.0), -20.0), NativeScrollIntent::Clamped);
+    assert_eq!(
+        intent(NativeGesture::Wheel, pane(0.0), -20.0),
+        NativeScrollIntent::Clamped
+    );
     assert_eq!(
         intent(NativeGesture::Wheel, pane(50.0), -20.0),
         NativeScrollIntent::Park(ReaderIntentReason::Wheel)
@@ -323,7 +431,10 @@ fn a_forwarded_drag_is_completed_at_the_cell_it_last_saw() {
     let mut forwarding = MouseForwarding::default();
     assert!(!forwarding.is_dragging());
     let sent = forwarding.press(SGR, MouseButton::Left, (4, 2), NONE_MODIFIERS);
-    assert_eq!(sent.expect("mode 1002 reports a press").as_bytes(), b"\x1b[<0;4;2M");
+    assert_eq!(
+        sent.expect("mode 1002 reports a press").as_bytes(),
+        b"\x1b[<0;4;2M"
+    );
     assert_eq!(forwarding.pressed_button(), Some(MouseButton::Left));
     let moved = forwarding.motion(SGR, (5, 3), NONE_MODIFIERS);
     assert!(moved.consumed);
@@ -336,7 +447,10 @@ fn a_forwarded_drag_is_completed_at_the_cell_it_last_saw() {
     // The pane is about to drop the window listener that would have sent the
     // release, so the drag is completed at the last cell the app was told about.
     let settled = forwarding.complete_held_drag(SGR);
-    assert_eq!(settled.expect("an owed release").as_bytes(), b"\x1b[<0;5;3m");
+    assert_eq!(
+        settled.expect("an owed release").as_bytes(),
+        b"\x1b[<0;5;3m"
+    );
     assert!(!forwarding.is_dragging());
     assert_eq!(forwarding.complete_held_drag(SGR), None);
 }
@@ -350,7 +464,11 @@ fn a_mode_1000_drag_is_consumed_by_the_browser_but_reports_no_motion() {
     assert_eq!(moved.report, None);
     let released = forwarding.release(SGR_CLICK, (5, 3), NONE_MODIFIERS);
     assert!(released.consumed);
-    assert!(released.report.is_some_and(|report| report.as_bytes() == b"\x1b[<0;5;3m"));
+    assert!(
+        released
+            .report
+            .is_some_and(|report| report.as_bytes() == b"\x1b[<0;5;3m")
+    );
     // A release with no press outstanding is the browser's own.
     let idle = forwarding.release(SGR_CLICK, (5, 3), NONE_MODIFIERS);
     assert!(!idle.consumed);

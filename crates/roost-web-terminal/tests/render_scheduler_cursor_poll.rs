@@ -62,7 +62,10 @@ fn the_last_unmounted_pane_stops_the_interval_and_a_double_release_does_not() {
     ticker.register(first, 0);
     ticker.register(second, 0);
 
-    assert!(!ticker.unregister(second), "a sibling pane still rides the interval");
+    assert!(
+        !ticker.unregister(second),
+        "a sibling pane still rides the interval"
+    );
     assert!(ticker.is_armed());
     assert!(
         !ticker.unregister(second),
@@ -85,7 +88,10 @@ fn a_credential_boundary_removes_every_pane_and_stops_the_interval() {
     ticker.register(CursorPollPane::new(3), 0);
     assert_eq!(ticker.registered_panes(), 3);
 
-    assert!(ticker.reset(), "a credential boundary stops the interval it owned");
+    assert!(
+        ticker.reset(),
+        "a credential boundary stops the interval it owned"
+    );
     assert_eq!(ticker.registered_panes(), 0);
     assert!(!ticker.is_armed());
     assert!(!ticker.reset(), "and there is nothing left to stop");
@@ -166,5 +172,8 @@ fn a_throttled_timer_re_arms_once_from_now_rather_than_once_per_missed_interval(
     assert_eq!(ticker.due_at_ms(), Some(9_500));
     assert!(!ticker.take_due(9_999));
     assert!(ticker.take_due(9_500 + CURSOR_POLL_INTERVAL_MS));
-    assert_eq!(ticker.due_at_ms(), Some(9_500 + 2 * CURSOR_POLL_INTERVAL_MS));
+    assert_eq!(
+        ticker.due_at_ms(),
+        Some(9_500 + 2 * CURSOR_POLL_INTERVAL_MS)
+    );
 }

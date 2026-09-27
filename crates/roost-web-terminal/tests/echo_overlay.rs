@@ -13,12 +13,9 @@
 
 use roost_client_core::client::predictive_echo::{EchoPaint, PredictedCell};
 use roost_web_terminal::echo_overlay::{
-    PREDICTED_ERASE_CLASS, PREDICTED_GLYPH_CLASS, cell_left, cell_top, plan_paint,
-    prediction_style,
+    PREDICTED_ERASE_CLASS, PREDICTED_GLYPH_CLASS, cell_left, cell_top, plan_paint, prediction_style,
 };
-use roost_web_terminal::reader_intent::{
-    ReaderIntentReason, ReaderState, ReconcileBlockReason,
-};
+use roost_web_terminal::reader_intent::{ReaderIntentReason, ReaderState, ReconcileBlockReason};
 
 /// A paint request over one row: `ch` empty is an erase cell.
 fn paint(cells: &[(u32, &str)], flagged: bool, caret_col: Option<u32>) -> EchoPaint {
@@ -55,7 +52,10 @@ fn an_erase_cell_paints_no_glyph_and_is_never_flagged() {
     let planned = plan_paint(&paint(&[(1, ""), (2, "z")], true, None));
     assert_eq!(planned[0].class_name, PREDICTED_ERASE_CLASS);
     assert_eq!(planned[0].text, "");
-    assert!(!planned[0].underlined, "an underline would draw a line that is not there");
+    assert!(
+        !planned[0].underlined,
+        "an underline would draw a line that is not there"
+    );
     // A flagged GLYPH is underlined, so the user can tell a guess from an echo.
     assert!(planned[1].underlined);
     assert_eq!(planned[1].class_name, PREDICTED_GLYPH_CLASS);

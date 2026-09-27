@@ -20,7 +20,7 @@ use roost_client_core::client::attachments::transfer::ledger::{
     begin_upload_card, record_upload_progress, settle_upload_card,
 };
 use roost_client_core::client::attachments::transfer::receipt::{
-    COORDINATOR_STATUS_DEADLINE_MS, RECEIPT_SOURCES, AttachmentTransferStatus, ReceiptOutcome,
+    AttachmentTransferStatus, COORDINATOR_STATUS_DEADLINE_MS, RECEIPT_SOURCES, ReceiptOutcome,
     ReceiptSource, settle_from_receipt,
 };
 use roost_client_core::client::attachments::transfer::{
@@ -45,7 +45,9 @@ struct HostFile {
 impl HostFile {
     fn of_size(size: usize) -> Self {
         Self {
-            bytes: (0..size).map(|index| ((index * 13 + 5) & 0xff) as u8).collect(),
+            bytes: (0..size)
+                .map(|index| ((index * 13 + 5) & 0xff) as u8)
+                .collect(),
         }
     }
 
@@ -62,7 +64,11 @@ impl HostFile {
 fn accepting_ack(chunk: &InFlightChunk) -> AttachmentTransferAck {
     AttachmentTransferAck {
         bytes_received: chunk.expected_bytes(),
-        abs_path: if chunk.last { WORKER_PATH.to_owned() } else { String::new() },
+        abs_path: if chunk.last {
+            WORKER_PATH.to_owned()
+        } else {
+            String::new()
+        },
         chunk_sha256: chunk.chunk_sha256.clone(),
     }
 }
@@ -100,7 +106,11 @@ fn sends_ordered_512_kib_byte_slices_and_advances_only_from_matching_acks() {
         "the boundary is the direct chunk size and the last flag rides the end of the file"
     );
     let lengths: Vec<usize> = framed.iter().map(|(_, _, _, data)| data.len()).collect();
-    assert_eq!(lengths, vec![DIRECT_CHUNK_BYTES as usize, 3], "no slice is short but the last");
+    assert_eq!(
+        lengths,
+        vec![DIRECT_CHUNK_BYTES as usize, 3],
+        "no slice is short but the last"
+    );
     assert_eq!(
         progress,
         vec![DIRECT_CHUNK_BYTES, DIRECT_CHUNK_BYTES + 3],
@@ -110,7 +120,10 @@ fn sends_ordered_512_kib_byte_slices_and_advances_only_from_matching_acks() {
         .iter()
         .flat_map(|(_, _, _, data)| data.clone())
         .collect();
-    assert_eq!(reassembled, file.bytes, "the slices reassemble into the file");
+    assert_eq!(
+        reassembled, file.bytes,
+        "the slices reassemble into the file"
+    );
     assert_eq!(
         upload.outcome().map(|result| result.abs_path),
         Some(WORKER_PATH.to_owned())
@@ -121,14 +134,11 @@ fn sends_ordered_512_kib_byte_slices_and_advances_only_from_matching_acks() {
 #[test]
 fn preserves_a_zero_byte_file_as_one_final_direct_chunk() {
     let mut upload = DirectUpload::new("upload-a", 0);
-    let request = upload.next_slice().expect("a zero-byte file still has one chunk");
+    let request = upload
+        .next_slice()
+        .expect("a zero-byte file still has one chunk");
     assert_eq!(
-        (
-            request.seq,
-            request.offset,
-            request.bytes,
-            request.last
-        ),
+        (request.seq, request.offset, request.bytes, request.last),
         (0, 0, 0, true),
         "a file with no chunks is a file that was never created"
     );
@@ -141,7 +151,11 @@ fn preserves_a_zero_byte_file_as_one_final_direct_chunk() {
         .expect("the empty final chunk settles");
     assert_eq!(settled.bytes_received, 0);
     assert!(settled.completed);
-    assert_eq!(upload.next_slice(), None, "no slice follows the final chunk");
+    assert_eq!(
+        upload.next_slice(),
+        None,
+        "no slice follows the final chunk"
+    );
     assert_eq!(
         upload.outcome().map(|result| result.abs_path),
         Some(WORKER_PATH.to_owned())
@@ -242,16 +256,15 @@ fn does_not_resume_a_nonfinal_direct_upload_through_coordinator_status() {
         sent_sequences.push(in_flight.seq);
         if sent_sequences.len() == 1 {
             first_in_flight = Some(in_flight);
-            let receipt =
-                AttachmentTransferStatus {
-                    upload_id: "upload-a".to_owned(),
-                    next_seq: 1,
-                    bytes_received: DIRECT_CHUNK_BYTES,
-                    last_chunk_sha256: FIRST_DIGEST.to_owned(),
-                    committed: false,
-                    abs_path: String::new(),
-                    error: String::new(),
-                };
+            let receipt = AttachmentTransferStatus {
+                upload_id: "upload-a".to_owned(),
+                next_seq: 1,
+                bytes_received: DIRECT_CHUNK_BYTES,
+                last_chunk_sha256: FIRST_DIGEST.to_owned(),
+                committed: false,
+                abs_path: String::new(),
+                error: String::new(),
+            };
             assert_eq!(
                 settle_from_receipt(
                     &first_in_flight.expect("the first chunk"),
@@ -313,9 +326,18 @@ fn a_completed_transfer_verifies_its_digest_before_the_path_is_recorded() {
         abs_path: WORKER_PATH.to_owned(),
         chunk_sha256: SECOND_DIGEST.to_owned(),
     };
-    let refused = upload.settle(&wrong_digest).expect_err("a forged digest is refused");
-    assert!(refused.sent_chunk, "bytes did leave, so this is not a fallback");
-    assert_eq!(upload.outcome(), None, "no path is recorded for a refused chunk");
+    let refused = upload
+        .settle(&wrong_digest)
+        .expect_err("a forged digest is refused");
+    assert!(
+        refused.sent_chunk,
+        "bytes did leave, so this is not a fallback"
+    );
+    assert_eq!(
+        upload.outcome(),
+        None,
+        "no path is recorded for a refused chunk"
+    );
     assert_eq!(
         settle_upload_card(core.store_mut(), "upload-a", Err(reason_of(&refused)), 1),
         true

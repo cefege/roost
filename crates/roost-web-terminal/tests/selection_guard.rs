@@ -4,8 +4,8 @@
 //! two facts an adapter reads — the live selection and the retained range.
 
 use roost_web_terminal::input::{
-    ComposeSelection, ComposerSelection, DomNodeId, FocusOwner, LiveSelection, OwnedRow, PaneInputs,
-    RetainedRange, SelectionDirection, SelectionEndpoint, SelectionGuard, YieldLapse,
+    ComposeSelection, ComposerSelection, DomNodeId, FocusOwner, LiveSelection, OwnedRow,
+    PaneInputs, RetainedRange, SelectionDirection, SelectionEndpoint, SelectionGuard, YieldLapse,
 };
 
 /// This pane's display, its painted row, that row's text node, and the
@@ -17,11 +17,17 @@ const COMPOSER: DomNodeId = DomNodeId(4);
 
 /// The one row a pane-owned selection resolves to.
 fn the_row() -> Vec<OwnedRow> {
-    vec![OwnedRow { id: ROW, text: "v0".to_string() }]
+    vec![OwnedRow {
+        id: ROW,
+        text: "v0".to_string(),
+    }]
 }
 
 fn endpoint(offset: u32) -> SelectionEndpoint {
-    SelectionEndpoint { node: TEXT_NODE, offset }
+    SelectionEndpoint {
+        node: TEXT_NODE,
+        offset,
+    }
 }
 
 /// A selection spanning `text` inside the pane's own row.
@@ -120,7 +126,6 @@ fn inputs<'a>(live: &'a LiveSelection, retained: &'a RetainedRange) -> PaneInput
     }
 }
 
-
 /// Capture `v0` on `guard` and hand the composer the same inputs.
 fn capture_v0(guard: &mut SelectionGuard) -> (ComposeSelection, LiveSelection, RetainedRange) {
     let mut composer = ComposeSelection::new();
@@ -135,7 +140,11 @@ fn suspended_composer_pane() -> (SelectionGuard, ComposeSelection) {
     let mut guard = SelectionGuard::new();
     let (mut composer, live, held) = capture_v0(&mut guard);
     let yielded = focused_by_composer(&live);
-    assert!(composer.suspend(&mut guard, inputs(&yielded, &held)).is_some());
+    assert!(
+        composer
+            .suspend(&mut guard, inputs(&yielded, &held))
+            .is_some()
+    );
     (guard, composer)
 }
 
@@ -164,7 +173,8 @@ fn a_selection_still_live_when_the_listeners_re_attach_keeps_paint_held() {
 }
 
 #[test]
-fn a_selection_anchored_in_the_terminal_is_held_against_a_select_all_the_renderer_did_not_ask_for() {
+fn a_selection_anchored_in_the_terminal_is_held_against_a_select_all_the_renderer_did_not_ask_for()
+{
     let mut guard = SelectionGuard::new();
     // The user dragged across the terminal: a live pane-owned range.
     assert!(guard.sync_hold(&pane_selection("v"), None).hold);
@@ -183,7 +193,11 @@ fn a_selection_anchored_in_the_terminal_is_held_against_a_select_all_the_rendere
 #[test]
 fn a_suspension_whose_restore_never_runs_stops_holding_paint_once_its_range_is_gone() {
     let (mut guard, _composer) = suspended_composer_pane();
-    assert!(guard.sync_hold(&pane_selection("v0"), Some(&retained("v0"))).hold);
+    assert!(
+        guard
+            .sync_hold(&pane_selection("v0"), Some(&retained("v0")))
+            .hold
+    );
     // What a canonical repair does to the captured row: the same text painted
     // on new nodes, which the old endpoints no longer resolve to. Nothing
     // restores or releases the capture afterwards.

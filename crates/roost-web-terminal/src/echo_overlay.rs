@@ -41,11 +41,11 @@ pub struct PredictiveEchoOverlay {
 impl PredictiveEchoOverlay {
     /// Create the overlay and attach it to the pane's viewport element.
     pub fn new(viewport: &Element) -> DomResult<Self> {
-        let doc = viewport
-            .owner_document()
-            .ok_or_else(|| crate::cell_renderer_dom::DomSetupError::RefusedTag {
+        let doc = viewport.owner_document().ok_or_else(|| {
+            crate::cell_renderer_dom::DomSetupError::RefusedTag {
                 tag: "document".to_string(),
-            })?;
+            }
+        })?;
         let overlay = create_div(&doc)?;
         overlay.set_class_name(OVERLAY_CLASS);
         set_style_property(&overlay, "position", "absolute");
@@ -64,12 +64,11 @@ impl PredictiveEchoOverlay {
     /// Repaint every predicted cell, or clear the overlay when `plan` is empty.
     pub fn paint(&self, plan: &[PaintedPrediction]) -> DomResult<()> {
         self.attach();
-        let doc = self
-            .overlay
-            .owner_document()
-            .ok_or_else(|| crate::cell_renderer_dom::DomSetupError::RefusedTag {
+        let doc = self.overlay.owner_document().ok_or_else(|| {
+            crate::cell_renderer_dom::DomSetupError::RefusedTag {
                 tag: "document".to_string(),
-            })?;
+            }
+        })?;
         self.overlay.set_inner_html("");
         for painted in plan {
             let element = create_span(&doc)?;

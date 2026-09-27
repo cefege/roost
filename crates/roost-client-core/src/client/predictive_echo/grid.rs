@@ -8,8 +8,7 @@
 use std::collections::BTreeMap;
 
 use roost_protocol::cell::{
-    CELL_REVERSE, CellGridFrame, CellSpan, DEFAULT_COLOR, column_span, column_text,
-    span_is_atomic,
+    CELL_REVERSE, CellGridFrame, CellSpan, DEFAULT_COLOR, column_span, column_text, span_is_atomic,
 };
 
 use super::expiry::GLITCH_MS;
@@ -72,7 +71,11 @@ pub enum PredictionVerdict {
 /// `None` means a sparse delta did not include the row, while `Some("")` means
 /// the represented row is blank or ends before the requested column — the two
 /// are different facts and only one of them can hold an echo.
-pub fn cell_char_at<'frame>(frame: &'frame CellGridFrame, row: u32, col: i64) -> Option<&'frame str> {
+pub fn cell_char_at<'frame>(
+    frame: &'frame CellGridFrame,
+    row: u32,
+    col: i64,
+) -> Option<&'frame str> {
     let found = frame
         .viewport_rows
         .iter()
@@ -285,7 +288,8 @@ impl PredictiveEcho {
                 PredictionVerdict::Credit => {
                     // The first tentative of an epoch unlocks it; the rest stay
                     // hidden until a later frame.
-                    if self.is_tentative(&pred) && first_tentative.get(&pred.epoch) != Some(&index) {
+                    if self.is_tentative(&pred) && first_tentative.get(&pred.epoch) != Some(&index)
+                    {
                         survivors.push(pred);
                     } else {
                         self.confirmed_epoch = self.confirmed_epoch.max(pred.epoch);

@@ -82,7 +82,11 @@ impl LocalTerminalGrant {
             device_fingerprint: device_fingerprint.into(),
             worker_epoch: answer.worker_epoch,
             peer_supported,
-            stun_urls: if peer_supported { stun_urls } else { Vec::new() },
+            stun_urls: if peer_supported {
+                stun_urls
+            } else {
+                Vec::new()
+            },
             input_route_supported: answer.input_route_supported,
             expires_at_ms: now_ms.saturating_add(answer.ttl_ms),
         })
@@ -215,8 +219,8 @@ pub use discovery::{
     BrowserEnvironment, DoorAbsence, DoorAdoption, DoorDiscovery, DoorPlan, LocalWorkerDoor,
 };
 pub use door::{
-    LOCAL_TERMINAL_PATH, LOCAL_TERMINAL_SUBPROTOCOL, LoopbackAdmission, LoopbackReady, ReadyRefusal,
-    SecretUseLedger, admit_ready, local_terminal_url, redial_delay_ms,
+    LOCAL_TERMINAL_PATH, LOCAL_TERMINAL_SUBPROTOCOL, LoopbackAdmission, LoopbackReady,
+    ReadyRefusal, SecretUseLedger, admit_ready, local_terminal_url, redial_delay_ms,
 };
 pub use grants::GrantOwner;
 pub use outbound::{InputDestination, RouteClaims, SyncTerminalState, ready_sync_destination};

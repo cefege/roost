@@ -27,7 +27,10 @@ fn folds_parked_deliveries_canonically_and_repairs_with_the_latest_full_on_activ
     assert!(!queued.armed);
     offer(&mut scheduler, &delta_frame(2, "B"), full_frame(2, "B"), 4);
     assert!(!scheduler.needs_browser_frame());
-    assert!(!scheduler.schedule_browser_frame(), "a parked pane has no frame to arm");
+    assert!(
+        !scheduler.schedule_browser_frame(),
+        "a parked pane has no frame to arm"
+    );
     assert!(renderer.full_seqs().is_empty());
     assert!(renderer.delta_seqs().is_empty());
 
@@ -35,7 +38,11 @@ fn folds_parked_deliveries_canonically_and_repairs_with_the_latest_full_on_activ
     assert!(scheduler.schedule_browser_frame());
     let activation = flush_frame(&mut scheduler, &mut renderer, 20, 0);
     assert_eq!(activation.mode, Some(ApplyMode::FallbackFull));
-    assert_eq!(renderer.full_seqs(), vec![2], "one paint, the newest canonical");
+    assert_eq!(
+        renderer.full_seqs(),
+        vec![2],
+        "one paint, the newest canonical"
+    );
     let painted = &renderer.full_frames[0];
     assert!(painted.full);
     assert_eq!(painted.base_seq, 0);
@@ -61,7 +68,10 @@ fn repairs_a_renderer_only_dropped_delta_with_a_viewport_only_checkpoint() {
     // The delta is dropped for the RENDERER alone: the replica folds it, the
     // scheduler is never offered it, and the painted DOM never reaches its seq.
     let dropped = delta_frame(2, "B");
-    assert_eq!(dropped.base_seq, 1, "it extended the baseline the DOM holds");
+    assert_eq!(
+        dropped.base_seq, 1,
+        "it extended the baseline the DOM holds"
+    );
     assert_eq!(
         scheduler.reconciled_watermark().and_then(|mark| mark.seq),
         Some(1),
@@ -87,7 +97,10 @@ fn repairs_a_renderer_only_dropped_delta_with_a_viewport_only_checkpoint() {
 
     let repair = flush_frame(&mut scheduler, &mut renderer, 16, 0);
     assert_eq!(repair.mode, Some(ApplyMode::FallbackFull));
-    let painted = renderer.full_frames.last().expect("the repair painted a full");
+    let painted = renderer
+        .full_frames
+        .last()
+        .expect("the repair painted a full");
     assert!(painted.full);
     assert_eq!(painted.base_seq, 0);
     assert_eq!(painted.seq, 3);

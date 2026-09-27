@@ -144,10 +144,7 @@ pub enum DirectAttempt {
     FailedWithBytes(AttachmentTransferCarrierError),
     /// The route failed in a way that is not a carrier refusal. The upload
     /// fails here and does NOT fall back to the relay.
-    Failed {
-        route: DirectRoute,
-        reason: String,
-    },
+    Failed { route: DirectRoute, reason: String },
 }
 
 /// Everything the loader needs from a host, and nothing it can decide itself.
@@ -209,9 +206,12 @@ pub fn upload_attachment_direct(
     let response = environment.mint_grant(&grant_request);
     let tab_id = environment.tab_id();
     let fingerprint = environment.device_fingerprint();
-    let Some(grant) =
-        AttachmentDirectGrant::from_response(grant_request.clone(), &tab_id, &fingerprint, response)
-    else {
+    let Some(grant) = AttachmentDirectGrant::from_response(
+        grant_request.clone(),
+        &tab_id,
+        &fingerprint,
+        response,
+    ) else {
         return DirectAttempt::Unavailable(DirectUnavailableReason::GrantRefused);
     };
     if !grant.admits(&grant_request) {

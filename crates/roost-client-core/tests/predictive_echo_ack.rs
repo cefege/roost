@@ -114,7 +114,11 @@ fn an_echo_frame_for_an_earlier_keystroke_never_contradicts_a_later_one() {
     let sequence_of_c = 3;
     echo.predict(b"c", sequence_of_c, 0);
     echo.note_input_written(sequence_of_c, 190);
-    echo.on_frame(&frame(2, 0, 1, vec![row_at(0, vec![plain_span("a")])]), 200, false);
+    echo.on_frame(
+        &frame(2, 0, 1, vec![row_at(0, vec![plain_span("a")])]),
+        200,
+        false,
+    );
 
     let state = echo.debug();
     assert_eq!(state.total, 2, "b and c survive as pending");
@@ -126,7 +130,11 @@ fn an_echo_frame_for_an_earlier_keystroke_never_contradicts_a_later_one() {
 fn a_reset_re_arms_the_confidence_gate() {
     let mut echo = anchored(PredictMode::Always);
     typed(&mut echo, b"a", 1, 0);
-    echo.on_frame(&frame(2, 0, 1, vec![row_at(0, vec![plain_span("a")])]), 200, false);
+    echo.on_frame(
+        &frame(2, 0, 1, vec![row_at(0, vec![plain_span("a")])]),
+        200,
+        false,
+    );
     typed(&mut echo, b"b", 2, 210);
     assert_eq!(echo.debug().visible, 1, "shown on a proven epoch");
 
@@ -151,7 +159,11 @@ fn an_echo_that_beats_the_write_ack_still_unlocks_the_burst() {
     echo.predict(b"a", 1, 0);
     // The echo and the write ack race; when the echo wins, waiting for the ack
     // would hide the first characters of the burst for another whole round trip.
-    echo.on_frame(&frame(2, 0, 1, vec![row_at(0, vec![plain_span("a")])]), 120, false);
+    echo.on_frame(
+        &frame(2, 0, 1, vec![row_at(0, vec![plain_span("a")])]),
+        120,
+        false,
+    );
 
     let state = echo.debug();
     assert_eq!(state.total, 0);
@@ -164,9 +176,17 @@ fn a_match_that_reproduces_the_cells_own_text_proves_nothing() {
     let mut echo = PredictiveEcho::new(PredictMode::Always);
     // "a" is ALREADY at that column, so the frame is not evidence our echo
     // landed: retire the guess, but do not unlock the epoch on it.
-    echo.on_frame(&frame(1, 0, 0, vec![row_at(0, vec![plain_span("a")])]), 0, false);
+    echo.on_frame(
+        &frame(1, 0, 0, vec![row_at(0, vec![plain_span("a")])]),
+        0,
+        false,
+    );
     echo.predict(b"a", 1, 0);
-    echo.on_frame(&frame(2, 0, 1, vec![row_at(0, vec![plain_span("a")])]), 120, false);
+    echo.on_frame(
+        &frame(2, 0, 1, vec![row_at(0, vec![plain_span("a")])]),
+        120,
+        false,
+    );
 
     let state = echo.debug();
     assert_eq!(state.total, 0, "the guess is retired");
@@ -181,7 +201,11 @@ fn a_later_coincidental_match_cannot_unlock_a_tentative_epoch() {
     let sequence_of_b = 2;
     echo.predict(b"b", sequence_of_b, 0);
     echo.note_input_written(sequence_of_b, 0);
-    echo.on_frame(&frame(2, 0, 2, vec![row_at(0, vec![plain_span("zb")])]), 20, false);
+    echo.on_frame(
+        &frame(2, 0, 2, vec![row_at(0, vec![plain_span("zb")])]),
+        20,
+        false,
+    );
 
     // "b" landed, but "a" at column 0 was judged first and unlocked nothing, so
     // the epoch is still unproven and the later match must not unlock it.
@@ -211,13 +235,21 @@ fn a_prediction_is_not_judged_before_its_write_is_acknowledged() {
     echo.predict(b"a", sequence, 0);
     // A frame the worker produced without provably having written "a" cannot
     // contradict it, however stale the prediction looks.
-    echo.on_frame(&frame(2, 0, 0, vec![row_at(0, vec![plain_span("z")])]), 200, false);
+    echo.on_frame(
+        &frame(2, 0, 0, vec![row_at(0, vec![plain_span("z")])]),
+        200,
+        false,
+    );
     let unproven = echo.debug();
     assert_eq!(unproven.total, 1);
     assert_eq!(unproven.confirmed_epoch, 0);
 
     echo.note_input_written(sequence, 200);
-    echo.on_frame(&frame(3, 0, 0, vec![row_at(0, vec![plain_span("z")])]), 400, false);
+    echo.on_frame(
+        &frame(3, 0, 0, vec![row_at(0, vec![plain_span("z")])]),
+        400,
+        false,
+    );
     assert_eq!(echo.debug().total, 0, "now judgeable, and wrong");
 }
 
@@ -225,11 +257,23 @@ fn a_prediction_is_not_judged_before_its_write_is_acknowledged() {
 fn a_contradiction_inside_the_grace_window_is_not_a_reset() {
     let mut echo = anchored(PredictMode::Always);
     typed(&mut echo, b"a", 1, 0);
-    echo.on_frame(&frame(2, 0, 0, vec![row_at(0, vec![plain_span("z")])]), 20, false);
-    assert_eq!(echo.debug().total, 1, "the application may still be echoing");
+    echo.on_frame(
+        &frame(2, 0, 0, vec![row_at(0, vec![plain_span("z")])]),
+        20,
+        false,
+    );
+    assert_eq!(
+        echo.debug().total,
+        1,
+        "the application may still be echoing"
+    );
     assert_eq!(echo.debug().reset_count, 0);
 
-    echo.on_frame(&frame(3, 0, 0, vec![row_at(0, vec![plain_span("z")])]), 120, false);
+    echo.on_frame(
+        &frame(3, 0, 0, vec![row_at(0, vec![plain_span("z")])]),
+        120,
+        false,
+    );
     assert_eq!(echo.debug().total, 0, "outlived the grace, so it is wrong");
 }
 
@@ -251,9 +295,17 @@ fn expiry_abandons_a_prediction_the_application_never_echoes() {
 #[test]
 fn backspace_paints_an_erase_cell_and_a_glyph_supersedes_it() {
     let mut echo = PredictiveEcho::new(PredictMode::Always);
-    echo.on_frame(&frame(1, 0, 1, vec![row_at(0, vec![plain_span("a")])]), 0, false);
+    echo.on_frame(
+        &frame(1, 0, 1, vec![row_at(0, vec![plain_span("a")])]),
+        0,
+        false,
+    );
     typed(&mut echo, b"b", 1, 0);
-    echo.on_frame(&frame(2, 0, 2, vec![row_at(0, vec![plain_span("ab")])]), 200, false);
+    echo.on_frame(
+        &frame(2, 0, 2, vec![row_at(0, vec![plain_span("ab")])]),
+        200,
+        false,
+    );
 
     typed(&mut echo, b"\x7f", 2, 210);
     let erased = echo.paint_request().expect("the erase is painted");
@@ -263,7 +315,11 @@ fn backspace_paints_an_erase_cell_and_a_glyph_supersedes_it() {
 
     typed(&mut echo, b"z", 3, 215);
     let retyped = echo.paint_request().expect("the retyped glyph is painted");
-    assert_eq!(retyped.cells.len(), 1, "the eraser was superseded, not added to");
+    assert_eq!(
+        retyped.cells.len(),
+        1,
+        "the eraser was superseded, not added to"
+    );
     assert_eq!(retyped.cells[0].ch, "z");
     assert_eq!(retyped.caret_col, Some(2));
 }
@@ -279,7 +335,10 @@ fn backspace_refuses_a_styled_cell() {
 
     let state = echo.debug();
     assert_eq!(state.total, 0, "nothing is painted over a styled cell");
-    assert_eq!(state.prediction_epoch, 2, "and the refusal re-arms the gate");
+    assert_eq!(
+        state.prediction_epoch, 2,
+        "and the refusal re-arms the gate"
+    );
 }
 
 #[test]
@@ -299,12 +358,20 @@ fn backspace_refuses_a_wide_glyph() {
 #[test]
 fn an_erase_match_does_not_unlock_the_epoch() {
     let mut echo = PredictiveEcho::new(PredictMode::Always);
-    echo.on_frame(&frame(1, 0, 2, vec![row_at(0, vec![plain_span("ab")])]), 0, false);
+    echo.on_frame(
+        &frame(1, 0, 2, vec![row_at(0, vec![plain_span("ab")])]),
+        0,
+        false,
+    );
     typed(&mut echo, b"\x7f", 1, 0);
     assert_eq!(echo.debug().total, 1);
 
     // The cell is blank now, which an UNTOUCHED cell also reads as.
-    echo.on_frame(&frame(2, 0, 1, vec![row_at(0, vec![plain_span("a ")])]), 200, false);
+    echo.on_frame(
+        &frame(2, 0, 1, vec![row_at(0, vec![plain_span("a ")])]),
+        200,
+        false,
+    );
     let state = echo.debug();
     assert_eq!(state.total, 0, "retired");
     assert_eq!(state.confirmed_epoch, 0, "a blank cell is no evidence");

@@ -14,25 +14,26 @@
 //! the other, which is why the malformed-override cases are in the second file
 //! and the unusable-body cases in the first.
 
+use roost_client_core::client::local::LocalWorkerDoor;
 use roost_client_core::client::local::bootstrap::{
     BootstrapOutcome, BootstrapRefusal, LocalBootstrap, coordinator_base, coordinator_base_url,
     read_serving_origin,
+};
+use roost_client_core::client::local::discovery::{
+    BrowserEnvironment, DEFAULT_WORKER_LOCAL_UI_ORIGIN, DoorAbsence, DoorAdoption, DoorDiscovery,
+    DoorPlan, LOCAL_WORKER_ORIGIN_KEY, candidate_origin,
 };
 use roost_client_core::client::local::door::{
     DialRefusal, local_terminal_url, redial_ceiling_ms, redial_delay_ms,
 };
 use roost_client_core::client::local::outbound::{RouteClaims, SyncTerminalState};
-use roost_client_core::client::local::discovery::{
-    BrowserEnvironment, DEFAULT_WORKER_LOCAL_UI_ORIGIN, DoorAbsence, DoorAdoption, DoorDiscovery,
-    DoorPlan, LOCAL_WORKER_ORIGIN_KEY, candidate_origin,
-};
-use roost_client_core::client::local::LocalWorkerDoor;
 
 const PAGE_ORIGIN: &str = "https://mic.roost.test";
 
 /// v2's `DOOR_ANSWER`: a coordinator this door does not serve, and the worker
 /// fingerprint the door DOES serve.
-const DOOR_ANSWER: &str = r#"{"coordinatorUrl":"https://coord.other.test:4102","workerFingerprint":"fp-local-worker"}"#;
+const DOOR_ANSWER: &str =
+    r#"{"coordinatorUrl":"https://coord.other.test:4102","workerFingerprint":"fp-local-worker"}"#;
 
 /// A page the coordinator served, which is the case that probes.
 fn coordinator_served_page(operator_origin: Option<&str>) -> BrowserEnvironment {
@@ -112,7 +113,10 @@ fn an_unusable_answer_never_retargets_the_spa() {
         assert_eq!(coordinator_base_url("", PAGE_ORIGIN), PAGE_ORIGIN);
     }
     assert_eq!(
-        read_serving_origin(Some(200), r#"{"coordinatorUrl":"ftp://coord","workerFingerprint":"f"}"#),
+        read_serving_origin(
+            Some(200),
+            r#"{"coordinatorUrl":"ftp://coord","workerFingerprint":"f"}"#
+        ),
         BootstrapOutcome::NotWorkerServed(BootstrapRefusal::NotHttpUrl),
         "a non-HTTP coordinator URL would be resolved against this page's own \
          origin, which is the worker that served it"
@@ -143,7 +147,10 @@ fn a_worker_served_page_adopts_its_own_origin_without_probing() {
         }),
         "a page a worker served knows the door from its own origin"
     );
-    assert_eq!(discovery.door().map(|door| door.origin.as_str()), Some(PAGE_ORIGIN));
+    assert_eq!(
+        discovery.door().map(|door| door.origin.as_str()),
+        Some(PAGE_ORIGIN)
+    );
 }
 
 #[test]
@@ -210,13 +217,16 @@ fn an_unreachable_or_unusable_door_leaves_the_page_with_none() {
     for (status, body) in refusals {
         let mut discovery = DoorDiscovery::new();
         discovery.start(&coordinator_served_page(None));
-        let adoption =
-            discovery.complete_probe(DEFAULT_WORKER_LOCAL_UI_ORIGIN, status, body);
+        let adoption = discovery.complete_probe(DEFAULT_WORKER_LOCAL_UI_ORIGIN, status, body);
         assert!(
             matches!(adoption, DoorAdoption::Absent(_)),
             "status {status:?} body {body:?} must not produce a door"
         );
-        assert_eq!(discovery.door(), None, "an absent door leaves none recorded");
+        assert_eq!(
+            discovery.door(),
+            None,
+            "an absent door leaves none recorded"
+        );
         assert!(discovery.take_adoptions().is_empty());
     }
 }
@@ -326,8 +336,16 @@ fn the_redial_ladder_is_bounded_and_jittered() {
         8_000,
         "a tab open for days must not wrap into a SHORT delay"
     );
-    assert_eq!(redial_delay_ms(4, 0), 4_000, "the sample's floor is the half-delay");
-    assert_eq!(redial_delay_ms(4, 999), 7_996, "and its ceiling is under 8s");
+    assert_eq!(
+        redial_delay_ms(4, 0),
+        4_000,
+        "the sample's floor is the half-delay"
+    );
+    assert_eq!(
+        redial_delay_ms(4, 999),
+        7_996,
+        "and its ceiling is under 8s"
+    );
     assert!(
         (4_000..8_000).contains(&redial_delay_ms(4, 500)),
         "equal jitter keeps every delay in the upper half of the ladder, which is \
@@ -348,7 +366,10 @@ fn a_claim_is_matched_on_the_connection_it_was_sent_on() {
         ready: true,
     };
     let mut claims = RouteClaims::new();
-    assert_eq!(claims.admit("claim-1", &state("socket-a", "epoch-a"), 0), Ok(()));
+    assert_eq!(
+        claims.admit("claim-1", &state("socket-a", "epoch-a"), 0),
+        Ok(())
+    );
     assert!(
         !claims.settle("claim-1", "socket-b", "epoch-a"),
         "an answer from another socket is about another route"
@@ -360,5 +381,8 @@ fn a_claim_is_matched_on_the_connection_it_was_sent_on() {
     assert_eq!(claims.outstanding(), 1, "neither wrong answer consumed it");
     assert!(claims.settle("claim-1", "socket-a", "epoch-a"));
     assert_eq!(claims.outstanding(), 0);
-    assert!(claims.expire(0).is_empty(), "a claim inside its deadline stays");
+    assert!(
+        claims.expire(0).is_empty(),
+        "a claim inside its deadline stays"
+    );
 }

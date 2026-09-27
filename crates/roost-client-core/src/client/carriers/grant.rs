@@ -205,7 +205,9 @@ impl GrantLifecycle {
         if self.phase != GrantPhase::Granted {
             return None;
         }
-        self.grant.as_ref().filter(|grant| !grant.is_expired(now_ms))
+        self.grant
+            .as_ref()
+            .filter(|grant| !grant.is_expired(now_ms))
     }
 
     /// Whether a live grant exists for `transport` right now.
@@ -296,10 +298,11 @@ impl GrantLifecycle {
         if !self.demanded.insert(session_id) {
             return Vec::new();
         }
-        let covered = self
-            .grant
-            .as_ref()
-            .is_some_and(|grant| self.demanded.iter().all(|id| grant.session_ids.contains(id)));
+        let covered = self.grant.as_ref().is_some_and(|grant| {
+            self.demanded
+                .iter()
+                .all(|id| grant.session_ids.contains(id))
+        });
         if covered {
             return Vec::new();
         }

@@ -26,7 +26,10 @@ fn two_frames_inside_one_browser_frame_produce_one_paint() {
 
     let first = offer(&mut scheduler, &delta_frame(2, "B"), full_frame(2, "B"), 8);
     let second = offer(&mut scheduler, &delta_frame(3, "C"), full_frame(3, "C"), 10);
-    assert!(first.armed, "the arrival that opens a batch is the one that arms");
+    assert!(
+        first.armed,
+        "the arrival that opens a batch is the one that arms"
+    );
     assert!(
         !second.armed,
         "a second arrival inside the armed frame must not ask for a second frame"
@@ -68,10 +71,7 @@ fn a_held_renderer_names_its_hold_and_keeps_the_batch() {
 
     for (hold_mask, reason) in [
         (RENDERER_HOLD_LINK, ReconcileBlockReason::LinkHold),
-        (
-            RENDERER_HOLD_SELECTION,
-            ReconcileBlockReason::SelectionHold,
-        ),
+        (RENDERER_HOLD_SELECTION, ReconcileBlockReason::SelectionHold),
         (
             RENDERER_HOLD_SELECTION | RENDERER_HOLD_LINK,
             ReconcileBlockReason::SelectionAndLinkHold,
@@ -88,7 +88,10 @@ fn a_held_renderer_names_its_hold_and_keeps_the_batch() {
              reports for a held pane, read off the same mask"
         );
     }
-    assert!(renderer.delta_seqs().is_empty(), "a held pane paints nothing");
+    assert!(
+        renderer.delta_seqs().is_empty(),
+        "a held pane paints nothing"
+    );
     assert_eq!(
         scheduler.pending_mode(),
         Some(ApplyMode::DeltaBatch),
@@ -131,7 +134,11 @@ fn a_refused_paint_is_repaired_as_a_fallback_full_and_keeps_its_queue_clock() {
 
     let repair = flush_frame(&mut scheduler, &mut renderer, 16, 0);
     assert_eq!(repair.mode, Some(ApplyMode::FallbackFull));
-    assert_eq!(repair.batch_frames, Some(2), "the arrival count carries over");
+    assert_eq!(
+        repair.batch_frames,
+        Some(2),
+        "the arrival count carries over"
+    );
     assert_eq!(
         repair.queue_delay_ms,
         Some(8),

@@ -12,8 +12,8 @@
 use std::sync::Arc;
 
 use roost_client_core::client::predictive_echo::{PredictiveEcho, ResetReason};
-use roost_client_core::store::prefs::predict::parse;
 use roost_client_core::store::prefs::PredictMode;
+use roost_client_core::store::prefs::predict::parse;
 use roost_protocol::cell::{CellGridFrame, CellRow, CellSpan, MouseTracking};
 
 /// One default-styled run of `text`, one column per scalar.
@@ -33,7 +33,12 @@ fn plain_span(text: &str) -> CellSpan {
 
 /// A frame carrying `text` on one row, with the cursor where it is told.
 fn frame(seq: u64, cursor_row: u32, cursor_col: u32, row: u32, text: &str) -> CellGridFrame {
-    empty_frame(seq, cursor_row, cursor_col, vec![(row, Some(vec![plain_span(text)]))])
+    empty_frame(
+        seq,
+        cursor_row,
+        cursor_col,
+        vec![(row, Some(vec![plain_span(text)]))],
+    )
 }
 
 /// A frame with no rows at all, which is what a coalesced empty batch carries.
@@ -93,12 +98,18 @@ fn slow_link_first_keystroke_hidden_confirmed_next_keystroke_shown() {
     typed(&mut echo, b"a", 1, 0);
     let typed_state = echo.debug();
     assert_eq!(typed_state.total, 1);
-    assert_eq!(typed_state.visible, 0, "tentative, and the RTT is unmeasured");
+    assert_eq!(
+        typed_state.visible, 0,
+        "tentative, and the RTT is unmeasured"
+    );
 
     echo.on_frame(&frame(2, 0, 1, 0, "a"), 200, false);
     let confirmed = echo.debug();
     assert_eq!(confirmed.confirmed_epoch, 1);
-    assert!(confirmed.srtt_ms > 100.0, "a 200 ms round trip was measured");
+    assert!(
+        confirmed.srtt_ms > 100.0,
+        "a 200 ms round trip was measured"
+    );
 
     typed(&mut echo, b"b", 2, 210);
     assert_eq!(echo.debug().visible, 1, "same epoch, now proven, now shown");
@@ -113,7 +124,10 @@ fn fast_link_predictions_made_but_never_shown() {
 
     let state = echo.debug();
     assert_eq!(state.total, 1, "the guess is still tracked");
-    assert_eq!(state.visible, 0, "srtt/2 is inside the dead-band, so nothing paints");
+    assert_eq!(
+        state.visible, 0,
+        "srtt/2 is inside the dead-band, so nothing paints"
+    );
 }
 
 #[test]
@@ -126,7 +140,10 @@ fn shown_wrong_guess_hard_reset_falls_back_to_the_authoritative_grid() {
 
     echo.on_frame(&frame(3, 0, 1, 0, "ax"), 410, false);
     let state = echo.debug();
-    assert_eq!(state.total, 0, "a SHOWN guess that was wrong nukes the burst");
+    assert_eq!(
+        state.total, 0,
+        "a SHOWN guess that was wrong nukes the burst"
+    );
     assert_eq!(state.last_reset, Some(ResetReason::Contradicted));
 }
 
@@ -198,7 +215,11 @@ fn experimental_first_keystroke_shown_immediately() {
 fn always_shown_after_the_epoch_confirms_even_on_a_fast_link() {
     let mut echo = anchored(PredictMode::Always);
     typed(&mut echo, b"a", 1, 0);
-    assert_eq!(echo.debug().visible, 0, "the first character is still tentative");
+    assert_eq!(
+        echo.debug().visible,
+        0,
+        "the first character is still tentative"
+    );
 
     echo.on_frame(&frame(2, 0, 1, 0, "a"), 5, false);
     typed(&mut echo, b"b", 2, 6);
@@ -214,7 +235,11 @@ fn right_left_arrow_predicts_a_cursor_move() {
     assert_eq!(echo.debug().predicted_cursor_col, Some(2));
     typed(&mut echo, &[0x1b, 0x5b, 0x44], 3, 0);
     assert_eq!(echo.debug().predicted_cursor_col, Some(1));
-    assert_eq!(echo.debug().total, 0, "an arrow moves the caret and paints no glyph");
+    assert_eq!(
+        echo.debug().total,
+        0,
+        "an arrow moves the caret and paints no glyph"
+    );
 }
 
 #[test]
@@ -223,7 +248,11 @@ fn predicted_cursor_leads_the_echoed_chars_when_shown() {
     typed(&mut echo, b"ab", 1, 0);
     let paint = echo.paint_request().expect("nothing hides these");
     assert_eq!(paint.cells.len(), 2);
-    assert_eq!(paint.caret_col, Some(2), "a@0 and b@1, so the caret leads to 2");
+    assert_eq!(
+        paint.caret_col,
+        Some(2),
+        "a@0 and b@1, so the caret leads to 2"
+    );
 }
 
 #[test]
@@ -252,7 +281,10 @@ fn non_resize_full_frame_reconciles_instead_of_wiping() {
     echo.on_frame(&full, 200, false);
     let state = echo.debug();
     assert_eq!(state.total, 0, "confirmed and retired, not wiped unjudged");
-    assert!(state.srtt_ms > 0.0, "a wipe would have left the RTT unsampled");
+    assert!(
+        state.srtt_ms > 0.0,
+        "a wipe would have left the RTT unsampled"
+    );
 }
 
 #[test]
@@ -265,7 +297,10 @@ fn resize_full_frame_still_wipes() {
     resized.cols = 100;
     echo.on_frame(&resized, 200, false);
     let state = echo.debug();
-    assert_eq!(state.total, 0, "the coordinates the burst addressed are gone");
+    assert_eq!(
+        state.total, 0,
+        "the coordinates the burst addressed are gone"
+    );
     assert_eq!(state.srtt_ms, 0.0, "so it was never judged");
     assert_eq!(state.last_reset, Some(ResetReason::Resized));
 }
@@ -299,7 +334,12 @@ fn hysteresis_shows_through_the_dead_band_once_armed() {
     let mut frame_seq = 3u64;
     for step in 0..29u8 {
         let character = char::from(b'b' + step);
-        typed(&mut echo, character.to_string().as_bytes(), frame_seq, now_ms);
+        typed(
+            &mut echo,
+            character.to_string().as_bytes(),
+            frame_seq,
+            now_ms,
+        );
         now_ms += 50;
         row.push(character);
         frame_seq += 1;
@@ -310,9 +350,16 @@ fn hysteresis_shows_through_the_dead_band_once_armed() {
         );
     }
     let mid = echo.debug();
-    assert!(mid.srtt_ms > 40.0 && mid.srtt_ms <= 60.0, "genuinely in the band");
+    assert!(
+        mid.srtt_ms > 40.0 && mid.srtt_ms <= 60.0,
+        "genuinely in the band"
+    );
     typed(&mut echo, b"0", frame_seq, now_ms);
-    assert_eq!(echo.debug().visible, 1, "the armed trigger survives the band");
+    assert_eq!(
+        echo.debug().visible,
+        1,
+        "the armed trigger survives the band"
+    );
 }
 
 #[test]
@@ -323,7 +370,10 @@ fn paste_guard_resets_and_never_predicts() {
 
     echo.predict(&[b'x'; 101], 2, 0);
     let state = echo.debug();
-    assert_eq!(state.total, 0, "a paste floods the overlay and is unguessable");
+    assert_eq!(
+        state.total, 0,
+        "a paste floods the overlay and is unguessable"
+    );
     assert_eq!(state.last_reset, Some(ResetReason::Paste));
 }
 
@@ -333,17 +383,16 @@ fn delta_frame_reconciles_and_is_not_wiped_by_dirty_count_drift() {
     // the dirty-row count and drifts. Resize is detected from the viewport
     // HEIGHT instead, or consecutive deltas wipe every prediction.
     let mut echo = PredictiveEcho::new(PredictMode::Adaptive);
-    echo.on_frame(
-        &empty_frame(1, 0, 0, vec![(0, None), (1, None)]),
-        0,
-        false,
-    );
+    echo.on_frame(&empty_frame(1, 0, 0, vec![(0, None), (1, None)]), 0, false);
     typed(&mut echo, b"a", 1, 0);
     echo.on_frame(&frame(2, 0, 1, 0, "a"), 200, false);
 
     let state = echo.debug();
     assert_eq!(state.total, 0, "reconciled and retired, not wiped");
-    assert!(state.srtt_ms > 0.0, "the round trip was sampled, so no wipe ran");
+    assert!(
+        state.srtt_ms > 0.0,
+        "the round trip was sampled, so no wipe ran"
+    );
 }
 
 #[test]
@@ -359,7 +408,10 @@ fn delta_confirm_reads_the_right_row_by_index_with_the_cursor_off_row_zero() {
             2,
             5,
             1,
-            vec![(0, Some(vec![plain_span("z")])), (5, Some(vec![plain_span("a")]))],
+            vec![
+                (0, Some(vec![plain_span("z")])),
+                (5, Some(vec![plain_span("a")])),
+            ],
         ),
         200,
         false,

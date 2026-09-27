@@ -87,7 +87,10 @@ fn file_activation() -> LinkActivation {
 fn a_soft_wrapped_link_whose_halves_land_in_two_rows_is_one_link() {
     // One run key per link, stamped on every painted half: a link longer than the
     // grid comes back from two rows as one entry. Text cannot do this.
-    let lead = PaintedChild { columns: 4, link: None };
+    let lead = PaintedChild {
+        columns: 4,
+        link: None,
+    };
     let head = row_with_links(vec![lead, painted_link("b\u{0}7", FIRST_TARGET, 36)]);
     let tail = row_with_links(vec![painted_link("b\u{0}7", FIRST_TARGET, 12)]);
     let links = region_links(&[head, tail], 12);
@@ -122,7 +125,16 @@ fn a_row_without_the_link_marker_contributes_nothing_to_a_scan() {
     // The marker is the one attribute read that skips every held row.
     let child = painted_link("b\u{0}7", FIRST_TARGET, 12);
     let row = row_with_links(vec![child]);
-    assert!(region_links(&[PaintedRow { has_links: false, ..row }], 1).is_empty());
+    assert!(
+        region_links(
+            &[PaintedRow {
+                has_links: false,
+                ..row
+            }],
+            1
+        )
+        .is_empty()
+    );
 }
 
 // ── a scanned link becomes an action ──────────────────────────────────────
@@ -130,7 +142,10 @@ fn a_row_without_the_link_marker_contributes_nothing_to_a_scan() {
 #[test]
 fn a_producer_painted_file_target_routes_through_the_worker_resolver() {
     let attributes = producer_link("s/f.ts:9");
-    assert_eq!(activate_link(&attributes, Some(stub_resolver)), Some(file_activation()));
+    assert_eq!(
+        activate_link(&attributes, Some(stub_resolver)),
+        Some(file_activation())
+    );
     // No resolver: refused, not handed on with a null href, because the browser
     // has no route for a path and the app has no worker to ask.
     assert_eq!(activate_link::<NoResolver>(&attributes, None), None);
@@ -179,7 +194,10 @@ fn local_arming_persists_across_link_taps_while_physical_meta_remains_supported(
         }
     }
     assert_eq!(opened.len(), 3);
-    assert!(opened.iter().all(|href| href == "/file/W/s/f.ts#L9"), "{opened:?}");
+    assert!(
+        opened.iter().all(|href| href == "/file/W/s/f.ts#L9"),
+        "{opened:?}"
+    );
     // A custom scheme is not a target at all, however it is activated.
     let refused = producer_link("vscode://file/s/f.ts");
     assert_eq!(activate_link(&refused, Some(stub_resolver)), None);
@@ -192,13 +210,20 @@ fn physical_ctrl_and_meta_gestures_remain_platform_specific() {
     let other = LinkModifierKey::for_platform(false);
     let meta = gesture(0, false, true);
     let ctrl = gesture(0, true, false);
-    assert_eq!((mac, other), (LinkModifierKey::Meta, LinkModifierKey::Control));
+    assert_eq!(
+        (mac, other),
+        (LinkModifierKey::Meta, LinkModifierKey::Control)
+    );
     assert!(is_link_activation_gesture(&meta, false, mac));
     assert!(!is_link_activation_gesture(&ctrl, false, mac));
     assert!(is_link_activation_gesture(&ctrl, false, other));
     assert!(!is_link_activation_gesture(&meta, false, other));
     // A right click and a shifted click are never the gesture, on either.
-    assert!(!is_link_activation_gesture(&gesture(2, true, false), false, other));
+    assert!(!is_link_activation_gesture(
+        &gesture(2, true, false),
+        false,
+        other
+    ));
     let mut shifted = ctrl;
     shifted.shift = true;
     assert!(!is_link_activation_gesture(&shifted, false, other));
@@ -210,8 +235,14 @@ fn only_a_route_this_build_minted_may_be_installed_on_an_internal_anchor() {
         assert!(is_worker_file_href(href), "{href}");
     }
     let refused = [
-        "/file/W/s/f.ts?x=1", "/file/W/s/f.ts#L0", "/file/W/s/f.ts#L09", "/file/W/",
-        "/file/W/s/f.ts#section", "/file/W/", "/browse/W/s/f.ts", "https://ex.test/x",
+        "/file/W/s/f.ts?x=1",
+        "/file/W/s/f.ts#L0",
+        "/file/W/s/f.ts#L09",
+        "/file/W/",
+        "/file/W/s/f.ts#section",
+        "/file/W/",
+        "/browse/W/s/f.ts",
+        "https://ex.test/x",
     ];
     for href in refused {
         assert!(!is_worker_file_href(href), "{href}");
@@ -328,10 +359,17 @@ fn a_dropped_rAF_stuck_latch_is_recovered_by_visibilitychange() {
     let armed = schedule.pending_scan();
     assert_eq!(armed, Some(ScanRequest::CurrentTail));
     schedule.page_visible();
-    assert_eq!(schedule.pending_scan(), armed, "recovery re-arms, never duplicates");
+    assert_eq!(
+        schedule.pending_scan(),
+        armed,
+        "recovery re-arms, never duplicates"
+    );
     assert_eq!(schedule.fire(), ScanRequest::CurrentTail);
     schedule.note_mutation(3);
-    assert_eq!(schedule.pending_scan(), Some(ScanRequest::Dirty { rows: 3 }));
+    assert_eq!(
+        schedule.pending_scan(),
+        Some(ScanRequest::Dirty { rows: 3 })
+    );
 }
 
 #[test]
@@ -387,7 +425,10 @@ fn inactive_panes_release_scanner_and_modifier_work_then_restore_producer_link_a
 fn a_streaming_pane_bounds_its_scan_to_the_tail_instead_of_replaying_history() {
     let mut schedule = activated();
     schedule.note_mutation(1);
-    assert_eq!(schedule.pending_scan(), Some(ScanRequest::Dirty { rows: 1 }));
+    assert_eq!(
+        schedule.pending_scan(),
+        Some(ScanRequest::Dirty { rows: 1 })
+    );
     assert_eq!(schedule.fire(), ScanRequest::Dirty { rows: 1 });
     // A history-sized dirty set is what a streaming frame produces every tick.
     let mut streaming = activated();
@@ -395,5 +436,8 @@ fn a_streaming_pane_bounds_its_scan_to_the_tail_instead_of_replaying_history() {
     assert_eq!(streaming.pending_scan(), Some(ScanRequest::CurrentTail));
     assert_eq!(streaming.fire(), ScanRequest::CurrentTail);
     streaming.note_mutation(1);
-    assert_eq!(streaming.pending_scan(), Some(ScanRequest::Dirty { rows: 1 }));
+    assert_eq!(
+        streaming.pending_scan(),
+        Some(ScanRequest::Dirty { rows: 1 })
+    );
 }

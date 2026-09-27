@@ -4,13 +4,13 @@
 //! `conversation` for the frame rules; the socket, the read and the write are
 //! the host's.
 
+use roost_proto::__buffa::oneof::attachment_transfer_client_frame::Frame as ClientFrame;
+use roost_proto::__buffa::oneof::attachment_transfer_server_frame::Frame as ServerFrame;
 use roost_proto::buffa::Message;
 use roost_proto::{
     AttachmentTransferChunk, AttachmentTransferClientFrame, AttachmentTransferServerFrame,
     AttachmentTransferStatusRequest,
 };
-use roost_proto::__buffa::oneof::attachment_transfer_client_frame::Frame as ClientFrame;
-use roost_proto::__buffa::oneof::attachment_transfer_server_frame::Frame as ServerFrame;
 
 use crate::client::attachments::conversation::{AttachmentConversation, ConversationOutcome};
 use crate::client::attachments::grant::AttachmentDirectGrant;
@@ -54,11 +54,8 @@ impl LoopbackTransfer {
     /// A carrier bound to one door and one grant, before the socket exists.
     #[must_use]
     pub fn new(door_worker_fingerprint: &str, grant: AttachmentDirectGrant) -> Self {
-        let conversation = AttachmentConversation::new(
-            &grant,
-            door_worker_fingerprint,
-            "attachment loopback",
-        );
+        let conversation =
+            AttachmentConversation::new(&grant, door_worker_fingerprint, "attachment loopback");
         Self {
             conversation,
             grant,
@@ -96,7 +93,9 @@ impl LoopbackTransfer {
                 self.sent_chunk(),
             ));
         }
-        Ok(encode_client_frame(ClientFrame::Hello(Box::new(self.grant.hello("")))))
+        Ok(encode_client_frame(ClientFrame::Hello(Box::new(
+            self.grant.hello(""),
+        ))))
     }
 
     /// Take the carrier for one chunk and frame it.
@@ -137,7 +136,9 @@ impl LoopbackTransfer {
             upload_id: upload_id.to_owned(),
             ..Default::default()
         };
-        Ok(encode_client_frame(ClientFrame::StatusRequest(Box::new(frame))))
+        Ok(encode_client_frame(ClientFrame::StatusRequest(Box::new(
+            frame,
+        ))))
     }
 
     /// Accept one inbound frame.

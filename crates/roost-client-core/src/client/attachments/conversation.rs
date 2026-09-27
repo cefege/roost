@@ -103,7 +103,10 @@ impl AttachmentConversation {
     pub fn begin_chunk(&mut self, seq: u32) -> Result<(), AttachmentTransferCarrierError> {
         if self.closed || !self.ready || self.ack_seq.is_some() {
             let reason = format!("{} cannot send a chunk", self.carrier);
-            return Err(AttachmentTransferCarrierError::refused(&reason, self.sent_chunk));
+            return Err(AttachmentTransferCarrierError::refused(
+                &reason,
+                self.sent_chunk,
+            ));
         }
         self.ack_seq = Some(seq);
         self.sent_chunk = true;
@@ -114,7 +117,10 @@ impl AttachmentConversation {
     pub fn begin_status(&mut self, upload_id: &str) -> Result<(), AttachmentTransferCarrierError> {
         if self.closed || !self.ready || self.status_upload_id.is_some() {
             let reason = format!("{} cannot request status", self.carrier);
-            return Err(AttachmentTransferCarrierError::refused(&reason, self.sent_chunk));
+            return Err(AttachmentTransferCarrierError::refused(
+                &reason,
+                self.sent_chunk,
+            ));
         }
         self.status_upload_id = Some(upload_id.to_owned());
         Ok(())
@@ -130,7 +136,10 @@ impl AttachmentConversation {
             || ready.session_id != self.session_id
             || ready.upload_id != self.upload_id
         {
-            let reason = format!("{} Ready did not match its authenticated tuple", self.carrier);
+            let reason = format!(
+                "{} Ready did not match its authenticated tuple",
+                self.carrier
+            );
             return Err(self.close(&reason));
         }
         self.ready = true;

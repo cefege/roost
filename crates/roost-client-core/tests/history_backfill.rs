@@ -96,7 +96,10 @@ fn a_retained_floor_clamps_the_older_edge_and_the_focus_a_demand_may_name() {
         })
     );
     // A floor at the interval's newer edge leaves nothing fetchable.
-    assert_eq!(scroll_demand_bounds(&target(100, 200, 100, 151), 200, 0), None);
+    assert_eq!(
+        scroll_demand_bounds(&target(100, 200, 100, 151), 200, 0),
+        None
+    );
 }
 
 #[test]
@@ -189,7 +192,8 @@ fn no_backfill_request_ever_names_a_row_below_the_proven_retained_floor() {
             (0, 5_000, 4_934, 4_935),
             (0, 300, 150, 200),
         ] {
-            if let Some(bounds) = scroll_demand_bounds(&target(start, end, focus, visible_end), floor, 0)
+            if let Some(bounds) =
+                scroll_demand_bounds(&target(start, end, focus, visible_end), floor, 0)
             {
                 assert!(
                     demand_is_above_floor(&bounds, floor),
@@ -224,7 +228,10 @@ fn paging_stops_rather_than_retrying_forever_when_the_floor_is_reached() {
             assert!(demand_is_above_floor(&bounds, floor));
         }
     }
-    assert_eq!(waves, 0, "a pager at the floor kept asking for dropped rows");
+    assert_eq!(
+        waves, 0,
+        "a pager at the floor kept asking for dropped rows"
+    );
 
     // A match below the floor is the same story: it cannot be fetched, and a
     // page asking for it comes back short with the floor it already proved.

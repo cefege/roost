@@ -30,9 +30,7 @@ use roost_client_core::client::agents::{
 use roost_client_core::store::navigation::worker_online;
 use roost_protocol::wire::{Session, SessionStatus};
 
-use super::shell_metrics::{
-    CoordinatorState, session_context, workbench_title,
-};
+use super::shell_metrics::{CoordinatorState, session_context, workbench_title};
 use crate::components::design_icon::StatusDot;
 use crate::components::layout::app_shell::is_terminal_route;
 
@@ -199,8 +197,10 @@ fn read_status(path: &str, core: &Rc<RefCell<ClientCore>>, now_ms: i64) -> Statu
     });
     let agent = active.and_then(|session| {
         let status = store.agent_status.status(&session.id)?;
-        let level =
-            derive_agent_status_level(Some(status), Some(store.agent_seen.acknowledged_revision(status)));
+        let level = derive_agent_status_level(
+            Some(status),
+            Some(store.agent_seen.acknowledged_revision(status)),
+        );
         if level == AgentStatusLevel::Unknown {
             return None;
         }
@@ -242,10 +242,7 @@ fn agent_dot_status(dot: roost_client_core::client::agents::AgentDotStatus) -> &
 /// belongs to the terminal surface; the chrome asks only the question it can
 /// answer exactly, so the machine and agent items simply do not appear on a
 /// folder route rather than naming a session the reader did not ask about.
-fn active_session<'a>(
-    path: &str,
-    store: &'a roost_client_core::Store,
-) -> Option<&'a Session> {
+fn active_session<'a>(path: &str, store: &'a roost_client_core::Store) -> Option<&'a Session> {
     if !is_terminal_route(path) {
         return None;
     }

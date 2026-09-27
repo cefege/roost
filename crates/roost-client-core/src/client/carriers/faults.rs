@@ -11,9 +11,7 @@ use roost_protocol::terminal_peer::sdp::inspect_terminal_peer_sdp;
 
 use crate::client::carriers::grant::GrantInput;
 use crate::client::carriers::signaling::Signalling;
-use crate::client::carriers::{
-    CarrierEffect, PeerAnswer, PeerAttempt, PeerPhase, ReadyTuple,
-};
+use crate::client::carriers::{CarrierEffect, PeerAnswer, PeerAttempt, PeerPhase, ReadyTuple};
 use crate::terminal::token::{TerminalToken, TerminalTransport};
 
 /// Why a direct attempt is over.
@@ -63,7 +61,8 @@ pub enum FaultFallback {
     /// A loopback carrier is already staged here, so it takes over.
     Loopback,
     /// Nothing else exists, so the session stays on Sync.
-    Sync,}
+    Sync,
+}
 
 /// The coarse reason a host records. Deliberately coarser than `CarrierFault`:
 /// v2 emits exactly one reason, `network_failed`, for every negotiation failure
@@ -395,6 +394,7 @@ impl Signalling {
     pub(crate) fn report(&mut self, fault: CarrierFault, detail: &str) -> Vec<CarrierEffect> {
         let staged = self.loopback.has_staged_carrier();
         let demand = &self.demand;
-        self.faults.report(fault, &self.worker_fp, detail, self.now_ms, staged, demand)
+        self.faults
+            .report(fault, &self.worker_fp, detail, self.now_ms, staged, demand)
     }
 }

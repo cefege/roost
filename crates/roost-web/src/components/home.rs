@@ -9,7 +9,6 @@
 //! The shortcut labels are the platform's, not literals: `⌘K` on a Mac and
 //! `Ctrl+K` elsewhere are the same shortcut, and a page that hard-codes the
 /// glyph teaches a Linux reader a key they do not have.
-
 use dioxus::prelude::*;
 
 use crate::components::brand_mark::{BrandMark, HOME_MARK_SIZE};

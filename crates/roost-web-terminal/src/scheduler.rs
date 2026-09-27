@@ -153,7 +153,10 @@ impl RenderScheduler {
             if full_conflicts_with_known_canonical(&canonical, self.known_grid_identity()) {
                 return EnqueueDecision::RefusedStaleFull;
             }
-            let appended_rows = self.pending.as_ref().map_or(0, PendingRender::appended_rows);
+            let appended_rows = self
+                .pending
+                .as_ref()
+                .map_or(0, PendingRender::appended_rows);
             // A wire full RESTAMPS the queue clock even when a batch was already
             // waiting: it is a new baseline, not a continuation of the batch
             // that clock was measuring. Every other path into a full keeps it.
@@ -205,7 +208,9 @@ impl RenderScheduler {
             return self.retain(batch);
         }
         let previous = self.pending.take();
-        self.retain(PendingRender::fallback_full(previous, frame, canonical, now_ms))
+        self.retain(PendingRender::fallback_full(
+            previous, frame, canonical, now_ms,
+        ))
     }
 
     /// One browser frame came round at `now_ms`. Answer what is due.
@@ -339,9 +344,13 @@ impl RenderScheduler {
             return None;
         }
         let (previous, queued_frames, prior_spans) = match self.pending.as_ref() {
-            Some(PendingRender::Delta { deltas, span_count, .. }) => {
-                (GridIdentity::of_frame(deltas.last()?), deltas.len(), *span_count)
-            }
+            Some(PendingRender::Delta {
+                deltas, span_count, ..
+            }) => (
+                GridIdentity::of_frame(deltas.last()?),
+                deltas.len(),
+                *span_count,
+            ),
             // A delta may never join a full: the full already IS the canonical
             // the run would have to fold onto.
             Some(PendingRender::Full { .. }) => return None,

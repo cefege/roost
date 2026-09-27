@@ -218,10 +218,7 @@ impl MouseForwarding {
             report: forwarded_mouse_report(
                 modes,
                 &MouseReport {
-                    kind: MouseGestureKind::Motion {
-                        button,
-                        held: true,
-                    },
+                    kind: MouseGestureKind::Motion { button, held: true },
                     col: cell.0,
                     row: cell.1,
                     modifiers,

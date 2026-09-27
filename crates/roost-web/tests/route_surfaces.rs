@@ -120,7 +120,10 @@ fn a_worker_with_no_folder_is_not_a_terminal_route() {
     // route. v2's pattern is a splat, which can be empty; v3's grammar decided
     // otherwise and `tests/routes.rs` pins that decision. Asserting it here too
     // means a change to either file has to be made twice, on purpose.
-    assert_eq!(not_found_path("/t/a1b2c3d4e5f60718").as_deref(), Some("/t/a1b2c3d4e5f60718"));
+    assert_eq!(
+        not_found_path("/t/a1b2c3d4e5f60718").as_deref(),
+        Some("/t/a1b2c3d4e5f60718")
+    );
 }
 
 #[test]
@@ -147,7 +150,10 @@ fn a_trailing_slash_and_a_query_reach_the_same_surface_as_the_bare_path() {
     // different surface than the one it first reached.
     let bare = surface_for(&Route::parse("/settings/machines"));
     assert_eq!(surface_for(&Route::parse("/settings/machines/")), bare);
-    assert_eq!(surface_for(&Route::parse("/settings/machines?pane=2")), bare);
+    assert_eq!(
+        surface_for(&Route::parse("/settings/machines?pane=2")),
+        bare
+    );
 }
 
 #[test]

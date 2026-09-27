@@ -18,9 +18,9 @@
 
 use std::collections::BTreeMap;
 
+use crate::client::local::LocalTerminalGrant;
 use crate::client::local::door::{LoopbackAdmission, ROUTE_CLAIM_TIMEOUT_MS};
 use crate::client::local::grants::GrantOwner;
-use crate::client::local::LocalTerminalGrant;
 use crate::effect::{DirectCommand, Effect};
 use crate::terminal::routes::RouteRegistry;
 use crate::terminal::token::{TerminalToken, TerminalTransport};
@@ -155,8 +155,8 @@ fn route_context(
         .map(|grant| grant.worker_epoch.clone())
         .filter(|epoch| !epoch.is_empty())
         .unwrap_or_else(|| carrier_epoch.to_string());
-    let supported = live
-        .is_some_and(|grant| grant.input_route_supported && !grant.worker_epoch.is_empty());
+    let supported =
+        live.is_some_and(|grant| grant.input_route_supported && !grant.worker_epoch.is_empty());
     (worker_epoch, supported)
 }
 
@@ -236,12 +236,7 @@ impl RouteClaims {
     ///
     /// A result for another connection, or another request id, is dropped rather
     /// than settled: it is an answer about a route this client no longer holds.
-    pub fn settle(
-        &mut self,
-        request_id: &str,
-        socket_id: &str,
-        process_epoch: &str,
-    ) -> bool {
+    pub fn settle(&mut self, request_id: &str, socket_id: &str, process_epoch: &str) -> bool {
         let Some(claim) = self.claims.get(request_id) else {
             return false;
         };
@@ -256,9 +251,7 @@ impl RouteClaims {
         let expired: Vec<String> = self
             .claims
             .iter()
-            .filter(|(_, claim)| {
-                now_ms.saturating_sub(claim.armed_at_ms) >= ROUTE_CLAIM_TIMEOUT_MS
-            })
+            .filter(|(_, claim)| now_ms.saturating_sub(claim.armed_at_ms) >= ROUTE_CLAIM_TIMEOUT_MS)
             .map(|(request_id, _)| request_id.clone())
             .collect();
         self.end(&expired, CLAIM_TIMEOUT)

@@ -267,9 +267,7 @@ fn sgr_control_byte(gesture: &MouseReport, sgr: bool) -> (u8, bool) {
             WheelDirection::Up => CB_WHEEL_UP,
             WheelDirection::Down => CB_WHEEL_DOWN,
         },
-        MouseGestureKind::Press { button } | MouseGestureKind::Motion { button, .. } => {
-            button.cb()
-        }
+        MouseGestureKind::Press { button } | MouseGestureKind::Motion { button, .. } => button.cb(),
         MouseGestureKind::Release { button } if sgr => button.cb(),
         MouseGestureKind::Release { .. } => CB_X10_RELEASE,
     };

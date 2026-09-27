@@ -50,7 +50,10 @@ pub fn cell_top(row: u32) -> String {
 /// rather than a cell inside one: a predicted cell must never take part in the
 /// row layout it is covering.
 pub fn prediction_style(painted: &PaintedPrediction) -> String {
-    let mut declarations = format!("position:absolute;top:{};left:{}", painted.top, painted.left);
+    let mut declarations = format!(
+        "position:absolute;top:{};left:{}",
+        painted.top, painted.left
+    );
     if painted.underlined {
         declarations.push_str(";text-decoration:underline");
     }

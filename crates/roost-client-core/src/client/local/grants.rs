@@ -172,7 +172,10 @@ impl GrantOwner {
         }
         let (captured_demand, captured_auth) = {
             let state = self.state_mut(&request.worker_fp);
-            let captured = (state.captured_demand_version, state.captured_auth_generation);
+            let captured = (
+                state.captured_demand_version,
+                state.captured_auth_generation,
+            );
             state.in_flight = None;
             captured
         };
@@ -180,7 +183,13 @@ impl GrantOwner {
             return GrantRefresh::Discarded;
         }
         let installed = self.install(request, outcome, now_ms);
-        self.follow_up(&request.worker_fp, captured_demand, installed, sessions, now_ms)
+        self.follow_up(
+            &request.worker_fp,
+            captured_demand,
+            installed,
+            sessions,
+            now_ms,
+        )
     }
 
     /// The worker rejected a live carrier's credential. Only a fresh mint can

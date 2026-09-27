@@ -1,4 +1,3 @@
-
 impl FakeEnvironment {
     fn new() -> Self {
         Self {
@@ -151,8 +150,7 @@ fn fences_a_mismatched_door_and_advances_a_pre_send_loopback_failure_to_webrtc()
 #[test]
 fn never_switches_to_webrtc_after_a_loopback_chunk_was_sent() {
     let mut environment = FakeEnvironment::with_door("worker-a");
-    environment.loopback =
-        FakeEnvironment::refused("loopback failed after send", true);
+    environment.loopback = FakeEnvironment::refused("loopback failed after send", true);
 
     let attempt = upload_attachment_direct(&request(), &mut environment);
 
@@ -224,7 +222,11 @@ fn a_refused_or_unreachable_coordinator_names_a_refused_grant() {
         upload_attachment_direct(&request(), &mut environment),
         DirectAttempt::Unavailable(DirectUnavailableReason::GrantRefused)
     );
-    assert_eq!(environment.calls, vec!["mint"], "no route is opened without a grant");
+    assert_eq!(
+        environment.calls,
+        vec!["mint"],
+        "no route is opened without a grant"
+    );
 }
 
 #[test]

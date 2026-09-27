@@ -171,9 +171,8 @@ pub fn workbench_title(
     // `activeSessionForPath` returns null for both — and the port has to make the
     // same exclusion explicit, because here the session arrives as an argument
     // rather than as something the path looked up.
-    let is_terminal = pathname.starts_with("/s/")
-        || pathname.starts_with("/t/")
-        || pathname.starts_with("/w/");
+    let is_terminal =
+        pathname.starts_with("/s/") || pathname.starts_with("/t/") || pathname.starts_with("/w/");
     if is_terminal && (session_title.is_some() || session_folder.is_some()) {
         let title = session_title
             .map(str::trim)

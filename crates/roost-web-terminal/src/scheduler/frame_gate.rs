@@ -11,9 +11,7 @@ use std::sync::Arc;
 
 use roost_protocol::cell::{CellGridFrame, CellRow};
 
-use crate::reader_intent::{
-    RENDERER_HOLD_LINK, RENDERER_HOLD_SELECTION, ReconcileBlockReason,
-};
+use crate::reader_intent::{RENDERER_HOLD_LINK, RENDERER_HOLD_SELECTION, ReconcileBlockReason};
 
 /// Frames one queued sparse batch may carry. A busier pane than this has a
 /// browser frame that costs more in DOM writes than the deltas save.
@@ -150,7 +148,11 @@ pub(super) fn delta_follows(previous: GridIdentity<'_>, frame: &CellGridFrame) -
 /// bound exists to avoid.
 pub(super) fn count_incoming_spans(frame: &CellGridFrame, limit: usize) -> usize {
     let mut span_count = 0usize;
-    for row in frame.viewport_rows.iter().chain(frame.scrollback_append.iter()) {
+    for row in frame
+        .viewport_rows
+        .iter()
+        .chain(frame.scrollback_append.iter())
+    {
         span_count = span_count.saturating_add(row.spans.len());
         if span_count > limit {
             return span_count;

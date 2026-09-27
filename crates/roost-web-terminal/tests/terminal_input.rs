@@ -31,7 +31,10 @@ fn held(character: char, modifiers: Modifiers) -> KeyChord {
 fn maps_terminal_ctrl_characters_and_leaves_unsupported_input_intact() {
     for character in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".chars() {
         let expected = char::from_u32(character as u32 & 0x1f).expect("a control code point");
-        assert_eq!(apply_ctrl_modifier(&character.to_string()), expected.to_string());
+        assert_eq!(
+            apply_ctrl_modifier(&character.to_string()),
+            expected.to_string()
+        );
     }
     for (input, expected) in [
         (" ", "\0"),
@@ -59,8 +62,14 @@ fn switches_cursor_and_home_end_keys_with_decckm_application_mode() {
         named(NamedKey::ArrowUp).to_bytes(true).as_deref(),
         Some(&b"\x1bOA"[..])
     );
-    assert_eq!(named(NamedKey::Home).to_bytes(false).as_deref(), Some(&b"\x1b[H"[..]));
-    assert_eq!(named(NamedKey::End).to_bytes(true).as_deref(), Some(&b"\x1bOF"[..]));
+    assert_eq!(
+        named(NamedKey::Home).to_bytes(false).as_deref(),
+        Some(&b"\x1b[H"[..])
+    );
+    assert_eq!(
+        named(NamedKey::End).to_bytes(true).as_deref(),
+        Some(&b"\x1bOF"[..])
+    );
 }
 
 #[test]
@@ -120,7 +129,10 @@ fn encodes_navigation_function_and_special_key_modifiers() {
             .as_deref(),
         Some(&b"\x1b[13;2u"[..])
     );
-    assert_eq!(named(NamedKey::Enter).to_bytes(false).as_deref(), Some(&b"\r"[..]));
+    assert_eq!(
+        named(NamedKey::Enter).to_bytes(false).as_deref(),
+        Some(&b"\r"[..])
+    );
 }
 
 #[test]
@@ -211,7 +223,10 @@ fn treats_explicit_and_ctrl_alt_reported_altgraph_as_printable_text() {
     );
     assert!(explicit.is_alt_graph());
     assert!(represented.is_alt_graph());
-    assert_eq!(explicit.to_bytes(false).as_deref(), Some(&"€".as_bytes()[..]));
+    assert_eq!(
+        explicit.to_bytes(false).as_deref(),
+        Some(&"€".as_bytes()[..])
+    );
     assert_eq!(
         represented.to_bytes(false).as_deref(),
         Some(&b"@"[..]),

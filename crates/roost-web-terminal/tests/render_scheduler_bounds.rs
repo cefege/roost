@@ -59,12 +59,7 @@ fn repairs_from_canonical_full_when_a_pending_batch_exceeds_a_bound() {
     let mut too_much_history = delta_frame(2, "B");
     too_much_history.scrollback_append = (0..251u32).map(|index| row_shell(index, &[])).collect();
     too_much_history.scrollback_total = 251;
-    let too_much = offer(
-        &mut history_bound,
-        &too_much_history,
-        full_frame(2, "B"),
-        8,
-    );
+    let too_much = offer(&mut history_bound, &too_much_history, full_frame(2, "B"), 8);
     assert_eq!(
         too_much.decision,
         EnqueueDecision::Coalesced {
@@ -92,14 +87,8 @@ fn repairs_from_canonical_full_when_a_pending_batch_exceeds_a_bound() {
     // One span past the bound is enough; the counter stops as soon as the limit
     // is passed, so a real paste never gets fully counted.
     too_many_spans.viewport_rows = vec![row_shell_of(0, 65_537, "x")];
-    offer(
-        &mut span_bound,
-        &too_many_spans,
-        full_frame(2, "B"),
-        8,
-    );
+    offer(&mut span_bound, &too_many_spans, full_frame(2, "B"), 8);
     flush_frame(&mut span_bound, &mut span_bound_renderer, 12, 0);
     assert_eq!(span_bound_renderer.full_seqs(), vec![1, 2]);
     assert!(span_bound_renderer.delta_seqs().is_empty());
 }
-

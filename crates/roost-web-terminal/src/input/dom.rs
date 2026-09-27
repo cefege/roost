@@ -25,7 +25,9 @@ pub fn key_chord_from_event(event: &KeyboardEvent) -> KeyChord {
     let key = event.key();
     let kind = match NamedKey::from_dom_key(&key) {
         Some(named) => KeyKind::Named(named),
-        None if matches!(key.as_str(), "Dead" | "Process" | "Unidentified") => KeyKind::BrowserOwned,
+        None if matches!(key.as_str(), "Dead" | "Process" | "Unidentified") => {
+            KeyKind::BrowserOwned
+        }
         None => match (key.chars().next(), key.chars().nth(1)) {
             (Some(character), None) => KeyKind::Printable(character),
             _ => KeyKind::BrowserOwned,
@@ -218,12 +220,7 @@ impl DomSelectionReader {
         let mut rows: Vec<OwnedRow> = Vec::new();
         for container in [range.start_container(), range.end_container()] {
             let element: Element = container.clone().into();
-            for ancestor in element
-                .closest(".cell-row")
-                .ok()
-                .flatten()
-                .into_iter()
-            {
+            for ancestor in element.closest(".cell-row").ok().flatten().into_iter() {
                 if self.contains(&ancestor) {
                     let row = OwnedRow {
                         id: self.node_id(&ancestor.clone().into()),
@@ -269,7 +266,12 @@ impl DomSelectionReader {
             return false;
         };
         selection
-            .set_base_and_extent(&anchor, retained.anchor.offset, &focus, retained.focus.offset)
+            .set_base_and_extent(
+                &anchor,
+                retained.anchor.offset,
+                &focus,
+                retained.focus.offset,
+            )
             .is_ok()
     }
 }

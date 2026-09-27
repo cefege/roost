@@ -59,7 +59,10 @@ fn a_path_that_matches_no_destination_highlights_nothing() {
 
 #[test]
 fn files_owns_both_the_file_route_and_the_browser() {
-    assert_eq!(active_destination("/file/fp/a.txt"), Some(Destination::Files));
+    assert_eq!(
+        active_destination("/file/fp/a.txt"),
+        Some(Destination::Files)
+    );
     assert_eq!(active_destination("/browse"), Some(Destination::Files));
     assert_eq!(active_destination("/browse/fp1"), Some(Destination::Files));
 }

@@ -6,13 +6,13 @@
 
 pub use super::conversation;
 
+use roost_proto::__buffa::oneof::attachment_transfer_client_frame::Frame as ClientFrame;
+use roost_proto::__buffa::oneof::attachment_transfer_server_frame::Frame as ServerFrame;
 use roost_proto::buffa::Message;
 use roost_proto::{
     AttachmentTransferChunk, AttachmentTransferClientFrame, AttachmentTransferServerFrame,
     AttachmentTransferStatusRequest,
 };
-use roost_proto::__buffa::oneof::attachment_transfer_client_frame::Frame as ClientFrame;
-use roost_proto::__buffa::oneof::attachment_transfer_server_frame::Frame as ServerFrame;
 
 use super::conversation::{AttachmentConversation, ConversationOutcome};
 use super::grant::AttachmentDirectGrant;
@@ -58,7 +58,10 @@ pub struct AttachmentPeerPacket {
 /// end the carrier from the failure arm.
 #[derive(Debug)]
 enum FlushStep {
-    Packet { bytes: Vec<u8>, final_fragment: bool },
+    Packet {
+        bytes: Vec<u8>,
+        final_fragment: bool,
+    },
     Empty,
     Failed,
 }
@@ -160,7 +163,10 @@ impl AttachmentPeerTransfer {
             chunk_sha256: chunk.chunk_sha256.clone(),
             ..Default::default()
         };
-        if !self.queue_frame(PeerLane::Data, &encode_client_frame(ClientFrame::Chunk(Box::new(frame)))) {
+        if !self.queue_frame(
+            PeerLane::Data,
+            &encode_client_frame(ClientFrame::Chunk(Box::new(frame))),
+        ) {
             let reason = "attachment peer could not queue a chunk";
             return Err(self.conversation.fail_ack(reason, false));
         }
@@ -179,9 +185,9 @@ impl AttachmentPeerTransfer {
         };
         let encoded = encode_client_frame(ClientFrame::StatusRequest(Box::new(frame)));
         if !self.queue_frame(PeerLane::Control, &encoded) {
-            return Err(self.conversation.fail_status(
-                "attachment peer could not request status",
-            ));
+            return Err(self
+                .conversation
+                .fail_status("attachment peer could not request status"));
         }
         Ok(())
     }
@@ -218,9 +224,9 @@ impl AttachmentPeerTransfer {
                     .conversation
                     .fail_ack("attachment peer acknowledgement timed out", true))
             }
-            PeerDeadline::Status => Err(self.conversation.fail_status(
-                "attachment peer status timed out",
-            )),
+            PeerDeadline::Status => Err(self
+                .conversation
+                .fail_status("attachment peer status timed out")),
         }
     }
 
@@ -263,7 +269,10 @@ impl AttachmentPeerTransfer {
                 }
             };
             let (bytes, final_fragment) = match step {
-                FlushStep::Packet { bytes, final_fragment } => (bytes, final_fragment),
+                FlushStep::Packet {
+                    bytes,
+                    final_fragment,
+                } => (bytes, final_fragment),
                 FlushStep::Empty => continue,
                 FlushStep::Failed => {
                     return Err(self.finish("attachment peer data channel send failed"));
@@ -306,7 +315,10 @@ impl AttachmentPeerTransfer {
         if self.closed {
             return false;
         }
-        matches!(self.lanes.outbound_mut(lane).enqueue(frame.to_vec()), Ok(true))
+        matches!(
+            self.lanes.outbound_mut(lane).enqueue(frame.to_vec()),
+            Ok(true)
+        )
     }
 
     /// `Some(true)` on the pass that authenticated this carrier, so a host
@@ -356,9 +368,7 @@ impl AttachmentPeerTransfer {
             ServerFrame::Ack(ack) => self.conversation.settle_ack(ack),
             ServerFrame::Status(status) => self.conversation.settle_status(&status_from(status)),
             ServerFrame::Closed(_) => Err(self.finish("attachment peer closed")),
-            ServerFrame::Ready(_) => {
-                Err(self.finish("attachment peer received an invalid frame"))
-            }
+            ServerFrame::Ready(_) => Err(self.finish("attachment peer received an invalid frame")),
         }
     }
 }

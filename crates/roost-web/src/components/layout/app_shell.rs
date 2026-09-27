@@ -233,7 +233,10 @@ mod tests {
             SIDEBAR_WIDTH_VAR,
             SIDEBAR_RESIZER_ACTIVE_WIDTH_VAR,
         ] {
-            assert!(names.contains(&expected), "{expected} missing from {names:?}");
+            assert!(
+                names.contains(&expected),
+                "{expected} missing from {names:?}"
+            );
         }
         // A `var()` REFERENCE is not a declaration, so the list above stays three
         // while the string still names five tokens.

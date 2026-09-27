@@ -79,7 +79,9 @@ impl AttachmentDirectEnvironment for NoDirectEnvironment {
 #[test]
 fn retains_existing_relay_chunk_fields_and_ordered_progress_when_direct_is_unavailable() {
     let total = RELAY_CHUNK_BYTES as usize + 1;
-    let bytes: Vec<u8> = (0..total).map(|index| ((index * 7 + 3) & 0xff) as u8).collect();
+    let bytes: Vec<u8> = (0..total)
+        .map(|index| ((index * 7 + 3) & 0xff) as u8)
+        .collect();
     let mut environment = FakeEnvironment {
         door: None,
         peer_available: false,
@@ -129,7 +131,14 @@ fn retains_existing_relay_chunk_fields_and_ordered_progress_when_direct_is_unava
                 false,
                 RELAY_CHUNK_BYTES as usize
             ),
-            ("session-a".to_owned(), "relay.bin".to_owned(), false, 1, true, 1),
+            (
+                "session-a".to_owned(),
+                "relay.bin".to_owned(),
+                false,
+                1,
+                true,
+                1
+            ),
         ],
         "the relay's chunk fields and their order are unchanged"
     );
@@ -152,14 +161,25 @@ fn keeps_a_zero_byte_file_as_one_final_coordinator_relay_call() {
     };
     let mut relay = RelayUpload::new(&upload_request);
 
-    let slice = relay.next_slice().expect("a zero-byte file still has one chunk");
-    assert_eq!((slice.seq, slice.offset, slice.bytes, slice.last), (0, 0, 0, true));
-    let chunk = relay.frame(Vec::new()).expect("the empty final slice is frameable");
+    let slice = relay
+        .next_slice()
+        .expect("a zero-byte file still has one chunk");
+    assert_eq!(
+        (slice.seq, slice.offset, slice.bytes, slice.last),
+        (0, 0, 0, true)
+    );
+    let chunk = relay
+        .frame(Vec::new())
+        .expect("the empty final slice is frameable");
     assert_eq!(chunk.upload_id, "upload-empty");
     assert_eq!(chunk.seq, 0);
     assert!(chunk.last);
     assert!(chunk.data.is_empty());
-    assert_eq!(relay.settle("/worker/empty.bin"), 0, "a zero-byte file reports no progress");
+    assert_eq!(
+        relay.settle("/worker/empty.bin"),
+        0,
+        "a zero-byte file reports no progress"
+    );
     assert_eq!(relay.next_slice(), None);
     assert_eq!(
         relay.outcome().map(|result| result.abs_path),

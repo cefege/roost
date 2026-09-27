@@ -4,12 +4,12 @@
 //! are one thing here — a fault may not re-dial Sync, close the Sync link, or
 //! re-subscribe a domain (`smoke/terminal/terminal-peer.spec.ts:263`).
 
-use roost_client_core::{Effect, SyncCommand};
 use roost_client_core::client::carriers::{
     CarrierEffect, CarrierEnvironment, CarrierFault, DirectGrant, FallbackReason, FaultFallback,
     GrantInput, GrantPhase, PeerAnswer, PeerPhase, PeerSignalling, ReadyTuple, Signalling,
     SignallingInput,
 };
+use roost_client_core::{Effect, SyncCommand};
 
 const WORKER: &str = "worker-a";
 const SESSION: &str = "session-a";
@@ -261,7 +261,10 @@ fn an_invalid_offer_keeps_the_grant_and_falls_back_to_sync() {
         peer.snapshot().grant_phase
     );
     assert_fell_back_without_reopening_the_session(&effects);
-    assert!(!peer.snapshot().has_carrier, "no carrier is held after a fault");
+    assert!(
+        !peer.snapshot().has_carrier,
+        "no carrier is held after a fault"
+    );
 }
 
 #[test]
@@ -278,9 +281,10 @@ fn an_unavailable_grant_is_dropped_and_a_new_one_is_requested() {
     );
     assert_eq!(peer.snapshot().grant_phase, GrantPhase::Requested);
     assert!(
-        effects
-            .iter()
-            .any(|effect| matches!(effect, CarrierEffect::Core(Effect::RequestDirectGrant { .. }))),
+        effects.iter().any(|effect| matches!(
+            effect,
+            CarrierEffect::Core(Effect::RequestDirectGrant { .. })
+        )),
         "only a fresh mint replaces a credential the worker revoked; got {effects:?}"
     );
     assert_fell_back_without_reopening_the_session(&effects);
@@ -299,9 +303,10 @@ fn an_expired_grant_is_dropped_on_the_clients_own_clock() {
     assert_eq!(faults(&effects), vec![CarrierFault::GrantExpired]);
     assert_eq!(peer.snapshot().grant_phase, GrantPhase::Requested);
     assert!(
-        effects
-            .iter()
-            .any(|effect| matches!(effect, CarrierEffect::Core(Effect::RequestDirectGrant { .. }))),
+        effects.iter().any(|effect| matches!(
+            effect,
+            CarrierEffect::Core(Effect::RequestDirectGrant { .. })
+        )),
         "a dead secret must be re-minted, never re-presented; got {effects:?}"
     );
     assert!(
@@ -331,13 +336,17 @@ fn an_identity_mismatch_closes_the_attempt_and_keeps_the_grant() {
         "discarding a good grant for a tuple fault would make the next attempt wait for a mint"
     );
     assert!(
-        !effects
-            .iter()
-            .any(|effect| matches!(effect, CarrierEffect::Core(Effect::RequestDirectGrant { .. }))),
+        !effects.iter().any(|effect| matches!(
+            effect,
+            CarrierEffect::Core(Effect::RequestDirectGrant { .. })
+        )),
         "a kept grant is not re-requested; got {effects:?}"
     );
     assert_fell_back_without_reopening_the_session(&effects);
-    assert!(!peer.snapshot().has_carrier, "a refused tuple stages nothing");
+    assert!(
+        !peer.snapshot().has_carrier,
+        "a refused tuple stages nothing"
+    );
 }
 
 #[test]
@@ -351,7 +360,10 @@ fn a_staged_loopback_carrier_is_what_a_faulted_peer_hands_the_session_to() {
     peer.step(SignallingInput::LoopbackCarrierStaged { staged: true });
     let effects = peer.step(SignallingInput::IceFailed { attempt_id });
     assert_eq!(handovers(&effects), vec![FaultFallback::Loopback]);
-    assert_eq!(peer.snapshot().fallback_reason, Some(FallbackReason::IceFailed));
+    assert_eq!(
+        peer.snapshot().fallback_reason,
+        Some(FallbackReason::IceFailed)
+    );
     assert_no_session_teardown(&effects);
 }
 

@@ -115,9 +115,7 @@ impl LinkActivation {
     /// The terminal-authored target, which is also the hover text.
     pub fn display(&self) -> &str {
         match self {
-            Self::OpenExternal { display, .. } | Self::OpenWorkerFile { display, .. } => {
-                display
-            }
+            Self::OpenExternal { display, .. } | Self::OpenWorkerFile { display, .. } => display,
         }
     }
 }
@@ -156,10 +154,9 @@ where
     let raw_target = attributes.target.as_deref()?;
     let target = classify_terminal_link_target(raw_target)?;
     match target {
-        TerminalLinkTarget::External { href, display } => Some(LinkActivation::OpenExternal {
-            href,
-            display,
-        }),
+        TerminalLinkTarget::External { href, display } => {
+            Some(LinkActivation::OpenExternal { href, display })
+        }
         TerminalLinkTarget::WorkerFile {
             raw_path,
             line,
@@ -228,9 +225,7 @@ pub fn withhold_press(
     modifier_key: LinkModifierKey,
     button_is_middle: bool,
 ) -> Option<PressWithheld> {
-    if over_terminal_link
-        && is_link_activation_gesture(gesture, activation_armed, modifier_key)
-    {
+    if over_terminal_link && is_link_activation_gesture(gesture, activation_armed, modifier_key) {
         return Some(PressWithheld::LinkActivation);
     }
     if button_is_middle {

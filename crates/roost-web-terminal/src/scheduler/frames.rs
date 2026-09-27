@@ -162,9 +162,7 @@ impl PendingRender {
         match self {
             full @ Self::Full { .. } => full,
             Self::Delta {
-                canonical,
-                deltas,
-                ..
+                canonical, deltas, ..
             } => Self::full(
                 canonical.clone(),
                 delivery_of(&deltas, &canonical).clone(),
@@ -187,7 +185,9 @@ impl PendingRender {
     /// The frame a delivery names: the last delta, or the wire full.
     pub(super) fn delivery(&self) -> &CellGridFrame {
         match self {
-            Self::Delta { canonical, deltas, .. } => delivery_of(deltas, canonical),
+            Self::Delta {
+                canonical, deltas, ..
+            } => delivery_of(deltas, canonical),
             Self::Full { delivery, .. } => delivery,
         }
     }

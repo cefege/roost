@@ -18,11 +18,7 @@ pub fn MobileTopBar(
     session_title: Option<String>,
     session_folder: Option<String>,
 ) -> Element {
-    let title = workbench_title(
-        &path,
-        session_title.as_deref(),
-        session_folder.as_deref(),
-    );
+    let title = workbench_title(&path, session_title.as_deref(), session_folder.as_deref());
     rsx! {
         header {
             class: "mobile-topbar",

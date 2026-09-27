@@ -63,11 +63,7 @@ fn measured_columns(element: &Element, cell_width: f64) -> u32 {
         return 0;
     };
     let columns = ((rect.right() - rect.left()) / cell_width).round();
-    if columns < 1.0 {
-        0
-    } else {
-        columns as u32
-    }
+    if columns < 1.0 { 0 } else { columns as u32 }
 }
 
 /// The terminal link anchor a pointer event landed on, or `None`.

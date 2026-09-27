@@ -84,7 +84,10 @@ pub enum DoorAbsence {
     /// The origin answered, and not with a bootstrap.
     Status { origin: String },
     /// The origin answered 2xx with a body that is not a usable bootstrap.
-    UnusableBody { origin: String, refusal: BootstrapRefusal },
+    UnusableBody {
+        origin: String,
+        refusal: BootstrapRefusal,
+    },
     /// The origin could not be reached at all.
     Unreachable { origin: String },
     /// The candidate is this page's own origin, which already answered 404 for
@@ -176,12 +179,10 @@ impl DoorDiscovery {
             });
         }
         let adoption = match read_serving_origin(status, payload) {
-            BootstrapOutcome::Served(answer) => {
-                DoorAdoption::Adopted(LocalWorkerDoor {
-                    origin: origin.to_string(),
-                    worker_fingerprint: answer.worker_fingerprint,
-                })
-            }
+            BootstrapOutcome::Served(answer) => DoorAdoption::Adopted(LocalWorkerDoor {
+                origin: origin.to_string(),
+                worker_fingerprint: answer.worker_fingerprint,
+            }),
             BootstrapOutcome::NotWorkerServed(refusal) => {
                 let absence = match refusal {
                     BootstrapRefusal::Unreachable => DoorAbsence::Unreachable {

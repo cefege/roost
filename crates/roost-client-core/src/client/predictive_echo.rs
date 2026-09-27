@@ -225,8 +225,8 @@ impl PredictiveEcho {
         let mut index = 0;
         while index < bytes.len() {
             let byte = bytes[index];
-            let arrow =
-                byte == 0x1b && matches!(bytes.get(index + 1..index + 3), Some([0x5b, 0x43 | 0x44]));
+            let arrow = byte == 0x1b
+                && matches!(bytes.get(index + 1..index + 3), Some([0x5b, 0x43 | 0x44]));
             if arrow {
                 self.predict_arrow(bytes[index + 2] == 0x43);
             } else if byte == 0x7f || byte == 0x08 {
@@ -331,7 +331,11 @@ impl PredictiveEcho {
         Some(EchoPaint {
             cells,
             flagged: self.should_flag(),
-            caret_col: if blocked { None } else { self.predicted_cursor_col },
+            caret_col: if blocked {
+                None
+            } else {
+                self.predicted_cursor_col
+            },
         })
     }
 
@@ -343,10 +347,18 @@ impl PredictiveEcho {
             self.arm_display();
             self.should_show()
         };
-        let hidden = self.preds.iter().filter(|pred| self.is_tentative(pred)).count();
+        let hidden = self
+            .preds
+            .iter()
+            .filter(|pred| self.is_tentative(pred))
+            .count();
         EchoDebug {
             total: self.preds.len(),
-            visible: if showing { self.preds.len() - hidden } else { 0 },
+            visible: if showing {
+                self.preds.len() - hidden
+            } else {
+                0
+            },
             srtt_ms: self.srtt_ms,
             confirmed_epoch: self.confirmed_epoch,
             prediction_epoch: self.prediction_epoch,

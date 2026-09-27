@@ -116,12 +116,8 @@ pub trait PeerTransport {
     /// Write one already-framed packet on one lane. The framing is the CALLER's:
     /// a transport moves bytes and knows nothing about the carrier's encoding,
     /// which is what keeps the packet header out of every WebRTC stack.
-    fn send(
-        &mut self,
-        attempt_id: u64,
-        lane: PeerLane,
-        bytes: &[u8],
-    ) -> Result<(), TransportError>;
+    fn send(&mut self, attempt_id: u64, lane: PeerLane, bytes: &[u8])
+    -> Result<(), TransportError>;
 
     /// Write one already-framed content-free probe on the control lane. Two
     /// unanswered probes retire the peer, and the count is the caller's because

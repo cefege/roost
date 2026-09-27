@@ -19,7 +19,11 @@ use crate::components::design_icon::Icon;
 #[component]
 pub fn ActivityBar(path: String) -> Element {
     let active = active_destination(&path);
-    let top = [Destination::Sessions, Destination::Search, Destination::Files];
+    let top = [
+        Destination::Sessions,
+        Destination::Search,
+        Destination::Files,
+    ];
     let bottom = [Destination::Settings, Destination::Help];
 
     rsx! {

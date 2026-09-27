@@ -50,7 +50,11 @@ impl Harness {
     /// replay the client must refuse rather than a renewal.
     fn answer_for(&mut self, request: &GrantMintRequest) -> GrantMintAnswer {
         GrantMintAnswer {
-            grant_id: format!("grant-{}-{}", request.worker_fp, request.session_ids.join("-")),
+            grant_id: format!(
+                "grant-{}-{}",
+                request.worker_fp,
+                request.session_ids.join("-")
+            ),
             secret: format!("secret-{}-{}", request.worker_fp, self.requests.len()),
             ttl_ms: 43_200_000,
             worker_epoch: format!("epoch-{}", request.worker_fp),
@@ -70,24 +74,26 @@ impl Harness {
             self.requests.push(request.clone());
             let answer = self.answer_for(&request);
             let (sessions, now_ms) = (&self.sessions, self.now_ms);
-            current = self.owner.complete_mint(&request, Ok(answer), sessions, now_ms);
+            current = self
+                .owner
+                .complete_mint(&request, Ok(answer), sessions, now_ms);
         }
         panic!("a refresh chain must terminate");
     }
 
     fn demand(&mut self, worker_fp: &str, session_id: &str, active: bool) -> GrantRefresh {
         let (sessions, now_ms) = (&self.sessions, self.now_ms);
-        let decision =
-            self.owner
-                .set_demand(worker_fp, session_id, active, sessions, now_ms);
+        let decision = self
+            .owner
+            .set_demand(worker_fp, session_id, active, sessions, now_ms);
         self.settle(decision)
     }
 
     fn renew(&mut self, worker_fp: &str) -> GrantRefresh {
         let (sessions, now_ms) = (&self.sessions, self.now_ms);
-        let decision =
-            self.owner
-                .refresh(worker_fp, GrantRefreshReason::Renewal, sessions, now_ms);
+        let decision = self
+            .owner
+            .refresh(worker_fp, GrantRefreshReason::Renewal, sessions, now_ms);
         self.settle(decision)
     }
 
@@ -126,13 +132,22 @@ fn keeps_grants_and_renewals_scoped_to_their_worker() {
         vec![vec!["session-a".to_string()]],
         "one mint per worker, naming only that worker's own sessions"
     );
-    assert_eq!(harness.requested("worker-b"), vec![vec!["session-b".to_string()]]);
-    assert!(harness.requests.iter().all(|r| r.tab_id == "tab-test"), "bound to this tab");
+    assert_eq!(
+        harness.requested("worker-b"),
+        vec![vec!["session-b".to_string()]]
+    );
+    assert!(
+        harness.requests.iter().all(|r| r.tab_id == "tab-test"),
+        "bound to this tab"
+    );
 
     harness.renew("worker-a");
     assert_eq!(harness.requests.len(), 3, "a renewal mints once more");
     assert_eq!(
-        harness.owner.current("worker-b").map(|g| g.grant_id.as_str()),
+        harness
+            .owner
+            .current("worker-b")
+            .map(|g| g.grant_id.as_str()),
         Some("grant-worker-b-session-b"),
         "a renewal of one worker must not touch another's grant"
     );
@@ -157,7 +172,9 @@ fn coalesces_added_demand_into_a_follow_up_mint() {
     let answer = harness.answer_for(&first);
     let sessions = &harness.sessions;
     let now_ms = harness.now_ms;
-    let completed = harness.owner.complete_mint(&first, Ok(answer), sessions, now_ms);
+    let completed = harness
+        .owner
+        .complete_mint(&first, Ok(answer), sessions, now_ms);
     let GrantRefresh::Mint(follow_up) = completed else {
         panic!("the expanded demand is owed its own mint before it can be used");
     };
@@ -166,7 +183,9 @@ fn coalesces_added_demand_into_a_follow_up_mint() {
 
     let answer = harness.answer_for(&follow_up);
     let sessions = &harness.sessions;
-    let installed = harness.owner.complete_mint(&follow_up, Ok(answer), sessions, now_ms);
+    let installed = harness
+        .owner
+        .complete_mint(&follow_up, Ok(answer), sessions, now_ms);
     let GrantRefresh::Installed(grant) = installed else {
         panic!("the follow-up mint installs");
     };
@@ -176,7 +195,10 @@ fn coalesces_added_demand_into_a_follow_up_mint() {
         "the installed grant names the expanded set, not the original one"
     );
     let two = vec!["session-a".to_string(), "session-a2".to_string()];
-    assert_eq!(harness.requested("worker-a"), vec![vec!["session-a".to_string()], two]);
+    assert_eq!(
+        harness.requested("worker-a"),
+        vec![vec!["session-a".to_string()], two]
+    );
 }
 
 #[test]
@@ -192,7 +214,10 @@ fn retains_an_open_authorized_session_when_demand_moves_within_one_worker() {
         vec![vec!["session-a".to_string()], two.clone()],
         "a granted session stays in scope when demand moves inside one worker"
     );
-    let standing = harness.owner.current("worker-a").map(|g| g.session_ids.clone());
+    let standing = harness
+        .owner
+        .current("worker-a")
+        .map(|g| g.session_ids.clone());
     let both = BTreeSet::from(["session-a".to_string(), "session-a2".to_string()]);
     assert_eq!(standing, Some(both));
 }
@@ -230,8 +255,15 @@ fn removal_fences_an_in_flight_mint_and_a_previously_valid_grant() {
     );
     assert_eq!(harness.owner.current("worker-a"), None);
     let published = harness.owner.take_publications();
-    assert_eq!(published.len(), 1, "one publication: the retirement, not the answer");
-    assert_eq!(published[0].grant, None, "consumers are told the grant is GONE");
+    assert_eq!(
+        published.len(),
+        1,
+        "one publication: the retirement, not the answer"
+    );
+    assert_eq!(
+        published[0].grant, None,
+        "consumers are told the grant is GONE"
+    );
 
     assert!(harness.owner.is_worker_retired("worker-a"));
 
@@ -251,7 +283,8 @@ fn removal_fences_an_in_flight_mint_and_a_previously_valid_grant() {
 }
 
 #[test]
-fn retiring_an_absent_worker_blocks_new_demand_until_auth_reset_while_another_worker_remains_usable() {
+fn retiring_an_absent_worker_blocks_new_demand_until_auth_reset_while_another_worker_remains_usable()
+ {
     let mut harness = Harness::new();
     harness.owner.retire_worker("worker-a");
     let blocked = harness.demand("worker-a", "session-a", true);
@@ -284,8 +317,14 @@ fn mints_an_initial_grant_without_a_workers_projection() {
     // Nothing about `worker-a` is known anywhere: no workers row, no grant, no
     // prior demand. The session table is the only input the mint reads.
     harness.demand("worker-a", "session-a", true);
-    assert_eq!(harness.requested("worker-a"), vec![vec!["session-a".to_string()]]);
-    let grant = harness.owner.current("worker-a").expect("the mint installed");
+    assert_eq!(
+        harness.requested("worker-a"),
+        vec![vec!["session-a".to_string()]]
+    );
+    let grant = harness
+        .owner
+        .current("worker-a")
+        .expect("the mint installed");
     assert_eq!(grant.tab_id, "tab-test");
     assert_eq!(grant.device_fingerprint, "device-test");
     assert!(harness.requests.iter().all(|r| r.tab_id == "tab-test"));
@@ -337,7 +376,9 @@ fn a_refused_mint_is_backed_off_and_cleared_when_sync_returns() {
     harness.owner.clear_retry(Some("worker-a"));
     let sessions = &harness.sessions;
     let reason = GrantRefreshReason::SyncConnected;
-    let decision = harness.owner.refresh("worker-a", reason, sessions, harness.now_ms);
+    let decision = harness
+        .owner
+        .refresh("worker-a", reason, sessions, harness.now_ms);
     harness.settle(decision);
     assert_eq!(harness.requests.len(), 2, "a cleared window mints at once");
     assert_eq!(
@@ -347,7 +388,11 @@ fn a_refused_mint_is_backed_off_and_cleared_when_sync_returns() {
     );
     // Only a REFUSAL arms a backoff, so that successful mint armed nothing.
     harness.demand("worker-a", "session-b", true);
-    assert_eq!(harness.requests.len(), 2, "an ungrantable session mints nothing");
+    assert_eq!(
+        harness.requests.len(),
+        2,
+        "an ungrantable session mints nothing"
+    );
 }
 
 #[test]
@@ -368,7 +413,10 @@ fn a_rejected_credential_clears_the_grant_and_is_re_minted_immediately() {
     // A REJECTION is not a refusal, so nothing here is inside a backoff.
     harness.demand("worker-a", "session-a2", true);
     assert_eq!(harness.requests.len(), 2);
-    assert!(harness.owner.current("worker-a").is_some(), "a grant is back");
+    assert!(
+        harness.owner.current("worker-a").is_some(),
+        "a grant is back"
+    );
 }
 
 #[test]
@@ -391,6 +439,10 @@ fn a_mint_is_capped_at_the_protocol_maximum_sessions() {
     let first = first.expect("the first demand for an open session mints");
     harness.settle(GrantRefresh::Mint(first));
     let request = harness.requests.last().expect("a follow-up is recorded");
-    assert_eq!(request.session_ids.len(), 256, "the protocol's per-grant maximum");
+    assert_eq!(
+        request.session_ids.len(),
+        256,
+        "the protocol's per-grant maximum"
+    );
     assert_eq!(request.session_ids[0], "session-0000");
 }

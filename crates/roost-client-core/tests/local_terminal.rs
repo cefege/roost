@@ -82,7 +82,10 @@ fn uses_a_fresh_browser_namespace_only_for_a_complete_old_ready_tuple() {
     assert!(admission.allows_session("session-a"), "the Ready named it");
     // A rolling worker reports no epoch, so there is nothing to claim a route
     // against and the grant's advertised capability must NOT be believed here.
-    assert!(!admission.input_route_supported, "a rolling worker names no epoch");
+    assert!(
+        !admission.input_route_supported,
+        "a rolling worker names no epoch"
+    );
 
     // And the namespace is what a close retires: a batch started on this token
     // settles `ambiguous`, because the carrier may have handed the bytes over.
@@ -92,7 +95,11 @@ fn uses_a_fresh_browser_namespace_only_for_a_complete_old_ready_tuple() {
         .expect("an open lane admits one batch");
     assert!(router.mark_started(pending.input_seq, &admission.token));
     let settled = router.retire_token(&admission.token, "local terminal closed");
-    assert_eq!(settled.len(), 1, "the batch on this token settles exactly once");
+    assert_eq!(
+        settled.len(),
+        1,
+        "the batch on this token settles exactly once"
+    );
     assert!(
         settled[0].is_ambiguous(),
         "input handed to a closing carrier is ambiguous, never retried"
@@ -161,7 +168,10 @@ fn keeps_actual_worker_epoch_and_socket_id_on_a_current_ready_tuple() {
     assert_eq!(admission.token.process_epoch, "epoch-a");
     assert_eq!(admission.token.worker_fp.as_deref(), Some("worker-a"));
     assert_eq!(admission.token.domain_generation, 7);
-    assert!(admission.input_route_supported, "a named epoch can be claimed against");
+    assert!(
+        admission.input_route_supported,
+        "a named epoch can be claimed against"
+    );
 }
 
 #[test]
@@ -267,7 +277,11 @@ fn a_secret_cannot_be_replayed() {
         "closing the socket returns the secret, so a redial is not a replay"
     );
     ledger.release_worker("worker-a");
-    assert_eq!(ledger.claim(&grant), Ok(()), "retiring a worker releases them");
+    assert_eq!(
+        ledger.claim(&grant),
+        Ok(()),
+        "retiring a worker releases them"
+    );
 }
 
 #[test]
@@ -386,7 +400,10 @@ fn an_elected_direct_route_wins_and_a_dead_grant_refuses_rather_than_falling_bac
     let chosen = elect(0).expect("an elected route on a live grant wins");
     assert_eq!(chosen.token, token, "the elected route's own generation");
     assert!(chosen.closeable, "a direct carrier is closable here");
-    assert!(chosen.input_route_supported, "a live grant carries an epoch");
+    assert!(
+        chosen.input_route_supported,
+        "a live grant carries an epoch"
+    );
     assert_eq!(
         elect(expired),
         None,

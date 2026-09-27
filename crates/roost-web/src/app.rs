@@ -84,9 +84,7 @@ pub fn surface_for(route: &Route) -> Surface {
         | Route::Search => Surface::NotServed {
             path: route.to_path(),
         },
-        Route::Unknown { path } => Surface::NotFound {
-            path: path.clone(),
-        },
+        Route::Unknown { path } => Surface::NotFound { path: path.clone() },
     }
 }
 
@@ -180,8 +178,7 @@ fn RouteContent(surface: Surface) -> Element {
 /// effect is to fire once.
 #[cfg(target_arch = "wasm32")]
 fn apple_keyboard() -> bool {
-    web_sys::window()
-        .is_some_and(|window| window.navigator().user_agent().contains("Mac"))
+    web_sys::window().is_some_and(|window| window.navigator().user_agent().contains("Mac"))
 }
 
 /// A native build reports no platform, and `Ctrl` is the reading that is wrong

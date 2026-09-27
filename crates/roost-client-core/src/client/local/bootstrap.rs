@@ -53,8 +53,7 @@ impl LocalBootstrap {
     /// at this page's own origin, which is the WORKER, and the failure would be
     /// silent.
     pub fn parse(payload: &str) -> Result<Self, BootstrapRefusal> {
-        let value: Value =
-            serde_json::from_str(payload).map_err(|_| BootstrapRefusal::NotJson)?;
+        let value: Value = serde_json::from_str(payload).map_err(|_| BootstrapRefusal::NotJson)?;
         let Value::Object(fields) = value else {
             return Err(BootstrapRefusal::NotAnObject);
         };
@@ -71,7 +70,10 @@ impl LocalBootstrap {
 }
 
 /// One required string field, trimmed, and non-empty.
-fn string_field(fields: &serde_json::Map<String, Value>, name: &str) -> Result<String, BootstrapRefusal> {
+fn string_field(
+    fields: &serde_json::Map<String, Value>,
+    name: &str,
+) -> Result<String, BootstrapRefusal> {
     let Some(Value::String(raw)) = fields.get(name) else {
         return Err(BootstrapRefusal::MissingField(name.to_string()));
     };

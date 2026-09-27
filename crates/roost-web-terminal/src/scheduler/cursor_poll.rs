@@ -164,7 +164,11 @@ impl CursorPollTicker {
     /// The position this pane must publish on this poll, consuming the change.
     /// `None` for a pane that is not registered, may not do foreground work, or
     /// whose cursor has not moved.
-    pub fn poll(&mut self, pane: CursorPollPane, reading: CursorPollReading) -> Option<CursorPosition> {
+    pub fn poll(
+        &mut self,
+        pane: CursorPollPane,
+        reading: CursorPollReading,
+    ) -> Option<CursorPosition> {
         self.panes.get_mut(&pane)?.take_due(reading)
     }
 }

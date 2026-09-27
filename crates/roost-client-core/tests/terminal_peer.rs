@@ -4,12 +4,12 @@
 //! rule the machine holds with no transport in the process; the four fault
 //! rules are in `terminal_peer_fallback.rs`.
 
-use roost_client_core::{Effect, SyncCommand, TerminalTransport};
 use roost_client_core::client::carriers::{
-    CarrierEffect, CarrierEnvironment, CarrierFault, DirectGrant, GrantInput, GrantPhase,
-    GRANT_RETRY_MS, LOOPBACK_GRACE_MS, LoopbackProbe, PeerAnswer, PeerPhase, PeerSignalling,
+    CarrierEffect, CarrierEnvironment, CarrierFault, DirectGrant, GRANT_RETRY_MS, GrantInput,
+    GrantPhase, LOOPBACK_GRACE_MS, LoopbackProbe, PeerAnswer, PeerPhase, PeerSignalling,
     ReadyTuple, ScriptedPeerSignalling, Signalling, SignallingInput,
 };
+use roost_client_core::{Effect, SyncCommand, TerminalTransport};
 
 const WORKER: &str = "worker-a";
 const SESSION: &str = "session-a";
@@ -111,11 +111,12 @@ fn authenticating() -> (Signalling, u64) {
     peer.step(demand(SESSION));
     peer.step(grant_minted(&[SESSION]));
     peer.step(elsewhere());
-    let attempt_id = match peer.step(SignallingInput::OfferReady {
-        attempt_id: 1,
-        offer_sdp: usable_sdp(),
-    })
-    .as_slice()
+    let attempt_id = match peer
+        .step(SignallingInput::OfferReady {
+            attempt_id: 1,
+            offer_sdp: usable_sdp(),
+        })
+        .as_slice()
     {
         [CarrierEffect::NegotiateOffer { attempt_id, .. }] => attempt_id,
         other => panic!("a page on another machine must negotiate a peer, got {other:?}"),
@@ -158,15 +159,18 @@ fn loopback_wins_before_a_webrtc_peer_is_allocated_and_keeps_sync_metadata_live(
     emitted.extend(peer.step(SignallingInput::LocalDoorAnswered {
         worker_fp: WORKER.to_string(),
     }));
-    emitted.extend(peer.step(SignallingInput::LoopbackCarrierStaged {
-        staged: true,
-    }));
+    emitted.extend(peer.step(SignallingInput::LoopbackCarrierStaged { staged: true }));
     emitted.extend(peer.step(SignallingInput::RetryDue {
         now_ms: NOW + LOOPBACK_GRACE_MS,
     }));
-    emitted.extend(peer.step(SignallingInput::Sweep { now_ms: NOW + 1_000 }));
+    emitted.extend(peer.step(SignallingInput::Sweep {
+        now_ms: NOW + 1_000,
+    }));
 
-    assert!(!opened_a_transport(&emitted), "loopback holds, so no peer; {emitted:?}");
+    assert!(
+        !opened_a_transport(&emitted),
+        "loopback holds, so no peer; {emitted:?}"
+    );
     assert!(
         !peer.loopback_probe().permits_peer() && peer.loopback_probe().has_staged_carrier(),
         "the probe withholds a peer, and sees the fast path that holds it"
@@ -209,7 +213,10 @@ fn retries_a_transient_initial_grant_failure_at_the_bounded_retry_deadline() {
         worker_fp: WORKER.to_string(),
     });
     let requested = peer.step(demand(SESSION));
-    assert!(requested.contains(&exact), "new demand asks for a grant; {requested:?}");
+    assert!(
+        requested.contains(&exact),
+        "new demand asks for a grant; {requested:?}"
+    );
 
     // A request that RETURNS is a refusal, not a pending state: only a worker's
     // acknowledgement reveals the secret.
@@ -229,7 +236,10 @@ fn retries_a_transient_initial_grant_failure_at_the_bounded_retry_deadline() {
     let armed = armed.unwrap_or_else(|| panic!("a refusal arms a retry; {refused:?}"));
     assert_eq!(armed, NOW + GRANT_RETRY_MS);
     let asked = |effect: &CarrierEffect| {
-        matches!(effect, CarrierEffect::Core(Effect::RequestDirectGrant { .. }))
+        matches!(
+            effect,
+            CarrierEffect::Core(Effect::RequestDirectGrant { .. })
+        )
     };
     let early = peer.step(SignallingInput::RetryDue { now_ms: armed - 1 });
     assert!(!early.iter().any(asked), "the retry must not fire early");
@@ -250,7 +260,10 @@ fn a_carrier_with_no_live_grant_never_authenticates() {
         attempt_id: 1,
         offer_sdp: usable_sdp(),
     });
-    assert!(!opened_a_transport(&effects), "no grant, no transport; {effects:?}");
+    assert!(
+        !opened_a_transport(&effects),
+        "no grant, no transport; {effects:?}"
+    );
     let snapshot = peer.snapshot();
     assert_eq!(snapshot.grant_phase, GrantPhase::Requested);
     assert_eq!(snapshot.phase, PeerPhase::AwaitingGrant);
@@ -263,9 +276,14 @@ fn a_matching_answer_and_ready_stage_a_carrier_that_is_not_yet_elected() {
         attempt_id,
         ready: ready(EPOCH, &[SESSION]),
     });
-    assert!(faults(&staged).is_empty(), "a matching tuple is not a fault");
     assert!(
-        staged.iter().any(|effect| matches!(effect, CarrierEffect::StageCarrier { .. })),
+        faults(&staged).is_empty(),
+        "a matching tuple is not a fault"
+    );
+    assert!(
+        staged
+            .iter()
+            .any(|effect| matches!(effect, CarrierEffect::StageCarrier { .. })),
         "a matching Ready is what stages a candidate; got {staged:?}"
     );
     let snapshot = peer.snapshot();
@@ -283,8 +301,14 @@ fn rejects_a_ready_tuple_with_a_different_worker_epoch() {
     });
     assert_eq!(faults(&effects), vec![CarrierFault::IdentityMismatch]);
     let staged = |effect: &CarrierEffect| matches!(effect, CarrierEffect::StageCarrier { .. });
-    assert!(!effects.iter().any(staged), "a refused tuple stages nothing");
-    assert!(!peer.snapshot().has_carrier, "nothing is held after a refusal");
+    assert!(
+        !effects.iter().any(staged),
+        "a refused tuple stages nothing"
+    );
+    assert!(
+        !peer.snapshot().has_carrier,
+        "nothing is held after a refusal"
+    );
 }
 
 #[test]
@@ -319,7 +343,9 @@ fn accepts_a_bounded_ready_for_the_full_256_session_grant() {
         attempt_id: 1,
         ready: widest,
     });
-    let admitted = staged.iter().any(|effect| matches!(effect, CarrierEffect::StageCarrier { .. }));
+    let admitted = staged
+        .iter()
+        .any(|effect| matches!(effect, CarrierEffect::StageCarrier { .. }));
     assert!(admitted, "a Ready inside the grant's scope is admitted");
 }
 
@@ -347,19 +373,33 @@ fn refuses_a_ninth_simultaneously_demanded_browser_peer() {
         opened[..8].iter().all(|entry| *entry) && !opened[8],
         "eight peers fit the document-wide cap and the ninth does not; got {opened:?}"
     );
-    assert_eq!(refused[8], vec![CarrierFault::DocumentCap], "a cap, not a fault");
+    assert_eq!(
+        refused[8],
+        vec![CarrierFault::DocumentCap],
+        "a cap, not a fault"
+    );
 }
 
 #[test]
 fn the_probe_releases_a_peer_only_for_a_page_that_is_not_on_the_worker_machine() {
     let mut probe = LoopbackProbe::new(WORKER);
-    assert!(!probe.permits_peer(), "an unanswered probe releases no peer");
+    assert!(
+        !probe.permits_peer(),
+        "an unanswered probe releases no peer"
+    );
     probe.answered("worker-b");
-    assert!(probe.permits_peer(), "another worker's page cannot use this door");
+    assert!(
+        probe.permits_peer(),
+        "another worker's page cannot use this door"
+    );
     let mut same = LoopbackProbe::new(WORKER);
     same.answered(WORKER);
     assert!(!same.permits_peer(), "the worker's own page must not peer");
-    assert_eq!(same.recheck_after_ms(), None, "a settled answer is not re-asked");
+    assert_eq!(
+        same.recheck_after_ms(),
+        None,
+        "a settled answer is not re-asked"
+    );
 }
 
 #[test]
@@ -375,9 +415,10 @@ fn the_machine_is_reachable_through_its_named_trait() {
         active: true,
     });
     assert!(
-        effects
-            .iter()
-            .any(|effect| matches!(effect, CarrierEffect::Core(Effect::RequestDirectGrant { .. }))),
+        effects.iter().any(|effect| matches!(
+            effect,
+            CarrierEffect::Core(Effect::RequestDirectGrant { .. })
+        )),
         "the trait must reach the decision the concrete type makes; got {effects:?}"
     );
     assert_eq!(peer.snapshot().active_views, 1);
@@ -396,5 +437,8 @@ fn the_machine_is_reachable_through_its_named_trait() {
         vec![CarrierEffect::RetryAt { at_ms: 42 }],
         "the double must be substitutable for the machine behind the same trait"
     );
-    assert_eq!(scripted.observed_inputs(), &[SignallingInput::WorkerRetired]);
+    assert_eq!(
+        scripted.observed_inputs(),
+        &[SignallingInput::WorkerRetired]
+    );
 }
