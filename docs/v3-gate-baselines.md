@@ -613,14 +613,19 @@ deleted.** A gate that is broken is worse than a gate that is absent, and an
 optional rule is not worth a broken `xtask`. What survives is the rule written
 here rather than in code:
 
-- **A module is registered, or it is not in the tree. There is no third state, and
-  no marker that temporarily un-registers one.**
+- **A module is registered, or it is not in the tree. There is no third state,
+  and no marker that temporarily un-registers one.** An unregistered file is
+  **never compiled** — it is unchecked text, which is exactly the "green check on
+  a file nothing includes" case in the section above. Every type drift in it
+  stays invisible until somebody writes the code that reaches it.
+- So a module written and not yet reachable is **registered anyway, and reported
+  as "declared, no adapter yet."** A trait with no implementation compiles fine
+  once registered — at worst a `dead_code` warning, which is allowable per item
+  with a reason. Unregistered, it is not checked against the crate's types at
+  all, which is strictly worse than a warning.
 - If a slice needs a registration it does not own, it says so in its report and
   the integrator writes the line. A slice that cannot compile without a `mod` it
   does not own is reporting a dependency, not working around one.
-- A **trait with no implementation** is a different case from a module that used
-  to compile: it is a declaration with nothing behind it, and the honest state is
-  "written, unregistered, and named" — in a report, never as a comment.
 - Whoever eventually writes the lint should match a bare `mod`/`use` token within
   the first few words of a `//` comment **and** a `;` on that line, and should
   carry the two prose lines above as named regression tests, because a version
