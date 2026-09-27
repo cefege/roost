@@ -11,8 +11,9 @@ use roost_protocol::cell::{
     CELL_REVERSE, CellGridFrame, CellSpan, DEFAULT_COLOR, column_span, column_text, span_is_atomic,
 };
 
+use super::PredictiveEcho;
 use super::expiry::GLITCH_MS;
-use super::{PredictiveEcho, ResetReason};
+use super::report::ResetReason;
 use crate::store::prefs::PredictMode;
 
 /// The application's own echo latency after the PTY write. A contradiction

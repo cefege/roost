@@ -11,7 +11,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use roost_client_core::client::predictive_echo::{EchoPaint, PredictedCell};
+use roost_client_core::client::predictive_echo::report::{EchoPaint, PredictedCell};
 use roost_web_terminal::echo_overlay::{
     PREDICTED_ERASE_CLASS, PREDICTED_GLYPH_CLASS, cell_left, cell_top, plan_paint, prediction_style,
 };

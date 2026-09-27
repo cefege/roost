@@ -1,7 +1,9 @@
 //! The peer signalling state machine: one worker, one WebRTC attempt at a time,
-//! and the order a direct carrier may come up in. Driven through
-//! `PeerSignalling`; never a socket, never a timer, and never the promotion,
-//! which `RouteRegistry` owns. Ported from
+//! and the order a direct carrier may come up in. Every transition that can
+//! change an attempt lives here; what a host may READ about one is projected by
+//! `super::signaling_snapshot`, the `PeerSignalling` lane it is driven through.
+//! Never a socket, never a timer, and never the promotion, which
+//! `RouteRegistry` owns. Ported from
 //! `apps/web/src/store/transport/terminal-peer.ts:193-283`; the one addition is
 //! fault CLASSIFICATION, which v2 collapses into one `network_failed`.
 
@@ -16,10 +18,9 @@ use crate::client::carriers::faults::{
 };
 use crate::client::carriers::grant::{GrantInput, GrantLifecycle, GrantSweep};
 use crate::client::carriers::loopback::LoopbackProbe;
-use crate::client::carriers::transport_trait::PeerSignalling;
 use crate::client::carriers::{
     CarrierEffect, CarrierEnvironment, CarrierFault, PeerAnswer, PeerAttempt, PeerPhase,
-    ReadyTuple, SignallingInput, SignallingSnapshot,
+    ReadyTuple, SignallingInput,
 };
 use crate::terminal::token::TerminalTransport;
 
@@ -64,22 +65,6 @@ impl Signalling {
             next_attempt_id: 0,
             retired: false,
         }
-    }
-
-    /// The gate that decides whether a peer is needed, and this machine's one
-    /// view of a staged loopback carrier.
-    pub fn loopback_probe(&self) -> &LoopbackProbe {
-        &self.loopback
-    }
-
-    /// The sessions a view currently wants here.
-    pub fn demanded_sessions(&self) -> &BTreeSet<String> {
-        &self.demand
-    }
-
-    /// Where the attempt is.
-    pub fn phase(&self) -> PeerPhase {
-        self.phase
     }
 
     /// Fold one observation in, and return what the host should do about it.
@@ -368,35 +353,5 @@ impl Signalling {
         self.set_phase(PeerPhase::Cooldown, Some(fault.reason()));
         out.extend(self.report(fault, detail));
         out
-    }
-}
-
-impl PeerSignalling for Signalling {
-    fn worker_fp(&self) -> &str {
-        &self.worker_fp
-    }
-
-    fn snapshot(&self) -> SignallingSnapshot {
-        SignallingSnapshot {
-            worker_fp: self.worker_fp.clone(),
-            phase: self.phase,
-            fallback_reason: self.faults.reason,
-            active_views: self.active_views,
-            demanded_sessions: self.demand.clone(),
-            has_carrier: self.peer_held,
-            transport_held: self.peer_held.then_some(TerminalTransport::Peer),
-            peers_allocated: self.env.peers_allocated,
-            grant_phase: self.grant.phase(),
-            sync_generation: self.env.sync_generation,
-            last_failure_detail: self.faults.last_detail.clone(),
-        }
-    }
-
-    fn phase(&self) -> PeerPhase {
-        self.phase
-    }
-
-    fn step(&mut self, input: SignallingInput) -> Vec<CarrierEffect> {
-        Signalling::step(self, input)
     }
 }
