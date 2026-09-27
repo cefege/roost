@@ -1178,15 +1178,32 @@ three one-line `assert_eq!`s wrapped to four give +12/−3, one `assert!` gives
 +4/−1, the `use` block expanding gives +3/−1, and the import line about +2/−0 —
 roughly +21/−5, which is the stat exactly.**
 
-**What settles it, and it costs one command:**
+**What settles it, and it costs one command — with a correction to this entry's own
+claim, found when a 77-file `cargo fmt` pass needed the same instrument:**
 
 ```bash
-git diff -w --word-diff <a> <b> -- <file>   # empty or whitespace-only => a reflow
+git diff -w --word-diff <a> <b> -- <file>   # a reflow shows the SAME tokens on new lines
 git show <rev>:<file> | tr '\n' ' ' | tr -s ' ' | grep -o '<pattern>' | wc -l
 ```
 
 The second counts ASSERTION STATEMENTS rather than lines mentioning one, so both
 commits answer 5 close-code and 3 keepalive — identical, and nothing was added.
+
+**`git diff -w --stat` DOES NOT SETTLE IT, and this entry previously implied it
+did.** `-w` ignores whitespace *within* a line, but when a formatter splits one
+line into four the diff hunks move and `-w` does not merge them. A whole-tree
+`cargo fmt` pass still reports **77 files, 1314 insertions, 576 deletions** under
+`-w`, which reads as substantial content change and is not. **`--word-diff` is the
+instrument: it shows the identical tokens reflowed, and a reader can see that in
+one glance. `-w --stat` will mislead you on exactly the case where you need it.**
+
+**And the general rule the pair of instances produced: a tree-wide formatter pass
+is its own commit, every time.** The coordinator's `cargo fmt` touched five test
+files it had not authored; the web track's touched 77 across three crates. In both
+cases a reviewer reading "the formatter's pass" skips the diff — and in the
+coordinator's case the skipped diff happened to contain the close-code assertions
+that were under review. **A commit's subject line is the only thing that tells a
+reader which changes were intended, and a formatter's are not.**
 
 **The general rule, and it is the same as every other entry here: an instrument
 has to be able to fail before its number means anything.** `--stat` counts lines,
