@@ -280,7 +280,7 @@ async fn the_coordinator_bounds_total_waits_across_sessions() {
                 }
                 Err(_) => false,
             })
-            .fold(true, |all, admitted| all && admitted);
+            .all(|admitted| admitted);
         if index == AGENT_STATUS_WAIT_MAX_GLOBAL / AGENT_STATUS_WAIT_MAX_PER_SESSION {
             assert!(!outcome, "the global bound refuses the last session");
         } else {

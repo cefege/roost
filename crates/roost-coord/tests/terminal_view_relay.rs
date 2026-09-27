@@ -15,8 +15,7 @@ mod terminal_view_support;
 
 use terminal_view_support::{
     FINGERPRINT, Harness, OTHER_FINGERPRINT, OTHER_SESSION, Recorded, Relayed, SESSION, VIEW,
-    decisions, owner_state, watching,
-};
+    decisions, owner_state, watching,, ViewShape};
 
 use roost_proto::{TerminalViewStatus, WTerminalViewProjection};
 
@@ -33,7 +32,7 @@ fn a_view_command_for_an_owned_session_is_relayed_to_its_owner() {
     let harness = Harness::new();
     let browser = harness.browser("socket-a", FINGERPRINT, &[SESSION]);
 
-    harness.view(&browser, VIEW, 120, 50, 1, true, T0);
+    harness.view(&browser, ViewShape::new(VIEW, 120, 50, 1), T0);
 
     assert_eq!(
         harness.transport.relayed(),
@@ -61,7 +60,7 @@ fn a_refused_relay_tells_the_browser_the_terminal_is_unavailable() {
         .set_owner_transport(terminal_view_support::RecordingTransport::dropping());
     let browser = harness.browser("socket-a", FINGERPRINT, &[SESSION]);
 
-    harness.view(&browser, VIEW, 120, 50, 1, true, T0);
+    harness.view(&browser, ViewShape::new(VIEW, 120, 50, 1), T0);
 
     assert_eq!(
         decisions(&browser.sink.states()),
@@ -223,7 +222,7 @@ fn a_view_state_from_a_worker_that_does_not_own_the_session_is_dropped() {
 fn a_closed_socket_reaches_the_owner_it_was_relayed_to() {
     let harness = Harness::new();
     let browser = harness.browser("socket-a", FINGERPRINT, &[SESSION]);
-    harness.view(&browser, VIEW, 120, 50, 1, true, T0);
+    harness.view(&browser, ViewShape::new(VIEW, 120, 50, 1), T0);
 
     harness.hub.close_socket("socket-a", T0 + 10);
 

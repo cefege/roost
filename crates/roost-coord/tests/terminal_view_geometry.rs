@@ -16,8 +16,7 @@
 mod terminal_view_support;
 
 use terminal_view_support::{
-    FINGERPRINT, Harness, OTHER_FINGERPRINT, OTHER_VIEW, SESSION, VIEW, decisions,
-};
+    FINGERPRINT, Harness, OTHER_FINGERPRINT, OTHER_VIEW, SESSION, VIEW, decisions,, ViewShape};
 
 use roost_proto::TerminalViewStatus;
 use roost_protocol::viewport::{TERMINAL_VIEW_LEASE_MS, TERMINAL_VIEW_PARK_GRACE_MS};
@@ -33,8 +32,8 @@ fn crossed_viewers_run_the_pty_at_the_per_axis_minimum() {
     let wide = harness.browser("socket-wide", FINGERPRINT, &[SESSION]);
     let narrow = harness.browser("socket-narrow", OTHER_FINGERPRINT, &[SESSION]);
 
-    harness.view(&wide, VIEW, 120, 50, 1, true, T0);
-    harness.view(&narrow, OTHER_VIEW, 60, 80, 1, true, T0);
+    harness.view(&wide, ViewShape::new(VIEW, 120, 50, 1), T0);
+    harness.view(&narrow, ViewShape::new(OTHER_VIEW, 60, 80, 1), T0);
 
     assert_eq!(
         harness.effective(T0),
@@ -51,8 +50,8 @@ fn a_viewers_departure_recomputes_the_effective_geometry() {
     let wide = harness.browser("socket-wide", FINGERPRINT, &[SESSION]);
     let narrow = harness.browser("socket-narrow", OTHER_FINGERPRINT, &[SESSION]);
 
-    harness.view(&wide, VIEW, 120, 50, 1, true, T0);
-    harness.view(&narrow, OTHER_VIEW, 60, 80, 1, true, T0);
+    harness.view(&wide, ViewShape::new(VIEW, 120, 50, 1), T0);
+    harness.view(&narrow, ViewShape::new(OTHER_VIEW, 60, 80, 1), T0);
     assert_eq!(harness.effective(T0), Some((60, 50)), "both are binding");
 
     harness.release(&narrow, OTHER_VIEW, 2, T0 + 10);
@@ -78,8 +77,8 @@ fn an_expired_lease_stops_pinning_the_pty() {
     let harness = Harness::unowned();
     let wide = harness.browser("socket-wide", FINGERPRINT, &[SESSION]);
     let narrow = harness.browser("socket-narrow", OTHER_FINGERPRINT, &[SESSION]);
-    harness.view(&wide, VIEW, 120, 50, 1, true, T0);
-    harness.view(&narrow, OTHER_VIEW, 60, 80, 1, true, T0);
+    harness.view(&wide, ViewShape::new(VIEW, 120, 50, 1), T0);
+    harness.view(&narrow, ViewShape::new(OTHER_VIEW, 60, 80, 1), T0);
     let died_at = T0 + 100;
     harness.hub.close_socket("socket-narrow", died_at);
 
@@ -109,7 +108,7 @@ fn an_expired_lease_stops_pinning_the_pty() {
     // dead one, and the count below would measure two lapsed leases instead of
     // the one it names.
     let after_lease = died_at + TERMINAL_VIEW_LEASE_MS + 1;
-    harness.view(&wide, VIEW, 120, 50, 1, true, after_lease - 1);
+    harness.view(&wide, ViewShape::new(VIEW, 120, 50, 1), after_lease - 1);
     harness.hub.sweep(after_lease);
     let stats = harness.hub.view_stats(&harness.session);
     assert_eq!(
@@ -130,7 +129,7 @@ fn an_expired_lease_stops_pinning_the_pty() {
 fn a_live_view_whose_lease_lapses_closes_its_socket() {
     let harness = Harness::unowned();
     let quiet = harness.browser("socket-quiet", FINGERPRINT, &[SESSION]);
-    harness.view(&quiet, VIEW, 100, 40, 1, true, T0);
+    harness.view(&quiet, ViewShape::new(VIEW, 100, 40, 1), T0);
 
     harness.hub.sweep(T0 + TERMINAL_VIEW_LEASE_MS);
 
@@ -154,7 +153,7 @@ fn a_live_view_whose_lease_lapses_closes_its_socket() {
 fn a_solo_viewers_geometry_is_held_across_a_link_blip() {
     let harness = Harness::unowned();
     let solo = harness.browser("socket-solo", FINGERPRINT, &[SESSION]);
-    harness.view(&solo, VIEW, 100, 40, 1, true, T0);
+    harness.view(&solo, ViewShape::new(VIEW, 100, 40, 1), T0);
     let blip_at = T0 + 100;
     harness.hub.close_socket("socket-solo", blip_at);
 
@@ -180,7 +179,7 @@ fn a_solo_viewers_geometry_is_held_across_a_link_blip() {
 fn a_viewer_resized_while_offline_reclaims_its_record_at_the_new_size() {
     let harness = Harness::unowned();
     let first = harness.browser("socket-tab1", FINGERPRINT, &[SESSION]);
-    harness.view(&first, VIEW, 200, 60, 1, true, T0);
+    harness.view(&first, ViewShape::new(VIEW, 200, 60, 1), T0);
     harness.hub.close_socket("socket-tab1", T0 + 100);
 
     // Same fingerprint, same tab, so the same viewer key: this is the reclaim
@@ -191,7 +190,7 @@ fn a_viewer_resized_while_offline_reclaims_its_record_at_the_new_size() {
         "the reclaim path needs one viewer key per TAB, not one per socket: that is what makes \
          the previous owner's handle reachable only from this tab"
     );
-    harness.view(&again, VIEW, 80, 24, 2, true, T0 + 200);
+    harness.view(&again, ViewShape::new(VIEW, 80, 24, 2), T0 + 200);
 
     assert_eq!(
         harness.effective(T0 + 200),
@@ -212,7 +211,7 @@ fn an_owned_session_is_relayed_rather_than_admitted_locally() {
     let harness = Harness::new();
     let browser = harness.browser("socket-a", FINGERPRINT, &[SESSION]);
 
-    harness.view(&browser, VIEW, 120, 50, 1, true, T0);
+    harness.view(&browser, ViewShape::new(VIEW, 120, 50, 1), T0);
 
     assert_eq!(
         harness.hub.view_stats(&harness.session),

@@ -100,11 +100,11 @@ impl TasksFixture {
     /// Insert a task row straight into the table, as a previous process would
     /// have left it: the RPCs are the only thing under test, not the enqueue.
     pub async fn seed(&self, id: &str, state: &str, enqueued_at_ms: i64, claimed_by: Option<&str>) {
-        sqlx::query(AssertSqlSafe(format!(
+        sqlx::query(AssertSqlSafe(
             "INSERT INTO tasks (id, dashboard_id, state, payload_json, enqueued_at_ms, \
              claimed_at_ms, claimed_by, claim_ttl_ms) \
-             VALUES (?1, (SELECT id FROM dashboards LIMIT 1), ?2, '{{}}', ?3, NULL, ?4, 900000)"
-        )))
+             VALUES (?1, (SELECT id FROM dashboards LIMIT 1), ?2, '{}', ?3, NULL, ?4, 900000)",
+        ))
         .bind(id)
         .bind(state)
         .bind(enqueued_at_ms)

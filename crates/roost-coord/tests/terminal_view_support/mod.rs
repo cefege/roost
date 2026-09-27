@@ -128,17 +128,15 @@ impl Harness {
         }
     }
 
-    /// Declare a view from one socket.
-    pub fn view(
-        &self,
-        browser: &Browser,
-        view_id: &str,
-        cols: u32,
-        rows: u32,
-        revision: u64,
-        active: bool,
-        now_ms: u64,
-    ) {
+    /// Declare a view from one socket, at the shape the browser reported.
+    pub fn view(&self, browser: &Browser, shape: ViewShape, now_ms: u64) {
+        let ViewShape {
+            view_id,
+            cols,
+            rows,
+            revision,
+            active,
+        } = shape;
         self.hub.handle_view_command(
             &browser.socket_id,
             &TerminalViewCommand {
@@ -220,5 +218,46 @@ pub fn owner_state(
         effective_rows: rows,
         reason: String::new(),
         __buffa_unknown_fields: Default::default(),
+    }
+}
+
+/// The shape one declared view carries, as one value.
+///
+/// Grouped because the alternative is eight positional arguments at thirty-four
+/// call sites, where `100, 40, 5, true` is unreadable and a transposed pair of
+/// dimensions still compiles. Named fields make the transpose impossible and
+/// say what the test means.
+#[derive(Debug, Clone, Copy)]
+pub struct ViewShape {
+    /// The view handle the browser chose.
+    pub view_id: &'static str,
+    /// The width the browser is laying out at.
+    pub cols: u32,
+    /// The height the browser is laying out at.
+    pub rows: u32,
+    /// The revision this declaration carries.
+    pub revision: u64,
+    /// Whether this view is the focused one.
+    pub active: bool,
+}
+
+impl ViewShape {
+    /// The shape most tests want: a focused view at a revision.
+    #[must_use]
+    pub fn new(view_id: &'static str, cols: u32, rows: u32, revision: u64) -> Self {
+        Self {
+            view_id,
+            cols,
+            rows,
+            revision,
+            active: true,
+        }
+    }
+
+    /// The same view, not focused.
+    #[must_use]
+    pub fn inactive(mut self) -> Self {
+        self.active = false;
+        self
     }
 }

@@ -215,7 +215,7 @@ async fn a_worker_credential_cannot_reach_the_queue() {
             refused
                 .response_headers()
                 .get("x-roost-auth-layer")
-                .map(|value| value.as_bytes().as_ref()),
+                .map(|value| value.as_bytes()),
             Some(&b"device"[..]),
             "the marker is how a client tells this from an expired session"
         );

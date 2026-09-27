@@ -16,8 +16,7 @@ mod terminal_view_support;
 
 use terminal_view_support::{
     FINGERPRINT, Harness, OTHER_FINGERPRINT, OTHER_SESSION, OTHER_VIEW, Recorded, SESSION, VIEW,
-    decisions, watching,
-};
+    decisions, watching,, ViewShape};
 
 use roost_proto::{TerminalViewCommand, TerminalViewStatus};
 
@@ -98,9 +97,9 @@ fn a_declaration_outside_the_trust_boundary_is_refused_by_name() {
 fn a_stale_revision_is_refused_and_the_record_keeps_its_revision() {
     let harness = Harness::unowned();
     let browser = harness.browser("socket-a", FINGERPRINT, &[SESSION_ID]);
-    harness.view(&browser, VIEW, 100, 40, 5, true, T0);
+    harness.view(&browser, ViewShape::new(VIEW, 100, 40, 5), T0);
 
-    harness.view(&browser, VIEW, 100, 40, 4, true, T0 + 10);
+    harness.view(&browser, ViewShape::new(VIEW, 100, 40, 4), T0 + 10);
 
     let states = decisions(&browser.sink.states());
     assert_eq!(
@@ -122,9 +121,9 @@ fn a_stale_revision_is_refused_and_the_record_keeps_its_revision() {
 fn a_conflicting_heartbeat_is_refused_but_renews_the_lease() {
     let harness = Harness::unowned();
     let browser = harness.browser("socket-a", FINGERPRINT, &[SESSION_ID, OTHER_SESSION]);
-    harness.view(&browser, VIEW, 100, 40, 5, true, T0);
+    harness.view(&browser, ViewShape::new(VIEW, 100, 40, 5), T0);
 
-    harness.view(&browser, VIEW, 90, 40, 5, true, T0 + 1_000);
+    harness.view(&browser, ViewShape::new(VIEW, 90, 40, 5), T0 + 1_000);
     assert_eq!(
         decisions(&browser.sink.states()).last().map(|s| s.0),
         Some(TerminalViewStatus::Rejected),
@@ -151,7 +150,7 @@ fn a_conflicting_heartbeat_is_refused_but_renews_the_lease() {
 fn a_view_cannot_change_sessions() {
     let harness = Harness::unowned();
     let browser = harness.browser("socket-a", FINGERPRINT, &[SESSION_ID, OTHER_SESSION]);
-    harness.view(&browser, VIEW, 100, 40, 1, true, T0);
+    harness.view(&browser, ViewShape::new(VIEW, 100, 40, 1), T0);
 
     harness.hub.handle_view_command(
         &browser.socket_id,
@@ -181,9 +180,9 @@ fn a_live_handle_cannot_be_taken_by_another_socket() {
     let harness = Harness::unowned();
     let first = harness.browser("socket-a", FINGERPRINT, &[SESSION_ID]);
     let second = harness.browser_with_tab("socket-b", FINGERPRINT, "tab-1", &[SESSION_ID]);
-    harness.view(&first, VIEW, 100, 40, 1, true, T0);
+    harness.view(&first, ViewShape::new(VIEW, 100, 40, 1), T0);
 
-    harness.view(&second, VIEW, 100, 40, 9, true, T0 + 10);
+    harness.view(&second, ViewShape::new(VIEW, 100, 40, 9), T0 + 10);
 
     assert_eq!(
         decisions(&second.sink.states()).last().map(|s| s.0),
@@ -204,7 +203,7 @@ fn a_socket_is_told_when_it_starts_and_stops_watching_a_session() {
     let harness = Harness::unowned();
     let browser = harness.browser("socket-a", FINGERPRINT, &[SESSION_ID]);
 
-    harness.view(&browser, VIEW, 100, 40, 1, true, T0);
+    harness.view(&browser, ViewShape::new(VIEW, 100, 40, 1), T0);
     harness.release(&browser, VIEW, 2, T0 + 10);
 
     assert_eq!(
@@ -224,8 +223,8 @@ fn a_revoked_device_loses_its_membership_and_its_claims() {
     let harness = Harness::unowned();
     let revoked = harness.browser("socket-a", FINGERPRINT, &[SESSION_ID]);
     let survivor = harness.browser("socket-b", OTHER_FINGERPRINT, &[SESSION_ID]);
-    harness.view(&revoked, VIEW, 60, 20, 1, true, T0);
-    harness.view(&survivor, VIEW, 120, 50, 1, true, T0);
+    harness.view(&revoked, ViewShape::new(VIEW, 60, 20, 1), T0);
+    harness.view(&survivor, ViewShape::new(VIEW, 120, 50, 1), T0);
     harness.release(&revoked, VIEW, 2, T0 + 10);
     assert_eq!(
         harness.effective(T0 + 10),
@@ -234,7 +233,7 @@ fn a_revoked_device_loses_its_membership_and_its_claims() {
     );
 
     // Re-admit at a small size, then revoke without an explicit release.
-    harness.view(&revoked, VIEW, 40, 20, 3, true, T0 + 20);
+    harness.view(&revoked, ViewShape::new(VIEW, 40, 20, 3), T0 + 20);
     assert_eq!(
         harness.effective(T0 + 20),
         Some((40, 20)),
@@ -261,12 +260,12 @@ fn a_revoked_device_loses_its_membership_and_its_claims() {
 fn a_released_claim_is_reclaimable_and_orders_revisions() {
     let harness = Harness::unowned();
     let browser = harness.browser("socket-a", FINGERPRINT, &[SESSION_ID]);
-    harness.view(&browser, VIEW, 100, 40, 7, true, T0);
+    harness.view(&browser, ViewShape::new(VIEW, 100, 40, 7), T0);
     harness.release(&browser, VIEW, 8, T0 + 10);
 
     // A fresh handle for the same view id, from the same tab: refused, because
     // the claim says revision 8 already happened.
-    harness.view(&browser, VIEW, 100, 40, 8, true, T0 + 20);
+    harness.view(&browser, ViewShape::new(VIEW, 100, 40, 8), T0 + 20);
     assert_eq!(
         decisions(&browser.sink.states()).last().map(|s| s.0),
         Some(TerminalViewStatus::Rejected),
@@ -283,7 +282,7 @@ fn a_released_claim_is_reclaimable_and_orders_revisions() {
         "a refused same-revision declaration took no membership, only the claim it refused"
     );
 
-    harness.view(&browser, VIEW, 100, 40, 9, true, T0 + 30);
+    harness.view(&browser, ViewShape::new(VIEW, 100, 40, 9), T0 + 30);
     assert_eq!(
         harness.effective(T0 + 30),
         Some((100, 40)),
@@ -297,7 +296,7 @@ fn a_released_claim_is_reclaimable_and_orders_revisions() {
 fn closing_a_session_releases_its_records_and_claims() {
     let harness = Harness::unowned();
     let browser = harness.browser("socket-a", FINGERPRINT, &[SESSION_ID]);
-    harness.view(&browser, VIEW, 100, 40, 1, true, T0);
+    harness.view(&browser, ViewShape::new(VIEW, 100, 40, 1), T0);
     harness.release(&browser, VIEW, 2, T0 + 10);
 
     harness.hub.close_session(&harness.session, T0 + 20);
@@ -312,7 +311,7 @@ fn closing_a_session_releases_its_records_and_claims() {
         None,
         "and the session has no effective geometry any more"
     );
-    harness.view(&browser, VIEW, 100, 40, 1, true, T0 + 30);
+    harness.view(&browser, ViewShape::new(VIEW, 100, 40, 1), T0 + 30);
     assert_eq!(
         harness.effective(T0 + 30),
         Some((100, 40)),
@@ -329,8 +328,8 @@ fn a_closed_session_tells_its_sockets_to_stop_watching() {
     let harness = Harness::unowned();
     let first = harness.browser("socket-a", FINGERPRINT, &[SESSION]);
     let second = harness.browser("socket-b", OTHER_FINGERPRINT, &[SESSION]);
-    harness.view(&first, VIEW, 100, 40, 1, true, T0);
-    harness.view(&second, OTHER_VIEW, 120, 50, 1, true, T0);
+    harness.view(&first, ViewShape::new(VIEW, 100, 40, 1), T0);
+    harness.view(&second, ViewShape::new(OTHER_VIEW, 120, 50, 1), T0);
     assert_eq!(
         watching(&first.sink.effects()).last(),
         Some(&(SESSION_ID.to_owned(), true)),
@@ -360,7 +359,7 @@ fn a_resync_is_served_only_for_the_records_its_socket_owns() {
     let harness = Harness::unowned();
     let owner = harness.browser("socket-a", FINGERPRINT, &[SESSION_ID]);
     let stranger = harness.browser("socket-b", OTHER_FINGERPRINT, &[SESSION_ID]);
-    harness.view(&owner, VIEW, 100, 40, 1, true, T0);
+    harness.view(&owner, ViewShape::new(VIEW, 100, 40, 1), T0);
     let resync = roost_proto::TerminalResyncCommand {
         view_id: VIEW.to_owned(),
         session_id: SESSION_ID.to_owned(),
