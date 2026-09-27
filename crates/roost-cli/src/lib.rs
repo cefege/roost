@@ -19,13 +19,13 @@
 pub mod api;
 pub mod command_error;
 pub mod daemon;
-pub mod dev;
 pub mod deploy;
+pub mod dev;
 pub mod doctor;
 pub mod ops;
 pub mod overlay_env;
-pub mod quickstart;
 pub mod push;
+pub mod quickstart;
 pub mod services;
 pub mod status;
 pub mod update;
@@ -36,18 +36,14 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
-use crate::command_error::CommandFailure;
 use crate::api::ApiArgs;
-use crate::dev::DevArgs;
-use crate::push::PushArgs;
-use crate::quickstart::add_machine::AddMachineArgs;
-use crate::quickstart::join;
-use crate::quickstart::QuickstartArgs;
+use crate::command_error::CommandFailure;
 use crate::daemon::{CoordArgs, KeeperArgs, WorkerArgs};
 use crate::deploy::remote_commands::{
     RemoteApplyArgs, RemoteEvidenceArgs, RemoteFactsArgs, RemoteTransactionArgs,
 };
 use crate::deploy::{DeployArgs, KeeperRefreshArgs};
+use crate::dev::DevArgs;
 use crate::doctor::DoctorArgs;
 use crate::ops::keeper_contract::KeeperContractArgs;
 use crate::ops::logs::LogsArgs;
@@ -56,7 +52,12 @@ use crate::ops::skill::SkillArgs;
 use crate::ops::state::StateArgs;
 use crate::ops::test::TestArgs;
 use crate::ops::version::VersionArgs;
+use crate::push::PushArgs;
+use crate::quickstart::QuickstartArgs;
+use crate::quickstart::add_machine::AddMachineArgs;
+use crate::quickstart::join;
 use crate::status::StatusArgs;
+use crate::update::UpdateArgs;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -81,6 +82,8 @@ pub enum Command {
     Worker(WorkerArgs),
     /// Run the keeper in this process (the self-exec target).
     Keeper(KeeperArgs),
+    /// Replace this binary with the latest published v3 release.
+    Update(UpdateArgs),
     /// Health readout: local services, coordinator, front door, workers.
     Status(StatusArgs),
     /// Anomaly digest from this host's logs and the coordinator's audit log.
@@ -135,6 +138,7 @@ impl Command {
             Command::Coord(_) => "coord",
             Command::Worker(_) => "worker",
             Command::Keeper(_) => "keeper",
+            Command::Update(_) => "update",
             Command::Status(_) => "status",
             Command::Doctor(_) => "doctor",
             Command::Version(_) => "version",
@@ -180,6 +184,7 @@ pub async fn dispatch(cli: Cli) -> Result<ExitCode, CommandFailure> {
         Command::Join => join::run(&roost_host::ProcessEnv::new()).await,
         Command::AddMachine(args) => quickstart::add_machine::run(&args).await,
         Command::Dev(args) => dev::run(&args).await,
+        Command::Update(args) => update::run(&args).await,
         Command::SelfLink => quickstart::self_link::run(),
         Command::RemoteFacts(args) => deploy::remote_commands::facts(&args),
         Command::RemoteEvidence(args) => deploy::remote_commands::evidence(&args),
