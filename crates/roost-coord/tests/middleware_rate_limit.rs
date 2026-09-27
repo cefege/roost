@@ -1,5 +1,3 @@
-
-
 // `unwrap_used` and `expect_used` are denied outside `#[cfg(test)]`, and an
 // integration test is its own crate rather than a module of one, so the
 // exemption has to be stated here rather than inherited. Every panic below

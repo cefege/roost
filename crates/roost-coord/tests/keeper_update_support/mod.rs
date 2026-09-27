@@ -7,7 +7,6 @@
 //! as its own test binary, and a shared module that declares no test is a
 //! binary that links nothing it needs.
 
-
 // `unwrap_used` and `expect_used` are denied outside `#[cfg(test)]`, and a
 // shared test fixture is its own crate rather than a module of one, so the
 // exemption has to be stated here rather than inherited. Every panic below

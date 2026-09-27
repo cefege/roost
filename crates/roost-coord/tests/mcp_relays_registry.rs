@@ -17,12 +17,12 @@
 mod mcp_relays_support;
 
 use mcp_relays_support::{McpFixture, create_request, delete_request, publish_request};
-use sqlx::AssertSqlSafe;
 use roost_coord::sessions::mcp::{
     handle_mcp_create, handle_mcp_delete, handle_mcp_list, handle_mcp_publish,
 };
 use roost_proto as proto;
 use roost_protocol::wire::{McpRelayDelta, McpStreamMessage};
+use sqlx::AssertSqlSafe;
 
 #[tokio::test]
 async fn create_list_publish_and_delete_stay_consistent_with_the_relay_stream() {
@@ -55,7 +55,7 @@ async fn create_list_publish_and_delete_stay_consistent_with_the_relay_stream() 
             // it HERE, where nothing asserts an order and the statement is
             // scope-by-dashboard noise — and the coin survived, because a fix in
             // a test that does not assert the property fixes nothing.
-    let listed = handle_mcp_list(&fixture.core, &device, proto::McpListRequest::default())
+            let listed = handle_mcp_list(&fixture.core, &device, proto::McpListRequest::default())
                 .await
                 .expect("the registry is listed")
                 .body;
@@ -214,7 +214,10 @@ async fn the_registry_answers_in_the_order_it_declares() {
     // checked so that "the premise holds" is an observation rather than a hope.
     let equalised = sqlx::query(AssertSqlSafe(format!(
         "UPDATE mcp_relays SET created_at_ms = 1 WHERE id IN ({})",
-        ids.iter().map(|id| format!("'{id}'")).collect::<Vec<_>>().join(",")
+        ids.iter()
+            .map(|id| format!("'{id}'"))
+            .collect::<Vec<_>>()
+            .join(",")
     )))
     .execute(fixture.database().pool())
     .await

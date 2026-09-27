@@ -12,8 +12,8 @@
 
 use axum::http::{HeaderMap, HeaderValue};
 use roost_coord::auth::pairing::provenance::{
-    ClientDeviceType, MAX_PROVENANCE_UTF8_BYTES,
-    capture_pair_request_provenance, describe_user_agent,
+    ClientDeviceType, MAX_PROVENANCE_UTF8_BYTES, capture_pair_request_provenance,
+    describe_user_agent,
 };
 use roost_coord::coord_core::ListenerTrust;
 use roost_coord::middleware::caller_origin::{CallerOrigin, resolve_caller_origin};
@@ -173,10 +173,7 @@ fn a_country_must_be_two_letters() {
         // peer therefore cannot smuggle `cf-ipcountry ` past this layer either.
         // The case is unreachable at the header layer, so the reachable half is
         // asserted instead — a value that is not two letters, and an empty one.
-        &headers(&[
-            ("cf-ipcountry", "usa"),
-            ("cf-ipcountry", ""),
-        ]),
+        &headers(&[("cf-ipcountry", "usa"), ("cf-ipcountry", "")]),
         &forwarded("203.0.113.7"),
     );
     assert_eq!(captured.country_code, None);

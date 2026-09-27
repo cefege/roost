@@ -8,7 +8,6 @@
 // only prove the hub works. Every assertion in `tests/workers_*.rs` is about the
 // workers domain.
 
-
 // `unwrap_used` and `expect_used` are denied outside `#[cfg(test)]`, and a
 // shared test fixture is its own crate rather than a module of one, so the
 // exemption has to be stated here rather than inherited. Every panic below

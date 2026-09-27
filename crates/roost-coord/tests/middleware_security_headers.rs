@@ -1,5 +1,3 @@
-
-
 // `unwrap_used` and `expect_used` are denied outside `#[cfg(test)]`, and an
 // integration test is its own crate rather than a module of one, so the
 // exemption has to be stated here rather than inherited. Every panic below
@@ -191,8 +189,14 @@ fn a_relaxed_policy_adds_plaintext_endpoints_and_nothing_else_changes() {
     // policy carrying them without it ends the directive with this same form,
     // and the plaintext door in the strict list means `http:` cannot be
     // searched for on its own.
-    assert!(relaxed.contains(&format!("{strict_connect} http: ws:")), "{relaxed}");
-    assert!(!strict.contains(&format!("{strict_connect} http: ws:")), "{strict}");
+    assert!(
+        relaxed.contains(&format!("{strict_connect} http: ws:")),
+        "{relaxed}"
+    );
+    assert!(
+        !strict.contains(&format!("{strict_connect} http: ws:")),
+        "{strict}"
+    );
     assert_eq!(
         strict.replace(strict_connect, "X"),
         relaxed.replace(&format!("{strict_connect} http: ws:"), "X"),

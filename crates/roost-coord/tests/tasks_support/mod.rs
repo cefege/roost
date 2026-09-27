@@ -39,7 +39,8 @@ pub struct TasksFixture {
     /// The database handle, for the rows a test asserts on directly.
     pub database: CoordDb,
     received: Arc<Mutex<Vec<TaskBusMsg>>>,
-    root: std::path::PathBuf,    /// Held, not dropped: see the constructor.
+    root: std::path::PathBuf,
+    /// Held, not dropped: see the constructor.
     subscription: roost_coord::events::bus::Subscription<TaskBusMsg>,
 }
 

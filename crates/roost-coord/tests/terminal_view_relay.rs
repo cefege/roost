@@ -15,7 +15,8 @@ mod terminal_view_support;
 
 use terminal_view_support::{
     FINGERPRINT, Harness, OTHER_FINGERPRINT, OTHER_SESSION, Recorded, Relayed, SESSION, VIEW,
-    decisions, owner_state, watching, ViewShape};
+    ViewShape, decisions, owner_state, watching,
+};
 
 use roost_proto::{TerminalViewStatus, WTerminalViewProjection};
 
