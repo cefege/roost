@@ -839,7 +839,14 @@ to confirm it reproduces 26 and 5. Everything else is an identity assertion
 
 ### Two more, both measured rather than argued
 
-**The worker track's first clippy measurement is 0, at `e6a1e8b0`.** It is the
+**The worker track's first clippy measurement is 0, at `e6a1e8b0`, and it is 0
+again at `14cf518f` (1m 01s).** The second figure was needed because a file added
+after the first measurement — `session/journal_sink.rs` — carried a useless
+`ReserveError::from(e)` conversion that the first run never saw. **A measurement is
+true of the tree it was taken on, and the tree moves**; a published figure is a
+statement about a SHA, not about a branch.
+
+**On the first figure.** It is the
 **first** — dated, and explicitly not a continuation of a number that was never
 measured. The command was `cargo clippy -p roost-worker -p roost-keeper
 --all-targets -- -D warnings`, run with `git status --porcelain` empty in the same
@@ -1158,6 +1165,46 @@ checkable, rather than as a pattern somebody tightens until it stops passing.
 **The failure direction is the reason this is safe: if a fifth producer is added and
 the set is not updated, the test REFUSES a real reader.** That is a bug report. The
 v1 failure — a producer quietly satisfying a consumer's test — was silence.
+
+### An underscore binding is how you dismiss a `must_use`, so proving one with one proves nothing
+
+**The fourth instance of "type-checks and does nothing" — and the hardest to
+see, because it was in the VERIFICATION rather than in the code.**
+
+A `#[must_use]` guard went on the four `SessionEventSink` methods to stop a dropped
+future being built and discarded. **The attribute cannot go on the type alias** —
+`EventFuture` is an alias, and rustc ignores `#[must_use]` there with an
+`unused_attributes` warning — so the methods carry it. Then the guard had to be
+*proven*, and the first proof was:
+
+```rust
+let _never_awaited = harness.sink.reserve(…);   // clippy: CLEAN
+```
+
+**An underscore-prefixed binding is the documented way to dismiss a `must_use`.**
+The violation swallowed the very attribute it was meant to demonstrate, and the run
+came back clean. **A proof that passes for the wrong reason is worse than no
+proof**, because it gets recorded as a verification.
+
+The working form is a **bare statement** — nothing bound, nothing named:
+
+```
+note: a claim that is not awaited is a claim that was not taken
+help: use `let _ = ...` to ignore the resulting value
+```
+
+**So the rule: the violation must be a construct the dismisser cannot swallow.** A
+bare statement, a returned value, a `drop` of it. `let _never_awaited = …` and
+`let _ = …` are the same escape hatch, and **a `must_use` proven with either has
+proved nothing.**
+
+**Same shape as the coordinator's first reachability guard**, which passed six of
+six because a producer satisfied a consumer's test. **Both are a verification that
+cannot fail, and both were recorded as checks.**
+
+**And the generalisation: a verification needs its own test.** Nothing about "build
+it and see whether the tool complains" is safe when the violation you write is
+itself a documented way to silence the tool.
 
 ### A construction that type-checks and cannot execute is its own defect class
 
