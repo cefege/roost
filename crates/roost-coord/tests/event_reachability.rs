@@ -14,8 +14,14 @@ mod event_support;
 
 use event_support::{
     EventFixture, RecordingEffects, Step, closed_event, fingerprint, live_session, opened_event,
-    session_id, snapshot_event, the_deferred_append_path_has_an_execution_path,
-    the_deferred_reap_ids_have_a_production_reader, worker_caller,
+    session_id, snapshot_event, worker_caller,
+};
+// Named, and named HERE rather than re-exported through the index: a shared
+// index cannot re-export names only some of its consumers use without warning in
+// every binary that compiles it, and `event_append`, `event_query` and
+// `event_publication` all compile that index without calling these two.
+use event_support::reachability::{
+    the_deferred_append_path_has_an_execution_path, the_deferred_reap_ids_have_a_production_reader,
 };
 use roost_coord::events::append::{AppendOptions, append_event};
 
