@@ -564,6 +564,47 @@ apart at exactly the rate the tree moves.
 A gate that cannot run the suite at all has proved nothing. Say so rather
 than reporting a partial pass as a green one.
 
+### Two more, both measured rather than argued
+
+**The worker track's first clippy measurement is 0, at `e6a1e8b0`.** It is the
+**first** — dated, and explicitly not a continuation of a number that was never
+measured. The command was `cargo clippy -p roost-worker -p roost-keeper
+--all-targets -- -D warnings`, run with `git status --porcelain` empty in the same
+shell so the figure belongs to that tree and not the one before it. Seven errors
+were found and fixed first; **three of them, and three of the worker's
+contribution, would not have surfaced under `cargo check` at all.**
+
+**Three capabilities on that track are unreachable, and the reachability filter is
+what found it — not a review and not a test.** `grep -rn 'WorkerCapabilities'
+crates/roost-worker/src` returns three hits: a comment, the definition, and the
+impl. **Nothing constructs it.** So `SessionManager` cannot be built, the browser
+link runs `BrowserLink::detached()`, and three of the nine collaborators have no
+production implementation. The same filter found the lead's own `cell_row_json`
+nine seconds after a careful read of the diff had missed it.
+
+**That is the argument for making reachability a gate rather than an audit.** A
+name-count sweep is not a conclusion — it produces candidates, and a human judges
+them. But the one candidate that mattered was invisible to both a diff review and
+a passing test suite, and the filter that found it is one `grep`.
+
+**And a fifth instance of the pattern below, which is the first where the guard is
+a passing test rather than a comment.** `grep snapshot_reap_ids` outside
+`events/append.rs` returns six hits and **not one production reader**: the field
+declared, cloned, stored, and dropped. `ClaimOutcome::Claimed` genuinely hands the
+stored effect back *including* the ids, and the caller copies them into the
+result and returns. So the store is not the missing piece — **the drain after the
+claim is.** The `kill_orphan_pty` call site is guarded by
+`!options.defer_snapshot_reap`, so on exactly the path where a worker connection
+is involved the method is never reached.
+
+The two green tests are the sharpest part: **they assert the ids come back
+correctly, and nothing consumes them.** A force-closed PTY on an offline worker is
+never killed and becomes a session row that outlives its process, one per offline
+force-close. The route is not resurrected — the durable snapshot already omitted it
+— so this is prompt cleanup lost, and the shape of the loss is the whole session's
+theme: **a green suite is the best camouflage a silent drop can get, because it
+converts a defect into an apparent success.**
+
 ### An instrument that reports success while doing nothing
 
 **This is the through-line of the whole 2026-09-27 session, and it was found four times before anyone named it.** Each instance looks like it is doing its job, and in three of the four there was a passing gate behind it.
