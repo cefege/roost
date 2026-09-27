@@ -14,6 +14,7 @@ mod selection_guard_support;
 
 use selection_guard_support::*;
 
+#[test]
 fn a_selection_dropped_while_the_panes_listeners_are_detached_stops_holding_paint() {
     let mut guard = SelectionGuard::new();
     let live = pane_selection("v0");
