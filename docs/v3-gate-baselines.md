@@ -612,6 +612,39 @@ happened — and the discipline is to notice it when the test is written rather
 than after a reader has been misled by it. Here it was noticed after, which is
 the ordinary way these things are found.**
 
+### The questions, not the answers
+
+Everything in this section is an ANSWER. Answers do not let the next person ask the
+question, and the question was cheap every single time — it was simply never written
+down, so it was never asked by default.
+
+**So here it is. Four questions, in the order they pay:**
+
+1. **Who constructs this?** `grep -rn '<TypeName>' crates/*/src` and read the hits.
+   A definition, a comment and an `impl` are not a constructor.
+   *Found `runtime/deps.rs` (constructed, never called), `TerminalLiveEffects`
+   (inert until R2), `WorkerCapabilities` (three hits, nothing constructs it).*
+
+2. **Does anything READ it, and from which side?** A name has a producer and a
+   consumer, and `grep` reads names rather than direction. **A guard whose question
+   a producer can satisfy is not a guard** — and the fix is to NAME the producers or
+   to match the syntax that only a reader has (`result.field`, not `field:`).
+
+3. **Can this instrument fail?** A check that cannot fail reports success while the
+   thing it reports on has not happened. Make it fail on purpose and see whether it
+   does. *An underscore binding is how you dismiss a `#[must_use]`, so a `must_use`
+   proved with one has proved nothing.*
+
+4. **Is this a NAME that fits where a SHAPE was needed?** A parameter where a field
+   belongs; a replace-shaped method where a delta belongs; `Principal::Worker` where
+   `append::Caller` belongs; `CellDelivery` where `ChannelDelivery` belongs.
+   **The tell is that the two names rhyme and the two shapes do not.**
+
+**And the one that is not a question but a habit:** *when something looks inert, ask
+who would CALL it before asking what is missing inside it.* A dependency cycle is far
+more often a mis-modelled edge than a real cycle, and re-modelling the edge is what
+exposed a kill that would have destroyed live PTYs on the wrong machine.
+
 ### GATE ORDERING, decided: `v3-cli` merges FIRST, ahead of 2C-GATE and 2W-GATE
 
 **The dependency, measured.** `v3` itself carries two `roost-cli` size violations
