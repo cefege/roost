@@ -300,7 +300,6 @@ async fn hold_and_converge(
         source_root,
         rollback,
         identity_env::ambient_environment(),
-        prior_sha,
         prior_release,
         &snapshot_dir,
     );

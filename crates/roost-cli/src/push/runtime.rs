@@ -83,7 +83,6 @@ impl<'a> FleetRuntime<'a> {
         source_root: &Path,
         rollback: RollbackCheckout,
         ambient: Ambient,
-        prior_sha: &str,
         prior_release: &Path,
         snapshot_dir: &Path,
     ) -> Self {

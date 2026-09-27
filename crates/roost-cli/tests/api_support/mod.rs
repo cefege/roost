@@ -17,6 +17,13 @@
 //! product code exists to avoid.
 
 #![allow(dead_code)]
+// The allow belongs to THIS compilation unit, not to the test binary that
+// happens to declare `mod api_support;`. `clippy.toml`'s
+// `allow-unwrap-in-tests` exempts a `#[test]` body; `serve` is an ordinary
+// function, so without the declaration below every `expect` in it is an
+// `expect_used` error the moment clippy runs -- and which binary pulls the
+// fixture in is not this file's to decide.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
