@@ -21,8 +21,8 @@ use session_support::{Harness, SESSION, ScriptedKeeper, session_id};
 /// THE HEAD IS THE KEEPER'S. A history whose records do not sum to its head —
 /// a geometry marker sits between two output records — is the case a
 /// re-derivation gets wrong, and every absolute address after the marker moves.
-#[test]
-fn an_adoption_seeds_the_head_from_the_keeper_not_from_the_retained_bytes() {
+#[tokio::test]
+async fn an_adoption_seeds_the_head_from_the_keeper_not_from_the_retained_bytes() {
     let keeper = Arc::new(ScriptedKeeper::with_survivor(7, 4242));
     *keeper.history.lock().expect("held") = SurvivorHistory {
         records: vec![
@@ -48,6 +48,7 @@ fn an_adoption_seeds_the_head_from_the_keeper_not_from_the_retained_bytes() {
     let adopted = harness
         .manager
         .adopt_survivor(&harness.adoption(SESSION, 7, "/home/user/project"))
+        .await
         .expect("the survivor is adoptable");
     assert_eq!(
         adopted.head_seq, 13,
@@ -84,8 +85,8 @@ fn an_adoption_seeds_the_head_from_the_keeper_not_from_the_retained_bytes() {
 
 /// AN ADOPTION THAT FITS IS SWAPPED WHOLE, and the bytes the keeper produced
 /// while the core was being rebuilt are parsed in order, behind the history.
-#[test]
-fn an_adoption_within_the_bound_replays_the_history_then_the_staged_bytes() {
+#[tokio::test]
+async fn an_adoption_within_the_bound_replays_the_history_then_the_staged_bytes() {
     let keeper = Arc::new(ScriptedKeeper::with_survivor(7, 4242));
     *keeper.history.lock().expect("held") = SurvivorHistory {
         records: vec![HistoryRecord::Output {
@@ -101,6 +102,7 @@ fn an_adoption_within_the_bound_replays_the_history_then_the_staged_bytes() {
     let adopted = harness
         .manager
         .adopt_survivor(&harness.adoption(SESSION, 7, "/home/user/project"))
+        .await
         .expect("five bytes is well inside the bound");
     assert_eq!(adopted.head_seq, 5);
     assert_eq!(
@@ -127,8 +129,8 @@ fn an_adoption_within_the_bound_replays_the_history_then_the_staged_bytes() {
 }
 
 /// the keeper's threshold and only then.
-#[test]
-fn three_stillborn_births_in_the_window_say_the_keeper_is_degraded() {
+#[tokio::test]
+async fn three_stillborn_births_in_the_window_say_the_keeper_is_degraded() {
     let harness = Harness::new();
     for index in 0..3 {
         harness.install(
@@ -160,8 +162,8 @@ fn three_stillborn_births_in_the_window_say_the_keeper_is_degraded() {
 /// numbered against a different width, and a client that merges them has no way
 /// to notice. The assertions name BOTH geometries, so a handler that refuses
 /// everything cannot pass this.
-#[test]
-fn a_survivor_whose_replay_does_not_converge_on_the_keepers_geometry_is_refused() {
+#[tokio::test]
+async fn a_survivor_whose_replay_does_not_converge_on_the_keepers_geometry_is_refused() {
     let keeper = Arc::new(ScriptedKeeper::with_survivor(7, 4242));
     *keeper.history.lock().expect("held") = SurvivorHistory {
         records: vec![
@@ -190,6 +192,7 @@ fn a_survivor_whose_replay_does_not_converge_on_the_keepers_geometry_is_refused(
     let refused = harness
         .manager
         .adopt_survivor(&harness.adoption(SESSION, 7, "/home/user/project"))
+        .await
         .expect_err("a history that does not converge is not adoptable");
     assert!(
         matches!(refused, AdoptRefusal::Unreplayable { channel: 7, .. }),
@@ -217,8 +220,8 @@ fn a_survivor_whose_replay_does_not_converge_on_the_keepers_geometry_is_refused(
 
 /// THE ADMITTING TWIN of the test above, because a handler that always refuses
 /// passes a suite of refusals. A history that DOES converge is adopted.
-#[test]
-fn a_survivor_whose_replay_converges_on_the_keepers_geometry_is_admitted() {
+#[tokio::test]
+async fn a_survivor_whose_replay_converges_on_the_keepers_geometry_is_admitted() {
     let keeper = Arc::new(ScriptedKeeper::with_survivor(7, 4242));
     *keeper.history.lock().expect("held") = SurvivorHistory {
         records: vec![
@@ -245,6 +248,7 @@ fn a_survivor_whose_replay_converges_on_the_keepers_geometry_is_admitted() {
     let adopted = harness
         .manager
         .adopt_survivor(&harness.adoption(SESSION, 7, "/home/user/project"))
+        .await
         .expect("a history that converges is adoptable");
     assert_eq!(adopted.head_seq, 10);
     assert_eq!(
@@ -267,14 +271,15 @@ fn a_survivor_whose_replay_converges_on_the_keepers_geometry_is_admitted() {
 /// A KEEPER THAT WILL NOT ANSWER ITS CHANNEL LIST is a refusal naming the
 /// keeper's reason, not a silent "no survivor": the two are different incidents
 /// with different operator responses.
-#[test]
-fn a_channel_list_that_cannot_be_read_refuses_with_the_keeper_s_reason() {
+#[tokio::test]
+async fn a_channel_list_that_cannot_be_read_refuses_with_the_keeper_s_reason() {
     let keeper = Arc::new(ScriptedKeeper::with_survivor(7, 4242));
     *keeper.list_fails.lock().expect("held") = true;
     let harness = Harness::with_keeper(Arc::clone(&keeper));
     let refused = harness
         .manager
         .adopt_survivor(&harness.adoption(SESSION, 7, "/home/user/project"))
+        .await
         .expect_err("an unreadable channel list cannot be adopted from");
     assert!(
         matches!(refused, AdoptRefusal::Unreplayable { .. }),
@@ -294,12 +299,13 @@ fn a_channel_list_that_cannot_be_read_refuses_with_the_keeper_s_reason() {
 /// "adopt what the keeper still holds" and "open a fresh child" is this
 /// refusal, and `docs/FAILURE-INDEX.md` has an entry for what happens when the
 /// other side of it is taken by accident.
-#[test]
-fn a_session_with_no_keeper_channel_is_refused_rather_than_recreated() {
+#[tokio::test]
+async fn a_session_with_no_keeper_channel_is_refused_rather_than_recreated() {
     let harness = Harness::new();
     let refused = harness
         .manager
         .adopt_survivor(&harness.adoption(SESSION, 7, "/home/user/project"))
+        .await
         .expect_err("there is no survivor to adopt");
     assert_eq!(
         refused,

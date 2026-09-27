@@ -179,7 +179,7 @@ pub struct AdoptionRequest {
 impl SessionManager {
     /// Rebuild a record around a PTY this worker did not spawn. The staging
     /// overflow is checked AFTER the swap and the record removed again.
-    pub fn adopt_survivor(&self, request: &AdoptionRequest) -> Result<Adopted, AdoptRefusal> {
+    pub async fn adopt_survivor(&self, request: &AdoptionRequest) -> Result<Adopted, AdoptRefusal> {
         let channel = request.channel_id.as_u32() as u16;
         if self.sessions.entry(channel).is_some() {
             return Err(AdoptRefusal::AlreadyHeld(channel));
@@ -209,19 +209,30 @@ impl SessionManager {
             .keeper
             .terminal_state(channel)
             .map_err(|fault| unreplayable(fault.to_string()))?;
-        let record = self
-            .adopted_record(request, &history, &applied, survivor.pid)
-            .inspect_err(|_| {
-                // The abandonment is a side effect of the refusal, not a
-                // change to the error itself. `inspect_err` says exactly that;
-                // `map_err` returning `refusal` unchanged would read as a
-                // rewrite that happened to be an identity.
-                self.abandon(request, &binding, channel);
-            })?;
-        let entry = self.sessions.insert(record).map_err(|error| {
-            self.abandon(request, &binding, channel);
-            unreplayable(error.to_string())
-        })?;
+        // THE ABANDONMENT IS AWAITED, AND THAT IS THE WHOLE FIX. `abandon`
+        // became `async` when the sink did, and this function used to call it
+        // inside `inspect_err` and `map_err` closures — so the future was built
+        // and immediately DROPPED, and the abandonment never ran. Nothing said
+        // so: `EventFuture` is a `Pin<Box<dyn Future>>` and is not
+        // `#[must_use]`, so a caller that forgets to await it compiles, links,
+        // and silently does nothing. It is the same class as the `drop()` and
+        // the `get_mut` findings — a construct that type-checks and does not do
+        // what the reader believes — and it was found by a BASELINE rather than
+        // by review, which is the only reason it was found at all.
+        let record = match self.adopted_record(request, &history, &applied, survivor.pid) {
+            Ok(record) => record,
+            Err(refusal) => {
+                self.abandon(request, &binding, channel).await;
+                return Err(refusal);
+            }
+        };
+        let entry = match self.sessions.insert(record) {
+            Ok(entry) => entry,
+            Err(error) => {
+                self.abandon(request, &binding, channel).await;
+                return Err(unreplayable(error.to_string()));
+            }
+        };
         let (replay_offset, head_seq, stream_id) = {
             let record = entry
                 .lock()
@@ -237,7 +248,7 @@ impl SessionManager {
         // the staged bytes and never before them.
         let clean = binding.go_live();
         if !clean {
-            self.abandon(request, &binding, channel);
+            self.abandon(request, &binding, channel).await;
             return Err(AdoptRefusal::StagingOverflow {
                 channel,
                 cap: RESUME_STAGE_CAP_BYTES,

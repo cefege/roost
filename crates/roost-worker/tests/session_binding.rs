@@ -16,8 +16,8 @@ use session_support::{Harness, PinnedClock, SESSION, ScriptedKeeper, session_id}
 /// A SURVIVOR THAT PRODUCED MORE THAN THE STAGING BOUND DURING ITS REBUILD IS
 /// REFUSED, not adopted with a hole. The bytes past the bound are gone, and the
 /// only repair that preserves a contiguous parser is to start again.
-#[test]
-fn an_adoption_past_the_staging_bound_is_refused_rather_than_truncated() {
+#[tokio::test]
+async fn an_adoption_past_the_staging_bound_is_refused_rather_than_truncated() {
     let keeper = Arc::new(ScriptedKeeper::with_survivor(7, 4242));
     let harness = Harness::with_keeper(Arc::clone(&keeper));
     // The keeper starts delivering the moment it is reattached, which is before
@@ -30,6 +30,7 @@ fn an_adoption_past_the_staging_bound_is_refused_rather_than_truncated() {
     let refused = harness
         .manager
         .adopt_survivor(&harness.adoption(SESSION, 7, "/home/user/project"))
+        .await
         .expect_err("a stream with a hole in it is not adopted");
     assert!(
         matches!(refused, AdoptRefusal::StagingOverflow { cap, .. } if cap == RESUME_STAGE_CAP_BYTES),
@@ -54,8 +55,8 @@ fn an_adoption_past_the_staging_bound_is_refused_rather_than_truncated() {
 /// is the one the read path cannot answer: when the record finally exists, is
 /// the hold replayed as though it had not overflowed? Deleting the `overflowed`
 /// re-read inside `go_live` fails this and nothing else.
-#[test]
-fn a_hold_over_the_bound_is_not_replayed_at_the_swap() {
+#[tokio::test]
+async fn a_hold_over_the_bound_is_not_replayed_at_the_swap() {
     let harness = Harness::new();
     let binding = RecordBinding::staged(
         7,
@@ -90,8 +91,8 @@ fn a_hold_over_the_bound_is_not_replayed_at_the_swap() {
 
 /// AND THE ADMITTING TWIN AT THE SWAP: a hold inside the bound is replayed
 /// whole, in arrival order, and the binding is live afterwards.
-#[test]
-fn a_hold_inside_the_bound_is_replayed_whole_at_the_swap() {
+#[tokio::test]
+async fn a_hold_inside_the_bound_is_replayed_whole_at_the_swap() {
     let harness = Harness::new();
     harness.install(SESSION, 7, "/home/user/project", "/home/user/project");
     let binding = RecordBinding::staged(
