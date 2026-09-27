@@ -2748,74 +2748,83 @@ reconnecting client got a frame it could not place and the cursor never advanced
 a frame cannot leave the directory without its meta; this row is what proves the
 type-level guarantee survives the next edit.
 
-## Coordinator track — C5 (red to green), rows re-verified and re-pointed at `26782410`
+## Coordinator track — C5 (red to green)
 
-Every target below was re-checked against the tree as it stands by the lead who
-was holding the worktree, and **two line numbers moved** because the
-`AgentStatusOrder` import cut took a line out of `status_hub.rs`. A row naming
-a line that has moved is a row that cannot be run, and a row that cannot be run
-reads as a row that was not needed.
+**Supersedes the earlier C12–C17 numbering**, which carried the same properties
+with less detail and without must-still-pass arms. All targets below were
+verified against the tree by the lead that wrote them; **none has been run**, so
+every one is UNVERIFIED and none may be read as coverage.
 
-| # | Property | Edit | Test that must fail | State |
+| # | Property | Edit (`file:line`) | Must fail | Must still pass |
 |---|---|---|---|---|
-| C12 | A queued frame is charged to the window, once | `sync_ws/egress.rs:162` — `self.record_sent(encoded_len, now_ms)` → `reserved` | the `sync_feed_adapters` close-frame case (`delivery_seq == 2`, not 1) | re-verified current; `reserved` is in scope at `:121` |
-| C13 | The queue path still charges on its own | delete `sync_ws/send_queue.rs:264-266` | the same close-frame case, by a second route | re-verified current |
-| C14 | The control path does **not** charge | delete `sync_ws/egress.rs:163` | none — see the state column | **PRE-REGISTERED AS NOT EXPECTED TO BITE.** `control_frames.rs:62` sets `delivery_seq = 0` deliberately and `ack_window.rs:142` documents it. Recorded so nobody later reads its silence as coverage |
-| C15 | An identified report above a legacy frame's first revision is refused | delete `agents/status_hub.rs:272` — `tables.active.remove(&session_id);` | `the_list_answers_in_session_id_order_with_derived_promptability` (`tests/agent_status_rpc.rs:191`, asserted `:224-227`) | **re-pointed 273 → 272.** The other candidate, `a_legacy_frame_yields_permanently_once_an_identified_occupant_is_accepted`, sends revision 1 and the guard needs `revision > 1`, so it passes either way and **is not a pin** |
-| C16 | The `ws://` twin reaches the served policy | delete `middleware/security.rs:104` — `connect_origins.push(websocket_twin(declared));` | the assembled-CSP assertion in `middleware_security_headers` | re-verified current. **The test builds the policy the way a coordinator builds it**; the earlier row naming a direct `build_csp` call was dead text, because no test calls it directly any more |
-| C17 | Presence is addressed to another viewer, not the author's own | `sync_ws/feed/presence.rs:59`, `:53`, `:59`, `:78` — four rows, one per property | `sync_feed_volatile` | re-verified verbatim current after the merge |
+| C5-1 | A frame the socket sends consumes a delivery sequence | `sync_ws/egress.rs` — in `take_next_sendable`, replace the `record_sent(…)` charge with the sequence reserved earlier | `sync_feed_adapters::a_cell_for_a_session_that_was_closed_never_goes_out` (`:137`, `left 1 right 2`) **and** `a_frame_queued_and_then_drained_still_carries_its_meta` (`:81`) | the binary's other four — they never reach a flush, so their passing is what proves the row isolates the charge rather than the flush path generally |
+| C5-2 | A cell is fenced behind its session's announcement | delete the `if !announced.contains(session_id) { return false; }` arm in `send_queue.rs`'s `is_eligible` | `a_cell_for_a_session_that_was_closed_never_goes_out` (`:148`, `Send` where `Idle` is expected — the close released the announcement) | `a_frame_queued_and_then_drained_still_carries_its_meta` |
+| C5-3 | **PRE-REGISTERED AS NOT EXPECTED TO BITE** | delete the `frame.delivery_seq = …` assignment in `egress.rs` | none — the tests assert `sendable.delivery_seq`, never the envelope field | **This is a real hole in the tests, not a passed row.** Recorded so its silence is never read as coverage |
+| C5-4 | An inactive update removes the retained row | delete `tables.active.remove(&session_id);` at `agents/status_hub.rs` **`:272`, not `:273`** — the `status_order.rs` import cut moved it | `the_list_order_and_the_broadcast_order_are_one_answer_after_a_reordering`, and `an_inactive_update_deletes_the_row_and_keeps_its_revision_floor` (whose `retained(&fixture).is_empty()` at `:160` is a second pin on the same line) | the binary's other five, plus `--test agent_status_rpc --test agent_status_push --test agent_status_wait --test agent_config_rpc` |
+| C5-5 | The presence filter is addressed, not broadcast | restore the `&& data.get("viewer_id") … == viewer_key` conjunct inside `presence_is_viewer_addressed` | `sync_feed_volatile::presence_reaches_every_viewer_except_the_one_that_authored_it`, at the `theirs` assertion | the other four filter assertions and all three echo assertions |
+| C5-6 | Only delta/leave frames are presence | change `matches!(kind, "presence-delta" \| "presence-leave")` to `true` | the `viewers` assertion | the other four filter assertions and the three echo rows |
+| C5-7 | An absent viewer key is never addressed | delete the `if viewer_key.is_none() { return false; }` guard | the `mine`+`None` assertion | the other four and the three echo rows |
+| C5-8 | A viewer never receives its own echo | reduce `presence_echo_is_own_notice` to the bare applicability gate | the `!presence_echo_is_own_notice(&theirs, …)` assertion | all five filter assertions and the other two echo rows |
+| C5-9 | The `ws://` twin reaches the served policy | `middleware/security.rs:104` — `connect_origins.push(websocket_twin(declared));` | `a_relaxed_policy_adds_plaintext_endpoints_and_nothing_else_changes` at `:181` | `every_response_carries_the_policy_this_coordinator_declares`, `a_preflight_is_answered_before_any_route_is_tried`, `the_worker_door_is_allowed_on_every_coordinator`, and the three other middleware binaries |
 
-**Two rows cannot be re-pointed, only re-registered, and the distinction
-matters.** `M1-MOUNTED` and `M1-PREFLIGHT` are named in commit `1a384d7c`'s body
-as NEVER RUN, but **their row text was never written into the repository** — the
-names exist and the rows do not. So there is nothing to correct; there is
-something to write. Recorded here rather than papered over, because a row that
-is present and says "this has to be written" is a promise, and a row that is
-absent is the failure mode this table exists to prevent. The seams are live and
-findable: the mount is `security_layer` at `middleware/security.rs:240`, wired
-at `http/listener.rs:209`; the preflight is `preflight_response` at
-`security.rs:232`, which calls the same `apply_security_headers` at `:235`.
+**C5-9 replaces a row that was dead text.** `build_csp` is no longer called
+directly by any test — a slice rewrote the CSP test to drive the *served header*
+through `security_options_for_config`, so the test's direct `use build_csp` went
+away — and a row naming a direct builder call cannot be run as written. The
+replacement targets the twin at its assembly point instead.
 
-**A harness is written and inert**, outside the worktree at
-`/tmp/coord-mutate.sh`: backs the file up outside the tree, refuses to mutate
-if the backup does not match, verifies the restore by sha256 in an
-`EXIT`/`INT`/`TERM` trap, and reports a compile failure as INCONCLUSIVE rather
-than as a pass.
-
-**Zero of these rows has been run.** The C5 gate needs all eight — C12 through
-C17 plus the two registrations — and each must state must-fail AND
-must-still-pass. A non-compiling mutation is INCONCLUSIVE, and a row run
-against a red baseline is BIT-with-unestablished-isolation.
+**`M1-MOUNTED` and `M1-PREFLIGHT` are a RE-REGISTRATION, not a re-pointing.**
+Their names appear in commit `1a384d7c`'s body as NEVER RUN, but **the row text
+was never written into the repository** — so there is nothing to correct, only
+something to write. The seams are live and findable: the mount is `security_layer`
+at `middleware/security.rs:240`, wired at `http/listener.rs:209`; the preflight is
+`preflight_response` at `security.rs:232`, which calls the same
+`apply_security_headers` at `:235`.
 
 ### The clippy floor this track has not beaten, and why it is structural
 
-`cargo clippy` on stable 1.98.1 **has no `--keep-going`.** It stops at the first
+`cargo clippy` on stable 1.98.1 **has no `--keep-going`**. It stops at the first
 failing target, so every test target scheduled after it is never linted at all.
 That makes a clippy number a **floor by construction** — a property of the
 tool, not of the tree — and two agreeing clippy runs will agree and both be
 floors, exactly as two agreeing test runs can.
 
-The last measured pass stopped at `tasks_queue` on
-`tests/tasks_support/mod.rs:103` (`useless use of format!`) and never reached
-six shared fixture modules reported to hold **62 `unwrap`/`expect` sites** with
-no `#![allow]` header.
+**The "62 ungated `unwrap`/`expect` sites" figure that was carried here is a
+MISCOUNT** and has been removed: every fixture with such sites either declares
+the allow itself or has all its consumers declare it. The clippy sequence on this
+track found **7 real defects** instead, and every one was invisible to `cargo
+check` and `cargo test`.
 
-**That 62 is a MISCOUNT and the coord lead checked it.** Every fixture with
-`expect`/`unwrap` sites either declares the allow itself or has all its
-consumers declare it; the only real defect in that area was the
-`tasks_support` `format!`, which is fixed. **62 was a count of `expect(`/`unwrap(`
-occurrences across files, presented as a count of missing declarations** — the
-difference between "a site exists" and "a site is ungated", which is the same
-distinction as a count of callers versus a `file:line`.
 
-So the fixture-allow rule stands and is now **measured rather than predicted**:
-`tests/tasks_support/mod.rs:103` was the only ungated fixture defect, and the
-five-run clippy sequence on that track found **7 real defects** in total — the 7
-`expect_used` errors in two shared fixture modules, the `format!`, a
-`.fold(true, |all, x| all && x)` that is `.all()`, a no-op `.as_bytes().as_ref()`,
-and a `too_many_arguments` on a test harness taking 8 positional arguments
-across 34 call sites, repaired with a named-params struct rather than an allow.
-**Each of the seven was invisible to `cargo check` and `cargo test`.**
+## Worker track — the one OBSERVED row
+
+**W2 — a delta past the row cap becomes a viewport-only full. STATUS: OBSERVED,
+it bit.** The only observed mutation row in the programme so far.
+
+| | |
+|---|---|
+| Property | A cell delta is legal only while the client is within `LIVE_DELTA_SCROLLBACK_ROWS_CAP` history rows of the live head. Past that the client's absolute row indices no longer mean the same thing, so the frame must degrade to a viewport-only FULL rather than a delta. |
+| Mutation | `roost-term/src/emitter.rs:29` — `LIVE_DELTA_SCROLLBACK_ROWS_CAP: u64 = 250` → `u64::MAX`. The arm it disables is `:127`, the `&&` clause naming the constant. |
+| Must fail, and did | `a_delta_past_the_row_cap_becomes_a_viewport_only_full` → FAILED |
+| Must still pass, and did | `a_delta_within_the_row_cap_stays_a_delta` → passed. **Not optional: a cap that always fires is not a cap**, and without this arm a mutation deleting the whole clause would pass the first test. |
+| Baseline before the window | 2 passed / 0 failed on the named binary. A red baseline makes the row INCONCLUSIVE rather than a pass, and the harness stops on it. |
+| Proof the mutation applied | sha256 of the mutated file differed from the pre-mutation sha256 — so it was applied and not silently restored. |
+| Restore | sha256 matches pre-mutation. Verified, not assumed. |
+| Scope | every other `roost-term` target green; only the mutated target failed. |
+| Harness | `scripts/row-w2-mutation.sh` — re-runnable, backup outside the worktree, trap restore, sha256 before and after, green baseline required before mutating. |
+
+**Two things about this row that are not in the table above.** The **test did not
+exist when the row was written** — `a_delta_past_the_row_cap_becomes_a_viewport_only_full`
+was in no file under `crates/roost-term`, so the row was recorded as BLOCKED ON
+THE TEST, neither passing nor failing. The test and its opposite-direction
+sibling were written against `docs/phase4-client-contract.md` §6.2/§6.3/§6.4, and
+only then was the row run. **The row was unrunnable, not failing**, and those are
+different states.
+
+And **the constant is re-exported at `roost-term/src/lib.rs:54`**, so a mutation
+aimed at the `lib.rs` spelling would compile identically and change nothing. The
+`emitter.rs:29` spelling is given because that is where the value is defined;
+the re-export is not an alternative site.
 
 ## Coordinator track — tasks (S2)
 
