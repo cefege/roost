@@ -707,7 +707,7 @@ measurement touched `v3`.
 The new unreached-module rule contributes 0 of these.** Verified by stashing it:
 10 violations before, 10 after, with inputs checked going 1480 → 2111.
 
-### Stage 4's one irreversible ordering constraint is handled structurally, not procedurally
+### Stage 4's one irreversible ordering constraint: sharing a validator, NOT the ordering itself
 
 **The hazard.** `roost import-v2` must run before anything creates the v3
 database, because `ensure_self_hosted_tenant` on an EMPTY database creates a fresh
@@ -730,12 +730,23 @@ quickstart/grant.rs:164    let tenant = roost_coord::auth::self_hosted_tenant::e
 `quickstart/grant.rs:29` says it outright: *"`ensure_self_hosted_tenant` is called,
 not reimplemented."* And `import_v2/mod.rs:16` names the hazard in its own header.
 
-**So the two cannot disagree about what an existing tenant means, because neither
-has an opinion — they ask one function.** That is a structural answer where the plan
-proposed a procedural one, and it means Stage 4.1 has nothing to get wrong beyond
-ordering: run the import before the install. **It also forecloses the failure a
-well-meaning fixer would introduce on the way to 4.1 — adding a second tenant check to
-quickstart, which is precisely how the two would come to disagree.**
+**WHAT THIS ACTUALLY BUYS, and an earlier version of this entry overclaimed it.**
+Sharing the validator covers **one** direction: `quickstart` run AFTER an import
+accepts the imported tenant. **The other direction still binds.** If `quickstart` or
+a `roost3-coord` boot touches an empty database BEFORE `import-v2`,
+`ensure_self_hosted_tenant` creates a fresh account and **the importer then refuses
+it as "another install"**.
+
+So the structural answer is worth exactly this: **it converts a silent bad outcome
+into a loud one.** A wrong order no longer merges two accounts or half-imports over
+a fresh tenant; it stops, with a refusal that names the cause. **That is worth having
+and it is not the same as the constraint being gone.**
+
+**`import-v2` first is still a runbook constraint, and it is still binding.** The
+earlier claim that "4.1 has nothing to get wrong" was wrong in the only direction
+that matters, and is corrected here rather than quietly dropped. What the shared
+validator forecloses is a *second* failure on top — a well-meaning fixer adding a
+tenant check to quickstart, which is precisely how the two would come to disagree.
 
 ### What Phase 6.4 costs: run the classifier, do not read a table
 
