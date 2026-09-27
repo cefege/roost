@@ -127,8 +127,8 @@ pub fn load_coord_config(
         push_allowed_origins: Some(origin_list(env, ENV_PUSH_ALLOWED_ORIGINS)),
         relaxed_csp: Some(is_enabled(env, ENV_RELAXED_CSP)),
         trust_proxy: Some(is_enabled(env, ENV_TRUST_PROXY)),
-        cf_access_team_domain: env.get(ENV_CF_ACCESS_TEAM_DOMAIN),
-        cf_access_aud: env.get(ENV_CF_ACCESS_AUD),
+        cf_access_team_domain: declared_or_absent(env, ENV_CF_ACCESS_TEAM_DOMAIN),
+        cf_access_aud: declared_or_absent(env, ENV_CF_ACCESS_AUD),
         web_public_url: normalize_https_origin(
             env.get(ENV_WEB_PUBLIC_URL).as_deref(),
             ENV_WEB_PUBLIC_URL,
@@ -234,6 +234,21 @@ fn origin_list(env: &dyn EnvSource, key: &str) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// An optional setting that is SET BUT BLANK is the same as one that is unset.
+///
+/// A `EnvironmentFile=` line written from a template, and an operator's
+/// `export ROOST_CF_ACCESS_TEAM_DOMAIN=`, both leave the variable present and
+/// empty. Every other optional setting in this loader already answers that with
+/// "not configured": `origin_list` filters a blank, `is_enabled` compares
+/// against a value rather than a presence, and `normalize_https_origin` reads a
+/// blank public URL as no front door. These two were the only pair that handed
+/// the empty string straight to a shape check, so a coordinator with no
+/// Cloudflare Access in front of it — a plain tunnel, a private network, a
+/// laptop — refused to boot on a definition that was correct.
+fn declared_or_absent(env: &dyn EnvSource, key: &str) -> Option<String> {
+    env.get(key).filter(|declared| !declared.is_empty())
 }
 
 fn is_enabled(env: &dyn EnvSource, key: &str) -> bool {
