@@ -27,6 +27,14 @@ pub const ENV_PATH: &str = "PATH";
 /// when the operator set one; a worker derives a reachable address otherwise.
 pub const ENV_REACHABLE_ADDR: &str = "ROOST_REACHABLE_ADDR";
 
+/// The name this machine is enrolled under, as the rest of the fleet sees it.
+///
+/// Deliberately not `roost-host`'s `ROOST_WORKER_AGENT_LABEL`, which overrides
+/// the service identity the platform reads: this one names the machine to the
+/// fleet and that one names the unit, and an install that conflated them would
+/// rename a machine by renaming a service.
+pub const ENV_WORKER_LABEL: &str = "ROOST_WORKER_LABEL";
+
 /// The origins allowed to call this worker's loopback door.
 pub const ENV_WORKER_LOCAL_UI_ALLOWED_ORIGINS: &str = "ROOST_WORKER_LOCAL_UI_ALLOWED_ORIGINS";
 
@@ -42,12 +50,13 @@ pub const ONE_SHOT_AUTHORIZATIONS: [&str; 2] = [ENV_BOOTSTRAP_TOKEN, KEEPER_FORC
 /// conversation-restore opt-in is here rather than in the grant list precisely
 /// because it is the opposite: the operator's answer outlives the deploy that
 /// carried it.
-pub const WORKER_CHOSEN_ENTRIES: [&str; 5] = [
+pub const WORKER_CHOSEN_ENTRIES: [&str; 6] = [
     ENV_COORDINATOR_URL,
     WORKER_LOCAL_UI_BIND_ENV,
     ENV_WORKER_LOCAL_UI_ALLOWED_ORIGINS,
     AGENT_CONVERSATION_RESTORE_ENV,
     ENV_REACHABLE_ADDR,
+    ENV_WORKER_LABEL,
 ];
 
 /// True when `name` is an authorization no redeploy may carry forward.

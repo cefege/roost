@@ -4,6 +4,9 @@
 //! One field on `CoordServices` for the telemetry, so the counters a metric
 //! reports and the buffer a debug-log batch drains are one process's.
 
+pub mod diag_log;
+pub mod rpc_audit;
+pub mod rpc_metrics;
 pub mod rpc_transcription;
 pub mod telemetry;
 pub mod transcription;

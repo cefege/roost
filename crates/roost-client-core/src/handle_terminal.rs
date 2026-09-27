@@ -57,6 +57,7 @@ pub fn handle_view_opened(
         .routes
         .set_view_demand(worker_fp, session_id, view_id, true)
     {
+        store.note_change();
         tracing::info!(
             target: "terminal",
             session_id,
@@ -87,6 +88,7 @@ pub fn handle_view_resized(
     if !changed {
         return;
     }
+    store.note_change();
     tracing::info!(
         target: "terminal",
         session_id,
@@ -112,6 +114,7 @@ pub fn handle_view_hidden(
     store
         .routes
         .set_view_demand(&worker_fp, session_id, view_id, false);
+    store.note_change();
     send_intent(store, session_id, view_id, ViewIntent::Park, out);
 }
 
@@ -126,6 +129,7 @@ pub fn handle_view_closed(
     if let Some(replica) = store.terminal_mut_if_present(session_id) {
         replica.close_view(view_id);
     }
+    store.note_change();
     let worker_fp = worker_of(store, session_id);
     store
         .routes
@@ -171,6 +175,7 @@ pub fn handle_view_state(
                 .terminal_mut_if_present(&state.session_id)
                 .is_some_and(|replica| replica.install_expected_stream(&stream_id, cols, rows));
             if changed {
+                store.note_change();
                 tracing::info!(
                     target: "terminal",
                     session_id = %state.session_id,
@@ -223,6 +228,7 @@ pub fn handle_correlated_result(
 /// A direct carrier authenticated.
 pub fn handle_carrier_ready(store: &mut Store, carrier: &DirectCarrier) {
     if store.routes.register(carrier.clone()) {
+        store.note_change();
         tracing::info!(
             target: "terminal",
             connection_id = %carrier.connection_id,
@@ -290,6 +296,7 @@ pub fn handle_search_page(
                 "search page fenced"
             );
             store.find_results.insert(session_id.to_string(), fenced);
+            store.note_change();
         }
         None => tracing::warn!(
             target: "search",

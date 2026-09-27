@@ -27,7 +27,17 @@ roost-worker.workspace = true
 # `client` here rather than in the workspace default: it pulls `mio` in through
 # hyper, which does not build for `wasm32-unknown-unknown`, and the browser
 # client is a first-class target of this workspace. Only the CLI dials.
-connectrpc = { workspace = true, features = ["client"] }
+connectrpc = { workspace = true, features = ["client", "client-tls"] }
+
+# The generated client is constructed from an `http::Uri`, and nothing else in
+# this crate's graph re-exports one: connectrpc re-exports only `http_body`,
+# buffa only `alloc`, and reqwest's re-exports stop at `Url` and `header`. So
+# without a carrier the generated stubs cannot be built at all, and `roost api`
+# would be a table of hand-written paths — the exact thing it must not be. This
+# is the one existing workspace pin that carries `http`, and the in-process test
+# server is the same dependency, so it is a normal dependency rather than a
+# dev-only one.
+axum = { workspace = true, features = ["http1", "tokio"] }
 
 clap.workspace = true
 anyhow.workspace = true

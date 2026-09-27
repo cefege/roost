@@ -1549,6 +1549,42 @@ throw retires the peer.
 **Guard** — `smoke/terminal/` — `"browser smoke flow creates and cleans its resources"` (drives pane close end
 to end).
 
+### A `u32::MAX` pid is `kill(-1)`, and one test call SIGINTs the whole user session
+
+**Symptom** — "every omp session died at once / all the agent sessions vanished and nothing crashed", with
+`"Session exit recorded" … "reason":"sigint","kind":"signal"` in every track's log in the same second, and the
+journal showing `systemd[...user manager]: Received SIGINT from PID N (kill)` immediately followed by
+`Activating special unit Exit the Session`.
+
+**Wrong** — reach for "a pid that cannot exist" in a test or a shutdown path by passing a sentinel like `u32::MAX`
+into a `u32` pid API, assuming a pid that names no process also cannot name a group. It can: `kill` parses its
+operand into a **signed** `pid_t`, so `4294967295` wraps to `-1` (every process the user may signal) and `0` is the
+caller's own process group. The unit test in `crates/roost-cli/src/dev/signal.rs` sent exactly that, so every
+`cargo test -p roost-cli` SIGINTed the systemd user manager, the Roost worker hosting the terminals, and every
+agent session the user owned. Measured on this host: four such shutdowns at 02:25:15, 03:08:02, 08:31:30 and
+09:35:13 on 2026-09-27, each 100–233 s after a `cargo test -p roost-cli` — the time to reach the lib unit tests.
+Reproduced inside `unshare -Urpf --mount-proc` with a SIGINT-default sentinel: the old test killed the sentinel
+AND still FAILED, because `kill(-1)` succeeds, so `send` reported `Ok(())` instead of `Refused`. The test binary
+usually outlives its own `kill(-1)`, which is why this presented as an intermittent session wipe rather than an
+obvious test failure — and why a green-looking run on an unpatched tree proves nothing.
+
+**Right** — refuse at the boundary, before anything is spawned: `dev::signal::send` returns
+`SignalError::NotASingleProcess { pid }` when `pid == 0 || i32::try_from(pid).is_err()`
+(`crates/roost-cli/src/dev/signal.rs`). Mind where the signed parse actually happens: this module shells out to
+the `kill` PROGRAM because the crate forbids `unsafe` and `Child::kill` is SIGKILL-only, so the wrap lives in
+another binary and only a guard at the call site can prevent it. The one production caller needed no change —
+`supervisor.rs`'s `signal_the_live` already had a catch-all `Err(failure)` arm, and its pids are all `Child::id()`.
+
+**Guard** — `crates/roost-cli/src/dev/signal.rs` unit tests:
+`a_pid_kill_would_read_as_a_group_or_as_everyone_is_refused_before_anything_is_sent` (0, `u32::MAX` and
+`1 << 31` never reach the program) and `a_pid_that_no_longer_exists_is_refused_rather_than_reported_as_sent`
+(Linux-only; uses `pid_max` from `/proc`, which Linux never allocates — macOS has no `/proc` and would need a
+different nonexistent pid). The TS side already encoded the same invariant independently at
+`apps/worker/src/keeper/keeper-process-reap.ts`: its deliberate `process.kill(-leader, "SIGTERM")` group signal is
+guarded by `if (leader > 1)`, which structurally excludes `-1`. The other `kill` shell-outs are safe for a reason
+worth stating so nobody "fixes" them: `status/service_probe.rs` signals `child.id()` of a probe it spawned, and
+`crates/roost-cli/tests/dev_fan_out.rs` signals `std::process::id()`.
+
 ### A worker throttled by its own cgroup looks healthy
 
 **Symptom** — "a worker shows offline/down in the SPA while `systemctl --user status roost-worker` says active (running) and the host has GBs free / worker log silent for minutes then `link_stale_no_downstream` + `listChannels timed out` + `heartbeat beat failed [unavailable] HTTP 502` / coord `worker-ws close`→`open` gap of ~361s"
@@ -2498,6 +2534,39 @@ it. `roost push` already proved that SHA published before installing it.
 
 **Guard** — `apps/roost-cli/tests/deploy-coordinator-release.test.ts`: "a detached coordinator release at its
 installed SHA is admitted without any upstream", plus the wrong-checkout, wrong-build, and dirty-tree refusals.
+
+### The coordinator refuses to boot on a definition quickstart just wrote
+
+**Symptom** — "coordinator will not start / `config.cf_access_team_domain must be one lowercase label` /
+`config.cf_access_aud must be 64 lowercase hex characters` / `ROOST_TERMINAL_PEER_ENABLED must be exactly 0
+or 1` / `ROOST_TRUST_PROXY` read as disabled though the operator set it"
+
+**Wrong** — a producer and a consumer, each correct in isolation, disagreeing about what a MISSING value
+looks like. `env.get(key)` returns `Some("")` for a variable that is present and empty; the loader passed
+that straight into a shape check, and the check refused it. Meanwhile the producer wrote booleans with
+Rust's `Display` (`ROOST_TRUST_PROXY=true`) where the consumer reads `== "1"`, and wrote both Cloudflare
+Access keys empty when it meant "unset". So `quickstart` produced a definition no `roost coord` would
+accept — and on a machine with no Cloudflare Access in front of it, which is every self-hosted install,
+that pair is ALWAYS empty.
+
+**Right** — the consumer treats set-but-blank as absence, because a hand-edited unit, an
+`EnvironmentFile=` line and `export FOO=` all produce one: `declared_or_absent` in
+`crates/roost-host/src/coord_config_loader.rs`, which is what `origin_list`, `is_enabled` and
+`normalize_https_origin` already did in the same file. The producer omits a key it has no value for, and
+writes booleans as `1`/`0` through `flag()`. These are two different questions — "what do I write?" and
+"what can I read?" — and neither layer consults the other, so this is defence in depth across a producer
+and a consumer, not duplication. Both halves are required: consumer tolerance alone leaves a misleading
+definition, and producer correctness alone leaves one typo away from a coordinator that will not start.
+
+**Guard** — `crates/roost-host/tests/coord_config_blank_settings.rs`:
+`a_blank_cloudflare_access_declaration_is_absence_rather_than_a_refusal`, plus the two that fail if the
+filter is ever written as "skip validation" instead of "skip empties" (a real pair is kept whole; a
+present-but-malformed pair is still refused). The CLI half is pinned by
+`a_dry_run_of_a_rerun_keeps_the_installed_front_door` in `crates/roost-cli/tests/quickstart_dry_run.rs`.
+
+**Why this is an entry and not a commit body** — the boolean bug was found and fixed, the test was
+rerun, and the rerun's NEXT assertion failed. Stopping at the assertion you were given finds the surface.
+The cause was in a layer neither the failing test nor the fix lived in.
 
 ---
 

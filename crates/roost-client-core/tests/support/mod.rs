@@ -1,11 +1,13 @@
 //! Shared fixtures for the client-core behaviour tests: hand-built protobuf cell
-//! frames, a bound replica, and an in-memory client.
+//! frames, a bound replica, an in-memory client, and the Sync reconnect link.
 //!
 //! The frames are assembled directly rather than encoded and decoded, so each
 //! contract rule can be broken in isolation and the code that notices it named in
 //! the failure. Mirrors `crates/roost-protocol/tests/support/cell_chunks.rs`.
-
 #![allow(dead_code)]
+
+pub mod auth;
+pub mod sync_reconnect;
 
 use roost_client_core::{
     ClientCore, MemoryClock, MemoryKeyValueStore, TerminalSession, TerminalToken,

@@ -12,6 +12,14 @@
 
 use roost_protocol::terminal_search::{TERMINAL_SEARCH_MAX_MATCHES, TERMINAL_SEARCH_MAX_ROWS};
 
+/// The fleet-wide content search's wire-shaped rows, beside the per-session
+/// find rows above. Both are rows a coordinator answers with, and both are
+/// held here rather than in `client::` so there is one module named for
+/// "what a search returned". The reconciliation that *judges* those rows —
+/// merging a page, folding partials, dropping rows that no longer join — lives
+/// in `client::global_search`, because judging is behaviour and holding is data.
+pub mod global;
+
 /// One match, fenced to the grid epoch that owns its row.
 ///
 /// The epoch travels WITH the row rather than being read from the replica at

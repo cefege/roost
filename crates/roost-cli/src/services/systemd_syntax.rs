@@ -85,9 +85,13 @@ mod tests {
 
     #[test]
     fn an_environment_line_keeps_the_equals_inside_the_quotes() {
+        // `1` and `0`, which is what a definition actually carries: the
+        // coordinator's loader reads a boolean as exactly `"1"`, so an
+        // example that showed `true` would teach the one spelling no
+        // definition may use.
         assert_eq!(
-            environment_directive("ROOST_TRUST_PROXY", "true"),
-            "Environment=\"ROOST_TRUST_PROXY=true\""
+            environment_directive("ROOST_TRUST_PROXY", "1"),
+            "Environment=\"ROOST_TRUST_PROXY=1\""
         );
         assert_eq!(
             environment_directive("ROOST_DIAG", "0"),

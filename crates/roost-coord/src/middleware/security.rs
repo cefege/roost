@@ -179,6 +179,38 @@ fn build_csp(relaxed: bool, connect_origins: &[String]) -> String {
 /// `Vary` is unconditional and the method/header permissions are unconditional
 /// too (`security.ts:65-67`): a cache that stored one response without them
 /// would hand a later origin a decision made for an earlier one.
+/// Add tokens to `Vary` without dropping the ones already there.
+///
+/// A repeated token is not written twice: `Vary` is a set in practice, and a
+/// response that grew the same token on every layer would ship a header
+/// nobody can read.
+fn append_vary(headers: &mut HeaderMap, tokens: &str) {
+    let existing = headers
+        .get(axum::http::header::VARY)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    let mut merged = existing;
+    for token in tokens
+        .split(',')
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+    {
+        if !merged
+            .split(',')
+            .any(|held| held.trim().eq_ignore_ascii_case(token))
+        {
+            if !merged.is_empty() {
+                merged.push_str(", ");
+            }
+            merged.push_str(token);
+        }
+    }
+    if let Ok(value) = HeaderValue::from_str(&merged) {
+        headers.insert(axum::http::header::VARY, value);
+    }
+}
+
 pub fn apply_cors(headers: &mut HeaderMap, request_origin: Option<&str>, allowed: &[String]) {
     if let Some(allowed) = request_origin.filter(|origin| allowed.iter().any(|it| it == origin))
         && let Ok(origin) = HeaderValue::from_str(allowed)
@@ -189,11 +221,15 @@ pub fn apply_cors(headers: &mut HeaderMap, request_origin: Option<&str>, allowed
             HeaderValue::from_static(X_ROOST_AUTH_LAYER),
         );
     }
-    headers.insert(
-        axum::http::header::VARY,
-        HeaderValue::from_static(
-            "origin, access-control-request-method, access-control-request-headers",
-        ),
+    // APPENDED, never replaced. `Vary` is a list and this layer runs OUTSIDE
+    // the SPA, so it is the one that sets it last: a response that already
+    // names a dimension it varies on — `accept-encoding` on a bundle, which is
+    // the one the front door adds — would lose that token to an `insert` here,
+    // and a shared cache would then hand a gzipped body to a client that
+    // refused gzip.
+    append_vary(
+        headers,
+        "origin, access-control-request-method, access-control-request-headers",
     );
     headers.insert(
         axum::http::header::ACCESS_CONTROL_ALLOW_METHODS,

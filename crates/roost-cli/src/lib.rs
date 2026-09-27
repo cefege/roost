@@ -16,13 +16,19 @@
 //! cannot tell a "refused, and do not retry" from a "failed, try again" is a
 //! script that retries the one thing that must never be retried.
 
+pub mod api;
 pub mod command_error;
 pub mod daemon;
+pub mod deploy;
+pub mod dev;
 pub mod doctor;
 pub mod ops;
 pub mod overlay_env;
+pub mod push;
+pub mod quickstart;
 pub mod services;
 pub mod status;
+pub mod update;
 pub mod utc_clock;
 pub mod wall_clock;
 
@@ -30,8 +36,14 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
+use crate::api::ApiArgs;
 use crate::command_error::CommandFailure;
 use crate::daemon::{CoordArgs, KeeperArgs, WorkerArgs};
+use crate::deploy::remote_commands::{
+    RemoteApplyArgs, RemoteEvidenceArgs, RemoteFactsArgs, RemoteTransactionArgs,
+};
+use crate::deploy::{DeployArgs, KeeperRefreshArgs};
+use crate::dev::DevArgs;
 use crate::doctor::DoctorArgs;
 use crate::ops::keeper_contract::KeeperContractArgs;
 use crate::ops::logs::LogsArgs;
@@ -40,7 +52,12 @@ use crate::ops::skill::SkillArgs;
 use crate::ops::state::StateArgs;
 use crate::ops::test::TestArgs;
 use crate::ops::version::VersionArgs;
+use crate::push::PushArgs;
+use crate::quickstart::QuickstartArgs;
+use crate::quickstart::add_machine::AddMachineArgs;
+use crate::quickstart::join;
 use crate::status::StatusArgs;
+use crate::update::UpdateArgs;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -65,6 +82,8 @@ pub enum Command {
     Worker(WorkerArgs),
     /// Run the keeper in this process (the self-exec target).
     Keeper(KeeperArgs),
+    /// Replace this binary with the latest published v3 release.
+    Update(UpdateArgs),
     /// Health readout: local services, coordinator, front door, workers.
     Status(StatusArgs),
     /// Anomaly digest from this host's logs and the coordinator's audit log.
@@ -73,6 +92,32 @@ pub enum Command {
     Version(VersionArgs),
     /// Tail a service's logs.
     Logs(LogsArgs),
+    /// Deploy this build to one machine's worker over ssh.
+    Deploy(DeployArgs),
+    /// Shut a machine's keeper down empty, keeping its worker installed.
+    KeeperRefresh(KeeperRefreshArgs),
+    /// Introspect and drive a running coordinator without a browser.
+    Api(ApiArgs),
+    /// Install a coordinator and this machine's worker, then open a browser.
+    Quickstart(QuickstartArgs),
+    /// Publish this commit and roll the whole fleet onto it.
+    Push(PushArgs),
+    /// Install and register this machine's worker from a one-shot grant.
+    Join,
+    /// Mint a one-shot enrollment grant and print an enrollment command.
+    AddMachine(AddMachineArgs),
+    /// Run the coordinator, the worker and the web dev server together.
+    Dev(DevArgs),
+    /// Put this install's roost on PATH as ~/.local/bin/roost.
+    SelfLink,
+    #[command(name = "__remote-facts", hide = true)]
+    RemoteFacts(RemoteFactsArgs),
+    #[command(name = "__remote-evidence", hide = true)]
+    RemoteEvidence(RemoteEvidenceArgs),
+    #[command(name = "__remote-transaction", hide = true)]
+    RemoteTransaction(RemoteTransactionArgs),
+    #[command(name = "__remote-apply", hide = true)]
+    RemoteApply(RemoteApplyArgs),
     /// Print a STATE.md snapshot of this checkout.
     State(StateArgs),
     /// Stop the local services and delete the coordinator database.
@@ -93,10 +138,24 @@ impl Command {
             Command::Coord(_) => "coord",
             Command::Worker(_) => "worker",
             Command::Keeper(_) => "keeper",
+            Command::Update(_) => "update",
             Command::Status(_) => "status",
             Command::Doctor(_) => "doctor",
             Command::Version(_) => "version",
             Command::Logs(_) => "logs",
+            Command::Deploy(_) => "deploy",
+            Command::KeeperRefresh(_) => "keeper-refresh",
+            Command::Quickstart(_) => "quickstart",
+            Command::Api(_) => "api",
+            Command::Push(_) => "push",
+            Command::Join => "join",
+            Command::AddMachine(_) => "add-machine",
+            Command::Dev(_) => "dev",
+            Command::SelfLink => "self-link",
+            Command::RemoteFacts(_) => "__remote-facts",
+            Command::RemoteEvidence(_) => "__remote-evidence",
+            Command::RemoteTransaction(_) => "__remote-transaction",
+            Command::RemoteApply(_) => "__remote-apply",
             Command::State(_) => "state",
             Command::Reset(_) => "reset",
             Command::Skill(_) => "skill",
@@ -117,6 +176,20 @@ pub async fn dispatch(cli: Cli) -> Result<ExitCode, CommandFailure> {
         Command::Doctor(args) => doctor::run(&args).await,
         Command::Version(args) => ops::version::run(&args),
         Command::Logs(args) => ops::logs::run(&args),
+        Command::Deploy(args) => deploy::run::run(&args).await,
+        Command::KeeperRefresh(args) => deploy::keeper_refresh::run(&args).await,
+        Command::Quickstart(args) => quickstart::run(&args).await,
+        Command::Api(args) => api::run(&args).await,
+        Command::Push(args) => push::run(&args).await,
+        Command::Join => join::run(&roost_host::ProcessEnv::new()).await,
+        Command::AddMachine(args) => quickstart::add_machine::run(&args).await,
+        Command::Dev(args) => dev::run(&args).await,
+        Command::Update(args) => update::run(&args).await,
+        Command::SelfLink => quickstart::self_link::run(),
+        Command::RemoteFacts(args) => deploy::remote_commands::facts(&args),
+        Command::RemoteEvidence(args) => deploy::remote_commands::evidence(&args),
+        Command::RemoteTransaction(args) => deploy::remote_commands::transaction(&args).await,
+        Command::RemoteApply(args) => deploy::remote_commands::apply(&args).await,
         Command::State(args) => ops::state::run(&args),
         Command::Reset(args) => ops::reset::run(&args),
         Command::Skill(args) => ops::skill::run(&args),

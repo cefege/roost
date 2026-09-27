@@ -21,6 +21,7 @@ pub mod coord_config_origin;
 pub mod env;
 pub mod jwt_base;
 pub mod paths;
+pub mod spa_path;
 
 // Part of every path function's signature and of every boot config's error, so
 // a caller needs one import rather than three.

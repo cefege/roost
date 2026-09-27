@@ -2857,18 +2857,30 @@ aimed at the `lib.rs` spelling would compile identically and change nothing. The
 `emitter.rs:29` spelling is given because that is where the value is defined;
 the re-export is not an alternative site.
 
-## Web track (U-1c) — four rows, all RECONSTRUCTED, none run
+## Web track (U-1c) — four rows, all RUN, all four BITE
 
-Sent as written by `WebLeadU2` before the 33 failures are triaged. **Every
-must-fail claim below is a pre-registered prediction, not a result**, and the
-rows are labelled `RECONSTRUCTED against the tree as it stands, not re-verified`.
+Run at `v3-web@93063caf`, the first time these rows have ever been executed
+against a green baseline. **Two of them were previously unrunnable**, because
+the tests they name were themselves red; that is now fixed, and it is the same
+distinction as the worker row above — *unrunnable* is not *failing*.
 
-| # | Property | Edit (`file:line`) | Must fail | Must still pass |
+**The standing warning elsewhere in this file that one of these rows
+historically did not bite does NOT apply to this tree. None did.**
+
+| # | Property | Edit | Result | Named control |
 |---|---|---|---|---|
-| M-U1 | `MemorySecureKeyStore::new()` stores and signs; the two degraded stores are reachable only by asking | `client/auth/memory_keystore.rs:71-81` — delete the hand-written `impl Default` body | `auth_device_key::a_generated_key_is_non_extractable_and_nothing_the_store_hands_back_carries_its_bytes` — panics on `PersistenceUnavailable { detail: "this store keeps keys in memory only" }`, the exact signature the old derive produced | `auth_first_boot_race::a_signing_failure_still_dispatches_the_request_unauthenticated` — needs `with_failing_signing` to be a *distinct* store from `new()`. **This is the row that separates the two flags**: a default of `true` for both plus two opt-out constructors is the only shape where that test means anything |
-| M-U2 | A status whose completion predates this profile never reads `done`; an identified occupant's first completion does | `client/agents/status_policy.rs:240` — `EVERY_COMPLETION_ALREADY_SEEN` → `0` | `agent_status_policy::a_legacy_status_never_reads_done_because_it_could_not_have_been_missed` — `left: Done, right: Idle` | `::an_unseen_completion_of_an_identified_occupant_reads_done_and_a_seen_one_reads_idle` — the other arm of the same `unwrap_or_else`, which goes `Done` only because the identified floor stayed at `-1` |
-| M-U3 | A child of home is `~/src`; one `..` from there is `~`, not `/` | `store/browse_paths.rs:60-62` — restore `\|\| dir == BROWSE_HOME` to the early return in `child` | `browse_machine_scope::the_home_sentinel_is_a_path_browse_can_start_on_and_up_cannot_leave` — `left: "/", right: "~"` at the `cwd()` assertion | `::a_machines_recents_never_include_another_machines_even_at_the_same_path` — its guard assertion fires first; if the two lists come back equal the row did not bite and the guard is doing its job |
-| M-U4 | A stored legacy spelling is rewritten to one of the four on the next write, and the revision moves only when the *mode* moved | `store/prefs/predict.rs:75-77` — delete the `already_canonical` term so the early return fires on `!changed` alone | `prefs_persistence::the_two_spellings_an_earlier_build_wrote_still_mean_something` — `left: Some("force"), right: Some("always")` | `::preferences_round_trip_through_storage` — the same `PREDICT_MODE_KEY` normaliser reached by a different route |
+| M-U1 | `MemorySecureKeyStore::new()` stores and signs; the two degraded stores are reachable only by asking | `memory_keystore.rs:71-81` — the hand-written `Default` body set both flags false, the shape a derive would produce | **BITES, WIDER THAN PRE-REGISTERED: 9 tests failed**, including the predicted `a_generated_key_is_non_extractable_and_nothing_the_store_hands_back_carries_its_bytes` | **UNRUN.** `auth_first_boot_race::a_signing_failure_still_dispatches_the_request_unauthenticated` lives in `connect_interceptor`, which was not run. The control is not claimed |
+| M-U2 | A status whose completion predates this profile never reads `done`; an identified occupant's first completion does | `status_policy.rs:212` — `EVERY_COMPLETION_ALREADY_SEEN` `i64::MAX` → `0` | **BITES as predicted**: 11 → 10 passed, 0 → 1 failed. `a_legacy_status_never_reads_done_because_it_could_not_have_been_missed` FAILED | passed — the other arm of the same `unwrap_or_else`, which goes `Done` only because the identified floor stayed at `-1` |
+| M-U3 | A child of home is `~/src`; one `..` from there is `~`, not `/` | `browse_paths.rs:60` — restore `\|\| dir == BROWSE_HOME` to `child()`'s early return | **BITES**: 8 → 7 passed, 0 → 1 failed. `the_home_sentinel_is_a_path_browse_can_start_on_and_up_cannot_leave` FAILED | passed — and it had been passing for the wrong reason: the **inverted guard** was what stopped it |
+| M-U4 | A stored legacy spelling is rewritten to one of the four on the next write, and the revision moves only when the *mode* moved | `predict.rs:75-77` — delete the `already_canonical` term so the early return fires on `!changed` alone | **BITES**: 8 → 7 passed, 0 → 1 failed. `the_two_spellings_an_earlier_build_wrote_still_mean_something` FAILED | passed — the same `PREDICT_MODE_KEY` normaliser reached by a different route |
+
+**M-U1 biting wider than pre-registered is the finding, not the shortfall.** A
+row registers one edit and one expected failure; getting nine means the edit sits
+under more behaviour than the row's author knew, which is a good result for the
+gate and a correction to the row. **M-U3's control passing for the wrong reason is
+the other one worth keeping**: a control that is green because the defect under
+test has inverted its own guard proves the control works and proves nothing about
+the property, and only running the row told you which of the two you had.
 
 **Rows deliberately NOT written, and the reason is the point.** The seven
 test-side corrections this wave made — the rollup expecting `Working` where v2
@@ -3359,16 +3371,18 @@ warning about three lines in a file it never mentions.
 
 | Where | What is unverified | The one failure mode reading could not exclude |
 |---|---|---|
-| `crates/roost-worker/src/runtime/bootstrap_redeem/label.rs:32,40,79` | `LabelSources`, `HostLabelSources`, `resolve_worker_label` are `pub(super)`, narrowed from `pub` with **no compiler having seen the change** | a `pub(super)` item reached through `use super::{..}` from a `#[cfg(test)]` child |
 
-Every other line in that module is also unbuilt; **these three are unbuilt *and*
-edited after the last full read.** The whole of
-`crates/roost-worker/src/runtime/bootstrap_redeem/` is 661 lines across three
-files and has never been through a compiler.
+**Nothing is outstanding.** The last row, the `pub(super)` narrowing in
+`crates/roost-worker/src/runtime/bootstrap_redeem/label.rs`, was retired on
+2026-09-27 by `cargo check -p roost-worker --all-targets` at `v3-worker@e3ce4c33`:
+0 errors. `--all-targets` covers both halves of the failure the row named — the
+lib the three lines were in, and the `#[cfg(test)]` children that could have
+reached them through `use super::{..}`. It also settles the 661 lines around
+them, which the row called unbuilt: `runtime/mod.rs` declares the module
+unconditionally, so nothing in `bootstrap_redeem/` is behind a `cfg`.
 
-**Remove this entry when `cargo check -p roost-worker --lib` has been run over
-the module**, not when the tests pass — a test run needs the lib, and the lib is
-what these three lines are in.
+Add a row the moment a change is made that no compiler has seen, and delete it
+the moment one has.
 
 ## Two rules about WHERE a mutation goes, both from a row that would have measured nothing
 

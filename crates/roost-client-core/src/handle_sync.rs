@@ -14,6 +14,10 @@
 //! the reasons are in `docs/phase4-client-contract.md` §7 and §11.
 
 use crate::effect::{Effect, RpcResult, SyncCommand};
+
+mod apply_frame;
+
+use self::apply_frame::apply_frame;
 use crate::store::Store;
 use crate::sync::SyncFrame;
 use crate::sync::link::{RetainedFrame, SyncDomain};
@@ -167,16 +171,23 @@ fn fold_into_candidate<F>(
             },
             TerminalSession::new(session_id, worker_fp),
         );
+        store.note_change();
     }
-    let Some(replica) = store.routes.staged_replica_mut(session_id) else {
-        return;
+    let (painted_before, painted_after, baseline_ready) = {
+        let Some(replica) = store.routes.staged_replica_mut(session_id) else {
+            return;
+        };
+        replica.bind_generation(token);
+        let before = replica.frame_revision();
+        let _ = fold(replica);
+        (before, replica.frame_revision(), replica.baseline_ready())
     };
-    replica.bind_generation(token);
-    let _ = fold(replica);
-    let baseline_ready = replica.baseline_ready();
     store
         .routes
         .mark_candidate_baseline(session_id, baseline_ready);
+    if painted_after != painted_before {
+        store.note_change();
+    }
 }
 
 /// Apply everything the pre-hydration queue held, in arrival order.
@@ -186,122 +197,11 @@ fn fold_into_candidate<F>(
 /// coordinator sequenced them in is lost.
 pub fn hydrate(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
     store.hydrated = true;
+    store.note_change();
     for held in store.sync.take_retained() {
         // Deliberately not generation gated: the frame was accepted before the
         // redial, and the coordinator will not send it again.
         apply_frame(store, held.generation, &held.frame, now_ms, out);
-    }
-}
-
-/// Apply one already-admitted frame, without acknowledging it.
-fn apply_frame(
-    store: &mut Store,
-    generation: u64,
-    frame: &SyncFrame,
-    now_ms: u64,
-    out: &mut Vec<Effect>,
-) {
-    match frame {
-        SyncFrame::Subscribed { domains, .. } => {
-            store.sync.install_subscribed(generation, domains);
-            // Subscribe to exactly the domains the coordinator did not report as
-            // already subscribed. Asking for a set other than the announced one
-            // is how a client ends up with a terminal domain it never subscribed
-            // to, and a frame on that domain is then a protocol violation.
-            for (domain, _, already) in domains {
-                if !already {
-                    out.push(Effect::SendSync(SyncCommand::Subscribe { domain: *domain }));
-                }
-            }
-        }
-        SyncFrame::DomainReady {
-            domain,
-            generation: domain_generation,
-            snapshot_token,
-        } => {
-            if store.sync.domain_generation(*domain) != Some(*domain_generation) {
-                // A ready frame for a superseded generation is stale, not a reset.
-                tracing::debug!(
-                    target: "sync",
-                    domain = domain.as_str(),
-                    "domain_ready for a superseded generation"
-                );
-                return;
-            }
-            match store
-                .sync
-                .mark_domain_ready(generation, *domain, snapshot_token.as_deref())
-            {
-                Ok(()) => out.push(Effect::SendSync(SyncCommand::DomainReady {
-                    domain: *domain,
-                    snapshot_token: snapshot_token.clone(),
-                })),
-                Err(reason) => {
-                    tracing::warn!(
-                        target: "sync",
-                        domain = domain.as_str(),
-                        reason,
-                        "domain_ready refused"
-                    );
-                    store
-                        .sync
-                        .reset_domain(generation, *domain, *domain_generation);
-                }
-            }
-        }
-        SyncFrame::DomainReset {
-            domain,
-            generation: domain_generation,
-            reason,
-        } => {
-            store
-                .sync
-                .reset_domain(generation, *domain, *domain_generation);
-            tracing::info!(
-                target: "sync",
-                domain = domain.as_str(),
-                reason = %reason,
-                "domain reset"
-            );
-        }
-        SyncFrame::SessionEvent { event, event_id } => {
-            store.sessions.apply(&event.0);
-            // The cursor advances in the SAME step that applied the event, so it
-            // can never name an event the store has not applied.
-            store.sync.watermark.note(*event_id);
-        }
-        SyncFrame::SessionsSnapshot { sessions } => {
-            store.sessions.apply_snapshot(sessions.clone());
-        }
-        SyncFrame::CellGrid {
-            session_id,
-            frame: cell,
-        } => {
-            let Some(token) = store.sync.terminal_token() else {
-                return;
-            };
-            let Some(replica) = store.terminal_mut_if_present(session_id) else {
-                return;
-            };
-            replica.bind_generation(&token);
-            let _ = replica.admit_frame(cell, false, &token, now_ms);
-        }
-        SyncFrame::CellGridChunk { session_id, chunk } => {
-            let Some(token) = store.sync.terminal_token() else {
-                return;
-            };
-            let Some(replica) = store.terminal_mut_if_present(session_id) else {
-                return;
-            };
-            replica.bind_generation(&token);
-            let _ = replica.admit_chunk(chunk, &token, now_ms);
-        }
-        SyncFrame::ViewState { .. } | SyncFrame::InputResult { .. } => {
-            crate::handle_terminal::handle_correlated_result(store, frame, now_ms, out);
-        }
-        SyncFrame::Keepalive | SyncFrame::Unknown { .. } => {
-            tracing::trace!(target: "sync", frame = frame.kind_name(), "frame applied");
-        }
     }
 }
 
@@ -310,6 +210,7 @@ pub fn handle_rpc_result(store: &mut Store, result: &RpcResult) {
     match result {
         RpcResult::CoordIdentity { account_id, .. } => {
             store.account_id = Some(account_id.clone());
+            store.note_change();
         }
         RpcResult::SessionsList {
             sessions,
@@ -317,6 +218,7 @@ pub fn handle_rpc_result(store: &mut Store, result: &RpcResult) {
             ..
         } => {
             store.sessions.apply_snapshot(sessions.clone());
+            store.note_change();
             // Recorded against the CURRENT terminal domain generation: a token
             // issued for an older generation is not a token for this one, and
             // `domain_ready` would refuse it and reset the domain.
@@ -326,6 +228,18 @@ pub fn handle_rpc_result(store: &mut Store, result: &RpcResult) {
                 store
                     .sync
                     .issue_snapshot_token(generation, SyncDomain::Terminal, token.clone());
+            }
+        }
+        RpcResult::SearchPage {
+            call_id,
+            search_id,
+            page,
+        } => {
+            // A page answers one outstanding call. Anything else is a
+            // replacement the reader has already moved past, and the
+            // controller is the only party that can tell the two apart.
+            if store.global_search.accept_page(*call_id, search_id, page) {
+                store.note_change();
             }
         }
         RpcResult::Failed { call_id, message } => {

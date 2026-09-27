@@ -1,0 +1,29 @@
+/*
+ * EmptyState presentation travels with the primitive on every route.
+ * Theme variables own its spacing, typography, and colors; Icon owns glyph sizing.
+ */
+
+.md-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--md-space-3);
+  padding: var(--md-space-9) var(--md-space-4);
+  color: var(--md-sys-color-on-surface-variant);
+  font-family: var(--md-font);
+  text-align: center;
+}
+
+.md-empty-state__icon {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.md-empty-state__title {
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-title-m-weight) var(--md-title-m-size) / var(--md-title-m-line) var(--md-font);
+}
+
+.md-empty-state__supporting {
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-body-m-weight) var(--md-body-m-size) / var(--md-body-m-line) var(--md-font);
+}

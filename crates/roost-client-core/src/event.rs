@@ -184,6 +184,29 @@ pub enum ClientEvent {
         before_row: Option<u32>,
     },
 
+    /// This profile has looked at one session's agent row.
+    ///
+    /// The HOST says only that the reader has seen the row; the core resolves
+    /// which revision that is, because the row is volatile and a host that
+    /// named a revision would be naming a value it read through a projection
+    /// it does not own. Acknowledging is what lets a RELEASED occupant's row
+    /// retire, and until it does the row is a dead agent the reader has already
+    /// been told about.
+    AgentStatusSeen {
+        /// The session whose row was seen.
+        session_id: String,
+    },
+    /// Another tab on this profile wrote its acknowledgement ledger.
+    ///
+    /// A second tab is not a second reader; it is the same profile looking at
+    /// the same fleet, and its acknowledgements are this tab's acknowledgements
+    /// too. Without the merge, a row retired in one tab lingers in the other and
+    /// notifies twice.
+    AgentSeenMerged {
+        /// The other tab's encoded ledger, in the `roost.agentSeen.v2` shape.
+        encoded: String,
+    },
+
     // ---- time ------------------------------------------------------------------
     /// One pass over every deadline: the chunk stall, the resync retry, the view
     /// lease, the held-input timeout, the watermark write, the Sync liveness
@@ -222,6 +245,8 @@ impl ClientEvent {
             Self::CarrierLost { .. } => "carrier_lost",
             Self::WorkerRetired { .. } => "worker_retired",
             Self::SearchPageReceived { .. } => "search_page_received",
+            Self::AgentStatusSeen { .. } => "agent_status_seen",
+            Self::AgentSeenMerged { .. } => "agent_seen_merged",
             Self::Sweep { .. } => "sweep",
         }
     }

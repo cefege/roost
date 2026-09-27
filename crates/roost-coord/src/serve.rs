@@ -31,6 +31,7 @@ use crate::coord_core::CoordCore;
 use crate::coord_core::boot_facts::BootFacts;
 use crate::coord_core::seams::{CoordTerminal, WorkerRouteIndex};
 use crate::http::listener::{ListenerState, build_router};
+use crate::http::spa::SpaMount;
 use crate::push::PushRuntime;
 use crate::rpc::service::CoordinatorServiceImpl;
 use crate::services::CoordServices;
@@ -158,13 +159,26 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
             .unwrap_or_default()
             .to_string(),
     ));
+    // Chosen ONCE, here, and reported either way. A missing build otherwise
+    // presents only as a 404 on every page, which reads like an edge or DNS
+    // fault rather than as a path the operator misspelled (`main.ts:113-120`).
+    let spa = Arc::new(SpaMount::from_dist_path(
+        boot.config.web_dist_path.as_deref(),
+    ));
+    match spa.root() {
+        Some(root) => tracing::info!(web_dist_path = %root.display(), "spa source: disk"),
+        None => tracing::error!(
+            web_dist_path = ?boot.config.web_dist_path,
+            "spa source missing: every page request answers 404"
+        ),
+    }
     let state = Arc::new(ListenerState {
         service,
         services,
         bind: boot.config.bind.clone(),
         web_public_url: boot.config.web_public_url.clone(),
         trust_proxy: boot.config.trust_proxy,
-        spa_available: boot.config.web_dist_path.is_some(),
+        spa,
     });
 
     // Cloned: the maintenance schedulers below need the same services, and a
