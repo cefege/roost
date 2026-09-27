@@ -2826,6 +2826,61 @@ aimed at the `lib.rs` spelling would compile identically and change nothing. The
 `emitter.rs:29` spelling is given because that is where the value is defined;
 the re-export is not an alternative site.
 
+## Web track (U-1c) — four rows, all RECONSTRUCTED, none run
+
+Sent as written by `WebLeadU2` before the 33 failures are triaged. **Every
+must-fail claim below is a pre-registered prediction, not a result**, and the
+rows are labelled `RECONSTRUCTED against the tree as it stands, not re-verified`.
+
+| # | Property | Edit (`file:line`) | Must fail | Must still pass |
+|---|---|---|---|---|
+| M-U1 | `MemorySecureKeyStore::new()` stores and signs; the two degraded stores are reachable only by asking | `client/auth/memory_keystore.rs:71-81` — delete the hand-written `impl Default` body | `auth_device_key::a_generated_key_is_non_extractable_and_nothing_the_store_hands_back_carries_its_bytes` — panics on `PersistenceUnavailable { detail: "this store keeps keys in memory only" }`, the exact signature the old derive produced | `auth_first_boot_race::a_signing_failure_still_dispatches_the_request_unauthenticated` — needs `with_failing_signing` to be a *distinct* store from `new()`. **This is the row that separates the two flags**: a default of `true` for both plus two opt-out constructors is the only shape where that test means anything |
+| M-U2 | A status whose completion predates this profile never reads `done`; an identified occupant's first completion does | `client/agents/status_policy.rs:240` — `EVERY_COMPLETION_ALREADY_SEEN` → `0` | `agent_status_policy::a_legacy_status_never_reads_done_because_it_could_not_have_been_missed` — `left: Done, right: Idle` | `::an_unseen_completion_of_an_identified_occupant_reads_done_and_a_seen_one_reads_idle` — the other arm of the same `unwrap_or_else`, which goes `Done` only because the identified floor stayed at `-1` |
+| M-U3 | A child of home is `~/src`; one `..` from there is `~`, not `/` | `store/browse_paths.rs:60-62` — restore `\|\| dir == BROWSE_HOME` to the early return in `child` | `browse_machine_scope::the_home_sentinel_is_a_path_browse_can_start_on_and_up_cannot_leave` — `left: "/", right: "~"` at the `cwd()` assertion | `::a_machines_recents_never_include_another_machines_even_at_the_same_path` — its guard assertion fires first; if the two lists come back equal the row did not bite and the guard is doing its job |
+| M-U4 | A stored legacy spelling is rewritten to one of the four on the next write, and the revision moves only when the *mode* moved | `store/prefs/predict.rs:75-77` — delete the `already_canonical` term so the early return fires on `!changed` alone | `prefs_persistence::the_two_spellings_an_earlier_build_wrote_still_mean_something` — `left: Some("force"), right: Some("always")` | `::preferences_round_trip_through_storage` — the same `PREDICT_MODE_KEY` normaliser reached by a different route |
+
+**Rows deliberately NOT written, and the reason is the point.** The seven
+test-side corrections this wave made — the rollup expecting `Working` where v2
+folds `Done`, the ledger merge compared against a pre-merge ledger, the
+replacement-occupant key clobbered before the lookup, the split-refusal fixture
+holding two tabs, the sidebar-width closure that bumps once, `take_one` called
+where two frames were enqueued, and the conformance epoch compared against
+another suite's fixture constant — are **test defects, not source defects.**
+There is no `file:line` in `src/` to mutate, so presenting them as rows would
+be a category error. **What they are is seven places where a test asserted
+something the code and v2 both contradicted**, which is the same cluster as the
+four agent-status failures and worth reading as one.
+
+`ScriptedRandomSource` is new surface added to make a rejection branch
+expressible. **No row yet, and saying so is better than writing one unrun.**
+
+## Worker track (W-2 / L4) — three rows, none run, and one honest limit
+
+| # | Property | Edit (`file:line`) | Must fail | Must still pass |
+|---|---|---|---|---|
+| L4-1 | A host with no label source is refused, never registered as the literal `"worker"` | `runtime/bootstrap_redeem/label.rs:90` — append `.or(Some("worker".to_string()))` before the `ok_or` on `named(env.get(HOSTNAME_ENV))` | `a_host_with_no_name_at_all_is_refused_rather_than_called_worker` (`label.rs:163`) — asserts `label_of(&MapEnv::new(), None) == Err(EnrollmentError::NoLabel)`; the mutation returns `Ok("worker")` | the other four label tests — **none supplies a host with no name at all**, which is why the row is worth pre-registering rather than trusting to coverage |
+| L4-2 | The machine's OWN name outranks the shell's `HOSTNAME` — the macOS regression | `label.rs:84-90` — move the `named(env.get(HOSTNAME_ENV))` arm above `sources.host_name(platform)` | `the_machine_name_outranks_the_shell_hostname` (`label.rs:133`) — `HOSTNAME=stale-import`, host name `mike-m5-air`, expects `Ok("mike-m5-air")`; the mutation returns `Ok("stale-import")` | `the_operator_label_outranks_the_machine_name` **and** `the_shell_hostname_is_the_last_resort_not_the_first` — that test supplies no host name, so the mutated order still reaches `HOSTNAME` and still returns `build-box`. **That second one is what proves the row bites the property rather than merely breaking the file** |
+| L4-3 | A coordinator that did not answer and a coordinator that answered *no* are different events | `bootstrap_redeem/mod.rs:300-304` — replace the body of `coordinator_is_silent` with `let _ = error; true` | `only_a_coordinator_that_did_not_answer_counts_as_silent` (`mod.rs:341`) — the `spoken` arm asserts `!coordinator_is_silent(..)` for `Unauthenticated`, `InvalidArgument`, `PermissionDenied`, `Internal`, `Unimplemented` | the `silent` arm of the same test, and `a_compiled_stamp_is_reported_and_a_source_checkout_sends_nothing` |
+
+**The gap L4-3 does NOT cover, recorded so the row is not read as covering it.**
+These three rows pin the **predicate**; none pins the **policy**. There is no
+test that the redeem path actually returns `Err(RedemptionRefused)` rather than
+logging and continuing — that needs a transport double for
+`CoordinatorServiceClient`, which needs the composition root that does not exist
+yet. **The predicate is pinned and the thing the predicate exists to decide is
+unpinned**, and that belongs next to the rows rather than being left for a
+reader to assume the policy is covered because the predicate is.
+
+**`ServiceSpec::with_setting` — PRE-REGISTERED AS NOT EXPECTED TO BITE.**
+`crates/roost-cli/src/services/service_spec.rs:202`, `pub fn` → `pub(crate) fn`.
+Nothing outside its own declaration calls it, so **a clean `roost-cli` build IS
+the assertion.** `CliLeadL2` checked: the method is *already* `pub(crate)` at
+`:210`, with callers only at `push/coordinator.rs:150,151` — so the privatisation
+is already done in the tree and this row is satisfied rather than pending. It
+stays in the table because a row that is satisfied by a fact is worth recording,
+and because the check closes the "third door" concern **by visibility rather than
+by argument**.
+
 ## Coordinator track — tasks (S2)
 
 | # | Edit | Test that must fail |
