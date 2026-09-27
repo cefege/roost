@@ -4,8 +4,10 @@
 //! The frames are assembled directly rather than encoded and decoded, so each
 //! contract rule can be broken in isolation and the code that notices it named in
 //! the failure. Mirrors `crates/roost-protocol/tests/support/cell_chunks.rs`.
-
 #![allow(dead_code)]
+
+pub mod auth;
+
 
 use roost_client_core::{
     ClientCore, MemoryClock, MemoryKeyValueStore, TerminalSession, TerminalToken,

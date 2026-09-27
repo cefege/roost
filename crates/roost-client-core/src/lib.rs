@@ -25,6 +25,7 @@ mod handle_sweep;
 mod handle_sync;
 mod handle_terminal;
 
+pub mod client;
 pub mod effect;
 pub mod event;
 pub mod platform;
