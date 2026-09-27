@@ -216,9 +216,12 @@ impl SessionManager {
             .map_err(|fault| unreplayable(fault.to_string()))?;
         let record = self
             .adopted_record(request, &history, &applied, survivor.pid)
-            .map_err(|refusal| {
+            .inspect_err(|_| {
+                // The abandonment is a side effect of the refusal, not a
+                // change to the error itself. `inspect_err` says exactly that;
+                // `map_err` returning `refusal` unchanged would read as a
+                // rewrite that happened to be an identity.
                 self.abandon(request, &binding, channel);
-                refusal
             })?;
         let entry = self.sessions.insert(record).map_err(|error| {
             self.abandon(request, &binding, channel);

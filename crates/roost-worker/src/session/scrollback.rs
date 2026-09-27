@@ -94,18 +94,18 @@ fn scan_stream_state(
     cwd_input.extend_from_slice(chunk);
     let osc7 = stream_scan::scan_osc7(&cwd_input);
     record.osc7_carry = osc7.carry;
-    if let Some(cwd) = osc7.cwd {
-        if cwd != record.identity.cwd {
-            tracing::debug!(
-                session_id = %record.identity.session_id,
-                channel_id = ?record.identity.channel_id,
-                from = %record.identity.cwd,
-                to = %cwd,
-                "a session changed its working folder"
-            );
-            record.identity.cwd = cwd.clone();
-            on_cwd_change(&cwd);
-        }
+    if let Some(cwd) = osc7.cwd
+        && cwd != record.identity.cwd
+    {
+        tracing::debug!(
+            session_id = %record.identity.session_id,
+            channel_id = ?record.identity.channel_id,
+            from = %record.identity.cwd,
+            to = %cwd,
+            "a session changed its working folder"
+        );
+        record.identity.cwd = cwd.clone();
+        on_cwd_change(&cwd);
     }
 }
 

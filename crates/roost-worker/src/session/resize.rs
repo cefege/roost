@@ -206,7 +206,7 @@ impl SessionManager {
             session_id = %session_id,
             channel_id = raw,
             from = ?already,
-            to = ?((cols, rows)),
+            to = ?(cols, rows),
             outcome = ?outcome,
             "a session's geometry was taken to the keeper and settled at its boundary"
         );

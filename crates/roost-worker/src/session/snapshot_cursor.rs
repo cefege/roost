@@ -245,10 +245,10 @@ impl CellEmitter {
             if self.delivery_aggregate(channel_id).snapshot_pending {
                 continue;
             }
-            if let Some(stream) = self.streams.get_mut(&channel_id) {
-                if let Some(delivery) = stream.deliveries.get_mut(sink_id) {
-                    delivery.baseline_ready = false;
-                }
+            if let Some(stream) = self.streams.get_mut(&channel_id)
+                && let Some(delivery) = stream.deliveries.get_mut(sink_id)
+            {
+                delivery.baseline_ready = false;
             }
             self.mark_stream_delivery_dirty(channel_id);
             tracing::info!(%channel_id, sink_id, "a full frame is owed to a sink that just gained delivery");

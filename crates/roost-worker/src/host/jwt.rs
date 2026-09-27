@@ -115,7 +115,7 @@ impl WorkerKey {
                 reason: "the seed does not derive the public key beside it".to_string(),
             });
         }
-        let digest: [u8; 32] = sha2::Sha256::digest(&derived).into();
+        let digest: [u8; 32] = sha2::Sha256::digest(derived).into();
         let rendered = fingerprint_hex(&digest);
         let fingerprint =
             WorkerFp::try_from(rendered).map_err(|error| WorkerKeyError::Identity {

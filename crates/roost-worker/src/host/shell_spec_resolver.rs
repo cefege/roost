@@ -157,7 +157,7 @@ impl HostShellSpecResolver {
         }
         env.insert(PATH_ENV.into(), self.pty_path());
         if let Some(home) = self.environment.get(HOME_ENV) {
-            env.extend(shell_bootstrap::history_env(&cwd, Path::new(home)).into_iter());
+            env.extend(shell_bootstrap::history_env(&cwd, Path::new(home)));
         }
         // A shell that is told where its real rcfile is, and told to load it.
         let argv = match (&bootstrap, flavour) {
