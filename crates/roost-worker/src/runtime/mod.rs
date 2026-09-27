@@ -25,6 +25,7 @@ pub use boot::{WorkerBoot, WorkerOverrides};
 pub mod boot_order;
 pub mod bootstrap_redeem;
 pub mod credential;
+pub mod deps;
 pub mod keeper_boot;
 pub mod keeper_probe;
 pub mod link_drain;
@@ -44,7 +45,7 @@ use crate::link_dial::CoordinatorEndpoint;
 use boot_order::{BootSequence, Readiness, StepId};
 use credential::WorkerKeyCredential;
 use keeper_boot::KeeperBootOutcome;
-use link_loop::{LinkLoop, WorkerIdentity};
+use link_loop::{BrowserLink, LinkLoop, WorkerIdentity};
 use link_wire::ProtoLinkWire;
 use snapshot_source::NoSnapshot;
 use stop::{StopRequests, stop_requests_from_signals};
@@ -169,6 +170,12 @@ pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result
         Arc::new(ProtoLinkWire),
         Arc::new(NoSnapshot),
         Arc::new(WorkerKeyCredential::new(boot.worker_key_path.clone())),
+        // The command pump is detached until this function builds the session
+        // manager: there is no session layer yet, so a browser command is
+        // refused with a cause rather than answered by a stub. The replacement
+        // is one line — `BrowserLink::connect(deps)` over
+        // `deps::WorkerCapabilities` — and it lands with the manager.
+        BrowserLink::detached(),
     );
     let because = sequence.complete(StepId::CoordinatorLink);
     tracing::info!(

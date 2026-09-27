@@ -98,6 +98,14 @@ impl SessionEventSink for LedgerSink {
     }
 
     fn release(&self, reservation: Reservation) {
+        // The STORE is the claim's owner, so recording the id in the ledger is
+        // not releasing it: a fake that logged a release and kept the capacity
+        // reported a leak the spawn path does not have.
+        self.store
+            .lock()
+            .unwrap()
+            .release(reservation)
+            .expect("a claim this sink handed out is still live");
         self.ledger.lock().unwrap().released.push(reservation.id());
     }
 

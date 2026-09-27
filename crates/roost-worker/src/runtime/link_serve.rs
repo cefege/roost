@@ -55,6 +55,21 @@ pub(super) async fn serve(
             () = wake.notified() => {
                 if let Some(end) = on_tick(loop_state, &mut link).await { return end; }
             }
+            // A capability finished a browser command. Its frames go out
+            // through `push_upstream` like any other, so the link stays the
+            // only thing that writes bytes. A CLOSED channel means the pump is
+            // gone, which is a leak to notice — not a reason to tear down a
+            // healthy socket, so the arm just stops hearing from it.
+            answers = loop_state.browser.answers.recv() => {
+                match answers {
+                    Some(frames) => {
+                        for frame in &frames {
+                            super::link_drain::push_answer(loop_state, frame);
+                        }
+                    }
+                    None => tracing::warn!("the browser command pump stopped answering"),
+                }
+            }
             incoming = link.recv() => {
                 let now = Instant::now();
                 match incoming {

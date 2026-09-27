@@ -70,32 +70,61 @@ pub(super) fn on_frame(loop_state: &mut LinkLoop, message: Message) -> Option<Li
                 "pong",
             );
         }
-        CoordWorkerDownstream::BrowserCommand { request_id, .. } => {
-            // `browser_commands::dispatch` is built and tested, but its `Deps`
-            // needs four collaborators that do not exist yet: the session
-            // layer, the retained grid, the scrollback scanner and the
-            // terminal capture recorder. Constructing it needs implementations
-            // of those traits, and passing anything else would be a stub
-            // answering commands it never ran.
-            //
-            // What is not acceptable is silence: a command that is neither
-            // executed nor refused hangs the browser's request with no error
-            // anywhere. It is refused explicitly and correlated by
-            // `request_id`, which is the one thing the coordinator can route a
-            // failure back on.
-            tracing::warn!(
+        CoordWorkerDownstream::BrowserCommand {
+            request_id,
+            browser_id,
+            viewer_id,
+            frame,
+            ..
+        } => {
+            // The dispatch is ASYNC and this handler is not, so the command
+            // goes to a pump and the frames it produced come back through
+            // `BrowserLink::answers` to be encoded on the socket like any other.
+            // A pump that is gone is the ONE case that refuses here, and it
+            // refuses with a cause: silence would hang the coordinator's
+            // pending entry until it expired with no error anywhere.
+            let command = crate::browser_commands::Command::new(
+                browser_id,
+                viewer_id,
                 request_id,
-                "a browser command arrived with no session layer to run it"
+                frame,
             );
-            push_upstream(
-                loop_state,
-                &CoordWorkerUpstream::RpcError {
+            if let Err(command) = loop_state.browser.offer(command) {
+                // The command came BACK, so its ids are still in hand — the
+                // refusal is correlated on the envelope the coordinator is
+                // waiting on, not on one reconstructed from the frame.
+                let request_id = command.request_id;
+                tracing::warn!(
                     request_id,
-                    message: super::link_loop::NO_SESSION_LAYER_REFUSAL.to_string(),
-                    trace_id: None,
-                },
-                "browser-command-refusal",
-            );
+                    "a browser command arrived with no command pump to run it"
+                );
+                push_upstream(
+                    loop_state,
+                    &CoordWorkerUpstream::RpcError {
+                        request_id,
+                        message: super::link_loop::NO_SESSION_LAYER_REFUSAL.to_string(),
+                        trace_id: None,
+                    },
+                    "browser-command-refusal",
+                );
+            }
+        }
+        // ONE SEQUENCE SPACE, ONE ARM. The coordinator acknowledges the
+        // snapshot on the same numbering a durable event uses, so this frame
+        // serves both. The pump knows which one it is waiting on; reading it as
+        // a durable ack first and falling through when the barrier ignores it
+        // is the same decision without a second API on the pump.
+        CoordWorkerDownstream::EventAck(ack) => {
+            let action = match loop_state.pump.on_event_ack(ack.client_seq) {
+                Action::IgnoredAck { .. } => loop_state.pump.on_snapshot_ack(ack.client_seq),
+                other => other,
+            };
+            // The ROW is deleted in `drain`, not here. This handler is
+            // synchronous and a SQLite delete cannot be, so the split is: the
+            // frame handler records WHICH sequence was answered, and the tick
+            // that already owns the socket removes it.
+            loop_state.note_durable_ack(ack.client_seq);
+            apply_to(loop_state, action);
         }
         // Every other arm is one the worker's link does not act on yet. The
         // union is complete so the wire is fixed, but the handlers are not:
@@ -119,8 +148,29 @@ pub(super) fn on_frame(loop_state: &mut LinkLoop, message: Message) -> Option<Li
     None
 }
 
+/// Encode, admit and wake one frame a capability produced.
+///
+/// The same path a control frame takes, deliberately: a browser command's
+/// answer is an ordinary upstream frame, and a second writer for "answers
+/// specifically" would be a second set of admission rules for the same socket.
+pub(super) fn push_answer(loop_state: &mut LinkLoop, frame: &CoordWorkerUpstream) {
+    push_upstream(loop_state, frame, "browser-command-answer");
+}
+
 /// Take what the barrier and the outbox allow, and put it on the socket.
 pub(super) async fn drain(loop_state: &mut LinkLoop, link: &mut Link) -> Option<LinkEnd> {
+    // BOTH HOOKS RUN BEFORE `next_write`, and both are here rather than in the
+    // frame handler for the same reason the delete is: this is the one place
+    // that already owns the tick and the socket, so a durable row retired here
+    // is a row that leaves before the next write rather than after it.
+    let retired = loop_state.apply_durable_acks().await;
+    if retired > 0 {
+        tracing::info!(retired, "the coordinator's acknowledgements retired durable rows");
+    }
+    let moved = loop_state.move_cell_frames_into();
+    if moved > 0 {
+        tracing::debug!(moved, "cell frames moved onto the coordinator link's terminal lane");
+    }
     let now = Instant::now();
     let mut written = 0u64;
     while let Some(next) = next_write(loop_state, now) {

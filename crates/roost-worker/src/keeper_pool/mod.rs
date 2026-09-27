@@ -14,7 +14,10 @@ mod channels;
 mod dispatch;
 mod error;
 mod pool;
+mod session_seam;
 mod spawn_spec;
+
+pub use session_seam::{NO_REPORTED_BASE_GEOMETRY, NO_REPORTED_HEAD};
 
 pub use dispatch::DISPATCH_IDLE;
 pub use error::PoolError;
