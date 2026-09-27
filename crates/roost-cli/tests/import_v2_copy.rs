@@ -246,10 +246,17 @@ async fn a_dry_run_writes_nothing_and_reports_what_a_real_run_would_do() {
     );
 
     // And against a target that exists, a dry run leaves it byte-identical.
+    // The snapshot is taken AFTER every connection to it is closed, which is
+    // the whole point: SQLite checkpoints the WAL and writes the main file
+    // when the last connection closes, so a file can be byte-identical when a
+    // function returns and different a moment later. An assertion that does
+    // not say when it snapshots is a race with a timer on it.
+    fixture.close_target().await;
     let before = std::fs::read(&fixture.v3).expect("the target is readable");
     let second = copy::estimate(&fixture.v2, &fixture.v3)
         .await
         .expect("a dry run against a live target");
+    fixture.close_target().await;
     assert_eq!(
         std::fs::read(&fixture.v3).expect("the target is readable"),
         before,
@@ -260,6 +267,47 @@ async fn a_dry_run_writes_nothing_and_reports_what_a_real_run_would_do() {
         0,
         "a dry run against an already-imported target has nothing left to copy, and says so \
          rather than reporting the rows it would have written"
+    );
+}
+
+/// A dry run must not MIGRATE the target it is reporting on, and the only
+/// thing that proves that is a target that has no schema yet.
+///
+/// `roost_coord::db::open` runs the coordinator's migrations. A dry run that
+/// reached the target through it would create the very tables it promised not
+/// to touch — on a machine where an operator ran `--dry-run` to look before
+/// leaping, and the leap was the migration. The non-existent-target case is
+/// already covered above; this is the case where the file IS there and is
+/// still a stranger to this product.
+#[tokio::test]
+async fn a_dry_run_does_not_migrate_a_target_that_is_already_there() {
+    let fixture = Fixture::new("no-migrate").await;
+    fixture.empty_target().await;
+    fixture.close_target().await;
+
+    let reports = copy::estimate(&fixture.v2, &fixture.v3)
+        .await
+        .expect("a dry run against an unmigrated target");
+    assert_eq!(
+        reports.iter().map(|line| line.copied).sum::<i64>(),
+        // One account, one organization, one owner membership, one dashboard,
+        // one dashboard membership, the ONE paired-browser key, its device row,
+        // one revocation and one setting: nine rows, which is every row this
+        // fixture holds. The two machine keys are not among them, because a
+        // target with nothing in it is a first run and a first run filters too.
+        9,
+        "it still REPORTS what a real run would copy, which is the half of --dry-run that is \
+         about telling the operator rather than about touching"
+    );
+
+    fixture.close_target().await;
+    let tables: i64 = fixture
+        .count_v3("SELECT count(*) FROM sqlite_master WHERE type = 'table'")
+        .await;
+    assert_eq!(
+        tables, 0,
+        "the target still has no tables: the dry run reported without running a single \
+         migration against it"
     );
 }
 

@@ -18,6 +18,25 @@ use update_replace_fixture::{
     Install, NEW, NOW, OLD, VERSION, installed, no_keeper, read, sha256_hex,
 };
 
+/// Every name in the install directory, so a test asserts what was left
+/// behind as well as what the target now holds.
+/// Every name in the install directory, so a test asserts what was left
+/// behind as well as what the target now holds.
+fn entries(install: &Install) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(&install.root)
+        .expect("the install directory is readable")
+        .map(|entry| {
+            entry
+                .expect("a directory entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    names.sort();
+    names
+}
+
 #[test]
 fn a_successful_replace_leaves_no_temporary_file_beside_the_target() {
     let install = Install::new("no-temp");
@@ -34,7 +53,7 @@ fn a_successful_replace_leaves_no_temporary_file_beside_the_target() {
     )
     .expect("the replace settles");
 
-    let entries = install.entries();
+    let entries = entries(&install);
     assert_eq!(
         entries,
         vec!["roost".to_string(), "service".to_string()],

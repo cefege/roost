@@ -192,7 +192,22 @@ impl Fixture {
         let (mode, reports) = copy::apply(database.pool(), &account)
             .await
             .expect("the copy applies");
+        // Closed HERE, deliberately, and not left to the drop. SQLite
+        // checkpoints the WAL and writes the main file when the LAST
+        // connection closes, so a caller that reads the file's bytes the
+        // instant this returns can read a file a checkpoint has not finished
+        // writing — which is a race in the reader, not in the import. A test
+        // that compares a database byte for byte has to say WHEN it snapshots,
+        // and this is when.
+        database.pool().close().await;
         (mode, reports)
+    }
+
+    /// An EMPTY SQLite file where the v3 database would go, created by
+    /// opening and closing one: a real database with NO schema, so a dry run
+    /// that ran the coordinator's migrating opener would leave tables in it.
+    pub async fn empty_target(&self) {
+        Self::open(&self.v3).await.close().await;
     }
 
     /// The same import, insisting on the refusal the caller is asserting about.
@@ -210,9 +225,20 @@ impl Fixture {
         copy::attach(database.pool(), &self.v2)
             .await
             .expect("the source attaches");
-        copy::apply(database.pool(), &account)
+        let failure = copy::apply(database.pool(), &account)
             .await
-            .expect_err("the import must be refused")
+            .expect_err("the import must be refused");
+        database.pool().close().await;
+        failure
+    }
+
+    /// A connection closed before the caller looks at the file, for the same
+    /// reason [`Fixture::import`] closes its own.
+    pub async fn close_target(&self) {
+        if !self.v3.exists() {
+            return;
+        }
+        Self::open(&self.v3).await.close().await;
     }
 
     /// One count against either database.

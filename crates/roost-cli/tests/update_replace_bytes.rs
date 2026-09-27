@@ -17,14 +17,32 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 mod update_replace_fixture;
 
-use std::os::unix::fs::MetadataExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::path::Path;
 
 use roost_cli::update::journal::{PREVIOUS_EXECUTABLE_SUFFIX, SelfUpdateJournal};
 use roost_cli::update::rollout::{EXECUTABLE_MODE, ReplaceError, replace_executable};
 
 use update_replace_fixture::{
-    Install, NEW, NOW, OLD, VERSION, inode_of, installed, mode_of, no_keeper, read, sha256_hex,
+    Install, NEW, NOW, OLD, VERSION, installed, no_keeper, read, sha256_hex,
 };
+
+/// The mode an installed executable carries, as the bytes on disk report it.
+fn mode_of(path: &Path) -> u32 {
+    std::fs::metadata(path)
+        .expect("the file has metadata")
+        .permissions()
+        .mode()
+        & 0o7777
+}
+
+/// The inode, which a REPLACE must change: writing the target in place would
+/// leave every process that had it open reading the old bytes.
+fn inode_of(path: &Path) -> u64 {
+    std::fs::metadata(path)
+        .expect("the file has metadata")
+        .ino()
+}
 
 #[test]
 fn a_successful_replace_installs_the_published_bytes_and_the_executable_mode() {
