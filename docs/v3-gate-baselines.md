@@ -321,6 +321,55 @@ comment that says what a type actually is. **So: when a reviewer is about to
 accept "it compiles", the question is what position the code is in, not whether
 it builds.** Read the order before the green.
 
+### A consistency test cannot catch a joint violation
+
+The boot order is a fixed array, and `StepId` is a `#[repr]`-less enum whose
+`name()` indexes it by `step as usize`. A new test was written to pin the
+coupling, then **mutated by swapping the two middle `BOOT_ORDER` rows with the
+enum untouched** — the exact rename-everything failure.
+
+**The new test passed.** The pre-existing test, which hard-codes the expected
+name vector, caught it.
+
+The reason is the finding: **a test that only ever asks "do these two artifacts
+agree?" is structurally incapable of catching "both artifacts are wrong in the
+same way."** After the swap, `StepId::KeeperAdmission`'s arm still points at
+index 1, index 1 now says `coordinator-link`, and the enum and the array agree
+perfectly. The new test checked a **consistency** property; the mutation
+violated a **correctness** property. And **nothing inside the crate knows the
+correct boot order** — the enum has no independent idea what the right order is,
+so the only oracle is a human-written expectation.
+
+The new tests are still worth keeping, for the two failures a name vector
+genuinely cannot see: a step appended to one artifact and not the other (where
+`StepId::ALL.len() != BOOT_ORDER.len()` is a panic in `complete` otherwise), and
+two rows claiming the same name, which is what a partial swap that copies one
+name over the other looks like. **But they are subordinate to the name vector,
+and a mutation that changes the name vector is a mutation changing the only
+place the correct order exists** — which is a review checkpoint the reorder
+wants, not a cost.
+
+**When a mutation does not fail the test you expected it to fail, that is a
+finding about the test, not a failed experiment.** This is the second time in one
+day a test believed to be guarding a property turned out to guard a different
+one — the other was M-U3, whose control passed *because the defect under test
+had inverted its own guard*. The rule that follows: **publish which test
+actually bit.** The instinct to quietly swap in the test that failed would have
+destroyed the information, and the information is the result.
+
+**And the failure message is the deliverable as much as the test is.** The
+pre-existing assertion printed `left: ["identity", "coordinator-link", …]`
+against `right: ["identity", "keeper-admission", …]` with the architecture named
+in the assertion text: the whole drift in one line. A well-formed assertion
+carries more than a paragraph explaining it, and the paragraph is the thing to
+override.
+
+**One operational rule from the same run: do not mutate a tree a test is
+reading.** The `BOOT_ORDER` file was restored from a copy while `cargo test` was
+still running against it. The restore was verified byte-identical with `diff -q`,
+which made that instance recoverable — but a test reading a file while you write
+it produces a result about neither version. Kill the run, mutate, re-run.
+
 ### Keeper client: the plan's premise was stale
 
 The plan recorded three open keeper-client defects on `v3-worker`
