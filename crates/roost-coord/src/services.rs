@@ -53,6 +53,7 @@ use crate::terminal_screen::orphan_kills::LiveOrphanKills;
 use crate::terminal_screen::scrollback_relay::ScrollbackRelay;
 use crate::terminal_view::TerminalViewHub;
 use crate::ui_state::UiStateRuntime;
+use crate::worker_link::client_seq::{ClientSeqCursor, ClientSeqCursors};
 use crate::write_gate::WriteGate;
 
 /// The coordinator's process-wide state.
@@ -150,6 +151,13 @@ pub struct CoordServices {
     /// An `Arc` because [`Self::event_log`] holds the same value inside its
     /// `LiveEffects`: one registry, one set of owed kills, shared by handle.
     pub orphan_kills: Arc<LiveOrphanKills>,
+    /// Every worker's `client_seq` position, keyed by fingerprint.
+    ///
+    /// PER WORKER, NOT PER SOCKET, and that is the property a reader is most
+    /// likely to undo — `worker_link::client_seq` states all three reasons in
+    /// full, and the one that bites hardest is that a reconnect RESUMES the
+    /// worker's durable outbox, so the sequence outlives the socket.
+    pub client_seqs: ClientSeqCursors,
 }
 
 impl CoordServices {
@@ -216,9 +224,21 @@ impl CoordServices {
             feed: FeedRuntime::new(),
             byte_hub,
             orphan_kills,
+            client_seqs: ClientSeqCursors::new(),
             event_log,
             views: Arc::new(TerminalViewHub::new()),
         }
+    }
+
+    /// One worker's `client_seq` cursor, created on first use and shared by
+    /// every socket for that fingerprint.
+    ///
+    /// An accessor rather than a public field read, because handing out the
+    /// whole registry would let a caller iterate a worker's peers, and the one
+    /// question this answers is "what is THIS worker's position".
+    #[must_use]
+    pub fn client_seq_cursor(&self, fingerprint: &str) -> Arc<ClientSeqCursor> {
+        self.client_seqs.for_worker(fingerprint)
     }
 
     /// A handle to the write gate, cloneable and shared.
