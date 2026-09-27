@@ -395,16 +395,27 @@ pub fn worker_caller(worker_fp: &WorkerFp, client_seq: u64) -> Caller {
 
 /// Whether anything READS the ids a deferred append returns.
 ///
-/// `src/` only, and **not** the files that merely build them: a first version of
-/// this guard grepped for any mention of `snapshot_reap_ids` that did not
-/// declare it, and `append_transaction.rs:78` BUILDS the field without declaring
-/// it, so a PRODUCER satisfied a test written for a CONSUMER and it passed six of
-/// six green on a capability with no consumer. A guard whose question a producer
-/// can satisfy is not a guard.
+/// **TWO CONJUNCTS, and the second one is what stops this rotting.** A first
+/// version grepped for any mention of `snapshot_reap_ids` that did not declare
+/// it, and `append_transaction.rs:78` BUILDS the field without declaring it — so
+/// a PRODUCER satisfied a test written for a CONSUMER, six of six green on a
+/// capability with no consumer. Naming the four producers fixed the current
+/// ambiguity and left the class open: a FIFTH producer would be counted as a
+/// consumer and turn this green with nothing draining, which is the original
+/// failure arriving by a different route.
 ///
-/// The four producer files are named rather than pattern-matched, because the
-/// distinction that matters is the DIRECTION of the data and no grep reads
-/// direction.
+/// So both, and neither replaces the other:
+///
+/// - **outside the four named producer files**, and
+/// - **the field in READ position** — a dot. A read is `result.snapshot_reap_ids`;
+///   a construction is `snapshot_reap_ids:`.
+///
+/// THE DOT IS NECESSARY AND NOT SUFFICIENT, which is why the file list stays.
+/// A producer that does `out.snapshot_reap_ids = v` has a dot and is a write.
+/// And the two failure directions are opposite, so the guard is deliberately
+/// biased toward refusing: a real reader the guard misses turns the test RED
+/// when it should be green (a bug report), while a producer the guard counts
+/// turns it GREEN when it should be red (silence).
 pub fn the_deferred_reap_ids_have_a_production_reader() -> bool {
     const PRODUCERS: [&str; 4] = [
         "events/append.rs",
@@ -413,9 +424,8 @@ pub fn the_deferred_reap_ids_have_a_production_reader() -> bool {
         "events/pending_publications.rs",
     ];
     roost_src_files()
-        .filter(|_| true)
         .filter(|(path, _)| !PRODUCERS.iter().any(|p| path.ends_with(p)))
-        .any(|(_, source)| source.contains("snapshot_reap_ids"))
+        .any(|(_, source)| source.contains(".snapshot_reap_ids"))
 }
 
 /// Whether the DEFERRED-APPEND PATH has an execution path at all.
