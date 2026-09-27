@@ -574,7 +574,8 @@ is red on purpose, and it is not a regression.**
 |**test**|`crates/roost-coord/tests/event_publication.rs::a_deferred_reap_waits_for_the_callers_readiness_barrier`|
 |**introduced**|`c02cb9dc` on `v3-coord` — reaches `v3` at the 2C-GATE merge, not before|
 |**measured**|`cargo test -p roost-coord --test event_publication` = **5 passed / 1 failed**|
-|**green when**|the worker link appends with `defer_snapshot_reap` set **and drains the returned ids** — that is `connection.rs`, in C-B|
+|**green when — READ THIS, IT IS TWO HALVES**|the dispatcher sets `defer_snapshot_reap: true` — **that is R3, `frame_dispatch.rs`** — and the returned ids are drained, which is **R4, `connection.rs`**. **The test asks only the first half, so it goes green ONE COMMIT BEFORE the defect is closed.**|
+|**what green does and does not mean**|**green at R3 means the flag is set. It does NOT mean the force-closed PTY on an offline worker is killed** — the ids are still undrained and the defect is still live. The test's question is REACHABILITY; the defect is EFFECTIVENESS. **A green run of this test is not evidence the defect is fixed and must not be read as such at S3.0.**|
 
 **The test asks one question: does anything set `defer_snapshot_reap: true`?** Only
 a caller constructing `AppendOptions` to defer can write one. The declaration
@@ -597,8 +598,17 @@ row per occurrence, until the worker returns or is deleted. **A coordinator that
 never had an offline force-close has never hit this**, which is why no green suite
 ever mentioned it.
 
-**If S3.0 reports this failure, the run is correct and the gate is not met until
-`connection.rs` lands. Do not bisect it, do not soften it, do not skip it.**
+**If S3.0 reports this failure, the run is correct and the gate is not met. Do
+not bisect it, do not soften it, do not skip it. And if S3.0 reports it PASSING,
+read the two halves above before concluding anything: green at R3 is the flag
+being set, and the defect closes at R4 when the drain lands.**
+
+**This is a permanent property of the test, not a gap that closes.** The flag is
+set one commit before the ids are drained, so the two halves will always be one
+commit apart, and no future edit to the test makes a single green run mean
+"fixed". **It is the same shape as everything else this section collects — a
+signal that reports success while the thing it reports on has not happened —
+except that here the signal is a test I commissioned.**
 
 ### The gate ratchets, measured so the exit conditions are concrete
 
