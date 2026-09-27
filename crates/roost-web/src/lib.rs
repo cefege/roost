@@ -1,5 +1,5 @@
-//! The Dioxus application: its route grammar, its platform seam, and the root
-//! component that owns the client core.
+//! The Dioxus application: its route grammar, its components, its platform
+//! seam, and the root that owns the client core.
 //!
 //! Everything Dioxus-shaped lives here and nowhere else. `roost-client-core` has
 //! no framework and `roost-web-terminal` has no framework either, and the rule
@@ -11,7 +11,13 @@
 //! component that wants to know "did this session's grid move" reads that
 //! session's `frame_revision` and compares it; it never polls, and it never
 //! subscribes to a field the core does not fold.
+//!
+//! `app` is the router: it turns a path into a surface and gates that surface
+//! behind the browser's access state. `routes` is the grammar it turns, and it
+//! is the only URL grammar in the tree.
 
+pub mod app;
+pub mod components;
 pub mod platform;
 pub mod routes;
 
@@ -30,8 +36,8 @@ use roost_client_core::KeyValueStore as _;
 ///
 /// The writer is the browser console through a `MakeWriter` of this crate's
 /// own, because `tracing-subscriber`'s default writer is `io::stderr` and a
-/// `wasm32-unknown-unknown` build has nowhere for that to go: the events would
-/// be formatted and dropped, which is a log line that looks present and is not.
+/// `wasm32-unknown-unknown` build has nowhere for that to go: the events would be
+/// formatted and dropped, which is a log line that looks present and is not.
 /// `roost_observability::init()` is the shared owner of this and should replace
 /// it as soon as `xtask/src/crate_dag.rs` allows `roost-web → roost-observability`.
 pub fn install_tracing() {
@@ -58,6 +64,7 @@ pub fn install_tracing() {
         .try_init();
 }
 
+pub use app::{Gate, Surface, surface_for};
 pub use routes::Route;
 
 /// The local-storage key the tab identity is kept under.
@@ -69,23 +76,19 @@ const TAB_ID_KEY: &str = "roost.tabId";
 /// than per route so a navigation cannot produce a second store: a client with
 /// two stores has two recovery cursors and applies the same event twice.
 ///
-/// The root renders nothing yet, and that is a tracked gap rather than an
-/// oversight: Dioxus 0.7's router is a typed route enum whose variants each need
-/// the component they route to, and those components are the next wave's work.
-/// The URL grammar in `routes` is already the contract they will be built from.
+/// `Rc<RefCell<_>>` rather than the core itself, because context values are read
+/// by clone and a `Clone` core would be two cores with two recovery cursors. The
+/// cell is the owner and there is exactly one of them, created before the first
+/// component can ask for a store.
 #[component]
 pub fn App() -> Element {
-    // `Rc<RefCell<_>>` rather than the core itself: a Dioxus hook's value has to
-    // be `Clone`, and a `Clone` core would be two cores with two recovery
-    // cursors. The cell is the owner and there is exactly one of them, created
-    // before the first component can ask for a store.
-    let _core = use_hook(|| Rc::new(RefCell::new(build_core())));
-    // Dioxus 0.7's router is a TYPED route enum (`#[derive(Routable)]`), not a
-    // table of path strings, and each variant needs the component it routes to.
-    // That enum arrives with the component slices; until then the root renders
-    // nothing rather than a placeholder that would look like a working page.
-    // `routes::Route` is already the path grammar those links are built from.
-    rsx! {}
+    // Provided, not passed. The core is ONE per application and every component
+    // below reads it, so a prop would be a parameter threaded through every
+    // level of the tree to reach the two components that read it — and a prop
+    // also has to be `PartialEq`, which a state machine with a chunk assembler in
+    // it cannot be.
+    provide_context(Rc::new(RefCell::new(build_core())));
+    rsx! { app::GatedApp {} }
 }
 
 /// The client core over this browser's platform.

@@ -15,8 +15,11 @@
 //! side of that boundary and hand their answers in as `ClientEvent`s.
 
 pub mod agents;
+pub mod attachments;
 pub mod auth;
 pub mod global_search;
+pub mod local;
+pub mod predictive_echo;
 pub mod rpc;
 pub mod sync;
 pub mod ui_state;
