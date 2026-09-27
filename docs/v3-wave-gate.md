@@ -3485,6 +3485,71 @@ proof.
 
 ---
 
+## `--no-fail-fast` governs the RUNNER, not compilation — so 0 tests is not 0 passes
+
+A track ran `cargo test -p roost-cli --no-fail-fast` for the first time in this
+project's history and got:
+
+> **exit 101 — 0 `Running` lines, 0 `test result` lines, 12 compile errors.**
+
+**The suite did not start.** One unbuildable target stopped all 38 test binaries,
+and the flag — which governs the test *runner* — had nothing to hand to. So the
+run reported **zero tests**, when 35 targets might well have passed.
+
+> **A `test result` count of zero means the binaries did not build. It is not a
+> pass count, and it is emphatically not an empty suite.** Anyone reading "0
+> passed" off that run would conclude the crate has no tests, which is the
+> opposite of the truth.
+
+This is the sharpest form of the floor rule in this file, because the figure
+looks like a *result* rather than a bound: **`--keep-going` bounds a compile
+count by how far it got, and `--no-fail-fast` bounds a test count by whether
+anything built at all.** A `0` from either is an absence wearing a number's
+clothes.
+
+**And a second, quieter version of the same thing:** `--keep-going` with parallel
+jobs **does not print every diagnostic in one pass.** A run reported 21 rendered
+`-->` citations while the per-target "due to N previous error" summaries summed
+to 23, and the two missing ones were real — a lifetime error in a shared fixture
+and nine `E0451`s — which appeared as soon as earlier targets compiled far
+enough to reach them. **The count was never 23; it was 21 that did not all
+print.** Naming the fuzziness rather than resolving it is what made that
+legible: picking 21 would have produced a clean-looking figure and no idea that
+two real errors were queued behind the first.
+
+### A compiler that offers TWO fixes, where only one addresses the fault
+
+rustc's primary help for a lifetime error was a named lifetime; `move` on the
+closure was the secondary. The secondary was applied, did not work, and the
+named lifetime was the repair.
+
+**That is the linter-suggestion rule with the compiler as the linter, and it is
+the same shape as the coord `.all()` case:** an instrument that was right about
+the code and offered answers of which only one was about the thing that was
+wrong. The *primary* suggestion is more often the diagnosis, because it is the
+one derived from the borrow the compiler actually found.
+
+**A private field is a design fault, not a syntax slip, and the repair is not
+`pub`.** `Fixture` had a private `reads: Arc<AtomicUsize>`, and **one private
+field makes `..Default::default()` illegal from outside the module** — so nine
+call sites could not build a fixture at all. Making the field `pub` would have
+let a test set the counter it is supposed to be counting. Instead the counter
+moved into the `router` that serves the reads, which was also the only thing
+that ever used it. **The struct now matches its own doc comment**, which said it
+holds canned values.
+
+### Two sources for one value, found by reading a warning nobody reads
+
+`push/runtime.rs:86` — `FleetRuntime::new` takes a `prior_sha: &str` parameter and
+the struct **has no such field**; it reads `self.plan.prior_sha` at three sites,
+and the only caller passes the same value the plan already carries. Two sources
+for one value where one silently wins.
+
+**It surfaced as an `unused_variables` warning that `cargo check` emits and
+nobody reads.** The repair is to delete the parameter, not to prefix it with `_` —
+and a warning silenced rather than read is a defect deferred to whoever reads it
+next, which is the same trade as a dead allow and a stale baseline.
+
 ## A short-circuiting operator whose operands MUTATE
 
 The most valuable defect class this wave produced, and it is not a lint, not a
