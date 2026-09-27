@@ -23,8 +23,7 @@ pub use request::{
 
 use roost_client_core::terminal::history::{HistoryRange, HistoryScrollTarget};
 use roost_client_core::terminal::history_backfill::{
-    BACKFILL_AHEAD_ROWS, BACKFILL_IDENTICAL_RETRIES, DemandBounds, find_demand_bounds,
-    scroll_demand_bounds,
+    BACKFILL_AHEAD_ROWS, DemandBounds, find_demand_bounds, scroll_demand_bounds,
 };
 use roost_protocol::cell::CellRow;
 use roost_protocol::terminal_search::ScrollbackHistoryFloor;
@@ -345,12 +344,11 @@ impl ScrollbackBackfill {
                 });
             }
         }
-        if let Some(wave) = &self.active_wave {
-            if kind == DemandKind::Scroll
-                || (wave.demand.kind == kind && wave.demand.bounds.focus == bounds.focus)
-            {
-                return actions;
-            }
+        if let Some(wave) = &self.active_wave
+            && (kind == DemandKind::Scroll
+                || (wave.demand.kind == kind && wave.demand.bounds.focus == bounds.focus))
+        {
+            return actions;
         }
         let Some(anchor) = host.anchor() else {
             return actions;

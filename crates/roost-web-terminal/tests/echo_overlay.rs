@@ -15,7 +15,7 @@ use roost_client_core::client::predictive_echo::{EchoPaint, PredictedCell};
 use roost_web_terminal::echo_overlay::{
     PREDICTED_ERASE_CLASS, PREDICTED_GLYPH_CLASS, cell_left, cell_top, plan_paint, prediction_style,
 };
-use roost_web_terminal::reader_intent::{ReaderIntentReason, ReaderState, ReconcileBlockReason};
+use roost_web_terminal::reader_intent::{ReaderState, ReconcileBlockReason};
 
 /// A paint request over one row: `ch` empty is an erase cell.
 fn paint(cells: &[(u32, &str)], flagged: bool, caret_col: Option<u32>) -> EchoPaint {
@@ -103,7 +103,7 @@ fn a_leading_predicted_caret_does_not_freeze_reconciliation() {
         "the caret leads the two painted glyphs and the authoritative column"
     );
 
-    let mut reader = ReaderState::new();
+    let reader = ReaderState::new();
     let frame_watermark = (Some("echo-grid:0"), Some(9));
     assert_eq!(
         reader.reconcile_block_reason(false, false, frame_watermark, frame_watermark),
@@ -111,16 +111,25 @@ fn a_leading_predicted_caret_does_not_freeze_reconciliation() {
         "an otherwise-current frame is not blocked by anything the overlay did"
     );
 
-    // A reader park and a selection hold DO block, so `None` above is a real
-    // verdict about the DOM rather than a reason that never fires.
-    let mut parked = ReaderState::new();
-    parked.enter_reading(ReaderIntentReason::NativeScroll);
+    // A selection hold and a pending render DO block, so the `None` above is a
+    // real verdict about the DOM rather than a reason that never fires. A
+    // parked reader is deliberately NOT one of them: parking is a reader
+    // position, and it blocks by not being read, not through this reason.
     let mut held = ReaderState::new();
     held.set_selection_hold(true);
-    for blocking in [parked, held] {
-        assert_ne!(
-            blocking.reconcile_block_reason(false, false, frame_watermark, frame_watermark),
-            ReconcileBlockReason::None,
+    let pending = ReaderState::new();
+    for (blocking, reason) in [
+        (
+            held.reconcile_block_reason(false, false, frame_watermark, frame_watermark),
+            ReconcileBlockReason::SelectionHold,
+        ),
+        (
+            pending.reconcile_block_reason(false, true, frame_watermark, frame_watermark),
+            ReconcileBlockReason::PendingRender,
+        ),
+    ] {
+        assert_eq!(
+            blocking, reason,
             "a real DOM-fidelity block still reports itself"
         );
     }

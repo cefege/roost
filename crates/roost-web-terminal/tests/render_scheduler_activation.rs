@@ -127,7 +127,7 @@ fn repairs_a_renderer_only_dropped_delta_with_a_viewport_only_checkpoint() {
 #[test]
 fn cancels_a_queued_renderer_frame_when_stream_state_resets() {
     let mut scheduler = RenderScheduler::new();
-    let mut renderer = RecordingRenderer::default();
+    let renderer = RecordingRenderer::default();
     scheduler.set_foreground(true);
     offer(&mut scheduler, &full_frame(1, "A"), full_frame(1, "A"), 0);
     assert!(scheduler.is_frame_armed());

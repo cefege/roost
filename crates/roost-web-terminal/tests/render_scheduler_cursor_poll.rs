@@ -72,7 +72,10 @@ fn the_last_unmounted_pane_stops_the_interval_and_a_double_release_does_not() {
         "releasing the same pane twice must not stop an interval a sibling rides"
     );
     assert!(ticker.is_armed());
-    assert!(!ticker.unregister(first));
+    assert!(
+        ticker.unregister(first),
+        "the last pane leaving is the one release that stops the interval"
+    );
     assert!(
         !ticker.is_armed(),
         "the last pane leaving is the only release that stops the interval"
@@ -169,11 +172,17 @@ fn a_throttled_timer_re_arms_once_from_now_rather_than_once_per_missed_interval(
     // them and the next deadline is anchored to now, so the ticker cannot spin
     // to "catch up" on every interval it missed.
     assert!(ticker.take_due(9_000));
-    assert_eq!(ticker.due_at_ms(), Some(9_500));
-    assert!(!ticker.take_due(9_999));
-    assert!(ticker.take_due(9_500 + CURSOR_POLL_INTERVAL_MS));
     assert_eq!(
         ticker.due_at_ms(),
-        Some(9_500 + 2 * CURSOR_POLL_INTERVAL_MS)
+        Some(9_500),
+        "the next deadline hangs off the tick that fired, not off the one it \
+         slept through, which would have been 1_500"
     );
+    // That deadline is spent by the NEXT tick, so a clock already past it does
+    // not fire a second time inside the same window.
+    assert!(ticker.take_due(9_500));
+    assert_eq!(ticker.due_at_ms(), Some(10_000));
+    assert!(!ticker.take_due(9_999), "and the interval cannot spin");
+    assert!(ticker.take_due(10_000));
+    assert_eq!(ticker.due_at_ms(), Some(10_500));
 }

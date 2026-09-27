@@ -12,12 +12,10 @@
 mod mouse_forwarding_support;
 
 use mouse_forwarding_support::*;
-use roost_protocol::cell::MouseTracking;
 use roost_web_terminal::mouse_forward::{
-    MOUSE_FORWARD_DEFAULT, MouseButton, MouseForwarding, MouseGestureKind, MouseModifiers,
-    MouseReport, MouseReportEncoding, MouseReportModes, NativeGesture, NativeScrollIntent,
-    ScrollExtent, WheelDirection, forwarded_mouse_report, mouse_button_from_dom,
-    mouse_gestures_forwarded, native_scroll_intent, should_forward, touch_travel_notches,
+    MouseButton, MouseForwarding, MouseReportEncoding, NativeGesture, NativeScrollIntent,
+    WheelDirection, forwarded_mouse_report, native_scroll_intent, should_forward,
+    touch_travel_notches,
 };
 use roost_web_terminal::reader_intent::ReaderIntentReason;
 

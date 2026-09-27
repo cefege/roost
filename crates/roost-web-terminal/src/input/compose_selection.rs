@@ -1,9 +1,14 @@
 //! The handoff between a terminal's native document range and the composer's
 //! private textarea selection. A focused textarea cannot begin its native
 //! editing command while a document range is still active, so the composer
-//! yields the range before it edits and restores it after. Every step is
-//! ordered against a browser default this module does not control, so the
-//! state is here, the DOM is not, and the adapter fills a `PaneInputs`.
+//! yields the range before it edits and restores it after. `deferrals` owns
+//! the one-shot tokens that survive across the browser's default edit.
+//!
+//! Every step is ordered against a browser default this module does not
+//! control, so the state is here, the DOM is not, and the adapter fills a
+//! `PaneInputs`.
+
+mod deferrals;
 
 use crate::input::selection::{DomNodeId, LiveSelection, RetainedRange, SelectionGuard};
 
@@ -276,16 +281,6 @@ impl ComposeSelection {
         self.activate_composer_selection(guard, inputs)
     }
 
-    /// A key came back up: the browser's default edit has run, so the layout
-    /// transaction that restores the range may be armed.
-    pub fn on_key_up(&mut self, input: u32) -> ComposeEffects {
-        if self.composing {
-            return ComposeEffects::default();
-        }
-        self.restore_after_layout(Some(input));
-        self.layout_effects()
-    }
-
     /// An IME composition began: the composer needs its caret before the
     /// preedit appears.
     pub fn on_composition_start(
@@ -295,78 +290,6 @@ impl ComposeSelection {
     ) -> ComposeEffects {
         self.composing = true;
         self.activate_composer_selection(guard, inputs)
-    }
-
-    /// An IME composition ended: the range comes back once the commit has
-    /// landed, which the adapter does on the following microtask.
-    pub fn on_composition_end(&mut self) -> ComposeEffects {
-        self.composing = false;
-        self.layout_effects()
-    }
-
-    /// Arm the one layout transaction that restores after the browser's
-    /// default edit, superseding any schedule already armed.
-    pub fn restore_after_layout(&mut self, input: Option<u32>) {
-        let Some(epoch) = self.retained_epoch else {
-            return;
-        };
-        self.layout_restore_version += 1;
-        self.deferred_layout_guard = Some(epoch);
-        if let Some(input) = input {
-            self.deferred_keyup_restore = Some(DeferredKeyupRestore {
-                input,
-                guard_epoch: epoch,
-            });
-        }
-    }
-
-    /// The armed layout transaction, as the version the adapter's timer must
-    /// carry back. A stale version is inert, so a superseded schedule cannot
-    /// restore over a newer one.
-    pub fn pending_layout_version(&self) -> Option<(u64, u64)> {
-        self.deferred_layout_guard
-            .map(|epoch| (self.layout_restore_version, epoch))
-    }
-
-    /// Whether a timer carrying `version` still owns this guard.
-    pub fn layout_restore_is_current(&self, version: u64, epoch: u64) -> bool {
-        self.layout_restore_version == version
-            && self.deferred_layout_guard == Some(epoch)
-            && self.retained_epoch == Some(epoch)
-    }
-
-    /// The layout transaction has run.
-    pub fn finish_layout_restore(&mut self) {
-        self.deferred_layout_guard = None;
-    }
-
-    /// The document selection changed somewhere on the page. The clear the
-    /// composer's own yield performs arrives here, and the keyup restore's own
-    /// notification can arrive before the browser's following collapse — so
-    /// both are consumed by their one-shot tokens rather than treated as the
-    /// user abandoning the terminal range.
-    pub fn on_document_selection_change(
-        &mut self,
-        live: &LiveSelection,
-        focus_in_dock: bool,
-    ) -> ComposeEffects {
-        if self.pending_suspend_selection_change && live.range_count == 0 {
-            self.pending_suspend_selection_change = false;
-            return ComposeEffects::default();
-        }
-        if live.is_live_range() {
-            return ComposeEffects {
-                capture: self.deferred_keyup_restore.is_none(),
-                ..ComposeEffects::default()
-            };
-        }
-        if self.deferred_keyup_restore.is_some() && !self.composing {
-            return self.layout_effects();
-        }
-        ComposeEffects {
-            release: !focus_in_dock,
-            ..ComposeEffects::default()
-        }
     }
 
     /// A programmatic write — a fill, an autofill, an accessibility action —
@@ -388,22 +311,4 @@ impl ComposeSelection {
         ComposeEffects::default()
     }
 
-    /// The armed version, or `None` when no transaction owns the guard.
-    fn layout_effects(&self) -> ComposeEffects {
-        ComposeEffects {
-            schedule_layout_restore: self
-                .deferred_layout_guard
-                .map(|_| self.layout_restore_version),
-            ..ComposeEffects::default()
-        }
-    }
-
-    /// Cancel every pending restore. Each new capture bumps the version, so a
-    /// schedule armed against an older one can never restore this capture.
-    fn supersede_deferrals(&mut self) {
-        self.layout_restore_version += 1;
-        self.deferred_keyup_restore = None;
-        self.deferred_layout_guard = None;
-        self.pending_suspend_selection_change = false;
-    }
 }

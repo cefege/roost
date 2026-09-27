@@ -69,17 +69,23 @@ fn a_held_renderer_names_its_hold_and_keeps_the_batch() {
     flush_frame(&mut scheduler, &mut renderer, 4, 0);
     offer(&mut scheduler, &delta_frame(2, "B"), full_frame(2, "B"), 8);
 
-    for (hold_mask, reason) in [
+    for (index, (hold_mask, reason)) in [
         (RENDERER_HOLD_LINK, ReconcileBlockReason::LinkHold),
         (RENDERER_HOLD_SELECTION, ReconcileBlockReason::SelectionHold),
         (
             RENDERER_HOLD_SELECTION | RENDERER_HOLD_LINK,
             ReconcileBlockReason::SelectionAndLinkHold,
         ),
-    ] {
-        assert!(
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert_eq!(
             scheduler.schedule_browser_frame(),
-            "the caller re-arms after a hold kept the batch"
+            index > 0,
+            "the arrival already armed the first frame, and arming is \
+             idempotent; only a hold that CONSUMED one leaves the batch owing \
+             another"
         );
         assert_eq!(
             scheduler.on_frame_fired(12, hold_mask),
@@ -113,6 +119,11 @@ fn a_refused_paint_is_repaired_as_a_fallback_full_and_keeps_its_queue_clock() {
     flush_frame(&mut scheduler, &mut renderer, 4, 0);
     offer(&mut scheduler, &delta_frame(2, "B"), full_frame(2, "B"), 8);
 
+    let applied = scheduler.reconciled_watermark();
+    assert!(
+        applied.is_some(),
+        "the baseline painted, so the watermark already names its canonical"
+    );
     renderer.refuse_next = true;
     let refused = flush_frame(&mut scheduler, &mut renderer, 12, 0);
     assert!(refused.painted, "the batch WAS handed to the renderer");
@@ -124,7 +135,7 @@ fn a_refused_paint_is_repaired_as_a_fallback_full_and_keeps_its_queue_clock() {
     );
     assert_eq!(
         scheduler.reconciled_watermark(),
-        None,
+        applied,
         "a refused paint must not advance the watermark the next delta extends"
     );
     assert!(
@@ -136,15 +147,21 @@ fn a_refused_paint_is_repaired_as_a_fallback_full_and_keeps_its_queue_clock() {
     assert_eq!(repair.mode, Some(ApplyMode::FallbackFull));
     assert_eq!(
         repair.batch_frames,
-        Some(2),
-        "the arrival count carries over"
+        Some(1),
+        "the arrival count carries over: the baseline painted and emptied the \
+         slot, so this batch is the one delta that was refused"
     );
     assert_eq!(
         repair.queue_delay_ms,
         Some(8),
         "so does the queue clock: the repair is the same batch, waited on longer"
     );
-    assert_eq!(renderer.full_seqs(), vec![2]);
+    assert_eq!(
+        renderer.full_seqs(),
+        vec![1, 2],
+        "the baseline painted its own canonical, and the repair paints the \\
+         refused batch's"
+    );
     assert_eq!(
         scheduler.reconciled_watermark().and_then(|mark| mark.seq),
         Some(2)

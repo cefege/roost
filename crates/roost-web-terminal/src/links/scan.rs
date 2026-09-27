@@ -139,7 +139,7 @@ fn keyed_index(links: &[ScannedLink], key: &str) -> Option<usize> {
 /// A position outside every half is a plain cell: a link owns columns, not a
 /// bounding box, so the cell to the right of the last one is not a click away
 /// from opening it.
-pub fn link_at_cell<'a>(links: &'a [ScannedLink], row: u32, col: u32) -> Option<&'a ScannedLink> {
+pub fn link_at_cell(links: &[ScannedLink], row: u32, col: u32) -> Option<&ScannedLink> {
     links
         .iter()
         .find(|link| link.halves.iter().any(|half| half.covers(row, col)))

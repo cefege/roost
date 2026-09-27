@@ -306,7 +306,7 @@ fn parks_canonical_state_without_dom_application() {
 #[test]
 fn cancels_a_queued_frame_on_disposal() {
     let mut scheduler = RenderScheduler::new();
-    let mut renderer = RecordingRenderer::default();
+    let renderer = RecordingRenderer::default();
     scheduler.set_foreground(true);
     let first = full_frame(1, "A");
     assert!(offer(&mut scheduler, &first, first.clone(), 0).armed);

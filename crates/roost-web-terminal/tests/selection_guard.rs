@@ -7,7 +7,7 @@
 
 use roost_web_terminal::input::{
     ComposeSelection, ComposerSelection, DomNodeId, FocusOwner, LiveSelection, OwnedRow,
-    PaneInputs, RetainedRange, SelectionDirection, SelectionEndpoint, SelectionGuard, YieldLapse,
+    SelectionDirection, SelectionGuard, YieldLapse,
 };
 
 mod selection_guard_support;
@@ -59,10 +59,13 @@ fn a_selection_anchored_in_the_terminal_is_held_against_a_select_all_the_rendere
 #[test]
 fn a_suspension_whose_restore_never_runs_stops_holding_paint_once_its_range_is_gone() {
     let (mut guard, _composer) = suspended_composer_pane();
+    // The suspension is armed on the composer, so the precondition has to be
+    // read with the composer still the focus owner — a fixture whose focus
+    // owner is absent lapses the suspension here and leaves nothing to lapse
+    // in the assertion this test is actually about.
     assert!(
-        guard
-            .sync_hold(&pane_selection("v0"), Some(&retained("v0")))
-            .hold
+        guard.sync_hold(&cleared_by_yield(), Some(&retained("v0"))).hold,
+        "an intact capture with a live owner holds paint"
     );
     // What a canonical repair does to the captured row: the same text painted
     // on new nodes, which the old endpoints no longer resolve to. Nothing
@@ -72,11 +75,9 @@ fn a_suspension_whose_restore_never_runs_stops_holding_paint_once_its_range_is_g
         text: "v0".to_string(),
     };
     let repaired = retained_for("v0", vec![repainted]);
-    let repaired_live = LiveSelection {
-        owned_rows: Vec::new(),
-        ..pane_selection("v0")
-    };
-    let after = guard.sync_hold(&repaired_live, Some(&repaired));
+    // The document's own range is gone, so the SUSPENSION is the only thing
+    // that could still be holding paint.
+    let after = guard.sync_hold(&cleared_by_yield(), Some(&repaired));
     assert!(
         !after.hold,
         "a wedge the user cannot clear by selecting nothing is the defect"
@@ -99,16 +100,19 @@ fn a_suspension_whose_range_is_still_live_and_restorable_keeps_paint_held() {
 fn a_suspension_whose_focus_owner_lost_focus_stops_holding_paint() {
     let (mut guard, _composer) = suspended_composer_pane();
     // The composer was torn down: its textarea is disconnected and the page's
-    // editing target is gone with it.
+    // editing target is gone with it. The document's own range is already gone
+    // as well, so the suspension is the ONLY thing that could still hold paint
+    // — against a live pane range this case would prove nothing, because the
+    // hold has a second, independent reason.
     let orphaned = LiveSelection {
         focus_owner: Some(FocusOwner {
             node: COMPOSER,
             connected: false,
         }),
-        ..pane_selection("v0")
+        ..cleared_by_yield()
     };
     let after = guard.sync_hold(&orphaned, Some(&retained("v0")));
-    assert!(!after.hold);
+    assert!(!after.hold, "a suspension whose editor is gone holds nothing");
     assert_eq!(after.lapse, Some(YieldLapse::OwnerGone));
 }
 

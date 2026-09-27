@@ -1,6 +1,5 @@
-//! The pane-local find controller: the query, the debounce, the cancellable
-//! page chain, and the epoch fence that decides a match found under a retired
-//! grid numbering is not a match at all. No DOM, no RPC, no clock.
+//! The pane-local find controller: the query, the debounce, the reveal, and the
+//! cursor the reader steps. `chain` owns the search that is running.
 //!
 //! What the controller DECIDES is here; what the grid is TOLD is
 //! `find::hits::FindPublication` and what the host must DO is a `FindCommand`.
@@ -10,12 +9,13 @@
 //! Ported from `apps/web/src/renderer/terminalFindController.ts`; the chain, the
 //! reply, the reveal decision and the host contract are the module root.
 
+mod chain;
+
 use roost_client_core::search::FindMatch;
 
 use crate::find::hits::FindPublication;
 use crate::find::{
-    ChainOutcome, ChainStep, FindChain, FindCommand, FindHost, FindQueryOptions, OlderMatchPage,
-    RevealDecision, SearchReply, reveal_decision,
+    FindChain, FindCommand, FindHost, FindQueryOptions, RevealDecision, reveal_decision,
 };
 
 /// How long typing settles before a query is searched, in milliseconds.
@@ -171,35 +171,6 @@ impl TerminalFind {
         self.search_now(1, None, host)
     }
 
-    /// Absorb one page of the active search.
-    pub fn on_page(&mut self, reply: &SearchReply, host: &mut dyn FindHost) -> Vec<FindCommand> {
-        let Some(mut active) = self.take_current() else {
-            return Vec::new();
-        };
-        match active.chain.absorb(reply, &host.pane_epoch(), true) {
-            ChainStep::Issue(request) => {
-                self.active = Some(active);
-                vec![FindCommand::Search(request)]
-            }
-            ChainStep::Finish(outcome) => self.install_chain(active, outcome, host),
-        }
-    }
-
-    /// Absorb a page that never arrived. A grid that moved under a failed request
-    /// is epoch-changed; only that is retried.
-    pub fn on_search_error(&mut self, host: &mut dyn FindHost) -> Vec<FindCommand> {
-        let Some(active) = self.take_current() else {
-            return Vec::new();
-        };
-        let moved = !active.chain.pane_accepts_epoch(&host.pane_epoch());
-        let outcome = if moved {
-            ChainOutcome::EpochChanged
-        } else {
-            active.chain.failed_partial()
-        };
-        self.install_chain(active, outcome, host)
-    }
-
     /// Absorb the answer to a `FetchRow` a reveal was waiting on. `painted` false
     /// means the pager refused or evicted the pull: at most the remaining retry is
     /// spent, and NOTHING scrolls.
@@ -265,110 +236,6 @@ impl TerminalFind {
             return None;
         }
         Some(active)
-    }
-
-    /// Start one chain for the current query.
-    fn search_now(
-        &mut self,
-        epoch_retry_budget: u32,
-        resume: Option<OlderMatchPage>,
-        host: &mut dyn FindHost,
-    ) -> Vec<FindCommand> {
-        let carried = if resume.is_some() {
-            self.publication.matches().to_vec()
-        } else {
-            Vec::new()
-        };
-        let mut commands = self.stop_active();
-        if self.query.is_empty() {
-            self.publication.clear(host);
-            return commands;
-        }
-        self.searches_minted += 1;
-        let search_id = format!("find-{}", self.searches_minted);
-        // A resumed chain keeps its cursor's epoch; a fresh one pins the pane's.
-        let epoch = resume
-            .as_ref()
-            .map_or_else(|| host.pane_epoch(), |page| page.epoch.clone());
-        let flags = (self.case_sensitive, self.regex);
-        let chain = FindChain::new(
-            &self.session_id,
-            &search_id,
-            &self.query,
-            flags,
-            &epoch,
-            resume.as_ref(),
-        );
-        self.active = Some(ActiveSearch {
-            search_id,
-            token: self.token,
-            chain,
-            carried,
-            epoch_retry_budget,
-        });
-        // A chain minted one line above is current, within budget and pinned to
-        // the pane's own epoch, so its only possible first step is a request.
-        let pane_epoch = host.pane_epoch();
-        let fresh = self.active.take();
-        let step = fresh
-            .as_ref()
-            .map_or(ChainStep::Finish(ChainOutcome::Abandoned), |s| {
-                s.chain.next_request(&pane_epoch, !self.disposed)
-            });
-        match step {
-            ChainStep::Issue(request) => commands.push(FindCommand::Search(request)),
-            ChainStep::Finish(outcome) => match fresh {
-                Some(finished) => commands.extend(self.install_chain(finished, outcome, host)),
-                None => {}
-            },
-        }
-        commands
-    }
-
-    /// Publish what one chain concluded, with the chain already retired.
-    fn install_chain(
-        &mut self,
-        active: ActiveSearch,
-        outcome: ChainOutcome,
-        host: &mut dyn FindHost,
-    ) -> Vec<FindCommand> {
-        match outcome {
-            ChainOutcome::Abandoned => Vec::new(),
-            ChainOutcome::EpochChanged => self.invalidate(active.epoch_retry_budget, host),
-            ChainOutcome::Matches {
-                matches,
-                truncated,
-                failed,
-                older,
-            } => {
-                let mut list = active.carried;
-                list.extend(matches);
-                // A partial that found nothing is a plain failure, not a truncated
-                // result: there is no older window to page into.
-                let partial = truncated || (failed && !list.is_empty());
-                let pane_epoch = host.pane_epoch();
-                let budget = active.epoch_retry_budget;
-                match self
-                    .publication
-                    .install(list, partial, failed, older, &pane_epoch, host)
-                {
-                    Some((row, epoch)) => self.reveal(row, &epoch, budget, host),
-                    None => Vec::new(),
-                }
-            }
-        }
-    }
-
-    /// Drop stale numbering, then spend one retry. A chain reporting
-    /// `epoch-changed` and a reveal finding the pane renumbered are one rule.
-    fn invalidate(&mut self, epoch_retry_budget: u32, host: &mut dyn FindHost) -> Vec<FindCommand> {
-        self.publication.clear(host);
-        if epoch_retry_budget > 0 && !self.query.is_empty() {
-            self.search_now(epoch_retry_budget - 1, None, host)
-        } else {
-            self.publication.mark_failed();
-            Vec::new()
-        }
     }
 
     /// Reveal one match, fetching its row first when that row is unpainted.

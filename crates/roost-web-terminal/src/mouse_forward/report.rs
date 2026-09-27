@@ -202,6 +202,11 @@ impl EncodedMouseReport {
     pub fn len(&self) -> usize {
         self.len
     }
+
+    /// Whether the encoding produced nothing, which is a refusal, not a report.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
 }
 
 /// Encode a gesture `mouse_forward::forwarding::should_forward` accepted.

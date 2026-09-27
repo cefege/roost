@@ -7,9 +7,8 @@
 
 use roost_web_terminal::links::{
     DIRTY_ROW_LIMIT, LinkActivation, LinkActivationGesture, LinkArmedHold, LinkModifierKey,
-    PaintedChild, PaintedLinkAttributes, PaintedRow, PressWithheld, ScanRequest, ScanSchedule,
-    ScannedLink, activate_link, is_link_activation_gesture, is_worker_file_href, link_at_cell,
-    region_links, withhold_press,
+    PaintedChild, PaintedRow, PressWithheld, ScanRequest, ScanSchedule, activate_link,
+    is_link_activation_gesture, is_worker_file_href, link_at_cell, region_links, withhold_press,
 };
 use roost_web_terminal::reader_intent::HoldChange;
 
