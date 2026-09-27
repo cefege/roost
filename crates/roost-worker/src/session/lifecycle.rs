@@ -106,6 +106,18 @@ impl SessionTable {
         Some(read(&record))
     }
 
+    /// The live record for a keeper channel id, as an `Arc` the CALLER holds.
+    ///
+    /// Distinct from [`SessionTable::with_channel_record`], which lends the
+    /// record to a closure while holding the lock. This one hands over the `Arc`
+    /// and releases the lock immediately, which is what a caller needs when the
+    /// thing it will do with the record — install a delivery generation, reframe
+    /// a core — also wants a lock of its own, and holding the table's across it
+    /// would be a lock order nothing else in this crate observes.
+    pub fn record_of_channel(&self, channel_id: u16) -> Option<Arc<Mutex<SessionRecord>>> {
+        self.lock().by_channel.get(&channel_id).map(Arc::clone)
+    }
+
     /// The channel a session lives on, or `None` when this worker does not hold
     /// it.
     pub fn channel_of(&self, session_id: &SessionId) -> Option<u16> {

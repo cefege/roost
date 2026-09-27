@@ -18,6 +18,7 @@
 //! decision can be tested without a keeper, a coordinator, or a PTY.
 
 pub mod boot;
+pub mod cell_delivery;
 
 // The crate-root contract the CLI calls: `serve` blocks until the worker is
 // asked to stop, and `WorkerBoot` is the already-resolved configuration it
