@@ -575,19 +575,25 @@ against 101 entries, which is impossible:
 
 |bucket|entries|what 6.4 does|
 |---|---:|---|
-|names a deleted TS path|**70**|re-point to a Rust test; write the test where none exists|
+|name a deleted TS path and need re-pointing|**67**|re-point to a Rust test; write the test where none exists|
 |names `smoke/`|**17**|**nothing** — smoke stays TypeScript, it is the oracle|
-|names a `scripts/lint-roost.ts` rule|**8**|re-express in `xtask lint`, or delete the rule|
-|already names a Rust test|**4**|nothing|
+|cite `scripts/lint-roost.ts` or an `L11` rule|**12**|re-express in `xtask lint`, or delete the rule|
+|already a Rust test (some name `packages/` only as a `(was …)` note)|**7**|nothing|
 |**no guard at all**|**2**|**write one** — see below|
 
 Per deleted path: `apps/web/src` 37, `apps/coord` 20, `apps/worker` 17,
 `packages/` 9, `apps/roost-cli` 7 — and **13 entries name more than one**, so
 these do not sum to 70.
 
-**So the real work is 78 entries, not 101, and only 70 of them are mechanical.**
-The 8 lint rules are a different kind of change (a rule, not a test), and the
-17 smoke guards are safe precisely because the plan kept smoke as the oracle.
+**So the real work is 81 entries, not 101, and only 67 of them are mechanical.**
+
+**Two corrections, both understating the work.** The lint count is **12, not 8** —
+four guards say only `L11` and never name the script, so a literal `scripts/lint-roost.ts`
+grep misses them; and because 6.4 deletes the script *and* the TS invariants job, all
+12 go dead. And **3 of the original 70 were inflated**: they already name a Rust test
+and mention `packages/…` only inside a `(was …)` note, so they are historical, not live
+references. The 4 guards were the rest of the 9 that name `packages/`, and it is a live
+reference — it names `apps/web/tests/browser/diag.test.ts` with no Rust equivalent.
 
 **AND TWO ENTRIES HAVE NO GUARD AT ALL, which the index's own rule forbids.**
 `A defaulted injectable host function loses its receiver` and `Roost never owns
