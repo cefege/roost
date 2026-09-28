@@ -52,10 +52,14 @@ fn spec() -> RatchetSpec {
     }
 }
 
+/// Test files are out of scope, as v2's `rawCounts` skips `*.test.ts(x)`
+/// (`scripts/lint-roost.ts:233-240`): a fixture that feeds a computed colour
+/// to a parser is input, not a surface's styling.
 fn is_scanned(relative: &str) -> bool {
     let is_source = relative.ends_with(".rs") || relative.ends_with(".css");
     is_source
         && !relative.contains("/target/")
+        && !relative.contains("/tests/")
         && !TOKEN_FILES.iter().any(|token| relative.ends_with(token))
 }
 
@@ -200,6 +204,10 @@ mod tests {
             );
         }
         assert!(is_scanned("crates/roost-web/assets/styles/sidebar.css"));
+        assert!(
+            !is_scanned("crates/roost-web/tests/smoke_scans.rs"),
+            "a test file is out of scope, as v2 skips *.test.ts"
+        );
         assert!(is_scanned(
             "crates/roost-web/src/components/Settings/md/Button.css"
         ));
