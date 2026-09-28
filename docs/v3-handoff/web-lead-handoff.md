@@ -3,9 +3,27 @@
 Worktree `/home/mike/repos/roost-v3-web`, branch `v3-web`. The worktree
 (`git log --oneline -20 && git status --short`) is the state; this note is the
 moment it was written. Plan: `roost-v3-finish-and-cutover-plan.md` "### Stage 5".
-Lead: `WebLead` (host `/home/mike`, successor of `WebLeadU4`).
+Lead: `WebLead2` (host `/home/mike`, successor of `WebLead`).
 
-## Current state (WebLead, read this first)
+## Current state (WebLead2, read this first)
+
+Gated tip `659b50c8` (merge this):
+- `3960743d` view-state installs its stream at the authority's effective geometry; UUID view ids.
+- `e11c611e` republishing a view at its published size keeps its revision (the 1→2→3→4
+  climb: v2 `refresh`/`changeIntent` keep it; wire showed rev=1 then rev=2 same payload).
+- `659b50c8` insecure origin mints no view id (design-review P3).
+- TERM gate on a clean `dist-smoke` of this tree: `1 passed` (three runs).
+- `dist` rebuilt from a cleared folder: `grep -rc __smoke crates/roost-web/dist` total 0.
+- Gate: `cargo nextest run -p roost-client-core -p roost-web -p roost-web-terminal --no-fail-fast`
+  1333 passed / 4 skipped; `cargo test` same crates 192 suites, 1333 passed / 0 failed / 4 ignored;
+  clippy `--workspace --all-targets --keep-going -D warnings` exit 0; lint 3958 inputs, 0
+  violations; `cargo xtask fmt` then `git status --short` empty; CI wasm32 build exit 0;
+  `cargo check -p roost-web --target wasm32-unknown-unknown` ±`--features smoke` exit 0.
+- TabId WIP (SYNC LIFECYCLE) is NOT in the tip: it is in snapshot `v3-web-snap-term-viewstate`
+  and the worktree stash `tabid-wip`.
+- Build rule now: `CARGO_INCREMENTAL=1 CARGO_BUILD_JOBS=3`, nextest for full suites.
+
+## Previous state (WebLead)
 
 Gate part 1 on `97ba537c`'s tree — all green:
 - tests ×2 + clippy: see WebLeadU4 below (1323/0/4 twice; clippy exit 0).
