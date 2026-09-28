@@ -276,7 +276,7 @@ impl SyncV2Session {
         };
         match self.try_enqueue_lane_frame(materialized, &meta, now_ms, hub) {
             Ok(()) => {
-                self.mark_cursor_queued(session_id);
+                self.mark_cursor_queued(session_id, None);
                 CursorPump::Queued
             }
             Err(returned) => {
@@ -286,36 +286,44 @@ impl SyncV2Session {
         }
     }
 
-    /// Queue the lane's oldest buffered delta.
+    /// Queue the lane's oldest buffered delta. Its meta names the cursor's
+    /// stream, as every cursor frame's does: the delivery that lifts the
+    /// cursor's in-flight mark matches on it, and a delta without one leaves
+    /// the lane in flight forever (`sync-ws-v2-terminal-ready.ts:120-127`).
     fn pump_delta(
         &mut self,
         session_id: &str,
         now_ms: u64,
         hub: &mut dyn TerminalSnapshotHub,
     ) -> CursorPump {
-        let cursor_index = self
+        let Some((stream_id, cursor_index)) = self
             .terminal_lane(session_id)
             .and_then(|lane| lane.cursor.as_ref())
-            .map_or(0, |cursor| cursor.part_count());
+            .map(|cursor| (cursor.stream_id.clone(), cursor.part_count()))
+        else {
+            return CursorPump::Blocked;
+        };
         let Some(delta) = self.take_delta_tail_head(session_id) else {
             return CursorPump::Blocked;
         };
+        let delta_bytes = delta.estimated_bytes();
         let meta = SyncFrameMeta {
             domain: Some(SyncDomain::Terminal),
             lane: FeedLane::Cell,
             session_id: Some(session_id.to_owned()),
+            terminal_stream_id: Some(stream_id),
             terminal_cursor_index: Some(cursor_index),
             ..SyncFrameMeta::default()
         };
         match self.try_enqueue_lane_frame(delta, &meta, now_ms, hub) {
             Ok(()) => {
-                self.mark_cursor_queued(session_id);
+                self.mark_cursor_queued(session_id, Some(delta_bytes));
                 CursorPump::Queued
             }
-            // A delta the queue would not take is dropped, not re-buffered: it is
-            // the newest output for the session, and a stale delta in front of a
-            // later full is worse than a gap the next frame closes.
-            Err(_) => CursorPump::Blocked,
+            Err(returned) => {
+                self.restore_delta_tail_head(session_id, *returned);
+                CursorPump::Blocked
+            }
         }
     }
 }
