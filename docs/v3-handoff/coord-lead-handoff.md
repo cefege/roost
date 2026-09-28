@@ -29,22 +29,27 @@ target dir bakes that path in (`roost-proto` build.rs `env!("CARGO_MANIFEST_DIR"
 if a build panics reading `/home/mike/repos/roost-v3-coord-verify/...`, delete
 `target-track/debug/{build,.fingerprint}/roost-proto-<hash>` under the lock.
 
-## RED AT HEAD, AND IT IS NOT NEW: `terminal_input_sync` 3/4
+## The `terminal_input_sync` reds: a FIXTURE defect, found and fixed (1888d9c5)
 
-`cargo test -p roost-coord --no-fail-fast` = **1088 passed, 3 failed**, both runs
-agreeing, all three in `tests/terminal_input_sync.rs`:
-`a_probe_of_a_worker_outside_the_socket_scope_is_answered_empty`,
-`a_session_outside_the_socket_scope_is_refused_for_input_and_claims` and
-`a_claimed_route_is_answered_and_retired_when_its_socket_closes`. Each socket is
-closed `1008 "invalid sync ack"` where a binary frame was expected
-(`sync_ws_socket_support/mod.rs:195`).
+Three of that binary's four cases had been red on every run since `367c139d`, each
+socket closed `1008 "invalid sync ack"` where the harness expected a binary frame.
+The coordinator was right; the harness was wrong.
 
-NOT CAUSED BY THIS SESSION'S COMMITS: checked out at `de213b71`, before
-`d6395a97` touched the ingress, the same three fail identically (1 passed,
-3 failed, 5.68s). So the cause is `367c139d` or older and the open question is
-which check refuses those frames -- which is exactly what `d6395a97` now answers
-from the log: run `--test terminal_input_sync` with the refusal line visible and
-read `path`, `ack_delivery_seq`, `last_sent_seq` and `frame_hex`.
+`send_client_frame` built its bytes with buffa's `encode_to_vec`, which writes a
+message's fields in DECLARATION order, and `SyncClientFrame` declares its `command`
+oneof before `socket_id = 10` while `input_route_claim = 11` and
+`terminal_transport_probe = 12` number after it. The three red cases are exactly the
+ones that send those two commands, so their bytes put the oneof ahead of the socket
+id — a frame no client can produce. Every real client encodes with protobuf-es, which
+writes ascending field number, and v2 refuses a frame that is not the canonical
+encoding of what it decoded to (`sync-ws-client-ingress.ts:41-45`), so v2 refuses the
+same bytes. `tests/sync_client_frame_canonical.rs` already pinned both halves, with a
+route claim captured from the smoke browser as the fixture.
+
+The fix is the fixture's ENCODER (`tests/sync_ws_socket_support/canonical_bytes.rs`):
+the same top-level fields in ascending field number. No accept condition widened, no
+assert relaxed, no product line changed. `terminal_input_sync` is 4/4 (0.16s) with
+every case's own assertions intact.
 
 ## Committed on v3-coord
 
@@ -85,7 +90,11 @@ Wave 5 (this session), all pushed:
   handoff line that called it one was written against a build at `84467999`, before
   `367c139d`; that commit's own body records the fix and the same spec result.
 - earlier: terminal-render 5/5, attachment-direct 3/3, global-search 1/1.
-- terminal-local-fast-path: see the report; not run in this session's budget window.
+- `terminal-local-fast-path.spec.ts` on `--project=chromium-serial`: run, **1 failed**,
+  and the failure is the environment, not the port — `goto: Download is starting` at
+  `smoke/terminal/fixtures.ts:144`, the same enrollment navigation that reds
+  `terminal-peer :61`. Re-run with `ROOST_SMOKE_COORD_EXECUTABLE` unset (the
+  TypeScript coordinator) it fails identically, which is the classification.
 
 ## What `d6395a97` changed, and why it is not scope creep
 
@@ -97,18 +106,26 @@ bounded hex. The close code and its wire reason are unchanged. Before this chang
 `367c139d` had to be diagnosed from captured bytes by hand; the next occurrence reads
 off the log.
 
+## Gate (green, run twice)
+
+```
+cargo test -p roost-coord --no-fail-fast   194 binaries, 1092 passed, 0 failed  (twice, agreeing)
+cargo clippy --workspace --all-targets -- -D warnings   exit 0
+ROOST_REPO_ROOT=$PWD cargo xtask lint       0 violations, 3396 inputs
+cargo xtask fmt                             exit 0, `git status --short` empty
+```
+
 ## Open items, in plan order
 
-1. `terminal_input_sync`'s three red cases (above): which check refuses those
-   client frames. `d6395a97` names it in the log; nothing else is blocked on it.
-2. `terminal-local-fast-path.spec.ts` on `--project=chromium-serial` — not run in this
-   session (budget); the other four `terminal-peer` cases and `terminal-render` are green.
-3. `terminal-peer :61` — environment (`goto: Download is starting`), identical with the
-   TS coordinator; not a port defect and not this track's to fix.
-4. The integrator owns the merge, the workspace gate and the release runbook.
+1. `terminal-peer :61` and `terminal-local-fast-path`: both `goto: Download is
+   starting` at the browser enrollment, both identical with the TypeScript
+   coordinator. Host environment; not a port defect and not this track's to fix.
+2. The integrator owns the merge, the single workspace gate, the `live-stack` READY
+   check and the release runbook.
 
 ## Next steps
 
-1. Cherry-pick or merge `v3-coord` (tip `365ff392`) into `v3`.
-2. Re-run the workspace gate on the merged tree; the coord half of it is green here.
-3. `live-stack` READY check and the cutover runbook are the integrator's.
+1. Merge or cherry-pick `v3-coord` (tip below) into `v3`; `de213b71` needs `48b40471`
+   before it, so take both in order.
+2. Run the ONE workspace gate on the merged tree. Every coord-side command in it is
+   green on this branch, except the two environment-blocked specs above.
