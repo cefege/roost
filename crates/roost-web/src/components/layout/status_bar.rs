@@ -31,8 +31,8 @@ use roost_client_core::store::navigation::worker_online;
 use roost_protocol::wire::{Session, SessionStatus};
 
 use super::shell_metrics::{CoordinatorState, session_context, workbench_title};
-use crate::components::design_icon::StatusDot;
 use crate::components::layout::app_shell::is_terminal_route;
+use crate::components::md::StatusDot;
 
 /// One dot-and-word reading.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -321,7 +321,7 @@ mod tests {
         ] {
             let name = agent_dot_status(dot);
             assert!(
-                crate::components::design_icon::status_token(name).starts_with("--"),
+                crate::components::md::status_dot::status_dot_token(name).starts_with("--"),
                 "{name} is not a status the dot styles a rule for"
             );
         }
