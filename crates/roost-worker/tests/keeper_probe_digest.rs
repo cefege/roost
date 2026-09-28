@@ -36,6 +36,11 @@ const BINARY_SHA256: &str = "f644527bbbecca7dc04e953cb0a8a2f4b5667280a442eb8b52a
 
 fn write_binary(scratch: &Scratch, name: &str, bytes: &[u8]) -> std::path::PathBuf {
     let path = scratch.path(name);
+    // A name with a directory in it (`somewhere-else/other-name`) is the point
+    // of the location test, so the directory is made rather than assumed.
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).expect("the fixture makes the binary's directory");
+    }
     std::fs::write(&path, bytes).expect("the fixture writes its bytes");
     path
 }

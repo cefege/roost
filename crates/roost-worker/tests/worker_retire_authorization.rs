@@ -35,7 +35,25 @@ mod scratch;
 mod retire_support;
 
 use retire_support::{Definition, FakeKeeper, platform, position_of, serve_in_child, spends};
+use roost_host::HostPlatform;
+use roost_keeper::frames::ChannelBinding;
+use roost_worker::runtime::boot::WorkerBoot;
 use scratch::Scratch;
+
+/// A keeper that proves it holds one channel, so admission ADOPTS it without
+/// the coordinator. These activations have no coordinator, and an EMPTY
+/// keeper's replacement waits on the coordinator's open-session set; a keeper
+/// held for that read is a boot refusal (`boot_sequence.rs` step 6), just as
+/// v2's boot does not complete before `reconcileOpenSessions` has read it.
+/// The pid is this process, so the survivor is a live one; no coordinator
+/// lists it, so the adoption leaves it alone.
+async fn adoptable_keeper(boot: &WorkerBoot, platform: HostPlatform) -> FakeKeeper {
+    let held = vec![ChannelBinding {
+        channel_id: 1,
+        pid: std::process::id(),
+    }];
+    FakeKeeper::start_holding(boot, platform, held).await
+}
 
 /// THE PROPERTY. One activation, one keeper admitted, one authorisation spent:
 /// the flag is gone from the service definition afterwards, exactly one spend
@@ -46,7 +64,7 @@ async fn a_force_live_retire_authorisation_is_spent_once_after_admission() {
     let platform = platform();
     let definition = Definition::write(scratch.root(), platform, true);
     let boot = retire_support::boot(scratch.root(), platform);
-    let _keeper = FakeKeeper::start(&boot, platform).await;
+    let _keeper = adoptable_keeper(&boot, platform).await;
 
     let activation = serve_in_child(scratch.root(), platform, &definition);
     let outcome = activation.outcome();
@@ -82,7 +100,7 @@ async fn an_activation_with_no_authorisation_to_spend_reports_that_it_had_none()
     let definition = Definition::write(scratch.root(), platform, false);
     let before = definition.read();
     let boot = retire_support::boot(scratch.root(), platform);
-    let _keeper = FakeKeeper::start(&boot, platform).await;
+    let _keeper = adoptable_keeper(&boot, platform).await;
 
     let activation = serve_in_child(scratch.root(), platform, &definition);
     let outcome = activation.outcome();
@@ -116,7 +134,7 @@ async fn the_authorisation_is_spent_after_admission_and_before_the_link() {
     let platform = platform();
     let definition = Definition::write(scratch.root(), platform, true);
     let boot = retire_support::boot(scratch.root(), platform);
-    let _keeper = FakeKeeper::start(&boot, platform).await;
+    let _keeper = adoptable_keeper(&boot, platform).await;
 
     let activation = serve_in_child(scratch.root(), platform, &definition);
     let outcome = activation.outcome();

@@ -18,7 +18,7 @@ use std::os::unix::fs::PermissionsExt as _;
 
 use credential_fixture::source_in;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-use roost_host::jwt_base::b64url_decode_to_utf8;
+use roost_host::jwt_base::{b64url_decode, b64url_decode_to_utf8};
 use roost_worker::host::jwt::{
     COORDINATOR_AUDIENCE, CREDENTIAL_LIFETIME, JOSE_ALGORITHM, load_worker_key,
     read_existing_worker_key,
@@ -49,19 +49,22 @@ fn signature_of(token: &str) -> Signature {
         .split('.')
         .nth(2)
         .expect("a compact JWS has a signature");
-    let bytes = b64url_decode_to_utf8(segment).expect("a base64url signature");
+    // An ed25519 signature is 64 raw bytes, not text: decoding it as UTF-8
+    // refuses almost every real signature.
+    let bytes = b64url_decode(segment).expect("a base64url signature");
     let raw: [u8; 64] = bytes
-        .as_bytes()
+        .as_slice()
         .try_into()
         .expect("an ed25519 signature is 64 bytes");
     Signature::from_bytes(&raw)
 }
 
-/// The bytes a signature covers: the caller's own two segments joined once,
-/// which is what the coordinator verifies and what a rewriter has to change.
+/// The bytes a signature covers: the header and payload segments, which is
+/// what the coordinator verifies and what a rewriter has to change. Split at
+/// the LAST dot: splitting at the first leaves the signature inside the input.
 fn signing_input_of(token: &str) -> String {
-    let (header, payload) = token.split_once('.').expect("two segments");
-    format!("{header}.{payload}")
+    let (signed, _signature) = token.rsplit_once('.').expect("three segments");
+    signed.to_owned()
 }
 
 /// The public key a token's own signature verifies under, taken from the key

@@ -270,12 +270,7 @@ impl Outbox {
         label: impl Into<String>,
         now: Instant,
     ) -> Result<Admitted, AdmitError> {
-        if bytes.len() > self.byte_cap {
-            return Err(AdmitError::FrameTooLarge {
-                bytes: bytes.len(),
-                cap: self.byte_cap,
-            });
-        }
+        self.refuse_oversized(&bytes)?;
         let slot = Self::slot(lane);
         if let Some(position) = self.lanes[slot]
             .iter()
@@ -316,6 +311,7 @@ impl Outbox {
         now: Instant,
         coalesce_key: Option<String>,
     ) -> Result<Admitted, AdmitError> {
+        self.refuse_oversized(&bytes)?;
         // A droppable lane sheds its OLDEST frame rather than the new one. The
         // new frame is the one the caller is holding a reference to, and
         // dropping it would make the caller's accounting a lie.
@@ -350,6 +346,21 @@ impl Outbox {
         self.frame_count += 1;
         self.lanes[Self::slot(lane)].push_back(frame);
         Ok(Admitted::Queued)
+    }
+
+    /// Refuse a frame that alone exceeds the byte cap, on every admit path.
+    ///
+    /// Checked BEFORE a droppable lane sheds its oldest frame: shedding cannot
+    /// make room for a frame larger than the whole outbox, so a lane that
+    /// evicted for it would lose a frame and still hold one it can never send.
+    fn refuse_oversized(&self, bytes: &[u8]) -> Result<(), AdmitError> {
+        if bytes.len() > self.byte_cap {
+            return Err(AdmitError::FrameTooLarge {
+                bytes: bytes.len(),
+                cap: self.byte_cap,
+            });
+        }
+        Ok(())
     }
 
     /// Drop everything in one lane, oldest first. Used when a stream generation

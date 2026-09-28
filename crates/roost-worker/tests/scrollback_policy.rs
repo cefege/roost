@@ -200,9 +200,12 @@ fn an_unterminated_osc7_is_carried_and_bounded() {
 /// where the bytes now being written belong.
 #[test]
 fn the_last_alt_screen_toggle_in_a_buffer_wins() {
+    // Enter-then-leave ends on the PRIMARY screen, so the answer is `false`;
+    // v2's `_scanAltModeTransitions` (`terminal-stream-scan.ts:55`) takes the
+    // last toggle's direction the same way.
     assert!(
-        scan_alt_mode(b"a\x1b[?1049hb\x1b[?1049l", false),
-        "enter then leave leaves the grid alone"
+        !scan_alt_mode(b"a\x1b[?1049hb\x1b[?1049l", false),
+        "enter then leave leaves the grid on the primary screen"
     );
     assert!(
         scan_alt_mode(b"a\x1b[?1049lb\x1b[?1049h", false),

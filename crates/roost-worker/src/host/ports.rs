@@ -83,12 +83,7 @@ pub fn parse_ss_listen_ports(output: &str, pids: &BTreeSet<u32>) -> Vec<u16> {
         if port == 0 || is_loopback(host) {
             continue;
         }
-        if !line
-            .split_whitespace()
-            .filter_map(|field| field.strip_prefix("pid="))
-            .filter_map(|pid| pid.trim_end_matches([')', ',']).parse::<u32>().ok())
-            .any(|pid| pids.contains(&pid))
-        {
+        if !owning_pids(line).any(|pid| pids.contains(&pid)) {
             continue;
         }
         ports.insert(port);
@@ -98,9 +93,12 @@ pub fn parse_ss_listen_ports(output: &str, pids: &BTreeSet<u32>) -> Vec<u16> {
 
 /// The port of a `…:PORT (LISTEN)` bind, or `None` when the line is not one,
 /// or when the bind is loopback-only.
+///
+/// `(LISTEN)` is its own whitespace token in `lsof` output, so the bind is the
+/// token BEFORE it (v2 `listening-ports.ts:101`, `\s(\S+):(\d+)\s*\(LISTEN\)`).
 fn reachable_bind(line: &str) -> Option<u16> {
-    let name = line.split_whitespace().last()?;
-    let name = name.strip_suffix("(LISTEN)")?.trim_end();
+    let before = line.trim_end().strip_suffix("(LISTEN)")?;
+    let name = before.split_whitespace().last()?;
     let cut = name.rfind(':')?;
     let (host, port) = (&name[..cut], &name[cut + 1..]);
     let port = port.parse::<u16>().ok()?;
@@ -108,6 +106,26 @@ fn reachable_bind(line: &str) -> Option<u16> {
         return None;
     }
     Some(port)
+}
+
+/// Every `pid=N` an `ss -p` row names, as v2's `/\bpid=(\d+)/g` reads them:
+/// the owners sit inside one `users:((…))` field, so a per-field prefix match
+/// never sees them.
+fn owning_pids(line: &str) -> impl Iterator<Item = u32> + '_ {
+    line.match_indices("pid=").filter_map(|(at, marker)| {
+        let preceded_by_word = line[..at]
+            .chars()
+            .next_back()
+            .is_some_and(|previous| previous.is_alphanumeric() || previous == '_');
+        if preceded_by_word {
+            return None;
+        }
+        let digits = &line[at + marker.len()..];
+        let end = digits
+            .find(|character: char| !character.is_ascii_digit())
+            .unwrap_or(digits.len());
+        digits[..end].parse::<u32>().ok()
+    })
 }
 
 /// Whether a bind address answers only on this machine.

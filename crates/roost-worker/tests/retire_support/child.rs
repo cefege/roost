@@ -15,6 +15,7 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 use roost_host::HostPlatform;
+use roost_worker::runtime::door_serve::ENV_DOOR_BIND;
 
 use super::{Definition, boot, platform, serve_once};
 
@@ -75,7 +76,12 @@ pub fn serve_in_child(root: &Path, host: HostPlatform, definition: &Definition) 
         // `env_key` takes no `self`: the variable NAME does not depend on which
         // definition was written, only on the platform. Called as an associated
         // function for that reason, not as a method on the definition.
-        .env(Definition::env_key(host), definition.path());
+        .env(Definition::env_key(host), definition.path())
+        // An ephemeral loopback port for the child's door. The default is one
+        // fixed port, and the tests in this binary run their children in
+        // parallel: every child after the first would refuse to boot on
+        // `Address already in use`, which reads as a spend defect and is not.
+        .env(ENV_DOOR_BIND, "127.0.0.1:0");
     let output = command.output().expect("the activation child started");
     parse(&output)
 }

@@ -262,11 +262,13 @@ impl Definition {
     }
 
     /// The variable `roost_host::paths::worker_service_path` reads to find
-    /// this definition instead of the host's own location.
+    /// this definition instead of the host's own location. The constants
+    /// themselves, not a spelling of them: a hand-typed `…_ENV` suffix sent
+    /// the child to the host's real unit path and the spend failed there.
     pub fn env_key(host: HostPlatform) -> &'static str {
         match host {
-            HostPlatform::MacOs => "ROOST_WORKER_PLIST_ENV",
-            _ => "ROOST_WORKER_UNIT_ENV",
+            HostPlatform::MacOs => roost_host::WORKER_PLIST_ENV,
+            _ => roost_host::WORKER_UNIT_ENV,
         }
     }
 }

@@ -31,7 +31,7 @@
 use roost_host::MapEnv;
 use roost_host::paths::WORKER_LOG_DIR_ENV;
 use roost_worker::runtime::boot::{
-    ENV_KEEPER_EXECUTABLE, ENV_KEEPER_SOCKET, ENV_WORKER_KEY_PATH, WorkerBoot,
+    ENV_KEEPER_EXECUTABLE, ENV_KEEPER_SOCKET, ENV_WORKER_KEY_PATH, WORKER_KEY_NAME, WorkerBoot,
 };
 use std::path::Path;
 
@@ -55,9 +55,12 @@ pub fn boot_env(root: &Path) -> MapEnv {
         // `DataDir("HOME: …")`, which points a reader at the data directory
         // rather than at the missing variable.
         .with("HOME", root.join("home").to_string_lossy().as_ref())
+        // The install layout's own file name, so a test asserting the key a
+        // boot reads is the one the layout names is not contradicted by its
+        // fixture.
         .with(
             ENV_WORKER_KEY_PATH,
-            root.join("worker.key").to_string_lossy().as_ref(),
+            root.join(WORKER_KEY_NAME).to_string_lossy().as_ref(),
         )
         .with(
             WORKER_LOG_DIR_ENV,

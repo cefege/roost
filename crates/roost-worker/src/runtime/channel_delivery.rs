@@ -246,7 +246,8 @@ mod tests {
         };
         SessionRecord::new(
             SessionIdentity {
-                session_id: SessionId::try_from("0000beef0000beef").expect("16 hex is an id"),
+                session_id: SessionId::try_from("6f1d0f2c-6b3a-4f2e-9a11-0d2f5b7c8e90")
+                    .expect("a session id is a UUID"),
                 channel_id: channel(),
                 socket_path: "/tmp/mux-keeper.sock".to_string(),
                 cwd: "/home/user".to_string(),

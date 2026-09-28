@@ -228,9 +228,14 @@ fn erase_unit_entry(raw: &str, key: &str) -> String {
             erased.push_str(line);
             continue;
         }
+        // The prefix ends where the first pair began, so the separator goes
+        // BETWEEN survivors only: one before the first would turn
+        // `Environment="A=1"` into `Environment= "A=1"`.
         let mut rebuilt = String::from(&line[..pairs[0].start]);
-        for pair in kept {
-            rebuilt.push(' ');
+        for (index, pair) in kept.iter().enumerate() {
+            if index > 0 {
+                rebuilt.push(' ');
+            }
             rebuilt.push_str(&line[pair.start..pair.end]);
         }
         if line.ends_with('\n') {
@@ -274,7 +279,7 @@ fn environment_pairs(line: &str) -> Option<Vec<EnvironmentPair<'_>>> {
         let (content_start, content_end, end) = match list[cursor..].strip_prefix('"') {
             Some(_) => {
                 let (closing, next) = closing_quote(&list[cursor + 1..], cursor + 1)?;
-                (cursor + 1, closing - 1, next)
+                (cursor + 1, closing, next)
             }
             None => {
                 let offset = list[cursor..].find(' ').unwrap_or(list.len() - cursor);

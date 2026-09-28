@@ -241,11 +241,15 @@ pub fn sample_linux_memory() -> (u64, u64) {
     )
 }
 
+/// The `kB` value of one `/proc/meminfo` key, read as v2's `^Key:\s+(\d+)`:
+/// every row carries a ` kB` unit after the number, so the whole remainder
+/// never parses.
 fn meminfo_kb(meminfo: &str, key: &str) -> u64 {
     meminfo
         .lines()
-        .find_map(|line| line.strip_prefix(key))
-        .and_then(|rest| rest.trim_start_matches(':').trim().parse::<u64>().ok())
+        .find_map(|line| line.strip_prefix(key)?.strip_prefix(':'))
+        .and_then(|rest| rest.split_whitespace().next())
+        .and_then(|value| value.parse::<u64>().ok())
         .unwrap_or(0)
 }
 

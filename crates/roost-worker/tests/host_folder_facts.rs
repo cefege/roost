@@ -31,6 +31,20 @@ fn platform() -> HostPlatform {
     supported_host_platform().expect("this test only runs where v3 runs")
 }
 
+/// ONE CHILD-SPAWNING TEST AT A TIME IN THIS BINARY.
+///
+/// The `gh` fixtures write an executable and then run it. A sibling test that
+/// forks while that file is still open for writing hands its child a copy of
+/// the write descriptor, and the exec of the fresh script then fails with
+/// `ETXTBSY` — which `PrReader` reads, correctly, as "no badge". Measured: 2 of
+/// 60 runs failed `a_pull_request_row_becomes_the_protocols_own_states` that
+/// way. Every test here that writes a program or spawns a child holds this.
+static SPAWNS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn exclusive() -> std::sync::MutexGuard<'static, ()> {
+    SPAWNS.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Write an executable script into the scratch and return its path.
 fn script(root: &Path, name: &str, body: &str) -> String {
     use std::os::unix::fs::PermissionsExt as _;
@@ -93,6 +107,7 @@ LISTEN 0      511          0.0.0.0:5174       0.0.0.0:*    users:((\"bun\",pid=4
 /// throws because GitHub is down.
 #[test]
 fn gh_failing_for_every_reason_resolves_to_no_pull_request() {
+    let _serialised = exclusive();
     let scratch = Scratch::new("gh-failures");
     let folder = scratch.path("repo");
     std::fs::create_dir_all(&folder).expect("the fixture makes its folder");
@@ -117,6 +132,7 @@ fn gh_failing_for_every_reason_resolves_to_no_pull_request() {
 /// one required check failed is a lie somebody merges on.
 #[test]
 fn a_pull_request_row_becomes_the_protocols_own_states() {
+    let _serialised = exclusive();
     let scratch = Scratch::new("gh-row");
     let folder = scratch.path("repo");
     std::fs::create_dir_all(&folder).expect("the fixture makes its folder");
@@ -191,6 +207,7 @@ fn a_rollup_is_classified_by_its_worst_member() {
 /// a `git` that is not installed, are both "nothing to show".
 #[test]
 fn a_detached_head_reads_as_a_short_sha_and_a_non_repo_reads_as_nothing() {
+    let _serialised = exclusive();
     let scratch = Scratch::new("git-reader");
     let folder = scratch.path("repo");
     std::fs::create_dir_all(&folder).expect("the fixture makes its folder");
@@ -254,6 +271,7 @@ fn folder_path(scratch: &Path) -> PathBuf {
 /// which is what "released" means from out here.
 #[test]
 fn a_watcher_stopped_for_a_closed_session_releases_its_thread() {
+    let _serialised = exclusive();
     let platform = platform();
     let watchers = HostWatchers::new();
     let emitted = Arc::new(AtomicUsize::new(0));
@@ -303,6 +321,7 @@ fn a_watcher_stopped_for_a_closed_session_releases_its_thread() {
 #[test]
 #[cfg(target_os = "linux")]
 fn a_sampler_reports_this_hosts_memory_and_disk_rather_than_refusing() {
+    let _serialised = exclusive();
     let (used, total) = sample_linux_memory();
     assert!(total > 0, "this host reported no memory at all");
     assert!(
