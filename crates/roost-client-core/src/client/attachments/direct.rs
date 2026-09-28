@@ -226,7 +226,17 @@ pub fn upload_attachment_direct(
                     reason,
                 };
             }
-            // No bytes left, so the peer route is still an untouched carrier.
+            // A refusal that CROSSED the boundary is not a clean fallback: this
+            // route put bytes on the wire, and only its own status control may
+            // settle them. Falling through to the peer would write them twice,
+            // which is what `DirectAttempt::FailedWithBytes` exists to prevent —
+            // and its doc says so. v2's gate is the same check
+            // (`attachmentDirect.ts:117`: `!error.sentChunk &&
+            // !connection?.sentChunk`).
+            RouteOpen::Refused(error) if error.sent_chunk => {
+                return DirectAttempt::FailedWithBytes(error);
+            }
+            // Nothing left, so the peer route is still an untouched carrier.
             RouteOpen::Refused(_) => {}
         }
     }
@@ -242,8 +252,12 @@ pub fn upload_attachment_direct(
             route: DirectRoute::Peer,
             reason,
         },
-        // Both routes were refused before any byte left, so the relay is still
-        // an untouched carrier rather than a second copy of the file.
+        // A refusal that crossed the boundary is not an untouched carrier, and
+        // the relay is not a fallback for it: the bytes are already on a wire
+        // only this route's status control can settle. `FailedWithBytes` says
+        // exactly that, and v2's gate is the same check.
+        RouteOpen::Refused(error) if error.sent_chunk => DirectAttempt::FailedWithBytes(error),
+        // Nothing left on either route, so the relay is still untouched.
         RouteOpen::Refused(_) => DirectAttempt::Unavailable(DirectUnavailableReason::PeerRefused),
     }
 }
