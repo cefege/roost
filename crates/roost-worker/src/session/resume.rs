@@ -4,14 +4,21 @@
 //! the seam; boot reconcile calls [`SessionManager::adopt_survivor`]. Depends on
 //! `roost_keeper` for the history vocabulary and `roost_term` for the core.
 //!
-//! THE ORDERING IS THE WHOLE SLICE: reattach, then ordered history replay into
-//! a cold core, then concurrent output staged, then the atomic swap. The
-//! reattach comes FIRST because it is what makes the keeper establish its
-//! ordered boundary; the history is everything up to that boundary and the
-//! staging buffer is everything after it. Reversing the first two splices bytes
-//! a client already saw into a core that never parsed them.
-//! The cold core and its ordered replay live in `session::resume_core`; this
-//! file owns the reattach, the staging window and the swap that binds them.
+//! THE ORDERING IS THE WHOLE SLICE: the two READS, then the reattach, then
+//! the ordered history replay into a cold core, then the concurrent output
+//! staged, then the atomic swap.
+//!
+//! THE READS COME FIRST AND THE REATTACH COMES THIRD, and this used to say the
+//! opposite. It claimed the reattach is what makes the keeper establish its
+//! ordered boundary, so the history had to follow it. `deliver_into` does not
+//! establish anything on the keeper's side — the keeper streams `PtyOut` to
+//! every channel it holds regardless of who is reading, and
+//! `keeper_pool/session_seam.rs` says so in as many words. All the reattach
+//! does is insert into the pool's acknowledged table, which is a MUTATION, and
+//! a mutation that ran before the two reads meant a failing `channel_history`
+//! or `terminal_state` left the survivor bound to a staging buffer whose
+//! record was never installed. The ordered boundary is the history request's,
+//! not the reattach's, and the reads are now what precedes it.
 //!
 //! OVERFLOW REFUSES THE ADOPTION. A PTY stream is contiguous, so discarding
 //! either end of the staged window splices an invisible hole into parser state
@@ -198,9 +205,26 @@ impl SessionManager {
             Arc::clone(&self.ingest),
             Arc::clone(&self.clock),
         );
-        self.keeper
-            .deliver_into(channel, Arc::clone(&binding) as Arc<dyn ChannelBinding>)
-            .map_err(|fault| unreplayable(fault.to_string()))?;
+        // THE REBIND COMES AFTER BOTH READS, AND IT IS THE ONLY MUTATION THIS
+        // FUNCTION MAKES.
+        //
+        // `deliver_into` calls `KeeperPool::channels::adopt`, which INSERTS
+        // into the pool's acknowledged table: from that moment the keeper
+        // routes this channel's `PtyOut` frames into `binding` and nowhere
+        // else. It is a rebind, not a read, and it was happening SECOND — the
+        // history at `:204` and the geometry at `:208` could both fail with
+        // the channel already rebound, leaving the pool's table holding an
+        // entry, the terminal's bytes staged into a buffer that never goes
+        // live, and nothing logged above `debug`.
+        //
+        // `terminal_state` is a real round trip — `KeeperPool::applied_geometry`
+        // calls `client.terminal_state(id)` — so it fails on a keeper that is
+        // up but not answering, which is exactly the case the runtime gate
+        // does not cover: the gate checks `channel_history` and not this.
+        //
+        // Both reads now precede the rebind, so no exit from this function
+        // before `adopt_survivor`'s own record-building can leave a survivor
+        // bound to a binding whose record was never installed.
         let history = self
             .keeper
             .channel_history(channel)
@@ -208,6 +232,9 @@ impl SessionManager {
         let applied = self
             .keeper
             .terminal_state(channel)
+            .map_err(|fault| unreplayable(fault.to_string()))?;
+        self.keeper
+            .deliver_into(channel, Arc::clone(&binding) as Arc<dyn ChannelBinding>)
             .map_err(|fault| unreplayable(fault.to_string()))?;
         // THE ABANDONMENT IS AWAITED, AND THAT IS THE WHOLE FIX. `abandon`
         // became `async` when the sink did, and this function used to call it

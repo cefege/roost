@@ -98,7 +98,15 @@ async fn an_adoption_within_the_bound_replays_the_history_then_the_staged_bytes(
         base_rows: 24,
     };
     let harness = Harness::with_keeper(Arc::clone(&keeper));
-    keeper.delivered().on_output(b"staged");
+    // The chunk is emitted AT the rebind, which is inside the window the
+    // adoption stages: `deliver_into` now follows both reads, so a byte handed
+    // over before `adopt_survivor` runs would belong to whatever held the
+    // channel before, which on a restarted worker is nobody.
+    keeper
+        .on_rebind
+        .lock()
+        .expect("held")
+        .push(b"staged".to_vec());
     let adopted = harness
         .manager
         .adopt_survivor(&harness.adoption(SESSION, 7, "/home/user/project"))

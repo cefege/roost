@@ -151,6 +151,16 @@ pub struct ScriptedKeeper {
     pub history: Mutex<SurvivorHistory>,
     pub applied: Mutex<TerminalState>,
     pub delivered: Mutex<Option<Arc<dyn ChannelBinding>>>,
+    /// Bytes this keeper emits the instant the channel is rebound, i.e. inside
+    /// the window the adoption stages.
+    ///
+    /// SCRIPTED AT REATTACH RATHER THAN BY THE TEST, because the window being
+    /// tested is "while the core is being rebuilt" and the test used to open
+    /// it by calling `delivered().on_output(..)` BEFORE `adopt_survivor` ran —
+    /// which only worked while the rebind was the first thing the function
+    /// did. The rebind now follows both reads, so the byte has to arrive with
+    /// it, and that is the same window the real keeper's stream occupies.
+    pub on_rebind: Mutex<Vec<Vec<u8>>>,
     pub killed: Mutex<Vec<u16>>,
     pub resized: Mutex<Vec<(u16, u64, u16, u16)>>,
     pub list_fails: Mutex<bool>,
@@ -167,6 +177,7 @@ impl Default for ScriptedKeeper {
                 rows: 24,
             }),
             delivered: Mutex::new(None),
+            on_rebind: Mutex::new(Vec::new()),
             killed: Mutex::new(Vec::new()),
             resized: Mutex::new(Vec::new()),
             list_fails: Mutex::new(false),
@@ -195,6 +206,12 @@ impl KeeperChannels for ScriptedKeeper {
         _channel_id: u16,
         binding: Arc<dyn ChannelBinding>,
     ) -> Result<(), KeeperFault> {
+        // The staged bytes go in AFTER the binding is stored and BEFORE this
+        // call returns, so they land in a `RecordBinding` still in `Staged`
+        // mode — which is the window the adoption is supposed to bridge.
+        for chunk in self.on_rebind.lock().expect("held").drain(..) {
+            binding.on_output(&chunk);
+        }
         *self.delivered.lock().expect("held") = Some(binding);
         Ok(())
     }
