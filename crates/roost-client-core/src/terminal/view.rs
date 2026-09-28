@@ -54,6 +54,17 @@ pub struct ViewStateResult {
     pub effective_rows: u32,
 }
 
+/// The authority's last generation-matched answer to a view, and the intent
+/// revision it answered. A newer revision has no answer yet, which is v2's
+/// `pending` status (`terminal-stream-types.ts:11-35`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ViewAnswer {
+    /// The view's revision when the answer was applied.
+    pub revision: u64,
+    /// Whether the authority holds the view.
+    pub accepted: bool,
+}
+
 /// One pane's view record.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalView {
@@ -79,6 +90,8 @@ pub struct TerminalView {
     pub acknowledged_at_ms: u64,
     /// Whether the view is counted by the authority's geometry right now.
     pub counted: bool,
+    /// The authority's last answer, `None` before the first one.
+    pub answer: Option<ViewAnswer>,
 }
 
 impl TerminalView {
@@ -95,6 +108,7 @@ impl TerminalView {
             published_at_ms: 0,
             acknowledged_at_ms: 0,
             counted: false,
+            answer: None,
         }
     }
 

@@ -10,7 +10,7 @@
 //! `protocol/spec/terminal-stream.md:24-26`.
 
 use crate::terminal::session::{TerminalSession, ViewStateAdmission};
-use crate::terminal::view::{TerminalView, ViewStateResult};
+use crate::terminal::view::{TerminalView, ViewAnswer, ViewStateResult};
 
 impl TerminalSession {
     /// A pane attached, or asked to be republished.
@@ -100,13 +100,16 @@ impl TerminalSession {
         if result.session_id != self.session_id {
             return ViewStateAdmission::Stale;
         }
-        let acknowledged = self
-            .views
-            .get_mut(&result.view_id)
-            .is_some_and(|view| view.acknowledge(result.generation, now_ms));
-        if !acknowledged {
+        let Some(view) = self.views.get_mut(&result.view_id) else {
+            return ViewStateAdmission::Stale;
+        };
+        if !view.acknowledge(result.generation, now_ms) {
             return ViewStateAdmission::Stale;
         }
+        view.answer = Some(ViewAnswer {
+            revision: view.revision,
+            accepted: result.accepted,
+        });
         if result.accepted {
             ViewStateAdmission::Accepted {
                 stream_id: result.stream_id.clone(),

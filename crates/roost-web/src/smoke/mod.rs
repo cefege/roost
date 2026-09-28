@@ -4,6 +4,7 @@
 //! ledgers) with tests; the wasm32 adapters bind them to the page. `App` calls
 //! `install_smoke_backdoor` once. Ports `apps/web/src/smoke/*`.
 
+pub mod browser_snapshot;
 pub mod call;
 mod call_args;
 pub mod created_resources;
@@ -15,6 +16,8 @@ pub mod paint_proof;
 pub mod probes;
 pub mod retained_scan;
 pub mod state_snapshot;
+pub mod stream_diagnostics;
+pub mod stream_probe;
 pub mod timing;
 
 #[cfg(target_arch = "wasm32")]
@@ -29,6 +32,8 @@ mod harness_host;
 mod paint_wait;
 #[cfg(target_arch = "wasm32")]
 mod rpc_calls;
+#[cfg(target_arch = "wasm32")]
+mod stream_probe_host;
 
 #[cfg(target_arch = "wasm32")]
 pub use backdoor::install_smoke_backdoor;
