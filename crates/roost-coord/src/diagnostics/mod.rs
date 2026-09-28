@@ -5,8 +5,11 @@
 //! reports and the buffer a debug-log batch drains are one process's.
 
 pub mod diag_log;
+pub mod diag_snapshot;
 pub mod rpc_audit;
 pub mod rpc_metrics;
 pub mod rpc_transcription;
+pub mod session_state;
 pub mod telemetry;
 pub mod transcription;
+pub mod worker_results;

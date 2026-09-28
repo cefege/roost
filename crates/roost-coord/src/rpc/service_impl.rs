@@ -967,11 +967,21 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn diag_snapshot<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, DiagSnapshotRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, DiagSnapshotRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<DiagSnapshotResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<DiagSnapshotResponse>("DiagSnapshot")
+        async move {
+            let caller = caller_of(&ctx, "DiagSnapshot")?;
+            crate::diagnostics::diag_snapshot::handle_diag_snapshot(
+                &self.core,
+                caller,
+                &self.core.services.diag_pipelines,
+                &self.git_sha,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
     // ── attachments ─────────────────────────────────────────────────────
 

@@ -50,6 +50,7 @@ use crate::sync_ws::feed::FeedRuntime;
 use crate::terminal_screen::byte_hub::ByteHub;
 use crate::terminal_screen::live_effects::TerminalLiveEffects;
 use crate::terminal_screen::orphan_kills::LiveOrphanKills;
+use crate::terminal_screen::pipeline_cache::WorkerTerminalPipelineSnapshotCache;
 use crate::terminal_screen::scrollback_relay::ScrollbackRelay;
 use crate::terminal_view::TerminalViewHub;
 use crate::ui_state::UiStateRuntime;
@@ -106,6 +107,11 @@ pub struct CoordServices {
     /// test's search. It holds the SAME `Arc<WorkerRegistry>` as `workers`, so
     /// a route and its correlation namespace cannot drift apart.
     pub scrollback: ScrollbackRelay,
+    /// The DiagSnapshot pipeline-sample cache over `scrollback`: one worker is
+    /// asked for its terminal pipelines at most once per cache window however
+    /// many dumps arrive (`worker-terminal-pipeline-cache.ts`). Read only by
+    /// `diagnostics::diag_snapshot`.
+    pub diag_pipelines: WorkerTerminalPipelineSnapshotCache,
     /// Retained browser UI reports and the reserved layout applies, one pair
     /// for the RPC that reserves an apply and the Sync ingress that settles it.
     pub ui_state: UiStateRuntime,
@@ -277,6 +283,7 @@ impl CoordServices {
                 catch_up_on_ready
                     as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
             ]),
+            diag_pipelines: WorkerTerminalPipelineSnapshotCache::new(scrollback.clone()),
             scrollback,
             workers,
             ui_state: UiStateRuntime::new(),

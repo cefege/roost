@@ -243,7 +243,7 @@ pub const ROWS_RPC: &[MethodRoute] = &[
     route("TranscriptionTest", "rpc", AuthRequirement::Device, PortStatus::Implemented),
     route("Sync", "rpc", AuthRequirement::Device, PortStatus::Implemented),
     route("DiagDebugLogBatch", "rpc", AuthRequirement::Device, PortStatus::Implemented),
-    route("DiagSnapshot", "rpc", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
+    route("DiagSnapshot", "rpc", AuthRequirement::Device, PortStatus::Implemented),
 ];
 
 /// ui-cc typed state and layout application, both fenced to one socket generation.
