@@ -15,12 +15,14 @@
 //! is the host's, reached through `ConnectDispatcher`.
 
 pub mod auth_failure;
+pub mod codec;
 pub mod connect_client;
 pub mod credential;
 pub mod methods;
 pub mod request;
 
 pub use auth_failure::{AuthFailureCause, AuthFailureKind, classify_auth_failure};
+pub use codec::{RpcCodecError, decode_rpc_response, encode_rpc_request};
 pub use connect_client::{ConnectClient, ConnectDispatcher};
 pub use credential::Credential;
 pub use methods::{

@@ -17,7 +17,9 @@ use crate::effect::{Effect, RpcCall};
 use crate::event::ClientEvent;
 use crate::handle_input::handle_terminal_input;
 use crate::handle_sweep::handle_sweep;
-use crate::handle_sync::{handle_direct_frame, handle_rpc_result, handle_sync_frame, hydrate};
+use crate::handle_sync::{
+    close_failed_sync_link, handle_direct_frame, handle_rpc_result, handle_sync_frame, hydrate,
+};
 use crate::handle_terminal::{
     ViewOpen, handle_carrier_lost, handle_carrier_ready, handle_search_page, handle_view_closed,
     handle_view_hidden, handle_view_opened, handle_view_resized, handle_view_state,
@@ -65,6 +67,7 @@ pub fn handle_event(
             }));
             out.push(Effect::Rpc(RpcCall::SessionsList {
                 call_id: store.next_call_id(),
+                sync_socket_id: None,
             }));
             out.push(Effect::Rpc(RpcCall::WorkersList {
                 call_id: store.next_call_id(),
@@ -112,6 +115,9 @@ pub fn handle_event(
             delivery_seq,
             frame,
         } => handle_sync_frame(store, *generation, *delivery_seq, frame, host_now_ms, out),
+        ClientEvent::SyncFrameRefused { generation, reason } => {
+            close_failed_sync_link(store, *generation, reason.clone(), out);
+        }
         ClientEvent::DirectFrameReceived { token, frame } => {
             handle_direct_frame(store, token, frame, host_now_ms, out);
         }

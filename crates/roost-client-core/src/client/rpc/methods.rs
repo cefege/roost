@@ -47,6 +47,10 @@ pub fn connect_method(call: &RpcCall) -> &'static str {
         RpcCall::CoordIdentity { .. } => "AuthCoordIdentity",
         RpcCall::SessionsList { .. } => "SessionsList",
         RpcCall::WorkersList { .. } => "WorkersList",
+        RpcCall::WorkspacesList { .. } => "WorkspacesList",
+        RpcCall::TasksList { .. } => "TasksList",
+        RpcCall::McpList { .. } => "McpList",
+        RpcCall::PairList { .. } => "PairList",
         RpcCall::RedeemPairToken { .. } => "AuthRedeemBrowser",
         RpcCall::FilesListDir { .. } => "FilesListDir",
         RpcCall::FilesMkdir { .. } => "FilesMkdir",
@@ -59,8 +63,12 @@ pub fn connect_method(call: &RpcCall) -> &'static str {
 pub fn connect_call_id(call: &RpcCall) -> u64 {
     match call {
         RpcCall::CoordIdentity { call_id }
-        | RpcCall::SessionsList { call_id }
+        | RpcCall::SessionsList { call_id, .. }
         | RpcCall::WorkersList { call_id }
+        | RpcCall::WorkspacesList { call_id }
+        | RpcCall::TasksList { call_id }
+        | RpcCall::McpList { call_id }
+        | RpcCall::PairList { call_id }
         | RpcCall::RedeemPairToken { call_id, .. }
         | RpcCall::FilesListDir { call_id, .. }
         | RpcCall::FilesMkdir { call_id, .. }
