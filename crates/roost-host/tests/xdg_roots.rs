@@ -12,7 +12,7 @@
 //!
 //! The second question is the one that matters for review: **`config_root` does
 //! not read `XDG_CONFIG_HOME`, on purpose.** The XDG base-directory
-//! specification says it should. v2 hardcodes `$HOME/.config` for the systemd
+//! specification says it should. The TypeScript host hardcodes `$HOME/.config` for the systemd
 //! user unit and names a literal `~/.config/logrotate.d`, so honouring the
 //! variable would move a unit off the path the oracle, the documentation and
 //! `systemctl --user` all expect. The parity rule outranks the specification,
@@ -58,17 +58,17 @@ fn the_config_root_is_not_under_local() {
 }
 
 #[test]
-fn the_config_root_ignores_xdg_config_home_because_v2_does() {
-    // THE PARITY PIN. v2 hardcodes `join(homedir(), ".config", ...)` and never
+fn the_config_root_ignores_xdg_config_home_because_the_typescript_host_does() {
+    // THE PARITY PIN. The TypeScript host hardcodes `join(homedir(), ".config", ...)` and never
     // reads the variable, so an install that honoured it would place the unit
-    // and the logrotate.d fragments somewhere `systemctl --user` and v2's own
+    // and the logrotate.d fragments somewhere `systemctl --user` and the TypeScript host's own
     // tooling do not look. If this test ever fails, the change is real and the
     // parity argument has to be re-made deliberately rather than silently.
     let env = env_with_home().with(XDG_CONFIG_HOME, "/etc/roost-config");
     assert_eq!(
         config_root(&env).expect("the config root resolves"),
         PathBuf::from(LINUX_HOME).join(".config"),
-        "config_root started honouring XDG_CONFIG_HOME, which diverges from v2"
+        "config_root started honouring XDG_CONFIG_HOME, which diverges from the TypeScript host"
     );
 }
 

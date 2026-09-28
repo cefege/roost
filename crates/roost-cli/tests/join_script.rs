@@ -232,7 +232,7 @@ fn the_digest_line_claims_only_what_a_digest_establishes() {
         );
     }
     assert!(
-        script.contains("matches the digest published beside it"),
+        script.contains("both match the digests published beside them"),
         "and it should say what it did establish"
     );
     assert!(

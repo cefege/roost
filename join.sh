@@ -134,7 +134,7 @@ fetch_roost() {
         "  ${base}/${asset}"
   fi
   # NOTHING is moved into place until BOTH assets have been fetched and both
-  # digests have matched. The single-asset shape verified then installed, and
+  # digests have matched. The single-asset shape matched its digest then installed, and
   # splitting the fetch across two install points broke that: a keeper digest
   # mismatch used to `die` with a bare `roost` already at `$dest`, so the next
   # run's `is_v3` would accept it, skip this function entirely, and never fetch
@@ -169,7 +169,7 @@ fetch_roost() {
   if ! curl -fsSL -o "${tmp}/roost-keeper.sha256" "${base}/${keeper}.sha256"; then
     rm -rf "$tmp"
     die "No published digest beside ${keeper}." \
-        "An unverified keeper is not installed: the sidecar is the only thing" \
+        "A keeper with no digest to match is not installed: the sidecar is the only thing" \
         "that says these bytes are the ones this release published." \
         "Nothing was installed."
   fi

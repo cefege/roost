@@ -94,7 +94,7 @@ const XDG_DATA_DEFAULT_LEAF: &str = "share";
 const XDG_STATE_DEFAULT_LEAF: &str = "state";
 /// The user's configuration root: `$HOME/.config`, and nothing else.
 ///
-/// **It does NOT read `XDG_CONFIG_HOME`, and that is deliberate.** v2 hardcodes
+/// **It does NOT read `XDG_CONFIG_HOME`, and that is deliberate.** The TypeScript host hardcodes
 /// `join(homedir(), ".config", "systemd", "user", ...)`
 /// (`packages/host/src/paths.ts`) and its logrotate unit names a literal
 /// `~/.config/logrotate.d`, so honouring the variable here would move a unit off
