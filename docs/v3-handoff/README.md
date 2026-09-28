@@ -37,21 +37,25 @@ Worktrees: `roost-v3` (integrator, `v3`), `roost-v3-coord` (`v3-coord`),
 `roost-v3-trial` (detached, the integrator's trial merge), `roost-v3-web-gate`
 (detached clean checkout of `v3-web` for gate runs).
 
-## Environment finding: the door page loads as a download on this host
+## RESOLVED: the door page loaded as a download — a harness bug, not this host
 
-`smoke/terminal/terminal-local-fast-path.spec.ts` (chromium-serial) fails at
-`page.goto("http://127.0.0.1:<door>/#pair=…")` with Playwright's
-`Error: goto: Download is starting`, and `terminal-peer.spec.ts:61` fails the
-same way. Measured twice on 2026-09-28 16:20: once with
-`ROOST_SMOKE_COORD_EXECUTABLE` set to the Rust coordinator and once with it
-unset (the whole TypeScript stack) — **identical error both times**, so it is a
-host/environment fault, not a v3 port defect. v2's SPA responder
-(`packages/host/src/spa.ts:127-166`) serves `/` as `index.html` with
-`text/html; charset=utf-8` and the worktree's `apps/web/dist` is complete, so
-the rejected response is not the index path. Stage 3.2 runs the whole terminal
-oracle on this host, so diagnose it there with a `curl -I` against a live
-stack's door before the first full run; whatever answers, the Rust door
-(`roost-worker`'s W-DOOR slice) must not reproduce it.
+`terminal-local-fast-path.spec.ts` and `terminal-peer.spec.ts:61` both failed at
+`page.goto("<door>/#pair=…")` with `Error: goto: Download is starting`, on the
+**worker-served** page; the coordinator page in the same test enrolled normally.
+The identical failure under the Rust and the TypeScript coordinator is what
+rules out a host fault — a real one does not survive a stack swap.
+
+Chromium was reporting the truth: the door answered `404` with
+`content-type: application/octet-stream`, so a document navigation is a
+download. `smoke/terminal/stack-worker-runtime.ts` set `ROOST_WEB_DIST_PATH` for
+the coordinator child and for nobody else, and
+`packages/host/src/web-embed.generated.ts` is an empty stub outside a release
+build, so the worker's door had neither a disk build nor embedded assets. Both
+launchers now resolve the key identically. Fixed on `v3` at `a84f4a12`:
+`terminal-local-fast-path` 1 failed → 1 passed, `terminal-peer` 4/5 → **5/5**.
+The entry is `docs/FAILURE-INDEX.md` ("A smoke spec dies at enrollment with
+'goto: Download is starting'"). `origin/main` carries the same omission, which
+is why v2's local-door specs lean on a checkout-local `.env`.
 
 ## Cross-track defect: the worker's boot-time Connect call is unauthenticated
 
@@ -166,6 +170,38 @@ Where each track stands:
   (`11e73966`) and the cross-track credential fix (`c92d793f`). The trial merge
   in `roost-v3-trial` is superseded; the workspace gate has not been run on
   this tree yet.
+
+## The worker merge, resolved and type-checked in the trial worktree
+
+`v3` does not yet carry the worker's 16 slice commits. The integrator rehearsed
+that merge in `roost-v3-trial` (detached, `target-trial/`), because the
+credential fix and the worker series touch the same files. It produced exactly
+three conflicted files and **two defects no single-branch gate could see**:
+
+| file | resolution | why |
+|---|---|---|
+| `Cargo.toml` | keep both sides | additive: web added `unicode-segmentation`, the worker added `unicode-normalization` for the integration installer's NFC path compare |
+| `crates/roost-protocol/src/terminal_capture.rs` | keep `v3` | coord made it a directory module with `command` + `coordinator`; the worker's single file is a strict subset and its submodule files are present |
+| `crates/roost-worker/src/runtime/reconcile.rs` | combine | the worker changed the return type to `OpenSessionSet` (rows + validated recovery references) while the credential fix added a parameter — both are needed |
+
+Then two follow-on edits the conflict markers do not show, because each side's
+hunks merged cleanly and were wrong together:
+
+- `crates/roost-keeper/src/keeper.rs` — the merge emitted
+  `use roost_protocol::keeper_update::KEEPER_RUNTIME_ABI;` **twice** (E0252).
+  Delete one. This is the same fix the first trial merge needed, which is why
+  the stale fixups were snapshotted rather than trusted.
+- `crates/roost-worker/tests/open_session_credential.rs` — the new guard
+  asserted `rows.len()` on a value that is now an `OpenSessionSet`; it is
+  `open.rows.len()`.
+
+And one thing to carry across deliberately, not a conflict at all:
+`CoordinatorOpenSessions` (the worker's post-boot `OpenSessionSource`) holds the
+same bare client and calls `read_open_sessions` again. It needs an
+`Arc<dyn CredentialSource>` field, and `boot_sequence.rs` passes it the same
+`WorkerKeyCredential` the link dial uses.
+
+Re-run the rehearsal after the worker's next push — its tip moves.
 
 Rulings made during the run (all in the tracks' commit bodies): parity = v2 wins, with ONE user-visible exception — resumed direct uploads append at `bytesWritten` (v2 wrote at offset 0, corrupting the file). Deliberate path deviations: worker agent-report endpoint and attachment base live in the v3 worker data dir. `bun_abi` restored on `KeeperContractV1` with the Rust keeper reporting `"rust"`. `terminal_metadata_v1` (underscores) is v2's spelling. Public auth routes = v2's 7 exactly. `SmokeApi` has 53 members.
 
