@@ -8,6 +8,9 @@
 //! natively; this file only reads and writes, and every read it reports is the
 //! document's own state rather than a remembered one.
 
+use std::cell::Cell;
+
+use wasm_bindgen::JsCast;
 use web_sys::{Document, Element, KeyboardEvent, Node, Range, Selection};
 
 use crate::input::chord::{KeyChord, KeyKind, Modifiers, NamedKey};
@@ -41,7 +44,7 @@ pub fn key_chord_from_event(event: &KeyboardEvent) -> KeyChord {
             ctrl: event.ctrl_key(),
             meta: event.meta_key(),
         },
-        alt_graph: event.get_modifier_state("AltGraph").unwrap_or(false),
+        alt_graph: event.get_modifier_state("AltGraph"),
         is_composing: event.is_composing(),
     }
 }
@@ -58,7 +61,23 @@ pub struct DomSelectionReader {
     node_ids: js_sys::WeakMap,
     nodes: js_sys::Map,
     retained: Option<Range>,
-    next_id: u32,
+    /// Minted ids come from a `Cell`, not a `&mut`: every read path is `&self`
+    /// because a read must never be able to disturb the pane, and an id counter
+    /// is the one piece of state a read legitimately advances.
+    next_id: Cell<u32>,
+}
+
+/// No DOM handle is printed: neither `web_sys` nor `js_sys` carries a `Debug`,
+/// and a reader's useful state is what it has retained and what it will mint
+/// next. Deliberately does not call `node_id`, which would mint an id as a side
+/// effect of being printed.
+impl std::fmt::Debug for DomSelectionReader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DomSelectionReader")
+            .field("retained", &self.retained.is_some())
+            .field("next_id", &self.next_id.get())
+            .finish_non_exhaustive()
+    }
 }
 
 impl DomSelectionReader {
@@ -70,7 +89,7 @@ impl DomSelectionReader {
             node_ids: js_sys::WeakMap::new(),
             nodes: js_sys::Map::new(),
             retained: None,
-            next_id: 1,
+            next_id: Cell::new(1),
         }
     }
 
@@ -85,8 +104,8 @@ impl DomSelectionReader {
         if let Some(number) = self.node_ids.get(key).as_f64() {
             return DomNodeId(number as u32);
         }
-        let id = self.next_id;
-        self.next_id += 1;
+        let id = self.next_id.get();
+        self.next_id.set(id.saturating_add(1));
         self.node_ids.set(key, &js_sys::Number::from(id));
         self.nodes.set(&js_sys::Number::from(id), node.as_ref());
         DomNodeId(id)
@@ -108,7 +127,7 @@ impl DomSelectionReader {
     /// valid range endpoint, so nothing resolvable is lost.
     fn forget_detached(&self) {
         let mut detached: Vec<DomNodeId> = Vec::new();
-        self.nodes.for_each(&mut |value, key, _map| {
+        self.nodes.for_each(&mut |value, key| {
             let node: Node = value.into();
             if !node.is_connected()
                 && let Some(id) = key.as_f64()
@@ -123,7 +142,9 @@ impl DomSelectionReader {
 
     /// The `.cell-row` a node sits in, when it is inside this pane's display.
     fn owned_row(&self, node: &Node) -> Option<OwnedRow> {
-        let element: Element = node.clone().into();
+        let Ok(element) = node.clone().dyn_into::<Element>() else {
+            return None;
+        };
         let row = element.closest(".cell-row").ok().flatten()?;
         if !self.contains(&row) {
             return None;
@@ -152,7 +173,7 @@ impl DomSelectionReader {
     /// endpoints sit in, and the document's editing target.
     pub fn read(&self) -> LiveSelection {
         self.forget_detached();
-        let Some(selection) = self.document.get_selection() else {
+        let Ok(Some(selection)) = self.document.get_selection() else {
             return LiveSelection::default();
         };
         let mut live = Self::live_selection(&selection);
@@ -189,11 +210,17 @@ impl DomSelectionReader {
     /// yielded to.
     fn focus_owner(&self) -> Option<FocusOwner> {
         let active = self.document.active_element()?;
-        let is_page_root = self
-            .document
-            .body()
-            .is_some_and(|body| body.as_ref() == active.as_ref())
-            || Some(&active) == self.document.document_element().as_ref();
+        let active_node: &Node = active.as_ref();
+        // Node IDENTITY, not an `AsRef` comparison: web-sys types carry several
+        // `AsRef` impls, so `==` on the references does not resolve, and the
+        // question the DOM actually answers is "is this the same node".
+        let is_page_root = self.document.body().is_some_and(|body| {
+            let body_node: &Node = body.as_ref();
+            active_node.is_same_node(Some(body_node))
+        }) || self.document.document_element().is_some_and(|root| {
+            let root_node: &Node = root.as_ref();
+            active_node.is_same_node(Some(root_node))
+        });
         if is_page_root {
             return None;
         }
@@ -206,7 +233,13 @@ impl DomSelectionReader {
     /// Retain the document's current range, so a restore has something to put
     /// back after the yield cleared the selection.
     pub fn retain_current_range(&mut self) -> Option<Range> {
-        let range = self.document.get_selection()?.get_range_at(0).ok()?;
+        let range = self
+            .document
+            .get_selection()
+            .ok()
+            .flatten()?
+            .get_range_at(0)
+            .ok()?;
         self.retained = Some(range.clone());
         Some(range)
     }
@@ -215,11 +248,16 @@ impl DomSelectionReader {
     /// still connected, and the rows it was captured over.
     pub fn read_retained(&self, display: DomNodeId) -> Option<RetainedRange> {
         let range = self.retained.clone()?;
-        let anchor = self.endpoint(Some(range.start_container()?), range.start_offset())?;
-        let focus = self.endpoint(Some(range.end_container()?), range.end_offset())?;
+        let anchor = self.endpoint(range.start_container().ok(), range.start_offset().ok()?)?;
+        let focus = self.endpoint(range.end_container().ok(), range.end_offset().ok()?)?;
         let mut rows: Vec<OwnedRow> = Vec::new();
         for container in [range.start_container(), range.end_container()] {
-            let element: Element = container.clone().into();
+            let Ok(container) = container else {
+                continue;
+            };
+            let Ok(element) = container.dyn_into::<Element>() else {
+                continue;
+            };
             for ancestor in element.closest(".cell-row").ok().flatten().into_iter() {
                 if self.contains(&ancestor) {
                     let row = OwnedRow {
@@ -237,8 +275,10 @@ impl DomSelectionReader {
             anchor,
             focus,
             range_text: String::from(range.to_string()),
-            containers_connected: range.start_container().is_connected()
-                && range.end_container().is_connected(),
+            containers_connected: range
+                .start_container()
+                .is_ok_and(|node| node.is_connected())
+                && range.end_container().is_ok_and(|node| node.is_connected()),
             rows,
         })
     }
@@ -246,8 +286,8 @@ impl DomSelectionReader {
     /// Clear the document's ranges, which is the only call through which
     /// Chromium resets its native editing target.
     pub fn clear_ranges(&self) {
-        if let Some(selection) = self.document.get_selection() {
-            selection.remove_all_ranges();
+        if let Ok(Some(selection)) = self.document.get_selection() {
+            let _ = selection.remove_all_ranges();
         }
     }
 
@@ -256,7 +296,7 @@ impl DomSelectionReader {
     /// False means the document refused — the nodes were detached, so the
     /// range is gone and the guard ends the capture rather than retrying it.
     pub fn restore_retained(&self, retained: &RetainedRange) -> bool {
-        let Some(selection) = self.document.get_selection() else {
+        let Ok(Some(selection)) = self.document.get_selection() else {
             return false;
         };
         let (Some(anchor), Some(focus)) = (

@@ -310,5 +310,4 @@ impl ComposeSelection {
         }
         ComposeEffects::default()
     }
-
 }

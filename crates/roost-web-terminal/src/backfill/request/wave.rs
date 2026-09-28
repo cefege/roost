@@ -8,8 +8,8 @@
 
 use roost_client_core::terminal::history_backfill::BACKFILL_IDENTICAL_RETRIES;
 
-use crate::backfill::{BACKFILL_RETRY_MS, BackfillAction, BackfillHost, ScrollbackBackfill};
 use crate::backfill::request::{Demand, DemandKind, ScrollbackPage, note_floor, validate_page};
+use crate::backfill::{BACKFILL_RETRY_MS, BackfillAction, BackfillHost, ScrollbackBackfill};
 use crate::block_placeholder::SCROLLBACK_BLOCK_ROWS;
 
 /// Running one wave. A file split, not a type split: the state lives on

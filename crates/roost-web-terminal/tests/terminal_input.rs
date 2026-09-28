@@ -242,10 +242,7 @@ fn treats_explicit_and_ctrl_alt_reported_altgraph_as_printable_text() {
     );
     assert!(explicit.is_alt_graph());
     assert!(represented.is_alt_graph());
-    assert_eq!(
-        explicit.to_bytes(false).as_deref(),
-        Some("€".as_bytes())
-    );
+    assert_eq!(explicit.to_bytes(false).as_deref(), Some("€".as_bytes()));
     assert_eq!(
         represented.to_bytes(false).as_deref(),
         Some(&b"@"[..]),

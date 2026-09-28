@@ -64,7 +64,9 @@ fn a_suspension_whose_restore_never_runs_stops_holding_paint_once_its_range_is_g
     // owner is absent lapses the suspension here and leaves nothing to lapse
     // in the assertion this test is actually about.
     assert!(
-        guard.sync_hold(&cleared_by_yield(), Some(&retained("v0"))).hold,
+        guard
+            .sync_hold(&cleared_by_yield(), Some(&retained("v0")))
+            .hold,
         "an intact capture with a live owner holds paint"
     );
     // What a canonical repair does to the captured row: the same text painted
@@ -112,7 +114,10 @@ fn a_suspension_whose_focus_owner_lost_focus_stops_holding_paint() {
         ..cleared_by_yield()
     };
     let after = guard.sync_hold(&orphaned, Some(&retained("v0")));
-    assert!(!after.hold, "a suspension whose editor is gone holds nothing");
+    assert!(
+        !after.hold,
+        "a suspension whose editor is gone holds nothing"
+    );
     assert_eq!(after.lapse, Some(YieldLapse::OwnerGone));
 }
 

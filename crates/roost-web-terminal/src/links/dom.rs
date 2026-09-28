@@ -59,9 +59,7 @@ fn measured_columns(element: &Element, cell_width: f64) -> u32 {
     if cell_width <= 0.0 {
         return 0;
     }
-    let Ok(rect) = element.get_bounding_client_rect() else {
-        return 0;
-    };
+    let rect = element.get_bounding_client_rect();
     let columns = ((rect.right() - rect.left()) / cell_width).round();
     if columns < 1.0 { 0 } else { columns as u32 }
 }
@@ -124,13 +122,13 @@ pub fn open_external_link(
     activation: &LinkActivation,
     modifier_key: LinkModifierKey,
 ) {
-    let (Ok(anchor), Ok(body)) = (doc.create_element("a"), doc.body()) else {
+    let (Ok(anchor), Some(body)) = (doc.create_element("a"), doc.body()) else {
         return;
     };
     apply_link_attributes(&anchor, activation.display(), activation, modifier_key);
     set_style_property(&anchor, "display", "none");
     let _ = body.append_child(&anchor);
-    if let Ok(anchor) = anchor.dyn_ref::<web_sys::HtmlElement>() {
+    if let Some(anchor) = anchor.dyn_ref::<web_sys::HtmlElement>() {
         anchor.click();
     }
     let _ = anchor.remove();

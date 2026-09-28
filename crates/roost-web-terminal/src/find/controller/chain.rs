@@ -135,7 +135,11 @@ impl TerminalFind {
 
     /// Drop stale numbering, then spend one retry. A chain reporting
     /// `epoch-changed` and a reveal finding the pane renumbered are one rule.
-    pub(super) fn invalidate(&mut self, epoch_retry_budget: u32, host: &mut dyn FindHost) -> Vec<FindCommand> {
+    pub(super) fn invalidate(
+        &mut self,
+        epoch_retry_budget: u32,
+        host: &mut dyn FindHost,
+    ) -> Vec<FindCommand> {
         self.publication.clear(host);
         if epoch_retry_budget > 0 && !self.query.is_empty() {
             self.search_now(epoch_retry_budget - 1, None, host)

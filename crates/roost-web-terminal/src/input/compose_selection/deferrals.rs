@@ -21,7 +21,6 @@ impl ComposeSelection {
         self.layout_effects()
     }
 
-
     /// An IME composition ended: the range comes back once the commit has
     /// landed, which the adapter does on the following microtask.
     pub fn on_composition_end(&mut self) -> ComposeEffects {
@@ -93,7 +92,6 @@ impl ComposeSelection {
             ..ComposeEffects::default()
         }
     }
-
 
     /// The armed version, or `None` when no transaction owns the guard.
     fn layout_effects(&self) -> ComposeEffects {
