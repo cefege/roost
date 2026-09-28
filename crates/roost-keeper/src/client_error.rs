@@ -22,4 +22,9 @@ pub enum ClientError {
     Unsupported(&'static str),
     #[error("the connection to the keeper failed: {0}")]
     Io(String),
+    /// The keeper answered with a payload this client cannot read: the one
+    /// waiter is refused and the connection is kept (v2 rejects the pending
+    /// request only).
+    #[error("the keeper answered with a payload this client cannot read: {0}")]
+    Protocol(String),
 }

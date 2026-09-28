@@ -9,14 +9,29 @@ use std::sync::Arc;
 
 use roost_observability::clock::EventClock;
 
+use super::agent_owners::start_agent_status;
 use super::cell_cadence::CellCadence;
+use super::heart_owners::HeartOwners;
 use super::link_loop::CoordinatorCellSink;
 use super::link_wire::ProtoLinkWire;
+use super::reconcile_gate::{ReconcileGate, ReconcileInputs};
 use super::session_stack::SessionStack;
-use crate::keeper_pool::KeeperPool;
+use crate::agents::report_server::AgentReportServer;
+use crate::agents::status_stack::AgentStatusStack;
+use crate::attachments::owners::{AttachmentOwners, AttachmentOwnersDeps};
+use crate::attachments::peer_owner::AttachmentPeerBootstrapState;
+use crate::door::loopback::{LoopbackOwner, LoopbackRoutes};
+use crate::keeper_pool::{KeeperPool, KeeperUpdateBoundary, KeeperUpdatePreparer};
 use crate::link_ports::{
-    DownstreamOwners, LinkLifecyclePort, TerminalInputPort, TerminalPipelinePort,
+    AttachmentPeerPort, DirectTerminalPort, DownstreamOwners, KeeperUpdatePort, LinkLifecyclePort,
+    LinkLifecycles, LocalTerminalGrantPort, TerminalInputPort, TerminalPipelinePort,
     TerminalStreamPort, TerminalViewPort,
+};
+use crate::local_terminal::{LocalTerminalDoor, LocalTerminalDoorDeps};
+use crate::peer::native::NativeLoader;
+use crate::peer::{
+    DirectLinkLifecycle, DirectPeerSupport, DirectTerminal, DirectTerminalDeps, PeerBootstrapState,
+    PeerTransportConfig,
 };
 use crate::session::cwd_events::CwdEventLane;
 use crate::session::query_reply::QueryReplyLane;
@@ -38,6 +53,14 @@ pub struct WorkerOwners {
     pub work_budget: TerminalInputWorkBudget,
     /// v2 `TerminalViewOwner`; the door registers local sockets on it.
     pub view: Arc<TerminalViewOwner>,
+    /// v2 `LocalTerminalDoor.wiring`: the grant store and direct socket owner;
+    /// the door's router serves `local_terminal.sockets()`.
+    pub local_terminal: Arc<LocalTerminalDoor>,
+    /// v2 `boot-local-terminal.ts`'s peer half: the terminal peer owner, the
+    /// coordinator generation and the direct carriers retired together.
+    pub direct: Arc<DirectTerminal>,
+    /// The ONE native peer load both peer owners share.
+    pub native_loader: NativeLoader,
     /// The cell driver; the door registers its cell sinks on it.
     pub cadence: CellCadence,
     /// The one way anything off the link loop puts a frame on the link.
@@ -45,6 +68,19 @@ pub struct WorkerOwners {
     /// The coordinator's cell sink: the SAME `Arc` the cadence registered and
     /// `LinkLoop::attach_cell_sink` drains.
     pub coord_sink: Arc<CoordinatorCellSink>,
+    /// Heartbeat, folder facts, stray sweeper and reconciliation stamp.
+    pub heart: HeartOwners,
+    /// v2 `setupReconcile`: the one door for boot, keeper-death and degraded passes.
+    pub reconcile: ReconcileGate,
+    /// v2 `agentRegistry` + `agentDetector`, with the manifests and the ONE
+    /// reference admission gate the report server and prompt owner share.
+    pub agents: AgentStatusStack,
+    /// v2 `agentReportServer`: integrations report status and references over
+    /// it; `None` when it could not start. Closed by `close_agent_report`.
+    agent_report: Option<AgentReportServer>,
+    /// v2 `main.ts:196-199` + `boot-local-terminal.ts`: the attachment
+    /// operation owner, grant store, direct carriers and their sweeps.
+    pub attachments: AttachmentOwners,
     cadence_task: tokio::task::JoinHandle<()>,
 }
 
@@ -63,12 +99,17 @@ impl WorkerOwners {
     /// Build every wave-1 owner over `stack`, start the cell cadence and the
     /// query-reply writer, and register the session-closed hook. Must run
     /// inside the worker's tokio runtime.
+    #[allow(clippy::too_many_arguments)]
     pub fn build(
         stack: SessionStack,
         uplink: &Uplink,
         process_epoch: &str,
         pool: Arc<KeeperPool>,
-    ) -> Self {
+        worker_fingerprint: &str,
+        platform: roost_host::HostPlatform,
+        transport: PeerTransportConfig,
+        reconcile: ReconcileInputs,
+    ) -> anyhow::Result<Self> {
         let clock: Arc<dyn EventClock> = stack.clock.clone();
 
         // v2 `main.ts:211-217`: the coordinator is one cell sink among several,
@@ -121,6 +162,60 @@ impl WorkerOwners {
             clock: Arc::clone(&clock),
             runtime: tokio::runtime::Handle::current(),
         });
+        // v2 `boot-local-terminal.ts`: the direct path shares the link's view
+        // owner, input routes and work budget rather than owning copies.
+        let local_terminal = LocalTerminalDoor::new(LocalTerminalDoorDeps {
+            manager: Arc::clone(&stack.manager),
+            sessions: Arc::clone(&stack.table),
+            view: Arc::clone(&view),
+            routes: routes.clone(),
+            work_budget: work_budget.clone(),
+            worker_fingerprint: worker_fingerprint.to_owned(),
+            process_epoch: process_epoch.to_owned(),
+            runtime: tokio::runtime::Handle::current(),
+        });
+        let native_loader = crate::peer::native::str0m_loader();
+        let direct = DirectTerminal::new(DirectTerminalDeps {
+            door: Arc::clone(&local_terminal),
+            process_epoch: process_epoch.to_owned(),
+            transport,
+            native_loader: native_loader.clone(),
+            offer_faults: None,
+            runtime: tokio::runtime::Handle::current(),
+        });
+        let attachments = AttachmentOwners::start(AttachmentOwnersDeps {
+            base: stack.attachments.clone(),
+            process_epoch: process_epoch.to_owned(),
+            worker_fingerprint: worker_fingerprint.to_owned(),
+            peer: transport,
+            native_loader: native_loader.clone(),
+            coordinator_generation: direct.generation(),
+        });
+        // v2 `coord-link-deps.ts:154-156`, `disposeDirect`: the attachment
+        // carriers are fenced on detach and retired with the terminal ones.
+        direct.register_carrier(Arc::new(attachments.direct.clone()));
+        let heart = HeartOwners::build(&stack, Arc::clone(&pool), platform);
+        // v2 `main.ts:220-237`: agent-status detection, hooked to terminal
+        // output and to session close ahead of the routes and view. Built
+        // before the reconcile gate, which shares its reference admission gate.
+        let agents = start_agent_status(&stack, uplink)?;
+        let keeper_socket = reconcile.boot.keeper_socket.clone();
+        let reconcile = ReconcileGate::start(
+            &stack,
+            &pool,
+            &heart,
+            reconcile,
+            agents.reference_admission.clone(),
+        );
+        // v2 `onKeeperUpdatePrepare` joins the same reconcile boundary boot
+        // and keeper-death reconciliation serialize on.
+        let keeper_update = KeeperUpdatePreparer::over_pool(
+            Arc::clone(&stack.manager),
+            Arc::clone(&stack.table),
+            Arc::new(reconcile.clone()) as Arc<dyn KeeperUpdateBoundary>,
+            Arc::clone(&pool),
+            &keeper_socket,
+        );
         let keeper: Arc<dyn KeeperPipelineSource> = pool;
         let pipeline = PipelineOwner::new(
             Arc::clone(&stack.table),
@@ -130,6 +225,11 @@ impl WorkerOwners {
             keeper,
         );
 
+        let agent_report = AgentReportServer::start_for_worker(
+            &stack.agent_environment,
+            &agents,
+            stack.manager.durable_event_sink(),
+        );
         register_session_closed(&stack, &routes, &view);
 
         let downstream = DownstreamOwners {
@@ -138,21 +238,83 @@ impl WorkerOwners {
                 as Arc<dyn TerminalStreamPort>,
             pipeline: Arc::new(pipeline) as Arc<dyn TerminalPipelinePort>,
             view: Arc::clone(&view) as Arc<dyn TerminalViewPort>,
-            lifecycle: Arc::new(cadence.clone()) as Arc<dyn LinkLifecyclePort>,
+            // v2 `onSnapshotReady` reaches the direct path and cell sink, then
+            // `agentRegistry.resend()` (`coord-link-deps.ts:176`).
+            lifecycle: Arc::new(LinkLifecycles::new(vec![
+                Arc::new(DirectLinkLifecycle::new(
+                    Arc::clone(&direct),
+                    Arc::new(cadence.clone()),
+                )) as Arc<dyn LinkLifecyclePort>,
+                Arc::new(agents.clone()) as Arc<dyn LinkLifecyclePort>,
+            ])) as Arc<dyn LinkLifecyclePort>,
+            // v2 `wiring.revokeDevice`: the door's routes and grants, then the
+            // device's peers.
+            local_terminal: Arc::clone(&direct) as Arc<dyn LocalTerminalGrantPort>,
+            direct: Some(Arc::clone(&direct) as Arc<dyn DirectTerminalPort>),
+            // v2 `onAgentPrompt` (`coord-link-deps.ts:218-249`).
+            agent_prompt: crate::agents::prompt_port::AgentPromptOwner::over_status_stack(
+                Arc::clone(&stack.manager),
+                Arc::clone(&stack.table),
+                &agents,
+                work_budget.clone(),
+            ),
+            attachments: attachments.link(),
+            attachment_peers: Some(
+                Arc::new(attachments.direct.clone()) as Arc<dyn AttachmentPeerPort>
+            ),
+            keeper_update: Arc::new(keeper_update) as Arc<dyn KeeperUpdatePort>,
         };
         tracing::info!(
             "the downstream owners are built: input, stream, pipeline, view and the cell cadence"
         );
-        Self {
+        Ok(Self {
             stack,
             downstream,
             routes,
             work_budget,
             view,
+            local_terminal,
+            direct,
+            native_loader,
             cadence,
             uplink: uplink.clone(),
             coord_sink,
+            heart,
+            reconcile,
+            agents,
+            agent_report,
+            attachments,
             cadence_task,
+        })
+    }
+
+    /// The owners the loopback door upgrades sockets into (v2 `startLocalUiServer`'s
+    /// `terminal` and `attachment`).
+    pub fn loopback_routes(&self) -> LoopbackRoutes {
+        LoopbackRoutes {
+            terminal: LoopbackOwner::terminal(self.local_terminal.sockets()),
+            attachment: Some(LoopbackOwner::attachment(Arc::new(
+                self.attachments.direct.sockets(),
+            ))),
+        }
+    }
+
+    /// v2 `main.ts:348-354`: on shutdown the report server stops accepting,
+    /// lets open admissions finish, and removes its socket — before the door
+    /// closes. Dropping it without this only stops the accept loop.
+    pub async fn close_agent_report(&mut self) {
+        if let Some(server) = self.agent_report.take() {
+            server.close().await;
+        }
+    }
+
+    /// What the hello may promise: a peer capability only for an owner whose
+    /// native bootstrap is `ready` (v2 `boot-local-terminal.ts:131-174`).
+    pub async fn direct_peer_support(&self) -> DirectPeerSupport {
+        DirectPeerSupport {
+            terminal: self.direct.peer_owner().bootstrap().await == PeerBootstrapState::Ready,
+            attachment: self.attachments.direct.bootstrap().await
+                == AttachmentPeerBootstrapState::Ready,
         }
     }
 
@@ -160,10 +322,19 @@ impl WorkerOwners {
     /// sockets and sweep, every input route and work reservation, and the
     /// cadence task. The keeper and its PTYs are untouched.
     pub fn shutdown(self) {
+        self.heart.shutdown();
+        // v2 `main.ts:363-364`: the detector, then the registry.
+        self.agents.dispose();
+        self.attachments.shutdown();
+        // v2 `close()`: the direct carriers and the door's sockets go before
+        // the view owner; `dispose_direct` disposes the door once.
+        self.direct.dispose_direct();
         self.view.dispose();
         self.routes.dispose();
         self.work_budget.dispose();
         self.cadence_task.abort();
+        // v2 `session-lifecycle.ts:314` `stopTerminalCaptureMaintenance`.
+        self.stack.capture.stop_maintenance();
         tracing::info!("the downstream owners were disposed and the cell cadence stopped");
     }
 }

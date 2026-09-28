@@ -5,8 +5,8 @@
 //! place a channel exists.
 //!
 //! `portable-pty` does the forkpty and the controlling-TTY handshake, so this
-//! module needs no raw descriptors of its own. The crate keeps its `unsafe`
-//! allowance for the socket, not for the terminal.
+//! module needs no raw descriptors of its own; the whole-tree reap on kill is
+//! `process_reap`'s.
 
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize};
 
@@ -202,6 +202,18 @@ impl PtyChannel {
         if seq <= self.applied_seq {
             return Ok(self.applied_seq);
         }
+        self.resize_master(cols, rows)?;
+        self.applied_seq = seq;
+        Ok(self.applied_seq)
+    }
+
+    /// Apply the legacy unsequenced geometry change: the PTY moves, the applied
+    /// sequence does not (v2 `keeper-frame-handler.ts:350-378`).
+    pub fn apply_unsequenced_resize(&mut self, cols: u16, rows: u16) -> Result<(), SpawnError> {
+        self.resize_master(cols, rows)
+    }
+
+    fn resize_master(&mut self, cols: u16, rows: u16) -> Result<(), SpawnError> {
         if cols == 0 || rows == 0 {
             return Err(SpawnError::BadDimension {
                 name: "geometry",
@@ -217,10 +229,9 @@ impl PtyChannel {
                 pixel_height: 0,
             })
             .map_err(|err| SpawnError::Pty(err.to_string()))?;
-        self.applied_seq = seq;
         self.cols = cols;
         self.rows = rows;
-        Ok(self.applied_seq)
+        Ok(())
     }
 
     /// The geometry the KERNEL has, which is not always the geometry this
@@ -289,9 +300,26 @@ impl PtyChannel {
         status
     }
 
-    /// Terminate the child. Used by `KillChild` and by shutdown.
+    /// Terminate the child and every process it spawned (v2 `reapChannelTree`).
+    /// Used by `KillChild` and by a respawn over a live channel.
     pub fn kill(&mut self) {
-        let _ = self.child.kill();
+        if let Some(target) = self.reap_target() {
+            crate::process_reap::reap_channel_tree(target);
+        }
+    }
+
+    /// Where a reap starts, or `None` once the child has exited: a reaped
+    /// leader's pid may already belong to someone else (v2's `ch.exited` guard,
+    /// and v2 dropped an exited channel from its map before any shutdown reap).
+    pub fn reap_target(&mut self) -> Option<crate::process_reap::ReapTarget> {
+        if self.exited().is_some() {
+            return None;
+        }
+        let leader = i32::try_from(self.child.process_id()?).ok()?;
+        Some(crate::process_reap::ReapTarget {
+            leader,
+            foreground_group: self.master.process_group_leader(),
+        })
     }
 }
 

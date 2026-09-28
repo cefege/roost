@@ -26,6 +26,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use roost_observability::clock::EventClock;
 use roost_protocol::wire::brand::ChannelId;
 
+use super::binding_close::SessionCloser;
 use super::binding_staging::{Held, Mode, Staging};
 use super::lifecycle::SessionTable;
 use super::sinks::ChannelBinding;
@@ -147,9 +148,25 @@ pub struct RecordBinding {
     delivery: Arc<Mutex<dyn ChannelDelivery>>,
     clock: Arc<dyn EventClock>,
     mode: Mutex<Mode>,
+    /// The session manager's close and orphan-output routes (v2
+    /// `closedByKeeper`, `emit_no_session`); `None` for a bare binding.
+    closer: Option<SessionCloser>,
 }
 
 impl RecordBinding {
+    /// A staged binding whose live exit closes its session through `manager`
+    /// and whose record-less output reports to its keeper-health counter.
+    pub fn closing(manager: &super::lifecycle::SessionManager, channel_id: u16) -> Arc<Self> {
+        Arc::new(Self {
+            channel_id,
+            sessions: Arc::clone(&manager.sessions),
+            delivery: Arc::clone(&manager.ingest),
+            clock: Arc::clone(&manager.clock),
+            mode: Mutex::new(Mode::Staged(Staging::default())),
+            closer: Some(SessionCloser::of(manager)),
+        })
+    }
+
     /// A binding for a channel whose record does not exist yet.
     pub fn staged(
         channel_id: u16,
@@ -163,6 +180,7 @@ impl RecordBinding {
             delivery,
             clock,
             mode: Mutex::new(Mode::Staged(Staging::default())),
+            closer: None,
         })
     }
 
@@ -179,6 +197,7 @@ impl RecordBinding {
             delivery,
             clock,
             mode: Mutex::new(Mode::Live),
+            closer: None,
         })
     }
 
@@ -234,17 +253,17 @@ impl RecordBinding {
         (true, held_exit)
     }
 
-    /// Drop what was held, because the record it was for is never coming.
+    /// Drop what was held, because the record it was for is never coming, and
+    /// deliver live from here: v2's failed-adoption catch re-registers the live
+    /// callbacks, so the orphan's tail meets the recently-closed gate.
     pub fn abandon(&self) -> usize {
         let mut mode = self.lock();
-        match &mut *mode {
-            Mode::Staged(staging) => {
-                let bytes = staging.bytes;
-                staging.events.clear();
-                bytes
-            }
+        let dropped = match &*mode {
+            Mode::Staged(staging) => staging.bytes,
             Mode::Live => 0,
-        }
+        };
+        *mode = Mode::Live;
+        dropped
     }
 
     /// How many bytes this binding is currently holding.
@@ -268,11 +287,14 @@ impl RecordBinding {
     fn ingest(&self, chunk: &[u8]) {
         let now_ms = self.clock.now_epoch_ms();
         let Some(entry) = self.sessions.entry(self.channel_id) else {
-            tracing::warn!(
-                channel_id = self.channel_id,
-                len = chunk.len(),
-                "pty output arrived for a channel this worker holds no record for; it is dropped"
-            );
+            match &self.closer {
+                Some(closer) => closer.orphan_output(self.channel_id, chunk.len(), now_ms),
+                None => tracing::warn!(
+                    channel_id = self.channel_id,
+                    len = chunk.len(),
+                    "pty output arrived for a channel this worker holds no record for; it is dropped"
+                ),
+            }
             return;
         };
         let mut record = entry
@@ -284,26 +306,22 @@ impl RecordBinding {
             .ingest_output(&mut record, chunk, now_ms);
     }
 
-    /// THE LIVE EXIT ONLY. A child's end closes the SESSION — v2 routes it to
-    /// `closedByKeeper` and the chain ends at a `SessionEvent::closed` — and
-    /// that is the session layer's business, not a cell delivery's. This is the
-    /// one path that may block to run it, because the keeper's dispatch thread is
-    /// a plain `std::thread` rather than a runtime worker.
-    ///
-    /// THE LOCK ORDER, WHICH IS THE NOTE THE NEXT PERSON NEEDS:
-    /// **`ended` holds nothing when it routes, and `close_channel` needs both of
-    /// the locks it held.** It used to hold the record and the delivery, and
-    /// `close_channel` takes the record (through `forget`) and ends on `cells` —
-    /// the same `Arc<Mutex<dyn CellDelivery>>`. A `std::sync::Mutex` is not
-    /// reentrant, so routing the close from inside either guard deadlocks on the
-    /// first exit of every channel. If a future change moves the route up one
-    /// line, it looks harmless and it is not.
+    /// THE LIVE EXIT ONLY: v2 routes it to `closedByKeeper` (`session-emit.ts:316-322`),
+    /// which closes the session. Nothing is held while it routes: `close_channel`
+    /// takes the record and the cell delivery, and neither lock is reentrant.
     fn ended(&self, exit_code: Option<i32>) {
         tracing::info!(
             channel_id = self.channel_id,
             exit_code = ?exit_code,
             "keeper: a channel's child ended"
         );
+        match &self.closer {
+            Some(closer) => closer.close(self.channel_id, exit_code),
+            None => tracing::debug!(
+                channel_id = self.channel_id,
+                "a bare binding's exit closes nothing"
+            ),
+        }
     }
 
     /// A BREAK IS A LOG AND NOTHING ELSE, which is v2's live `onError` exactly
