@@ -41,6 +41,11 @@ superseded history. A snapshot is a `git stash create` commit.
 
 ## 3. Host setup (do this first, in order)
 
+0. **OS**: Linux (x86_64 or aarch64). The build-admission scripts and every
+   build command use `flock` (util-linux); on macOS install it first
+   (`brew install util-linux` and put its `bin` on PATH) and drop the
+   linker compression flag (see 4). All gates and the Playwright stack
+   were only ever run on Linux.
 1. **Hardware floor**: ≥250 GB free disk (each track's cargo target dir grows
    to 10–14 GiB, the workspace gate dir ~11 GiB, plus release builds);
    16+ cores recommended. The old host (8 cores, 111 GB) was the bottleneck.
@@ -99,6 +104,10 @@ superseded history. A snapshot is a `git stash create` commit.
    `v3-coord`), `worker-lead-handoff.md` "PAUSE STATE" (on
    `recover/workerroot`), `web-lead-handoff.md` "Pause state" (on
    `v3-web`). Read each from its own branch — they are newer there.
+   Handoffs sometimes point at `agent://<Lead>.<Slice>` reports or
+   `/tmp/...` files: those lived in the old session/host and are GONE.
+   Everything that survived is in the branch, its snapshot, and the
+   commit bodies.
 5. Supporting briefs in `docs/v3-handoff/`: `roost-porting-conventions.md`,
    `silent-no-ops.md`, `roost-web-pump-slice.md`,
    `roost-web-decode-slice.md`, `u1-pump-smoke-map.md`,
@@ -121,7 +130,7 @@ CDirect, AtAttach, GsSearch, D1Deploy (pending integrator decisions listed
 in the coord handoff), CRetain. In the snapshot the ratchet reads 2
 (`SessionsPrompt`, `DiagSnapshot`) because slices flipped rows before
 gating — every flip must be re-proved. Waiting merges: worker `5208e0f9`
-(agent-status retirement decode, protocol-only) before AG2/C-PUSH; worker
+(agent-status retirement decode, protocol-only; on `origin/v3-worker`) before AG2/C-PUSH; worker
 `terminal_capture` protocol types (not yet committed) for C-CAPTURE.
 
 **Worker (Stage 2W).** Wave 1 committed and gated (1223/0/0 ×2, clippy 0,
