@@ -31,14 +31,13 @@ use super::bootstrap_redeem::activation;
 use super::bootstrap_redeem::enroll_this_activation;
 use super::credential::WorkerKeyCredential;
 use super::door_serve::LocalDoor;
-use super::keeper_boot::{self, KeeperBootOutcome};
 use super::link_loop::{BrowserLink, CoordinatorCellSink, LinkLoop, WorkerIdentity};
 use super::link_wire::ProtoLinkWire;
 use super::reconcile;
 use super::session_stack::{self, SessionStack};
 use super::snapshot_source::SessionSnapshot;
 use super::stop::StopRequests;
-use super::{KeeperPool, DATABASE_FILE_NAME, Journal};
+use super::{DATABASE_FILE_NAME, Journal};
 use crate::link_dial::CoordinatorEndpoint;
 
 /// Run the ordered boot and then the link, until the requester asks to stop.
@@ -145,91 +144,24 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
         ),
     }
 
-    // 5. The coordinator's COMPLETE open-session set, and then the keeper. In
-    //    THAT ORDER, and the ordering is the fix: `ensure_keeper` used to be
-    //    called with `None` here, and under the old boot order that `None` was
-    //    not a gap a later step filled — it was permanent. `decide` reads an
-    //    unread set as "do not replace", so a machine whose keeper genuinely
-    //    needed replacing never replaced it, forever, and no test noticed
-    //    because the refusal is the safe direction. `open_sessions_or_unknown`
-    //    is `reconcile`'s, not a closure written here, so the "an unanswered
-    //    coordinator is not an empty one" half of that decision is something a
-    //    test can call — it shipped untested precisely because it was an
-    //    `unwrap_or_else` two lines wide.
-    //    The ROWS, kept, and not just the count. The keeper decision needs only
-    //    the number, but the adoption at step 9 needs this session's own id and
-    //    folder to adopt it INTO — and re-reading for those would be a second
-    //    answer to "which sessions are open" arriving after the keeper had
-    //    already been decided on the first. One read, both consumers.
-    let open_read =
-        reconcile::read_open_sessions(&coordinator_client, boot.fingerprint.as_str()).await;
-    // `open_sessions_or_unknown` takes a CLAIM — `Result<Option<usize>, _>` — and
-    // `open_read.as_ref().map(|rows| rows.len())` is neither: it is
-    // `Result<usize, &anyhow::Error>`, so the `Ok` arm carried a number where
-    // the seam wants the option that distinguishes "read it, it was empty"
-    // from "nobody read it". The rows are borrowed here and moved on the next
-    // line, so the count is derived by reference and the error is re-wrapped
-    // into an owned one; the `Err` arm still reaches the same log line inside
-    // the seam, which is the only thing it is for.
-    let open_sessions = reconcile::open_sessions_or_unknown(
-        open_read
-            .as_ref()
-            .map(|rows| Some(rows.len()))
-            .map_err(|error| anyhow::anyhow!("{error}")),
-    );
-    let open_rows = open_read.unwrap_or_default();
-    if open_rows.is_empty() && open_sessions.is_some() {
-        tracing::info!(
-            "boot: the coordinator reports no open session on this worker, so every channel \
-             the keeper holds is one it has already closed"
-        );
-    }
-
-    let keeper = match keeper_boot::ensure_keeper(&boot, open_sessions, &boot.log_dir).await {
-        Ok(KeeperBootOutcome::Adopted { channels, keeper }) => {
-            tracing::info!(
-                ?channels,
-                "boot: adopted the keeper that already holds this machine's terminals"
-            );
-            Some((keeper, channels))
-        }
-        Ok(KeeperBootOutcome::StartedFresh { keeper }) => {
-            tracing::info!("boot: started a fresh keeper");
-            Some((keeper, Vec::new()))
-        }
-        Ok(KeeperBootOutcome::Held { decision }) => {
-            tracing::warn!(
-                ?decision,
-                "boot: the keeper endpoint is held and nothing was touched"
-            );
-            None
-        }
-        Err(error) => {
-            tracing::error!(%error, "boot refused: the keeper endpoint could not be admitted");
-            return Err(error);
-        }
-    };
-
-    // The pool is built from the admitted keeper HERE, and its dispatch loop
-    // starts inside `KeeperPool::new` — which is before any history is read.
-    // The keeper streams `PtyOut` from the moment a worker connects, and an
-    // unbound frame is dropped at `keeper_pool/dispatch.rs`, so a pool that
-    // started after the first history read would lose the bytes a survivor
-    // produced during the read. Nothing reports that loss: the frames were
-    // never expected by anyone.
-    let (keeper, survivor_channels) = match keeper {
-        Some((handle, channels)) => (Some(handle), channels),
-        None => (None, Vec::new()),
-    };
-    let pool = keeper
-        .as_ref()
-        .map(|handle| KeeperPool::new(handle.clone()));
+    // 5. The coordinator's COMPLETE open-session set, and then the keeper, in
+    //    THAT ORDER. Both halves are `reconcile::admit_keeper`, so the order
+    //    cannot be got wrong HERE: `ensure_keeper` takes the open-session
+    //    count, an unread count authorises nothing, and these used to be
+    //    separable lines in this function with a closure between them that
+    //    shipped untested because it was an `unwrap_or_else` two lines wide.
+    //    The why is `admit_keeper`'s own doc; the ROWS travel with it because
+    //    step 9 needs this session's id and folder to adopt it INTO, and a
+    //    second read would be a second answer arriving after the first was
+    //    spent. One read, both consumers.
+    let admission = reconcile::admit_keeper(&boot, &coordinator_client).await?;
+    let keeper_admitted = matches!(admission, reconcile::KeeperAdmission::Owned(_));
 
     let because = sequence.complete(StepId::KeeperAdmission);
     tracing::info!(
         step = StepId::KeeperAdmission.name(),
         because,
-        keeper = keeper.is_some(),
+        keeper = keeper_admitted,
         "boot: keeper admitted"
     );
 
@@ -251,8 +183,12 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     //    previous shape: that shape logged a warning and carried on to run a
     //    link with no session layer, which answers no browser command, adopts
     //    no survivor, and publishes a snapshot of nothing. All three fail
-    //    silently, so the worker now refuses with a reason instead.
-    let Some(pool) = pool else {
+    //    silently, so the worker now refuses with a reason instead. The
+    //    refusal stays HERE rather than in step 5 with the admission that
+    //    produced it: it is a fact about the session layer below, and a boot
+    //    that said it before building that layer would be explaining a
+    //    consequence it had not reached.
+    let reconcile::KeeperAdmission::Owned(reconciled) = admission else {
         anyhow::bail!(
             "the keeper endpoint is held by a process this worker could not admit, and a \
              worker with no keeper has no PTY owner: every browser command would be \
@@ -260,6 +196,11 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
              empty session set"
         );
     };
+    let pool = reconciled.pool;
+    let open_rows = reconciled.open;
+    let survivor_channels = reconciled.survivors;
+    let keeper = Some(reconciled.keeper);
+
     // The stack takes ownership of the pool, and the adoption needs the same
     // object to read the keeper's channel list through. A CLONE of the handle
     // rather than a second connection: the keeper socket is one, its dispatch

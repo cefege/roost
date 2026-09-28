@@ -20,6 +20,8 @@
 //! replaced on the strength of a coordinator that never replied. `None` says
 //! "nobody has read it", and `decide` treats that as do-not-replace.
 
+use std::sync::Arc;
+
 use anyhow::Context as _;
 use connectrpc::client::ClientTransport;
 // `http_body` by way of `connectrpc`, which is the path the sibling
@@ -27,6 +29,10 @@ use connectrpc::client::ClientTransport;
 // to one trait is a second version of it in the lockfile.
 use connectrpc::http_body;
 use roost_proto::{CoordinatorServiceClient, SessionsListRequest};
+
+use super::boot::WorkerBoot;
+use super::keeper_boot::{self, KeeperBootDecision, KeeperBootOutcome, KeeperHandle};
+use crate::keeper_pool::KeeperPool;
 
 /// The coordinator's open-session count, or `None` while nobody has read it.
 pub type OpenSessionCount = Option<usize>;
@@ -134,4 +140,161 @@ pub fn open_sessions_or_unknown(read: anyhow::Result<OpenSessionCount>) -> OpenS
             None
         }
     }
+}
+
+/// What this worker owns once the keeper has been admitted, and what the
+/// coordinator says is still open beside it.
+///
+/// THE KEEPER HANDLE IS CARRIED AND NOT JUST THE POOL. The boot sequence drops
+/// that handle on its way out rather than closing the connection, and the
+/// reason — the keeper treats a disconnect as a reason to keep serving — is a
+/// property of WHAT THIS WORKER HOLDS, so the handle belongs in the value that
+/// says what this worker holds. The pool owns a clone of its own; this is the
+/// one the teardown names.
+pub struct Reconciled {
+    /// The keeper this worker admitted.
+    pub keeper: KeeperHandle,
+    /// The pool over that keeper, whose dispatch loop is already running.
+    pub pool: Arc<KeeperPool>,
+    /// The channels that keeper still holds, as the ADMISSION reported them.
+    ///
+    /// NOT A SECOND READ. The pool learns the ids as a side effect of listing
+    /// them, so a boot that listed again would be a second answer to "what does
+    /// the keeper hold" arriving after the first was already spent.
+    pub survivors: Vec<u16>,
+    /// The coordinator's own rows for the sessions it still lists open here.
+    pub open: Vec<OpenSession>,
+}
+
+impl std::fmt::Debug for Reconciled {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // BY COUNTS, not by delegating: the pool and the keeper handle have no
+        // `Debug` worth reading, and a boot log line that wants to know what
+        // was admitted wants the channel list's length, not its contents.
+        formatter
+            .debug_struct("Reconciled")
+            .field("survivors", &self.survivors.len())
+            .field("open", &self.open.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for KeeperAdmission {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Owned(reconciled) => formatter
+                .debug_tuple("KeeperAdmission::Owned")
+                .field(reconciled)
+                .finish(),
+            Self::Held { decision } => formatter
+                .debug_struct("KeeperAdmission::Held")
+                .field("decision", decision)
+                .finish(),
+        }
+    }
+}
+
+/// What admitting the keeper established.
+///
+/// NAMED RATHER THAN AN `Option`, because the two answers lead to opposite
+/// responses and an `Option` would hide which is which: `Owned` is a boot that
+/// can continue, and `Held` is a boot that must refuse to come up at all. The
+/// decision travels with it so the caller can name the reason rather than log
+/// a word for it.
+pub enum KeeperAdmission {
+    /// A keeper this worker owns, and what it still holds.
+    Owned(Reconciled),
+    /// The endpoint is held by a process this worker could not admit. Nothing
+    /// was touched.
+    Held {
+        /// Why the admission declined, for the refusal the caller raises.
+        decision: KeeperBootDecision,
+    },
+}
+
+/// Read the coordinator's open-session set, then admit the keeper against it,
+/// in that order.
+///
+/// THE ORDER IS THE FIX, AND IT IS WHY BOTH HALVES ARE ONE FUNCTION. `decide`
+/// takes the open-session count, and a count nobody read is the one value that
+/// authorises nothing — so the read and the admission cannot be two steps a
+/// caller may sequence wrongly, because there is no sequence to get wrong.
+/// `ensure_keeper` used to be called here with `None` for that set, and under
+/// the old boot order the `None` was not a gap a later step filled: it was
+/// permanent, and a machine whose keeper genuinely needed replacing never
+/// replaced it, for ever, with no test noticing because the refusal runs in
+/// the safe direction.
+///
+/// The log directory is not a parameter because [`WorkerBoot`] carries it, and
+/// the value the admission receives is the one the boot sequence was passing by
+/// hand.
+pub async fn admit_keeper<T>(
+    boot: &WorkerBoot,
+    client: &CoordinatorServiceClient<T>,
+) -> anyhow::Result<KeeperAdmission>
+where
+    T: ClientTransport,
+    <T::ResponseBody as http_body::Body>::Error: std::fmt::Display,
+{
+    let open_read = read_open_sessions(client, boot.fingerprint.as_str()).await;
+    // `open_sessions_or_unknown` takes a CLAIM — `Result<Option<usize>, _>` —
+    // and the rows are borrowed here and moved a few lines down, so the count
+    // is derived by reference and the error re-wrapped into an owned one. The
+    // `Err` arm still reaches the one log line inside the seam, which is the
+    // only thing that function is for.
+    let open_sessions = open_sessions_or_unknown(
+        open_read
+            .as_ref()
+            .map(|rows| Some(rows.len()))
+            .map_err(|error| anyhow::anyhow!("{error}")),
+    );
+    let open_rows = open_read.unwrap_or_default();
+    if open_rows.is_empty() && open_sessions.is_some() {
+        tracing::info!(
+            "boot: the coordinator reports no open session on this worker, so every channel \
+             the keeper holds is one it has already closed"
+        );
+    }
+    // The `Held` arm RETURNS rather than yielding `None`, and that is the one
+    // behaviour change the move makes: `None` could only ever have come from
+    // here, so the caller spent a match arm and a second `Option` to carry a
+    // fact this function can simply report.
+    let (keeper, survivors) =
+        match keeper_boot::ensure_keeper(boot, open_sessions, &boot.log_dir).await {
+            Ok(KeeperBootOutcome::Adopted { channels, keeper }) => {
+                tracing::info!(
+                    ?channels,
+                    "boot: adopted the keeper that already holds this machine's terminals"
+                );
+                (keeper, channels)
+            }
+            Ok(KeeperBootOutcome::StartedFresh { keeper }) => {
+                tracing::info!("boot: started a fresh keeper");
+                (keeper, Vec::new())
+            }
+            Ok(KeeperBootOutcome::Held { decision }) => {
+                tracing::warn!(
+                    ?decision,
+                    "boot: the keeper endpoint is held and nothing was touched"
+                );
+                return Ok(KeeperAdmission::Held { decision });
+            }
+            Err(error) => {
+                tracing::error!(%error, "boot refused: the keeper endpoint could not be admitted");
+                return Err(error);
+            }
+        };
+    // The pool is built from the admitted keeper HERE, and its dispatch loop
+    // starts inside `KeeperPool::new` — which is before any history is read.
+    // The keeper streams `PtyOut` from the moment a worker connects, and an
+    // unbound frame is dropped at `keeper_pool/dispatch.rs`, so a pool that
+    // started after the first history read would lose the bytes a survivor
+    // produced during the read. Nothing reports that loss: the frames were
+    // never expected by anyone.
+    Ok(KeeperAdmission::Owned(Reconciled {
+        pool: KeeperPool::new(keeper.clone()),
+        keeper,
+        survivors,
+        open: open_rows,
+    }))
 }

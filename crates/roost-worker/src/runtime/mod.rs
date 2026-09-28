@@ -51,7 +51,6 @@ pub use boot::{WorkerBoot, WorkerOverrides};
 // caller reading a refusal does not have to know which module owns the name it
 // is reading.
 pub(crate) use crate::event_store::database::{DATABASE_FILE_NAME, Journal};
-pub(crate) use crate::keeper_pool::KeeperPool;
 
 use anyhow::Context as _;
 use stop::{StopRequests, stop_requests_from_signals};
