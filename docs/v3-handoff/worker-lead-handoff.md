@@ -22,6 +22,52 @@ agent): block in the foreground (eval `time.sleep` loop, or `flock <lock> true`)
 | `b69afc30` | `TerminalStreamResult.failure_kind` is `Option` (None ⇄ v2 UNSPECIFIED on a committed result). Guard + mutation in the commit body. |
 | `deda6301` | Shared registry gains v2 `broadcast`, `view`, `set_session_allowed`, sweep → `syncWatching` (coord terminal_view tests 11/7/10 pass). CoordLead2C told the SHA. |
 
+## PAUSE STATE (user stop order, lead `WorkerLead2W2`) — read this first
+- Branch `recover/workerroot` = `v3-worker`: wave 1 (`5f67e12c`..`e5ecfe4a`, handoff `28e3cd1d`), then
+  `b8cb104c` protocol bun_abi (cherry-pick of coord `c9772f99`, gated by CoordLead2C; roost-protocol +
+  roost-keeper tests pass here) and `5208e0f9` protocol agent-status retirement decode (integrator-ruled;
+  roost-protocol + roost-keeper tests pass; its clippy target NOT yet confirmed — the clippy run stopped on
+  the capture test below), then this handoff commit.
+- Uncommitted waves 2+3 (all 13 slices wired into the tree, ~400 status lines): snapshot
+  `refs/heads/recover/workerroot-snap-pause` (parent = the pushed branch head). Restore:
+  `git fetch origin recover/workerroot-snap-pause && git stash apply FETCH_HEAD`. The snapshot also
+  force-adds `target-track/pause/` (commit drafts `commits2/<Slice>.{paths,msg}`, mutation runners and
+  logs: wresume_run.sh + wresume_*.bak, wdt-muts.json/wdt-session.sh, wad-mutate.py, wheart-mut.py,
+  wdurable/, wpeer/, wad/) and `target-track/drafts/` — copy `target-track/pause/*` back after restoring.
+- Terminal-capture protocol types (`crates/roost-protocol/src/terminal_capture/*`, tests
+  `terminal_capture_{view,validate,envelope}.rs`) are NOT committed: tests pass but
+  `clippy --all-targets -D warnings` fails in `tests/terminal_capture_view.rs` (1 error). Fix it, then land
+  them as a self-contained roost-protocol commit (recipe: `target-track/pause/../protocommits.sh` builds it
+  in a scratch worktree) and send the SHA to CoordLead2C (C-CAPTURE cherry-picks it).
+- Per-slice state at pause (reports: `agent://WorkerLead2W2.<Slice>P2`, plus `.WDurableP3`):
+  | slice | state | still unverified / open |
+  |---|---|---|
+  | WDoorTerm | wired, 36/37 tests pass | red `local_terminal_socket::a_socket_that_stops_draining_is_dropped_alone` (unclassified); 15 mutations (wdt-muts.json) and clippy never ran |
+  | WDoorHttp | paused mid-verification | see its report |
+  | WHeart | wired, 74 tests pass, 18/19 mutations seen | new miss-reset phase in tests/heartbeat.rs unbuilt; mutation M4 unverified; clippy |
+  | WResume | wired, compiles, roost-keeper suite green | worker tests + 9 mutations + clippy never ran: `pause/wresume_run.sh` (UNOWNED — assign WFinishA, integrator-approved) |
+  | WKUpdate | keeper 35 + worker slice tests pass | re-runs after split, mutations M1–M4 + WA/WB batches, clippy |
+  | WCapture | paused | see its report; protocol half above |
+  | WAgentsReport | 26 tests pass, 5/12 mutations seen | 7 mutations, clippy |
+  | WAgentsPrompt + WDurable + WBootOrder | run2 green, 21/24 guards hold, B2 guard added | run3 (B2 verdict), clippy, 3 pass-level A10 tests; cross-track: worker Connect client sends no worker credential and the v3 coord does not fill `recovery_metadata` (v2 returns it only to a worker principal) |
+  | WAgentsInstall | 16 tests pass, M1–M8 seen | M9, clippy, in-tree test rerun (agent died on the forced-tool-choice 400) |
+  | WAgentsDetect | paused | see its report; red `link_agent_status::successful_retirements_replay_in_order_without_an_active_snapshot` (times out) |
+  | WAttach | paused | see its report |
+  | WPeer | tests pass pre-split | post-split rerun, mutation batch B (M3,M4,M6,M7,M17), clippy |
+  | WAttachDirect | all tests pass | 12 mutations + clippy (runner stopped by the pause; SIGTERM restored the file) |
+- Arm table status (uncommitted tree): every interim arm now routes to a real owner — localTerminalGrant
+  + Revoke (WDoorTerm); localTerminalPeerOffer, terminalTransportProbe, localTerminalPeerCancel,
+  terminalDirectRetire (WPeer); localAttachmentPeerOffer/Cancel (WAttachDirect); agentPrompt
+  (WAgentsPrompt); keeperUpdatePrepare (WKUpdate); localAttachmentGrant, attachmentDirectStatusRequest,
+  localAttachmentGrantRevoke, attachmentChunk (WAttach). All 7 no-frame kinds are among them. Unverified
+  until the gate.
+- Next steps: restore; ≤3–4 finisher helpers at once (one worktree build lock; helpers die on the
+  forced-tool-choice 400 when a long bash call is auto-backgrounded — tell them to block in one bash call
+  with timeout ≤3600 and never end a turn); finish the unverified column above; the capture protocol
+  commit; then the track gate on the whole tree, per-slice commits from `commits2/`, the v2-map audit
+  (`//!` headers / Windows-only README list), the live door check (never port 4114), and
+  `roost-target-sweep` after each gate.
+
 ## Wave 1 (W-DOWN + W-INPUT + W-VIEW + W-STREAM + W-PIPELINE + W-CELLS + W-QUERY) — composed, commit plan ready
 All seven slices DONE and composed by W1Wire; W1Lower brought roost-term/keeper/host/protocol green
 (no roost-coord/roost-cli caller of the old keeper-client API existed). Commit plan:
@@ -74,28 +120,6 @@ target-track/ in exactly one .paths file). Per-slice constructors, mutations: `w
 | coordMovePrepare / coordMoveSnapshotStart / coordMoveSnapshotChunk / coordRelocate | inert (retired tags; v2 ignores a variant with no case) | — |
 The 6 interim texts and every reply-less arm are pinned in `tests/link_downstream_absent.rs`.
 
-## Next steps (lead `WorkerLead2W2`), in order
-1. Wave 1 is committed (`5f67e12c`..`e5ecfe4a`, one commit per slice + composition) and pushed; gate
-   evidence is in each commit body (2 runs x 170 binaries, 1223 passed, 0 failed; clippy workspace 0;
-   lint 3077 inputs 0 violations; fmt clean). `W1Split` split six files the formatter pushed over 400.
-2. Waves 2+3 phase 1 is DONE: 13 slices drafted under `target-track/drafts/<Slice>/` (gitignored), each
-   with a self-sufficient `WIRING.md` (files, exact edits, v2 test map, planned mutations, agreements).
-   Mirrored to `refs/heads/recover/workerroot-drafts`; restore with
-   `git fetch origin recover/workerroot-drafts && git archive FETCH_HEAD target-track/drafts | tar -x`.
-   Slices: WDoorHttp, WDoorTerm, WHeart, WResume, WAgentsDetect, WAgentsReport, WAgentsPrompt (also owns
-   journal->link durable delivery and the v2 snapshot frame with a journal seq), WAgentsInstall, WAttach,
-   WAttachDirect, WPeer, WKUpdate, WCapture. Phase-1 reports: `agent://WorkerLead2W2.<Slice>`.
-3. Phase 2: one fresh agent per slice wires its drafts from its WIRING.md. Compile-order dependencies:
-   WDoorTerm (`crate::local_terminal`) before WPeer and WDoorHttp's terminal route; WAgentsReport +
-   WAgentsPrompt modules before WAgentsDetect; WAttach + WPeer (str0m driver) before WAttachDirect;
-   WKUpdate (`probe_runtime`, `shutdown_*_on`) before WResume's keeper_boot retire and WHeart's keeper_runtime.
-4. Integrator condition: Track 2W is not done while any of the 7 reply-less interim arms remains; each
-   reaches its real owner in this push and the arm table above shows it.
-5. Merge CoordLead2C's `bun_abi` restore on `KeeperContractV1` (roost-keeper `contract()`) before the next gate.
-6. Then: track gate, per-slice commits, the audit over `worker-v2-map.md` (every v2 module has a `//!`
-   header naming it or a Windows-only README entry), live door check on a live stack (never port 4114).
-7. Disk: after every gate run `roost-target-sweep` on target-track; `cargo clean` it when it passes 12 GiB.
-
 ## Decisions
 - Downstream kinds whose owner lands in a later wave answer with v2's own absent-owner
   reply (e.g. "local terminal grants unsupported by this worker") in an explicit arm; the
@@ -106,7 +130,7 @@ The 6 interim texts and every reply-less arm are pinned in `tests/link_downstrea
   (coord-link-deps.ts:380-381 via coord-link-downstream.ts:362-364).
 - Seven downstream kinds have no v2 absent-owner reply (v2 `deps.onX?.()` sends nothing): the interim
   arm sends nothing, warns, and is pinned by a no-frame test (integrator-approved).
-- Deliberate deviations (integrator-approved): resumed direct uploads append at `bytesWritten` (v2
+- Deliberate deviations (integrator-approved; also in crates/roost-worker/README.md): attachment base = `<v3 worker data dir>/attachments`; resumed direct uploads append at `bytesWritten` (v2
   attachment-operation-owner.ts:266,374-381 writes at offset 0); the agent-report endpoint lives in the v3
   worker data dir (v2 `~/.roost/agent-report.{cap,sock}` would collide during the Stage-4 side-by-side run).
 - Unhandled-CSI telemetry: vte 0.15 drops unrecognised CSI inside vte (not alacritty), so
