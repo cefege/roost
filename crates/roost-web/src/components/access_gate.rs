@@ -16,7 +16,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::design_icon::Icon;
+use crate::components::md::Icon;
 
 /// The screen shown while the coordinator has not answered.
 ///

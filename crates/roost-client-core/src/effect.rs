@@ -45,16 +45,6 @@ pub enum Effect {
     },
     /// Make one Connect unary call.
     Rpc(RpcCall),
-    /// Ask the host to sign a challenge with the device key.
-    ///
-    /// The result comes back as `ClientEvent::ChallengeSigned`. Async in every
-    /// host, which is exactly why it is an effect and not a trait method.
-    SignChallenge {
-        /// What is being signed.
-        purpose: ChallengePurpose,
-        /// The bytes to sign, already canonicalised by the host.
-        payload: Vec<u8>,
-    },
     /// Write the Sync recovery watermark. Debounced by the core, so a credential
     /// boundary can discard it before it reaches storage.
     PersistWatermark {
@@ -83,30 +73,14 @@ pub enum Effect {
         /// The worker whose loopback door or peer the grant opens.
         worker_fp: String,
     },
-    /// Run this domain's snapshot hydrator for its current generation: v2
-    /// `_triggerSyncDomainHydration` (`apps/web/src/store/sync-domain-hydration.ts:66-69`).
-    ///
-    /// The host owns the per-domain snapshot call and its retry; the generation
-    /// is carried so a hydrator already running for this one is not restarted.
-    HydrateDomain {
-        /// The domain whose retained snapshot is owed.
-        domain: SyncDomain,
-        /// The domain generation the snapshot must belong to.
-        generation: u64,
-    },
-}
-
-/// What a challenge signature is for. Named so a host cannot sign one thing and
-/// present it as another.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ChallengePurpose {
-    /// Proving possession of the device key to the coordinator.
-    Pairing,
-    /// Refreshing an expiring credential.
-    Refresh,
 }
 
 /// One typed frame for the Sync socket.
+///
+/// The frame's `socket_id` is NOT here: the host stamps the id of the socket it
+/// sends on (`client::sync::encode::encode_sync_command`), exactly as v2's link
+/// did (`apps/web/src/store/sync-domain-state.ts:83-98`). A command that named
+/// its own socket could name one the host has already replaced.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SyncCommand {
     /// The cumulative flow-control acknowledgement.
@@ -120,23 +94,29 @@ pub enum SyncCommand {
         /// window cost, so acknowledging one would release application records
         /// this client has not processed.
         ack_delivery_seq: u64,
-        /// The socket the records were sent on.
-        socket_id: String,
     },
     /// Subscribe to one domain, exactly.
     Subscribe {
         /// The domain.
         domain: SyncDomain,
+        /// The domain generation the subscribe answers. The coordinator ignores
+        /// one for any other generation.
+        generation: u64,
     },
     /// Unsubscribe from one domain, exactly.
     Unsubscribe {
         /// The domain.
         domain: SyncDomain,
+        /// The domain generation being left.
+        generation: u64,
     },
     /// Close one domain's snapshot/live gap, presenting the snapshot token.
     DomainReady {
         /// The domain.
         domain: SyncDomain,
+        /// The domain generation the snapshot belongs to. A mismatch is ignored
+        /// by the coordinator, which would leave the gap open.
+        generation: u64,
         /// The one-time token from the bootstrap call.
         snapshot_token: Option<String>,
     },
@@ -148,6 +128,12 @@ pub enum SyncCommand {
         view_id: String,
         /// What the view wants.
         intent: ViewIntent,
+        /// The view's intent revision. A new intent carries a higher one; a
+        /// heartbeat or a redial replay repeats the same one with the same
+        /// payload, which the coordinator treats as idempotent. A lower one, or
+        /// the same one with a different payload, is refused
+        /// (`crates/roost-coord/src/terminal_view/admit.rs`).
+        revision: u64,
         /// The generation the command belongs to.
         token: TerminalToken,
     },
@@ -157,6 +143,13 @@ pub enum SyncCommand {
         session_id: String,
         /// The view whose geometry the baseline must match.
         view_id: String,
+        /// The stream the replica is fenced to. Never empty: a replica with no
+        /// expected stream has nothing to repair toward and sends no resync.
+        stream_id: String,
+        /// The canonical grid's epoch, or empty with no canonical.
+        grid_epoch: String,
+        /// The canonical grid's sequence, or `0` with no canonical.
+        seq: u64,
         /// The generation the request belongs to.
         token: TerminalToken,
     },
@@ -177,6 +170,8 @@ pub enum SyncCommand {
         /// The generation the write belongs to.
         token: TerminalToken,
     },
+    /// Answer an acknowledged layout apply on the exact socket it named.
+    UiApplyLayoutResult(crate::client::ui_state::LayoutApplyResult),
 }
 
 /// One typed command for a direct carrier.
@@ -211,155 +206,8 @@ pub enum DirectCommand {
     },
 }
 
-/// One Connect unary call.
-///
-/// A closed set on purpose: an open-ended request enum is how a client crate
-/// grows a transport. Adding a member is a deliberate edit, and adding one is
-/// also the moment to decide whether the state machine needs a new event for the
-/// answer.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RpcCall {
-    /// `AuthCoordIdentity` — who this credential is.
-    CoordIdentity {
-        /// Correlates the answer with this call.
-        call_id: u64,
-    },
-    /// `SessionsList` — the bootstrap snapshot, and the source of the one-time
-    /// terminal snapshot token.
-    SessionsList {
-        /// Correlates the answer with this call.
-        call_id: u64,
-    },
-    /// `WorkersList` — the worker registry, for the sidebar.
-    WorkersList {
-        /// Correlates the answer with this call.
-        call_id: u64,
-    },
-    /// Redeem a pairing token.
-    RedeemPairToken {
-        /// Correlates the answer with this call.
-        call_id: u64,
-        /// The token the operator pasted.
-        token: String,
-    },
-    /// `FilesListDir` — one directory listing for the file viewer.
-    FilesListDir {
-        /// Correlates the answer with this call.
-        call_id: u64,
-        /// The machine to read, by its registry fingerprint.
-        worker_fp: String,
-        /// The directory path, absolute on that machine.
-        path: String,
-    },
-    /// `FilesMkdir` — create a directory, optionally as a chain of parents.
-    FilesMkdir {
-        /// Correlates the answer with this call.
-        call_id: u64,
-        /// The machine to write to, by its registry fingerprint.
-        worker_fp: String,
-        /// The directory path to create.
-        path: String,
-        /// Create missing parents rather than failing on the first gap.
-        recursive: bool,
-    },
-    /// `SessionsSearchGlobal` — one page of a fleet-wide content search.
-    ///
-    /// Unary and cursor-paged, NOT a stream. The answer carries the page and
-    /// the `next_cursor` that asks for the one after it
-    /// (`protocol/proto/roost/v1/coordinator.proto:960`), and the REQUEST
-    /// already carries a `cursor` — a continuation is this same method again,
-    /// which is only meaningful because the first answer came back inline.
-    /// One page in flight at a time, because the coordinator's cursor is a
-    /// single continuation and two pages sharing it would interleave.
-    SessionsSearchGlobal {
-        /// Correlates the answer with this call.
-        call_id: u64,
-        /// The identity the coordinator cancels this search under. **The
-        /// CLIENT mints it and sends it on the request** — the start does not
-        /// return it, so a client that treated the answer as the handle would
-        /// have nothing to cancel with.
-        search_id: String,
-        /// The text to find.
-        query: String,
-        /// Whether a match respects case.
-        case_sensitive: bool,
-        /// Where to resume, or `None` for the first page.
-        cursor: Option<String>,
-        /// The coordinator's own caps, never this client's.
-        max_sessions: u32,
-        max_rows_per_session: u32,
-        max_matches: u32,
-    },
-    /// `SessionsCancelGlobalSearch` — stop a search already running.
-    SessionsCancelGlobalSearch {
-        /// Correlates the answer with this call.
-        call_id: u64,
-        /// The search to cancel: the `search_id` this client minted and sent on
-        /// the request (`coordinator.proto:409`).
-        search_id: String,
-    },
-}
+mod rpc_call;
+mod rpc_result;
 
-/// One Connect unary response.
-/// Only `PartialEq`: the rows it carries are wire types, which are `PartialEq`
-/// and not `Eq`.
-#[derive(Debug, Clone, PartialEq)]
-pub enum RpcResult {
-    /// The call failed. The client reports it; it does not retry on its own,
-    /// because every call here is either idempotent (in which case the host's
-    /// dial loop decides) or a ceremony step a human drives.
-    Failed {
-        /// Which call this answers.
-        call_id: u64,
-        /// The coordinator's status text.
-        message: String,
-    },
-    /// `AuthCoordIdentity` succeeded.
-    CoordIdentity {
-        /// Which call this answers.
-        call_id: u64,
-        /// The account this credential belongs to.
-        account_id: String,
-    },
-    /// `SessionsList` succeeded.
-    SessionsList {
-        /// Which call this answers.
-        call_id: u64,
-        /// The complete session rows. The shared `SessionMap`, not a re-keyed
-        /// map: converting branded ids back into strings and re-parsing them
-        /// would be a second parse of the same rows, and a row whose id failed
-        /// the brand check would be dropped silently.
-        sessions: roost_protocol::wire::SessionMap,
-        /// The one-time terminal hydration token, absent when the account has no
-        /// terminal sessions.
-        terminal_snapshot_token: Option<String>,
-    },
-    /// `WorkersList` succeeded.
-    WorkersList {
-        /// Which call this answers.
-        call_id: u64,
-        /// The worker rows, keyed by fingerprint.
-        workers: std::collections::BTreeMap<String, roost_protocol::wire::Worker>,
-    },
-    /// A pairing token was redeemed.
-    PairTokenRedeemed {
-        /// Which call this answers.
-        call_id: u64,
-    },
-    /// `SessionsSearchGlobal` answered with one page.
-    ///
-    /// Carries the `search_id` back as well as the page, because the answer is
-    /// only meaningful against the identity that asked for it: a page arriving
-    /// after the user cancelled, or after a second search replaced this one,
-    /// must be dropped rather than appended. `next_cursor` is `None` when the
-    /// coordinator has nothing more, and a page may be `truncated` at the
-    /// coordinator's own caps and still carry a cursor.
-    SearchPage {
-        /// Which call this answers.
-        call_id: u64,
-        /// The search this page belongs to, as sent on the request.
-        search_id: String,
-        /// The page the coordinator returned.
-        page: crate::search::global::GlobalSearchResponse,
-    },
-}
+pub use rpc_call::{RpcCall, hydration_call};
+pub use rpc_result::RpcResult;

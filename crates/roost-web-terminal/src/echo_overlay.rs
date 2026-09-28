@@ -2,10 +2,20 @@
 //! in a pane's viewport, one element per predicted cell. The predictor in
 //! `roost-client-core` owns the burst and hands this crate an `EchoPaint`;
 //! `geometry` turns that into the classes, offsets and inline CSS each cell is
-//! stamped with, and the adapter below creates the elements. Creating them is
-//! browser-only and gated to `wasm32`; the geometry is native and testable.
+//! stamped with, `painter` batches paints to one per animation frame, and
+//! `host` wires the predictor, the overlay and the clock for the pane. Creating
+//! elements is browser-only and gated to `wasm32`; the rest is native and
+//! testable. Ports v2's `apps/web/src/renderer/predictiveEchoOverlay.ts`.
 
 pub mod geometry;
+pub mod painter;
+
+#[cfg(target_arch = "wasm32")]
+pub mod host;
+
+#[cfg(target_arch = "wasm32")]
+pub use host::PredictiveEchoHost;
+pub use painter::{PaintFlush, PredictionPainter};
 
 pub use geometry::{
     OVERLAY_CLASS, PREDICTED_ERASE_CLASS, PREDICTED_GLYPH_CLASS, PaintedPrediction, cell_left,
@@ -82,9 +92,10 @@ impl PredictiveEchoOverlay {
         Ok(())
     }
 
-    /// Remove every painted prediction, leaving the element attached so the
-    /// next paint costs no re-append.
+    /// Remove every painted prediction, re-attaching first so a clear after a
+    /// full repair lands on the live viewport rather than a detached node.
     pub fn clear(&self) {
+        self.attach();
         self.overlay.set_inner_html("");
     }
 

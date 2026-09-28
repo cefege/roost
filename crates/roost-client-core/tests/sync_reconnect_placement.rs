@@ -22,6 +22,7 @@ use std::collections::BTreeSet;
 use roost_client_core::client::sync::{
     EnqueueOutcome, QueuedFrame, SYNC_DISPATCH_QUEUE_MAX, SyncDispatch, classify_close,
 };
+use roost_client_core::effect::Effect;
 use roost_client_core::event::ClientEvent;
 use roost_client_core::{ClientCore, SyncFrame};
 use roost_protocol::wire::SessionId;
@@ -88,6 +89,7 @@ fn a_frame_queued_across_a_reconnect_is_still_placeable() {
     core.handle(ClientEvent::SyncLinkClosed {
         generation: first,
         close_code: Some(1006),
+        close_reason: String::new(),
     });
     assert!(!core.store().sync.accepts(first));
     let second = open_ready_link(&mut core, "sock-two");
@@ -221,9 +223,37 @@ fn a_backpressure_close_redials_at_once_and_keeps_the_cursor() {
     core.handle(ClientEvent::SyncLinkClosed {
         generation,
         close_code: Some(1013),
+        close_reason: "sync backpressure".to_owned(),
     });
 
-    // The next dial resumes at the cursor rather than re-hydrating, and the
+    // The very next sweep dials — no backoff, the close was a verdict about the
+    // flow-control window (v2 `flow`) — and it resumes at the cursor, so the
     // records the coordinator was still holding come back on the new socket.
-    assert_eq!(cursor_on_next_dial(&mut core), 77);
+    assert_eq!(swept_dial_since(&mut core), Some(77));
+}
+
+#[test]
+fn a_rejected_connection_close_backs_off_although_it_shares_the_code() {
+    let mut core = ClientCore::in_memory(TAB);
+    let generation = open_ready_link(&mut core, "sock-one");
+    core.handle(ClientEvent::SyncLinkClosed {
+        generation,
+        close_code: Some(1013),
+        close_reason: "connection rejected".to_owned(),
+    });
+    assert_eq!(
+        swept_dial_since(&mut core),
+        None,
+        "a refused connection gets the backoff, not an immediate redial loop"
+    );
+}
+
+/// The `since` of the dial one sweep at the close instant emits, if any.
+fn swept_dial_since(core: &mut ClientCore) -> Option<u64> {
+    core.handle(ClientEvent::Sweep { now_ms: 0 })
+        .into_iter()
+        .find_map(|effect| match effect {
+            Effect::DialSync { dial, .. } => Some(dial.since),
+            _ => None,
+        })
 }

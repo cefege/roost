@@ -226,13 +226,16 @@ fn fold_delta(target: &mut FoldTarget, delta: CellGridFrame) -> FrameFoldOutcome
             reason: FrameFoldFailure::DeltaUnfollowed,
         };
     };
-    let expected = target.expected_stream_id.clone().unwrap_or_default();
-    // Every entry is a row of the delta-fence table in the contract.
+    // v2's `null` expectation matches no stream, so neither may an absent one.
+    let expected = target.expected_stream_id.as_deref();
+    // Every entry is a row of the delta-fence table in the contract. Alt-screen
+    // occupancy, a malformed base and restated history are `apply_delta`'s
+    // refusals, reported as `delta_fold_rejected` exactly as v2 reports them.
     let refusals = [
         !target.baseline_ready,
         target.canonical_chunk_in_flight,
-        delta.stream_id != expected,
-        base.stream_id != expected,
+        Some(delta.stream_id.as_str()) != expected,
+        Some(base.stream_id.as_str()) != expected,
         // The epoch fence. A resize mints a new grid epoch, and a delta from the
         // previous one indexes a grid that no longer exists.
         delta.grid_epoch != base.grid_epoch,
@@ -241,9 +244,6 @@ fn fold_delta(target: &mut FoldTarget, delta: CellGridFrame) -> FrameFoldOutcome
         // `checked_add`, not `+ 1`: `base_seq` arrives from the wire, and a
         // debug-build overflow here would panic on the frame path.
         delta.base_seq.checked_add(1) != Some(delta.seq),
-        delta.alt_screen != base.alt_screen,
-        base.viewport_rows.len() != base.rows as usize,
-        !delta.scrollback_rows.is_empty(),
     ];
     if refusals.iter().any(|refused| *refused) {
         target.canonical = Some(base);

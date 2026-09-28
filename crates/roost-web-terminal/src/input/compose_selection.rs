@@ -5,10 +5,13 @@
 //! the one-shot tokens that survive across the browser's default edit.
 //!
 //! Every step is ordered against a browser default this module does not
-//! control, so the state is here, the DOM is not, and the adapter fills a
-//! `PaneInputs`.
+//! control, so the state is here, the DOM is not, and `compose_dom` fills a
+//! `PaneInputs` and applies the returned `ComposeEffects`. Ports the state
+//! machine of v2's `apps/web/src/renderer/terminalComposeSelection.ts`.
 
 mod deferrals;
+
+pub use deferrals::SelectionChangeFacts;
 
 use crate::input::selection::{DomNodeId, LiveSelection, RetainedRange, SelectionGuard};
 
@@ -59,28 +62,55 @@ impl ComposerSelection {
     }
 }
 
-/// What a transition asks the adapter to do, in field order. Every flag
-/// defaults to false, so a transition that only moves state says nothing.
+/// What a transition asks the adapter to do. Every flag defaults to off, so a
+/// transition that only moves state says nothing.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ComposeEffects {
-    /// Capture the pane's live selection for a guarded cycle.
+    /// The guard captured the pane's live selection: retain the document's
+    /// range for it, then re-derive the paint hold.
     pub capture: bool,
-    /// The adapter must clear the document's ranges, which is how the yield
-    /// actually happens. The suspension is armed either way, so a keystroke is
-    /// never swallowed by a refused clear.
+    /// The capture was yielded to the focused editor.
+    pub suspended: bool,
+    /// Clear the document's ranges, which is how the yield actually happens.
+    /// The suspension is armed either way, so a keystroke is never swallowed
+    /// by a refused clear.
     pub clear_ranges: bool,
-    /// Restore the captured range.
+    /// The captured range is live again: re-derive the paint hold.
     pub restore: bool,
-    /// Drop the capture and every deferral.
+    /// The capture and every deferral were dropped: forget the retained range
+    /// and re-derive the paint hold.
     pub release: bool,
-    /// Write a selection into the composer textarea.
+    /// Write this selection into the composer textarea; if the textarea
+    /// refuses, release.
     pub set_composer_selection: Option<ComposerSelection>,
     /// Arm the layout transaction that restores after the browser's default
     /// edit, carrying the version it was armed with.
     pub schedule_layout_restore: Option<u64>,
+    /// Arm the zero-delay keyup restore for this composer input, which the
+    /// adapter re-checks with `keyup_restore_is_current` when it fires.
+    pub schedule_keyup_restore: Option<u32>,
+    /// Run `restore` on the next microtask, after an IME commit has landed.
+    pub restore_next_microtask: bool,
 }
 
-/// The one deferred keyup restore, identified by the input it belongs to.
+impl ComposeEffects {
+    const fn released() -> Self {
+        Self {
+            capture: false,
+            suspended: false,
+            clear_ranges: false,
+            restore: false,
+            release: true,
+            set_composer_selection: None,
+            schedule_layout_restore: None,
+            schedule_keyup_restore: None,
+            restore_next_microtask: false,
+        }
+    }
+}
+
+/// The one deferred keyup restore, identified by the input it belongs to and
+/// the capture it was armed against.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct DeferredKeyupRestore {
     input: u32,
@@ -145,7 +175,7 @@ impl ComposeSelection {
         self.remember_composer_selection(ComposerSelection::caret(position));
     }
 
-    /// Read the composer's current selection out of the textarea.
+    /// Record the composer's current selection, read out of the textarea.
     pub fn remember_composer_selection(&mut self, selection: ComposerSelection) {
         self.selection_start = selection.start;
         self.selection_end = selection.end;
@@ -181,13 +211,12 @@ impl ComposeSelection {
         self.retained_epoch = None;
         self.composer_selection_active = false;
         guard.release();
-        ComposeEffects {
-            release: true,
-            ..ComposeEffects::default()
-        }
+        ComposeEffects::released()
     }
 
-    /// Restore the terminal range, reporting whether it was still restorable.
+    /// Judge a restore. `inputs` is the document AFTER the adapter wrote
+    /// `SelectionGuard::restore_target`'s range, and the adapter has already
+    /// remembered the composer's own selection when it owned the caret.
     ///
     /// A restore that finds the range gone ends the capture rather than
     /// retrying it, and only when no layout transaction still owns it: a
@@ -209,7 +238,7 @@ impl ComposeSelection {
             };
         }
         if self.deferred_layout_guard != self.retained_epoch {
-            self.release(guard);
+            return self.release(guard);
         }
         ComposeEffects::default()
     }
@@ -226,7 +255,7 @@ impl ComposeSelection {
         guard: &mut SelectionGuard,
         inputs: PaneInputs<'_>,
     ) -> Option<ComposeEffects> {
-        let queues_empty_selection = inputs.live.is_live_range();
+        let queues_empty_selection = inputs.live.present && !inputs.live.collapsed;
         if !guard.suspend(inputs.live, inputs.retained) {
             return None;
         }
@@ -237,6 +266,7 @@ impl ComposeSelection {
             self.pending_suspend_selection_change = true;
         }
         Some(ComposeEffects {
+            suspended: true,
             clear_ranges: guard.suspend_clears_ranges(inputs.live),
             ..ComposeEffects::default()
         })
@@ -246,8 +276,8 @@ impl ComposeSelection {
     ///
     /// Browser automation, soft keyboards and paste can establish a real
     /// caret before any `beforeinput` arrives, so a collapsed native selection
-    /// is taken as the composer already owning the document rather than
-    /// overwritten with a remembered one.
+    /// is taken as the composer already owning the document: the adapter then
+    /// remembers the textarea's own selection rather than overwriting it.
     pub fn activate_composer_selection(
         &mut self,
         guard: &mut SelectionGuard,
@@ -256,10 +286,9 @@ impl ComposeSelection {
         if self.retained_epoch.is_none() || self.composer_selection_active {
             return ComposeEffects::default();
         }
-        let composer_already_owns = !inputs.live.is_live_range();
+        let composer_already_owns = inputs.live.present && inputs.live.collapsed;
         let Some(mut effects) = self.suspend(guard, inputs) else {
-            self.release(guard);
-            return ComposeEffects::default();
+            return self.release(guard);
         };
         self.composer_selection_active = true;
         if !composer_already_owns {
@@ -294,20 +323,27 @@ impl ComposeSelection {
 
     /// A programmatic write — a fill, an autofill, an accessibility action —
     /// has no pointerdown to capture the terminal range first, so the capture
-    /// is taken and suspended together.
+    /// is taken and suspended together. A capture that cannot be suspended is
+    /// released rather than left retained behind a write that never yielded.
     pub fn prepare_programmatic_write(
         &mut self,
         guard: &mut SelectionGuard,
         inputs: PaneInputs<'_>,
     ) -> ComposeEffects {
+        let mut effects = ComposeEffects::default();
         if self.retained_epoch.is_none() {
-            self.capture(guard, inputs);
+            effects = self.capture(guard, inputs);
         }
-        if self.retained_epoch.is_some()
-            && let Some(effects) = self.suspend(guard, inputs)
-        {
+        if self.retained_epoch.is_none() {
             return effects;
         }
-        ComposeEffects::default()
+        match self.suspend(guard, inputs) {
+            Some(suspended) => ComposeEffects {
+                suspended: true,
+                clear_ranges: suspended.clear_ranges,
+                ..effects
+            },
+            None => self.release(guard),
+        }
     }
 }

@@ -16,7 +16,7 @@
 //! before it writes. `command-palette-data.ts:235-237` does this comparison by
 //! hand at two call sites; here it is one predicate on the store.
 //!
-//! Ported from `apps/web/src/store/root.ts`; the deviations are the mutation list
+//! Ported from `apps/web/src/store/root.ts` and `apps/web/src/store/browser-access.ts`; the deviations are the mutation list
 //! in place of a slice list, and the generation moving to the same place the
 //! comparison is asked from.
 
@@ -104,7 +104,9 @@ pub fn clear_auth_scoped_state(store: &mut Store) {
     // whether the caller sees one `revision`.
     let toasts_cleared = crate::store::toasts::clear_all(&mut store.toasts);
     let transfers_cleared = crate::store::transfers::clear_all(&mut store.transfers);
-    let had_any = !store.mcp_relays.is_empty()
+    let dialogs_cleared = store.shell_dialogs.clear_all();
+    let had_any = dialogs_cleared
+        || !store.mcp_relays.is_empty()
         || !store.pair_requests.is_empty()
         || toasts_cleared
         || transfers_cleared
@@ -134,7 +136,9 @@ pub fn clear_account_state_for_logout(store: &mut Store) {
     // made `true` before the toast and transfer clears were ever called.
     let toasts_cleared = crate::store::toasts::clear_all(&mut store.toasts);
     let transfers_cleared = crate::store::transfers::clear_all(&mut store.transfers);
-    let had_scoped = !store.mcp_relays.is_empty()
+    let dialogs_cleared = store.shell_dialogs.clear_all();
+    let had_scoped = dialogs_cleared
+        || !store.mcp_relays.is_empty()
         || !store.pair_requests.is_empty()
         || toasts_cleared
         || transfers_cleared
@@ -152,4 +156,32 @@ pub fn clear_account_state_for_logout(store: &mut Store) {
         store.note_change();
     }
     tracing::info!(target: "store", "account state cleared for logout");
+}
+
+/// The coordinator's build and public URL (v2 `rootStore.coord_identity`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CoordIdentity {
+    /// The coordinator's build, for the drift badge.
+    pub git_sha: String,
+    /// The coordinator's public URL.
+    pub public_url: String,
+}
+
+/// The coordinator refused this device key (v2 `markBrowserDeviceRejected`,
+/// `apps/web/src/store/browser-access.ts:20-29`): the auth-scoped records go,
+/// then the gate closes. Only the loss edge acts; a persistently unknown
+/// browser does not tear down again on every refresh.
+pub fn mark_browser_device_rejected(store: &mut Store, source: &'static str) {
+    if store.browser_access_state == BrowserAccessState::Unauthorized {
+        return;
+    }
+    clear_auth_scoped_state(store);
+    set_browser_access_state(store, BrowserAccessState::Unauthorized);
+    tracing::warn!(target: "store", source, "browser device rejected");
+}
+
+/// The protected sessions snapshot published: the one event that grants
+/// access (v2 `markProtectedSnapshotPublished`, `browser-access.ts:32-43`).
+pub fn mark_protected_snapshot_published(store: &mut Store) {
+    set_browser_access_state(store, BrowserAccessState::Authorized);
 }

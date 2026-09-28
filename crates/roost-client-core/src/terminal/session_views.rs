@@ -10,12 +10,25 @@
 //! `protocol/spec/terminal-stream.md:24-26`.
 
 use crate::terminal::session::{TerminalSession, ViewStateAdmission};
-use crate::terminal::view::{TerminalView, ViewIntent, ViewStateResult};
+use crate::terminal::view::{TerminalView, ViewAnswer, ViewStateResult};
 
 impl TerminalSession {
-    /// A pane attached.
+    /// A pane attached, or asked to be republished.
+    ///
+    /// A view already publishing this exact size is a renewal, not a new intent:
+    /// it keeps its revision and lease state, as v2 `changeIntent` ignores an
+    /// identical intent and `refresh` republishes the desired one unchanged.
+    /// Re-opening a view id with any other intent continues its revision rather
+    /// than restarting at 1: the authority remembers the old revision, and a
+    /// lower one for the same handle is refused as stale.
     pub fn open_view(&mut self, view_id: impl Into<String>, cols: u32, rows: u32, now_ms: u64) {
-        let view = TerminalView::opened(view_id, cols, rows, now_ms);
+        let mut view = TerminalView::opened(view_id, cols, rows, now_ms);
+        if let Some(previous) = self.views.get(&view.view_id) {
+            if previous.intent == view.intent {
+                return;
+            }
+            view.revision = previous.revision + 1;
+        }
         self.views.insert(view.view_id.clone(), view);
     }
 
@@ -40,9 +53,10 @@ impl TerminalSession {
     }
 
     /// A pane closed, or authorization was lost. The view is removed at once,
-    /// with no lease wait.
-    pub fn close_view(&mut self, view_id: &str) {
-        self.views.remove(view_id);
+    /// with no lease wait. Returns the revision its removal is published under,
+    /// or `None` when this replica held no such view.
+    pub fn close_view(&mut self, view_id: &str) -> Option<u64> {
+        self.views.remove(view_id).map(|mut view| view.retire())
     }
 
     /// A view, for a host that repaints through it.
@@ -63,11 +77,6 @@ impl TerminalSession {
             .values()
             .find(|view| view.counted)
             .or_else(|| self.views.values().next())
-    }
-
-    /// The intent one view currently wants sent.
-    pub fn view_intent(&self, view_id: &str) -> Option<ViewIntent> {
-        self.views.get(view_id).map(|view| view.intent)
     }
 
     /// Record that a view's command was sent, and that it is now awaited.
@@ -91,13 +100,16 @@ impl TerminalSession {
         if result.session_id != self.session_id {
             return ViewStateAdmission::Stale;
         }
-        let acknowledged = self
-            .views
-            .get_mut(&result.view_id)
-            .is_some_and(|view| view.acknowledge(result.generation, now_ms));
-        if !acknowledged {
+        let Some(view) = self.views.get_mut(&result.view_id) else {
+            return ViewStateAdmission::Stale;
+        };
+        if !view.acknowledge(result.generation, now_ms) {
             return ViewStateAdmission::Stale;
         }
+        view.answer = Some(ViewAnswer {
+            revision: view.revision,
+            accepted: result.accepted,
+        });
         if result.accepted {
             ViewStateAdmission::Accepted {
                 stream_id: result.stream_id.clone(),

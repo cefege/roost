@@ -12,8 +12,8 @@
 use dioxus::prelude::*;
 
 use crate::components::brand_mark::{BrandMark, HOME_MARK_SIZE};
-use crate::components::design_icon::Icon;
 use crate::components::layout::title_bar::PRODUCT;
+use crate::components::md::Icon;
 
 /// A shortcut the landing advertises, and the glyph each platform shows for it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

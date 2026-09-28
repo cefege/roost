@@ -1,61 +1,70 @@
-//! One scrollback history request, the answer it may be given, and the guards
-//! that decide whether that answer may paint. `wave` is the other half: what
-//! the pager does with a page those guards admitted.
-//!
-//! A page is admissible only when it is the interval the pager asked for under
-//! the grid the pane is numbered as RIGHT NOW, because the alternative is a
-//! painted row disagreeing with the frame describing it — the "torn seam".
-
-mod wave;
+//! One scrollback history read, the page it may be answered with, and the
+//! guards that decide whether that page may paint. `backfill::wave` owns what
+//! the pager does with an admitted page. Ports the request/`validatePage`/
+//! `noteFloor` half of `apps/web/src/renderer/scrollbackBackfill.ts`: a page is
+//! admissible only as the interval asked for, under the grid the pane is
+//! numbered as right now — otherwise a painted row disagrees with its frame.
 
 use roost_client_core::terminal::history_backfill::DemandBounds;
 use roost_protocol::cell::CellRow;
 use roost_protocol::terminal_search::ScrollbackHistoryFloor;
 
-/// One history page request: rows ending at `end_row`, under one epoch.
+/// One `SessionsGetScrollbackCells` query: rows ending at `end_row`, one epoch.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScrollbackPageRequest {
     /// The session whose history is read.
     pub session_id: String,
-    /// The newest row the page may contain, exclusive. A request is named by its
-    /// NEWEST row because a page clamped at the retained floor comes back short
-    /// at the OLD end, and the reader always knows where "now" is.
+    /// The newest row the page may contain, exclusive. A request is named by
+    /// its NEWEST row because a page clamped at the retained floor comes back
+    /// short at the OLD end.
     pub end_row: u32,
-    /// The most rows the page may carry, one sealed block wide.
+    /// The most rows the page may carry.
     pub max_rows: u32,
     /// The grid numbering the page must be addressed to.
     pub grid_epoch: String,
 }
 
 impl ScrollbackPageRequest {
-    /// The request one demand becomes, excluding the session it belongs to.
-    pub fn for_demand(session_id: &str, demand: &DemandBounds, grid_epoch: &str) -> Self {
+    /// The query one demand becomes.
+    pub(crate) fn for_demand(session_id: &str, demand: &Demand) -> Self {
         Self {
             session_id: session_id.to_string(),
-            end_row: demand.end,
-            max_rows: demand.end - demand.start,
-            grid_epoch: grid_epoch.to_string(),
+            end_row: demand.bounds.end,
+            max_rows: demand.bounds.end - demand.bounds.start,
+            grid_epoch: demand.grid_epoch.clone(),
         }
     }
+}
 
-    /// The oldest row this request names.
-    pub fn start_row(&self) -> u32 {
-        self.end_row.saturating_sub(self.max_rows)
-    }
+/// One history page as the carrier answered it, rows already decoded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScrollbackPage {
+    /// The rows, which must name `[start_row, end_row)` exactly and in order.
+    pub rows: Vec<CellRow>,
+    /// The first row, inclusive, as the wire carries it.
+    pub start_row: u64,
+    /// The row after the last one, as the wire carries it.
+    pub end_row: u64,
+    /// The columns the rows were laid out in.
+    pub cols: u32,
+    /// The retained scrollback lines the worker holds now.
+    pub scrollback_total: u64,
+    /// The grid numbering the rows belong to.
+    pub grid_epoch: String,
+    /// Which retention floor a short page hit, and why.
+    pub history_floor: ScrollbackHistoryFloor,
 }
 
 /// What raised a demand: a reader gesture, or a find match's row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DemandKind {
-    /// A reader scrolled and the window exposed a gap.
+pub(crate) enum DemandKind {
     Scroll,
-    /// Find asked for one match's row to be painted.
     Find,
 }
 
 impl DemandKind {
-    /// The name an incident log reads.
-    pub const fn as_str(self) -> &'static str {
+    /// The name the incident log reads.
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Scroll => "scroll",
             Self::Find => "find",
@@ -63,70 +72,35 @@ impl DemandKind {
     }
 }
 
-/// One demand: the absolute rows to fetch, and the fence the answer must match.
-///
-/// The bounds are pure arithmetic from `roost_client_core`; the fence is what
-/// makes an answer attributable to the wave that asked for it. A page is judged
-/// against BOTH, because the right rows under the wrong grid are still wrong.
+/// One wave's rows plus the fence its answer must match: the right rows under
+/// the wrong grid are still wrong, so a page is judged against both.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Demand {
-    /// The half-open absolute row range, plus the row the wave owes.
-    pub bounds: DemandBounds,
-    /// Which pager generation raised it; a newer one has already superseded it.
-    pub generation: u32,
-    /// Whether a reader gesture or find raised it.
-    pub kind: DemandKind,
-    /// The grid numbering the answer must carry.
-    pub grid_epoch: String,
-    /// The columns the answer must carry.
-    pub cols: u32,
-    /// The history total the frame reported when the demand was derived.
-    pub minimum_total: u64,
+pub(crate) struct Demand {
+    pub(crate) bounds: DemandBounds,
+    /// The pager generation that raised it, which also names the wave.
+    pub(crate) generation: u64,
+    pub(crate) kind: DemandKind,
+    pub(crate) grid_epoch: String,
+    pub(crate) cols: u32,
+    /// The history total the anchor reported when the demand was raised.
+    pub(crate) minimum_total: u64,
 }
 
-impl Demand {}
-
-/// One history page, as the worker answered it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ScrollbackPage {
-    /// The rows, naming the requested interval exactly and in order.
-    pub rows: Vec<CellRow>,
-    /// The first row, inclusive.
-    pub start_row: u32,
-    /// The row after the last one.
-    pub end_row: u32,
-    /// The columns the rows were laid out in.
-    pub cols: u32,
-    /// The total retained scrollback lines the worker holds now.
-    pub scrollback_total: u64,
-    /// The grid numbering the rows belong to.
-    pub grid_epoch: String,
-    /// Which retention floor a SHORT page hit, and why.
-    pub history_floor: ScrollbackHistoryFloor,
-}
-
-/// Why a page was refused. One name per guard, so a dropped wave is attributable.
+/// The guard that refused a page, in v2's check order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ChunkGuard {
-    /// The page was addressed to a grid the pane no longer is.
+pub(crate) enum ChunkGuard {
     Epoch,
-    /// The page's columns differ from the frame's.
     Cols,
-    /// The page's history total contradicts the frame or demand.
     Total,
-    /// The page starts above the demand's end, so it is not this wave's.
     StartRow,
-    /// The page does not end exactly where the demand ends.
     EndRow,
-    /// The page's row count is not the interval it names.
     RowCount,
-    /// A row's index disagrees with its position: the page is out of order.
     RowIndex,
 }
 
 impl ChunkGuard {
-    /// The name an incident log reads.
-    pub const fn as_str(self) -> &'static str {
+    /// The name the incident log reads.
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Epoch => "epoch",
             Self::Cols => "cols",
@@ -139,91 +113,88 @@ impl ChunkGuard {
     }
 }
 
-/// A page that passed every guard, plus what it proved about retention.
+/// A page that passed every guard.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ValidatedPage {
-    /// The rows, in ascending order.
-    pub rows: Vec<CellRow>,
-    /// The first row the page carries.
-    pub start: u32,
-    /// The row after the last one the page carries.
-    pub end: u32,
-    /// The floor the worker reported for a short page.
-    pub floor_reason: ScrollbackHistoryFloor,
+pub(crate) struct ValidatedPage {
+    pub(crate) rows: Vec<CellRow>,
+    pub(crate) start: u32,
+    pub(crate) floor_reason: ScrollbackHistoryFloor,
 }
 
-impl ValidatedPage {
-    /// Whether the page reached further back than the demand asked, which only a
-    /// page clamped at the worker's retention floor does.
-    pub fn is_short_of(&self, demand: &DemandBounds) -> bool {
-        self.start > demand.start
-    }
-
-    /// Whether the page covers the demand's focus row, which a wave reports as
-    /// its success and a find reveal then scrolls to.
-    pub fn covers_focus(&self, demand: &DemandBounds) -> bool {
-        demand.focus >= self.start && demand.focus < self.end
-    }
+/// A refused page: the guard, plus what came back, so the dropped wave is
+/// attributable from one log line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PageRefusal {
+    pub(crate) guard: ChunkGuard,
+    pub(crate) grid_epoch: String,
+    pub(crate) cols: u32,
+    pub(crate) scrollback_total: u64,
+    pub(crate) start_row: u64,
+    pub(crate) end_row: u64,
+    pub(crate) rows: usize,
 }
 
-/// Admit a page against the demand it answers, or name the guard that refused it.
+/// Admit a page against the demand it answers, or name the guard refusing it.
 ///
-/// A page that fails is REFUSED, never approximated: the painted set would then
-/// claim coverage it does not have, and every later interval query would answer
-/// from that lie. A stale epoch is diagnosed before a row count, so an incident
-/// names the renumber that caused the wave rather than the symptom it produced.
-pub fn validate_page(page: &ScrollbackPage, demand: &Demand) -> Result<ValidatedPage, ChunkGuard> {
-    let rows = &demand.bounds;
-    if page.grid_epoch != demand.grid_epoch {
-        return Err(ChunkGuard::Epoch);
-    }
-    if page.start_row > rows.end {
-        return Err(ChunkGuard::StartRow);
-    }
-    if page.end_row != rows.end {
-        return Err(ChunkGuard::EndRow);
-    }
-    if page.cols != demand.cols {
-        return Err(ChunkGuard::Cols);
-    }
-    if page.scrollback_total < demand.minimum_total.max(rows.end as u64) {
-        return Err(ChunkGuard::Total);
-    }
-    if page.rows.len() as u32 != page.end_row - page.start_row {
-        return Err(ChunkGuard::RowCount);
-    }
-    if !rows_name_interval(&page.rows, page.start_row, page.end_row) {
-        return Err(ChunkGuard::RowIndex);
-    }
-    Ok(ValidatedPage {
-        rows: page.rows.clone(),
-        start: page.start_row,
-        end: page.end_row,
-        floor_reason: page.history_floor.clone(),
+/// A failing page is refused whole, never approximated: the painted set would
+/// otherwise claim coverage it does not have. The epoch is judged first so an
+/// incident names the renumber rather than the symptom it produced.
+pub(crate) fn validate_page(
+    page: ScrollbackPage,
+    demand: &Demand,
+) -> Result<ValidatedPage, PageRefusal> {
+    let Some(guard) = page_guard(&page, demand) else {
+        let start = u32::try_from(page.start_row).unwrap_or(demand.bounds.end);
+        return Ok(ValidatedPage {
+            rows: page.rows,
+            start,
+            floor_reason: page.history_floor,
+        });
+    };
+    Err(PageRefusal {
+        guard,
+        grid_epoch: page.grid_epoch,
+        cols: page.cols,
+        scrollback_total: page.scrollback_total,
+        start_row: page.start_row,
+        end_row: page.end_row,
+        rows: page.rows.len(),
     })
 }
 
-/// The retention floor a page PROVED, or none when it served what was asked.
-///
-/// A page that reached further back than the demand is how a floor is learned:
-/// the worker could not serve rows it used to hold, and said so. The floor only
-/// rises, and only from an admitted page.
-pub fn note_floor(
-    page: &ValidatedPage,
-    demand: &DemandBounds,
-    held: u32,
-) -> Option<(u32, ScrollbackHistoryFloor)> {
-    if !page.is_short_of(demand) {
-        return None;
+/// The first guard a page fails, in v2's order, or `None` when it is admissible.
+fn page_guard(page: &ScrollbackPage, demand: &Demand) -> Option<ChunkGuard> {
+    let end = u64::from(demand.bounds.end);
+    if page.grid_epoch != demand.grid_epoch {
+        return Some(ChunkGuard::Epoch);
     }
-    Some((page.start.max(held), page.floor_reason.clone()))
+    if page.cols != demand.cols {
+        return Some(ChunkGuard::Cols);
+    }
+    if page.scrollback_total < demand.minimum_total || page.scrollback_total < end {
+        return Some(ChunkGuard::Total);
+    }
+    if page.start_row > end {
+        return Some(ChunkGuard::StartRow);
+    }
+    if page.end_row != end {
+        return Some(ChunkGuard::EndRow);
+    }
+    // Both edges are inside `[0, demand.end]` now, so they fit a row index.
+    if page.rows.len() as u64 != page.end_row - page.start_row {
+        return Some(ChunkGuard::RowCount);
+    }
+    let named_in_order = page
+        .rows
+        .iter()
+        .zip(page.start_row..)
+        .all(|(row, index)| u64::from(row.index) == index);
+    (!named_in_order).then_some(ChunkGuard::RowIndex)
 }
 
-/// Whether every row names its own position inside the interval.
-fn rows_name_interval(rows: &[CellRow], start: u32, end: u32) -> bool {
-    rows.len() as u32 == end - start
-        && rows
-            .iter()
-            .enumerate()
-            .all(|(offset, row)| row.index == start + offset as u32)
+/// The retained floor an admitted page PROVED, or `None` when it served what
+/// was asked. A page starting newer than the demand is how a floor is learned:
+/// the worker's ring dropped the prefix, and the floor only ever rises.
+pub(crate) fn proven_floor(page: &ValidatedPage, demand: &DemandBounds, held: u32) -> Option<u32> {
+    (page.start > demand.start).then(|| held.max(page.start))
 }

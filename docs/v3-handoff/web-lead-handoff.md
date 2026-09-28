@@ -1,177 +1,307 @@
 # Track U — web lead handoff
 
-Worktree `/home/almalinux/repos/roost-v3-web`, branch `v3-web`.
+Worktree `/home/mike/repos/roost-v3-web`, branch `v3-web`. The worktree
+(`git log --oneline -20 && git status --short`) is the state; this note is the
+moment it was written. Plan: `roost-v3-finish-and-cutover-plan.md` "### Stage 5".
+Lead: `WebLead3` (host `/home/mike`, successor of `WebLead2`).
 
-> **THIS NOTE IS A MOMENT, NOT A STATE. Read the worktree.** Run
-> `git log --oneline -5 && git status --porcelain` in
-> `/home/almalinux/repos/roost-v3-web` before acting on anything here. Those
-> two commands are the state; this file is not. Where a sha appears below it
-> names a PROPERTY to verify, not a starting point to resume from. A merge of
-> `v3` into `v3-web` has ALREADY LANDED — do not go looking for a merge to do.
+## Current state (WebLead3, read this first)
 
-## The defect found this pass — `||` short-circuits a mutation
+Gated tip `f17b305c` "web: the terminal diagnostic probe joins browser, coordinator
+and worker" — pushed, `origin/v3-web` = the same SHA. It is the finished version
+of the WIP the integrator preserved at `origin/v3-web-snap-resume2` (`dabfd789`);
+every file is byte-identical to that snapshot except the three fixes below, which
+are named in the commit body.
 
-`clear_account_state_for_logout` and `clear_auth_scoped_state`
-(`crates/roost-client-core/src/store/root.rs`) both computed
+The three fixes the WIP needed to compile and to stop lying:
 
-```rust
-let had_any = !store.mcp_relays.is_empty()
-    || !store.pair_requests.is_empty()
-    || toasts::clear_all(&mut store.toasts)   // <-- MUTATES
-    || transfers::clear_all(&mut store.transfers) // <-- MUTATES
-    || !store.spawns.is_empty()
-    || !store.pending_closes.is_empty();
-```
+1. `smoke/stream_probe.rs` called a `string_member` that did not exist. Added it
+   (v2's `typeof record.key === "string" ? record.key : null`).
+2. `harness_host.rs`'s `FlowHost::terminal_stream_probe` answered
+   `unported_refusal("terminalStreamProbe")`, which for a now-ported member is
+   `None` and produced an empty-string refusal. It calls the real probe.
+3. `tests/smoke_stream_probe.rs` had a vacuous case (fixed in the commit): its
+   fixture named no session, so the error arm never ran and every member read
+   `null` for free.
 
-`||` short-circuits, so the first truthy term skips every later `clear_all`.
-With any `pair_request` present, **`toasts::clear_all` and
-`transfers::clear_all` were never called** — the two slices that render a
-machine name and a file path from the old account. `store_revision.rs` caught
-the toast half; **transfers was the second victim of the same line** and the
-test would have failed on it next. `clear_auth_scoped_state` has the identical
-shape and no in-tree caller.
+Gate on this tip:
 
-**The fix is the shape, not the operands:** run the clears first, read the
-predicate off their return values. The disjunction is logically unchanged, so
-the `revision` behaviour is provably identical — what changes is *which slices
-get emptied*. Keep this reading when you see a mutating call inside a boolean
-operator anywhere in this repo.
+- `cargo nextest run -p roost-client-core -p roost-web -p roost-web-terminal --no-fail-fast`
+  twice, agreeing: **1344 passed / 4 skipped**.
+- `cargo nextest run -p roost-web --features smoke --no-fail-fast`:
+  **387 passed / 0 skipped**. Run this one too — CI's `cargo test --workspace`
+  never enables the `smoke` feature, so every `#![cfg(feature = "smoke")]` test
+  file compiles to nothing there (`docs/v3-handoff/silent-no-ops.md` #5).
+- `cargo test -p roost-client-core -p roost-web -p roost-web-terminal --no-fail-fast`:
+  195 suites, 0 failed. (nextest is the honest total; the per-suite counts sum to
+  the same 1344.)
+- `cargo clippy --workspace --all-targets --keep-going -- -D warnings` → exit 0.
+- `ROOST_REPO_ROOT=$PWD cargo xtask lint` → **3985 inputs, 0 violations**.
+- `cargo xtask fmt` → clean, confirmed by `git status --short` (its success word
+  is "formatted", which asserts nothing — silent-no-ops #11). Formatting the two
+  touched crates' sources needs `cargo fmt -p roost-web -p roost-client-core`;
+  bare `rustfmt --edition 2024 <file>` disagrees with it on `stream_diagnostics.rs`.
+- `cargo build -p roost-client-core -p roost-protocol -p roost-web -p roost-web-terminal --target wasm32-unknown-unknown`
+  exit 0; `cargo check -p roost-web --target wasm32-unknown-unknown` with and
+  without `--features smoke` exit 0.
 
-`CredentialsDiscarded` (`handle_event.rs:126-135`) was checked for the same
-class: it is straight-line with no predicate, and is clean.
+### A gate CI does not run, and it is red — `roost-web-terminal` under wasm32 clippy
 
-## Measured in the most recent pass — RE-MEASURE, ALL OF IT IS STALE NOW
+`cargo clippy -p roost-web --features smoke --target wasm32-unknown-unknown
+--all-targets -- -D warnings` fails with three `clippy::type_complexity` errors in
+`roost-web-terminal`. This is silent-no-ops #4 exactly: wasm-only code is skipped
+by the host clippy, by host `--all-targets` and by `cargo test`, and `ci.yml`'s
+wasm32 step is `cargo build`, not `cargo clippy`. **Not introduced by this session
+and not fixed by it** — it is pre-existing on `roost-web-terminal`, and it is the
+first thing the next lead should clear, because until it is the wasm32 half of the
+UI crates is outside every lint.
 
-- `cargo check -p roost-client-core --all-targets` — **EXIT=0, 0 errors, 0
-  warnings** (total, from the previous lead).
-- **Clippy ladder — a run reaching further is a run whose predecessor's
-  findings are gone:**
+## Bundles
 
-  |run|stopped at|diagnostics|fix|
-  |---|---|---|---|
-  |A|`test "connect_interceptor"`|2 (FLOOR)|`cloned_ref_to_slice_refs` → `4c79b8de`|
-  |B|`test "prefs_persistence"`|2 (FLOOR)|`bool_assert_comparison` → `9c08c10e`|
-  |C|**reached the end**|**0 — TOTAL, exit 0**|—|
-
-  **A and B are floors and must NOT be summed.** C is a total, bounded by
-  nothing because there was no first failing target.
-- **THE CLIPPY CONTRADICTION IS UNSETTLED IN THE RECORD.** `WebLeadU2` reported
-  run C as **exit 0, a total**. `WebLeadU3` reported **never run to
-  completion**, four attempts, three killed. Both are honest from their own
-  vantage and they cannot both describe the same run. **A fresh single run of
-  the unmodified command settles it by its exit code** — do not pick a side
-  and do not average them.
-- **`roost-web-terminal`: never compiled.** No clippy, no build, no number.
-  Say "never compiled"; publish no number. 5,751 lines across 25 files, all
-  under the 400 cap — **a line count is not a compile.**
-- The last full suite figure is **211 passed / 12 failed / 0 ignored**, 34
-  `test result` lines, a **total** (`--no-fail-fast`, all targets ran). **Stale
-  the moment anything changes** — including the `root.rs` fix above.
-
-## The 14-allow measurement — settled, with its reach stated
-
-The allow is **conditional on where the unwrap lives**: `clippy.toml`'s
-`allow-unwrap-in-tests`/`allow-expect-in-tests` exempt a `#[test]` BODY; they do
-NOT exempt a plain helper `fn` in the same test crate, because a test crate is
-its own crate and its helpers are ordinary functions.
-
-- 9 of the 14 carrying it have helper sites — load-bearing, keep.
-- 5 have ZERO helper sites — dead weight, removed: `auth_ceremony`,
-  `auth_device_key`, `auth_first_boot_race`, `terminal_epoch_fence`,
-  `terminal_full_before_delta`.
-- 3 had helper sites and NO allow and were failing: `navigation_index` (4),
-  `palette_catalog` (4), `store_selectors` (4).
-- Net 14 → 12, and the list moved in **both** directions. "All-or-none" was the
-  wrong instruction; "all-or-none by property" is the right one.
-
-**THE CLASSIFYING UNIT IS THE COMPILATION UNIT, NOT THE FILE.** A crate-level
-`#![allow]` is a property of the crate. For a shared fixture there are **two**
-correct shapes: a consumer root declares it, **or** the fixture declares it for
-itself. `tests/support/auth.rs:10` is the self-declaring shape, which is why
-its 4 consumers that declare nothing at their root are correct as they stand.
-`tests/support/mod.rs` has zero sites. `tests/layout_support/mod.rs` has no
-helper sites and all 7 consumers declare the allow. **The only failing
-combination is a fixture that does neither**, and it is invisible from the
-fixture's own file — you find it by listing consumers.
-
-**The instrument was validated, not fitted:** it predicted 4 helper sites in
-`navigation_index.rs`; clippy independently reported exactly 4, while the two
-`expect`s inside `#[test]` bodies produced none.
-
-**UNCONFIRMED:** the five removals were never confirmed by a compiler — the
-confirming run was killed when the tree moved under it.
-
-## `web-sys` — a resolver figure, NOT §1's acceptance
-
-`cargo tree -p roost-client-core -e normal | grep -c web-sys` → **0**, which is
-what `docs/phase4-client-contract.md` §1 asks for. **The bare number is a
-trap.** The same grep over `src/` is 0; over `tests/` it is **4, not 5** — all
-four inside `tests/core_without_a_browser.rs`, at `:65` and `:100`, which is the
-test that *enforces* the 0. `source_files()` scans only `src/` (`:40`) and
-`declared_dependencies()` reads only `[dependencies]` (`:133`), so `tests/`
-hits and dev-deps are both outside its scope by design. **Quote the resolver
-figure with its scope, and report the wasm32 build as a separate compiler
-fact — the grep is not the build.**
-
-## A linter suggestion that was wrong here
-
-`manual_clamp` on `store/layout/tree.rs` `normalize_pane_ratio` wanted
-`ratio.max(MIN).min(MAX)` → `ratio.clamp(MIN, MAX)`. Taking it would have
-deleted the property the function exists for: `f64::clamp` returns NaN for a
-NaN input. The three guards above exist to prevent exactly that. The guards
-stay. **The discriminator: whether the file already carries a comment stating
-the rule.** One clippy suggestion in seven on this track was wrong about what
-was load-bearing.
-
-- `add_transfer` takes a `NewTransfer` params struct (was 8 positional
-  arguments tripping `too_many_arguments` 8/7). All 6 call sites converted.
-  `NewTransfer` lives in `store/transfers/record.rs` beside `Transfer`.
-- `handle_sync.rs` was 405 against the cap: `apply_frame` moved to
-  `src/handle_sync/apply_frame.rs`, `pub(super)`, moved body byte-identical
-  apart from the one visibility change. 405 → 270, new file 149. **No file in
-  this worktree is over 400.**
-
-## Still open
-
-- **Two agreeing GREEN `--no-fail-fast` runs** of `roost-client-core`. The
-  211/12 above is red and stale. Re-measure, triage against the run rather
-  than against any inherited list, re-measure again.
-- The remaining failures by target, as measured (NOT re-checked since the
-  `root.rs` fix — re-measure): `sync_reconnect_placement` 3,
-  `browse_machine_scope` 2, `store_revision` 1 more,
-  `auth_first_boot_race` 1, `layout_document_apply` 1, `layout_pane_tree` 1,
-  `navigation_index` 1, `prefs_persistence` 1.
-- `cargo clippy -p roost-web-terminal --all-targets -- -D warnings` —
-  **the largest untested body of work on this track.**
-- The wasm32 build — **run it; the grep is not the build.**
-- `cargo fmt`, reading the diff. Three `edit` calls by an earlier lead clobbered
-  adjacent lines and fmt does not catch that class.
-- `cargo xtask lint`. Expect the fixture-allow rule to report **0** on this
-  track — the failing case (a fixture with a consumer lacking the declaration)
-  **does not exist here**. The red you will see in a workspace-wide run is
-  `roost-keeper`'s lint copy on `v3`: the worker track's to fix, not this one.
-- `git merge v3`, re-verify, push.
-- `[dev-dependencies]` for roost-coord / roost-worker / roost-keeper, owed for
-  the integrator's Phase 4 `headless_client.rs`. The DAG permits the edges and
-  `declared_dependencies()` reads only `[dependencies]`, so §1 is unaffected.
-  **A manifest edit re-resolves the lockfile under every running cargo in the
-  wave — do it holding the only lock on your target directory.**
-
-## Build environment
+`crates/roost-web/dist-smoke/` is gitignored (`.gitignore:3`). `dx` does NOT clean
+its output dir, so the two builds must be separated by an `rm -rf` of
+`target-track/dx/roost-web/release/web/public` or the production copy inherits the
+smoke wasm:
 
 ```
-export PATH="$HOME/.cargo/bin:$PATH" CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR=/home/almalinux/repos/roost-v3-web/target-track
+rm -rf target-track/dx/roost-web/release/web/public
+dxb build --release -p roost-web --platform web --features smoke
+rm -rf crates/roost-web/dist-smoke && cp -r target-track/dx/roost-web/release/web/public crates/roost-web/dist-smoke
+rm -rf target-track/dx/roost-web/release/web/public
+dxb build --release -p roost-web --platform web
+rm -rf crates/roost-web/dist && cp -r target-track/dx/roost-web/release/web/public crates/roost-web/dist
+grep -rc __smoke crates/roost-web/dist | awk -F: '{s+=$2} END {print s}'   # must be 0
 ```
 
-The batch script that runs the five gates in order, each figure labelled with
-its bound, is at **`/tmp/u4-gate.sh`** — run it with `bash /tmp/u4-gate.sh`
-and read the `*_EXIT=` lines.
+TERM gate:
+`ROOST_SMOKE_WEB_DIST=$PWD/crates/roost-web/dist-smoke bunx playwright test smoke/terminal/terminal-delivery.spec.ts -g "browser smoke flow creates and cleans its resources" --project chromium-desktop --reporter=line`
+(`node` is not on PATH; use `bunx`. The fixture needs `.workbench-shell[data-compact]`,
+one `[data-testid=folder-list]`, no error boundary, then `__smoke.runFlow`.)
 
-**Do not run the old disk guard.** Deleting `*/debug/build/*/out` without its
-fingerprint destroys the build; it cost three proc-macro crates. The only
-sanctioned reclaim is `cargo clean` on your own `target-track`.
+Measured on this tip: the smoke bundle `grep -rc __smoke crates/roost-web/dist-smoke`
+totals 6, the production bundle `crates/roost-web/dist` totals **0**; the TERM
+gate passed 3 runs in a row (5.5 s / 3.5 s / 3.7 s) with `ROOST_SMOKE_WEB_DIST` as
+the only override (stack: `coordinator=typescript worker=typescript`).
 
-**Commit and push at every stage boundary, before starting a long build.** This
-worktree has survived three near-losses. An incomplete-but-committed wave is
-resumable; an incomplete uncommitted one is re-derivable only by whoever still
-holds the context. Read the diff before committing it.
+### The `__smoke` member the coordinator's X2 DiagSnapshot slice consumes
+
+`window.__smoke.terminalStreamProbe(sessionId)` — an `Answer::Promise` member. It
+takes the browser layer (`terminalBrowserSnapshot`), sends it as
+`DiagSnapshot { spa_state_json }`, and returns the normalized three-layer record
+(`captured_at_ms`, `session_id`, `browser`, `coord.{build,session,terminal_control}`,
+`worker.{worker_fp,status,response_ms,build,session,error}`). The coordinator
+answers with `snapshot_json`; a missing or malformed layer stays explicit
+(`status: "missing"`, `null`) rather than reading as healthy.
+
+`window.__smoke.terminalBrowserSnapshot(sessionId)` is its `Answer::Sync` half and
+answers without the round trip. `SMOKE_METHODS` is **53** (recounted against v2
+`smokeTypes.ts:118-287`: 53 declared, 53 registered, 0 uncovered); both members
+were already registered at `28eebcee` and this commit only removed their
+`UNPORTED_METHODS` entries.
+
+## Previous state (WebLead2)
+
+Gated tip `659b50c8`:
+- `3960743d` view-state installs its stream at the authority's effective geometry; UUID view ids.
+- `e11c611e` republishing a view at its published size keeps its revision (the 1→2→3→4
+  climb: v2 `refresh`/`changeIntent` keep it; wire showed rev=1 then rev=2 same payload).
+- `659b50c8` insecure origin mints no view id (design-review P3).
+- TERM gate on a clean `dist-smoke` of this tree: `1 passed` (three runs).
+- `dist` rebuilt from a cleared folder: `grep -rc __smoke crates/roost-web/dist` total 0.
+- Gate: `cargo nextest run -p roost-client-core -p roost-web -p roost-web-terminal --no-fail-fast`
+  1333 passed / 4 skipped; `cargo test` same crates 192 suites, 1333 passed / 0 failed / 4 ignored;
+  clippy `--workspace --all-targets --keep-going -D warnings` exit 0; lint 3958 inputs, 0
+  violations; `cargo xtask fmt` then `git status --short` empty; CI wasm32 build exit 0;
+  `cargo check -p roost-web --target wasm32-unknown-unknown` ±`--features smoke` exit 0.
+- The TabId WIP that was NOT in that tip has since landed as `32120c5e` ("one tab id
+  per document, arbitrated off a duplicated tab's"), so the SYNC LIFECYCLE remainder
+  is that row's tail, not its `tab-id.ts` port.
+- Build rule: `CARGO_INCREMENTAL=1 CARGO_BUILD_JOBS=3`, nextest for full suites.
+
+## Previous state (WebLead)
+
+Gate part 1 on `97ba537c`'s tree — all green:
+- tests ×2 + clippy: see WebLeadU4 below (1323/0/4 twice; clippy exit 0).
+- `ROOST_REPO_ROOT=$PWD cargo xtask lint` → 3953 inputs, 0 violations.
+- `cargo xtask fmt` then `git status --short` → empty.
+- `cargo check -p roost-web --target wasm32-unknown-unknown` exit 0; same with
+  `--features smoke` exit 0; CI line `cargo build -p roost-client-core -p roost-protocol -p roost-web -p roost-web-terminal --target wasm32-unknown-unknown` exit 0.
+
+Bundles (scope item 2). `dx` does NOT clean its output dir: a second build
+leaves the first build's hashed wasm/js beside its own, so a production copy
+taken after a smoke build contains the smoke wasm (measured: `__smoke` total 6,
+all in the stale `…dxhad5c…wasm` that `index.html` does not reference). Always:
+```
+rm -rf target-track/dx/roost-web/release/web/public
+dx build --release -p roost-web --platform web --features smoke   # (under the build lock)
+rm -rf crates/roost-web/dist-smoke && cp -r target-track/dx/roost-web/release/web/public crates/roost-web/dist-smoke
+rm -rf target-track/dx/roost-web/release/web/public
+dx build --release -p roost-web --platform web
+rm -rf crates/roost-web/dist && cp -r target-track/dx/roost-web/release/web/public crates/roost-web/dist
+grep -rc __smoke crates/roost-web/dist | awk -F: '{s+=$2} END {print s}'   # must be 0
+```
+Each dx release build ≈ 4-5 min once it has a slot.
+
+TERM gate (scope item 3):
+`ROOST_SMOKE_WEB_DIST=$PWD/crates/roost-web/dist-smoke bunx playwright test smoke/terminal/terminal-delivery.spec.ts -g "browser smoke flow creates and cleans its resources" --project chromium-desktop --reporter=line`
+(`node` is not on PATH here; use `bunx`). First run on the `97ba537c` bundle: the shell
+mounts, `worker_available`/`shell_painted`/`workspace_created` pass, then
+`flow_exception: terminal transport is not connected` — no view was ever
+published (fixed in `916387f8`, below). The probe layer reports "U-2 TERMINAL
+DIAG … not ported" (expected until that row).
+
+Commits this session: `a30c16bc` (.gitignore dist-smoke), `916387f8` (views
+publish on the v2 publication target; republish on terminal-domain ready),
+`8007ba32` (1013 backpressure close → immediate redial; closes open item 4b).
+
+Host notes: `/home/mike/repos/webenv.sh` defines `c` (cargo) and `dxb` (dx)
+under the build lock. Commits need `GIT_AUTHOR_*`/`GIT_COMMITTER_*` env
+(Mihai Mateias <mateiasmihaiandrei@gmail.com>); no git identity is configured.
+Build-slot waits reached 20 min in this session (all three tracks building).
+
+`1c75b287`: closed tabs are killed after the undo window (v2 `killAfterUndo`; closes open item 4a).
+
+### Stop state (budget), uncommitted work is in snapshot `v3-web-snap-term-viewstate`
+TERM gate after `1c75b287`: input now routes, but `shell_round_trip` fails with "marker was not
+visibly painted" (`baseline_ready:false, stream_id:null`). I captured the wire with a throwaway
+WebSocket-decoding spec (deleted). It shows the view published and ACCEPTED, with a `streamId`
+and a full `cellGrid` delivered, which isolates two client defects. Both fixes are in the snapshot,
+NOT committed and NOT test-run:
+1. `pane_mount.rs` minted `view-<hex>` view ids, and the coordinator refuses any non-UUID
+   (`terminal-view-protocol.ts:65`). Fixed with `crypto.randomUUID()` (`pane_mount/browser.rs`
+   `mint_view_id`). Design review APPROVED; P3 note: `Crypto::random_uuid` throws rather than
+   returning None on insecure origins, so the doc comment overclaims (check `is_secure_context`).
+2. `handle_correlated_result` hard-coded `stream_id: None`, and decode dropped the stream id and
+   effective geometry, so an accepted view never installed its stream. Fixed:
+   `SyncFrame::ViewState` and `ViewStateResult` carry `stream_id`/`effective_cols`/`effective_rows`,
+   and the stream is installed at the authority's effective geometry after
+   `is_terminal_uuid`/`is_terminal_geometry` (v2 `terminal-stream-view-commands.ts:205-216`).
+   `cargo check -p roost-client-core --all-targets` exit 0. Needs a regression test: an accepted
+   ViewState installs the stream, and a full frame then makes the replica paintable.
+   Mutation: revert to `None`.
+   Next: test, commit, rebuild dist-smoke (clean procedure), rerun the TERM gate.
+   Also seen on the wire: the view revision climbs 1→2→3→4 on renewals every ~3-4 s. v2 renews
+   the same revision, so check whether something other than the heartbeat bumps it.
+3. SYNC LIFECYCLE `tab-id.ts` port (helper TabId, stopped mid-verification):
+   `client/auth/tab_id.rs` (8/8 `tab_identity` tests green), `platform/tab_id.rs` (wasm, NEVER
+   compiled), and `pump/boot.rs` claims before the first dial. It also edits `lib.rs`,
+   `platform/{mod,rpc,connect}.rs` (tab id header becomes `RefCell` + `present_tab_id`).
+   Next: wasm32 check with and without smoke, clippy, tests, and a mutation (the `Occupied` arm).
+   Full notes are in the helper report (transcript `history://WebLead.TabId` on the old session).
+
+## Pause state (WebLeadU4, historical)
+
+Tree = `e09f39ca` + this doc commit. No slices were spawned; no services or
+builds of this track are running. Gate on `e09f39ca`'s tree (scope item 1):
+
+- DONE: `cargo test -p roost-client-core -p roost-web -p roost-web-terminal --no-fail-fast`
+  twice, agreeing: 189 suites, **1323 passed / 0 failed / 4 ignored** (468 s, 235 s).
+  Ignores: `does_not_resume_a_nonfinal_direct_upload_through_coordinator_status`
+  (U-ATTACH), `audit_rows_are_newest_first_deduplicated_and_bounded` (SETTINGS),
+  `refuses_a_ninth_simultaneously_demanded_browser_peer` and
+  `accepts_a_bounded_ready_for_the_full_256_session_grant` (U-CARRIER).
+- DONE: `cargo clippy --workspace --all-targets --keep-going -- -D warnings` → exit 0.
+- Snapshot `v3-web-snap-pause` = `419149c6`: a stash commit on `5a43d383` (the dx-tree mutation
+  worktree) holding the 4 dirty mutation-agent test files and, under
+  `mut-artifacts/`, the local-only `target-track/tmp` material (the NOT-applied
+  `mut-MutDeckSidebarCore.patch`, the MutShellSidebar 92-mutant `mutants.py` +
+  `harness.py`, the MutDeckSidebarCore driver/specs/results, `mutation-brief.md`).
+  Only the `store_sidebar.rs` change is new; the other three are already in the
+  TERM/SMOKE `fixup!` commits. Never apply it wholesale.
+
+## Build rule
+
+`source /tmp/webenv.sh && c <cargo args>` — wraps every cargo/dx call as
+`flock target-track/.roost-build.lock /home/almalinux/repos/roost-build-slot cargo …`
+with `CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=3 CARGO_TARGET_DIR=target-track`,
+no RUSTFLAGS, and a disk check (< 10 GiB → refuse). Recreate `/tmp/webenv.sh`
+from this line if `/tmp` was wiped. The host has TWO build slots shared with the
+worker/coord tracks: a 1-minute build routinely waits 3-8 min for a slot.
+Never end a turn while a build runs: block with an eval that runs
+`flock target-track/.roost-build.lock true` (the bash tool auto-backgrounds).
+Use `cargo clippy … --keep-going` so one failing crate does not hide the rest.
+Formatting: `rustfmt --edition 2024 <crate>/src/lib.rs` (no build slot) — it does
+not format inside `rsx!`.
+
+## Done (committed on `v3-web`)
+
+| Item | Commit(s) |
+|---|---|
+| U-0, U-1 DECODE, PUMP, UiCommand, GamepadTv, MdDesignTheme, RendererInput, renderer core | see `git log` before `04c93348` |
+| Pump listener holder wasm-only (clippy) | `pump` commit |
+| xtask: roost-web → roost-platform edge; allowlist tests moved to `crate_dag/tests.rs` (cross-owner) | `xtask:` commit |
+| roost-platform: Windows drive crumb named `C:` as v2 (cross-owner) | `platform:` commit |
+| Wave B: SHELL, SIDEBAR, DECK, TERM, SMOKE (one commit each; shared registration files whole in SHELL; the series builds at SMOKE) + their `fixup!` commits (clippy fixes, strengthened tests; pushed unsquashed) | `web: SHELL …` … `web: SMOKE …`, `fixup! …` |
+| PUMP invariants guarded + live redial defect fixed (`note_dial_started` before every dial, v2 `_waitForSyncDialPermission`); red first `[250,2000,4000]` → `[1000,2000,4000]`; 4 mutants all killed | `client-core: a pending resume is spent …` |
+| Workspace clippy findings (web-terminal `FocusRefused`, aliases) | `web-terminal: a refused focus …` |
+
+## Gate evidence (this lead)
+
+- `cargo clippy --workspace --all-targets --keep-going -- -D warnings` → exit 0
+  (after the fixes above, on the tree before the TERM/SMOKE test patch; that patch
+  only strengthens three tests and deletes one).
+- Tests: whole three-crate run on the wave-B tree 1318 passed / 0 failed / 5 ignored
+  (+ `--features smoke` roost-web run green); after the redial fix client-core
+  570/0/4. NOT yet: two agreeing runs of
+  `cargo test -p roost-client-core -p roost-web -p roost-web-terminal --no-fail-fast`
+  on the final tip.
+- `ROOST_REPO_ROOT=$PWD cargo xtask lint`: 3954 inputs, **2 violations** (open, below).
+- `cargo xtask fmt` clean; `git status --short` clean.
+- wasm32: `cargo check -p roost-web --target wasm32-unknown-unknown [--features smoke]`
+  clean on the wave-B tree; not re-run after the web-terminal `FocusRefused` change
+  (`controller_dom.rs` is wasm-only).
+
+## Mutations
+
+- TERM + SMOKE survey (`agent://WebLeadU3.MutTermSmoke`, 77 mutants): all failed
+  their guard; 3 survived and their tests were strengthened (smoke_input_observer
+  route_retirement, terminal_dom_repair target retirement, viewport_publication
+  grace absorption), applied in the TERM/SMOKE fixups; the wiring-only
+  `the_redial_report_reads_an_open_link_with_no_failures` was deleted.
+- Earlier slice runs: DECK 3 (route_selection early return, undo_close commit,
+  warm-set cap), SIDEBAR 1 (cursor clamp), SMOKE 6, TERM 2 (see WebLeadU2 reports).
+- SHELL + SIDEBAR(web) survey `agent://WebLeadU3.MutShellSidebar` and DECK +
+  SIDEBAR(core) survey `agent://WebLeadU3.MutDeckSidebarCore` were stopped at the
+  budget: read their yields; any strengthened tests are in
+  `target-track/tmp/mut-<name>.patch` (apply with `git apply --3way`, then run the
+  touched test targets). Mutation worktree: `target-track/dx-tree` (detached at
+  snapshot `5a43d383`).
+
+- Final state of the two stopped surveys: MutDeckSidebarCore ran its batches
+  (list in its yield); its strengthened `store_sidebar.rs` test is in
+  `target-track/tmp/mut-MutDeckSidebarCore.patch`, NOT yet applied. MutShellSidebar
+  ran only the no-mutant baseline (135/0); its 92-mutant catalogue and harness are
+  in `target-track/tmp/mut-MutShellSidebar/` (`flock target-track/.mut.lock
+  python3 harness.py b1`…`b9`), with 8 predicted survivors listed in its yield.
+
+## Open items, in order
+
+1. ~~Lint, 2 violations~~ — RESOLVED by the integrator in `e09f39ca` (the design
+   ratchet skips test files as v2 does; the `paint_proof.rs` colour parser line is
+   baselined): 3953 inputs, 0 violations.
+2. Finish the gate: tests ×2 and clippy DONE (Pause state); still to run: lint,
+   fmt + `git status --short`, wasm32 build/check with and without `smoke`; then
+   report to Main.
+3. Step 4 (not started): `.gitignore` needs `crates/roost-web/dist-smoke/` (only
+   `dist/` is ignored). Build `dx build --release -p roost-web --platform web --features smoke`
+   (output lands in `target-track/dx/roost-web/release/web/public`) → copy to
+   `crates/roost-web/dist-smoke`; same without `--features smoke` → `crates/roost-web/dist`;
+   `grep -rc __smoke crates/roost-web/dist` must total 0. Then
+   `ROOST_SMOKE_WEB_DIST=$PWD/crates/roost-web/dist-smoke node_modules/.bin/playwright test smoke/terminal/terminal-delivery.spec.ts -g "browser smoke flow creates and cleans its resources" --project chromium-desktop`
+   (TS backend; the fixture needs `.workbench-shell[data-compact]`, one
+   `[data-testid=folder-list]`, no error boundary, then `__smoke.runFlow`).
+4. Known product gap (SHELL remainder): nothing turns
+   `store::pending_close::sweep_pending_closes` into `SessionsKill` — a tab closed
+   from the deck/sidebar is never killed on the worker (v2 `closeSession.killAfterUndo`).
+   Also: the pump drops the close reason, so a 1013 backpressure close is not an
+   immediate redial (v2 `flow`).
+5. U-2 rows: PAIRING, SETTINGS, BROWSE, MACHINES+AGENTS, SEARCH+PALETTE+HELP,
+   NOTIFICATIONS+PUSH, COMPOSER+VOICE, BROWSER platform, SYNC LIFECYCLE, STREAM
+   LIFECYCLE, CARRIER, LOCAL, ATTACH, TERMINAL DIAG; TERM remainder (find bar, nav
+   buttons, context/capture menus, file links, file drop); UiBridge.
+
+## Snapshots
+
+`v3-web-snap-waveb2` (06e3320a, WebLeadU2), `v3-web-snap-waveb3` (5a43d383,
+compiled wave B before commits), `v3-web-snap-waveb3-commits` (fa90c596, the
+slice commits before fixups).

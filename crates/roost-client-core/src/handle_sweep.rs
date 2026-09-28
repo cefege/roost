@@ -23,6 +23,8 @@
 
 use crate::effect::{DirectCommand, Effect, SyncCommand};
 use crate::store::Store;
+use crate::sync::SyncDomain;
+use crate::terminal::TerminalToken;
 use crate::terminal::token::TerminalTransport;
 use crate::terminal::view::ViewIntent;
 
@@ -33,6 +35,9 @@ pub fn handle_sweep(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
     if let Some(event_id) = store.sync.watermark.take_pending() {
         out.push(Effect::PersistWatermark { event_id });
     }
+
+    // Closes whose undo window ran out owe their session a kill.
+    crate::handle_close_kill::issue_due_kills(store, now_ms, out);
 
     // The acknowledgement ledger second, and for the same reason: one write per
     // sweep no matter how many rows the reader looked at since the last one.
@@ -109,7 +114,49 @@ fn republish_due_views(store: &mut Store, session_id: &str, now_ms: u64, out: &m
     }
 }
 
-/// Publish a view's current intent, and mark it awaited.
+/// Where a session's next view command goes: its elected direct route, else the
+/// live Sync socket once the terminal domain is ready, else nowhere (v2
+/// `terminal-stream-publication.ts` `terminalPublicationTarget`).
+///
+/// The target, not the replica, is the authority. A replica that has never seen
+/// a frame has no generation, and a view that waited for one would never be
+/// published — so the coordinator would never stream it the frame that binds it.
+fn publication_target(store: &Store, session_id: &str) -> Option<TerminalToken> {
+    if let Some(route) = store.routes.route(session_id) {
+        return Some(route.token.clone());
+    }
+    if !store.sync.domain_is_ready(SyncDomain::Terminal) {
+        return None;
+    }
+    store.sync.terminal_token()
+}
+
+/// Republish every open view of every replica, on the target that now carries
+/// it. Called when the terminal domain turns ready (v2 `retargetSession`): a
+/// view opened while no route could carry it was left unsent, and nothing else
+/// would send it before the next heartbeat.
+pub(crate) fn republish_open_views(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
+    let open: Vec<(String, String)> = store
+        .terminal
+        .iter()
+        .flat_map(|(session_id, replica)| {
+            replica
+                .views()
+                .values()
+                .filter(|view| view.intent != ViewIntent::Unpublish)
+                .map(|view| (session_id.clone(), view.view_id.clone()))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    for (session_id, view_id) in open {
+        publish_view(store, &session_id, &view_id, now_ms, out);
+    }
+}
+
+/// Publish a view's current intent on the session's publication target, and
+/// mark it awaited. A target the replica is not fenced to re-fences it first
+/// (v2 `terminal-stream-view-commands.ts`: the view's generation becomes the
+/// target's token before the command is sent).
 pub fn publish_view(
     store: &mut Store,
     session_id: &str,
@@ -120,12 +167,23 @@ pub fn publish_view(
     let Some(replica) = store.terminal(session_id) else {
         return;
     };
-    let Some(intent) = replica.view_intent(view_id) else {
+    let Some((intent, revision)) = replica
+        .view(view_id)
+        .map(|view| (view.intent, view.revision))
+    else {
         return;
     };
-    let Some(token) = replica.generation().cloned() else {
+    // No route can carry it: left unsent, as v2 leaves it pending. The terminal
+    // domain turning ready republishes it, and so does the heartbeat.
+    let Some(token) = publication_target(store, session_id) else {
         return;
     };
+    if let Some(replica) = store.terminal_mut_if_present(session_id)
+        && replica.bind_generation(&token)
+    {
+        store.note_change();
+        tracing::info!(target: "terminal", session_id, "replica fenced to the publication target");
+    }
     // Awaited on the DOMAIN generation, not the socket one: a view-state result
     // carries the domain generation, and marking it awaited on the socket
     // generation would make every result look stale the moment a redial bumped
@@ -134,16 +192,18 @@ pub fn publish_view(
     if let Some(replica) = store.terminal_mut_if_present(session_id) {
         replica.mark_view_published(view_id, generation, now_ms);
     }
-    send_intent_with(store, token, session_id, view_id, intent, out);
+    send_intent_with(store, token, session_id, view_id, intent, revision, out);
 }
 
 /// Send one intent without marking it awaited. Hide and close use this: they are
 /// not commands the lease waits on, so there is nothing to await an answer to.
+/// `revision` is the one the view recorded for this intent (`TerminalView`).
 pub fn send_intent(
     store: &mut Store,
     session_id: &str,
     view_id: &str,
     intent: ViewIntent,
+    revision: u64,
     out: &mut Vec<Effect>,
 ) {
     // The token comes from the replica, exactly as it does for a publish: an
@@ -155,7 +215,7 @@ pub fn send_intent(
     else {
         return;
     };
-    send_intent_with(store, token, session_id, view_id, intent, out);
+    send_intent_with(store, token, session_id, view_id, intent, revision, out);
 }
 
 fn send_intent_with(
@@ -164,6 +224,7 @@ fn send_intent_with(
     session_id: &str,
     view_id: &str,
     intent: ViewIntent,
+    revision: u64,
     out: &mut Vec<Effect>,
 ) {
     if token.transport == TerminalTransport::Sync {
@@ -171,6 +232,7 @@ fn send_intent_with(
             session_id: session_id.to_string(),
             view_id: view_id.to_string(),
             intent,
+            revision,
             token,
         }));
     } else if store.routes.route_matches(session_id, &token) {
@@ -220,6 +282,12 @@ pub fn request_repair_if_due(
     let Some(view_id) = replica.repair_view().map(|view| view.view_id.clone()) else {
         return;
     };
+    // And it names the stream it is a baseline OF. With no expected stream there
+    // is nothing to name, so nothing is sent and nothing is marked sent: the
+    // view acceptance that installs the stream re-enters here.
+    let Some(position) = replica.resync_position() else {
+        return;
+    };
     if let Some(replica) = store.terminal_mut_if_present(session_id) {
         replica.mark_repair_sent(&token, now_ms);
     }
@@ -227,6 +295,9 @@ pub fn request_repair_if_due(
         out.push(Effect::SendSync(SyncCommand::TerminalResync {
             session_id: session_id.to_string(),
             view_id,
+            stream_id: position.stream_id,
+            grid_epoch: position.grid_epoch,
+            seq: position.seq,
             token,
         }));
     } else {

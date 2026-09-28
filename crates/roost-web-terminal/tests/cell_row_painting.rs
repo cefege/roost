@@ -132,6 +132,7 @@ fn a_narrow_run_splits_at_every_match_boundary() {
     let run = span("abcdef", 6);
     let slices = span_slices(
         &run,
+        0,
         &[FindHit { col: 1, len: 2 }, FindHit { col: 4, len: 1 }],
         Some(4),
     );
@@ -155,7 +156,7 @@ fn a_narrow_run_splits_at_every_match_boundary() {
 #[test]
 fn a_match_running_past_the_end_never_produces_an_empty_tail() {
     let run = span("abcd", 4);
-    let slices = span_slices(&run, &[FindHit { col: 2, len: 9 }], None);
+    let slices = span_slices(&run, 0, &[FindHit { col: 2, len: 9 }], None);
     assert_eq!(
         described(&slices),
         vec![(0, 2, false, false), (2, 2, true, false)]
@@ -170,7 +171,7 @@ fn a_match_running_past_the_end_never_produces_an_empty_tail() {
 #[test]
 fn an_atomic_span_is_never_cut_by_a_column_boundary() {
     let wide = span("\u{4e2d}", 2);
-    let slices = span_slices(&wide, &[FindHit { col: 1, len: 1 }], Some(1));
+    let slices = span_slices(&wide, 0, &[FindHit { col: 1, len: 1 }], Some(1));
     assert_eq!(described(&slices), vec![(0, 2, true, true)]);
     assert_eq!(
         slice_text(&wide, slices[0].start, slices[0].columns),
@@ -181,7 +182,7 @@ fn an_atomic_span_is_never_cut_by_a_column_boundary() {
 #[test]
 fn an_unmatched_span_paints_as_one_unhighlighted_slice() {
     let run = span("abc", 3);
-    let slices = span_slices(&run, &[FindHit { col: 9, len: 1 }], None);
+    let slices = span_slices(&run, 0, &[FindHit { col: 9, len: 1 }], None);
     assert_eq!(described(&slices), vec![(0, 3, false, false)]);
 }
 

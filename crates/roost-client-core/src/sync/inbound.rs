@@ -1,19 +1,27 @@
 //! The typed frame vocabulary a Sync socket delivers, and the rule that governs
 //! what happens to one: apply it, then acknowledge it.
 //!
-//! The host decodes protobuf; the core decides. That split is why this enum
-//! exists rather than `roost_proto::FirehoseFrame` in the public API — the state
-//! machine's inputs are named, and a frame kind nobody has a rule for is a
-//! compile error here instead of a silently dropped `case`.
+//! `sync::decode` turns the protobuf into this enum; the core decides. That split
+//! is why this enum exists rather than `roost_proto::FirehoseFrame` in the public
+//! API — the state machine's inputs are named, and a frame kind nobody has a
+//! rule for is a compile error here instead of a silently dropped `case`. Every
+//! `FirehoseFrame` arm has a variant; `sync::decode::arms` is the table.
 //!
 //! `delivery_seq` is carried beside every frame by the host, not in here,
 //! because it is a property of the transport sequence rather than of the frame:
 //! it is `0` for a control frame, since controls never consume the
 //! coordinator's application window (`protocol/spec/sync.md:29`).
 
-use roost_proto::{PbCellGridChunk, PbCellGridFrame};
-use roost_protocol::wire::SessionMap;
+mod payloads;
 
+use roost_proto::{PbCellGridChunk, PbCellGridFrame};
+use roost_protocol::wire::WorkspaceDelta as WireWorkspaceDelta;
+use roost_protocol::wire::{McpStreamMessage, SessionMap, TaskDelta, WorkerPresenceEvent};
+
+pub use self::payloads::{
+    AuditEntry, CoordinatorRelocation, InputRouteResult, PairRequestChange, PairedBrowser,
+    RoutableChunk, SessionViewer, TransportProbeResult,
+};
 use crate::sessions::WireEvent;
 use crate::sync::link::SyncDomain;
 use crate::terminal::input::InputOutcome;
@@ -45,16 +53,6 @@ pub enum SyncFrame {
         /// (`SyncDomainResetFrame.subscribed`, proto field 4). Only a subscribed
         /// domain is re-hydrated; an unsubscribed one just stops being ready.
         subscribed: bool,
-    },
-    /// The snapshot/live gap for a domain is closed.
-    DomainReady {
-        /// Which domain.
-        domain: SyncDomain,
-        /// The generation the ready frame belongs to. A `domain_ready` for a
-        /// generation other than the current one is stale and is refused.
-        generation: u64,
-        /// The one-time snapshot token, required for the terminal domain.
-        snapshot_token: Option<String>,
     },
     /// A session-plane event, already decoded to the shared wire shape.
     SessionEvent {
@@ -100,6 +98,12 @@ pub enum SyncFrame {
         generation: u64,
         /// Whether the authority holds the view.
         accepted: bool,
+        /// The stream the authority now mints, empty when it minted none.
+        stream_id: String,
+        /// The authority's effective columns for that stream.
+        effective_cols: u32,
+        /// The authority's effective rows for that stream.
+        effective_rows: u32,
     },
     /// A truthful terminal-write result for one admitted input batch.
     InputResult {
@@ -117,25 +121,127 @@ pub enum SyncFrame {
     /// Carries the SHARED wire type rather than the raw proto message,
     /// because the freshness fence operates on the validated type and a
     /// second parse of the same frame in this crate is exactly what
-    /// `client::agents::status_projection` refuses to do. Without this
-    /// variant every report decoded as `Unknown { field: 29 }` — sequenced
-    /// and acknowledged, and applied to nothing.
+    /// `client::agents::status_projection` refuses to do.
     AgentStatus {
         /// The report, already shape-checked.
         update: roost_protocol::wire::AgentStatusUpdate,
     },
-    Keepalive,
-    /// A timestamp-only liveness frame.
-    /// A frame kind this build has no rule for.
-    ///
-    /// Named rather than dropped: an unrecognised frame is still sequenced, so
-    /// it still has to be acknowledged or the coordinator's window stops
-    /// releasing. Carrying it as a variant is what makes that obligation
-    /// visible instead of leaving it to whoever adds the next frame type.
-    Unknown {
-        /// The protobuf field number, for the incident log.
-        field: u32,
+    /// An agent-status report the shared schema refused. Consumed and applied
+    /// to nothing: v2 `applyAgentStatusFrame` returns false and
+    /// `_dispatchSyncFrame` ignores that return (`sync-frame.ts:274-276`), so
+    /// the link stays up and the frame is acknowledged.
+    AgentStatusRefused {
+        /// The session the report named.
+        session_id: String,
+        /// The schema's refusal.
+        reason: String,
     },
+    /// A `sessions` JSON event that parsed as JSON but not as a session event.
+    /// The recovery cursor still advances past it and nothing is folded: v2
+    /// moves `_lastSeenEventId` before `foldEventIntoStore` rejects the shape
+    /// (`sync-frame.ts:115-122`, `projector.ts:97-108`).
+    SessionEventRejected {
+        /// The payload's `_event_id`, or `0` when it carried none.
+        event_id: u64,
+        /// The schema's refusal.
+        reason: String,
+    },
+    /// Who is looking at a session: `session_presence` of kind `viewers`.
+    SessionViewers {
+        /// The session.
+        session_id: String,
+        /// Every viewer, replacing the previous list.
+        viewers: Vec<SessionViewer>,
+    },
+    /// Any other `session_presence` notice, opaque by construction: v2 hands
+    /// the parsed payload to the session's registered presence handler
+    /// (`sync-dispatch.ts:18-20`).
+    SessionPresence {
+        /// The session.
+        session_id: String,
+        /// The parsed payload.
+        payload: serde_json::Value,
+    },
+    /// One `audit_log` insert.
+    AuditRow {
+        /// The row.
+        row: AuditEntry,
+    },
+    /// One workspace change, in the shared wire shape.
+    WorkspaceDelta {
+        /// The change.
+        delta: WireWorkspaceDelta,
+    },
+    /// One task row change, in the shared wire shape.
+    TaskDelta {
+        /// The change.
+        delta: TaskDelta,
+    },
+    /// One MCP registry change or relay event, in the shared wire shape.
+    McpMessage {
+        /// The change or event.
+        message: McpStreamMessage,
+    },
+    /// One worker registration, heartbeat or removal, in the shared wire shape.
+    WorkerPresence {
+        /// The presence event.
+        event: WorkerPresenceEvent,
+    },
+    /// The routable worker set: a live full replacement, or one chunk of a
+    /// retained seed.
+    WorkerRoutable {
+        /// The fingerprints this frame carries.
+        fps: Vec<String>,
+        /// Where the fingerprints sit in a chunked seed, or `None` for a live
+        /// full-set replacement.
+        chunk: Option<RoutableChunk>,
+    },
+    /// The coordinator-parsed OSC title of a session's terminal.
+    TerminalTitle {
+        /// The session.
+        session_id: String,
+        /// The title.
+        title: String,
+    },
+    /// The coordinator-stamped last-activity time of a session.
+    LastActivity {
+        /// The session.
+        session_id: String,
+        /// Milliseconds since the epoch.
+        ts_ms: i64,
+    },
+    /// One pair-request change.
+    PairRequestDelta {
+        /// The change.
+        change: PairRequestChange,
+    },
+    /// A peer tab's UI report. Browser tabs deliberately do not project peer
+    /// UI state: routing and discarding it is its full consumption
+    /// (`sync-frame.ts:329-333`).
+    UiState,
+    /// A UI command for this tab's UI bridge, still the proto message: v2 hands
+    /// the frame itself to `_dispatchUiCommand` (`sync-frame.ts:334-340`).
+    UiCommand {
+        /// The command frame.
+        command: roost_proto::UiCommandFrame,
+    },
+    /// A coordinator relocation notice.
+    CoordinatorRelocation {
+        /// The handoff.
+        relocation: CoordinatorRelocation,
+    },
+    /// The answer to an input-route claim this socket sent.
+    InputRouteResult {
+        /// The answer.
+        result: InputRouteResult,
+    },
+    /// The answer to a transport probe this socket sent.
+    TransportProbeResult {
+        /// The answer.
+        result: TransportProbeResult,
+    },
+    /// A timestamp-only liveness frame.
+    Keepalive,
 }
 
 impl SyncFrame {
@@ -143,20 +249,39 @@ impl SyncFrame {
     ///
     /// `None` means the frame rides whatever domain the host already
     /// established — it is not an exemption from the readiness gate, and
-    /// `SyncState::may_apply` still consults the domain table for it.
+    /// `SyncState::may_apply` still consults the domain table for it. The
+    /// assignment is v2's (`apps/coord/src/sync/sync-feed-frames.ts:130-165`):
+    /// session-keyed metadata is terminal, registry deltas are their own
+    /// domain, and every control is `None`.
     pub const fn domain(&self) -> Option<SyncDomain> {
         match self {
-            Self::DomainReady { domain, .. } | Self::DomainReset { domain, .. } => Some(*domain),
-            Self::CellGrid { .. } | Self::CellGridChunk { .. } | Self::AgentStatus { .. } => {
-                Some(SyncDomain::Terminal)
-            }
+            Self::DomainReset { domain, .. } => Some(*domain),
+            Self::CellGrid { .. }
+            | Self::CellGridChunk { .. }
+            | Self::AgentStatus { .. }
+            | Self::AgentStatusRefused { .. }
+            | Self::SessionViewers { .. }
+            | Self::SessionPresence { .. }
+            | Self::TerminalTitle { .. }
+            | Self::LastActivity { .. } => Some(SyncDomain::Terminal),
+            Self::WorkerPresence { .. } | Self::WorkerRoutable { .. } => Some(SyncDomain::Workers),
+            Self::WorkspaceDelta { .. } => Some(SyncDomain::Workspaces),
+            Self::TaskDelta { .. } => Some(SyncDomain::Tasks),
+            Self::McpMessage { .. } => Some(SyncDomain::Mcp),
+            Self::PairRequestDelta { .. } => Some(SyncDomain::Pair),
+            Self::AuditRow { .. } => Some(SyncDomain::Audit),
             Self::Subscribed { .. }
             | Self::SessionEvent { .. }
+            | Self::SessionEventRejected { .. }
             | Self::SessionsSnapshot { .. }
             | Self::ViewState { .. }
             | Self::InputResult { .. }
-            | Self::Keepalive
-            | Self::Unknown { .. } => None,
+            | Self::UiState
+            | Self::UiCommand { .. }
+            | Self::CoordinatorRelocation { .. }
+            | Self::InputRouteResult { .. }
+            | Self::TransportProbeResult { .. }
+            | Self::Keepalive => None,
         }
     }
 
@@ -165,16 +290,32 @@ impl SyncFrame {
         match self {
             Self::Subscribed { .. } => "subscribed",
             Self::DomainReset { .. } => "domain_reset",
-            Self::DomainReady { .. } => "domain_ready",
             Self::SessionEvent { .. } => "session_event",
+            Self::SessionEventRejected { .. } => "session_event_rejected",
             Self::SessionsSnapshot { .. } => "sessions_snapshot",
             Self::CellGrid { .. } => "cell_grid",
             Self::CellGridChunk { .. } => "cell_grid_chunk",
             Self::ViewState { .. } => "view_state",
             Self::InputResult { .. } => "input_result",
             Self::AgentStatus { .. } => "agent_status",
+            Self::AgentStatusRefused { .. } => "agent_status_refused",
+            Self::SessionViewers { .. } => "session_viewers",
+            Self::SessionPresence { .. } => "session_presence",
+            Self::AuditRow { .. } => "audit_row",
+            Self::WorkspaceDelta { .. } => "workspace_delta",
+            Self::TaskDelta { .. } => "task_delta",
+            Self::McpMessage { .. } => "mcp_msg",
+            Self::WorkerPresence { .. } => "worker_presence",
+            Self::WorkerRoutable { .. } => "worker_routable",
+            Self::TerminalTitle { .. } => "terminal_title",
+            Self::LastActivity { .. } => "last_activity",
+            Self::PairRequestDelta { .. } => "pair_request_delta",
+            Self::UiState => "ui_state",
+            Self::UiCommand { .. } => "ui_command",
+            Self::CoordinatorRelocation { .. } => "coordinator_relocation",
+            Self::InputRouteResult { .. } => "input_route_result",
+            Self::TransportProbeResult { .. } => "terminal_transport_probe_result",
             Self::Keepalive => "keepalive",
-            Self::Unknown { .. } => "unknown",
         }
     }
 
@@ -184,91 +325,15 @@ impl SyncFrame {
             Self::CellGrid { session_id, .. }
             | Self::CellGridChunk { session_id, .. }
             | Self::ViewState { session_id, .. }
-            | Self::InputResult { session_id, .. } => Some(session_id),
+            | Self::InputResult { session_id, .. }
+            | Self::AgentStatusRefused { session_id, .. }
+            | Self::SessionViewers { session_id, .. }
+            | Self::SessionPresence { session_id, .. }
+            | Self::TerminalTitle { session_id, .. }
+            | Self::LastActivity { session_id, .. } => Some(session_id),
+            Self::InputRouteResult { result } => Some(result.session_id.as_str()),
             Self::AgentStatus { update, .. } => Some(update.common.session_id.as_str()),
             _ => None,
         }
-    }
-}
-
-/// The `FirehoseFrame` arms this build KNOWINGLY folds into
-/// [`SyncFrame::Unknown`], with the proto field each arrives on.
-///
-/// **These are not dead proto.** Every one of them is constructed by
-/// `roost-coord` — `grep -rhoE 'Frame::[A-Za-z]+' crates/roost-coord/src/` names
-/// all fourteen — so folding them is not a hedge against a hypothetical future
-/// arm. It is fourteen arms the coordinator demonstrably sends that this build
-/// would SEQUENCE, ACKNOWLEDGE, and APPLY NOTHING, which is the
-/// `AgentStatus` failure recorded at `inbound.rs:111-118` repeated fourteen
-/// times and, unlike that one, invisible in the count.
-///
-/// Folding is correct for a first slice and wrong for a finished client. This
-/// constant is the record of which fourteen, so that a reader can diff it
-/// against `protocol/proto/roost/v1/sync.proto` and disagree in one place
-/// rather than reverse-engineering fourteen folds out of a `match`.
-///
-/// A decoder that grows a variant for one of these MUST delete its row here, so
-/// the list and the mapping cannot drift apart.
-pub const KNOWINGLY_UNMAPPED_ARMS: &[(u32, &str)] = &[
-    (10, "audit_row"),
-    (12, "workspace_delta"),
-    (13, "task_delta"),
-    (16, "mcp_msg"),
-    (17, "worker_presence"),
-    (19, "worker_routable"),
-    (21, "terminal_title"),
-    (22, "last_activity"),
-    (23, "pair_request_delta"),
-    (24, "ui_state"),
-    (25, "ui_command"),
-    (27, "coordinator_relocation"),
-    (49, "input_route_result"),
-    (50, "terminal_transport_probe_result"),
-];
-
-/// Whether `field` is one this build folds on purpose rather than by omission.
-#[must_use]
-pub fn is_knownly_unmapped(field: u32) -> bool {
-    KNOWINGLY_UNMAPPED_ARMS
-        .iter()
-        .any(|(number, _)| *number == field)
-}
-
-#[cfg(test)]
-mod knowingly_unmapped_tests {
-    use super::{KNOWINGLY_UNMAPPED_ARMS, SyncFrame, is_knownly_unmapped};
-
-    #[test]
-    fn the_list_is_the_fourteen_arms_the_coordinator_really_sends() {
-        assert_eq!(
-            KNOWINGLY_UNMAPPED_ARMS.len(),
-            14,
-            "a reader budgeting this build needs the count, and a decoder that \
-             grows a variant for one of them must delete its row"
-        );
-        // Field numbers are unique: a duplicate would silently make one arm
-        // unreachable behind another.
-        let mut numbers: Vec<u32> = KNOWINGLY_UNMAPPED_ARMS.iter().map(|(n, _)| *n).collect();
-        numbers.sort_unstable();
-        numbers.dedup();
-        assert_eq!(numbers.len(), KNOWINGLY_UNMAPPED_ARMS.len());
-        for (field, name) in KNOWINGLY_UNMAPPED_ARMS {
-            assert!(
-                is_knownly_unmapped(*field),
-                "{name} is listed, so the lookup must find it"
-            );
-        }
-        assert!(!is_knownly_unmapped(20), "cell_grid is MAPPED");
-        assert!(!is_knownly_unmapped(29), "agent_status is MAPPED");
-        assert!(!is_knownly_unmapped(40), "subscribed is MAPPED");
-    }
-
-    #[test]
-    fn an_unmapped_arm_still_names_itself_rather_than_being_dropped() {
-        // The obligation `Unknown` exists to carry: the frame is still sequenced,
-        // so it still has to be acknowledged or the window stops releasing.
-        let folded = SyncFrame::Unknown { field: 24 };
-        assert_eq!(folded, SyncFrame::Unknown { field: 24 });
-        assert!(is_knownly_unmapped(24));
     }
 }

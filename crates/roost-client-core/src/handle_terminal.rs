@@ -17,6 +17,7 @@ use crate::sync::SyncFrame;
 use crate::terminal::ViewStateAdmission;
 use crate::terminal::routes::DirectCarrier;
 use crate::terminal::view::{ViewIntent, ViewStateResult};
+use roost_protocol::viewport::{TerminalGeometry, is_terminal_geometry, is_terminal_uuid};
 
 /// A pane asking to attach, as the front end stated it.
 ///
@@ -115,7 +116,13 @@ pub fn handle_view_hidden(
         .routes
         .set_view_demand(&worker_fp, session_id, view_id, false);
     store.note_change();
-    send_intent(store, session_id, view_id, ViewIntent::Park, out);
+    let revision = store
+        .terminal(session_id)
+        .and_then(|replica| replica.view(view_id))
+        .map(|view| view.revision);
+    if let Some(revision) = revision {
+        send_intent(store, session_id, view_id, ViewIntent::Park, revision, out);
+    }
 }
 
 /// A pane closed, or its authorization was lost. The view goes at once, with no
@@ -126,15 +133,24 @@ pub fn handle_view_closed(
     view_id: &str,
     out: &mut Vec<Effect>,
 ) {
-    if let Some(replica) = store.terminal_mut_if_present(session_id) {
-        replica.close_view(view_id);
-    }
+    let revision = store
+        .terminal_mut_if_present(session_id)
+        .and_then(|replica| replica.close_view(view_id));
     store.note_change();
     let worker_fp = worker_of(store, session_id);
     store
         .routes
         .set_view_demand(&worker_fp, session_id, view_id, false);
-    send_intent(store, session_id, view_id, ViewIntent::Unpublish, out);
+    if let Some(revision) = revision {
+        send_intent(
+            store,
+            session_id,
+            view_id,
+            ViewIntent::Unpublish,
+            revision,
+            out,
+        );
+    }
 }
 
 /// A generation-matched view-state result. An accepted answer carrying a stream id
@@ -145,12 +161,6 @@ pub fn handle_view_state(
     now_ms: u64,
     out: &mut Vec<Effect>,
 ) {
-    let Some(replica) = store.terminal(&state.session_id) else {
-        return;
-    };
-    let geometry = replica
-        .view(&state.view_id)
-        .map(|view| (view.cols, view.rows));
     let Some(replica) = store.terminal_mut_if_present(&state.session_id) else {
         return;
     };
@@ -170,7 +180,19 @@ pub fn handle_view_state(
         ViewStateAdmission::Accepted {
             stream_id: Some(stream_id),
         } => {
-            let (cols, rows) = geometry.unwrap_or((0, 0));
+            // v2 `terminal-stream-view-commands.ts`: the stream is installed at
+            // the AUTHORITY's effective geometry, and an answer without a valid
+            // one installs nothing.
+            let geometry = TerminalGeometry {
+                cols: state.effective_cols,
+                rows: state.effective_rows,
+            };
+            if !is_terminal_uuid(&stream_id) || !is_terminal_geometry(&geometry) {
+                tracing::warn!(target: "terminal", session_id = %state.session_id,
+                    "accepted view state without a valid stream or geometry");
+                return;
+            }
+            let (cols, rows) = (geometry.cols, geometry.rows);
             let changed = store
                 .terminal_mut_if_present(&state.session_id)
                 .is_some_and(|replica| replica.install_expected_stream(&stream_id, cols, rows));
@@ -202,7 +224,9 @@ pub fn handle_correlated_result(
             view_id,
             generation,
             accepted,
-            ..
+            stream_id,
+            effective_cols,
+            effective_rows,
         } => handle_view_state(
             store,
             &ViewStateResult {
@@ -210,7 +234,9 @@ pub fn handle_correlated_result(
                 view_id: view_id.clone(),
                 generation: *generation,
                 accepted: *accepted,
-                stream_id: None,
+                stream_id: (!stream_id.is_empty()).then(|| stream_id.clone()),
+                effective_cols: *effective_cols,
+                effective_rows: *effective_rows,
             },
             now_ms,
             out,

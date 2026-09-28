@@ -11,8 +11,9 @@
 //! step.
 //!
 //! The epoch is the navigation, not the Unix epoch, because every deadline in
-//! the client core is a DELTA from the moment it was armed and nothing in the
-//! browser protocol is a wall-clock time.
+//! the client core is a DELTA from the moment it was armed. The one wall-clock
+//! reading is `WallClock`: a coordinator JWT's `iat`/`exp` are Unix times the
+//! coordinator compares with its own clock (v2 `signCoordinatorJwt`, `Date.now()`).
 
 use roost_client_core::Clock;
 use web_sys::Performance;
@@ -44,6 +45,23 @@ impl Clock for BrowserClock {
         let Some(reading) = self.performance.as_ref().map(Performance::now) else {
             return 0;
         };
+        if !reading.is_finite() || reading <= 0.0 {
+            return 0;
+        }
+        reading as u64
+    }
+}
+
+/// The browser's wall clock, in Unix milliseconds. Read ONLY to stamp and reuse
+/// coordinator credentials; a monotonic reading there is a token that expired
+/// in 1970, which the coordinator refuses as `token expired`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WallClock;
+
+impl WallClock {
+    /// `Date.now()`, clamped like the monotonic reading.
+    pub fn now_ms(self) -> u64 {
+        let reading = js_sys::Date::now();
         if !reading.is_finite() || reading <= 0.0 {
             return 0;
         }

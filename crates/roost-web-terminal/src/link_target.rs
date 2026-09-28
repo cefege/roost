@@ -1,66 +1,91 @@
-//! Untrusted terminal-authored link targets, classified before any anchor is
-//! painted. The renderer calls this for every OSC 8 run the core authored; the
-//! linkifier calls the same authority for inferred matches.
-//!
-//! Terminal output is hostile input, so the answer is narrow by construction:
-//! only an absolute HTTP(S) URL is allowed to leave the app, and a file target
-//! carries no browser-openable href at all until a worker-aware resolver turns
-//! it into an authenticated in-app route. Nothing here re-derives a link from
-//! link TEXT — a painted anchor is a link because the core said so, at the
-//! cells the core said.
-//!
-//! Pure: it parses with hand-written scans rather than a URL library, and every
-//! rejection is a refusal to paint, never an approximation.
+//! Validates terminal-authored URLs and file targets before any anchor paints or
+//! opens. The row painter calls it for every OSC 8 run the core authored, and
+//! `links::detect`, `links::anchor` and `links::attachment` call the same
+//! authority for inferred and producer-painted links. Worker-aware callers pass
+//! the only path-to-route resolver. Parses URLs with the WHATWG `url` crate so
+//! the answer is v2's `new URL()`. Ports `apps/web/src/renderer/terminal-links.target.ts`.
 
-/// A classified terminal link target, in the two shapes an anchor can take.
+use roost_protocol::cell::link_uri_within_cap;
+use url::Url;
+
+/// v2 `ResolveFile`: a raw path from terminal output, its optional 1-based
+/// line and the `file://host` authority (present only for such a target) →
+/// an internal `/file/<workerFp>/…#L<line>` route, or `None` to skip it.
+pub type ResolveFile<'a> = &'a dyn Fn(&str, Option<u64>, Option<&str>) -> Option<String>;
+
+/// v2 `Number.MAX_SAFE_INTEGER`: the largest line `Number.isSafeInteger` admits.
+const MAX_SAFE_LINE: u64 = (1 << 53) - 1;
+
+/// A classified terminal link target.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminalLinkTarget {
-    /// An absolute HTTP(S) URL. The only target that may be handed to the
-    /// browser as an `href`.
+    /// An absolute HTTP(S) URL: the only target handed to the browser.
     External {
-        /// Exactly the terminal-authored text, which is also the display.
+        /// Exactly the terminal-authored text.
         href: String,
-        /// The hover hint, the same text.
+        /// The hover text, the same text.
         display: String,
     },
-    /// A worker-local file target. It has no `href` here on purpose: the
-    /// activation path resolves it against the current worker and cwd before
-    /// installing an authenticated route.
+    /// A worker-local file target.
     WorkerFile {
-        /// The decoded path, with a trailing `:line[:col]` already split off.
+        /// The decoded path, with a trailing `:line[:col]` split off.
         raw_path: String,
         /// The 1-based line, when the target carried one.
-        line: Option<u32>,
-        /// The `file://host` authority, when it named anything but localhost.
+        line: Option<u64>,
+        /// The `file://host` authority when it named anything but localhost.
         file_authority: Option<String>,
-        /// The exact terminal-authored target, which is the hover hint.
+        /// The authenticated route; `None` until a worker-aware resolver ran.
+        href: Option<String>,
+        /// The exact terminal-authored target.
         display: String,
     },
 }
 
-/// Classify one terminal-authored target, or refuse to paint it at all.
-///
-/// Returns `None` for anything that is not provably a supported target: a
-/// custom or rejected scheme, a protocol-relative `//host/share` (ambiguous
-/// with a URL until a worker-aware resolver accepts it as a UNC path), and any
-/// target that is over the link-URI cap, carries a control character, or has
-/// untrimmed surrounding whitespace.
-pub fn classify_terminal_link_target(raw: &str) -> Option<TerminalLinkTarget> {
-    if is_rejected_everywhere(raw) {
+impl TerminalLinkTarget {
+    /// The terminal-authored target, which is the hover text of both kinds.
+    pub fn display(&self) -> &str {
+        match self {
+            Self::External { display, .. } | Self::WorkerFile { display, .. } => display,
+        }
+    }
+}
+
+/// Classify untrusted terminal output. External navigation is limited to
+/// absolute HTTP(S); a file target resolves to an authenticated worker route
+/// when a resolver is given, and carries no href when none is.
+pub fn classify_terminal_link_target(
+    raw: &str,
+    resolve_file: Option<ResolveFile<'_>>,
+) -> Option<TerminalLinkTarget> {
+    if raw.is_empty()
+        || has_js_whitespace_edge(raw)
+        || raw
+            .chars()
+            .any(|character| character <= ' ' || character == '\u{7f}')
+        || !link_uri_within_cap(raw)
+    {
         return None;
     }
     if strip_prefix_ignore_ascii_case(raw, "http://").is_some()
         || strip_prefix_ignore_ascii_case(raw, "https://").is_some()
     {
-        return classify_absolute_http(raw);
+        let url = Url::parse(raw).ok()?;
+        let reachable = matches!(url.scheme(), "http" | "https")
+            && url.host_str().is_some_and(|host| !host.is_empty());
+        return reachable.then(|| TerminalLinkTarget::External {
+            href: raw.to_string(),
+            display: raw.to_string(),
+        });
     }
     if strip_prefix_ignore_ascii_case(raw, "file:").is_some() {
-        return classify_file_uri(raw);
+        return classify_file_uri(raw, resolve_file);
     }
-    // `//host/share` is ambiguous with a protocol-relative URL, and only a
-    // worker-aware resolver can tell it apart, so it never becomes an anchor.
+    // `//host/share` is ambiguous with a protocol-relative URL. It survives only
+    // when the worker-aware resolver accepts it as a Windows UNC path.
     if raw.starts_with("//") {
-        return None;
+        let resolve = resolve_file?;
+        let (path, line) = split_path_line(raw);
+        return resolved_file_target(path, line, raw, Some(resolve), None);
     }
     let windows_path = is_windows_drive_absolute(raw) || is_windows_unc(raw);
     let explicit_file_name = is_explicit_file_name(raw);
@@ -79,19 +104,91 @@ pub fn classify_terminal_link_target(raw: &str) -> Option<TerminalLinkTarget> {
         return None;
     }
     let (path, line) = split_path_line(raw);
-    worker_file_target(path, line, None, raw)
+    resolved_file_target(path, line, raw, resolve_file, None)
 }
 
-/// Targets carrying a space, a control character, surrounding whitespace, or
-/// more bytes than the wire allows are refused before any scheme is read: the
-/// cap is why a 2 KB URI retargeting a click is not representable at all.
-fn is_rejected_everywhere(raw: &str) -> bool {
-    raw.is_empty()
-        || raw.trim() != raw
-        || raw
-            .chars()
-            .any(|character| character.is_ascii_control() || character == ' ')
-        || !roost_protocol::cell::link_uri_within_cap(raw)
+/// Only routes the worker file route minted may be installed on an internal
+/// terminal anchor: `/file/<workerFp>/<path>` with an optional `#L<line>`.
+/// Query strings, other fragments and over-cap routes are refused.
+pub fn is_worker_file_href(href: &str) -> bool {
+    let Some(rest) = href.strip_prefix("/file/") else {
+        return false;
+    };
+    let Some((worker_fp, tail)) = rest.split_once('/') else {
+        return false;
+    };
+    if worker_fp.is_empty() || worker_fp.contains(['?', '#']) {
+        return false;
+    }
+    let shaped = match tail.split_once('#') {
+        None => !tail.is_empty() && !tail.contains('?'),
+        Some((path, fragment)) => {
+            !path.is_empty()
+                && !path.contains('?')
+                && fragment
+                    .strip_prefix('L')
+                    .is_some_and(|digits| is_ascii_digits(digits) && !digits.starts_with('0'))
+        }
+    };
+    shaped && link_uri_within_cap(href)
+}
+
+/// v2 `FILE_NAME_RE`: `^[^/\\:]+\.[A-Za-z][\w-]{0,15}(?::\d+(?::\d+)?)?$`.
+pub(crate) fn is_explicit_file_name(raw: &str) -> bool {
+    let stem_end = raw.find(['/', '\\', ':']).unwrap_or(raw.len());
+    if raw[stem_end..].contains(['/', '\\']) {
+        return false;
+    }
+    let (name, suffix) = raw.split_at(stem_end);
+    let Some((stem, extension)) = name.rsplit_once('.') else {
+        return false;
+    };
+    let mut extension_characters = extension.chars();
+    let extension_ok = !stem.is_empty()
+        && extension_characters
+            .next()
+            .is_some_and(|character| character.is_ascii_alphabetic())
+        && extension.len() <= 16
+        && extension_characters.all(|character| is_word_character(character) || character == '-');
+    extension_ok && (suffix.is_empty() || is_line_and_column_suffix(suffix))
+}
+
+/// v2 `WINDOWS_DRIVE_ABS_RE`: `^[A-Za-z]:[\\/]`.
+pub(crate) fn is_windows_drive_absolute(raw: &str) -> bool {
+    let bytes = raw.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'/' | b'\\')
+}
+
+/// JS `\s` (and the set `String.prototype.trim` strips), by UTF-16 code unit.
+pub(crate) fn is_js_whitespace(unit: u32) -> bool {
+    matches!(
+        unit,
+        0x09..=0x0d
+            | 0x20
+            | 0xa0
+            | 0x1680
+            | 0x2000..=0x200a
+            | 0x2028
+            | 0x2029
+            | 0x202f
+            | 0x205f
+            | 0x3000
+            | 0xfeff
+    )
+}
+
+/// JS `\w`: ASCII letters, digits and `_`.
+pub(crate) fn is_word_character(character: char) -> bool {
+    character.is_ascii_alphanumeric() || character == '_'
+}
+
+fn has_js_whitespace_edge(raw: &str) -> bool {
+    let first = raw.chars().next().map(u32::from);
+    let last = raw.chars().next_back().map(u32::from);
+    first.is_some_and(is_js_whitespace) || last.is_some_and(is_js_whitespace)
 }
 
 fn strip_prefix_ignore_ascii_case<'a>(raw: &'a str, prefix: &str) -> Option<&'a str> {
@@ -100,180 +197,130 @@ fn strip_prefix_ignore_ascii_case<'a>(raw: &'a str, prefix: &str) -> Option<&'a 
         .then(|| &raw[prefix.len()..])
 }
 
-fn classify_absolute_http(raw: &str) -> Option<TerminalLinkTarget> {
-    let scheme_end = raw.find("//")?;
-    let authority_and_path = &raw[scheme_end + 2..];
-    let authority_end = authority_and_path
-        .find(['/', '?', '#'])
-        .unwrap_or(authority_and_path.len());
-    if !is_valid_http_authority(&authority_and_path[..authority_end]) {
-        return None;
-    }
-    Some(TerminalLinkTarget::External {
-        href: raw.to_string(),
-        display: raw.to_string(),
-    })
-}
-
-/// The authority a browser would actually connect to: a host, an optional port,
-/// or a bracketed IPv6 literal. Empty, malformed, or control-carrying hosts are
-/// refused rather than handed to the browser to fail on.
-fn is_valid_http_authority(authority: &str) -> bool {
-    if authority.is_empty() {
-        return false;
-    }
-    let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
-        let Some(close) = rest.find(']') else {
-            return false;
-        };
-        let literal = &rest[..close];
-        let after = &rest[close + 1..];
-        let port = match after.strip_prefix(':') {
-            Some(port) => Some(port),
-            None if after.is_empty() => None,
-            None => return false,
-        };
-        if literal.is_empty()
-            || !literal
-                .chars()
-                .all(|character| character.is_ascii_hexdigit() || matches!(character, ':' | '.'))
-        {
-            return false;
-        }
-        // `rest` is `authority` minus its `[`, so the closing bracket sits at
-        // `close + 1` in `authority` and the host runs to `close + 2`. Slicing
-        // from `rest`'s own length instead ran one byte past the authority and
-        // panicked on every bracketed literal with a port.
-        (&authority[..close + 2], port)
-    } else {
-        match authority.rsplit_once(':') {
-            Some((host, port)) => (host, Some(port)),
-            None => (authority, None),
-        }
-    };
-    if host.is_empty() || port.is_some_and(|port| !is_ascii_digits(port)) {
-        return false;
-    }
-    if host.starts_with('[') {
-        return true;
-    }
-    !host.chars().any(is_forbidden_host_character)
-}
-
-fn is_forbidden_host_character(character: char) -> bool {
-    character.is_whitespace()
-        || matches!(
-            character,
-            '\0' | '#' | '/' | ':' | '<' | '>' | '?' | '@' | '[' | '\\' | ']' | '^' | '|'
-        )
-}
-
-fn classify_file_uri(raw: &str) -> Option<TerminalLinkTarget> {
-    // Requiring `//` refuses browser-style `file:relative` coercion.
-    let rest = strip_prefix_ignore_ascii_case(raw, "file://")?;
-    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let authority = &rest[..authority_end];
-    let tail = &rest[authority_end..];
-    if authority.contains('@') {
-        return None;
-    }
-    let (path_part, fragment) = match tail.split_once('#') {
-        Some((path, fragment)) => (path, Some(fragment)),
-        None => (tail, None),
-    };
-    if path_part.contains('?') {
-        return None;
-    }
-    let fragment_line = match fragment {
-        None => None,
-        Some(fragment) => Some(parse_line_fragment(fragment)?),
-    };
-    let mut raw_path = percent_decode(path_part)?;
-    // WHATWG file URLs spell a Windows drive as `/C:/path`.
-    if let Some(stripped) = raw_path.strip_prefix('/')
-        && is_windows_drive_absolute(stripped)
+fn classify_file_uri(
+    raw: &str,
+    resolve_file: Option<ResolveFile<'_>>,
+) -> Option<TerminalLinkTarget> {
+    // Requiring `//` rejects browser-style `file:relative` coercion.
+    strip_prefix_ignore_ascii_case(raw, "file://")?;
+    let url = Url::parse(raw).ok()?;
+    if url.scheme() != "file"
+        || !url.username().is_empty()
+        || url.password().is_some_and(|password| !password.is_empty())
+        || url.query().is_some_and(|query| !query.is_empty())
     {
-        raw_path = stripped.to_string();
+        return None;
+    }
+    let fragment_line = match url.fragment().filter(|fragment| !fragment.is_empty()) {
+        None => None,
+        Some(fragment) => {
+            let digits = fragment.strip_prefix('L')?;
+            if digits.starts_with('0') {
+                return None;
+            }
+            Some(safe_line(digits)?)
+        }
+    };
+    let mut raw_path = percent_decode(url.path())?;
+    // WHATWG file URLs spell a Windows drive as `/C:/path`.
+    if raw_path.starts_with('/') && is_windows_drive_absolute(&raw_path[1..]) {
+        raw_path.remove(0);
     }
     let (path, line) = match fragment_line {
         Some(line) => (raw_path, Some(line)),
         None => split_path_line(&raw_path),
     };
-    let file_authority = if !authority.is_empty() && !authority.eq_ignore_ascii_case("localhost") {
-        Some(percent_decode(authority)?)
+    let hostname = url.host_str().unwrap_or("");
+    let authority = if !hostname.is_empty() && !hostname.eq_ignore_ascii_case("localhost") {
+        Some(percent_decode(hostname)?)
     } else {
         None
     };
-    worker_file_target(path, line, file_authority, raw)
+    resolved_file_target(path, line, raw, resolve_file, authority)
 }
 
-/// The only fragment a file target may carry: `#L<line>`, a 1-based line with
-/// no leading zero. Anything else means the target is not a file view request.
-fn parse_line_fragment(fragment: &str) -> Option<u32> {
-    let digits = fragment.strip_prefix('L')?;
-    if digits.is_empty() || digits.starts_with('0') || !is_ascii_digits(digits) || digits.len() > 9
-    {
-        return None;
-    }
-    digits.parse().ok()
-}
-
-/// Split a trailing `:line[:col]` off a file candidate. The viewer has a line
-/// contract and no column contract, so a valid column is consumed and dropped.
-fn split_path_line(raw: &str) -> (String, Option<u32>) {
-    for (index, character) in raw.char_indices() {
-        if character != ':' {
-            continue;
-        }
-        if let Some(line) = parse_line_and_optional_column(&raw[index + 1..]) {
-            return (raw[..index].to_string(), Some(line));
-        }
-    }
-    (raw.to_string(), None)
-}
-
-fn parse_line_and_optional_column(tail: &str) -> Option<u32> {
-    let (line, column) = match tail.find(':') {
-        Some(cut) => (&tail[..cut], Some(&tail[cut + 1..])),
-        None => (tail, None),
-    };
-    if line.is_empty() || !is_ascii_digits(line) {
-        return None;
-    }
-    if column.is_some_and(|column| column.is_empty() || !is_ascii_digits(column)) {
-        return None;
-    }
-    let line: u32 = line.parse().ok()?;
-    (line > 0).then_some(line)
-}
-
-fn worker_file_target(
+fn resolved_file_target(
     raw_path: String,
-    line: Option<u32>,
-    file_authority: Option<String>,
+    line: Option<u64>,
     display: &str,
+    resolve_file: Option<ResolveFile<'_>>,
+    file_authority: Option<String>,
 ) -> Option<TerminalLinkTarget> {
     if raw_path.is_empty()
         || raw_path
             .chars()
-            .any(|character| character.is_ascii_control())
+            .any(|character| character < ' ' || character == '\u{7f}')
     {
         return None;
     }
+    let href = match resolve_file {
+        None => None,
+        Some(resolve) => {
+            let href = resolve(&raw_path, line, file_authority.as_deref())?;
+            if href.is_empty() || !is_worker_file_href(&href) {
+                return None;
+            }
+            Some(href)
+        }
+    };
     Some(TerminalLinkTarget::WorkerFile {
         raw_path,
         line,
         file_authority,
+        href,
         display: display.to_string(),
     })
 }
 
+/// v2 `splitPathLine`: `^(.*?):(\d+)(?::\d+)?$`, then a safe line above zero.
+/// The FIRST colon whose tail has that shape decides; a zero or unsafe line
+/// there keeps the whole target as the path rather than trying a later colon.
+fn split_path_line(raw: &str) -> (String, Option<u64>) {
+    for (index, character) in raw.char_indices() {
+        if matches!(character, '\n' | '\r' | '\u{2028}' | '\u{2029}') {
+            break;
+        }
+        if character != ':' || !is_line_and_column_suffix(&raw[index..]) {
+            continue;
+        }
+        let tail = &raw[index + 1..];
+        let digits = tail.split_once(':').map_or(tail, |(line, _)| line);
+        return match safe_line(digits).filter(|line| *line > 0) {
+            Some(line) => (raw[..index].to_string(), Some(line)),
+            None => (raw.to_string(), None),
+        };
+    }
+    (raw.to_string(), None)
+}
+
+/// `:\d+(?::\d+)?` exactly, to the end of the input.
+fn is_line_and_column_suffix(suffix: &str) -> bool {
+    let Some(tail) = suffix.strip_prefix(':') else {
+        return false;
+    };
+    match tail.split_once(':') {
+        Some((line, column)) => is_ascii_digits(line) && is_ascii_digits(column),
+        None => is_ascii_digits(tail),
+    }
+}
+
+/// `Number(digits)` when `Number.isSafeInteger` admits it.
+fn safe_line(digits: &str) -> Option<u64> {
+    if !is_ascii_digits(digits) {
+        return None;
+    }
+    digits
+        .parse::<u64>()
+        .ok()
+        .filter(|line| *line <= MAX_SAFE_LINE)
+}
+
+/// v2 `URI_SCHEME_RE`: `^[A-Za-z][A-Za-z0-9+.-]*:`.
 fn has_uri_scheme(raw: &str) -> bool {
     let Some(colon) = raw.find(':') else {
         return false;
     };
-    let scheme = &raw[..colon];
-    let mut characters = scheme.chars();
+    let mut characters = raw[..colon].chars();
     characters
         .next()
         .is_some_and(|character| character.is_ascii_alphabetic())
@@ -282,59 +329,22 @@ fn has_uri_scheme(raw: &str) -> bool {
         })
 }
 
-fn is_windows_drive_absolute(raw: &str) -> bool {
-    let mut characters = raw.chars();
-    characters
-        .next()
-        .is_some_and(|character| character.is_ascii_alphabetic())
-        && matches!(characters.next(), Some(':'))
-        && matches!(characters.next(), Some('/') | Some('\\'))
-}
-
+/// v2 `WINDOWS_UNC_RE`: `^\\\\[^\\]+\\[^\\]+`.
 fn is_windows_unc(raw: &str) -> bool {
     let Some(share) = raw.strip_prefix("\\\\") else {
         return false;
     };
     match share.split_once('\\') {
-        Some((host, path)) => !host.is_empty() && !path.is_empty(),
+        Some((host, path)) => !host.is_empty() && !path.is_empty() && !path.starts_with('\\'),
         None => false,
     }
-}
-
-/// A bare `name.ext`, `name.ext:line` or `name.ext:line:col` with no directory
-/// separator: the one path-like shape that is safe to linkify from prose.
-fn is_explicit_file_name(raw: &str) -> bool {
-    // The line suffix is part of the shape, not a separate test: a `:12` that
-    // does not parse stays inside the name, which then contains a colon and is
-    // no longer a bare file name.
-    let (stem, _line) = split_path_line(raw);
-    if stem.contains(['/', '\\', ':']) {
-        return false;
-    }
-    let Some((name, extension)) = stem.rsplit_once('.') else {
-        return false;
-    };
-    if name.is_empty() {
-        return false;
-    }
-    let mut characters = extension.chars();
-    characters
-        .next()
-        .is_some_and(|character| character.is_ascii_alphabetic())
-        && characters.by_ref().take(15).all(is_word_character)
-        && characters.next().is_none()
 }
 
 fn is_ascii_digits(value: &str) -> bool {
     !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())
 }
 
-fn is_word_character(character: char) -> bool {
-    character.is_ascii_alphanumeric() || matches!(character, '_' | '-')
-}
-
-/// Percent-decode, refusing a malformed escape or an invalid UTF-8 sequence:
-/// a target that cannot be decoded is a target nobody vouched for.
+/// `decodeURIComponent`: refuses a malformed escape or invalid UTF-8.
 fn percent_decode(value: &str) -> Option<String> {
     if !value.contains('%') {
         return Some(value.to_string());
@@ -344,9 +354,9 @@ fn percent_decode(value: &str) -> Option<String> {
     let mut index = 0;
     while index < bytes.len() {
         if bytes[index] == b'%' {
-            let high = *bytes.get(index + 1)?;
-            let low = *bytes.get(index + 2)?;
-            decoded.push(hex_octet(high)? << 4 | hex_octet(low)?);
+            let high = hex_octet(*bytes.get(index + 1)?)?;
+            let low = hex_octet(*bytes.get(index + 2)?)?;
+            decoded.push(high << 4 | low);
             index += 3;
         } else {
             decoded.push(bytes[index]);

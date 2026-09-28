@@ -14,7 +14,10 @@
 mod support;
 
 use roost_client_core::Admission;
-use support::{NEXT_EPOCH, OTHER_STREAM, SESSION, STREAM, bound_replica, delta, full, sync_token};
+use support::{
+    NEXT_EPOCH, OTHER_STREAM, SESSION, STREAM, bound_replica, delta, full, replica_with_baseline,
+    sync_token,
+};
 
 #[test]
 fn a_delta_before_any_full_is_refused() {
@@ -263,4 +266,28 @@ fn a_frame_for_another_session_never_lands_here() {
         "got {outcome:?}"
     );
     assert_eq!(replica.session_id, SESSION);
+}
+
+#[test]
+fn a_delta_across_an_alt_screen_transition_is_the_shared_folds_refusal() {
+    // v2's `foldTerminalDelta` has no alt-screen row: `applyDelta` refuses it,
+    // so the repair names `delta_fold_rejected`
+    // (`apps/web/src/client/terminal-stream/terminal-stream-frame-fold.ts:136-149`).
+    let mut replica = replica_with_baseline(4);
+    let before = replica.canonical().cloned();
+    let mut toggled = delta(1, 4, 2);
+    toggled.alt_screen = true;
+    let outcome = replica.admit_frame(&toggled, false, &sync_token(1, 1), 10);
+    assert_eq!(
+        outcome,
+        Admission::Refused {
+            reason: "delta_fold_rejected".to_owned(),
+            latched: true,
+        }
+    );
+    assert_eq!(
+        replica.canonical(),
+        before.as_ref(),
+        "a refused delta moved the grid"
+    );
 }

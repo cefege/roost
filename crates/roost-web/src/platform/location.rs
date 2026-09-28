@@ -60,6 +60,17 @@ pub fn navigate(href: &str) {
     }
 }
 
+/// Replace the document with `href`, reloading it (v2 `location.replace`). The
+/// one navigation that is meant to tear the client down: a redeemed pairing
+/// re-boots the page as a paired key.
+#[cfg(target_arch = "wasm32")]
+pub fn replace_location(href: &str) {
+    let replaced = web_sys::window().is_some_and(|window| window.location().replace(href).is_ok());
+    if !replaced {
+        tracing::warn!(target: "router", href, "the browser refused the reload");
+    }
+}
+
 /// A native build has no address bar, so every path reads as the root.
 ///
 /// This is a stub and not a second grammar: `routes::Route` still parses
@@ -73,3 +84,7 @@ pub fn current_location() -> String {
 /// A native build has no history to move, so a navigation only repaints.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn navigate(_href: &str) {}
+
+/// A native build has no document to reload.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn replace_location(_href: &str) {}

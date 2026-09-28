@@ -14,16 +14,24 @@
 //! assembled from — while the transports that OPEN one are the loopback and
 //! WebRTC carriers' own slices. `fragment_credential` runs before the router
 //! mounts, because a bearer left in the address bar reaches every request the
-//! document makes afterwards as a `Referer`.
+//! document makes afterwards as a `Referer`. `tab_id` claims the document's
+//! tab id before the pump's first transport.
 
+pub mod browser_platform;
 pub mod carrier;
 pub mod clock;
+pub mod connect;
+pub mod device_key;
 pub mod fragment_credential;
 pub mod location;
 pub mod peer;
 pub mod rpc;
+pub mod self_label;
 pub mod storage;
 pub mod sync_socket;
+#[cfg(target_arch = "wasm32")]
+pub mod tab_id;
+pub mod worker_paths;
 
 pub use carrier::{CarrierIdentity, mint_connection_id};
 pub use clock::BrowserClock;
@@ -31,3 +39,4 @@ pub use fragment_credential::{FragmentCredential, capture_and_scrub, parse_fragm
 pub use rpc::{ConnectTransport, FetchConnectTransport, UnaryRequest, UnaryResponse};
 pub use storage::{LocalStorageKeyValueStore, SessionStorageKeyValueStore};
 pub use sync_socket::{SyncSocket, SyncSocketHandle, SyncSocketMessage, WebSocketSyncSocket};
+pub use worker_paths::BrowserWorkerPaths;

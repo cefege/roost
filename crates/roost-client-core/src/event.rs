@@ -49,6 +49,10 @@ pub enum ClientEvent {
         /// The WebSocket close code, when there was one. `4001` is the
         /// coordinator refusing the credential, which is terminal for the socket.
         close_code: Option<u16>,
+        /// The close frame's reason string, empty when there was none. `1013`
+        /// means two opposite things and only this separates them
+        /// (`client::sync::classify_close`).
+        close_reason: String,
     },
     /// One frame arrived on the Sync socket, already decoded.
     SyncFrameReceived {
@@ -58,6 +62,20 @@ pub enum ClientEvent {
         delivery_seq: u64,
         /// The frame.
         frame: SyncFrame,
+    },
+    /// Bytes arrived on the Sync socket that `sync::decode` refused: not a
+    /// frame, no frame, a control carrying a sequence, an application frame
+    /// without one, or a payload v2 treats as fatal.
+    ///
+    /// The link that delivered them is closed so the dial loop redials onto a
+    /// clean baseline (v2 `_consumeSyncFrame` → `_closeFailedSyncLink`,
+    /// `apps/web/src/store/sync-inbound.ts:53-83`). Nothing is applied or
+    /// acknowledged: an acknowledgement would release records never applied.
+    SyncFrameRefused {
+        /// The generation whose socket delivered the bytes.
+        generation: u64,
+        /// Why decode refused them, for the host's log.
+        reason: String,
     },
     /// One frame arrived on a DIRECT carrier: loopback or WebRTC.
     ///
@@ -74,20 +92,24 @@ pub enum ClientEvent {
         /// The frame.
         frame: SyncFrame,
     },
-    /// The pre-hydration store is ready, so retained frames may be applied.
-    HydrationCompleted {
-        /// The socket generation whose domains are now backed by a snapshot.
-        generation: u64,
+    /// The document became visible or hidden (v2 `isPageVisible`). A hidden
+    /// document parks its redial past the failure budget; a visible one never
+    /// does, and becoming visible is a lifecycle wake.
+    PageVisibilityChanged {
+        /// Whether the document is now visible.
+        visible: bool,
     },
+    /// A page-lifecycle wake: `pageshow`, `focus`, `resume` (visible only) or
+    /// `online` (`allow_hidden`), v2 `installSyncLifecycleWake`.
+    SyncWakeRequested {
+        /// Whether a hidden document may act on it (`online` may).
+        allow_hidden: bool,
+    },
+    /// A deliberate transport control: a manual reconnect, or one of the smoke
+    /// backdoor's partition controls (`apps/web/src/store/sync-smoke.ts`).
+    SyncTransportControl(crate::handle_sync::lifecycle::TransportControl),
     /// A Connect unary call answered.
     RpcResultReceived(RpcResult),
-    /// The host signed a challenge.
-    ChallengeSigned {
-        /// The credential being established.
-        account_id: String,
-        /// The signature, opaque to the core.
-        signature: Vec<u8>,
-    },
     /// The credential is gone. Everything keyed to it is discarded, INCLUDING the
     /// recovery cursor: a persisted global cursor would skip the next socket's
     /// initial history.
@@ -207,6 +229,13 @@ pub enum ClientEvent {
         encoded: String,
     },
 
+    /// A sidebar action (`store::sidebar::intent`).
+    Sidebar(crate::store::sidebar::SidebarIntent),
+    /// A shell action (`store::shell_intent`).
+    Shell(crate::store::shell_intent::ShellIntent),
+    /// A terminal-deck gesture or observation (`deck::intent`).
+    Deck(crate::deck::DeckIntent),
+
     // ---- time ------------------------------------------------------------------
     /// One pass over every deadline: the chunk stall, the resync retry, the view
     /// lease, the held-input timeout, the watermark write, the Sync liveness
@@ -229,9 +258,11 @@ impl ClientEvent {
             Self::SyncLinkOpened { .. } => "sync_link_opened",
             Self::SyncLinkClosed { .. } => "sync_link_closed",
             Self::SyncFrameReceived { .. } => "sync_frame_received",
-            Self::HydrationCompleted { .. } => "hydration_completed",
+            Self::SyncFrameRefused { .. } => "sync_frame_refused",
+            Self::PageVisibilityChanged { .. } => "page_visibility_changed",
+            Self::SyncWakeRequested { .. } => "sync_wake_requested",
+            Self::SyncTransportControl(_) => "sync_transport_control",
             Self::RpcResultReceived(_) => "rpc_result_received",
-            Self::ChallengeSigned { .. } => "challenge_signed",
             Self::CredentialsDiscarded => "credentials_discarded",
             Self::DirectFrameReceived { .. } => "direct_frame_received",
             Self::ViewOpened { .. } => "view_opened",
@@ -247,6 +278,9 @@ impl ClientEvent {
             Self::SearchPageReceived { .. } => "search_page_received",
             Self::AgentStatusSeen { .. } => "agent_status_seen",
             Self::AgentSeenMerged { .. } => "agent_seen_merged",
+            Self::Sidebar(_) => "sidebar",
+            Self::Shell(_) => "shell",
+            Self::Deck(_) => "deck",
             Self::Sweep { .. } => "sweep",
         }
     }

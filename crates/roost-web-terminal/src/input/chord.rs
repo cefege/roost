@@ -4,7 +4,8 @@
 //! This is the only shape the encoder sees. The `dom` adapter builds one from
 //! a `web_sys::KeyboardEvent`, and the touch key pad builds one directly, so
 //! application-mode and platform behaviour are decidable in a test and the two
-//! input paths cannot drift into different encodings.
+//! input paths cannot drift into different encodings. Ports v2's
+//! `TerminalKeyEvent` and `isAltGraphKey` from `apps/web/src/client/input/terminalInput.ts`.
 
 /// Which key an event names, in the vocabulary the encoder dispatches on.
 ///

@@ -7,6 +7,7 @@
 #![allow(dead_code)]
 
 pub mod auth;
+pub mod hydration;
 pub mod sync_reconnect;
 
 use roost_client_core::{

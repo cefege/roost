@@ -7,7 +7,7 @@
 
 use roost_web_terminal::input::{
     ComposeSelection, ComposerSelection, DomNodeId, FocusOwner, LiveSelection, OwnedRow,
-    SelectionDirection, SelectionGuard, YieldLapse,
+    SelectionChangeFacts, SelectionDirection, SelectionGuard, YieldLapse,
 };
 
 mod selection_guard_support;
@@ -224,7 +224,13 @@ fn the_clear_a_yield_performs_is_not_read_as_the_user_dropping_the_selection() {
     let (mut composer, live, held) = capture_v0(&mut guard);
     assert!(composer.suspend(&mut guard, inputs(&live, &held)).is_some());
     // The document reports the empty selection the yield's own clear produced.
-    let effects = composer.on_document_selection_change(&no_selection(), true);
+    let cleared = no_selection();
+    let in_dock = SelectionChangeFacts {
+        focus_in_dock: true,
+        focused_input: None,
+    };
+    let effects =
+        composer.on_document_selection_change(&mut guard, inputs(&cleared, &held), in_dock);
     assert!(
         !effects.release,
         "releasing here would drop the capture the composer is still editing behind"
@@ -232,8 +238,14 @@ fn the_clear_a_yield_performs_is_not_read_as_the_user_dropping_the_selection() {
     assert!(composer.has_guard());
     // A collapse that is NOT the yield's clear, focus outside the dock, is a
     // genuine abandonment.
-    let outside = composer.on_document_selection_change(&no_selection(), false);
+    let outside = SelectionChangeFacts {
+        focus_in_dock: false,
+        ..in_dock
+    };
+    let outside =
+        composer.on_document_selection_change(&mut guard, inputs(&cleared, &held), outside);
     assert!(outside.release);
+    assert!(!composer.has_guard() && !guard.has_capture());
 }
 
 #[test]
