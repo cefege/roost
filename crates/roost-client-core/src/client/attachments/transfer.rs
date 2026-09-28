@@ -232,6 +232,14 @@ pub struct DirectUpload {
     in_flight: Option<InFlightChunk>,
     abs_path: String,
     completed: bool,
+    /// Whether any chunk has gone out to a carrier. CUMULATIVE, and reported
+    /// from the TAKE rather than the acknowledgement: v2 decides the carrier
+    /// fallback on it at `attachmentDirect.ts:117`, which refuses a switch
+    /// unless both the error and the connection say nothing went out, and
+    /// `AttachmentConversation` sets its own flag in `begin_chunk` for the same
+    /// reason. Reading it off `seq` made it a property of the ack, which is
+    /// one step too late to be a fallback boundary.
+    sent: bool,
 }
 
 impl DirectUpload {
@@ -246,6 +254,7 @@ impl DirectUpload {
             in_flight: None,
             abs_path: String::new(),
             completed: false,
+            sent: false,
         }
     }
 
@@ -256,7 +265,7 @@ impl DirectUpload {
     /// worker has already committed.
     #[must_use]
     pub fn sent_chunk(&self) -> bool {
-        self.seq > 0
+        self.sent
     }
 
     /// The slice to read and hash next, or `None` once the final chunk has
@@ -317,6 +326,9 @@ impl DirectUpload {
             chunk_sha256: chunk_sha256.to_owned(),
             last: request.last,
         });
+        // The bytes have LEFT here. `seq` still advances on the acknowledgement,
+        // because that is what the worker's `nextSeq` counts.
+        self.sent = true;
         Ok(())
     }
 
