@@ -44,6 +44,8 @@ pub struct ScreenHub {
     pub(crate) sink: Arc<dyn ScreenReplicaSink>,
     pub(crate) timers: Arc<dyn ScreenTimers>,
     pub(crate) clock: ScreenClock,
+    /// The capture recorder each accepted frame feeds, installed once at boot.
+    pub(crate) capture: std::sync::OnceLock<Arc<crate::terminal_capture::TerminalCaptureRuntime>>,
     tokens: AtomicU64,
 }
 
@@ -89,6 +91,7 @@ impl ScreenHub {
             sink,
             timers,
             clock,
+            capture: std::sync::OnceLock::new(),
             tokens: AtomicU64::new(1),
         }
     }

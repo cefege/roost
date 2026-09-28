@@ -217,11 +217,11 @@ async fn capture_requires_exactly_one_session_filter_ids_entry_naming_the_captur
         let error = snapshot_as(&fixture, &device(), bad).await.unwrap_err();
         assert_eq!(error.code, ErrorCode::InvalidArgument);
     }
-    // A well-scoped capture is refused by name: the capture bridge is not
-    // ported, and an ordinary dump would be a wrong answer.
+    // A well-scoped capture reaches the capture bridge, whose own validation
+    // refuses an unspecified action before any worker is asked anything.
     let scoped = capture("", std::slice::from_ref(&capture_session));
     let error = snapshot_as(&fixture, &device(), scoped).await.unwrap_err();
-    assert_eq!(error.code, ErrorCode::Unimplemented);
+    assert_eq!(error.code, ErrorCode::InvalidArgument);
     assert!(fixture.log().sent_worker_fps.is_empty());
 }
 

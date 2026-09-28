@@ -13,10 +13,9 @@
 //! to. A filtered dump names at most 64 sessions; an unfiltered one is capped
 //! at the same bound and says `truncated` when it hit it.
 //!
-//! TERMINAL CAPTURE IS REFUSED BY NAME. v2 answers a `terminal_capture`
-//! request through `terminal/capture/terminal-capture.ts`, which this
-//! coordinator has not ported; after v2's own scope validation the request is
-//! refused `Unimplemented` rather than answered with an ordinary dump.
+//! A TERMINAL CAPTURE REQUEST IS NOT A DUMP. It is one authenticated capture
+//! step on exactly one session (`terminal_capture::bridge`), answered with the
+//! capture result and nothing else, after v2's own scope validation.
 
 use std::collections::{BTreeSet, HashSet};
 
@@ -36,6 +35,7 @@ use crate::diagnostics::worker_results::{
     ScopedDiagnosticSession, ScopedWorkerDiagnosticOptions, collect_scoped_worker_diagnostics,
 };
 use crate::rpc::service::ok_response;
+use crate::terminal_capture::bridge::CaptureBridge;
 use crate::terminal_screen::pipeline_cache::WorkerTerminalPipelineSnapshotCache;
 
 /// The most sessions one dump names, filtered or not.
@@ -57,14 +57,20 @@ pub async fn handle_diag_snapshot(
             &request.session_filter_ids,
             &capture.session_id,
         )?;
-        tracing::warn!(
-            session_id = capture.session_id,
-            "diag.snapshot: terminal capture refused; not ported"
-        );
-        return Err(ConnectError::new(
-            ErrorCode::Unimplemented,
-            "terminal capture is not available on this coordinator",
-        ));
+        let bridge = CaptureBridge {
+            services: &core.services,
+            runtime: &core.services.terminal_capture,
+            git_sha,
+        };
+        let terminal_capture = bridge.handle(capture, &caller.principal).await?;
+        return ok_response(proto::DiagSnapshotResponse {
+            snapshot_json: json!({
+                "captured_at_ms": core.services.terminal_capture.now_ms(),
+                "terminal_capture": terminal_capture,
+            })
+            .to_string(),
+            ..Default::default()
+        });
     }
     let filter_ids =
         normalize_session_filter_ids(&request.session_filter_id, &request.session_filter_ids)?;
