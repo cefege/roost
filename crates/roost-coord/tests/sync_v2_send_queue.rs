@@ -32,6 +32,9 @@ use roost_proto::{
 };
 
 const SESSION_A: &str = "11111111-1111-4111-8111-111111111111";
+/// A session the snapshot seed does NOT cover, so hydration leaves it
+/// unannounced and its cells stay fenced. See `hydrated_uncovered_terminal`.
+const SESSION_B: &str = "22222222-2222-4222-8222-222222222222";
 const SNAPSHOT_A: &str = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 fn generations() -> Arc<DomainGenerations> {
@@ -109,6 +112,51 @@ fn hydrated_terminal() -> (SyncV2Session, SnapshotTokenRegistry) {
     tokens.register_socket("socket-1", "fingerprint");
     let mut covered = BTreeSet::new();
     covered.insert(SESSION_A.to_owned());
+    assert!(tokens.bind("socket-1", "fingerprint", SNAPSHOT_A, covered));
+    let frame = SyncClientFrame {
+        ack_delivery_seq: None,
+        socket_id: "socket-1".to_owned(),
+        command: Some(ClientCommand::DomainReady(Box::new(
+            SyncDomainReadyCommand {
+                domain: SyncDomain::Terminal.into(),
+                generation: session
+                    .domain_generation(SyncDomain::Terminal)
+                    .expect("a domain exists"),
+                snapshot_token: Some(SNAPSHOT_A.to_owned()),
+                __buffa_unknown_fields: Default::default(),
+            },
+        ))),
+        __buffa_unknown_fields: Default::default(),
+    };
+    let context = context();
+    assert!(matches!(
+        handle_client_frame(&mut session, &context, &frame, &mut tokens, 1_000),
+        CommandOutcome::DomainReady {
+            domain: SyncDomain::Terminal,
+            ..
+        }
+    ));
+    (session, tokens)
+}
+
+/// A hydrated socket watching a session the snapshot seed did NOT cover.
+///
+/// `hydrated_terminal` binds the token over `SESSION_A`, and
+/// `handle_domain_ready` seeds `announced_sessions` from the covered set exactly
+/// as v2 does (`sync-ws-v2-commands.ts:127-130`) — so on that fixture the cells
+/// are already unfenced when the test queues them. **The fence is correct; the
+/// fixture was wrong.** Binding over a DIFFERENT session is the shape a real
+/// socket is in: hydration has happened, and the session under test is one the
+/// seed did not mention.
+///
+/// The alternative — an empty covered set — would stop exercising hydration
+/// altogether, which is the state that matters.
+fn hydrated_uncovered_terminal() -> (SyncV2Session, SnapshotTokenRegistry) {
+    let mut session = SyncV2Session::new("socket-1".to_owned(), generations(), true);
+    let mut tokens = SnapshotTokenRegistry::new();
+    tokens.register_socket("socket-1", "fingerprint");
+    let mut covered = BTreeSet::new();
+    covered.insert(SESSION_B.to_owned());
     assert!(tokens.bind("socket-1", "fingerprint", SNAPSHOT_A, covered));
     let frame = SyncClientFrame {
         ack_delivery_seq: None,
@@ -234,10 +282,9 @@ fn the_queue_drops_one_frame_and_resets_the_domain_rather_than_growing() {
 // this test exercising hydration at all, which is the state a real socket is
 // in. What is needed is a second fixture that hydrates a socket which is
 // watching a session the seed did not cover.
-#[ignore = "UNFINISHED: the hydrated socket has already announced SESSION_A (handle_domain_ready seeds announced_sessions from the token's covered set, as v2 does), so the cell is never fenced and goes out first. The fence is correct: with the token covering nothing this test passes unchanged. Not a ready-ring fault -- the ring is empty throughout."]
 #[test]
 fn a_cell_is_fenced_behind_its_announcement_until_the_acknowledgement_lands() {
-    let (mut session, _tokens) = hydrated_terminal();
+    let (mut session, _tokens) = hydrated_uncovered_terminal();
     let mut hub = NoTerminalSnapshotHub;
 
     let opened = opened_event(SESSION_A);
@@ -301,10 +348,29 @@ fn a_cell_is_fenced_behind_its_announcement_until_the_acknowledgement_lands() {
 // `LastActivity`, or a selection rule that scans past an eligible frame to
 // find the oldest AGED one -- and the latter is a policy change to
 // `select_candidate`, not a port of v2.
-#[ignore = "UNFINISHED: two faults. (1) the hydrated socket already announced SESSION_A, so the first cell is never fenced and the title assertion fails; (2) with that corrected the aged-out override still cannot pick the LastActivity, because select_candidate only considers each domain's first eligible frame and opened shares its queued_at_ms -- v2 behaves identically (sync-ws-v2-queue.ts:77-95). Not a ready-ring fault: the ring is empty throughout."]
+/// THIS IS A POLICY QUESTION, NOT A FIXTURE FAULT, and the fixture is corrected
+/// above. Measured on 2026-09-28 with the corrected `hydrated_uncovered_terminal`
+/// fixture: the test now reaches its aged-out assertion, and FAILS there.
+///
+/// Giving the `LastActivity` a DISTINCT, LATER `queued_at_ms` was tried and does
+/// not work, because `send_queue.rs:102-106` and `:133` both take the OLDEST
+/// head with `min_by_key(queued_at_ms)` — at `aged` both frames have aged out
+/// and the earlier one still wins. Making it pass would need a timestamp EARLIER
+/// than a frame enqueued before it, which would stop the fixture describing a
+/// real enqueue order. **A test whose fixture must be arranged against the order
+/// it tests is no longer a test of that order.**
+///
+/// So the question stands and is a decision, not a port: v2 considers only each
+/// domain's FIRST ELIGIBLE frame (`sync-ws-v2-queue.ts:77-95`) and v3 does the
+/// same, so v3 does not promise aged-out priority across a domain's queue.
+/// Either this test's expectation is wrong, or v3 deliberately improves on v2
+/// here — which departs from the parity rule and belongs in the merge body as
+/// one. **Do not let a fixture edit settle it: a green here would record the
+/// choice without naming it.**
+#[ignore = "UNFINISHED: a POLICY decision, not a fixture fault. select_candidate takes the oldest of each domain's first ELIGIBLE heads (send_queue.rs:102-106,:133), and v2 does the same (sync-ws-v2-queue.ts:77-95), so v3 does not promise aged-out priority across a domain's queue. Measured: a distinct, LATER queued_at_ms does not change the outcome. The fixture is corrected; this needs either the expectation changed or a named, recorded departure from parity."]
 #[test]
 fn the_aged_out_lane_outranks_a_streaming_terminal() {
-    let (mut session, _tokens) = hydrated_terminal();
+    let (mut session, _tokens) = hydrated_uncovered_terminal();
     let mut hub = NoTerminalSnapshotHub;
 
     // A cell for a session nobody announced stays queued and ineligible.
