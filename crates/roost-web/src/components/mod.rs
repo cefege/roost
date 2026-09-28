@@ -13,10 +13,20 @@
 //! module here is a compile error.
 
 pub mod access_gate;
+pub mod agents;
+pub mod app_error_boundary;
 pub mod brand_mark;
+pub mod browse;
+pub mod context_menu;
+pub mod deck;
 pub mod design;
 pub mod home;
 pub mod layout;
+pub mod machines;
+pub mod main_pane;
 pub mod md;
 pub mod not_served;
+pub mod rename_dialog;
 pub mod settings_navigation;
+pub mod sidebar;
+pub mod terminal;

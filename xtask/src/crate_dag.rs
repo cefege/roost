@@ -117,9 +117,16 @@ const ALLOWED: &[(&str, &[&str])] = &[
         "roost-web-terminal",
         &["roost-client-core", "roost-protocol"],
     ),
+    // `roost-platform` mirrors v2's `apps/web/src/lib/nativePath.ts` ->
+    // `@roost/platform/native-path` edge: the browser's `WorkerPaths` delegates to it.
     (
         "roost-web",
-        &["roost-web-terminal", "roost-client-core", "roost-protocol"],
+        &[
+            "roost-web-terminal",
+            "roost-client-core",
+            "roost-protocol",
+            "roost-platform",
+        ],
     ),
     (
         "roost-cli",

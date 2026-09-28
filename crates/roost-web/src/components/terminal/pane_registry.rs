@@ -1,0 +1,239 @@
+//! The session-keyed registry of mounted terminal panes: the one place a
+//! reader outside a pane (the smoke backdoor, a preview) resolves a session to
+//! the renderer that paints it. Provided once in `App` via context; every
+//! `CellTerminal` registers on mount and unregisters on drop, and the latest
+//! mount wins. Ports the renderer registry of
+//! `apps/web/src/renderer/terminalPreview.ts` (`registerRenderer`,
+//! `rendererRegistryEntry`).
+
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::fmt;
+use std::rc::Rc;
+
+use dioxus::prelude::*;
+use roost_web_terminal::{
+    PaintedRowText, ReaderIntent, RendererEpochSeq, RendererPaintPresentation,
+    RendererPresentationSnapshot,
+};
+
+pub use super::pane_surface::{PaintedLine, PaintedMarkerHit, PaneSurface, find_marker};
+
+/// Per-session counters that outlive any one mount, as v2's module maps did.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PaneCounters {
+    /// Epoch-addressed history reads the session's scrollback pagers issued.
+    pub backfill_requests: u64,
+}
+
+/// One render probe: watermarks and reader state of the mounted renderer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaneRenderProbe {
+    /// How far canonical has advanced.
+    pub canonical: RendererEpochSeq,
+    /// How far the painted DOM has reconciled.
+    pub reconciled: RendererEpochSeq,
+    /// Live tail or parked reader.
+    pub reader_intent: ReaderIntent,
+    /// Whether the scroll box sits at its exact bottom.
+    pub at_bottom: bool,
+    /// Immutable history rows painted.
+    pub painted_scrollback_rows: usize,
+    /// Viewport row elements in the DOM.
+    pub dom_rows: usize,
+}
+
+/// The registry, cheap to clone: every clone is the same registry.
+#[derive(Clone, Default)]
+pub struct PaneRegistry {
+    inner: Rc<RefCell<RegistryState>>,
+}
+
+#[derive(Default)]
+struct RegistryState {
+    next_mount_id: u64,
+    panes: BTreeMap<String, MountedPane>,
+    counters: BTreeMap<String, PaneCounters>,
+    #[cfg(feature = "smoke")]
+    faults: super::pane_faults::PaneFaults,
+}
+
+struct MountedPane {
+    mount_id: u64,
+    surface: Rc<dyn PaneSurface>,
+}
+
+impl PartialEq for PaneRegistry {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.inner, &other.inner)
+    }
+}
+
+impl fmt::Debug for PaneRegistry {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let state = self.inner.borrow();
+        formatter
+            .debug_struct("PaneRegistry")
+            .field("panes", &state.panes.keys().collect::<Vec<_>>())
+            .finish_non_exhaustive()
+    }
+}
+
+impl PaneRegistry {
+    /// Register a mounted pane's surface and answer its mount id. A second
+    /// mount of the same session replaces the first: the newest pane is the
+    /// one painting.
+    pub fn register(&self, session_id: &str, surface: Rc<dyn PaneSurface>) -> u64 {
+        let mut state = self.inner.borrow_mut();
+        state.next_mount_id += 1;
+        let mount_id = state.next_mount_id;
+        let replaced = state
+            .panes
+            .insert(session_id.to_owned(), MountedPane { mount_id, surface })
+            .is_some();
+        tracing::debug!(target: "terminal", session_id, mount_id, replaced, "pane registered");
+        mount_id
+    }
+
+    /// Unregister one mount. A stale mount (already replaced) removes nothing,
+    /// so a pane unmounting after its successor mounted cannot orphan it.
+    pub fn unregister(&self, session_id: &str, mount_id: u64) -> bool {
+        let mut state = self.inner.borrow_mut();
+        let owns = state
+            .panes
+            .get(session_id)
+            .is_some_and(|pane| pane.mount_id == mount_id);
+        if owns {
+            state.panes.remove(session_id);
+            tracing::debug!(target: "terminal", session_id, mount_id, "pane unregistered");
+        }
+        owns
+    }
+
+    /// The current mount's id, for a caller detecting a remount.
+    pub fn mount_id(&self, session_id: &str) -> Option<u64> {
+        self.inner
+            .borrow()
+            .panes
+            .get(session_id)
+            .map(|pane| pane.mount_id)
+    }
+
+    /// Every session with a mounted pane.
+    pub fn sessions(&self) -> Vec<String> {
+        self.inner.borrow().panes.keys().cloned().collect()
+    }
+
+    /// The canonical viewport as text.
+    pub fn viewport_text(&self, session_id: &str) -> Option<String> {
+        self.surface(session_id)?.viewport_text()
+    }
+
+    /// The newest `max_rows` history rows as text.
+    pub fn scrollback_text(&self, session_id: &str, max_rows: usize) -> Option<String> {
+        self.surface(session_id)?.scrollback_text(max_rows)
+    }
+
+    /// The first painted row containing `marker`.
+    pub fn find_painted_marker(&self, session_id: &str, marker: &str) -> Option<PaintedMarkerHit> {
+        find_marker(&self.surface(session_id)?.painted_lines()?, marker)
+    }
+
+    /// Watermarks and reader state of the mounted renderer.
+    pub fn render_probe(&self, session_id: &str) -> Option<PaneRenderProbe> {
+        let probe = self.surface(session_id)?.probe()?;
+        Some(PaneRenderProbe {
+            canonical: probe.canonical,
+            reconciled: probe.reconciled,
+            reader_intent: probe.reader_intent,
+            at_bottom: probe.at_bottom,
+            painted_scrollback_rows: probe.painted_scrollback_rows,
+            dom_rows: probe.dom_rows,
+        })
+    }
+
+    /// The painted window around the reader.
+    pub fn paint_presentation(
+        &self,
+        session_id: &str,
+        row_limit: Option<usize>,
+    ) -> Option<RendererPaintPresentation> {
+        self.surface(session_id)?.paint_presentation(row_limit)
+    }
+
+    /// Whether every row of `[start, end)` is painted.
+    pub fn has_painted_scrollback_range(&self, session_id: &str, start: u32, end: u32) -> bool {
+        self.surface(session_id)
+            .is_some_and(|surface| surface.has_painted_scrollback_range(start, end))
+    }
+
+    /// The painted text of `[start, end)`.
+    pub fn painted_scrollback_range(
+        &self,
+        session_id: &str,
+        start: u32,
+        end: u32,
+    ) -> Option<Vec<PaintedRowText>> {
+        self.surface(session_id)?
+            .painted_scrollback_range(start, end)
+    }
+
+    /// The presentation snapshot.
+    pub fn presentation_snapshot(&self, session_id: &str) -> Option<RendererPresentationSnapshot> {
+        self.surface(session_id)?.presentation_snapshot()
+    }
+
+    /// The newest non-blank painted rows, for a tab-grid preview. `None` when
+    /// no pane for the session is mounted: a session never warmed has no
+    /// preview.
+    pub fn preview_rows(&self, session_id: &str) -> Option<Vec<roost_protocol::cell::CellRow>> {
+        self.surface(session_id)?.preview_rows()
+    }
+
+    /// The session's counters, zero when it never had a pane.
+    pub fn counters(&self, session_id: &str) -> PaneCounters {
+        self.inner
+            .borrow()
+            .counters
+            .get(session_id)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// One history read issued by the session's pager.
+    pub fn note_backfill_request(&self, session_id: &str) {
+        self.inner
+            .borrow_mut()
+            .counters
+            .entry(session_id.to_owned())
+            .or_default()
+            .backfill_requests += 1;
+    }
+
+    /// The surface, cloned out so the registry is not borrowed while it runs:
+    /// a surface read may re-enter the registry.
+    fn surface(&self, session_id: &str) -> Option<Rc<dyn PaneSurface>> {
+        self.inner
+            .borrow()
+            .panes
+            .get(session_id)
+            .map(|pane| Rc::clone(&pane.surface))
+    }
+
+    /// Run `edit` over the smoke fault arms.
+    #[cfg(feature = "smoke")]
+    pub(super) fn with_faults<T>(
+        &self,
+        edit: impl FnOnce(&mut super::pane_faults::PaneFaults, bool) -> T,
+        session_id: &str,
+    ) -> T {
+        let mut state = self.inner.borrow_mut();
+        let mounted = state.panes.contains_key(session_id);
+        edit(&mut state.faults, mounted)
+    }
+}
+
+/// The registry from context.
+pub fn use_pane_registry() -> PaneRegistry {
+    use_context::<PaneRegistry>()
+}

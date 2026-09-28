@@ -26,6 +26,7 @@ mod handle_sync;
 mod handle_terminal;
 
 pub mod client;
+pub mod deck;
 pub mod effect;
 pub mod event;
 pub mod platform;
@@ -38,6 +39,7 @@ pub mod terminal;
 pub use core::ClientCore;
 pub use effect::{DirectCommand, Effect, RpcCall, RpcResult, SyncCommand};
 pub use event::ClientEvent;
+pub use handle_sync::lifecycle::TransportControl;
 pub use platform::{Clock, KeyValueStore, MemoryClock, MemoryKeyValueStore};
 pub use search::{FindMatch, PageRefusal, RawMatch, SearchPage};
 pub use sessions::{SessionPlane, WireEvent, WireSession};

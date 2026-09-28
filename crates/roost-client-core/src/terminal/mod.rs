@@ -14,6 +14,7 @@
 //! `protocol/spec/direct-terminal.md`. Every rule and its source is in
 //! `docs/phase4-client-contract.md` §6, §8 and §9.
 
+pub mod frame_counts;
 pub mod frame_fold;
 pub mod history;
 pub mod history_backfill;
@@ -23,6 +24,7 @@ pub mod resync_position;
 pub mod routes;
 pub mod session;
 pub mod session_views;
+pub mod smoke_faults;
 pub mod token;
 pub mod view;
 
