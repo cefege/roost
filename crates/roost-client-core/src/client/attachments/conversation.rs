@@ -39,6 +39,12 @@ pub struct AttachmentConversation {
     ready: bool,
     closed: bool,
     sent_chunk: bool,
+    /// What `sent_chunk` was BEFORE the take in flight, so a write that failed
+    /// un-claims only its OWN bytes. v2 saves and restores exactly this
+    /// (`attachment-loopback.ts:113` / `:123`), and the gate it feeds
+    /// (`attachmentDirect.ts:117`) is cumulative: it refuses a carrier switch
+    /// unless BOTH the error and the connection say nothing went out.
+    sent_before_take: bool,
     ack_seq: Option<u32>,
     status_upload_id: Option<String>,
 }
@@ -61,6 +67,7 @@ impl AttachmentConversation {
             ready: false,
             closed: false,
             sent_chunk: false,
+            sent_before_take: false,
             ack_seq: None,
             status_upload_id: None,
         }
@@ -109,6 +116,7 @@ impl AttachmentConversation {
             ));
         }
         self.ack_seq = Some(seq);
+        self.sent_before_take = self.sent_chunk;
         self.sent_chunk = true;
         Ok(())
     }
@@ -203,7 +211,11 @@ impl AttachmentConversation {
     /// The write that carried this chunk failed before it wrote, so the bytes
     /// provably never left and the fallback boundary is still ahead of us.
     pub fn rollback_chunk(&mut self) {
-        self.sent_chunk = false;
+        // Restore, do not clear. A write that threw un-claims ITS OWN bytes; an
+        // earlier chunk that already went out cannot be un-sent by a later
+        // failure, and clearing here would open the carrier fallback on an
+        // upload the worker is already holding part of.
+        self.sent_chunk = self.sent_before_take;
         self.ack_seq = None;
     }
 

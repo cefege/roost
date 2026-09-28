@@ -15,7 +15,7 @@
 mod attachment_carriers_support;
 
 use attachment_carriers_support::{
-    DIGEST, WORKER_PATH, grant, ready_frame_bytes, server_frame_bytes,
+    DIGEST, WORKER_PATH, ack_frame, grant, ready_frame_bytes, server_frame_bytes,
 };
 use roost_client_core::client::attachments::conversation::ConversationOutcome;
 use roost_client_core::client::attachments::direct::LocalWorkerDoor;
@@ -109,6 +109,16 @@ fn authenticates_then_sends_direct_bytes_in_order_and_advances_progress_from_ack
             })
             .expect("an accepting worker settles every chunk");
         progress.push(settled.bytes_received);
+        // The carrier holds its OWN outstanding-ack, and only the server frame
+        // clears it. Settling the upload's view is a different object's state, so
+        // without this the second chunk is refused as "cannot send a chunk" and the
+        // loop never gets past its first iteration.
+        carrier
+            .frame_received(&server_frame_bytes(ack_frame(
+                &in_flight,
+                settled.bytes_received,
+            )))
+            .expect("the carrier takes the worker's acknowledgement");
         assert!(carrier.sent_chunk());
     }
 
@@ -181,4 +191,81 @@ fn requests_direct_status_on_the_authenticated_control_socket() {
     assert!(!committed);
     assert!(abs_path.is_empty());
     assert!(error.is_empty());
+}
+
+/// `sent_chunk` is CUMULATIVE: "have ANY bytes for this upload gone out".
+///
+/// v2 decides the carrier fallback on it in `attachmentDirect.ts:117`, which
+/// refuses to switch carriers unless BOTH the error and the connection say
+/// nothing went out. A per-chunk flag cannot answer that: after a later
+/// chunk's write fails the per-chunk answer is "no" while an earlier chunk is
+/// still on the wire, and the gate opens on a duplicate upload. So the
+/// semantic is cumulative, and this pins it where it can be taken away.
+#[test]
+fn a_failed_chunk_does_not_clear_bytes_an_earlier_chunk_already_sent() {
+    let door = LocalWorkerDoor {
+        origin: "http://127.0.0.1:4104".to_owned(),
+        worker_fingerprint: "worker-a".to_owned(),
+    };
+    let total = DIRECT_CHUNK_BYTES + 5;
+    let mut carrier = LoopbackTransfer::new(&door.worker_fingerprint, grant(total));
+    carrier.socket_opened().expect("the socket authenticates");
+    assert_eq!(
+        carrier.frame_received(&ready_frame_bytes()),
+        Ok(ConversationOutcome::Ready)
+    );
+
+    let file: Vec<u8> = (0..total)
+        .map(|index| ((index * 17 + 9) & 0xff) as u8)
+        .collect();
+    let mut upload = DirectUpload::new("upload-a", total);
+
+    // Chunk zero goes out and is acknowledged. Its bytes are on the wire, and
+    // nothing that happens to a LATER chunk can un-send them.
+    let first = upload.next_slice().expect("a first slice");
+    let first_data = file[first.offset as usize..first.offset as usize + first.bytes].to_vec();
+    upload
+        .begin_chunk(first_data.clone(), DIGEST)
+        .expect("the first slice is the one that was asked for");
+    let in_flight = upload.in_flight().expect("a chunk is in flight").clone();
+    carrier
+        .send_chunk(&in_flight, first_data)
+        .expect("a ready carrier sends the first chunk");
+    upload
+        .settle(&AttachmentTransferAck {
+            bytes_received: first.offset + first.bytes as u64,
+            abs_path: String::new(),
+            chunk_sha256: in_flight.chunk_sha256.clone(),
+        })
+        .expect("the first chunk is acknowledged");
+    // The carrier holds its OWN outstanding-ack, so the worker's answer has to
+    // reach the CARRIER and not only settle the upload's view — otherwise the
+    // second chunk is refused as "cannot send a chunk".
+    carrier
+        .frame_received(&server_frame_bytes(ack_frame(
+            &in_flight,
+            first.offset + first.bytes as u64,
+        )))
+        .expect("the carrier takes the first chunk's acknowledgement");
+    assert!(carrier.sent_chunk(), "the first chunk is on the wire");
+
+    // The SECOND chunk's write fails. That write never crossed the boundary,
+    // so it un-claims its own bytes — and only its own.
+    let second = upload.next_slice().expect("a second slice");
+    let second_data = file[second.offset as usize..second.offset as usize + second.bytes].to_vec();
+    upload
+        .begin_chunk(second_data.clone(), DIGEST)
+        .expect("the second slice is the one that was asked for");
+    let in_flight = upload.in_flight().expect("a chunk is in flight").clone();
+    carrier
+        .send_chunk(&in_flight, second_data)
+        .expect("a ready carrier sends the second chunk");
+    carrier.send_failed("the socket write threw");
+
+    assert!(
+        carrier.sent_chunk(),
+        "a failed write un-claims only ITS OWN bytes: chunk zero is still on \
+         the wire, and clearing the flag here would open the carrier fallback \
+         on a duplicate upload"
+    );
 }
