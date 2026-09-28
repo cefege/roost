@@ -17,6 +17,7 @@ pub mod keypad_focus;
 pub mod modality;
 pub mod pad_bindings;
 pub mod pad_folders;
+pub mod pad_hints;
 pub mod pad_mapper;
 pub mod pad_router;
 pub mod pad_surfaces;
@@ -38,9 +39,10 @@ pub use modality::{ModeChoice, NavModality};
 pub use modality_dom::{
     apply_nav_modality, load_nav_modality, set_pad_mode_choice, set_tv_mode_choice,
 };
-pub use pad_bindings::{PadAction, PadHintContext, pad_hints};
+pub use pad_bindings::PadAction;
 #[cfg(target_arch = "wasm32")]
 pub use pad_dom::dispatch_pad_actions;
+pub use pad_hints::{PadHintContext, pad_hints};
 pub use pad_mapper::PadHeld;
 pub use pad_router::{PadActionRouter, PadHints};
 pub use pad_surfaces::{PadShellAction, PadSurfaceState, PadSurfaces};

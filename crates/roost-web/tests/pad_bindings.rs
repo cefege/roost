@@ -4,9 +4,8 @@
 //! never name a control the controller map does not describe.
 //! Ports `apps/web/tests/padBindings.test.ts`.
 
-use roost_web::input_nav::pad_bindings::{
-    PAD_CONTROL_GUIDE, PadAction, PadControl, PadHint, PadHintContext, button_action, pad_hints,
-};
+use roost_web::input_nav::pad_bindings::{PAD_CONTROL_GUIDE, PadAction, PadControl, button_action};
+use roost_web::input_nav::pad_hints::{PadHint, PadHintContext, pad_hints};
 
 fn hint(cap: &str, label: &'static str) -> PadHint {
     PadHint {

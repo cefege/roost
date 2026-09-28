@@ -10,8 +10,9 @@
 
 use roost_web_terminal::reader_scroll::PAD_SCROLL_STEP_PX;
 
-use crate::input_nav::pad_bindings::{PadAction, PadHintContext};
+use crate::input_nav::pad_bindings::PadAction;
 use crate::input_nav::pad_folders::next_folder_session_id;
+use crate::input_nav::pad_hints::PadHintContext;
 use crate::input_nav::pad_surfaces::{
     KeypadFocusCancel, PadDom, PadFocus, PadShellAction, PadSurfaceState, PadSurfaces, SyntheticKey,
 };

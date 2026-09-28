@@ -10,7 +10,8 @@
 mod pad_router_support;
 
 use pad_router_support::{FakeDom, FakeSurfaces};
-use roost_web::input_nav::pad_bindings::{PadAction, PadHintContext};
+use roost_web::input_nav::pad_bindings::PadAction;
+use roost_web::input_nav::pad_hints::PadHintContext;
 use roost_web::input_nav::pad_router::{PAD_HINT_IDLE_MS, PadActionRouter, cycle_index};
 use roost_web::input_nav::pad_surfaces::{PadPaneTarget, PadShellAction, SyntheticKey};
 use roost_web_terminal::reader_scroll::PAD_SCROLL_STEP_PX;
