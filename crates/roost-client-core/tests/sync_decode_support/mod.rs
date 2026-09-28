@@ -7,7 +7,11 @@
 //! depending on the coordinator. Used by `tests/sync_decode_*.rs`.
 #![allow(dead_code, clippy::unwrap_used, clippy::expect_used)]
 
-use roost_client_core::effect::{Effect, RpcResult, SyncCommand};
+#[path = "../support/hydration.rs"]
+mod hydration;
+pub use hydration::answer_hydrations;
+
+use roost_client_core::effect::{Effect, SyncCommand};
 use roost_client_core::event::ClientEvent;
 use roost_client_core::sync::decode::{DecodeRefusal, SyncFrameMeta, decode_firehose};
 use roost_client_core::{ClientCore, SyncDomain, SyncFrame};
@@ -18,7 +22,6 @@ use roost_proto::{FirehoseFrame, SyncDomainGeneration, SyncSubscribedFrame};
 pub const TAB: &str = "tab-decode";
 pub const SOCKET: &str = "sock-decode";
 pub const EPOCH: &str = "epoch-decode";
-pub const SNAPSHOT_TOKEN: &str = "terminal-snapshot-token";
 /// Every domain's generation on the fixture link.
 pub const DOMAIN_GENERATION: u64 = 3;
 pub const SESSION: &str = "00000000-0000-4000-8000-00000000000a";
@@ -128,26 +131,15 @@ pub fn open_ready_link(core: &mut ClientCore) -> u64 {
         socket_id: SOCKET.to_owned(),
         process_epoch: EPOCH.to_owned(),
     });
-    core.handle(decoded(&control(subscribed_arm(SOCKET)), generation));
-    core.handle(ClientEvent::HydrationCompleted { generation });
-    core.handle(ClientEvent::RpcResultReceived(RpcResult::SessionsList {
-        call_id: 1,
-        sessions: Default::default(),
-        terminal_snapshot_token: Some(SNAPSHOT_TOKEN.to_owned()),
-    }));
+    let effects = core.handle(decoded(&control(subscribed_arm(SOCKET)), generation));
+    answer_hydrations(core, &effects);
+    // The audit domain is lazy: only a mounted audit surface hydrates it
+    // (`sync-domain-hydration.ts:41-64`), so it is the one domain not ready here.
     for domain in SyncDomain::ALL {
-        core.handle(ClientEvent::SyncFrameReceived {
-            generation,
-            delivery_seq: 0,
-            frame: SyncFrame::DomainReady {
-                domain,
-                generation: DOMAIN_GENERATION,
-                snapshot_token: (domain == SyncDomain::Terminal).then(|| SNAPSHOT_TOKEN.to_owned()),
-            },
-        });
-        assert!(
+        assert_eq!(
             core.store().sync.domain_is_ready(domain),
-            "{domain:?} is ready"
+            domain != SyncDomain::Audit,
+            "{domain:?} readiness"
         );
     }
     generation

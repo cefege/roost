@@ -4762,6 +4762,8 @@ dependencies = [
  "roost-client-core",
  "roost-protocol",
  "thiserror 2.0.21",
+ "tracing",
+ "url",
  "wasm-bindgen",
  "web-sys",
 ]

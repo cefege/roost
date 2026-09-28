@@ -17,8 +17,11 @@ use crate::effect::{Effect, RpcCall};
 use crate::event::ClientEvent;
 use crate::handle_input::handle_terminal_input;
 use crate::handle_sweep::handle_sweep;
+use crate::handle_sync::lifecycle::{
+    dial, on_link_closed, on_transport_control, on_visibility, on_wake, sweep_sync,
+};
 use crate::handle_sync::{
-    close_failed_sync_link, handle_direct_frame, handle_rpc_result, handle_sync_frame, hydrate,
+    close_failed_sync_link, handle_direct_frame, handle_rpc_result, handle_sync_frame,
 };
 use crate::handle_terminal::{
     ViewOpen, handle_carrier_lost, handle_carrier_ready, handle_search_page, handle_view_closed,
@@ -45,31 +48,13 @@ pub fn handle_event(
     let host_now_ms = clock.now_ms();
     match event {
         // ---- dialing ----------------------------------------------------------
-        ClientEvent::DialRequested => {
-            if store.sync.auth_revoked {
-                // The coordinator refused this credential. Dialing again would
-                // present the same rejected credential, so the request is declined
-                // rather than turned into a loop.
-                tracing::warn!(target: "sync", "dial declined: the credential was revoked");
-                return;
-            }
-            let (generation, dial) = store.sync.begin_dial(&store.tab_id);
-            store.note_change();
-            out.push(Effect::DialSync { generation, dial });
-        }
+        ClientEvent::DialRequested => dial(store, host_now_ms, out),
         ClientEvent::BootstrapRequested => {
-            // The session list is what issues the one-time terminal snapshot token,
-            // and terminal hydration cannot be admitted without it
-            // (`protocol/spec/sync.md:28`), so identity and sessions are asked for
-            // together and the worker registry with them.
+            // Identity is the only serial prerequisite: every authoritative list
+            // is a domain hydration started by the `subscribed` announcement, so
+            // nothing is published before the socket installs its generations
+            // (`apps/web/src/store/sync-bootstrap.ts:162-199`).
             out.push(Effect::Rpc(RpcCall::CoordIdentity {
-                call_id: store.next_call_id(),
-            }));
-            out.push(Effect::Rpc(RpcCall::SessionsList {
-                call_id: store.next_call_id(),
-                sync_socket_id: None,
-            }));
-            out.push(Effect::Rpc(RpcCall::WorkersList {
                 call_id: store.next_call_id(),
             }));
         }
@@ -98,18 +83,7 @@ pub fn handle_event(
         ClientEvent::SyncLinkClosed {
             generation,
             close_code,
-        } => {
-            if store.sync.close_link(*generation, *close_code) {
-                store.note_change();
-                if store.sync.auth_revoked {
-                    tracing::error!(
-                        target: "sync",
-                        generation = *generation,
-                        "sync credential revoked; not redialing"
-                    );
-                }
-            }
-        }
+        } => on_link_closed(store, *generation, *close_code, host_now_ms),
         ClientEvent::SyncFrameReceived {
             generation,
             delivery_seq,
@@ -121,14 +95,18 @@ pub fn handle_event(
         ClientEvent::DirectFrameReceived { token, frame } => {
             handle_direct_frame(store, token, frame, host_now_ms, out);
         }
-        ClientEvent::HydrationCompleted { .. } => hydrate(store, host_now_ms, out),
+        ClientEvent::PageVisibilityChanged { visible } => {
+            on_visibility(store, *visible, host_now_ms, out);
+        }
+        ClientEvent::SyncWakeRequested { allow_hidden } => {
+            on_wake(store, *allow_hidden, host_now_ms, out);
+        }
+        ClientEvent::SyncTransportControl(control) => {
+            on_transport_control(store, *control, host_now_ms, out);
+        }
 
         // ---- Connect and the pairing ceremony ----------------------------------
-        ClientEvent::RpcResultReceived(result) => handle_rpc_result(store, result),
-        ClientEvent::ChallengeSigned { account_id, .. } => {
-            store.account_id = Some(account_id.clone());
-            store.note_change();
-        }
+        ClientEvent::RpcResultReceived(result) => handle_rpc_result(store, result, host_now_ms, out),
         ClientEvent::CredentialsDiscarded => {
             store.account_id = None;
             store.sessions = crate::sessions::SessionPlane::new();
@@ -230,7 +208,9 @@ pub fn handle_event(
             // taken above. Use the later one: a sweep that fired later must not be
             // evaluated against an earlier instant, or a deadline set for "now"
             // would be a heartbeat in the past.
-            handle_sweep(store, (*now_ms).max(host_now_ms), out);
+            let now_ms = (*now_ms).max(host_now_ms);
+            sweep_sync(store, now_ms, out);
+            handle_sweep(store, now_ms, out);
         }
     }
 }

@@ -15,8 +15,9 @@ use roost_protocol::cell::{CellGridFrame, CellRow};
 use crate::cell_renderer::CellGridRenderer;
 use crate::cell_renderer_dom::DomResult;
 use crate::presentation::{RendererEpochSeq, RendererIncidentPhase, RendererTerminalModeSnapshot};
+use crate::render_element::RenderElement;
 
-impl CellGridRenderer {
+impl<E: RenderElement> CellGridRenderer<E> {
     /// Bring the painted DOM in line with the accepted frame.
     ///
     /// `follow_tail` is the pre-mutation bottom capture: the follow band or an
@@ -31,9 +32,6 @@ impl CellGridRenderer {
         let Some(frame) = self.frame.clone() else {
             return Ok(());
         };
-        // Measure once per paint, before any placeholder is sized: every
-        // reserved pixel below is derived from this one number.
-        self.measure_row_height();
         let same_grid = self.reconciled_grid_epoch.as_deref() == Some(frame.grid_epoch.as_str())
             && self.painted_cols == Some(frame.cols)
             && self.row_elements.len() == frame.rows as usize
@@ -74,19 +72,18 @@ impl CellGridRenderer {
         // Evidence of a painted-history defect must be read BEFORE this repair
         // replaces the nodes that carry it.
         self.observe(RendererIncidentPhase::PreDestructive, None);
-        self.measure_row_height();
         self.painted_sb_base =
             crate::cell_renderer::history_page::to_row_index(frame.scrollback_total);
         self.scrollback_layout_end = frame.scrollback_total;
         self.gap_rows = 0;
         self.tail_gap = None;
         self.sync_spacer();
-        self.row_height = 0.0;
-        self.scrollback.set_inner_html("");
+        self.row_height.set(0.0);
+        self.scrollback.clear_children();
         self.cur_block = None;
         self.cur_block_rows = 0;
         self.painted.clear();
-        self.viewport.set_inner_html("");
+        self.viewport.clear_children();
         self.row_elements.clear();
         self.row_hashes.clear();
         let history = frame.scrollback_rows.clone();

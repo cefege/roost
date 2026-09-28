@@ -14,7 +14,9 @@
 
 pub mod access_gate;
 pub mod brand_mark;
-pub mod design_icon;
+pub mod design;
 pub mod home;
 pub mod layout;
+pub mod md;
 pub mod not_served;
+pub mod settings_navigation;

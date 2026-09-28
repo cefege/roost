@@ -14,7 +14,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::design_icon::Icon;
+use crate::components::md::Icon;
 use crate::routes::Route;
 
 /// A path the grammar recognises whose surface this build does not carry.

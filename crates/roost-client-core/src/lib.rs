@@ -36,7 +36,7 @@ pub mod sync;
 pub mod terminal;
 
 pub use core::ClientCore;
-pub use effect::{ChallengePurpose, DirectCommand, Effect, RpcCall, RpcResult, SyncCommand};
+pub use effect::{DirectCommand, Effect, RpcCall, RpcResult, SyncCommand};
 pub use event::ClientEvent;
 pub use platform::{Clock, KeyValueStore, MemoryClock, MemoryKeyValueStore};
 pub use search::{FindMatch, PageRefusal, RawMatch, SearchPage};

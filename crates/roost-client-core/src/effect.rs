@@ -45,16 +45,6 @@ pub enum Effect {
     },
     /// Make one Connect unary call.
     Rpc(RpcCall),
-    /// Ask the host to sign a challenge with the device key.
-    ///
-    /// The result comes back as `ClientEvent::ChallengeSigned`. Async in every
-    /// host, which is exactly why it is an effect and not a trait method.
-    SignChallenge {
-        /// What is being signed.
-        purpose: ChallengePurpose,
-        /// The bytes to sign, already canonicalised by the host.
-        payload: Vec<u8>,
-    },
     /// Write the Sync recovery watermark. Debounced by the core, so a credential
     /// boundary can discard it before it reaches storage.
     PersistWatermark {
@@ -83,27 +73,6 @@ pub enum Effect {
         /// The worker whose loopback door or peer the grant opens.
         worker_fp: String,
     },
-    /// Run this domain's snapshot hydrator for its current generation: v2
-    /// `_triggerSyncDomainHydration` (`apps/web/src/store/sync-domain-hydration.ts:66-69`).
-    ///
-    /// The host owns the per-domain snapshot call and its retry; the generation
-    /// is carried so a hydrator already running for this one is not restarted.
-    HydrateDomain {
-        /// The domain whose retained snapshot is owed.
-        domain: SyncDomain,
-        /// The domain generation the snapshot must belong to.
-        generation: u64,
-    },
-}
-
-/// What a challenge signature is for. Named so a host cannot sign one thing and
-/// present it as another.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ChallengePurpose {
-    /// Proving possession of the device key to the coordinator.
-    Pairing,
-    /// Refreshing an expiring credential.
-    Refresh,
 }
 
 /// One typed frame for the Sync socket.
@@ -201,6 +170,8 @@ pub enum SyncCommand {
         /// The generation the write belongs to.
         token: TerminalToken,
     },
+    /// Answer an acknowledged layout apply on the exact socket it named.
+    UiApplyLayoutResult(crate::client::ui_state::LayoutApplyResult),
 }
 
 /// One typed command for a direct carrier.

@@ -10,7 +10,10 @@
 //!
 //! The store is deliberately NOT contiguous: a retained-but-unpainted gap
 //! between two painted intervals is a first-class state, so a reserved gap
-//! needs no inference to stand in for it.
+//! needs no inference to stand in for it. Replaces `_paintedRows` and the
+//! inline eviction loop of `apps/web/src/renderer/cellRenderer.ts`,
+//! `paintedRowAt` of `apps/web/src/renderer/cellRendererDom.ts` and
+//! `MAX_HELD_SCROLLBACK_ROWS` of `apps/web/src/renderer/cellRendererPresentation.ts`.
 
 use roost_client_core::terminal::history as intervals;
 use roost_protocol::cell::CellRow;

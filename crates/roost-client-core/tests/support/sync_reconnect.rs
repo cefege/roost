@@ -35,8 +35,8 @@ pub fn session_event(event_id: u64) -> SyncFrame {
     }
 }
 
-/// Dial, complete the handshake, announce the workers domain, hydrate, and close
-/// that domain's snapshot/live gap. Returns the generation the socket took.
+/// Dial, complete the handshake, announce the terminal and workers domains,
+/// answer their hydration calls, and so close both snapshot/live gaps. Returns the generation the socket took.
 ///
 /// A second call replaces the first socket's link, so a caller that wants the old
 /// one still open has to say so itself: `SyncState::open_link` refuses to install
@@ -52,34 +52,26 @@ pub fn open_ready_link(core: &mut ClientCore, socket_id: &str) -> u64 {
         socket_id: socket_id.to_owned(),
         process_epoch: EPOCH.to_owned(),
     });
-    core.handle(ClientEvent::SyncFrameReceived {
+    // The terminal domain is announced with the workers domain because the
+    // store holds application frames until the protected sessions snapshot
+    // publishes, exactly as v2 publishes nothing before it. `true` is the
+    // coordinator stating that THIS client is subscribed on THIS socket
+    // (`sync.proto:115-125`); only a subscribed domain is hydrated.
+    let effects = core.handle(ClientEvent::SyncFrameReceived {
         generation,
         delivery_seq: 0,
         frame: SyncFrame::Subscribed {
             socket_id: socket_id.to_owned(),
             process_epoch: EPOCH.to_owned(),
-            domains: vec![(SyncDomain::Workers, DOMAIN_GENERATION, true)],
-            // `true` is the coordinator stating that THIS client is subscribed to
-            // the domain on THIS socket (`sync.proto:115-125`), and it has to be
-            // `true` for a `domain_ready` to follow: `may_apply` admits live
-            // traffic only where a domain is `subscribed && ready`, and
-            // `install_subscribed` stores this flag verbatim. Announcing `false`
-            // and then sending `domain_ready` describes a sequence the
-            // coordinator never produces — it would not close the snapshot/live
-            // gap for a domain it had just said we were not subscribed to — and
-            // every application frame below was being refused at that gate.
+            domains: vec![
+                (SyncDomain::Terminal, DOMAIN_GENERATION, true),
+                (SyncDomain::Workers, DOMAIN_GENERATION, true),
+            ],
         },
     });
-    core.handle(ClientEvent::HydrationCompleted { generation });
-    core.handle(ClientEvent::SyncFrameReceived {
-        generation,
-        delivery_seq: 0,
-        frame: SyncFrame::DomainReady {
-            domain: SyncDomain::Workers,
-            generation: DOMAIN_GENERATION,
-            snapshot_token: None,
-        },
-    });
+    super::hydration::answer_hydrations(core, &effects);
+    assert!(core.store().sync.domain_is_ready(SyncDomain::Workers));
+    assert!(core.store().sync.domain_is_ready(SyncDomain::Terminal));
     assert!(core.store().sync.accepts(generation));
     generation
 }

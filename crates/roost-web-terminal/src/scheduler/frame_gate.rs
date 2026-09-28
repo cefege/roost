@@ -1,17 +1,14 @@
 //! The admission gate: whether one arriving frame may ride the pending batch
-//! as a sparse delta, or must replace it with a full.
-//!
-//! Every rule here is a pure function of two frames and a bound, with no state
-//! of its own — the state it reads lives in `RenderScheduler`, and the batch it
-//! builds lives in `scheduler::frames`. It is the layer the three bounds and the
-//! stale-full fence live at, so a reader can ask "may this ride?" without
-//! knowing how the batch is stored.
+//! as a sparse delta, or must replace it with a full — the three bounds, the
+//! seq-continuity rule and the stale-full fence of
+//! `apps/web/src/renderer/terminal-render-scheduler.ts`. Pure functions called
+//! by `RenderScheduler`; the batch they judge is `scheduler::frames`.
 
 use std::sync::Arc;
 
 use roost_protocol::cell::{CellGridFrame, CellRow};
 
-use crate::reader_intent::{RENDERER_HOLD_LINK, RENDERER_HOLD_SELECTION, ReconcileBlockReason};
+use super::frames::PendingRender;
 
 /// Frames one queued sparse batch may carry. A busier pane than this has a
 /// browser frame that costs more in DOM writes than the deltas save.
@@ -186,20 +183,60 @@ fn own_row_shells(rows: &[CellRow]) -> Vec<CellRow> {
         .collect()
 }
 
-/// Why a paint is frozen, from the renderer's hold mask, or `None` when it is
-/// not frozen.
-///
-/// This is the same precedence `ReaderState::reconcile_block_reason` applies:
-/// a hold outranks everything, and both holds are named together. It reads the
-/// mask rather than a `ReaderState` because the RENDERER owns the reader state
-/// and a second owner of it is how a park and a hold end up disagreeing.
-pub(super) fn hold_block_reason(hold_mask: u32) -> Option<ReconcileBlockReason> {
-    let selection = hold_mask & RENDERER_HOLD_SELECTION != 0;
-    let link = hold_mask & RENDERER_HOLD_LINK != 0;
-    match (selection, link) {
-        (true, true) => Some(ReconcileBlockReason::SelectionAndLinkHold),
-        (true, false) => Some(ReconcileBlockReason::SelectionHold),
-        (false, true) => Some(ReconcileBlockReason::LinkHold),
-        (false, false) => None,
+/// The counters a new delta would give a batch it may extend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct DeltaExtend {
+    pub appended_rows: u64,
+    pub span_count: usize,
+}
+
+/// The new batch counters when `frame` may extend `pending`, or `None` when it
+/// must be replaced by a full. The rules run in v2's order — foreground, a
+/// sparse frame, exact seq continuity, no queued full, the same grid, then the
+/// three bounds — and every one is about the BATCH: a delta rides because the
+/// run it joins is still contiguous and inside every bound.
+pub(super) fn admit_delta(
+    foreground: bool,
+    pending: Option<&PendingRender>,
+    reconciled: Option<&ReconciledGrid>,
+    frame: &CellGridFrame,
+) -> Option<DeltaExtend> {
+    if !foreground || frame.full || frame.base_seq.checked_add(1) != Some(frame.seq) {
+        return None;
     }
+    let (previous, queued_frames, prior_rows, prior_spans) = match pending {
+        Some(PendingRender::Delta {
+            deltas,
+            appended_rows,
+            span_count,
+            ..
+        }) => (
+            GridIdentity::of_frame(deltas.last()?),
+            deltas.len(),
+            *appended_rows,
+            *span_count,
+        ),
+        // A delta may never join a full: the full already IS the canonical the
+        // run would have to fold onto.
+        Some(PendingRender::Full { .. }) => return None,
+        // With no baseline, nothing shows the delta is a continuation.
+        None => (GridIdentity::of_reconciled(reconciled?), 0, 0, 0),
+    };
+    if !delta_follows(previous, frame) {
+        return None;
+    }
+    let appended = u64::try_from(frame.scrollback_append.len()).unwrap_or(u64::MAX);
+    let appended_rows = prior_rows.saturating_add(appended);
+    let remaining_spans = MAX_PENDING_DELTA_SPANS.saturating_sub(prior_spans);
+    let incoming_spans = count_incoming_spans(frame, remaining_spans);
+    if queued_frames + 1 > MAX_PENDING_DELTA_FRAMES
+        || appended_rows > MAX_PENDING_SCROLLBACK_ROWS
+        || incoming_spans > remaining_spans
+    {
+        return None;
+    }
+    Some(DeltaExtend {
+        appended_rows,
+        span_count: prior_spans.saturating_add(incoming_spans),
+    })
 }

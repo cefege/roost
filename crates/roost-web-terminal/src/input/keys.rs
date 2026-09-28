@@ -4,7 +4,9 @@
 //!
 //! The tables are xterm's, not a preference: the pane runs the same
 //! application on every platform, and a key that encodes differently on two
-//! of them is a bug in the shell behind it.
+//! of them is a bug in the shell behind it. Ports v2's
+//! `apps/web/src/client/input/terminalInput.ts` (`terminalKeySequence`,
+//! `applyCtrlModifier`, `isTerminalPrintableKey`).
 
 use crate::input::chord::{KeyChord, KeyKind, NamedKey};
 

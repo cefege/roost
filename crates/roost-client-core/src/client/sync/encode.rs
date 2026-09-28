@@ -13,6 +13,7 @@ use roost_proto::{
     TerminalResyncCommand, TerminalViewCommand,
 };
 
+use crate::client::ui_state::LayoutApplyOutcome;
 use crate::effect::SyncCommand;
 use crate::sync::link::SyncDomain;
 use crate::terminal::view::ViewIntent;
@@ -117,6 +118,22 @@ pub fn encode_sync_command(command: &SyncCommand, socket_id: &str) -> Vec<u8> {
                 input_route_epoch: input_route_epoch.clone(),
                 ..Default::default()
             }))),
+        ),
+        SyncCommand::UiApplyLayoutResult(result) => (
+            None,
+            Some(Command::UiApplyLayoutResult(Box::new(
+                roost_proto::UiApplyLayoutResult {
+                    correlation_id: result.correlation_id.clone(),
+                    outcome: EnumValue::from(match result.outcome {
+                        LayoutApplyOutcome::Applied => roost_proto::UiApplyLayoutOutcome::Applied,
+                        LayoutApplyOutcome::Rejected => {
+                            roost_proto::UiApplyLayoutOutcome::Rejected
+                        }
+                    }),
+                    reason: result.reason.clone(),
+                    ..Default::default()
+                },
+            ))),
         ),
     };
     SyncClientFrame {

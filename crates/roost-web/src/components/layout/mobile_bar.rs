@@ -9,7 +9,7 @@
 use dioxus::prelude::*;
 
 use super::shell_metrics::workbench_title;
-use crate::components::design_icon::Icon;
+use crate::components::md::Icon;
 
 /// The bar, shown on a compact viewport.
 #[component]

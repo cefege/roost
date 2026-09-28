@@ -4,6 +4,8 @@
 //! `super` actually made, so a host can assert on a report without a DOM —
 //! which is what the overlay geometry in `roost-web-terminal` and this crate's
 //! own tests both do. Nothing here decides anything; `super` owns every rule.
+//! Ports the `PredictedCell` / `_debug()` shapes of v2's
+//! `apps/web/src/renderer/predictiveEchoOverlay.ts` and `predictiveEcho.ts`.
 
 use crate::store::prefs::PredictMode;
 

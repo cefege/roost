@@ -1,9 +1,8 @@
-//! The search that is running: is it still the pane's, and what did it conclude?
-//!
-//! A file split, not a type split: the state lives on `TerminalFind`, which
-//! `controller` owns. `controller` decides the query, the debounce and the
-//! reveal; this decides the cancellable page chain and the epoch fence that
-//! turns a match found under retired grid numbering into no match at all.
+//! The search that is running: starting one chain, fencing its answers to the
+//! search id and token that own the pane, and publishing what it concluded. A
+//! file split of `TerminalFind`, whose state `controller` owns. Ports
+//! `searchNow`, `installResult`, `retryAfterEpochChange` and `invalidate` of
+//! `apps/web/src/renderer/terminalFindController.ts`.
 
 use crate::find::controller::{ActiveSearch, TerminalFind};
 use crate::find::{
@@ -11,9 +10,15 @@ use crate::find::{
 };
 
 impl TerminalFind {
-    /// Absorb one page of the active search.
-    pub fn on_page(&mut self, reply: &SearchReply, host: &mut dyn FindHost) -> Vec<FindCommand> {
-        let Some(mut active) = self.take_current() else {
+    /// Absorb one page answered for `search_id`. An answer for any search but
+    /// the one owning the pane is dropped: it may neither publish nor continue.
+    pub fn on_page(
+        &mut self,
+        search_id: &str,
+        reply: &SearchReply,
+        host: &mut dyn FindHost,
+    ) -> Vec<FindCommand> {
+        let Some(mut active) = self.take_current(search_id) else {
             return Vec::new();
         };
         match active.chain.absorb(reply, &host.pane_epoch(), true) {
@@ -25,32 +30,31 @@ impl TerminalFind {
         }
     }
 
-    /// Absorb a page that never arrived. A grid that moved under a failed request
-    /// is epoch-changed; only that is retried.
-    pub fn on_search_error(&mut self, host: &mut dyn FindHost) -> Vec<FindCommand> {
-        let Some(active) = self.take_current() else {
+    /// Absorb a page request for `search_id` that failed. A pane that moved
+    /// under the failed request is epoch-changed; only that is retried.
+    pub fn on_search_error(&mut self, search_id: &str, host: &mut dyn FindHost) -> Vec<FindCommand> {
+        let Some(active) = self.take_current(search_id) else {
             return Vec::new();
         };
-        let moved = !active.chain.pane_accepts_epoch(&host.pane_epoch());
-        let outcome = if moved {
-            ChainOutcome::EpochChanged
-        } else {
+        let outcome = if active.chain.pane_accepts_epoch(&host.pane_epoch()) {
             active.chain.failed_partial()
+        } else {
+            ChainOutcome::EpochChanged
         };
         self.install_chain(active, outcome, host)
     }
 
-    /// Start one chain for the current query.
+    /// Start one chain for the current query. `resume` slides onto rows a match
+    /// cap left unscanned, keeping the matches already published under it.
     pub(super) fn search_now(
         &mut self,
         epoch_retry_budget: u32,
         resume: Option<OlderMatchPage>,
         host: &mut dyn FindHost,
     ) -> Vec<FindCommand> {
-        let carried = if resume.is_some() {
-            self.publication.matches().to_vec()
-        } else {
-            Vec::new()
+        let carried = match resume {
+            Some(_) => self.publication.matches().to_vec(),
+            None => Vec::new(),
         };
         let mut commands = self.stop_active();
         if self.query.is_empty() {
@@ -58,45 +62,57 @@ impl TerminalFind {
             return commands;
         }
         self.searches_minted += 1;
-        let search_id = format!("find-{}", self.searches_minted);
+        let search_id = format!("{}-{}", self.search_id_seed, self.searches_minted);
         // A resumed chain keeps its cursor's epoch; a fresh one pins the pane's.
         let epoch = resume
             .as_ref()
             .map_or_else(|| host.pane_epoch(), |page| page.epoch.clone());
-        let flags = (self.case_sensitive, self.regex);
         let chain = FindChain::new(
             &self.session_id,
             &search_id,
             &self.query,
-            flags,
+            (self.case_sensitive, self.regex),
             &epoch,
             resume.as_ref(),
         );
-        self.active = Some(ActiveSearch {
+        let first = chain.next_request(&host.pane_epoch(), !self.disposed);
+        tracing::info!(
+            target: "find",
+            session_id = %self.session_id,
+            search_id = %search_id,
+            resumed = resume.is_some(),
+            epoch_retry_budget,
+            "find search started"
+        );
+        let active = ActiveSearch {
             search_id,
             token: self.token,
             chain,
+            resumed: resume.is_some(),
             carried,
             epoch_retry_budget,
-        });
-        // A chain minted one line above is current, within budget and pinned to
-        // the pane's own epoch, so its only possible first step is a request.
-        let pane_epoch = host.pane_epoch();
-        let fresh = self.active.take();
-        let step = fresh
-            .as_ref()
-            .map_or(ChainStep::Finish(ChainOutcome::Abandoned), |s| {
-                s.chain.next_request(&pane_epoch, !self.disposed)
-            });
-        match step {
-            ChainStep::Issue(request) => commands.push(FindCommand::Search(request)),
-            ChainStep::Finish(outcome) => {
-                if let Some(finished) = fresh {
-                    commands.extend(self.install_chain(finished, outcome, host));
-                }
+        };
+        match first {
+            ChainStep::Issue(request) => {
+                self.active = Some(active);
+                commands.push(FindCommand::Search(request));
             }
+            ChainStep::Finish(outcome) => commands.extend(self.install_chain(active, outcome, host)),
         }
         commands
+    }
+
+    /// The active search if `search_id` names it and it still owns the pane,
+    /// taken by value; a mismatched id leaves the active search in place.
+    fn take_current(&mut self, search_id: &str) -> Option<ActiveSearch> {
+        if self.active.as_ref()?.search_id != search_id {
+            return None;
+        }
+        let active = self.active.take()?;
+        if self.disposed || active.token != self.token {
+            return None;
+        }
+        Some(active)
     }
 
     /// Publish what one chain concluded, with the chain already retired.
@@ -106,35 +122,50 @@ impl TerminalFind {
         outcome: ChainOutcome,
         host: &mut dyn FindHost,
     ) -> Vec<FindCommand> {
-        match outcome {
-            ChainOutcome::Abandoned => Vec::new(),
-            ChainOutcome::EpochChanged => self.invalidate(active.epoch_retry_budget, host),
+        let (matches, truncated, failed, older) = match outcome {
+            ChainOutcome::Abandoned => return Vec::new(),
+            ChainOutcome::EpochChanged => {
+                tracing::info!(target: "find", session_id = %self.session_id, search_id = %active.search_id, "find search saw the grid renumber");
+                return self.invalidate(active.epoch_retry_budget, host);
+            }
             ChainOutcome::Matches {
                 matches,
                 truncated,
                 failed,
                 older,
-            } => {
-                let mut list = active.carried;
-                list.extend(matches);
-                // A partial that found nothing is a plain failure, not a truncated
-                // result: there is no older window to page into.
-                let partial = truncated || (failed && !list.is_empty());
-                let pane_epoch = host.pane_epoch();
-                let budget = active.epoch_retry_budget;
-                match self
-                    .publication
-                    .install(list, partial, failed, older, &pane_epoch, host)
-                {
-                    Some((row, epoch)) => self.reveal(row, &epoch, budget, host),
-                    None => Vec::new(),
-                }
-            }
+            } => (matches, truncated, failed, older),
+        };
+        if active.resumed {
+            self.publication.prefer_newest_of(&matches, &active.carried);
+        }
+        let mut list = active.carried;
+        list.extend(matches);
+        // A failure that found nothing is a plain failure, not a truncated result.
+        let partial = truncated || (failed && !list.is_empty());
+        tracing::info!(
+            target: "find",
+            session_id = %self.session_id,
+            search_id = %active.search_id,
+            matches = list.len(),
+            truncated = partial,
+            failed,
+            older = older.is_some(),
+            "find search concluded"
+        );
+        let pane_epoch = host.pane_epoch();
+        let budget = active.epoch_retry_budget;
+        match self
+            .publication
+            .install(list, partial, failed, older, &pane_epoch, host)
+        {
+            Some((row, epoch)) => self.reveal(row, &epoch, budget, host),
+            None => Vec::new(),
         }
     }
 
-    /// Drop stale numbering, then spend one retry. A chain reporting
-    /// `epoch-changed` and a reveal finding the pane renumbered are one rule.
+    /// Drop stale numbering, then spend one retry against the live pane. A
+    /// chain reporting epoch-changed and a reveal finding the pane renumbered
+    /// are one rule.
     pub(super) fn invalidate(
         &mut self,
         epoch_retry_budget: u32,
@@ -144,6 +175,7 @@ impl TerminalFind {
         if epoch_retry_budget > 0 && !self.query.is_empty() {
             self.search_now(epoch_retry_budget - 1, None, host)
         } else {
+            tracing::info!(target: "find", session_id = %self.session_id, "find gave up after the grid renumbered");
             self.publication.mark_failed();
             Vec::new()
         }

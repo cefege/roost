@@ -3,7 +3,9 @@
 //! authoritative frame ever settled. A non-echoing prompt (sudo, an ssh
 //! password) produces no later frame at all, so without that clock a guess
 //! stays painted forever. Every time here is a `now_ms` argument, so a test
-//! drives the same numbers a host does.
+//! drives the same numbers a host does. Ports v2's
+//! `apps/web/src/client/input/predictiveEchoExpiry.ts` plus the RTT and gate
+//! rules of `apps/web/src/renderer/predictiveEcho.ts`.
 
 use super::{PredictiveEcho, SHOW_OFF_MS, SHOW_ON_MS};
 use crate::store::prefs::PredictMode;

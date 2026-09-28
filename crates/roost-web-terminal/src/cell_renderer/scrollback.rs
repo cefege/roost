@@ -6,14 +6,15 @@
 //! reserved pixels and its scroll position, and the epoch-addressed page that
 //! fills it lands without moving the reader. Reserving the space is also the
 //! only honest answer to a checkpoint: a viewport-only full cannot prove which
-//! rows left the grid, so the renderer never infers them.
-
-use web_sys::Element;
+//! rows left the grid, so the renderer never infers them. Ports
+//! `_sealCurrentBlock`, `_resizeHistoryPlaceholders`, `_gapRange`,
+//! `_setGapRange`, `_createGap`, `_insertPageBlocks` and
+//! `_insertPageIntoPlaceholder` of `apps/web/src/renderer/cellRenderer.ts`.
 
 use crate::block_placeholder::{SCROLLBACK_BLOCK_ROWS, block_placeholder};
 use crate::cell_renderer::CellGridRenderer;
-use crate::cell_renderer_dom::{DomResult, as_node, create_div, detach, size_scrollback_block};
-use crate::element_style::{remove_style_property, set_style_property};
+use crate::cell_renderer_dom::{DomResult, size_scrollback_block};
+use crate::render_element::RenderElement;
 use roost_client_core::terminal::history::HistoryRange;
 use roost_protocol::cell::CellRow;
 
@@ -22,7 +23,7 @@ pub(crate) const BLOCK_CLASS: &str = "cell-block";
 /// The class on an exact-height gap standing in for unpainted rows.
 pub(crate) const GAP_CLASS: &str = "cell-sb-gap";
 
-impl CellGridRenderer {
+impl<E: RenderElement> CellGridRenderer<E> {
     /// How many history lines the worker retains, as the interval arithmetic's
     /// total. Saturating, because the arithmetic compares against a `u32` and a
     /// total past that cannot name a row any browser painted.
@@ -34,12 +35,12 @@ impl CellGridRenderer {
 
     /// The current number of children in the history sheet.
     pub(crate) fn child_count(&self) -> u32 {
-        self.scrollback.children().length()
+        self.scrollback.child_count()
     }
 
     /// One child of the history sheet, by position.
-    pub(crate) fn child_at(&self, index: u32) -> Option<Element> {
-        self.scrollback.children().item(index)
+    pub(crate) fn child_at(&self, index: u32) -> Option<E> {
+        self.scrollback.child_at(index)
     }
 
     /// Close the OPEN tail block: stamp its exact height and let the browser
@@ -55,8 +56,8 @@ impl CellGridRenderer {
         let rows = self.cur_block_rows;
         let row_height = self.row_height();
         size_scrollback_block(&block, rows, row_height);
-        remove_style_property(&block, "overflow-anchor");
-        remove_style_property(&block, "content-visibility");
+        block.remove_style("overflow-anchor");
+        block.remove_style("content-visibility");
         if retain_tail {
             return;
         }
@@ -69,7 +70,7 @@ impl CellGridRenderer {
     /// A font swap changes the height of a row, and every scroll position in the
     /// pane is derived from these reserved pixels. A gap is sized from its own
     /// declared range; a block from its own child count.
-    pub(crate) fn resize_history_placeholders(&mut self, row_height: f64) -> bool {
+    pub(crate) fn resize_history_placeholders(&mut self, row_height: f64) {
         for index in 0..self.child_count() {
             let Some(child) = self.child_at(index) else {
                 continue;
@@ -77,36 +78,36 @@ impl CellGridRenderer {
             if child.class_name() == GAP_CLASS {
                 let rows = attribute_u32(&child, "data-end-row")
                     .saturating_sub(attribute_u32(&child, "data-start-row"));
-                set_style_property(&child, "height", &block_placeholder(rows, row_height));
+                child.set_style("height", &block_placeholder(rows, row_height));
             } else {
-                size_scrollback_block(&child, child.children().length(), row_height);
+                size_scrollback_block(&child, child.child_count(), row_height);
             }
         }
         self.painted_gap_row_height = row_height;
-        true
     }
 
     /// The interval a gap element reserves, or `None` when it names no valid
     /// range. A malformed gap is left alone rather than resized from a guess.
-    pub(crate) fn gap_range(&self, gap: &Element) -> Option<HistoryRange> {
-        let start = attribute_u32(gap, "data-start-row");
-        let end = attribute_u32(gap, "data-end-row");
+    pub(crate) fn gap_range(&self, gap: &E) -> Option<HistoryRange> {
+        let start = parsed_attribute(gap, "data-start-row")?;
+        let end = parsed_attribute(gap, "data-end-row")?;
         (start < end).then_some(HistoryRange { start, end })
     }
 
     /// Name and size one gap's interval. The height is recomputed from the live
     /// row pitch, so a font swap re-reserves the same rows at their new height.
-    pub(crate) fn set_gap_range(&mut self, gap: &Element, start: u32, end: u32) {
-        let _ = gap.set_attribute("data-start-row", &start.to_string());
-        let _ = gap.set_attribute("data-end-row", &end.to_string());
+    pub(crate) fn set_gap_range(&mut self, gap: &E, start: u32, end: u32) {
+        gap.set_attribute("data-start-row", &start.to_string());
+        gap.set_attribute("data-end-row", &end.to_string());
         let row_height = self.row_height();
-        set_style_property(gap, "height", &block_placeholder(end - start, row_height));
+        // An inverted range is an invalid CSS length in v2, i.e. no height.
+        gap.set_style("height", &block_placeholder(end.saturating_sub(start), row_height));
     }
 
-    pub(crate) fn create_gap(&mut self, start: u32, end: u32) -> DomResult<Element> {
-        let gap = create_div(&self.doc)?;
+    pub(crate) fn create_gap(&mut self, start: u32, end: u32) -> DomResult<E> {
+        let gap = self.container.create_element("div")?;
         gap.set_class_name(GAP_CLASS);
-        set_style_property(&gap, "overflow-anchor", "none");
+        gap.set_style("overflow-anchor", "none");
         self.set_gap_range(&gap, start, end);
         Ok(gap)
     }
@@ -116,17 +117,17 @@ impl CellGridRenderer {
     fn insert_page_blocks(
         &mut self,
         rows: &[CellRow],
-        reference: Option<&Element>,
+        reference: Option<&E>,
         reuse_tail: bool,
         opens_tail: bool,
     ) -> DomResult<()> {
         let mut offset = 0usize;
         if reuse_tail && let Some(block) = self.cur_block.clone() {
-            set_style_property(&block, "overflow-anchor", "none");
-            set_style_property(&block, "content-visibility", "visible");
+            block.set_style("overflow-anchor", "none");
+            block.set_style("content-visibility", "visible");
             while offset < rows.len() && self.cur_block_rows < SCROLLBACK_BLOCK_ROWS {
                 let row = self.render_scrollback_row(&rows[offset])?;
-                block.append_child(&row).ok();
+                block.append_child(&row);
                 self.cur_block_rows += 1;
                 offset += 1;
             }
@@ -137,18 +138,16 @@ impl CellGridRenderer {
                 self.seal_current_block(false);
             }
         }
-        let mut last_block: Option<Element> = None;
+        let mut last_block: Option<E> = None;
         let mut last_rows = 0u32;
         while offset < rows.len() {
-            let block = create_div(&self.doc)?;
+            let block = self.container.create_element("div")?;
             block.set_class_name(BLOCK_CLASS);
-            self.scrollback
-                .insert_before(&block, reference.map(as_node))
-                .ok();
+            self.scrollback.insert_before(&block, reference);
             let mut block_rows = 0u32;
             while offset < rows.len() && block_rows < SCROLLBACK_BLOCK_ROWS {
                 let row = self.render_scrollback_row(&rows[offset])?;
-                block.append_child(&row).ok();
+                block.append_child(&row);
                 block_rows += 1;
                 offset += 1;
             }
@@ -166,8 +165,8 @@ impl CellGridRenderer {
             // rendering-lifecycle time, not on append, so appending into a
             // locked tail leaves the scroll height stale and every bottom check
             // reads a bottom that no longer exists.
-            set_style_property(&block, "overflow-anchor", "none");
-            set_style_property(&block, "content-visibility", "visible");
+            block.set_style("overflow-anchor", "none");
+            block.set_style("content-visibility", "visible");
             self.cur_block = Some(block);
             self.cur_block_rows = last_rows;
         }
@@ -190,7 +189,7 @@ impl CellGridRenderer {
             if end > head_end {
                 return Ok(false);
             }
-            let first = self.scrollback.first_element_child();
+            let first = self.scrollback.first_child();
             let tail_target = u64::from(head_end) == self.scrollback_layout_end;
             if self.cur_block.is_some() && !tail_target {
                 self.seal_current_block(true);
@@ -199,9 +198,7 @@ impl CellGridRenderer {
             self.painted_sb_base = start;
             if end < head_end {
                 let right = self.create_gap(end, head_end)?;
-                self.scrollback
-                    .insert_before(&right, first.as_ref().map(as_node))
-                    .ok();
+                self.scrollback.insert_before(&right, first.as_ref());
                 self.gap_rows += u64::from(head_end - end);
                 if tail_target {
                     self.tail_gap = Some(right);
@@ -224,9 +221,7 @@ impl CellGridRenderer {
             if start < range.start || end > range.end {
                 continue;
             }
-            let next = self
-                .child_at(index + 1)
-                .or_else(|| self.scrollback.first_element_child());
+            let next = self.child_at(index + 1);
             let tail_target = u64::from(range.end) == self.scrollback_layout_end;
             let reuse_tail = tail_target && start == range.start && self.cur_block.is_some();
             if !tail_target && self.cur_block.is_some() {
@@ -241,7 +236,7 @@ impl CellGridRenderer {
                         self.tail_gap = Some(gap);
                     }
                 } else {
-                    detach(&gap);
+                    gap.remove();
                     self.insert_page_blocks(rows, next.as_ref(), reuse_tail, tail_target)?;
                     if tail_target {
                         self.tail_gap = None;
@@ -255,9 +250,7 @@ impl CellGridRenderer {
                 self.insert_page_blocks(rows, next.as_ref(), false, tail_target)?;
                 if end < range.end {
                     let right = self.create_gap(end, range.end)?;
-                    self.scrollback
-                        .insert_before(&right, next.as_ref().map(as_node))
-                        .ok();
+                    self.scrollback.insert_before(&right, next.as_ref());
                     if tail_target {
                         self.tail_gap = Some(right);
                     }
@@ -271,12 +264,16 @@ impl CellGridRenderer {
     }
 }
 
-/// Read a `data-*` row bound off a gap element, defaulting to zero for a
-/// missing or malformed attribute: a gap with no range is one this renderer
-/// never sized, and guessing a range for it would claim pixels nobody reserved.
-pub(crate) fn attribute_u32(element: &Element, name: &str) -> u32 {
-    element
-        .get_attribute(name)
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(0)
+/// Read a `data-*` row bound off a placeholder, defaulting to zero for a
+/// missing or malformed attribute: a block's own child count is what sizes it,
+/// and a gap with no range is one this renderer never sized.
+pub(crate) fn attribute_u32<E: RenderElement>(element: &E, name: &str) -> u32 {
+    parsed_attribute(element, name).unwrap_or(0)
+}
+
+/// A `data-*` row bound, or `None` when it is missing or not a row index: a
+/// gap whose range cannot be read is left alone rather than resized from a
+/// guess.
+fn parsed_attribute<E: RenderElement>(element: &E, name: &str) -> Option<u32> {
+    element.attribute(name)?.parse().ok()
 }

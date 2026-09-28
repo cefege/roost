@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use roost_protocol::wire::{McpRelay, SessionMap, Task, Worker, Workspace};
 
+use crate::client::rpc::CallError;
 use crate::search::global::GlobalSearchResponse;
 use crate::store::browse_entries::BrowseEntry;
 use crate::store::mutations::PairRequest;
@@ -24,8 +25,9 @@ pub enum RpcResult {
     Failed {
         /// Which call this answers.
         call_id: u64,
-        /// The coordinator's status text.
-        message: String,
+        /// What went wrong: the network, the coordinator's Connect refusal
+        /// (code and auth layer, which `classifyAuthFailure` needs), or the codec.
+        error: CallError,
     },
     /// `AuthCoordIdentity` succeeded: the two fields v2 keeps as
     /// `coord_identity` (`sync-bootstrap.ts:152-156`).
@@ -140,4 +142,44 @@ pub enum RpcResult {
         /// The search the coordinator stopped.
         search_id: String,
     },
+}
+
+impl RpcResult {
+    /// The call this answers.
+    pub const fn call_id(&self) -> u64 {
+        match self {
+            Self::Failed { call_id, .. }
+            | Self::CoordIdentity { call_id, .. }
+            | Self::SessionsList { call_id, .. }
+            | Self::WorkersList { call_id, .. }
+            | Self::WorkspacesList { call_id, .. }
+            | Self::TasksList { call_id, .. }
+            | Self::McpList { call_id, .. }
+            | Self::PairList { call_id, .. }
+            | Self::PairTokenRedeemed { call_id }
+            | Self::DirectoryListed { call_id, .. }
+            | Self::DirectoryCreated { call_id, .. }
+            | Self::SearchPage { call_id, .. }
+            | Self::GlobalSearchCancelled { call_id, .. } => *call_id,
+        }
+    }
+
+    /// A short name for a log line.
+    pub const fn kind_name(&self) -> &'static str {
+        match self {
+            Self::Failed { .. } => "failed",
+            Self::CoordIdentity { .. } => "coord_identity",
+            Self::SessionsList { .. } => "sessions_list",
+            Self::WorkersList { .. } => "workers_list",
+            Self::WorkspacesList { .. } => "workspaces_list",
+            Self::TasksList { .. } => "tasks_list",
+            Self::McpList { .. } => "mcp_list",
+            Self::PairList { .. } => "pair_list",
+            Self::PairTokenRedeemed { .. } => "pair_token_redeemed",
+            Self::DirectoryListed { .. } => "directory_listed",
+            Self::DirectoryCreated { .. } => "directory_created",
+            Self::SearchPage { .. } => "search_page",
+            Self::GlobalSearchCancelled { .. } => "global_search_cancelled",
+        }
+    }
 }

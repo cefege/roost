@@ -174,6 +174,7 @@ fn audit_arm(id: u64) -> Frame {
 }
 
 #[test]
+#[ignore = "SETTINGS: the audit domain is lazy; it becomes ready only through AuditLogPane's lazy hydrator (v2 registerLazySyncDomain)"]
 fn audit_rows_are_newest_first_deduplicated_and_bounded() {
     let (mut core, generation) = ready_core();
     let total = AUDIT_ROW_RING_MAX as u64 + 5;

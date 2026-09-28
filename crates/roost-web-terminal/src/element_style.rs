@@ -1,17 +1,11 @@
 //! The two DOM properties the renderer needs that `web_sys::Element` does not
-//! expose, on one named seam.
+//! expose, on one named seam: inline `style`, which lives on `HTMLElement`, and
+//! the double-valued `scrollTop`, which sits behind `web_sys_unstable_apis`.
 //!
-//! `style` lives on `HTMLElement` and the double-valued `scrollTop` sits behind
-//! `web_sys_unstable_apis`, so the stable `Element` surface offers neither. The
-//! renderer holds every painted node as an `Element` — the structural `Node`
-//! calls are unambiguous that way, and a web-sys element implements `AsRef` for
-//! its whole IDL chain — so these two functions are where that gap is closed,
-//! once, instead of at every call site.
-//!
-//! Both are total: a node that is not an HTML element, or a property the
-//! document refuses, is a no-op. The renderer's elements are `div`, `span` and
-//! `a`, so the cast succeeds; a caller that hands it something else gets an
-//! unpainted element rather than a panic, and the reconcile watermark repaints.
+//! The renderer's `wasm32` element adapter (`render_element/web.rs`), the link
+//! adapter and the echo overlay close that gap here, once, instead of at every
+//! call site. Both are total: a node that is not an HTML element, or a property
+//! the document refuses, is a no-op, and the reconcile watermark repaints.
 
 use js_sys::Reflect;
 use wasm_bindgen::{JsCast, JsValue};

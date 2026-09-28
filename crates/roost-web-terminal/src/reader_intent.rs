@@ -1,11 +1,8 @@
-//! Reader intent, the paint-hold mask, and the follow band: every decision a
-//! terminal pane makes about whether the DOM may be rewritten right now, with
-//! no DOM in sight.
-//!
-//! `CellGridRenderer` owns the state; this module owns the RULES, so a reader
-//! park, a hold release and a bottom-clamp settle are decidable — and
-//! testable — without a browser. The renderer reads the scroll box and asks
-//! these transitions what to do with the answer.
+//! Reader intent, the paint-hold mask, the follow band and the bottom-park
+//! settle: every rule deciding whether a pane's DOM may be rewritten now, with
+//! no DOM in sight. `CellGridRenderer` applies them (`cell_renderer/reader.rs`).
+//! Ports the reader fields and transitions of `apps/web/src/renderer/cellRenderer.ts`
+//! and the reader parts of `apps/web/src/renderer/cellRendererPresentation.ts`.
 
 use crate::block_placeholder::DEFAULT_CELL_ROW_PX;
 
@@ -96,7 +93,8 @@ pub struct ResumeAdmission {
     pub pin_on_resume: bool,
 }
 
-/// The reader state machine: intent, its reason, and the composed hold mask.
+/// The reader state machine: intent, its reason, the composed hold mask, and
+/// the bottom-park settle armed last.
 ///
 /// A non-zero hold mask is a TOTAL paint kill — frames are accepted and
 /// swallowed — and `_resume_live` refuses a held pane BEFORE mutating reader
@@ -107,6 +105,9 @@ pub struct ReaderState {
     intent: ReaderIntent,
     reason: Option<ReaderIntentReason>,
     hold_mask: u32,
+    /// The epoch of the settle armed last and not yet run. Each arm replaces
+    /// it, so only the latest arm can ever run, and it runs once.
+    pending_settle: Option<u64>,
 }
 
 impl ReaderState {
@@ -116,6 +117,7 @@ impl ReaderState {
             intent: ReaderIntent::Live,
             reason: None,
             hold_mask: 0,
+            pending_settle: None,
         }
     }
 
@@ -246,6 +248,26 @@ impl ReaderState {
         }
     }
 
+    /// Arm the bottom-park settle under `epoch`, superseding any armed before.
+    pub fn arm_bottom_park_settle(&mut self, epoch: u64) {
+        self.pending_settle = Some(epoch);
+    }
+
+    /// The epoch of the settle armed last and not yet run.
+    pub const fn pending_bottom_park_settle(&self) -> Option<u64> {
+        self.pending_settle
+    }
+
+    /// Consume the settle armed under `epoch`. False — and nothing consumed —
+    /// when a later arm superseded it or it already ran.
+    pub fn take_bottom_park_settle(&mut self, epoch: u64) -> bool {
+        if self.pending_settle != Some(epoch) {
+            return false;
+        }
+        self.pending_settle = None;
+        true
+    }
+
     /// The reconcile block reason, or `None` when the DOM is reconciled to the
     /// canonical frame.
     pub fn reconcile_block_reason(
@@ -332,14 +354,15 @@ pub struct ReaderAnchor {
 }
 
 /// The anchor a scroll position implies, or `None` when the position is at or
-/// past the end of painted layout — there is no row to come back to.
+/// past the end of painted layout — there is no row to come back to — or the
+/// pitch is unmeasured, which the renderer never passes.
 pub fn reader_anchor_at_scroll(
     scroll_top: f64,
     spacer_top: f64,
     row_height: f64,
     layout_end: u64,
 ) -> Option<ReaderAnchor> {
-    if row_height <= 0.0 || layout_end == 0 {
+    if row_height <= 0.0 {
         return None;
     }
     let exact = (scroll_top - spacer_top) / row_height;

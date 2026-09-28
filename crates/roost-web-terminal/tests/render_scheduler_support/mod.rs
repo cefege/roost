@@ -197,17 +197,16 @@ impl FlushOutcome {
 /// recorder, and answer with the recorder's verdict.
 ///
 /// It is the v2 harness's `flushNextAnimationFrame` plus its
-/// `RecordingRenderer`. A hold mask of zero is an unheld renderer.
+/// `RecordingRenderer`.
 pub fn flush_frame(
     scheduler: &mut RenderScheduler,
     renderer: &mut RecordingRenderer,
     now_ms: u64,
-    hold_mask: u32,
 ) -> FlushOutcome {
     let mut outcome = FlushOutcome::nothing_painted();
     let mut verdict = None;
     {
-        let decision = scheduler.on_frame_fired(now_ms, hold_mask);
+        let decision = scheduler.on_frame_fired(now_ms);
         if let FrameDecision::PaintNow(request) = decision {
             outcome.painted = true;
             outcome.mode = Some(request.mode);
@@ -222,9 +221,8 @@ pub fn flush_frame(
             });
         }
     }
-    // Only a paint that actually happened is answered. A held or parked frame
-    // left the batch in the slot, and answering it would consume a batch the
-    // renderer never saw.
+    // Only a paint that actually happened is answered. A parked or idle frame
+    // left the batch in the slot, and the renderer never saw it.
     if let Some(verdict) = verdict {
         scheduler.complete_paint(if verdict {
             PaintOutcome::Applied
