@@ -23,4 +23,5 @@ pub mod local;
 pub mod predictive_echo;
 pub mod rpc;
 pub mod sync;
+pub mod ui_command;
 pub mod ui_state;
