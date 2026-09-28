@@ -78,6 +78,11 @@ TERM gate:
 (`node` is not on PATH; use `bunx`. The fixture needs `.workbench-shell[data-compact]`,
 one `[data-testid=folder-list]`, no error boundary, then `__smoke.runFlow`.)
 
+Measured on this tip: the smoke bundle `grep -rc __smoke crates/roost-web/dist-smoke`
+totals 6, the production bundle `crates/roost-web/dist` totals **0**; the TERM
+gate passed 3 runs in a row (5.5 s / 3.5 s / 3.7 s) with `ROOST_SMOKE_WEB_DIST` as
+the only override (stack: `coordinator=typescript worker=typescript`).
+
 ### The `__smoke` member the coordinator's X2 DiagSnapshot slice consumes
 
 `window.__smoke.terminalStreamProbe(sessionId)` — an `Answer::Promise` member. It
