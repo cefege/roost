@@ -6,7 +6,7 @@
 use serde_json::Value;
 
 use super::backdoor::SmokeBackdoor;
-use super::call::{DEFAULT_PAINT_TIMEOUT_MS, unported_refusal};
+use super::call::DEFAULT_PAINT_TIMEOUT_MS;
 use super::dispatch::navigate_through_router;
 use super::dom;
 use super::harness::{FlowHost, StressHost};
@@ -81,10 +81,8 @@ impl FlowHost for SmokeBackdoor {
         Ok(proof)
     }
 
-    async fn terminal_stream_probe(&self, _session_id: &str) -> Result<Value, String> {
-        Err(unported_refusal("terminalStreamProbe")
-            .unwrap_or_default()
-            .to_owned())
+    async fn terminal_stream_probe(&self, session_id: &str) -> Result<Value, String> {
+        self.terminal_stream_probe_call(session_id).await
     }
 
     async fn cleanup_created(&self) -> (Value, bool) {

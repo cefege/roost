@@ -13,8 +13,8 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 use roost_web_terminal::{
-    PaintedRowText, ReaderIntent, RendererEpochSeq, RendererPaintPresentation,
-    RendererPresentationSnapshot,
+    BackfillAnchor, PaintedRowText, ReaderIntent, ReconcileBlockReason, RendererEpochSeq,
+    RendererPaintPresentation, RendererPresentationSnapshot,
 };
 
 pub use super::pane_surface::{PaintedLine, PaintedMarkerHit, PaneSurface, find_marker};
@@ -41,6 +41,10 @@ pub struct PaneRenderProbe {
     pub painted_scrollback_rows: usize,
     /// Viewport row elements in the DOM.
     pub dom_rows: usize,
+    /// Why the DOM is behind canonical, or `None` when it is not.
+    pub reconcile_block_reason: ReconcileBlockReason,
+    /// The painted history range and the epoch a history page must match.
+    pub backfill_anchor: Option<BackfillAnchor>,
 }
 
 /// The registry, cheap to clone: every clone is the same registry.
@@ -149,6 +153,8 @@ impl PaneRegistry {
             at_bottom: probe.at_bottom,
             painted_scrollback_rows: probe.painted_scrollback_rows,
             dom_rows: probe.dom_rows,
+            reconcile_block_reason: probe.reconcile_block_reason,
+            backfill_anchor: probe.backfill_anchor,
         })
     }
 

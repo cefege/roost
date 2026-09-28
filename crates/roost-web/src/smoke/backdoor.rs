@@ -19,6 +19,7 @@ use wasm_bindgen::{JsCast as _, JsValue};
 use wasm_bindgen_futures::future_to_promise;
 use web_sys::{KeyboardEvent, Storage};
 
+use super::browser_snapshot::GeometryProofs;
 use super::call::{Answer, SMOKE_METHODS, parse_call};
 use super::created_resources::{CREATED_RESOURCES_KEY, CreatedResources};
 use super::dom;
@@ -46,6 +47,7 @@ pub(super) struct SmokeBackdoor {
     pub(super) created: RefCell<CreatedResources>,
     pub(super) timings: RefCell<TimingLedger>,
     pub(super) holds: RefCell<DomHolds>,
+    pub(super) geometry_proofs: RefCell<GeometryProofs>,
     timing_listeners: RefCell<BTreeMap<String, Closure<dyn FnMut(KeyboardEvent)>>>,
     session_storage: Rc<SessionStorageKeyValueStore>,
 }
@@ -70,6 +72,7 @@ pub fn install_smoke_backdoor(pump: &Pump, panes: &PaneRegistry) {
         created: RefCell::new(created),
         timings: RefCell::new(TimingLedger::default()),
         holds: RefCell::new(DomHolds::default()),
+        geometry_proofs: RefCell::new(GeometryProofs::default()),
         timing_listeners: RefCell::new(BTreeMap::new()),
         session_storage,
     });

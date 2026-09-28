@@ -1,7 +1,8 @@
 //! Answering one parsed `window.__smoke` call: the synchronous reads of the
 //! store, the pane registry and the DOM, the transport and renderer fault arms,
-//! and the hand-off of every Promise member to `smoke::rpc_calls` or
-//! `smoke::paint_wait`. wasm32 only. Ports the composition in
+//! and the hand-off of every Promise member to `smoke::rpc_calls`,
+//! `smoke::stream_probe_host` or `smoke::paint_wait`. wasm32 only. Ports
+//! the composition in
 //! `apps/web/src/smoke/smoke.ts:50-117` over `smokeRuntimeControls.ts`,
 //! `smokeTerminalRenderProbes.ts` and `smokeTerminalDomFault.ts`.
 
@@ -86,9 +87,9 @@ impl SmokeBackdoor {
                 column,
                 timeout_ms,
             } => Reply::Later(Box::pin(async move {
-                wait_for_painted_cursor(&session_id, row, column, timeout_ms)
-                    .await
-                    .map(Some)
+                let proof = wait_for_painted_cursor(&session_id, row, column, timeout_ms).await?;
+                this.record_geometry_proof(&session_id, &proof);
+                Ok(Some(proof))
             })),
             SmokeCall::BeginTiming { kind, session_id } => {
                 Reply::Now(begin_timing(self, kind, session_id).map(Some))
@@ -260,6 +261,13 @@ impl SmokeBackdoor {
             ),
             "cellGridEpoch" => counts(|counts| counts.grid_epoch().into(), json!("")),
             "scrollbackBackfillRequestCount" => now(self.panes.counters(sid).backfill_requests),
+            "terminalBrowserSnapshot" => Reply::Now(Ok(Some(self.terminal_browser_snapshot(sid)))),
+            "terminalStreamProbe" => {
+                let this = Rc::clone(self);
+                Reply::Later(Box::pin(async move {
+                    this.terminal_stream_probe_call(&session_id).await.map(Some)
+                }))
+            }
             "blackholeTerminalFramesForCurrentGeneration" | "dropNextTerminalWireDelta" => {
                 let core = self.pump.core();
                 let mut core = core.borrow_mut();
