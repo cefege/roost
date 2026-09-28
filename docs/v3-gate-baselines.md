@@ -1917,6 +1917,46 @@ it is the one failure mode a pass/fail/skip summary cannot show.
 
 ### Gate results
 
+**S3.0 WORKSPACE GATE — GREEN, on `v3` @ `7ea8324c`, 2026-09-28.** This is the
+first run of this gate on a merged tree. It had never been run since the CLI
+merge, and the gate script had refused four times for want of a quiet machine.
+
+|check|command|result|
+|---|---|---|
+|workspace|`cargo check -p roost-coord -p roost-worker -p roost-host --all-targets --keep-going`|**exit 0, 0 errors**|
+|release|`cargo build --release -p roost-cli -p roost-keeper`|**exit 0**; `roost` = 13,907,072 bytes|
+|`update` wired|`roost --help`|`update — Replace this binary with the latest published v3 release`. **Present.** 23 subcommands|
+|lint|`cargo xtask lint`|**8 violations, every one `roost-keeper`** (1 lint table, 7 fixture allows). **0 in `roost-coord`**|
+|fmt|`cargo xtask fmt`|**exit 1** — three `roost-host` files unformatted → fixed in `7ea8324c` → **exit 0**|
+
+**The risk this gate existed to close is closed by compilation, not by a grep.**
+The CLI merge changed `pub trait EnvSource` to `pub trait EnvSource: Sync` in
+`crates/roost-host/src/env.rs` — a crate three others consume. The CLI gate ran
+`-p roost-cli` only, so it proved the four `EnvSource` *impls* satisfy the bound
+and said nothing whatever about `roost-coord`, `roost-worker`, or the eleven
+consumer sites outside those two crates. The reasoning before this run was
+"a supertrait makes impls harder and consumers easier, so this should compile" —
+and *should*, inferred from a grep, is the exact shape of reasoning that has
+been wrong repeatedly on this programme. `cargo check` across all three crates
+and all targets says it does compile. That is a different kind of claim.
+
+**`cargo xtask fmt` was failing, and nothing had ever run it on this tree.**
+`src/lib.rs`, `src/paths.rs` and `tests/coord_config_blank_settings.rs` — all
+`roost-host`, all import wrapping, all from the XDG-state-host work. The drift
+was invisible because every commit since had been checked by a gate scoped to
+some other crate. Same shape as the item above it: **the instrument existed and
+nobody pulled it.** Formatted with `cargo fmt -p roost-host` rather than
+`--all`, which ignores `workspace.exclude` and would reformat vendored
+`third_party`; the change is 8 insertions and 9 deletions of whitespace, and
+`cargo check -p roost-host --all-targets` is clean after it.
+
+Ratchets on this tree, for the ladder below: `AwaitingDomainPort` **27**, worker
+`UNIMPLEMENTED` **6** on `v3` against **2** on `v3-worker` @ `57bd7f74`, `todo!`
+**0**.
+
+**None of the above is a stack booting.** The Phase 2, Phase 3 and Phase 6 gates
+have not run on this tree and nothing here should be read as predicting them.
+
 **MERGE POINT MEASURED, on the real tree rather than a projection.** A trial
 merge of all five tracks into `v3` at `a41f9d38` — **zero conflicts at every step**,
 `v3-cli`, `v3-cli-cutover`, `v3-coord`, `v3-worker`, `v3-web`:
