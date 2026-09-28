@@ -339,12 +339,12 @@ fn the_boot_sequence_records_the_steps_in_the_declared_order() {
         .lines()
         .filter_map(|line| line.trim().strip_prefix(".complete(StepId::"))
         .filter_map(|rest| rest.split(')').next())
-        .filter_map(|name| match name.trim() {
-            "Identity" => Some(StepId::Identity),
-            "KeeperAdmission" => Some(StepId::KeeperAdmission),
-            "CoordinatorLink" => Some(StepId::CoordinatorLink),
-            "SessionReconcile" => Some(StepId::SessionReconcile),
-            "Ready" => Some(StepId::Ready),
+        .map(|name| match name.trim() {
+            "Identity" => StepId::Identity,
+            "KeeperAdmission" => StepId::KeeperAdmission,
+            "CoordinatorLink" => StepId::CoordinatorLink,
+            "SessionReconcile" => StepId::SessionReconcile,
+            "Ready" => StepId::Ready,
             other => panic!(
                 "boot_sequence.rs records a step this test does not know: {other:?}. \
                  A new StepId variant has to be added here, or this pin silently \

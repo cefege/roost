@@ -33,6 +33,10 @@
 //!
 //! Depends on `keeper_pool_support` for the fixture and on nothing else.
 
+// A test unwraps the value it is asserting about: a failure there IS the
+// assertion failing, which is what a test wants.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 mod keeper_pool_support;
 
 use roost_host::supported_host_platform;
@@ -59,14 +63,14 @@ use keeper_pool_support::{KeeperFixture, channel, opened, session, sh_spec};
 /// concurrently on a machine that is also building four tracks starves a
 /// daemon past that bound, and the failure reads as a product defect — a
 /// refused spawn — when it is the fixture competing with itself. This is the
-/// same lock, and for the same reason, as `keeper_survivor_adoption.rs`'s.
-static FIXTURE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// same lock, and for the same reason, as `keeper_survivor_adoption.rs`'s —
+/// an ASYNC one here, because these bodies await while holding it, and a
+/// `std` guard held across an `.await` is what clippy refuses.
+static FIXTURE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// The fixture lock, held for a whole test body.
-fn exclusive() -> std::sync::MutexGuard<'static, ()> {
-    FIXTURE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+async fn exclusive() -> tokio::sync::MutexGuard<'static, ()> {
+    FIXTURE.lock().await
 }
 
 /// The fingerprint the worker's own identity would carry at boot.
@@ -148,7 +152,7 @@ fn running(pid: u32) -> bool {
 #[tokio::test]
 async fn a_survivor_the_keeper_cannot_describe_is_left_running_rather_than_killed() {
     let fixture = KeeperFixture::start();
-    let _serialised = exclusive();
+    let _serialised = exclusive().await;
     let root = scratch("held");
 
     // The last worker opened this terminal. Its own pool goes out of scope
@@ -248,7 +252,7 @@ async fn a_survivor_the_keeper_cannot_describe_is_left_running_rather_than_kille
 #[tokio::test]
 async fn a_boot_that_declines_every_survivor_still_completes() {
     let fixture = KeeperFixture::start();
-    let _serialised = exclusive();
+    let _serialised = exclusive().await;
     let root = scratch("completes");
 
     let restarted = fixture.pool();
@@ -304,7 +308,7 @@ async fn a_boot_that_declines_every_survivor_still_completes() {
 #[tokio::test]
 async fn two_deps_from_one_session_stack_share_one_admission_ledger() {
     let fixture = KeeperFixture::start();
-    let _serialised = exclusive();
+    let _serialised = exclusive().await;
     let root = scratch("admission-ledger");
 
     let platform = supported_host_platform().expect("this host runs v3");
