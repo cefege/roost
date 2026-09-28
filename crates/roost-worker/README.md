@@ -37,3 +37,26 @@ below.
   (`tests/retire_support`, `tests/local_terminal_pty.rs`) would sweep the
   operator's attachments. Clients are always answered an absolute path, so the
   base is not a wire contract (`attachments::store_paths::AttachmentBase`).
+
+## Not ported: the Windows-only half of v2
+
+v3 ships Linux and macOS; Windows stays paused on `main` too, and the
+`windows-2022` CI tier is behind the `ROOST_WINDOWS_GATE` repository variable.
+These v2 worker modules exist only for that host and have no v3 counterpart.
+Every one of them is a host capability, not a wire contract, so a future
+Windows worker adds a module here rather than changing a message.
+
+| v2 module | what only Windows had | what v3 does instead |
+|---|---|---|
+| `apps/worker/src/host/host-sample-win32.ts` | the Windows host sampler: Node CPU/memory counters, `statfs` on the system volume, and a project-owned Win32 helper for the IP Helper byte counters | `host::samples` (`samples.rs` Linux, `samples_darwin.rs` macOS) over `host::sampling` |
+| `apps/worker/src/transport/coord-link-windows-update.ts` | `replayDurableWindowsUpdateProgress`, the durable Windows update journal replayed on snapshot recovery | the `update-broker` downstream arm answers v2's own running-POSIX text (`coord-link-deps.ts:379-381`) |
+| `apps/worker/src/host/listening-ports.ts` | `filterWindowsListenPorts` and the `win32` branch of the port resolver | `host::ports` resolves the POSIX listeners only |
+| `apps/worker/src/agents/peer-process-id.ts` | `openWindowsQuery`, the native/WMI process-id query behind an agent's peer pid | `agents::process_tree` reads `/proc`; an agent with no readable pid reports none |
+| `apps/worker/src/agents/report-server.ts` | the named-pipe endpoint (`:73-74` refuses a UDS on Windows) | the report endpoint is a UDS under the worker data dir (first deviation above) |
+| `apps/worker/src/shell-spec.ts`, `apps/worker/src/host/histfile.ts` | the win32/PowerShell launch contract and its history file | `shell_spec::resolve`, `host::shell_spec_resolver` and `host::shell_bootstrap` are POSIX |
+| `apps/worker/src/util/path.ts` | the Windows path forms of `canonicalSessionCwd` | `session::spawn::canonical_session_cwd` and `session::stream_scan::parse_osc7_worker_path` are POSIX |
+| `apps/worker/src/terminal/terminal-stream-scan.ts` | the Windows OSC 7 cwd forms | `session::stream_scan` reads the POSIX forms |
+| `apps/worker/src/host/config.ts`, `host-identity.ts`, `service-definition-env.ts` | the Windows service DACL and service definition | `host::identity`, `host::install` and `runtime::boot` resolve the POSIX service |
+
+The v2 → Rust row-by-row status, including the modules that are ported
+partly, is `docs/v3-handoff/worker-v2-map.md`.

@@ -193,22 +193,47 @@ fn a_nohup_job_that_ignores_sighup_is_still_reaped() {
     // it; the inherited SIG_IGN for SIGTERM makes the group SIGTERM a no-op as
     // well (whichever group job control put it in), so only the snapshot
     // SIGKILL sweep can end it — v2's "escalation SIGKILL path".
+    // `$!` is the subshell's pid and `exec` keeps it, so the pid this writes
+    // IS the nohuped job. A pattern match is not an identity: the three tests
+    // in this bin reap their own trees concurrently, and `pgrep -f` also
+    // counts the window between the fork and the exec.
+    let pid_file = temp.socket().with_extension("pid");
     client
         .write_input(
             902,
-            format!("(trap '' TERM; exec nohup {HUP_MARK}) >/dev/null 2>&1 &\n").as_bytes(),
+            format!(
+                "(trap '' TERM; exec nohup {HUP_MARK}) >/dev/null 2>&1 & echo $! > {}\n",
+                pid_file.display()
+            )
+            .as_bytes(),
         )
         .unwrap();
-    assert!(
-        wait_for(Duration::from_secs(4), || !pgrep(HUP_MARK).is_empty()),
-        "the nohup job started"
-    );
+    let started = Instant::now();
+    let job = loop {
+        let read = std::fs::read_to_string(&pid_file)
+            .ok()
+            .and_then(|text| text.trim().parse::<i32>().ok());
+        if let Some(job) = read.filter(|pid| is_alive(*pid)) {
+            break job;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(4),
+            "the nohup job started: {}",
+            pid_file.display()
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    };
 
     client.kill(902).unwrap();
 
+    // The kill is acknowledged only after the hangup and the group SIGTERM
+    // have been delivered, so the job must still be running here: whatever
+    // ends it afterwards is the snapshot SIGKILL sweep and nothing else.
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(is_alive(job), "the graceful signals ended the nohup job {job}");
+
     assert!(
-        wait_for(REAPED_WITHIN, || pgrep(HUP_MARK).is_empty()),
-        "the nohup job survived the kill: {:?}",
-        pgrep(HUP_MARK)
+        wait_for(REAPED_WITHIN, || !is_alive(job)),
+        "the nohup job {job} survived the kill"
     );
 }

@@ -284,3 +284,42 @@ async fn the_repair_a_refused_coordinator_sink_is_owed_is_built_inside_on_writab
         "the repair full exists when on_writable returns"
     );
 }
+
+/// A local door view keeps painting while no coordinator link has ever
+/// attached. v2 registers the `"coord"` sink at boot the same way
+/// (`apps/worker/src/main.ts:210-217`) and its `sendCellGrid` answers
+/// "dropped" while the link is down
+/// (`apps/worker/src/transport/coord-link-outbox.ts:267-278`), so a
+/// boot-state coordinator sink costs a stream-wide repair full per delta —
+/// v2 parity, and `a_clean_boot_delivers_cells_and_a_link_bounce_costs_one_forced_full`
+/// pins the suspended half. What must never happen is the LOCAL sink losing
+/// the frame to it.
+#[tokio::test]
+async fn a_boot_state_coordinator_sink_never_stalls_a_local_door_sink() {
+    let mut stack = stack(35);
+    let wire = Arc::new(RecordingWire::default());
+    let (cadence, coord) = stack.cadence(Uplink::detached(), wire.clone());
+    // No link ever opened, so nothing suspended the registered coordinator
+    // sink: this is the state a worker boots in.
+    assert!(!coord.is_attached());
+    let local = ScriptedSink::new("local:boot");
+    cadence.register_sink(local.clone());
+
+    stack.cells.install_stream(channel(35), &stream_id(1));
+    stack.deliver(35, b"\x1b[3;1Hboot-marker");
+    cadence.run_pass();
+
+    assert!(
+        local
+            .frames()
+            .iter()
+            .any(|frame| row_text(frame, 2).contains("boot-marker")),
+        "the local door sink never painted with no coordinator link: {:?}",
+        local.fulls()
+    );
+    assert_eq!(
+        coord.frame_count(),
+        0,
+        "an unattached coordinator sink was handed a frame"
+    );
+}
