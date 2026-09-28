@@ -72,27 +72,53 @@ Before these commits the whole tree tested 1314 passed / 8 failed / 4 ignored:
 and 5 `terminal_links` failures in the cancelled renderer-core port
 (WebRendererCore2 is fixing them).
 
-## In flight (agents of WebLeadU2, uncommitted in the tree; snapshot `v3-web-snap-waveb`)
+## Uncommitted wave B — snapshot `refs/heads/v3-web-snap-waveb2` = `06e3320a`
 
-- WebRendererCore2 — finish renderer core (roost-web-terminal cell_renderer,
-  render_element, scheduler, backfill, find, links, startup_progress,
-  terminal_presentation; client-core `search.rs`, `terminal/{frame_fold,history_backfill}.rs`
-  + their tests). Commit as "web-terminal: renderer core …" after its report.
-- WebWaveAMutate — guard mutations for PUMP/UiCommand/GamepadTv/MdDesignTheme/
-  RendererInput; results go into the next handoff commit body.
-- Wave B: WebTerm (components/terminal + pane registry), WebSmoke (56 SmokeApi
-  methods), WebShell (routes/app/layout/MainPane/…), WebSidebar, WebDeck.
+Restore on `f85bde98`: `git checkout v3-web && git stash apply 06e3320a` (122 status
+lines). Every slice stopped at budget; reports (read them first):
+`agent://WebLeadU2.{WebShell,WebSidebar,WebDeck,WebDeck2,WebTerm,WebTerm2,WebSmoke,WebPumpGuards}`.
+
+| Slice | State |
+|---|---|
+| SHELL | routes/app/router_state rewritten; AppShell `.workbench-shell[data-compact]`, MainPane (dead-route net), AppErrorBoundary, RenameDialog, context_menu, motion/*, keyboard_shortcuts, browser_platform matcher. ~60 tests written, NOT run. Not done: UiBridge, spawnSession/killAfterUndo (`sweep_pending_closes` → SessionsKill has no caller). |
+| SIDEBAR | SidebarRoot/FolderList (`data-testid=folder-list`) mounted in AppShell; client-core `store/sidebar/*` (19 tests pass); `BrowserWorkerPaths`; roost-web tests not run. Cross-owner: `xtask/src/crate_dag.rs` roost-web → roost-platform; workspace `unicode-segmentation`. |
+| DECK | client-core `deck/*` done + tested (3 mutations); `TerminalDeck` written and mounted in MainPane (WebDeck2); deck_spawn 3/0. Drafts status: see WebDeck2 transcript. |
+| TERM | CellGridRenderer mounted, pane registry, input/echo/selection/mouse/links/cursor-poll wired; find bar, nav buttons, context/capture menus NOT done. |
+| SMOKE | `smoke/**` behind `feature="smoke"`: all **53** SmokeApi members (smokeTypes.ts:118-287 has 53, not 56 — counted), 43 real, 10 reject naming their slice (TERMINAL DIAG ×2, STREAM LIFECYCLE, BROWSER ×5, CARRIER/LOCAL, ATTACH). |
+| PUMP guards | NOT written (see below). |
+
+Known compile break (wasm32 only): `components/context_menu/dom.rs:57`
+(`Element::is_connected` → needs `Node` API / web-sys feature) and
+`motion/grid_flip.rs:48` (`HtmlElement::dataset` → web-sys `DomStringMap`
+feature). Native `--all-targets` compiled at the end of WebSmoke's run.
 
 ## Exact next steps
 
-1. Collect reports; gate; commit per slice (path-restricted), mutations in bodies.
-2. PUMP live check: dx bundle from `target-track/dx-tree` →
-   `ROOST_SMOKE_WEB_DIST=<dist> bun smoke/terminal/live-stack.ts` → browser leaves `Checking`.
-3. `dist-smoke` bundle (`--features smoke`) → `terminal-delivery.spec.ts`
-   "browser smoke flow creates and cleans its resources".
-4. Remaining U-2 rows: PAIRING, SETTINGS (incl. lazy audit hydrator — un-ignores
+1. Restore the snapshot; fix the two wasm32 errors; `c check` native + wasm32
+   (`--features smoke` too); rustfmt (split anything > 400); run all three crates'
+   tests; classify reds by v2; commit per slice (shared registration files go in
+   the first commit that needs them; build the dx bundle from a committed SHA in
+   `target-track/dx-tree` to prove the series compiles).
+2. PUMP: three unguarded invariants (WaveAMutate survey) — terminal hydration →
+   `Authorized`; no `DomainReady` when `mark_domain_ready` refuses; a frame resets
+   redial failures. Live defect: a refused Sync upgrade (HTTP 401) redials every
+   ~250 ms; leading cause (WebPumpGuards): `resume_requested` is cleared only in
+   `SyncRedial::take_due`, so the boot `PageVisibilityChanged{visible}` wake
+   latches it and every refused close redials at once (v2 clears it in
+   `_waitForSyncDialPermission` before every dial). Consequence: the 3 s bootstrap
+   probe never fires, so a revoked device stays at `Checking`. Also: the pump drops
+   the close reason (1013 backpressure is not an immediate redial as v2 `flow`).
+3. `tests/route_surfaces.rs` asserts the pre-SHELL mapping and will fail — update
+   to v2 `App.tsx` routes (`tests/route_session.rs` has the new mapping).
+4. dist-smoke bundle (`dx build --release -p roost-web --platform web --features smoke`)
+   → `terminal-delivery.spec.ts` "browser smoke flow creates and cleans its resources";
+   production bundle → `grep -rc __smoke` = 0.
+5. Remaining U-2 rows: PAIRING, SETTINGS (lazy audit hydrator un-ignores the
    `sync_decode_routable` audit case), BROWSE, MACHINES+AGENTS, SEARCH+PALETTE+HELP,
    NOTIFICATIONS+PUSH, COMPOSER+VOICE, BROWSER platform, SYNC LIFECYCLE,
-   STREAM LIFECYCLE, CARRIER, LOCAL, ATTACH, TERMINAL DIAG, ASSETS remainder.
-5. Port audit: `/tmp/v2-port-audit.sh -v` counted 346/452 v2 modules not named
-   in any Rust `//!` header at `f9287f24` (before wave A).
+   STREAM LIFECYCLE, CARRIER, LOCAL, ATTACH, TERMINAL DIAG; TERM remainder
+   (find bar, nav buttons, context/capture menus); DECK remainder.
+6. Track gate (not run since `dcfd84bb`).
+
+Slices finish ~1 h of work each before their budget ends; keep briefs to one
+component each and require a compiling stop.
