@@ -1,5 +1,6 @@
 //! The two things a worker is willing to say about itself, and the one
 //! rule both keep: no terminal text crosses the trust boundary.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod browser_command_support;
 use browser_command_support::{command, dispatch, frame_of, harness, only};

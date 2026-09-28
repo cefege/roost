@@ -1,6 +1,7 @@
 //! What a browser can ask of a live terminal: a page of retained rows and
 //! a bounded search, with the fences that stop either answering for a grid
 //! that no longer exists.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod browser_command_support;
 use browser_command_support::{
@@ -23,6 +24,11 @@ async fn a_page_clamped_at_an_edge_names_that_edge() {
         resize_replay_floor: 0,
         total: 100,
         cols: 80,
+        // The floor question is about HISTORY, so the viewport height is not
+        // load-bearing here — but it is a real part of the description, and a
+        // fixture that omits it is a fixture describing a grid that does not
+        // exist.
+        viewport_rows: 24,
     };
     assert_eq!(floor(&for_evicted, 10), "evicted");
     assert_eq!(
@@ -37,6 +43,11 @@ async fn a_page_clamped_at_an_edge_names_that_edge() {
         resize_replay_floor: 60,
         total: 100,
         cols: 80,
+        // The floor question is about HISTORY, so the viewport height is not
+        // load-bearing here — but it is a real part of the description, and a
+        // fixture that omits it is a fixture describing a grid that does not
+        // exist.
+        viewport_rows: 24,
     };
     assert_eq!(floor(&for_replay, 10), "resize_replay");
 }

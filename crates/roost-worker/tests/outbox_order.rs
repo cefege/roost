@@ -3,6 +3,7 @@
 //!
 //! The clock is a parameter rather than a sleep, so the raw-metadata promotion
 //! rule is tested exactly rather than approximately.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::time::{Duration, Instant};
 

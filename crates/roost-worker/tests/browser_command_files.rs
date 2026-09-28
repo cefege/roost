@@ -1,5 +1,6 @@
 //! The browser file commands: a read, a bounded preview, a byte range, a
 //! listing, a directory, and the home the browse surface starts from.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod browser_command_support;
 use browser_command_support::{

@@ -5,6 +5,7 @@
 //! stream opened a synchronized frame and never closed it. Both failures are
 //! silent, which is why they get explicit tests rather than being left to the
 //! integration suite.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::time::{Duration, Instant};
 

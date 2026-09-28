@@ -2,6 +2,7 @@
 //! the answer, and what a refusal must name. Split from the connection tests
 //! because a failure in one is a protocol contract rather than a question of
 //! whether the client can reach a keeper at all.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -136,21 +137,6 @@ fn a_sequenced_write_to_an_unknown_channel_is_rejected() {
         }
         other => panic!("a write to a channel that does not exist is rejected, got {other:?}"),
     }
-}
-
-/// A resize is acknowledged with the geometry the keeper actually applied.
-#[test]
-fn a_resize_is_acknowledged_with_the_applied_geometry() {
-    let temp = TempDir::new("resize");
-    let _keeper = Keeper::start(&temp);
-
-    let client = connect(temp.socket()).expect("a handshake");
-    client
-        .spawn(1, cat(), 80, 24)
-        .expect("the spawn is acknowledged");
-    client
-        .resize(1, 1, 132, 43)
-        .expect("the resize is acknowledged");
 }
 
 /// The channel list is how a resuming worker finds what survived it.

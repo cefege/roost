@@ -231,11 +231,14 @@ impl Transfers {
         Ok(lease.acknowledged_chunks)
     }
 
-    /// Acknowledge a chunk, or report the upload finished.
+    /// The `now` is part of this call's shape and not used by it: a lease's
+    /// expiry is `expire_leases`' job, which sweeps on its own clock rather
+    /// than being pulled forward by an acknowledgement. It is named `_now` so
+    /// that reads as deliberate instead of arriving later as a stub.
     pub fn acknowledge_chunk(
         &mut self,
         upload_id: &str,
-        now: Instant,
+        _now: Instant,
     ) -> Result<bool, ChunkRefusal> {
         let lease = self
             .leases
@@ -248,7 +251,6 @@ impl Transfers {
             self.release(upload_id);
             return Ok(true);
         }
-        let _ = now;
         Ok(false)
     }
 

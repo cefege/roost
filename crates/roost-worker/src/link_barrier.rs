@@ -146,6 +146,86 @@ impl Pump {
         self.acked
     }
 
+    /// Queue a durable event UNDER A SEQUENCE THE CALLER CHOSE.
+    ///
+    /// The outbox allocates the `client_seq` a row is stored under and the
+    /// coordinator acknowledges that exact number, so the barrier must be told
+    /// the number rather than inventing one of its own. It matters because the
+    /// two allocators do not agree by construction: the outbox allocates in
+    /// blocks, so a restarted worker resumes at the top of a reserved block and
+    /// its next durable number is a whole block above the last one it issued.
+    ///
+    /// A sequence the barrier has already passed is REFUSED rather than
+    /// accepted, because a repeat is the one defect here that cannot be repaired
+    /// downstream — the coordinator would read the replay as a new event.
+    pub fn enqueue_durable_at(
+        &mut self,
+        seq: u64,
+        bytes: Vec<u8>,
+    ) -> Result<Action, DurableRefusal> {
+        if seq == 0 {
+            return Err(DurableRefusal::UnusableSequence { seq });
+        }
+        if seq < self.next_seq {
+            return Err(DurableRefusal::AlreadyPassed {
+                seq,
+                next_seq: self.next_seq,
+            });
+        }
+        self.next_seq = seq + 1;
+        self.durable.push_back(PendingEvent { seq, bytes });
+        // Arriving DURING a snapshot is the case that matters: the snapshot in
+        // flight describes a state that has already moved on, so acknowledging
+        // it must not admit live traffic.
+        if self.barrier == Barrier::Snapshot {
+            self.replay_again = true;
+        }
+        Ok(self.advance())
+    }
+
+    /// Move the sequence on to `issued + 1`, never backwards.
+    ///
+    /// The outbox and this barrier draw from ONE sequence space, and the outbox
+    /// allocates in blocks: a restarted worker resumes at the top of the block
+    /// it had already reserved, so its next number sits a whole block above the
+    /// last one it handed out. A barrier that only learned the high water would
+    /// therefore issue a number the outbox has already used, and the
+    /// coordinator's acknowledgement for the replayed row would carry a sequence
+    /// this barrier never issued — which reads as a stale one and leaves the link
+    /// in `replay` for ever.
+    ///
+    /// One-directional on purpose: the barrier's counter is a LOWER BOUND the
+    /// outbox keeps correcting, never a number either side may take back.
+    pub fn note_sequence_used(&mut self, issued: u64) {
+        if issued >= self.next_seq {
+            self.next_seq = issued.saturating_add(1);
+        }
+    }
+
+    /// Resume the sequence at `next_seq`, so this barrier's numbers continue
+    /// one the durable outbox has already used.
+    ///
+    /// The barrier allocates the sequence the coordinator acknowledges under and
+    /// the outbox allocates the sequence a row is STORED under, and they are one
+    /// space. A fresh `Pump` starts at 1, so a worker that restarted with rows
+    /// still waiting would replay them under sequences the barrier has never
+    /// issued, and every acknowledgement for them would read as a stale one:
+    /// the barrier would sit in `replay` for ever with the outbox full.
+    ///
+    /// Refuses a seed once anything has been enqueued, because a barrier whose
+    /// counter moved under it has already issued a sequence, and re-issuing that
+    /// number is the one defect this whole design exists to prevent.
+    pub fn seed_next_sequence(&mut self, next_seq: u64) -> Result<(), SeedRefusal> {
+        if self.next_seq != 1 || !self.durable.is_empty() || self.in_flight.is_some() {
+            return Err(SeedRefusal {
+                next_seq,
+                issued: self.next_seq,
+            });
+        }
+        self.next_seq = next_seq.max(1);
+        Ok(())
+    }
+
     /// The socket came up. Not application-ready.
     pub fn on_open(&mut self) -> Action {
         self.barrier = Barrier::Open;
@@ -291,4 +371,23 @@ impl Pump {
             Barrier::Snapshot => Action::Wait,
         }
     }
+}
+
+/// Why a barrier refused a durable sequence the caller chose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum DurableRefusal {
+    #[error("client sequence {seq} is not a positive number")]
+    UnusableSequence { seq: u64 },
+    #[error("client sequence {seq} is behind this barrier's {next_seq}, so it is a repeat")]
+    AlreadyPassed { seq: u64, next_seq: u64 },
+}
+
+/// Why a barrier refused to be reseeded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("the barrier already issued up to {issued}, so it cannot resume at {next_seq}")]
+pub struct SeedRefusal {
+    /// The sequence the caller asked to resume at.
+    pub next_seq: u64,
+    /// The highest sequence this barrier has already handed out.
+    pub issued: u64,
 }

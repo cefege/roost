@@ -1,6 +1,7 @@
 //! The local door's security core. Everything here is reachable from anything
 //! on the machine, so what an unauthenticated peer can hold open is the whole
 //! question, and each test pins one rule that answers it.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::time::{Duration, Instant};
 

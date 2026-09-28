@@ -1,25 +1,30 @@
-//! The binary frame codec for the coordinator link, and the honest absence of
-//! one. Called by the link loop for every frame in both directions.
+//! The binary frame codec for the coordinator link. Called by the link loop for
+//! every frame in both directions, and by nothing else.
 //!
 //! The link carries protobuf `CoordWorkerUp` / `CoordWorkerDown` messages as
 //! binary WebSocket messages. The typed unions for those two live in
 //! `roost-protocol` (`wire::coord_worker`), which is where the domain view of a
-//! frame belongs; turning one into bytes is a mapping, and `roost-protocol`
-//! already owns that job for events, sessions and keeper reports under
-//! `proto_adapters`.
+//! frame belongs; turning one into bytes is a mapping, and
+//! [`roost_protocol::proto_adapters::coord_worker_proto`] already owns that job
+//! for all 19 upstream and 28 downstream arms.
 //!
-//! It is also why this module holds an interface rather than a codec. The
-//! worker crate is not allowed to depend on `roost-proto` — the generated
-//! types reach it only through `roost-protocol` — so a codec written here could
-//! not name the messages it encodes.
+//! It is also why this module holds an interface rather than a codec. The worker
+//! crate does depend on `roost-proto` — the bootstrap redemption calls a
+//! generated Connect service — so the generated message types are reachable from
+//! here in principle. What is not permitted is the MAPPING: `roost-protocol`
+//! owns the wire's definition, and a second one written against the union's own
+//! field numbers would be a second definition that agrees with the first until
+//! it does not. The interface keeps the codec swappable without reaching into
+//! the owner's internals, and `tests/link_wire_parity.rs` is what keeps the
+//! delegation honest — a second mapping would round-trip against itself
+//! perfectly and still be wrong.
 
+use roost_protocol::proto_adapters::coord_worker_proto;
 use roost_protocol::wire::coord_worker::{CoordWorkerDownstream, CoordWorkerUpstream};
 
 /// Why a frame could not be turned into bytes or back.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum WireError {
-    #[error("the coordinator link has no frame codec: {reason}")]
-    Unavailable { reason: String },
     #[error("an upstream frame did not encode: {reason}")]
     Unencodable { reason: String },
     #[error("a downstream frame did not decode: {reason}")]
@@ -34,35 +39,26 @@ pub trait LinkWire: Send + Sync {
     fn decode_downstream(&self, bytes: &[u8]) -> Result<CoordWorkerDownstream, WireError>;
 }
 
-/// The codec the service installs, which cannot encode yet.
+/// The codec the service installs: the protobuf mapping in `roost-protocol`.
 ///
-/// UNIMPLEMENTED: add `roost_protocol::proto_adapters::coord_worker_proto`
-/// over `roost_proto::roost::v1::{CoordWorkerUp, CoordWorkerDown}` — the
-/// generated pair `protocol/proto/roost/v1/worker_transport.proto` already
-/// defines — and implement this trait over it. `CoordWorkerUp` has 19 arms and
-/// `CoordWorkerDown` has 28, so that module is a mapping and belongs in
-/// `roost-protocol`, not here.
-///
-/// A second gap sits underneath it and is the one that actually blocks the
-/// barrier: the ported `CoordWorkerDownstream` union carries only `hello-ack`,
-/// `ping` and `browser-command`, while the proto's `CoordWorkerDown` also has
-/// `event_ack` (field 5) and `terminal_snapshot_request` (field 14). Those two
-/// are the only frames `Pump::on_event_ack` and `Pump::on_snapshot_ack` can be
-/// driven by, so the union needs those arms before the barrier can be released
-/// past `snapshot` by anything on the wire.
+/// The mapping is not written here and must not be. A second one, written
+/// against the union's own field numbers, would be a second definition of the
+/// wire that agrees with the first until it does not — and on this socket a
+/// dropped arm is a dropped terminal frame, which the coordinator reports as a
+/// session that is live and has stopped painting.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct UnavailableWire;
+pub struct ProtoLinkWire;
 
-impl LinkWire for UnavailableWire {
-    fn encode_upstream(&self, _frame: &CoordWorkerUpstream) -> Result<Vec<u8>, WireError> {
-        Err(WireError::Unavailable {
-            reason: "the CoordWorkerUp codec is not ported yet".to_string(),
+impl LinkWire for ProtoLinkWire {
+    fn encode_upstream(&self, frame: &CoordWorkerUpstream) -> Result<Vec<u8>, WireError> {
+        coord_worker_proto::encode_upstream(frame).map_err(|error| WireError::Unencodable {
+            reason: error.to_string(),
         })
     }
 
-    fn decode_downstream(&self, _bytes: &[u8]) -> Result<CoordWorkerDownstream, WireError> {
-        Err(WireError::Unavailable {
-            reason: "the CoordWorkerDown codec is not ported yet".to_string(),
+    fn decode_downstream(&self, bytes: &[u8]) -> Result<CoordWorkerDownstream, WireError> {
+        coord_worker_proto::decode_downstream(bytes).map_err(|error| WireError::Undecodable {
+            reason: error.to_string(),
         })
     }
 }

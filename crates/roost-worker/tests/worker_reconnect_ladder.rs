@@ -23,7 +23,7 @@ use roost_worker::backoff::{
 use roost_worker::link_dial::CoordinatorEndpoint;
 use roost_worker::outbox::Lane;
 use roost_worker::runtime::credential::{CredentialError, CredentialSource};
-use roost_worker::runtime::link_loop::{AdmitRefusal, LinkLoop, WorkerIdentity};
+use roost_worker::runtime::link_loop::{AdmitRefusal, BrowserLink, LinkLoop, WorkerIdentity};
 use roost_worker::runtime::link_wire::{LinkWire, WireError};
 use roost_worker::runtime::reconnect::ReconnectPolicy;
 use roost_worker::runtime::snapshot_source::NoSnapshot;
@@ -50,7 +50,7 @@ impl LinkWire for UnusedCodec {
         &self,
         _frame: &roost_protocol::wire::coord_worker::CoordWorkerUpstream,
     ) -> Result<Vec<u8>, WireError> {
-        Err(WireError::Unavailable {
+        Err(WireError::Unencodable {
             reason: UNREACHED.to_string(),
         })
     }
@@ -59,7 +59,7 @@ impl LinkWire for UnusedCodec {
         &self,
         _bytes: &[u8],
     ) -> Result<roost_protocol::wire::coord_worker::CoordWorkerDownstream, WireError> {
-        Err(WireError::Unavailable {
+        Err(WireError::Undecodable {
             reason: UNREACHED.to_string(),
         })
     }
@@ -80,6 +80,7 @@ fn loop_for_test() -> LinkLoop {
         Arc::new(UnusedCodec),
         Arc::new(NoSnapshot),
         Arc::new(FixedCredential),
+        BrowserLink::detached(),
     )
 }
 

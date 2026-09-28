@@ -11,11 +11,18 @@ description = "The worker service: sessions, the keeper client, the durable outb
 anyhow.workspace = true
 base64.workspace = true
 futures-util.workspace = true
+# The enrollment calls are the only place this crate speaks Connect, and
+# `CallOptions`/`ClientTransport` live behind the `client` feature. The
+# transport itself is the composition root's: a worker dials its coordinator
+# over `http://` and `https://`, and pinning one here would pin it for both.
+connectrpc = { workspace = true, features = ["client"] }
 roost-host.workspace = true
 roost-keeper.workspace = true
 roost-observability.workspace = true
 roost-platform.workspace = true
+roost-proto.workspace = true
 roost-protocol.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 sha2.workspace = true
@@ -25,7 +32,25 @@ tokio = { workspace = true, features = [
 ] }
 tokio-tungstenite = { workspace = true, features = ["connect", "handshake"] }
 
+# The six W-1 slices reach for these, and each was a workspace pin that no
+# member declared, so none of them resolved until this wave. `roost-term` is
+# the terminal core the session record holds; `sqlx` is the durable session
+# event store; `str0m` is the peer's transport; `axum` is the door's server;
+# `regex` is the scrollback matcher; `ed25519-dalek` signs the worker's
+# coordinator credential.
+axum = { workspace = true, features = ["http1", "json", "query", "tokio", "ws"] }
+ed25519-dalek.workspace = true
+regex.workspace = true
+roost-term.workspace = true
+sqlx = { workspace = true, features = ["sqlite", "runtime-tokio", "macros", "migrate"] }
+str0m.workspace = true
+
 [dev-dependencies]
+# The enrollment round trip needs a Connect SERVER to redeem against: the
+# redemption and the registration are two calls over a socket, and a test that
+# stubs them proves only that the worker called something. `server` is a
+# dev-only feature — the worker itself only ever dials.
+connectrpc = { workspace = true, features = ["client", "server"] }
 tokio = { workspace = true, features = ["net", "rt", "rt-multi-thread", "macros", "time"] }
 tokio-tungstenite = { workspace = true, features = ["handshake"] }
 

@@ -137,6 +137,7 @@ fn decide(end: ConnectionEnd, live_channels: usize) -> Decision {
         // the one outcome the keeper exists to prevent.
         ConnectionEnd::ClientDisconnected => Decision::KeepServing,
         ConnectionEnd::ProtocolViolation => Decision::KeepServing,
+        ConnectionEnd::UnframeablePayload => Decision::KeepServing,
         ConnectionEnd::WorkerUnreachable => Decision::KeepServing,
     }
 }

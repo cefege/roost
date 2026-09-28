@@ -8,12 +8,13 @@
 //! is therefore bounded and every failure is reported, because a silent hang
 //! costs an operator an afternoon and a logged timeout costs them a line.
 
+use std::collections::VecDeque;
 use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
 
 use crate::client_error::ClientError;
 use crate::client_io::{PendingSpawn, Shared};
@@ -34,12 +35,24 @@ pub use crate::client_connect::{CONNECT_RETRY_TIMEOUT, DEADLINE_TICK, HELLO_TIME
 
 /// A connected keeper.
 pub struct KeeperClient {
-    path: PathBuf,
+    pub(crate) path: PathBuf,
     write_half: Mutex<UnixStream>,
     shared: Arc<Mutex<Shared>>,
     /// Frames the keeper sent that were not answers to a request: PTY output,
     /// exits, pongs. The worker drains this.
-    events: Receiver<MuxFrame>,
+    pub(crate) events: Receiver<MuxFrame>,
+    /// Frames a control wait pulled off `events` that were not the answer, held
+    /// until the worker asks for them.
+    ///
+    /// This buffer is the whole of the fix for the frame loss the reader thread
+    /// interleaves. `events` is ONE channel carrying both PTY output and control
+    /// replies, because the keeper writes both on the same socket from the same
+    /// connection loop — `server.rs` drains `PtyOut` and writes it there. A wait
+    /// that pulled a `PtyOut` and dropped it would lose terminal output on every
+    /// round-trip, and a resize drag is sixty round-trips a second. v2 kept the
+    /// two paths disjoint by routing every frame by tag in a single loop; here
+    /// the disjointness is this buffer.
+    pub(crate) deferred: Mutex<VecDeque<MuxFrame>>,
     /// Set on drop so the reader thread stops. A reader that only noticed a
     /// closed socket would block in `read` until the KEEPER closed its end,
     /// which is exactly the case where nothing else is going to happen.
@@ -66,6 +79,7 @@ impl KeeperClient {
             write_half: Mutex::new(stream),
             shared,
             events,
+            deferred: Mutex::new(VecDeque::new()),
             stop,
             reader: Some(reader),
         }
@@ -102,10 +116,8 @@ impl KeeperClient {
         let response: crate::payloads::KeeperHelloResponse = reply
             .parse_json()
             .ok_or_else(|| ClientError::Io("the keeper's hello did not decode".into()))?;
-        self.shared
-            .lock()
-            .expect("the client lock is never held across a wait")
-            .keeper = Some(response.observation);
+        let mut shared = lock_recovered(&self.shared, "shared");
+        shared.keeper = Some(response.observation);
 
         // A feature the client needs and the keeper lacks makes this keeper
         // unusable, and the reason must name the feature: "it did not work" is
@@ -145,10 +157,7 @@ impl KeeperClient {
             .map_err(|err| ClientError::Io(err.to_string()))?;
         let (sender, receiver) = std::sync::mpsc::channel();
         {
-            let mut shared = self
-                .shared
-                .lock()
-                .expect("the client lock is never held across a wait");
+            let mut shared = lock_recovered(&self.shared, "shared");
             shared.pending.insert(channel_id, PendingSpawn { sender });
         }
 
@@ -223,141 +232,12 @@ impl KeeperClient {
             .ok_or_else(|| ClientError::Io("the input result did not decode".into()))
     }
 
-    /// Ask the keeper to resize a channel, acknowledged.
-    pub fn resize(
-        &self,
-        channel_id: u16,
-        seq: u64,
-        cols: u16,
-        rows: u16,
-    ) -> Result<(), ClientError> {
-        let payload = crate::payloads::ResizeRequest { seq, cols, rows }
-            .encode()
-            .map_err(|err| ClientError::Io(err.to_string()))?;
-        let tag = self.request_tag(
-            MuxFrameType::ResizeRequest,
-            MuxFrameType::ResizeAck,
-            channel_id,
-            &payload,
-        )?;
-        match tag {
-            MuxFrameType::ResizeAck => Ok(()),
-            MuxFrameType::ResizeReject => Err(ClientError::Io(format!(
-                "the keeper refused the resize of channel {channel_id}"
-            ))),
-            other => Err(ClientError::Io(format!(
-                "unexpected resize reply {other:?}"
-            ))),
-        }
-    }
-
-    /// Take a frame the keeper sent that was not a reply.
+    /// Write one frame to the socket, whole or not at all.
     ///
-    /// `None` when nothing has arrived, which is not the same as the
-    /// connection closing — the caller decides how long to wait.
-    pub fn next_event(&self, wait: Duration) -> Option<MuxFrame> {
-        self.events.recv_timeout(wait).ok()
-    }
-
-    fn request<T: serde::Serialize>(
-        &self,
-        frame_type: MuxFrameType,
-        expected: MuxFrameType,
-        channel_id: u16,
-        body: &T,
-    ) -> Result<MuxFrame, ClientError> {
-        let frame = MuxFrame::json(frame_type, channel_id, body)
-            .map_err(|err| ClientError::Io(err.to_string()))?;
-        self.write(&frame)?;
-        self.wait_for_reply(expected, channel_id, HELLO_TIMEOUT)
-    }
-
-    fn request_tag(
-        &self,
-        frame_type: MuxFrameType,
-        expected: MuxFrameType,
-        channel_id: u16,
-        payload: &[u8],
-    ) -> Result<MuxFrameType, ClientError> {
-        let frame = MuxFrame::new(frame_type, channel_id, payload.to_vec())
-            .map_err(|err| ClientError::Io(err.to_string()))?;
-        self.write(&frame)?;
-        Ok(self
-            .wait_for_reply(expected, channel_id, Duration::from_secs(10))?
-            .frame_type)
-    }
-
-    /// Wait for the answer to a control frame.
-    ///
-    /// A timeout here is a wedged keeper, not a slow one: the control frames
-    /// involved do no work beyond bookkeeping, and the only ones that can take
-    /// real time are covered by their own dedicated paths.
-    fn wait_for_reply(
-        &self,
-        expected: MuxFrameType,
-        channel_id: u16,
-        timeout: Duration,
-    ) -> Result<MuxFrame, ClientError> {
-        let deadline = Instant::now() + timeout;
-        while Instant::now() < deadline {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            let frame = self.events.recv_timeout(remaining).map_err(|_| {
-                ClientError::SpawnNotAcknowledged {
-                    path: self.path.clone(),
-                    timeout,
-                }
-            })?;
-            if frame.frame_type == expected && frame.channel_id == channel_id {
-                return Ok(frame);
-            }
-        }
-        Err(ClientError::SpawnNotAcknowledged {
-            path: self.path.clone(),
-            timeout,
-        })
-    }
-
-    /// Wait for whichever of the three input results the keeper chose.
-    ///
-    /// Separate from `wait_for_reply` because a single write has THREE legal
-    /// answers — ack, reject, ambiguous — and a caller that waited for one tag
-    /// would time out on the other two, which are the interesting cases.
-    fn wait_for_any_input_result(
-        &self,
-        channel_id: u16,
-        timeout: Duration,
-    ) -> Result<MuxFrame, ClientError> {
-        let deadline = Instant::now() + timeout;
-        while Instant::now() < deadline {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            let frame = self.events.recv_timeout(remaining).map_err(|_| {
-                ClientError::SpawnNotAcknowledged {
-                    path: self.path.clone(),
-                    timeout,
-                }
-            })?;
-            if frame.channel_id == channel_id
-                && matches!(
-                    frame.frame_type,
-                    MuxFrameType::PtyInAck
-                        | MuxFrameType::PtyInReject
-                        | MuxFrameType::PtyInAmbiguous
-                )
-            {
-                return Ok(frame);
-            }
-        }
-        Err(ClientError::SpawnNotAcknowledged {
-            path: self.path.clone(),
-            timeout,
-        })
-    }
-
-    fn write(&self, frame: &MuxFrame) -> Result<(), ClientError> {
-        let mut socket = self
-            .write_half
-            .lock()
-            .expect("the write lock is never held across a wait");
+    /// A partial frame would desynchronise the keeper's decoder for every frame
+    /// after it, so a short write is an error rather than a retry.
+    pub(crate) fn write(&self, frame: &MuxFrame) -> Result<(), ClientError> {
+        let mut socket = lock_recovered(&self.write_half, "write");
         socket
             .write_all(&frame.encode())
             .map_err(|err| ClientError::Io(err.to_string()))?;
@@ -371,6 +251,20 @@ impl KeeperClient {
             shared.pending.remove(&channel_id);
         }
     }
+}
+
+/// Lock a client mutex whose contents survive the panic that poisoned it.
+///
+/// Poisoning says some thread panicked while holding the lock; it says nothing
+/// about whether what the lock guards is still readable. A pending-spawn table
+/// and a socket both are, so the data is recovered and the fault is logged.
+/// What actually matters on this client is lock ORDER — no lock is held across
+/// a wait — and recovering does not endanger that.
+fn lock_recovered<'guard, T>(mutex: &'guard Mutex<T>, which: &str) -> MutexGuard<'guard, T> {
+    mutex.lock().unwrap_or_else(|poisoned| {
+        tracing::warn!("keeper client: the {which} lock was poisoned by a panic; recovering it");
+        poisoned.into_inner()
+    })
 }
 
 impl std::fmt::Debug for KeeperClient {

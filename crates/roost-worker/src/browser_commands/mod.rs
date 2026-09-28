@@ -30,6 +30,9 @@ pub mod replies;
 pub mod scrollback_page;
 pub mod search;
 pub mod search_cancellation;
+pub mod search_match;
+pub mod search_page;
+pub mod search_scan;
 pub mod session_lifecycle;
 
 pub use replies::Reply;

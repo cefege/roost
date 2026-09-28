@@ -83,6 +83,9 @@ pub struct Pending {
     pub queued_at: Instant,
     /// What the frame is, for logs and for tests that assert on ordering.
     pub label: String,
+    /// The key this frame supersedes, for a producer whose newest record
+    /// replaces its own previous one. `None` for every frame that accumulates.
+    pub coalesce_key: Option<String>,
 }
 
 impl Pending {
@@ -103,13 +106,35 @@ pub enum AdmitError {
     OverBytes { bytes: usize, cap: usize },
     #[error("this frame encodes to {bytes} bytes, which alone exceeds the {cap} byte cap")]
     FrameTooLarge { bytes: usize, cap: usize },
+    /// This frame's payload alone would push the outbox past its byte cap once
+    /// a coalesced frame's predecessor is discounted.
+    ///
+    /// Distinct from [`AdmitError::OverBytes`], which is about what the outbox
+    /// already holds. Here the frame fits on its own and does not fit beside
+    /// the one it would replace, and the truthful answer is the same: the newer
+    /// record is refused and the older one stays, because a dropped title is a
+    /// stale title and a refused one is a recorded refusal.
+    #[error(
+        "this frame is {incoming} bytes and supersedes one of {superseded}, over the {cap} byte cap"
+    )]
+    CoalesceOverBytes {
+        incoming: usize,
+        superseded: usize,
+        cap: usize,
+    },
 }
 
 /// What admitting a frame did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Admitted {
-    /// The frame is waiting.
+    /// The frame is waiting, having added to its lane.
     Queued,
+    /// The frame replaced this lane's frame for its own key, in place.
+    ///
+    /// A distinct answer from [`Admitted::Queued`] because nothing was added:
+    /// the lane's length is unchanged, and a caller counting what it added is
+    /// counting the wrong thing if the two are one value.
+    Coalesced,
     /// The lane was full and the frame was dropped because it may be.
     DroppedVolatile,
 }
@@ -184,46 +209,7 @@ impl Outbox {
         label: impl Into<String>,
         now: Instant,
     ) -> Result<Admitted, AdmitError> {
-        if bytes.len() > self.byte_cap {
-            return Err(AdmitError::FrameTooLarge {
-                bytes: bytes.len(),
-                cap: self.byte_cap,
-            });
-        }
-
-        // A droppable lane sheds its OLDEST frame rather than the new one. The
-        // new frame is the one the caller is holding a reference to, and
-        // dropping it would make the caller's accounting a lie.
-        if self.frame_count >= self.cap || self.byte_count + bytes.len() > self.byte_cap {
-            if !lane.is_droppable() {
-                return Err(if self.frame_count >= self.cap {
-                    AdmitError::Full {
-                        pending: self.frame_count,
-                        cap: self.cap,
-                    }
-                } else {
-                    AdmitError::OverBytes {
-                        bytes: self.byte_count,
-                        cap: self.byte_cap,
-                    }
-                });
-            }
-            if let Some(evicted) = self.lanes[Self::slot(lane)].pop_front() {
-                self.frame_count -= 1;
-                self.byte_count -= evicted.bytes.len();
-            }
-        }
-
-        let frame = Pending {
-            lane,
-            bytes,
-            queued_at: now,
-            label: label.into(),
-        };
-        self.byte_count += frame.bytes.len();
-        self.frame_count += 1;
-        self.lanes[Self::slot(lane)].push_back(frame);
-        Ok(Admitted::Queued)
+        self.insert(lane, bytes, label, now, None)
     }
 
     /// Take the next frame, in the order the contract requires.
@@ -262,13 +248,126 @@ impl Outbox {
         drained
     }
 
+    /// Offer a frame that SUPERSEDES this lane's frame for the same key.
+    ///
+    /// The outbox holds ONE frame per key: the newer record replaces the older
+    /// one where it sits, so the lane's order is unchanged and its length is
+    /// unchanged. That is what a volatile producer needs — an agent status and a
+    /// terminal title are replaced by their successors, so a link that is
+    /// applying backpressure must not accumulate every version and then ship
+    /// them all in order, which spends the bandwidth AND walks the coordinator
+    /// through a replacement edge it has already passed.
+    ///
+    /// The replacement scans the lane rather than looking a key up in a map. A
+    /// coalescing lane holds one entry per key, and a machine has a bounded
+    /// number of sessions, so this is a walk over a handful of short strings on
+    /// a path that runs per status change rather than per cell frame.
+    pub fn admit_coalescing(
+        &mut self,
+        key: &str,
+        lane: Lane,
+        bytes: Vec<u8>,
+        label: impl Into<String>,
+        now: Instant,
+    ) -> Result<Admitted, AdmitError> {
+        self.refuse_oversized(&bytes)?;
+        let slot = Self::slot(lane);
+        if let Some(position) = self.lanes[slot]
+            .iter()
+            .position(|frame| frame.coalesce_key.as_deref() == Some(key))
+        {
+            let superseded = self.lanes[slot][position].bytes.len();
+            if self.byte_count - superseded + bytes.len() > self.byte_cap {
+                return Err(AdmitError::CoalesceOverBytes {
+                    incoming: bytes.len(),
+                    superseded,
+                    cap: self.byte_cap,
+                });
+            }
+            self.byte_count = self.byte_count - superseded + bytes.len();
+            let frame = &mut self.lanes[slot][position];
+            frame.bytes = bytes;
+            frame.queued_at = now;
+            frame.label = label.into();
+            return Ok(Admitted::Coalesced);
+        }
+        self.insert(lane, bytes, label, now, Some(key.to_owned()))
+    }
+
+    /// Whether this lane is holding a frame for `key`.
+    pub fn coalesces(&self, lane: Lane, key: &str) -> bool {
+        self.lanes[Self::slot(lane)]
+            .iter()
+            .any(|frame| frame.coalesce_key.as_deref() == Some(key))
+    }
+
+    /// Admit a frame, applying the caps. Every lane path ends here, so the cap
+    /// arithmetic exists once rather than once per kind of frame.
+    fn insert(
+        &mut self,
+        lane: Lane,
+        bytes: Vec<u8>,
+        label: impl Into<String>,
+        now: Instant,
+        coalesce_key: Option<String>,
+    ) -> Result<Admitted, AdmitError> {
+        self.refuse_oversized(&bytes)?;
+        // A droppable lane sheds its OLDEST frame rather than the new one. The
+        // new frame is the one the caller is holding a reference to, and
+        // dropping it would make the caller's accounting a lie.
+        if self.frame_count >= self.cap || self.byte_count + bytes.len() > self.byte_cap {
+            if !lane.is_droppable() {
+                return Err(if self.frame_count >= self.cap {
+                    AdmitError::Full {
+                        pending: self.frame_count,
+                        cap: self.cap,
+                    }
+                } else {
+                    AdmitError::OverBytes {
+                        bytes: self.byte_count,
+                        cap: self.byte_cap,
+                    }
+                });
+            }
+            if let Some(evicted) = self.lanes[Self::slot(lane)].pop_front() {
+                self.frame_count -= 1;
+                self.byte_count -= evicted.bytes.len();
+            }
+        }
+
+        let frame = Pending {
+            lane,
+            bytes,
+            queued_at: now,
+            label: label.into(),
+            coalesce_key,
+        };
+        self.byte_count += frame.bytes.len();
+        self.frame_count += 1;
+        self.lanes[Self::slot(lane)].push_back(frame);
+        Ok(Admitted::Queued)
+    }
+
+    /// Refuse a frame that alone exceeds the byte cap, on every admit path.
+    ///
+    /// Checked BEFORE a droppable lane sheds its oldest frame: shedding cannot
+    /// make room for a frame larger than the whole outbox, so a lane that
+    /// evicted for it would lose a frame and still hold one it can never send.
+    fn refuse_oversized(&self, bytes: &[u8]) -> Result<(), AdmitError> {
+        if bytes.len() > self.byte_cap {
+            return Err(AdmitError::FrameTooLarge {
+                bytes: bytes.len(),
+                cap: self.byte_cap,
+            });
+        }
+        Ok(())
+    }
+
     /// Drop everything in one lane, oldest first. Used when a stream generation
     /// is invalidated and its pending cells are meaningless.
     pub fn discard(&mut self, lane: Lane) -> usize {
         let dropped = self.lanes[Self::slot(lane)].len();
-        while let Some(frame) = self.take_from(lane) {
-            let _ = frame;
-        }
+        while self.take_from(lane).is_some() {}
         dropped
     }
 }

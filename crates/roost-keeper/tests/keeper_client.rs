@@ -3,6 +3,7 @@
 //! other would prove only that the stub agrees with the client — and the
 //! spawn-ack timeout in particular cannot be exercised without a keeper that
 //! deliberately does not answer.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::io::{Read, Write};
 use std::os::unix::net::UnixListener;
@@ -353,7 +354,9 @@ fn a_pong_does_not_consume_a_pending_answer() {
     let _ = stream.read(&mut chunk);
 
     // The client must still be able to complete a request afterwards.
-    client
-        .resize(1, 1, 100, 30)
-        .expect("the resize is acknowledged despite the ping");
+    assert_eq!(
+        client.resize(1, 1, 100, 30).applied_geometry(),
+        Some((100, 30)),
+        "the resize is acknowledged despite the ping"
+    );
 }

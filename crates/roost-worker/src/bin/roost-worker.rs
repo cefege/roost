@@ -29,8 +29,6 @@ USAGE:
 
 OPTIONS:
     --coordinator <URL>     The coordinator to dial. Overrides ROOST_COORDINATOR_URL.
-    --fingerprint <HEX>     This worker's registry fingerprint. Overrides
-                            ROOST_WORKER_FINGERPRINT. 64 lowercase hex characters.
     --keeper-socket <PATH>  The keeper socket to adopt or start. Overrides
                             ROOST_KEEPER_SOCKET.
     --keeper-executable <PATH>
@@ -39,11 +37,19 @@ OPTIONS:
     -h, --help              Print this message.
     -V, --version           Print the version.
 
-CONFIGURATION
-    Every option has an ROOST_* environment variable, and the environment is
-    what an installed service definition supplies. Paths default to the worker
-    data directory: <data>/mux-keeper.sock, <data>/mux-keeper.pid and
-    <data>/coordinator_ed25519.key.
+IDENTITY
+    There is no identity option, and there is no identity variable. The
+    fingerprint this worker dials and registers as is the SHA-256 of the public
+    key in <data>/coordinator_ed25519.key, and the coordinator credential is
+    signed from that same key, so the dial path and the token cannot disagree
+    and neither can be set to a value the coordinator has never seen. A machine
+    with no key is given one at mode 0600 on first boot; ROOST_WORKER_KEY_PATH
+    moves it.
+
+    Every other option has an ROOST_* environment variable, and the environment
+    is what an installed service definition supplies. The remaining paths
+    default to the worker data directory: <data>/mux-keeper.sock and
+    <data>/mux-keeper.pid.
 
     The worker holds no PTYs of its own. The keeper does, and it is meant to
     outlive this process, so a coordinator outage or a worker restart costs a
@@ -82,9 +88,6 @@ fn parse_args(argv: &[String]) -> Result<Option<WorkerOverrides>, String> {
             }
             "--coordinator" => {
                 overrides.coordinator = Some(take_value(argv, &mut index, "--coordinator")?);
-            }
-            "--fingerprint" => {
-                overrides.fingerprint = Some(take_value(argv, &mut index, "--fingerprint")?);
             }
             "--keeper-socket" => {
                 overrides.keeper_socket = Some(take_value(argv, &mut index, "--keeper-socket")?);

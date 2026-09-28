@@ -3,6 +3,7 @@
 //! separate contract from the frame header.
 //!
 //! The contract is `protocol/spec/keeper.md`.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_keeper::history::{HistoryRecord, HistoryRecords};
 

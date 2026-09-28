@@ -1,6 +1,7 @@
 //! The durable store's admission control. The property under test throughout
 //! is the one the design exists for: **a live session can always record that
 //! it ended**, no matter what else is competing for the store.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_worker::event_store::{
     AppendError, DurableEventKind, MAX_PAYLOAD_BYTES, MAX_ROWS, ReserveError, SEQUENCE_BLOCK_SIZE,

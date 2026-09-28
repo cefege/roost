@@ -5,6 +5,7 @@
 //! The frame a browser paints is the observable this port has to preserve, so
 //! every case asserts on text and column counts rather than on internals — the
 //! internals are exactly what changed.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod support;
 

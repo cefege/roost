@@ -1,5 +1,6 @@
 //! The diag report's trustworthiness: that ages survive a host clock step, and
 //! that a stall is attributable from the report alone.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};

@@ -3,6 +3,7 @@
 //! coordinator recording one session as having ended twice — and what stops a
 //! session ending silently and leaving a client watching a terminal that is
 //! already gone.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_worker::channel_fsm::{ChannelEvent, ChannelFsm, ChannelState, Refusal};
 

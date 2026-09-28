@@ -3,6 +3,7 @@
 //! the retention rules can be exercised with no PTY and no timing at all.
 //!
 //! The contract is `protocol/spec/keeper.md`.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_keeper::channel_history::ChannelHistory;
 use roost_keeper::history::HistoryRecord;

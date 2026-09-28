@@ -3,10 +3,13 @@
 //! `serve` is the entry point; `roost-cli` and the `roost-worker` binary call
 //! it and nothing else here.
 //!
-//! The boot order is [`boot_order::BOOT_ORDER`] and it is not negotiable. The
-//! identity is settled before anything is probed or spawned, the keeper's
-//! survivor is admitted before a session is touched, and readiness is announced
-//! last because readiness is a claim about the steps before it.
+//! The boot order is [`boot_order::BOOT_ORDER`] and it is not negotiable, and
+//! the sequence that runs it is [`boot_sequence::run`]. The identity is settled
+//! before anything is probed or spawned; the door opens before the link so a
+//! local browser keeps its terminals while the coordinator is unreachable; the
+//! survivor decision needs the coordinator's open-session set, and a set nobody
+//! has read cannot decide anything; and readiness is announced last because
+//! readiness is a claim about the steps before it.
 //!
 //! Two rules span every module here. A coordinator disconnect is a reconnect,
 //! never a shutdown: the keeper holds the PTYs and outlives this process on
@@ -15,36 +18,43 @@
 //! — see [`keeper_boot::decide`], which is a pure function precisely so that
 //! decision can be tested without a keeper, a coordinator, or a PTY.
 
+pub mod adoption;
+mod adoption_claim;
 pub mod boot;
-
-// The crate-root contract the CLI calls: `serve` blocks until the worker is
-// asked to stop, and `WorkerBoot` is the already-resolved configuration it
-// takes. Both re-exported here so a host depends on `runtime`, not on the
-// shape of the module tree behind it.
-pub use boot::{WorkerBoot, WorkerOverrides};
 pub mod boot_order;
+mod boot_outbox;
+pub mod boot_sequence;
+pub mod bootstrap_redeem;
+pub mod capabilities;
+pub mod cell_delivery;
+pub mod channel_delivery;
 pub mod credential;
+pub mod deps;
+pub mod door_serve;
 pub mod keeper_boot;
 pub mod keeper_probe;
 pub mod link_drain;
 pub mod link_loop;
 pub mod link_serve;
 pub mod link_wire;
+pub mod reconcile;
 pub mod reconnect;
+pub mod session_stack;
 pub mod snapshot_source;
 pub mod stop;
 
-use std::sync::Arc;
+// The crate-root contract the CLI calls: `serve` blocks until the worker is
+// asked to stop, and `WorkerBoot` is the already-resolved configuration it
+// takes. Both re-exported here so a host depends on `runtime`, not on the
+// shape of the module tree behind it.
+pub use boot::{WorkerBoot, WorkerOverrides};
+
+// The boot sequence names these as it runs, and they are re-exported so a
+// caller reading a refusal does not have to know which module owns the name it
+// is reading.
+pub(crate) use crate::event_store::database::{DATABASE_FILE_NAME, Journal};
 
 use anyhow::Context as _;
-
-use crate::link_dial::CoordinatorEndpoint;
-use boot_order::{BootSequence, Readiness, StepId};
-use credential::UnavailableCredential;
-use keeper_boot::KeeperBootOutcome;
-use link_loop::{LinkLoop, WorkerIdentity};
-use link_wire::UnavailableWire;
-use snapshot_source::NoSnapshot;
 use stop::{StopRequests, stop_requests_from_signals};
 
 /// Run the worker until it is asked to stop.
@@ -75,120 +85,7 @@ pub fn serve(boot: WorkerBoot) -> anyhow::Result<()> {
 pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<()> {
     boot.check()?;
     install_observability();
-    let mut sequence = BootSequence::new();
-    // Never advanced in this build. The two steps that would advance it are the
-    // session reconcile and the snapshot provider, and both need a session layer
-    // this crate does not have yet — see the TODO at the call site.
-    let readiness = Readiness::default();
-    tracing::info!(
-        fingerprint = %boot.fingerprint,
-        version = %boot.worker_version,
-        process_epoch = %boot.process_epoch,
-        coordinator = %boot.coordinator_base,
-        keeper_socket = %boot.keeper_socket.display(),
-        "the worker is starting"
-    );
-
-    // 1. Identity, settled above before anything was probed or spawned. The
-    //    step is recorded so the log says where the refusals happened.
-    let because = sequence.complete(StepId::Identity);
-    tracing::info!(
-        step = StepId::Identity.name(),
-        because,
-        "boot: identity settled"
-    );
-
-    // 2. The keeper. `None` for the coordinator's open-session set, because
-    //    nothing has read it: the link below is what would read it, and
-    //    `keeper_boot::decide` treats an unread set as "do not replace". That is
-    //    the safe direction — a replacement made on an assumed-empty set is how a
-    //    restart kills a user's terminals — and it still lets the two cases that
-    //    need no coordinator happen: adopting a survivor, and starting a keeper
-    //    when nothing is listening at all.
-    let keeper = match keeper_boot::ensure_keeper(&boot, None, &boot.log_dir).await {
-        Ok(KeeperBootOutcome::Adopted { channels, keeper }) => {
-            tracing::info!(
-                ?channels,
-                "boot: adopted the keeper that already holds this machine's terminals"
-            );
-            Some(keeper)
-        }
-        Ok(KeeperBootOutcome::StartedFresh { keeper }) => {
-            tracing::info!("boot: started a fresh keeper");
-            Some(keeper)
-        }
-        Ok(KeeperBootOutcome::Held { decision }) => {
-            tracing::warn!(
-                ?decision,
-                "boot: the keeper endpoint is held and nothing was touched; replacing it waits \
-                 for the coordinator's open-session set"
-            );
-            None
-        }
-        Err(error) => {
-            tracing::error!(%error, "boot refused: the keeper endpoint could not be admitted");
-            return Err(error);
-        }
-    };
-    let because = sequence.complete(StepId::KeeperAdmission);
-    tracing::info!(
-        step = StepId::KeeperAdmission.name(),
-        because,
-        "boot: keeper admitted"
-    );
-
-    // UNIMPLEMENTED: the local door, the session manager, agent tracking and
-    // the heartbeat, in v2's order between here and the link. The local door
-    // comes before the link in v2 and must here too: a browser on this machine
-    // reaches its own PTYs through the door, and it has to keep doing that while
-    // the coordinator is unreachable.
-
-    // 3. The coordinator link, after the keeper rather than before it, because
-    //    the keeper is what holds the terminals and a coordinator outage must not
-    //    cost this process them.
-    let endpoint =
-        CoordinatorEndpoint::new(boot.coordinator_base.clone(), boot.fingerprint.as_str())?;
-    let link = LinkLoop::new(
-        endpoint,
-        WorkerIdentity {
-            worker_fp: boot.fingerprint.clone(),
-            version: boot.worker_version.clone(),
-            process_epoch: boot.process_epoch.clone(),
-        },
-        Arc::new(UnavailableWire),
-        Arc::new(NoSnapshot),
-        Arc::new(UnavailableCredential),
-    );
-    let because = sequence.complete(StepId::CoordinatorLink);
-    tracing::info!(
-        step = StepId::CoordinatorLink.name(),
-        because,
-        keeper = keeper.is_some(),
-        "boot: the coordinator link is starting"
-    );
-
-    // UNIMPLEMENTED: reconcile the coordinator's open-session set against
-    // the local one, activate the snapshot provider, and only then advance
-    // `readiness` through `Readiness::advance`. Both need the link to be live and
-    // a session layer to reconcile, so until they exist those two steps are
-    // refused rather than skipped — see `BOOT_ORDER`. `serve_until` deliberately
-    // does not call `Readiness::advance(ReadyStep::Reconciled)`: a worker that
-    // announces readiness it cannot back is worse than one that never does.
-    let reason = link.run(stop.subscribe()).await;
-
-    tracing::info!(
-        reason = %reason,
-        readiness = ?readiness,
-        completed = ?sequence.completed(),
-        keeper = keeper.is_some(),
-        "the worker is stopping"
-    );
-    // The keeper handle is dropped here, not killed. Dropping the connection is
-    // the whole contract: the keeper treats a disconnect as a reason to keep
-    // serving, and a worker that took its PTYs down on the way out would be the
-    // one bug this architecture exists to prevent.
-    drop(keeper);
-    Ok(())
+    boot_sequence::run(boot, stop).await
 }
 
 /// Install the JSON-lines log subscriber, or accept that one is already there.

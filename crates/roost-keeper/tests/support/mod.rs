@@ -4,7 +4,12 @@
 //!
 //! `DEADLINE` is the point: a test that hangs is indistinguishable from a
 //! keeper that does, so every wait here fails rather than blocks.
-
+// NO `allow(clippy::unwrap_used)` here, deliberately. The allow is a property
+// of the COMPILATION UNIT, not of this file: every one of the nine test
+// binaries that declares `mod support;` declares the allow at its own root,
+// and a crate-level `#![allow]` covers the modules it pulls in. Adding one here
+// as well would be dead weight — a reader would have two declarations to keep
+// in step and no way to tell which is load-bearing.
 #![allow(dead_code)]
 
 use std::time::{Duration, Instant};
@@ -14,6 +19,8 @@ use roost_keeper::codec::MuxFrameType;
 use roost_keeper::frames::{ShellSpec, SpawnRequest};
 use roost_keeper::keeper::Keeper;
 use roost_keeper::payloads::{PtyInRequest, ResizeRequest};
+
+pub mod daemon;
 
 pub const DEADLINE: Duration = Duration::from_secs(10);
 
@@ -91,7 +98,10 @@ pub fn drain_until(keeper: &mut Keeper, predicate: impl Fn(&[u8]) -> bool) -> Ve
     let start = Instant::now();
     let mut seen: Vec<u8> = Vec::new();
     while start.elapsed() < DEADLINE {
-        for frame in keeper.drain_output(8192) {
+        for frame in keeper
+            .drain_output(8192)
+            .expect("a drained chunk is within the frame bound")
+        {
             seen.extend_from_slice(&frame.payload);
         }
         if predicate(&seen) {

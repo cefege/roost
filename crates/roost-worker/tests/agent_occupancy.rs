@@ -1,5 +1,6 @@
 //! Agent occupancy. Three rules carry it, and each is a place where the obvious
 //! implementation is wrong, so each test names the failure it prevents.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_worker::agent_occupancy::{Candidate, Loss, Occupancy, ProcessKey, RuntimeState, Source};
 
