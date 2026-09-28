@@ -394,8 +394,7 @@ pub fn snapshot_event(
 pub fn worker_caller(worker_fp: &WorkerFp, client_seq: u64) -> Caller {
     Caller::worker(worker_fp.clone(), client_seq, DASHBOARD_ID)
 }
-// Named rather than a glob: a glob re-export nothing imports by name reads as
-// unused to the compiler, and these two are imported by name on purpose.
+// Named, not globbed: a glob re-export nothing imports by name reads as unused.
 pub use reachability::{
     the_deferred_append_path_has_an_execution_path, the_deferred_reap_ids_have_a_production_reader,
 };
