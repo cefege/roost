@@ -17,6 +17,9 @@
 //! an error nobody can act on.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use tokio::sync::Notify;
 
 use roost_protocol::wire::brand::WorkerFp;
 use roost_protocol::wire::event::SessionEvent;
@@ -30,12 +33,11 @@ use crate::session::types::SessionRecord;
 pub enum SnapshotError {
     #[error("this worker has no snapshot to publish: {reason}")]
     Unavailable { reason: String },
-    #[error("the snapshot could not be encoded: {reason}")]
-    Unencodable { reason: String },
 }
 
-/// Publishes the worker's complete session set, encoded as the frame the
-/// coordinator acknowledges.
+/// Publishes the worker's complete session set. The link frames it as v2's
+/// `Event{snapshot, client_seq}` under a sequence the durable outbox draws
+/// (`runtime::link_loop::durable_sync`).
 pub trait SnapshotSource: Send + Sync {
     /// Whether a snapshot can be produced at all.
     ///
@@ -43,8 +45,46 @@ pub trait SnapshotSource: Send + Sync {
     /// that the barrier will never be released — rather than discovering it
     /// once per dial from an error nobody can act on.
     fn is_active(&self) -> bool;
-    /// The encoded snapshot frame.
-    fn snapshot(&self) -> Result<Vec<u8>, SnapshotError>;
+    /// The snapshot event, unframed.
+    fn snapshot(&self) -> Result<SessionEvent, SnapshotError>;
+}
+
+/// v2 `activateSnapshotProvider`: boot holds the link's snapshot until its first
+/// reconcile pass has produced the complete local session set, while the link
+/// already dials and replays the durable outbox (v2 `main.ts:296-303`). Made by
+/// `LinkLoop::hold_snapshot_until_activated`, released by
+/// `runtime::boot_admission`, read by the link's snapshot stage. Every clone is
+/// the same hold.
+#[derive(Debug, Clone)]
+pub struct SnapshotActivation {
+    active: Arc<AtomicBool>,
+    wake: Arc<Notify>,
+}
+
+impl SnapshotActivation {
+    /// A hold not yet released; `wake` is what [`SnapshotActivation::activate`]
+    /// rings.
+    pub fn held(wake: Arc<Notify>) -> Self {
+        Self {
+            active: Arc::new(AtomicBool::new(false)),
+            wake,
+        }
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.active.load(Ordering::Acquire)
+    }
+
+    /// Release the hold and wake the link, so a barrier already waiting at the
+    /// snapshot stage publishes now (v2 pumps when its phase is `snapshot`).
+    pub fn activate(&self) {
+        if !self.active.swap(true, Ordering::AcqRel) {
+            tracing::info!(
+                "the snapshot provider is active: the link may publish the worker snapshot"
+            );
+            self.wake.notify_one();
+        }
+    }
 }
 
 /// The worker's own session set, as the snapshot barrier publishes it.
@@ -123,11 +163,8 @@ impl SnapshotSource for SessionSnapshot {
         true
     }
 
-    fn snapshot(&self) -> Result<Vec<u8>, SnapshotError> {
-        let event = self.build()?;
-        serde_json::to_vec(&event).map_err(|error| SnapshotError::Unencodable {
-            reason: error.to_string(),
-        })
+    fn snapshot(&self) -> Result<SessionEvent, SnapshotError> {
+        self.build()
     }
 }
 

@@ -22,6 +22,7 @@ use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 
 use crate::link_barrier::{Action, Barrier};
 use crate::link_dial::Link;
+use crate::session::durable_delivery::DurableDelivery;
 
 use super::link_loop::{DRAIN_TICK, LinkLoop, SNAPSHOT_STARVATION};
 use super::stop::{LinkEnd, StopSignal};
@@ -38,6 +39,7 @@ pub(super) async fn serve(
     // Bound outside the loop state so no branch of the select holds a borrow of
     // it while another branch mutates it.
     let wake = Arc::clone(&loop_state.wake);
+    let delivery = loop_state.durable_delivery.clone();
     let mut ticker = tokio::time::interval(DRAIN_TICK);
     loop {
         // A FRESH observer each pass. `requested` takes `&mut self` for the
@@ -53,6 +55,10 @@ pub(super) async fn serve(
                 if let Some(end) = on_tick(loop_state, &mut link).await { return end; }
             }
             () = wake.notified() => {
+                if let Some(end) = on_tick(loop_state, &mut link).await { return end; }
+            }
+            // v2 `coordLinkSink`: the durable sink wrote a row or moved a claim.
+            () = store_changed(delivery.as_deref()) => {
                 if let Some(end) = on_tick(loop_state, &mut link).await { return end; }
             }
             // Everything produced off the loop — owner replies, browser-command
@@ -107,7 +113,7 @@ async fn force_hello(loop_state: &mut LinkLoop, link: &mut Link) -> Option<LinkE
     // capability this build cannot answer is worse than admitting none, because
     // a coordinator that believes it is answered routes traffic here and waits
     // for frames nobody is producing.
-    let capabilities = crate::runtime::capabilities::advertised();
+    let capabilities = crate::runtime::capabilities::advertised(loop_state.direct_peers);
     tracing::debug!(
         ?capabilities,
         "the hello advertises the capabilities this worker can serve"
@@ -168,7 +174,8 @@ async fn on_tick(loop_state: &mut LinkLoop, link: &mut Link) -> Option<LinkEnd> 
 /// is the only thing that makes the condition visible in the ladder, and a
 /// visible failure beats a healthy-looking link that carries nothing.
 fn snapshot_starvation(loop_state: &mut LinkLoop, now: Instant) -> Option<LinkEnd> {
-    if loop_state.pump.barrier() != Barrier::Snapshot {
+    // A stage boot still holds is waiting on the boot reconcile, not starving.
+    if loop_state.pump.barrier() != Barrier::Snapshot || loop_state.snapshot_held() {
         loop_state.snapshot_since = None;
         return None;
     }
@@ -181,4 +188,12 @@ fn snapshot_starvation(loop_state: &mut LinkLoop, now: Instant) -> Option<LinkEn
         "the barrier cannot leave the snapshot stage, so this link will never carry live traffic"
     );
     Some(LinkEnd::SnapshotStarved { waited })
+}
+
+/// The durable sink's change signal, or never when no outbox is attached.
+async fn store_changed(delivery: Option<&DurableDelivery>) {
+    match delivery {
+        Some(delivery) => delivery.store_changed().await,
+        None => std::future::pending().await,
+    }
 }

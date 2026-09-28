@@ -97,6 +97,9 @@ pub struct Pump {
     replay_again: bool,
     /// The sequence the in-flight snapshot will be acknowledged under.
     snapshot_seq: Option<u64>,
+    /// A durable claim for an event that does not exist yet: the snapshot
+    /// would describe a session set about to change, so replay may not end.
+    snapshot_blocked: bool,
     next_seq: u64,
     /// Durable events acknowledged so far, for `roost doctor` and for the
     /// tests that assert pacing.
@@ -126,6 +129,7 @@ impl Pump {
             in_flight: None,
             replay_again: false,
             snapshot_seq: None,
+            snapshot_blocked: false,
             next_seq: 1,
             acked: 0,
         }
@@ -183,49 +187,6 @@ impl Pump {
         Ok(self.advance())
     }
 
-    /// Move the sequence on to `issued + 1`, never backwards.
-    ///
-    /// The outbox and this barrier draw from ONE sequence space, and the outbox
-    /// allocates in blocks: a restarted worker resumes at the top of the block
-    /// it had already reserved, so its next number sits a whole block above the
-    /// last one it handed out. A barrier that only learned the high water would
-    /// therefore issue a number the outbox has already used, and the
-    /// coordinator's acknowledgement for the replayed row would carry a sequence
-    /// this barrier never issued — which reads as a stale one and leaves the link
-    /// in `replay` for ever.
-    ///
-    /// One-directional on purpose: the barrier's counter is a LOWER BOUND the
-    /// outbox keeps correcting, never a number either side may take back.
-    pub fn note_sequence_used(&mut self, issued: u64) {
-        if issued >= self.next_seq {
-            self.next_seq = issued.saturating_add(1);
-        }
-    }
-
-    /// Resume the sequence at `next_seq`, so this barrier's numbers continue
-    /// one the durable outbox has already used.
-    ///
-    /// The barrier allocates the sequence the coordinator acknowledges under and
-    /// the outbox allocates the sequence a row is STORED under, and they are one
-    /// space. A fresh `Pump` starts at 1, so a worker that restarted with rows
-    /// still waiting would replay them under sequences the barrier has never
-    /// issued, and every acknowledgement for them would read as a stale one:
-    /// the barrier would sit in `replay` for ever with the outbox full.
-    ///
-    /// Refuses a seed once anything has been enqueued, because a barrier whose
-    /// counter moved under it has already issued a sequence, and re-issuing that
-    /// number is the one defect this whole design exists to prevent.
-    pub fn seed_next_sequence(&mut self, next_seq: u64) -> Result<(), SeedRefusal> {
-        if self.next_seq != 1 || !self.durable.is_empty() || self.in_flight.is_some() {
-            return Err(SeedRefusal {
-                next_seq,
-                issued: self.next_seq,
-            });
-        }
-        self.next_seq = next_seq.max(1);
-        Ok(())
-    }
-
     /// The socket came up. Not application-ready.
     pub fn on_open(&mut self) -> Action {
         self.barrier = Barrier::Open;
@@ -258,6 +219,53 @@ impl Pump {
             self.replay_again = true;
         }
         self.advance()
+    }
+
+    /// v2 `hasBlockingSessionEventReservation`, as the outbox last answered it.
+    /// A claim that appears while the snapshot is in flight is a durable event
+    /// appearing, so the snapshot is retaken; one that clears lets replay end.
+    pub fn set_snapshot_blocked(&mut self, blocked: bool) -> Action {
+        let was = std::mem::replace(&mut self.snapshot_blocked, blocked);
+        match (was, blocked) {
+            (false, true) => self.note_durable_appeared(),
+            (true, false) => self.advance(),
+            _ => Action::Wait,
+        }
+    }
+
+    pub fn snapshot_blocked(&self) -> bool {
+        self.snapshot_blocked
+    }
+
+    /// The sequence the in-flight snapshot is acknowledged under.
+    pub fn snapshot_sequence(&self) -> Option<u64> {
+        self.snapshot_seq
+    }
+
+    /// Put the in-flight snapshot under the sequence the durable outbox drew
+    /// for it (v2 `store.nextClientSeq()`), so it can never share a number
+    /// with a row the outbox allocates.
+    pub fn reassign_snapshot_sequence(&mut self, seq: u64) {
+        if self.barrier == Barrier::Snapshot && self.snapshot_seq.is_some() {
+            self.snapshot_seq = Some(seq);
+            self.next_seq = self.next_seq.max(seq.saturating_add(1));
+        }
+    }
+
+    /// A durable row or claim appeared before the snapshot was written: nothing
+    /// went out, so replay resumes. The caller offers the row, then asks the
+    /// barrier to move on. The barrier's own draw is given back, because the
+    /// outbox may have numbered that row with it.
+    pub fn abandon_snapshot(&mut self) {
+        if self.barrier == Barrier::Snapshot {
+            self.barrier = Barrier::Replay;
+            if let Some(drawn) = self.snapshot_seq.take()
+                && drawn.saturating_add(1) == self.next_seq
+            {
+                self.next_seq = drawn;
+            }
+            self.replay_again = false;
+        }
     }
 
     /// The coordinator acknowledged the hello.
@@ -346,7 +354,7 @@ impl Pump {
                     self.in_flight = Some(next.seq);
                     return Action::WriteDurable { seq: next.seq };
                 }
-                if self.durable.is_empty() {
+                if self.durable.is_empty() && !self.snapshot_blocked {
                     // Nothing to replay and nothing blocked: the snapshot is
                     // what establishes an authoritative state.
                     //
@@ -380,14 +388,4 @@ pub enum DurableRefusal {
     UnusableSequence { seq: u64 },
     #[error("client sequence {seq} is behind this barrier's {next_seq}, so it is a repeat")]
     AlreadyPassed { seq: u64, next_seq: u64 },
-}
-
-/// Why a barrier refused to be reseeded.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("the barrier already issued up to {issued}, so it cannot resume at {next_seq}")]
-pub struct SeedRefusal {
-    /// The sequence the caller asked to resume at.
-    pub next_seq: u64,
-    /// The highest sequence this barrier has already handed out.
-    pub issued: u64,
 }
