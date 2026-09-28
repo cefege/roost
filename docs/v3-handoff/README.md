@@ -53,6 +53,42 @@ oracle on this host, so diagnose it there with a `curl -I` against a live
 stack's door before the first full run; whatever answers, the Rust door
 (`roost-worker`'s W-DOOR slice) must not reproduce it.
 
+## Cross-track defect: the worker's boot-time Connect call is unauthenticated
+
+Found by the integrator on the merged `v3` at `11e73966` while closing the two
+gaps the worker handoff flagged. One is stale, one is real.
+
+**Stale — `recovery_metadata` is filled.** `SessionsList` answers it, but only
+for a worker principal: `crates/roost-coord/src/sessions/list_projection.rs:107-126`
+(`SessionListScope::OwnWorkerRecovery { worker_fp }`) into
+`rpc_sessions.rs:84`, with `tests/sessions_list_auth.rs:194`
+(`a_browser_lists_sessions_but_never_their_recovery_metadata`) pinning that a
+browser never sees those rows. Nothing to do.
+
+**Real — the worker reads its open-session set without a credential, and the
+coordinator refuses that caller.** The chain:
+
+- `crates/roost-coord/src/rpc/method_route_rows.rs:79` — `SessionsList` is
+  `AuthRequirement::DeviceOrOwnWorkerRecovery`. An absent credential is a
+  refusal, not an anonymous answer.
+- `crates/roost-worker/src/runtime/boot_sequence.rs:85` — one client is built
+  for every boot-time call, and its own comment says it is "reused by the
+  open-session read below". `activation::coordinator_client`
+  (`bootstrap_redeem/activation.rs:83-100`) attaches nothing to it.
+- `crates/roost-worker/src/runtime/boot_sequence.rs:135` hands that client to
+  `reconcile::admit_keeper`, which calls `client.sessions_list(request)`
+  (`reconcile.rs:84-87`).
+
+So boot step 5 — the read that decides keeper admission — is refused by the v3
+coordinator, and a Rust worker cannot complete boot against it. The worker
+already holds the credential everywhere else: enrollment passes one explicitly
+(`activation.rs:58-59`) and the link dial gets `WorkerKeyCredential`
+(`boot_sequence.rs:252-253`). The fix is to attach that credential to the
+Connect client the way the dial does, not to relax the route. Fix it in the
+worker track after its merge into `v3` and before the workspace gate; no gate
+criterion would otherwise catch it, because nothing in `cargo test` crosses
+the two processes.
+
 ## RESUME STATE — read this first
 
 Three track leads run in parallel, one per track worktree, each owning its
