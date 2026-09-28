@@ -1917,24 +1917,46 @@ it is the one failure mode a pass/fail/skip summary cannot show.
 
 ### Gate results
 
-**S3.0 WORKSPACE GATE — GREEN, on `v3` @ `7ea8324c`, 2026-09-28.** This is the
-first run of this gate on a merged tree. It had never been run since the CLI
+**S3.0 WORKSPACE GATE — build criteria pass, lint criterion OUTSTANDING. 2026-09-28.**
+First run of this gate on a merged tree; it had never been run since the CLI
 merge, and the gate script had refused four times for want of a quiet machine.
 
-|check|command|result|
-|---|---|---|
-|workspace|`cargo check -p roost-coord -p roost-worker -p roost-host --all-targets --keep-going`|**exit 0, 0 errors**|
-|release|`cargo build --release -p roost-cli -p roost-keeper`|**exit 0**; `roost` = 13,907,072 bytes|
-|`update` wired|`roost --help`|`update — Replace this binary with the latest published v3 release`. **Present.** 23 subcommands|
-|lint|`cargo xtask lint`|**8 violations, every one `roost-keeper`** (1 lint table, 7 fixture allows). **0 in `roost-coord`**|
-|fmt|`cargo xtask fmt`|**exit 1** — three `roost-host` files unformatted → fixed in `7ea8324c` → **exit 0**|
+**"Green" is withdrawn.** A gate is two agreeing green runs of the track's
+crates, clippy 0, `cargo xtask lint` **0**, and `cargo xtask fmt` clean. Lint is
+**8** on this tree, so one criterion is unmet and the gate is not closed. Those
+8 are `roost-keeper`'s lint table plus 7 fixture allows, and the ladder below
+says in advance that the `v3-worker` merge takes them to **0** — a known
+outstanding rather than a new finding, and still outstanding.
+
+**Each row names its own tree.** They are not the same commit, and hanging one
+SHA over the whole block is the mistake this file exists to prevent.
+
+|check|command|tree|result|
+|---|---|---|---|
+|workspace|`cargo check -p roost-coord -p roost-worker -p roost-host --all-targets --keep-going`|`8608fd44`|**exit 0, 0 errors**|
+|release|`cargo build --release -p roost-cli -p roost-keeper`|`8608fd44`|**exit 0**; `roost` = 13,907,072 bytes|
+|`update` wired|`roost --help` on that binary|`8608fd44`|`update — Replace this binary with the latest published v3 release`. **Present.** 23 subcommands|
+|fmt — failed, then fixed|`cargo xtask fmt`, then `cargo fmt -p roost-host`|`8608fd44` → `7ea8324c`|**exit 1** (3 `roost-host` files) → **exit 0**|
+|fmt re-verified|`cargo xtask fmt`|`01370d2f`|**exit 0, 0 diff lines**|
+|host recheck after the fix|`cargo check -p roost-host --all-targets`|`7ea8324c`|**exit 0**|
+|lint|`cargo xtask lint`|`01370d2f`|**8, every one `roost-keeper`** (1 lint table, 7 fixture allows). **0 in `roost-coord`**|
+|clippy|**NOT run on the merged tree**|—|the per-crate clippy figures on record come from the track branches, not from here|
 
 **The risk this gate existed to close is closed by compilation, not by a grep.**
 The CLI merge changed `pub trait EnvSource` to `pub trait EnvSource: Sync` in
 `crates/roost-host/src/env.rs` — a crate three others consume. The CLI gate ran
 `-p roost-cli` only, so it proved the four `EnvSource` *impls* satisfy the bound
-and said nothing whatever about `roost-coord`, `roost-worker`, or the eleven
-consumer sites outside those two crates. The reasoning before this run was
+and said nothing whatever about `roost-coord`, `roost-worker`, or their consumer
+sites. Re-measured on `01370d2f` by
+`git grep -c EnvSource -- crates/roost-coord/src crates/roost-worker/src`:
+**11**, in three files — `roost-coord/src/serve.rs:65` (1),
+`roost-worker/src/browser_commands/file_commands.rs` (4: the `use` at `:27`, and
+`Arc<dyn EnvSource + Send + Sync>` at `:93`, `:107`, `:127`), and
+`roost-worker/src/runtime/boot.rs` (6: the `use` at `:19`, then five
+`&dyn EnvSource` parameters). Those `+ Send + Sync` bounds are now redundant but
+legal, which is the one thing a supertrait *can* be relied on to do.
+
+The reasoning before this run was
 "a supertrait makes impls harder and consumers easier, so this should compile" —
 and *should*, inferred from a grep, is the exact shape of reasoning that has
 been wrong repeatedly on this programme. `cargo check` across all three crates
