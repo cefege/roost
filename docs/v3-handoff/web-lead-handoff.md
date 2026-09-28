@@ -3,7 +3,39 @@
 Worktree `/home/almalinux/repos/roost-v3-web`, branch `v3-web`. The worktree
 (`git log --oneline -20 && git status --short`) is the state; this note is the
 moment it was written. Plan: `roost-v3-finish-and-cutover-plan.md` "### Stage 5".
-Lead: `WebLeadU3` (successor of `WebLeadU2`, `WebLeadU`).
+Lead: `WebLeadU4` (successor of `WebLeadU3`, `WebLeadU2`, `WebLeadU`). **PAUSED** by
+the integrator's stop order (user moving machines) — see "Pause state" first.
+
+## Pause state (WebLeadU4, read this first)
+
+Tree = `e09f39ca` + this doc commit. No slices were spawned; no services or
+builds of this track are running. Gate on `e09f39ca`'s tree (scope item 1):
+
+- DONE: `cargo test -p roost-client-core -p roost-web -p roost-web-terminal --no-fail-fast`
+  twice, agreeing: 189 suites, **1323 passed / 0 failed / 4 ignored** (468 s, 235 s).
+  Ignores: `does_not_resume_a_nonfinal_direct_upload_through_coordinator_status`
+  (U-ATTACH), `audit_rows_are_newest_first_deduplicated_and_bounded` (SETTINGS),
+  `refuses_a_ninth_simultaneously_demanded_browser_peer` and
+  `accepts_a_bounded_ready_for_the_full_256_session_grant` (U-CARRIER).
+- DONE: `cargo clippy --workspace --all-targets --keep-going -- -D warnings` → exit 0.
+- NOT RUN (stopped): `ROOST_REPO_ROOT=$PWD cargo xtask lint` (integrator measured
+  3953 inputs / 0 violations on e09f39ca), `cargo xtask fmt` + `git status --short`,
+  wasm32 `cargo check -p roost-web --target wasm32-unknown-unknown` with and without
+  `--features smoke` (plus the CI line `cargo build -p roost-client-core -p roost-protocol -p roost-web -p roost-web-terminal --target wasm32-unknown-unknown`).
+- Next, in order: finish those three gate parts → report to Main → scope item 2
+  (open item 3 below: `.gitignore` `dist-smoke/`, both dx bundles, zero `__smoke`,
+  terminal-delivery spec on dist-smoke vs the TS backend) → U-2 rows (SYNC
+  LIFECYCLE, STREAM LIFECYCLE, ECHO/SCHED/INPUT/FIND+BACKFILL/RENDERER remainder,
+  PAIRING first; ≤3 slices).
+- Snapshot `v3-web-snap-pause` = `419149c6`: a stash commit on `5a43d383` (the dx-tree mutation
+  worktree) holding the 4 dirty mutation-agent test files and, under
+  `mut-artifacts/`, the local-only `target-track/tmp` material (the NOT-applied
+  `mut-MutDeckSidebarCore.patch`, the MutShellSidebar 92-mutant `mutants.py` +
+  `harness.py`, the MutDeckSidebarCore driver/specs/results, `mutation-brief.md`).
+  Only the `store_sidebar.rs` change is new; the other three are already in the
+  TERM/SMOKE `fixup!` commits.
+- On a new machine: recreate `/tmp/webenv.sh` from "Build rule"; `target-track`
+  is local-only (rebuilds from scratch).
 
 ## Build rule
 
@@ -72,15 +104,12 @@ not format inside `rsx!`.
 
 ## Open items, in order
 
-1. **Lint, 2 violations** (design raw-value ratchet): `crates/roost-web/src/smoke/paint_proof.rs:162`
-   (`starts_with("rgba(")`, parsing a computed background) and
-   `crates/roost-web/tests/smoke_scans.rs:299-308` (test inputs). v2's lint never
-   saw these (it skips `*.test.ts`; v2's harness spells the check as a regex
-   `/^rgba\(…/`). Decide with the integrator (xtask owner): exempt `tests/` +
-   `src/smoke/` from `design_raw`, or baseline them. Do not disguise the literals.
-2. Finish the gate: two agreeing three-crate test runs, wasm32 build
-   (`cargo build -p roost-client-core -p roost-protocol -p roost-web -p roost-web-terminal --target wasm32-unknown-unknown`),
-   lint 0; then report to Main.
+1. ~~Lint, 2 violations~~ — RESOLVED by the integrator in `e09f39ca` (the design
+   ratchet skips test files as v2 does; the `paint_proof.rs` colour parser line is
+   baselined): 3953 inputs, 0 violations.
+2. Finish the gate: tests ×2 and clippy DONE (Pause state); still to run: lint,
+   fmt + `git status --short`, wasm32 build/check with and without `smoke`; then
+   report to Main.
 3. Step 4 (not started): `.gitignore` needs `crates/roost-web/dist-smoke/` (only
    `dist/` is ignored). Build `dx build --release -p roost-web --platform web --features smoke`
    (output lands in `target-track/dx/roost-web/release/web/public`) → copy to
