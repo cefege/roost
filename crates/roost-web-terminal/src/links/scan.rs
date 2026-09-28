@@ -1,327 +1,327 @@
-//! Reading painted terminal links back out of the attributes the row painter
-//! stamped, and the scheduling decision for when a look is worth taking.
-//!
-//! The input is DATA — `PaintedRow`, which `links::dom` reads off the live DOM —
-//! so every rule here is testable without a browser: which links a row holds,
-//! which one a grid position lands on, and which soft-wrapped halves are one
-//! link rather than two.
-//!
-//! A link is re-identified by `LINK_KEY_ATTR`, never by its text: the core
-//! authors one run key per link and stamps it on every painted half, so the two
-//! rows a wrapped link straddles merge back into one. Text cannot do this — two
-//! links may share their visible text exactly.
-//!
-//! Ported from v2's `terminal-links.scan.ts` and the painted-link read in
-//! `terminal-links.dom.ts`.
+//! Watches renderer row mutations and linkifies only the soft-wrap groups they
+//! touch. The attachment owns user interaction; this scanner owns scheduling,
+//! hidden-page recovery and bounded hot-tail rescans for streaming terminals,
+//! over `LinkScanHost` (the browser in `links::dom`, a fake in tests). Every
+//! owed callback is named, so a dropped animation frame cannot latch it shut.
+//! Ports `apps/web/src/renderer/terminal-links.scan.ts`.
 
-use super::PaintedRow;
+use super::TerminalLinkOptions;
+use super::anchor::{LinkDom, js_parse_int, linkify_terminal_rows, terminal_row_columns};
+use crate::cell_row::ROW_COLUMNS_ATTR;
 
-/// How many dirty rows a mutation may touch before the scan bounds itself to the
-/// live tail instead of replaying them.
-///
-/// A streaming terminal dirties its newest scrollback block every frame, so an
-/// unbounded dirty set is a per-frame rescan of history that never ends.
-pub const DIRTY_ROW_LIMIT: u32 = 300;
+/// Dirty rows past which a scan bounds itself to the hot tail.
+pub const DIRTY_LIMIT: usize = 300;
 
-/// One painted half of a link: the row it landed on and the columns it covers.
+/// `requestIdleCallback` timeout for a mutation scan, in milliseconds.
+const IDLE_SCAN_TIMEOUT_MS: u32 = 250;
+
+/// Which scanner callback an animation frame runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct LinkHalf {
-    /// The 1-based grid row this half is on.
-    pub row: u32,
-    /// The 1-based first column of the half.
-    pub first_col: u32,
-    /// The 1-based column just past the half, so the interval is half-open.
-    pub end_col: u32,
+pub enum FrameCallback {
+    /// The scheduled scan (the fallback when idle callbacks are unavailable).
+    Scan,
+    /// The post-paint frame after activation, which requests the tail scan.
+    ActivationScan,
 }
 
-impl LinkHalf {
-    /// Whether this half paints `col` on `row`.
-    pub fn covers(&self, row: u32, col: u32) -> bool {
-        self.row == row && col >= self.first_col && col < self.end_col
+/// A set of rows by identity (v2 `Set<HTMLElement>`).
+pub trait RowSet<R> {
+    /// `add`.
+    fn insert(&mut self, row: &R);
+    /// `delete`.
+    fn remove(&mut self, row: &R);
+    /// `has`.
+    fn contains(&self, row: &R) -> bool;
+    /// `clear`.
+    fn clear(&mut self);
+    /// `size`.
+    fn len(&self) -> usize;
+    /// `size === 0`.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
     }
+    /// `Array.from`, in insertion order.
+    fn rows(&self) -> Vec<R>;
 }
 
-/// One link found in painted rows, with every painted half it has.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ScannedLink {
-    /// `LINK_KEY_ATTR`, verbatim. The core's per-run identity, and the only
-    /// thing that ties a soft-wrapped second row back to the first.
-    pub key: String,
-    /// The terminal-authored target, exactly as the renderer stamped it. A
-    /// re-serialized URI would retarget the click.
-    pub raw_target: String,
-    /// The painted halves in row order. A link that did not wrap has exactly one.
-    pub halves: Vec<LinkHalf>,
+/// The page, frame and row-tree operations the scanner needs.
+pub trait LinkScanHost: LinkDom {
+    /// The dirty-row set this host stores rows in.
+    type Rows: RowSet<Self::Element>;
+    /// A new empty row set.
+    fn new_row_set(&self) -> Self::Rows;
+    /// v2 `isPageVisible()`.
+    fn is_page_visible(&self) -> bool;
+    /// The container's `--cell-cols` style property, verbatim.
+    fn cell_cols_property(&self) -> String;
+    /// Rows of the newest scrollback block, then of the viewport.
+    fn hot_rows(&self) -> Vec<Self::Element>;
+    /// The row before `row`, across cell blocks and the scrollback seam.
+    fn previous_row(&self, row: &Self::Element) -> Option<Self::Element>;
+    /// The row after `row`, across cell blocks and the scrollback seam.
+    fn next_row(&self, row: &Self::Element) -> Option<Self::Element>;
+    /// `isConnected`.
+    fn is_connected(&self, row: &Self::Element) -> bool;
+    /// `requestIdleCallback`, or `None` where the browser has none.
+    fn request_idle_callback(&self, timeout_ms: u32) -> Option<u32>;
+    /// `cancelIdleCallback`.
+    fn cancel_idle_callback(&self, handle: u32);
+    /// `requestAnimationFrame` for one scanner callback.
+    fn request_animation_frame(&self, callback: FrameCallback) -> u32;
+    /// `cancelAnimationFrame`.
+    fn cancel_animation_frame(&self, handle: u32);
+    /// Observe (`true`) or disconnect (`false`) the container's mutations.
+    fn observe_mutations(&self, observe: bool);
+    /// Add or remove the document `visibilitychange` listener.
+    fn listen_for_visibility(&self, listen: bool);
 }
 
-/// Every link painted in one row, in document order: one entry per anchor.
-///
-/// `grid_row` is the 1-based grid row the element sits on, which is a fact
-/// about where the row was READ rather than about the row itself. A link that
-/// soft-wrapped is not joined here — its halves are in different rows, and
-/// [`region_links`] is what merges them.
-///
-/// A row without `ROW_HAS_LINKS_ATTR` contributes nothing: the marker is the
-/// one attribute read that skips virtually every held row of a scan.
-pub fn row_links(row: &PaintedRow, grid_row: u32) -> Vec<ScannedLink> {
-    if !row.has_links {
-        return Vec::new();
-    }
-    let mut column = 1u32;
-    let mut links: Vec<ScannedLink> = Vec::new();
-    for child in &row.children {
-        let first_col = column;
-        column = column.saturating_add(child.columns);
-        let Some(attributes) = child.link.as_ref() else {
-            continue;
+/// The scanner's state; one per attachment.
+pub struct LinkScanner<H: LinkScanHost> {
+    active: bool,
+    disposed: bool,
+    observing: bool,
+    listening_for_visibility: bool,
+    scan_scheduled: bool,
+    /// The owed scan callback and whether it is an idle callback.
+    scan_handle: Option<(u32, bool)>,
+    activation_frame: Option<u32>,
+    hot_tail_scan_needed: bool,
+    discard_dirty_until_activation_scan: bool,
+    dirty_rows: H::Rows,
+}
+
+impl<H: LinkScanHost> LinkScanner<H> {
+    /// A scanner, activated when `initial_active`.
+    pub fn attach(host: &H, initial_active: bool) -> Self {
+        let mut scanner = Self {
+            active: false,
+            disposed: false,
+            observing: false,
+            listening_for_visibility: false,
+            scan_scheduled: false,
+            scan_handle: None,
+            activation_frame: None,
+            hot_tail_scan_needed: false,
+            discard_dirty_until_activation_scan: false,
+            dirty_rows: host.new_row_set(),
         };
-        // A run key with no target names a link nothing can open, so it is not a
-        // link at all. An unkeyed one still is: an inferred match carries a
-        // target and no run key.
-        if !attributes.is_terminal_link {
-            continue;
+        if initial_active {
+            scanner.set_active(host, true);
         }
-        let Some(raw_target) = attributes.target.clone() else {
-            continue;
+        scanner
+    }
+
+    fn cancel_scan(&mut self, host: &H) {
+        match self.scan_handle.take() {
+            Some((handle, true)) => host.cancel_idle_callback(handle),
+            Some((handle, false)) => host.cancel_animation_frame(handle),
+            None => {}
+        }
+        self.scan_scheduled = false;
+    }
+
+    /// The scheduled scan callback.
+    pub fn scan(&mut self, host: &H, options: &TerminalLinkOptions) {
+        self.scan_scheduled = false;
+        self.scan_handle = None;
+        if !self.active || !host.is_page_visible() {
+            return;
+        }
+        let cols = js_parse_int(&host.cell_cols_property()).unwrap_or(0);
+        let owner_repo = options.github_owner_repo.as_ref().and_then(|getter| getter());
+        let linkify = |rows: &[H::Element]| {
+            linkify_terminal_rows(host, rows, cols, options.file_resolver(), owner_repo.as_deref(), options.modifier_key);
         };
-        links.push(ScannedLink {
-            key: attributes.key.clone().unwrap_or_default(),
-            raw_target,
-            halves: vec![LinkHalf {
-                row: grid_row,
-                first_col,
-                // A child the adapter could not measure claims no columns, so it
-                // is never a hit. Inventing one would put a link under a cell
-                // the pointer may not be anywhere near.
-                end_col: column,
-            }],
+        if self.hot_tail_scan_needed {
+            self.hot_tail_scan_needed = false;
+            let discard_dirty = self.discard_dirty_until_activation_scan;
+            self.discard_dirty_until_activation_scan = false;
+            let hot = host.hot_rows();
+            if discard_dirty {
+                self.dirty_rows.clear();
+            } else {
+                hot.iter().for_each(|row| self.dirty_rows.remove(row));
+            }
+            if !hot.is_empty() {
+                linkify(&hot);
+            }
+            tracing::debug!(target: "terminal_links", hot_rows = hot.len(), discard_dirty, "hot-tail link scan");
+            if !discard_dirty && !self.dirty_rows.is_empty() {
+                self.schedule_scan(host);
+            }
+            return;
+        }
+        let dirty_overflow = self.dirty_rows.len() > DIRTY_LIMIT;
+        let hot = if dirty_overflow { host.hot_rows() } else { Vec::new() };
+        let mut hot_set = host.new_row_set();
+        hot.iter().for_each(|row| hot_set.insert(row));
+        let hot_stream_overflow = dirty_overflow
+            && !hot.is_empty()
+            && !self.dirty_rows.rows().iter().any(|row| host.is_connected(row) && !hot_set.contains(row));
+        if hot_stream_overflow {
+            self.dirty_rows.clear();
+            linkify(&hot);
+            return;
+        }
+        if self.dirty_rows.is_empty() {
+            return;
+        }
+        let dirty = self.dirty_rows.rows();
+        self.dirty_rows.clear();
+        let mut visited = host.new_row_set();
+        let row_columns = |row: &H::Element| terminal_row_columns(host.attribute(row, ROW_COLUMNS_ATTR).as_deref());
+        for seed in dirty {
+            if !host.is_connected(&seed) || visited.contains(&seed) {
+                continue;
+            }
+            let mut first = seed;
+            while cols > 0 {
+                match host.previous_row(&first) {
+                    Some(previous) if !visited.contains(&previous) && row_columns(&previous) == cols => first = previous,
+                    _ => break,
+                }
+            }
+            let mut group = Vec::new();
+            let mut current = Some(first);
+            while let Some(row) = current {
+                visited.insert(&row);
+                let wraps = cols > 0 && row_columns(&row) == cols;
+                group.push(row);
+                if !wraps {
+                    break;
+                }
+                current = group.last().and_then(|row| host.next_row(row)).filter(|next| !visited.contains(next));
+            }
+            linkify(&group);
+        }
+    }
+
+    fn schedule_scan(&mut self, host: &H) {
+        if !self.active || self.scan_scheduled {
+            return;
+        }
+        self.scan_scheduled = true;
+        self.scan_handle = Some(match host.request_idle_callback(IDLE_SCAN_TIMEOUT_MS) {
+            Some(handle) => (handle, true),
+            None => (host.request_animation_frame(FrameCallback::Scan), false),
         });
     }
-    links
-}
 
-/// Every link in a run of rows, in first-appearance order.
-///
-/// Two painted halves of one soft-wrapped link arrive in two rows with the same
-/// run key; this merges them into one `ScannedLink` with two halves, so a click
-/// on either half activates the same link. `base_row` is the 1-based grid row
-/// `rows[0]` sits on, which the caller knows from where it read the rows.
-pub fn region_links(rows: &[PaintedRow], base_row: u32) -> Vec<ScannedLink> {
-    let mut links: Vec<ScannedLink> = Vec::new();
-    for (offset, row) in rows.iter().enumerate() {
-        for link in row_links(row, base_row.saturating_add(offset as u32)) {
-            match keyed_index(&links, &link.key) {
-                Some(index) => {
-                    let existing = &mut links[index];
-                    existing.raw_target = link.raw_target;
-                    existing.halves.extend(link.halves);
-                }
-                None => links.push(link),
+    /// Ask for one scan of the current tail (newest block + viewport).
+    pub fn request_current_scan(&mut self, host: &H) {
+        if !self.active {
+            return;
+        }
+        self.hot_tail_scan_needed = true;
+        if self.activation_frame.is_none() {
+            self.schedule_scan(host);
+        }
+    }
+
+    fn cancel_current_scan_after_paint(&mut self, host: &H) {
+        if let Some(frame) = self.activation_frame.take() {
+            host.cancel_animation_frame(frame);
+        }
+    }
+
+    fn schedule_current_scan_after_paint(&mut self, host: &H) {
+        if self.activation_frame.is_none() {
+            self.activation_frame = Some(host.request_animation_frame(FrameCallback::ActivationScan));
+        }
+    }
+
+    /// The post-activation paint frame fired.
+    pub fn activation_frame_fired(&mut self, host: &H) {
+        self.activation_frame = None;
+        self.request_current_scan(host);
+    }
+
+    /// A mutation batch arrived; `touched_rows` names the rows it touched and
+    /// is read only when the batch counts.
+    pub fn observe_mutations(&mut self, host: &H, touched_rows: impl FnOnce() -> Vec<H::Element>) {
+        if !self.active || self.discard_dirty_until_activation_scan {
+            return;
+        }
+        if !host.is_page_visible() {
+            self.request_current_scan(host);
+            return;
+        }
+        for row in touched_rows() {
+            self.dirty_rows.insert(&row);
+        }
+        self.schedule_scan(host);
+    }
+
+    /// Browsers may drop a hidden tab's queued frame: recovery resets both the
+    /// handle and the latch so later mutation scans cannot deadlock.
+    pub fn visibility_changed(&mut self, host: &H) {
+        if !self.active || !host.is_page_visible() {
+            return;
+        }
+        tracing::debug!(target: "terminal_links", "visibility recovery rearms the tail scan");
+        self.cancel_current_scan_after_paint(host);
+        self.cancel_scan(host);
+        self.request_current_scan(host);
+    }
+
+    /// Foreground (`true`) or withdraw (`false`) the scanner.
+    pub fn set_active(&mut self, host: &H, next_active: bool) {
+        if self.disposed || next_active == self.active {
+            return;
+        }
+        self.active = next_active;
+        tracing::debug!(target: "terminal_links", active = next_active, "link scanner activity");
+        if !next_active {
+            self.cancel_scan(host);
+            self.cancel_current_scan_after_paint(host);
+            self.dirty_rows.clear();
+            self.hot_tail_scan_needed = false;
+            self.discard_dirty_until_activation_scan = false;
+            if self.observing {
+                host.observe_mutations(false);
+                self.observing = false;
             }
-        }
-    }
-    links
-}
-
-/// The index of the link already carrying `key`, or `None`.
-///
-/// An unkeyed link never matches: two of them are two links, because nothing
-/// about them says they are halves of one.
-fn keyed_index(links: &[ScannedLink], key: &str) -> Option<usize> {
-    if key.is_empty() {
-        return None;
-    }
-    links.iter().position(|link| link.key == key)
-}
-
-/// The link a grid position lands on, or `None` when the cell holds no link.
-///
-/// A position outside every half is a plain cell: a link owns columns, not a
-/// bounding box, so the cell to the right of the last one is not a click away
-/// from opening it.
-pub fn link_at_cell(links: &[ScannedLink], row: u32, col: u32) -> Option<&ScannedLink> {
-    links
-        .iter()
-        .find(|link| link.halves.iter().any(|half| half.covers(row, col)))
-}
-
-/// What the scanner should do next, and why.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScanRequest {
-    /// The callback scanned nothing: either the post-activation paint landed and
-    /// only ARMED the current-tail scan, or there was nothing left to scan.
-    Idle,
-    /// Scan the current tail: the newest scrollback block plus the viewport.
-    /// Retained history is deliberately never revisited.
-    CurrentTail,
-    /// Scan exactly the rows a mutation touched.
-    Dirty {
-        /// How many rows the mutation dirtied.
-        rows: u32,
-    },
-}
-
-/// The scanner's scheduling state: what the browser still owes it, and what that
-/// callback must scan.
-///
-/// The owed callback is the reason this is a type. v2 kept a `scanScheduled`
-/// latch in a closure that only a scheduled scan or an explicit cancel could
-/// clear, so a browser that DROPPED the queued animation frame left it stuck
-/// forever: later mutations could not queue work and rebuilt anchors stayed
-/// unlinked. Everything that owes a callback names it, and visibility recovery
-/// cancels the stale one before queueing its replacement — so "a scan is still
-/// coming" and "the tail scan ran" are never the same answer.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ScanSchedule {
-    /// The attachment is live.
-    active: bool,
-    /// A callback is owed. Never more than one: a second request coalesces into
-    /// the owed one rather than queueing behind it.
-    queued: bool,
-    /// The owed callback must wait for a paint before it scans.
-    awaiting_paint: bool,
-    /// The owed callback scans the current tail rather than the dirty set.
-    tail_owed: bool,
-    /// Retained history arrived as mutations, and the activation scan has not run
-    /// yet to read it: replaying it as dirty rows is what this latch prevents.
-    discard_dirty: bool,
-    /// How many rows a mutation touched. The identities are the adapter's; the
-    /// only question the schedule answers about them is how many there are.
-    dirty_rows: u32,
-}
-
-impl ScanSchedule {
-    /// A dormant scanner that owes nothing.
-    pub const fn new() -> Self {
-        Self {
-            active: false,
-            queued: false,
-            awaiting_paint: false,
-            tail_owed: false,
-            discard_dirty: false,
-            dirty_rows: 0,
-        }
-    }
-
-    /// Whether the attachment is live.
-    pub const fn is_active(&self) -> bool {
-        self.active
-    }
-
-    /// Whether the browser still owes this scanner a callback.
-    pub const fn needs_frame(&self) -> bool {
-        self.queued
-    }
-
-    /// What the owed callback must scan, or `None` when it owes no scan — which
-    /// is the post-activation paint frame, the one that scans nothing.
-    pub const fn pending_scan(&self) -> Option<ScanRequest> {
-        if self.tail_owed {
-            Some(ScanRequest::CurrentTail)
-        } else if self.dirty_rows > 0 {
-            Some(ScanRequest::Dirty {
-                rows: self.dirty_rows,
-            })
-        } else {
-            None
-        }
-    }
-
-    /// Attach. The browser now owes one post-paint callback and no scan yet: a
-    /// canonical repaint's mutations can include retained history, and a pane
-    /// that has not painted has nothing to scan.
-    pub fn activate(&mut self) {
-        self.active = true;
-        self.discard_dirty = true;
-        if self.queued {
+            if self.listening_for_visibility {
+                host.listen_for_visibility(false);
+                self.listening_for_visibility = false;
+            }
             return;
         }
-        self.queued = true;
-        self.awaiting_paint = true;
+        // Canonical repaint mutations may include retained history; activation
+        // owns one current-tail scan instead of replaying it as dirty rows.
+        self.discard_dirty_until_activation_scan = true;
+        if !self.observing {
+            host.observe_mutations(true);
+            self.observing = true;
+        }
+        if !self.listening_for_visibility {
+            host.listen_for_visibility(true);
+            self.listening_for_visibility = true;
+        }
+        self.schedule_current_scan_after_paint(host);
     }
 
-    /// Release everything: the owed callback, the dirty set, and the latch. A
-    /// hidden pane must leave nothing a later visibility flip mistakes for its
-    /// own.
-    pub fn deactivate(&mut self) {
-        self.active = false;
-        self.queued = false;
-        self.awaiting_paint = false;
-        self.tail_owed = false;
-        self.discard_dirty = false;
-        self.dirty_rows = 0;
-    }
-
-    /// A mutation touched `rows` rows.
-    pub fn note_mutation(&mut self, rows: u32) {
-        if !self.active {
+    /// Tear down for good.
+    pub fn dispose(&mut self, host: &H) {
+        if self.disposed {
             return;
         }
-        if self.discard_dirty {
-            // The activation scan has not run yet, so this history is about to be
-            // read by the tail scan anyway.
-            self.arm_tail();
-            return;
-        }
-        self.dirty_rows = self.dirty_rows.saturating_add(rows);
-        if self.dirty_rows > DIRTY_ROW_LIMIT {
-            // A history-sized dirty set is what a streaming frame produces every
-            // tick. The tail is already the rows in question, so bound to it and
-            // drop the set rather than replaying history each frame.
-            self.arm_tail();
-            return;
-        }
-        self.queued = true;
+        self.set_active(host, false);
+        self.disposed = true;
     }
+}
 
-    /// The page went hidden: arm the tail scan, because the browser will not run
-    /// any callback until it comes back.
-    pub fn page_hidden(&mut self) {
-        if self.active {
-            self.arm_tail();
-        }
-    }
-
-    /// The page came back: cancel whatever was owed and re-arm, so a frame the
-    /// browser dropped cannot deadlock the scanner.
-    pub fn page_visible(&mut self) {
-        if !self.active {
-            return;
-        }
-        self.queued = false;
-        self.awaiting_paint = false;
-        self.arm_tail();
-    }
-
-    /// The owed callback fired. Returns the work it did; whether another callback
-    /// is still owed is [`Self::needs_frame`].
-    pub fn fire(&mut self) -> ScanRequest {
-        self.queued = false;
-        if self.awaiting_paint {
-            // The paint landed. Only now is the current-tail scan asked for,
-            // which is why activation never scans before the first frame.
-            self.awaiting_paint = false;
-            self.arm_tail();
-            return ScanRequest::Idle;
-        }
-        if self.tail_owed {
-            self.tail_owed = false;
-            self.discard_dirty = false;
-            self.dirty_rows = 0;
-            return ScanRequest::CurrentTail;
-        }
-        let rows = self.dirty_rows;
-        self.dirty_rows = 0;
-        match rows {
-            0 => ScanRequest::Idle,
-            rows => ScanRequest::Dirty { rows },
-        }
-    }
-
-    /// Arm the current-tail scan. A callback already owed IS that callback: a
-    /// post-activation paint frame is promoted rather than queued behind.
-    fn arm_tail(&mut self) {
-        self.tail_owed = true;
-        self.queued = true;
+impl<H: LinkScanHost> std::fmt::Debug for LinkScanner<H> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LinkScanner")
+            .field("active", &self.active)
+            .field("disposed", &self.disposed)
+            .field("scan_handle", &self.scan_handle)
+            .field("activation_frame", &self.activation_frame)
+            .field("hot_tail_scan_needed", &self.hot_tail_scan_needed)
+            .field("dirty_rows", &self.dirty_rows.len())
+            .finish()
     }
 }

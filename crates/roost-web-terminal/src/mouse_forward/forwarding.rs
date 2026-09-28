@@ -1,7 +1,7 @@
 //! Whether one browser pointer gesture reaches the terminal application, and
 //! what the terminal does with the ones that do not.
 //!
-//! This is the decision half of v2's `terminalMouseForwarding.ts`, and every
+//! This is the decision half of v2's `apps/web/src/renderer/terminalMouseForwarding.ts`, and every
 //! part of it is a function of data the caller already has: the frame's tracking
 //! mode, the pointer's cell, the modifiers the event carried, and the pane's
 //! own state. Time, event targets and DOM handles stay with the adapter, so the
@@ -129,7 +129,7 @@ pub struct ForwardedGesture {
 
 impl ForwardedGesture {
     /// The browser keeps the gesture: nothing was forwarded.
-    const NATIVE: Self = Self {
+    pub const NATIVE: Self = Self {
         consumed: false,
         report: None,
     };

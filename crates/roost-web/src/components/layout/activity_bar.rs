@@ -10,7 +10,7 @@
 use dioxus::prelude::*;
 
 use super::shell_metrics::{Destination, active_destination};
-use crate::components::design_icon::Icon;
+use crate::components::md::Icon;
 
 /// The rail, in two groups: the destinations above the fold and the two below
 /// it. The split is v2's and it is positional, not semantic — a reader learns

@@ -18,11 +18,13 @@
 
 pub mod carrier;
 pub mod clock;
+pub mod connect;
 pub mod device_key;
 pub mod fragment_credential;
 pub mod location;
 pub mod peer;
 pub mod rpc;
+pub mod self_label;
 pub mod storage;
 pub mod sync_socket;
 

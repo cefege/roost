@@ -32,14 +32,14 @@ fn folds_contiguous_deltas_into_one_sparse_paint() {
     );
     assert!(opened.armed, "the first arrival arms the browser frame");
     deliveries.push(
-        flush_frame(&mut scheduler, &mut renderer, 4, 0)
+        flush_frame(&mut scheduler, &mut renderer, 4)
             .delivery
             .expect("the baseline painted"),
     );
 
     offer(&mut scheduler, &delta_frame(2, "B"), full_frame(2, "B"), 8);
     deliveries.push(
-        flush_frame(&mut scheduler, &mut renderer, 12, 0)
+        flush_frame(&mut scheduler, &mut renderer, 12)
             .delivery
             .expect("the lone delta painted"),
     );
@@ -72,7 +72,7 @@ fn folds_contiguous_deltas_into_one_sparse_paint() {
         "a second arrival inside one browser frame must not ask for a second"
     );
     deliveries.push(
-        flush_frame(&mut scheduler, &mut renderer, 20, 0)
+        flush_frame(&mut scheduler, &mut renderer, 20)
             .delivery
             .expect("the folded batch painted"),
     );
@@ -99,7 +99,7 @@ fn preserves_a_queued_rebaseline_full_through_its_first_delta() {
     scheduler.set_foreground(true);
     let first = full_frame(1, "A");
     offer(&mut scheduler, &first, first.clone(), 0);
-    flush_frame(&mut scheduler, &mut renderer, 4, 0);
+    flush_frame(&mut scheduler, &mut renderer, 4);
 
     let mut rebaseline = full_frame(1, "B");
     rebaseline.stream_id = "stream-b".to_string();
@@ -127,7 +127,7 @@ fn preserves_a_queued_rebaseline_full_through_its_first_delta() {
     );
     offer(&mut scheduler, &after_rebaseline, rebaseline_canonical, 10);
 
-    let repair = flush_frame(&mut scheduler, &mut renderer, 14, 0);
+    let repair = flush_frame(&mut scheduler, &mut renderer, 14);
     assert_eq!(
         repair.mode,
         Some(ApplyMode::FallbackFull),
@@ -164,7 +164,7 @@ fn repairs_a_queued_sequence_gap_after_ignoring_stale_or_conflicting_fulls() {
     scheduler.set_foreground(true);
     let baseline = full_frame(1, "A");
     offer(&mut scheduler, &baseline, baseline.clone(), 0);
-    flush_frame(&mut scheduler, &mut renderer, 4, 0);
+    flush_frame(&mut scheduler, &mut renderer, 4);
 
     offer(&mut scheduler, &delta_frame(2, "B"), full_frame(2, "B"), 8);
 
@@ -187,7 +187,7 @@ fn repairs_a_queued_sequence_gap_after_ignoring_stale_or_conflicting_fulls() {
         "a refused full leaves the queued batch exactly as it was"
     );
 
-    flush_frame(&mut scheduler, &mut renderer, 12, 0);
+    flush_frame(&mut scheduler, &mut renderer, 12);
     assert_eq!(renderer.delta_seqs(), vec![vec![2]]);
 
     let gapped = offer(&mut scheduler, &delta_frame(4, "D"), full_frame(4, "D"), 16);
@@ -200,7 +200,7 @@ fn repairs_a_queued_sequence_gap_after_ignoring_stale_or_conflicting_fulls() {
         },
         "a delta whose base the painted DOM never reached cannot ride"
     );
-    let repair = flush_frame(&mut scheduler, &mut renderer, 20, 0);
+    let repair = flush_frame(&mut scheduler, &mut renderer, 20);
     assert_eq!(repair.mode, Some(ApplyMode::FallbackFull));
     assert_eq!(renderer.full_seqs(), vec![1, 4]);
     assert_eq!(renderer.delta_seqs(), vec![vec![2]]);
@@ -213,7 +213,7 @@ fn owns_queued_delta_row_shells_before_later_replica_folding() {
     scheduler.set_foreground(true);
     let first = full_frame(1, "A");
     offer(&mut scheduler, &first, first.clone(), 0);
-    flush_frame(&mut scheduler, &mut renderer, 4, 0);
+    flush_frame(&mut scheduler, &mut renderer, 4);
 
     let mut second = delta_frame(2, "B");
     second.scrollback_append = vec![row_shell(0, &["A"])];
@@ -224,7 +224,7 @@ fn owns_queued_delta_row_shells_before_later_replica_folding() {
     second.viewport_rows[0].index = 99;
     second.scrollback_append[0].index = 99;
 
-    let paint = flush_frame(&mut scheduler, &mut renderer, 12, 0);
+    let paint = flush_frame(&mut scheduler, &mut renderer, 12);
     assert_eq!(paint.mode, Some(ApplyMode::DeltaBatch));
     let painted = &renderer.delta_batches[0][0];
     assert_eq!(
@@ -282,7 +282,7 @@ fn parks_canonical_state_without_dom_application() {
     assert!(scheduler.is_foreground());
     assert!(scheduler.needs_browser_frame());
     assert!(scheduler.schedule_browser_frame());
-    let resumed = flush_frame(&mut scheduler, &mut renderer, 20, 0);
+    let resumed = flush_frame(&mut scheduler, &mut renderer, 20);
     assert_eq!(resumed.mode, Some(ApplyMode::FallbackFull));
     assert_eq!(renderer.full_seqs(), vec![2]);
     assert!(renderer.delta_seqs().is_empty());
@@ -315,7 +315,7 @@ fn cancels_a_queued_frame_on_disposal() {
     assert!(scheduler.is_disposed());
     assert!(!scheduler.is_frame_armed());
     assert!(!scheduler.needs_browser_frame());
-    assert_eq!(scheduler.on_frame_fired(12, 0), FrameDecision::Idle);
+    assert_eq!(scheduler.on_frame_fired(12), FrameDecision::Idle);
     assert!(renderer.full_seqs().is_empty());
     assert_eq!(
         offer(&mut scheduler, &first, first.clone(), 16).decision,

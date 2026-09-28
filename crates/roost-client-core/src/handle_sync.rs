@@ -14,18 +14,21 @@
 //! the reasons are in `docs/phase4-client-contract.md` §7 and §11.
 
 use crate::effect::{Effect, RpcResult, SyncCommand};
+use crate::store::root::CoordIdentity;
 
 mod apply_frame;
 mod close_failed;
 mod fold_controls;
 mod fold_registry;
 mod fold_session_meta;
+mod hydration;
+pub mod lifecycle;
 
 use self::apply_frame::apply_frame;
 pub(crate) use self::close_failed::close_failed_sync_link;
 use crate::store::Store;
 use crate::sync::SyncFrame;
-use crate::sync::link::{RetainedFrame, SyncDomain};
+use crate::sync::link::RetainedFrame;
 use crate::terminal::session::TerminalSession;
 use crate::terminal::token::TerminalToken;
 use crate::terminal::{Admission, PromotionCandidate};
@@ -42,7 +45,6 @@ pub fn is_control(frame: &SyncFrame) -> bool {
         frame,
         SyncFrame::Subscribed { .. }
             | SyncFrame::DomainReset { .. }
-            | SyncFrame::DomainReady { .. }
             | SyncFrame::InputResult { .. }
             | SyncFrame::InputRouteResult { .. }
             | SyncFrame::TransportProbeResult { .. }
@@ -62,7 +64,11 @@ pub fn handle_sync_frame(
     now_ms: u64,
     out: &mut Vec<Effect>,
 ) {
-    store.sync.note_frame(generation, now_ms);
+    if store.sync.note_frame(generation, now_ms) {
+        // Any frame on the live link proves it works: the backoff starts over
+        // (v2 `_noteSyncV2FrameReceived`).
+        store.sync.redial.note_frame_received();
+    }
 
     // Before the snapshot is in, application frames are HELD, not applied: a
     // snapshot arriving after a fold prunes the fold's session, and a terminal
@@ -207,7 +213,7 @@ fn fold_into_candidate<F>(
 /// The queue is drained ONCE, and a frame arriving while it drains is retained
 /// again rather than applied behind the queue's back — otherwise the order the
 /// coordinator sequenced them in is lost.
-pub fn hydrate(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
+pub(crate) fn hydrate(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
     store.hydrated = true;
     store.note_change();
     for held in store.sync.take_retained() {
@@ -224,29 +230,24 @@ pub fn hydrate(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
     }
 }
 
-/// Apply one Connect unary answer.
-pub fn handle_rpc_result(store: &mut Store, result: &RpcResult) {
+/// Apply one Connect unary answer. The hydrators and the bootstrap probe see it
+/// first; what is left is an answer some other surface asked for.
+pub fn handle_rpc_result(store: &mut Store, result: &RpcResult, now_ms: u64, out: &mut Vec<Effect>) {
+    if hydration::settle_hydration_result(store, result, now_ms, out) {
+        return;
+    }
     match result {
-        RpcResult::CoordIdentity { call_id, .. } => {
-            tracing::debug!(target: "rpc", call_id = *call_id, "coordinator identity answered");
-        }
-        RpcResult::SessionsList {
-            sessions,
-            terminal_snapshot_token,
+        RpcResult::CoordIdentity {
+            git_sha,
+            public_url,
             ..
         } => {
-            store.sessions.apply_snapshot(sessions.clone());
+            store.coord_identity = Some(CoordIdentity {
+                git_sha: git_sha.clone(),
+                public_url: public_url.clone(),
+            });
             store.note_change();
-            // Recorded against the CURRENT terminal domain generation: a token
-            // issued for an older generation is not a token for this one, and
-            // `domain_ready` would refuse it and reset the domain.
-            if let (Some(token), Some(generation)) =
-                (terminal_snapshot_token, store.sync.link_generation())
-            {
-                store
-                    .sync
-                    .issue_snapshot_token(generation, SyncDomain::Terminal, token.clone());
-            }
+            tracing::info!(target: "rpc", git_sha = %git_sha, "coordinator identity");
         }
         RpcResult::SearchPage {
             call_id,
@@ -260,24 +261,16 @@ pub fn handle_rpc_result(store: &mut Store, result: &RpcResult) {
                 store.note_change();
             }
         }
-        RpcResult::Failed { call_id, message } => {
-            tracing::warn!(
-                target: "rpc",
-                call_id = *call_id,
-                message = %message,
-                "connect call failed"
-            );
+        RpcResult::Failed { call_id, error } => {
+            tracing::warn!(target: "rpc", call_id = *call_id, %error, "connect call failed");
         }
-        RpcResult::WorkersList { .. }
-        | RpcResult::PairTokenRedeemed { .. }
-        | RpcResult::WorkspacesList { .. }
-        | RpcResult::TasksList { .. }
-        | RpcResult::McpList { .. }
-        | RpcResult::PairList { .. }
-        | RpcResult::DirectoryListed { .. }
-        | RpcResult::DirectoryCreated { .. }
-        | RpcResult::GlobalSearchCancelled { .. } => {
-            tracing::debug!(target: "rpc", "bootstrap call answered");
+        other => {
+            tracing::debug!(
+                target: "rpc",
+                call_id = other.call_id(),
+                answer = other.kind_name(),
+                "answer with no pending owner"
+            );
         }
     }
 }

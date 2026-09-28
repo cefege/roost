@@ -12,15 +12,16 @@ use std::collections::BTreeMap;
 use roost_protocol::cell::{CellRow, spans_text};
 
 use crate::cell_renderer::CellGridRenderer;
-use crate::cell_renderer_dom::{cell_grid_text, cell_scrollback_text, is_child_of};
+use crate::cell_renderer_dom::{cell_grid_text, cell_scrollback_text, is_placed_in};
 use crate::presentation::{
     BackfillAnchor, PaintedRowText, RendererEpochSeq, RendererPaintPresentation,
     RendererPresentationSnapshot, RendererProjection, create_renderer_paint_presentation,
     create_renderer_presentation_snapshot,
 };
 use crate::reader_intent::ReconcileBlockReason;
+use crate::render_element::RenderElement;
 
-impl CellGridRenderer {
+impl<E: RenderElement> CellGridRenderer<E> {
     /// The sequence of the newest frame the renderer has accepted, including one
     /// held back for a parked reader. Zero before the first frame.
     pub fn canonical_frame_seq(&self) -> u64 {
@@ -122,7 +123,7 @@ impl CellGridRenderer {
     pub fn renderer_projection(&self) -> RendererProjection {
         let canonical = self.canonical_frame().cloned();
         let cursor_connected =
-            is_child_of(&self.cursor, &self.viewport) && self.container.is_connected();
+            is_placed_in(&self.cursor, &self.viewport) && self.container.is_connected();
         RendererProjection {
             canonical,
             applied: self.frame.clone(),
@@ -157,7 +158,7 @@ impl CellGridRenderer {
     /// The presentation snapshot the smoke API publishes and diagnostics diff.
     pub fn presentation_snapshot(&self) -> RendererPresentationSnapshot {
         let projection = self.renderer_projection();
-        create_renderer_presentation_snapshot(&projection, self.now_ms())
+        create_renderer_presentation_snapshot(&projection, self.container.now_ms())
     }
 
     /// The canonical grid as text, one line per viewport row.
@@ -185,14 +186,5 @@ impl CellGridRenderer {
     pub fn canonical_history_rows(&self) -> &[CellRow] {
         self.canonical_frame()
             .map_or(&[], |frame| frame.scrollback_rows.as_slice())
-    }
-
-    /// The pane's clock, in milliseconds since the page's time origin. Zero
-    /// before the window exists, so a snapshot taken then reports a real
-    /// "no reading available" rather than a fabricated timestamp.
-    fn now_ms(&self) -> f64 {
-        web_sys::window()
-            .and_then(|window| window.performance())
-            .map_or(0.0, |performance| performance.now())
     }
 }

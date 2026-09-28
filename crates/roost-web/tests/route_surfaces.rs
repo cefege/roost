@@ -29,8 +29,9 @@ fn not_found_path(path: &str) -> Option<String> {
 }
 
 #[test]
-fn the_root_is_the_only_served_surface() {
+fn only_the_root_and_the_design_gallery_are_served() {
     assert!(served("/"));
+    assert!(served("/design"));
     for path in [
         "/s/8f2b1c40-0000-4000-8000-000000000000",
         "/t/a1b2c3d4e5f60718/src",
@@ -40,7 +41,6 @@ fn the_root_is_the_only_served_surface() {
         "/settings/machines",
         "/pair",
         "/help",
-        "/design",
         "/file/a1b2c3d4e5f60718/etc/hosts",
         "/browse",
         "/browse/a1b2c3d4e5f60718",
@@ -71,8 +71,8 @@ fn every_grammar_route_the_specs_navigate_to_is_recognised() {
         "/search?q=terminal",
     ] {
         assert!(
-            not_served_path(path).is_some(),
-            "{path} is a grammar route and must resolve to NotServed"
+            not_found_path(path).is_none(),
+            "{path} is a grammar route and must not resolve to NotFound"
         );
     }
 }

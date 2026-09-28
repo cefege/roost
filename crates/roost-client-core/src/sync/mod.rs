@@ -2,7 +2,8 @@
 //! cursor a reconnect resumes from.
 //!
 //! `link` owns the socket generation and the link state, `domain` owns per-domain
-//! hydration and the `domain_ready` barrier, `inbound` names the frames a socket
+//! hydration and the `domain_ready` barrier, `hydration` the snapshot calls in
+//! flight, `redial` when the next dial happens, `inbound` names the frames a socket
 //! delivers, `decode` turns the socket's bytes into them, and `watermark` owns
 //! the recovery cursor. None of them owns a socket: the core asks for one with
 //! an `Effect` and the host reports back with a `ClientEvent`.
@@ -12,8 +13,10 @@
 
 pub mod decode;
 pub mod domain;
+pub mod hydration;
 pub mod inbound;
 pub mod link;
+pub mod redial;
 pub mod watermark;
 
 pub use domain::DomainToken;

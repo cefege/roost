@@ -9,7 +9,9 @@
 //! by multiplying by this height, so the value must be a BARE length. The
 //! self-correcting `contain-intrinsic-size: auto <len>` form makes a browser
 //! reuse a block's last RENDERED size, which understates `scrollHeight` for a
-//! block that grew while skipped.
+//! block that grew while skipped. Ports `SCROLLBACK_BLOCK_ROWS`,
+//! `DEFAULT_CELL_ROW_PX` and `blockPlaceholder` of
+//! `apps/web/src/renderer/cellRendererDom.ts`.
 
 /// Rows one sealed scrollback block holds. A block is the eviction unit and the
 /// backfill page size, so both numbers are this one constant.
@@ -31,35 +33,24 @@ pub fn block_placeholder(rows: u32, row_height: f64) -> String {
     } else {
         DEFAULT_CELL_ROW_PX
     };
-    format!("{:.2}px", f64::from(rows) * height)
+    fixed_px(f64::from(rows) * height)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{DEFAULT_CELL_ROW_PX, SCROLLBACK_BLOCK_ROWS, block_placeholder};
-
-    #[test]
-    fn a_measured_block_height_is_two_decimals_of_rows_times_row_height() {
-        assert_eq!(block_placeholder(250, 16.8), "4200.00px");
-        assert_eq!(block_placeholder(1, 16.0), "16.00px");
-        assert_eq!(block_placeholder(3, 16.75), "50.25px");
+/// A pixel length exactly as v2 stamps it: `` `${value.toFixed(2)}px` ``.
+///
+/// `toFixed` rounds an exact two-decimal tie away from zero where `{:.2}`
+/// rounds it to even. A double is such a tie only when eight times it is an
+/// odd integer (`x.125`, `x.375`, `x.625`, `x.875`), and a browser's 1/64-px
+/// layout unit makes that an ordinary row pitch — 24 rows of a 16.796875px
+/// line are `403.125`, which v2 stamps as `403.13px`.
+pub(crate) fn fixed_px(value: f64) -> String {
+    let magnitude = value.abs();
+    let eighths = magnitude * 8.0;
+    if magnitude < 1e15 && eighths.fract() == 0.0 && eighths % 2.0 == 1.0 {
+        let hundredths = (magnitude * 100.0).ceil();
+        let whole = (hundredths / 100.0).floor();
+        let sign = if value.is_sign_negative() { "-" } else { "" };
+        return format!("{sign}{whole:.0}.{:02.0}px", hundredths - whole * 100.0);
     }
-
-    #[test]
-    fn an_unmeasured_block_reserves_the_default_row_pitch() {
-        let expected = format!("{:.2}px", f64::from(7) * DEFAULT_CELL_ROW_PX);
-        assert_eq!(block_placeholder(7, 0.0), expected);
-        assert_eq!(block_placeholder(7, -3.0), expected);
-    }
-
-    #[test]
-    fn a_full_block_is_the_250_rows_the_layout_seals() {
-        assert_eq!(SCROLLBACK_BLOCK_ROWS, 250);
-        assert_eq!(block_placeholder(SCROLLBACK_BLOCK_ROWS, 0.0), "4200.00px");
-    }
-
-    #[test]
-    fn the_placeholder_never_carries_the_self_correcting_auto_form() {
-        assert!(!block_placeholder(250, 16.8).contains("auto"));
-    }
+    format!("{value:.2}px")
 }

@@ -1,10 +1,12 @@
 //! Predictive (speculative) local echo: the burst state machine over Roost's
 //! cell stream. It paints a typed character immediately instead of waiting a
 //! full round trip, then reconciles the guess against the authoritative frame.
-//! Driven by the terminal pane: `predict` per keystroke, `note_input_written`
-//! per input admission, `on_frame` per frame. `grid` owns every judgement,
-//! `expiry` the timing, and `report` the shapes handed back to the caller;
-//! every clock read is a `now_ms` argument.
+//! Driven by the terminal pane's echo host (`roost_web_terminal::echo_overlay`):
+//! `predict` per keystroke, `note_input_written` per input admission,
+//! `on_frame` per frame. `grid` owns every judgement, `expiry` the timing, and
+//! `report` the shapes handed back to the caller; every clock read is a
+//! `now_ms` argument. Ports the state machine of v2's
+//! `apps/web/src/renderer/predictiveEcho.ts`.
 
 pub mod expiry;
 pub mod grid;
@@ -62,6 +64,11 @@ pub struct PredictiveEcho {
     predicted_cursor_col: Option<u32>,
     /// The delay a host should schedule to abandon the oldest prediction.
     expiry_delay_ms: Option<u64>,
+    /// A decision changed what the overlay should show. Only the transitions
+    /// that repaint in v2 set it: an acknowledgement changes nothing painted,
+    /// and a keystroke refused while nothing is predicted has nothing to clear,
+    /// so neither costs the overlay a write.
+    repaint_due: bool,
     mode: PredictMode,
 }
 
@@ -86,6 +93,7 @@ impl PredictiveEcho {
             cursor_row_spans: None,
             predicted_cursor_col: None,
             expiry_delay_ms: None,
+            repaint_due: false,
             mode,
         }
     }
@@ -100,12 +108,21 @@ impl PredictiveEcho {
         self.expiry_delay_ms
     }
 
-    /// Apply a Settings change at once, even while the terminal is idle.
+    /// Apply a Settings change at once, even while the terminal is idle and no
+    /// keystroke or frame would otherwise repaint.
     pub fn set_mode(&mut self, mode: PredictMode) {
         self.mode = mode;
         if mode == PredictMode::Never {
             self.reset_all(ResetReason::Preference);
+        } else {
+            self.repaint_due = true;
         }
+    }
+
+    /// Whether the overlay must be repainted from `paint_request`, clearing
+    /// the request. The host asks after every call that can change it.
+    pub fn take_repaint(&mut self) -> bool {
+        std::mem::take(&mut self.repaint_due)
     }
 
     /// Abandon every prediction. Called by the pane's stall watchdog, which is
@@ -163,6 +180,7 @@ impl PredictiveEcho {
             index += if arrow { 3 } else { 1 };
         }
         self.arm_expiry(now_ms);
+        self.repaint_due = true;
     }
 
     /// The worker acknowledged writing every byte up to `input_seq` to the PTY.
@@ -304,6 +322,7 @@ impl PredictiveEcho {
         self.last_reset = Some(reason);
         self.become_tentative();
         self.expiry_delay_ms = None;
+        self.repaint_due = true;
         tracing::debug!(target: "echo", reason = reason.as_str(), "predictive echo reset");
     }
 

@@ -18,9 +18,12 @@
 
 pub mod app;
 pub mod components;
+pub mod input_nav;
 pub mod platform;
+pub mod pump;
 pub mod router_state;
 pub mod routes;
+pub mod theme;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -88,7 +91,17 @@ pub fn App() -> Element {
     // level of the tree to reach the two components that read it — and a prop
     // also has to be `PartialEq`, which a state machine with a chunk assembler in
     // it cannot be.
-    provide_context(Rc::new(RefCell::new(build_core())));
+    //
+    // The pump is built once, in the root scope that owns the revision signal,
+    // and started in the same hook: the core it drives is the provided one.
+    let revision = use_signal(|| 0_u64);
+    let pump = use_hook(|| {
+        let tab = tab_id();
+        let core = Rc::new(RefCell::new(build_core(&tab)));
+        pump::start_pump(core, revision, &tab)
+    });
+    use_context_provider(|| pump.core());
+    use_context_provider(|| pump.clone());
     rsx! { app::GatedApp {} }
 }
 
@@ -98,11 +111,11 @@ pub fn App() -> Element {
 /// that could be shared across threads would need a lock over state that has
 /// exactly one writer. A host that wants the core on a task confines it to that
 /// task and sends results outward.
-fn build_core() -> ClientCore {
+fn build_core(tab_id: &str) -> ClientCore {
     ClientCore::new(
         Rc::new(platform::BrowserClock::new()),
         Rc::new(platform::LocalStorageKeyValueStore::new()),
-        &tab_id(),
+        tab_id,
     )
 }
 

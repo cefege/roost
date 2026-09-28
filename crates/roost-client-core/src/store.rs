@@ -23,6 +23,7 @@ pub mod root;
 pub mod selectors;
 pub mod spotlight;
 pub mod sync_feeds;
+pub mod terminal_nav_pad;
 pub mod toasts;
 pub mod transfers;
 pub mod ui;
@@ -121,6 +122,12 @@ pub struct Store {
     /// Chrome state that is not a session: the sidebar, the drawer, the
     /// folder view. Mutated only through `store::ui`.
     pub ui: UiState,
+    /// The terminal key pad's open state and its disarm count. Mutated only
+    /// through `store::terminal_nav_pad`.
+    pub terminal_nav_pad: crate::store::terminal_nav_pad::TerminalNavPad,
+    /// The coordinator's build and public URL, once `AuthCoordIdentity`
+    /// answered (v2 `rootStore.coord_identity`).
+    pub coord_identity: Option<crate::store::root::CoordIdentity>,
     /// Per-device preferences. Loaded once at boot and persisted by the same
     /// functions that change it, so a stored value and its in-memory value
     /// cannot disagree. Mutated only through `store::prefs`.
@@ -246,6 +253,8 @@ impl Store {
             transfers: TransferStack::new(),
             spotlight: Spotlight::new(),
             ui: UiState::new(),
+            terminal_nav_pad: crate::store::terminal_nav_pad::TerminalNavPad::new(),
+            coord_identity: None,
             prefs: Prefs::new(),
             spawns: SpawnLedger::new(),
             pending_closes: PendingCloses::new(),

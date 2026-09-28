@@ -1,13 +1,8 @@
-//! The pane-local find controller: the query, the debounce, the reveal, and the
-//! cursor the reader steps. `chain` owns the search that is running.
-//!
-//! What the controller DECIDES is here; what the grid is TOLD is
-//! `find::hits::FindPublication` and what the host must DO is a `FindCommand`.
-//! That split is what lets the fence, the wrap, the paging cursor and the reveal
-//! ORDER be decided in a test with no browser and no RPC.
-//!
-//! Ported from `apps/web/src/renderer/terminalFindController.ts`; the chain, the
-//! reply, the reveal decision and the host contract are the module root.
+//! The pane-local find controller: the query, the debounce, the step cursor and
+//! the reveal. `chain` owns the search that is running; `find::hits` owns what
+//! the grid is told; the host performs every returned `FindCommand` and answers
+//! pages and pulls back here. The terminal pane component holds one per pane.
+//! Ports `apps/web/src/renderer/terminalFindController.ts`.
 
 mod chain;
 
@@ -27,7 +22,9 @@ struct ActiveSearch {
     search_id: String,
     token: u64,
     chain: FindChain,
-    /// Matches published under a RESUMED chain, so a slide keeps the page.
+    /// Whether this chain slides onto rows a match cap left unscanned.
+    resumed: bool,
+    /// Matches published before a resumed chain, kept under its page.
     carried: Vec<FindMatch>,
     epoch_retry_budget: u32,
 }
@@ -35,18 +32,19 @@ struct ActiveSearch {
 /// Bounded find-in-scrollback state for one terminal pane.
 ///
 /// A cancellable page chain accumulates newest-first matches within one grid
-/// epoch; deep matches backfill before reveal. The epoch retry budget covers ONE
-/// grid renumbering through reveal, and a pane that keeps moving reports failure
-/// rather than searching forever.
+/// epoch; deep matches are pulled in before reveal. The epoch retry budget covers
+/// ONE grid renumbering through reveal, and a pane that keeps moving reports
+/// failure rather than searching forever.
 #[derive(Debug, Clone, Default)]
 pub struct TerminalFind {
     session_id: String,
+    search_id_seed: String,
     open: bool,
     query: String,
     case_sensitive: bool,
     regex: bool,
     disposed: bool,
-    /// Monotonic token: only the newest search may publish.
+    /// Monotonic token: only the newest search may publish or scroll.
     token: u64,
     searches_minted: u64,
     debounce_at_ms: Option<u64>,
@@ -55,10 +53,13 @@ pub struct TerminalFind {
 }
 
 impl TerminalFind {
-    /// A closed find bar. `Default` names no session.
-    pub fn new(session_id: &str) -> Self {
+    /// A closed find bar for one session. `search_id_seed` is a random id (a
+    /// UUID) the host mints once per controller: every search id is the seed plus
+    /// a counter, so two panes on one session never share a coordinator search.
+    pub fn new(session_id: &str, search_id_seed: &str) -> Self {
         Self {
             session_id: session_id.to_string(),
+            search_id_seed: search_id_seed.to_string(),
             ..Self::default()
         }
     }
@@ -87,16 +88,21 @@ impl TerminalFind {
     /// Show the find bar.
     pub fn open_find(&mut self) {
         self.open = true;
+        tracing::debug!(target: "find", session_id = %self.session_id, "find bar opened");
     }
 
-    /// Hide the find bar, end the search, and leave the view where it is.
+    /// Hide the find bar and end the search. Dismissal ends the find reading
+    /// interval LAST and never moves the view: the park survives as a scroll
+    /// park, so live output resumes the way any other park does.
     pub fn close_find(&mut self, host: &mut dyn FindHost) -> Vec<FindCommand> {
         self.open = false;
-        self.debounce_at_ms = None;
-        let commands = self.stop_active();
+        let mut commands = self.cancel_debounce();
+        commands.extend(self.stop_active());
         self.query.clear();
+        self.publication.prefer(None);
         self.publication.clear(host);
         host.end_find_read();
+        tracing::info!(target: "find", session_id = %self.session_id, "find bar closed; find reading ended");
         commands
     }
 
@@ -116,16 +122,16 @@ impl TerminalFind {
         self.query.clear();
         self.query.push_str(next);
         if next.is_empty() {
-            self.debounce_at_ms = None;
-            let commands = self.stop_active();
+            let mut commands = self.cancel_debounce();
+            commands.extend(self.stop_active());
             self.publication.clear(host);
             return commands;
         }
         self.schedule(now_ms)
     }
 
-    /// Flip case sensitivity and re-search; the coordinator coordinate goes with
-    /// the flag, since it names a row the new flags will not reproduce.
+    /// Flip case sensitivity and re-search a live query; the coordinator
+    /// coordinate goes with the flag, since the new flags may not reproduce it.
     pub fn toggle_case_sensitive(&mut self, now_ms: u64) -> Vec<FindCommand> {
         self.case_sensitive = !self.case_sensitive;
         self.reschedule(now_ms)
@@ -137,25 +143,17 @@ impl TerminalFind {
         self.reschedule(now_ms)
     }
 
-    /// Drop the coordinator coordinate and re-arm for a query already live.
-    fn reschedule(&mut self, now_ms: u64) -> Vec<FindCommand> {
-        self.publication.prefer(None);
-        if self.query.is_empty() {
-            Vec::new()
-        } else {
-            self.schedule(now_ms)
-        }
-    }
-
-    /// Move the active match by `delta`, wrapping at both ends.
-    ///
-    /// The published window ends at the oldest match a capped page reached, so a
-    /// step back past it pages older rows instead of wrapping.
+    /// Move the active match by `delta`, wrapping at both ends. The published
+    /// window ends at the oldest match a capped page reached, so a step back past
+    /// it pages older rows instead of wrapping.
     pub fn step(&mut self, delta: i64, host: &mut dyn FindHost) -> Vec<FindCommand> {
+        if self.publication.matches().is_empty() {
+            return Vec::new();
+        }
         if delta < 0 && self.publication.index() == 1 && self.publication.has_older_page() {
             return self.extend_older_matches(host);
         }
-        match self.publication.step(delta) {
+        match self.publication.step(delta, host) {
             Some((row, epoch)) => self.reveal(row, &epoch, 1, host),
             None => Vec::new(),
         }
@@ -171,16 +169,16 @@ impl TerminalFind {
         self.search_now(1, None, host)
     }
 
-    /// Absorb the answer to a `FetchRow` a reveal was waiting on. `painted` false
-    /// means the pager refused or evicted the pull: at most the remaining retry is
-    /// spent, and NOTHING scrolls.
+    /// Absorb the answer to an `EnsureRowPainted` a reveal was waiting on.
+    /// `painted` false means the pull was refused or evicted: at most the
+    /// remaining retry is spent, and NOTHING scrolls.
     pub fn on_row_painted(
         &mut self,
-        row: u32,
+        reveal: u64,
         painted: bool,
         host: &mut dyn FindHost,
     ) -> Vec<FindCommand> {
-        let Some(pending) = self.publication.take_pending_reveal(row) else {
+        let Some(pending) = self.publication.take_pending_reveal(reveal) else {
             return Vec::new();
         };
         let budget = pending.epoch_retry_budget;
@@ -188,6 +186,7 @@ impl TerminalFind {
             return Vec::new();
         }
         if !painted {
+            tracing::info!(target: "find", session_id = %self.session_id, row = pending.row, budget, "find reveal pull refused");
             return if budget > 0 {
                 self.search_now(budget - 1, None, host)
             } else {
@@ -197,6 +196,7 @@ impl TerminalFind {
         if host.pane_epoch() != pending.epoch {
             return self.invalidate(budget, host);
         }
+        tracing::debug!(target: "find", session_id = %self.session_id, row = pending.row, "find reveal scrolls to row");
         host.reveal_row(pending.row);
         Vec::new()
     }
@@ -204,41 +204,52 @@ impl TerminalFind {
     /// Retire the controller: nothing it armed may fire afterwards.
     pub fn dispose(&mut self) -> Vec<FindCommand> {
         self.disposed = true;
-        let armed = self.debounce_at_ms.take().is_some();
-        let mut commands = self.stop_active();
-        commands.extend(armed.then_some(FindCommand::CancelDebounce));
+        self.publication.prefer(None);
+        let mut commands = self.cancel_debounce();
+        commands.extend(self.stop_active());
+        tracing::debug!(target: "find", session_id = %self.session_id, "find controller disposed");
         commands
+    }
+
+    /// Drop the coordinator coordinate and re-arm for a query already live.
+    fn reschedule(&mut self, now_ms: u64) -> Vec<FindCommand> {
+        self.publication.prefer(None);
+        if self.query.is_empty() {
+            Vec::new()
+        } else {
+            self.schedule(now_ms)
+        }
     }
 
     /// Replace the armed debounce and stop whatever search holds the pane.
     fn schedule(&mut self, now_ms: u64) -> Vec<FindCommand> {
+        let mut commands = self.cancel_debounce();
+        commands.extend(self.stop_active());
         let at_ms = now_ms + FIND_DEBOUNCE_MS;
         self.debounce_at_ms = Some(at_ms);
-        let mut commands = vec![FindCommand::CancelDebounce];
-        commands.extend(self.stop_active());
         commands.push(FindCommand::ArmDebounce { at_ms });
         commands
+    }
+
+    /// Disarm the debounce, telling the host only when one was armed.
+    fn cancel_debounce(&mut self) -> Vec<FindCommand> {
+        self.debounce_at_ms
+            .take()
+            .map_or_else(Vec::new, |_| vec![FindCommand::CancelDebounce])
     }
 
     /// Abort the active search and fence every future answer from it.
     fn stop_active(&mut self) -> Vec<FindCommand> {
         self.token += 1;
-        let aborted = self.active.take().map(|active| active.search_id);
-        aborted.map_or_else(Vec::new, |id| {
-            vec![FindCommand::CancelSearch { search_id: id }]
+        self.active.take().map_or_else(Vec::new, |active| {
+            vec![FindCommand::CancelSearch {
+                search_id: active.search_id,
+            }]
         })
     }
 
-    /// The active search if it still owns the pane, taken by value.
-    fn take_current(&mut self) -> Option<ActiveSearch> {
-        let active = self.active.take()?;
-        if self.disposed || active.token != self.token {
-            return None;
-        }
-        Some(active)
-    }
-
-    /// Reveal one match, fetching its row first when that row is unpainted.
+    /// Reveal one match inside its own epoch. A viewport row needs no jump; a
+    /// history row is pulled first, and the answer rechecks token and epoch.
     fn reveal(
         &mut self,
         row: u32,
@@ -246,34 +257,34 @@ impl TerminalFind {
         budget: u32,
         host: &mut dyn FindHost,
     ) -> Vec<FindCommand> {
-        let decision = host
-            .anchor()
-            .as_ref()
-            .map_or(RevealDecision::AlreadyVisible, |a| {
-                reveal_decision(a, row, epoch)
-            });
-        match decision {
+        let Some(anchor) = host.anchor() else {
+            return Vec::new();
+        };
+        match reveal_decision(&anchor, row, epoch) {
             RevealDecision::StaleEpoch => self.invalidate(budget, host),
-            RevealDecision::AlreadyVisible => Vec::new(),
-            RevealDecision::FetchFirst { row } => {
-                self.publication.arm_reveal(row, epoch, self.token, budget);
-                vec![FindCommand::FetchRow { row }]
+            RevealDecision::Viewport => Vec::new(),
+            RevealDecision::EnsurePainted { row } => {
+                let reveal = self.publication.arm_reveal(row, epoch, self.token, budget);
+                vec![FindCommand::EnsureRowPainted { row, reveal }]
             }
         }
     }
 
-    /// Spend the older-rows cursor a match cap handed back.
+    /// Spend the older-rows cursor a match cap handed back, so a needle with
+    /// more hits than one page holds stays fully navigable.
     fn extend_older_matches(&mut self, host: &mut dyn FindHost) -> Vec<FindCommand> {
         // Consumed up front so a second keypress cannot start the same page twice.
         let Some(page) = self.publication.take_older_page() else {
             return Vec::new();
         };
-        let parked = self.publication.matches().to_vec();
-        let commands = self.search_now(1, Some(page), host);
-        let slid = self.active.as_ref().map(|live| live.chain.found());
-        if let Some(slid) = slid {
-            self.publication.prefer_newest_of(slid, &parked);
-        }
-        commands
+        tracing::info!(
+            target: "find",
+            session_id = %self.session_id,
+            before_row = page.before_row,
+            pages_used = page.pages_used,
+            held_matches = self.publication.matches().len(),
+            "find slides onto older rows"
+        );
+        self.search_now(1, Some(page), host)
     }
 }

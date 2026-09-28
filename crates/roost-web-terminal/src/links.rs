@@ -1,72 +1,80 @@
-//! Painted terminal links: the attributes the row painter stamps, the scan that
-//! turns those attributes back into links, and the activation that turns a
-//! scanned link into the action a click performs.
-//!
-//! `links/scan.rs` and `links/activation.rs` are pure and `#[test]`-covered;
-//! `links/dom.rs` is the `wasm32` adapter that reads the attributes off the
-//! painted DOM and writes them back. A link is one the core authored, per cell,
-//! so this crate never re-derives a link from link TEXT — the class, the run key
-//! and the target are all the renderer already stamped.
-//!
-//! Depends on `cell_row` for the attribute names and on `link_target` for the
-//! one classifier; neither is reimplemented here. Ported from v2's
-//! `apps/web/src/renderer/terminal-links*.ts`.
+//! Terminal links: inferred-link detection over painted rows, the DOM applier
+//! that wraps and validates anchors, the mutation scanner that schedules it,
+//! and the attachment that owns modifier hover, the armed paint hold and
+//! activation. All of it is native and runs over the `LinkDom`/`LinkScanHost`/
+//! `LinkHost` seams; the mouse-forwarding adapter reads `activation`.
+//! Ports `apps/web/src/renderer/terminal-links.ts`.
 
 pub mod activation;
+pub mod anchor;
+pub mod attachment;
+pub mod detect;
 pub mod scan;
 
-#[cfg(target_arch = "wasm32")]
-pub mod dom;
-
 pub use activation::{
-    LinkActivation, LinkActivationGesture, LinkArmedHold, LinkModifierKey, PressWithheld,
-    activate_link, is_link_activation_gesture, is_worker_file_href, link_hint, link_title,
-    withhold_press,
+    LinkActivationGesture, LinkModifierKey, PressWithheld, is_link_activation_gesture,
+    is_link_modifier_held, link_hint_text, link_title, withhold_press,
 };
-pub use scan::{
-    DIRTY_ROW_LIMIT, LinkHalf, ScanRequest, ScanSchedule, ScannedLink, link_at_cell, region_links,
-    row_links,
+pub use anchor::{
+    LinkDom, SCANNED_ATTR, apply_terminal_anchor_target, js_parse_int, linkify_terminal_rows,
+    resolve_terminal_anchor_target, terminal_row_columns,
 };
-/// The link attributes one painted anchor carries.
-///
-/// Every field is optional because the DOM read is: a link painted before the
-/// current build, or by an inferred match, carries a target and no run key, and
-/// a run key with no target names a link nothing can open.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct PaintedLinkAttributes {
-    /// The element carries `TERMINAL_LINK_CLASS`. An anchor without it is not a
-    /// terminal link however it was painted, so a scan skips it.
-    pub is_terminal_link: bool,
-    /// `LINK_KEY_ATTR`: the core's per-run identity. Soft-wrapped halves of one
-    /// link carry the SAME key, which is what re-identifies them as one link
-    /// after they land in two different rows.
-    pub key: Option<String>,
-    /// `TERMINAL_LINK_TARGET_ATTR`, else the anchor's own `href` for a link that
-    /// already carries a resolved route.
-    pub target: Option<String>,
+pub use attachment::{LinkEvent, LinkHost, LinkListener, TerminalLinks};
+pub use detect::{FileLinkSegment, PaintedLink, RowLinkInput, RowLinkSegment, compute_row_links};
+pub use scan::{DIRTY_LIMIT, FrameCallback, LinkScanHost, LinkScanner, RowSet};
+
+/// A worker-aware file resolver, owned by the attachment.
+pub type FileResolver = Box<dyn Fn(&str, Option<u64>, Option<&str>) -> Option<String>>;
+
+/// v2 `TerminalLinkOpts`, plus the platform's link modifier.
+pub struct TerminalLinkOptions {
+    /// Resolves output paths into authenticated `/file/…` routes.
+    pub resolve_file: Option<FileResolver>,
+    /// Opens a resolved worker file route in the app.
+    pub on_open_file: Option<Box<dyn Fn(&str)>>,
+    /// A getter, so scans see a Git remote that resolves after pane mount.
+    pub github_owner_repo: Option<Box<dyn Fn() -> Option<String>>>,
+    /// Compact keyboard-sheet arming, separate from physical modifier hover.
+    pub link_activation_armed: Option<Box<dyn Fn() -> bool>>,
+    /// Foreground state at construction; a hidden pane installs no link work.
+    pub initial_active: bool,
+    /// Holds renderer paint only while the modifier and pointer are both active.
+    pub on_armed_hover_change: Option<Box<dyn Fn(bool)>>,
+    /// The platform's link modifier (v2 `terminalLinkModifierKey()`).
+    pub modifier_key: LinkModifierKey,
 }
 
-/// One painted child of a terminal row: a run of cells, or a link anchor.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct PaintedChild {
-    /// The child's GRID OCCUPANCY, which is what a point is tested against. A
-    /// cell is neither a character nor a code unit, so this is the only span
-    /// measure a hit test can use.
-    pub columns: u32,
-    /// The link attributes, when this child is a terminal link anchor.
-    pub link: Option<PaintedLinkAttributes>,
+impl TerminalLinkOptions {
+    /// v2's defaults: no resolver, no callbacks, active at construction.
+    pub fn new(modifier_key: LinkModifierKey) -> Self {
+        Self {
+            resolve_file: None,
+            on_open_file: None,
+            github_owner_repo: None,
+            link_activation_armed: None,
+            initial_active: true,
+            on_armed_hover_change: None,
+            modifier_key,
+        }
+    }
+
+    /// The resolver as the classifier takes it.
+    pub fn file_resolver(&self) -> Option<crate::link_target::ResolveFile<'_>> {
+        self.resolve_file.as_deref().map(|resolve| resolve as crate::link_target::ResolveFile<'_>)
+    }
 }
 
-/// One row of painted terminal DOM, as the scanner's input.
-///
-/// The scan's input is DATA, not elements: the DOM read that produces this is
-/// the adapter's, so every rule below is testable without a browser.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct PaintedRow {
-    /// `ROW_HAS_LINKS_ATTR` is set. Absent means there is nothing here to walk,
-    /// and a full scan skips the row on this one flag rather than a subtree
-    /// query — which is what keeps a scan of held history cheap.
-    pub has_links: bool,
-    /// The row's painted children in document order.
-    pub children: Vec<PaintedChild>,
+impl std::fmt::Debug for TerminalLinkOptions {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("TerminalLinkOptions")
+            .field("resolve_file", &self.resolve_file.is_some())
+            .field("on_open_file", &self.on_open_file.is_some())
+            .field("github_owner_repo", &self.github_owner_repo.is_some())
+            .field("link_activation_armed", &self.link_activation_armed.is_some())
+            .field("initial_active", &self.initial_active)
+            .field("on_armed_hover_change", &self.on_armed_hover_change.is_some())
+            .field("modifier_key", &self.modifier_key)
+            .finish()
+    }
 }

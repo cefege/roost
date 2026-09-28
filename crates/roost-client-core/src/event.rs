@@ -88,20 +88,24 @@ pub enum ClientEvent {
         /// The frame.
         frame: SyncFrame,
     },
-    /// The pre-hydration store is ready, so retained frames may be applied.
-    HydrationCompleted {
-        /// The socket generation whose domains are now backed by a snapshot.
-        generation: u64,
+    /// The document became visible or hidden (v2 `isPageVisible`). A hidden
+    /// document parks its redial past the failure budget; a visible one never
+    /// does, and becoming visible is a lifecycle wake.
+    PageVisibilityChanged {
+        /// Whether the document is now visible.
+        visible: bool,
     },
+    /// A page-lifecycle wake: `pageshow`, `focus`, `resume` (visible only) or
+    /// `online` (`allow_hidden`), v2 `installSyncLifecycleWake`.
+    SyncWakeRequested {
+        /// Whether a hidden document may act on it (`online` may).
+        allow_hidden: bool,
+    },
+    /// A deliberate transport control: a manual reconnect, or one of the smoke
+    /// backdoor's partition controls (`apps/web/src/store/sync-smoke.ts`).
+    SyncTransportControl(crate::handle_sync::lifecycle::TransportControl),
     /// A Connect unary call answered.
     RpcResultReceived(RpcResult),
-    /// The host signed a challenge.
-    ChallengeSigned {
-        /// The credential being established.
-        account_id: String,
-        /// The signature, opaque to the core.
-        signature: Vec<u8>,
-    },
     /// The credential is gone. Everything keyed to it is discarded, INCLUDING the
     /// recovery cursor: a persisted global cursor would skip the next socket's
     /// initial history.
@@ -244,9 +248,10 @@ impl ClientEvent {
             Self::SyncLinkClosed { .. } => "sync_link_closed",
             Self::SyncFrameReceived { .. } => "sync_frame_received",
             Self::SyncFrameRefused { .. } => "sync_frame_refused",
-            Self::HydrationCompleted { .. } => "hydration_completed",
+            Self::PageVisibilityChanged { .. } => "page_visibility_changed",
+            Self::SyncWakeRequested { .. } => "sync_wake_requested",
+            Self::SyncTransportControl(_) => "sync_transport_control",
             Self::RpcResultReceived(_) => "rpc_result_received",
-            Self::ChallengeSigned { .. } => "challenge_signed",
             Self::CredentialsDiscarded => "credentials_discarded",
             Self::DirectFrameReceived { .. } => "direct_frame_received",
             Self::ViewOpened { .. } => "view_opened",

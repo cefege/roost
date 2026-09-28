@@ -9,7 +9,6 @@
 
 use std::collections::BTreeMap;
 
-use roost_proto::buffa::Message;
 use roost_proto::{
     AuthCoordIdentityResponse, AuthRedeemBrowserResponse, FilesListDirResponse, FilesMkdirResponse,
     McpListResponse, PairListResponse, SessionsCancelGlobalSearchResponse, SessionsListResponse,
@@ -18,7 +17,7 @@ use roost_proto::{
 use roost_protocol::ProtocolResult;
 use roost_protocol::wire::{SessionMap, session_from_proto};
 
-use super::RpcCodecError;
+use super::{RpcCodecError, decode_message as decode};
 use super::search_page::search_page_from_proto;
 use super::wire_rows::{
     mcp_relay_from_proto, pair_request_from_proto, task_from_proto, worker_from_proto,
@@ -169,12 +168,6 @@ pub fn decode_rpc_response(call: &RpcCall, body: &[u8]) -> Result<RpcResult, Rpc
     })
 }
 
-fn decode<M: Message>(method: &'static str, body: &[u8]) -> Result<M, RpcCodecError> {
-    M::decode_from_slice(body).map_err(|error| RpcCodecError::MalformedResponse {
-        method,
-        detail: error.to_string(),
-    })
-}
 
 /// Convert every row, keyed by its id; a later duplicate replaces an earlier
 /// one, as v2's record assignment does.

@@ -53,6 +53,8 @@ pub enum Surface {
 pub enum ServedSurface {
     /// `/` — the session list and the workbench.
     Home,
+    /// `/design` — the design-system gallery.
+    Design,
 }
 
 impl ServedSurface {
@@ -60,6 +62,7 @@ impl ServedSurface {
     pub const fn test_id(self) -> &'static str {
         match self {
             Self::Home => "home-landing",
+            Self::Design => crate::components::design::gallery::DESIGN_GALLERY_TEST_ID,
         }
     }
 }
@@ -73,13 +76,13 @@ impl ServedSurface {
 pub fn surface_for(route: &Route) -> Surface {
     match route {
         Route::Home => Surface::Served(ServedSurface::Home),
+        Route::Design => Surface::Served(ServedSurface::Design),
         Route::Session { .. }
         | Route::Terminal { .. }
         | Route::Workspace { .. }
         | Route::Settings { .. }
         | Route::Pair
         | Route::Help
-        | Route::Design
         | Route::File { .. }
         | Route::Browse { .. }
         | Route::Search => Surface::NotServed {
@@ -125,16 +128,13 @@ impl Gate {
 /// one has already been decided authorized, which is why no component below
 /// re-reads `browser_access_state` to decide whether to show itself.
 ///
-/// THE STATE IS READ DURING RENDER, NOT memoized. Nothing drives
-/// `ClientCore::handle` in this build — the host pump that turns Sync frames and
-/// RPC results into client events is not here — so the store does not change and
-/// the gate holds at `Checking` until that pump lands. Reading during render
-/// means the gate is correct the moment a pump exists, with nothing to revisit; a
-/// hook-held snapshot would freeze the first answer and need a second mechanism
-/// to un-freeze it.
+/// THE STATE IS READ DURING RENDER, NOT memoized, and the pump's revision is
+/// read with it (`use_store`): the pump bumps that signal when `handle` moved
+/// the store, which is the only way this render learns the access state
+/// changed. A hook-held snapshot would freeze the first answer.
 #[component]
 pub fn GatedApp() -> Element {
-    let core = use_context::<Rc<RefCell<ClientCore>>>();
+    let core = crate::pump::use_store().core();
     let path = router_state::use_path_signal();
     let on_navigate = router_state::navigation_handler(path);
     match Gate::for_state(read_access(&core)) {
@@ -164,6 +164,7 @@ fn RouteContent(surface: Surface, on_navigate: EventHandler<String>) -> Element 
         Surface::Served(ServedSurface::Home) => rsx! {
             crate::components::home::HomeLanding { apple_keyboard: apple_keyboard() }
         },
+        Surface::Served(ServedSurface::Design) => rsx! { crate::components::design::DesignGallery { on_navigate } },
         Surface::NotServed { path } => {
             rsx! { crate::components::not_served::NotServed { path } }
         }
@@ -220,12 +221,12 @@ mod tests {
     }
 
     #[test]
-    fn every_grammar_route_but_the_root_names_itself_in_the_not_served_panel() {
+    fn every_unserved_grammar_route_names_itself_in_the_not_served_panel() {
         // The panel must show the path the READER typed, so the string is built
         // from `to_path` and never from a per-route literal that could drift.
         let mut checked = 0_usize;
         for route in Route::ALL {
-            if *route == Route::Home {
+            if matches!(route, Route::Home | Route::Design) {
                 continue;
             }
             checked += 1;
@@ -237,7 +238,15 @@ mod tests {
                 "{route:?}"
             );
         }
-        assert_eq!(checked, Route::ALL.len() - 1);
+        assert_eq!(checked, Route::ALL.len() - 2);
+    }
+
+    #[test]
+    fn the_design_route_renders_the_gallery() {
+        assert_eq!(
+            surface_for(&Route::parse("/design")),
+            Surface::Served(ServedSurface::Design)
+        );
     }
 
     #[test]

@@ -1,24 +1,19 @@
 //! The ONE writer of `scrollTop`, and the events that decide whether a reader
-//! may be unparked.
-//!
-//! Two rules are load-bearing. A pane mutates its scroll space constantly —
-//! appending history, filling a gap, evicting a block — and only a capture
-//! taken BEFORE that mutation may authorise a position write, so a non-bottom
-//! mutation never moves the reader. And the capture is the FOLLOW BAND, not a
-//! widened clamp: the exact clamp predicate stays exact, because it is what the
-//! resume and the band settle ask, and slack there is how a reader that moved
-//! half a row stops streaming.
+//! may be unparked: only a capture taken BEFORE a scroll-space mutation may
+//! authorise a write, and that capture is the follow band, never a widened
+//! exact clamp. Ports `_writeScrollTop` through `noteBoxResize`,
+//! `scrollToScrollbackRow` and `missingScrollbackRange*` of `apps/web/src/renderer/cellRenderer.ts`.
 
 use crate::cell_renderer::CellGridRenderer;
 use crate::cell_renderer_dom::effective_row_height;
-use crate::element_style::{scroll_top_of, set_scroll_top_of};
 use crate::presentation::{LiveInteractionResult, NO_LIVE_INTERACTION_RESULT};
 use crate::reader_intent::{
     ReaderIntent, ReaderIntentReason, ScrollBoxGeometry, follows_scroll_bottom,
 };
+use crate::render_element::RenderElement;
 use roost_client_core::terminal::history::HistoryRange;
 
-impl CellGridRenderer {
+impl<E: RenderElement> CellGridRenderer<E> {
     /// Whether the box rests exactly on its bottom clamp.
     pub fn at_bottom(&self) -> bool {
         self.scroll_top() >= self.scroll_max()
@@ -26,10 +21,7 @@ impl CellGridRenderer {
 
     /// Whether a reader inside the follow band is riding the live tail.
     pub fn follows_bottom(&self) -> bool {
-        follows_scroll_bottom(
-            self.scroll_box_geometry(),
-            effective_row_height(self.row_height()),
-        )
+        follows_scroll_bottom(self.scroll_box_geometry(), self.row_height())
     }
 
     /// The exact bottom clamp, which is zero when the box has no range at all.
@@ -53,15 +45,15 @@ impl CellGridRenderer {
     }
 
     pub(crate) fn scroll_top(&self) -> f64 {
-        scroll_top_of(&self.container)
+        self.container.scroll_top()
     }
 
     pub(crate) fn scroll_height(&self) -> f64 {
-        f64::from(self.container.scroll_height())
+        self.container.scroll_height()
     }
 
     pub(crate) fn client_height(&self) -> f64 {
-        f64::from(self.container.client_height())
+        self.container.client_height()
     }
 
     /// Write a scroll position and stamp it with an owned epoch.
@@ -73,7 +65,7 @@ impl CellGridRenderer {
     fn write_scroll_top(&mut self, value: f64) {
         let before = self.scroll_top();
         if before != value {
-            set_scroll_top_of(&self.container, value);
+            self.container.set_scroll_top(value);
         }
         let after = self.scroll_top();
         if after != before && self.owned_scroll_epoch == 0 {
@@ -204,9 +196,8 @@ impl CellGridRenderer {
         if row_height <= 0.0 {
             return false;
         }
-        self.reader.enter_reading(ReaderIntentReason::Find);
-        self.capture_reader_anchor();
-        let top = f64::from(self.spacer.offset_top()) + f64::from(absolute_index) * row_height;
+        self.enter_reading(ReaderIntentReason::Find);
+        let top = self.spacer.offset_top() + f64::from(absolute_index) * row_height;
         let target = (top - self.client_height() / 3.0).clamp(0.0, self.scroll_max());
         self.write_scroll_top(target);
         true
@@ -225,9 +216,9 @@ impl CellGridRenderer {
         self.painted.missing_range_at_scroll(
             u32::try_from(anchor.total).unwrap_or(u32::MAX),
             self.scroll_top(),
-            f64::from(self.spacer.offset_top()),
+            self.spacer.offset_top(),
             self.client_height(),
-            effective_row_height(self.row_height()),
+            self.row_height(),
             ahead_rows,
         )
     }
