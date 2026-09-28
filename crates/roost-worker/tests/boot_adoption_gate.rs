@@ -272,6 +272,7 @@ async fn a_boot_that_declines_every_survivor_still_completes() {
             adopted: 0,
             unreplayable: 3,
             refused: 0,
+            declined: 0,
             unknown_to_coordinator: 0,
             unreservable: 0,
         },

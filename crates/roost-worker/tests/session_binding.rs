@@ -21,11 +21,18 @@ async fn an_adoption_past_the_staging_bound_is_refused_rather_than_truncated() {
     let keeper = Arc::new(ScriptedKeeper::with_survivor(7, 4242));
     let harness = Harness::with_keeper(Arc::clone(&keeper));
     // The keeper starts delivering the moment it is reattached, which is before
-    // this worker has a record to put the bytes in.
-    let binding = keeper.delivered();
+    // this worker has a record to put the bytes in — so the bytes are emitted
+    // AT the rebind, by `on_rebind`, rather than handed over before the
+    // adoption runs. `deliver_into` now follows both reads (F2), so a binding
+    // fetched before `adopt_survivor` does not exist yet, and on a restarted
+    // worker it would belong to nobody.
     let chunk = vec![b'x'; 64 * 1024];
     for _ in 0..5 {
-        binding.on_output(&chunk);
+        keeper
+            .on_rebind
+            .lock()
+            .expect("held")
+            .push(chunk.clone());
     }
     let refused = harness
         .manager
@@ -33,8 +40,15 @@ async fn an_adoption_past_the_staging_bound_is_refused_rather_than_truncated() {
         .await
         .expect_err("a stream with a hole in it is not adopted");
     assert!(
-        matches!(refused, AdoptRefusal::StagingOverflow { cap, .. } if cap == RESUME_STAGE_CAP_BYTES),
+        matches!(refused.refusal, AdoptRefusal::StagingOverflow { cap, .. } if cap == RESUME_STAGE_CAP_BYTES),
         "the refusal names the bound: {refused}"
+    );
+    // The staging overflow is one of only three exits that abandon, so the
+    // fact is asserted rather than assumed: this is the assertion that would
+    // fail if an exit were moved between the killed and the left-alone groups.
+    assert!(
+        refused.abandoned,
+        "a staging overflow abandons, and abandoning kills the survivor"
     );
     assert_eq!(
         harness

@@ -100,7 +100,7 @@ use crate::session::lifecycle::SessionManager;
 use super::session_stack::SessionStack;
 use crate::event_store::DurableEventKind;
 use crate::keeper_pool::KeeperPool;
-use crate::session::resume::{AdoptionRequest, AdoptRefusal, KeeperChannels, KeeperFault};
+use crate::session::resume::{AdoptionRequest, KeeperChannels, KeeperFault};
 
 /// What reconciling the keeper's survivors against the session table did.
 ///
@@ -119,14 +119,20 @@ pub struct Adopted {
     /// outcome of every boot this build performs today, and it is a fact about
     /// the binary rather than about any machine.
     pub unreplayable: usize,
-    /// Channels the probe PASSED and whose adoption then failed. Each of these
-    /// was KILLED, because this is `session::resume`'s designed repair and
-    /// `abandon` runs on every one of these paths — the history was proven
-    /// replayable, so a replay that still cannot complete is a stream that
-    /// cannot be made whole and the respawn is the only repair that preserves
-    /// the no-gap invariant. Each leaves its session to be respawned. This is
-    /// the counter an operator reads when a terminal was actually ended.
+    /// Channels whose adoption FAILED AFTER KILLING THE SURVIVOR. This is the
+    /// counter an operator reads to learn that a terminal was actually ended,
+    /// and it is counted from `AdoptFailure::abandoned` rather than from the
+    /// refusal variant — because five of the seven exits that return
+    /// `AdoptRefusal::Unreplayable` did NOT kill anything, and a counter keyed
+    /// on the variant claimed a kill five times out of ten.
     pub refused: usize,
+    /// Channels whose adoption was refused WITHOUT the survivor being killed.
+    ///
+    /// The ordinary outcome against a keeper this build cannot finish a replay
+    /// against, and the counterpart to `refused`: together they are every
+    /// refusal, and the split is the difference between "a terminal ended" and
+    /// "a terminal is still running and this worker declined to touch it".
+    pub declined: usize,
     /// Channels the keeper holds that the coordinator does not list as open, so
     /// there is no session identity to adopt them into. These were left RUNNING
     /// and undisturbed.
@@ -397,43 +403,38 @@ pub async fn adopt_survivors(
                      cold core"
                 );
             }
-            // EVERY ARM BELOW THIS POINT IS A REFUSAL THE PROBE DID NOT
-            // PREVENT, so every one of them killed its survivor — `abandon`
-            // runs on each. They count as `refused`, not `unreplayable`,
-            // because the two fields answer different questions: `refused`
-            // means a terminal was ended here, and an operator reading the boot
-            // line needs to be able to tell that from a survivor this worker
-            // declined to touch.
-            Err(AdoptRefusal::Unreplayable { channel, reason }) => {
-                adopted.refused += 1;
+            // THE FACT DECIDES THE COUNTER, NOT THE VARIANT. Seven of the
+            // ten exits in `adopt_survivor` return `AdoptRefusal::Unreplayable`
+            // and TWO of those did kill the survivor, so a counter keyed on
+            // the variant was claiming a kill five times out of ten on a path
+            // whose consequence is a terminal ending. `AdoptFailure` carries
+            // the fact; this arm reads it.
+            Err(failure) => {
+                if failure.abandoned {
+                    // A KILL, and the only field an operator reads to learn
+                    // that a terminal ended here. Its session must be
+                    // respawned; every other survivor and the link are
+                    // untouched.
+                    adopted.refused += 1;
+                    tracing::warn!(
+                        channel_id = raw,
+                        session_id = %request.session_id,
+                        refusal = %failure.refusal,
+                        "boot: this survivor was KILLED by a failed adoption and its session \
+                         must be respawned; every other survivor and the link are untouched"
+                    );
+                    continue;
+                }
+                // NOT A KILL. The refusal stopped the adoption and the
+                // survivor is still running, which is the ordinary outcome for
+                // a keeper this build cannot finish a replay against.
+                adopted.declined += 1;
                 tracing::warn!(
-                    channel_id = channel,
-                    session_id = %request.session_id,
-                    %reason,
-                    "boot: the keeper described this survivor's history and the replay still \
-                     failed, so IT was killed and its session must be respawned; every other \
-                     survivor and the link are untouched"
-                );
-            }
-            Err(AdoptRefusal::StagingOverflow { channel, cap }) => {
-                adopted.refused += 1;
-                tracing::warn!(
-                    channel_id = channel,
-                    session_id = %request.session_id,
-                    cap,
-                    "boot: this survivor produced more concurrent output than an adoption can \
-                     stage, so IT was killed and its session must be respawned; every other \
-                     survivor and the link are untouched"
-                );
-            }
-            Err(refusal) => {
-                adopted.refused += 1;
-                tracing::warn!(
-                    %refusal,
                     channel_id = raw,
                     session_id = %request.session_id,
-                    "boot: this survivor was not adopted; the refusal names which half of the \
-                     adoption it stopped at"
+                    refusal = %failure.refusal,
+                    "boot: this survivor was not adopted and was NOT killed; the refusal names \
+                     which half of the adoption it stopped at"
                 );
             }
         }

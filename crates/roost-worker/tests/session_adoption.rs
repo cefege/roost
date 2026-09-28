@@ -203,7 +203,7 @@ async fn a_survivor_whose_replay_does_not_converge_on_the_keepers_geometry_is_re
         .await
         .expect_err("a history that does not converge is not adoptable");
     assert!(
-        matches!(refused, AdoptRefusal::Unreplayable { channel: 7, .. }),
+        matches!(refused.refusal, AdoptRefusal::Unreplayable { channel: 7, .. }),
         "the refusal is the replay, not the staging: {refused}"
     );
     let message = refused.to_string();
@@ -218,6 +218,11 @@ async fn a_survivor_whose_replay_does_not_converge_on_the_keepers_geometry_is_re
         None,
         "nothing is installed, so no client can be handed rows numbered against \
          the wrong width"
+    );
+    assert!(
+        refused.abandoned,
+        "a replay that cannot converge abandons, and this is one of the three \
+         exits that does"
     );
     assert_eq!(
         keeper.killed(),
@@ -290,8 +295,14 @@ async fn a_channel_list_that_cannot_be_read_refuses_with_the_keeper_s_reason() {
         .await
         .expect_err("an unreadable channel list cannot be adopted from");
     assert!(
-        matches!(refused, AdoptRefusal::Unreplayable { .. }),
+        matches!(refused.refusal, AdoptRefusal::Unreplayable { .. }),
         "an unreachable keeper is a replay failure, not an absent survivor: {refused}"
+    );
+    assert!(
+        !refused.abandoned,
+        "reading the channel list failed BEFORE the rebind and before any \
+         record was built, so nothing was abandoned and the survivor is \
+         untouched — the same variant as a diverging replay, which DID kill"
     );
     assert!(
         refused.to_string().contains("the socket went away"),
@@ -316,9 +327,13 @@ async fn a_session_with_no_keeper_channel_is_refused_rather_than_recreated() {
         .await
         .expect_err("there is no survivor to adopt");
     assert_eq!(
-        refused,
+        refused.refusal,
         AdoptRefusal::NoSurvivor(7),
         "the refusal names the channel, and it is the absence one: {refused}"
+    );
+    assert!(
+        !refused.abandoned,
+        "there was never a survivor to abandon"
     );
     assert!(
         harness

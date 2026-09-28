@@ -183,21 +183,85 @@ pub struct AdoptionRequest {
     pub mono_ms: u64,
 }
 
+
+/// A refusal, and the fact of whether the survivor died.
+///
+/// WHY THE FACT IS CARRIED AND NOT DERIVED FROM THE VARIANT. `adopt_survivor`
+/// has TEN refusal exits. Three call `abandon` and therefore
+/// `keeper.kill_channel`; seven return bare. Five of those seven produce
+/// `AdoptRefusal::Unreplayable` — the SAME variant the abandoned record-build
+/// and the abandoned table-insert produce — so a caller that infers "this
+/// killed the survivor" from the variant it received is wrong five times out
+/// of ten, on a path whose whole consequence is a terminal ending.
+///
+/// `Deref` is there so a caller that only wants the reason reads it without
+/// unwrapping, and so a test naming a refusal keeps naming it.
+///
+/// **THERE IS DELIBERATELY NO `From<AdoptRefusal>`.** A convenience conversion
+/// would let a caller wrap a refusal without saying what happened to the
+/// survivor — the wrong answer being unconstructible rather than documented.
+/// If a later change reaches for that `From`, the change is the defect and the
+/// inconvenience is the guard.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{refusal}")]
+pub struct AdoptFailure {
+    /// Which half of the adoption it stopped at.
+    pub refusal: AdoptRefusal,
+    /// Whether the survivor was KILLED before this was returned.
+    ///
+    /// Set at the same place the abandonment runs, not inferred from anything
+    /// the caller can see afterwards.
+    pub abandoned: bool,
+}
+
+impl AdoptFailure {
+    /// A refusal that left the survivor running.
+    pub fn left_alone(refusal: AdoptRefusal) -> Self {
+        Self {
+            refusal,
+            abandoned: false,
+        }
+    }
+
+    /// A refusal that killed the survivor, because `abandon` had already run.
+    pub fn abandoned(refusal: AdoptRefusal) -> Self {
+        Self {
+            refusal,
+            abandoned: true,
+        }
+    }
+}
+
+impl std::ops::Deref for AdoptFailure {
+    type Target = AdoptRefusal;
+
+    fn deref(&self) -> &Self::Target {
+        &self.refusal
+    }
+}
 impl SessionManager {
     /// Rebuild a record around a PTY this worker did not spawn. The staging
     /// overflow is checked AFTER the swap and the record removed again.
-    pub async fn adopt_survivor(&self, request: &AdoptionRequest) -> Result<Adopted, AdoptRefusal> {
+    pub async fn adopt_survivor(&self, request: &AdoptionRequest) -> Result<Adopted, AdoptFailure> {
         let channel = request.channel_id.as_u32() as u16;
         if self.sessions.entry(channel).is_some() {
-            return Err(AdoptRefusal::AlreadyHeld(channel));
+            return Err(AdoptFailure::left_alone(AdoptRefusal::AlreadyHeld(channel)));
         }
-        let unreplayable = |reason: String| AdoptRefusal::Unreplayable { channel, reason };
+        // THIS ONE CLOSURE IS FIVE OF THE SEVEN BARE EXITS, and it is why
+        // the change is this small: `left_alone` here is what makes
+        // `live_channels`, `deliver_into`, `channel_history`,
+        // `terminal_state` and `close_channel` say they did not kill anything,
+        // even though all five return the same `AdoptRefusal::Unreplayable`
+        // variant as the two that did.
+        let unreplayable = |reason: String| {
+            AdoptFailure::left_alone(AdoptRefusal::Unreplayable { channel, reason })
+        };
         let live = self
             .keeper
             .live_channels()
             .map_err(|fault| unreplayable(fault.to_string()))?;
         let Some(survivor) = live.iter().find(|held| held.channel_id == channel) else {
-            return Err(AdoptRefusal::NoSurvivor(channel));
+            return Err(AdoptFailure::left_alone(AdoptRefusal::NoSurvivor(channel)));
         };
         let binding = RecordBinding::staged(
             channel,
@@ -250,14 +314,17 @@ impl SessionManager {
             Ok(record) => record,
             Err(refusal) => {
                 self.abandon(request, &binding, channel).await;
-                return Err(refusal);
+                return Err(AdoptFailure::abandoned(refusal));
             }
         };
         let entry = match self.sessions.insert(record) {
             Ok(entry) => entry,
             Err(error) => {
                 self.abandon(request, &binding, channel).await;
-                return Err(unreplayable(error.to_string()));
+                return Err(AdoptFailure::abandoned(AdoptRefusal::Unreplayable {
+                    channel,
+                    reason: error.to_string(),
+                }));
             }
         };
         let (replay_offset, head_seq, stream_id) = {
@@ -276,10 +343,10 @@ impl SessionManager {
         let (clean, held_exit) = binding.go_live();
         if !clean {
             self.abandon(request, &binding, channel).await;
-            return Err(AdoptRefusal::StagingOverflow {
+            return Err(AdoptFailure::abandoned(AdoptRefusal::StagingOverflow {
                 channel,
                 cap: RESUME_STAGE_CAP_BYTES,
-            });
+            }));
         }
         // A SURVIVOR THAT HAD ALREADY EXITED is closed HERE, by the adoption,
         // and not by the binding. This is v2's split exactly: the live `onExit`
