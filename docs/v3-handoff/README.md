@@ -1,72 +1,97 @@
-# v3 handoff — PAUSED 2026-09-28; resume on a new host from here
+# v3 handoff — live state on host `mike`, resumed 2026-09-28 15:20 EDT
 
 The active plan is `roost-v3-finish-and-cutover-plan.md` in this directory;
 every other file here is a brief or lead note it cites (`local://` paths from
 the original session were rewritten to `docs/v3-handoff/`). The plan wins on
-any conflict. Nothing else from the original host is needed: `git clone`.
+any conflict. `RESTART-PROMPT.md` is the start-from-nothing brief that moved
+the work onto this host; it is spent — this file is the live state.
 
-## Disk budget on this host
+## This host
 
-Disk, not memory, stopped the run. The root is 111 GiB (no unallocated space
-on `sda`), ~50 GiB is fixed content, and each worktree's cargo target dir grew
-to 13–17 GiB during clippy + tests; three tracks plus the gate dir drove free
-space to 4 GiB. RAM was fine (31 GiB, 24 available, no OOM). The workspace
-`Cargo.toml` already had dev/test `debug = "line-tables-only"`; on top of it,
-host-local `~/.cargo/config.toml` sets `[profile.dev.package."*"] debug = false`
-and host-target linker flag `--compress-debug-sections=zlib`. Measured on the
-`roost-coord` test build: 12 GiB → 7.3 GiB → 4.3 GiB from clean; the full
-workspace gate dir is ~11 GiB. A track dir mid-wave still grows to 10–14 GiB
-(`debug/` only; compression verified present on newest test binaries): cargo
-never deletes a test binary superseded by a new hash, and those were ~40% of
-each dir. Every cargo/dx build goes through
-`flock <worktree>/target-track/.roost-build.lock /home/almalinux/repos/roost-build-slot <cmd>`,
-which admits at most two builds host-wide. After every gate, under the same
-build lock: `/home/almalinux/repos/roost-target-sweep <worktree>/target-track`
-(keeps the newest hash per executable in `debug/deps`, never touches
-libraries). Delete release dirs after live-stack checks. `cargo clean` a
-track's `target-track` between waves when it passes ~12 GiB. The integrator's
-`target-gate` exists only during a merge gate. Never set `RUSTFLAGS` in a
-build env (it replaces the config flag).
+`mike`, Linux x86_64, 8 cores, 62 GiB RAM, 915 GB NVMe with ~748 GB free.
+Disk stopped the previous host at 111 GiB; here a per-track target dir runs
+4–7 GiB because `~/.cargo/config.toml` is a copy of `host-cargo-config.toml`
+in this directory (dependency debuginfo off, zlib-compressed debug sections).
+The workspace `Cargo.toml` also sets dev/test `debug = "line-tables-only"`.
 
-## PAUSE STATE — read this first
+`roost-build-slot` and `roost-target-sweep` are installed in
+`/home/mike/repos/` (copies in this directory; `dir=` already edited for this
+host). The slot script admits three cargo builds host-wide, one per track.
+Every cargo/dx command is wrapped:
+`flock <worktree>/target-track/.roost-build.lock /home/mike/repos/roost-build-slot <cmd>`,
+and `/home/mike/repos/roost-target-sweep <worktree>/target-track` runs under
+the same lock after every gate. `cargo clean` a track's `target-track` if it
+passes ~12 GiB. Never set `RUSTFLAGS` in a build env (it replaces the host
+linker flag). The integrator's `target-gate` exists only during a merge gate.
 
-Development was paused by the user to move to a faster host. Every track's
-work is on origin. Exactly ONE branch and at most ONE snapshot per track is
-current — the table below. A snapshot is a `git stash create` commit: restore
-it with `git checkout <branch> && git stash apply <snapshot>` on the base
-named in the table. Each track's own handoff doc has the per-slice state —
-read it before touching that track.
+**This host is a live production v2 worker.** `roost-worker.service` (label
+`desktop-pc`, bun, door 127.0.0.1:4104) runs out of
+`~/.local/share/RoostWorkerV2/service/releases/worker/96f4db25…` against the
+production coordinator `https://mike.roosttt.com`, and its multiplexed keeper
+holds live PTYs. Never kill or restart either, never write inside that data
+dir, never bind or probe 4104. v3's local door is 4114; Playwright stacks pick
+their own free ports.
 
-| Track | Current branch tip (pushed) | Current snapshot → restore onto | Track handoff |
+Worktrees: `roost-v3` (integrator, `v3`), `roost-v3-coord` (`v3-coord`),
+`roost-v3-worker` (`recover/workerroot`), `roost-v3-web` (`v3-web`),
+`roost-v3-trial` (detached, the integrator's trial merge), `roost-v3-web-gate`
+(detached clean checkout of `v3-web` for gate runs).
+
+## RESUME STATE — read this first
+
+Three track leads run in parallel, one per track worktree, each owning its
+branch and its gate; the integrator owns `v3`, every merge and the workspace
+gate. A snapshot is a `git stash create` commit: restore it with
+`git checkout <branch> && git stash apply <snapshot>` on the base named in the
+table. Each track's own handoff doc carries the per-slice state — read it
+before touching that track.
+
+| Track | Branch tip | Uncommitted → snapshot | Track handoff |
 |---|---|---|---|
-| integrator | `v3` (this commit) | none | this file |
-| coord (Stage 2C) | `v3-coord` = `b7ad6997` | `v3-coord-snap-pause` = `6c6245e4` → `b7ad6997` (the wave-3 slices' uncommitted work, NOT gated; taken by the integrator after stopping the coord lead and its slices, equal to the worktree) | `coord-lead-handoff.md` |
-| worker (Stage 2W) | `recover/workerroot` = `v3-worker` = `0f79ffae` | `recover/workerroot-snap-pause` = `0b35b15d` → `0f79ffae` (waves 2–3; source verified equal to the worktree; also force-adds `target-track/pause/` drafts, mutation runners, `wresume_run.sh`, and `target-track/drafts/`) | `worker-lead-handoff.md` "PAUSE STATE" |
-| web (Stage 5) | `v3-web` = `97ba537c` (worktree clean at pause) | none needed. `v3-web-snap-pause` = `419149c6` sits on the older `5a43d383` and holds only mutation scratch (4 mutated test files + `mut-artifacts/`: an unapplied `store_sidebar` strengthening patch, the MutShellSidebar/MutDeckSidebarCore catalogues). Mine it for those; never apply it to `97ba537c` | `web-lead-handoff.md` "Pause state" |
+| integrator | `v3` = `4e2b002b` | `v3-integrator-snap-trialmerge` = `67312bd3` → `a116afe7` (the trial merge plus three uncommitted conflict fixups) | this file |
+| coord (Stage 2C) | `v3-coord` = `0fd87e56` (local only, `origin/v3-coord` = `8196fc88`) | `v3-coord-snap-resume2` = `f88552d7` → `0fd87e56` (the six mutants the dead subagent left applied; reverted in the worktree, kept here as evidence) | `coord-lead-handoff.md` |
+| worker (Stage 2W) | `recover/workerroot` = `v3-worker` = `7a46b99a` | `recover/workerroot-snap-resume2` = `0865947d` → `7a46b99a` (the whole uncommitted wave 2+3 series: 153 modified + 250 untracked). Older: `…-snap-resume1` = `fe96f411` (13:40), `…-snap-drafts2` = `9e64ae3b` (`target-track/pause/` drafts and mutation artefacts) | `worker-lead-handoff.md` "RESUME STATE" |
+| web (Stage 5) | `v3-web` = `28eebcee` | `v3-web-snap-resume2` = `dabfd789` → `28eebcee` (10 modified + 5 new files: the terminal stream probe, a diagnostics RPC call, pane registry/surface) | `web-lead-handoff.md` "Current state" |
 
-**Every other `*-snap*`, `*-wip*`, `*-drafts`, `*-preserve` ref on origin is
-SUPERSEDED** by the table above (they are older points of the same tracks,
-kept only as history): `v3-coord-snap`, `-snap2`, `-snap3`, `v3-coord-wip`,
-`-wip2`, `v3-web-snap`, `-snap-u1pump`, `-snap-waveb`, `-waveb2`, `-waveb3`,
-`-waveb3-commits`, `-waveb3-final`, `recover/workerroot-snap`,
-`recover-workerroot-snap`, `v3-worker-snap*`, `v3-worker-wip`,
-`v3-worker-wen-snap`, `v3-enroll-snap-b32731d`, `v3-cli-*snap`,
-`v3-cli-preserve`. `recover/workerroot-drafts` (`08b5fa1a`) is the worker's
-draft mirror, also inside `0b35b15d`. `coord-guard-move` /
-`coord-guard-move-snap` are pre-v3-track history; inspect before deleting.
+**The session that ran here 10:45–14:50 on 2026-09-28 died mid-flight.** Its
+`omp` process (pid 1487922) ended with no panic, nothing in the kernel log and
+no error in its own log, with a coord subagent applying mutations; the last
+file write anywhere was 14:50. Everything on disk survived. The integrator
+reverted the six applied mutants in the coord product tree and snapshotted all
+four dirty worktrees to origin (the table above) before touching anything.
 
 Where each track stands:
 
-- **Coord.** Waves C-B and 2 gated (1247/0/0; clippy 0; lint 0). Rust coord passes `terminal-delivery` 4/4 with TS worker+web; `terminal-render` 3/5 (two Rust-only fails; check first whether they are the dropped view-stream controller — the plan's C-SCREEN ruling is conditional). `AwaitingDomainPort` = **11** at `c96a21a0` (C-DIRECT, AT, AG2, X2, D1, GS open; C-CAPTURE, C-PUSH, C-RETAIN open). Wave 3 slices were mid-flight at pause.
-- **Worker.** Wave 1 gated (1223/0/0 ×2, clippy 0, lint 0; no catch-all arm; hello sends `advertised()`). Waves 2–3 (13 slices) wired and compiling in the snapshot, NOT gated: 3 known reds, most mutations and clippy pending, WResume's tests never run, capture protocol types not committed. Cross-track gaps: worker Connect client sends no worker credential; v3 coord does not fill `recovery_metadata`.
-- **Web.** U-0, DECODE, PUMP (live check passed vs TS backend), wave A, renderer core, wave B (SHELL/SIDEBAR/DECK/TERM/SMOKE) committed. Tests 1323/0/4 ×2 and clippy 0 at `e09f39ca`; lint 0 measured by the integrator; fmt and wasm32 not re-run. Not done: both dx bundles, the TERM gate spec, all other U-2 rows. Known gaps: UI tab close never becomes `SessionsKill`; a 1013 close does not trigger an immediate redial.
-- **v3 itself** is at the Stage 0 merge (S3.0 green at `78d5dc24`) plus docs. No track work after Stage 0 has been merged into `v3`.
+- **Coord.** Waves C-B, C-INPUT, C-SEND, SY3, C-SCREEN, S4, C-DIRECT, AT, GS,
+  D1, C-RETAIN, C-BOOT and wave 4 (AG2, C-PUSH, X2) committed; ratchet
+  `PortStatus::AwaitingDomainPort` rows = **0**, `#[ignore]` = 0. C-CAPTURE is
+  committed locally as `0fd87e56` with a placeholder body and its mutation
+  evidence lost. `terminal-render` 5/5, `terminal-delivery` 4/4, attachment-direct
+  3/3, global-search 1/1 against the Rust coordinator. One open product defect:
+  after `__smoke.pauseSyncTransport()`/`resumeSyncTransport()` every new sync
+  socket is closed 1008 `invalid_client_frame` (`terminal-peer.spec.ts:209`).
+- **Worker.** Wave 1 committed and gated (1223/0/0 ×2, clippy 0, lint 0). Waves
+  2–3 — 13 slices, all wired and compiling — are **uncommitted**; a 57-mutant
+  run at resume killed 56. Owed: the series as per-slice commits, the mutations
+  never run (WAgentsDetect, WAttach, WCapture, WDoorHttp), the WKUpdate K-M1b
+  survivor, the v2-map audit, the live door check, the CellCadence
+  unattached-sink inference. Cross-track gaps: the worker Connect client sends
+  no worker credential; the v3 coord does not fill `recovery_metadata`.
+- **Web.** U-0, DECODE, PUMP, wave A, renderer core and wave B committed; gated
+  tip `659b50c8` was 1333/0/4 twice, clippy 0, lint 3958 inputs 0, wasm32 clean,
+  TERM gate 1 passed, production `dist` `__smoke` 0. Two commits landed after it
+  (`32120c5e`, `28eebcee`) and a WIP is uncommitted. Not done: both dx bundles,
+  the delivery spec on `dist-smoke`, and every U-2 row.
+- **v3 itself** is still the Stage 0 merge (S3.0 green at `78d5dc24`) plus docs.
+  No track work after Stage 0 has been merged into it; the trial merge in
+  `roost-v3-trial` reached `a116afe7` (worker `7a46b99a`, coord `8196fc88`,
+  web `c6f7af07`) and is stale against the tips above.
 
 Rulings made during the run (all in the tracks' commit bodies): parity = v2 wins, with ONE user-visible exception — resumed direct uploads append at `bytesWritten` (v2 wrote at offset 0, corrupting the file). Deliberate path deviations: worker agent-report endpoint and attachment base live in the v3 worker data dir. `bun_abi` restored on `KeeperContractV1` with the Rust keeper reporting `"rust"`. `terminal_metadata_v1` (underscores) is v2's spelling. Public auth routes = v2's 7 exactly. `SmokeApi` has 53 members.
 
 Operating lessons (put them in every lead brief): a lead that ends a turn while waiting dies (forced tool choice → API 400) — block in the foreground instead; leads run out of request budget in 1.5–3 h, so scope each lead to what one budget finishes and commit after every gated item; one build lock per worktree serializes that track's helpers — keep ≤3 helpers per lead, one level deep; sweep stale test binaries after every gate.
 
-## Stage 0 state (plan "### Stage 0") — COMPLETE (history; the PAUSE table above is current)
+## Stage 0 state (plan "### Stage 0") — COMPLETE (history; the RESUME table above is current)
 
 | Branch | SHA | State |
 |---|---|---|
@@ -78,13 +103,27 @@ Operating lessons (put them in every lead brief): a lead that ends a turn while 
 | `v3` | `78d5dc24` | All three tracks merged; S3.0 GREEN (see `docs/v3-gate-baselines.md` "Phase gates"); merged back into each track |
 | `coord-guard-move` | `f7ff7e37` | Pushed; merged into no track. Inspect before deleting |
 
-## Next steps on the new host, in order
+## Next steps, in order
 
-1. Follow `RESTART-PROMPT.md` (the full start-from-nothing brief). In short: clone; create one worktree per track branch; restore ONLY the coord snapshot (`git checkout v3-coord && git stash apply 6c6245e4`, base `b7ad6997`) and the worker snapshot (`git checkout recover/workerroot && git stash apply 0b35b15d`, base `0f79ffae`); web needs none — never apply `v3-web-snap-pause`; reinstall `roost-build-slot` and `roost-target-sweep` from this directory (adjust paths) and `host-cargo-config.toml` as `~/.cargo/config.toml`.
-2. Close out, per track, in parallel: coord wave 3 (the 11 rows + C-D remainder, the two terminal-render fails); worker waves 2–3 gate (fix the 3 reds, pending mutations/clippy, WResume, capture types as a protocol-only commit to coord); web gate remainder, both bundles, TERM spec, then U-2.
-3. Integrator: merge `v3-worker`, `v3-coord`, `v3-web` into `v3` and re-run the workspace gate (S3.0-style) before Stage 3.
+1. The three leads close their tracks to a gated, pushed tip: coord (C-CAPTURE
+   evidence, the `:209` Sync-resume defect, `terminal-local-fast-path`, header
+   audit + README, track gate), worker (land the wave 2+3 series per slice, the
+   owed mutations, K-M1b, v2-map audit, door check, track gate), web (finish the
+   WIP, gate the tip, both bundles, the delivery spec, then U-2 with PAIRING
+   first).
+2. Integrator: trial-merge the three gated tips into `v3` in the order worker,
+   coord, web, run the workspace gate (two agreeing `cargo test --workspace
+   --no-fail-fast` runs, clippy 0, `cargo xtask lint` 0 with its input count,
+   fmt clean), record it in `docs/v3-gate-baselines.md` "Phase gates", then
+   merge `v3` back into each track branch.
+3. Stage 3 backend gates (`roost-v3-finish-and-cutover-plan.md` §Stage 3) run
+   here; Stage 3.3 (install gate as a scratch user) and Stage 4 (production
+   cutover) are runbooks for the coordinator host.
 
 ## Host facts the plan relies on
 
-- Production (`mike.roosttt.com`) still runs v2 on the original host; Stages 3.3–4 run there (install gate user, cloudflared, caddy, systemd bridge). The v2 keeper on that host is never killed.
-- Port 4114 (v3 local door) was free on the original host at handoff; v2's door is 4104.
+- Production `https://mike.roosttt.com` (the v2 coordinator) runs on the
+  original host; this host is a v2 **worker** in that fleet. Stages 3.3–4 touch
+  the coordinator host, not this one.
+- Port 4114 (v3 local door) is free here; v2's door on this host is 4104 and is
+  in use by the live worker.
