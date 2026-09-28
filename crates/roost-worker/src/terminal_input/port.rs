@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use roost_proto::{DInputRequest, DTerminalInputRouteClaim, TerminalInputRouteResult};
 use roost_protocol::wire::brand::{ChannelId, SessionId};
-use roost_protocol::wire::coord_worker::{InputResult, TerminalInputStatus};
+use roost_protocol::wire::coord_worker::InputResult;
 
 use super::link_authority::{LinkClaimBudget, LinkInputAuthority, LinkRequestBudget};
 use super::route_owner::{RouteActor, RouteClaim, TerminalInputRouteOwner};
@@ -19,7 +19,7 @@ use crate::link_ports::TerminalInputPort;
 use crate::session::input_write::WorkerInputResult;
 use crate::session::lifecycle::SessionManager;
 use crate::session::table::SessionTable;
-use crate::uplink::terminal_results::InputResultKey;
+use crate::uplink::terminal_results::{InputResultKey, worker_input_result};
 use crate::uplink::{LinkFence, OwnerFuture, RequestBudget};
 
 /// v2's coordinator-link input callbacks, over one route owner and one work
@@ -68,7 +68,7 @@ impl TerminalInputPort for InputOwner {
                 let refused = WorkerInputResult::Rejected {
                     reason: reason.to_owned(),
                 };
-                return Box::pin(std::future::ready(input_result(&key, &refused)));
+                return Box::pin(std::future::ready(worker_input_result(&key, &refused, false)));
             }
         };
         let authority = LinkInputAuthority::for_request(
@@ -92,7 +92,7 @@ impl TerminalInputPort for InputOwner {
         Box::pin(async move {
             let result = written.await;
             drop(reservation);
-            input_result(&key, &result)
+            worker_input_result(&key, &result, false)
         })
     }
 
@@ -133,33 +133,5 @@ impl TerminalInputPort for InputOwner {
 
     fn retire_connection(&self, socket_id: &str) {
         self.routes.retire_connection(socket_id);
-    }
-}
-
-/// The one `input-result` the coordinator is told, or nothing when its session
-/// id is not one the wire record can carry.
-fn input_result(key: &InputResultKey, result: &WorkerInputResult) -> Option<InputResult> {
-    let (status, written_bytes, reason) = match result {
-        WorkerInputResult::Accepted { written_bytes } => {
-            (TerminalInputStatus::Accepted, *written_bytes, "")
-        }
-        WorkerInputResult::Rejected { reason } => {
-            (TerminalInputStatus::Rejected, 0, reason.as_str())
-        }
-        WorkerInputResult::Ambiguous {
-            written_bytes,
-            reason,
-        } => (
-            TerminalInputStatus::Ambiguous,
-            *written_bytes,
-            reason.as_str(),
-        ),
-    };
-    match key.to_result(status, written_bytes, reason) {
-        Ok(shaped) => Some(shaped),
-        Err(error) => {
-            tracing::warn!(request_id = %key.request_id, %error, "an input result cannot name the coordinator's session");
-            None
-        }
     }
 }

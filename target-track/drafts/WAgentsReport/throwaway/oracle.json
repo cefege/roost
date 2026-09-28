@@ -1,0 +1,227 @@
+[
+ {
+  "line": "5",
+  "ok": false,
+  "detail": "Expected object, received number"
+ },
+ {
+  "line": "\"s\"",
+  "ok": false,
+  "detail": "Expected object, received string"
+ },
+ {
+  "line": "null",
+  "ok": false,
+  "detail": "Expected object, received null"
+ },
+ {
+  "line": "[]",
+  "ok": false,
+  "detail": "Expected object, received array"
+ },
+ {
+  "line": "{}",
+  "ok": false,
+  "detail": "Invalid discriminator value. Expected 'agent.report' | 'agent.reference'"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.nope\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":\"working\",\"active\":true}}",
+  "ok": false,
+  "detail": "Invalid discriminator value. Expected 'agent.report' | 'agent.reference'"
+ },
+ {
+  "line": "{\"version\":1,\"method\":7,\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":\"working\",\"active\":true}}",
+  "ok": false,
+  "detail": "Invalid discriminator value. Expected 'agent.report' | 'agent.reference'"
+ },
+ {
+  "line": "{\"version\":2,\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":\"working\",\"active\":true}}",
+  "ok": false,
+  "detail": "Invalid literal value, expected 1"
+ },
+ {
+  "line": "{\"version\":\"1\",\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":\"working\",\"active\":true}}",
+  "ok": false,
+  "detail": "Invalid literal value, expected 1"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":\"working\",\"active\":true}}",
+  "ok": true,
+  "detail": null
+ },
+ {
+  "line": "{\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":\"working\",\"active\":true}}",
+  "ok": false,
+  "detail": "Invalid literal value, expected 1"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"capability\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":\"working\",\"active\":true}}",
+  "ok": false,
+  "detail": "Invalid"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"capability\":5,\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":\"working\",\"active\":true}}",
+  "ok": false,
+  "detail": "Expected string, received number"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":\"working\",\"active\":true}}",
+  "ok": false,
+  "detail": "Required"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":5}",
+  "ok": false,
+  "detail": "Expected object, received number"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":null}",
+  "ok": false,
+  "detail": "Expected object, received null"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+  "ok": false,
+  "detail": "Required"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"nope\",\"state\":\"working\",\"active\":true}}",
+  "ok": false,
+  "detail": "Invalid"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":5,\"state\":\"working\",\"active\":true}}",
+  "ok": false,
+  "detail": "Expected string, received number"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":\"unknown\",\"active\":true}}",
+  "ok": false,
+  "detail": "state \"unknown\" is not reported; send active: false to withdraw the status"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":\"done\",\"active\":true}}",
+  "ok": false,
+  "detail": "state must be one of working, blocked, idle"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":3,\"active\":true}}",
+  "ok": false,
+  "detail": "Expected string, received number"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":\"working\",\"active\":true,\"message\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}}",
+  "ok": false,
+  "detail": "String must contain at most 512 character(s)"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":\"working\",\"active\":true,\"message\":null}}",
+  "ok": false,
+  "detail": "Expected string, received null"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":\"working\",\"active\":true,\"message\":\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\"}}",
+  "ok": true,
+  "detail": null
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":\"working\",\"active\":true,\"message\":\"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\"}}",
+  "ok": false,
+  "detail": "String must contain at most 512 character(s)"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":\"working\",\"active\":\"yes\"}}",
+  "ok": false,
+  "detail": "Expected boolean, received string"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":\"working\",\"active\":true,\"pid\":7}}",
+  "ok": false,
+  "detail": "Unrecognized key(s) in object: 'pid'"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":\"working\"}}",
+  "ok": false,
+  "detail": "Required"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"active\":true}}",
+  "ok": false,
+  "detail": "Required"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":\"unknown\",\"active\":true},\"extra\":1}",
+  "ok": false,
+  "detail": "state \"unknown\" is not reported; send active: false to withdraw the status"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":\"working\",\"active\":true},\"extra\":1}",
+  "ok": false,
+  "detail": "Unrecognized key(s) in object: 'extra'"
+ },
+ {
+  "line": "{\"version\":2,\"method\":\"agent.report\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"state\":5,\"active\":true}}",
+  "ok": false,
+  "detail": "Invalid literal value, expected 1"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.reference\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"reference\":{\"kind\":\"id\",\"value\":\"x\"}}}",
+  "ok": true,
+  "detail": null
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.reference\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"reference\":null}}",
+  "ok": true,
+  "detail": null
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.reference\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\"}}",
+  "ok": false,
+  "detail": "Required"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.reference\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"reference\":5}}",
+  "ok": false,
+  "detail": "Expected object, received number"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.reference\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"reference\":{\"kind\":\"x\",\"value\":\"v\"}}}",
+  "ok": false,
+  "detail": "Invalid enum value. Expected 'id' | 'path', received 'x'"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.reference\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"reference\":{\"kind\":5,\"value\":\"v\"}}}",
+  "ok": false,
+  "detail": "Expected 'id' | 'path', received number"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.reference\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"reference\":{\"value\":\"v\"}}}",
+  "ok": false,
+  "detail": "Required"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.reference\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"reference\":{\"kind\":\"id\"}}}",
+  "ok": false,
+  "detail": "Required"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.reference\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"reference\":{\"kind\":\"id\",\"value\":5}}}",
+  "ok": false,
+  "detail": "Expected string, received number"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.reference\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"reference\":{\"kind\":\"id\",\"value\":\"\"}}}",
+  "ok": false,
+  "detail": "invalid agent conversation reference"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.reference\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"reference\":{\"kind\":\"id\",\"value\":\"a\\u0000b\"}}}",
+  "ok": false,
+  "detail": "invalid agent conversation reference"
+ },
+ {
+  "line": "{\"version\":1,\"method\":\"agent.reference\",\"capability\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"params\":{\"session_id\":\"11111111-1111-4111-8111-111111111111\",\"reference\":{\"kind\":\"id\",\"value\":\"v\",\"extra\":1}}}",
+  "ok": false,
+  "detail": "Unrecognized key(s) in object: 'extra'"
+ }
+]

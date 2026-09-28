@@ -10,6 +10,7 @@ use std::time::Instant;
 use roost_observability::clock::{EventClock, SystemClock};
 use roost_protocol::cell::frame_chunks::encoded_cell_grid_frame_size;
 use roost_protocol::cell::{CELL_GRID_PART_MAX_BYTES, CellGridFrame, cell_frame_to_proto};
+use roost_protocol::terminal_capture::bundle::TerminalCoverageReason;
 use roost_protocol::wire::brand::ChannelId;
 use roost_term::next_cell_frame;
 use tracing::warn;
@@ -141,10 +142,13 @@ impl CellEmitter {
             record.terminal_core.clear_dirty();
             self.clear_dirty(channel_id);
             self.clear_stream_delivery_dirty(channel_id);
+            let evidence = self.capture.wants_emissions().then(|| frame.clone());
             if let Err(reason) = self.install_baseline(channel_id, frame, timings) {
                 // A core that produced something the wire refuses cannot be
                 // trusted either (v2 `installStreamBaseline` → coreValid=false).
                 warn!(%channel_id, %reason, "a full cell frame could not be installed as a baseline");
+                self.capture
+                    .rejected_emission(record, TerminalCoverageReason::BaselineInvalidated);
                 self.retire_stream_delivery(channel_id);
                 self.set_core_valid(channel_id, false);
                 return FrameOutcome::Full {
@@ -152,6 +156,7 @@ impl CellEmitter {
                     installed: false,
                 };
             }
+            self.capture.accepted_emission(record, evidence);
             record.last_pty_out_ms = 0;
             return FrameOutcome::Full {
                 seq,
@@ -165,16 +170,21 @@ impl CellEmitter {
         if fanout.accepted == 0 {
             // Nobody took this seq, so the repair full re-uses it and the
             // receivers' sequence space stays contiguous.
+            self.capture
+                .rejected_emission(record, TerminalCoverageReason::BaselineInvalidated);
             self.repair_stream(record, now_ms, now);
             return FrameOutcome::Delta { seq, fanout };
         }
         record.cell_emit = next_state;
         record.terminal_core.clear_dirty();
         self.clear_dirty(channel_id);
+        self.capture.accepted_emission(record, Some(frame));
         record.last_pty_out_ms = 0;
         if fanout.dropped > 0 {
             // One core, one frame per tick: a sink that dropped what its
             // siblings took costs ONE stream-wide full.
+            self.capture
+                .rejected_emission(record, TerminalCoverageReason::BaselineInvalidated);
             self.repair_stream(record, now_ms, now);
         }
         FrameOutcome::Delta { seq, fanout }

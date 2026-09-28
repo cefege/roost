@@ -1,0 +1,1 @@
+DONE with pending evidence: all 29 WPeer tests + 14 unit tests passed pre-split (tmp/wpeer/base-test.log). Batch-A mutations seen failing (tmp/wpeer/mut-A.log). Still running in tmp/wpeer/run2.sh (pid 633770): the split test files (base2-test.log), mutation batch B M3/M4/M6/M7/M17 (mut-B.log), clippy -D warnings (clippy.log); all2.done marks completion.

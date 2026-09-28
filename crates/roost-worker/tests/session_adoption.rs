@@ -28,7 +28,6 @@ async fn an_adoption_seeds_the_head_from_the_keeper_not_from_the_retained_bytes(
     *keeper.history.lock().expect("held") = SurvivorHistory {
         records: vec![
             HistoryRecord::Output {
-                seq: 10,
                 bytes: b"one".to_vec(),
             },
             HistoryRecord::Resize {
@@ -37,7 +36,6 @@ async fn an_adoption_seeds_the_head_from_the_keeper_not_from_the_retained_bytes(
                 rows: 24,
             },
             HistoryRecord::Output {
-                seq: 13,
                 bytes: b"three!".to_vec(),
             },
         ],
@@ -91,7 +89,6 @@ async fn an_adoption_within_the_bound_replays_the_history_then_the_staged_bytes(
     let keeper = Arc::new(ScriptedKeeper::with_survivor(7, 4242));
     *keeper.history.lock().expect("held") = SurvivorHistory {
         records: vec![HistoryRecord::Output {
-            seq: 5,
             bytes: b"hello".to_vec(),
         }],
         head_seq: 5,
@@ -177,7 +174,6 @@ async fn a_survivor_whose_replay_does_not_converge_on_the_keepers_geometry_is_re
     *keeper.history.lock().expect("held") = SurvivorHistory {
         records: vec![
             HistoryRecord::Output {
-                seq: 9,
                 bytes: b"wide".to_vec(),
             },
             HistoryRecord::Resize {
@@ -243,7 +239,6 @@ async fn a_survivor_whose_replay_converges_on_the_keepers_geometry_is_admitted()
     *keeper.history.lock().expect("held") = SurvivorHistory {
         records: vec![
             HistoryRecord::Output {
-                seq: 9,
                 bytes: b"wide".to_vec(),
             },
             HistoryRecord::Resize {

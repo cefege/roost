@@ -1,0 +1,74 @@
+
+running 7 tests
+test a_restarted_link_numbers_its_snapshot_above_the_previous_process ... FAILED
+test the_snapshot_and_a_journal_row_never_share_a_sequence ... ok
+test a_restart_replays_the_unacknowledged_rows_before_its_snapshot ... ok
+test sink_rows_reach_the_coordinator_before_the_snapshot_and_while_live ... ok
+test a_blocking_claim_holds_the_snapshot_until_it_is_held ... ok
+test a_held_snapshot_drains_the_replay_and_publishes_only_once_activated ... ok
+test the_replay_barrier_waits_for_acked_rows_and_unblocked_claims ... ok
+
+failures:
+
+---- a_restarted_link_numbers_its_snapshot_above_the_previous_process stdout ----
+
+thread 'a_restarted_link_numbers_its_snapshot_above_the_previous_process' (773073) panicked at crates/roost-worker/tests/durable_delivery.rs:374:5:
+the snapshot 1 reuses a sequence at or below 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    a_restarted_link_numbers_its_snapshot_above_the_previous_process
+
+test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+
+   Compiling roost-proto v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-proto)
+   Compiling roost-protocol v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-protocol)
+   Compiling roost-host v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-host)
+   Compiling roost-keeper v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-keeper)
+   Compiling roost-term v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-term)
+   Compiling roost-worker v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-worker)
+warning: unused import: `LOCAL_TERMINAL_MAX_PAYLOAD_BYTES`
+  --> crates/roost-worker/src/runtime/door_routes.rs:22:50
+   |
+22 |     LOCAL_ATTACHMENT_PATH, LOCAL_BOOTSTRAP_PATH, LOCAL_TERMINAL_MAX_PAYLOAD_BYTES,
+   |                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/roost-worker/src/door/loopback.rs:164:5
+    |
+164 |     mut stop: watch::Receiver<bool>,
+    |     ----^^^^
+    |     |
+    |     help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `stop`
+   --> crates/roost-worker/src/door/loopback.rs:164:5
+    |
+164 |     mut stop: watch::Receiver<bool>,
+    |     ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_stop`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: variant `DoorStopped` is never constructed
+   --> crates/roost-worker/src/door/loopback.rs:156:5
+    |
+152 | enum Ended {
+    |      ----- variant in this enum
+...
+156 |     DoorStopped,
+    |     ^^^^^^^^^^^
+    |
+    = note: `Ended` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `roost-worker` (lib) generated 4 warnings (run `cargo fix --lib -p roost-worker` to apply 3 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 33s
+     Running tests/durable_delivery.rs (target-track/debug/deps/durable_delivery-359cce7b95291233)
+error: test failed, to rerun pass `-p roost-worker --test durable_delivery`
+error: 1 target failed:
+    `-p roost-worker --test durable_delivery`

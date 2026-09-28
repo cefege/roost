@@ -1,0 +1,166 @@
+   Compiling roost-proto v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-proto)
+   Compiling roost-protocol v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-protocol)
+   Compiling roost-host v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-host)
+   Compiling roost-keeper v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-keeper)
+   Compiling roost-term v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-term)
+   Compiling roost-worker v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 06s
+     Running unittests src/lib.rs (target-track/debug/deps/roost_worker-3b810b8980769e9c)
+
+running 52 tests
+test agents::environment::tests::hmac_matches_the_rfc_4231_vectors ... ok
+test attachments::file_hash::tests::the_digest_of_nothing_is_the_published_empty_sha256 ... ok
+test attachments::naming::tests::inert_spaces_quotes_shell_syntax_and_unicode_survive ... ok
+test attachments::naming::tests::every_c0_del_and_c1_control_is_removed_before_the_name_is_parsed ... ok
+test attachments::peer_budget::tests::the_worker_wide_data_ceiling_refuses_a_peer_that_its_own_lane_would_admit ... ok
+test attachments::peer_request_validation::tests::accepts_a_versioned_uuid_peer_and_bounded_opaque_ids ... ok
+test attachments::peer_request_validation::tests::refuses_an_unversioned_peer_an_empty_or_oversized_id_and_control_characters ... ok
+test attachments::store_paths::tests::a_session_id_that_climbs_out_of_the_base_has_no_directory ... ok
+test door::admission::tests::only_exact_origins_are_admitted ... ok
+test door::admission::tests::the_connect_origins_are_the_coordinator_and_its_socket_twin ... ok
+test door::loopback_socket::tests::a_send_behind_unflushed_bytes_is_queued_and_a_closed_socket_drops ... ok
+test host::local_endpoint::tests::a_capability_matches_only_itself ... ok
+test host::local_endpoint::tests::an_endpoint_name_is_one_safe_path_segment ... ok
+test host::openssh_key::tests::a_damaged_body_is_refused_rather_than_signed_with ... ok
+test host::openssh_key::tests::a_key_v2_wrote_is_readable_here ... ok
+test host::openssh_key::tests::a_key_written_here_is_the_file_v2_wrote ... ok
+test peer::config::tests::bind_addresses_must_be_literal_unicast ... ok
+test peer::config::tests::enabled_follows_v2_platform_defaults_and_spelling ... ok
+test peer::config::tests::port_ranges_are_bounded_decimal_pairs ... ok
+test peer::coordinator_generation::tests::one_generation_is_adopted_until_cleared ... ok
+test peer::native::gather::tests::stun_urls_resolve_to_host_and_port ... ok
+test peer::native::host_addresses::tests::ifconfig_addresses_of_down_interfaces_are_skipped ... ok
+test peer::native::host_addresses::tests::only_settled_global_inet6_addresses_are_offered ... ok
+test peer::native::host_addresses::tests::the_local_table_yields_each_host_address_once_per_marker ... ok
+test peer::native::stun::tests::a_binding_request_is_a_bare_header ... ok
+test agents::manifest_regex::tests::word_digit_and_boundary_classes_are_ascii_as_in_javascript ... ok
+test peer::native::stun::tests::a_binding_success_yields_its_xor_mapped_address ... ok
+test attachments::naming::tests::the_stem_is_bounded_in_utf16_units_and_the_extension_is_kept ... ok
+test peer::request_validation::tests::a_peer_id_must_be_a_versioned_uuid_and_ids_must_be_bounded ... ok
+test runtime::bootstrap_redeem::label::tests::an_empty_value_is_dropped_wherever_it_arrives ... ok
+test runtime::bootstrap_redeem::label::tests::a_host_with_no_name_at_all_is_refused_rather_than_called_worker ... ok
+test runtime::bootstrap_redeem::label::tests::the_machine_name_outranks_the_shell_hostname ... ok
+test runtime::bootstrap_redeem::label::tests::an_empty_value_is_no_value_at_every_step ... ok
+test runtime::bootstrap_redeem::label::tests::the_shell_hostname_is_the_last_resort_not_the_first ... ok
+test attachments::naming::tests::a_dotfile_loses_its_leading_dots_and_an_empty_stem_becomes_file ... ok
+test runtime::bootstrap_redeem::label::tests::this_host_can_name_itself_and_windows_cannot ... ok
+test runtime::bootstrap_redeem::tests::only_a_coordinator_that_did_not_answer_counts_as_silent ... ok
+test runtime::capabilities::tests::a_peer_capability_is_advertised_only_for_a_bootstrapped_owner ... ok
+test runtime::bootstrap_redeem::tests::a_compiled_stamp_is_reported_and_a_source_checkout_sends_nothing ... ok
+test runtime::capabilities::tests::the_list_is_sorted_and_free_of_duplicates ... ok
+test runtime::bootstrap_redeem::label::tests::the_operator_label_outranks_the_machine_name ... ok
+test runtime::door_serve::tests::a_bind_that_is_not_the_loopback_door_is_refused_by_name ... ok
+test runtime::door_serve::tests::an_occupied_bind_is_refused_rather_than_silently_skipped ... ok
+test runtime::door_serve::tests::the_environment_feeds_the_admitted_origins_and_the_page_build ... ok
+test runtime::door_serve::tests::the_door_opens_on_loopback_and_reports_where_it_listens ... ok
+test agents::manifest_regex::tests::anchors_bind_to_the_whole_region_and_flags_carry_over ... ok
+test runtime::capabilities::tests::every_advertised_name_is_the_protocols_own_spelling ... ok
+test attachments::peer_budget::tests::a_data_lane_refuses_past_its_own_cap_and_returns_its_bytes_on_dispose ... ok
+test agents::manifest_regex::tests::whitespace_is_javascript_s_set ... ok
+test agents::manifest_regex::tests::dot_stops_at_every_javascript_line_terminator ... ok
+test runtime::link_loop::durable::tests::an_opened_event_is_offered_before_that_sessions_first_cells ... ok
+test runtime::link_loop::durable::tests::an_un_acknowledged_row_is_still_waiting_for_the_next_link ... ok
+
+test result: ok. 52 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/direct_terminal.rs (target-track/debug/deps/direct_terminal-e23639af7dd5ea49)
+
+running 4 tests
+test a_transport_probe_is_answered_only_for_this_process_epoch ... ok
+test a_direct_retire_disposes_only_for_this_epoch_and_v2s_two_reasons ... ok
+test one_coordinator_generation_is_adopted_per_link_and_released_on_detach ... ok
+test a_device_revoke_reaches_the_doors_grants ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/link_downstream_absent.rs (target-track/debug/deps/link_downstream_absent-84d153027af39fbd)
+
+running 8 tests
+test attachment_chunks_and_revocations_without_the_owner_are_inert ... ok
+test optional_callbacks_and_retired_tags_are_inert ... ok
+test an_agent_prompt_is_rejected_pre_write ... FAILED
+test a_worker_without_owners_refuses_input_and_claims_as_v2_does ... ok
+test peer_offers_are_disabled_and_an_unknown_upload_is_not_found ... ok
+test unsupported_grants_and_keeper_update_answer_v2s_rpc_errors ... ok
+test update_broker_answers_as_v2s_posix_worker ... ok
+test ping_is_ponged_and_a_browser_command_goes_to_the_pump_fenced_to_this_connection ... ok
+
+failures:
+
+---- an_agent_prompt_is_rejected_pre_write stdout ----
+
+thread 'an_agent_prompt_is_rejected_pre_write' (584491) panicked at crates/roost-worker/src/runtime/downstream/owner_task.rs:63:5:
+there is no reactor running, must be called from the context of a Tokio 1.x runtime
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    an_agent_prompt_is_rejected_pre_write
+
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p roost-worker --test link_downstream_absent`
+     Running tests/link_downstream_direct.rs (target-track/debug/deps/link_downstream_direct-e45c5746a080a9b9)
+
+running 3 tests
+test direct_downstream_emits_typed_peer_and_probe_results_while_routing_cancel_and_retirement ... ok
+test a_refused_offer_answers_its_reason_and_a_failed_owner_answers_ice_failed ... ok
+test an_answer_for_a_superseded_coordinator_connection_is_dropped ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/link_downstream_live.rs (target-track/debug/deps/link_downstream_live-e66f54d3541b7d52)
+
+running 2 tests
+test an_unparseable_relayed_frame_is_refused_with_its_envelope_request_id ... ok
+test a_live_link_dispatches_answers_and_calls_every_lifecycle_hook_across_a_redial ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/link_downstream_local_grant.rs (target-track/debug/deps/link_downstream_local_grant-f7bfcaee441831f0)
+
+running 4 tests
+test a_refused_install_answers_the_stores_reason ... ok
+test a_revocation_reaches_the_door_and_is_not_answered ... ok
+test a_worker_without_a_local_door_refuses_grants_as_v2_does ... ok
+test an_accepted_install_is_acknowledged_with_its_grant_id ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/terminal_peer_owner.rs (target-track/debug/deps/terminal_peer_owner-bfc5e10fd45d8ac3)
+
+running 6 tests
+test does_not_promote_an_answer_whose_peer_closes_before_the_offer_continuation ... ok
+test reports_bootstrap_states_and_bounds_pending_offers ... ok
+test every_offer_fault_fires_once_at_its_owner_boundary ... ok
+test retires_one_peer_for_an_injected_port_close_or_native_callback ... ok
+test binds_the_expected_tuple_before_native_sdp_creates_fixed_channels_and_checks_dtls ... ok
+test reserves_the_final_established_slot_while_an_answer_is_still_pending ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/terminal_peer_packet_port.rs (target-track/debug/deps/terminal_peer_packet_port-1b7d21942784808b)
+
+running 9 tests
+test commits_a_native_false_return_once_without_retrying_its_accepted_fragment ... ok
+test a_send_beyond_the_peer_control_ceiling_is_refused ... ok
+test keeps_control_reservation_separate_from_application_bytes_and_drains_lanes_by_priority ... ok
+test transfers_a_pre_read_history_ceiling_into_exact_queue_ownership ... ok
+test refuses_non_control_client_data_before_it_can_reach_a_terminal_ingress ... ok
+test reassembles_framed_control_rejects_malformed_packets_and_releases_a_partial_quota_on_close ... ok
+test settles_a_history_admission_only_after_its_queued_final_fragment_drains ... ok
+test retires_a_history_holder_instead_of_the_healthy_terminal_sender_under_worker_pressure ... ok
+test yields_before_sending_more_than_64_kib_from_one_low_water_flush ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/terminal_peer_str0m.rs (target-track/debug/deps/terminal_peer_str0m-5664db5058cbc797)
+
+running 1 test
+test an_in_process_str0m_pair_carries_a_terminal_frame_both_ways ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+error: 1 target failed:
+    `-p roost-worker --test link_downstream_absent`
+exit=101

@@ -1,0 +1,261 @@
+   Compiling roost-proto v3.0.0 (/home/almalinux/repos/roost-v3-worker/target-track/tmp/wpeer/mut/crates/roost-proto)
+   Compiling roost-observability v3.0.0 (/home/almalinux/repos/roost-v3-worker/target-track/tmp/wpeer/mut/crates/roost-observability)
+   Compiling roost-host v3.0.0 (/home/almalinux/repos/roost-v3-worker/target-track/tmp/wpeer/mut/crates/roost-host)
+   Compiling roost-platform v3.0.0 (/home/almalinux/repos/roost-v3-worker/target-track/tmp/wpeer/mut/crates/roost-platform)
+   Compiling alacritty_terminal v0.26.0 (/home/almalinux/repos/roost-v3-worker/target-track/tmp/wpeer/mut/third_party/alacritty_terminal)
+   Compiling roost-protocol v3.0.0 (/home/almalinux/repos/roost-v3-worker/target-track/tmp/wpeer/mut/crates/roost-protocol)
+   Compiling roost-keeper v3.0.0 (/home/almalinux/repos/roost-v3-worker/target-track/tmp/wpeer/mut/crates/roost-keeper)
+   Compiling roost-term v3.0.0 (/home/almalinux/repos/roost-v3-worker/target-track/tmp/wpeer/mut/crates/roost-term)
+   Compiling roost-worker v3.0.0 (/home/almalinux/repos/roost-v3-worker/target-track/tmp/wpeer/mut/crates/roost-worker)
+warning: unused import: `TERMINAL_PEER_MAX_NEGOTIATIONS_PER_WORKER`
+  --> crates/roost-worker/src/peer/owner_offer.rs:14:47
+   |
+14 |     TERMINAL_PEER_MAX_ESTABLISHED_PER_WORKER, TERMINAL_PEER_MAX_NEGOTIATIONS_PER_WORKER,
+   |                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `TERMINAL_PEER_WORKER_APPLICATION_QUEUE_MAX_BYTES`
+  --> crates/roost-worker/src/peer/packet_budget.rs:18:5
+   |
+18 |     TERMINAL_PEER_WORKER_APPLICATION_QUEUE_MAX_BYTES, TERMINAL_PEER_WORKER_CONTROL_QUEUE_MAX_BYTES,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+  --> crates/roost-worker/src/peer/native/stun.rs:72:9
+   |
+72 |     let mut port = read_u16(value, 2)?;
+   |         ----^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `roost-worker` (lib) generated 3 warnings (run `cargo fix --lib -p roost-worker` to apply 3 suggestions)
+warning: `roost-worker` (lib test) generated 3 warnings (3 duplicates)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 52s
+     Running unittests src/lib.rs (target-track/debug/deps/roost_worker-3b810b8980769e9c)
+
+running 52 tests
+test agents::environment::tests::hmac_matches_the_rfc_4231_vectors ... ok
+test attachments::file_hash::tests::the_digest_of_nothing_is_the_published_empty_sha256 ... ok
+test attachments::naming::tests::every_c0_del_and_c1_control_is_removed_before_the_name_is_parsed ... ok
+test attachments::naming::tests::inert_spaces_quotes_shell_syntax_and_unicode_survive ... ok
+test attachments::naming::tests::the_stem_is_bounded_in_utf16_units_and_the_extension_is_kept ... ok
+test attachments::naming::tests::a_dotfile_loses_its_leading_dots_and_an_empty_stem_becomes_file ... ok
+test attachments::peer_budget::tests::a_data_lane_refuses_past_its_own_cap_and_returns_its_bytes_on_dispose ... ok
+test attachments::peer_budget::tests::the_worker_wide_data_ceiling_refuses_a_peer_that_its_own_lane_would_admit ... ok
+test attachments::peer_request_validation::tests::accepts_a_versioned_uuid_peer_and_bounded_opaque_ids ... ok
+test attachments::peer_request_validation::tests::refuses_an_unversioned_peer_an_empty_or_oversized_id_and_control_characters ... ok
+test attachments::store_paths::tests::a_session_id_that_climbs_out_of_the_base_has_no_directory ... ok
+test door::admission::tests::only_exact_origins_are_admitted ... ok
+test door::loopback_socket::tests::a_send_behind_unflushed_bytes_is_queued_and_a_closed_socket_drops ... ok
+test door::admission::tests::the_connect_origins_are_the_coordinator_and_its_socket_twin ... ok
+test host::local_endpoint::tests::an_endpoint_name_is_one_safe_path_segment ... ok
+test host::openssh_key::tests::a_key_v2_wrote_is_readable_here ... ok
+test host::local_endpoint::tests::a_capability_matches_only_itself ... ok
+test peer::config::tests::bind_addresses_must_be_literal_unicast ... ok
+test host::openssh_key::tests::a_key_written_here_is_the_file_v2_wrote ... ok
+test host::openssh_key::tests::a_damaged_body_is_refused_rather_than_signed_with ... ok
+test peer::config::tests::enabled_follows_v2_platform_defaults_and_spelling ... ok
+test peer::coordinator_generation::tests::one_generation_is_adopted_until_cleared ... ok
+test peer::native::gather::tests::stun_urls_resolve_to_host_and_port ... ok
+test peer::config::tests::port_ranges_are_bounded_decimal_pairs ... FAILED
+test peer::native::host_addresses::tests::ifconfig_addresses_of_down_interfaces_are_skipped ... ok
+test peer::native::host_addresses::tests::only_settled_global_inet6_addresses_are_offered ... ok
+test peer::native::host_addresses::tests::the_local_table_yields_each_host_address_once_per_marker ... ok
+test peer::native::stun::tests::a_binding_request_is_a_bare_header ... ok
+test peer::native::stun::tests::a_binding_success_yields_its_xor_mapped_address ... FAILED
+test runtime::bootstrap_redeem::label::tests::a_host_with_no_name_at_all_is_refused_rather_than_called_worker ... ok
+test peer::request_validation::tests::a_peer_id_must_be_a_versioned_uuid_and_ids_must_be_bounded ... FAILED
+test runtime::bootstrap_redeem::label::tests::an_empty_value_is_dropped_wherever_it_arrives ... ok
+test runtime::bootstrap_redeem::label::tests::an_empty_value_is_no_value_at_every_step ... ok
+test runtime::bootstrap_redeem::label::tests::the_shell_hostname_is_the_last_resort_not_the_first ... ok
+test runtime::bootstrap_redeem::label::tests::this_host_can_name_itself_and_windows_cannot ... ok
+test runtime::bootstrap_redeem::label::tests::the_operator_label_outranks_the_machine_name ... ok
+test runtime::bootstrap_redeem::tests::a_compiled_stamp_is_reported_and_a_source_checkout_sends_nothing ... ok
+test runtime::capabilities::tests::a_peer_capability_is_advertised_only_for_a_bootstrapped_owner ... FAILED
+test runtime::capabilities::tests::every_advertised_name_is_the_protocols_own_spelling ... ok
+test runtime::capabilities::tests::the_list_is_sorted_and_free_of_duplicates ... ok
+test runtime::door_serve::tests::a_bind_that_is_not_the_loopback_door_is_refused_by_name ... ok
+test runtime::door_serve::tests::an_occupied_bind_is_refused_rather_than_silently_skipped ... ok
+test runtime::door_serve::tests::the_environment_feeds_the_admitted_origins_and_the_page_build ... ok
+test runtime::door_serve::tests::the_door_opens_on_loopback_and_reports_where_it_listens ... ok
+test runtime::bootstrap_redeem::tests::only_a_coordinator_that_did_not_answer_counts_as_silent ... ok
+test runtime::bootstrap_redeem::label::tests::the_machine_name_outranks_the_shell_hostname ... ok
+test agents::manifest_regex::tests::word_digit_and_boundary_classes_are_ascii_as_in_javascript ... ok
+test agents::manifest_regex::tests::anchors_bind_to_the_whole_region_and_flags_carry_over ... ok
+test agents::manifest_regex::tests::dot_stops_at_every_javascript_line_terminator ... ok
+test agents::manifest_regex::tests::whitespace_is_javascript_s_set ... ok
+test runtime::link_loop::durable::tests::an_opened_event_is_offered_before_that_sessions_first_cells ... ok
+test runtime::link_loop::durable::tests::an_un_acknowledged_row_is_still_waiting_for_the_next_link ... ok
+
+failures:
+
+---- peer::config::tests::port_ranges_are_bounded_decimal_pairs stdout ----
+
+thread 'peer::config::tests::port_ranges_are_bounded_decimal_pairs' (627881) panicked at crates/roost-worker/src/peer/config.rs:130:13:
+1023-2000
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- peer::native::stun::tests::a_binding_success_yields_its_xor_mapped_address stdout ----
+
+thread 'peer::native::stun::tests::a_binding_success_yields_its_xor_mapped_address' (627888) panicked at crates/roost-worker/src/peer/native/stun.rs:122:9:
+assertion `left == right` failed
+  left: Some(192.0.2.1:41287)
+ right: Some(192.0.2.1:32853)
+
+---- peer::request_validation::tests::a_peer_id_must_be_a_versioned_uuid_and_ids_must_be_bounded stdout ----
+
+thread 'peer::request_validation::tests::a_peer_id_must_be_a_versioned_uuid_and_ids_must_be_bounded' (627889) panicked at crates/roost-worker/src/peer/request_validation.rs:64:9:
+assertion failed: !valid_terminal_peer_offer_identity(&offer("0f8fad5b-d9cb-069f-a165-70867728950e",
+                "grant"))
+
+---- runtime::capabilities::tests::a_peer_capability_is_advertised_only_for_a_bootstrapped_owner stdout ----
+
+thread 'runtime::capabilities::tests::a_peer_capability_is_advertised_only_for_a_bootstrapped_owner' (627899) panicked at crates/roost-worker/src/runtime/capabilities.rs:103:9:
+assertion failed: !neither.contains(&terminal) && !neither.contains(&attachment)
+
+
+failures:
+    peer::config::tests::port_ranges_are_bounded_decimal_pairs
+    peer::native::stun::tests::a_binding_success_yields_its_xor_mapped_address
+    peer::request_validation::tests::a_peer_id_must_be_a_versioned_uuid_and_ids_must_be_bounded
+    runtime::capabilities::tests::a_peer_capability_is_advertised_only_for_a_bootstrapped_owner
+
+test result: FAILED. 48 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p roost-worker --lib`
+     Running tests/direct_terminal.rs (target-track/debug/deps/direct_terminal-e23639af7dd5ea49)
+
+running 4 tests
+test one_coordinator_generation_is_adopted_per_link_and_released_on_detach ... ok
+test a_transport_probe_is_answered_only_for_this_process_epoch ... FAILED
+test a_device_revoke_reaches_the_doors_grants ... ok
+test a_direct_retire_disposes_only_for_this_epoch_and_v2s_two_reasons ... FAILED
+
+failures:
+
+---- a_transport_probe_is_answered_only_for_this_process_epoch stdout ----
+
+thread 'a_transport_probe_is_answered_only_for_this_process_epoch' (627914) panicked at crates/roost-worker/tests/direct_terminal.rs:101:5:
+assertion failed: direct.transport_probe(&probe("22222222-2222-4222-8222-222222222222")).is_none()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- a_direct_retire_disposes_only_for_this_epoch_and_v2s_two_reasons stdout ----
+
+thread 'a_direct_retire_disposes_only_for_this_epoch_and_v2s_two_reasons' (627913) panicked at crates/roost-worker/tests/direct_terminal.rs:117:5:
+a foreign or unknown retire keeps the grants
+
+
+failures:
+    a_direct_retire_disposes_only_for_this_epoch_and_v2s_two_reasons
+    a_transport_probe_is_answered_only_for_this_process_epoch
+
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p roost-worker --test direct_terminal`
+     Running tests/link_downstream_direct.rs (target-track/debug/deps/link_downstream_direct-e45c5746a080a9b9)
+
+running 3 tests
+test direct_downstream_emits_typed_peer_and_probe_results_while_routing_cancel_and_retirement ... ok
+test a_refused_offer_answers_its_reason_and_a_failed_owner_answers_ice_failed ... ok
+test an_answer_for_a_superseded_coordinator_connection_is_dropped ... FAILED
+
+failures:
+
+---- an_answer_for_a_superseded_coordinator_connection_is_dropped stdout ----
+
+thread 'an_answer_for_a_superseded_coordinator_connection_is_dropped' (627918) panicked at crates/roost-worker/tests/link_downstream_direct.rs:153:5:
+the answer was fenced to the connection that asked
+
+
+failures:
+    an_answer_for_a_superseded_coordinator_connection_is_dropped
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p roost-worker --test link_downstream_direct`
+     Running tests/terminal_peer_owner.rs (target-track/debug/deps/terminal_peer_owner-bfc5e10fd45d8ac3)
+
+running 6 tests
+test does_not_promote_an_answer_whose_peer_closes_before_the_offer_continuation ... ok
+test binds_the_expected_tuple_before_native_sdp_creates_fixed_channels_and_checks_dtls ... ok
+test every_offer_fault_fires_once_at_its_owner_boundary ... ok
+test retires_one_peer_for_an_injected_port_close_or_native_callback ... ok
+test reserves_the_final_established_slot_while_an_answer_is_still_pending ... ok
+test reports_bootstrap_states_and_bounds_pending_offers has been running for over 60 seconds
+error: test failed, to rerun pass `-p roost-worker --test terminal_peer_owner`
+
+Caused by:
+  process didn't exit successfully: `/home/almalinux/repos/roost-v3-worker/target-track/debug/deps/terminal_peer_owner-bfc5e10fd45d8ac3` (signal: 15, SIGTERM: termination signal)
+     Running tests/terminal_peer_packet_port.rs (target-track/debug/deps/terminal_peer_packet_port-1b7d21942784808b)
+
+running 9 tests
+test refuses_non_control_client_data_before_it_can_reach_a_terminal_ingress ... ok
+test keeps_control_reservation_separate_from_application_bytes_and_drains_lanes_by_priority ... FAILED
+test commits_a_native_false_return_once_without_retrying_its_accepted_fragment ... FAILED
+test a_send_beyond_the_peer_control_ceiling_is_refused ... ok
+test settles_a_history_admission_only_after_its_queued_final_fragment_drains ... ok
+test reassembles_framed_control_rejects_malformed_packets_and_releases_a_partial_quota_on_close ... ok
+test retires_a_history_holder_instead_of_the_healthy_terminal_sender_under_worker_pressure ... FAILED
+test transfers_a_pre_read_history_ceiling_into_exact_queue_ownership ... ok
+test yields_before_sending_more_than_64_kib_from_one_low_water_flush ... ok
+
+failures:
+
+---- keeps_control_reservation_separate_from_application_bytes_and_drains_lanes_by_priority stdout ----
+
+thread 'keeps_control_reservation_separate_from_application_bytes_and_drains_lanes_by_priority' (631534) panicked at crates/roost-worker/tests/terminal_peer_packet_port.rs:168:5:
+the worker's application ceiling refuses a third peer
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- commits_a_native_false_return_once_without_retrying_its_accepted_fragment stdout ----
+
+thread 'commits_a_native_false_return_once_without_retrying_its_accepted_fragment' (631533) panicked at crates/roost-worker/tests/terminal_peer_packet_port.rs:114:5:
+assertion `left == right` failed
+  left: Accepted
+ right: Backpressured
+
+---- retires_a_history_holder_instead_of_the_healthy_terminal_sender_under_worker_pressure stdout ----
+
+thread 'retires_a_history_holder_instead_of_the_healthy_terminal_sender_under_worker_pressure' (631537) panicked at crates/roost-worker/tests/terminal_peer_packet_port.rs:250:5:
+assertion failed: !first.port.is_open()
+
+
+failures:
+    commits_a_native_false_return_once_without_retrying_its_accepted_fragment
+    keeps_control_reservation_separate_from_application_bytes_and_drains_lanes_by_priority
+    retires_a_history_holder_instead_of_the_healthy_terminal_sender_under_worker_pressure
+
+test result: FAILED. 6 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p roost-worker --test terminal_peer_packet_port`
+     Running tests/terminal_peer_str0m.rs (target-track/debug/deps/terminal_peer_str0m-5664db5058cbc797)
+
+running 1 test
+test an_in_process_str0m_pair_carries_a_terminal_frame_both_ways ... FAILED
+
+failures:
+
+---- an_in_process_str0m_pair_carries_a_terminal_frame_both_ways stdout ----
+
+thread 'an_in_process_str0m_pair_carries_a_terminal_frame_both_ways' (631542) panicked at crates/roost-worker/tests/peer_support/offerer.rs:87:72:
+an offerer event in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    an_in_process_str0m_pair_carries_a_terminal_frame_both_ways
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.06s
+
+error: test failed, to rerun pass `-p roost-worker --test terminal_peer_str0m`
+error: 6 targets failed:
+    `-p roost-worker --lib`
+    `-p roost-worker --test direct_terminal`
+    `-p roost-worker --test link_downstream_direct`
+    `-p roost-worker --test terminal_peer_owner`
+    `-p roost-worker --test terminal_peer_packet_port`
+    `-p roost-worker --test terminal_peer_str0m`
+exit=101

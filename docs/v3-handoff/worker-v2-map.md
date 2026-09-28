@@ -195,18 +195,18 @@ Rust paths are relative to `crates/roost-worker/src/` unless prefixed:
 ## diag
 | v2 path | status | rust path(s) | missing |
 |---|---|---|---|
-| byte-capture.ts | PORTED | capture/byte_window.rs | Never fed (retain_output uncalled) |
-| capture-storage.ts | PORTED | capture/bundle.rs | – |
-| terminal-capture-ack.ts | TYPES | proto:terminal_capture.rs, capture/leases.rs (recording_ack, stopped_ack, failed) | – |
-| terminal-capture.ts | PARTIAL | capture/recorder.rs, browser_commands/diagnostics.rs | No data-path taps (bytes, geometry, emission, teardown) |
-| terminal-capture-registry.ts | PORTED | capture/leases.rs Registry | – |
-| terminal-capture-bundle-writer.ts | PARTIAL | capture/recorder.rs + bundle.rs | No gzip, budget fitting or validator gate |
-| terminal-capture-evidence.ts | PARTIAL | capture/leases.rs admit_evidence | No history row-range derivation |
-| terminal-capture-write.ts | PARTIAL | capture/recorder.rs capture() | No worker-local conflict capture or layered sections |
-| terminal-capture-emission.ts | NONE | – | – |
-| terminal-capture-pools.ts | NONE | – | – |
-| terminal-capture-recorder.ts | NONE | – | Segment chain, fold, sampling gates |
-| terminal-capture-worker-section.ts | NONE | – | – |
+| byte-capture.ts | PORTED | capture/byte_window.rs (fed by session/emit_ingest.rs via CaptureTap::retain_output) | – |
+| capture-storage.ts | PORTED | capture/storage.rs (gzip `terminal-incident-<uuid>.json.gz` in the log dir, combined retention) | – |
+| terminal-capture-ack.ts | PORTED | capture/ack.rs | – |
+| terminal-capture.ts | PORTED | capture/{recorder,tap}.rs, browser_commands/diagnostics.rs; taps in session/{emit_frame,emit_ingest,resize,core_reprove}.rs | – |
+| terminal-capture-registry.ts | PORTED | capture/registry.rs | – |
+| terminal-capture-bundle-writer.ts | PORTED | capture/bundle_writer.rs (+ proto terminal_capture/validate*.rs gate) | – |
+| terminal-capture-evidence.ts | PORTED | capture/evidence.rs (+ proto terminal_capture/envelope.rs) | – |
+| terminal-capture-write.ts | PORTED | capture/{write,finish}.rs | – |
+| terminal-capture-emission.ts | PORTED | capture/emission.rs (+ proto terminal_capture/view.rs) | – |
+| terminal-capture-pools.ts | PORTED | capture/pools.rs | – |
+| terminal-capture-recorder.ts | PORTED | capture/recorder_state.rs | – |
+| terminal-capture-worker-section.ts | PORTED | capture/{worker_section,section_grid,section_coverage}.rs | – |
 
 ## browser-commands
 | v2 path | status | rust path(s) | missing |
@@ -364,10 +364,9 @@ Neither is constructed anywhere in `src/` outside this file. lib.rs:40 only decl
 - `struct OperationDescriptor{request_id, session_id, filename, short_path, total_bytes}`
 
 **capture/mod.rs**
-- `pub mod bundle`, `byte_window`, `leases`, `recorder`
-- `pub use CaptureRecorder`: production caller runtime/deps.rs:33,98. Its `retain_output` and `forget_session` have no caller.
-- `BYTE_CAPTURE_WINDOW_BYTES` (256 KiB): used by byte_window.rs:18.
-- `CAPTURE_DIR_NAME` ("captures"): used by bundle.rs:27,50.
+- `pub mod ack`, `bundle_writer`, `byte_window`, `emission`, `evidence`, `finish`, `pools`, `recorder`, `recorder_state`, `registry`, `section_coverage`, `section_grid`, `storage`, `tap`, `worker_section`, `write`
+- `CaptureRecorder::attach_to_emitter`: production caller runtime/session_stack.rs (one recorder; `deps` hands it to diagnostics; session-closed hook drops its state; owners shutdown stops the retention sweep).
+- `BYTE_CAPTURE_WINDOW_BYTES` (256 KiB): used by byte_window.rs.
 
 **agent_occupancy.rs** — no production caller; only tests/agent_occupancy.rs and tests/agent_screen_signal.rs.
 - `enum Source`

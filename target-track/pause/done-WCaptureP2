@@ -1,0 +1,1 @@
+PAUSED: all drafts wired and compiling; 41 worker + 31 protocol capture tests passed (31st = new view guard, run only under mutation); 9 of 18 mutations killed (M10 needed a new guard), 9 not run; regression tests + clippy unverified (build lock starvation). No mutation left in tree; no background job running.
