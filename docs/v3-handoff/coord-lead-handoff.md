@@ -55,21 +55,44 @@ The wave-3 series compiles as a whole at `90a293a1` (checked: `cargo check -p ro
   defect, not yet diagnosed.
 - terminal-local-fast-path: its only test is `@serial`; not yet run (chromium-serial).
 
-## In flight (helpers, uncommitted in the worktree)
+## UNCOMMITTED — snapshot `origin/v3-coord-snap-wave4` (`94511587`), NOT gated together
+
+Restore: `git checkout v3-coord && git stash apply 94511587`. Contents:
 
 - AG2 (`agents/{prompt_control,rpc_prompt}.rs`, `workers/terminal_send.rs` agent-prompt
-  sender, `terminal_input/write_control.rs` WorkerWritten acceptance, tests
-  `agent_prompt_*`): done; arm + row applied in the worktree, not committed.
-- X2 DiagSnapshot (`diagnostics/{diag_snapshot,worker_results,session_state}.rs`,
-  `workers/diag_send.rs`, tests `diag_snapshot_*`).
-- C-PUSH (fold deletes on retirement; production Web Push transport; viewer suppression;
-  `serve.rs` install; tests `push_*`, `agent_status_retirement`).
-- C-CAPTURE (new `terminal_capture/`, reusing `roost_protocol::terminal_capture`).
+  sender, `terminal_input/write_control.rs` `WorkerWritten`, tests `agent_prompt_*` 13/13,
+  5 mutations seen to fail): DONE; `SessionsPrompt` arm + row applied (ratchet 2 → 1).
+- C-PUSH (`push/{transport,viewers,dispatch,mod}.rs`, `serve.rs` installs push delivery,
+  `NoTerminalViewers` deleted, tests `push_*`, `agent_status_retirement`): DONE per helper,
+  mutations seen to fail. The fold already deleted on retirement (`status_hub.rs:263-273`).
+  Lead to-do: fix the stale doc at `agents/status_push.rs:55-57` (text in
+  `agent://CoordLead.CPush`).
+- X2 (`diagnostics/{diag_snapshot,worker_results,session_state}.rs`, `workers/diag_send.rs`,
+  tests `diag_snapshot_*` 16/16): handler done, NOT wired. Lead to-do: `CoordServices.
+  diag_pipelines: Arc<WorkerTerminalPipelineSnapshotCache>` (built from `scrollback`), the
+  `diag_snapshot` arm calling `handle_diag_snapshot(&core, caller, &services.diag_pipelines,
+  &self.git_sha, req)`, row → Implemented; mutations at diag_snapshot.rs:51,163,247,
+  worker_results.rs:103, session_state.rs:94, diag_send.rs:202 still to be SEEN to fail; log
+  the malformed-fp drop in diag_snapshot.rs. Then terminal-render 5/5 and terminal-peer `:96`.
+- C-CAPTURE (`terminal_capture/*`, `pub mod terminal_capture;` in lib.rs): ported, NEVER
+  COMPILED, no tests. Reuses `roost_protocol::terminal_capture` (7b19778b) but defines
+  command/record types the protocol lacks — check that against the worker's types before
+  keeping. Wiring (services field, diag_snapshot capture branch, recorder hook in
+  `terminal_screen/replica_admission.rs`) in `agent://CoordLead.AG2Prompt`.
+
+## Open defect: Sync resume closes 1008 `invalid_client_frame` (terminal-peer `:209`)
+
+After `__smoke.pauseSyncTransport()`/`resumeSyncTransport()` every new socket is closed by
+`sync_ws/ingress.rs` with `invalid_client_frame` right after the terminal domain is
+seeded (coord log in the trace). Passes with the TS coordinator. Either a non-canonical
+decode (`is_canonical_client_frame`, buffa vs protobuf-es re-encode) or `apply_ack` over
+`last_sent_seq`; capture the offending frame bytes to tell which.
 
 ## Next steps, in order
 
-1. Land AG2, X2, C-PUSH, C-CAPTURE (arms/rows applied by the lead), each gated.
-2. terminal-render 5/5 and terminal-peer `:96` after X2; diagnose terminal-peer `:209`.
-3. Header audit (v2 basename in a `//!` line or README) for every `apps/coord/src` module.
-4. Track gate (two agreeing test runs, clippy, lint, fmt) → release live-stack READY
-   re-check → push → report.
+1. Restore the snapshot; `cargo check -p roost-coord --all-targets`; fix C-CAPTURE.
+2. Commit AG2, C-PUSH, X2 (wired) each by path with evidence; C-CAPTURE with ported tests
+   (terminal-capture-bridge.test.ts 15 cases, terminal-capture-recorder.test.ts 10).
+3. Specs: terminal-render 5/5, terminal-peer, terminal-local-fast-path (chromium-serial).
+4. Header audit; track gate (two agreeing runs, clippy, lint, fmt — the wave-3 files have
+   rustfmt drift, e.g. direct_results.rs, live_frames.rs, deploy/*); push; report.
