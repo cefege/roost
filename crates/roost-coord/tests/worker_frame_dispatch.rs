@@ -21,7 +21,7 @@ use frame_dispatch_support::events::{
     agent_reference, attached, closed, opened, respawned, snapshot,
 };
 use frame_dispatch_support::{
-    LinkFixture, OTHER_FP, WORKER_FP, event_frame, garbage_frame, live_session, session_id, worker,
+    LinkFixture, OTHER_FP, WORKER_FP, event_frame, live_session, session_id, worker,
 };
 use roost_coord::worker_link::dispatch::{
     DispatchOutcome, FrameClass, FrameDispatch, InboundFrame,
@@ -31,7 +31,7 @@ use roost_coord::worker_link::frame_dispatch::WorkerFrameDispatcher;
 /// Open the fixture's one session, so a later event has a row to speak about.
 async fn open_session(dispatcher: &mut WorkerFrameDispatcher) {
     let outcome = dispatcher
-        .handle_durable(WORKER_FP, &event_frame(opened(WORKER_FP, 1), 1))
+        .handle_durable(WORKER_FP, event_frame(opened(WORKER_FP, 1), 1))
         .await;
     assert_eq!(outcome, DispatchOutcome::Handled, "the opening commits");
 }
@@ -47,7 +47,7 @@ async fn an_opened_event_is_appended_and_acknowledged() {
     let mut dispatcher = fixture.dispatcher();
 
     let outcome = dispatcher
-        .handle_durable(WORKER_FP, &event_frame(opened(WORKER_FP, 1), 1))
+        .handle_durable(WORKER_FP, event_frame(opened(WORKER_FP, 1), 1))
         .await;
 
     assert_eq!(outcome, DispatchOutcome::Handled);
@@ -62,7 +62,7 @@ async fn a_closed_event_for_a_session_this_worker_opened_is_appended() {
     open_session(&mut dispatcher).await;
 
     let outcome = dispatcher
-        .handle_durable(WORKER_FP, &event_frame(closed(), 2))
+        .handle_durable(WORKER_FP, event_frame(closed(), 2))
         .await;
 
     assert_eq!(outcome, DispatchOutcome::Handled);
@@ -77,7 +77,7 @@ async fn a_respawned_event_is_appended_and_acknowledged() {
     open_session(&mut dispatcher).await;
 
     let outcome = dispatcher
-        .handle_durable(WORKER_FP, &event_frame(respawned(2), 2))
+        .handle_durable(WORKER_FP, event_frame(respawned(2), 2))
         .await;
 
     assert_eq!(outcome, DispatchOutcome::Handled);
@@ -95,7 +95,7 @@ async fn an_agent_reference_is_appended_and_acknowledged() {
     open_session(&mut dispatcher).await;
 
     let outcome = dispatcher
-        .handle_durable(WORKER_FP, &event_frame(agent_reference(), 2))
+        .handle_durable(WORKER_FP, event_frame(agent_reference(), 2))
         .await;
 
     assert_eq!(outcome, DispatchOutcome::Handled);
@@ -115,7 +115,7 @@ async fn a_published_snapshot_marks_the_generation_ready_and_acknowledges_it() {
 
     let event = snapshot(vec![live_session(&worker(WORKER_FP), 1)]);
     let outcome = dispatcher
-        .handle_durable(WORKER_FP, &event_frame(event, 2))
+        .handle_durable(WORKER_FP, event_frame(event, 2))
         .await;
 
     assert_eq!(outcome, DispatchOutcome::Handled);
@@ -134,7 +134,7 @@ async fn a_kind_outside_the_barrier_allow_list_is_dropped_before_any_write() {
     let mut dispatcher = fixture.dispatcher();
 
     let outcome = dispatcher
-        .handle_durable(WORKER_FP, &event_frame(attached(), 1))
+        .handle_durable(WORKER_FP, event_frame(attached(), 1))
         .await;
 
     assert_eq!(
@@ -161,7 +161,7 @@ async fn the_same_kind_is_admitted_once_the_barrier_is_crossed() {
     fixture.mark_ready();
 
     let outcome = dispatcher
-        .handle_durable(WORKER_FP, &event_frame(attached(), 2))
+        .handle_durable(WORKER_FP, event_frame(attached(), 2))
         .await;
 
     assert_eq!(outcome, DispatchOutcome::Handled);
@@ -174,7 +174,7 @@ async fn a_zero_sequence_is_refused_rather_than_admitted_as_sequence_zero() {
     let mut dispatcher = fixture.dispatcher();
 
     let outcome = dispatcher
-        .handle_durable(WORKER_FP, &event_frame(opened(WORKER_FP, 1), 0))
+        .handle_durable(WORKER_FP, event_frame(opened(WORKER_FP, 1), 0))
         .await;
 
     assert_eq!(outcome, DispatchOutcome::Refused);
@@ -187,26 +187,21 @@ async fn a_zero_sequence_is_refused_rather_than_admitted_as_sequence_zero() {
     );
 }
 
+// v2 `handleEvent` appends any positive `clientSeq`: a worker resuming its
+// outbox against a restarted coordinator is written and ACKed.
 #[tokio::test]
-async fn a_sequence_that_skips_is_refused_and_writes_nothing() {
-    let fixture = LinkFixture::new("refuse-gap").await;
+async fn a_resumed_sequence_on_a_fresh_cursor_is_written_and_acked() {
+    let fixture = LinkFixture::new("resume-above-one").await;
     let mut dispatcher = fixture.dispatcher();
 
-    // Sequence 3 against a fresh cursor: 1 and 2 never arrived, and a hole in the
-    // worker's durable log is indistinguishable from a lost frame.
     let outcome = dispatcher
-        .handle_durable(WORKER_FP, &event_frame(opened(WORKER_FP, 1), 3))
+        .handle_durable(WORKER_FP, event_frame(opened(WORKER_FP, 1), 3))
         .await;
 
-    assert_eq!(outcome, DispatchOutcome::Refused);
-    assert_eq!(fixture.rows_for(3).await, 0, "a gap is not filled in");
-    assert!(fixture.acks().is_empty());
-    assert_eq!(
-        fixture.cursor().last_admitted().await,
-        None,
-        "a refused frame must not move the cursor, or every later frame would \
-         read as out of order against a sequence that skipped"
-    );
+    assert_eq!(outcome, DispatchOutcome::Handled);
+    assert_eq!(fixture.rows_for(3).await, 1, "the resumed event is durable");
+    assert_eq!(fixture.acks(), vec![3], "and its exact sequence is ACKed");
+    assert_eq!(fixture.cursor().last_admitted().await, Some(3));
 }
 
 #[tokio::test]
@@ -217,24 +212,12 @@ async fn an_opened_claiming_another_worker_is_refused_as_data_with_no_ack_and_no
     // Admission row 3: an `opened` may not claim a worker other than the
     // caller's. The caller's fingerprint is the HANDLE's, never the event's.
     let outcome = dispatcher
-        .handle_durable(WORKER_FP, &event_frame(opened(OTHER_FP, 1), 1))
+        .handle_durable(WORKER_FP, event_frame(opened(OTHER_FP, 1), 1))
         .await;
 
     assert_eq!(outcome, DispatchOutcome::Refused);
     assert!(fixture.acks().is_empty(), "a refusal gets no ACK");
     assert_eq!(fixture.rows_for(1).await, 0);
-}
-
-#[tokio::test]
-async fn bytes_that_are_not_a_frame_are_refused_rather_than_closing_the_link() {
-    let fixture = LinkFixture::new("refuse-garbage").await;
-    let mut dispatcher = fixture.dispatcher();
-
-    let outcome = dispatcher.handle_durable(WORKER_FP, &garbage_frame()).await;
-
-    assert_eq!(outcome, DispatchOutcome::Refused);
-    assert_eq!(fixture.cursor().last_admitted().await, None);
-    assert!(fixture.acks().is_empty());
 }
 
 #[tokio::test]
@@ -257,7 +240,7 @@ async fn a_superseded_generation_drops_the_frame_with_no_ack() {
     );
 
     let outcome = dispatcher
-        .handle_durable(WORKER_FP, &event_frame(opened(WORKER_FP, 1), 1))
+        .handle_durable(WORKER_FP, event_frame(opened(WORKER_FP, 1), 1))
         .await;
 
     assert_eq!(outcome, DispatchOutcome::Refused);
@@ -279,11 +262,11 @@ async fn a_durable_frame_on_the_synchronous_arm_is_refused_and_never_acked() {
     let misrouted = InboundFrame {
         class: FrameClass::Live,
         channel: 0,
-        payload: event_frame(opened(WORKER_FP, 1), 1).payload,
+        frame: event_frame(opened(WORKER_FP, 1), 1).frame,
     };
 
     assert_eq!(
-        dispatcher.handle_now(WORKER_FP, &misrouted),
+        dispatcher.handle_now(WORKER_FP, misrouted),
         DispatchOutcome::Refused
     );
     assert!(
@@ -301,7 +284,7 @@ async fn a_frame_addressed_to_another_socket_is_refused() {
     assert_eq!(
         dispatcher.handle_now(
             OTHER_FP,
-            &frame_dispatch_support::rpc_frame(
+            frame_dispatch_support::rpc_frame(
                 roost_protocol::wire::coord_worker::CoordWorkerUpstream::RpcOk {
                     request_id: "rpc-x".to_owned(),
                     data: serde_json::json!({}),
@@ -322,7 +305,7 @@ async fn the_session_a_foreign_open_would_have_claimed_is_never_written() {
     let fixture = LinkFixture::new("refuse-foreign-row").await;
     let mut dispatcher = fixture.dispatcher();
     dispatcher
-        .handle_durable(WORKER_FP, &event_frame(opened(OTHER_FP, 1), 1))
+        .handle_durable(WORKER_FP, event_frame(opened(OTHER_FP, 1), 1))
         .await;
 
     let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE id = ?")

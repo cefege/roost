@@ -158,6 +158,10 @@ pub struct CoordServices {
     /// full, and the one that bites hardest is that a reconnect RESUMES the
     /// worker's durable outbox, so the sequence outlives the socket.
     pub client_seqs: ClientSeqCursors,
+    /// The owners every worker link's transitions reach (hello, ready,
+    /// superseded, closed). The pending-RPC table is the first; later owners
+    /// register here rather than editing the link.
+    pub worker_lifecycle: crate::coord_core::worker_lifecycle::WorkerLifecycle,
 }
 
 impl CoordServices {
@@ -203,6 +207,7 @@ impl CoordServices {
             Arc::clone(&pending_publications),
             Arc::clone(&live_effects),
         );
+        let scrollback = ScrollbackRelay::new(Arc::clone(&workers));
         Self {
             db,
             boot,
@@ -210,7 +215,11 @@ impl CoordServices {
             jwt_keys: JwtKeyCache::new(),
             pending_publications,
             buses,
-            scrollback: ScrollbackRelay::new(Arc::clone(&workers)),
+            worker_lifecycle: crate::coord_core::worker_lifecycle::WorkerLifecycle::new(vec![
+                Arc::clone(scrollback.pending())
+                    as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
+            ]),
+            scrollback,
             workers,
             ui_state: UiStateRuntime::new(),
             pairing: PairingRuntime::new(),

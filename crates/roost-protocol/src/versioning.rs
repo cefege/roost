@@ -20,8 +20,10 @@ pub const CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1: &str =
 /// Worker capability for coordinator-owned terminal view authority.
 pub const CAPABILITY_TERMINAL_VIEW_OWNER_V1: &str = "terminal-view-owner-v1";
 
-/// Worker capability for terminal metadata on the worker link.
-pub const CAPABILITY_TERMINAL_METADATA_V1: &str = "terminal-metadata-v1";
+/// Worker capability for terminal metadata on the worker link. Underscores, not
+/// hyphens: v2 spells it `terminal_metadata_v1` (`packages/protocol/src/terminal-metadata.ts:6`),
+/// and a mixed fleet negotiates on the exact string.
+pub const CAPABILITY_TERMINAL_METADATA_V1: &str = "terminal_metadata_v1";
 
 /// Direct-terminal WebRTC control-channel label.
 pub const CHANNEL_TERMINAL_CONTROL_V1: &str = "roost-terminal-control-v1";

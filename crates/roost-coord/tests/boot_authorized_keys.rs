@@ -10,9 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
-use roost_coord::auth::authorized_keys::{
-    fingerprint_of_raw_public_key, parse_ssh_ed25519_line,
-};
+use roost_coord::auth::authorized_keys::{fingerprint_of_raw_public_key, parse_ssh_ed25519_line};
 use roost_coord::serve::prepare_coordinator_database;
 use roost_host::{CoordConfig, CoordConfigInput};
 
@@ -63,7 +61,9 @@ fn ssh_wire_blob(public_key: &[u8; 32]) -> String {
 }
 
 async fn key_labels(config: &CoordConfig) -> Vec<(String, String)> {
-    let database = roost_coord::db::open(&config.db_path).await.expect("reopen");
+    let database = roost_coord::db::open(&config.db_path)
+        .await
+        .expect("reopen");
     let rows = sqlx::query_as("SELECT fingerprint, label FROM authorized_keys ORDER BY label")
         .fetch_all(database.pool())
         .await
@@ -88,8 +88,11 @@ async fn device_fingerprints(path: &Path) -> Vec<String> {
 #[test]
 fn a_well_formed_line_parses_its_key_and_label() {
     let key = [7_u8; 32];
-    let parsed = parse_ssh_ed25519_line(&format!("  ssh-ed25519 {}  laptop   work \r", ssh_wire_blob(&key)))
-        .expect("a well-formed line");
+    let parsed = parse_ssh_ed25519_line(&format!(
+        "  ssh-ed25519 {}  laptop   work \r",
+        ssh_wire_blob(&key)
+    ))
+    .expect("a well-formed line");
     assert_eq!(parsed.public_key, key);
     assert_eq!(parsed.label, "laptop work");
 
@@ -125,7 +128,9 @@ async fn boot_imports_the_file_deduping_and_skipping_invalid_lines() {
     let scratch = Scratch::new("import");
     let config = scratch.config();
     let revoked_key = [3_u8; 32];
-    let database = roost_coord::db::open(&config.db_path).await.expect("a database");
+    let database = roost_coord::db::open(&config.db_path)
+        .await
+        .expect("a database");
     sqlx::query(
         "INSERT INTO authorized_key_revocations (fingerprint, revoked_at_ms, revoked_by_fp, reason) \
          VALUES (?, 1, 'operator', 'lost')",
@@ -156,11 +161,17 @@ async fn boot_imports_the_file_deduping_and_skipping_invalid_lines() {
     assert_eq!(
         key_labels(&config).await,
         vec![
-            (fingerprint_of_raw_public_key(&first), "first-new".to_string()),
+            (
+                fingerprint_of_raw_public_key(&first),
+                "first-new".to_string()
+            ),
             (fingerprint_of_raw_public_key(&second), "second".to_string()),
         ]
     );
-    assert_eq!(device_fingerprints(&config.db_path).await, Vec::<String>::new());
+    assert_eq!(
+        device_fingerprints(&config.db_path).await,
+        Vec::<String>::new()
+    );
 }
 
 /// `importAuthorizedKeys` with exactly one active account: every imported key

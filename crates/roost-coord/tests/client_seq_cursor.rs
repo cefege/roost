@@ -1,4 +1,4 @@
-//! One allocator for one sequence space, and the three verdicts it answers with.
+//! One cursor for one sequence space, and the three verdicts it answers with.
 //!
 //! Every case here is a state the coordinator cannot distinguish from a lost
 //! frame if the cursor is wrong, which is why each is named for the state it
@@ -43,51 +43,34 @@ async fn a_retry_is_a_dedupe_and_does_not_move_the_cursor() {
 }
 
 #[tokio::test]
-async fn a_sequence_that_skips_is_refused_rather_than_filled_in() {
+async fn a_fresh_cursor_adopts_a_worker_resuming_above_one() {
+    // v2 appends every positive sequence (`worker-frame-dispatch.ts:62-71`). A
+    // worker's outbox deletes each ACKed row, so after a coordinator restart
+    // the first sequence a fresh cursor sees is N > 1. Refusing it left the
+    // worker unacknowledged and never routable.
+    let cursor = ClientSeqCursor::new();
+    assert_eq!(cursor.offer(9).await, SeqVerdict::Admit);
+    assert_eq!(cursor.last_admitted().await, Some(9));
+    assert_eq!(cursor.offer(10).await, SeqVerdict::Admit);
+}
+
+#[tokio::test]
+async fn a_sequence_that_skips_is_admitted_and_named() {
     let cursor = ClientSeqCursor::new();
     cursor.offer(1).await;
-
-    // A gap is a hole in the worker's durable log that the coordinator cannot
-    // distinguish from a lost frame, so it is refused with both values named —
-    // the worker log that says what it sent and the coordinator log that says
-    // what it was waiting for.
     assert_eq!(
         cursor.offer(5).await,
-        SeqVerdict::Gap {
+        SeqVerdict::Resumed {
             expected: 2,
             offered: 5
         }
     );
     assert_eq!(
         cursor.last_admitted().await,
-        Some(1),
-        "a refusal is not progress"
+        Some(5),
+        "the cursor adopts it"
     );
-    assert!(
-        !SeqVerdict::Gap {
-            expected: 2,
-            offered: 5
-        }
-        .admits()
-    );
-    assert!(
-        SeqVerdict::Dedupe.admits(),
-        "a dedupe earns an ACK even though it writes nothing"
-    );
-}
-
-#[tokio::test]
-async fn a_worker_that_does_not_start_at_one_is_refused_rather_than_adopted() {
-    let cursor = ClientSeqCursor::new();
-    // Adopting an arbitrary start would make the gap undetectable, because
-    // there would be no gap to detect it against.
-    assert_eq!(
-        cursor.offer(9).await,
-        SeqVerdict::Gap {
-            expected: 1,
-            offered: 9
-        }
-    );
+    assert_eq!(cursor.offer(6).await, SeqVerdict::Admit);
 }
 
 #[tokio::test]

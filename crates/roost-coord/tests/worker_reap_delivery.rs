@@ -117,7 +117,7 @@ fn a_link_that_ends_goes_back_to_recording() {
     let mine = worker();
     let socket = outbox();
     kills.attach(&mine, Arc::clone(&socket));
-    kills.detach(&mine);
+    kills.detach(&mine, &socket);
     assert_eq!(kills.connected_workers(), 0);
 
     kills.kill(&mine, "after-detach");

@@ -69,10 +69,7 @@ pub(super) async fn validate_foreign_keys(database: &CoordDb) -> Result<(), DbEr
 /// v2's `validateIntegrity`, which its runner applies only after the final
 /// pending migration: a full check is a scan of the whole file, and a boot
 /// that migrated nothing changed nothing it could have corrupted.
-pub(super) async fn validate_integrity(
-    database: &CoordDb,
-    migration: &str,
-) -> Result<(), DbError> {
+pub(super) async fn validate_integrity(database: &CoordDb, migration: &str) -> Result<(), DbError> {
     let rows: Vec<(String,)> = sqlx::query_as("PRAGMA integrity_check")
         .fetch_all(database.pool())
         .await?;

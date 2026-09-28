@@ -11,6 +11,7 @@ pub mod core;
 pub mod ids;
 pub mod seams;
 pub mod worker_handle;
+pub mod worker_lifecycle;
 
 pub use boot_facts::BootFacts;
 pub use caller::{Caller, ListenerTrust};

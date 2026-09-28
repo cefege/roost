@@ -1,75 +1,136 @@
-//! The half-open detector: a socket that stops answering without closing.
+//! The coordinator's application heartbeat on one worker link: one outstanding
+//! ping at a time, and the pong deadline that closes a link whose peer stopped
+//! answering.
 //!
-//! Owned by `worker_link::connection`. Pure — it is handed the clock, never
-//! reads it — because the property worth testing is "a socket that went quiet
-//! is closed rather than held open forever", and a test that has to wait real
-//! time to observe that is a test that gets skipped.
+//! Ports `apps/coord/src/workers/worker-conn-keepalive.ts`. Owned by
+//! `worker_link::link_session`, which asks when to wake and what is due. Pure
+//! over a `tokio::time::Instant` it is handed, so a paused tokio clock drives
+//! it in tests exactly as elapsed time drives it in production.
 //!
-//! A TCP connection to a coordinator that has lost its route stays ESTABLISHED
-//! on both ends: there is no RST, no FIN, and the worker believes it is linked
-//! while its events accumulate unacknowledged in its outbox. Nothing else in
-//! the read loop notices, because a quiet socket produces no frames. This is
-//! the only thing that closes it.
-//!
-//! THE WINDOW IS SHARED WITH NOTHING and is deliberately longer than the
-//! coordinator's own ping interval, so a link that is merely slow is not
-//! declared dead between two pings.
+//! ONLY THE EXACT PONG COUNTS. A ping carries its generation as `ts`, and a
+//! pong for any other generation neither clears the deadline nor schedules the
+//! next ping, so a worker replaying stale pongs cannot pass for a live one.
 
 use std::time::Duration;
 
-/// How long a worker socket may be silent before it is treated as half-open.
-///
-/// 90 s, quoted from `protocol/spec/worker-link.md` §Limits
-/// (`STALE_LINK_TIMEOUT_MS`). The coordinator pings well inside this, so a
-/// silent socket is a dead route and not a quiet one.
-pub const STALE_LINK_TIMEOUT: Duration = Duration::from_secs(90);
+use tokio::time::Instant;
 
-/// How often the read loop asks whether the socket is still alive.
-///
-/// 15 s (`STALE_LINK_CHECK_MS`). It is a quarter of the timeout so a socket is
-/// never declared dead in the same tick it could have been seen alive.
-pub const STALE_LINK_CHECK_INTERVAL: Duration = Duration::from_secs(15);
+/// How long after a hello, or after an exact pong, the next ping is sent.
+/// 30 s (`WORKER_PING_DELAY_MS`, `worker-conn-keepalive.ts:14`).
+pub const WORKER_PING_DELAY: Duration = Duration::from_secs(30);
 
-/// The read loop's own silence detector, over a clock it is handed.
-#[derive(Debug, Clone, Copy)]
-pub struct Keepalive {
-    stale_after: Duration,
-    last_activity: std::time::Instant,
+/// How long a ping may go unanswered before the link is closed. 90 s
+/// (`WORKER_PONG_TIMEOUT_MS`, `worker-conn-keepalive.ts:15`).
+pub const WORKER_PONG_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// What the schedule says is due at a wake.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeepaliveDue {
+    /// Nothing yet.
+    Nothing,
+    /// Send `ping` carrying this generation as its `ts`.
+    Ping { generation: u64 },
+    /// The ping of this generation was never answered: close the link.
+    PongTimeout { generation: u64 },
 }
 
-impl Keepalive {
-    /// A window at the contract's timeout, starting now.
-    #[must_use]
-    pub fn new(now: std::time::Instant) -> Self {
-        Self::at(now, STALE_LINK_TIMEOUT)
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Phase {
+    /// No ping scheduled and none outstanding.
+    Idle,
+    /// The next ping goes out at this instant.
+    PingAt(Instant),
+    /// This generation is outstanding until its pong, or the deadline.
+    AwaitingPong { generation: u64, deadline: Instant },
+    /// The link is ending; nothing is scheduled again.
+    Stopped,
+}
 
-    /// A window at a timeout of the caller's choosing, for a test that must not
-    /// sleep 90 seconds to observe a dead link.
+/// One link's ping schedule.
+#[derive(Debug, Clone)]
+pub struct PingSchedule {
+    phase: Phase,
+    last_generation: u64,
+}
+
+impl Default for PingSchedule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PingSchedule {
+    /// Nothing scheduled: the hello is what starts the first delay.
     #[must_use]
-    pub fn at(now: std::time::Instant, stale_after: Duration) -> Self {
+    pub fn new() -> Self {
         Self {
-            stale_after,
-            last_activity: now,
+            phase: Phase::Idle,
+            last_generation: 0,
         }
     }
 
-    /// Note that a frame arrived, which is the only thing that resets the
-    /// window. An outbound ping does NOT: the question is whether the PEER is
-    /// alive, and our own write says nothing about that.
-    pub fn note_activity(&mut self, now: std::time::Instant) {
-        self.last_activity = now;
+    /// Start the delay to the next ping, unless one is scheduled, outstanding,
+    /// or the schedule stopped (v2 `scheduleNextPing`'s guard).
+    pub fn schedule_next_ping(&mut self, now: Instant) {
+        if self.phase == Phase::Idle {
+            self.phase = Phase::PingAt(now + WORKER_PING_DELAY);
+        }
     }
 
-    /// Whether the socket has been silent past the timeout.
+    /// When the read loop must wake for this schedule, if at all.
     #[must_use]
-    pub fn is_stale(&self, now: std::time::Instant) -> bool {
-        now.duration_since(self.last_activity) >= self.stale_after
+    pub fn next_wake(&self) -> Option<Instant> {
+        match self.phase {
+            Phase::PingAt(at) => Some(at),
+            Phase::AwaitingPong { deadline, .. } => Some(deadline),
+            Phase::Idle | Phase::Stopped => None,
+        }
     }
 
-    /// How long the socket has been silent, for the close log line.
-    #[must_use]
-    pub fn silence(&self, now: std::time::Instant) -> Duration {
-        now.saturating_duration_since(self.last_activity)
+    /// What is due at `now`, advancing the schedule past it.
+    ///
+    /// The pong deadline starts when the ping is SENT, not when it was
+    /// scheduled, which is v2's order: the deadline timer is armed inside the
+    /// ping timer's callback.
+    pub fn fire(&mut self, now: Instant) -> KeepaliveDue {
+        match self.phase {
+            Phase::PingAt(at) if now >= at => {
+                self.last_generation += 1;
+                let generation = self.last_generation;
+                self.phase = Phase::AwaitingPong {
+                    generation,
+                    deadline: now + WORKER_PONG_TIMEOUT,
+                };
+                KeepaliveDue::Ping { generation }
+            }
+            Phase::AwaitingPong {
+                generation,
+                deadline,
+            } if now >= deadline => {
+                self.phase = Phase::Stopped;
+                KeepaliveDue::PongTimeout { generation }
+            }
+            _ => KeepaliveDue::Nothing,
+        }
+    }
+
+    /// A pong arrived carrying `ts`. Only the outstanding generation clears the
+    /// deadline and starts a fresh delay; reports whether this one did.
+    pub fn accept_pong(&mut self, ts: i64, now: Instant) -> bool {
+        let Phase::AwaitingPong { generation, .. } = self.phase else {
+            return false;
+        };
+        if i64::try_from(generation) != Ok(ts) {
+            return false;
+        }
+        self.phase = Phase::Idle;
+        self.schedule_next_ping(now);
+        true
+    }
+
+    /// Stop for good: a fenced generation neither pings nor times out
+    /// (v2 `stop`, reached from `revoke` and `close`).
+    pub fn stop(&mut self) {
+        self.phase = Phase::Stopped;
     }
 }

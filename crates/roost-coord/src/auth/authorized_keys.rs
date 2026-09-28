@@ -214,11 +214,10 @@ pub async fn import_authorized_keys(
         )
     })?;
     let contents = String::from_utf8_lossy(&bytes);
-    let accounts =
-        sqlx::query_as::<_, (String, String)>("SELECT id, status FROM accounts LIMIT 2")
-            .fetch_all(database.pool())
-            .await
-            .map_err(sqlx_error)?;
+    let accounts = sqlx::query_as::<_, (String, String)>("SELECT id, status FROM accounts LIMIT 2")
+        .fetch_all(database.pool())
+        .await
+        .map_err(sqlx_error)?;
     let browser_account_id = match accounts.as_slice() {
         [(id, status)] if status == "active" => Some(id.clone()),
         _ => None,

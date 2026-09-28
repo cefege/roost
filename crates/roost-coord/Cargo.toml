@@ -56,6 +56,9 @@ serde_json.workspace = true
 sha2.workspace = true
 # `test-util` for `tokio::time::pause`, so a deadline test does not wait it out.
 tokio = { workspace = true, features = ["test-util"] }
+# The WebSocket client the worker-link and Sync upgrade tests dial a real
+# ephemeral-port listener with; `connect` for `connect_async`.
+tokio-tungstenite = { workspace = true, features = ["connect", "handshake"] }
 
 [lints]
 workspace = true

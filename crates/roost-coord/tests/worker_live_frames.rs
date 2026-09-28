@@ -49,7 +49,7 @@ async fn a_cell_grid_on_a_channel_nothing_resolves_is_handled_and_counted() {
     fixture.mark_ready();
     let dispatcher = fixture.dispatcher();
 
-    let outcome = dispatcher.handle_now(WORKER_FP, &live_frame(7, cell_grid(7)));
+    let outcome = dispatcher.handle_now(WORKER_FP, live_frame(7, cell_grid(7)));
 
     assert_eq!(
         outcome,
@@ -70,7 +70,7 @@ async fn a_live_frame_whose_header_and_body_name_different_channels_is_refused()
         WORKER_FP,
         // The header says 9; the body says 7. Delivering to whichever won would
         // bind a PTY to a session nobody announced.
-        &live_frame(9, cell_grid(7)),
+        live_frame(9, cell_grid(7)),
     );
 
     assert_eq!(outcome, DispatchOutcome::Refused);
@@ -89,7 +89,7 @@ async fn a_cell_grid_whose_body_is_unset_is_refused_rather_than_claimed_handled(
         frame: Default::default(),
         ..Default::default()
     });
-    let outcome = dispatcher.handle_now(WORKER_FP, &frame_dispatch_support::live_frame(4, empty));
+    let outcome = dispatcher.handle_now(WORKER_FP, frame_dispatch_support::live_frame(4, empty));
 
     assert_eq!(outcome, DispatchOutcome::Refused);
 }
@@ -100,12 +100,12 @@ async fn a_semantic_metadata_frame_without_the_negotiated_capability_is_refused(
     fixture.mark_ready();
     let dispatcher = fixture.dispatcher();
 
-    let outcome = dispatcher.handle_now(WORKER_FP, &live_frame(1, metadata(1, "vim")));
+    let outcome = dispatcher.handle_now(WORKER_FP, live_frame(1, metadata(1, "vim")));
 
     assert_eq!(
         outcome,
         DispatchOutcome::Refused,
-        "a worker that never advertised terminal-metadata-v1 gets no semantic hub"
+        "a worker that never advertised terminal_metadata_v1 gets no semantic hub"
     );
 }
 
@@ -129,7 +129,7 @@ async fn a_semantic_metadata_frame_on_an_unbound_channel_is_refused_not_attribut
     );
     let dispatcher = fixture.services.worker_dispatcher(Arc::clone(&negotiated));
 
-    let outcome = dispatcher.handle_now(WORKER_FP, &live_frame(1, metadata(1, "vim")));
+    let outcome = dispatcher.handle_now(WORKER_FP, live_frame(1, metadata(1, "vim")));
 
     assert_eq!(
         outcome,
@@ -153,7 +153,7 @@ async fn an_rpc_ok_settles_the_request_the_coordinator_is_holding_open() {
 
     let outcome = dispatcher.handle_now(
         WORKER_FP,
-        &rpc_frame(CoordWorkerUpstream::RpcOk {
+        rpc_frame(CoordWorkerUpstream::RpcOk {
             request_id: "rpc-1".to_owned(),
             data: json!({"cols": 120}),
             trace_id: None,
@@ -182,7 +182,7 @@ async fn an_rpc_error_rejects_the_request_rather_than_resolving_it() {
 
     let outcome = dispatcher.handle_now(
         WORKER_FP,
-        &rpc_frame(CoordWorkerUpstream::RpcError {
+        rpc_frame(CoordWorkerUpstream::RpcError {
             request_id: "rpc-2".to_owned(),
             message: "the keeper refused".to_owned(),
             trace_id: None,
@@ -213,7 +213,7 @@ async fn a_reply_nothing_is_waiting_on_is_handled_and_lost_rather_than_fatal() {
 
     let outcome = dispatcher.handle_now(
         WORKER_FP,
-        &rpc_frame(CoordWorkerUpstream::RpcOk {
+        rpc_frame(CoordWorkerUpstream::RpcOk {
             request_id: "never-asked".to_owned(),
             data: json!({}),
             trace_id: None,
@@ -237,7 +237,7 @@ async fn an_arm_with_no_destination_is_refused_rather_than_claimed_handled() {
     // dispatcher must say so rather than silently doing nothing with it.
     let outcome = dispatcher.handle_now(
         WORKER_FP,
-        &live_frame(
+        live_frame(
             0,
             CoordWorkerUpstream::Pong {
                 ts: 1_000,

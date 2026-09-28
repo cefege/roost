@@ -28,35 +28,29 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// What one `client_seq` offer means to the worker's sequence.
+///
+/// NO VERDICT REFUSES THE WRITE, and that is v2's rule: `handleEvent` appends
+/// every positive safe-integer `clientSeq` and leaves duplicates to the
+/// `(worker_fp, client_seq)` unique index (`worker-frame-dispatch.ts:62-71`).
+/// A worker's outbox deletes each ACKed row, so after a coordinator restart the
+/// first sequence a fresh cursor sees is legitimately N > 1; refusing it would
+/// leave the worker unacknowledged and never routable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SeqVerdict {
-    /// The exact successor: admit it, and the cursor advances.
+    /// The first value this cursor has seen, or the exact successor.
     Admit,
-    /// An exact replay of the last admitted value: dedupe at the unique index,
-    /// and ACK it again.
-    ///
-    /// THE CURSOR DOES NOT MOVE, and that is the whole of this case. A retry
-    /// that advanced the cursor would leave a gap behind it, and every later
-    /// frame would then read as out of order against a sequence that skipped.
+    /// An exact replay of the last value: the unique index dedupes the write,
+    /// and the worker is ACKed again. The cursor does not move.
     Dedupe,
-    /// Neither the successor nor the last value. Refused: a sequence that skips
-    /// is a hole in the worker's durable log that the coordinator cannot
-    /// distinguish from a lost frame.
-    Gap {
+    /// Neither: a worker resuming its outbox against a cursor that did not see
+    /// the values between. Admitted and adopted; named so the log line says
+    /// what the cursor expected and what the worker sent.
+    Resumed {
         /// The value the cursor was waiting for.
         expected: u64,
-        /// The value the worker sent.
+        /// The value the worker sent, which the cursor now holds.
         offered: u64,
     },
-}
-
-impl SeqVerdict {
-    /// Whether this frame may be WRITTEN. A dedupe admits no write and still
-    /// earns an ACK, which is why this is about the write and not the reply.
-    #[must_use]
-    pub const fn admits(self) -> bool {
-        matches!(self, Self::Admit | Self::Dedupe)
-    }
 }
 
 /// One worker's `client_seq` position, shared by every socket for that worker.
@@ -78,23 +72,21 @@ impl ClientSeqCursor {
         Self::default()
     }
 
-    /// Whether `offered` may be written, and advance when it is the successor.
+    /// Record `offered` and say how it relates to the last value.
     ///
-    /// The cursor is left UNMOVED on a dedupe and not moved at all on a gap:
-    /// both are refusals of the write, not progress through the sequence.
+    /// The cursor holds the last value offered; a dedupe already is that value.
     pub async fn offer(&self, offered: u64) -> SeqVerdict {
         let mut last = self.last.lock().await;
-        let expected = last.map_or(1, |held| held.saturating_add(1));
         let verdict = match *last {
+            None => SeqVerdict::Admit,
             Some(held) if offered == held => SeqVerdict::Dedupe,
-            Some(_) if offered == expected => SeqVerdict::Admit,
-            Some(_) => SeqVerdict::Gap { expected, offered },
-            None if offered == 1 => SeqVerdict::Admit,
-            None => SeqVerdict::Gap { expected, offered },
+            Some(held) if offered == held.saturating_add(1) => SeqVerdict::Admit,
+            Some(held) => SeqVerdict::Resumed {
+                expected: held.saturating_add(1),
+                offered,
+            },
         };
-        if matches!(verdict, SeqVerdict::Admit) {
-            *last = Some(offered);
-        }
+        *last = Some(offered);
         verdict
     }
 
