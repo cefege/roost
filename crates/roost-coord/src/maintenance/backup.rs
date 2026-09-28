@@ -1,9 +1,10 @@
 //! The nightly database backup: one verified snapshot, gzipped into
 //! `backups/`, published by rename, and pruned to a fixed keep count.
 //!
-//! Owned by the coordinator. `spawn_scheduled_backups` hands the loop a
-//! [`CoordDb`]; a pre-migration backup is the same function with a different
-//! reason, so the two cannot drift apart in how they write or prune.
+//! Owned by the coordinator. Ports `apps/coord/src/db/backup.ts`. `serve`
+//! calls `spawn_scheduled_backups` after the listener binds, and `db::open`
+//! calls `run_backup` with the pre-migration reason, so the two cannot drift
+//! apart in how they write or prune.
 
 use std::io::Error as IoError;
 use std::path::{Path, PathBuf};

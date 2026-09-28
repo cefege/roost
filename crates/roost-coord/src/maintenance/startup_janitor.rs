@@ -1,10 +1,11 @@
 //! The boot-time purge of durable rows that cannot represent live state after
 //! a restart.
 //!
-//! Owned by the coordinator. `run_startup_janitor` runs after migrations and
-//! tenancy and BEFORE any sync feed installs bus listeners, so its deletes
-//! publish no deltas: a reconnecting SPA learns about the pruning from the
-//! sync feed's seed snapshot, and that seed is what protects the sidebar
+//! Owned by the coordinator. Ports `apps/coord/src/startup-janitor.ts`.
+//! `serve::prepare_coordinator_database` runs it after migrations and tenancy
+//! and BEFORE any sync feed installs bus listeners, so its deletes publish no
+//! deltas: a reconnecting SPA learns about the pruning from the sync feed's
+//! seed snapshot, and that seed is what protects the sidebar
 //! (`startup-janitor.ts:1-6`).
 
 use std::future::Future;

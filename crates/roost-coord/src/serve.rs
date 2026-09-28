@@ -16,8 +16,14 @@
 //! three of its steps are load-bearing rather than cosmetic: the pre-migration
 //! backup runs only if the file already existed, the tenancy invariant runs after
 //! the authorized-keys import so it sees freshly imported keys, and it runs before
-//! the listener exists so a mis-scoped database never binds a port.
+//! the listener exists so a mis-scoped database never binds a port. Steps 2-7 are
+//! [`prepare_coordinator_database`]; `db::open` owns 2-4.
+//!
+//! The build SHA reported by `MiscHealth` is resolved once here, through
+//! `roost_host::build_identity` -- the port of `apps/coord/src/git-sha.ts`,
+//! minus its live `git rev-parse`, since a compiled binary names its own commit.
 
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -27,8 +33,10 @@ use roost_platform::HostPlatform;
 
 use crate::auth::cf_access::{cloudflare_access_configured, install_cloudflare_jwks};
 use crate::auth::cf_access_keyring::RsaJwks;
+use crate::auth::self_hosted_tenant::SelfHostedTenant;
 use crate::coord_core::CoordCore;
 use crate::coord_core::boot_facts::BootFacts;
+use crate::db::CoordDb;
 use crate::coord_core::seams::CoordTerminal;
 use crate::http::listener::{ListenerState, build_router};
 use crate::http::spa::SpaMount;
@@ -83,38 +91,7 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
 
     let bind = crate::http::bind::resolve_bind(&boot.config.bind)
         .with_context(|| format!("coordinator bind {}", boot.config.bind))?;
-
-    // The listener's admission gate needs the RESOLVED port, and `:0` only
-    // resolves after the listener is created. The gate is therefore built after
-    // the bind, from what the bind actually is -- and it answers 503 for anything
-    // that arrives in between (`apps/coord/src/bun-coordinator-listeners.ts:363-370`).
-    let database = crate::db::open(&boot.config.db_path)
-        .await
-        .with_context(|| format!("coordinator database {}", boot.config.db_path.display()))?;
-    // Boot step 6 (contract §1.1): the self-hosted tenant invariant, BEFORE the
-    // listener exists. A mis-scoped database must never bind a port, so a throw
-    // here is the correct outcome rather than a late failure. Steps 3 (the
-    // pre-migration backup), 5 (the authorized-keys import) and 7 (the startup
-    // janitor) are still unimplemented and are named in the module header.
-    let tenant = crate::auth::self_hosted_tenant::ensure_self_hosted_tenant(&database, boot_ms)
-        .await
-        .with_context(|| "self-hosted tenant invariant")?;
-    tracing::info!(
-        account_id = %tenant.account_id,
-        organization_id = %tenant.organization_id,
-        dashboard_id = %tenant.dashboard_id,
-        "self-hosted tenant ready"
-    );
-
-    // Boot step 7 (contract §1.1): the startup janitor, after the tenancy
-    // invariant and before the singletons. It DELETES closed sessions and never
-    // touches an open row -- a live terminal must not be deleted by a janitor --
-    // and it reports rather than erroring, so no context wrapper belongs here.
-    let janitor = crate::maintenance::startup_janitor::run_startup_janitor(&database).await;
-    tracing::info!(
-        deleted_sessions = janitor.deleted_sessions,
-        "startup janitor complete"
-    );
+    let (database, tenant) = prepare_coordinator_database(&boot.config, boot_ms).await?;
 
     // The boot facts are filled from what boot already established -- the
     // tenancy scope the invariant above just enforced, the config the caller
@@ -155,9 +132,7 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
         boot.config.clone(),
         process_epoch,
         boot_ms,
-        roost_host::COMPILED_ROOST_BUILD_SHA
-            .unwrap_or_default()
-            .to_string(),
+        roost_host::build_identity(&roost_host::ProcessEnv::new()).build_sha,
     ));
     // Chosen ONCE, here, and reported either way. A missing build otherwise
     // presents only as a 404 on every page, which reads like an edge or DNS
@@ -239,6 +214,70 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
     pair_retention.stop().await;
 
     served.context("coordinator listener")
+}
+
+/// Boot steps 2-7 (contract §1.1): everything that must hold before a listener
+/// exists.
+///
+/// Opens the database (pragmas, the pre-migration backup, migrations and their
+/// validation all live in `db::open`), imports the authorized-keys file, enforces
+/// the self-hosted tenant invariant and runs the startup janitor, in v2's order
+/// (`main.ts:60-86`). `serve` is the one production caller; it is public so the
+/// order is provable without binding a port.
+pub async fn prepare_coordinator_database(
+    config: &CoordConfig,
+    now_ms: i64,
+) -> anyhow::Result<(CoordDb, SelfHostedTenant)> {
+    let database = crate::db::open(&config.db_path)
+        .await
+        .with_context(|| format!("coordinator database {}", config.db_path.display()))?;
+
+    // Step 5, BEFORE the tenancy invariant, so the invariant sees the keys the
+    // operator's file just added (`main.ts:73-83`).
+    import_authorized_keys_at_boot(&database, &config.authorized_keys_path, now_ms).await;
+
+    // Step 6: a mis-scoped database must never bind a port, so a throw here is
+    // the correct outcome rather than a late failure.
+    let tenant = crate::auth::self_hosted_tenant::ensure_self_hosted_tenant(&database, now_ms)
+        .await
+        .with_context(|| "self-hosted tenant invariant")?;
+    tracing::info!(
+        path = %config.db_path.display(),
+        account_id = %tenant.account_id,
+        organization_id = %tenant.organization_id,
+        dashboard_id = %tenant.dashboard_id,
+        "self-hosted tenant ready"
+    );
+
+    // Step 7: the startup janitor. It DELETES closed sessions and never touches
+    // an open row -- a live terminal must not be deleted by a janitor -- and it
+    // reports rather than erroring, so no context wrapper belongs here.
+    let janitor = crate::maintenance::startup_janitor::run_startup_janitor(&database).await;
+    tracing::info!(
+        deleted_sessions = janitor.deleted_sessions,
+        "startup janitor complete"
+    );
+    Ok((database, tenant))
+}
+
+/// Import the operator's authorized-keys file if it exists.
+///
+/// A failure is a warning and boot continues, as v2's does (`main.ts:73-80`):
+/// the keys already in the database still authenticate, and refusing to boot
+/// over one unreadable file would take every paired device down with it.
+async fn import_authorized_keys_at_boot(database: &CoordDb, path: &Path, now_ms: i64) {
+    if !path.exists() {
+        tracing::debug!(path = %path.display(), "authorized_keys file absent: nothing to import");
+        return;
+    }
+    match crate::auth::authorized_keys::import_authorized_keys(database, path, now_ms).await {
+        Ok(count) => tracing::info!(count, path = %path.display(), "authorized_keys_imported"),
+        Err(error) => tracing::warn!(
+            error = %error,
+            path = %path.display(),
+            "authorized_keys_import_failed"
+        ),
+    }
 }
 
 /// The terminal collaborators a booted coordinator hands the workers domain.

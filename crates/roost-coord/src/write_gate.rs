@@ -1,7 +1,8 @@
 //! The exclusive drain a keeper update takes, and the leases every other
 //! mutation waits behind.
 //!
-//! Owned by the coordinator; the Connect interceptor leases from it
+//! Owned by the coordinator. Ports `apps/coord/src/coordinator-write-gate.ts`.
+//! The Connect interceptor leases from it
 //! (`apps/coord/src/auth/auth-interceptor.ts:201`) and the worker frame
 //! dispatcher checks it before acknowledging
 //! (`apps/coord/src/workers/worker-frame-dispatch.ts:122-127`). Exactly one
