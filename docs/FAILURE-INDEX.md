@@ -2648,3 +2648,51 @@ the fix; a second *mention* is the defect. If a future change moves the read,
 update the direction claim here or delete the entry — do not leave a green that
 means a mention.
 
+### A comment asserts a property the code does not have, and every reader inherits it as established
+
+**Symptom** — a file's header, a doc comment, or a commit body states an
+invariant, and the code immediately under it does something else. Four found in
+one session, none of which a compiler can see: `adoption.rs:58-63` said *"THE
+PROBE IS A KEEPER READ"* and `ffedd606`'s body said *"asks the keeper, PER
+CHANNEL"*, when `KeeperPool::channel_history` has no body but a constant
+`Err(KeeperFault)`; `BOOT_ORDER`'s `because` said the link dials before the
+keeper is admitted, when the dial is the last statement in the function; the
+search ledger was documented twice as *"ONCE PER PROCESS"* and is once per
+call; and `method_route.rs:92` describes `AwaitingDomainPort` as a per-domain
+fact when it is a per-row value — which is enough to make a careful reader
+propose a six-domain refactor that cannot exist, because `sessions` carries 10
+awaiting and 17 implemented rows in the same folder.
+
+**Wrong** — trust the comment, or "soften" it. Both treat the artifact as the
+thing that is wrong about the *description* rather than the thing that is wrong
+about the *code*. Softening produces a comment that is now vague enough to
+survive the next reader and useless enough to fail the next one.
+
+**Right** — **the comment is the defect, and the claim is re-derived at the point
+of use rather than inherited.** A claim later work will rely on is a fact about
+the code, and the code is the only place it lives. The one rule that would have
+caught the first instance: nobody in the chain re-ran
+`grep -n 'fn channel_history' -A6`. It travelled code → header → commit body →
+the integrator's notes → three agent briefs, and every copy was more trusted
+than the last because more readers had passed it. **A defect stays in one file;
+a false claim about the defect gets copied, and each copy is more authoritative
+than the last.**
+
+**This is the misstated half only.** A type that claims ownership its signature
+does not enforce — a `Copy` resource token with no `Drop`, so every early
+return is correct-looking code that leaks a durable claim — is a different
+shape with a different fix and a different grep, and it gets its own entry when
+its guard exists. Do not record one entry for both: the index is grep-first, and
+the two are found by searching for different things.
+
+**Guard** — `crates/roost-worker` `5781257e`, the `history_readable` premise pin.
+It asserts `KeeperPool::channel_history` returns `Err` today, with a failure
+message naming the consequence: the day it returns `Ok`, the build-capability
+gate becomes the thing deciding whether `adopt_survivor` and therefore
+`abandon` → `kill_channel` ever runs, and it must be re-reviewed before that
+ships. **W-K cannot flip the switch silently, because its first green
+`channel_history` turns this test red at the moment it matters** — which is the
+point. A comment saying "this becomes a keeper read when W-K lands" would not
+have done that, because comments do not fail builds.
+
+

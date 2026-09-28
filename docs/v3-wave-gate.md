@@ -4177,9 +4177,12 @@ log in this session** — the artifact it was read from turned out to be a todo
 dump. The reversion was wrong on the merits regardless, and the local run on the
 pinned `channel = "1.98.1"` returned `CLIPPY_EXIT=0` with zero errors. The rule
 that survives: **a count from a toolchain the repository does not pin, or from a
-run you cannot produce, is a claim and not a measurement, and it may not be
-acted on.** This file records it because the sentence nearly went into a commit
-as fact.
+run you cannot produce, is a claim and not a measurement, and it may not be acted
+on.** This file records it because the sentence **did** go into a commit as fact:
+`88bb1388`, which is pushed. A reader who saw that commit should know the
+attribution in it was retracted here and that the number behind it was never
+reproduced. That is the second time in one session a claim reached a commit body
+before anyone re-derived it, and the first time I wrote that rule down.
 
 **Ask which of the three you are checking.** A correct job on the wrong branch is
 indistinguishable from a correct one, and a job that never fires is
