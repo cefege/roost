@@ -1,0 +1,15 @@
+# Host-local build settings (not in the repo). The workspace Cargo.toml
+# already sets dev/test `debug = "line-tables-only"`; these two cut further.
+# Measured on the roost-coord test build: 12 GiB -> 7.3 GiB (deps) -> 4.3 GiB
+# (compression).
+
+# Dependencies carry no debuginfo: their line tables were most of the debug
+# sections in each of ~110 integration-test binaries per crate.
+[profile.dev.package."*"]
+debug = false
+
+# Remaining debuginfo (std + workspace line tables) is zlib-compressed by the
+# linker; backtraces and debuggers read it. Host target only, so wasm32 builds
+# never see the flag. A RUSTFLAGS env var would replace this silently.
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-Wl,--compress-debug-sections=zlib"]
