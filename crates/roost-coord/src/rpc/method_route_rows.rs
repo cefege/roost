@@ -128,8 +128,8 @@ pub const ROWS_AGENTS: &[MethodRoute] = &[
 /// global session search across every worker.
 #[rustfmt::skip]
 pub const ROWS_SEARCH: &[MethodRoute] = &[
-    route("SessionsSearchGlobal", "search", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("SessionsCancelGlobalSearch", "search", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
+    route("SessionsSearchGlobal", "search", AuthRequirement::Device, PortStatus::Implemented),
+    route("SessionsCancelGlobalSearch", "search", AuthRequirement::Device, PortStatus::Implemented),
 ];
 
 /// files, the attachment chunk relay, direct grants, and peer negotiation.

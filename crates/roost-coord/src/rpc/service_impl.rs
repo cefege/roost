@@ -395,22 +395,38 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn sessions_search_global<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsSearchGlobalRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsSearchGlobalRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<SessionsSearchGlobalResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<SessionsSearchGlobalResponse>("SessionsSearchGlobal")
+        async move {
+            let caller = caller_of(&ctx, "SessionsSearchGlobal")?;
+            crate::search::rpc_search::handle_sessions_search_global(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
 
     fn sessions_cancel_global_search<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsCancelGlobalSearchRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsCancelGlobalSearchRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<SessionsCancelGlobalSearchResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<SessionsCancelGlobalSearchResponse>("SessionsCancelGlobalSearch")
+        async move {
+            let caller = caller_of(&ctx, "SessionsCancelGlobalSearch")?;
+            crate::search::cancel::handle_sessions_cancel_global_search(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
     // ── sessions ────────────────────────────────────────────────────────
 
