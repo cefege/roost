@@ -18,9 +18,10 @@ use roost_term::AlacrittyCore;
 use roost_term::TerminalCore;
 
 use super::ids::mint_uuid;
+use super::keeper_channels::SurvivorHistory;
 use super::lifecycle::SessionManager;
 use super::resize::pin_for_adoption;
-use super::resume::{AdoptRefusal, AdoptionRequest, SurvivorHistory};
+use super::resume::{AdoptRefusal, AdoptionRequest};
 use super::ring::ScrollbackRing;
 use super::stream_scan;
 use super::types::{SessionIdentity, SessionRecord};

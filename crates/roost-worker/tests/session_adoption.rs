@@ -13,7 +13,8 @@ use roost_keeper::history::HistoryRecord;
 use roost_keeper::payloads::TerminalState;
 use roost_worker::browser_commands::session_lifecycle::SessionOutcome;
 use roost_worker::event_store::DurableEventKind;
-use roost_worker::session::resume::{AdoptRefusal, SurvivorHistory};
+use roost_worker::session::keeper_channels::SurvivorHistory;
+use roost_worker::session::resume::AdoptRefusal;
 use roost_worker::session::sinks::SessionEventSink;
 
 use session_support::{Harness, SESSION, ScriptedKeeper, session_id};
@@ -203,7 +204,10 @@ async fn a_survivor_whose_replay_does_not_converge_on_the_keepers_geometry_is_re
         .await
         .expect_err("a history that does not converge is not adoptable");
     assert!(
-        matches!(refused.refusal, AdoptRefusal::Unreplayable { channel: 7, .. }),
+        matches!(
+            refused.refusal,
+            AdoptRefusal::Unreplayable { channel: 7, .. }
+        ),
         "the refusal is the replay, not the staging: {refused}"
     );
     let message = refused.to_string();
@@ -331,10 +335,7 @@ async fn a_session_with_no_keeper_channel_is_refused_rather_than_recreated() {
         AdoptRefusal::NoSurvivor(7),
         "the refusal names the channel, and it is the absence one: {refused}"
     );
-    assert!(
-        !refused.abandoned,
-        "there was never a survivor to abandon"
-    );
+    assert!(!refused.abandoned, "there was never a survivor to abandon");
     assert!(
         harness
             .table

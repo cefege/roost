@@ -28,11 +28,7 @@ async fn an_adoption_past_the_staging_bound_is_refused_rather_than_truncated() {
     // worker it would belong to nobody.
     let chunk = vec![b'x'; 64 * 1024];
     for _ in 0..5 {
-        keeper
-            .on_rebind
-            .lock()
-            .expect("held")
-            .push(chunk.clone());
+        keeper.on_rebind.lock().expect("held").push(chunk.clone());
     }
     let refused = harness
         .manager

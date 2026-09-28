@@ -47,7 +47,7 @@ use roost_worker::event_store::Journal;
 use roost_worker::keeper_pool::KeeperPool;
 use roost_worker::runtime::adoption;
 use roost_worker::runtime::session_stack::{self, SessionStack};
-use roost_worker::session::resume::KeeperChannels;
+use roost_worker::session::keeper_channels::KeeperChannels;
 
 use keeper_pool_support::{KeeperFixture, channel, opened, session, sh_spec};
 
@@ -64,7 +64,9 @@ static FIXTURE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// The fixture lock, held for a whole test body.
 fn exclusive() -> std::sync::MutexGuard<'static, ()> {
-    FIXTURE.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    FIXTURE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// The fingerprint the worker's own identity would carry at boot.
@@ -333,7 +335,11 @@ async fn two_deps_from_one_session_stack_share_one_admission_ledger() {
         deps.searches
             .lock()
             .expect("held")
-            .admit(&format!("{who}-owner-{index}"), &format!("search-{index}"), false)
+            .admit(
+                &format!("{who}-owner-{index}"),
+                &format!("search-{index}"),
+                false,
+            )
             .is_ok()
     };
 

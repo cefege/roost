@@ -31,15 +31,15 @@ use std::sync::{Arc, Mutex};
 use roost_observability::clock::{EventClock, SystemClock};
 use roost_protocol::wire::brand::WorkerFp;
 
+use crate::browser_commands::search::Searches;
 use crate::event_store::Journal;
 use crate::host::shell_spec_resolver::HostShellSpecResolver;
 use crate::keeper_pool::KeeperPool;
-use crate::browser_commands::search::Searches;
 use crate::session::binding::CellDelivery;
 use crate::session::emit::CellEmitter;
 use crate::session::journal_sink::JournalSink;
+use crate::session::keeper_channels::KeeperChannels;
 use crate::session::lifecycle::{SessionManager, SessionTable};
-use crate::session::resume::KeeperChannels;
 use crate::session::sinks::SessionEventSink;
 use crate::session::spawn::{ShellSpawner, ShellSpecResolver};
 
@@ -243,4 +243,3 @@ impl SessionStack {
 pub fn attachment_root(data_dir: &std::path::Path) -> PathBuf {
     data_dir.join(ATTACHMENTS_DIR)
 }
-

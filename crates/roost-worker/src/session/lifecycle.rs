@@ -21,8 +21,8 @@ use roost_protocol::wire::brand::{SessionId, WorkerFp};
 use roost_protocol::wire::event::SessionEvent;
 
 use super::binding::{CellDelivery, ChannelDelivery};
+use super::keeper_channels::KeeperChannels;
 use super::respawn::DeadBirths;
-use super::resume::KeeperChannels;
 use super::sinks::SessionEventSink;
 use super::spawn::{ShellSpawner, ShellSpecResolver};
 use crate::browser_commands::Refusal;

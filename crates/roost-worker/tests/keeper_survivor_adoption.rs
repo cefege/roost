@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use keeper_pool_support::{KeeperFixture, channel, opened, session, sh_spec, wait_until};
 use roost_worker::keeper_pool::{KeeperPool, NO_REPORTED_BASE_GEOMETRY, NO_REPORTED_HEAD};
-use roost_worker::session::resume::KeeperChannels;
+use roost_worker::session::keeper_channels::KeeperChannels;
 use roost_worker::session::sinks::ChannelBinding;
 
 /// ONE KEEPER AT A TIME IN THIS BINARY.

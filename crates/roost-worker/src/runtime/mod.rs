@@ -19,8 +19,10 @@
 //! decision can be tested without a keeper, a coordinator, or a PTY.
 
 pub mod adoption;
+mod adoption_claim;
 pub mod boot;
 pub mod boot_order;
+mod boot_outbox;
 pub mod boot_sequence;
 pub mod bootstrap_redeem;
 pub mod capabilities;

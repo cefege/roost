@@ -6,15 +6,13 @@ use roost_protocol::wire::event::SessionEvent;
 
 use super::binding::RecordBinding;
 use super::ids::mint_trace_id;
+use super::keeper_channels::KeeperFault;
 use super::lifecycle::SessionManager;
-use super::resume::KeeperFault;
 use super::sinks::ChannelBinding;
 use super::spawn::{self, SpawnContext, SpawnRequest};
 use super::types::SessionRecord;
-use crate::browser_commands::session_lifecycle::{
-    DEFAULT_COLS, DEFAULT_ROWS, SessionLifecycle, SessionOutcome,
-};
-use crate::browser_commands::{Boxed, Refusal};
+use crate::browser_commands::Refusal;
+use crate::browser_commands::session_lifecycle::{DEFAULT_COLS, DEFAULT_ROWS, SessionOutcome};
 use crate::channel_fsm::ChannelEvent;
 use crate::event_store::DurableEventKind;
 use crate::strays::{DEAD_BIRTH_LIFETIME, DEAD_BIRTH_THRESHOLD, DEGRADED_WINDOW, Stillborn};

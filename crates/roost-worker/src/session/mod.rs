@@ -14,6 +14,7 @@
 
 pub mod agent_osc;
 pub mod binding;
+mod binding_staging;
 pub mod cell_scheduler;
 pub mod cell_sink;
 pub mod control_lanes;
@@ -23,6 +24,7 @@ pub mod history;
 pub mod ids;
 pub mod journal_sink;
 pub mod keeper_admission;
+pub mod keeper_channels;
 pub mod lifecycle;
 pub mod lifecycle_commands;
 pub mod raw_metadata;

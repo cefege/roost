@@ -155,7 +155,13 @@ impl ChannelDelivery for TableChannelDelivery {
         if !opened {
             return false;
         }
-        self.with_emitter(|emitter| emitter.hold_frames(channel_id, crate::session::cell_scheduler::CellGate::ResizeCapture, 0));
+        self.with_emitter(|emitter| {
+            emitter.hold_frames(
+                channel_id,
+                crate::session::cell_scheduler::CellGate::ResizeCapture,
+                0,
+            )
+        });
         tracing::info!(
             %channel_id,
             cap = CAPTURE_CAP_BYTES,
@@ -264,7 +270,6 @@ mod tests {
         );
         TableChannelDelivery::new(cells.emitter())
     }
-
 
     /// An open capture HOLDS the bytes rather than parsing them, and hands them
     /// back on close. This is the whole reason the capture exists: a chunk

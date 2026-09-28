@@ -22,7 +22,7 @@ use roost_protocol::wire::brand::ChannelId;
 use roost_protocol::wire::event::SessionEvent;
 use roost_worker::event_store::{DurableEventKind, Reservation, Store};
 use roost_worker::session::binding::{CellDelivery, ChannelDelivery};
-use roost_worker::session::resume::{KeeperChannels, KeeperFault, SurvivorHistory};
+use roost_worker::session::keeper_channels::{KeeperChannels, KeeperFault, SurvivorHistory};
 use roost_worker::session::sinks::{
     ChannelBinding, EventFuture, SessionEventError, SessionEventSink,
 };

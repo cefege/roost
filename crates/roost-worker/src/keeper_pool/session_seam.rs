@@ -24,7 +24,7 @@ use roost_keeper::payloads::TerminalState;
 
 use super::KeeperPool;
 use super::error::PoolError;
-use crate::session::resume::{KeeperChannels, KeeperFault, SurvivorHistory};
+use crate::session::keeper_channels::{KeeperChannels, KeeperFault, SurvivorHistory};
 use crate::session::sinks::ChannelBinding;
 
 /// The head a retained window was cut from is not on the wire.

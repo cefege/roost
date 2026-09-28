@@ -19,7 +19,7 @@ use std::sync::Arc;
 use roost_protocol::wire::brand::ChannelId;
 
 use super::KeeperPool;
-use crate::session::resume::KeeperChannels;
+use crate::session::keeper_channels::KeeperChannels;
 use crate::session::sinks::ChannelBinding;
 use crate::session::spawn::ShellSpawner;
 use crate::shell_spec::ShellSpec;

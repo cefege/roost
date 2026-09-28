@@ -21,11 +21,11 @@
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use roost_host::{ProcessEnv, supported_host_platform};
 use roost_host::env::EnvSource as _;
+use roost_host::{ProcessEnv, supported_host_platform};
 use roost_observability::clock::EventClock as _;
 
-use super::boot::{WorkerBoot};
+use super::boot::WorkerBoot;
 use super::boot_order::{BootSequence, Readiness, ReadyStep, StepId};
 use super::bootstrap_redeem::activation;
 use super::bootstrap_redeem::enroll_this_activation;
@@ -37,7 +37,6 @@ use super::reconcile;
 use super::session_stack::{self, SessionStack};
 use super::snapshot_source::SessionSnapshot;
 use super::stop::StopRequests;
-use super::{DATABASE_FILE_NAME, Journal};
 use crate::link_dial::CoordinatorEndpoint;
 
 /// Run the ordered boot and then the link, until the requester asks to stop.
@@ -83,14 +82,13 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     //    base-URL parse happen once. Built BEFORE enrollment, so a coordinator
     //    this worker cannot dial is refused before a token is spent against it,
     //    and reused by the open-session read below.
-    let coordinator_client = activation::coordinator_client(&boot.coordinator_base).with_context(
-        || {
+    let coordinator_client =
+        activation::coordinator_client(&boot.coordinator_base).with_context(|| {
             format!(
                 "{} is not a coordinator this worker can dial",
                 boot.coordinator_base
             )
-        },
-    )?;
+        })?;
     let enrollment = enroll_this_activation(&boot)
         .await
         .context("this activation could not be enrolled")?;
@@ -122,29 +120,7 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     //    that cannot be opened is a boot refusal, not a warning — a worker that
     //    accepted sessions it could not record would leave the coordinator
     //    believing a dead session is alive.
-    let outbox_path = boot.data_dir.join(DATABASE_FILE_NAME);
-    let outbox = Arc::new(Journal::open(&outbox_path).await.with_context(|| {
-        format!(
-            "the durable outbox at {} could not be opened",
-            outbox_path.display()
-        )
-    })?);
-    // Logged, not propagated: a stats read that fails says the store is
-    // answering, which is the only thing the line is for. The open above
-    // already refused anything that is not.
-    match outbox.stats().await {
-        Ok(stats) => tracing::info!(
-            path = %outbox_path.display(),
-            rows = stats.rows,
-            resumed_at = outbox.handed_over_at(),
-            "the durable outbox is open and the barrier resumes at its high water mark"
-        ),
-        Err(error) => tracing::warn!(
-            path = %outbox_path.display(),
-            %error,
-            "the durable outbox is open but its row count could not be read"
-        ),
-    }
+    let (outbox, outbox_path) = super::boot_outbox::open_outbox(&boot.data_dir).await?;
 
     // 5. The coordinator's COMPLETE open-session set, and then the keeper, in
     //    THAT ORDER. Both halves are `reconcile::admit_keeper`, so the order

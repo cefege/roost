@@ -79,7 +79,9 @@ impl LocalDoor {
             )
         })?;
         let address = listener.local_addr().map_err(|error| {
-            anyhow::anyhow!("the local door bound {requested} but would not report its address: {error}")
+            anyhow::anyhow!(
+                "the local door bound {requested} but would not report its address: {error}"
+            )
         })?;
         tracing::info!(
             %address,
