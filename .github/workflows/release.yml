@@ -235,10 +235,12 @@ jobs:
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          # `-rc` tags are pre-releases, so `latest` never points at a candidate
-          # and a plain `roost update` on a production machine cannot land one.
-          # The fleet runs v3.0.0-rc.N until v3.0.0 exists, and a join that
-          # cannot find an rc is a join that cannot find a release.
+          # `--prerelease` keeps GitHub's `latest` OFF an rc, so a link that
+          # resolves "latest" never lands a candidate. It does NOT stop
+          # `roost update`: `update/release.rs:56-58` excludes drafts and
+          # deliberately INCLUDES pre-releases, because the fleet runs
+          # `v3.0.0-rc.N` until `v3.0.0` exists and a join that cannot find an
+          # rc is a join that cannot find a release.
           #
           # `--verify-tag` refuses to create the tag it was handed. Without it a
           # mistyped `workflow_dispatch` input mints a new tag on the default
