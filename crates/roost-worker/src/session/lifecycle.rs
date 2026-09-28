@@ -154,6 +154,21 @@ impl SessionManager {
             .map_err(|error| Refusal::failed("sessions", error.to_string()))
     }
 
+    /// Give a durable claim back, because the event it was taken for will not
+    /// happen.
+    ///
+    /// PUBLIC, and not only because a guard needs somewhere to put a claim
+    /// back: a caller that has reserved and then decided not to use it holds
+    /// nothing but the manager. `Reservation` is `Copy` with no `Drop`, so a
+    /// claim that goes out of scope is not given back — it keeps its row and
+    /// its `default_reserved_bytes` against the store's caps, and
+    /// `Store::reserve` tests `rows + reserved_rows`. Enough of those and
+    /// every later session spawn is refused `Full`, several restarts removed
+    /// from anything the log would have said.
+    pub async fn release_reservation(&self, reservation: Reservation) {
+        self.events.release(reservation).await;
+    }
+
     /// Close one channel: emit its `closed` event once, then let the record go.
     /// The record leaves the table BEFORE the emission, so a second close — the
     /// keeper's own exit after a kill, or a kill after it — finds nothing to
