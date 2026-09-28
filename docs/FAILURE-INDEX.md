@@ -2666,3 +2666,35 @@ the fix; a second *mention* is the defect. If a future change moves the read,
 update the direction claim here or delete the entry — do not leave a green that
 means a mention.
 
+### A smoke spec dies at enrollment with "goto: Download is starting"
+
+**Symptom** — a Playwright terminal spec fails in `smoke/terminal/fixtures.ts:144` with
+`Error: goto: Download is starting`, on the **worker-served** page (the trace line is a spec's
+`stack.localUiUrl(...)` enrollment, not `stack.baseUrl`). Any spec that opens the local door
+reds this way; `terminal-local-fast-path` and `terminal-peer :61` were the two observed. The
+coordinator's own page in the same test enrolls normally.
+
+**Wrong** — read it as the host. It reproduces identically with the Rust and the TypeScript
+coordinator, on every port, with a freshly built `apps/web/dist` present — and that symmetry is
+the tell. A real host fault does not survive a stack swap. Two leads filed it as "environment,
+outside this track" and moved on, which is how a one-line harness defect nearly became a
+permanent skip on two specs.
+
+**Right** — Chromium is reporting the truth: the door answered `404` with
+`content-type: application/octet-stream`, so a document navigation is a download. The worker reads
+its SPA from `ROOST_WEB_DIST_PATH` (`apps/worker/src/host/config.ts:100` into
+`boot-local-terminal.ts:127`'s `createSpaResponder`), and `packages/host/src/web-embed.generated.ts`
+is an **empty stub** outside a release build — its own comment says from-source runs serve from disk
+at `cfg.webDistPath`. `smoke/terminal/stack-runtime.ts` set the key for the coordinator child and
+`stack-worker-runtime.ts` set it for nobody, so the door had neither a disk build nor embedded
+assets. **Both launchers now resolve it identically:**
+`resolveSmokeWebDist() ?? join(REPOSITORY_ROOT, "apps/web/dist")`, so `ROOST_SMOKE_WEB_DIST` reaches
+the worker too. Fixed on `v3` at `a84f4a12`; `origin/main` carries the same omission, which is why
+v2's local-door specs have been leaning on a checkout-local `.env` that a clean clone does not have.
+
+**Guard** — the specs themselves, and they are the guard because they fail loudly rather than
+skipping: `terminal-local-fast-path.spec.ts` (1 failed → 1 passed) and `terminal-peer.spec.ts`
+(4/5 → **5/5**) on chromium, TypeScript coordinator and worker, same tree. Do not add a second
+assertion for this: the enrollment IS the check, and a new one would pass for the wrong reason.
+When one of these reds, read the response in the trace (`0-trace.network`, the snapshot for the
+navigation) before blaming the machine — the status and `content-type` name the layer that failed.
