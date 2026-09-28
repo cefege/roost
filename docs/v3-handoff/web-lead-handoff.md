@@ -3,11 +3,100 @@
 Worktree `/home/mike/repos/roost-v3-web`, branch `v3-web`. The worktree
 (`git log --oneline -20 && git status --short`) is the state; this note is the
 moment it was written. Plan: `roost-v3-finish-and-cutover-plan.md` "### Stage 5".
-Lead: `WebLead2` (host `/home/mike`, successor of `WebLead`).
+Lead: `WebLead3` (host `/home/mike`, successor of `WebLead2`).
 
-## Current state (WebLead2, read this first)
+## Current state (WebLead3, read this first)
 
-Gated tip `659b50c8` (merge this):
+Gated tip `f17b305c` "web: the terminal diagnostic probe joins browser, coordinator
+and worker" — pushed, `origin/v3-web` = the same SHA. It is the finished version
+of the WIP the integrator preserved at `origin/v3-web-snap-resume2` (`dabfd789`);
+every file is byte-identical to that snapshot except the three fixes below, which
+are named in the commit body.
+
+The three fixes the WIP needed to compile and to stop lying:
+
+1. `smoke/stream_probe.rs` called a `string_member` that did not exist. Added it
+   (v2's `typeof record.key === "string" ? record.key : null`).
+2. `harness_host.rs`'s `FlowHost::terminal_stream_probe` answered
+   `unported_refusal("terminalStreamProbe")`, which for a now-ported member is
+   `None` and produced an empty-string refusal. It calls the real probe.
+3. `tests/smoke_stream_probe.rs` had a vacuous case (fixed in the commit): its
+   fixture named no session, so the error arm never ran and every member read
+   `null` for free.
+
+Gate on this tip:
+
+- `cargo nextest run -p roost-client-core -p roost-web -p roost-web-terminal --no-fail-fast`
+  twice, agreeing: **1344 passed / 4 skipped**.
+- `cargo nextest run -p roost-web --features smoke --no-fail-fast`:
+  **387 passed / 0 skipped**. Run this one too — CI's `cargo test --workspace`
+  never enables the `smoke` feature, so every `#![cfg(feature = "smoke")]` test
+  file compiles to nothing there (`docs/v3-handoff/silent-no-ops.md` #5).
+- `cargo test -p roost-client-core -p roost-web -p roost-web-terminal --no-fail-fast`:
+  195 suites, 0 failed. (nextest is the honest total; the per-suite counts sum to
+  the same 1344.)
+- `cargo clippy --workspace --all-targets --keep-going -- -D warnings` → exit 0.
+- `ROOST_REPO_ROOT=$PWD cargo xtask lint` → **3985 inputs, 0 violations**.
+- `cargo xtask fmt` → clean, confirmed by `git status --short` (its success word
+  is "formatted", which asserts nothing — silent-no-ops #11). Formatting the two
+  touched crates' sources needs `cargo fmt -p roost-web -p roost-client-core`;
+  bare `rustfmt --edition 2024 <file>` disagrees with it on `stream_diagnostics.rs`.
+- `cargo build -p roost-client-core -p roost-protocol -p roost-web -p roost-web-terminal --target wasm32-unknown-unknown`
+  exit 0; `cargo check -p roost-web --target wasm32-unknown-unknown` with and
+  without `--features smoke` exit 0.
+
+### A gate CI does not run, and it is red — `roost-web-terminal` under wasm32 clippy
+
+`cargo clippy -p roost-web --features smoke --target wasm32-unknown-unknown
+--all-targets -- -D warnings` fails with three `clippy::type_complexity` errors in
+`roost-web-terminal`. This is silent-no-ops #4 exactly: wasm-only code is skipped
+by the host clippy, by host `--all-targets` and by `cargo test`, and `ci.yml`'s
+wasm32 step is `cargo build`, not `cargo clippy`. **Not introduced by this session
+and not fixed by it** — it is pre-existing on `roost-web-terminal`, and it is the
+first thing the next lead should clear, because until it is the wasm32 half of the
+UI crates is outside every lint.
+
+## Bundles
+
+`crates/roost-web/dist-smoke/` is gitignored (`.gitignore:3`). `dx` does NOT clean
+its output dir, so the two builds must be separated by an `rm -rf` of
+`target-track/dx/roost-web/release/web/public` or the production copy inherits the
+smoke wasm:
+
+```
+rm -rf target-track/dx/roost-web/release/web/public
+dxb build --release -p roost-web --platform web --features smoke
+rm -rf crates/roost-web/dist-smoke && cp -r target-track/dx/roost-web/release/web/public crates/roost-web/dist-smoke
+rm -rf target-track/dx/roost-web/release/web/public
+dxb build --release -p roost-web --platform web
+rm -rf crates/roost-web/dist && cp -r target-track/dx/roost-web/release/web/public crates/roost-web/dist
+grep -rc __smoke crates/roost-web/dist | awk -F: '{s+=$2} END {print s}'   # must be 0
+```
+
+TERM gate:
+`ROOST_SMOKE_WEB_DIST=$PWD/crates/roost-web/dist-smoke bunx playwright test smoke/terminal/terminal-delivery.spec.ts -g "browser smoke flow creates and cleans its resources" --project chromium-desktop --reporter=line`
+(`node` is not on PATH; use `bunx`. The fixture needs `.workbench-shell[data-compact]`,
+one `[data-testid=folder-list]`, no error boundary, then `__smoke.runFlow`.)
+
+### The `__smoke` member the coordinator's X2 DiagSnapshot slice consumes
+
+`window.__smoke.terminalStreamProbe(sessionId)` — an `Answer::Promise` member. It
+takes the browser layer (`terminalBrowserSnapshot`), sends it as
+`DiagSnapshot { spa_state_json }`, and returns the normalized three-layer record
+(`captured_at_ms`, `session_id`, `browser`, `coord.{build,session,terminal_control}`,
+`worker.{worker_fp,status,response_ms,build,session,error}`). The coordinator
+answers with `snapshot_json`; a missing or malformed layer stays explicit
+(`status: "missing"`, `null`) rather than reading as healthy.
+
+`window.__smoke.terminalBrowserSnapshot(sessionId)` is its `Answer::Sync` half and
+answers without the round trip. `SMOKE_METHODS` is **53** (recounted against v2
+`smokeTypes.ts:118-287`: 53 declared, 53 registered, 0 uncovered); both members
+were already registered at `28eebcee` and this commit only removed their
+`UNPORTED_METHODS` entries.
+
+## Previous state (WebLead2)
+
+Gated tip `659b50c8`:
 - `3960743d` view-state installs its stream at the authority's effective geometry; UUID view ids.
 - `e11c611e` republishing a view at its published size keeps its revision (the 1→2→3→4
   climb: v2 `refresh`/`changeIntent` keep it; wire showed rev=1 then rev=2 same payload).
@@ -19,9 +108,10 @@ Gated tip `659b50c8` (merge this):
   clippy `--workspace --all-targets --keep-going -D warnings` exit 0; lint 3958 inputs, 0
   violations; `cargo xtask fmt` then `git status --short` empty; CI wasm32 build exit 0;
   `cargo check -p roost-web --target wasm32-unknown-unknown` ±`--features smoke` exit 0.
-- TabId WIP (SYNC LIFECYCLE) is NOT in the tip: it is in snapshot `v3-web-snap-term-viewstate`
-  and the worktree stash `tabid-wip`.
-- Build rule now: `CARGO_INCREMENTAL=1 CARGO_BUILD_JOBS=3`, nextest for full suites.
+- The TabId WIP that was NOT in that tip has since landed as `32120c5e` ("one tab id
+  per document, arbitrated off a duplicated tab's"), so the SYNC LIFECYCLE remainder
+  is that row's tail, not its `tab-id.ts` port.
+- Build rule: `CARGO_INCREMENTAL=1 CARGO_BUILD_JOBS=3`, nextest for full suites.
 
 ## Previous state (WebLead)
 
