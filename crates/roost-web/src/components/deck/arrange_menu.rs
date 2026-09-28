@@ -130,7 +130,7 @@ pub fn ArrangeMenu(can_arrange: bool, on_arrange: EventHandler<ArrangeKind>) -> 
                     close_menu(true);
                     on_arrange.call(kind);
                 },
-                on_close: move |restore| close_menu(restore),
+                on_close: close_menu,
             }
         }
     }

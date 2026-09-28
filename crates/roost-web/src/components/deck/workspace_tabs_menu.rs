@@ -77,7 +77,7 @@ pub fn WorkspaceTabsMenu(
         if let Some(position) = *open.read() {
             WorkspaceTabsMenuSurface {
                 position,
-                on_close: move |restore| close_menu(restore),
+                on_close: close_menu,
                 if !selection_mode {
                     CtxMenuItem { testid: "workspace-tabs-close-all", danger: true, onclick: move |_| choose(on_close_all), "Close all tabs" }
                     CtxMenuItem { testid: "workspace-tabs-select", onclick: move |_| choose(on_select_tabs), "Select tabs" }

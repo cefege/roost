@@ -111,7 +111,6 @@ pub fn PaneTabList(
                     },
                     onkeydown: {
                         let restore_trigger = restore_trigger.clone();
-                        let choose = choose.clone();
                         move |event: KeyboardEvent| {
                             let key = event.key().to_string();
                             match key.as_str() {
@@ -174,7 +173,6 @@ pub fn PaneTabList(
                         onmouseenter: move |_| highlighted.set(index),
                         onfocus: move |_| highlighted.set(index),
                         onclick: {
-                            let choose = choose.clone();
                             let session_id = session_id.clone();
                             move |_| choose(session_id.clone())
                         },

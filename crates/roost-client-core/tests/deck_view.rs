@@ -150,11 +150,7 @@ fn the_swipe_neighbour_rides_in_over_the_one_compact_pane() {
     let neighbour = &slots[&sid(2)];
     assert_eq!(neighbour.pane_id, "left");
     assert!(!neighbour.focused);
-    assert!(
-        slot_by_session(&view, None, Some(&sid(2)), false)
-            .get(&sid(2))
-            .is_none()
-    );
+    assert!(!slot_by_session(&view, None, Some(&sid(2)), false).contains_key(&sid(2)));
 }
 
 #[test]

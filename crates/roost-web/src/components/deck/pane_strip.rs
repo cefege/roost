@@ -241,10 +241,10 @@ pub fn PaneStrip(
                     trigger_id: format!("tab-overflow-{pane_id}"),
                     on_select: move |session_id| on_select.call(session_id),
                     on_reveal_selected: move |()| {
-                        if let Some(rail) = gesture.rail.peek().as_ref() {
-                            if gesture.drag.peek().is_none() {
-                                deck_dom::reveal_active_tab(rail);
-                            }
+                        if let Some(rail) = gesture.rail.peek().as_ref()
+                            && gesture.drag.peek().is_none()
+                        {
+                            deck_dom::reveal_active_tab(rail);
                         }
                     },
                     on_close: move |()| list_open.set(None),
