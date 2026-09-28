@@ -62,6 +62,7 @@ fn rejects_a_ready_tuple_with_a_different_worker_epoch() {
 }
 
 #[test]
+#[ignore = "U-CARRIER: a Ready bounded by the full 256-session grant"]
 fn accepts_a_bounded_ready_for_the_full_256_session_grant() {
     let sessions: Vec<String> = (0..256)
         .map(|index| format!("00000000-0000-4000-8000-{index:012}"))

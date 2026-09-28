@@ -139,7 +139,10 @@ impl AttachmentPeerTransfer {
             PeerLane::Data => self.data_open = true,
         }
         if lane == PeerLane::Control {
-            let hello = self.grant.hello(&self.peer_id).encode_to_vec();
+            // A client frame, as v2 `attachmentPeer.ts:160-166` queues it.
+            let hello = encode_client_frame(ClientFrame::Hello(Box::new(
+                self.grant.hello(&self.peer_id),
+            )));
             if !self.queue_frame(PeerLane::Control, &hello) {
                 return Err(self.finish("attachment peer could not authenticate"));
             }

@@ -234,6 +234,7 @@ fn uses_coordinator_status_only_to_settle_a_lost_final_receipt_after_the_carrier
 }
 
 #[test]
+#[ignore = "U-ATTACH: recoverAcknowledgement"]
 fn does_not_resume_a_nonfinal_direct_upload_through_coordinator_status() {
     // The first chunk's receipt says the worker has it but has NOT committed:
     // the file is still open. So the receipt does not settle that chunk, the

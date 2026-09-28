@@ -331,6 +331,11 @@ impl GrantLifecycle {
         Vec::new()
     }
 
+    /// A fault named the credential itself: drop it and ask for a fresh mint
+    /// NOW, as v2's `dropTerminalGrant` does (`local-terminal-grants.ts:154-160`
+    /// clears `retryAtMs`, and the next `maybeStart` refreshes with no wait,
+    /// `terminal-peer.ts:198`). The bounded retry belongs to a mint that was
+    /// REFUSED, not to a secret the worker stopped honouring.
     fn revoked(&mut self, fault: CarrierFault, now_ms: u64) -> Vec<CarrierEffect> {
         if self.phase == GrantPhase::Retired {
             return Vec::new();
@@ -340,15 +345,20 @@ impl GrantLifecycle {
             return Vec::new();
         }
         self.grant = None;
+        self.retry_at_ms = 0;
         self.phase = if fault == CarrierFault::GrantExpired {
             GrantPhase::Expired
         } else {
             GrantPhase::Unavailable
         };
-        if self.demanded.is_empty() {
-            return Vec::new();
-        }
-        self.arm_retry(now_ms)
+        tracing::info!(
+            target: "carriers",
+            worker_fp = %self.worker_fp,
+            fault = fault.as_str(),
+            now_ms,
+            "direct grant dropped; a fresh mint is asked for any demand"
+        );
+        self.request()
     }
 
     /// Move to `Requested` and ask for every demanded session.
