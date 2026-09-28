@@ -95,7 +95,7 @@ pub enum CandidateError {
 /// costs a mirror and buys no security. Text that is not a digest at all still
 /// fails here.
 pub fn parse_published_digest(sidecar: &str) -> Option<String> {
-    let first = sidecar.trim().split_whitespace().next()?;
+    let first = sidecar.split_whitespace().next()?;
     if first.len() != 64 {
         return None;
     }

@@ -19,7 +19,7 @@ mod push_fixture;
 
 use std::collections::BTreeMap;
 
-use push_fixture::{contract, digest, with, worker};
+use push_fixture::{contract, digest, worker};
 
 use roost_cli::push::admission::{classify_fleet_keeper_updates, rollback_keeper_update};
 use roost_cli::push::plan::FleetRolloutTarget;

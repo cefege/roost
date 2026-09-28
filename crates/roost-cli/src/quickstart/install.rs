@@ -41,8 +41,9 @@ use crate::services::deploy_transaction::{DeployOutcome, deploy_service_definiti
 use crate::services::install::{
     InstallOutcome, ensure_service_directories, install_release_programs,
 };
+use crate::services::logrotate::{RotationOutcome, install_rotation};
 use crate::services::service_control::PlatformServiceManager;
-use crate::services::service_spec::ServiceSpec;
+use crate::services::service_spec::{ServiceRole, ServiceSpec};
 use crate::wall_clock;
 
 /// The programs a local install puts in place, when the command can find them.
@@ -52,6 +53,7 @@ use crate::wall_clock;
 /// release before they may install one is how quickstart never gets run. The
 /// keeper is looked for beside it and is optional, so a development build that
 /// ships no separate keeper binary still installs a `roost` and says so.
+#[derive(Debug)]
 pub struct LocalPrograms {
     /// The `roost` this process is running from.
     pub roost: PathBuf,
@@ -61,7 +63,16 @@ pub struct LocalPrograms {
 
 impl LocalPrograms {
     /// This process's own executable and the keeper beside it.
-    pub fn of_this_process() -> Result<Self, CommandFailure> {
+    ///
+    /// The keeper is OPTIONAL for a source build, which is the case the field
+    /// was optional for: a development tree ships no separate keeper binary and
+    /// still installs a working `roost`. It is NOT optional for a release, and
+    /// the reason is the caller's behaviour rather than the file's absence:
+    /// `roost join` filters a missing keeper out rather than refusing, so a
+    /// release that found none would enroll a machine, report success, and
+    /// serve no terminal — the "roster looks converged, terminal serves
+    /// nothing" outcome. Refusing here is the only place it can be caught.
+    pub fn of_this_process(env: &dyn EnvSource) -> Result<Self, CommandFailure> {
         let roost = std::env::current_exe().map_err(|error| {
             CommandFailure::generic(format!(
                 "this command cannot locate its own executable to install: {error}"
@@ -69,10 +80,45 @@ impl LocalPrograms {
         })?;
         let keeper = roost
             .parent()
-            .map(|directory| directory.join(crate::deploy::apply_release::KEEPER_PROGRAM));
-        let keeper = keeper.filter(|candidate| candidate.is_file());
+            .map(|directory| directory.join(crate::deploy::apply_release::KEEPER_PROGRAM))
+            .filter(|candidate| candidate.is_file());
+        let identity = roost_host::build_identity(env);
+        require_keeper_for_release(keeper.as_deref(), &roost, &identity.artifact_version)?;
         Ok(Self { roost, keeper })
     }
+}
+
+/// Whether a build with no keeper beside its `roost` may install anyway.
+///
+/// Split out of [`LocalPrograms::of_this_process`] because
+/// `artifact_version` is a COMPILE-TIME constant
+/// (`build_identity.rs:42-45`), so a test binary is always `dev` and the
+/// release refusal cannot be reached through the constructor at all. The
+/// decision is here so the refusal is a thing tests can exercise; the
+/// constructor is only the thing that supplies its inputs.
+///
+/// Optional for a source build, which is the case the field was optional for:
+/// a development tree ships no separate keeper binary and still installs a
+/// working `roost`. NOT optional for a release, and the reason is the caller's
+/// behaviour rather than the file's absence — `roost join` filters a missing
+/// keeper out rather than refusing, so a release that found none would enroll a
+/// machine, report success, and serve no terminal.
+pub fn require_keeper_for_release(
+    keeper: Option<&Path>,
+    roost: &Path,
+    artifact_version: &str,
+) -> Result<(), CommandFailure> {
+    if keeper.is_some() || artifact_version == roost_host::DEV_BUILD_STAMP {
+        return Ok(());
+    }
+    let directory = roost.parent().unwrap_or_else(|| Path::new("."));
+    Err(CommandFailure::generic(format!(
+        "no {} beside {}, and this is a {artifact_version} build. A joined machine needs \
+         both programs: the worker cannot run a session without its keeper. The release \
+         publishes it in the same directory as this binary.",
+        crate::deploy::apply_release::KEEPER_PROGRAM,
+        directory.display()
+    )))
 }
 
 /// Deploy one definition on this machine, holding the machine transaction for
@@ -157,6 +203,40 @@ pub fn report_change(outcome: &DeployOutcome, action: &'static str) {
         "{action}"
     );
 }
+
+/// Install one role's log rotation and say what happened, on stderr.
+///
+/// Shared by quickstart and join because both are first installs on a machine
+/// with nothing of ours on it, and a rotation written by one and not the other
+/// is a machine whose logs grow until something else stops them. A skip is
+/// reported rather than swallowed: the operator is the only one who can install
+/// `logrotate`, and silence here reads as "rotated".
+pub fn report_rotation(role: ServiceRole, env: &dyn EnvSource, platform: HostPlatform) {
+    let rotation = match install_rotation(env, platform, role) {
+        Ok(rotation) => rotation,
+        Err(error) => {
+            eprintln!(
+                "WARN: the {}'s log rotation could not be written: {error}",
+                role.display_name()
+            );
+            return;
+        }
+    };
+    match rotation {
+        RotationOutcome::Installed(files) => info!(
+            role = %role.display_name(),
+            files = files.len(),
+            "installed the log rotation"
+        ),
+        RotationOutcome::Skipped(reason) => {
+            eprintln!(
+                "WARN: no log rotation for the {}: {reason}",
+                role.display_name()
+            );
+        }
+    }
+}
+
 /// The service directory this install keeps its release versions and its
 /// deploy journal in.
 pub fn service_dir(env: &dyn EnvSource, platform: HostPlatform) -> Result<PathBuf, CommandFailure> {

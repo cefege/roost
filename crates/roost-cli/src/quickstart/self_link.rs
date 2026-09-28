@@ -66,10 +66,8 @@ impl LinkOutcome {
         let arrow = format!("{} -> {}", link.display(), target.display());
         match self {
             LinkOutcome::AlreadyCorrect => format!("{arrow} (already correct)"),
-            LinkOutcome::Created => format!("{arrow}"),
-            LinkOutcome::Repaired { previous: None } => {
-                format!("{arrow} (replaced a broken link)")
-            }
+            LinkOutcome::Created => arrow.clone(),
+            LinkOutcome::Repaired { previous: None } => format!("{arrow} (replaced a broken link)"),
             LinkOutcome::Repaired {
                 previous: Some(previous),
             } => format!("{arrow} (was {})", previous.display()),
@@ -87,7 +85,7 @@ pub fn run() -> Result<std::process::ExitCode, CommandFailure> {
         )
     })?;
     let target = release_program(&env, platform)?;
-    let bin_dir = home.join(Path::new(&LOCAL_BIN[0]).join(&LOCAL_BIN[1]));
+    let bin_dir = home.join(Path::new(LOCAL_BIN[0]).join(LOCAL_BIN[1]));
     let link = bin_dir.join(LINK_NAME);
 
     let outcome = write_link(&link, &target)?;

@@ -61,7 +61,10 @@ fn a_blank_pair_declares_no_access_while_a_real_one_is_kept_whole() {
         .with(ENV_CF_ACCESS_AUD, &well_formed_aud());
     let loaded = config(env);
     assert_eq!(loaded.cf_access_team_domain.as_deref(), Some(TEAM));
-    assert_eq!(loaded.cf_access_aud.as_deref(), Some(well_formed_aud().as_str()));
+    assert_eq!(
+        loaded.cf_access_aud.as_deref(),
+        Some(well_formed_aud().as_str())
+    );
 }
 
 #[test]

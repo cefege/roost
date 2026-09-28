@@ -104,7 +104,7 @@ pub async fn prompt(
     };
     let wait_outcome = match (response.wait_outcome.as_ref(), &wait, input) {
         (None, _, _) => None,
-        (Some(code), None, _) => {
+        (Some(_code), None, _) => {
             return Err(invalid(
                 "a wait outcome for a prompt with no wait asked for",
             ));
@@ -123,7 +123,7 @@ pub async fn prompt(
     if let Some(outcome) = &wait_outcome {
         out.answer(&format!("wait\t{outcome}"));
     }
-    let settled = input == "accepted" && wait_outcome.as_deref().unwrap_or("matched") == "matched";
+    let settled = input == "accepted" && wait_outcome.unwrap_or("matched") == "matched";
     Ok(if settled {
         ExitCode::SUCCESS
     } else {

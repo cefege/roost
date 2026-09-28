@@ -207,7 +207,7 @@ pub fn retire_prior(location: &CoordinatorLocation, prior: &Path) -> Result<(), 
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
     let retirement = retire::retire_prior_release(&location.release_root, prior)
-        .map_err(|error| CommandFailure::generic(error))?;
+        .map_err(CommandFailure::generic)?;
     info!(
         release = %prior_sha,
         how = %retirement.display_name(),
@@ -288,14 +288,14 @@ pub fn restore_database(database: &Path, snapshot_dir: &Path) -> Result<(), Comm
 /// Retained past its transaction it is a stale copy of the coordinator's fleet
 /// state sitting in a service directory, and nobody would ever know to delete it.
 pub fn discard_snapshot(snapshot_dir: &Path) {
-    if let Err(error) = std::fs::remove_dir_all(snapshot_dir) {
-        if error.kind() != std::io::ErrorKind::NotFound {
-            warn!(
-                path = %snapshot_dir.display(),
-                reason = %error,
-                "a coordinator rollback snapshot is still on disk"
-            );
-        }
+    if let Err(error) = std::fs::remove_dir_all(snapshot_dir)
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        warn!(
+            path = %snapshot_dir.display(),
+            reason = %error,
+            "a coordinator rollback snapshot is still on disk"
+        );
     }
 }
 

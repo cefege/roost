@@ -2577,3 +2577,74 @@ different fix pattern than the one the immediate code tempts you toward, the ent
 after the tempting fix already failed. Add a new entry only after a NEW root cause is confirmed AND a
 regression test (or a `scripts/lint-roost.ts` rule) exists for it; an entry without a guard is a promise
 the repo cannot keep.
+
+### A guard that greps for a name accepts the producer as the consumer
+
+**Symptom** — a reachability test that searches `src/` for a file mentioning `<field>`
+(or `<Type>`) without *declaring* it passes green while nothing consumes the value. The
+first version of this guard was six of six green, on a capability with no execution
+path: `crates/roost-coord/src/events/append_transaction.rs:78` **builds**
+`snapshot_reap_ids` without declaring it, so the producer satisfied a test written for
+a consumer.
+
+**Wrong** — grep for the name. A name has a producer and a consumer and grep cannot
+tell them apart, so the test's subject is the *string* rather than the **direction of
+the data**. It reports success while looking like it tests the right thing, which is
+the worst of the available combinations: a green suite resting on a false claim.
+Merely tightening the pattern does not fix the category.
+
+**Right** — grep for something only the CONSUMER can do. Here: does anything set
+`defer_snapshot_reap: true`? Only a caller constructing `AppendOptions` to defer can
+write one; the declaration (`events/append.rs:274`), the `Debug` field (`:284`) and the
+read inside `build_result` (`:367`) are the only other mentions of the name and none of
+them can produce a `true`. That question is unambiguous for a structural reason, not a
+stricter-pattern reason.
+
+**THE RULE, because this is the second time tonight and the same author wrote both:**
+a test whose subject is a **value** asks whether the value is right; a test whose
+subject is a **path** asks whether anything walks it. Those are different questions and
+only the second survives a green run. `green` and `correct` are different properties and
+the exit code only shows you one of them.
+
+**Guard** — **cited by COMMIT, not by file**, because the file is about to move.
+`c02cb9dc` introduced the assertion inside `crates/roost-coord/tests/event_publication.rs`;
+it is being moved to a binary of its own, `event_reachability.rs`, because **the
+guard's subject is reachability and that file's subject is the deferred reap** — they
+shared a file only because the second conjunct was written next to the first. **A
+commit is a fixed point and a file is not**, which is why this entry names the commit
+first. The assertion's own body at `c02cb9dc` is the authority; wherever it lives
+now, that commit holds it.
+
+For reference, as of `c02cb9dc` it lived at:
+`a_deferred_reap_waits_for_the_callers_readiness_barrier`, **at `c02cb9dc` on
+`v3-coord`. It is not on `v3` until the 2C-GATE merge.**
+
+**Read that twice, because it is this entry's own trap.** A test of the *same name*
+already exists on `v3` at `event_publication.rs:288`, and its body is the value-only
+version — the camouflage this entry is about. **So following this Guard on `v3` today
+lands on a green test that does not check the path: the name matches and the body does
+not.** That is why the commit is cited rather than the file. A file and a test name are
+not a citation; a commit is.
+
+**STATUS: CLOSED at `8880699f`, and closed by the fix rather than by a softening.**
+At `c02cb9dc` the test was red by design, asking only whether anything sets
+`defer_snapshot_reap: true`. It is now **green on both conjuncts** — the flag is
+set *and* a production reader of the returned ids exists — measured
+`cargo test -p roost-coord --test event_publication` **6 passed / 0 failed**,
+against **5 passed / 1 failed** on the same binary before the fix. The assertion
+was not edited; the two value tests beside it still assert only that the ids
+come back correctly, and passing them is still not evidence about this one.
+
+**The reader is at `frame_dispatch.rs:354`, and WHERE it is is the whole entry.**
+`self.drain_reaps(&self.handle.worker_fp, &result.snapshot_reap_ids)` is a
+**dotted read in a file outside the four named producers**, so it satisfies the
+second conjunct by **direction**. Had that conjunct stayed a bare grep — the
+guard this entry is about — the green would have been **this same defect
+arriving by a different route**: a producer satisfying a consumer's test. The
+name joins the list; it does not replace the dot.
+
+**Do not re-open this by adding a second path to the grep.** A second reader is
+the fix; a second *mention* is the defect. If a future change moves the read,
+update the direction claim here or delete the entry — do not leave a green that
+means a mention.
+

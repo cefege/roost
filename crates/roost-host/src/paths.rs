@@ -92,6 +92,36 @@ const XDG_DATA_DEFAULT_LEAF: &str = "share";
 
 /// The XDG default for mutable state, when `XDG_STATE_HOME` is unset.
 const XDG_STATE_DEFAULT_LEAF: &str = "state";
+/// The user's configuration root: `$HOME/.config`, and nothing else.
+///
+/// **It does NOT read `XDG_CONFIG_HOME`, and that is deliberate.** v2 hardcodes
+/// `join(homedir(), ".config", "systemd", "user", ...)`
+/// (`packages/host/src/paths.ts`) and its logrotate unit names a literal
+/// `~/.config/logrotate.d`, so honouring the variable here would move a unit off
+/// the path the oracle, the docs, and `systemctl --user` all expect. Parity wins
+/// over the XDG specification, and a test pins the divergence so a future reader
+/// does not "fix" it.
+///
+/// Public because the rule is not only this crate's: systemd user units land in
+/// `<config>/systemd/user` and `logrotate.d` fragments in `<config>/logrotate.d`.
+/// A caller that restates the default is a second implementation of a rule with
+/// one owner, which is the defect class this repository pays for most.
+pub fn config_root(env: &dyn EnvSource) -> ProtocolResult<PathBuf> {
+    Ok(home_dir(env)?.join(".config"))
+}
+
+/// The user's mutable-state root, per the XDG base-directory specification.
+///
+/// Unlike [`config_root`] this one DOES read `XDG_STATE_HOME`, which is the
+/// pre-existing behaviour of the data and state roots in this crate and is not
+/// changed here.
+///
+/// Public for the same reason as `config_root`: the `logrotate` state ledger
+/// lives here, and a caller that resolves it itself has forked the rule rather
+/// than called it.
+pub fn state_root(env: &dyn EnvSource) -> ProtocolResult<PathBuf> {
+    xdg_root(env, XDG_STATE_HOME_ENV, XDG_STATE_DEFAULT_LEAF)
+}
 
 /// Where the worker keeps its durable state.
 pub fn worker_data_dir(env: &dyn EnvSource, platform: HostPlatform) -> ProtocolResult<PathBuf> {
@@ -266,8 +296,7 @@ fn launch_agent_path(env: &dyn EnvSource, file_name: &str) -> ProtocolResult<Pat
 }
 
 fn systemd_user_path(env: &dyn EnvSource, file_name: &str) -> ProtocolResult<PathBuf> {
-    Ok(home_dir(env)?
-        .join(".config")
+    Ok(config_root(env)?
         .join("systemd")
         .join("user")
         .join(file_name))

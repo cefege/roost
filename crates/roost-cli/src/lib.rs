@@ -22,6 +22,7 @@ pub mod daemon;
 pub mod deploy;
 pub mod dev;
 pub mod doctor;
+pub mod import_v2;
 pub mod ops;
 pub mod overlay_env;
 pub mod push;
@@ -45,6 +46,7 @@ use crate::deploy::remote_commands::{
 use crate::deploy::{DeployArgs, KeeperRefreshArgs};
 use crate::dev::DevArgs;
 use crate::doctor::DoctorArgs;
+use crate::import_v2::ImportV2Args;
 use crate::ops::keeper_contract::KeeperContractArgs;
 use crate::ops::logs::LogsArgs;
 use crate::ops::reset::ResetArgs;
@@ -86,6 +88,8 @@ pub enum Command {
     Update(UpdateArgs),
     /// Health readout: local services, coordinator, front door, workers.
     Status(StatusArgs),
+    /// Carry a v2 coordinator's account, devices and keys into this install.
+    ImportV2(ImportV2Args),
     /// Anomaly digest from this host's logs and the coordinator's audit log.
     Doctor(DoctorArgs),
     /// Print the roost version, or the build SHA with --build.
@@ -141,6 +145,7 @@ impl Command {
             Command::Update(_) => "update",
             Command::Status(_) => "status",
             Command::Doctor(_) => "doctor",
+            Command::ImportV2(_) => "import-v2",
             Command::Version(_) => "version",
             Command::Logs(_) => "logs",
             Command::Deploy(_) => "deploy",
@@ -187,6 +192,7 @@ pub async fn dispatch(cli: Cli) -> Result<ExitCode, CommandFailure> {
         Command::Update(args) => update::run(&args).await,
         Command::SelfLink => quickstart::self_link::run(),
         Command::RemoteFacts(args) => deploy::remote_commands::facts(&args),
+        Command::ImportV2(args) => import_v2::run(&args).await,
         Command::RemoteEvidence(args) => deploy::remote_commands::evidence(&args),
         Command::RemoteTransaction(args) => deploy::remote_commands::transaction(&args).await,
         Command::RemoteApply(args) => deploy::remote_commands::apply(&args).await,

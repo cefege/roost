@@ -28,6 +28,7 @@
 use std::path::{Path, PathBuf};
 
 use roost_host::EnvSource;
+use roost_host::coord_config_loader::ENV_WEB_DIST_PATH;
 use tracing::{info, warn};
 
 use crate::deploy::apply_release::{
@@ -43,16 +44,49 @@ use crate::services::deploy_journal::DeployJournal;
 use crate::services::deploy_transaction::{
     DeployError, RollbackOutcome, deploy_service_definition, resolve_interrupted_deploy,
 };
-use crate::services::service_control::PlatformServiceManager;
+use crate::services::service_control::{PlatformServiceManager, ServiceManager};
 use crate::services::service_spec::{ServiceRole, ServiceSpec};
+use crate::services::web_bundle;
+
+/// Run the apply against this process's own environment, driving the machine's
+/// real service manager.
+pub async fn run(manifest_bytes: &[u8], env: &dyn EnvSource) -> ApplyReport {
+    let platform = match roost_host::supported_host_platform() {
+        Ok(platform) => platform,
+        Err(error) => {
+            return ApplyReport::new(
+                ApplyOutcome::Refused,
+                format!("this machine's platform cannot be resolved: {error}"),
+            );
+        }
+    };
+    run_with(
+        manifest_bytes,
+        env,
+        &mut PlatformServiceManager::new(platform),
+    )
+    .await
+}
 
 /// Run the apply, and return the report the deploying box reads.
 ///
 /// Every path out of this function is a report: there is no "no report" state,
 /// because a target that changed its machine and then failed to say so is the one
 /// situation the deploying box cannot reason about.
-pub async fn run(manifest_bytes: &[u8], env: &dyn EnvSource) -> ApplyReport {
-    match apply(manifest_bytes, env).await {
+///
+/// The service manager is a parameter rather than a discovery because it is the
+/// one collaborator that can change the machine outside a file write, and
+/// everything else here — the bundle install, the `ROOST_WEB_DIST_PATH` stamp
+/// and the definition that names both — is otherwise untestable end to end: a
+/// test that cannot stand in for `systemctl` can only assert on the parts that
+/// never reach it. The production caller passes this machine's own manager; a
+/// test passes one that answers.
+pub async fn run_with(
+    manifest_bytes: &[u8],
+    env: &dyn EnvSource,
+    manager: &mut dyn ServiceManager,
+) -> ApplyReport {
+    match apply(manifest_bytes, env, manager).await {
         Ok(report) => report,
         Err(report) => {
             warn!(
@@ -70,11 +104,17 @@ pub async fn run_here(manifest_bytes: &[u8]) -> ApplyReport {
     run(manifest_bytes, process_environment()).await
 }
 
-async fn apply(manifest_bytes: &[u8], env: &dyn EnvSource) -> Result<ApplyReport, ApplyReport> {
+async fn apply(
+    manifest_bytes: &[u8],
+    env: &dyn EnvSource,
+    manager: &mut dyn ServiceManager,
+) -> Result<ApplyReport, ApplyReport> {
     let manifest = ApplyManifest::decode(manifest_bytes)
         .map_err(|cause| ApplyReport::new(ApplyOutcome::Refused, cause))?;
-    let platform = roost_host::supported_host_platform()
-        .map_err(|error| ApplyReport::new(ApplyOutcome::Refused, error.to_string()))?;
+    // The manager's own answer, not a fresh discovery. A deploy and the
+    // definition it just wrote must never disagree about which platform they are
+    // about, and the manager is the one that will act on it.
+    let platform = manager.platform();
     let service_dir = roost_host::roost_service_dir(env, platform)
         .map_err(|error| ApplyReport::new(ApplyOutcome::Refused, error.to_string()))?;
     let definition_path = ServiceRole::Worker
@@ -115,8 +155,7 @@ async fn apply(manifest_bytes: &[u8], env: &dyn EnvSource) -> Result<ApplyReport
 
     // An earlier run's unfinished swap is resolved before anything else, so the
     // definition this deploy replaces is one the machine can actually run.
-    let mut manager = PlatformServiceManager::new(platform);
-    if let Err(error) = resolve_interrupted_deploy(&service_dir, &mut manager) {
+    if let Err(error) = resolve_interrupted_deploy(&service_dir, manager) {
         return Err(ApplyReport::new(
             ApplyOutcome::Refused,
             format!("an unfinished deploy on this machine could not be resolved: {error}"),
@@ -139,14 +178,37 @@ async fn apply(manifest_bytes: &[u8], env: &dyn EnvSource) -> Result<ApplyReport
     install_release(&staged.join(RELEASE_BIN_DIR), &bin_dir)
         .map_err(|cause| ApplyReport::new(ApplyOutcome::Refused, cause))?;
 
-    let install_env = install_environment(env, &manifest.environment);
-    let spec = match ServiceSpec::resolve(
+    // The bundle, then the path that names it. Decided HERE rather than carried
+    // in the manifest, because only this machine can say where its own release
+    // root is: a path decided on the deploying box is a path into ITS version
+    // tree, and the value would survive a settlement that deletes it. This is
+    // the re-stamp, not a preservation.
+    let mut decided = manifest.environment.clone();
+    let mut installed_web = None;
+    if let Some(staged_web) = staged_web(&staged) {
+        let web_dir = web_bundle::release_web_dir(&bin_dir);
+        let bundle = web_bundle::install_from_dir(&staged_web, &web_dir)
+            .map_err(|cause| ApplyReport::new(ApplyOutcome::Refused, cause.to_string()))?;
+        info!(
+            release = %release_dir.display(),
+            files = bundle.files,
+            "remote apply installed the staged web bundle"
+        );
+        installed_web = Some(web_dir);
+    }
+    // A manifest from any other deploying box can carry a dist path; a deploy
+    // that shipped no bundle must not leave a definition naming one, because
+    // the next settlement deletes the release that path points into.
+    decided.remove(ENV_WEB_DIST_PATH);
+
+    let install_env = install_environment(env, &decided);
+    let mut spec = match ServiceSpec::resolve(
         ServiceRole::Worker,
         &install_env,
         platform,
         &bin_dir.join(ROOST_PROGRAM),
     ) {
-        Ok(spec) => spec.with_decided_one_shots(&manifest.environment),
+        Ok(spec) => spec,
         Err(error) => {
             return Err(ApplyReport::new(
                 ApplyOutcome::Refused,
@@ -154,6 +216,17 @@ async fn apply(manifest_bytes: &[u8], env: &dyn EnvSource) -> Result<ApplyReport
             ));
         }
     };
+    // The dist path is stamped onto the RESOLVED spec, not into the decided map
+    // the resolve reads. It is deliberately not in the chosen-entries list —
+    // that list means "an operator's answer a redeploy must keep", and a path
+    // into a release directory is not one, because a later deploy retires that
+    // release. Putting it in `decided` alone installs the bundle and then drops
+    // the pointer on the floor: the worker comes up healthy, serves nothing, and
+    // `roost status` on the coordinator says the same either way.
+    if let Some(web_dir) = &installed_web {
+        spec = spec.with_setting(ENV_WEB_DIST_PATH, web_dir.display().to_string());
+    }
+    let spec = spec.with_decided_one_shots(&decided);
     crate::services::install::ensure_service_directories(&spec)
         .map_err(|error| ApplyReport::new(ApplyOutcome::Refused, error.to_string()))?;
 
@@ -166,7 +239,7 @@ async fn apply(manifest_bytes: &[u8], env: &dyn EnvSource) -> Result<ApplyReport
         .as_ref()
         .map(|path| path.display().to_string());
     Ok(
-        match deploy_service_definition(&spec, platform, &service_dir, &mut manager) {
+        match deploy_service_definition(&spec, platform, &service_dir, manager) {
             Ok(deployed) => settle_report(
                 ApplyReport {
                     definition_changed: deployed.definition_changed,
@@ -211,6 +284,15 @@ async fn apply(manifest_bytes: &[u8], env: &dyn EnvSource) -> Result<ApplyReport
             },
         },
     )
+}
+
+/// The staged `web/` directory, when this deploy shipped one.
+fn staged_web(staged: &Path) -> Option<PathBuf> {
+    let candidate = staged.join(web_bundle::WEB_DIR_NAME);
+    candidate
+        .join(web_bundle::WEB_INDEX)
+        .is_file()
+        .then_some(candidate)
 }
 
 /// Retire the release the definition used to point at, once the new one is proven

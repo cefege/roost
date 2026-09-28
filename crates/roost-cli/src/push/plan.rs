@@ -321,7 +321,7 @@ pub fn partition_fleet_for_rollout(
             .find(|row| row.fingerprint == candidate.fingerprint);
         let reason = match worker {
             None => Some("no longer registered".to_string()),
-            Some(row) if !routable.contains(&candidate.fingerprint) => {
+            Some(_) if !routable.contains(&candidate.fingerprint) => {
                 Some("not reachable".to_string())
             }
             Some(row) if row.stale => Some("stale".to_string()),

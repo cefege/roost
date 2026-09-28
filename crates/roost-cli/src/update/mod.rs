@@ -17,6 +17,7 @@
 //! wordings live in `status::update_state`; this module does not import them and
 //! `tests/update_release_decision.rs` holds the two apart.
 
+pub mod assets;
 pub mod candidate;
 pub mod journal;
 pub mod keeper;
@@ -25,14 +26,16 @@ pub mod recovery;
 pub mod release;
 pub mod rollout;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::Args;
-use roost_host::{HostPlatform, ProcessEnv};
+use roost_host::{EnvSource, HostPlatform, ProcessEnv};
 use tracing::info;
 
 use crate::command_error::CommandFailure;
+use crate::quickstart::web_source;
+use crate::services::web_bundle;
 use crate::update::journal::KeeperRecord;
 use crate::update::local_keeper::{decide_keeper_action, local_keeper, self_update_service_dir};
 use crate::update::recovery::RecoveryOutcome;
@@ -108,8 +111,65 @@ pub async fn run(_args: &UpdateArgs) -> Result<ExitCode, CommandFailure> {
         crate::wall_clock::now_ms(),
     )
     .map_err(refusal)?;
+    install_web_bundle(&env, &executable, &listing.tag).await;
     report(&outcome);
     Ok(ExitCode::SUCCESS)
+}
+
+/// Put the new release's web bundle beside the binary that was just replaced.
+///
+/// The bundle travels with the binaries, so a swap that moved only the binary
+/// would leave a machine running the new coordinator over the old page — an
+/// index that references asset hashes the new build does not ship, which loads
+/// its shell and then fails every request for its code. Both definitions
+/// already point at this directory, which is why none is rewritten here.
+///
+/// A binary outside a release tree — a tarball dropped in `~/bin` — has no
+/// bundle directory to put one in. That is reported rather than worked around,
+/// because the alternative is writing `~/web` and leaving the operator to find
+/// it.
+async fn install_web_bundle(env: &dyn EnvSource, executable: &Path, tag: &str) {
+    let release_dir = executable.parent().filter(|bin_dir| {
+        bin_dir.file_name().and_then(std::ffi::OsStr::to_str)
+            == Some(crate::deploy::apply_release::RELEASE_BIN_DIR)
+    });
+    let Some(bin_dir) = release_dir else {
+        eprintln!(
+            ">> {} is not inside a release's bin directory, so no web bundle was installed \
+             beside it",
+            executable.display()
+        );
+        return;
+    };
+    let destination = web_bundle::release_web_dir(bin_dir);
+    let archive = match web_source::download_web_bundle(env, tag).await {
+        Ok(archive) => archive,
+        Err(failure) => {
+            // The swap already settled, and the page is a second problem while
+            // the binary is the first. Refusing here would report a completed
+            // update as failed and send the operator to re-run a swap that has
+            // already happened.
+            eprintln!(">> the {tag} web bundle could not be installed: {failure}");
+            eprintln!(
+                ">> the coordinator and worker keep serving whatever bundle is already there"
+            );
+            return;
+        }
+    };
+    match web_bundle::install_from_tarball(&archive, &destination) {
+        Ok(installed) => {
+            let _ = std::fs::remove_file(&archive);
+            eprintln!(
+                ">> installed the {tag} web bundle ({} files) into {}",
+                installed.files,
+                installed.root.display()
+            );
+        }
+        Err(error) => {
+            let _ = std::fs::remove_file(&archive);
+            eprintln!(">> the {tag} web bundle could not be unpacked: {error}");
+        }
+    }
 }
 
 /// Resolve an in-flight update before anything else, and refuse to carry on when
