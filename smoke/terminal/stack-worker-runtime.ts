@@ -6,6 +6,7 @@
 import {
 	resolveSmokeStackExecutables,
 	workerRuntimeOverrides,
+	resolveSmokeWebDist,
 } from "./stack-executables.ts";
 
 import { execFileSync, spawn } from "node:child_process";
@@ -100,6 +101,16 @@ export function createTerminalWorkerStarter(
           ROOST_WORKER_DATA_DIR: config.dataDir,
           ROOST_WORKER_KEY_PATH: join(config.dataDir, "worker.key"),
           ROOST_KEEPER_QUIET: "1",
+          // The local door serves the SPA from this same key (worker
+          // `host/config.ts` reads it, `boot-local-terminal.ts` hands it to
+          // `createSpaResponder`). Without it the from-source run has neither a
+          // disk build nor embedded assets — `web-embed.generated.ts` is an
+          // empty stub outside a release build — so every page request answers
+          // 404 and a navigation to `/` comes back as an octet-stream download
+          // instead of the app. Same resolution the coordinator launcher uses,
+          // because whichever door serves the SPA serves the same build.
+          ROOST_WEB_DIST_PATH:
+            resolveSmokeWebDist() ?? join(REPOSITORY_ROOT, "apps/web/dist"),
           ...(config.gitSha ? { GIT_SHA: config.gitSha, ROOST_GIT_SHA: config.gitSha } : {}),
           ...(config.forceLiveKeeperRetire ? { [KEEPER_FORCE_LIVE_RETIRE_ENV]: "1" } : {}),
           ...(config.localUiBind ? { ROOST_WORKER_LOCAL_UI_BIND: config.localUiBind } : {}),
