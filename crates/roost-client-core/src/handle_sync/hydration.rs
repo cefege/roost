@@ -206,6 +206,7 @@ fn publish_domain(
     if ticket.domain == SyncDomain::Terminal {
         mark_protected_snapshot_published(store);
         super::hydrate(store, now_ms, out);
+        crate::handle_sweep::republish_open_views(store, now_ms, out);
     }
 }
 

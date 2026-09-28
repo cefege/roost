@@ -13,6 +13,7 @@ use roost_proto::__buffa::oneof::sync_client_frame::Command;
 use roost_proto::buffa::Message;
 use roost_proto::{SyncClientFrame, TerminalResyncCommand, TerminalViewCommand};
 use roost_protocol::viewport::TERMINAL_VIEW_HEARTBEAT_MS;
+use support::sync_reconnect::{open_ready_link, open_ready_link_with_effects};
 use support::{EPOCH, SESSION, STREAM, client_with_clock, delta, full, sync_token};
 
 const VIEW: &str = "view-1";
@@ -69,6 +70,32 @@ fn bound_core() -> (ClientCore, std::rc::Rc<roost_client_core::MemoryClock>) {
     (core, clock)
 }
 
+/// A client whose Sync link is open and whose terminal domain is ready: the
+/// target a view is published on. No replica is pre-bound — a fresh pane has
+/// never seen a frame, and its first view command is what asks for one.
+fn linked_core() -> (ClientCore, std::rc::Rc<roost_client_core::MemoryClock>) {
+    let (mut core, clock) = client_with_clock();
+    open_ready_link(&mut core, "socket-1");
+    (core, clock)
+}
+
+#[test]
+fn a_view_opened_before_the_terminal_domain_is_ready_is_published_when_it_is() {
+    let (mut core, _clock) = client_with_clock();
+    // No route can carry it yet: v2 leaves it pending rather than dropping it.
+    assert!(views(&open(&mut core, 80, 24)).is_empty());
+    let (_, on_ready) = open_ready_link_with_effects(&mut core, "socket-1");
+    assert_eq!(only_view(&on_ready), (1, true, 80, 24));
+    let token = core.store().sync_terminal_token();
+    assert_eq!(
+        core.store()
+            .terminal(SESSION)
+            .and_then(|replica| replica.generation().cloned()),
+        token,
+        "the replica is fenced to the route its view went out on"
+    );
+}
+
 fn open(core: &mut ClientCore, cols: u32, rows: u32) -> Vec<Effect> {
     core.handle(ClientEvent::ViewOpened {
         session_id: SESSION.to_owned(),
@@ -81,7 +108,7 @@ fn open(core: &mut ClientCore, cols: u32, rows: u32) -> Vec<Effect> {
 
 #[test]
 fn a_view_revision_moves_on_each_new_intent_and_holds_on_renewal() {
-    let (mut core, clock) = bound_core();
+    let (mut core, clock) = linked_core();
     assert_eq!(only_view(&open(&mut core, 80, 24)), (1, true, 80, 24));
 
     let resized = core.handle(ClientEvent::ViewResized {
@@ -117,7 +144,7 @@ fn a_view_revision_moves_on_each_new_intent_and_holds_on_renewal() {
 
 #[test]
 fn reopening_a_held_view_continues_its_revision() {
-    let (mut core, _clock) = bound_core();
+    let (mut core, _clock) = linked_core();
     assert_eq!(only_view(&open(&mut core, 80, 24)).0, 1);
     // Starting again at 1 would read as a stale revision at the authority.
     assert_eq!(only_view(&open(&mut core, 90, 24)).0, 2);

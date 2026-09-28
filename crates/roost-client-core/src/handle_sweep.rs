@@ -23,6 +23,8 @@
 
 use crate::effect::{DirectCommand, Effect, SyncCommand};
 use crate::store::Store;
+use crate::sync::SyncDomain;
+use crate::terminal::TerminalToken;
 use crate::terminal::token::TerminalTransport;
 use crate::terminal::view::ViewIntent;
 
@@ -109,7 +111,49 @@ fn republish_due_views(store: &mut Store, session_id: &str, now_ms: u64, out: &m
     }
 }
 
-/// Publish a view's current intent, and mark it awaited.
+/// Where a session's next view command goes: its elected direct route, else the
+/// live Sync socket once the terminal domain is ready, else nowhere (v2
+/// `terminal-stream-publication.ts` `terminalPublicationTarget`).
+///
+/// The target, not the replica, is the authority. A replica that has never seen
+/// a frame has no generation, and a view that waited for one would never be
+/// published — so the coordinator would never stream it the frame that binds it.
+fn publication_target(store: &Store, session_id: &str) -> Option<TerminalToken> {
+    if let Some(route) = store.routes.route(session_id) {
+        return Some(route.token.clone());
+    }
+    if !store.sync.domain_is_ready(SyncDomain::Terminal) {
+        return None;
+    }
+    store.sync.terminal_token()
+}
+
+/// Republish every open view of every replica, on the target that now carries
+/// it. Called when the terminal domain turns ready (v2 `retargetSession`): a
+/// view opened while no route could carry it was left unsent, and nothing else
+/// would send it before the next heartbeat.
+pub(crate) fn republish_open_views(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
+    let open: Vec<(String, String)> = store
+        .terminal
+        .iter()
+        .flat_map(|(session_id, replica)| {
+            replica
+                .views()
+                .values()
+                .filter(|view| view.intent != ViewIntent::Unpublish)
+                .map(|view| (session_id.clone(), view.view_id.clone()))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    for (session_id, view_id) in open {
+        publish_view(store, &session_id, &view_id, now_ms, out);
+    }
+}
+
+/// Publish a view's current intent on the session's publication target, and
+/// mark it awaited. A target the replica is not fenced to re-fences it first
+/// (v2 `terminal-stream-view-commands.ts`: the view's generation becomes the
+/// target's token before the command is sent).
 pub fn publish_view(
     store: &mut Store,
     session_id: &str,
@@ -126,9 +170,17 @@ pub fn publish_view(
     else {
         return;
     };
-    let Some(token) = replica.generation().cloned() else {
+    // No route can carry it: left unsent, as v2 leaves it pending. The terminal
+    // domain turning ready republishes it, and so does the heartbeat.
+    let Some(token) = publication_target(store, session_id) else {
         return;
     };
+    if let Some(replica) = store.terminal_mut_if_present(session_id)
+        && replica.bind_generation(&token)
+    {
+        store.note_change();
+        tracing::info!(target: "terminal", session_id, "replica fenced to the publication target");
+    }
     // Awaited on the DOMAIN generation, not the socket one: a view-state result
     // carries the domain generation, and marking it awaited on the socket
     // generation would make every result look stale the moment a redial bumped

@@ -42,6 +42,12 @@ pub fn session_event(event_id: u64) -> SyncFrame {
 /// one still open has to say so itself: `SyncState::open_link` refuses to install
 /// a second live link, which is what stops two sockets being current at once.
 pub fn open_ready_link(core: &mut ClientCore, socket_id: &str) -> u64 {
+    open_ready_link_with_effects(core, socket_id).0
+}
+
+/// [`open_ready_link`], also returning what the core emitted as the domains
+/// turned ready — where a view opened before the link is republished.
+pub fn open_ready_link_with_effects(core: &mut ClientCore, socket_id: &str) -> (u64, Vec<Effect>) {
     let effects = core.handle(ClientEvent::DialRequested);
     let generation = match effects.as_slice() {
         [Effect::DialSync { generation, .. }] => *generation,
@@ -69,11 +75,11 @@ pub fn open_ready_link(core: &mut ClientCore, socket_id: &str) -> u64 {
             ],
         },
     });
-    super::hydration::answer_hydrations(core, &effects);
+    let produced = super::hydration::answer_hydrations(core, &effects);
     assert!(core.store().sync.domain_is_ready(SyncDomain::Workers));
     assert!(core.store().sync.domain_is_ready(SyncDomain::Terminal));
     assert!(core.store().sync.accepts(generation));
-    generation
+    (generation, produced)
 }
 
 /// The recovery cursor, read the way a reconnect reads it: as the `since` the
