@@ -28,7 +28,7 @@ use crate::browser_commands::Deps;
 use crate::browser_commands::attachments::SessionAttachments;
 use crate::browser_commands::file_commands::LocalFiles;
 use crate::browser_commands::presence::WorkerPresence;
-use crate::browser_commands::search::Searches;
+use crate::browser_commands::search;
 use crate::browser_commands::search_scan::GridScanner;
 use crate::capture::CaptureRecorder;
 use crate::session::lifecycle::{SessionManager, SessionTable};
@@ -54,15 +54,29 @@ pub struct WorkerCapabilities {
     pub worker_fp: String,
     /// Which host this is, for the two capabilities that branch on it.
     pub platform: HostPlatform,
+    /// The admission ledger, ALREADY OPENED by the caller.
+    ///
+    /// IT IS TAKEN RATHER THAN BUILT, and that is the whole fix. This used to
+    /// construct `Arc::new(Mutex::new(Searches::default()))` here, which made
+    /// the ledger once per CALL to `into_deps` while `deps.rs`'s own header
+    /// and `session_stack.rs`'s both documented it as "FRESH HERE, ONCE PER
+    /// PROCESS". Nothing enforced that; only one call site upheld it, and
+    /// `SessionStack::deps` is `pub`.
+    pub searches: Arc<Mutex<search::Searches>>,
 }
 
 impl WorkerCapabilities {
     /// Build the one `Deps` these inputs imply.
     ///
-    /// The search ledger is FRESH HERE, ONCE PER PROCESS, because it is the
-    /// admission decision for every search on this worker: a second ledger
-    /// would let two callers each believe they hold all eight slots, which is
-    /// the bound the ledger exists to enforce.
+    /// The search ledger is NOT BUILT HERE. It is opened once by the owner of
+    /// the session layer and passed in, because it is the admission decision
+    /// for every search on this worker and a second ledger would let two
+    /// callers each believe they hold all
+    /// [`MAX_ACTIVE_SEARCHES`](crate::browser_commands::search::MAX_ACTIVE_SEARCHES)
+    /// slots — which is the bound the ledger exists to enforce. A ledger built
+    /// per call makes that bound per call, and the type is what stops it: two
+    /// `Deps` from one owner share one `Arc`, so the second cannot admit past
+    /// what the first took.
     pub fn into_deps(self) -> Deps {
         let Self {
             sessions,
@@ -71,6 +85,7 @@ impl WorkerCapabilities {
             log_dir,
             worker_fp,
             platform,
+            searches,
         } = self;
         Deps {
             sessions: manager,
@@ -78,7 +93,7 @@ impl WorkerCapabilities {
             files: Arc::new(LocalFiles::new(Arc::new(ProcessEnv::new()), platform)),
             grid: Arc::new(SessionGrid::new(Arc::clone(&sessions))),
             search: Arc::new(GridScanner::new(Arc::clone(&sessions))),
-            searches: Arc::new(Mutex::new(Searches::default())),
+            searches: Arc::clone(&searches),
             attachments: Arc::new(SessionAttachments::new(attachment_root, platform)),
             diagnostics: Arc::new(CaptureRecorder::new(sessions, log_dir, worker_fp)),
         }

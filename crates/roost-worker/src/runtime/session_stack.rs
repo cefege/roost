@@ -34,6 +34,7 @@ use roost_protocol::wire::brand::WorkerFp;
 use crate::event_store::Journal;
 use crate::host::shell_spec_resolver::HostShellSpecResolver;
 use crate::keeper_pool::KeeperPool;
+use crate::browser_commands::search::Searches;
 use crate::session::binding::CellDelivery;
 use crate::session::emit::CellEmitter;
 use crate::session::journal_sink::JournalSink;
@@ -58,10 +59,16 @@ pub struct SessionStack {
     pub table: Arc<SessionTable>,
     /// The clock every session fact is stamped from.
     pub clock: Arc<SystemClock>,
-    /// The emitter behind BOTH delivery traits, kept here so a caller that needs
-    /// to register a sink (the coordinator's, the local door's) reaches one
-    /// object rather than a second copy of the delivery state.
-    pub emitter: Arc<Mutex<CellEmitter>>,
+    /// The search admission ledger, opened ONCE and shared by every `Deps`
+    /// this stack hands out.
+    ///
+    /// IT IS A FIELD AND NOT A LOCAL BECAUSE THE PROPERTY HAS TO BE TRUE OF
+    /// THE TYPE. It was documented as "once per process" in two files while
+    /// `deps()` built a fresh one on every call, and nothing enforced it but
+    /// there being one caller. `Searches::admit` bounds concurrent searches at
+    /// `MAX_ACTIVE_SEARCHES`, and a second ledger means two callers each
+    /// believe they hold all eight.
+    pub searches: Arc<Mutex<Searches>>,
     /// The resolver, kept so a survivor's launch contract can be resolved for
     /// the record it is adopted as. Holding it here rather than re-resolving at
     /// the call site is what stops a second resolver existing: two resolvers
@@ -118,6 +125,10 @@ pub fn build(
     let cells = TableCellDelivery::new(CellEmitter::new(), Arc::clone(&table));
     let emitter = cells.emitter();
     let ingest = Arc::new(Mutex::new(TableChannelDelivery::new(Arc::clone(&emitter))));
+    // The ONE search ledger, opened here because this is the only object that
+    // outlives the call to `deps`. See the field's own doc for why it is a
+    // field rather than something `deps` builds.
+    let searches: Arc<Mutex<Searches>> = Arc::new(Mutex::new(Searches::default()));
 
     let events: Arc<dyn SessionEventSink> = Arc::new(JournalSink::new(outbox));
     // ONE `map_err`, and the second closure is the bug that was here: it named
@@ -171,7 +182,7 @@ pub fn build(
         manager,
         table,
         clock,
-        emitter,
+        searches,
         resolver,
     })
 }
@@ -200,9 +211,9 @@ impl SessionStack {
     /// missing, so the browser-command pump — the thing that answers every
     /// browser command on this worker — had no construction site at all, and
     /// this file's own header described a wiring that did not exist. The
-    /// search ledger inside [`super::deps::WorkerCapabilities`] is therefore
-    /// created exactly once per process, here, and not once per caller that
-    /// wanted a `Deps`.
+    /// search ledger is opened once — as a field, in `build` — and every
+    /// `Deps` this hands out shares that one `Arc`. It is not a claim about
+    /// how many callers there are.
     pub fn deps(
         &self,
         data_dir: &std::path::Path,
@@ -217,6 +228,7 @@ impl SessionStack {
             log_dir: log_dir.to_path_buf(),
             worker_fp: worker_fp.to_owned(),
             platform,
+            searches: Arc::clone(&self.searches),
         }
         .into_deps()
     }

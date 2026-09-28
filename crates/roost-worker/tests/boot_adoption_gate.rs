@@ -35,11 +35,14 @@
 
 mod keeper_pool_support;
 
+use roost_host::supported_host_platform;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use roost_proto::Session;
+use roost_worker::browser_commands::search::MAX_ACTIVE_SEARCHES;
 use roost_worker::event_store::Journal;
 use roost_worker::keeper_pool::KeeperPool;
 use roost_worker::runtime::adoption;
@@ -277,6 +280,80 @@ async fn a_boot_that_declines_every_survivor_still_completes() {
             unreservable: 0,
         },
         "three undescribable survivors, three declines, and no other outcome to report"
+    );
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// THE F6 GUARD, AND IT GOES THROUGH `SessionStack::deps` OR IT PROVES
+/// NOTHING.
+///
+/// The first version of this test built its own `Arc<Mutex<Searches>>` and
+/// cloned it, which would have passed whether or not F6 was fixed — the second
+/// `Deps` was made by the TEST, not by the product, so the test was measuring a
+/// copy it had built itself. That is the same tautology as F5's first guard,
+/// and the only defence is to call the real accessor and let the product build
+/// both sides.
+///
+/// `Searches::admit` bounds concurrent scrollback searches at
+/// `MAX_ACTIVE_SEARCHES`. That bound is only a bound if there is ONE ledger:
+/// two ledgers mean two callers each believe they hold all eight, and a machine
+/// runs sixteen — which is the number the bound exists to prevent.
+#[tokio::test]
+async fn two_deps_from_one_session_stack_share_one_admission_ledger() {
+    let fixture = KeeperFixture::start();
+    let _serialised = exclusive();
+    let root = scratch("admission-ledger");
+
+    let platform = supported_host_platform().expect("this host runs v3");
+    let pool = fixture.pool();
+    let stack = restarted_stack(Arc::clone(&pool), &root).await;
+
+    // BOTH Deps come from the product, by the `pub` accessor the finding is
+    // about. Nothing here constructs a `Searches`.
+    let first = stack.deps(&root, &root, platform, FINGERPRINT);
+    let second = stack.deps(&root, &root, platform, FINGERPRINT);
+
+    // A DISTINCT owner key per search, and that is load-bearing rather than
+    // incidental: `Searches::admit` REPLACES the running search under the same
+    // owner_key rather than competing with it for the bound. One shared key
+    // would leave the running set at one entry, the bound would never be
+    // reached, and this guard would have passed against a ledger that admitted
+    // anything — a guard measuring its own fixture, which is the F5 tautology
+    // again in a new costume.
+    // THE `who` PREFIX IS THE WHOLE POINT, and getting it wrong twice is what
+    // this comment is for. `Searches::admit` REPLACES the running search under
+    // the same `owner_key` rather than competing with it for the bound, so:
+    // one shared key leaves the running set at one entry and the bound is
+    // never reached; and the SAME keys on both Deps replace the first Deps'
+    // eight with the second's eight and still admit. The second set has to
+    // carry keys the first does not, or this measures replacement rather than
+    // the shared bound.
+    let admitted = |deps: &roost_worker::browser_commands::Deps, who: &str, index: usize| {
+        deps.searches
+            .lock()
+            .expect("held")
+            .admit(&format!("{who}-owner-{index}"), &format!("search-{index}"), false)
+            .is_ok()
+    };
+
+    for index in 0..MAX_ACTIVE_SEARCHES {
+        assert!(
+            admitted(&first, "first", index),
+            "the first Deps is refused at {index} of {MAX_ACTIVE_SEARCHES}, \
+             before the bound is reached"
+        );
+    }
+    let past_the_bound = (0..MAX_ACTIVE_SEARCHES)
+        .filter(|index| admitted(&second, "second", *index))
+        .count();
+    assert_eq!(
+        past_the_bound, 0,
+        "a second Deps admitted {past_the_bound} searches past the \
+         {MAX_ACTIVE_SEARCHES}-slot bound. The bound is per LEDGER, and two \
+         Deps from one SessionStack share one — if this fails, `deps()` builds \
+         a fresh `Searches` per call and the bound is eight PER Deps, which is \
+         not what it claims to be."
     );
 
     std::fs::remove_dir_all(&root).ok();
