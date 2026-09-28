@@ -205,8 +205,13 @@ fn a_refused_resize_is_reported_rather_than_swallowed() {
         "the keeper opens a real PTY",
     );
 
-    KeeperChannels::resize_channel(pool.as_ref(), spawned.channel_id, 4, 120, 40)
-        .expect("a first sequence is applied");
+    assert!(
+        matches!(
+            KeeperChannels::resize_channel(pool.as_ref(), spawned.channel_id, 4, 120, 40),
+            Ok(roost_keeper::client_resize::ResizeOutcome::Applied { .. })
+        ),
+        "a first sequence is applied"
+    );
 
     // Sequence 2 goes back to a geometry the keeper has already applied and
     // asks for one it has not: the daemon answers with what it holds, and the
@@ -216,7 +221,15 @@ fn a_refused_resize_is_reported_rather_than_swallowed() {
         .applied_geometry(spawned.channel_id)
         .expect("the keeper reports the geometry it applied");
     assert!(
-        (geometry.cols, geometry.rows) == (120, 40) || outcome.is_ok(),
+        (geometry.cols, geometry.rows) == (120, 40)
+            || matches!(
+                outcome,
+                Ok(roost_keeper::client_resize::ResizeOutcome::Applied {
+                    cols: 100,
+                    rows: 30,
+                    ..
+                })
+            ),
         "a stale sequence moved the PTY to {geometry:?} without saying so"
     );
 }
@@ -324,8 +337,13 @@ fn the_applied_geometry_survives_the_worker_that_set_it() {
             ),
             "the keeper opens a real PTY",
         );
-        KeeperChannels::resize_channel(pool.as_ref(), spawned.channel_id, 1, 132, 43)
-            .expect("the keeper applies the first sequence");
+        assert!(
+            matches!(
+                KeeperChannels::resize_channel(pool.as_ref(), spawned.channel_id, 1, 132, 43),
+                Ok(roost_keeper::client_resize::ResizeOutcome::Applied { .. })
+            ),
+            "the keeper applies the first sequence"
+        );
         spawned
         // `pool` is dropped HERE, at the end of this block, and that is the
         // point: the fixture's keeper serves ONE connection at a time

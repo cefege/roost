@@ -1,154 +1,77 @@
-//! Geometry: the in-place resize at the keeper's ordered `ResizeAck` boundary,
-//! the history pin that resize writes, and the recovery for a lost
-//! acknowledgement. `session::control_lanes` serialises the write, the delivery
-//! seam freezes the core, and the coordinator's own SCD decides the shape.
-//! Depends on `roost_term` for the core, `roost_keeper` for the geometry
-//! vocabulary and `super::lifecycle` for the table — and on nothing that
-//! depends on it back.
+//! Geometry: the in-place resize at the keeper's ordered boundary and the
+//! capture that withholds bytes while it is unresolved (the history pin it
+//! writes is `session::resize_pin`'s). `session::terminal_txn` is the production
+//! caller; `session::core_reprove` settles a lost acknowledgement through the
+//! primitives here. Ports the boundary half of
+//! `apps/worker/src/session/session-resize-capture.ts` and the keeper resize of
+//! `session-terminal-txn.ts`.
 //!
-//! THE RESIZE IS IN PLACE, AT THE BOUNDARY. Earlier bytes parse at the old size,
-//! `TerminalCore::resize` runs before the callback returns, and later bytes parse
-//! at the new size. That is the whole of `docs/FAILURE-INDEX.md` "Scrollback
-//! mangles or drifts with no user action": the alternative — rebuilding the
-//! emulator from a bounded byte ring after every resize — cannot recover bytes
-//! already evicted and silently converts unchanged cells into blanks. A resize
-//! forces a complete NEW-STREAM baseline and never reconstructs ordinary live
-//! state; worker-history replay stays reserved for genuine process adoption.
-//!
-//! BYTES PRODUCED WHILE THE BOUNDARY IS UNRESOLVED ARE CAPTURED, NOT PARSED. A
-//! PTY does not stop talking because a SIGWINCH is in flight, and parsing them
-//! at a geometry the keeper has not acknowledged is how a half-applied resize
-//! paints a grid that was never on that terminal. The capture retains them, so
-//! history loses nothing, and replays them at the boundary.
+//! THE RESIZE IS IN PLACE, AT THE BOUNDARY: held bytes parse at the OLD size,
+//! then `TerminalCore::resize` runs on the same core. Rebuilding from a bounded
+//! ring on a resize loses evicted bytes and blanks unchanged cells
+//! (`docs/FAILURE-INDEX.md`, "A live viewport change rebuilds the terminal
+//! core"). A boundary that cannot be proven TRAPS the core instead of guessing,
+//! and the capture hands back its emission gate on that path too.
 
+use std::sync::{Mutex, MutexGuard, PoisonError};
+
+use roost_keeper::client_resize::{ResizeOutcome as KeeperResize, ResizeRejectReason};
 use roost_protocol::wire::brand::ChannelId;
 
-use super::history::SbOriginPin;
+use super::binding::ChannelDelivery;
+use super::ids::mint_uuid;
 use super::lifecycle::SessionManager;
+use super::query_reply::answer_queries;
+use super::resize_pin::{PinInputs, pin_for};
 use super::types::SessionRecord;
 use crate::browser_commands::Refusal;
 
-/// The history pin's inputs, read at the moment a core's geometry changed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PinInputs {
-    pub at_mono_ms: u64,
-    pub cols: u16,
-    pub rows: u16,
-    /// Whether a replacement core was replayed from the retained ring, rather
-    /// than the existing core being resized where it stands.
-    pub replayed_ring: bool,
-    /// Whether the replay source had itself already evicted.
-    pub ring_evicted: bool,
-    /// Lines the OLD core had already dropped, read before the change.
-    pub prev_dropped: u64,
-    /// Lines the OLD core held, read before the change.
-    pub prev_total: u64,
-    /// Lines the core dropped after the change.
-    pub fresh_discarded: u64,
-    /// Lines the core holds after the change.
-    pub fresh_count: u64,
-    /// The highest floor a replay bound has already established here.
-    pub previous_replay_floor: u64,
-}
-
-/// What a resize did.
+/// What a resize did at the keeper's boundary (v2 `applyResizeResultAtBoundary`
+/// and the transaction's admission check, as one answer).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResizeOutcome {
-    /// The core was resized in place and the capture replayed behind it.
+    /// Exactly this sequence and geometry were acknowledged; the held bytes
+    /// parsed at the old size and the SAME core was resized.
     Applied { cols: u16, rows: u16 },
-    /// The channel was already at this geometry: nothing was written to the
-    /// keeper, no sequence was spent and no history floor moved.
+    /// Already at this geometry: nothing written, no sequence spent.
     Unchanged,
-    /// The keeper refused the geometry, or the boundary could not be proven.
-    ///
-    /// The captured bytes are parsed at the geometry still in force and the
-    /// session keeps running: a resize that cannot be proven is a resize that
-    /// did not happen.
-    Refused { reason: String },
+    /// Never reached the keeper (v2 `admission.written === false`).
+    NotWritten { reason: String },
+    /// The keeper refused the written sequence; the core keeps its geometry.
+    Refused { reason: ResizeRejectReason },
+    /// Unprovable: the core was latched fail-closed (v2 `failCore`).
+    Trapped { reason: String },
+    /// The answer was lost; the capture is STILL OPEN for `recover_lost_ack`.
+    Unknown { boundary: OpenBoundary },
+    /// The session closed before its boundary settled; the capture was released.
+    SessionClosed,
 }
 
-/// The pin a core change establishes.
-///
-/// A rebuild is the one moment Roost's line numbering is RE-DERIVED rather than
-/// advanced: a replacement core restarts its discarded counter at zero while a
-/// core resized in place retains it. `sb_origin` absorbs either difference so a
-/// browser's absolute row indexes never re-alias, and `sb_dropped` is the floor
-/// that results — which is what a diagnostic reads back as
-/// `live_discarded - sb_origin`, and what a page read compares its window
-/// against.
-pub fn pin_for(inputs: PinInputs) -> SbOriginPin {
-    let deficit =
-        inputs.prev_total as i128 - inputs.fresh_discarded as i128 - inputs.fresh_count as i128;
-    let clamped = deficit < 0;
-    let sb_dropped = deficit.max(0) as u64;
-    let sb_origin = inputs.fresh_discarded.saturating_sub(sb_dropped);
-    // Rows the old numbering had and the fresh one does not: history lost to a
-    // REPLAY BOUND rather than to eviction, because a session that was never
-    // resized would still hold them.
-    let replay_lost_rows = sb_dropped.saturating_sub(inputs.prev_dropped);
-    let replay_floor = if replay_lost_rows > 0 {
-        inputs.previous_replay_floor.max(sb_dropped)
-    } else {
-        inputs.previous_replay_floor
-    };
-    SbOriginPin {
-        at_mono_ms: inputs.at_mono_ms,
-        cols: inputs.cols,
-        rows: inputs.rows,
-        replayed_ring: inputs.replayed_ring,
-        ring_evicted: inputs.ring_evicted,
-        prev_dropped: inputs.prev_dropped,
-        prev_total: inputs.prev_total,
-        fresh_discarded: inputs.fresh_discarded,
-        fresh_count: inputs.fresh_count,
-        sb_origin,
-        sb_dropped,
-        clamped,
-        replay_lost_rows,
-        replay_floor,
-    }
+/// A written resize whose capture opened at `install_seq`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenBoundary {
+    pub seq: u64,
+    /// `head_seq` when the capture opened: the offset of the first held byte.
+    pub install_seq: u64,
+    pub from: (u16, u16),
+    pub to: (u16, u16),
+    /// The probe tokenizer's carry when the capture opened (v2 `queryCarry`):
+    /// the held bytes are answered from it at the boundary.
+    pub query_carry: Vec<u8>,
 }
 
-/// The pin a rebuilt-from-survivor core starts from.
-///
-/// There is no previous core on this worker to be continuous with, so nothing
-/// is lost to a replay bound: the whole of the keeper's window was replayed, the
-/// floor starts at zero, and the origin IS the core's own discarded count so
-/// the first frame a client reads already has absolute row indexes that mean
-/// something. What the session lost while the worker was gone is the KEEPER's
-/// eviction, which `ring_evicted` records.
-pub fn pin_for_adoption(
-    at_mono_ms: u64,
-    cols: u16,
-    rows: u16,
-    ring_evicted: bool,
-    discarded: u64,
-    retained: u64,
-) -> SbOriginPin {
-    SbOriginPin {
-        at_mono_ms,
-        cols,
-        rows,
-        replayed_ring: true,
-        ring_evicted,
-        prev_dropped: 0,
-        prev_total: 0,
-        fresh_discarded: discarded,
-        fresh_count: retained,
-        sb_origin: discarded,
-        sb_dropped: 0,
-        clamped: false,
-        replay_lost_rows: 0,
-        replay_floor: 0,
-    }
+/// The keeper's answer, minus the lost one `resize_channel` hands back open.
+enum BoundaryAnswer {
+    NotWritten(String),
+    Refused(ResizeRejectReason),
+    Applied { seq: u64, cols: u16, rows: u16 },
 }
 
 impl SessionManager {
-    /// Move a live channel's geometry, in place, at the keeper's boundary.
-    ///
-    /// The capture opens BEFORE the write and closes AFTER the acknowledgement,
-    /// and the whole apply runs under the record's lock, so a chunk cannot be
-    /// parsed at the new geometry ahead of the bytes that preceded it.
+    /// Move a live channel's geometry, in place, at the keeper's boundary. The
+    /// capture opens under the record lock; the keeper call runs with NO lock
+    /// held, so the dispatcher keeps delivering into the capture; the boundary
+    /// settles under both locks again. BLOCKING: run it off the async runtime.
     pub fn resize_channel(
         &self,
         channel_id: ChannelId,
@@ -162,108 +85,129 @@ impl SessionManager {
                 format!("this worker holds no channel {raw} to resize"),
             ));
         };
-        let mut record = entry
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let session_id = record.session_id().clone();
-        let already = (record.terminal_core.cols(), record.terminal_core.rows());
-        if already == (cols, rows) {
-            return Ok(ResizeOutcome::Unchanged);
+        let seq = self.channel_resize_seq(raw) + 1;
+        let (from, install_seq, query_carry) = {
+            let record = lock(&entry);
+            let from = (record.terminal_core.cols(), record.terminal_core.rows());
+            if from == (cols, rows) {
+                return Ok(ResizeOutcome::Unchanged);
+            }
+            if !lock(&self.ingest).freeze_capture(channel_id, self.clock.now_epoch_ms()) {
+                return Ok(ResizeOutcome::NotWritten {
+                    reason: format!("channel {raw} already has an unresolved resize in flight"),
+                });
+            }
+            (from, record.head_seq, record.query_carry.clone())
+        };
+        let boundary = OpenBoundary {
+            seq,
+            install_seq,
+            from,
+            to: (cols, rows),
+            query_carry,
+        };
+        tracing::info!(channel_id = raw, seq, ?from, to = ?(cols, rows), install_seq, "a resize boundary opened and its request went to the keeper");
+        let answer = match self.keeper.resize_channel(raw, seq, cols, rows) {
+            Err(fault) => BoundaryAnswer::NotWritten(fault.reason),
+            Ok(KeeperResize::Refused { reason, .. }) => BoundaryAnswer::Refused(reason),
+            Ok(KeeperResize::Applied { seq, cols, rows }) => {
+                BoundaryAnswer::Applied { seq, cols, rows }
+            }
+            Ok(KeeperResize::Unknown { reason, .. }) => {
+                self.note_applied_resize_seq(raw, seq);
+                tracing::warn!(
+                    channel_id = raw,
+                    seq,
+                    ?reason,
+                    "a resize answer was lost; its capture stays open for recovery"
+                );
+                return Ok(ResizeOutcome::Unknown { boundary });
+            }
+        };
+        if !matches!(answer, BoundaryAnswer::NotWritten(_)) {
+            self.note_applied_resize_seq(raw, seq);
         }
-        let seq = self.take_resize_seq(raw);
-        let delivery = self
-            .ingest
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if !delivery.freeze_capture(channel_id) {
-            return Err(Refusal::failed(
-                "resize",
-                format!("channel {raw} already has an unresolved resize in flight"),
-            ));
-        }
-        if self.keeper.resize_channel(raw, seq, cols, rows).is_err() {
-            let (outcome, loss) = self.close_capture(
-                &mut record,
-                &*delivery,
-                None,
-                "the keeper refused the resize",
-            );
-            drop(delivery);
-            drop(record);
-            report_capture_loss(session_id.as_str(), raw, loss);
-            return Ok(outcome);
-        }
-        let (outcome, loss) = self.close_capture(
-            &mut record,
-            &*delivery,
-            Some((cols, rows)),
-            "the resize was applied at the keeper's boundary",
-        );
-        drop(delivery);
-        drop(record);
-        report_capture_loss(session_id.as_str(), raw, loss);
-        tracing::info!(
-            session_id = %session_id,
-            channel_id = raw,
-            from = ?already,
-            to = ?(cols, rows),
-            outcome = ?outcome,
-            "a session's geometry was taken to the keeper and settled at its boundary"
-        );
-        Ok(outcome)
+        Ok(self.settle_boundary(channel_id, &boundary, answer))
     }
 
-    /// Close a capture and put the bytes it held where they belong.
-    ///
-    /// `target` is the geometry the boundary proved, or `None` when it proved
-    /// nothing: the captured bytes are then parsed at the geometry still in
-    /// force, which is the only honest reading of an unproven boundary.
-    ///
-    /// A lost history floor is RETURNED rather than logged here. The record
-    /// lock is owned by the caller and is still held on this path, so a
-    /// warning about lost history emitted from in here reads as though the
-    /// capture were already released — which is exactly what a `drop` on a
-    /// `&mut` used to leave this function claiming it was.
-    fn close_capture(
+    /// Settle an answered boundary under both locks (v2
+    /// `applyResizeResultAtBoundary`). A capture that outgrew the window, an
+    /// acknowledgement for another sequence or geometry, or a core that did not
+    /// take the size all trap the core rather than guess.
+    fn settle_boundary(
+        &self,
+        channel_id: ChannelId,
+        boundary: &OpenBoundary,
+        answer: BoundaryAnswer,
+    ) -> ResizeOutcome {
+        let raw = channel_id.as_u32() as u16;
+        let Some(entry) = self.sessions.entry(raw) else {
+            lock(&self.ingest).close_capture(channel_id);
+            tracing::info!(
+                channel_id = raw,
+                seq = boundary.seq,
+                "a resize boundary's session closed before it settled"
+            );
+            return ResizeOutcome::SessionClosed;
+        };
+        let (outcome, loss) = {
+            let mut record = lock(&entry);
+            let delivery = lock(&self.ingest);
+            let captured = delivery.close_capture(channel_id);
+            if captured.overflowed {
+                let reason = "resize boundary output was evicted before alignment";
+                return trap_boundary(&record, &*delivery, boundary, reason);
+            }
+            // Answering the held bytes IS their core write, at the old size.
+            let mut carry = boundary.query_carry.clone();
+            let core: Option<&mut dyn roost_term::TerminalCore> =
+                Some(record.terminal_core.as_mut());
+            let replies = answer_queries(&mut carry, core, &captured.bytes).bytes;
+            let settled = match answer {
+                BoundaryAnswer::NotWritten(reason) => (ResizeOutcome::NotWritten { reason }, None),
+                BoundaryAnswer::Refused(reason) => (ResizeOutcome::Refused { reason }, None),
+                BoundaryAnswer::Applied { seq, cols, rows } => {
+                    if seq != boundary.seq || (cols, rows) != boundary.to {
+                        let reason = "keeper acknowledged conflicting resize geometry";
+                        return trap_boundary(&record, &*delivery, boundary, reason);
+                    }
+                    match self.resize_in_place(&mut record, &*delivery, boundary.to) {
+                        Ok(loss) => (ResizeOutcome::Applied { cols, rows }, loss),
+                        Err(reason) => {
+                            return trap_boundary(&record, &*delivery, boundary, &reason);
+                        }
+                    }
+                }
+            };
+            if let Some(emission) = delivery.stream_emission() {
+                emission.forward_query_replies(&record, replies);
+            }
+            settled
+        };
+        report_capture_loss(raw, loss);
+        tracing::info!(channel_id = raw, seq = boundary.seq, outcome = ?outcome, "a resize boundary settled");
+        outcome
+    }
+
+    /// Resize the core where it stands and reset its emission epoch (v2
+    /// `wtermCore.resize` + `resetEmissionEpoch`): a new grid identity, every
+    /// sink owed a baseline, and every viewport row dirty.
+    pub(super) fn resize_in_place(
         &self,
         record: &mut SessionRecord,
-        delivery: &dyn super::binding::ChannelDelivery,
-        target: Option<(u16, u16)>,
-        reason: &'static str,
-    ) -> (ResizeOutcome, Option<CaptureLoss>) {
-        let channel_id = record.channel_id();
-        let session_id = record.session_id().clone();
-        let captured = delivery.close_capture(channel_id);
-        let at = self.clock.mono_ns() / 1_000_000;
-        if captured.overflowed {
-            // More output arrived while the boundary was unresolved than the
-            // retained window holds. History keeps every byte, but the core
-            // cannot be brought forward across a gap that wide, so the geometry
-            // is not changed and the stream is reported as needing a rebuild.
-            tracing::error!(
-                session_id = %session_id,
-                channel_id = channel_id.as_u32(),
-                captured_bytes = captured.bytes.len(),
-                "a resize boundary captured more output than the retained window holds; \
-                 the geometry was left alone"
-            );
-            return (
-                ResizeOutcome::Refused {
-                    reason: format!("{reason}, and the capture outgrew the retained window"),
-                },
-                None,
-            );
-        }
-        let (cols, rows) =
-            target.unwrap_or_else(|| (record.terminal_core.cols(), record.terminal_core.rows()));
+        delivery: &dyn ChannelDelivery,
+        to: (u16, u16),
+    ) -> Result<Option<CaptureLoss>, String> {
         let before = CoreCounters::read(record);
-        record.terminal_core.resize(cols, rows);
-        record.terminal_core.write(&captured.bytes);
+        record.terminal_core.resize(to.0, to.1);
+        if (record.terminal_core.cols(), record.terminal_core.rows()) != to {
+            return Err("terminal core did not retain validated resize geometry".to_owned());
+        }
         let after = CoreCounters::read(record);
         let pin = pin_for(PinInputs {
-            at_mono_ms: at,
-            cols: record.terminal_core.cols(),
-            rows: record.terminal_core.rows(),
+            at_mono_ms: self.clock.mono_ns() / 1_000_000,
+            cols: to.0,
+            rows: to.1,
             replayed_ring: false,
             ring_evicted: record.scrollback.evicting(),
             prev_dropped: before.discarded,
@@ -274,71 +218,89 @@ impl SessionManager {
                 .sb_origin_pin
                 .map_or(0, |previous| previous.replay_floor),
         });
-        let loss = (pin.replay_lost_rows > 0).then_some(CaptureLoss {
+        record.sb_origin_pin = Some(pin);
+        let epoch =
+            mint_uuid().map_err(|error| format!("a grid epoch could not be minted: {error}"))?;
+        let emit = &mut record.cell_emit;
+        emit.grid_epoch_base = epoch;
+        emit.grid_epoch_revision = 0;
+        emit.sent_full = false;
+        (emit.cols, emit.rows, emit.alt) = (0, 0, false);
+        if let Some(emission) = delivery.stream_emission() {
+            emission.reset_delivery(record.channel_id());
+        }
+        if let Some(row) = (0..to.1).find(|row| !record.terminal_core.is_dirty_row(*row)) {
+            return Err(format!("terminal core resize left row {row} clean"));
+        }
+        Ok((pin.replay_lost_rows > 0).then_some(CaptureLoss {
             floor: pin.sb_dropped,
             rows: pin.replay_lost_rows,
-        });
-        record.sb_origin_pin = Some(pin);
-        record.cell_emit.grid_epoch_revision += 1;
-        let applied = (record.terminal_core.cols(), record.terminal_core.rows());
-        let outcome = match target {
-            Some(_) => ResizeOutcome::Applied {
-                cols: applied.0,
-                rows: applied.1,
-            },
-            None => ResizeOutcome::Refused {
-                reason: reason.to_string(),
-            },
-        };
-        (outcome, loss)
+        }))
     }
 
-    /// The next sequence this worker asks the keeper to apply on a channel.
-    ///
-    /// Per channel and monotonic, because the keeper rejects a sequence it has
-    /// already applied: a reused one would be a resize the keeper believes it
-    /// has done.
-    fn take_resize_seq(&self, channel_id: u16) -> u64 {
-        let mut seqs = self
-            .resize_seqs
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let next = seqs.entry(channel_id).or_insert(0);
-        *next += 1;
-        *next
+    /// The highest resize sequence written to the keeper on a channel (v2
+    /// `channelResizeSeq`); zero before the first.
+    pub fn channel_resize_seq(&self, channel_id: u16) -> u64 {
+        lock(&self.resize_seqs)
+            .get(&channel_id)
+            .copied()
+            .unwrap_or(0)
     }
 
-    /// Record the sequence the keeper has actually applied, which is what an
-    /// adoption starts from: this worker's own counter begins at zero and the
-    /// keeper rejects a sequence below the one it has already applied.
+    /// Record the sequence the keeper now holds for a channel: the one a resize
+    /// just wrote, or the one an adoption read back — the keeper rejects a
+    /// sequence it has already applied, so the next write must be above it.
     pub fn note_applied_resize_seq(&self, channel_id: u16, applied_seq: u64) {
-        self.resize_seqs
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(channel_id, applied_seq);
+        lock(&self.resize_seqs).insert(channel_id, applied_seq);
     }
 }
 
-/// History a closed capture cost, reported once the record lock is gone.
-///
-/// Carried out of `close_capture` rather than logged inside it, so the warning
+/// Latch a core whose boundary cannot be proven (v2 `failCore`). The caller has
+/// already closed the capture, so its gate is back; the latch is what keeps
+/// emission refused and later chunks on the retain-only lane.
+pub(super) fn trap_boundary(
+    record: &SessionRecord,
+    delivery: &dyn ChannelDelivery,
+    boundary: &OpenBoundary,
+    reason: &str,
+) -> ResizeOutcome {
+    let channel_id = record.channel_id();
+    match delivery.stream_emission() {
+        Some(emission) => emission.trap_core(channel_id),
+        None => tracing::error!(%channel_id, "a trapped core has no emitter to latch fail-closed"),
+    }
+    tracing::warn!(
+        session_id = %record.session_id(),
+        %channel_id,
+        resize_seq = boundary.seq,
+        reason,
+        "terminal.core_failed: a resize boundary could not be proven and the core is fail-closed"
+    );
+    ResizeOutcome::Trapped {
+        reason: reason.to_owned(),
+    }
+}
+
+pub(super) fn lock<T: ?Sized>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// History a resize cost, reported once the record lock is gone so the warning
 /// lands at the release the code actually performs.
-struct CaptureLoss {
+pub(super) struct CaptureLoss {
     floor: u64,
     rows: u64,
 }
 
-fn report_capture_loss(session_id: &str, channel_id: u16, loss: Option<CaptureLoss>) {
-    let Some(loss) = loss else {
-        return;
-    };
-    tracing::warn!(
-        session_id,
-        channel_id,
-        history_floor = loss.floor,
-        replay_lost_rows = loss.rows,
-        "this resize moved the history floor: rows a never-resized session would still hold are gone"
-    );
+pub(super) fn report_capture_loss(channel_id: u16, loss: Option<CaptureLoss>) {
+    if let Some(loss) = loss {
+        tracing::warn!(
+            channel_id,
+            history_floor = loss.floor,
+            replay_lost_rows = loss.rows,
+            "this resize moved the history floor: rows a never-resized session would still hold are gone"
+        );
+    }
 }
 
 /// The two counters a pin is computed from.
@@ -357,9 +319,7 @@ impl CoreCounters {
     }
 
     /// The rows the core still holds, as opposed to the `total` it has ever
-    /// held. A pin's fresh count is a LOSS measure: counting rows the core
-    /// evicted before the resize into it would charge this boundary for
-    /// history the core lost long before it opened.
+    /// held: a pin's fresh count is a LOSS measure.
     fn retained(&self) -> u64 {
         self.total.saturating_sub(self.discarded)
     }

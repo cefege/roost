@@ -1,12 +1,14 @@
 //! What a resize guarantees: it is taken to the keeper and settled at the
 //! boundary, the existing core is resized in place, the bytes produced while the
 //! boundary was unresolved are replayed behind it, and the history floor moves
-//! only as far as the replay bound did. Mirrors `session/resize.rs`.
+//! only as far as the replay bound did. Mirrors `session/resize.rs` and
+//! `session/resize_pin.rs`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod session_support;
 
-use roost_worker::session::resize::{PinInputs, ResizeOutcome, pin_for};
+use roost_worker::session::resize::ResizeOutcome;
+use roost_worker::session::resize_pin::{PinInputs, pin_for};
 
 use session_support::{Harness, SESSION, channel, session_id};
 
