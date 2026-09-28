@@ -76,7 +76,7 @@ impl SnapshotSource for HeldSnapshot {
         false
     }
 
-    fn snapshot(&self) -> Result<Vec<u8>, SnapshotError> {
+    fn snapshot(&self) -> Result<roost_protocol::wire::event::SessionEvent, SnapshotError> {
         Err(SnapshotError::Unavailable {
             reason: UNREACHED.to_string(),
         })

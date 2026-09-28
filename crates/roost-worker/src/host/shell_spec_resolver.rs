@@ -20,13 +20,13 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use roost_host::HostPlatform;
 
 use crate::host::shell_bootstrap::{self, ShellFlavour};
 pub use crate::host::tool_path::PTY_PATH_PREFIX;
-use crate::session::spawn::ShellSpecResolver;
+use crate::session::spawn::{SessionEnvironmentOverlay, ShellSpecResolver};
 use crate::shell_spec::{SESSION_ID_ENV, SHELL_SPEC_VERSION, ShellSpec, is_keeper_control_key};
 
 /// The terminal the SPA's renderer is written against.
@@ -73,7 +73,7 @@ pub struct HostShellSpecResolver {
     /// Per-session variables a caller contributes — the agent report endpoint
     /// and its capability, which are derived from the session id and so cannot
     /// be read from the environment.
-    overlay: BTreeMap<String, String>,
+    overlay: Option<Arc<dyn SessionEnvironmentOverlay>>,
     /// The rcfile written per flavour, remembered so a second session in the
     /// same worker does not rewrite a file a live shell is reading.
     bootstraps: Mutex<BTreeMap<ShellFlavour, PathBuf>>,
@@ -96,7 +96,7 @@ impl HostShellSpecResolver {
             environment,
             platform,
             requested_platform,
-            overlay: BTreeMap::new(),
+            overlay: None,
             bootstraps: Mutex::new(BTreeMap::new()),
         }
     }
@@ -125,8 +125,8 @@ impl HostShellSpecResolver {
     /// a caller is no more trusted than the environment is: an overlay that
     /// named a keeper credential is the same leak with one more hop in it.
     #[must_use]
-    pub fn with_overlay(mut self, overlay: impl IntoIterator<Item = (String, String)>) -> Self {
-        self.overlay = overlay.into_iter().collect();
+    pub fn with_overlay(mut self, overlay: Arc<dyn SessionEnvironmentOverlay>) -> Self {
+        self.overlay = Some(overlay);
         self
     }
 
@@ -173,8 +173,12 @@ impl HostShellSpecResolver {
             }
             _ => Vec::new(),
         };
-        for (key, value) in &self.overlay {
-            if is_keeper_control_key(key) {
+        let overlay = match &self.overlay {
+            Some(overlay) => overlay.session_overlay(session_id)?,
+            None => Vec::new(),
+        };
+        for (key, value) in overlay {
+            if is_keeper_control_key(&key) {
                 tracing::warn!(
                     key = %key,
                     session_id = %session_id,
@@ -183,7 +187,7 @@ impl HostShellSpecResolver {
                 );
                 continue;
             }
-            env.insert(key.clone(), value.clone());
+            env.insert(key, value);
         }
         // Last, so nothing a caller supplied can move the identity out from
         // under the record this spec is about to be attached to.

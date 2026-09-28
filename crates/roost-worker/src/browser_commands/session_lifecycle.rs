@@ -42,6 +42,9 @@ pub enum SessionOutcome {
     Spawned { channel_id: u16 },
     /// A keeper survivor already held this session, so nothing was opened.
     AlreadyLive,
+    /// v2 `respawnIfMissing`'s record: the channel the session is live on, and
+    /// whether it was already live at the asked folder (`browser-command-spawn.ts:108-117`).
+    Live { channel_id: u16, already_live: bool },
     /// A viewer claimed an existing session.
     Attached { replay_offset: u64 },
     /// The worker could not record the outcome, so the caller must stop it.
@@ -99,6 +102,7 @@ pub async fn execute(command: &Command, deps: &Deps) -> Result<Answered, Refusal
                         SessionOutcome::Killed
                         | SessionOutcome::Spawned { .. }
                         | SessionOutcome::AlreadyLive
+                        | SessionOutcome::Live { .. }
                         | SessionOutcome::Attached { .. } => {
                             Reply::ok(request_id, serde_json::json!({}))
                         }
@@ -151,7 +155,10 @@ pub async fn execute(command: &Command, deps: &Deps) -> Result<Answered, Refusal
                 serde_json::json!({
                     "session_id": session_id.as_str(),
                     "channel_id": channel_of(&outcome),
-                    "already_live": outcome == SessionOutcome::AlreadyLive,
+                    "already_live": matches!(
+                        outcome,
+                        SessionOutcome::AlreadyLive | SessionOutcome::Live { already_live: true, .. }
+                    ),
                 }),
             )))
         }
@@ -202,7 +209,9 @@ fn geometry(value: i64) -> u16 {
 /// The channel a session landed on, when one was opened.
 fn channel_of(outcome: &SessionOutcome) -> Option<u16> {
     match outcome {
-        SessionOutcome::Spawned { channel_id } => Some(*channel_id),
+        SessionOutcome::Spawned { channel_id } | SessionOutcome::Live { channel_id, .. } => {
+            Some(*channel_id)
+        }
         SessionOutcome::AlreadyLive => None,
         SessionOutcome::Killed
         | SessionOutcome::Attached { .. }

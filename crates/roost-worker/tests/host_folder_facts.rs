@@ -24,7 +24,7 @@ use roost_worker::host::git_branch::{GitReader, github_owner_repo};
 use roost_worker::host::ports::{parse_reachable_listen_ports, parse_ss_listen_ports, ports_eq};
 use roost_worker::host::pr_status::{PrReader, RollupEntry, pull_request_state, rollup_checks};
 use roost_worker::host::samples::{sample_disk, sample_linux_memory};
-use roost_worker::host::sampling::{FactsSink, HostWatchers};
+use roost_worker::host::sampling::{FolderFactsSink, FolderReading, HostWatchers};
 use scratch::Scratch;
 
 fn platform() -> HostPlatform {
@@ -156,9 +156,11 @@ fn a_pull_request_row_becomes_the_protocols_own_states() {
 /// passing run.
 #[test]
 fn a_rollup_is_classified_by_its_worst_member() {
+    // An empty conclusion stands for gh printing none: a commit status has no
+    // `conclusion` field, so v2's `conclusion ?? state` reads its state.
     let entry = |status: &str, conclusion: &str, state: Option<&str>| RollupEntry {
         status: status.to_string(),
-        conclusion: conclusion.to_string(),
+        conclusion: (!conclusion.is_empty()).then(|| conclusion.to_string()),
         state: state.map(str::to_string),
     };
     assert_eq!(rollup_checks(&[]), PullRequestChecks::None);
@@ -266,21 +268,28 @@ fn folder_path(scratch: &Path) -> PathBuf {
     scratch.join("repo").join(".git/HEAD")
 }
 
-/// The watchers are keyed by session id and owned here, and stopping one JOINS
-/// its thread: a watcher that is merely flagged is a thread that still holds
-/// what it read until it next wakes, and a closed session that keeps reading is
-/// a poll nobody turned off. The second `stop` reports there was nothing left,
-/// which is what "released" means from out here.
+/// Counts the readings a watcher hands its session, and never unlocks a PR.
+struct CountingSink(AtomicUsize);
+
+impl FolderFactsSink for CountingSink {
+    fn apply(&self, _reading: FolderReading) -> bool {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        false
+    }
+    fn pull_request_branch(&self) -> Option<String> {
+        None
+    }
+}
+
+/// The watchers are keyed by session id and owned here. Stopping one flags
+/// its thread, which then exits on its own; a second watcher for one session
+/// is refused, and a second `stop` reports there was nothing left.
 #[test]
 fn a_watcher_stopped_for_a_closed_session_releases_its_thread() {
     let _serialised = exclusive();
     let platform = platform();
     let watchers = HostWatchers::new();
-    let emitted = Arc::new(AtomicUsize::new(0));
-    let sink_counter = Arc::clone(&emitted);
-    let sink: FactsSink = Arc::new(move |_session, _facts| {
-        sink_counter.fetch_add(1, Ordering::SeqCst);
-    });
+    let sink: Arc<dyn FolderFactsSink> = Arc::new(CountingSink(AtomicUsize::new(0)));
     let folder = std::env::temp_dir();
 
     assert!(watchers.watch(
@@ -288,7 +297,7 @@ fn a_watcher_stopped_for_a_closed_session_releases_its_thread() {
         &folder.display().to_string(),
         None,
         platform,
-        sink.clone()
+        Arc::clone(&sink)
     ));
     assert!(
         !watchers.watch(
@@ -306,6 +315,10 @@ fn a_watcher_stopped_for_a_closed_session_releases_its_thread() {
     assert!(watchers.stop("session-a"));
     assert!(!watchers.is_watching("session-a"));
     assert_eq!(watchers.watched(), 0);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while watchers.live_watchers() > 0 && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
     assert_eq!(
         watchers.live_watchers(),
         0,

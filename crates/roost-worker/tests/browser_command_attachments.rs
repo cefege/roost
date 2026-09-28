@@ -17,6 +17,13 @@ async fn a_listing_excludes_the_workers_own_state_and_sorts_newest_first() {
     std::fs::create_dir_all(&dir).expect("a session directory");
     std::fs::write(dir.join("older.txt"), b"old").expect("a file");
     std::fs::write(dir.join("newer.txt"), b"new").expect("a file");
+    // Two writes in one clock tick share an mtime; the order under test is
+    // v2's `b.mtime_ms - a.mtime_ms`, so the older file is made older.
+    std::fs::File::options()
+        .write(true)
+        .open(dir.join("older.txt"))
+        .and_then(|file| file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(60)))
+        .expect("an older mtime");
     std::fs::write(dir.join(".roost-manifest.json"), b"{}").expect("a manifest");
 
     let reply = only(dispatch(&command(frame_of("list-attachments")), &harness.deps).await);
@@ -50,24 +57,17 @@ async fn a_session_with_no_attachment_directory_lists_nothing() {
     );
 }
 
-/// A FILENAME IS A LEAF. A delete that accepted the manifest's name would
-/// destroy the index that stops the browser re-uploading everything it already
-/// has.
+/// A FILENAME IS A LEAF: v2 browser-command-attachments.ts:84-89 refuses a
+/// separator of either kind, `..` and `.`, and nothing else.
 #[tokio::test]
 async fn a_delete_refuses_a_filename_that_is_not_a_leaf() {
     let harness = harness();
     let dir = harness.root.join("attachments").join(SESSION);
     std::fs::create_dir_all(&dir).expect("a session directory");
-    let manifest = dir.join(".roost-manifest.json");
-    std::fs::write(&manifest, b"{}").expect("a manifest");
+    let outside = harness.root.join("attachments").join("escape.txt");
+    std::fs::write(&outside, b"kept").expect("a file beside the session");
 
-    for filename in [
-        "../escape.txt",
-        "nested/name.txt",
-        "..",
-        ".",
-        ".roost-manifest.json",
-    ] {
+    for filename in ["../escape.txt", "nested/name.txt", "back\\slash.txt", "..", "."] {
         let refused = only(
             dispatch(
                 &roost_worker::browser_commands::Command::decode(
@@ -91,7 +91,7 @@ async fn a_delete_refuses_a_filename_that_is_not_a_leaf() {
             "`{filename}` is refused rather than acted on"
         );
     }
-    assert!(manifest.is_file(), "the worker's own state is still there");
+    assert!(outside.is_file(), "nothing outside the session was removed");
 }
 
 #[tokio::test]

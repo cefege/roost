@@ -9,7 +9,7 @@ use super::ids::mint_trace_id;
 use super::keeper_channels::KeeperFault;
 use super::lifecycle::SessionManager;
 use super::sinks::ChannelBinding;
-use super::spawn::{self, SpawnContext, SpawnRequest};
+use super::spawn::{self, ClaimsOnFailure, SpawnContext, SpawnRequest};
 use super::types::SessionRecord;
 use crate::browser_commands::Refusal;
 use crate::browser_commands::session_lifecycle::{DEFAULT_COLS, DEFAULT_ROWS, SessionOutcome};
@@ -56,7 +56,7 @@ impl SessionManager {
     /// decision belongs to the keeper's owner: only a path that can replace a
     /// keeper may act on this.
     pub fn keeper_is_degraded(&self) -> bool {
-        self.dead_births.keeper_is_degraded()
+        self.keeper_health.dead_births.keeper_is_degraded()
     }
 
     /// A trace id for an event this worker authors, hex over the same entropy
@@ -80,12 +80,13 @@ pub fn note_birth(manager: &SessionManager, record: &SessionRecord, now_ms: i64)
         lifetime_ms = now_ms.saturating_sub(record.identity.spawned_at_ms),
         "a keeper produced a pty that exited having printed nothing"
     );
-    if manager.dead_births.note(now_ms, true) {
+    if manager.keeper_health.dead_births.note(now_ms, true) {
         tracing::error!(
             dead_births = DEAD_BIRTH_THRESHOLD,
             window_ms = DEGRADED_WINDOW.as_millis() as i64,
-            "the keeper is handing out pty children that print nothing"
+            "keeper.degraded: the keeper is handing out pty children that print nothing"
         );
+        manager.keeper_health.degraded();
     }
 }
 
@@ -140,24 +141,6 @@ impl SessionManager {
         Ok(SessionOutcome::Attached { replay_offset })
     }
 
-    /// Replace a lost child, or report that there was nothing to replace.
-    ///
-    /// A session this worker still holds is re-opened at the folder its PTY was
-    /// opened in. One it does NOT hold has no launch contract of its own, so the
-    /// caller's folder is all there is to open — which is why the reconcile path
-    /// adopts survivors BEFORE this runs: respawning a session whose keeper
-    /// survived throws away a live terminal's history.
-    pub async fn respawn_lost_child(
-        &self,
-        session_id: &SessionId,
-        folder: &str,
-        cols: u16,
-        rows: u16,
-    ) -> Result<SessionOutcome, Refusal> {
-        self.open_under(Some(session_id), folder, true, cols, rows)
-            .await
-    }
-
     /// Spawn a brand new shell, under a caller-minted id when one was named.
     pub async fn open_shell(
         &self,
@@ -166,6 +149,7 @@ impl SessionManager {
         rows: Option<u16>,
         requested_session_id: Option<SessionId>,
     ) -> Result<SessionOutcome, Refusal> {
+        let _lease = self.admit_channel_creation()?;
         let cols = cols.unwrap_or(DEFAULT_COLS);
         let rows = rows.unwrap_or(DEFAULT_ROWS);
         let pending = requested_session_id
@@ -174,66 +158,41 @@ impl SessionManager {
         if pending.is_some() {
             return Ok(SessionOutcome::AlreadyLive);
         }
-        self.open_under(requested_session_id.as_ref(), &folder, false, cols, rows)
+        self.open_under(requested_session_id.as_ref(), &folder, cols, rows)
             .await
     }
 
-    /// The one path that opens a channel, for a spawn and for a respawn alike.
-    ///
-    /// `replacement` is what selects the launch contract: a session this worker
-    /// still holds is re-opened at the spec its PTY was launched with, VERBATIM
-    /// and un-resolved, because re-resolving a folder that has since been
-    /// deleted would fail a session that was working a moment ago.
+    /// The one path that opens a NEW session's channel; a respawn of a held or
+    /// listed session is `respawn_replace`.
     async fn open_under(
         &self,
         session_id: Option<&SessionId>,
         folder: &str,
-        replacement: bool,
         cols: u16,
         rows: u16,
     ) -> Result<SessionOutcome, Refusal> {
-        let held = session_id
-            .and_then(|id| {
-                self.sessions.with_record(id, |record| {
-                    (record.channel_id(), record.identity.shell_spec.clone())
-                })
-            })
-            .filter(|_| replacement);
-        // v2 `session-respawn.ts:78`: replacing a held record borrows the one
-        // serialized replacement slot; anything else is a fresh core.
-        let core_allocation = if held.is_some() {
-            TerminalCoreAllocationKind::Replacement
-        } else {
-            TerminalCoreAllocationKind::Fresh
-        };
-        let (folder, shell_spec) = match held {
-            // The launch folder, NOT the drifted `cwd`: see the header.
-            Some((_, spec)) => (spec.cwd.clone(), Some(spec)),
-            None => (folder.to_string(), None),
-        };
+        let folder = folder.to_string();
         let channel_id = self.take_channel_id()?;
-        let binding = RecordBinding::staged(
-            channel_id.as_u32() as u16,
-            Arc::clone(&self.sessions),
-            Arc::clone(&self.ingest),
-            Arc::clone(&self.clock),
-        );
-        let event = if replacement {
-            DurableEventKind::State
-        } else {
-            DurableEventKind::Opened
-        };
+        let binding = RecordBinding::closing(self, channel_id.as_u32() as u16);
+        let event = DurableEventKind::Opened;
         let opened = self.reserve(event).await?;
-        let close = self.reserve(DurableEventKind::Closed).await?;
+        let close = match self.reserve(DurableEventKind::Closed).await {
+            Ok(close) => close,
+            Err(refusal) => {
+                self.events.release(opened).await;
+                return Err(refusal);
+            }
+        };
         let request = SpawnRequest {
             channel_id,
             folder,
             cols,
             rows,
             session_id: session_id.cloned(),
-            shell_spec,
+            shell_spec: None,
             event,
-            core_allocation,
+            core_allocation: TerminalCoreAllocationKind::Fresh,
+            claims: ClaimsOnFailure::Release,
         };
         let context = SpawnContext {
             spawner: self.spawner.as_ref(),
@@ -263,26 +222,14 @@ impl SessionManager {
             Refusal::failed("sessions", error.to_string())
         })?;
         let raw_channel = channel_id.as_u32() as u16;
+        let opened_session = record.session_id().clone();
+        let stream_id = record.cell_emit.stream_id.clone();
         if let Err(error) = self.sessions.insert(record) {
             // No record holds the core any more, so neither does its lease.
             self.core_capacity.release_channel(raw_channel);
             return Err(Refusal::failed("sessions", error.to_string()));
         }
-        // The insert proves the prior record left the table, so the replacement
-        // slot is freed (v2 `completeReplacement` after `_dropChannelState`).
-        if core_allocation == TerminalCoreAllocationKind::Replacement
-            && let Err(misuse) = self.core_capacity.complete_channel_replacement(raw_channel)
-        {
-            tracing::error!(channel_id = raw_channel, error = %misuse, "a respawn's replacement core slot could not be completed");
-        }
-        let stream_id = session_id
-            .as_ref()
-            .and_then(|id| {
-                self.sessions
-                    .with_record(id, |record| record.cell_emit.stream_id.clone())
-            })
-            .unwrap_or_default();
-        binding.go_live();
+        let (_, held_exit) = binding.go_live();
         self.cells
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -292,9 +239,14 @@ impl SessionManager {
             channel_id = channel_id.as_u32(),
             cols,
             rows,
-            replacement,
             "a session's pty was opened"
         );
+        self.notify_session_folder(&opened_session, raw_channel);
+        if let Some(exit_code) = held_exit
+            && let Err(refusal) = self.close_channel(raw_channel, Some(exit_code)).await
+        {
+            tracing::error!(channel_id = raw_channel, reason = %refusal.message(), "a channel that exited before going live could not be closed");
+        }
         Ok(SessionOutcome::Spawned {
             channel_id: channel_id.as_u32() as u16,
         })

@@ -1,7 +1,8 @@
 //! The git facts about a session's folder, read on the worker host because a
 //! browser cannot shell out. A branch name and a GitHub remote feed the folder
-//! row's subtitle. Depends on `host::tool_path` for the bounded runner and on
-//! nothing here.
+//! row's subtitle. Ports v2 `apps/worker/src/host/git-branch.ts`
+//! (`readGitBranch`, `readGitRemote`, the `--git-path HEAD` lookup of
+//! `watchGitBranch`); `host::sampling` calls it. Depends on `host::tool_path`.
 //!
 //! EVERY FAILURE IS `None`. A missing `git`, a folder that is not a repository,
 //! a repository with no `origin` — all of them are "nothing to show", and none
@@ -31,10 +32,12 @@ impl GitReader {
         }
     }
 
-    /// A reader that resolves `git` against the worker's own tool `PATH`.
+    /// The production reader: `git` on this process's own `PATH`, as v2's
+    /// `Bun.spawn(["git", ..])` ran it (v2 widened `PATH` for `gh` and the
+    /// socket tools, never for `git`).
     #[must_use]
-    pub fn from_tool_path(inherited: Option<&str>, platform: roost_host::HostPlatform) -> Self {
-        Self::new(tool_path::tool_path(inherited, platform))
+    pub fn system() -> Self {
+        Self::new("git")
     }
 
     /// The current branch of `cwd`, or `None` when it is not a repository.
@@ -93,20 +96,26 @@ impl GitReader {
 }
 
 /// The `owner/repo` of a GitHub remote URL, or `None`.
+///
+/// Read as v2's `/github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?\/?$/`: after any
+/// `github.com` followed by `:` or `/`, exactly two path segments end the URL
+/// (one trailing `/` allowed), and a `.git` suffix is not part of the name. A
+/// remote with a deeper path, or one that is not GitHub, is `None`.
 #[must_use]
 pub fn github_owner_repo(url: &str) -> Option<String> {
     let url = url.trim();
-    let rest = url
-        .strip_prefix("git@github.com:")
-        .or_else(|| url.strip_prefix("ssh://git@github.com/"))
-        .or_else(|| url.strip_prefix("https://github.com/"))
-        .or_else(|| url.strip_prefix("http://github.com/"))?;
-    let mut parts = rest.split('/');
-    let owner = parts.next()?.trim();
-    let repository = parts.next()?.trim();
-    let repository = repository.strip_suffix(".git").unwrap_or(repository);
-    if owner.is_empty() || repository.is_empty() {
-        return None;
-    }
-    Some(format!("{owner}/{repository}"))
+    url.match_indices("github.com").find_map(|(at, host)| {
+        let rest = &url[at + host.len()..];
+        let rest = rest.strip_prefix(':').or_else(|| rest.strip_prefix('/'))?;
+        let rest = rest.strip_suffix('/').unwrap_or(rest);
+        let (owner, repository) = rest.split_once('/')?;
+        if owner.is_empty() || repository.is_empty() || repository.contains('/') {
+            return None;
+        }
+        let repository = match repository.strip_suffix(".git") {
+            Some(stem) if !stem.is_empty() => stem,
+            _ => repository,
+        };
+        Some(format!("{owner}/{repository}"))
+    })
 }

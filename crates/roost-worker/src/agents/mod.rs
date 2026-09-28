@@ -2,7 +2,8 @@
 //! manifest rules that read a pane's screen, the report server an integration
 //! pushes status into, and the prompt control that answers one. The status
 //! projection itself is NOT here — `roost_protocol::wire::agent_status` owns
-//! its shape, and `crate::agent_occupancy` owns who occupies a session.
+//! its shape, `crate::agent_occupancy` holds the occupancy shapes and
+//! `agents::registry` drives them.
 //! Depends on `roost_protocol` for the vocabulary — and on nothing here.
 //!
 //! OSC title and progress evidence is read off the same PTY stream the terminal
@@ -10,6 +11,39 @@
 //! ([`crate::session::agent_osc::AgentOscState`]) rather than here: it is a
 //! property of the BYTES, not of the agent, and a copy would be a second place
 //! to look for the same title.
+
+pub mod conversation_recovery;
+pub mod conversation_restore;
+pub mod detector;
+pub mod environment;
+pub mod install_integrations;
+mod install_mutation;
+pub mod install_proof;
+mod install_stage;
+pub mod install_transaction;
+pub mod integration_assets;
+pub mod manifest_engine;
+mod manifest_regex;
+mod manifest_syntax;
+pub mod manifests;
+pub mod peer_process_id;
+pub mod process_identity;
+pub mod process_scan;
+pub mod process_snapshot;
+pub mod process_tree;
+pub mod prompt_control;
+pub mod prompt_fence;
+pub mod prompt_port;
+pub mod prompt_submit;
+pub mod reference_admission;
+pub mod registry;
+mod registry_recompute;
+pub mod report_admission;
+mod report_connection;
+pub mod report_protocol;
+pub mod report_server;
+pub mod stable_detection;
+pub mod status_stack;
 
 /// How many distinct built-in agents this worker can recognise.
 ///
@@ -69,10 +103,3 @@ impl BuiltinAgentId {
         Self::ALL.into_iter().find(|agent| agent.as_str() == name)
     }
 }
-
-/// The largest request line the agent report protocol accepts.
-///
-/// The report endpoint is a loopback server any local process can reach, so the
-/// bound is on the LINE rather than on the parsed message: a request that never
-/// completes costs a connection, not a buffer.
-pub const AGENT_REPORT_MAX_LINE_BYTES: usize = 32 * 1024;

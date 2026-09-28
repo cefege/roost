@@ -14,8 +14,9 @@
 //! `gh` IS NOT ON A WORKER'S `PATH`. It lives in `/opt/homebrew/bin` on Apple
 //! silicon and `/usr/local/bin` on Intel, and a launchd or systemd unit
 //! carries neither, so a bare spawn ENOENTs and the badge silently never
-//! resolves. The program is therefore resolved by the reader that is given it,
-//! and a test drives a script rather than whatever this machine has installed.
+//! resolves. The production reader runs `gh` with the tool `PATH` as ITS
+//! `PATH` (v2 `GH_PATH`, `apps/worker/src/host/pr-status.ts`); a test drives a
+//! script by path rather than whatever this machine has installed.
 
 use std::path::{Path, PathBuf};
 
@@ -23,19 +24,21 @@ use roost_protocol::wire::session::{PullRequestChecks, PullRequestState};
 use serde_json::Value;
 
 use super::PrStatus;
-use super::tool_path;
+use super::tool_path::{self, TOOL_TIMEOUT};
 
 /// One entry of `gh`'s `statusCheckRollup`, which mixes two shapes.
 ///
 /// A check RUN carries `status` and `conclusion`; a legacy commit STATUS
 /// carries `state`. Both appear in the same array, which is why this is one
-/// struct with three optional-ish fields rather than an enum.
+/// struct with optional fields rather than an enum. `conclusion` keeps absent
+/// apart from empty because v2 reads `conclusion ?? state`: an absent (or
+/// null) conclusion falls back to the state, an empty one does not.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RollupEntry {
-    /// `QUEUED`, `IN_PROGRESS`, `COMPLETED`.
+    /// `QUEUED`, `IN_PROGRESS`, `COMPLETED`; empty when absent.
     pub status: String,
     /// `SUCCESS`, `FAILURE`, `CANCELLED`, … once a run is `COMPLETED`.
-    pub conclusion: String,
+    pub conclusion: Option<String>,
     /// `SUCCESS`, `PENDING`, `ERROR`. Absent on a check run.
     pub state: Option<String>,
 }
@@ -44,28 +47,36 @@ pub struct RollupEntry {
 #[derive(Debug, Clone)]
 pub struct PrReader {
     program: PathBuf,
+    /// The `PATH` the program runs with and is looked up on; `None` inherits
+    /// this process's.
+    path: Option<String>,
 }
 
 impl PrReader {
-    /// A reader that runs this program as `gh`.
+    /// A reader that runs this program as `gh`, on this process's `PATH`.
     #[must_use]
     pub fn new(program: impl Into<PathBuf>) -> Self {
         Self {
             program: program.into(),
+            path: None,
         }
     }
 
-    /// A reader that resolves `gh` against the worker's own tool `PATH`.
+    /// The production reader: `gh` run with `path` as its `PATH`, over
+    /// [`tool_path::process_tool_path`].
     #[must_use]
-    pub fn from_tool_path(inherited: Option<&str>, platform: roost_host::HostPlatform) -> Self {
-        Self::new(tool_path::tool_path(inherited, platform))
+    pub fn on_path(path: String) -> Self {
+        Self {
+            program: PathBuf::from("gh"),
+            path: Some(path),
+        }
     }
 
     /// The status of the pull request for `branch` in the repository at `cwd`,
     /// or `None` for every reason there is not one.
     #[must_use]
     pub fn status(&self, cwd: &str, branch: &str) -> Option<PrStatus> {
-        let out = tool_path::run(
+        let out = tool_path::run_bounded(
             &self.program.display().to_string(),
             &[
                 "pr",
@@ -80,6 +91,8 @@ impl PrReader {
                 "number,state,isDraft,url,statusCheckRollup",
             ],
             Some(Path::new(cwd)),
+            self.path.as_deref(),
+            TOOL_TIMEOUT,
         )?;
         parse_pull_request(&out)
     }
@@ -120,8 +133,7 @@ fn rollup_entries(row: &Value) -> Vec<RollupEntry> {
             conclusion: entry
                 .get("conclusion")
                 .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
+                .map(str::to_string),
             state: entry
                 .get("state")
                 .and_then(Value::as_str)
@@ -145,12 +157,13 @@ pub fn pull_request_state(raw: &str, is_draft: bool) -> PullRequestState {
     }
 }
 
-/// The rollup as the protocol's own enum.
+/// The rollup as the protocol's own enum (v2 `rollupChecks`).
 ///
 /// A failure anywhere is `failing` and outranks a pending sibling: a badge that
 /// says "passing" while one required check failed is a lie somebody merges on.
 /// A rollup with nothing in it is `none`, not `passing` — no checks is not a
-/// passing run.
+/// passing run. An entry's outcome is its conclusion, or its state when it
+/// carries no conclusion at all.
 #[must_use]
 pub fn rollup_checks(rollup: &[RollupEntry]) -> PullRequestChecks {
     if rollup.is_empty() {
@@ -158,24 +171,29 @@ pub fn rollup_checks(rollup: &[RollupEntry]) -> PullRequestChecks {
     }
     let mut pending = false;
     for entry in rollup {
-        let conclusion = upper(&entry.conclusion);
+        let outcome = upper(
+            entry
+                .conclusion
+                .as_deref()
+                .or(entry.state.as_deref())
+                .unwrap_or_default(),
+        );
         let status = upper(&entry.status);
         let state = upper(entry.state.as_deref().unwrap_or_default());
         if matches!(
-            conclusion.as_str(),
+            outcome.as_str(),
             "FAILURE" | "ERROR" | "TIMED_OUT" | "CANCELLED"
-        ) || matches!(state.as_str(), "FAILURE" | "ERROR")
-        {
+        ) {
             return PullRequestChecks::Failing;
         }
         if matches!(status.as_str(), "QUEUED" | "IN_PROGRESS")
-            || conclusion == "PENDING"
+            || outcome == "PENDING"
             || state == "PENDING"
         {
             pending = true;
         }
-        // Neither a conclusion nor a status: a run that has not reported yet.
-        if conclusion.is_empty() && status != "COMPLETED" && entry.state.is_none() {
+        // No outcome and not completed: a run that has not reported yet.
+        if outcome.is_empty() && status != "COMPLETED" && entry.state.is_none() {
             pending = true;
         }
     }

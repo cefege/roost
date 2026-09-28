@@ -94,12 +94,13 @@ impl KeeperChannels for ScriptedKeeper {
             rows: ROWS,
         }))
     }
-    fn deliver_into(
+    fn reattach_with_history(
         &self,
-        _channel_id: u16,
+        channel_id: u16,
+        _pid: u32,
         _binding: Arc<dyn ChannelBinding>,
-    ) -> Result<(), KeeperFault> {
-        Ok(())
+    ) -> Result<SurvivorHistory, KeeperFault> {
+        self.channel_history(channel_id)
     }
     fn kill_channel(&self, _channel_id: u16) -> Result<(), KeeperFault> {
         Ok(())
@@ -265,7 +266,10 @@ impl Harness {
         let cells = TableCellDelivery::new(CellEmitter::new(), Arc::clone(&table));
         let emitter = cells.emitter();
         let delivery: Arc<Mutex<dyn ChannelDelivery>> =
-            Arc::new(Mutex::new(TableChannelDelivery::new(Arc::clone(&emitter))));
+            Arc::new(Mutex::new(TableChannelDelivery::new(
+                Arc::clone(&emitter),
+                Arc::new(roost_worker::session::terminal_changed::TerminalChangedHooks::default()),
+            )));
         let capacity = TerminalCoreCapacity::new(TerminalCoreCapacityOptions {
             effective_memory_ceiling_bytes: 64 << 30,
             boot_rss_bytes: 0,

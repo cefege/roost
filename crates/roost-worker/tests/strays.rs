@@ -1,18 +1,17 @@
-//! The stray reaper, the stillborn detector, and the channel allocator. Each
-//! test names the incident or the invariant it pins, because these thresholds
-//! are decisions rather than tunables and the reasoning is the only thing
-//! stopping someone from "simplifying" them.
+//! The stray reaper's decision (v2 `session-lifecycle.ts`
+//! `reapStrayKeeperChannels`, `strayStrikes`), the stillborn detector, and the
+//! channel allocator. Each test names the incident or the invariant it pins,
+//! because these thresholds are decisions rather than tunables.
 
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use roost_worker::strays::{
-    Birth, ChannelAllocator, DEAD_BIRTH_LIFETIME, RECENTLY_CLOSED_TTL, STRAY_STRIKES, Stillborn,
-    StrayTracker, Verdict,
+    Birth, ChannelAllocator, DEAD_BIRTH_LIFETIME, STRAY_STRIKES, Stillborn, StrayTracker, Verdict,
 };
 
-fn tracked(ids: &[u16]) -> HashMap<u16, ()> {
-    ids.iter().map(|id| (*id, ())).collect()
+fn tracked(ids: &[u16]) -> HashSet<u16> {
+    ids.iter().copied().collect()
 }
 
 /// WITHOUT THE REAPER, nothing kills a survivor. A deleted session's PTY stays
@@ -20,39 +19,27 @@ fn tracked(ids: &[u16]) -> HashMap<u16, ()> {
 /// count — 12 rows against 88 processes was an observed state.
 #[test]
 fn an_untracked_channel_is_eventually_reaped() {
-    let now = Instant::now();
     let mut tracker = StrayTracker::new();
-
-    let first = tracker.sweep(&[7], &tracked(&[]), now);
     assert_eq!(
-        first,
+        tracker.sweep(&[7], &tracked(&[])),
         vec![Verdict::Strike { channel_id: 7 }],
         "the first sweep only warns"
     );
-
-    let second = tracker.sweep(&[7], &tracked(&[]), now + Duration::from_secs(60));
     assert_eq!(
-        second,
+        tracker.sweep(&[7], &tracked(&[])),
         vec![Verdict::Reap { channel_id: 7 }],
         "the second sweep reaps it — two minutes untracked is not a live spawn"
     );
 }
 
-/// TWO STRIKES, NOT ONE, and the reason is specific: the worker's session table
-/// trails the keeper's spawn by a beat, so a just-spawned channel is briefly in
-/// the keeper and not yet tracked. One grace interval covers that; one strike
-/// would kill a live spawn.
+/// TWO STRIKES, NOT ONE: the worker's session table trails the keeper's spawn
+/// by a beat, so a just-spawned channel is briefly in the keeper and not yet
+/// tracked. One grace interval covers that; one strike would kill a live spawn.
 #[test]
 fn a_just_spawned_channel_is_never_reaped_on_its_first_sighting() {
-    let now = Instant::now();
     let mut tracker = StrayTracker::new();
-    tracker.on_spawn(9);
-
-    // The spawn has not yet landed in the worker's table, so the first sweep
-    // does not see it as tracked.
-    let first = tracker.sweep(&[9], &tracked(&[]), now);
     assert_eq!(
-        first,
+        tracker.sweep(&[9], &tracked(&[])),
         vec![Verdict::Strike { channel_id: 9 }],
         "one strike, and the channel survives it"
     );
@@ -60,91 +47,50 @@ fn a_just_spawned_channel_is_never_reaped_on_its_first_sighting() {
 }
 
 /// A channel that flaps in and out of the worker's view must never accumulate
-/// to a kill. Strikes are reset the moment the worker's view catches up, so
-/// only CONSECUTIVE untracked sweeps count.
+/// to a kill: only CONSECUTIVE untracked sweeps count.
 #[test]
 fn strikes_reset_when_the_workers_view_catches_up() {
-    let now = Instant::now();
     let mut tracker = StrayTracker::new();
-
-    tracker.sweep(&[4], &tracked(&[]), now);
+    tracker.sweep(&[4], &tracked(&[]));
     assert_eq!(tracker.strikes(4), 1);
-
-    // The worker's view catches up for one sweep.
-    tracker.sweep(&[4], &tracked(&[4]), now + Duration::from_secs(60));
+    tracker.sweep(&[4], &tracked(&[4]));
     assert_eq!(
         tracker.strikes(4),
         0,
         "a tracked channel has no strikes at all"
     );
-
-    // And losing it again starts from scratch.
-    let again = tracker.sweep(&[4], &tracked(&[]), now + Duration::from_secs(120));
     assert_eq!(
-        again,
+        tracker.sweep(&[4], &tracked(&[])),
         vec![Verdict::Strike { channel_id: 4 }],
         "it starts over"
     );
 }
 
-/// THE RESTART LOOP, proven 2026-06-23. A channel emits a few PTY bytes after
-/// its record was deleted — the keeper is a separate process, so in-flight
-/// frames arrive after the close. Those are benign, and counting them re-tripped
-/// the degraded-keeper detector immediately after a reconcile, and the restart
-/// loop SIGTERMed every live PTY on the machine.
+/// v2 deletes the strike entry when it reaps: a kill that did not land (the
+/// channel is still listed next sweep) earns two fresh strikes, never an
+/// immediate second kill.
 #[test]
-fn a_recently_closed_channels_tail_emissions_are_benign() {
-    let now = Instant::now();
+fn a_reaped_channel_still_listed_starts_its_strikes_over() {
     let mut tracker = StrayTracker::new();
-    tracker.on_session_closed(3, now);
-
-    // Inside the window: not even a strike.
-    let inside = tracker.sweep(&[3], &tracked(&[]), now);
+    tracker.sweep(&[6], &tracked(&[]));
     assert_eq!(
-        inside,
-        vec![Verdict::Keep],
-        "a tail emission is not a stray"
+        tracker.sweep(&[6], &tracked(&[])),
+        vec![Verdict::Reap { channel_id: 6 }]
     );
-    assert_eq!(tracker.strikes(3), 0, "and it costs no strike either");
-
-    // Even several sweeps' worth of sweeps inside one window stay benign.
-    let mut elapsed = now;
-    for _ in 0..10 {
-        elapsed += Duration::from_millis(50);
-        assert_eq!(
-            tracker.sweep(&[3], &tracked(&[]), elapsed),
-            vec![Verdict::Keep],
-            "still inside the {RECENTLY_CLOSED_TTL:?} window"
-        );
-    }
-}
-
-/// Past the window it is a TRUE orphan — a degraded keeper driving a channel
-/// nobody owns — and it does count.
-#[test]
-fn a_channel_still_emitting_past_the_window_is_a_real_orphan() {
-    let now = Instant::now();
-    let mut tracker = StrayTracker::new();
-    tracker.on_session_closed(3, now);
-
-    let after = now + RECENTLY_CLOSED_TTL + Duration::from_millis(1);
+    assert_eq!(tracker.strikes(6), 0);
     assert_eq!(
-        tracker.sweep(&[3], &tracked(&[]), after),
-        vec![Verdict::Strike { channel_id: 3 }],
-        "past the window the tail is a real orphan, not a race"
+        tracker.sweep(&[6], &tracked(&[])),
+        vec![Verdict::Strike { channel_id: 6 }],
+        "the survivor of a failed kill is warned again before it is reaped again"
     );
 }
 
 /// A tracked channel is never a stray, however long it lives.
 #[test]
 fn a_tracked_channel_is_always_kept() {
-    let now = Instant::now();
     let mut tracker = StrayTracker::new();
-    for sweep in 0..20 {
-        assert_eq!(
-            tracker.sweep(&[1], &tracked(&[1]), now + Duration::from_secs(sweep * 60)),
-            vec![Verdict::Keep]
-        );
+    for _ in 0..20 {
+        assert_eq!(tracker.sweep(&[1], &tracked(&[1])), vec![Verdict::Keep]);
     }
     assert_eq!(tracker.strikes(1), 0);
 }
@@ -153,13 +99,10 @@ fn a_tracked_channel_is_always_kept() {
 /// long-lived worker does not accumulate an entry per channel it ever had.
 #[test]
 fn bookkeeping_for_a_vanished_channel_is_dropped() {
-    let now = Instant::now();
     let mut tracker = StrayTracker::new();
-    tracker.sweep(&[5], &tracked(&[]), now);
+    tracker.sweep(&[5], &tracked(&[]));
     assert_eq!(tracker.strikes(5), 1);
-
-    // The keeper no longer reports it, so there is nothing left to reap.
-    tracker.sweep(&[], &tracked(&[]), now + Duration::from_secs(60));
+    tracker.sweep(&[], &tracked(&[]));
     assert_eq!(tracker.strikes(5), 0, "and its bookkeeping went with it");
 }
 

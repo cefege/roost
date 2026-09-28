@@ -316,7 +316,6 @@ async fn a_lost_ack_is_recovered_in_place_from_the_ordered_history() {
     *held(&harness.keeper.history) = Some(SurvivorHistory {
         records: vec![
             HistoryRecord::Output {
-                seq: 1,
                 bytes: b"prompt$ ".to_vec(),
             },
             HistoryRecord::Resize {
