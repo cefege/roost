@@ -120,6 +120,26 @@ pub fn bootstrap_token_digest(plaintext: &str) -> String {
 /// bytes").
 #[must_use]
 pub fn decode_ed25519_pubkey(encoded: &str) -> Option<[u8; PUBLIC_KEY_BYTES]> {
+    let raw = decode_lenient_base64(encoded)?;
+    if raw.len() == PUBLIC_KEY_BYTES {
+        return <[u8; PUBLIC_KEY_BYTES]>::try_from(raw).ok();
+    }
+    ssh_wire_key(&raw)
+}
+
+/// Decode only the OpenSSH wire form, the blob an `authorized_keys` line
+/// carries in its second field.
+///
+/// A bare 32-byte key is refused here: v2's line parser required the whole
+/// `<u32><"ssh-ed25519"><u32><key>` document (`authorized-keys.ts:26-27`), so a
+/// line holding anything shorter was never a key.
+#[must_use]
+pub fn decode_ssh_wire_ed25519_pubkey(encoded: &str) -> Option<[u8; PUBLIC_KEY_BYTES]> {
+    ssh_wire_key(&decode_lenient_base64(encoded)?)
+}
+
+/// Standard or URL-safe base64, padded or not, trailing bits allowed.
+fn decode_lenient_base64(encoded: &str) -> Option<Vec<u8>> {
     // One decoder, deliberately lenient about alphabet and padding: a browser
     // sends URL-safe, a file import sends standard, and refusing either fails an
     // enrollment that has a perfectly good key.
@@ -135,13 +155,9 @@ pub fn decode_ed25519_pubkey(encoded: &str) -> Option<[u8; PUBLIC_KEY_BYTES]> {
             .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent)
             .with_decode_allow_trailing_bits(true),
     );
-    let raw = DECODER
+    DECODER
         .decode(encoded.replace('-', "+").replace('_', "/"))
-        .ok()?;
-    if raw.len() == PUBLIC_KEY_BYTES {
-        return <[u8; PUBLIC_KEY_BYTES]>::try_from(raw).ok();
-    }
-    ssh_wire_key(&raw)
+        .ok()
 }
 
 /// The key bytes out of an OpenSSH wire document, or `None` if it is not one.

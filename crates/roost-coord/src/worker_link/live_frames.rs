@@ -14,7 +14,6 @@
 //! `Refused`, which is the read loop's signal that this dispatcher did not
 //! handle the frame; it is not a claim that the frame was malformed.
 
-use roost_protocol::proto_adapters::coord_worker_proto::decode_upstream;
 use roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1;
 use roost_protocol::wire::agent_status::AgentStatusUpdate;
 use roost_protocol::wire::coord_worker::{CoordWorkerUpstream, TerminalMetadata};
@@ -26,25 +25,25 @@ use crate::worker_link::frame_dispatch::WorkerFrameDispatcher;
 
 impl WorkerFrameDispatcher {
     /// One live frame: bytes, cells, or a semantic observation.
-    pub(crate) fn handle_live(&self, worker_fp: &str, frame: &InboundFrame) -> DispatchOutcome {
+    pub(crate) fn handle_live(&self, worker_fp: &str, frame: InboundFrame) -> DispatchOutcome {
+        let InboundFrame {
+            channel,
+            frame: upstream,
+            ..
+        } = frame;
         if self.fenced("live") {
             return DispatchOutcome::Refused;
         }
         let Ok(worker) = self.authenticated(worker_fp) else {
-            return self.refuse(frame, "unaddressable_worker_fp");
-        };
-        let Ok(upstream) =
-            roost_protocol::proto_adapters::coord_worker_proto::decode_upstream(&frame.payload)
-        else {
-            return self.refuse(frame, "live_decode_failed");
+            return self.refuse(channel, "unaddressable_worker_fp");
         };
         match upstream {
             CoordWorkerUpstream::CellGrid(mut grid) => {
-                let Some(declared) = self.declared_channel(frame, grid.channel_id) else {
+                let Some(declared) = self.declared_channel(channel, grid.channel_id) else {
                     return DispatchOutcome::Refused;
                 };
                 let Some(body) = grid.frame.as_option_mut() else {
-                    return self.refuse(frame, "cell_grid_carried_no_frame");
+                    return self.refuse(channel, "cell_grid_carried_no_frame");
                 };
                 self.core.services.byte_hub.publish_cell_grid(
                     &worker,
@@ -55,11 +54,11 @@ impl WorkerFrameDispatcher {
                 DispatchOutcome::Handled
             }
             CoordWorkerUpstream::CellGridChunk(mut chunk) => {
-                let Some(declared) = self.declared_channel(frame, chunk.channel_id) else {
+                let Some(declared) = self.declared_channel(channel, chunk.channel_id) else {
                     return DispatchOutcome::Refused;
                 };
                 let Some(body) = chunk.chunk.as_option_mut() else {
-                    return self.refuse(frame, "cell_grid_chunk_carried_no_chunk");
+                    return self.refuse(channel, "cell_grid_chunk_carried_no_chunk");
                 };
                 self.core.services.byte_hub.publish_cell_grid_chunk(
                     &worker,
@@ -78,7 +77,7 @@ impl WorkerFrameDispatcher {
                 // `terminal_metadata_v1` is negotiated — and this build has never
                 // carried the parser, so the refusal is the whole behaviour and
                 // claiming otherwise would be a lie about a frame we drop.
-                self.refuse(frame, "legacy_binary_metadata_is_not_parsed")
+                self.refuse(channel, "legacy_binary_metadata_is_not_parsed")
             }
             CoordWorkerUpstream::TerminalViewState(state) => {
                 self.core.services.views.apply_owner_view_state(
@@ -101,7 +100,7 @@ impl WorkerFrameDispatcher {
                     active: frame_status.status.active,
                 };
                 let Ok(value) = serde_json::to_value(&update) else {
-                    return self.refuse(frame, "agent_status_has_no_wire_form");
+                    return self.refuse(channel, "agent_status_has_no_wire_form");
                 };
                 self.core
                     .services
@@ -110,7 +109,7 @@ impl WorkerFrameDispatcher {
                     .accept_worker_status(&self.core, &worker, value);
                 DispatchOutcome::Handled
             }
-            _ => self.refuse(frame, "live_arm_has_no_destination"),
+            _ => self.refuse(channel, "live_arm_has_no_destination"),
         }
     }
 
@@ -120,17 +119,19 @@ impl WorkerFrameDispatcher {
     /// routes a typed result, a stream result and a pipeline sample through the
     /// identical `resolvePendingRpc` an `rpc-ok` uses, and splitting them would
     /// be a distinction without a difference.
-    pub(crate) fn handle_rpc(&self, worker_fp: &str, frame: &InboundFrame) -> DispatchOutcome {
+    pub(crate) fn handle_rpc(&self, worker_fp: &str, frame: InboundFrame) -> DispatchOutcome {
+        let InboundFrame {
+            channel,
+            frame: upstream,
+            ..
+        } = frame;
         if self.fenced("rpc") {
             return DispatchOutcome::Refused;
         }
         let Ok(worker) = self.authenticated(worker_fp) else {
-            return self.refuse(frame, "unaddressable_worker_fp");
+            return self.refuse(channel, "unaddressable_worker_fp");
         };
         let pending = self.core.services.scrollback.pending();
-        let Ok(upstream) = decode_upstream(&frame.payload) else {
-            return self.refuse(frame, "rpc_decode_failed");
-        };
         match upstream {
             CoordWorkerUpstream::RpcOk {
                 request_id, data, ..
@@ -144,7 +145,7 @@ impl WorkerFrameDispatcher {
             } => {
                 pending.reject(&request_id, &message, Some(worker.as_str()));
             }
-            _ => return self.refuse(frame, "rpc_arm_has_no_destination"),
+            _ => return self.refuse(channel, "rpc_arm_has_no_destination"),
         }
         DispatchOutcome::Handled
     }
@@ -157,15 +158,15 @@ impl WorkerFrameDispatcher {
     /// The channel a frame addresses, refused when the header and the payload
     /// disagree.
     ///
-    /// `InboundFrame::channel` is the peer's own declaration and the payload
+    /// `InboundFrame::channel` is the read loop's classification and the payload
     /// carries the same value a second time. Two answers to "which channel" on
     /// one frame means the read loop and the body disagree, and delivering cells
     /// to whichever won would bind a PTY to a session nobody announced.
-    fn declared_channel(&self, frame: &InboundFrame, carried: u32) -> Option<ChannelId> {
-        if frame.channel != carried {
+    fn declared_channel(&self, channel: u32, carried: u32) -> Option<ChannelId> {
+        if channel != carried {
             tracing::warn!(
                 worker_fp = %self.handle.worker_fp,
-                header_channel = frame.channel,
+                header_channel = channel,
                 carried_channel = carried,
                 "a live frame's header and body named different channels"
             );

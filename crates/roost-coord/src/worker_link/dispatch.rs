@@ -19,6 +19,7 @@
 use std::pin::Pin;
 
 use connectrpc::ConnectError;
+use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 
 use crate::worker_link::conn_types::SocketClose;
 
@@ -73,14 +74,19 @@ impl FrameClass {
 /// `channel` is the frame's own channel id and is NOT trusted: the dispatcher
 /// re-checks it against the durable route before acting on another worker's
 /// state, which is what `mapping_mismatch` is for.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// The frame is carried DECODED, once, by `worker_link::upstream_frame`: the
+/// read loop has to decode it to classify it, and a dispatcher that decoded the
+/// same bytes again would pay a second full protobuf decode on the path that
+/// carries every cell grid a machine produces.
+#[derive(Debug, Clone, PartialEq)]
 pub struct InboundFrame {
     /// Which arm this frame belongs to.
     pub class: FrameClass,
     /// The frame's declared channel, as the peer wrote it.
     pub channel: u32,
-    /// The frame's payload, exactly as it arrived off the wire.
-    pub payload: Vec<u8>,
+    /// The decoded frame, owned: the cell arms publish their body in place.
+    pub frame: CoordWorkerUpstream,
 }
 
 /// What one worker socket's frames turn into.
@@ -96,7 +102,7 @@ pub trait FrameDispatch: Send + Sync {
     /// produces, and a `Pin<Box<dyn Future>>` here would be one heap
     /// allocation per frame to serve a dynamic dispatch the compiler can do
     /// statically inside this crate.
-    fn handle_now(&self, worker_fp: &str, frame: &InboundFrame) -> DispatchOutcome;
+    fn handle_now(&self, worker_fp: &str, frame: InboundFrame) -> DispatchOutcome;
 
     /// Handle one DURABLE frame, which awaits the database and is
     /// acknowledged one at a time.
@@ -114,11 +120,8 @@ pub trait FrameDispatch: Send + Sync {
     /// the alias is already a `Pin`, and pinning it twice names
     /// `Pin<Pin<Box<dyn Future>>>`, which no implementation can build without
     /// `new_unchecked` because the inner `Pin` is not `Unpin`.
-    fn handle_durable<'a>(
-        &'a mut self,
-        worker_fp: &'a str,
-        frame: &'a InboundFrame,
-    ) -> DispatchFuture<'a>;
+    fn handle_durable<'a>(&'a mut self, worker_fp: &'a str, frame: InboundFrame)
+    -> DispatchFuture<'a>;
 }
 
 /// The boxed future a [`FrameDispatch`] returns.

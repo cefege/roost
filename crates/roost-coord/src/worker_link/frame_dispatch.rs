@@ -10,7 +10,6 @@
 use std::sync::Arc;
 
 use connectrpc::{ConnectError, ErrorCode};
-use roost_protocol::proto_adapters::coord_worker_proto::decode_upstream;
 use roost_protocol::wire::coord_worker::{CoordWorkerDownstream, CoordWorkerUpstream, EventAck};
 use roost_protocol::wire::{SessionEvent, WorkerFp};
 
@@ -154,7 +153,7 @@ impl WorkerFrameDispatcher {
 }
 
 impl FrameDispatch for WorkerFrameDispatcher {
-    fn handle_now(&self, worker_fp: &str, frame: &InboundFrame) -> DispatchOutcome {
+    fn handle_now(&self, worker_fp: &str, frame: InboundFrame) -> DispatchOutcome {
         if !self.is_this_socket(worker_fp) {
             return DispatchOutcome::Refused;
         }
@@ -166,14 +165,14 @@ impl FrameDispatch for WorkerFrameDispatcher {
             // the event was neither appended nor acknowledged, so the worker
             // still holds it in its outbox and replays it. Closing would only
             // tell it to do the same thing more expensively.
-            FrameClass::Durable => self.refuse(frame, "durable_frame_on_the_sync_arm"),
+            FrameClass::Durable => self.refuse(frame.channel, "durable_frame_on_the_sync_arm"),
         }
     }
 
     fn handle_durable<'a>(
         &'a mut self,
         worker_fp: &'a str,
-        frame: &'a InboundFrame,
+        frame: InboundFrame,
     ) -> DispatchFuture<'a> {
         Box::pin(async move { self.handle_one_durable(worker_fp, frame).await })
     }
@@ -182,21 +181,26 @@ impl FrameDispatch for WorkerFrameDispatcher {
 impl WorkerFrameDispatcher {
     /// One durable `SessionEvent`: the gates, the sequence, the append, and the
     /// decisions the commit makes possible.
-    async fn handle_one_durable(&self, worker_fp: &str, frame: &InboundFrame) -> DispatchOutcome {
+    async fn handle_one_durable(&self, worker_fp: &str, frame: InboundFrame) -> DispatchOutcome {
         if !self.is_this_socket(worker_fp) {
             return DispatchOutcome::Refused;
         }
-        let Ok(CoordWorkerUpstream::Event {
+        let InboundFrame {
+            channel,
+            frame: upstream,
+            ..
+        } = frame;
+        let CoordWorkerUpstream::Event {
             event, client_seq, ..
-        }) = decode_upstream(&frame.payload)
+        } = upstream
         else {
-            return self.refuse(frame, "durable_arm_mismatch");
+            return self.refuse(channel, "durable_arm_mismatch");
         };
         // A zero sequence is a frame from a producer that never allocated one.
         // It is dropped rather than admitted as sequence 0, because a cursor
         // that had seen 0 would then expect 0 again forever.
         if client_seq == 0 {
-            return self.refuse(frame, "invalid_event_client_seq");
+            return self.refuse(channel, "invalid_event_client_seq");
         }
         if self.fenced("event") {
             return DispatchOutcome::Refused;
@@ -232,7 +236,7 @@ impl WorkerFrameDispatcher {
             return DispatchOutcome::Refused;
         }
 
-        let appended = self.append(&event, client_seq).await;
+        let appended = self.append(event, client_seq).await;
         drop(lease);
         match appended {
             Err(error) => {
@@ -250,7 +254,7 @@ impl WorkerFrameDispatcher {
     /// and admission binds durable rows to what the transport authenticated.
     async fn append(
         &self,
-        event: &SessionEvent,
+        event: SessionEvent,
         client_seq: u64,
     ) -> Result<AppendEventResult, ConnectError> {
         let services = &self.core.services;
@@ -284,7 +288,7 @@ impl WorkerFrameDispatcher {
         };
         services
             .event_log
-            .append_event(event.clone(), &caller, &mut options)
+            .append_event(event, &caller, &mut options)
             .await
             .map_err(|error| ConnectError::new(ErrorCode::Internal, error.to_string()))
     }
@@ -360,11 +364,11 @@ impl WorkerFrameDispatcher {
     }
 
     /// A frame this dispatcher will not process, named for the log line.
-    pub(crate) fn refuse(&self, frame: &InboundFrame, reason: &'static str) -> DispatchOutcome {
+    pub(crate) fn refuse(&self, channel: u32, reason: &'static str) -> DispatchOutcome {
         tracing::warn!(
             worker_fp = %self.handle.worker_fp,
             reason,
-            channel = frame.channel,
+            channel,
             "a frame was refused before it was processed"
         );
         DispatchOutcome::Refused

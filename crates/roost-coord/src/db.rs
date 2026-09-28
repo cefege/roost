@@ -30,7 +30,16 @@
 //! exactly while the user is typing." The cost is the last transaction or two
 //! on an OS crash or power loss, not a process crash, and the `events` table is
 //! re-derivable from the worker snapshot every worker emits on reconnect.
+//!
+//! Ports `apps/coord/src/db/connection.ts` and `apps/coord/src/db/migrate.ts`;
+//! `db/migration_validation.rs` ports `migration-validation.ts`. v2's
+//! `migrations-embed.generated.ts` (the SQL baked into the binary) is
+//! `sqlx::migrate!` here, and its Kysely `db/schema.ts` has no counterpart: the
+//! schema is `migrations/0001_init.sql`, and every domain owns its row type.
 
+mod migration_validation;
+
+use std::collections::HashSet;
 use std::path::Path;
 use std::time::Duration;
 
@@ -59,6 +68,12 @@ pub enum DbError {
     /// migration is fine, the thing that protects it is not.
     #[error("pre-migration backup failed, so no migration ran: {0}")]
     PreMigrationBackup(String),
+    /// SQLite did not keep foreign-key enforcement on this connection.
+    #[error("SQLite foreign key enforcement is required for migrations")]
+    ForeignKeysUnenforced,
+    /// Rows violate a foreign key; `violations` names each `table -> parent`.
+    #[error("foreign key check failed ({rows} rows): {violations}")]
+    ForeignKeyCheck { rows: usize, violations: String },
 }
 
 /// How long a statement waits for a write lock before giving up.
@@ -71,7 +86,9 @@ pub const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 /// Open the coordinator's database, creating and migrating it if needed.
 ///
 /// Migrations run before this returns, so nothing above this line ever observes
-/// a schema that is one migration behind.
+/// a schema that is one migration behind -- and neither does anything observe a
+/// file with foreign-key enforcement off or a row violating one: both refuse the
+/// open, which is what keeps a damaged database from ever binding a port.
 pub async fn open(path: &Path) -> Result<CoordDb, DbError> {
     // Captured before the connect, which creates the file: this is the gate
     // the pre-migration backup hangs on.
@@ -112,20 +129,26 @@ pub async fn open(path: &Path) -> Result<CoordDb, DbError> {
         path: path.to_path_buf(),
     };
 
-    // Boot step 3 (contract §1.1): the pre-migration backup, and ONLY if the
-    // file already existed -- v2 gates it on `existsSync(cfg.dbPath)` at
-    // `main.ts:60`, and backing up a file that does not exist yet is theatre.
+    // v2 verifies enforcement before it reads its migration history
+    // (`migrate.ts:292-293`); a migration never runs on an unenforced handle.
+    migration_validation::enable_and_verify_foreign_keys(&database).await?;
+    let migrator = sqlx::migrate!("./migrations");
+    let pending = pending_migrations(&database, &migrator).await?;
+    if !pending.is_empty() {
+        tracing::info!(path = %path.display(), pending = ?pending, "database migrations pending");
+    }
+
+    // Boot step 3 (contract §1.1): the pre-migration backup, ONLY if the file
+    // already existed (`main.ts:60`, backing up a file the connect just created
+    // is theatre) AND a migration is pending (`migrate.ts:319`, a restart that
+    // migrates nothing must not spend one of the fourteen kept archives).
     // `existed` is captured BEFORE connecting because the connect creates it.
     //
     // A failure here STOPS the open. v2 passes this as a hook into
     // `runMigrations` (`main.ts:64`), so a backup that cannot be taken fails
-    // the migration with it -- which is the right direction: if there is no
-    // recoverable copy, a destructive migration must not proceed.
-    //
-    // v2 hooks it per migration; v3 has one squashed `0001_init.sql`, so once
-    // before the set is the same number of backups for the same number of
-    // schema changes.
-    if existed {
+    // the migration with it -- if there is no recoverable copy, a destructive
+    // migration must not proceed.
+    if existed && !pending.is_empty() {
         crate::maintenance::backup::run_backup(
             &database,
             crate::maintenance::backup::BackupReason::PreMigration,
@@ -133,8 +156,52 @@ pub async fn open(path: &Path) -> Result<CoordDb, DbError> {
         .await
         .map_err(|error| DbError::PreMigrationBackup(error.to_string()))?;
     }
-    database.migrate().await?;
+    database.apply_migrations(&migrator).await?;
+    migration_validation::enable_and_verify_foreign_keys(&database).await?;
+    if let Some(final_migration) = pending.last() {
+        migration_validation::validate_integrity(&database, final_migration).await?;
+        tracing::info!(path = %path.display(), applied = pending.len(), "database migrated");
+    }
+    // Every open, not only after a migration as v2 gates it (`migrate.ts:343`):
+    // with one squashed migration that gate would only ever check a file that
+    // was empty a moment ago, while `roost import-v2` writes rows into an
+    // already-migrated one.
+    migration_validation::validate_foreign_keys(&database).await?;
     Ok(database)
+}
+
+/// The embedded migrations this file has not applied yet, by description.
+///
+/// Read from `_sqlx_migrations` directly rather than through `Migrate`, whose
+/// listing creates that table first -- a write the pre-migration backup must
+/// not be taken after.
+async fn pending_migrations(
+    database: &CoordDb,
+    migrator: &sqlx::migrate::Migrator,
+) -> Result<Vec<String>, DbError> {
+    let (history_exists,): (bool,) = sqlx::query_as(
+        "SELECT EXISTS (SELECT 1 FROM sqlite_master \
+          WHERE type = 'table' AND name = '_sqlx_migrations')",
+    )
+    .fetch_one(database.pool())
+    .await?;
+    let applied: HashSet<i64> = if history_exists {
+        sqlx::query_as::<_, (i64,)>("SELECT version FROM _sqlx_migrations")
+            .fetch_all(database.pool())
+            .await?
+            .into_iter()
+            .map(|(version,)| version)
+            .collect()
+    } else {
+        HashSet::new()
+    };
+    Ok(migrator
+        .iter()
+        .filter(|migration| {
+            !migration.migration_type.is_down_migration() && !applied.contains(&migration.version)
+        })
+        .map(|migration| format!("{:04}_{}", migration.version, migration.description))
+        .collect())
 }
 
 impl CoordDb {
@@ -151,7 +218,7 @@ impl CoordDb {
         &self.path
     }
 
-    /// Apply every embedded migration.
+    /// Apply every pending embedded migration.
     ///
     /// `sqlx` records applied migrations in `_sqlx_migrations` and wraps each in
     /// a transaction, so a partial migration is not a state this function can
@@ -161,8 +228,8 @@ impl CoordDb {
     /// never be edited after it has shipped anywhere. Editing it would produce a
     /// v3 install whose database does not match its migrations, with something
     /// to notice.
-    pub async fn migrate(&self) -> Result<(), DbError> {
-        sqlx::migrate!("./migrations")
+    async fn apply_migrations(&self, migrator: &sqlx::migrate::Migrator) -> Result<(), DbError> {
+        migrator
             .run(&self.pool)
             .await
             .map_err(|error| DbError::Migration {
@@ -181,17 +248,6 @@ impl CoordDb {
             .fetch_one(&self.pool)
             .await?;
         Ok(row.0 == "ok")
-    }
-
-    /// Run `PRAGMA foreign_key_check` and require no rows.
-    ///
-    /// The same gate the v2 migration runner applies after the final pending
-    /// migration (`apps/coord/src/db/migration-validation.ts:20-35`).
-    pub async fn foreign_key_check(&self) -> Result<bool, DbError> {
-        let rows = sqlx::query("PRAGMA foreign_key_check")
-            .fetch_all(&self.pool)
-            .await?;
-        Ok(rows.is_empty())
     }
 
     /// Take a consistent, compacted copy of the database into `destination`.

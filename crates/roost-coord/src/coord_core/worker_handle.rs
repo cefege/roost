@@ -48,6 +48,9 @@ pub struct WorkerHandle {
     /// handle cannot be revived by a reconnect.
     revoked: Arc<AtomicBool>,
     send: Arc<dyn Fn(CoordWorkerDownstream) -> i64 + Send + Sync>,
+    /// Asks the transport owner to close this socket (v2's `WorkerHandle.close`),
+    /// which is how a newer hello ends the generation it supersedes.
+    close: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl std::fmt::Debug for WorkerHandle {
@@ -82,6 +85,22 @@ impl WorkerHandle {
             ready: Arc::new(AtomicBool::new(false)),
             revoked: Arc::new(AtomicBool::new(false)),
             send,
+            close: None,
+        }
+    }
+
+    /// The same handle, with the hook that closes its socket.
+    #[must_use]
+    pub fn with_close(mut self, close: Arc<dyn Fn() + Send + Sync>) -> Self {
+        self.close = Some(close);
+        self
+    }
+
+    /// Ask the transport owner to close this generation's socket. A handle
+    /// built without a transport owner has no socket to close.
+    pub fn request_close(&self) {
+        if let Some(close) = &self.close {
+            close();
         }
     }
 
