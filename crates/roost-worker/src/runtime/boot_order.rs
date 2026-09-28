@@ -30,12 +30,12 @@ pub const BOOT_ORDER: [BootStep; 5] = [
         because: "the fingerprint and the coordinator are settled before anything is probed or spawned, because a keeper mutation made under the wrong identity is a mutation against another worker's sessions",
     },
     BootStep {
-        name: "coordinator-link",
-        because: "the link dials before the keeper is admitted, because the survivor decision needs the coordinator's COMPLETE open-session set, and a set nobody has read cannot decide whether a replacement ends somebody's terminal",
-    },
-    BootStep {
         name: "keeper-admission",
         because: "a surviving keeper is adopted or proved empty INSIDE the reconcile, once that set is in hand, because 'this keeper holds no channels' is not the proof — a session the coordinator still lists as open is one somebody is looking at, and replacing its keeper ends it",
+    },
+    BootStep {
+        name: "coordinator-link",
+        because: "the link dials before the keeper is admitted, because the survivor decision needs the coordinator's COMPLETE open-session set, and a set nobody has read cannot decide whether a replacement ends somebody's terminal",
     },
     BootStep {
         name: "session-reconcile",
@@ -51,8 +51,8 @@ pub const BOOT_ORDER: [BootStep; 5] = [
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepId {
     Identity,
-    CoordinatorLink,
     KeeperAdmission,
+    CoordinatorLink,
     SessionReconcile,
     Ready,
 }
@@ -73,8 +73,8 @@ impl StepId {
     /// deliberately.
     pub const ALL: [StepId; 5] = [
         StepId::Identity,
-        StepId::CoordinatorLink,
         StepId::KeeperAdmission,
+        StepId::CoordinatorLink,
         StepId::SessionReconcile,
         StepId::Ready,
     ];
@@ -82,8 +82,8 @@ impl StepId {
     pub fn name(self) -> &'static str {
         match self {
             StepId::Identity => BOOT_ORDER[0].name,
-            StepId::CoordinatorLink => BOOT_ORDER[1].name,
-            StepId::KeeperAdmission => BOOT_ORDER[2].name,
+            StepId::KeeperAdmission => BOOT_ORDER[1].name,
+            StepId::CoordinatorLink => BOOT_ORDER[2].name,
             StepId::SessionReconcile => BOOT_ORDER[3].name,
             StepId::Ready => BOOT_ORDER[4].name,
         }

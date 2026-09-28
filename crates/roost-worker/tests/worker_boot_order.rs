@@ -64,6 +64,23 @@ fn platform() -> HostPlatform {
 
 /// The order is written down once, and every step in it says what moving it
 /// would break. A step with an empty reason is a step nobody can defend later.
+///
+/// THIS VECTOR MOVED, DELIBERATELY, and that is the shape of the change rather
+/// than a wrinkle in it. It is the oracle this file declares at :71-73, so a
+/// reorder of the declared order is supposed to move it — and the reason it
+/// moved is that the DECLARATION was wrong about the executed order, not that
+/// the execution drifted. `boot_sequence::run` records `KeeperAdmission`
+/// before `CoordinatorLink`, always has, and the stop-time log printed that
+/// sequence while this file asserted the opposite.
+///
+/// The rationale inside each `because` is a separate matter and is NOT fixed
+/// here: `coordinator-link`'s still claims the link DIALS before the keeper is
+/// admitted, which is false — the dial is `link.run`, the last statement of
+/// the function. What is true is that the open-session set the decision needs
+/// is read over Connect at step 5, before the keeper, and the link is only
+/// BUILT afterwards. That correction, and the `BootSequence::complete`
+/// validation that makes the order load-bearing rather than decorative, are
+/// the next commits — and this vector does not move again.
 #[test]
 fn the_boot_order_is_declared_and_every_step_says_why_it_is_there() {
     let names: Vec<&str> = BOOT_ORDER.iter().map(|step| step.name).collect();
@@ -71,14 +88,13 @@ fn the_boot_order_is_declared_and_every_step_says_why_it_is_there() {
         names,
         vec![
             "identity",
-            "coordinator-link",
             "keeper-admission",
+            "coordinator-link",
             "session-reconcile",
             "ready"
         ],
-        "the order is the architecture: identity before any mutation, the link \
-         BEFORE the keeper because the survivor decision needs the \
-         coordinator's open-session set, readiness last"
+        "the order is the architecture: identity before any mutation, the keeper \
+         admitted once the coordinator's open-session set is in hand, readiness last"
     );
     for step in BOOT_ORDER {
         assert!(
