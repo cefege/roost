@@ -164,8 +164,7 @@ async fn presence_during<F: Future>(harness: &SessionsHarness, sid: &str, body: 
             }
         });
     body.await;
-    let deltas = seen.lock().unwrap().clone();
-    deltas
+    seen.lock().unwrap().clone()
 }
 
 fn route(harness: &SessionsHarness, sid: &str) {
@@ -302,8 +301,7 @@ async fn sessions_sets_during<F: Future>(
             }
         });
     body.await;
-    let sets = seen.lock().unwrap().clone();
-    sets
+    seen.lock().unwrap().clone()
 }
 
 // v2 B5: membership lives in the column AND the junction, and every workspace
