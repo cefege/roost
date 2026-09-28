@@ -14,6 +14,11 @@
 //! re-encode them, which would let such a frame pass the canonical check; an
 //! unknown-field budget of zero makes the decode itself refuse it, which is
 //! the same close for the same frame.
+//!
+//! EVERY REFUSAL NAMES ITS CHECK. The close is `1008` for all of them, so the
+//! log line is the only place a cause can live: without the check that refused
+//! the frame, the acknowledgement and last sequence the socket held, and the
+//! frame's own bytes, one reported cause stood for five of them.
 
 use std::collections::BTreeSet;
 
@@ -26,6 +31,7 @@ use crate::sync_ws::commands::{
 use crate::sync_ws::control_frames::ResetNotice;
 use crate::sync_ws::driver::{Delivery, LinkClose, LinkState, SyncLink};
 use crate::sync_ws::feed::FeedRuntime;
+use crate::sync_ws::invalid_frame::{InvalidFrame, frame_hex};
 use roost_proto::__buffa::oneof::sync_client_frame::Command;
 
 /// What the socket task must do beyond the link: the parts of an outcome that
@@ -76,12 +82,7 @@ pub fn accept_client_frame(
     let frame = match decoded {
         Ok(frame) if is_canonical_client_frame(&frame, raw) => frame,
         _ => {
-            state.decide_close(
-                LinkClose::INVALID_ACK,
-                "invalid_client_frame",
-                "client",
-                now_ms,
-            );
+            log_refused_frame(state, InvalidFrame::NotCanonical, None, raw, now_ms);
             return IngressEffect::Nothing;
         }
     };
@@ -108,7 +109,7 @@ pub fn accept_client_frame(
             })
         }
     };
-    apply_outcome(state, outcome, now_ms)
+    apply_outcome(state, outcome, &frame, raw, now_ms)
 }
 
 /// A text frame on a Sync socket: the client contract is binary only, so a
@@ -132,7 +133,13 @@ pub fn refuse_text_frame(link: &SyncLink, now_ms: u64) {
 }
 
 /// Carry out one v2 outcome on the link.
-fn apply_outcome(state: &mut LinkState, outcome: CommandOutcome, now_ms: u64) -> IngressEffect {
+fn apply_outcome(
+    state: &mut LinkState,
+    outcome: CommandOutcome,
+    frame: &SyncClientFrame,
+    raw: &[u8],
+    now_ms: u64,
+) -> IngressEffect {
     match outcome {
         CommandOutcome::Nothing => IngressEffect::Nothing,
         CommandOutcome::Acknowledged { released } => {
@@ -184,16 +191,43 @@ fn apply_outcome(state: &mut LinkState, outcome: CommandOutcome, now_ms: u64) ->
             state.send_control(&notice.to_frame(), now_ms);
             IngressEffect::Nothing
         }
-        CommandOutcome::Invalid => {
-            state.decide_close(
-                LinkClose::INVALID_ACK,
-                "invalid_client_frame",
-                "client",
-                now_ms,
-            );
+        CommandOutcome::Invalid(refused) => {
+            log_refused_frame(state, refused, Some(frame), raw, now_ms);
             IngressEffect::Nothing
         }
     }
+}
+
+/// Report a refused client frame and close `1008`, with the evidence that tells
+/// the five causes apart: which check refused it, what the client
+/// acknowledged against what this socket has sent, and the frame's own bytes.
+fn log_refused_frame(
+    state: &mut LinkState,
+    refused: InvalidFrame,
+    frame: Option<&SyncClientFrame>,
+    raw: &[u8],
+    now_ms: u64,
+) {
+    let Delivery::V2(session) = &state.delivery else {
+        state.decide_close(LinkClose::INVALID_ACK, refused.cause(), "client", now_ms);
+        return;
+    };
+    let last_sent_seq = session.next_delivery_seq().saturating_sub(1);
+    let acknowledged_seq = session.acknowledged_sequence();
+    tracing::warn!(
+        event = "sync-ws",
+        action = "client_frame_refused",
+        socket_id = %state.socket_id,
+        path = refused.cause(),
+        client_socket_id = frame.map_or("", |frame| frame.socket_id.as_str()),
+        ack_delivery_seq = frame.and_then(|frame| frame.ack_delivery_seq),
+        last_sent_seq,
+        acknowledged_seq,
+        frame_bytes = raw.len(),
+        frame_hex = %frame_hex(raw),
+        "a Sync client frame was not a legal client frame"
+    );
+    state.decide_close(LinkClose::INVALID_ACK, refused.cause(), "client", now_ms);
 }
 
 /// The reset an unsubscribe owes the client: the audit domain's new

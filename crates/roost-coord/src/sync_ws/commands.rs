@@ -33,6 +33,7 @@ use roost_proto::{
 use crate::sync_ws::admission::EnqueueOutcome;
 use crate::sync_ws::control_frames::ResetNotice;
 use crate::sync_ws::frame_meta::is_lazy_domain;
+use crate::sync_ws::invalid_frame::InvalidFrame;
 use crate::sync_ws::session::SyncV2Session;
 use crate::sync_ws::snapshot_registry::SnapshotTokenRegistry;
 
@@ -126,14 +127,17 @@ pub enum CommandOutcome {
     /// The terminal domain must be reset: the one-time snapshot token was
     /// missing, already consumed, or named a socket that is gone.
     ResetTerminal(ResetNotice),
-    /// The frame is not a legal client frame and the socket must close `1008`.
+    /// The frame is not a legal client frame and the socket must close `1008`,
+    /// naming the check that refused it.
     ///
-    /// Two frames land here and both are protocol violations rather than
-    /// refusals: a frame from this socket that carries neither an
-    /// acknowledgement nor a command, and a frame whose bytes are not the
-    /// canonical encoding of what it decoded to. Ignoring either would leave the
-    /// client waiting for an answer to a frame the coordinator never understood.
-    Invalid,
+    /// Every frame that lands here is a protocol violation rather than a
+    /// refusal: a frame from this socket that carries neither an
+    /// acknowledgement nor a command, an acknowledgement above what was sent, a
+    /// command naming a domain this build does not know, or a frame whose bytes
+    /// are not the canonical encoding of what it decoded to. Ignoring any of
+    /// them would leave the client waiting for an answer to a frame the
+    /// coordinator never understood.
+    Invalid(InvalidFrame),
 }
 
 /// Whether a decoded client frame is byte-for-byte the canonical encoding of
@@ -239,13 +243,13 @@ pub fn handle_client_frame(
             Ok(count) => released = count,
             Err(close) => {
                 session.fault(close);
-                return CommandOutcome::Invalid;
+                return CommandOutcome::Invalid(InvalidFrame::AckAboveLastSent);
             }
         }
     }
     match &frame.command {
         None if ack > 0 => CommandOutcome::Acknowledged { released },
-        None => CommandOutcome::Invalid,
+        None => CommandOutcome::Invalid(InvalidFrame::NeitherAckNorCommand),
         Some(Command::DomainReady(ready)) => handle_domain_ready(session, context, ready, tokens),
         Some(Command::DomainSubscribe(subscribe)) => {
             set_lazy_domain_subscription(session, context, subscribe, true)
@@ -268,7 +272,7 @@ fn handle_domain_ready(
     // command for another domain: the client named something that cannot exist,
     // and answering `Nothing` would leave it believing the fence closed.
     let Some(domain) = ready.domain.as_known() else {
-        return CommandOutcome::Invalid;
+        return CommandOutcome::Invalid(InvalidFrame::UnknownDomain);
     };
     let Some(state) = session.domain(domain) else {
         return CommandOutcome::Nothing;
@@ -312,7 +316,7 @@ fn handle_domain_ready(
 fn reset_terminal(session: &mut SyncV2Session, reason: &'static str) -> CommandOutcome {
     match session.reset_domain(SyncDomain::Terminal, reason) {
         EnqueueOutcome::Reset(notice) => CommandOutcome::ResetTerminal(notice),
-        _ => CommandOutcome::Invalid,
+        _ => CommandOutcome::Invalid(InvalidFrame::TerminalResetRefused),
     }
 }
 
@@ -323,7 +327,7 @@ fn set_lazy_domain_subscription(
     subscribe: bool,
 ) -> CommandOutcome {
     let Some(domain) = command.domain.as_known() else {
-        return CommandOutcome::Invalid;
+        return CommandOutcome::Invalid(InvalidFrame::UnknownDomain);
     };
     if !is_lazy_domain(domain) {
         return CommandOutcome::Nothing;

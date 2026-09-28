@@ -41,6 +41,7 @@ pub mod egress;
 pub mod feed;
 pub mod frame_meta;
 pub mod ingress;
+pub mod invalid_frame;
 pub mod live_feed;
 pub mod open_sockets;
 pub mod resource_index;
