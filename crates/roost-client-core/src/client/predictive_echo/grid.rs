@@ -3,7 +3,9 @@
 //! that applies those verdicts to a burst. `judge_prediction` is the SINGLE
 //! place the two asymmetric rules live, and it is pure over one frame and one
 //! prediction. Everything here depends only on `roost_protocol::cell` for the
-//! column arithmetic and on the parent module's burst state.
+//! column arithmetic and on the parent module's burst state. Ports v2's
+//! `apps/web/src/client/input/predictiveEchoGrid.ts` and the reconcile pass of
+//! `apps/web/src/renderer/predictiveEcho.ts`.
 
 use std::collections::BTreeMap;
 
@@ -315,7 +317,10 @@ impl PredictiveEcho {
                         break;
                     }
                     // A hidden wrong guess drops just its epoch, and re-arms the
-                    // confidence gate.
+                    // confidence gate. The epoch is dropped from the guesses
+                    // ALREADY judged this pass too: one still pending earlier in
+                    // the burst is the same unproven epoch, and keeping it would
+                    // paint a guess its own epoch has just been refused on.
                     for other in preds.iter_mut() {
                         if other.epoch == pred.epoch {
                             other.epoch = -1;
@@ -336,6 +341,7 @@ impl PredictiveEcho {
             .collect();
         self.reanchor_predicted_cursor();
         self.arm_expiry(frame_at_ms);
+        self.repaint_due = true;
     }
 
     /// The final surviving prediction already carries the absolute predicted
