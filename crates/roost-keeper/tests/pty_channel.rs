@@ -9,8 +9,9 @@
 use std::time::{Duration, Instant};
 
 use roost_keeper::frames::ShellSpec;
+use roost_keeper::input_queue::InputReply;
 use roost_keeper::payloads::PtyInRejectReason;
-use roost_keeper::pty_channel::{PtyChannel, SpawnError, WriteOutcome};
+use roost_keeper::pty_channel::{PtyChannel, SpawnError};
 
 const DEADLINE: Duration = Duration::from_secs(10);
 
@@ -64,10 +65,9 @@ fn a_spawned_process_echoes_its_input_back() {
     assert_eq!(channel.channel_id(), 1);
     assert!(channel.pid().is_some(), "a spawned PTY has a process");
 
-    match channel.write_input(b"round trip\r") {
-        WriteOutcome::Complete { written } => assert_eq!(written, 11),
-        other => panic!("a small write to an idle PTY should complete, got {other:?}"),
-    }
+    channel
+        .enqueue_input(b"round trip\r".to_vec(), InputReply::Unacknowledged)
+        .expect("a live PTY queues a small write");
     let seen = read_until(&mut channel, b"round trip");
     assert!(seen.windows(5).any(|w| w == b"round"));
 }
@@ -78,10 +78,9 @@ fn a_spawned_process_echoes_its_input_back() {
 #[test]
 fn the_round_trip_survives_the_tty_line_discipline() {
     let mut channel = PtyChannel::spawn(1, &shell("cat"), 80, 24).expect("spawn");
-    assert!(matches!(
-        channel.write_input(b"x"),
-        WriteOutcome::Complete { written: 1 }
-    ));
+    channel
+        .enqueue_input(b"x".to_vec(), InputReply::Unacknowledged)
+        .expect("a live PTY queues a small write");
     let seen = read_until(&mut channel, b"x");
     assert!(
         seen.windows(3).any(|w| w == b"x\r\n") || seen.contains(&b'x'),
@@ -186,12 +185,10 @@ fn a_dead_child_is_observable_and_refuses_input() {
         7,
         "the exit code is preserved, not flattened to success"
     );
-    assert!(matches!(
-        channel.write_input(b"late"),
-        WriteOutcome::Rejected {
-            reason: PtyInRejectReason::ChildExited
-        }
-    ));
+    assert_eq!(
+        channel.enqueue_input(b"late".to_vec(), InputReply::Unacknowledged),
+        Err(PtyInRejectReason::ChildExited)
+    );
 }
 
 /// A working directory that does not exist must fail before the fork, not
@@ -234,10 +231,9 @@ fn two_channels_are_independent_processes() {
     let mut second = PtyChannel::spawn(2, &shell("cat"), 80, 24).expect("spawn second");
 
     assert_ne!(first.pid(), second.pid(), "each channel is its own process");
-    assert!(matches!(
-        first.write_input(b"first"),
-        WriteOutcome::Complete { .. }
-    ));
+    first
+        .enqueue_input(b"first".to_vec(), InputReply::Unacknowledged)
+        .expect("a live PTY queues a small write");
     let seen = read_until(&mut first, b"first");
     assert!(seen.windows(5).any(|w| w == b"first"));
 

@@ -14,6 +14,7 @@
 //! Calling it BUSY blocks boot over a process nobody can identify. Both are
 //! worse than saying "unproven", which is a state an operator can act on and
 //! the code refuses to guess past.
+//! Ports v2 `apps/worker/src/boot/boot-keeper.ts`.
 
 use std::time::Duration;
 
@@ -115,10 +116,28 @@ pub fn predates_binding_proof(probe: &ProbeResult) -> bool {
         && (probe.bindings.is_none() || probe.spawning_channels.is_none())
 }
 
-/// Decide what boot does with whatever the probe found.
+/// Decide what boot does with whatever the probe found, in v2's order
+/// (`boot-keeper.ts:94-203`): an authenticated, protocol-compatible keeper is
+/// ADOPTED whether or not it is the exact build target and whether or not it
+/// holds channels; only an incompatible one is ever replaced, and only when it
+/// proves it is empty.
 pub fn admit(probe: &ProbeResult) -> Admission {
     if !probe.reachable {
         return Admission::StartFresh;
+    }
+    if probe.authenticated && probe.protocol_compatible {
+        // v2 `refuseUnknownSurvivorInventory`: a compatible keeper whose
+        // inventory is unknown cannot be admitted against core capacity.
+        let (Some(bindings), Some(spawning)) = (&probe.bindings, &probe.spawning_channels) else {
+            return Admission::Unproven {
+                reason: Unproven::PredatesBindingProof,
+            };
+        };
+        let mut channels: Vec<u16> = bindings.iter().map(|binding| binding.channel_id).collect();
+        channels.extend(spawning.iter().copied());
+        channels.sort_unstable();
+        channels.dedup();
+        return Admission::Adopt { channels };
     }
     if !probe.authenticated {
         // Something that is not a keeper has the endpoint. Starting a fresh one
@@ -128,36 +147,21 @@ pub fn admit(probe: &ProbeResult) -> Admission {
             reason: Unproven::NotAKeeper,
         };
     }
-    if predates_binding_proof(probe) {
-        return Admission::Unproven {
-            reason: Unproven::PredatesBindingProof,
-        };
-    }
-    if !probe.protocol_compatible || !probe.exact_target {
-        // It speaks a protocol this worker does not. Adopting it would put two
-        // incompatible cores on one grid; replacing it without proof that it
-        // holds nothing would end a session.
-        return Admission::Unproven {
-            reason: Unproven::PredatesBindingProof,
-        };
-    }
-
     let (Some(bindings), Some(spawning)) = (&probe.bindings, &probe.spawning_channels) else {
-        // Authenticated and compatible, but still no bindings: the shape above
-        // is a keeper that did not report them, which is the same unprovable
-        // case with a different cause.
+        // Incompatible and unable to describe what it holds: neither
+        // adoptable nor provably empty (v2 `keeper_survivor_identity_unproven`).
         return Admission::Unproven {
             reason: Unproven::PredatesBindingProof,
         };
     };
-
-    let mut channels: Vec<u16> = bindings.iter().map(|binding| binding.channel_id).collect();
-    channels.extend(spawning.iter().copied());
-    if channels.is_empty() {
-        return Admission::StartFresh;
+    if !bindings.is_empty() || !spawning.is_empty() {
+        // An incompatible keeper holding channels: replacing it ends them.
+        return Admission::Blocked {
+            reason: Blocked::LiveChannels,
+        };
     }
-    // It PROVED it holds channels, so a replacement ends a terminal. Blocked.
-    Admission::Adopt { channels }
+    // Incompatible and proven empty: replaceable once the coordinator agrees.
+    Admission::StartFresh
 }
 
 /// Whether the decision permits starting a fresh keeper.

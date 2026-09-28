@@ -1,31 +1,76 @@
-//! The session attachment surface: the on-disk store a browser's files land in,
-//! the direct loopback socket they may arrive over, and the peer negotiation
-//! that carries them between machines. Depends on `roost_protocol` for the
-//! transfer wire — and on nothing here.
-//!
-//! UPLOAD ADMISSION IS NOT HERE. `crate::attachment_transfer` already owns the
-//! lease, the chunk-in-flight bound and the expiry-versus-revocation split, and
-//! that rule ("an admitted upload runs to completion; a withdrawn grant stops
-//! it at once") is the one worth having exactly one of. This module owns what
-//! surrounds it: the operation's durable identity, its receipts, and the two
-//! carriers that can deliver one.
+//! The session attachment surface: where a browser's files land, the durable
+//! operation that writes them, the reaper that bounds them, the grants, hello
+//! admission and lease a direct carrier runs under, and the loopback and peer
+//! carriers themselves (`direct_*`, `peer_*`). Ports v2
+//! `apps/worker/src/attachments/`. Composed once by `runtime::owners`; the
+//! coordinator link reaches it through [`link`].
+//! Ports v2 `apps/worker/src/attachments/attachment-operation-receipts.ts`.
 
-/// Which lane carried an attachment operation.
+pub mod direct_chunks;
+pub mod direct_frames;
+pub mod direct_hello;
+pub mod direct_loopback;
+pub mod direct_owners;
+pub mod direct_session;
+pub mod direct_sockets;
+pub mod file_hash;
+pub mod file_store;
+mod grant_checks;
+mod grant_listeners;
+pub mod grants;
+pub mod journal;
+pub mod link;
+pub mod naming;
+mod operation_commit;
+mod operation_open;
+pub mod operation_owner;
+pub mod owners;
+pub mod peer_budget;
+pub mod peer_connection;
+pub mod peer_negotiation;
+pub mod peer_owner;
+pub mod peer_packet_egress;
+pub mod peer_packet_port;
+pub mod peer_request_validation;
+pub mod reaper;
+pub mod receipts;
+pub mod store_paths;
+pub mod transfer_admission;
+pub mod transfer_lease;
+pub mod transfer_port;
+pub mod upload;
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use serde::{Deserialize, Serialize};
+
+/// The monotonic clock the grant store and the operation owner read, injected
+/// so a test can move time past a grant's TTL or an operation's idle bound.
+pub type AttachmentClock = Arc<dyn Fn() -> Instant + Send + Sync>;
+
+/// The process's own monotonic clock, for production composition.
+pub fn system_clock() -> AttachmentClock {
+    Arc::new(Instant::now)
+}
+
+/// Which lane carried an attachment operation. v2 `AttachmentOperationCarrier`.
 ///
-/// A status answer has to name it, because the two lanes have different failure
-/// modes and a client retries one and not the other: a direct socket that
-/// closed mid-upload is resumable by re-dialing, while a coordinator-mediated
-/// operation resumes against the journal.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// It is part of an operation's identity: a coordinator relay keeps its
+/// progress in memory and can never resume, while a direct operation's
+/// progress is journaled before each acknowledgement, so one carrier may never
+/// continue an operation the other started.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Carrier {
-    /// Relayed by the coordinator on this session's behalf.
+    /// Relayed by the coordinator (`attachmentChunk`).
     Coordinator,
-    /// Carried over the door's loopback socket, on this machine.
+    /// A loopback socket or WebRTC peer port on this machine.
     Direct,
 }
 
 impl Carrier {
-    /// The wire name a status or receipt spells.
+    /// The name a journal and a log line spell.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Coordinator => "coordinator",
@@ -34,20 +79,20 @@ impl Carrier {
     }
 }
 
-/// What an attachment operation was asked to do, before any byte arrived.
+/// What an attachment operation was asked to write, before any byte arrived.
+/// v2 `AttachmentOperationDescriptor`.
 ///
-/// The descriptor is the part a client can re-send unchanged: a resumed upload
-/// proves it is the same operation by naming the same request, so the request
-/// id and the total are the identity and the filename is not.
+/// Every later chunk must name the same descriptor: a chunk that disagrees on
+/// the session, the filename, the short-path choice or the declared total is a
+/// different upload, not a continuation of this one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OperationDescriptor {
     pub request_id: String,
     pub session_id: String,
     pub filename: String,
-    /// Whether the client's path was a short one the store must resolve to its
-    /// canonical name before writing.
+    /// Answer with a `.shortcuts/pN` link instead of the file's own path.
     pub short_path: bool,
-    /// The total the client expects, or `None` when it did not say and the
-    /// operation is length-agnostic.
+    /// The total a direct hello bound, or `None` for a coordinator relay,
+    /// which never declares one.
     pub total_bytes: Option<u64>,
 }

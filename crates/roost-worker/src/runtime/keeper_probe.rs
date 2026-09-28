@@ -13,6 +13,7 @@
 //! PTY before it returns and the server answers one frame at a time, so a spawn
 //! that was accepted is already a binding and one that failed was refused — a
 //! keeper in this implementation cannot be mid-spawn while it answers.
+//! Ports v2 `apps/worker/src/boot/boot-keeper.ts`, `apps/worker/src/keeper/keeper-probe.ts`.
 
 use std::path::{Path, PathBuf};
 

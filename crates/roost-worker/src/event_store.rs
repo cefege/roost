@@ -13,6 +13,7 @@
 //! `hold` stops that claim from blocking snapshots WITHOUT giving it up: the
 //! session is committed, so its close capacity is no longer speculative, and
 //! the same token remains the sole owner of that close.
+//! Ports v2 `apps/worker/src/transport/session-event-store-errors.ts`, `apps/worker/src/transport/session-event-store-limits.ts`, `apps/worker/src/transport/session-event-store.ts`.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -51,6 +52,8 @@ pub enum DurableEventKind {
     State,
     Exited,
     Closed,
+    /// v2 `agent_reference`: one conversation reference set or clear.
+    AgentReference,
 }
 
 impl DurableEventKind {
@@ -65,6 +68,10 @@ impl DurableEventKind {
             DurableEventKind::State => 1024 * 1024,
             DurableEventKind::Exited => 64 * 1024,
             DurableEventKind::Closed => 64 * 1024,
+            // The durable sink claims 64 KiB for every kind, so a smaller bound
+            // would make its claim ill-formed; the 8 KiB envelope bound is
+            // enforced by `SessionEvent::parse` before the append.
+            DurableEventKind::AgentReference => 64 * 1024,
         }
     }
 
@@ -75,6 +82,9 @@ impl DurableEventKind {
             DurableEventKind::State => 16 * 1024,
             DurableEventKind::Exited => 2 * 1024,
             DurableEventKind::Closed => 2 * 1024,
+            DurableEventKind::AgentReference => {
+                roost_protocol::agent_conversation_reference::AGENT_CONVERSATION_REFERENCE_EVENT_MAX_UTF8_BYTES
+            }
         }
     }
 }

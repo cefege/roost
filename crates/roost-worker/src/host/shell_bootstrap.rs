@@ -14,6 +14,7 @@
 //! and a session respawn, so the file lives on disk keyed by a hash of the
 //! folder. Sharing one global file across every session would interleave two
 //! users' history on one machine.
+//! Ports v2 `apps/worker/src/keeper/histfile.ts`, `apps/worker/src/shell-spec.ts`.
 
 use std::io;
 use std::path::{Path, PathBuf};

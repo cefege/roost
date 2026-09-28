@@ -53,10 +53,18 @@ fn adoptable(channels: &[u16]) -> KeeperProbe {
     })
 }
 
-/// A survivor that authenticated and spoke this protocol, and reported no
-/// channels at all.
+/// A survivor that authenticated but speaks an incompatible protocol, and
+/// reported no channels at all: the one replaceable survivor (v2
+/// `boot-keeper.ts:190-224`). A compatible empty keeper is adopted instead.
 fn proved_empty() -> KeeperProbe {
-    adoptable(&[])
+    let KeeperProbe::Probed(probe) = adoptable(&[]) else {
+        unreachable!("adoptable builds a probed result");
+    };
+    KeeperProbe::Probed(ProbeResult {
+        protocol_compatible: false,
+        exact_target: false,
+        ..probe
+    })
 }
 
 /// Something is on the endpoint and it is not a keeper.
@@ -120,7 +128,15 @@ fn a_replacement_waits_for_the_coordinators_open_session_set() {
     );
     assert_eq!(
         decide(&proved_empty(), Some(0), false),
-        KeeperBootDecision::StartFresh
+        KeeperBootDecision::ReplaceEmpty,
+        "an empty incompatible survivor is shut down under an identity fence, then replaced"
+    );
+    assert_eq!(
+        decide(&adoptable(&[]), Some(0), false),
+        KeeperBootDecision::Adopt {
+            channels: Vec::new()
+        },
+        "a compatible empty survivor is adopted, never replaced"
     );
     assert_eq!(
         decide(&proved_empty(), Some(2), false),

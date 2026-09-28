@@ -16,6 +16,7 @@
 //! GAP in the sequence, never a repeat. A repeat is the one defect a durable
 //! path cannot recover from on its own, because the coordinator acknowledges by
 //! `client_seq` and has no second name for an event.
+//! Ports v2 `apps/worker/src/transport/session-event-store-sequence.ts`.
 
 use super::super::SEQUENCE_BLOCK_SIZE;
 use super::{Journal, JournalError, rows};
@@ -35,22 +36,39 @@ pub(super) struct SequenceWindow {
 }
 
 impl Journal {
-    /// The next sequence, claimed and persisted without writing a row.
-    ///
-    /// The snapshot draws from the same sequence space as the durable events, so
-    /// it has to come from here rather than from a counter of its own.
-    pub async fn next_client_seq(&self) -> Result<u64, JournalError> {
-        self.claim_sequence().await
-    }
-
-    /// One sequence, claimed from the block this process holds.
-    pub(super) async fn claim_sequence(&self) -> Result<u64, JournalError> {
-        let mut window = self.window.lock().await;
+    /// One sequence, under a window lock the caller already holds.
+    pub(super) async fn claim_sequence_in(
+        &self,
+        window: &mut SequenceWindow,
+    ) -> Result<u64, JournalError> {
         if window.issued >= window.reserved_through {
-            self.reserve_block(&mut window).await?;
+            self.reserve_block(window).await?;
         }
         window.issued += 1;
         Ok(window.issued)
+    }
+
+    /// The snapshot's sequence, drawn only while no committed row is numbered
+    /// above `offered_through` (v2 `startSnapshotBarrier`: `oldestDurable()`,
+    /// then `nextClientSeq()`). `None` when such a row exists: it must reach the
+    /// coordinator before a snapshot numbered after it. Appends hold the same
+    /// lock through their commit, so none can land between the check and the
+    /// draw.
+    pub async fn snapshot_sequence(
+        &self,
+        offered_through: u64,
+    ) -> Result<Option<u64>, JournalError> {
+        let mut window = self.window.lock().await;
+        let newer: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM session_events WHERE client_seq > ?")
+                .bind(rows::sequence_value(offered_through.min(MAX_SEQUENCE))?)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(query("snapshot sequence"))?;
+        if newer > 0 {
+            return Ok(None);
+        }
+        self.claim_sequence_in(&mut window).await.map(Some)
     }
 
     /// Persist the next block before any of it is handed out.

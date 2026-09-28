@@ -1,17 +1,16 @@
-//! Append, replay and the unhandled-sequence log: the policy that decides which
+//! Append and replay: the policy that decides which
 //! bytes a session keeps and what a chunk tells the worker about the stream. The
 //! arithmetic being guarded here is the one whose breakage is invisible — a
-//! re-aliased row index, a half-recognised probe, a diagnostic that claims a
-//! completeness it does not have.
+//! re-aliased row index, a half-recognised sequence.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_host::HostPlatform;
+use roost_protocol::wire::brand::SessionId;
 use roost_term::{AlacrittyCore, TerminalCore};
 use roost_worker::event_store::{DurableEventKind, Store};
-use roost_worker::session::history::{UNHANDLED_SEQ_MAX, UnhandledSequenceEntry};
 use roost_worker::session::ring::ScrollbackRing;
-use roost_worker::session::scrollback::{append_pty_chunk, record_unhandled, replay_retained_into};
+use roost_worker::session::scrollback::{append_pty_chunk, replay_retained_into};
 use roost_worker::session::stream_scan::{parse_osc7_worker_path, scan_alt_mode, scan_osc7};
 use roost_worker::session::types::{SessionIdentity, SessionRecord};
 use roost_worker::shell_spec::ShellSpec;
@@ -48,16 +47,6 @@ fn record(window: usize) -> SessionRecord {
     )
 }
 
-fn observed(final_byte: &str, private: &str, params: Vec<u32>, at: u64) -> UnhandledSequenceEntry {
-    UnhandledSequenceEntry {
-        final_byte: final_byte.to_string(),
-        private: private.to_string(),
-        param_count: params.len() as u32,
-        params,
-        first_seen_mono_ms: at,
-    }
-}
-
 /// EVERY retained byte advances the monotonic offset, including the ones the
 /// window has already evicted. A counter that stopped at the retained length
 /// would re-alias every absolute row index a browser still holds — and it would
@@ -67,7 +56,7 @@ fn an_append_advances_the_offset_past_what_the_window_kept() {
     let mut session = record(8);
     let mut head = 0;
     for chunk in [b"abc".as_slice(), b"def", b"ghi"] {
-        head = append_pty_chunk(&mut session, chunk, &mut |_| {});
+        head = append_pty_chunk(&mut session, chunk, &mut |_, _| {});
     }
     assert_eq!(head, 9, "nine bytes were produced");
     assert_eq!(session.head_seq, 9);
@@ -88,19 +77,19 @@ fn an_append_advances_the_offset_past_what_the_window_kept() {
 #[test]
 fn an_alt_screen_toggle_split_across_chunks_is_recognised_once() {
     let mut session = record(1024);
-    append_pty_chunk(&mut session, b"before\x1b[?10", &mut |_| {});
+    append_pty_chunk(&mut session, b"before\x1b[?10", &mut |_, _| {});
     assert!(!session.alt_mode, "a partial toggle is not a toggle");
-    append_pty_chunk(&mut session, b"49hafter", &mut |_| {});
+    append_pty_chunk(&mut session, b"49hafter", &mut |_, _| {});
     assert!(
         session.alt_mode,
         "the carried prefix completes the sequence"
     );
-    append_pty_chunk(&mut session, b"still in the alt screen", &mut |_| {});
+    append_pty_chunk(&mut session, b"still in the alt screen", &mut |_, _| {});
     assert!(
         session.alt_mode,
         "and a chunk carrying no toggle does not clear a mode a TUI entered"
     );
-    append_pty_chunk(&mut session, b"\x1b[?1049lback", &mut |_| {});
+    append_pty_chunk(&mut session, b"\x1b[?1049lback", &mut |_, _| {});
     assert!(!session.alt_mode, "leaving is a toggle too");
 }
 
@@ -116,7 +105,7 @@ fn a_cwd_change_is_reported_once_and_only_when_it_changed() {
         // borrow for its whole lifetime — and this test has to read `seen`
         // BETWEEN appends. The block ends the borrow at the right place
         // instead of leaving the assertion to fight the closure.
-        let mut record_change = |cwd: &str| seen.push(cwd.to_string());
+        let mut record_change = |_: &SessionId, cwd: &str| seen.push(cwd.to_string());
         append_pty_chunk(
             &mut session,
             b"\x1b]7;file:///a\x07\x1b]7;file:///b\x07",
@@ -128,7 +117,7 @@ fn a_cwd_change_is_reported_once_and_only_when_it_changed() {
 
     seen.clear();
     {
-        let mut record_change = |cwd: &str| seen.push(cwd.to_string());
+        let mut record_change = |_: &SessionId, cwd: &str| seen.push(cwd.to_string());
         append_pty_chunk(&mut session, b"just some output", &mut record_change);
     }
     assert!(
@@ -137,7 +126,7 @@ fn a_cwd_change_is_reported_once_and_only_when_it_changed() {
     );
 
     {
-        let mut record_change = |cwd: &str| seen.push(cwd.to_string());
+        let mut record_change = |_: &SessionId, cwd: &str| seen.push(cwd.to_string());
         append_pty_chunk(&mut session, b"\x1b]7;file:///b\x07", &mut record_change);
     }
     assert!(
@@ -224,8 +213,8 @@ fn the_last_alt_screen_toggle_in_a_buffer_wins() {
 #[test]
 fn a_replay_feeds_the_whole_window_and_says_whether_it_was_saturated() {
     let mut session = record(8);
-    append_pty_chunk(&mut session, b"first-four", &mut |_| {});
-    append_pty_chunk(&mut session, b"last-four", &mut |_| {});
+    append_pty_chunk(&mut session, b"first-four", &mut |_, _| {});
+    append_pty_chunk(&mut session, b"last-four", &mut |_, _| {});
     assert!(
         session.scrollback.evicting(),
         "an eight-byte window is full"
@@ -262,93 +251,6 @@ fn a_replay_feeds_the_whole_window_and_says_whether_it_was_saturated() {
     assert!(empty.produced_output());
 }
 
-/// THE UNHANDLED LOG IS A WATERMARK, NOT A SCAN. The core's ring is never
-/// cleared, so a second sample that re-reported what the first already recorded
-/// would fill a bounded diagnostic with repeats of one novel sequence.
-#[test]
-fn an_unhandled_sequence_is_recorded_once_per_core_instance() {
-    let mut log = None;
-    let first = record_unhandled(&mut log, 1, vec![observed("q", "?", vec![2026], 10)], 0, 10);
-    assert_eq!(first.recorded, 1);
-    assert!(!first.capped);
-
-    let again = record_unhandled(&mut log, 1, vec![observed("q", "?", vec![2026], 11)], 0, 11);
-    assert_eq!(again.recorded, 0, "already reported");
-    assert_eq!(again.repeated, 1);
-    let stored = log
-        .as_ref()
-        .expect("a core that logged something has a log");
-    assert_eq!(stored.entries.len(), 1);
-    assert_eq!(stored.consumed, 1, "the watermark moved once");
-}
-
-/// A SEQUENCE WITH THE SAME FINAL BYTE BUT DIFFERENT PARAMETERS IS A DIFFERENT
-/// SEQUENCE. Collapsing them would hide a novel one behind a familiar name,
-/// which is the whole reason the diagnostic exists.
-#[test]
-fn two_sequences_with_one_final_byte_are_two_sequences() {
-    let mut log = None;
-    record_unhandled(
-        &mut log,
-        2,
-        vec![
-            observed("q", "?", vec![2026], 10),
-            observed("q", "?", vec![1], 11),
-        ],
-        0,
-        11,
-    );
-    let stored = log.as_ref().expect("two distinct sequences were recorded");
-    assert_eq!(stored.entries.len(), 2);
-}
-
-/// THE LOG IS BOUNDED. A terminal that emits a novel sequence per frame would
-/// otherwise grow a record without limit, and a diagnostic surface that can
-/// itself be the outage is no diagnostic at all.
-#[test]
-fn the_unhandled_log_stops_at_its_cap_and_says_it_did() {
-    let mut log = None;
-    let distinct = (0..UNHANDLED_SEQ_MAX + 5)
-        .map(|index| observed("q", "?", vec![index as u32], index as u64))
-        .collect::<Vec<_>>();
-    let summary = record_unhandled(&mut log, UNHANDLED_SEQ_MAX as u64 + 5, distinct, 0, 1);
-    assert_eq!(summary.recorded, UNHANDLED_SEQ_MAX as u32);
-    assert!(summary.capped, "and the cap is reported, not hidden");
-    let stored = log.as_ref().expect("the log exists");
-    assert_eq!(stored.entries.len(), UNHANDLED_SEQ_MAX);
-    assert!(stored.capped);
-}
-
-/// A CORE WHOSE OWN RING OVERWROTE SEQUENCES BETWEEN SAMPLES LOSES THEM, and
-/// only their existence is knowable. Recording that as zero would make the log
-/// claim a completeness it does not have.
-#[test]
-fn sequences_the_core_ring_overwrote_are_counted_not_invented() {
-    let mut log = None;
-    record_unhandled(&mut log, 5, Vec::new(), 3, 1);
-    let stored = log.as_ref().expect("a dropped sample still moves the log");
-    assert_eq!(stored.ring_dropped, 3);
-    assert!(stored.entries.is_empty());
-    assert_eq!(
-        stored.consumed, 5,
-        "and the watermark still advances, or the same losses are counted twice"
-    );
-}
-
-/// A CORE THAT HAS REPORTED NOTHING MUST COST NOTHING. The log is `None` until
-/// a sample actually records something, because a healthy terminal is the case
-/// and it should not allocate.
-#[test]
-fn a_core_that_reports_nothing_leaves_no_log() {
-    let mut log = None;
-    let summary = record_unhandled(&mut log, 0, Vec::new(), 0, 0);
-    assert_eq!(summary.recorded, 0);
-    assert!(
-        log.is_none(),
-        "a terminal that has never reported an unhandled sequence allocates nothing"
-    );
-}
-
 /// A cwd change is a STATE TRANSITION, so the caller is told about it through a
 /// seam it owns rather than the record reaching for a sink. Two reports in one
 /// chunk still produce one change.
@@ -357,7 +259,8 @@ fn a_cwd_change_reaches_the_caller_exactly_once_per_change() {
     let mut session = record(1024);
     let changes = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&changes);
-    let mut report = move |cwd: &str| sink.lock().expect("held").push(cwd.to_string());
+    let mut report =
+        move |_: &SessionId, cwd: &str| sink.lock().expect("held").push(cwd.to_string());
     append_pty_chunk(
         &mut session,
         b"\x1b]7;file:///one\x07\x1b]7;file:///two\x07",

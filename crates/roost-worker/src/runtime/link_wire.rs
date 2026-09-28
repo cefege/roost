@@ -18,7 +18,11 @@
 //! the owner's internals, and `tests/link_wire_parity.rs` is what keeps the
 //! delegation honest — a second mapping would round-trip against itself
 //! perfectly and still be wrong.
+//! Ports v2 `apps/worker/src/transport/coord-link-codec.ts`.
 
+use roost_proto::CoordWorkerDown;
+use roost_proto::buffa::Message as _;
+use roost_proto::coord_worker_down::Frame;
 use roost_protocol::proto_adapters::coord_worker_proto;
 use roost_protocol::wire::coord_worker::{CoordWorkerDownstream, CoordWorkerUpstream};
 
@@ -29,6 +33,11 @@ pub enum WireError {
     Unencodable { reason: String },
     #[error("a downstream frame did not decode: {reason}")]
     Undecodable { reason: String },
+    /// A well-formed `browser-command` envelope whose relayed frame does not
+    /// parse. Distinct because it still carries the envelope's correlation,
+    /// which v2 answers with `rpc-error "invalid browser command"`.
+    #[error("browser command {request_id} did not parse: {reason}")]
+    InvalidBrowserCommand { request_id: String, reason: String },
 }
 
 /// Turns typed link frames into the bytes on the socket and back.
@@ -57,8 +66,23 @@ impl LinkWire for ProtoLinkWire {
     }
 
     fn decode_downstream(&self, bytes: &[u8]) -> Result<CoordWorkerDownstream, WireError> {
-        coord_worker_proto::decode_downstream(bytes).map_err(|error| WireError::Undecodable {
-            reason: error.to_string(),
-        })
+        coord_worker_proto::decode_downstream(bytes)
+            .map_err(|error| classify_decode_failure(bytes, error.to_string()))
+    }
+}
+
+/// Read only the envelope of a frame the mapping refused: when it is a
+/// `browser-command`, only the relayed frame can have failed (its other fields
+/// are free strings), and the envelope's `request_id` is still good to answer on.
+fn classify_decode_failure(bytes: &[u8], reason: String) -> WireError {
+    match CoordWorkerDown::decode_from_slice(bytes) {
+        Ok(CoordWorkerDown {
+            frame: Some(Frame::BrowserCommand(command)),
+            ..
+        }) => WireError::InvalidBrowserCommand {
+            request_id: command.request_id,
+            reason,
+        },
+        _ => WireError::Undecodable { reason },
     }
 }

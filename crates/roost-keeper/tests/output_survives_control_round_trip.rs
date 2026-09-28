@@ -6,7 +6,7 @@
 //! `wait_for_reply` pulled from that channel and dropped every frame that was
 //! not the answer, so every PTY byte the keeper emitted between a request and
 //! its reply was lost permanently, with no log line and no counter. Reached
-//! from `hello`, `list_channels`, `resize` and `write_input_sequenced`; a
+//! from `hello`, `list_channels` and `resize`; a
 //! resize drag is roughly sixty round-trips a second, so during a drag every
 //! frame of output was a candidate for deletion.
 //!
@@ -80,6 +80,8 @@ fn fake_keeper(socket: &std::path::Path, output: Vec<Vec<u8>>) -> std::thread::J
                             observation: KeeperObservation {
                                 contract: contract.clone(),
                                 live_channel_count: 1,
+                                keeper_pid: None,
+                                process_epoch: None,
                             },
                             features,
                             contract,

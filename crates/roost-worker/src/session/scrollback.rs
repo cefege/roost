@@ -1,9 +1,12 @@
 //! The append, replay and capture-lane POLICY for a session's retained PTY
-//! bytes. `session::emit` feeds the core, the keeper's reader thread calls
-//! [`append_pty_chunk`], `session::lifecycle` calls [`replay_retained_into`]
-//! when it adopts a survivor, and `browser_commands::scrollback_page` reads
-//! what this leaves behind. Depends on `super::stream_scan`, `super::types` and
-//! `roost_term` — and on nothing that depends on it back.
+//! bytes, and the ordered query-reply lane's session half. `session::emit`
+//! calls [`answer_terminal_queries`] (live) or [`advance_captured_query_carry`]
+//! (capture) for every chunk; [`append_pty_chunk`] retains a chunk and advances
+//! its stream state, [`replay_retained_into`] rebuilds a replacement core from
+//! the ring, and `browser_commands::scrollback_page` reads what this leaves
+//! behind. Ports the lane half of
+//! `apps/worker/src/session/session-scrollback.ts`. Depends on
+//! `super::stream_scan`, `super::query_reply`, `super::types` and `roost_term`.
 //!
 //! THE CONTAINER IS NOT HERE. `super::ring::ScrollbackRing` is a fixed-capacity
 //! ring and `SessionRecord::append_retained` is the only writer of `head_seq`.
@@ -21,15 +24,16 @@
 //! still — and why a partial capability probe left by a captured chunk cannot be
 //! glued onto a post-rebuild chunk that never followed it.
 //!
-//! THE CORE WRITE IS NOT HERE. Feeding bytes to the emulator and answering the
-//! capability probes they carry is `session::emit`'s, and the replies go back
-//! through the keeper. This file hands over the retained window and the
-//! advanced carries and nothing else, so a frozen core is never written by
-//! accident.
+//! THE LIVE CORE WRITE IS [`answer_terminal_queries`]. It feeds the emulator in
+//! probe-cut segments and hands the replies to the [`QueryReplyLane`], which
+//! writes them back into the PTY in stream order. Every other core write is a
+//! replay through `TerminalCore::write`, which discards what the bytes provoke:
+//! a probe replayed from history is not a question anyone is waiting on.
 
+use roost_protocol::wire::brand::SessionId;
 use roost_term::TerminalCore;
 
-use super::history::{UNHANDLED_SEQ_MAX, UnhandledSequenceEntry, UnhandledSequenceLog};
+use super::query_reply::{QUERY_CARRY_MAX, QueryReply, QueryReplyLane, answer_queries};
 use super::stream_scan::{self, MODE_CARRY_MAX};
 use super::types::SessionRecord;
 
@@ -37,14 +41,13 @@ use super::types::SessionRecord;
 /// record carries. Returns the offset of the chunk's END, so a caller can stamp
 /// its upstream frame without a second read of the record.
 ///
-/// `on_cwd_change` is invoked once per chunk with the folder an OSC 7 report
-/// named. The emission itself belongs to the caller: a record holds no sink, and
-/// a `cwd` event that reached the coordinator from here would cross a
-/// durability boundary this file does not own.
+/// `on_cwd_change` is invoked at most once per chunk, with the session and the
+/// NEW folder an OSC 7 report named. The emission itself belongs to the caller
+/// (`session::cwd_events`): a record holds no sink.
 pub fn append_pty_chunk(
     record: &mut SessionRecord,
     chunk: &[u8],
-    on_cwd_change: &mut dyn FnMut(&str),
+    on_cwd_change: &mut dyn FnMut(&SessionId, &str),
 ) -> u64 {
     let head_seq = record.append_retained(chunk);
     scan_stream_state(record, chunk, on_cwd_change);
@@ -67,7 +70,7 @@ pub fn append_pty_chunk(
 fn scan_stream_state(
     record: &mut SessionRecord,
     chunk: &[u8],
-    on_cwd_change: &mut dyn FnMut(&str),
+    on_cwd_change: &mut dyn FnMut(&SessionId, &str),
 ) {
     let mut mode_input = Vec::with_capacity(record.mode_carry.len() + chunk.len());
     mode_input.extend_from_slice(&record.mode_carry);
@@ -104,8 +107,8 @@ fn scan_stream_state(
             to = %cwd,
             "a session changed its working folder"
         );
-        record.identity.cwd = cwd.clone();
-        on_cwd_change(&cwd);
+        on_cwd_change(&record.identity.session_id, &cwd);
+        record.identity.cwd = cwd;
     }
 }
 
@@ -160,80 +163,58 @@ pub fn replay_retained_into(core: &mut dyn TerminalCore, record: &SessionRecord)
     replay
 }
 
-/// What one unhandled-sequence sample did with what the core reported.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct UnhandledRecord {
-    /// Distinct sequences added to the log by this sample.
-    pub recorded: u32,
-    /// Sequences the core had already logged, reported again and dropped.
-    pub repeated: u32,
-    /// Whether the log is now at [`UNHANDLED_SEQ_MAX`] and refusing more.
-    pub capped: bool,
+/// Feed a LIVE chunk to the core and queue what its probes are owed for the
+/// PTY. The chunk's bytes reach the core exactly once, here, in probe-cut
+/// segments; natives and synthesized replies leave as one batch in probe
+/// order, and a chunk that held no probe and left nothing queued sends nothing.
+pub fn answer_terminal_queries(record: &mut SessionRecord, chunk: &[u8], replies: &QueryReplyLane) {
+    let reply = answer_queries(
+        &mut record.query_carry,
+        Some(record.terminal_core.as_mut()),
+        chunk,
+    );
+    note_query_reply(record, &reply);
+    if reply.bytes.is_empty() {
+        return;
+    }
+    tracing::debug!(
+        session_id = %record.identity.session_id,
+        channel_id = %record.identity.channel_id,
+        native_len = reply.native_bytes,
+        synth_len = reply.synth_bytes,
+        "capability probes were answered and the replies queued for the pty"
+    );
+    replies.send(&record.identity.session_id, reply.bytes.into_bytes());
 }
 
-/// Fold the sequences a core instance reported into the record's log.
-///
-/// `core_consumed_total` is the CORE's own cumulative count, which is what makes
-/// the sample a watermark rather than a scan: nothing at or below the previous
-/// reading is ever reported twice, however long the core keeps its ring.
-/// `ring_dropped` is how many the core's own ring overwrote between two samples
-/// — only their existence is knowable, and losing them silently would make the
-/// log claim a completeness it does not have.
-///
-/// A sample that observed nothing and moved no watermark leaves the log `None`,
-/// because a core that has never reported anything must cost nothing.
-///
-/// `_mono_ms` is part of this call's shape and not used by it: the cap is
-/// reported by `UnhandledRecord::capped`, which is what "it stopped and said so"
-/// means, and nothing here records a wall reading. The parameter is kept
-/// because the production call site lands with the emit slice and a timestamp
-/// on a novel sequence is worth having there. It is named with the underscore
-/// so that reads as deliberate rather than arriving later as an oversight.
-pub fn record_unhandled(
-    log: &mut Option<UnhandledSequenceLog>,
-    core_consumed_total: u64,
-    observed: impl IntoIterator<Item = UnhandledSequenceEntry>,
-    ring_dropped: u32,
-    _mono_ms: u64,
-) -> UnhandledRecord {
-    let mut observed = observed.into_iter().peekable();
-    let previous = log.as_ref().map_or(0, |existing| existing.consumed);
-    if core_consumed_total <= previous && ring_dropped == 0 && observed.peek().is_none() {
-        return UnhandledRecord::default();
-    }
-    let mut record = log.take().unwrap_or_default();
-    let mut summary = UnhandledRecord::default();
-    for entry in observed {
-        let key = unhandled_key(&entry);
-        if record.keys.iter().any(|known| known == &key) {
-            summary.repeated += 1;
-            continue;
-        }
-        if record.entries.len() >= UNHANDLED_SEQ_MAX {
-            record.capped = true;
-            summary.repeated += 1;
-            continue;
-        }
-        record.keys.push(key);
-        record.entries.push(entry);
-        summary.recorded += 1;
-    }
-    record.ring_dropped = record.ring_dropped.saturating_add(ring_dropped);
-    record.consumed = core_consumed_total;
-    summary.capped = record.capped;
-    if record.consumed > 0 || !record.entries.is_empty() {
-        *log = Some(record);
-    }
-    summary
+/// Advance the tokenizer over a chunk the capture lane retained but the
+/// frozen core never parses. The stream moved, so the carry moves with it: a
+/// partial probe left here must not be glued onto a chunk that never followed
+/// it. Its own probes are answered by the post-boundary replay, not here.
+pub fn advance_captured_query_carry(record: &mut SessionRecord, chunk: &[u8]) {
+    let reply = answer_queries(&mut record.query_carry, None, chunk);
+    note_query_reply(record, &reply);
 }
 
-/// What makes two reports of a sequence the same sequence: the code, its
-/// private-parameter prefix, and its parameters. A repeat of a different
-/// sequence with the same final byte is a different sequence, and collapsing
-/// them would hide a novel one behind a familiar name.
-fn unhandled_key(entry: &UnhandledSequenceEntry) -> String {
-    format!(
-        "{}\u{1}{}\u{1}{}\u{1}{:?}",
-        entry.final_byte, entry.private, entry.param_count, entry.params
-    )
+/// Say what a chunk's answer withheld: an abandoned partial probe, and native
+/// replies v2's core never sent. Both are state an application believes it
+/// negotiated, so neither may vanish unexplained.
+fn note_query_reply(record: &SessionRecord, reply: &QueryReply) {
+    if reply.dropped_carry > 0 {
+        tracing::debug!(
+            session_id = %record.identity.session_id,
+            channel_id = %record.identity.channel_id,
+            bytes = reply.dropped_carry,
+            cap = QUERY_CARRY_MAX,
+            "an unterminated control sequence outgrew the probe carry and was abandoned"
+        );
+    }
+    if reply.withheld_native > 0 {
+        tracing::debug!(
+            session_id = %record.identity.session_id,
+            channel_id = %record.identity.channel_id,
+            count = reply.withheld_native,
+            "the core answered probes v2's core left unanswered; the replies were withheld"
+        );
+    }
 }

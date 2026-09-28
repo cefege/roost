@@ -229,7 +229,7 @@ fn an_open_synchronized_frame_withholds_output() {
         HoldAction::Withhold,
         "inside the ceiling, withhold"
     );
-    hold.note_pending(10);
+    hold.measure_pending(10);
     assert_eq!(
         hold.action(now),
         HoldAction::Withhold,
@@ -272,14 +272,14 @@ fn a_flooding_stuck_frame_is_released_by_the_work_ceiling() {
     let now = Instant::now();
     let mut hold = SyncOutputHold::new();
     hold.open(now);
-    hold.note_pending(SYNC_OUTPUT_MAX_PENDING_ROWS - 1);
+    hold.measure_pending(SYNC_OUTPUT_MAX_PENDING_ROWS - 1);
     assert_eq!(
         hold.action(now),
         HoldAction::Withhold,
         "just under the row ceiling"
     );
 
-    hold.note_pending(1);
+    hold.measure_pending(SYNC_OUTPUT_MAX_PENDING_ROWS);
     assert_eq!(
         hold.action(now),
         HoldAction::Release,
@@ -296,7 +296,7 @@ fn the_two_ceilings_catch_different_shapes() {
     // Silent: past the wall ceiling, but nowhere near the row ceiling.
     let mut silent = SyncOutputHold::new();
     silent.open(now);
-    silent.note_pending(1);
+    silent.measure_pending(1);
     assert_eq!(
         silent.action(now + SYNC_OUTPUT_MAX_SILENT),
         HoldAction::Release
@@ -305,7 +305,7 @@ fn the_two_ceilings_catch_different_shapes() {
     // Flooding: at the row ceiling, but nowhere near the wall ceiling.
     let mut flooding = SyncOutputHold::new();
     flooding.open(now);
-    flooding.note_pending(SYNC_OUTPUT_MAX_PENDING_ROWS);
+    flooding.measure_pending(SYNC_OUTPUT_MAX_PENDING_ROWS);
     assert_eq!(flooding.action(now), HoldAction::Release);
 }
 
@@ -317,7 +317,7 @@ fn closing_a_frame_resumes_and_clears_the_accounting() {
     let now = Instant::now();
     let mut hold = SyncOutputHold::new();
     hold.open(now);
-    hold.note_pending(SYNC_OUTPUT_MAX_PENDING_ROWS - 1);
+    hold.measure_pending(SYNC_OUTPUT_MAX_PENDING_ROWS - 1);
     hold.close();
 
     assert!(!hold.is_open());
@@ -338,7 +338,7 @@ fn closing_a_frame_resumes_and_clears_the_accounting() {
 fn output_noted_while_no_hold_is_open_is_not_counted() {
     let now = Instant::now();
     let mut hold = SyncOutputHold::new();
-    hold.note_pending(SYNC_OUTPUT_MAX_PENDING_ROWS * 4);
+    hold.measure_pending(SYNC_OUTPUT_MAX_PENDING_ROWS * 4);
     assert_eq!(
         hold.action(now),
         HoldAction::Release,

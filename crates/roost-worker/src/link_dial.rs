@@ -8,6 +8,7 @@
 //!
 //! Everything policy-shaped — when to retry, when to escalate — is in
 //! [`crate::backoff`]. This file is the transport and the lifecycle around it.
+//! Ports v2 `apps/worker/src/transport/coord-link.ts`.
 
 use std::time::Duration;
 

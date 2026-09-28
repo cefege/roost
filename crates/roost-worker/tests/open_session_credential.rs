@@ -40,7 +40,7 @@ async fn the_open_session_read_presents_this_machines_credential() {
     let fixture = Fixture::start().await;
     let credential = Credential::minting("credential-under-test");
 
-    let rows = roost_worker::runtime::reconcile::read_open_sessions(
+    let open = roost_worker::runtime::reconcile::read_open_sessions(
         &client(&fixture),
         "fp-under-test",
         &credential,
@@ -49,7 +49,7 @@ async fn the_open_session_read_presents_this_machines_credential() {
     .expect("a coordinator that accepts this machine answers the open-session read");
 
     assert_eq!(
-        rows.len(),
+        open.rows.len(),
         1,
         "the fixture publishes exactly one open row, so a read that invented or \
          dropped rows cannot pass"

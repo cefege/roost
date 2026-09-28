@@ -17,6 +17,7 @@
 //! a frame. A page is therefore read in several slices, and the reader is
 //! cancellable between them — which is only safe because the epoch fence makes
 //! a cancelled read resumable-or-abandoned, never silently spliced.
+//! Ports v2 `apps/worker/src/browser-commands/browser-command-terminal.ts`.
 
 use std::time::Duration;
 
@@ -168,12 +169,14 @@ where
     let mut taken = Vec::new();
     let mut offset = 0u32;
     loop {
-        if !continue_read() {
-            return WalkOutcome::Cancelled { taken };
-        }
         let slice_end = (offset + SCROLLBACK_SLICE_ROWS).min(page.row_count());
         if offset >= slice_end {
             break;
+        }
+        // v2 `browser-command-terminal.ts:115-117` asks only before a slice
+        // that has rows, so an empty page costs no authority check.
+        if !continue_read() {
+            return WalkOutcome::Cancelled { taken };
         }
         let mut refused_in_slice = false;
         while offset < slice_end {

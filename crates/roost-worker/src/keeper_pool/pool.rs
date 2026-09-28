@@ -26,25 +26,29 @@
 //! returned. That is also what keeps a resize's result ahead of the PTY bytes
 //! the resize produced: the result is settled inside the request, and no later
 //! frame is dispatched until the handle is free.
+//! Ports v2 `apps/worker/src/keeper/keeper-pool-io.ts`, `apps/worker/src/keeper/keeper-pool-lifecycle.ts`, `apps/worker/src/keeper/multiplexed-client.ts`.
 
-use std::sync::Arc;
-use std::sync::Weak;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, Weak};
+use std::time::Instant;
 
 use roost_keeper::client::KeeperClient;
 use roost_keeper::client_error::ClientError;
+use roost_keeper::client_frames::EventPoll;
 use roost_keeper::client_resize::{ResizeOutcome, ResizeUnknownReason};
-use roost_keeper::codec::MuxFrame;
+use roost_keeper::codec::{KEEPER_MAX_INPUT_BYTES, MuxFrame};
 use roost_keeper::frames::ChannelBinding as KeeperChannelBinding;
-use roost_keeper::payloads::PtyInResult;
 
 use super::PoolChannel;
 use super::channel_ids::ChannelIds;
 use super::channels::ChannelRegistry;
 use super::dispatch::dispatch_loop;
 use super::error::PoolError;
+use super::input_command::{PendingInputUsage, PendingInputs};
+use super::pending_resizes::PendingResizes;
+use super::pool_lifecycle::KeeperDeathHook;
 use crate::runtime::keeper_boot::KeeperHandle;
+use crate::session::keeper_channels::{InputNotWritten, KeeperInputCommand};
 use crate::session::sinks::ChannelBinding;
 
 /// A PTY the keeper opened, and the channel it is addressed by.
@@ -67,7 +71,24 @@ pub struct KeeperPool {
     pub(super) channel_ids: ChannelIds,
     /// Cleared the moment the keeper is known to be gone, so a later request
     /// fails instead of writing into a socket nobody is reading.
-    connected: AtomicBool,
+    pub(super) connected: AtomicBool,
+    /// Written acknowledged-input batches awaiting their result frame.
+    /// `pub(super)` so `dispatch` can settle them.
+    pub(super) pending_inputs: Arc<PendingInputs>,
+    /// Held by a dispatch pass from take to last delivery, and by a history
+    /// read at its ordered boundary, so neither interleaves with the other.
+    pub(super) routing: Mutex<()>,
+    /// Resizes written and not yet answered (v2 `pendingResizes`).
+    pub(super) pending_resizes: PendingResizes,
+    /// What a lost connection fires once its channels are ended.
+    pub(super) death_hook: Mutex<Option<KeeperDeathHook>>,
+}
+
+/// What one dispatch pass took off the connection, and whether the keeper's
+/// side of it has closed.
+pub(crate) struct ArrivedFrames {
+    pub frames: Vec<MuxFrame>,
+    pub closed: bool,
 }
 
 impl std::fmt::Debug for KeeperPool {
@@ -93,6 +114,10 @@ impl KeeperPool {
             channels: ChannelRegistry::default(),
             channel_ids: ChannelIds::new(),
             connected: AtomicBool::new(true),
+            pending_inputs: Arc::new(PendingInputs::default()),
+            routing: Mutex::new(()),
+            pending_resizes: PendingResizes::default(),
+            death_hook: Mutex::new(None),
         });
         tracing::info!("the keeper pool is driving its connection");
         let weak: Weak<Self> = Arc::downgrade(&pool);
@@ -126,23 +151,52 @@ impl KeeperPool {
 
     /// Write input without waiting for an answer.
     ///
-    /// The keystroke path: a round trip per character is what made the terminal
-    /// feel broken, so the unacknowledged frame is the default and
-    /// [`KeeperPool::input_sequenced`] is for a caller that needs the receipt.
+    /// The keystroke path of the legacy binary frame: nothing is owed back, so
+    /// nothing correlates it. [`KeeperPool::begin_acknowledged_input`] is the
+    /// form whose outcome a caller can report.
     pub fn input(&self, channel_id: u16, bytes: &[u8]) -> Result<(), PoolError> {
         self.require_connected()?;
         self.request(|client| client.write_input(channel_id, bytes))
     }
 
-    /// Write input and wait for the keeper to say how much of it landed.
-    pub fn input_sequenced(
-        &self,
-        channel_id: u16,
-        input_seq: u64,
-        bytes: &[u8],
-    ) -> Result<PtyInResult, PoolError> {
-        self.require_connected()?;
-        self.request(|client| client.write_input_sequenced(channel_id, input_seq, bytes))
+    /// Put one acknowledged batch on the socket under a worker-owned sequence,
+    /// and hand back its two halves (v2 `beginInput`).
+    ///
+    /// The sequence is claimed, written and registered while this call holds
+    /// the connection, and the dispatcher needs the connection to take frames,
+    /// so no answer can arrive before its waiter exists. A write that failed
+    /// registered nothing, which is what makes its refusal provable.
+    pub fn begin_acknowledged_input(&self, channel_id: u16, bytes: Vec<u8>) -> KeeperInputCommand {
+        if self.require_connected().is_err() {
+            return KeeperInputCommand::not_written(InputNotWritten::Disconnected);
+        }
+        if bytes.is_empty() || bytes.len() > KEEPER_MAX_INPUT_BYTES as usize {
+            return KeeperInputCommand::not_written(InputNotWritten::InvalidRequest);
+        }
+        let expected = bytes.len() as u32;
+        let written: Result<KeeperInputCommand, String> = self.keeper.with(|client| {
+            let input_seq = match self.pending_inputs.reserve(channel_id, bytes.len()) {
+                Ok(input_seq) => input_seq,
+                Err(refusal) => return Ok(KeeperInputCommand::not_written(refusal)),
+            };
+            match client.send_input_request(channel_id, input_seq, &bytes) {
+                Ok(()) => Ok(self
+                    .pending_inputs
+                    .register(channel_id, input_seq, expected)),
+                Err(error) => Err(error.to_string()),
+            }
+        });
+        written.unwrap_or_else(|error| {
+            self.keeper_lost(format!(
+                "the keeper connection failed writing input: {error}"
+            ));
+            KeeperInputCommand::not_written(InputNotWritten::Disconnected)
+        })
+    }
+
+    /// What a channel has written and not yet heard back about.
+    pub fn pending_input(&self, channel_id: u16) -> PendingInputUsage {
+        self.pending_inputs.usage(channel_id)
     }
 
     /// Apply a geometry change, and report what the keeper did with it.
@@ -167,6 +221,14 @@ impl KeeperPool {
         rows: u16,
     ) -> Result<ResizeOutcome, PoolError> {
         self.require_connected()?;
+        let Some(_pending) = self.pending_resizes.begin(channel_id, seq) else {
+            tracing::warn!(
+                channel_id,
+                seq,
+                "a resize under an in-flight sequence was refused before it was written"
+            );
+            return Err(PoolError::ResizeInFlight { channel_id, seq });
+        };
         tracing::debug!(channel_id, seq, cols, rows, "resizing a keeper channel");
         let outcome = self.request(|client| Ok(client.resize(channel_id, seq, cols, rows)))?;
         if let ResizeOutcome::Unknown {
@@ -179,6 +241,12 @@ impl KeeperPool {
             ));
         }
         Ok(outcome)
+    }
+
+    /// When each resize still in flight on `channel_id` was written, for the
+    /// pipeline's `KEEPER_RESIZE_PENDING` evidence.
+    pub fn pending_resize_starts(&self, channel_id: u16) -> Vec<Instant> {
+        self.pending_resizes.started(channel_id)
     }
 
     /// The channels the keeper says it still owns, for a reconcile.
@@ -213,6 +281,7 @@ impl KeeperPool {
 
     /// Drop a channel from the pool entirely, for a session that has closed.
     pub fn forget(&self, channel_id: u16) -> Option<PoolChannel> {
+        self.pending_inputs.forget_channel(channel_id);
         self.channels.forget(channel_id)
     }
 
@@ -234,13 +303,26 @@ impl KeeperPool {
     /// under it is what keeps the dispatcher from taking a reply out from
     /// under the request blocked on it. The frames come back OWNED, so no lock
     /// is still held once a session is called.
-    pub(crate) fn take_arrived_frames(&self) -> Vec<MuxFrame> {
+    pub(crate) fn take_arrived_frames(&self) -> ArrivedFrames {
         self.keeper.with(|client| {
-            let mut arrived = Vec::new();
-            while let Some(frame) = client.next_event(Duration::ZERO) {
-                arrived.push(frame);
+            let mut frames = Vec::new();
+            loop {
+                match client.poll_event() {
+                    EventPoll::Frame(frame) => frames.push(frame),
+                    EventPoll::Empty => {
+                        return ArrivedFrames {
+                            frames,
+                            closed: false,
+                        };
+                    }
+                    EventPoll::Closed => {
+                        return ArrivedFrames {
+                            frames,
+                            closed: true,
+                        };
+                    }
+                }
             }
-            arrived
         })
     }
 
@@ -262,34 +344,6 @@ impl KeeperPool {
     /// that race is the one that finds the channel already gone.
     pub(crate) fn claim_channel_exit(&self, channel_id: u16) -> Option<Arc<dyn ChannelBinding>> {
         self.channels.claim_exit(channel_id)
-    }
-
-    /// The keeper is gone: tell every channel this worker drives, once.
-    ///
-    /// `on_error` and not `on_exit`, because the keeper outlives the connection
-    /// and every one of those PTYs may still be running in it. Ending them here
-    /// would report a terminal somebody is typing into as finished, and the
-    /// reconnect would have to re-adopt channels this pool had already closed.
-    pub fn keeper_lost(&self, reason: String) {
-        if !self.connected.swap(false, Ordering::SeqCst) {
-            // Exactly once: a second report is the same event seen twice, and a
-            // second ending for one channel is the defect this guards.
-            tracing::debug!(%reason, "the keeper connection was already reported gone");
-            return;
-        }
-        let channels = self.channels.drain();
-        tracing::error!(
-            %reason,
-            channels = channels.len(),
-            "the keeper connection is gone; every channel it drove was told"
-        );
-        for channel in channels {
-            // A channel that already ended was told so by its own exit frame;
-            // telling it again here is the double ending this pool must not do.
-            if !channel.has_exited() {
-                channel.output().on_error(reason.clone());
-            }
-        }
     }
 
     /// Run one request, and treat a broken socket as a lost keeper.

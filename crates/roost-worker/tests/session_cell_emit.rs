@@ -10,7 +10,7 @@ use roost_worker::outbox::{Lane, Outbox};
 
 #[path = "session_emit_support/mod.rs"]
 mod support;
-use roost_worker::session::cell_scheduler::CellGate;
+use roost_worker::session::cell_gates::CellGate;
 use roost_worker::session::cell_sink::local_cell_sink_id;
 use roost_worker::session::emit::{
     CellEmitter, FrameOutcome, LIVE_DELTA_SCROLLBACK_ROWS_CAP, Withheld,
@@ -249,7 +249,7 @@ fn a_held_channel_emits_nothing_and_says_which_gate_holds_it() {
     emitter.install_stream(&mut record, &stream_id(6));
     emitter.emit_cell_frame(&mut record, true, 1_000);
 
-    emitter.hold_frames(channel(6), CellGate::SyncOutput, 1_005);
+    emitter.hold_frames(channel(6), CellGate::ResizeCapture, 1_005);
     emitter.ingest_pty_chunk(&mut record, b"half a repaint", 1_010);
     assert_eq!(
         emitter.emit_cell_frame(&mut record, false, 1_020),
@@ -258,9 +258,11 @@ fn a_held_channel_emits_nothing_and_says_which_gate_holds_it() {
     let held = emitter
         .gate_suppression(channel(6))
         .expect("the gate is still open");
-    assert_eq!(held.gate, CellGate::SyncOutput);
+    assert_eq!(held.gate, CellGate::ResizeCapture);
     assert_eq!(held.since_ms, 1_005);
-    assert_eq!(held.suppressed, 1);
+    // The ingest's schedule and the emit each swallowed one (v2
+    // `scheduleCellEmission` and `emitCellFrame` both note the gate).
+    assert_eq!(held.suppressed, 2);
 
     emitter.release_frames(channel(6));
     assert!(emitter.gate_suppression(channel(6)).is_none());
@@ -349,8 +351,13 @@ fn a_suspended_sink_is_handed_nothing_and_owes_a_full_on_resume() {
     );
     assert_eq!(local.frames().len(), 2, "the live sibling stopped painting");
 
-    emitter.resume_sink("coord");
-    let after = emitter.emit_cell_frame(&mut record, false, 1_030);
+    emitter.resume_cell_sink("coord");
+    assert_eq!(
+        emitter.emit_cell_frame(&mut record, false, 1_030),
+        FrameOutcome::Withheld(Withheld::Baseline),
+        "a resumed sink was offered a delta before its baseline"
+    );
+    let after = emitter.install_terminal_baseline(&mut record, 1_031);
     assert!(
         matches!(after, FrameOutcome::Full { .. }),
         "a resumed sink owes a full, not a delta, got {after:?}"

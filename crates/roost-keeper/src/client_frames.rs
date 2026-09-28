@@ -22,13 +22,23 @@ pub(crate) enum WaitEnded {
     Disconnected,
 }
 
+/// One non-blocking look at the event stream. `Closed` is the reader thread
+/// gone — the keeper closed the connection — which v2's socket `close` handler
+/// turns into a keeper death.
+#[derive(Debug)]
+pub enum EventPoll {
+    Frame(MuxFrame),
+    Empty,
+    Closed,
+}
+
 impl KeeperClient {
     /// Hold a frame a control wait consumed, so the worker still receives it.
     ///
     /// Never blocks and never drops: a poisoned lock is recovered rather than
     /// propagated, because losing the buffer loses terminal output, and a panic
     /// in a neighbouring task is not a reason to lose bytes.
-    fn defer(&self, frame: MuxFrame) {
+    pub(crate) fn defer(&self, frame: MuxFrame) {
         match self.deferred.lock() {
             Ok(mut held) => held.push_back(frame),
             Err(poisoned) => poisoned.into_inner().push_back(frame),
@@ -49,6 +59,23 @@ impl KeeperClient {
             return held;
         }
         self.events.recv_timeout(wait).ok()
+    }
+
+    /// Take a frame that has already arrived, without waiting; deferred frames
+    /// first, so the stream the worker parses is never reordered.
+    pub fn poll_event(&self) -> EventPoll {
+        let held = match self.deferred.lock() {
+            Ok(mut held) => held.pop_front(),
+            Err(poisoned) => poisoned.into_inner().pop_front(),
+        };
+        if let Some(frame) = held {
+            return EventPoll::Frame(frame);
+        }
+        match self.events.try_recv() {
+            Ok(frame) => EventPoll::Frame(frame),
+            Err(std::sync::mpsc::TryRecvError::Empty) => EventPoll::Empty,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => EventPoll::Closed,
+        }
     }
 
     pub(crate) fn request<T: serde::Serialize>(
@@ -123,20 +150,6 @@ impl KeeperClient {
                 Err(RecvTimeoutError::Disconnected) => return WaitEnded::Disconnected,
             }
         }
-    }
-
-    /// Wait for whichever of the three input results the keeper chose.
-    pub(crate) fn wait_for_any_input_result(
-        &self,
-        channel_id: u16,
-        timeout: Duration,
-    ) -> Result<MuxFrame, ClientError> {
-        use MuxFrameType as T;
-        self.wait_as_result(
-            channel_id,
-            timeout,
-            &[T::PtyInAck, T::PtyInReject, T::PtyInAmbiguous],
-        )
     }
 
     /// A wait with no better cause to report, reported as the one error this

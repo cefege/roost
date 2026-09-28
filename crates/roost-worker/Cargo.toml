@@ -9,6 +9,7 @@ description = "The worker service: sessions, the keeper client, the durable outb
 
 [dependencies]
 anyhow.workspace = true
+async-compression.workspace = true
 base64.workspace = true
 futures-util.workspace = true
 # The enrollment calls are the only place this crate speaks Connect, and
@@ -44,6 +45,7 @@ regex.workspace = true
 roost-term.workspace = true
 sqlx = { workspace = true, features = ["sqlite", "runtime-tokio", "macros", "migrate"] }
 str0m.workspace = true
+unicode-normalization.workspace = true
 
 [dev-dependencies]
 # The enrollment round trip needs a Connect SERVER to redeem against: the
@@ -51,7 +53,7 @@ str0m.workspace = true
 # stubs them proves only that the worker called something. `server` is a
 # dev-only feature — the worker itself only ever dials.
 connectrpc = { workspace = true, features = ["client", "server"] }
-tokio = { workspace = true, features = ["net", "rt", "rt-multi-thread", "macros", "time"] }
+tokio = { workspace = true, features = ["net", "rt", "rt-multi-thread", "macros", "time", "test-util"] }
 tokio-tungstenite = { workspace = true, features = ["handshake"] }
 
 [[bin]]

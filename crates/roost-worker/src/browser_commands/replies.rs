@@ -7,6 +7,7 @@
 //! exhaustive match. One match, in one place, means a frame kind that arrives
 //! without a trace fails this file's build rather than silently answering
 //! uncorrelated.
+//! Ports v2 `apps/worker/src/browser-commands/browser-command-handler.ts`.
 
 use roost_protocol::wire::brand::TraceId;
 use roost_protocol::wire::control::ClientControlFrame;

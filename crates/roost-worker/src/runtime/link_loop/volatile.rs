@@ -1,139 +1,160 @@
-//! The volatile half of the coordinator link: the two producers whose newest
-//! record SUPERSEDES its own predecessor. Owned by [`super::LinkLoop`], which
-//! encodes and drains. Depends on `roost_protocol`'s agent-status and terminal
-//! metadata value models and on [`crate::outbox`].
-//!
-//! v2 gave each one a module of its own — `coord-link-agent-status.ts` and
-//! `coord-link-terminal-metadata.ts` — and both do the same thing: hold ONE
-//! record per key and replace it in place while the link is applying
-//! backpressure, rather than accumulate every version and then ship them all in
-//! order. Shipping them all in order walks the coordinator through a
-//! replacement edge it has already passed, so the accumulation is not merely
-//! wasteful; it is wrong.
-//!
-//! So both are ONE fold here, [`crate::outbox::Outbox::admit_coalescing`], and
-//! the keyed state is the outbox's own rather than a second queue's. The only
-//! thing that stays per-producer is the FIELD MERGE, because a title change
-//! dropped by backpressure is a title the coordinator never learns, and the
-//! merge is a pure function of the last record and the new one.
+//! The volatile half of the coordinator link: the terminal metadata producer,
+//! whose newest record SUPERSEDES its predecessor. Ports v2
+//! `transport/coord-link-terminal-metadata.ts` (latest merged record per
+//! channel, bounded, dropped on reconnect); agent status lives in
+//! `agent_status.rs`. Owned by [`super::LinkLoop`]; the uplink admission routes
+//! `TerminalMetadata` frames here, and the link end calls
+//! [`LinkLoop::forget_terminal_metadata`]. Depends on `crate::outbox` only.
 
+use std::collections::HashMap;
 use std::time::Instant;
 
-use roost_protocol::wire::agent_status::{
-    AgentStatus, AgentStatusUpdate, is_identified_agent_status,
-};
 use roost_protocol::wire::brand::ChannelId;
-use roost_protocol::wire::coord_worker::{AgentStatusFrame, CoordWorkerUpstream, TerminalMetadata};
+use roost_protocol::wire::coord_worker::{CoordWorkerUpstream, TerminalMetadata};
 
-use crate::outbox::{Admitted, Lane};
+use crate::outbox::{AdmitError, Admitted, Lane};
 
 use super::{AdmitRefusal, LinkLoop};
 
-/// The coalescing key one session's agent status lives under.
-///
-/// The session, not the occupant: v2 keyed the map by session and carried the
-/// occupant inside the record (`occupantKey`), because a session's status is
-/// replaced by the next occupant's and there is only ever one retained row for
-/// it.
-fn agent_status_key(status: &AgentStatusUpdate) -> String {
-    status.common.session_id.to_string()
+/// v2 `TERMINAL_METADATA_PENDING_CAP` (`WORKER_SNAPSHOT_MAX_SESSIONS`): at most
+/// one pending record per session the snapshot can describe.
+pub const TERMINAL_METADATA_PENDING_CAP: usize = 1_024;
+
+/// v2 `TERMINAL_METADATA_PENDING_BYTES_CAP`: 2 KiB per pending record.
+pub const TERMINAL_METADATA_PENDING_BYTES_CAP: usize = TERMINAL_METADATA_PENDING_CAP * 2_048;
+
+/// The lane the metadata frames coalesce in.
+const TERMINAL_METADATA_LANE: Lane = Lane::Control;
+
+/// The last record admitted for each channel, so the next one can MERGE with it
+/// while it is still pending (v2 `pendingByChannel`). The encoded bytes live in
+/// the outbox; a remembered record whose frame already drained is ignored.
+#[derive(Debug, Default)]
+pub struct TerminalMetadataLane {
+    held: HashMap<ChannelId, (TerminalMetadata, usize)>,
+}
+
+/// The coalescing key one channel's terminal metadata lives under.
+fn terminal_metadata_key(channel_id: ChannelId) -> String {
+    format!("terminal-metadata:{channel_id}")
 }
 
 impl LinkLoop {
-    /// v2's `coord-link-terminal-metadata.ts` sender.
-    ///
-    /// One record per channel. A title change and an activity change that both
-    /// happen while the link is backpressured are MERGED into one frame by
-    /// [`merge_terminal_metadata`], because two frames would ship the title
-    /// twice and an activity stamp the coordinator has already superseded.
+    /// v2 `CoordLinkTerminalMetadataOutbox.send`: merge with the channel's
+    /// still-pending record, then admit it in place of that record.
     pub fn send_terminal_metadata(
         &mut self,
         channel_id: ChannelId,
         metadata: &TerminalMetadata,
     ) -> Result<Admitted, AdmitRefusal> {
-        let frame = CoordWorkerUpstream::TerminalMetadata(metadata.clone());
+        let key = terminal_metadata_key(channel_id);
+        let pending = self.outbox.coalesces(TERMINAL_METADATA_LANE, &key);
+        let previous = if pending {
+            self.terminal_metadata
+                .held
+                .get(&channel_id)
+                .map(|(held, _)| held)
+        } else {
+            None
+        };
+        let merged = merge_terminal_metadata(previous, metadata);
+        let frame = CoordWorkerUpstream::TerminalMetadata(merged.clone());
         let bytes = self.encode_volatile(&frame, "terminal-metadata")?;
-        let key = channel_id.to_string();
+        if !pending {
+            self.refuse_over_metadata_caps(bytes.len())?;
+        }
+        let encoded = bytes.len();
         let admitted = self
             .outbox
             .admit_coalescing(
                 &key,
-                Lane::Control,
+                TERMINAL_METADATA_LANE,
                 bytes,
                 "terminal-metadata",
                 Instant::now(),
             )
             .map_err(AdmitRefusal::Outbox)?;
+        self.terminal_metadata
+            .held
+            .insert(channel_id, (merged, encoded));
+        tracing::trace!(%channel_id, ?admitted, "terminal metadata was admitted to the link");
         if let Admitted::Queued | Admitted::Coalesced = admitted {
             self.wake();
         }
         Ok(admitted)
     }
 
-    /// v2's `coord-link-agent-status.ts` sender.
-    ///
-    /// An UNIDENTIFIED status is refused, not queued: a status with no session
-    /// or no occupant is not a status any reader could place, and v2 dropped it
-    /// with a `transport.frame_dropped` line for the same reason.
-    pub fn send_agent_status(
-        &mut self,
-        status: &AgentStatusUpdate,
-    ) -> Result<Admitted, AdmitRefusal> {
-        if !is_identified_agent_status(&status.common) {
-            tracing::warn!(
-                session = %status.common.session_id,
-                revision = status.common.revision,
-                "an agent status with no session or occupant was refused rather than queued"
+    /// v2 `disconnect()`/`clear()`: the reconnect's replay re-asserts every
+    /// retained fact, so nothing pending survives the socket generation.
+    pub fn forget_terminal_metadata(&mut self) {
+        let forgotten = self.terminal_metadata.held.len();
+        self.terminal_metadata.held.clear();
+        if forgotten > 0 {
+            tracing::info!(
+                forgotten,
+                "pending terminal metadata was dropped with its link"
             );
-            return Err(AdmitRefusal::UnidentifiedAgentStatus);
         }
-        let frame = CoordWorkerUpstream::AgentStatus(AgentStatusFrame {
-            status: AgentStatus {
-                common: status.common.clone(),
-                active: status.active,
-            },
-        });
-        let bytes = self.encode_volatile(&frame, "agent-status")?;
-        let key = agent_status_key(status);
-        let admitted = self
-            .outbox
-            .admit_coalescing(&key, Lane::Control, bytes, "agent-status", Instant::now())
-            .map_err(AdmitRefusal::Outbox)?;
-        if let Admitted::Queued | Admitted::Coalesced = admitted {
-            self.wake();
-        }
-        Ok(admitted)
     }
 
-    /// Encode a volatile frame, or report it as unencodable.
-    ///
-    /// An encode failure is a LOGGED refusal and never a silent drop: the caller
-    /// is a status or a title, and both are worse absent than reported.
+    /// v2's pending-record caps, counted over the records still in the outbox.
+    fn refuse_over_metadata_caps(&mut self, incoming: usize) -> Result<(), AdmitRefusal> {
+        let outbox = &self.outbox;
+        self.terminal_metadata.held.retain(|channel_id, _| {
+            outbox.coalesces(TERMINAL_METADATA_LANE, &terminal_metadata_key(*channel_id))
+        });
+        let pending = self.terminal_metadata.held.len();
+        let bytes: usize = self
+            .terminal_metadata
+            .held
+            .values()
+            .map(|(_, bytes)| bytes)
+            .sum();
+        if pending >= TERMINAL_METADATA_PENDING_CAP {
+            tracing::warn!(
+                pending,
+                "terminal metadata dropped: the pending frame cap is reached"
+            );
+            return Err(AdmitRefusal::Outbox(AdmitError::Full {
+                pending,
+                cap: TERMINAL_METADATA_PENDING_CAP,
+            }));
+        }
+        if bytes + incoming > TERMINAL_METADATA_PENDING_BYTES_CAP {
+            tracing::warn!(
+                bytes,
+                incoming,
+                "terminal metadata dropped: the pending byte cap is reached"
+            );
+            return Err(AdmitRefusal::Outbox(AdmitError::OverBytes {
+                bytes: bytes + incoming,
+                cap: TERMINAL_METADATA_PENDING_BYTES_CAP,
+            }));
+        }
+        Ok(())
+    }
+
+    /// Encode a volatile frame, or report it as unencodable (a LOGGED refusal).
     fn encode_volatile(
         &self,
         frame: &CoordWorkerUpstream,
         label: &str,
     ) -> Result<Vec<u8>, AdmitRefusal> {
-        let bytes =
-            self.wire
-                .encode_upstream(frame)
-                .map_err(|error| AdmitRefusal::Unencodable {
-                    label: label.to_owned(),
-                    reason: error.to_string(),
-                })?;
-        Ok(bytes)
+        self.wire
+            .encode_upstream(frame)
+            .map_err(|error| AdmitRefusal::Unencodable {
+                label: label.to_owned(),
+                reason: error.to_string(),
+            })
     }
 }
 
-/// Fold a new terminal-metadata record into the one already held for a channel.
+/// Fold a new terminal-metadata record into the one still pending for a
+/// channel (v2 `coord-link-terminal-metadata.ts:40-50`).
 ///
-/// A flag survives if EITHER record raised it, and the value that flag names is
-/// the newest one that raised it. That asymmetry is the whole rule: a title
-/// change and an activity change are independent, so dropping the second frame's
-/// `title_changed` because an `activity_changed` arrived with it would leave the
-/// coordinator with an activity stamp and a title it has not been told about.
-///
-/// Pure, so the rule is testable without a link.
+/// A flag survives if EITHER record raised it, and the value it names is the
+/// newest one that raised it: a title change and an activity change are
+/// independent, so an activity-only record must not erase a pending title.
 pub fn merge_terminal_metadata(
     previous: Option<&TerminalMetadata>,
     update: &TerminalMetadata,

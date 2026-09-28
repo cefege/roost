@@ -9,6 +9,7 @@
 //! emitting leaves a client believing it is still running. Both are worse than
 //! the transition table being slightly wrong, so [`ChannelFsm`] makes the
 //! emission part of the closure rather than something a caller must remember.
+//! Ports v2 `apps/worker/src/fsm.ts`.
 
 /// Where a channel is in its life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -12,6 +12,7 @@
 //! it can say no, and when it does the session's end is unwritable, which is a
 //! condition no per-request answer can fix. Collapsing them would make "the
 //! keeper is producing" and "the coordinator can learn about it" one decision.
+//! Ports v2 `apps/worker/src/transport/event-sink.ts`.
 
 use std::pin::Pin;
 

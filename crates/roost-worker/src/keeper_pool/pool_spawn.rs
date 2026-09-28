@@ -9,6 +9,7 @@
 //! caller's, the binding is registered before the frame, and a failure after the
 //! keeper was touched has to be undoable — and that contract reads worse as a
 //! hundred lines in the middle of a file about the table.
+//! Ports v2 `apps/worker/src/keeper/keeper-pool-channels.ts`, `apps/worker/src/session/session-spawn.ts`.
 
 use std::sync::Arc;
 

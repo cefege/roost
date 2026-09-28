@@ -26,7 +26,7 @@ use roost_worker::runtime::credential::{CredentialError, CredentialSource};
 use roost_worker::runtime::link_loop::{AdmitRefusal, BrowserLink, LinkLoop, WorkerIdentity};
 use roost_worker::runtime::link_wire::{LinkWire, WireError};
 use roost_worker::runtime::reconnect::ReconnectPolicy;
-use roost_worker::runtime::snapshot_source::NoSnapshot;
+use roost_worker::runtime::snapshot_source::{SnapshotError, SnapshotSource};
 
 const FINGERPRINT: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
@@ -67,6 +67,22 @@ impl LinkWire for UnusedCodec {
 
 const UNREACHED: &str = "no test in this file reaches the wire";
 
+/// A snapshot source that never answers: no test in this file goes live.
+#[derive(Debug, Clone, Copy)]
+struct HeldSnapshot;
+
+impl SnapshotSource for HeldSnapshot {
+    fn is_active(&self) -> bool {
+        false
+    }
+
+    fn snapshot(&self) -> Result<roost_protocol::wire::event::SessionEvent, SnapshotError> {
+        Err(SnapshotError::Unavailable {
+            reason: UNREACHED.to_string(),
+        })
+    }
+}
+
 fn loop_for_test() -> LinkLoop {
     let endpoint =
         CoordinatorEndpoint::new("http://127.0.0.1:1", FINGERPRINT).expect("a usable endpoint");
@@ -78,9 +94,10 @@ fn loop_for_test() -> LinkLoop {
             process_epoch: "test-epoch".to_string(),
         },
         Arc::new(UnusedCodec),
-        Arc::new(NoSnapshot),
+        Arc::new(HeldSnapshot),
         Arc::new(FixedCredential),
         BrowserLink::detached(),
+        roost_worker::uplink::channel().1,
     )
 }
 

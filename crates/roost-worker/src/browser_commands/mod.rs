@@ -14,6 +14,7 @@
 //! deadline with no cause in any log — which is why the routing is a TABLE
 //! rather than a `match`. A kind with no row is a refusal a test can observe;
 //! a missing `match` arm is a compile error nobody reads.
+//! Ports v2 `apps/worker/src/browser-commands/browser-command-handler.ts`.
 
 use std::pin::Pin;
 use std::sync::Arc;

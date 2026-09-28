@@ -23,6 +23,7 @@ pub mod versioning;
 pub mod wire;
 
 pub mod agent_conversation_reference;
+pub mod attachment_transfer;
 pub mod fingerprint;
 pub mod fleet_update;
 pub mod keeper_update;

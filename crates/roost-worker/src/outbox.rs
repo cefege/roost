@@ -12,6 +12,7 @@
 //! everything that controls them. That is a deliberate choice to let a backlog
 //! of cells wait — a late frame is still correct, a frame ahead of its own
 //! `opened` is not recoverable.
+//! Ports v2 `apps/worker/src/transport/coord-link-constants.ts`, `apps/worker/src/transport/coord-link-outbox.ts`.
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
@@ -37,6 +38,9 @@ pub const RAW_METADATA_MAX_AGE: Duration = Duration::from_millis(100);
 /// Which lane a frame belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Lane {
+    /// v2 `livenessPending`: the pong. Written ahead of everything, and before
+    /// the barrier is live, so a coordinator's ping is answered while replay runs.
+    Liveness,
     /// Session events the coordinator must not lose. Never evicted here: the
     /// session-event store owns that capacity, and evicting a durable event to
     /// make room for a cell would trade a permanent hole for a delayed frame.
@@ -56,7 +60,8 @@ impl Lane {
     /// The order IS the contract. `Terminal` is last because a cell ahead of
     /// its own `opened` is unrecoverable, while a cell behind one is merely
     /// late.
-    pub const DRAIN_ORDER: [Lane; 4] = [
+    pub const DRAIN_ORDER: [Lane; 5] = [
+        Lane::Liveness,
         Lane::Durable,
         Lane::Control,
         Lane::Terminal,
@@ -142,7 +147,7 @@ pub enum Admitted {
 /// The outbox.
 #[derive(Debug)]
 pub struct Outbox {
-    lanes: [VecDeque<Pending>; 4],
+    lanes: [VecDeque<Pending>; 5],
     frame_count: usize,
     byte_count: usize,
     cap: usize,
@@ -163,6 +168,7 @@ impl Outbox {
                 VecDeque::new(),
                 VecDeque::new(),
                 VecDeque::new(),
+                VecDeque::new(),
             ],
             frame_count: 0,
             byte_count: 0,
@@ -177,6 +183,7 @@ impl Outbox {
             Lane::Control => 1,
             Lane::RawMetadata => 2,
             Lane::Terminal => 3,
+            Lane::Liveness => 4,
         }
     }
 
@@ -232,7 +239,8 @@ impl Outbox {
         None
     }
 
-    fn take_from(&mut self, lane: Lane) -> Option<Pending> {
+    /// Take the oldest frame of one lane, whatever the drain order says.
+    pub fn take_from(&mut self, lane: Lane) -> Option<Pending> {
         let frame = self.lanes[Self::slot(lane)].pop_front()?;
         self.frame_count -= 1;
         self.byte_count -= frame.bytes.len();

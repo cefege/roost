@@ -27,6 +27,7 @@ use roost_keeper::frames::ChannelBinding;
 use roost_proto::CoordinatorServiceClient;
 
 use roost_worker::runtime::keeper_boot::{self, KeeperBootOutcome};
+use roost_worker::runtime::keeper_prepare::KeeperProcess;
 use roost_worker::runtime::reconcile::open_sessions_or_unknown;
 
 /// A credential that always mints. Nothing in this file reaches a coordinator,
@@ -74,23 +75,11 @@ impl Drop for Scratch {
     }
 }
 
-/// THE PAIR, in one test, because either half alone is satisfiable by a
-/// decision that is wrong.
-///
-/// AND A CORRECTION WORTH READING, because I got it wrong first and the code
-/// said so. I expected a probed survivor HOLDING a terminal to come back
-/// `Held`, because that is what "leave it alone" sounds like. It comes back
-/// `Adopted`, and it would come back `Adopted` no matter what the open-session
-/// set said — because `boot_keeper::admit` returns `StartFresh` only when
-/// `channels.is_empty()` (`boot_keeper.rs:156`), so a keeper that PROVED it
-/// holds a terminal is `Adopt` or `Blocked` and the coordinator's count is
-/// never read. The count gates exactly one branch: replacing a keeper that
-/// holds nothing (`keeper_boot.rs:161-170`).
-///
-/// So the pair is asserted where the two readings actually diverge — a keeper
-/// holding nothing, `None` versus `Some(0)` — and the holding case is asserted
-/// separately for what it really guarantees, which is that a terminal is
-/// disturbed by neither reading.
+/// The read half: a coordinator that did not answer is `None`, never zero. The
+/// decision half — `None` holds an INCOMPATIBLE empty keeper, `Some(0)` replaces
+/// it — is `worker_keeper_admission.rs`'s `decide` table; against a live
+/// COMPATIBLE empty keeper both readings adopt (v2 `boot-keeper.ts:94-141`), so
+/// no reading of the count can end a keeper this worker can drive.
 #[tokio::test]
 async fn an_unread_open_session_set_is_not_a_licence_to_replace_anything() {
     // ---- FIRST HALF: the read really does fail, and becomes `None`. ----
@@ -117,37 +106,25 @@ async fn an_unread_open_session_set_is_not_a_licence_to_replace_anything() {
     assert_eq!(open_sessions_or_unknown(Ok(Some(0))), Some(0));
     assert_eq!(open_sessions_or_unknown(Ok(Some(3))), Some(3));
 
-    // ---- SECOND HALF: `None` HOLDS a replaceable keeper, `Some(0)` replaces it.
-    // This is the pair that fails if the composition root's `unwrap_or_else`
-    // ever becomes an `unwrap_or(0)`, and it is the ONLY place that collapse is
-    // observable — so it is the only place a test for it can live.
-    let scratch = Scratch::new("unread");
-    let first = boot(scratch.path(), platform());
-    let keeper = FakeKeeper::start(&first, platform()).await;
-
-    let unread = keeper_boot::ensure_keeper(&first, open_sessions, &first.log_dir)
+    // ---- SECOND HALF: a compatible keeper holding nothing is ADOPTED by both
+    // readings; neither the unread set nor a vouching coordinator replaces it.
+    for (name, open_sessions) in [("unread", open_sessions), ("answered", Some(0))] {
+        let scratch = Scratch::new(name);
+        let boot = boot(scratch.path(), platform());
+        let _keeper = FakeKeeper::start(&boot, platform()).await;
+        let outcome = keeper_boot::ensure_keeper(
+            &boot,
+            open_sessions,
+            &boot.log_dir,
+            &KeeperProcess::default(),
+        )
         .await
         .expect("a probed keeper is admitted one way or another");
-    assert!(
-        matches!(unread, KeeperBootOutcome::Held { .. }),
-        "an unread open-session set is not a licence to replace a keeper: {unread:?}"
-    );
-    // The same keeper, still listening, is proof the first call replaced
-    // nothing: a replacement shuts the old keeper down.
-    drop(keeper);
-
-    let scratch = Scratch::new("answered");
-    let second = boot(scratch.path(), platform());
-    let _keeper = FakeKeeper::start(&second, platform()).await;
-    let answered = keeper_boot::ensure_keeper(&second, Some(0), &second.log_dir)
-        .await
-        .expect("a keeper the coordinator vouches for is replaceable");
-    assert!(
-        matches!(answered, KeeperBootOutcome::StartedFresh { .. }),
-        "and a coordinator that says nothing is open IS a licence: the two \
-         readings must differ here or the first assertion proves nothing \
-         about the count: {answered:?}"
-    );
+        assert!(
+            matches!(outcome, KeeperBootOutcome::Adopted { .. }),
+            "{name}: a compatible empty keeper is adopted, never replaced: {outcome:?}"
+        );
+    }
 }
 
 /// THE OTHER HALF OF THE SAME PROPERTY, and the one the session brief named: a
@@ -167,9 +144,14 @@ async fn a_survivor_holding_a_terminal_is_adopted_by_either_reading() {
         let scratch = Scratch::new(name);
         let boot = boot(scratch.path(), platform());
         let _keeper = FakeKeeper::start_holding(&boot, platform(), held.clone()).await;
-        let outcome = keeper_boot::ensure_keeper(&boot, open_sessions, &boot.log_dir)
-            .await
-            .expect("a probed keeper is admitted one way or another");
+        let outcome = keeper_boot::ensure_keeper(
+            &boot,
+            open_sessions,
+            &boot.log_dir,
+            &KeeperProcess::default(),
+        )
+        .await
+        .expect("a probed keeper is admitted one way or another");
         assert!(
             matches!(outcome, KeeperBootOutcome::Adopted { .. }),
             "{name}: a keeper that proved it holds channel 1 is adopted, and the \

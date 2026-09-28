@@ -9,7 +9,6 @@
 
 pub mod agent_occupancy;
 pub mod agents;
-pub mod attachment_transfer;
 pub mod attachments;
 pub mod backoff;
 pub mod boot_keeper;
@@ -24,6 +23,7 @@ pub mod keeper_pool;
 pub mod link_barrier;
 pub mod link_dial;
 pub mod local_door;
+pub mod local_terminal;
 pub mod outbox;
 pub mod peer;
 pub mod runtime;
@@ -33,8 +33,14 @@ pub mod runtime;
 // takes. Re-exported here so the CLI binds to a contract rather than to the
 // shape of the module tree behind it.
 pub use runtime::{WorkerBoot, WorkerOverrides, serve, serve_until};
+pub mod link_ports;
 pub mod scrollback_read;
 pub mod session;
 pub mod shell_spec;
 pub mod strays;
 pub mod stream_fence;
+pub mod terminal_core_capacity;
+pub mod terminal_input;
+pub mod terminal_pipeline;
+pub mod terminal_view;
+pub mod uplink;

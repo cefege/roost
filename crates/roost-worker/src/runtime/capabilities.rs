@@ -1,39 +1,48 @@
 //! What this worker's hello tells the coordinator it can be asked for. One
 //! named list, called by `runtime::link_serve` on every dial, and by nothing
-//! else. Depends on `roost_protocol::versioning` for the spellings — and on
-//! nothing here.
+//! else. Ports v2 `apps/worker/src/transport/coord-link-deps.ts:96-100` and the
+//! `additionalCapabilities` of `main.ts:181-185`; the spellings are
+//! `roost_protocol::versioning`'s.
 //!
-//! WHY IT IS ITS OWN MODULE rather than a literal in the hello. A capability is
-//! a PROMISE: a coordinator that reads one believes this worker will answer the
-//! traffic it routes here, and a worker that advertises a capability it cannot
-//! serve does not fail — it fails a browser, on a command, minutes later, with
-//! nothing in the log saying which promise was broken. So the list is named,
-//! and each entry names the collaborator that earns it, so adding a capability
-//! is a change someone has to justify against a collaborator that exists.
-//!
-//! WHAT IS NOT HERE, and why, is the more useful half:
-//!  - `terminal-view-owner-v1` — a worker advertising this owns terminal view
-//!    membership, geometry aggregation and stream generations for its own
-//!    sessions. This build has no view owner, so the coordinator's own
-//!    `TerminalViewHub` owns them, which is v2's fallback and not a degraded
-//!    answer to a claim.
-//!  - `terminal-input-route-v1` — the coordinator hands back input routing to a
-//!    worker that advertises it. Nothing here routes input yet.
-//!  - `terminal-peer-webrtc-v1` and `attachment-transfer-peer-webrtc-v1` — the
-//!    direct carriers need a transport `crate::peer` does not have. A browser on
-//!    this machine reaches its own PTYs through the door instead.
+//! A capability is a PROMISE: a coordinator that reads one routes traffic here
+//! and waits for the answer. Each entry names the collaborator that earns it:
+//!  - `terminal-metadata-v1` — the cell emitter stages compact metadata and
+//!    the link negotiates it from the hello-ack.
+//!  - `terminal-view-owner-v1` — `terminal_view::TerminalViewOwner` owns view
+//!    membership, geometry and stream generations for this worker's sessions.
+//!  - `terminal-input-route-v1` — `terminal_input::TerminalInputRouteOwner`
+//!    answers the coordinator's route claims.
+//!  - `terminal-peer-webrtc-v1` / `attachment-transfer-peer-webrtc-v1` —
+//!    only when that peer owner's native bootstrap was `ready`
+//!    (`peer::DirectPeerSupport`, v2 `boot-local-terminal.ts:173-174`); a
+//!    disabled or unloadable transport is never promised.
 
-use roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1;
+use roost_protocol::versioning::{
+    CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1, CAPABILITY_TERMINAL_INPUT_ROUTE_V1,
+    CAPABILITY_TERMINAL_METADATA_V1, CAPABILITY_TERMINAL_PEER_WEBRTC_V1,
+    CAPABILITY_TERMINAL_VIEW_OWNER_V1,
+};
+
+use crate::peer::DirectPeerSupport;
 
 /// The capabilities this worker advertises, in the order the coordinator
 /// compares them.
 ///
-/// SORTED, and that is not cosmetic: a hello is compared field by field in a
-/// golden test and a reordered list is a different hello. The set is tiny enough
-/// that sorting costs nothing and removes the question.
+/// SORTED, as v2 sorts them: a hello is compared field by field and a
+/// reordered list is a different hello.
 #[must_use]
-pub fn advertised() -> Vec<String> {
-    let mut capabilities = vec![CAPABILITY_TERMINAL_METADATA_V1.to_owned()];
+pub fn advertised(direct: DirectPeerSupport) -> Vec<String> {
+    let mut capabilities = vec![
+        CAPABILITY_TERMINAL_METADATA_V1.to_owned(),
+        CAPABILITY_TERMINAL_VIEW_OWNER_V1.to_owned(),
+        CAPABILITY_TERMINAL_INPUT_ROUTE_V1.to_owned(),
+    ];
+    if direct.terminal {
+        capabilities.push(CAPABILITY_TERMINAL_PEER_WEBRTC_V1.to_owned());
+    }
+    if direct.attachment {
+        capabilities.push(CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1.to_owned());
+    }
     capabilities.sort();
     capabilities.dedup();
     capabilities
@@ -54,6 +63,12 @@ mod tests {
     };
 
     use super::advertised;
+    use crate::peer::DirectPeerSupport;
+
+    const BOTH: DirectPeerSupport = DirectPeerSupport {
+        terminal: true,
+        attachment: true,
+    };
 
     /// EVERY SPELLING IS THE PROTOCOL'S OWN. A capability is compared as a
     /// string on both sides, so a hand-written spelling that differs by a hyphen
@@ -69,7 +84,7 @@ mod tests {
             CAPABILITY_TERMINAL_PEER_WEBRTC_V1.to_owned(),
             CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1.to_owned(),
         ];
-        for capability in advertised() {
+        for capability in advertised(BOTH) {
             assert!(
                 known.contains(&capability),
                 "the hello advertises {capability:?}, which is not a capability the \
@@ -78,26 +93,26 @@ mod tests {
         }
     }
 
-    /// THE LIST IS A PROMISE, and a capability this build cannot serve must not
-    /// be in it. This is the test that fails the day someone adds a name
-    /// without the collaborator behind it — the day the failure is otherwise
-    /// invisible until a browser waits on a command nobody serves.
+    /// THE LIST IS A PROMISE: a WebRTC carrier is advertised only when its
+    /// owner bootstrapped, and each one independently of the other.
     #[test]
-    fn a_capability_with_no_collaborator_behind_it_is_not_advertised() {
-        let advertised = advertised();
-        for unimplemented in [
-            CAPABILITY_TERMINAL_VIEW_OWNER_V1,
-            CAPABILITY_TERMINAL_INPUT_ROUTE_V1,
-            CAPABILITY_TERMINAL_PEER_WEBRTC_V1,
-            CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1,
-        ] {
-            assert!(
-                !advertised.contains(&unimplemented.to_owned()),
-                "the hello advertises {unimplemented:?}, and this build has no collaborator \
-                 that can serve it: no view owner, no input route owner, and no WebRTC \
-                 carrier behind crate::peer"
-            );
-        }
+    fn a_peer_capability_is_advertised_only_for_a_bootstrapped_owner() {
+        let terminal = CAPABILITY_TERMINAL_PEER_WEBRTC_V1.to_owned();
+        let attachment = CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1.to_owned();
+        let neither = advertised(DirectPeerSupport::default());
+        assert!(!neither.contains(&terminal) && !neither.contains(&attachment));
+        let only_terminal = advertised(DirectPeerSupport {
+            terminal: true,
+            attachment: false,
+        });
+        assert!(only_terminal.contains(&terminal) && !only_terminal.contains(&attachment));
+        let only_attachment = advertised(DirectPeerSupport {
+            terminal: false,
+            attachment: true,
+        });
+        assert!(!only_attachment.contains(&terminal) && only_attachment.contains(&attachment));
+        let both = advertised(BOTH);
+        assert!(both.contains(&terminal) && both.contains(&attachment));
     }
 
     /// A hello is compared field by field, so the list is sorted and free of
@@ -105,7 +120,7 @@ mod tests {
     /// coordinator that matches the first and ignores the second.
     #[test]
     fn the_list_is_sorted_and_free_of_duplicates() {
-        let advertised = advertised();
+        let advertised = advertised(BOTH);
         let mut sorted = advertised.clone();
         sorted.sort();
         sorted.dedup();

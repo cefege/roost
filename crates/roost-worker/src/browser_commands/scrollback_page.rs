@@ -16,6 +16,7 @@
 //! it was asked for says none, even when the session has lost history further
 //! back — a client must not be told "you have reached the beginning" when it
 //! has not.
+//! Ports v2 `apps/worker/src/browser-commands/browser-command-terminal.ts`.
 
 use roost_protocol::terminal_search::ScrollbackHistoryFloor;
 use roost_protocol::wire::brand::SessionId;

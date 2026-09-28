@@ -1,7 +1,8 @@
 //! The TCP ports a session's process tree is LISTENing on, so the sidebar can
 //! chip a dev server and open it. Only this worker can see the host's sockets.
-//! Depends on `host::tool_path` for the bounded runner, on `roost_host` for the
-//! platform, and on nothing here.
+//! Ports v2 `apps/worker/src/host/listening-ports.ts`; `host::sampling` calls
+//! it on v2's 90 s ports poll. `ps`, `ss` and `lsof` run with the tool `PATH`
+//! (v2 `TOOL_PATH`), because a service manager's `PATH` has none of them.
 //!
 //! ONLY REACHABLE BINDS. A port is reported only when it is bound on something
 //! other than loopback, because the chip opens `http://<worker's address>:<port>`
@@ -17,12 +18,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use roost_host::HostPlatform;
 
-use super::tool_path::run;
+use super::tool_path::{process_tool_path, run_on_path};
 
-/// Every descendant pid of `root`, itself included, from one `ps` snapshot.
+/// Every descendant pid of `root`, itself included, from one `ps` snapshot run
+/// on `tool_path`.
 #[must_use]
-pub fn descendant_pids(root: u32) -> Vec<u32> {
-    let Some(snapshot) = run("ps", &["-Ao", "pid,ppid"], None) else {
+pub fn descendant_pids(root: u32, tool_path: &str) -> Vec<u32> {
+    let Some(snapshot) = run_on_path(tool_path, "ps", &["-Ao", "pid,ppid"], None) else {
         return vec![root];
     };
     let mut children: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
@@ -73,7 +75,8 @@ pub fn parse_ss_listen_ports(output: &str, pids: &BTreeSet<u32>) -> Vec<u16> {
         let Some(local) = line.split_whitespace().nth(3) else {
             continue;
         };
-        let Some(cut) = local.rfind(':') else {
+        // v2 `cut <= 0`: a bind with no host before its colon is not a row.
+        let Some(cut) = local.rfind(':').filter(|cut| *cut > 0) else {
             continue;
         };
         let (host, port) = (&local[..cut], &local[cut + 1..]);
@@ -142,9 +145,12 @@ pub fn read_listening_ports(root_pid: Option<u32>, platform: HostPlatform) -> Ve
     let Some(root) = root_pid.filter(|pid| *pid > 0) else {
         return Vec::new();
     };
-    let pids: BTreeSet<u32> = descendant_pids(root).into_iter().collect();
+    let tool_path = process_tool_path(platform);
+    let pids: BTreeSet<u32> = descendant_pids(root, &tool_path).into_iter().collect();
     let ports = match platform {
-        HostPlatform::Linux => run("/usr/sbin/ss", &["-ltnpH"], None)
+        // `ss` has no pid selector; every listening socket is listed with its
+        // owner and the tree filter happens in the parser.
+        HostPlatform::Linux => run_on_path(&tool_path, "ss", &["-ltnpH"], None)
             .map(|out| parse_ss_listen_ports(&out, &pids))
             .unwrap_or_default(),
         // `-a` ANDs the pid filter with LISTEN. Without it `lsof` ORs the
@@ -155,7 +161,8 @@ pub fn read_listening_ports(root_pid: Option<u32>, platform: HostPlatform) -> Ve
                 .map(u32::to_string)
                 .collect::<Vec<_>>()
                 .join(",");
-            run(
+            run_on_path(
+                &tool_path,
                 "lsof",
                 &["-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", &pids],
                 None,

@@ -6,6 +6,7 @@
 //! kind is not the kind of the event it holds, would replay as a fact that never
 //! happened — and the coordinator, which sees one opaque `client_seq`, has no
 //! way to tell.
+//! Ports v2 `apps/worker/src/transport/session-event-store-database.ts`.
 
 use roost_protocol::wire::event::SessionEvent;
 use serde_json::Value;
