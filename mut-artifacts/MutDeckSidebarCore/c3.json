@@ -1,0 +1,121 @@
+{
+ "results": [
+  {
+   "id": "SP3",
+   "file": "crates/roost-client-core/src/deck/intent.rs",
+   "line": 206,
+   "change": "OpenSpawned: resolve the focus with the new session already folded in",
+   "expected_test": [
+    "an_admitted_new_tab_focuses_its_pane_and_the_route_pulls_it_in"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "TB3",
+   "file": "crates/roost-client-core/src/deck/tab_badge.rs",
+   "line": 22,
+   "change": "0-based position printed",
+   "expected_test": [
+    "first_of_two_reads_one_of_two",
+    "last_of_two_reads_two_of_two",
+    "last_of_five_reads_five_of_five"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "V3",
+   "file": "crates/roost-client-core/src/deck/view.rs",
+   "line": 83,
+   "change": "deck_view: transient drag ratios are not applied",
+   "expected_test": [
+    "a_divider_mid_drag_paints_at_its_transient_ratio"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "V4",
+   "file": "crates/roost-client-core/src/deck/view.rs",
+   "line": 134,
+   "change": "spotlight_rect: no 24px floor on the x margin",
+   "expected_test": [
+    "the_spotlight_floats_the_selected_tab_over_an_inset_card"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "W3",
+   "file": "crates/roost-client-core/src/deck/warm_set.rs",
+   "line": 80,
+   "change": "advance: always reports a change",
+   "expected_test": [
+    "the_same_inputs_report_no_change"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "S4",
+   "file": "crates/roost-client-core/src/store/sidebar/memory.rs",
+   "line": 131,
+   "change": "folder_memory_key: the machine is dropped from the key",
+   "expected_test": [
+    "the_folder_map_keys_by_machine_and_folder_and_the_newest_visit_wins"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "S7",
+   "file": "crates/roost-client-core/src/store/sidebar/folder_groups.rs",
+   "line": 178,
+   "change": "filter_folder_groups: any term matches (all -> any)",
+   "expected_test": [
+    "an_empty_filter_keeps_order_and_a_missing_term_excludes"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "S9",
+   "file": "crates/roost-client-core/src/store/sidebar/agents_projection.rs",
+   "line": 51,
+   "change": "project_sidebar_agent_groups: the query is ignored",
+   "expected_test": [
+    "agent_rows_filter_through_the_navigation_metadata"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "SI2",
+   "file": "crates/roost-client-core/src/store/sidebar/intent.rs",
+   "line": 129,
+   "change": "reveal_for_search: desktop toggles the rail even when expanded",
+   "expected_test": [
+    "search_opens_a_closed_drawer_or_expands_a_collapsed_rail_and_nothing_else"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "F1",
+   "file": "crates/roost-client-core/src/store/folder_name_validation.rs",
+   "line": 18,
+   "change": "control-character bound lowered below TAB",
+   "expected_test": [
+    "separators_blank_names_and_control_characters_are_named"
+   ],
+   "result": "failed"
+  }
+ ],
+ "failed": [
+  "a_divider_mid_drag_paints_at_its_transient_ratio",
+  "agent_rows_filter_through_the_navigation_metadata",
+  "an_admitted_new_tab_focuses_its_pane_and_the_route_pulls_it_in",
+  "an_empty_filter_keeps_order_and_a_missing_term_excludes",
+  "first_of_two_reads_one_of_two",
+  "last_of_five_reads_five_of_five",
+  "last_of_two_reads_two_of_two",
+  "search_opens_a_closed_drawer_or_expands_a_collapsed_rail_and_nothing_else",
+  "separators_blank_names_and_control_characters_are_named",
+  "the_folder_map_keys_by_machine_and_folder_and_the_newest_visit_wins",
+  "the_same_inputs_report_no_change",
+  "the_spotlight_floats_the_selected_tab_over_an_inset_card"
+ ],
+ "unexpected": []
+}

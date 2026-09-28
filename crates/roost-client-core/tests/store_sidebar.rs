@@ -17,7 +17,7 @@ use roost_client_core::store::sidebar::folder_groups::{
 };
 use roost_client_core::store::sidebar::{SidebarCursor, SidebarMemory};
 use roost_client_core::{ClientCore, KeyValueStore as _};
-use roost_protocol::wire::AgentRuntimeState;
+use roost_protocol::wire::{AgentRuntimeState, AgentStatusFields, AgentStatusUpdate};
 use sidebar_support::{FIRST_FP, SECOND_FP, SESSION_A, SESSION_B, agent_status, seeded, session};
 
 fn ids(values: &[&str]) -> Vec<String> {
@@ -184,15 +184,30 @@ fn project(core: &ClientCore, query: &str) -> Vec<(String, Vec<(String, AgentSta
 fn a_removed_status_removes_its_agent_row() {
     let row = session(SESSION_A, FIRST_FP, "/tmp/roost", 1_000);
     let working = agent_status(SESSION_A, AgentRuntimeState::Working, 1, 0, None);
-    let with_status = seeded(std::slice::from_ref(&row), &[], &[working]);
+    let mut core = seeded(&[row], &[], std::slice::from_ref(&working));
     assert_eq!(
-        project(&with_status, "")[0].1,
+        project(&core, "")[0].1,
         [(SESSION_A.to_owned(), AgentStatusLevel::Working)]
     );
-    let without = seeded(&[row], &[], &[]);
-    assert!(project(&without, "").is_empty());
+    let removal = AgentStatusUpdate {
+        common: AgentStatusFields {
+            revision: 2,
+            updated_at: 2,
+            ..working.common
+        },
+        active: false,
+    };
+    let store = core.store_mut();
+    assert!(
+        store
+            .agent_status
+            .apply_update(&removal, &store.agent_seen)
+            .is_some(),
+        "the removal is admitted"
+    );
+    assert!(project(&core, "").is_empty());
     assert_eq!(
-        store_navigation_documents(without.store(), &ExactWorkerPaths, 1_000)[0].agent_status,
+        store_navigation_documents(core.store(), &ExactWorkerPaths, 1_000)[0].agent_status,
         None,
         "the document is still there, with no level"
     );

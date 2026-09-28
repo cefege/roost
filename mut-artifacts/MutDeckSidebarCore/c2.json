@@ -1,0 +1,139 @@
+{
+ "results": [
+  {
+   "id": "DI6",
+   "file": "crates/roost-client-core/src/deck/intent.rs",
+   "line": 294,
+   "change": "Arrange: drop the select_tab that keeps the route session focused",
+   "expected_test": [
+    "arrange_rebuilds_from_the_live_set_and_keeps_the_route_session_selected"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "DI7",
+   "file": "crates/roost-client-core/src/deck/intent/follow.rs",
+   "line": 23,
+   "change": "observe: the first observation (no previous folder) counts as a folder change",
+   "expected_test": [
+    "a_folder_change_drops_the_spotlight_but_the_first_observation_does_not"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "DI8",
+   "file": "crates/roost-client-core/src/deck/state.rs",
+   "line": 154,
+   "change": "DeckState::commit: stop persisting the records",
+   "expected_test": [
+    "split_mints_a_fresh_pane_and_the_arrangement_survives_a_reload"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "SP2",
+   "file": "crates/roost-client-core/src/deck/spawn.rs",
+   "line": 74,
+   "change": "landed: a split inserts the new pane BEFORE the asking pane",
+   "expected_test": [
+    "an_admitted_split_lands_after_its_pane_and_shows_the_new_terminal"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "TB2",
+   "file": "crates/roost-client-core/src/deck/tab_badge.rs",
+   "line": 21,
+   "change": "index bound off-by-one (<=)",
+   "expected_test": [
+    "an_index_past_the_end_never_prints_six_of_five"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "V2",
+   "file": "crates/roost-client-core/src/deck/view.rs",
+   "line": 90,
+   "change": "deck_view compact: the stored selection wins over the route",
+   "expected_test": [
+    "a_compact_host_paints_the_followed_sessions_pane_full_bleed"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "W2",
+   "file": "crates/roost-client-core/src/deck/warm_set.rs",
+   "line": 67,
+   "change": "advance: a slot naming a non-open session is warmed",
+   "expected_test": [
+    "a_slot_naming_a_session_that_is_not_open_is_not_warmed"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "S2",
+   "file": "crates/roost-client-core/src/store/sidebar/cursor.rs",
+   "line": 63,
+   "change": "move_cursor: clamp one past the last row",
+   "expected_test": [
+    "moving_clamps_at_the_bottom"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "S3",
+   "file": "crates/roost-client-core/src/store/sidebar/memory.rs",
+   "line": 100,
+   "change": "remember_visit: the folder map is not persisted",
+   "expected_test": [
+    "a_visit_stores_the_restore_path_and_the_folders_last_session"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "S6",
+   "file": "crates/roost-client-core/src/store/sidebar/folder_groups.rs",
+   "line": 176,
+   "change": "filter_folder_groups: the machine label is not searched",
+   "expected_test": [
+    "the_folder_filter_matches_every_term_across_name_machine_and_path"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "SI1",
+   "file": "crates/roost-client-core/src/store/ui.rs",
+   "line": 180,
+   "change": "set_sidebar_view: the view is not persisted",
+   "expected_test": [
+    "the_stored_sidebar_view_is_the_one_a_new_document_shows"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "S8",
+   "file": "crates/roost-client-core/src/client/agents/status_projection.rs",
+   "line": 216,
+   "change": "apply_update: an inactive (deletion) report leaves the retained status in place",
+   "expected_test": [
+    "a_removed_status_removes_its_agent_row"
+   ],
+   "result": "failed"
+  }
+ ],
+ "failed": [
+  "a_compact_host_paints_the_followed_sessions_pane_full_bleed",
+  "a_folder_change_drops_the_spotlight_but_the_first_observation_does_not",
+  "a_removed_status_removes_its_agent_row",
+  "a_slot_naming_a_session_that_is_not_open_is_not_warmed",
+  "a_visit_stores_the_restore_path_and_the_folders_last_session",
+  "an_admitted_split_lands_after_its_pane_and_shows_the_new_terminal",
+  "an_index_past_the_end_never_prints_six_of_five",
+  "arrange_rebuilds_from_the_live_set_and_keeps_the_route_session_selected",
+  "moving_clamps_at_the_bottom",
+  "split_mints_a_fresh_pane_and_the_arrangement_survives_a_reload",
+  "the_folder_filter_matches_every_term_across_name_machine_and_path",
+  "the_stored_sidebar_view_is_the_one_a_new_document_shows"
+ ],
+ "unexpected": []
+}
