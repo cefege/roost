@@ -46,6 +46,36 @@ under the build lock. Commits need `GIT_AUTHOR_*`/`GIT_COMMITTER_*` env
 (Mihai Mateias <mateiasmihaiandrei@gmail.com>); no git identity is configured.
 Build-slot waits reached 20 min in this session (all three tracks building).
 
+`1c75b287`: closed tabs are killed after the undo window (v2 `killAfterUndo`; closes open item 4a).
+
+### Stop state (budget), uncommitted work is in snapshot `v3-web-snap-term-viewstate`
+TERM gate after `1c75b287`: input now routes, but `shell_round_trip` fails with "marker was not
+visibly painted" (`baseline_ready:false, stream_id:null`). I captured the wire with a throwaway
+WebSocket-decoding spec (deleted). It shows the view published and ACCEPTED, with a `streamId`
+and a full `cellGrid` delivered, which isolates two client defects. Both fixes are in the snapshot,
+NOT committed and NOT test-run:
+1. `pane_mount.rs` minted `view-<hex>` view ids, and the coordinator refuses any non-UUID
+   (`terminal-view-protocol.ts:65`). Fixed with `crypto.randomUUID()` (`pane_mount/browser.rs`
+   `mint_view_id`). Design review APPROVED; P3 note: `Crypto::random_uuid` throws rather than
+   returning None on insecure origins, so the doc comment overclaims (check `is_secure_context`).
+2. `handle_correlated_result` hard-coded `stream_id: None`, and decode dropped the stream id and
+   effective geometry, so an accepted view never installed its stream. Fixed:
+   `SyncFrame::ViewState` and `ViewStateResult` carry `stream_id`/`effective_cols`/`effective_rows`,
+   and the stream is installed at the authority's effective geometry after
+   `is_terminal_uuid`/`is_terminal_geometry` (v2 `terminal-stream-view-commands.ts:205-216`).
+   `cargo check -p roost-client-core --all-targets` exit 0. Needs a regression test: an accepted
+   ViewState installs the stream, and a full frame then makes the replica paintable.
+   Mutation: revert to `None`.
+   Next: test, commit, rebuild dist-smoke (clean procedure), rerun the TERM gate.
+   Also seen on the wire: the view revision climbs 1→2→3→4 on renewals every ~3-4 s. v2 renews
+   the same revision, so check whether something other than the heartbeat bumps it.
+3. SYNC LIFECYCLE `tab-id.ts` port (helper TabId, stopped mid-verification):
+   `client/auth/tab_id.rs` (8/8 `tab_identity` tests green), `platform/tab_id.rs` (wasm, NEVER
+   compiled), and `pump/boot.rs` claims before the first dial. It also edits `lib.rs`,
+   `platform/{mod,rpc,connect}.rs` (tab id header becomes `RefCell` + `present_tab_id`).
+   Next: wasm32 check with and without smoke, clippy, tests, and a mutation (the `Occupied` arm).
+   Full notes are in the helper report (transcript `history://WebLead.TabId` on the old session).
+
 ## Pause state (WebLeadU4, historical)
 
 Tree = `e09f39ca` + this doc commit. No slices were spawned; no services or
