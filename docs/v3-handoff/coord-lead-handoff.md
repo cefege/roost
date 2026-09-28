@@ -1,4 +1,4 @@
-# Coord lead handoff — Stage 2C, rows at 0
+# Coord lead handoff — Stage 2C closed, rows at 0
 
 **A moment, not a state.** Read `git status --porcelain` and `git log --oneline -20`
 in the coord worktree before trusting any line below. The plan
@@ -7,7 +7,7 @@ in the coord worktree before trusting any line below. The plan
 ## Build environment (host `/home/mike/repos`)
 
 ```
-export PATH="$HOME/.cargo/bin:$PATH" CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4 \
+export PATH="$HOME/.cargo/bin:$PATH" CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=3 \
        CARGO_TARGET_DIR=<worktree>/target-track
 flock <worktree>/target-track/.roost-build.lock /home/mike/repos/roost-build-slot cargo …
 ```
@@ -19,7 +19,8 @@ untracked). One spec against the Rust coord: `ROOST_SMOKE_COORD_EXECUTABLE=$PWD/
 ROOST_TEST_BUN=$(command -v bun) bun node_modules/@playwright/test/cli.js test
 --config=playwright.config.ts --project=chromium-desktop --workers=1 smoke/terminal/<spec>`
 (`@serial` specs such as terminal-local-fast-path need `--project=chromium-serial`).
-Copy the `roost` binary aside before a spec if builds may run meanwhile.
+Copy the `roost` binary aside before a spec if builds may run meanwhile; a copy
+prints "is not a build of <worktree>; using it as given" and runs anyway.
 After every track gate run `/home/mike/repos/roost-target-sweep <target-track>` under the
 build lock.
 
@@ -34,53 +35,61 @@ Wave 3 (`14f076df` … `90a293a1`): cherry-picks `5208e0f9`/`7a46b99a`, RenderHi
 stream id, `09f1b60c` fleet_update → roost-protocol (integrator cherry-pick candidate),
 C-RETAIN, C-DIRECT, AT, GS, D1.
 
-Wave 4 (this session):
+Wave 4: `f83fc63e` rustfmt+clippy, `cb49dd18` AG2 SessionsPrompt, `57ed3b36` C-PUSH,
+`84467999` X2 DiagSnapshot.
+
+Wave 5 (this session), all pushed:
 
 | SHA | What |
 |---|---|
-| `f83fc63e` | rustfmt + clippy on wave-3 files |
-| `cb49dd18` | AG2 SessionsPrompt (row → Implemented) |
-| `57ed3b36` | C-PUSH production Web Push transport + viewer suppression |
-| `84467999` | X2 DiagSnapshot wired (row → Implemented) |
+| `367c139d` | sync_ws canonical client-frame check in field-number order — this is what fixed terminal-peer `:209` |
+| `48b40471` | protocol: the capture command/result/section types (cherry-pick of worker `7a46b99a`) |
+| `de213b71` | C-CAPTURE: `terminal_capture/` (bridge, lease, recorder, freeze, session_scope, worker_call) + wiring + 26 ported tests |
+| `d6395a97` | sync_ws: every client-frame refusal names the check that produced it |
+| `365ff392` | header audit: the eight v2 modules no header named, plus the `workers/worker-service.ts` README row |
 
-**Ratchet: `PortStatus::AwaitingDomainPort` rows = 0.** `#[ignore]` in roost-coord = 0.
+**Ratchets, re-measured on this tree:**
 
-## Spec evidence (Rust coord debug build at `84467999`, TS worker, smoke dist)
+- `grep -c 'PortStatus::AwaitingDomainPort' crates/roost-coord/src/rpc/method_route_rows.rs` = **0**.
+- `#[ignore]` anywhere under `crates/roost-coord/` = **0**.
+- Header audit: **204 v2 `apps/coord/src` non-test modules, 0 unaccounted** — each is
+  named by a Rust `//!` header or listed in `crates/roost-coord/README.md`. The
+  matcher accepts a bare stem, a brace form (`worker-send-attachment-{grant,peer,status}.ts`)
+  and a suffix a sibling introduces (``-direct-terminal.ts``).
 
-- terminal-render 5/5.
-- terminal-peer 3/5 run: `:96` and `:175`, `:298` pass; `:61` fails `goto: Download is
-  starting` on the worker's loopback door — identical with the TS coordinator
-  (environment); `:209` is the open Sync-resume defect below.
-- earlier: attachment-direct 3/3, global-search 1/1. terminal-local-fast-path not run.
+## Spec evidence (Rust coord debug build, TypeScript worker, smoke dist)
 
-## Open defect: Sync resume closes 1008 `invalid_client_frame` (terminal-peer `:209`)
+- `terminal-peer.spec.ts` **4/5**: `:96`, `:175`, `:209`, `:298` pass; `:61` fails
+  `goto: Download is starting` on the worker's loopback door, identically with the
+  TypeScript coordinator (environment, not the port).
+- `terminal-peer.spec.ts:209` — the test this doc used to call an open defect — now
+  passes, and was run twice: once alone with `-g "disabled peer capability"` (1 passed,
+  5.0s) and once inside the full file. **There is no open Sync-resume defect.** The
+  handoff line that called it one was written against a build at `84467999`, before
+  `367c139d`; that commit's own body records the fix and the same spec result.
+- earlier: terminal-render 5/5, attachment-direct 3/3, global-search 1/1.
+- terminal-local-fast-path: see the report; not run in this session's budget window.
 
-After `__smoke.pauseSyncTransport()`/`resumeSyncTransport()` every new socket is closed
-by `sync_ws/ingress.rs` with `invalid_client_frame` 1 ms after the terminal domain is
-seeded (`domain_seeded admitted=1`, 66 unacked bytes). Passes with the TS coordinator.
-Every Invalid path logs the same reason: decode/canonical (`is_canonical_client_frame`),
-`apply_ack` over `last_sent_seq` (`commands.rs:178`), an empty frame, an unknown domain,
-or a failed terminal reset. v2 `sync-ws-client-ingress.ts` has the same checks, so find
-which one fires (log the path + ack/last_sent + frame hex) before changing anything.
+## What `d6395a97` changed, and why it is not scope creep
 
-## UNCOMMITTED — C-CAPTURE, snapshot `origin/v3-coord-snap-capture` (`215a8f9c`)
+Every `1008` a Sync socket closes for a client frame logged the same reason,
+`invalid_client_frame`, and five checks produce it. `InvalidFrame` gives each its own
+reason, and the refusal line now carries the client's socket id, its acknowledgement,
+the socket's last sent and highest acknowledged sequences, and the frame's bytes as
+bounded hex. The close code and its wire reason are unchanged. Before this change,
+`367c139d` had to be diagnosed from captured bytes by hand; the next occurrence reads
+off the log.
 
-`crates/roost-coord/src/terminal_capture/*` (restore: `git stash apply 215a8f9c`; then
-add `pub mod terminal_capture;` to lib.rs). Ported, NEVER COMPILED, no tests. Defines
-command/result (`TerminalCaptureCommand`, `TerminalCaptureResult`, action names) and
-coordinator record/section types (`TerminalCoordinatorRecord`, `TerminalCoordinatorSection`,
-payload) that `roost_protocol::terminal_capture` lacks; v2 keeps them in
-`packages/protocol/src/terminal-capture.ts`, and the ruling puts capture types in
-roost-protocol — move them there as a self-contained commit and tell WorkerLead.
-Wiring (not applied): `CoordServices.terminal_capture: Arc<TerminalCaptureRuntime>`;
-`diag_snapshot.rs` capture branch → `CaptureBridge{..}.handle(capture, &caller.principal)`;
-recorder hook after `residency.replace` in `terminal_screen/replica_admission.rs`
-(`install_cache`, `accept_delta`; v2 terminal-screen-hub.ts:323,:373). Tests to port:
-terminal-capture-bridge.test.ts (15), terminal-capture-recorder.test.ts (10).
+## Open items, in plan order
 
-## Next steps, in order
+1. `terminal-local-fast-path.spec.ts` on `--project=chromium-serial` — not run in this
+   session (budget); the other four `terminal-peer` cases and `terminal-render` are green.
+2. `terminal-peer :61` — environment (`goto: Download is starting`), identical with the
+   TS coordinator; not a port defect and not this track's to fix.
+3. The integrator owns the merge, the workspace gate and the release runbook.
 
-1. terminal-peer `:209` Sync-resume defect.
-2. C-CAPTURE (types → roost-protocol, compile, tests, wiring, mutations).
-3. terminal-local-fast-path (chromium-serial); header audit; track gate; release
-   live-stack READY check; report.
+## Next steps
+
+1. Cherry-pick or merge `v3-coord` (tip `365ff392`) into `v3`.
+2. Re-run the workspace gate on the merged tree; the coord half of it is green here.
+3. `live-stack` READY check and the cutover runbook are the integrator's.
