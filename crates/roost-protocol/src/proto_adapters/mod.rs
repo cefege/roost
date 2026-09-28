@@ -7,6 +7,7 @@ pub mod agent_conversation_reference_proto;
 pub mod coord_worker_proto;
 pub mod host_identity_proto;
 pub mod keeper_runtime_proto;
+pub mod layout_document_proto;
 pub mod terminal_core_capacity_proto;
 
 pub use agent_conversation_reference_proto::{
