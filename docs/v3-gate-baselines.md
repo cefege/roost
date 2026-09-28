@@ -1917,16 +1917,28 @@ it is the one failure mode a pass/fail/skip summary cannot show.
 
 ### Gate results
 
-**S3.0 WORKSPACE GATE — build criteria pass, lint criterion OUTSTANDING. 2026-09-28.**
+**S3.0 WORKSPACE GATE — NOT GREEN. One criterion of four met. 2026-09-28.**
 First run of this gate on a merged tree; it had never been run since the CLI
 merge, and the gate script had refused four times for want of a quiet machine.
 
-**"Green" is withdrawn.** A gate is two agreeing green runs of the track's
-crates, clippy 0, `cargo xtask lint` **0**, and `cargo xtask fmt` clean. Lint is
-**8** on this tree, so one criterion is unmet and the gate is not closed. Those
-8 are `roost-keeper`'s lint table plus 7 fixture allows, and the ladder below
-says in advance that the `v3-worker` merge takes them to **0** — a known
-outstanding rather than a new finding, and still outstanding.
+**Count all four, because counting only the ones that were run is how this gets
+overstated.** A gate is two agreeing green runs of the track's crates, clippy 0,
+`cargo xtask lint` **0**, and `cargo xtask fmt` clean. Here:
+
+- **fmt — MET.** Exit 0, re-verified at `01370d2f` with zero diff lines.
+- **lint — UNMET.** **8**, every one `roost-keeper`: its lint table plus 7
+  fixture allows. The ladder below says in advance that the `v3-worker` merge
+  takes them to **0** — a known outstanding rather than a new finding, and still
+  outstanding.
+- **clippy — NOT RUN** on the merged tree.
+- **two agreeing green runs — NOT RUN.** No `cargo test` has been executed here
+  at all.
+
+**One met, three unmet or unrun.** A workspace that compiles and a binary that
+answers `--help` are not a gate. The first revision of this block said "one
+criterion is unmet" — which counted only the criterion that had been run, and
+reported a number where the honest answer was a smaller fraction of the whole.
+
 
 **Each row names its own tree.** They are not the same commit, and hanging one
 SHA over the whole block is the mistake this file exists to prevent.
@@ -1941,6 +1953,8 @@ SHA over the whole block is the mistake this file exists to prevent.
 |host recheck after the fix|`cargo check -p roost-host --all-targets`|`7ea8324c`|**exit 0**|
 |lint|`cargo xtask lint`|`01370d2f`|**8, every one `roost-keeper`** (1 lint table, 7 fixture allows). **0 in `roost-coord`**|
 |clippy|**NOT run on the merged tree**|—|the per-crate clippy figures on record come from the track branches, not from here|
+|two agreeing green runs|`cargo test --workspace --no-fail-fast`|**NOT RUN**|no `cargo test` has been executed on this tree. The 1734/1/15 figure in this file is from `3e92e97e` and does not describe a merged tree.|
+
 
 **The risk this gate existed to close is closed by compilation, not by a grep.**
 The CLI merge changed `pub trait EnvSource` to `pub trait EnvSource: Sync` in
@@ -1953,8 +1967,12 @@ sites. Re-measured on `01370d2f` by
 `roost-worker/src/browser_commands/file_commands.rs` (4: the `use` at `:27`, and
 `Arc<dyn EnvSource + Send + Sync>` at `:93`, `:107`, `:127`), and
 `roost-worker/src/runtime/boot.rs` (6: the `use` at `:19`, then five
-`&dyn EnvSource` parameters). Those `+ Send + Sync` bounds are now redundant but
-legal, which is the one thing a supertrait *can* be relied on to do.
+`&dyn EnvSource` parameters). **Only the `+ Sync` on those four
+`Arc<dyn EnvSource + Send + Sync>` sites is now redundant** — `EnvSource: Sync`
+is a supertrait and says nothing about `Send`, so dropping `+ Send` would change
+the type and stop the `Arc` being movable across threads. Making impls harder
+and leaving existing consumers legal is the one thing a supertrait *can* be
+relied on to do.
 
 The reasoning before this run was
 "a supertrait makes impls harder and consumers easier, so this should compile" —
