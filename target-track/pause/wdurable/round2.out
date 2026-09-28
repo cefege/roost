@@ -1,0 +1,281 @@
+
+running 9 tests
+test control_characters_relative_paths_and_oversized_references_are_unsupported ... ok
+test windows_has_no_restore_materialization ... ok
+test the_descriptor_pins_the_official_executable_and_option_form ... ok
+test a_reference_already_claimed_in_this_pass_never_resumes_twice ... ok
+test disabled_missing_and_unsupported_restores_write_zero_input ... ok
+test a_proven_rejection_releases_the_reference_claim_and_an_ambiguous_one_keeps_it ... ok
+test each_keeper_result_is_terminal_after_one_batch_and_never_logs_the_reference ... ok
+test a_partly_delivered_resume_command_is_discarded_from_the_prompt ... FAILED
+test every_reference_stays_one_opaque_argv_element ... ok
+
+failures:
+
+---- a_partly_delivered_resume_command_is_discarded_from_the_prompt stdout ----
+
+thread 'a_partly_delivered_resume_command_is_discarded_from_the_prompt' (671666) panicked at crates/roost-worker/tests/agent_conversation_restore.rs:306:5:
+assertion `left == right` failed
+  left: [[39, 111, 109, 112, 39, 32, 39, 45, 45, 114, 101, 115, 117, 109, 101, 61, 47, 112, 114, 105, 118, 97, 116, 101, 47, 111, 112, 97, 113, 117, 101, 45, 115, 101, 99, 114, 101, 116, 46, 106, 115, 111, 110, 108, 39, 13]]
+ right: [[39, 111, 109, 112, 39, 32, 39, 45, 45, 114, 101, 115, 117, 109, 101, 61, 47, 112, 114, 105, 118, 97, 116, 101, 47, 111, 112, 97, 113, 117, 101, 45, 115, 101, 99, 114, 101, 116, 46, 106, 115, 111, 110, 108, 39, 13], [3]]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    a_partly_delivered_resume_command_is_discarded_from_the_prompt
+
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 4 tests
+test an_adopted_sessions_reference_is_claimed_before_any_respawn_restore ... ok
+test every_session_in_one_pass_shares_the_reference_claim_set ... ok
+test a_rejected_write_frees_the_reference_for_the_next_session_in_the_pass ... ok
+test an_unexpected_restore_failure_never_escapes_the_pass ... FAILED
+
+failures:
+
+---- an_unexpected_restore_failure_never_escapes_the_pass stdout ----
+
+thread 'an_unexpected_restore_failure_never_escapes_the_pass' (671683) panicked at crates/roost-worker/tests/agent_conversation_restore_reconcile.rs:83:13:
+restore callback failed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    an_unexpected_restore_failure_never_escapes_the_pass
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 6 tests
+test the_prompt_uses_the_final_bracketed_paste_mode_raw_input_stays_byte_exact_and_logs_omit_the_text ... ok
+test a_budget_that_cannot_cover_the_submit_delay_rejects_without_writing ... ok
+test keeper_rejected_partial_and_unknown_truth_is_kept_without_a_retry ... ok
+test utf8_bytes_safe_revision_and_the_hop_budget_are_enforced_before_any_scan_or_write ... ok
+test the_cr_goes_out_only_after_the_settle_delay_and_is_accepted_only_when_acknowledged ... FAILED
+test a_prompt_expires_behind_an_unresolved_predecessor_without_losing_receive_order ... ok
+
+failures:
+
+---- the_cr_goes_out_only_after_the_settle_delay_and_is_accepted_only_when_acknowledged stdout ----
+
+thread 'the_cr_goes_out_only_after_the_settle_delay_and_is_accepted_only_when_acknowledged' (671689) panicked at crates/roost-worker/tests/agent_prompt_control.rs:219:5:
+the CR was written before the paste settled
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    the_cr_goes_out_only_after_the_settle_delay_and_is_accepted_only_when_acknowledged
+
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+
+running 6 tests
+test blocked_and_screen_only_status_reject_without_a_process_refresh ... ok
+test the_final_deadline_connection_and_refreshed_process_proof_all_gate_the_write ... ok
+test a_prompt_reserves_its_receive_order_before_the_initial_scan_settles ... ok
+test a_queued_ticket_drains_when_the_initial_process_proof_is_rejected ... ok
+test a_stale_revision_a_replaced_occupant_and_a_closed_session_reject_after_queueing ... ok
+test a_stalled_final_scan_is_aborted_and_input_released_at_budget_expiry ... FAILED
+
+failures:
+
+---- a_stalled_final_scan_is_aborted_and_input_released_at_budget_expiry stdout ----
+
+thread 'a_stalled_final_scan_is_aborted_and_input_released_at_budget_expiry' (671702) panicked at crates/roost-worker/tests/agent_prompt_fences.rs:164:5:
+the stalled scan was not told to stop
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    a_stalled_final_scan_is_aborted_and_input_released_at_budget_expiry
+
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+
+running 5 tests
+test a_failed_turn_still_hands_the_gate_on ... ok
+test a_reference_the_event_schema_refuses_never_reaches_the_outbox ... ok
+test a_failed_append_gives_its_claim_back ... ok
+test a_later_turn_waits_for_the_one_holding_the_gate_and_runs_in_arrival_order ... FAILED
+test a_set_and_a_clear_each_consume_their_own_claim ... ok
+
+failures:
+
+---- a_later_turn_waits_for_the_one_holding_the_gate_and_runs_in_arrival_order stdout ----
+
+thread 'a_later_turn_waits_for_the_one_holding_the_gate_and_runs_in_arrival_order' (671711) panicked at crates/roost-worker/tests/agent_reference_admission.rs:61:5:
+assertion `left == right` failed: a reporter entered while reconciliation held the gate
+  left: ["reconcile", "reporter", "clear"]
+ right: ["reconcile"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    a_later_turn_waits_for_the_one_holding_the_gate_and_runs_in_arrival_order
+
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+test a_refused_boot_pass_leaves_the_snapshot_held ... FAILED
+test a_disposed_link_refuses_the_boot_pass_without_a_read ... FAILED
+test a_reference_reporter_queued_during_a_pass_enters_only_after_it ... FAILED
+test the_boot_pass_reads_only_after_the_replay_and_the_snapshot_only_follows_the_pass ... FAILED
+
+failures:
+
+---- a_refused_boot_pass_leaves_the_snapshot_held stdout ----
+
+thread 'a_refused_boot_pass_leaves_the_snapshot_held' (671717) panicked at crates/roost-worker/tests/boot_admission.rs:189:5:
+assertion failed: !rig.snapshot.is_active()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- a_disposed_link_refuses_the_boot_pass_without_a_read stdout ----
+
+thread 'a_disposed_link_refuses_the_boot_pass_without_a_read' (671715) panicked at crates/roost-worker/tests/boot_admission.rs:249:5:
+assertion failed: !rig.snapshot.is_active()
+
+---- a_reference_reporter_queued_during_a_pass_enters_only_after_it stdout ----
+
+thread 'a_reference_reporter_queued_during_a_pass_enters_only_after_it' (671716) panicked at crates/roost-worker/tests/boot_admission.rs:213:5:
+a reporter entered mid-pass
+
+---- the_boot_pass_reads_only_after_the_replay_and_the_snapshot_only_follows_the_pass stdout ----
+
+thread 'the_boot_pass_reads_only_after_the_replay_and_the_snapshot_only_follows_the_pass' (671718) panicked at crates/roost-worker/tests/boot_admission.rs:163:5:
+the snapshot was activated mid-pass
+
+
+failures:
+    a_disposed_link_refuses_the_boot_pass_without_a_read
+    a_reference_reporter_queued_during_a_pass_enters_only_after_it
+    a_refused_boot_pass_leaves_the_snapshot_held
+    the_boot_pass_reads_only_after_the_replay_and_the_snapshot_only_follows_the_pass
+
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+
+
+running 6 tests
+test the_snapshot_and_a_journal_row_never_share_a_sequence ... ok
+test sink_rows_reach_the_coordinator_before_the_snapshot_and_while_live ... ok
+test a_restart_replays_the_unacknowledged_rows_before_its_snapshot ... ok
+test a_blocking_claim_holds_the_snapshot_until_it_is_held ... ok
+test a_held_snapshot_drains_the_replay_and_publishes_only_once_activated ... ok
+test the_replay_barrier_waits_for_acked_rows_and_unblocked_claims ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+
+   Compiling roost-proto v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-proto)
+   Compiling roost-protocol v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-protocol)
+   Compiling roost-host v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-host)
+   Compiling roost-keeper v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-keeper)
+   Compiling roost-term v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-term)
+   Compiling roost-worker v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-worker)
+warning: unused imports: `IpAddr`, `Ipv4Addr`, and `Ipv6Addr`
+ --> crates/roost-worker/src/runtime/door_serve.rs:8:16
+  |
+8 | use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+  |                ^^^^^^  ^^^^^^^^  ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `futures_util::FutureExt as _`
+  --> crates/roost-worker/src/runtime/reconcile_restore.rs:13:5
+   |
+13 | use futures_util::FutureExt as _;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unreachable statement
+  --> crates/roost-worker/src/attachments/grant_checks.rs:49:5
+   |
+48 |     return true;
+   |     ----------- any code following this expression is unreachable
+49 |     let expected = Sha256::digest(expected.as_bytes());
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unreachable statement
+   |
+   = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `expected`
+  --> crates/roost-worker/src/attachments/grant_checks.rs:47:23
+   |
+47 | fn capability_matches(expected: &str, received: &str) -> bool {
+   |                       ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_expected`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `received`
+  --> crates/roost-worker/src/attachments/grant_checks.rs:47:39
+   |
+47 | fn capability_matches(expected: &str, received: &str) -> bool {
+   |                                       ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_received`
+
+warning: unused variable: `host`
+  --> crates/roost-worker/src/door/admission.rs:62:31
+   |
+62 |     pub fn admits_host(&self, host: &str) -> bool {
+   |                               ^^^^ help: if this is intentional, prefix it with an underscore: `_host`
+
+warning: unused variable: `extra`
+   --> crates/roost-worker/src/door/admission.rs:109:43
+    |
+109 | fn browser_origins(coordinator_url: &str, extra: &[String]) -> Vec<String> {
+    |                                           ^^^^^ help: if this is intentional, prefix it with an underscore: `_extra`
+
+warning: constant `PARTIAL_INPUT_DISCARD_BYTES` is never used
+  --> crates/roost-worker/src/agents/conversation_restore.rs:23:7
+   |
+23 | const PARTIAL_INPUT_DISCARD_BYTES: [u8; 1] = [0x03];
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `discard_partial_restore_input` is never used
+   --> crates/roost-worker/src/agents/conversation_restore.rs:215:10
+    |
+215 | async fn discard_partial_restore_input(
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `turn` is never read
+  --> crates/roost-worker/src/agents/reference_admission.rs:25:5
+   |
+24 | pub struct AgentReferenceAdmissionGate {
+   |            --------------------------- field in this struct
+25 |     turn: Arc<tokio::sync::Mutex<()>>,
+   |     ^^^^
+   |
+   = note: `AgentReferenceAdmissionGate` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `hosts` is never read
+  --> crates/roost-worker/src/door/admission.rs:15:5
+   |
+14 | pub struct DoorAdmission {
+   |            ------------- field in this struct
+15 |     hosts: HashSet<String>,
+   |     ^^^^^
+   |
+   = note: `DoorAdmission` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: `roost-worker` (lib) generated 11 warnings (run `cargo fix --lib -p roost-worker` to apply 6 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 38s
+     Running tests/agent_conversation_restore.rs (target-track/debug/deps/agent_conversation_restore-885fe4125d1c81b4)
+error: test failed, to rerun pass `-p roost-worker --test agent_conversation_restore`
+     Running tests/agent_conversation_restore_reconcile.rs (target-track/debug/deps/agent_conversation_restore_reconcile-079916c0d107b471)
+error: test failed, to rerun pass `-p roost-worker --test agent_conversation_restore_reconcile`
+     Running tests/agent_prompt_control.rs (target-track/debug/deps/agent_prompt_control-1d98f3cebb203a34)
+error: test failed, to rerun pass `-p roost-worker --test agent_prompt_control`
+     Running tests/agent_prompt_fences.rs (target-track/debug/deps/agent_prompt_fences-bbdd17e70b0571d2)
+error: test failed, to rerun pass `-p roost-worker --test agent_prompt_fences`
+     Running tests/agent_reference_admission.rs (target-track/debug/deps/agent_reference_admission-4fc97dde47d1f1c0)
+error: test failed, to rerun pass `-p roost-worker --test agent_reference_admission`
+     Running tests/boot_admission.rs (target-track/debug/deps/boot_admission-289cea36c23df4f0)
+error: test failed, to rerun pass `-p roost-worker --test boot_admission`
+     Running tests/durable_delivery.rs (target-track/debug/deps/durable_delivery-359cce7b95291233)
+error: 6 targets failed:
+    `-p roost-worker --test agent_conversation_restore`
+    `-p roost-worker --test agent_conversation_restore_reconcile`
+    `-p roost-worker --test agent_prompt_control`
+    `-p roost-worker --test agent_prompt_fences`
+    `-p roost-worker --test agent_reference_admission`
+    `-p roost-worker --test boot_admission`

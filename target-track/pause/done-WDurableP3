@@ -1,0 +1,5 @@
+BLOCKED (verification remainder only; request budget spent).
+run2 passed: durable_delivery 6/6, boot_admission 4/4, agent_conversation_restore_reconcile 4/4, reconcile_gate, worker_retire_authorization, worker_boot_order, link_downstream_absent, link_downstream_live, link_downstream_agent_prompt, worker_reconnect_ladder, worker_shutdown_boundary, link_barrier, agent_prompt_*, agent_conversation_restore, agent_reference_admission, worker_boot_config.
+Still red: link_agent_status::successful_retirements_replay_in_order_without_an_active_snapshot. It is a sibling untracked test, fails deterministically in run1 and run2, and is unclassified.
+Mutations: 21/24 guards hold. B3 is an equivalent mutant. B5 is caught by other tests. B2 got a new guard test (a_restarted_link_numbers_its_snapshot_above_the_previous_process); its run is queued: wdurable/run3.sh, then wdurable/run3.log and run3.done. Details in wdurable/MUTATIONS.md.
+Not done: clippy for my files; 3 pass-level A10 tests, which need SessionReconciler over a real keeper.

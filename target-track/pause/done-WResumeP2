@@ -1,0 +1,4 @@
+BLOCKED (request budget spent, not a product blocker). All WResume code and tests are in the tree. The shared `cargo check --all-targets` shows no errors in WResume files. The remaining errors belong to siblings: attachment_peer_owner.rs, local_terminal_support/mod.rs:301 socket_id, link_loop/durable/tests.rs, downstream/direct.rs and local_terminal/scrollback.rs.
+roost-keeper: the full suite passes, including channel_history 6/6, history_wire 3/3 and keeper_queries 9/9.
+Not run: the roost-worker tests, the mutants and clippy. That run sat queued on the build lock for 18+ minutes behind another track's test run. I killed it before it touched any source file; no file is mutated.
+To finish: `bash /tmp/wresume_run.sh > /tmp/wresume_run.log 2>&1`. It runs 16 worker test targets, 3 keeper mutants, 6 worker mutants (applied together and restored from /tmp/wresume_*.bak), then clippy.

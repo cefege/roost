@@ -17,7 +17,7 @@
 //! nothing about anyone's terminals — does not.
 
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use anyhow::Context as _;
@@ -25,7 +25,9 @@ use roost_keeper::client::KeeperClient;
 
 use crate::boot_keeper::{self, Admission, Blocked, ProbeResult, Unproven};
 use crate::runtime::boot::WorkerBoot;
+use crate::runtime::keeper_prepare::KeeperProcess;
 use crate::runtime::keeper_probe::{keeper_binary_digest, probe};
+use crate::runtime::keeper_retire::{RetiredSurvivor, cleanup_endpoint, replace_empty, retire_force_live};
 
 /// The refusal an operator sees when a survivor cannot be identified. Carried
 /// over verbatim from `apps/worker/src/boot/boot-keeper.ts` so the v2 runbook's
@@ -70,6 +72,19 @@ impl KeeperHandle {
             Err(poisoned) => use_client(&poisoned.into_inner()),
         }
     }
+
+    /// Drive a different connection from now on (v2 `pool.ensure()` after a
+    /// keeper death); the old client is dropped, which stops its reader.
+    pub fn replace(&self, client: KeeperClient) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = client;
+    }
+
+    /// The client itself, when this is the only handle to it.
+    pub fn into_client(self) -> Option<KeeperClient> {
+        Arc::try_unwrap(self.0)
+            .ok()
+            .map(|client| client.into_inner().unwrap_or_else(PoisonError::into_inner))
+    }
 }
 
 impl std::fmt::Debug for KeeperHandle {
@@ -99,6 +114,10 @@ pub enum KeeperBootDecision {
     /// An authenticated survivor that predates the binding-bearing Hello, and
     /// an operator authorized ending it. This ends every PTY it hosts.
     ForceLiveRetire,
+    /// An authenticated keeper this worker cannot adopt, proven empty by itself
+    /// AND by the coordinator: shut it down under an identity fence, then start
+    /// fresh (v2 `boot-keeper.ts:205-224`).
+    ReplaceEmpty,
     /// A replacement would end a terminal.
     Blocked { reason: Blocked },
     /// The probe could not prove occupancy, so boot refuses rather than guess.
@@ -163,7 +182,7 @@ pub fn decide(
             // replacement. `None` means nobody has read it, and treating that as
             // zero is how a restart kills a user's terminals.
             None => KeeperBootDecision::AwaitingCoordinator { admission },
-            Some(0) => KeeperBootDecision::StartFresh,
+            Some(0) => KeeperBootDecision::ReplaceEmpty,
             Some(_) => KeeperBootDecision::Blocked {
                 reason: Blocked::LiveSessions,
             },
@@ -181,10 +200,12 @@ pub async fn ensure_keeper(
     boot: &WorkerBoot,
     coordinator_open_sessions: Option<usize>,
     log_dir: &Path,
+    process: &KeeperProcess,
 ) -> anyhow::Result<KeeperBootOutcome> {
     let target_digest = keeper_binary_digest(&boot.keeper_executable).await;
     let (probe, client) = probe(&boot.keeper_socket, &target_digest).await;
     let decision = decide(&probe, coordinator_open_sessions, boot.force_live_retire);
+    let survivor = retired_survivor(&probe, coordinator_open_sessions);
     tracing::info!(
         ?decision,
         socket = %boot.keeper_socket.display(),
@@ -212,11 +233,16 @@ pub async fn ensure_keeper(
             ),
         },
         KeeperBootDecision::StartFresh => {
-            // The probe's connection, if any, is dropped: a keeper that proved
-            // empty is about to be replaced, and a live connection to it would
-            // only have to be closed twice.
+            // Nothing answered: v2 removes the dead endpoint so the fresh
+            // keeper can bind and readiness is not read off a stale file.
             drop(keeper);
-            start_fresh_keeper(boot, log_dir).await
+            cleanup_endpoint(&boot.keeper_socket);
+            start_fresh_keeper(boot, log_dir, process).await
+        }
+        KeeperBootDecision::ReplaceEmpty => {
+            let client = probe_client(keeper, boot)?;
+            replace_empty(&boot.keeper_socket, client, KEEPER_REPLACEMENT_BLOCKED_ERROR).await?;
+            start_fresh_keeper(boot, log_dir, process).await
         }
         KeeperBootDecision::AwaitingCoordinator { .. } => {
             // Dropping the connection is safe precisely because a keeper treats a
@@ -226,13 +252,9 @@ pub async fn ensure_keeper(
             Ok(KeeperBootOutcome::Held { decision })
         }
         KeeperBootDecision::ForceLiveRetire => {
-            drop(keeper);
-            anyhow::bail!(
-                "the keeper at {} authenticated but predates the binding-bearing hello, and this \
-                 build cannot retire it: roost-keeper's client has no authenticated shutdown frame \
-                 yet. Stop that keeper and restart the worker.",
-                boot.keeper_socket.display()
-            )
+            let client = probe_client(keeper, boot)?;
+            retire_force_live(&boot.keeper_socket, client, &survivor).await?;
+            start_fresh_keeper(boot, log_dir, process).await
         }
         KeeperBootDecision::Blocked { reason } => {
             drop(keeper);
@@ -247,10 +269,30 @@ pub async fn ensure_keeper(
     }
 }
 
+/// The probe's own authenticated connection, which a retirement must use.
+fn probe_client(keeper: Option<KeeperHandle>, boot: &WorkerBoot) -> anyhow::Result<KeeperClient> {
+    keeper.and_then(KeeperHandle::into_client).ok_or_else(|| {
+        anyhow::anyhow!("the keeper at {} authenticated but its connection is gone", boot.keeper_socket.display())
+    })
+}
+
+/// What the force-live log names before the retirement ends it.
+fn retired_survivor(probe: &KeeperProbe, coordinator_sessions: Option<usize>) -> RetiredSurvivor {
+    let KeeperProbe::Probed(probe) = probe else {
+        return RetiredSurvivor { coordinator_sessions, ..RetiredSurvivor::default() };
+    };
+    RetiredSurvivor {
+        binding_channel_ids: probe.bindings.as_ref().map(|held| held.iter().map(|binding| binding.channel_id).collect()),
+        spawning_channels: probe.spawning_channels.clone(),
+        coordinator_sessions,
+    }
+}
+
 /// Start a keeper and wait for it to prove it is listening.
 async fn start_fresh_keeper(
     boot: &WorkerBoot,
     log_dir: &Path,
+    process: &KeeperProcess,
 ) -> anyhow::Result<KeeperBootOutcome> {
     use std::process::Stdio;
 
@@ -273,9 +315,17 @@ async fn start_fresh_keeper(
     // the child handle goes to a task that only ever WAITS on it, which reaps
     // the process when it eventually ends and never kills it. v2 needed a
     // dedicated reaper for the same reason.
+    let pid = child.id();
+    if let Some(pid) = pid {
+        process.started(pid);
+    }
+    let ended = process.clone();
     tokio::spawn(async move {
         let outcome = child.wait().await;
         tracing::warn!(?outcome, "the keeper process ended");
+        if let Some(pid) = pid {
+            ended.ended(pid);
+        }
     });
     tracing::info!(
         keeper = %boot.keeper_executable.display(),

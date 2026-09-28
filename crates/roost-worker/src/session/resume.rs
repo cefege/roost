@@ -1,47 +1,32 @@
-//! Rebuilding a record around a PTY this worker did not spawn: the adoption
-//! this file sequences over the keeper seam (`session::keeper_channels`), and the
-//! refusal an over-long concurrent stream earns. `keeper_pool` implements
-//! the seam; boot reconcile calls [`SessionManager::adopt_survivor`]. Depends on
-//! `session::keeper_channels` for the keeper vocabulary and `roost_term` for the core.
+//! Rebuilding a record around a PTY whose keeper survived this worker: the
+//! reattach at the history's ordered boundary, the replay into a cold core,
+//! the staged concurrent output, and the atomic swap. Ports
+//! `apps/worker/src/session/session-resume.ts` (`resume`). The boot and
+//! keeper-death reconcile (`runtime::session_reconcile`) is the only caller; a
+//! refusal is its signal to respawn the logical session.
 //!
-//! THE ORDERING IS THE WHOLE SLICE: the two READS, then the reattach, then
-//! the ordered history replay into a cold core, then the concurrent output
-//! staged, then the atomic swap.
-//!
-//! THE READS COME FIRST AND THE REATTACH COMES THIRD, and this used to say the
-//! opposite. It claimed the reattach is what makes the keeper establish its
-//! ordered boundary, so the history had to follow it. `deliver_into` does not
-//! establish anything on the keeper's side — the keeper streams `PtyOut` to
-//! every channel it holds regardless of who is reading, and
-//! `keeper_pool/session_seam.rs` says so in as many words. All the reattach
-//! does is insert into the pool's acknowledged table, which is a MUTATION, and
-//! a mutation that ran before the two reads meant a failing `channel_history`
-//! or `terminal_state` left the survivor bound to a staging buffer whose
-//! record was never installed. The ordered boundary is the history request's,
-//! not the reattach's, and the reads are now what precedes it.
+//! THE ORDER IS v2's. The core is admitted, then the survivor is reattached and
+//! its history read at one keeper boundary (`KeeperChannels::reattach_with_history`),
+//! then the applied geometry is read, then the core is rebuilt and the record
+//! installed, and only then does the staged output go live. Every failure after
+//! the reattach KILLS the survivor and records its end before any capacity is
+//! released, so no orphan outlives its durable close (v2 `resume` catch).
 //!
 //! OVERFLOW REFUSES THE ADOPTION. A PTY stream is contiguous, so discarding
-//! either end of the staged window splices an invisible hole into parser state
-//! nothing downstream re-parses: a TUI's cursor-addressed partial repaint never
-//! revisits a cell it believes it already painted. The only repair that preserves
-//! the no-gap invariant is the respawn path, so a survivor whose output outgrows
-//! the staging bound is killed and re-created rather than adopted with a hole.
-//!
-//! THE HEAD IS THE KEEPER'S, NEVER RE-DERIVED. `keeper_channels::SurvivorHistory` carries the
-//! head the keeper reports beside its records, because the sum of the retained
-//! bytes is a different number the moment anything was evicted, and a head that
-//! understates the stream re-aliases every absolute address a browser holds.
+//! either end of the staged window splices a hole into parser state nothing
+//! downstream re-parses; the survivor is killed and respawned instead.
 
 use std::sync::Arc;
 
-use roost_protocol::wire::brand::{ChannelId, SessionId, TraceId};
+use roost_protocol::wire::brand::{ChannelId, SessionId};
+use roost_protocol::wire::event::SessionEvent;
 
 use super::binding::{RESUME_STAGE_CAP_BYTES, RecordBinding};
 use super::lifecycle::SessionManager;
 use super::sinks::ChannelBinding;
 use crate::event_store::Reservation;
 use crate::shell_spec::ShellSpec;
-use crate::terminal_core_capacity::{TerminalCoreAllocationKind, TerminalCoreCapacityError};
+use crate::terminal_core_capacity::{TerminalCoreAllocationKind, TerminalCoreCapacityError, TerminalCoreLease};
 
 /// What an adoption did: the window's floor, and the head it was seeded with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,32 +35,25 @@ pub struct Adopted {
     pub head_seq: u64,
 }
 
-/// Why a survivor was not adopted. Every variant has left nothing half-adopted
-/// behind by the time it returns: the survivor is killed and the durable claim
-/// released, so the caller's only move left is a respawn.
+/// Why a survivor was not adopted.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum AdoptRefusal {
     #[error("the keeper holds no channel {0} to adopt")]
     NoSurvivor(u16),
-    #[error("this worker already holds channel {0} or the session it names")]
+    #[error("this worker already holds channel {0}")]
     AlreadyHeld(u16),
-    #[error("the keeper's history for channel {channel} is not replayable: {reason}")]
+    #[error("channel {channel} could not be adopted: {reason}")]
     Unreplayable { channel: u16, reason: String },
-    /// Concurrent output outgrew the staging bound. The channel is killed: a
-    /// truncated adoption is a hole in the parser, not a smaller window.
+    /// Concurrent output outgrew the staging bound while the core was rebuilt.
     #[error(
-        "channel {channel} produced more than {cap} bytes while its core was rebuilt, so \
-         adopting it would splice a byte gap; it was killed instead"
+        "resume staged output exceeded {cap} bytes; adopting channel {channel} would splice a byte gap"
     )]
     StagingOverflow { channel: u16, cap: usize },
-    /// The worker's terminal-core admission refused an adoption core. The
-    /// survivor was not touched and the close claim was given back (v2
-    /// `session-resume.ts:294`); the boot must stop rather than respawn.
+    /// Terminal-core admission refused an adoption core. Nothing was touched
+    /// and the close claim was given back (v2 `session-resume.ts:294`); the
+    /// reconcile stops rather than respawning.
     #[error("channel {channel} could not be adopted: {refusal}")]
-    TerminalCoreCapacity {
-        channel: u16,
-        refusal: TerminalCoreCapacityError,
-    },
+    TerminalCoreCapacity { channel: u16, refusal: TerminalCoreCapacityError },
 }
 
 /// What a survivor is adopted as.
@@ -83,77 +61,33 @@ pub enum AdoptRefusal {
 pub struct AdoptionRequest {
     pub session_id: SessionId,
     pub channel_id: ChannelId,
-    /// Where the shell is: the record's `cwd` and its events'.
+    /// The record's `cwd`: the resolved launch folder.
     pub folder: String,
-    /// The launch contract a later respawn must reuse VERBATIM, resolved by the
-    /// caller and deliberately not the drifted `cwd`: a PTY re-opened under a
-    /// folder the shell walked into is a different session wearing this id.
+    /// The launch contract a later respawn reuses verbatim.
     pub shell_spec: ShellSpec,
-    /// Capacity claimed for the close that ends this session, taken before the
-    /// survivor was adopted so a session that cannot record its end never
-    /// becomes live here.
+    /// Capacity claimed for the close that ends this session. OWNED by the
+    /// adoption from the call on: held on success, spent on a tombstone or a
+    /// close on failure, released when nothing was touched.
     pub close_reservation: Reservation,
-    /// The trace id the session has carried since it was created, from the
-    /// coordinator's row: a new one would break the correlation every event
-    /// about this session has had.
-    pub session_trace_id: TraceId,
-    /// The stream generation the coordinator addresses this session by, NOT
-    /// re-minted: an adopted session emits no `opened`, so a generation nobody
-    /// was told about would be addressed by nobody.
-    pub stream_id: String,
-    /// The keeper socket the survivor is on, retained for a diagnostic.
-    pub socket_path: String,
-    pub now_ms: i64,
-    /// When this adoption happened, monotonically: the pin's age is never a wall
-    /// clock, so a clock step cannot forge how long ago the floor moved.
-    pub mono_ms: u64,
 }
 
-/// A refusal, and the fact of whether the survivor died.
-///
-/// WHY THE FACT IS CARRIED AND NOT DERIVED FROM THE VARIANT. `adopt_survivor`
-/// has ELEVEN refusal exits. Three call `abandon` and therefore
-/// `keeper.kill_channel`; eight return bare. Five of those eight produce
-/// `AdoptRefusal::Unreplayable` — the SAME variant the abandoned record-build
-/// and the abandoned table-insert produce — so a caller that infers "this
-/// killed the survivor" from the variant it received is wrong five times out
-/// of eleven, on a path whose whole consequence is a terminal ending.
-///
-/// `Deref` is there so a caller that only wants the reason reads it without
-/// unwrapping, and so a test naming a refusal keeps naming it.
-///
-/// **THERE IS DELIBERATELY NO `From<AdoptRefusal>`.** A convenience conversion
-/// would let a caller wrap a refusal without saying what happened to the
-/// survivor — the wrong answer being unconstructible rather than documented.
-/// If a later change reaches for that `From`, the change is the defect and the
-/// inconvenience is the guard.
+/// A refusal, and whether the survivor was killed before it was returned.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{refusal}")]
 pub struct AdoptFailure {
-    /// Which half of the adoption it stopped at.
     pub refusal: AdoptRefusal,
-    /// Whether the survivor was KILLED before this was returned.
-    ///
-    /// Set at the same place the abandonment runs, not inferred from anything
-    /// the caller can see afterwards.
     pub abandoned: bool,
 }
 
 impl AdoptFailure {
     /// A refusal that left the survivor running.
     pub fn left_alone(refusal: AdoptRefusal) -> Self {
-        Self {
-            refusal,
-            abandoned: false,
-        }
+        Self { refusal, abandoned: false }
     }
 
-    /// A refusal that killed the survivor, because `abandon` had already run.
+    /// A refusal that killed the survivor.
     pub fn abandoned(refusal: AdoptRefusal) -> Self {
-        Self {
-            refusal,
-            abandoned: true,
-        }
+        Self { refusal, abandoned: true }
     }
 }
 
@@ -164,167 +98,102 @@ impl std::ops::Deref for AdoptFailure {
         &self.refusal
     }
 }
+
+/// How far an adoption got, which decides what its failure must undo.
+struct Progress {
+    lease: Option<TerminalCoreLease>,
+    binding: Option<Arc<RecordBinding>>,
+    record_installed: bool,
+}
+
 impl SessionManager {
-    /// Rebuild a record around a PTY this worker did not spawn. The staging
-    /// overflow is checked AFTER the swap and the record removed again.
+    /// v2 `resume`: rebuild a record around a surviving PTY, or refuse and
+    /// leave the logical session to a respawn.
     pub async fn adopt_survivor(&self, request: &AdoptionRequest) -> Result<Adopted, AdoptFailure> {
         let channel = request.channel_id.as_u32() as u16;
         if self.sessions.entry(channel).is_some() {
+            self.events.release(request.close_reservation).await;
             return Err(AdoptFailure::left_alone(AdoptRefusal::AlreadyHeld(channel)));
         }
-        // THIS ONE CLOSURE IS FIVE OF THE SEVEN BARE EXITS, and it is why
-        // the change is this small: `left_alone` here is what makes
-        // `live_channels`, `deliver_into`, `channel_history`,
-        // `terminal_state` and `close_channel` say they did not kill anything,
-        // even though all five return the same `AdoptRefusal::Unreplayable`
-        // variant as the two that did.
-        let unreplayable = |reason: String| {
-            AdoptFailure::left_alone(AdoptRefusal::Unreplayable { channel, reason })
-        };
-        let live = self
-            .keeper
-            .live_channels()
-            .map_err(|fault| unreplayable(fault.to_string()))?;
+        let mut progress = Progress { lease: None, binding: None, record_installed: false };
+        match self.adopt_stages(request, channel, &mut progress).await {
+            Ok(adopted) => Ok(adopted),
+            Err(Stop::LeftAlone(refusal)) => Err(AdoptFailure::left_alone(refusal)),
+            Err(Stop::Failed(reason)) => {
+                self.abandon_adoption(request, channel, progress).await;
+                Err(AdoptFailure::abandoned(reason))
+            }
+        }
+    }
+
+    async fn adopt_stages(
+        &self,
+        request: &AdoptionRequest,
+        channel: u16,
+        progress: &mut Progress,
+    ) -> Result<Adopted, Stop> {
+        let unreplayable = |reason: String| Stop::Failed(AdoptRefusal::Unreplayable { channel, reason });
+        let live = self.keeper.live_channels().map_err(|fault| unreplayable(fault.to_string()))?;
         let Some(survivor) = live.iter().find(|held| held.channel_id == channel) else {
-            return Err(AdoptFailure::left_alone(AdoptRefusal::NoSurvivor(channel)));
+            self.events.release(request.close_reservation).await;
+            return Err(Stop::LeftAlone(AdoptRefusal::NoSurvivor(channel)));
         };
-        // The core is admitted BEFORE anything is read or rebound (v2 reserves
-        // "adoption" before the reattach), so a refusal leaves the survivor as
-        // the last worker left it.
-        let lease = match self
-            .core_capacity
-            .reserve(TerminalCoreAllocationKind::Adoption)
-        {
-            Ok(lease) => lease,
+        progress.lease = match self.core_capacity.reserve(TerminalCoreAllocationKind::Adoption) {
+            Ok(lease) => Some(lease),
             Err(refusal) => {
                 self.events.release(request.close_reservation).await;
-                return Err(AdoptFailure::left_alone(
-                    AdoptRefusal::TerminalCoreCapacity { channel, refusal },
-                ));
+                return Err(Stop::LeftAlone(AdoptRefusal::TerminalCoreCapacity { channel, refusal }));
             }
         };
-        let binding = RecordBinding::staged(
-            channel,
-            Arc::clone(&self.sessions),
-            Arc::clone(&self.ingest),
-            Arc::clone(&self.clock),
-        );
-        // THE REBIND COMES AFTER BOTH READS, AND IT IS THE ONLY MUTATION THIS
-        // FUNCTION MAKES.
-        //
-        // `deliver_into` calls `KeeperPool::channels::adopt`, which INSERTS
-        // into the pool's acknowledged table: from that moment the keeper
-        // routes this channel's `PtyOut` frames into `binding` and nowhere
-        // else. It is a rebind, not a read, and it was happening SECOND — the
-        // history at `:204` and the geometry at `:208` could both fail with
-        // the channel already rebound, leaving the pool's table holding an
-        // entry, the terminal's bytes staged into a buffer that never goes
-        // live, and nothing logged above `debug`.
-        //
-        // `terminal_state` is a real round trip — `KeeperPool::applied_geometry`
-        // calls `client.terminal_state(id)` — so it fails on a keeper that is
-        // up but not answering, which is exactly the case the runtime gate
-        // does not cover: the gate checks `channel_history` and not this.
-        //
-        // Both reads now precede the rebind, so no exit from this function
-        // before `adopt_survivor`'s own record-building can leave a survivor
-        // bound to a binding whose record was never installed.
+        let binding = RecordBinding::closing(self, channel);
+        progress.binding = Some(Arc::clone(&binding));
         let history = self
             .keeper
-            .channel_history(channel)
+            .reattach_with_history(channel, survivor.pid, Arc::clone(&binding) as Arc<dyn ChannelBinding>)
             .map_err(|fault| unreplayable(fault.to_string()))?;
         let applied = self
             .keeper
             .terminal_state(channel)
             .map_err(|fault| unreplayable(fault.to_string()))?;
-        self.keeper
-            .deliver_into(channel, Arc::clone(&binding) as Arc<dyn ChannelBinding>)
-            .map_err(|fault| unreplayable(fault.to_string()))?;
-        // THE ABANDONMENT IS AWAITED, AND THAT IS THE WHOLE FIX. `abandon`
-        // became `async` when the sink did, and this function used to call it
-        // inside `inspect_err` and `map_err` closures — so the future was built
-        // and immediately DROPPED, and the abandonment never ran. Nothing said
-        // so: `EventFuture` is a `Pin<Box<dyn Future>>` and is not
-        // `#[must_use]`, so a caller that forgets to await it compiles, links,
-        // and silently does nothing. It is the same class as the `drop()` and
-        // the `get_mut` findings — a construct that type-checks and does not do
-        // what the reader believes — and it was found by a BASELINE rather than
-        // by review, which is the only reason it was found at all.
-        let record = match self.adopted_record(request, &history, &applied, survivor.pid) {
-            Ok(record) => record,
-            Err(refusal) => {
-                self.abandon(request, &binding, channel).await;
-                return Err(AdoptFailure::abandoned(refusal));
-            }
-        };
-        let entry = match self.sessions.insert(record) {
-            Ok(entry) => entry,
-            Err(error) => {
-                self.abandon(request, &binding, channel).await;
-                return Err(AdoptFailure::abandoned(AdoptRefusal::Unreplayable {
-                    channel,
-                    reason: error.to_string(),
-                }));
-            }
-        };
-        // The record holds the adopted core from here until its teardown.
-        if let Err(misuse) = self.core_capacity.install_channel(channel, lease) {
+        let now_ms = self.clock.now_epoch_ms();
+        let record = self
+            .adopted_record(request, &history, &applied, survivor.pid, now_ms)
+            .map_err(Stop::Failed)?;
+        let entry = self.sessions.insert(record).map_err(|error| unreplayable(error.to_string()))?;
+        if let Some(lease) = progress.lease.take()
+            && let Err(misuse) = self.core_capacity.install_channel(channel, lease)
+        {
             tracing::error!(channel_id = channel, error = %misuse, "an adopted core's lease could not become resident");
         }
+        progress.record_installed = true;
+        self.note_applied_resize_seq(channel, applied.applied_seq);
+        self.terminal_streams.note_applied_size(request.channel_id, applied.cols, applied.rows);
         let (replay_offset, head_seq, stream_id) = {
-            let record = entry
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            (
-                record.history_floor(),
-                record.head_seq,
-                record.cell_emit.stream_id.clone(),
-            )
+            let record = entry.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            (record.history_floor(), record.head_seq, record.cell_emit.stream_id.clone())
         };
         // The swap and its drain are ONE critical section inside the binding, so
-        // a chunk the keeper delivers the instant after the flip is parsed after
-        // the staged bytes and never before them.
+        // a chunk the keeper delivers after the flip is parsed after the staged
+        // bytes and never before them.
         let (clean, held_exit) = binding.go_live();
         if !clean {
-            self.abandon(request, &binding, channel).await;
-            return Err(AdoptFailure::abandoned(AdoptRefusal::StagingOverflow {
-                channel,
-                cap: RESUME_STAGE_CAP_BYTES,
-            }));
+            return Err(Stop::Failed(AdoptRefusal::StagingOverflow { channel, cap: RESUME_STAGE_CAP_BYTES }));
         }
-        // A SURVIVOR THAT HAD ALREADY EXITED is closed HERE, by the adoption,
-        // and not by the binding. This is v2's split exactly: the live `onExit`
-        // goes to `closedByKeeper` (`session-emit.ts:316-322`) and the adoption
-        // path does not (`session-resume-events.ts:47-50`) — it replays the exit
-        // and the close happens on the other side, after the record is
-        // installed. It has to be here: the record now exists, and the binding's
-        // live path runs on the keeper's dispatch thread where blocking is legal
-        // and this runs on a runtime worker where it would panic. One question,
-        // two callers, and only this one can answer it.
         if let Some(exit_code) = held_exit {
-            tracing::info!(
-                session_id = %request.session_id,
-                %channel,
-                %exit_code,
-                "a survivor had already exited before its record was installed;                  the adoption closes it"
-            );
-            self.close_channel(channel, Some(exit_code))
-                .await
-                .map_err(|refusal| unreplayable(refusal.message()))?;
-            // NO `install_stream` HERE, and the omission is the point: the close
-            // above took the record out of the table, so installing a delivery
-            // generation onto it would announce a stream for a session that has
-            // already ended — the same "looks live and produces nothing" state
-            // the overflow branch above refuses.
-            return Ok(Adopted {
-                replay_offset,
-                head_seq,
-            });
+            // The survivor was found and its real exit was delivered: the
+            // reconcile counts it handled rather than respawning it.
+            tracing::info!(session_id = %request.session_id, channel_id = channel, exit_code, "a survivor exited before its record went live; the adoption closes it");
+            if let Err(refusal) = self.close_channel(channel, Some(exit_code)).await {
+                tracing::error!(channel_id = channel, reason = %refusal.message(), "an adopted survivor's exit could not be closed");
+            }
+            return Ok(Adopted { replay_offset, head_seq });
         }
+        self.events.hold(request.close_reservation).await;
         self.cells
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .install_stream(request.channel_id, &stream_id);
+        self.notify_session_folder(&request.session_id, channel);
         tracing::info!(
             session_id = %request.session_id,
             channel_id = channel,
@@ -333,34 +202,64 @@ impl SessionManager {
             base_cols = history.base_cols,
             base_rows = history.base_rows,
             history_evicted = history.evicted(),
-            "a keeper survivor was adopted and its history replayed into a cold core"
+            "session.attach: a keeper survivor was adopted and its history replayed into a cold core"
         );
-        Ok(Adopted {
-            replay_offset,
-            head_seq,
-        })
+        Ok(Adopted { replay_offset, head_seq })
     }
 
-    /// Leave nothing half-adopted: the survivor dies, the record goes, the
-    /// claim is given back, the staged bytes are dropped.
-    async fn abandon(&self, request: &AdoptionRequest, binding: &RecordBinding, channel: u16) {
+    /// v2 `resume` catch: kill the survivor BEFORE any capacity is released,
+    /// mark its channel recently closed, and record the session's end once.
+    async fn abandon_adoption(&self, request: &AdoptionRequest, channel: u16, progress: Progress) {
         if let Err(fault) = self.keeper.kill_channel(channel) {
-            tracing::error!(
-                session_id = %request.session_id,
-                channel_id = channel,
-                error = %fault,
-                "an adoption failed and the survivor it named would not die"
-            );
+            tracing::error!(channel_id = channel, error = %fault, "a failed adoption's survivor would not die");
         }
-        self.sessions.forget(channel);
-        self.core_capacity.release_channel(channel);
-        self.events.release(request.close_reservation).await;
-        let staged = binding.abandon();
+        let now_ms = self.clock.now_epoch_ms();
+        self.keeper_health.mark_recently_closed(channel, now_ms);
+        let staged = progress.binding.as_ref().map_or(0, |binding| binding.abandon());
+        if self.sessions.entry(channel).is_some() {
+            if let Err(refusal) = self.close_channel(channel, None).await {
+                tracing::error!(channel_id = channel, reason = %refusal.message(), "a failed adoption's record could not be closed");
+            }
+        } else if !progress.record_installed {
+            self.emit_closed_tombstone(&request.session_id, Some(request.close_reservation)).await;
+        }
+        drop(progress.lease);
         tracing::warn!(
             session_id = %request.session_id,
             channel_id = channel,
             staged_bytes = staged,
-            "an adoption failed; the survivor was killed and the session must be respawned"
+            "session.resume_downgraded_respawn: the survivor was killed and its session must be respawned"
         );
     }
+
+    /// v2 `emitClosedTombstone`: a `closed` with no exit code for a session this
+    /// worker holds no record of, under the caller's claim or a fresh one.
+    pub(crate) async fn emit_closed_tombstone(&self, session_id: &SessionId, reservation: Option<Reservation>) {
+        let reservation = match reservation {
+            Some(reservation) => reservation,
+            None => match self.reserve(crate::event_store::DurableEventKind::Closed).await {
+                Ok(reservation) => reservation,
+                Err(refusal) => {
+                    tracing::error!(session_id = %session_id, reason = %refusal.message(), "a close tombstone could not be reserved");
+                    return;
+                }
+            },
+        };
+        let event = SessionEvent::Closed {
+            session_id: session_id.clone(),
+            exit_code: None,
+            ts: self.clock.now_epoch_ms(),
+            trace_id: None,
+        };
+        match self.events.emit(&event, Some(reservation)).await {
+            Ok(()) => tracing::info!(session_id = %session_id, "a close tombstone was recorded for a session with no live record"),
+            Err(error) => tracing::error!(session_id = %session_id, %error, "a close tombstone could not be recorded"),
+        }
+    }
+}
+
+/// Where an adoption stopped: untouched, or after the reattach.
+enum Stop {
+    LeftAlone(AdoptRefusal),
+    Failed(AdoptRefusal),
 }

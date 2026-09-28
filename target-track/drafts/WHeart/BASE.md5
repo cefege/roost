@@ -1,0 +1,9 @@
+36f3f68dfbcabfe1096e800a3061cd76  crates/roost-worker/src/host/pr_status.rs
+bd1127e49ab7fab0efaa65033c7af40d  crates/roost-worker/src/host/git_branch.rs
+72fd6aa84051d043760399716c763564  crates/roost-worker/src/host/ports.rs
+dad8928f0f7f164bc9759cd803624e92  crates/roost-worker/src/host/sampling.rs
+0b08fe423d3c0d7c8abc7aa2411db00d  crates/roost-worker/src/host/samples.rs
+364f0d4d0404fe2413c9c8460b21934d  crates/roost-worker/src/host/tool_path.rs
+aef7578ddf083cb7a2e41edc1a265726  crates/roost-worker/src/strays.rs
+b493c426ce821c9d20a6c0fe49d4e96b  crates/roost-worker/tests/strays.rs
+a10b5f37035a7aacb103446ec4ddacc4  crates/roost-worker/tests/host_folder_facts.rs

@@ -1,0 +1,291 @@
+   Compiling roost-proto v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-proto)
+   Compiling roost-protocol v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-protocol)
+   Compiling roost-host v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-host)
+   Compiling roost-keeper v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-keeper)
+   Compiling roost-term v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-term)
+   Compiling roost-worker v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-worker)
+warning: unused imports: `IpAddr`, `Ipv4Addr`, and `Ipv6Addr`
+ --> crates/roost-worker/src/runtime/door_serve.rs:8:16
+  |
+8 | use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+  |                ^^^^^^  ^^^^^^^^  ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unreachable statement
+  --> crates/roost-worker/src/attachments/grant_checks.rs:49:5
+   |
+48 |     return true;
+   |     ----------- any code following this expression is unreachable
+49 |     let expected = Sha256::digest(expected.as_bytes());
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unreachable statement
+   |
+   = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `expected`
+  --> crates/roost-worker/src/attachments/grant_checks.rs:47:23
+   |
+47 | fn capability_matches(expected: &str, received: &str) -> bool {
+   |                       ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_expected`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `received`
+  --> crates/roost-worker/src/attachments/grant_checks.rs:47:39
+   |
+47 | fn capability_matches(expected: &str, received: &str) -> bool {
+   |                                       ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_received`
+
+warning: unused variable: `host`
+  --> crates/roost-worker/src/door/admission.rs:62:31
+   |
+62 |     pub fn admits_host(&self, host: &str) -> bool {
+   |                               ^^^^ help: if this is intentional, prefix it with an underscore: `_host`
+
+warning: unused variable: `extra`
+   --> crates/roost-worker/src/door/admission.rs:109:43
+    |
+109 | fn browser_origins(coordinator_url: &str, extra: &[String]) -> Vec<String> {
+    |                                           ^^^^^ help: if this is intentional, prefix it with an underscore: `_extra`
+
+warning: field `hosts` is never read
+  --> crates/roost-worker/src/door/admission.rs:15:5
+   |
+14 | pub struct DoorAdmission {
+   |            ------------- field in this struct
+15 |     hosts: HashSet<String>,
+   |     ^^^^^
+   |
+   = note: `DoorAdmission` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `roost-worker` (lib) generated 7 warnings (run `cargo fix --lib -p roost-worker` to apply 5 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 49s
+     Running tests/agent_conversation_restore.rs (target-track/debug/deps/agent_conversation_restore-885fe4125d1c81b4)
+
+running 9 tests
+test the_descriptor_pins_the_official_executable_and_option_form ... ok
+test control_characters_relative_paths_and_oversized_references_are_unsupported ... ok
+test windows_has_no_restore_materialization ... ok
+test disabled_missing_and_unsupported_restores_write_zero_input ... ok
+test a_reference_already_claimed_in_this_pass_never_resumes_twice ... ok
+test a_proven_rejection_releases_the_reference_claim_and_an_ambiguous_one_keeps_it ... ok
+test a_partly_delivered_resume_command_is_discarded_from_the_prompt ... ok
+test each_keeper_result_is_terminal_after_one_batch_and_never_logs_the_reference ... ok
+test every_reference_stays_one_opaque_argv_element ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/agent_conversation_restore_reconcile.rs (target-track/debug/deps/agent_conversation_restore_reconcile-079916c0d107b471)
+
+running 4 tests
+test every_session_in_one_pass_shares_the_reference_claim_set ... ok
+test an_adopted_sessions_reference_is_claimed_before_any_respawn_restore ... ok
+test an_unexpected_restore_failure_never_escapes_the_pass ... ok
+test a_rejected_write_frees_the_reference_for_the_next_session_in_the_pass ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/agent_prompt_control.rs (target-track/debug/deps/agent_prompt_control-1d98f3cebb203a34)
+
+running 6 tests
+test a_budget_that_cannot_cover_the_submit_delay_rejects_without_writing ... ok
+test keeper_rejected_partial_and_unknown_truth_is_kept_without_a_retry ... ok
+test a_prompt_expires_behind_an_unresolved_predecessor_without_losing_receive_order ... ok
+test the_prompt_uses_the_final_bracketed_paste_mode_raw_input_stays_byte_exact_and_logs_omit_the_text ... ok
+test utf8_bytes_safe_revision_and_the_hop_budget_are_enforced_before_any_scan_or_write ... ok
+test the_cr_goes_out_only_after_the_settle_delay_and_is_accepted_only_when_acknowledged ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+
+     Running tests/agent_prompt_fences.rs (target-track/debug/deps/agent_prompt_fences-bbdd17e70b0571d2)
+
+running 6 tests
+test blocked_and_screen_only_status_reject_without_a_process_refresh ... ok
+test the_final_deadline_connection_and_refreshed_process_proof_all_gate_the_write ... ok
+test a_queued_ticket_drains_when_the_initial_process_proof_is_rejected ... ok
+test a_stale_revision_a_replaced_occupant_and_a_closed_session_reject_after_queueing ... ok
+test a_stalled_final_scan_is_aborted_and_input_released_at_budget_expiry ... ok
+test a_prompt_reserves_its_receive_order_before_the_initial_scan_settles ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+     Running tests/agent_reference_admission.rs (target-track/debug/deps/agent_reference_admission-4fc97dde47d1f1c0)
+
+running 5 tests
+test a_failed_turn_still_hands_the_gate_on ... ok
+test a_failed_append_gives_its_claim_back ... ok
+test a_reference_the_event_schema_refuses_never_reaches_the_outbox ... ok
+test a_later_turn_waits_for_the_one_holding_the_gate_and_runs_in_arrival_order ... ok
+test a_set_and_a_clear_each_consume_their_own_claim ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/boot_admission.rs (target-track/debug/deps/boot_admission-289cea36c23df4f0)
+
+running 4 tests
+test a_refused_boot_pass_leaves_the_snapshot_held ... ok
+test a_disposed_link_refuses_the_boot_pass_without_a_read ... ok
+test a_reference_reporter_queued_during_a_pass_enters_only_after_it ... ok
+test the_boot_pass_reads_only_after_the_replay_and_the_snapshot_only_follows_the_pass ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+
+     Running tests/durable_delivery.rs (target-track/debug/deps/durable_delivery-359cce7b95291233)
+
+running 6 tests
+test the_snapshot_and_a_journal_row_never_share_a_sequence ... ok
+test a_restart_replays_the_unacknowledged_rows_before_its_snapshot ... ok
+test sink_rows_reach_the_coordinator_before_the_snapshot_and_while_live ... ok
+test a_blocking_claim_holds_the_snapshot_until_it_is_held ... ok
+test a_held_snapshot_drains_the_replay_and_publishes_only_once_activated ... ok
+test the_replay_barrier_waits_for_acked_rows_and_unblocked_claims ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.65s
+
+     Running tests/link_agent_status.rs (target-track/debug/deps/link_agent_status-3c6923f3505ef8d5)
+
+running 6 tests
+test new_worker_transport_rejects_identityless_status_instead_of_emitting_legacy_frames ... ok
+test an_occupant_that_never_reached_the_socket_needs_no_retirement_frame ... ok
+test a_session_requeued_while_pending_keeps_its_drain_position ... ok
+test backpressure_preserves_sent_retirement_and_elides_unseen_replacement_occupants ... ok
+test pending_replacement_survives_socket_detach_and_reconnect_resend ... ok
+test successful_retirements_replay_in_order_without_an_active_snapshot ... FAILED
+
+failures:
+
+---- successful_retirements_replay_in_order_without_an_active_snapshot stdout ----
+
+thread 'successful_retirements_replay_in_order_without_an_active_snapshot' (665303) panicked at crates/roost-worker/tests/link_downstream_support/live.rs:175:14:
+called `Result::unwrap()` on an `Err` value: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    successful_retirements_replay_in_order_without_an_active_snapshot
+
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.00s
+
+error: test failed, to rerun pass `-p roost-worker --test link_agent_status`
+     Running tests/link_barrier.rs (target-track/debug/deps/link_barrier-0eaedfaba5a9555b)
+
+running 13 tests
+test a_blocking_reservation_during_a_snapshot_forces_replay_again ... ok
+test a_disconnect_resets_state_but_keeps_durable_events ... ok
+test a_durable_event_arriving_during_a_snapshot_forces_replay_again ... ok
+test a_live_link_writes_a_durable_event_at_once ... ok
+test a_mismatched_snapshot_ack_does_not_release_the_barrier ... ok
+test a_reconnect_replays_what_was_owed_before_anything_new ... ok
+test a_replayed_ack_for_an_already_acked_event_is_ignored ... ok
+test a_snapshot_is_taken_only_when_nothing_is_owed ... ok
+test a_stale_or_duplicate_ack_cannot_release_the_barrier ... ok
+test an_event_queued_before_the_hello_ack_keeps_its_place_in_the_order ... ok
+test an_open_link_is_not_application_ready ... ok
+test exactly_one_durable_event_is_in_flight ... ok
+test the_barrier_walks_hello_replay_snapshot_live ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/link_downstream_absent.rs (target-track/debug/deps/link_downstream_absent-84d153027af39fbd)
+
+running 8 tests
+test an_agent_prompt_is_rejected_pre_write ... ok
+test attachment_chunks_and_revocations_without_the_owner_are_inert ... ok
+test peer_offers_are_disabled_and_an_unknown_upload_is_not_found ... ok
+test optional_callbacks_and_retired_tags_are_inert ... ok
+test unsupported_grants_and_keeper_update_answer_v2s_rpc_errors ... ok
+test update_broker_answers_as_v2s_posix_worker ... ok
+test a_worker_without_owners_refuses_input_and_claims_as_v2_does ... ok
+test ping_is_ponged_and_a_browser_command_goes_to_the_pump_fenced_to_this_connection ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/link_downstream_agent_prompt.rs (target-track/debug/deps/link_downstream_agent_prompt-bf7f383db36590b9)
+
+running 2 tests
+test an_owner_failure_answers_a_static_ambiguous_result_and_logs_none_of_it ... ok
+test an_agent_prompt_reaches_its_owner_synchronously_and_is_answered_once ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/link_downstream_live.rs (target-track/debug/deps/link_downstream_live-e66f54d3541b7d52)
+
+running 2 tests
+test an_unparseable_relayed_frame_is_refused_with_its_envelope_request_id ... ok
+test a_live_link_dispatches_answers_and_calls_every_lifecycle_hook_across_a_redial ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/reconcile_gate.rs (target-track/debug/deps/reconcile_gate-c78989cb6136cda8)
+
+running 5 tests
+test a_lost_durability_stops_the_worker ... ok
+test concurrent_callers_join_the_pass_in_flight ... ok
+test a_degraded_keeper_restarts_only_past_the_grace_window_and_within_budget ... ok
+test a_keeper_death_runs_a_pass_unless_an_update_is_prepared ... ok
+test a_prepared_keeper_update_waits_out_the_pass_and_blocks_new_ones ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/worker_boot_config.rs (target-track/debug/deps/worker_boot_config-5480be416b6eae87)
+
+running 8 tests
+test an_override_is_applied_and_then_re_checked ... ok
+test the_keeper_and_key_paths_default_to_the_installer_layout ... ok
+test each_activation_gets_its_own_process_epoch ... ok
+test a_configuration_is_refused_before_anything_is_started ... ok
+test conversation_restore_rejects_explicit_enablement_on_windows ... ok
+test conversation_restore_defaults_to_disabled_on_every_platform ... ok
+test conversation_restore_accepts_exactly_0_and_1_on_posix ... ok
+test conversation_restore_rejects_every_other_explicit_value ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/worker_boot_order.rs (target-track/debug/deps/worker_boot_order-602d1204ac1e9136)
+
+running 8 tests
+test a_step_recorded_out_of_order_is_refused_rather_than_logged ... ok
+test a_step_recorded_twice_is_refused ... ok
+test readiness_advances_only_through_the_three_steps_in_order ... ok
+test readiness_cannot_be_announced_before_the_reconcile_it_claims_to_describe ... ok
+test the_boot_order_is_declared_and_every_step_says_why_it_is_there ... ok
+test a_step_cannot_be_added_to_one_of_the_two_without_the_other ... ok
+test the_enum_and_the_array_agree_on_which_step_is_which ... ok
+test the_sequence_records_steps_in_the_order_they_complete ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/worker_reconnect_ladder.rs (target-track/debug/deps/worker_reconnect_ladder-7aa5213b27a23d6e)
+
+running 5 tests
+test a_link_that_opens_and_immediately_drops_keeps_climbing_the_ladder ... ok
+test a_link_that_proved_itself_resets_the_counters ... ok
+test a_worker_that_never_opens_escalates_and_says_so_once ... ok
+test a_durable_event_cannot_be_smuggled_in_through_the_outbox ... ok
+test silence_past_the_timeout_is_stale_and_a_frame_resets_it ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/worker_retire_authorization.rs (target-track/debug/deps/worker_retire_authorization-fc9e73c1b2b71a8a)
+
+running 4 tests
+test retire_support::child::runs_one_activation ... ok
+test an_activation_with_no_authorisation_to_spend_reports_that_it_had_none ... ok
+test a_force_live_retire_authorisation_is_spent_once_after_admission ... ok
+test the_authorisation_is_spent_after_admission_and_before_the_link ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.13s
+
+     Running tests/worker_shutdown_boundary.rs (target-track/debug/deps/worker_shutdown_boundary-54db5340a6a6c6ef)
+
+running 3 tests
+test no_link_ending_stops_the_worker_and_only_a_requested_reason_does ... ok
+test the_first_stop_request_is_the_one_that_stands ... ok
+test a_dropped_link_is_a_reconnect_and_a_stop_is_a_stop ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.50s
+
+error: 1 target failed:
+    `-p roost-worker --test link_agent_status`
+baseline exit=101

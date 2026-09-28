@@ -29,6 +29,7 @@ use roost_worker::host::shell_bootstrap::ShellFlavour;
 use roost_worker::host::shell_spec_resolver::{HostShellSpecResolver, PTY_PATH_PREFIX};
 use roost_worker::host::tool_path::tool_path;
 use roost_worker::session::sinks::ChannelBinding;
+use roost_worker::session::spawn::SessionEnvironmentOverlay;
 use roost_worker::shell_spec::KEEPER_CONTROL_ENV_PREFIX;
 use scratch::Scratch;
 
@@ -329,16 +330,17 @@ fn a_keeper_control_credential_never_reaches_a_spawned_child() {
 #[test]
 fn a_keeper_control_key_is_stripped_from_an_overlay_too() {
     let scratch = Scratch::new("spec-overlay");
-    let resolver = resolver(scratch.root(), "/bin/sh").with_overlay([
-        (
-            "ROOST_AGENT_ENDPOINT".to_string(),
-            "/run/agent.sock".to_string(),
-        ),
-        (
-            "Roost_Keeper_Capability".to_string(),
-            "from-an-overlay".to_string(),
-        ),
-    ]);
+    let resolver =
+        resolver(scratch.root(), "/bin/sh").with_overlay(Arc::new(FixedOverlay(Ok(vec![
+            (
+                "ROOST_AGENT_ENDPOINT".to_string(),
+                "/run/agent.sock".to_string(),
+            ),
+            (
+                "Roost_Keeper_Capability".to_string(),
+                "from-an-overlay".to_string(),
+            ),
+        ]))));
     let folder = scratch.path("folder");
 
     let spec = resolver
@@ -356,4 +358,30 @@ fn a_keeper_control_key_is_stripped_from_an_overlay_too() {
         "an overlay carried a keeper credential into the spec: {:?}",
         spec.env
     );
+}
+
+/// v2 `environment.ts`: a PTY must not carry an endpoint nobody serves, so an
+/// overlay that cannot name the endpoint refuses the launch contract outright.
+#[test]
+fn an_overlay_refusal_refuses_the_launch_contract() {
+    let scratch = Scratch::new("spec-overlay-refusal");
+    let reason = "ROOST_AGENT_ENDPOINT must be an absolute UDS path";
+    let resolver = resolver(scratch.root(), "/bin/sh")
+        .with_overlay(Arc::new(FixedOverlay(Err(reason.to_string()))));
+    let folder = scratch.path("folder");
+
+    let refusal = resolver
+        .resolve(folder.to_str().unwrap(), "session-refused")
+        .expect_err("a refused overlay refuses the spec");
+
+    assert_eq!(refusal, reason);
+}
+
+/// A per-session overlay that answers the same thing for every session.
+struct FixedOverlay(Result<Vec<(String, String)>, String>);
+
+impl SessionEnvironmentOverlay for FixedOverlay {
+    fn session_overlay(&self, _session_id: &str) -> Result<Vec<(String, String)>, String> {
+        self.0.clone()
+    }
 }

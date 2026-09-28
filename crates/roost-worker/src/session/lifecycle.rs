@@ -22,7 +22,7 @@ use roost_protocol::wire::event::SessionEvent;
 
 use super::binding::{CellDelivery, ChannelDelivery};
 use super::keeper_channels::KeeperChannels;
-use super::respawn::DeadBirths;
+use super::keeper_health::KeeperHealth;
 use super::sinks::SessionEventSink;
 use super::spawn::{ShellSpawner, ShellSpecResolver};
 use crate::browser_commands::Refusal;
@@ -56,9 +56,9 @@ pub struct SessionManager {
     /// and no filesystem.
     pub(super) spawner: Arc<dyn ShellSpawner>,
     pub(super) resolver: Arc<dyn ShellSpecResolver>,
-    /// The stillborn births this worker has seen, and whether they say the
-    /// keeper itself is handing out PTYs that print nothing.
-    pub(super) dead_births: DeadBirths,
+    /// Whether the keeper still hands out working PTYs: dead births, orphan
+    /// output, the post-close tail window, and the degraded hook.
+    pub(super) keeper_health: KeeperHealth,
     /// This manager, as an owned handle, for the futures it builds.
     ///
     /// `Weak`, and set at CONSTRUCTION rather than default: `SessionLifecycle`'s
@@ -96,6 +96,10 @@ pub struct SessionManager {
     pub(super) core_capacity: Arc<crate::terminal_core_capacity::TerminalCoreCapacity>,
     /// The owners told when a held session ends (v2 `onSessionClosed`).
     pub(super) closed_hooks: super::closed_hooks::SessionClosedHooks,
+    /// v2 `#channelCreationGate`: spawn/respawn leases vs keeper-update preparation.
+    pub(super) creation_gate: super::channel_creation_gate::ChannelCreationGate,
+    /// Owners told when a live session's folder is (re)established.
+    pub(super) folder_hooks: super::folder_hooks::SessionFolderHooks,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -131,6 +135,7 @@ impl SessionManager {
         // than at compile time. `new_cyclic` hands the `Weak` to the closure, so
         // the handle is correct from the first instant and there is no window in
         // which `owned()` could return `None` on a manager that exists.
+        let lanes = Arc::new(super::control_lanes::ControlLanes::new());
         Arc::new_cyclic(|self_handle| Self {
             worker_fp,
             sessions,
@@ -141,14 +146,16 @@ impl SessionManager {
             clock,
             spawner,
             resolver,
-            dead_births: DeadBirths::default(),
+            keeper_health: KeeperHealth::default(),
             channels: Mutex::new(crate::strays::ChannelAllocator::new()),
             recently_closed: Mutex::new(HashMap::new()),
             resize_seqs: Mutex::new(HashMap::new()),
-            lanes: Arc::new(super::control_lanes::ControlLanes::new()),
+            creation_gate: super::channel_creation_gate::ChannelCreationGate::new(lanes.clone()),
+            lanes,
             terminal_streams: super::terminal_state::TerminalStreams::default(),
             core_capacity,
             closed_hooks: super::closed_hooks::SessionClosedHooks::default(),
+            folder_hooks: super::folder_hooks::SessionFolderHooks::default(),
             self_handle: self_handle.clone(),
         })
     }
@@ -275,6 +282,7 @@ impl SessionManager {
             .forget_channel(branded_channel_id);
         self.terminal_streams.forget(branded_channel_id);
         self.mark_recently_closed(&session_id, now_ms);
+        self.keeper_health.mark_recently_closed(channel_id, now_ms);
         match recorded {
             Ok(()) => {
                 tracing::info!(

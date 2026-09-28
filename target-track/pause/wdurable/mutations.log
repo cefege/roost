@@ -1,0 +1,43 @@
+B1 runtime/link_drain.rs -> durable_delivery::sink_rows_reach_the_coordinator_before_the_snapshot_and_while_live: FAILED (guard holds)
+W1 runtime/reconcile_gate.rs -> boot_admission::the_boot_pass_reads_only_after_the_replay_and_the_snapshot_only_follows_the_pass: FAILED (guard holds)
+R1 runtime/reconcile_restore.rs -> agent_conversation_restore_reconcile::an_adopted_sessions_reference_is_claimed_before_any_respawn_restore: FAILED (guard holds)
+A1 agents/prompt_control.rs -> agent_prompt_fences::a_prompt_reserves_its_receive_order_before_the_initial_scan_settles: FAILED (guard holds)
+A3 agents/prompt_control.rs -> agent_prompt_control::a_budget_that_cannot_cover_the_submit_delay_rejects_without_writing: FAILED (guard holds)
+A6 agents/conversation_restore.rs -> agent_conversation_restore::a_proven_rejection_releases_the_reference_claim_and_an_ambiguous_one_keeps_it: FAILED (guard holds)
+A8 agents/reference_admission.rs -> agent_reference_admission::a_failed_append_gives_its_claim_back: FAILED (guard holds)
+A10 runtime/downstream/agent_prompt.rs -> link_downstream_agent_prompt::an_owner_failure_answers_a_static_ambiguous_result_and_logs_none_of_it: FAILED (guard holds)
+round 1 failed tests: ['a_blocking_claim_holds_the_snapshot_until_it_is_held', 'a_budget_that_cannot_cover_the_submit_delay_rejects_without_writing', 'a_disposed_link_refuses_the_boot_pass_without_a_read', 'a_failed_append_gives_its_claim_back', 'a_held_snapshot_drains_the_replay_and_publishes_only_once_activated', 'a_partly_delivered_resume_command_is_discarded_from_the_prompt', 'a_prompt_reserves_its_receive_order_before_the_initial_scan_settles', 'a_proven_rejection_releases_the_reference_claim_and_an_ambiguous_one_keeps_it', 'a_rejected_write_frees_the_reference_for_the_next_session_in_the_pass', 'an_adopted_sessions_reference_is_claimed_before_any_respawn_restore', 'an_owner_failure_answers_a_static_ambiguous_result_and_logs_none_of_it', 'sink_rows_reach_the_coordinator_before_the_snapshot_and_while_live', 'the_boot_pass_reads_only_after_the_replay_and_the_snapshot_only_follows_the_pass', 'the_replay_barrier_waits_for_acked_rows_and_unblocked_claims', 'the_snapshot_and_a_journal_row_never_share_a_sequence']
+round 1 restored 7 files
+B2 runtime/link_loop/durable_sync.rs -> durable_delivery::the_snapshot_and_a_journal_row_never_share_a_sequence: PASSED (guard missing)
+W2 runtime/boot_admission.rs -> boot_admission::the_boot_pass_reads_only_after_the_replay_and_the_snapshot_only_follows_the_pass: FAILED (guard holds)
+R2 runtime/reconcile_restore.rs -> agent_conversation_restore_reconcile::an_unexpected_restore_failure_never_escapes_the_pass: FAILED (guard holds)
+A2 agents/prompt_control.rs -> agent_prompt_fences::a_stalled_final_scan_is_aborted_and_input_released_at_budget_expiry: FAILED (guard holds)
+A4 agents/prompt_submit.rs -> agent_prompt_control::the_cr_goes_out_only_after_the_settle_delay_and_is_accepted_only_when_acknowledged: FAILED (guard holds)
+A7 agents/conversation_restore.rs -> agent_conversation_restore::a_partly_delivered_resume_command_is_discarded_from_the_prompt: FAILED (guard holds)
+A9 agents/reference_admission.rs -> agent_reference_admission::a_later_turn_waits_for_the_one_holding_the_gate_and_runs_in_arrival_order: FAILED (guard holds)
+round 2 failed tests: ['a_disposed_link_refuses_the_boot_pass_without_a_read', 'a_later_turn_waits_for_the_one_holding_the_gate_and_runs_in_arrival_order', 'a_partly_delivered_resume_command_is_discarded_from_the_prompt', 'a_reference_reporter_queued_during_a_pass_enters_only_after_it', 'a_refused_boot_pass_leaves_the_snapshot_held', 'a_stalled_final_scan_is_aborted_and_input_released_at_budget_expiry', 'an_unexpected_restore_failure_never_escapes_the_pass', 'the_boot_pass_reads_only_after_the_replay_and_the_snapshot_only_follows_the_pass', 'the_cr_goes_out_only_after_the_settle_delay_and_is_accepted_only_when_acknowledged']
+round 2 restored 7 files
+B3 runtime/link_loop/durable.rs -> durable_delivery::a_restart_replays_the_unacknowledged_rows_before_its_snapshot: PASSED (guard missing)
+W3 runtime/reconcile_gate.rs -> boot_admission::a_reference_reporter_queued_during_a_pass_enters_only_after_it: FAILED (guard holds)
+A5 agents/prompt_fence.rs -> agent_prompt_fences::blocked_and_screen_only_status_reject_without_a_process_refresh: FAILED (guard holds)
+round 3 failed tests: ['a_reference_reporter_queued_during_a_pass_enters_only_after_it', 'blocked_and_screen_only_status_reject_without_a_process_refresh']
+round 3 restored 3 files
+B4 runtime/link_loop/durable_sync.rs -> durable_delivery::the_replay_barrier_waits_for_acked_rows_and_unblocked_claims: FAILED (guard holds)
+W4 session/durable_delivery.rs -> boot_admission::a_disposed_link_refuses_the_boot_pass_without_a_read: FAILED (guard holds)
+round 4 failed tests: ['a_disposed_link_refuses_the_boot_pass_without_a_read', 'the_replay_barrier_waits_for_acked_rows_and_unblocked_claims']
+round 4 restored 2 files
+B5 session/journal_sink.rs -> durable_delivery::sink_rows_reach_the_coordinator_before_the_snapshot_and_while_live: PASSED (guard missing)
+round 5 failed tests: ['a_held_snapshot_drains_the_replay_and_publishes_only_once_activated', 'the_replay_barrier_waits_for_acked_rows_and_unblocked_claims']
+round 5 restored 1 files
+W5 runtime/link_loop/durable_sync.rs -> durable_delivery::a_held_snapshot_drains_the_replay_and_publishes_only_once_activated: FAILED (guard holds)
+round 6 failed tests: ['a_held_snapshot_drains_the_replay_and_publishes_only_once_activated']
+round 6 restored 1 files
+W6 runtime/link_loop/durable_sync.rs -> durable_delivery::a_held_snapshot_drains_the_replay_and_publishes_only_once_activated: FAILED (guard holds)
+round 7 failed tests: ['a_held_snapshot_drains_the_replay_and_publishes_only_once_activated', 'a_restart_replays_the_unacknowledged_rows_before_its_snapshot']
+round 7 restored 1 files
+W7 link_barrier.rs -> durable_delivery::a_held_snapshot_drains_the_replay_and_publishes_only_once_activated: FAILED (guard holds)
+round 8 failed tests: ['a_held_snapshot_drains_the_replay_and_publishes_only_once_activated']
+round 8 restored 1 files
+B2 runtime/link_loop/durable_sync.rs -> durable_delivery::a_restarted_link_numbers_its_snapshot_above_the_previous_process: FAILED (guard holds)
+round 9 failed tests: ['a_restarted_link_numbers_its_snapshot_above_the_previous_process']
+round 9 restored 1 files

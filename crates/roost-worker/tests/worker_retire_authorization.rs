@@ -67,8 +67,15 @@ async fn a_force_live_retire_authorisation_is_spent_once_after_admission() {
     let _keeper = adoptable_keeper(&boot, platform).await;
 
     let activation = serve_in_child(scratch.root(), platform, &definition);
+    // No coordinator here, so v2's boot refuses at its reconcile
+    // (`completeWorkerBootAdmission` throws), after the admission the spend
+    // belongs to; a refusal is accepted only from there.
     let outcome = activation.outcome();
-    assert!(outcome.is_ok(), "the worker refused to boot: {outcome:?}");
+    let admitted = position_of(activation.events(), "boot: keeper admitted").is_some();
+    assert!(
+        outcome.is_ok() || admitted,
+        "the worker refused to boot before admitting the keeper: {outcome:?}"
+    );
 
     let spend = spends(activation.events());
     assert_eq!(
@@ -103,8 +110,15 @@ async fn an_activation_with_no_authorisation_to_spend_reports_that_it_had_none()
     let _keeper = adoptable_keeper(&boot, platform).await;
 
     let activation = serve_in_child(scratch.root(), platform, &definition);
+    // No coordinator here, so v2's boot refuses at its reconcile
+    // (`completeWorkerBootAdmission` throws), after the admission the spend
+    // belongs to; a refusal is accepted only from there.
     let outcome = activation.outcome();
-    assert!(outcome.is_ok(), "the worker refused to boot: {outcome:?}");
+    let admitted = position_of(activation.events(), "boot: keeper admitted").is_some();
+    assert!(
+        outcome.is_ok() || admitted,
+        "the worker refused to boot before admitting the keeper: {outcome:?}"
+    );
 
     let spend = spends(activation.events());
     assert_eq!(spend.len(), 1, "the spend was not reported at all");
@@ -137,8 +151,15 @@ async fn the_authorisation_is_spent_after_admission_and_before_the_link() {
     let _keeper = adoptable_keeper(&boot, platform).await;
 
     let activation = serve_in_child(scratch.root(), platform, &definition);
+    // No coordinator here, so v2's boot refuses at its reconcile
+    // (`completeWorkerBootAdmission` throws), after the admission the spend
+    // belongs to; a refusal is accepted only from there.
     let outcome = activation.outcome();
-    assert!(outcome.is_ok(), "the worker refused to boot: {outcome:?}");
+    let admitted = position_of(activation.events(), "boot: keeper admitted").is_some();
+    assert!(
+        outcome.is_ok() || admitted,
+        "the worker refused to boot before admitting the keeper: {outcome:?}"
+    );
 
     let events = activation.events();
     let admitted = position_of(events, "boot: keeper admitted");

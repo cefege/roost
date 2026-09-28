@@ -1,0 +1,12 @@
+crates/roost-worker/src/runtime/boot_admission.rs
+crates/roost-worker/src/runtime/boot_sequence.rs
+crates/roost-worker/src/runtime/boot_order.rs
+crates/roost-worker/src/runtime/reconcile_gate.rs
+crates/roost-worker/src/runtime/session_reconcile.rs
+crates/roost-worker/src/runtime/reconcile.rs
+crates/roost-worker/src/runtime/reconcile_restore.rs
+crates/roost-worker/src/runtime/owners.rs
+crates/roost-worker/src/runtime/mod.rs
+crates/roost-worker/tests/boot_admission.rs
+crates/roost-worker/tests/agent_conversation_restore_reconcile.rs
+crates/roost-worker/tests/reconcile_gate.rs

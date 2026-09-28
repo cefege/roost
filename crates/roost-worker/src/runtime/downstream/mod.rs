@@ -12,6 +12,12 @@
 //! produces later go through the [`Uplink`] fenced to the connection they
 //! arrived on.
 
+mod agent_prompt;
+mod attachment_peer;
+mod attachments;
+mod direct;
+mod keeper_update;
+mod local_grants;
 mod owner_task;
 mod replies;
 mod terminal;
@@ -20,13 +26,10 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::time::Instant;
 
-use roost_protocol::wire::coord_worker::{
-    CoordWorkerDownstream, CoordWorkerUpstream, TerminalInputStatus,
-};
+use roost_protocol::wire::coord_worker::{CoordWorkerDownstream, CoordWorkerUpstream};
 
 use crate::browser_commands::Command;
 use crate::link_ports::{DownstreamOwners, LinkPipelineState};
-use crate::uplink::terminal_results::InputResultKey;
 use crate::uplink::{LinkFence, Uplink};
 
 /// What the dispatch needs from the link that read the frame.
@@ -122,55 +125,51 @@ impl Dispatcher {
                 self.route_claim(request, received, link);
             }
             CoordWorkerDownstream::AgentPrompt(request) => {
-                let refusal = replies::input_result(
-                    &InputResultKey::from(&request),
-                    TerminalInputStatus::Rejected,
-                    replies::AGENT_PROMPT_HANDLER_UNAVAILABLE,
-                );
-                if let Some(frame) = refusal {
-                    link.reply(frame);
-                }
+                self.agent_prompt(request, received, link);
             }
-            CoordWorkerDownstream::LocalTerminalGrant(request) => link.reply(replies::rpc_error(
-                request.request_id,
-                replies::LOCAL_TERMINAL_GRANTS_UNSUPPORTED,
-            )),
-            CoordWorkerDownstream::LocalAttachmentGrant(request) => link.reply(replies::rpc_error(
-                request.request_id,
-                replies::LOCAL_ATTACHMENT_GRANTS_UNSUPPORTED,
-            )),
-            CoordWorkerDownstream::KeeperUpdatePrepare(request) => link.reply(replies::rpc_error(
-                request.request_id,
-                replies::KEEPER_UPDATE_PREPARE_UNSUPPORTED,
-            )),
+            CoordWorkerDownstream::LocalTerminalGrant(request) => {
+                self.local_terminal_grant(request, link);
+            }
+            CoordWorkerDownstream::LocalAttachmentGrant(request) => {
+                self.attachment_grant(request, link);
+            }
+            CoordWorkerDownstream::KeeperUpdatePrepare(request) => {
+                self.keeper_update_prepare(request, link);
+            }
             CoordWorkerDownstream::LocalTerminalPeerOffer(request) => {
-                link.reply(replies::terminal_peer_disabled(
-                    &request,
-                    &self.process_epoch,
-                ));
+                self.terminal_peer_offer(request, received, link);
             }
             CoordWorkerDownstream::LocalAttachmentPeerOffer(request) => {
-                link.reply(replies::attachment_peer_disabled(
-                    &request,
-                    &self.process_epoch,
-                ));
+                self.attachment_peer_offer(request, received, link);
             }
             CoordWorkerDownstream::AttachmentDirectStatusRequest(request) => {
-                link.reply(replies::attachment_status_unavailable(&request));
+                self.attachment_status(request, link);
             }
             CoordWorkerDownstream::UpdateBroker(request) => {
                 link.reply(replies::update_broker_refusal(request));
             }
             // v2's absent-owner behaviour for these is `deps.onX?.()`: nothing
-            // is sent (coord-link-direct-terminal.ts:134-136,155-157,193-195,
-            // 218-222,224-226; coord-link-downstream.ts:297-300,324-331).
-            CoordWorkerDownstream::TerminalTransportProbe(_) => unowned(kind, "W-PEER"),
-            CoordWorkerDownstream::LocalTerminalGrantRevoke(_) => unowned(kind, "W-DOOR"),
-            CoordWorkerDownstream::LocalAttachmentGrantRevoke(_) => unowned(kind, "W-ATTACH"),
-            CoordWorkerDownstream::LocalTerminalPeerCancel(_) => unowned(kind, "W-PEER"),
-            CoordWorkerDownstream::LocalAttachmentPeerCancel(_) => unowned(kind, "W-PEER"),
-            CoordWorkerDownstream::TerminalDirectRetire(_) => unowned(kind, "W-PEER"),
-            CoordWorkerDownstream::AttachmentChunk(_) => unowned(kind, "W-ATTACH"),
+            // is sent (coord-link-direct-terminal.ts:155-157,193-195;
+            // coord-link-downstream.ts:297-300,324-331).
+            CoordWorkerDownstream::TerminalTransportProbe(request) => {
+                self.terminal_transport_probe(&request, link);
+            }
+            CoordWorkerDownstream::LocalTerminalGrantRevoke(request) => {
+                self.local_terminal_revoke(&request);
+            }
+            CoordWorkerDownstream::LocalAttachmentGrantRevoke(request) => {
+                self.attachment_grant_revoke(&request);
+            }
+            CoordWorkerDownstream::LocalTerminalPeerCancel(request) => {
+                self.terminal_peer_cancel(&request);
+            }
+            CoordWorkerDownstream::LocalAttachmentPeerCancel(request) => {
+                self.attachment_peer_cancel(&request);
+            }
+            CoordWorkerDownstream::TerminalDirectRetire(request) => {
+                self.terminal_direct_retire(&request);
+            }
+            CoordWorkerDownstream::AttachmentChunk(chunk) => self.attachment_chunk(chunk),
             // v2 has no case for these: a retired schema tag stays inert.
             CoordWorkerDownstream::CoordMovePrepare(_) => retired(kind),
             CoordWorkerDownstream::CoordMoveSnapshotStart(_) => retired(kind),
@@ -178,16 +177,6 @@ impl Dispatcher {
             CoordWorkerDownstream::CoordRelocate(_) => retired(kind),
         }
     }
-}
-
-/// A kind whose owner a later slice lands: v2 without that callback sends
-/// nothing, so this sends nothing and says so.
-fn unowned(kind: &'static str, owning_slice: &'static str) {
-    tracing::warn!(
-        kind,
-        owning_slice,
-        "a downstream frame has no owner in this build; v2 without that owner sends no answer"
-    );
 }
 
 fn retired(kind: &'static str) {
