@@ -146,7 +146,9 @@ pub(super) fn worker_presence(value: WorkerPresenceProto) -> Result<SyncFrame, S
             fp: WorkerFp::try_from(fp.as_str()).map_err(|error| error.to_string())?,
         },
     };
-    Ok(SyncFrame::WorkerPresence { event })
+    Ok(SyncFrame::WorkerPresence {
+        event: Box::new(event),
+    })
 }
 
 /// The routable set, or one bounded chunk of a retained seed. Out-of-bounds
