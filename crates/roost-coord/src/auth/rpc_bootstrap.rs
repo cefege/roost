@@ -76,7 +76,6 @@ pub async fn handle_auth_mint_bootstrap(
 /// `CoordinatorService.AuthRedeemWorker` -- a machine joins the fleet.
 pub async fn handle_auth_redeem_worker(
     core: &CoordCore,
-    _caller: &Caller,
     request: proto::AuthRedeemWorkerRequest,
 ) -> ServiceResult<proto::AuthRedeemWorkerResponse> {
     if !HostPlatform::is_supported(&request.os) {
@@ -166,7 +165,6 @@ pub async fn handle_auth_redeem_worker(
 /// `CoordinatorService.AuthRedeemBrowser` -- a browser joins the fleet.
 pub async fn handle_auth_redeem_browser(
     core: &CoordCore,
-    _caller: &Caller,
     request: proto::AuthRedeemBrowserRequest,
 ) -> ServiceResult<proto::AuthRedeemBrowserResponse> {
     let public_key = decode_ed25519_pubkey(&request.ssh_pubkey_b64).ok_or_else(invalid_pubkey)?;

@@ -634,27 +634,29 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn auth_redeem_worker<'a>(
         &'a self,
-        ctx: RequestContext,
+        _ctx: RequestContext,
         r: ServiceRequest<'_, AuthRedeemWorkerRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<AuthRedeemWorkerResponse> + Send + use<'a>>,
     > + Send {
         async move {
-            let caller = caller_of(&ctx, "AuthRedeemWorker")?;
-            handle_auth_redeem_worker(&self.core, caller, r.to_owned_message()).await
+            // Public by contract: the bootstrap token is the credential, so the
+            // auth gate stamps no caller and none is read.
+            handle_auth_redeem_worker(&self.core, r.to_owned_message()).await
         }
     }
 
     fn auth_redeem_browser<'a>(
         &'a self,
-        ctx: RequestContext,
+        _ctx: RequestContext,
         r: ServiceRequest<'_, AuthRedeemBrowserRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<AuthRedeemBrowserResponse> + Send + use<'a>>,
     > + Send {
         async move {
-            let caller = caller_of(&ctx, "AuthRedeemBrowser")?;
-            handle_auth_redeem_browser(&self.core, caller, r.to_owned_message()).await
+            // Public by contract: the bootstrap token is the credential, so the
+            // auth gate stamps no caller and none is read.
+            handle_auth_redeem_browser(&self.core, r.to_owned_message()).await
         }
     }
 
