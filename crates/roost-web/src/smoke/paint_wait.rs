@@ -149,6 +149,7 @@ pub(super) async fn wait_for_painted_marker(
                 };
                 tracing::info!(target: "smoke", session_id, "marker presented");
                 let proof = serde_json::to_value(proof).map_err(|error| error.to_string())?;
+                backdoor.record_geometry_proof(session_id, &proof);
                 return Ok((proof, monotonic_ms));
             }
         }

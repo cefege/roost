@@ -10,8 +10,8 @@ use std::cell::RefCell;
 use roost_protocol::cell::{CellGridFrame, CellRow, spans_text};
 use roost_web_terminal::render_element::RenderElement;
 use roost_web_terminal::{
-    CellGridRenderer, PaintedRowText, ReaderIntent, RendererEpochSeq, RendererPaintPresentation,
-    RendererPresentationSnapshot,
+    BackfillAnchor, CellGridRenderer, PaintedRowText, ReaderIntent, ReconcileBlockReason,
+    RendererEpochSeq, RendererPaintPresentation, RendererPresentationSnapshot,
 };
 
 /// One painted row as text, addressed by its absolute history row.
@@ -52,6 +52,10 @@ pub struct SurfaceProbe {
     pub painted_scrollback_rows: usize,
     /// Viewport row elements in the DOM.
     pub dom_rows: usize,
+    /// Why the DOM is behind canonical, or `None` when it is not.
+    pub reconcile_block_reason: ReconcileBlockReason,
+    /// The painted history range and the epoch a history page must match.
+    pub backfill_anchor: Option<BackfillAnchor>,
 }
 
 /// The read side of one mounted pane.
@@ -159,6 +163,8 @@ impl<E: RenderElement> PaneSurface for RefCell<CellGridRenderer<E>> {
             at_bottom: renderer.at_bottom(),
             painted_scrollback_rows: renderer.painted_scrollback_row_count(),
             dom_rows: renderer.renderer_projection().dom_rows,
+            reconcile_block_reason: renderer.reconcile_block_reason(),
+            backfill_anchor: renderer.backfill_anchor(),
         })
     }
 

@@ -6,6 +6,7 @@
 //! `coordClient.<method>(…)` call site under `apps/web/src/`.
 
 pub mod attachments;
+pub mod diagnostics;
 pub mod files;
 pub mod sessions;
 pub mod terminal_pane;

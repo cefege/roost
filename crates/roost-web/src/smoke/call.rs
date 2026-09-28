@@ -79,15 +79,7 @@ pub const SMOKE_METHODS: [(&str, Answer); 53] = [
 
 /// The members whose surface belongs to a slice this build does not have yet,
 /// and the refusal each one answers with — never a silent no-op.
-pub const UNPORTED_METHODS: [(&str, &str); 10] = [
-    (
-        "terminalBrowserSnapshot",
-        "U-2 TERMINAL DIAG: terminalBrowserStreamSnapshot (renderer/terminalDiagSnapshot.ts) not ported",
-    ),
-    (
-        "terminalStreamProbe",
-        "U-2 TERMINAL DIAG: the browser layer of the stream probe (renderer/terminalDiagSnapshot.ts) not ported",
-    ),
+pub const UNPORTED_METHODS: [(&str, &str); 8] = [
     (
         "probeTerminalTransport",
         "U-2 STREAM LIFECYCLE: the worker control probe (store/transport/sync-terminal-control-probe.ts) not ported",
