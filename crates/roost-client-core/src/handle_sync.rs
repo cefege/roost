@@ -16,8 +16,13 @@
 use crate::effect::{Effect, RpcResult, SyncCommand};
 
 mod apply_frame;
+mod close_failed;
+mod fold_controls;
+mod fold_registry;
+mod fold_session_meta;
 
 use self::apply_frame::apply_frame;
+pub(crate) use self::close_failed::close_failed_sync_link;
 use crate::store::Store;
 use crate::sync::SyncFrame;
 use crate::sync::link::{RetainedFrame, SyncDomain};
@@ -29,13 +34,21 @@ use crate::terminal::{Admission, PromotionCandidate};
 ///
 /// Controls are applied immediately even before hydration: `SyncSubscribed` is
 /// what CREATES the domain state, so a control held back for hydration would
-/// leave every later frame with no subscription behind it.
+/// leave every later frame with no subscription behind it. The set is v2's
+/// control lane (`apps/web/src/store/sync-inbound.ts:210-236`): every arm the
+/// coordinator stamps with `delivery_seq = 0`.
 pub fn is_control(frame: &SyncFrame) -> bool {
     matches!(
         frame,
         SyncFrame::Subscribed { .. }
             | SyncFrame::DomainReset { .. }
             | SyncFrame::DomainReady { .. }
+            | SyncFrame::InputResult { .. }
+            | SyncFrame::InputRouteResult { .. }
+            | SyncFrame::TransportProbeResult { .. }
+            | SyncFrame::UiState
+            | SyncFrame::UiCommand { .. }
+            | SyncFrame::CoordinatorRelocation { .. }
             | SyncFrame::Keepalive
     )
 }
@@ -75,7 +88,7 @@ pub fn handle_sync_frame(
         return;
     }
 
-    apply_frame(store, generation, frame, now_ms, out);
+    apply_frame(store, generation, delivery_seq, frame, now_ms, out);
 
     // Cumulative, and only for a frame that was actually applied. `delivery_seq`
     // is zero for a control, and a control has no window cost: acknowledging one
@@ -83,10 +96,9 @@ pub fn handle_sync_frame(
     if delivery_seq == 0 || !store.sync.accepts(generation) {
         return;
     }
-    if let Some(socket_id) = store.sync.socket_id() {
+    if store.sync.socket_id().is_some() {
         out.push(Effect::SendSync(SyncCommand::Ack {
             ack_delivery_seq: delivery_seq,
-            socket_id: socket_id.to_string(),
         }));
     }
 }
@@ -201,16 +213,22 @@ pub fn hydrate(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
     for held in store.sync.take_retained() {
         // Deliberately not generation gated: the frame was accepted before the
         // redial, and the coordinator will not send it again.
-        apply_frame(store, held.generation, &held.frame, now_ms, out);
+        apply_frame(
+            store,
+            held.generation,
+            held.delivery_seq,
+            &held.frame,
+            now_ms,
+            out,
+        );
     }
 }
 
 /// Apply one Connect unary answer.
 pub fn handle_rpc_result(store: &mut Store, result: &RpcResult) {
     match result {
-        RpcResult::CoordIdentity { account_id, .. } => {
-            store.account_id = Some(account_id.clone());
-            store.note_change();
+        RpcResult::CoordIdentity { call_id, .. } => {
+            tracing::debug!(target: "rpc", call_id = *call_id, "coordinator identity answered");
         }
         RpcResult::SessionsList {
             sessions,
@@ -250,7 +268,15 @@ pub fn handle_rpc_result(store: &mut Store, result: &RpcResult) {
                 "connect call failed"
             );
         }
-        RpcResult::WorkersList { .. } | RpcResult::PairTokenRedeemed { .. } => {
+        RpcResult::WorkersList { .. }
+        | RpcResult::PairTokenRedeemed { .. }
+        | RpcResult::WorkspacesList { .. }
+        | RpcResult::TasksList { .. }
+        | RpcResult::McpList { .. }
+        | RpcResult::PairList { .. }
+        | RpcResult::DirectoryListed { .. }
+        | RpcResult::DirectoryCreated { .. }
+        | RpcResult::GlobalSearchCancelled { .. } => {
             tracing::debug!(target: "rpc", "bootstrap call answered");
         }
     }

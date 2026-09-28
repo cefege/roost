@@ -115,7 +115,13 @@ pub fn handle_view_hidden(
         .routes
         .set_view_demand(&worker_fp, session_id, view_id, false);
     store.note_change();
-    send_intent(store, session_id, view_id, ViewIntent::Park, out);
+    let revision = store
+        .terminal(session_id)
+        .and_then(|replica| replica.view(view_id))
+        .map(|view| view.revision);
+    if let Some(revision) = revision {
+        send_intent(store, session_id, view_id, ViewIntent::Park, revision, out);
+    }
 }
 
 /// A pane closed, or its authorization was lost. The view goes at once, with no
@@ -126,15 +132,17 @@ pub fn handle_view_closed(
     view_id: &str,
     out: &mut Vec<Effect>,
 ) {
-    if let Some(replica) = store.terminal_mut_if_present(session_id) {
-        replica.close_view(view_id);
-    }
+    let revision = store
+        .terminal_mut_if_present(session_id)
+        .and_then(|replica| replica.close_view(view_id));
     store.note_change();
     let worker_fp = worker_of(store, session_id);
     store
         .routes
         .set_view_demand(&worker_fp, session_id, view_id, false);
-    send_intent(store, session_id, view_id, ViewIntent::Unpublish, out);
+    if let Some(revision) = revision {
+        send_intent(store, session_id, view_id, ViewIntent::Unpublish, revision, out);
+    }
 }
 
 /// A generation-matched view-state result. An accepted answer carrying a stream id

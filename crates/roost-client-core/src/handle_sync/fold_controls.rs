@@ -1,0 +1,228 @@
+//! The pair, audit and control-lane folds: pair requests and the paired-browser
+//! notice, live audit rows, UI commands for the bridge, a relocation notice,
+//! and the answers to route claims and transport probes.
+//!
+//! Called by `apply_frame` only. Ported from `apps/web/src/store/sync-frame.ts`
+//! (`pairRequestDelta` 285-350, `auditRow` 161-176, `uiCommand` 334-340),
+//! `apps/web/src/lib/pairedBrowserNotice.ts`, and the `_dispatchSyncV2Control`
+//! consumers in `apps/web/src/store/transport/sync-outbound.ts:213-226` and
+//! `sync-terminal-control-probe.ts:99-119`.
+
+use std::collections::BTreeSet;
+
+use crate::effect::Effect;
+use crate::store::Store;
+use crate::store::mutations::delete_pair_request;
+use crate::store::sync_feeds::{
+    ANNOUNCED_PAIRINGS_MAX, AUDIT_ROW_RING_MAX, PROBE_TELEMETRY_WORKERS_MAX, ProbeTelemetry,
+    UI_COMMAND_QUEUE_MAX,
+};
+use crate::store::toasts::{ToastId, ToastKind, ToastOptions, ToastSource, raise_toast};
+use crate::sync::SyncDomain;
+use crate::sync::inbound::{
+    AuditEntry, CoordinatorRelocation, InputRouteResult, PairRequestChange, PairedBrowser,
+    TransportProbeResult,
+};
+
+use super::close_failed::close_failed_sync_link;
+
+/// One pair-request change. A snapshot REPLACES the set, so a removal missed
+/// while disconnected cannot linger.
+pub(super) fn fold_pair_request(
+    store: &mut Store,
+    change: &PairRequestChange,
+    delivery_seq: u64,
+    now_ms: u64,
+) {
+    match change {
+        PairRequestChange::Pending(request) => {
+            if store.pair_requests.get(&request.ephemeral_id) != Some(request) {
+                store
+                    .pair_requests
+                    .insert(request.ephemeral_id.clone(), request.clone());
+                store.note_change();
+            }
+            tracing::debug!(target: "sync", ephemeral_id = %request.ephemeral_id, "pair request pending");
+        }
+        PairRequestChange::Removed { ephemeral_id } => {
+            delete_pair_request(store, ephemeral_id);
+        }
+        PairRequestChange::Snapshot(pending) => {
+            let keep: BTreeSet<&str> = pending
+                .iter()
+                .map(|request| request.ephemeral_id.as_str())
+                .collect();
+            let mut changed = false;
+            store.pair_requests.retain(|ephemeral_id, _| {
+                let kept = keep.contains(ephemeral_id.as_str());
+                changed |= !kept;
+                kept
+            });
+            for request in pending {
+                if store.pair_requests.get(&request.ephemeral_id) != Some(request) {
+                    store
+                        .pair_requests
+                        .insert(request.ephemeral_id.clone(), request.clone());
+                    changed = true;
+                }
+            }
+            if changed {
+                store.note_change();
+            }
+            tracing::info!(target: "sync", pending = pending.len(), "pair request snapshot replaced the set");
+        }
+        PairRequestChange::Completed(browser) => {
+            let removed = store.pair_requests.remove(&browser.ephemeral_id).is_some();
+            let announced = announce_paired_browser(store, browser, delivery_seq, now_ms);
+            if removed || announced {
+                store.note_change();
+            }
+            tracing::info!(target: "sync", ephemeral_id = %browser.ephemeral_id, announced, "pairing completed");
+        }
+    }
+}
+
+/// Raise "New browser paired" once per pairing however many frames report it
+/// (v2 `announcePairedBrowser`). Returns whether a card was raised; the caller
+/// owns the one revision bump for the whole change.
+fn announce_paired_browser(
+    store: &mut Store,
+    browser: &PairedBrowser,
+    delivery_seq: u64,
+    now_ms: u64,
+) -> bool {
+    if store.announced_pairings.contains(&browser.ephemeral_id) {
+        return false;
+    }
+    if store.announced_pairings.len() >= ANNOUNCED_PAIRINGS_MAX {
+        store.announced_pairings.pop_front();
+    }
+    store
+        .announced_pairings
+        .push_back(browser.ephemeral_id.clone());
+    let id = ToastId::new(
+        ToastSource::Sync {
+            domain: SyncDomain::Pair.as_str(),
+            kind: "pair_request_delta",
+            delivery_seq,
+        },
+        browser.ephemeral_id.clone(),
+    );
+    let message = format!("New browser paired: {}", browser.announcement_label());
+    raise_toast(
+        &mut store.toasts,
+        id,
+        message,
+        ToastKind::Ok,
+        ToastOptions::plain(),
+        now_ms,
+    );
+    true
+}
+
+/// One live audit row, newest first, deduplicated by id as the audit pane does
+/// (`AuditLogPane.tsx:123-129`), keeping the newest [`AUDIT_ROW_RING_MAX`].
+pub(super) fn fold_audit_row(store: &mut Store, row: &AuditEntry) {
+    if store.audit_rows.iter().any(|held| held.id == row.id) {
+        tracing::trace!(target: "sync", audit_id = row.id, "audit row already held");
+        return;
+    }
+    store.audit_rows.push_front(row.clone());
+    store.audit_rows.truncate(AUDIT_ROW_RING_MAX);
+    store.note_change();
+    tracing::trace!(target: "sync", audit_id = row.id, "audit row folded");
+}
+
+/// Queue one UI command for the UI bridge, dropping the oldest past the bound.
+pub(super) fn fold_ui_command(store: &mut Store, command: &roost_proto::UiCommandFrame) {
+    if store.ui_commands.len() >= UI_COMMAND_QUEUE_MAX {
+        store.ui_commands.pop_front();
+        tracing::warn!(target: "sync", "ui command queue full; oldest command dropped");
+    }
+    store.ui_commands.push_back(command.clone());
+    store.note_change();
+    tracing::debug!(
+        target: "sync",
+        target_tab_id = %command.target_tab_id,
+        correlation_id = %command.correlation_id,
+        "ui command queued for the bridge"
+    );
+}
+
+/// A relocation notice closes the link. v2 has no handler for this control:
+/// `handleV2Control`'s default returns false and `_consumeSyncFrame` throws
+/// "unknown v2 control" into `_closeFailedSyncLink`
+/// (`sync-inbound.ts:233-235`, `sync-inbound.ts:62-64`).
+pub(super) fn fold_coordinator_relocation(
+    store: &mut Store,
+    generation: u64,
+    relocation: &CoordinatorRelocation,
+    out: &mut Vec<Effect>,
+) {
+    close_failed_sync_link(
+        store,
+        generation,
+        format!(
+            "coordinator_relocation {} has no v2 handler (target {})",
+            relocation.handoff_id, relocation.target_url
+        ),
+        out,
+    );
+}
+
+/// Hold the newest route-claim answer per session for the claim waiter, which
+/// matches it by `request_id` (v2 `syncClaimWaiters`, `sync-outbound.ts:213-224`).
+pub(super) fn fold_input_route_result(store: &mut Store, result: &InputRouteResult) {
+    if store.input_route_results.get(&result.session_id) == Some(result) {
+        return;
+    }
+    store
+        .input_route_results
+        .insert(result.session_id.clone(), result.clone());
+    store.note_change();
+    tracing::info!(
+        target: "sync",
+        session_id = %result.session_id,
+        request_id = %result.request_id,
+        accepted = result.accepted,
+        revision = result.revision,
+        "input route claim answered"
+    );
+}
+
+/// Retain a successful probe answer per worker. An empty epoch is the
+/// coordinator's refusal and never becomes telemetry (`resolveControlProbe`).
+pub(super) fn fold_transport_probe_result(
+    store: &mut Store,
+    generation: u64,
+    result: &TransportProbeResult,
+    now_ms: u64,
+) {
+    if result.worker_epoch.is_empty() {
+        tracing::debug!(target: "sync", worker_fp = %result.worker_fp, "transport probe refused");
+        return;
+    }
+    if !store.transport_probes.contains_key(&result.worker_fp)
+        && store.transport_probes.len() >= PROBE_TELEMETRY_WORKERS_MAX
+    {
+        let oldest = store
+            .transport_probes
+            .iter()
+            .min_by_key(|(_, sample)| sample.received_at_ms)
+            .map(|(worker_fp, _)| worker_fp.clone());
+        if let Some(oldest) = oldest {
+            store.transport_probes.remove(&oldest);
+        }
+    }
+    store.transport_probes.insert(
+        result.worker_fp.clone(),
+        ProbeTelemetry {
+            request_id: result.request_id.clone(),
+            worker_epoch: result.worker_epoch.clone(),
+            socket_generation: generation,
+            received_at_ms: now_ms,
+        },
+    );
+    store.note_change();
+    tracing::debug!(target: "sync", worker_fp = %result.worker_fp, "transport probe answered");
+}

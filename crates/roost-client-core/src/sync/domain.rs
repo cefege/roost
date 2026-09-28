@@ -153,30 +153,42 @@ impl SyncState {
     /// that gate: a live-traffic frame with no subscription behind it is a
     /// protocol violation, not a hydration race, and applying it would fold an
     /// event into a store that has no sessions to fold it onto.
+    ///
+    /// The registry, pair, audit and session-metadata frames are gated on THEIR
+    /// OWN domain (`SyncFrame::domain`), as v2's `dispatchV2Application` looks
+    /// the frame's domain up (`sync-inbound.ts:180-190`): an audit row is not
+    /// admissible because the workers domain is ready. The control-lane answers
+    /// need only the `subscribed` announcement, as `handleV2Control` does.
     pub fn may_apply(&self, frame: &SyncFrame) -> bool {
         match frame {
             // The announcement and a reset are what CREATE the subscription
             // state, so they are the two frames that are always admissible.
             SyncFrame::Subscribed { .. } | SyncFrame::DomainReset { .. } => true,
             SyncFrame::DomainReady { domain, .. } => self.domain_generation(*domain).is_some(),
+            SyncFrame::UiState
+            | SyncFrame::UiCommand { .. }
+            | SyncFrame::CoordinatorRelocation { .. }
+            | SyncFrame::InputRouteResult { .. }
+            | SyncFrame::TransportProbeResult { .. } => !self.domains.is_empty(),
+            SyncFrame::AuditRow { .. }
+            | SyncFrame::WorkspaceDelta { .. }
+            | SyncFrame::TaskDelta { .. }
+            | SyncFrame::McpMessage { .. }
+            | SyncFrame::WorkerPresence { .. }
+            | SyncFrame::WorkerRoutable { .. }
+            | SyncFrame::PairRequestDelta { .. }
+            | SyncFrame::SessionViewers { .. }
+            | SyncFrame::SessionPresence { .. }
+            | SyncFrame::TerminalTitle { .. }
+            | SyncFrame::LastActivity { .. } => frame.domain().is_some_and(|domain| {
+                self.domains
+                    .get(&domain)
+                    .is_some_and(|entry| entry.subscribed && entry.ready)
+            }),
             _ => self
                 .domains
                 .values()
                 .any(|entry| entry.subscribed && entry.ready),
-        }
-    }
-
-    /// The domain a frame belongs to. Every non-control frame names exactly one.
-    pub fn frame_domain(&self, frame: &SyncFrame) -> SyncDomain {
-        match frame {
-            SyncFrame::DomainReady { domain, .. } | SyncFrame::DomainReset { domain, .. } => {
-                *domain
-            }
-            SyncFrame::CellGrid { .. } | SyncFrame::CellGridChunk { .. } => SyncDomain::Terminal,
-            // Session, workspace, task and audit traffic all ride the domains
-            // the coordinator announced; the specific one is the host's
-            // concern, and only the terminal domain has a fence here.
-            _ => SyncDomain::Workers,
         }
     }
 }

@@ -167,15 +167,20 @@ pub fn retire_route(
 
     // The replica repairs from Sync when there is a Sync route at all. With
     // painted rows still up, a session with no carrier shows what it last had
-    // rather than blanking.
+    // rather than blanking. A replica expecting no stream sends nothing: there is
+    // no stream to ask a baseline of.
     if let Some(replica) = store.terminal(session_id) {
         let view_id = replica.repair_view().map(|view| view.view_id.clone());
         if let Some(view_id) = view_id
+            && let Some(position) = replica.resync_position()
             && let Some(sync_token) = store.sync_terminal_token()
         {
             out.push(Effect::SendSync(SyncCommand::TerminalResync {
                 session_id: session_id.to_string(),
                 view_id,
+                stream_id: position.stream_id,
+                grid_epoch: position.grid_epoch,
+                seq: position.seq,
                 token: sync_token,
             }));
         }
