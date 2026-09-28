@@ -66,7 +66,7 @@ Rulings made during the run (all in the tracks' commit bodies): parity = v2 wins
 
 Operating lessons (put them in every lead brief): a lead that ends a turn while waiting dies (forced tool choice → API 400) — block in the foreground instead; leads run out of request budget in 1.5–3 h, so scope each lead to what one budget finishes and commit after every gated item; one build lock per worktree serializes that track's helpers — keep ≤3 helpers per lead, one level deep; sweep stale test binaries after every gate.
 
-## Stage 0 state (plan "### Stage 0") — COMPLETE
+## Stage 0 state (plan "### Stage 0") — COMPLETE (history; the PAUSE table above is current)
 
 | Branch | SHA | State |
 |---|---|---|
@@ -80,7 +80,7 @@ Operating lessons (put them in every lead brief): a lead that ends a turn while 
 
 ## Next steps on the new host, in order
 
-1. Clone; create one worktree per track branch; restore each `*-snap-pause` onto its branch tip per the track handoff; reinstall `roost-build-slot` and `roost-target-sweep` from this directory (adjust paths) and `host-cargo-config.toml` as `~/.cargo/config.toml`.
+1. Clone; create one worktree per track branch; restore ONLY the coord snapshot (`git checkout v3-coord && git stash apply 6c6245e4`, base `b7ad6997`) and the worker snapshot (`git checkout recover/workerroot && git stash apply 0b35b15d`, base `0f79ffae`); web needs none — never apply `v3-web-snap-pause`; reinstall `roost-build-slot` and `roost-target-sweep` from this directory (adjust paths) and `host-cargo-config.toml` as `~/.cargo/config.toml`.
 2. Close out, per track, in parallel: coord wave 3 (the 11 rows + C-D remainder, the two terminal-render fails); worker waves 2–3 gate (fix the 3 reds, pending mutations/clippy, WResume, capture types as a protocol-only commit to coord); web gate remainder, both bundles, TERM spec, then U-2.
 3. Integrator: merge `v3-worker`, `v3-coord`, `v3-web` into `v3` and re-run the workspace gate (S3.0-style) before Stage 3.
 
