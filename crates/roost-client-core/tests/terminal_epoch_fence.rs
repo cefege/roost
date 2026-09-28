@@ -7,6 +7,8 @@
 //! "invalidates the cursor" means the canonical frame is left exactly as it was —
 //! not partially advanced — so the next full is the first thing that moves it.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 mod support;
 
 use roost_client_core::Admission;

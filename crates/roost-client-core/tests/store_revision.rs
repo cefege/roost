@@ -12,6 +12,8 @@
 //! `store.note_change()` inside `toasts::add_toast` and
 //! `toast_mutations_each_bump_the_revision_exactly_once` must fail.
 //!
+
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 use roost_client_core::store::Store;
 use roost_client_core::store::mutations::{PairRequest, delete_pair_request, replace_workers};
 use roost_client_core::store::optimistic_spawn::{

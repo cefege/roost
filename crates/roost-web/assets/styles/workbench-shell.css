@@ -7,6 +7,12 @@
   font-family: var(--md-font);
   overflow: hidden;
   position: relative;
+  /* v2 set this inline (AppShell.tsx `shellStyle`). With no height the desktop
+     grid's `minmax(0, 1fr)` row collapses to its content, the status bar rides
+     up under the surface and the rail stops short of the window bottom.
+     `svh` is v2's unit: the small viewport height, so a mobile browser's
+     retracting URL bar does not resize the terminal's rows mid-paint. */
+  height: 100svh;
 }
 .workbench-shell[data-compact="false"] {
   display: grid;
@@ -176,7 +182,21 @@
 }
 
 .workbench-editor-region[data-keyboard-shift="true"] {
+  /* TRANSLATE, NEVER RESIZE. Every PTY resize makes an inline TUI repaint in
+     place, and one repainting in place duplicates rows into history — so a soft
+     keyboard moves the region and never changes the terminal's row count. The
+     explicit opt-in to resizing instead is the keyboard-resize preference, and
+     that reader has no `data-keyboard-shift` at all. */
+  transform: translateY(calc(var(--kb-offset) * -1));
   transition: transform var(--md-sys-motion-duration-medium1) var(--md-sys-motion-easing-emphasized);
+}
+
+/* The compact editor reserves the composer's RESTING row whether or not the
+   composer is mounted right now, because a row that appears and disappears with
+   the composer is a row the terminal's height changes with. */
+.workbench-shell[data-compact="true"] .workbench-editor-region[data-keyboard-shift="true"] {
+  --term-chat-growth: 0;
+  padding-bottom: calc(var(--term-chat-rest-height) + var(--term-chat-dock-rest-offset));
 }
 
 .workbench-editor-slot {

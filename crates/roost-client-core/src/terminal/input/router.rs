@@ -90,6 +90,17 @@ impl InputRouter {
             });
         }
         self.next_input_seq += 1;
+        // An empty batch is not a keystroke: it arrives when the key mapper
+        // declines a key the pane does not own, and queuing it would leave a
+        // no-op outstanding that the pane waits on forever. The sequence is
+        // still allocated above, because this method's contract is that a
+        // refused batch spends one — a sequence that skips is worse than a
+        // sequence that was never sent.
+        if bytes.is_empty() {
+            return Err(InputRefusal {
+                reason: "input batch is empty".to_string(),
+            });
+        }
         let pending = PendingInput {
             session_id: session_id.to_string(),
             view_id,

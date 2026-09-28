@@ -16,16 +16,23 @@
 
 #![forbid(unsafe_code)]
 
+pub mod backfill;
 pub mod block_placeholder;
 pub mod cell_geometry;
 pub mod cell_renderer;
 pub mod cell_renderer_dom;
 pub mod cell_row;
+pub mod echo_overlay;
 pub mod element_style;
+pub mod find;
+pub mod input;
 pub mod link_target;
+pub mod links;
+pub mod mouse_forward;
 pub mod painted_history;
 pub mod presentation;
 pub mod reader_intent;
+pub mod scheduler;
 
 pub use block_placeholder::{DEFAULT_CELL_ROW_PX, SCROLLBACK_BLOCK_ROWS, block_placeholder};
 pub use cell_geometry::{TerminalCellGeometry, cell_from_point, grid_geometry_from_box};

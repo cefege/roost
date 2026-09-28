@@ -11,6 +11,8 @@
 //! with `transfer.state = TransferState::Failed`, and
 //! `a_transfer_may_decrease_without_failing` must fail.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use roost_client_core::ClientCore;
 use roost_client_core::store::transfers::{
     NewTransfer, TRANSFER_STALL_AFTER_MS, TransferDirection, TransferState, add_transfer,
