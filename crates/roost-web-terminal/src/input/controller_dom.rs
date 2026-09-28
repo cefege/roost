@@ -22,33 +22,7 @@ use crate::input::controller::{
     TextareaCommit, force_focus,
 };
 
-/// What the pane hands the controller. The mode reads are called per event,
-/// so a worker-reported DECCKM or DECSET 1004 change applies to the next key.
-pub struct TerminalInputOptions {
-    /// DECCKM as the worker reports it.
-    pub cursor_keys_application: Box<dyn Fn() -> bool>,
-    /// DECSET 1004 as the worker reports it: real focus and blur become PTY
-    /// reports while the application asks for them.
-    pub focus_events_enabled: Box<dyn Fn() -> bool>,
-    /// Bytes for the session's input lane.
-    pub on_data: Box<dyn Fn(&str)>,
-    /// Clipboard admission belongs to the pane, so multiline confirmation,
-    /// attachment extraction, bracketed framing and queue limits share one path.
-    pub on_paste: Box<dyn Fn(&str, &ClipboardEvent)>,
-    /// The textarea's accessible name; "Terminal input" when absent.
-    pub aria_label: Option<String>,
-    /// TV mode keeps directional navigation off the off-screen textarea.
-    pub tv_mode_active: bool,
-}
-
-impl std::fmt::Debug for TerminalInputOptions {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TerminalInputOptions")
-            .field("aria_label", &self.aria_label)
-            .field("tv_mode_active", &self.tv_mode_active)
-            .finish_non_exhaustive()
-    }
-}
+use super::options::TerminalInputOptions;
 
 struct ControllerShared {
     state: RefCell<InputControllerState>,

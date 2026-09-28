@@ -149,7 +149,7 @@ impl Listeners {
                     return;
                 };
                 let (x, y) = first(touch).unwrap_or_default();
-                (&mut *start.borrow_mut())(DeckTouch::Start {
+                start.borrow_mut()(DeckTouch::Start {
                     x,
                     y,
                     touches: touch.touches().length(),
@@ -166,7 +166,7 @@ impl Listeners {
                 let Some((x, y)) = event.dyn_ref::<web_sys::TouchEvent>().and_then(first) else {
                     return;
                 };
-                if (&mut *moving.borrow_mut())(DeckTouch::Move { x, y, at_ms: now() }) {
+                if moving.borrow_mut()(DeckTouch::Move { x, y, at_ms: now() }) {
                     event.prevent_default();
                     event.stop_propagation();
                 }
@@ -179,7 +179,7 @@ impl Listeners {
                 true,
                 true,
                 Closure::new(move |_| {
-                    (&mut *ending.borrow_mut())(DeckTouch::End { at_ms: now() });
+                    ending.borrow_mut()(DeckTouch::End { at_ms: now() });
                 }),
             );
         }
