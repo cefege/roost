@@ -10,7 +10,7 @@ use roost_worker::session::cell_scheduler::MAX_PENDING_INPUT_ECHO_PROMOTIONS;
 use roost_worker::session::emit::CellEmitter;
 use roost_worker::session::raw_metadata::{
     RAW_METADATA_AGGREGATE_CAP_BYTES, RAW_METADATA_CHANNEL_CAP_BYTES,
-    RAW_METADATA_DISPATCH_FRAME_BUDGET, RawMetadataStage,
+    RAW_METADATA_DISPATCH_FRAME_BUDGET, RawMetadataStage, RawSend,
 };
 
 use support::{Answer, RecordFixture, RecordingSink, channel, stream_id};
@@ -30,10 +30,16 @@ fn a_negotiated_link_stages_no_raw_bytes_at_all() {
         "the negotiation left bytes staged"
     );
     stage.stage(channel(31), 23, b"more raw pty bytes");
-    assert!(
-        stage.drain().is_empty(),
-        "a negotiated link staged raw bytes"
+    let mut sent = 0;
+    stage.dispatch(
+        &|_| true,
+        &mut |_| {
+            sent += 1;
+            RawSend::Accepted
+        },
+        std::time::Instant::now(),
     );
+    assert_eq!(sent, 0, "a negotiated link staged raw bytes");
 }
 
 /// A single chatty session must not be able to take the whole lane, so the
@@ -62,10 +68,10 @@ fn one_channel_cannot_take_the_whole_raw_lane() {
     assert!(stage.staged_bytes() <= RAW_METADATA_AGGREGATE_CAP_BYTES);
 }
 
-/// A drain hands over one dispatch budget, oldest channel first, so one busy
-/// session cannot reorder another session's bytes or starve the cells behind.
+/// v2 `drainRawMetadata`: one bounded turn, round-robin by readiness, so one
+/// busy session cannot starve another's scanners or reorder its own bytes.
 #[test]
-fn a_drain_is_bounded_and_keeps_each_channels_own_order() {
+fn a_dispatch_is_bounded_round_robin_and_keeps_each_channels_own_order() {
     let mut stage = RawMetadataStage::default();
     for chunk in 0..RAW_METADATA_DISPATCH_FRAME_BUDGET + 5 {
         stage.stage(channel(33), chunk as u64, format!("a{chunk}").as_bytes());
@@ -73,26 +79,68 @@ fn a_drain_is_bounded_and_keeps_each_channels_own_order() {
     for chunk in 0..3 {
         stage.stage(channel(34), chunk as u64, format!("b{chunk}").as_bytes());
     }
-    let first = stage.drain();
+    let mut first = Vec::new();
+    stage.dispatch(
+        &|_| true,
+        &mut |frame| {
+            first.push(frame.clone());
+            RawSend::Accepted
+        },
+        std::time::Instant::now(),
+    );
     assert_eq!(
         first.len(),
         RAW_METADATA_DISPATCH_FRAME_BUDGET,
         "one dispatch took the whole queue and starves the lanes behind it"
     );
-    assert!(
-        first.iter().all(|frame| frame.channel_id == channel(33)),
-        "the drain reached past the first channel with work"
+    let order: Vec<u32> = first
+        .iter()
+        .take(6)
+        .map(|frame| frame.channel_id.as_u32())
+        .collect();
+    assert_eq!(
+        order,
+        vec![33, 34, 33, 34, 33, 34],
+        "the dispatch was not round-robin"
     );
-    assert!(
-        first
-            .windows(2)
-            .all(|pair| pair[0].end_seq < pair[1].end_seq),
-        "a channel's own frames came back out of order"
-    );
+    for id in [33, 34] {
+        let seqs: Vec<u64> = first
+            .iter()
+            .filter(|f| f.channel_id.as_u32() == id)
+            .map(|f| f.end_seq)
+            .collect();
+        assert!(
+            seqs.windows(2).all(|pair| pair[0] < pair[1]),
+            "a channel's own frames came back out of order"
+        );
+    }
     assert!(
         stage.staged_bytes() > 0,
         "the queue was emptied by one dispatch"
     );
+    assert_eq!(stage.channel_backlog(channel(33)).0, 8);
+}
+
+/// A frame the link refuses drops that channel's whole queue (v2
+/// `dropRawMetadataQueue`), and a gone session's staging is disposed.
+#[test]
+fn a_refused_frame_drops_its_channels_queue_and_a_gone_session_is_disposed() {
+    let mut stage = RawMetadataStage::default();
+    stage.stage(channel(38), 1, b"one");
+    stage.stage(channel(38), 2, b"two");
+    stage.stage(channel(39), 1, b"gone");
+    let mut sent = Vec::new();
+    stage.dispatch(
+        &|id| id.as_u32() != 39,
+        &mut |frame| {
+            sent.push(frame.end_seq);
+            RawSend::Dropped
+        },
+        std::time::Instant::now(),
+    );
+    assert_eq!(sent, vec![1], "a refused queue kept sending");
+    assert_eq!(stage.staged_bytes(), 0);
+    assert_eq!(stage.channel_backlog(channel(39)), (0, 0));
 }
 
 /// An echo promotion is taken once and is bounded. Consuming membership instead
