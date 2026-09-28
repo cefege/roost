@@ -136,16 +136,16 @@ pub const ROWS_SEARCH: &[MethodRoute] = &[
 #[rustfmt::skip]
 pub const ROWS_ATTACHMENTS: &[MethodRoute] = &[
     route("SessionsNegotiateAttachmentPeer", "attachments", AuthRequirement::DevicePlusFence, PortStatus::AwaitingDomainPort),
-    route("FilesRead", "attachments", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("FilesReadChunk", "attachments", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("FilesListDir", "attachments", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("FilesMkdir", "attachments", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
+    route("FilesRead", "attachments", AuthRequirement::Device, PortStatus::Implemented),
+    route("FilesReadChunk", "attachments", AuthRequirement::Device, PortStatus::Implemented),
+    route("FilesListDir", "attachments", AuthRequirement::Device, PortStatus::Implemented),
+    route("FilesMkdir", "attachments", AuthRequirement::Device, PortStatus::Implemented),
     route("AttachmentsGrantDirect", "attachments", AuthRequirement::DevicePlusFence, PortStatus::AwaitingDomainPort),
     route("AttachmentsDirectStatus", "attachments", AuthRequirement::DevicePlusFence, PortStatus::AwaitingDomainPort),
-    route("AttachFileChunk", "attachments", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("AttachmentProbe", "attachments", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("ListAttachments", "attachments", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("DeleteAttachment", "attachments", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
+    route("AttachFileChunk", "attachments", AuthRequirement::Device, PortStatus::Implemented),
+    route("AttachmentProbe", "attachments", AuthRequirement::Device, PortStatus::Implemented),
+    route("ListAttachments", "attachments", AuthRequirement::Device, PortStatus::Implemented),
+    route("DeleteAttachment", "attachments", AuthRequirement::Device, PortStatus::Implemented),
 ];
 
 /// auth, pairing and device lifecycle.

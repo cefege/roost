@@ -51,6 +51,11 @@ use crate::agents::rpc_status::{
     handle_agent_config_get, handle_agent_config_set, handle_agent_status_get,
     handle_agent_status_list, handle_agent_status_wait,
 };
+use crate::attachments::rpc_files::{
+    handle_attach_file_chunk, handle_attachment_probe, handle_delete_attachment,
+    handle_files_list_dir, handle_files_mkdir, handle_files_read, handle_files_read_chunk,
+    handle_list_attachments,
+};
 use crate::auth::rpc_bootstrap::{
     handle_auth_mint_bootstrap, handle_auth_redeem_browser, handle_auth_redeem_worker,
 };
@@ -852,78 +857,102 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn files_read<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, FilesReadRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, FilesReadRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<FilesReadResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<FilesReadResponse>("FilesRead")
+        async move {
+            let caller = caller_of(&ctx, "FilesRead")?;
+            handle_files_read(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn files_read_chunk<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, FilesReadChunkRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, FilesReadChunkRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<FilesReadChunkResponse> + Send + use<'a>>>
     + Send {
-        delegated_reply::<FilesReadChunkResponse>("FilesReadChunk")
+        async move {
+            let caller = caller_of(&ctx, "FilesReadChunk")?;
+            handle_files_read_chunk(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn files_list_dir<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, FilesListDirRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, FilesListDirRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<FilesListDirResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<FilesListDirResponse>("FilesListDir")
+        async move {
+            let caller = caller_of(&ctx, "FilesListDir")?;
+            handle_files_list_dir(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn files_mkdir<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, FilesMkdirRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, FilesMkdirRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<FilesMkdirResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<FilesMkdirResponse>("FilesMkdir")
+        async move {
+            let caller = caller_of(&ctx, "FilesMkdir")?;
+            handle_files_mkdir(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn attach_file_chunk<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AttachFileChunkRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AttachFileChunkRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<AttachFileChunkResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<AttachFileChunkResponse>("AttachFileChunk")
+        async move {
+            let caller = caller_of(&ctx, "AttachFileChunk")?;
+            handle_attach_file_chunk(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn attachment_probe<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AttachmentProbeRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AttachmentProbeRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<AttachmentProbeResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<AttachmentProbeResponse>("AttachmentProbe")
+        async move {
+            let caller = caller_of(&ctx, "AttachmentProbe")?;
+            handle_attachment_probe(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn list_attachments<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, ListAttachmentsRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, ListAttachmentsRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<ListAttachmentsResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<ListAttachmentsResponse>("ListAttachments")
+        async move {
+            let caller = caller_of(&ctx, "ListAttachments")?;
+            handle_list_attachments(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn delete_attachment<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, DeleteAttachmentRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, DeleteAttachmentRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<DeleteAttachmentResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<DeleteAttachmentResponse>("DeleteAttachment")
+        async move {
+            let caller = caller_of(&ctx, "DeleteAttachment")?;
+            handle_delete_attachment(&self.core, caller, r.to_owned_message()).await
+        }
     }
 
     fn attachments_grant_direct<'a>(

@@ -21,4 +21,5 @@ impl AttachmentsRuntime {
 }
 pub mod files;
 mod relay;
+pub mod rpc_files;
 pub mod session_files;

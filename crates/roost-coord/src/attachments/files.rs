@@ -23,22 +23,23 @@ use roost_proto::{
     FilesListDirEntry, FilesListDirResponse, FilesMkdirResponse, FilesReadChunkResponse,
     FilesReadResponse,
 };
+use roost_protocol::wire::WorkerFp;
 use roost_protocol::wire::control::ClientControlFrame;
 
 use connectrpc::{ConnectError, ErrorCode};
 
 /// The v2 deadline for a whole-file read, a list-dir and a mkdir: `10_000` ms
 /// at v2 `:60`, `:74`, `:94`.
-const DEADLINE_MS: i64 = 10_000;
+const DEADLINE_MS: u64 = 10_000;
 /// The paged read's own deadline — `30_000` ms at v2 `:73`.
-const CHUNK_DEADLINE_MS: i64 = 30_000;
+const CHUNK_DEADLINE_MS: u64 = 30_000;
 /// `len > 4 * 1024 * 1024` is refused (v2 `:70-72`).
 const MAX_CHUNK_LEN: i64 = 4 * 1024 * 1024;
 
 /// Whole-file read. v2 `:56-67`.
 pub async fn files_read(
     relay: &ScrollbackRelay,
-    worker_fp: &str,
+    worker_fp: &WorkerFp,
     viewer_id: &str,
     path: &str,
     request_id: &str,
@@ -67,7 +68,7 @@ pub async fn files_read(
 /// The paged read behind the download's progress bar. v2 `:69-84`.
 pub async fn files_read_chunk(
     relay: &ScrollbackRelay,
-    worker_fp: &str,
+    worker_fp: &WorkerFp,
     viewer_id: &str,
     path: &str,
     offset: i64,
@@ -106,7 +107,7 @@ pub async fn files_read_chunk(
 /// v2 `:86-99`. The `resolved_path` fallback is v2 `:98`.
 pub async fn files_mkdir(
     relay: &ScrollbackRelay,
-    worker_fp: &str,
+    worker_fp: &WorkerFp,
     viewer_id: &str,
     path: &str,
     request_id: &str,
@@ -161,7 +162,7 @@ pub fn files_list_dir_entries(reply: &Value) -> Result<Vec<FilesListDirEntry>, C
 /// List a directory. v2 `:86-95`, and the `resolved_path` fallback is v2 `:95`.
 pub async fn files_list_dir(
     relay: &ScrollbackRelay,
-    worker_fp: &str,
+    worker_fp: &WorkerFp,
     viewer_id: &str,
     path: &str,
     request_id: &str,

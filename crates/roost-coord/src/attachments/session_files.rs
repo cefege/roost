@@ -7,10 +7,10 @@
 
 use serde_json::Value;
 
-use super::relay::{optional_str, relay_once, required};
+use super::relay::{optional_str, relay_once, required, settle_within};
 use crate::terminal_screen::scrollback_relay::ScrollbackRelay;
 use crate::workers::send::SendOutcome;
-use roost_proto::{AttachmentEntry, DAttachmentChunk};
+use roost_proto::{AttachFileChunkRequest, AttachmentEntry, DAttachmentChunk};
 use roost_protocol::wire::SessionId;
 use roost_protocol::wire::WorkerFp;
 use roost_protocol::wire::control::ClientControlFrame;
@@ -20,10 +20,10 @@ use connectrpc::{ConnectError, ErrorCode};
 
 /// The v2 deadline for a probe, a listing and a delete: `10_000` ms at v2
 /// `:131`, `:141`.
-const DEADLINE_MS: i64 = 10_000;
+const DEADLINE_MS: u64 = 10_000;
 /// The final upload chunk's deadline, "5 min covers a multi-GB tailnet upload"
 /// (v2 `:99`).
-const UPLOAD_DEADLINE_MS: i64 = 300_000;
+const UPLOAD_DEADLINE_MS: u64 = 300_000;
 
 /// v2 `:151` truncates the float the worker sends, because the proto field is
 /// an integer and a fractional mtime would not encode.
@@ -74,7 +74,7 @@ pub fn probe_hit(reply: &Value) -> Result<(bool, String), ConnectError> {
 /// v2 `:126-140`.
 pub async fn attachment_probe(
     relay: &ScrollbackRelay,
-    worker_fp: &str,
+    worker_fp: &WorkerFp,
     viewer_id: &str,
     session_id: &SessionId,
     sha256: &str,
@@ -102,7 +102,7 @@ pub async fn attachment_probe(
 /// What a session's attachment directory already holds. v2 `:142-156`.
 pub async fn list_attachments(
     relay: &ScrollbackRelay,
-    worker_fp: &str,
+    worker_fp: &WorkerFp,
     viewer_id: &str,
     session_id: &SessionId,
     request_id: &str,
@@ -126,7 +126,7 @@ pub async fn list_attachments(
 /// v2 `:158-172`.
 pub async fn delete_attachment(
     relay: &ScrollbackRelay,
-    worker_fp: &str,
+    worker_fp: &WorkerFp,
     viewer_id: &str,
     session_id: &SessionId,
     filename: &str,
@@ -170,57 +170,57 @@ pub async fn delete_attachment(
 /// chunk two. Rust refuses where v2 silently re-points the completion: the first
 /// caller owns it, and re-pointing would let a replayed request steal another
 /// call's result.
+///
+/// The request is taken by value so its bytes move into the downstream frame
+/// instead of being copied; `upload_id` and `session_id` were checked by the
+/// handler before the session's worker was resolved, as v2 `:116-118` orders it.
 pub async fn attach_file_chunk(
     relay: &ScrollbackRelay,
-    worker_fp: &str,
-    upload_id: &str,
+    worker_fp: &WorkerFp,
     session_id: &SessionId,
-    filename: &str,
-    short_path: bool,
-    data: &[u8],
-    last: bool,
-    seq: u32,
+    request: AttachFileChunkRequest,
 ) -> Result<String, ConnectError> {
-    if upload_id.is_empty() {
-        return Err(ConnectError::new(
-            ErrorCode::InvalidArgument,
-            "upload_id required",
-        ));
-    }
-    let worker_fp_typed = WorkerFp::try_from(worker_fp).map_err(|_| {
-        ConnectError::new(ErrorCode::InvalidArgument, "worker_fp is not a fingerprint")
-    })?;
-    let mut pending = if last {
+    let AttachFileChunkRequest {
+        upload_id,
+        filename,
+        short_path,
+        data,
+        last,
+        seq,
+        ..
+    } = request;
+    let pending = if last {
         Some(
             relay
                 .pending()
-                .create(upload_id, Some(worker_fp), relay.now_ms())?,
+                .create(&upload_id, Some(worker_fp.as_str()), relay.now_ms())?,
         )
     } else {
         None
     };
     let outcome = crate::workers::send::send_frame(
         relay.workers(),
-        &worker_fp_typed,
+        worker_fp,
         CoordWorkerDownstream::AttachmentChunk(DAttachmentChunk {
-            request_id: upload_id.to_owned(),
+            request_id: upload_id.clone(),
             session_id: session_id.as_str().to_owned(),
-            filename: filename.to_owned(),
+            filename,
             short_path,
-            data: data.to_vec(),
+            data,
             last,
             seq,
             __buffa_unknown_fields: Default::default(),
         }),
     );
-    if let SendOutcome::Refused(_) = outcome {
-        // `Unavailable`, not `Internal` — v2 `:107` throws the same. An upload
+    if let SendOutcome::Refused(refusal) = outcome {
+        // `Unavailable`, not `Internal` — v2 `:138` throws the same. An upload
         // interrupted mid-flight is retryable, so it is neither the caller's
         // fault nor a statement failure.
+        tracing::info!(%worker_fp, %upload_id, %refusal, "attachments: an upload chunk was not sent");
         relay.pending().reject_unavailable(
-            upload_id,
+            &upload_id,
             "worker disconnected mid-upload",
-            Some(worker_fp),
+            Some(worker_fp.as_str()),
         );
         return Err(ConnectError::new(
             ErrorCode::Unavailable,
@@ -230,6 +230,7 @@ pub async fn attach_file_chunk(
     let Some(mut pending) = pending else {
         return Ok(String::new());
     };
-    let reply = pending.settle().await?;
+    let reply = settle_within(&mut pending, UPLOAD_DEADLINE_MS).await?;
+    tracing::info!(%worker_fp, %upload_id, "attachments: the final upload chunk was stored");
     Ok(optional_str(&reply, "abs_path", "").to_owned())
 }
