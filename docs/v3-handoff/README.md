@@ -37,6 +37,22 @@ Worktrees: `roost-v3` (integrator, `v3`), `roost-v3-coord` (`v3-coord`),
 `roost-v3-trial` (detached, the integrator's trial merge), `roost-v3-web-gate`
 (detached clean checkout of `v3-web` for gate runs).
 
+## Environment finding: the door page loads as a download on this host
+
+`smoke/terminal/terminal-local-fast-path.spec.ts` (chromium-serial) fails at
+`page.goto("http://127.0.0.1:<door>/#pair=…")` with Playwright's
+`Error: goto: Download is starting`, and `terminal-peer.spec.ts:61` fails the
+same way. Measured twice on 2026-09-28 16:20: once with
+`ROOST_SMOKE_COORD_EXECUTABLE` set to the Rust coordinator and once with it
+unset (the whole TypeScript stack) — **identical error both times**, so it is a
+host/environment fault, not a v3 port defect. v2's SPA responder
+(`packages/host/src/spa.ts:127-166`) serves `/` as `index.html` with
+`text/html; charset=utf-8` and the worktree's `apps/web/dist` is complete, so
+the rejected response is not the index path. Stage 3.2 runs the whole terminal
+oracle on this host, so diagnose it there with a `curl -I` against a live
+stack's door before the first full run; whatever answers, the Rust door
+(`roost-worker`'s W-DOOR slice) must not reproduce it.
+
 ## RESUME STATE — read this first
 
 Three track leads run in parallel, one per track worktree, each owning its
