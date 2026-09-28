@@ -9,6 +9,7 @@
 use crate::effect::Effect;
 use crate::store::Store;
 use crate::sync::{SyncDomain, SyncFrame};
+use crate::terminal::smoke_faults::FaultedFrameKind;
 
 use super::fold_controls::{
     fold_audit_row, fold_coordinator_relocation, fold_input_route_result, fold_pair_request,
@@ -105,6 +106,16 @@ pub(super) fn apply_frame(
             let Some(token) = store.sync.terminal_token() else {
                 return;
             };
+            let (full, seq) = (cell.full, Some(cell.seq));
+            if store.terminal_smoke_faults.consume(
+                session_id,
+                &token,
+                FaultedFrameKind::Frame,
+                full,
+                seq,
+            ) {
+                return;
+            }
             let Some(replica) = store.terminal_mut_if_present(session_id) else {
                 return;
             };
@@ -123,6 +134,18 @@ pub(super) fn apply_frame(
             let Some(token) = store.sync.terminal_token() else {
                 return;
             };
+            let full = chunk.part.as_option().map(|part| part.full);
+            if let Some(full) = full
+                && store.terminal_smoke_faults.consume(
+                    session_id,
+                    &token,
+                    FaultedFrameKind::Chunk,
+                    full,
+                    None,
+                )
+            {
+                return;
+            }
             let Some(replica) = store.terminal_mut_if_present(session_id) else {
                 return;
             };

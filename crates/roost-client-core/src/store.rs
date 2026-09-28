@@ -11,6 +11,8 @@ pub mod browse_entries;
 pub mod browse_machine;
 pub mod browse_paths;
 pub mod browse_state;
+pub mod folder_activity;
+pub mod folder_name_validation;
 pub mod layout;
 pub mod mutations;
 pub mod navigation;
@@ -21,9 +23,14 @@ pub mod pending_close;
 pub mod prefs;
 pub mod root;
 pub mod selectors;
+pub mod shell_dialogs;
+pub mod shell_intent;
+pub mod sidebar;
 pub mod spotlight;
 pub mod sync_feeds;
+pub mod sync_smoke;
 pub mod terminal_nav_pad;
+pub mod terminal_transport;
 pub mod toasts;
 pub mod transfers;
 pub mod ui;
@@ -125,6 +132,12 @@ pub struct Store {
     /// The terminal key pad's open state and its disarm count. Mutated only
     /// through `store::terminal_nav_pad`.
     pub terminal_nav_pad: crate::store::terminal_nav_pad::TerminalNavPad,
+    /// The sidebar's cursor and visit memory. Mutated only through `store::sidebar`.
+    pub sidebar: crate::store::sidebar::SidebarState,
+    /// The rename and queue-task dialogs. Mutated only through `store::shell_intent`.
+    pub shell_dialogs: crate::store::shell_dialogs::ShellDialogs,
+    /// The deck's stored arrangements and pending route. Mutated only through `deck::intent`.
+    pub deck: crate::deck::DeckState,
     /// The coordinator's build and public URL, once `AuthCoordIdentity`
     /// answered (v2 `rootStore.coord_identity`).
     pub coord_identity: Option<crate::store::root::CoordIdentity>,
@@ -197,6 +210,8 @@ pub struct Store {
     pub transport_probes: BTreeMap<String, ProbeTelemetry>,
     /// Pairings already announced, oldest first, so one pairing toasts once.
     pub announced_pairings: VecDeque<String>,
+    /// Smoke-armed frame faults; empty unless a smoke build armed one.
+    pub terminal_smoke_faults: crate::terminal::smoke_faults::TerminalSmokeFaults,
 
     /// The next Connect call id, so a result is correlated with its call.
     next_call_id: u64,
@@ -254,6 +269,9 @@ impl Store {
             spotlight: Spotlight::new(),
             ui: UiState::new(),
             terminal_nav_pad: crate::store::terminal_nav_pad::TerminalNavPad::new(),
+            sidebar: crate::store::sidebar::SidebarState::default(),
+            shell_dialogs: crate::store::shell_dialogs::ShellDialogs::default(),
+            deck: crate::deck::DeckState::new(0),
             coord_identity: None,
             prefs: Prefs::new(),
             spawns: SpawnLedger::new(),
@@ -273,6 +291,7 @@ impl Store {
             input_route_results: BTreeMap::new(),
             transport_probes: BTreeMap::new(),
             announced_pairings: VecDeque::new(),
+            terminal_smoke_faults: crate::terminal::smoke_faults::TerminalSmokeFaults::default(),
         }
     }
 
