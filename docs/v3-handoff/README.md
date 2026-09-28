@@ -10,11 +10,16 @@ any conflict. Nothing else from the original host is needed: `git clone`.
 Disk, not memory, stopped the run. The root is 111 GiB (no unallocated space
 on `sda`), ~50 GiB is fixed content, and each worktree's cargo target dir grew
 to 13–17 GiB during clippy + tests; three tracks plus the gate dir drove free
-space to 4 GiB. RAM was fine (31 GiB, 24 available, no OOM). Countermeasures:
-`~/.cargo/config.toml` sets `debug = "line-tables-only"` for the dev and test
-profiles host-wide; at most two tracks build at once; `cargo clean` a track's
+space to 4 GiB. RAM was fine (31 GiB, 24 available, no OOM). The workspace
+`Cargo.toml` already had dev/test `debug = "line-tables-only"`; on top of it,
+host-local `~/.cargo/config.toml` sets `[profile.dev.package."*"] debug = false`
+and host-target linker flag `--compress-debug-sections=zlib`. Measured on the
+`roost-coord` test build: 12 GiB → 7.3 GiB → 4.3 GiB; the full workspace gate
+dir is ~11 GiB. Every cargo/dx build goes through
+`flock <worktree>/target-track/.roost-build.lock /home/almalinux/repos/roost-build-slot <cmd>`,
+which admits at most two builds host-wide. `cargo clean` a track's
 `target-track` once its branch is pushed and it has no build left in its wave.
-sccache would save CPU, not disk.
+Never set `RUSTFLAGS` in a build env (it replaces the config flag).
 
 ## Stage 0 state (plan "### Stage 0") — COMPLETE
 
