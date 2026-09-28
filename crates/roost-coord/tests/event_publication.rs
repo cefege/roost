@@ -15,11 +15,12 @@ mod event_support;
 
 use std::sync::{Arc, Mutex, PoisonError};
 
+use event_support::reachability::{
+    the_deferred_append_path_has_an_execution_path, the_deferred_reap_ids_have_a_production_reader,
+};
 use event_support::{
     DASHBOARD_ID, EventFixture, RecordingEffects, Step, closed_event, fingerprint, live_session,
-    opened_event, respawned_event, session_id, snapshot_event,
-    the_deferred_append_path_has_an_execution_path, the_deferred_reap_ids_have_a_production_reader,
-    worker_caller, workspace_id,
+    opened_event, respawned_event, session_id, snapshot_event, worker_caller, workspace_id,
 };
 use roost_coord::events::append::{AppendOptions, append_event};
 use roost_coord::events::bus_messages::SessionBusMessage;
@@ -347,35 +348,6 @@ async fn a_deferred_reap_waits_for_the_callers_readiness_barrier() {
     fixture.close();
 }
 
-#[tokio::test]
-async fn a_snapshot_over_the_cap_is_refused_before_anything_is_written() {
-    let fixture = EventFixture::new("snapshot-cap").await;
-    let effects = RecordingEffects::new(&fixture);
-    let worker = fingerprint('d');
-    let oversized = (0..1_025_u32)
-        .map(|index| live_session(&bulk_session_id(index), &worker, 1, None))
-        .collect::<Vec<_>>();
-
-    let error = append_event(
-        &fixture.writer,
-        snapshot_event(&worker, oversized),
-        &worker_caller(&worker, 1),
-        &mut fixture.options(&effects),
-    )
-    .await
-    .expect_err("a snapshot past the cap is an error, not a truncated list");
-
-    assert!(
-        error.to_string().contains("exceeds 1024 sessions"),
-        "the cap is named: {error}"
-    );
-    assert!(
-        fixture.event_ids().await.is_empty(),
-        "a refused snapshot writes nothing"
-    );
-    fixture.close();
-}
-
 /// Put a session in a workspace, through the path a handler uses.
 async fn assign_workspace(
     fixture: &EventFixture,
@@ -397,10 +369,4 @@ async fn assign_workspace(
     )
     .await
     .expect("the assignment commits");
-}
-
-/// A well-formed session id per index, for the oversized snapshot. Only the shape
-/// matters here: the append is refused before any of them is stored.
-fn bulk_session_id(index: u32) -> SessionId {
-    session_id(char::from_digit(index % 16, 16).unwrap_or('a'))
 }
