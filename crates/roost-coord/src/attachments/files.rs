@@ -76,9 +76,9 @@ use serde_json::Value;
 use crate::terminal_screen::scrollback_relay::ScrollbackRelay;
 use crate::workers::send::{SendOutcome, SendRefusal};
 use roost_proto::{
-    AttachFileChunkResponse, AttachmentEntry, AttachmentProbeResponse, DeleteAttachmentResponse,
-    FilesListDirEntry, FilesListDirResponse, FilesMkdirResponse, FilesReadChunkResponse,
-    FilesReadResponse, ListAttachmentsResponse,
+    AttachFileChunkResponse, AttachmentEntry, AttachmentProbeResponse, DAttachmentChunk,
+    DeleteAttachmentResponse, FilesListDirEntry, FilesListDirResponse, FilesMkdirResponse,
+    FilesReadChunkResponse, FilesReadResponse, ListAttachmentsResponse,
 };
 use roost_protocol::wire::SessionId;
 use roost_protocol::wire::WorkerFp;
@@ -512,4 +512,85 @@ pub async fn delete_attachment(
     reply.get("ok").and_then(Value::as_bool).ok_or_else(|| {
         ConnectError::new(ErrorCode::Internal, "the worker did not answer the delete")
     })
+}
+
+/// One bounded chunk of a chunked upload, with no size ceiling.
+///
+/// Stateless across calls: every chunk resolves the session's worker and is
+/// relayed raw, and the worker assembles by `upload_id` into a temp file. Memory
+/// here is O(chunk), not O(file) — v2 `:85-88`.
+///
+/// **THE PENDING IS REGISTERED BEFORE THE FINAL CHUNK IS SENT.** v2's own words
+/// at `:96-98`: "so the worker's rpc-ok can't race ahead of the pending entry."
+/// Invisible when it is right; it loses the last chunk when it is wrong.
+///
+/// **AND ONLY THE FINAL CHUNK GETS ONE.** v2 registers the pending for `last`
+/// and fires every earlier chunk without one, which is what makes
+/// "non-last chunks are fire-and-forget and answer `{absPath: ""}`" (v2 `:112`)
+/// true rather than aspirational. It is also forced: the correlation is on
+/// `upload_id`, the worker echoes it, and `PendingRpcs::create` REFUSES a
+/// duplicate with `AlreadyExists` — so one entry per chunk would be a refusal on
+/// chunk two. See the header for why Rust decided that where v2 re-points.
+pub async fn attach_file_chunk(
+    relay: &ScrollbackRelay,
+    worker_fp: &str,
+    upload_id: &str,
+    session_id: &SessionId,
+    filename: &str,
+    short_path: bool,
+    data: &[u8],
+    last: bool,
+    seq: u32,
+) -> Result<String, ConnectError> {
+    if upload_id.is_empty() {
+        return Err(ConnectError::new(
+            ErrorCode::InvalidArgument,
+            "upload_id required",
+        ));
+    }
+    let worker_fp_typed = WorkerFp::try_from(worker_fp).map_err(|_| {
+        ConnectError::new(ErrorCode::InvalidArgument, "worker_fp is not a fingerprint")
+    })?;
+    let mut pending = if last {
+        Some(
+            relay
+                .pending()
+                .create(upload_id, Some(worker_fp), relay.now_ms())?,
+        )
+    } else {
+        None
+    };
+    let outcome = crate::workers::send::send_frame(
+        relay.workers(),
+        &worker_fp_typed,
+        CoordWorkerDownstream::AttachmentChunk(DAttachmentChunk {
+            request_id: upload_id.to_owned(),
+            session_id: session_id.as_str().to_owned(),
+            filename: filename.to_owned(),
+            short_path,
+            data: data.to_vec(),
+            last,
+            seq,
+            __buffa_unknown_fields: Default::default(),
+        }),
+    );
+    if let SendOutcome::Refused(_) = outcome {
+        // `Unavailable`, not `Internal` — v2 `:107` throws the same. An upload
+        // interrupted mid-flight is retryable, so it is neither the caller's
+        // fault nor a statement failure.
+        relay.pending().reject_unavailable(
+            upload_id,
+            "worker disconnected mid-upload",
+            Some(worker_fp),
+        );
+        return Err(ConnectError::new(
+            ErrorCode::Unavailable,
+            "worker disconnected mid-upload",
+        ));
+    }
+    let Some(mut pending) = pending else {
+        return Ok(String::new());
+    };
+    let reply = pending.settle().await?;
+    Ok(optional_str(&reply, "abs_path", "").to_owned())
 }
