@@ -1,11 +1,11 @@
 # Recovery is not recovery. Read this before reading a diff.
 
 Everything in this directory is the output of an accident, and every file in it
-is a **draft**. Not one of them is a deliverable, and the fact that it compiles
-is not a reason to treat it as one. This file exists because the manifest
-beside it documents *what the operations were* and says nothing about *why the
-result is not something to merge* — and the second half is the part that has to
-outlive the person who worked on it.
+is a **draft**. Not one of them is finished work, and the fact that it compiles
+is not a reason to treat it as reviewed. This file exists because the manifest
+beside it documents *what the operations were* and says nothing about *what
+state the result is in* — and the second half is the part that has to outlive
+the person who worked on it.
 
 Read this first. Read the manifest after. The order is deliberate: the manifest
 is interesting and this file is not, and a reader who starts at the manifest
@@ -13,10 +13,21 @@ will arrive at the diff already impressed.
 
 ---
 
+**Status of `recover/workerroot` as of `7c127289`: not merged, and not
+permanently unmergeable.** It carries the boot composition that closes the
+two `UNIMPLEMENTED` markers `v3-worker` still has. It is waiting on a review,
+not on a verdict. The last section says which.
+
 ## The rule
 
-**A recovered artefact is a draft. It is not a deliverable, and the fact that it
-compiles is not a reason to merge it.**
+**A recovered artefact is a draft. It is not a deliverable until someone who
+did not write it has read it, and the fact that it compiles is not a reason to
+merge it.**
+
+The half of that rule which survives any review is the last clause. The half
+which does not is the implication that the answer is to re-derive the work
+from scratch, and the last section says why that is the same mistake taken
+twice.
 
 The work this directory holds was not written once. It was written by an agent,
 erased by a revert, and then reconstructed by replaying a transcript of the
@@ -110,30 +121,66 @@ construction site for the production `Deps`, and whose safety argument was
 falsified.
 
 The recovery bought back the **shape**. It did not buy back the **judgement**,
-and the shape is the cheap half. Anyone reaching for a transcript should
-assume the result is a starting point for a human-readable diff, not a
-shortcut past writing the code.
+and the shape is the cheap half. A recovered tree is worth having — it is a
+week of work in an afternoon, and it gives a reviewer something concrete to
+disagree with. It is not worth *trusting*, and the two are different claims
+that the word "recovered" runs together.
 
 ---
 
 ## What these branches are for
 
-They are **references, not candidates.**
+**They are drafts awaiting review, not finished work and not permanent
+non-candidates.** Both halves of that matter, and the second one was got wrong
+here first.
 
 - `workerroot-replay.txt` — the manifest of sixty operations, in transcript
   order, for anyone who has to rebuild or audit a specific edit.
-- `recover/workerroot` — the output, on its own branch, never merged. A future
-  slice may read the ten-step boot composition, the `deps()` shape, the
-  `ChannelDelivery`-over-a-shared-emitter wiring, or the shape of the
-  replayability gate, take what is right, and write the rest against the
-  current tree so the final diff is something a person can read.
+- `recover/workerroot` — the output, on its own branch, carrying the boot
+  composition that closes the two `UNIMPLEMENTED` markers `v3-worker` still
+  has. It is **not merged**, and the reason it is not merged is that nobody
+  has read it — not that it is known-bad.
 
-That is a better position than the one this started from, and it is not the
-same thing as a merge. The 2W path — keeper client, enrollment, durable store
-and senders, snapshot and reconcile, browser-command deps, local door, then
-the boot order — is how `UNIMPLEMENTED` reaches zero, and it produces code
-that was reviewed as it was written.
+### The answer to "this has not been reviewed" is a review
 
-**Do not merge a recovery branch. Do not let a green build on one substitute
-for a review.** If a piece of it looks worth having, port the idea and write
-the code again.
+The obvious move from a one-witness tree is to re-derive the work from
+scratch, and that move is wrong for a reason worth writing down: it repeats
+hours of the same work and lands in **exactly the same unreviewed state**.
+The track is no further along, and the appearance of rigour was bought with
+the critical path. A rewrite is not the rigorous option. It is the same
+option, taken twice.
+
+So the sequence is: **review the recovered tree, fix what the review finds,
+then merge behind the track's own gate.** A reviewer who did not write the
+code is the point — the author of a slice is the one witness already known to
+be unreliable, which is a claim about the code's origin, not about the person.
+Parts nobody has read, on this branch specifically: the replayability probe
+and its refusal classification; the `deliver_into`-before-probe ordering
+against `resume.rs:201-207` and whether the staging buffer is bounded on every
+path; the restored `SessionStack::deps`; `TableChannelDelivery` over the
+shared emitter, and why two types rather than one impl; and the ten boot
+steps in the function body, whose order is defended by nothing —
+`tests/worker_boot_order.rs` asserts against `boot_order.rs` only and never
+reads the function.
+
+### What the 2W path is for
+
+The 2W slices — keeper client, enrollment, durable store and senders,
+snapshot and reconcile, browser-command deps, local door — are how
+`UNIMPLEMENTED` reaches zero **and** how the code gets read as it is written.
+They are not an alternative to reviewing this branch. They are the reason a
+merge of it would not be a lucky escape from the track: the rest of 2W is
+still to be written, and it will be written against whatever this branch
+turns into.
+
+### What is still true whatever the review finds
+
+**Do not let a green build on a recovery branch substitute for a review.**
+That is the standing rule, and it holds after a successful review too — a
+reviewer is a witness, not a certificate, and the second reader of a
+recovered tree should assume the first one missed something.
+
+**And the line numbers in this file are the first thing that goes stale.**
+`resume.rs` in particular will move. Every citation here was checked against
+the tree when this file was written, which is the only guarantee it carries
+and not a durable one.
