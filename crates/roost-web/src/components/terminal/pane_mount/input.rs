@@ -1,6 +1,6 @@
 //! The pane's keyboard: the off-screen textarea controller whose bytes go to
 //! the PTY as `ClientEvent::TerminalInput`, the document keydown that reserves
-//! copy/paste/find chords and recovers focus, the display's focus-on-press,
+//! copy/paste/find chords and recovers focus, the display's focus on press and click,
 //! and the multiline paste guard. Ports
 //! `apps/web/src/components/terminal/cell-terminal-input.ts`, the focus arms
 //! of `cell-terminal-interactions.ts` and the keydown of `cell-terminal-lifecycle.ts`.
@@ -116,6 +116,7 @@ pub(super) fn attach(shared: &Rc<PaneShared>) {
     }
     let display: &EventTarget = shared.display.as_ref();
     listen(shared, display, "mousedown", false, on_display_mouse_down);
+    listen(shared, display, "click", false, on_display_click);
     if let Some(document) = web_sys::window().and_then(|window| window.document()) {
         listen(
             shared,
@@ -195,6 +196,38 @@ fn on_display_mouse_down(shared: &PaneShared, event: &Event) {
         .and_then(|element| element.closest("button, input, textarea, a").ok().flatten())
         .is_some();
     if on_control {
+        return;
+    }
+    if let Some(controller) = shared.input.borrow().as_ref() {
+        controller.force_focus();
+    }
+}
+
+/// A completed press on the display takes the keyboard (v2
+/// `cell-terminal-interactions.ts` `onDisplayClick`). The press alone is not
+/// enough: the browser's own mousedown default moves focus to the nearest
+/// focusable ancestor — the body — after the press handler ran, so the click
+/// is what leaves the textarea focused. A click that ended a text selection
+/// keeps the selection instead.
+fn on_display_click(shared: &PaneShared, event: &Event) {
+    if !may_own_focus(shared) {
+        return;
+    }
+    if event
+        .dyn_ref::<MouseEvent>()
+        .is_none_or(|mouse| mouse.button() != 0)
+    {
+        return;
+    }
+    let on_control = event
+        .target()
+        .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
+        .and_then(|element| element.closest("button, input, textarea, a").ok().flatten())
+        .is_some();
+    let selecting = web_sys::window()
+        .and_then(|window| window.get_selection().ok().flatten())
+        .is_some_and(|selection| !selection.is_collapsed());
+    if on_control || selecting {
         return;
     }
     if let Some(controller) = shared.input.borrow().as_ref() {
