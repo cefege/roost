@@ -167,7 +167,11 @@ impl PaneMount {
                 return None;
             }
         };
-        let view_id = format!("view-{:016x}", js_sys::Math::random().to_bits());
+        let Some(view_id) = browser::mint_view_id() else {
+            tracing::error!(target: "terminal", session_id = %init.session_id,
+                "no crypto.randomUUID: a terminal view cannot be minted");
+            return None;
+        };
         let page_visible = browser::page_visible();
         let shared = Rc::new_cyclic(|me| PaneShared {
             session_id: init.session_id.clone(),

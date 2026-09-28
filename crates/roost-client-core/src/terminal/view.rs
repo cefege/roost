@@ -46,6 +46,12 @@ pub struct ViewStateResult {
     pub accepted: bool,
     /// The stream id the authority is now minting, when it accepted.
     pub stream_id: Option<String>,
+    /// The authority's effective geometry for the session's stream — the
+    /// minimum across every active view, which is what the baseline is minted
+    /// at, not necessarily this pane's own size.
+    pub effective_cols: u32,
+    /// See `effective_cols`.
+    pub effective_rows: u32,
 }
 
 /// One pane's view record.

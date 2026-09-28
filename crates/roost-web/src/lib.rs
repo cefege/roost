@@ -44,7 +44,6 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 use roost_client_core::ClientCore;
-use roost_client_core::KeyValueStore as _;
 
 /// Install this tab's tracing subscriber, once.
 ///
@@ -89,9 +88,6 @@ pub fn install_tracing() {
 pub use app::{Gate, Surface, surface_for};
 pub use routes::Route;
 
-/// The local-storage key the tab identity is kept under.
-const TAB_ID_KEY: &str = "roost.tabId";
-
 /// The application root.
 ///
 /// Owns the core and hands it to the router. The core is created here rather
@@ -116,11 +112,7 @@ pub fn App() -> Element {
     // The persisted palette lands before the first component paints (v2
     // `main.tsx` applies it before `render`).
     use_hook(theme::apply_stored_theme);
-    let pump = use_hook(|| {
-        let tab = tab_id();
-        let core = Rc::new(RefCell::new(build_core(&tab)));
-        pump::start_pump(core, revision, &tab)
-    });
+    let pump = use_hook(|| pump::start_pump(Rc::new(RefCell::new(build_core())), revision));
     use_context_provider(|| pump.core());
     use_context_provider(|| pump.clone());
     let _panes = use_context_provider(components::terminal::pane_registry::PaneRegistry::default);
@@ -140,29 +132,13 @@ pub fn App() -> Element {
 /// that could be shared across threads would need a lock over state that has
 /// exactly one writer. A host that wants the core on a task confines it to that
 /// task and sends results outward.
-fn build_core(tab_id: &str) -> ClientCore {
+///
+/// No tab id yet: the pump claims one per document (`platform::tab_id`) before
+/// its first transport, so a duplicated tab cannot share its sibling's.
+fn build_core() -> ClientCore {
     ClientCore::new(
         Rc::new(platform::BrowserClock::new()),
         Rc::new(platform::LocalStorageKeyValueStore::new()),
-        tab_id,
+        "",
     )
-}
-
-/// The tab identity every transport and every Connect call presents.
-///
-/// Persisted rather than minted per load, because a reload that mints a new id is
-/// a tab the coordinator's `audit_log` rows cannot join back together. v2
-/// arbitrated duplicates with a Web Lock and a `BroadcastChannel`; until the auth
-/// ceremony slice adds that, a second tab on one origin shares an id rather than
-/// minting two.
-fn tab_id() -> String {
-    let store = platform::LocalStorageKeyValueStore::new();
-    if let Some(existing) = store.get(TAB_ID_KEY)
-        && !existing.is_empty()
-    {
-        return existing;
-    }
-    let minted = format!("tab-{:x}", js_sys::Math::random().to_bits());
-    store.set(TAB_ID_KEY, &minted);
-    minted
 }

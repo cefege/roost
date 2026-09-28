@@ -44,6 +44,11 @@ impl CoordRpc {
         self.transport.base_url()
     }
 
+    /// Present the document's claimed tab id on every later call.
+    pub fn present_tab_id(&self, tab_id: &str) {
+        self.transport.present_tab_id(tab_id);
+    }
+
     /// Install the loaded device key; calls before this go out unauthenticated.
     pub fn install_key(&self, key: Rc<WebDeviceKey>) {
         tracing::info!(target: "rpc", fingerprint = key.fingerprint(), "device key installed");
