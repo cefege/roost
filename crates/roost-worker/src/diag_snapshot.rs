@@ -20,8 +20,11 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use roost_observability::{EventClock, SystemClock};
+
 use crate::session::lifecycle::SessionTable;
 use crate::session::types::SessionRecord;
+use crate::session::unhandled_seq::{UnhandledSequenceSnapshot, unhandled_sequence_snapshot};
 
 /// Which gate is withholding a channel's cell frames.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -95,6 +98,11 @@ pub struct ChannelDiag {
     /// A gate currently withholding frames, if any.
     pub suppression: Option<GateSuppression>,
     pub ring: Option<RingBounds>,
+    /// Escape sequences this channel's core dropped — the "renders wrong in
+    /// Roost, fine elsewhere" lane. Sampled here as well as on the emit path so
+    /// a parked pane, which emits no frames, still answers. `None` = nothing
+    /// logged, which is not proof of full support.
+    pub unhandled_sequences: Option<UnhandledSequenceSnapshot>,
 }
 
 /// The report.
@@ -142,12 +150,18 @@ impl Snapshot {
             .duration_since(UNIX_EPOCH)
             .unwrap_or(Duration::ZERO);
         let mono_now = Instant::now();
+        // The unhandled-sequence sampler stamps a first sighting with the
+        // process monotonic clock, the same clock the emit path samples with.
+        let mono_ms = SystemClock.mono_ns() / 1_000_000;
         let mut channels: HashMap<u16, ChannelDiag> = HashMap::new();
         for (session_id, _) in table.live() {
-            // `with_record` nests: `None` is "no such session", so the
+            // `with_record_mut` nests: `None` is "no such session", so the
             // capability's own `Option` is the inner layer, and a session that
             // closed between the two reads is simply absent from the report.
-            if let Some(Some(channel)) = table.with_record(&session_id, channel_diag) {
+            // Mutable because sampling advances the unhandled log's mark.
+            if let Some(Some(channel)) =
+                table.with_record_mut(&session_id, |record| channel_diag(record, mono_ms))
+            {
                 channels.insert(channel.channel_id, channel);
             }
         }
@@ -202,7 +216,7 @@ impl Snapshot {
 }
 
 /// One channel's diagnostic state, read once and never revisited.
-fn channel_diag(record: &SessionRecord) -> Option<ChannelDiag> {
+fn channel_diag(record: &mut SessionRecord, mono_ms: u64) -> Option<ChannelDiag> {
     let ring = record.scrollback.len() as u64;
     let cap = record.scrollback.capacity() as u64;
     Some(ChannelDiag {
@@ -219,6 +233,7 @@ fn channel_diag(record: &SessionRecord) -> Option<ChannelDiag> {
             cap_bytes: cap,
             evicting: record.scrollback.evicting(),
         }),
+        unhandled_sequences: unhandled_sequence_snapshot(record, mono_ms),
     })
 }
 
@@ -289,6 +304,7 @@ impl GateTracker {
                     generation: 0,
                     suppression: None,
                     ring: None,
+                    unhandled_sequences: None,
                 })
                 .suppression = Some(suppression);
         }

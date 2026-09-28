@@ -26,6 +26,7 @@ use roost_protocol::wire::control::ClientControlFrame;
 
 use super::{Answered, Boxed, Command, Deps, Refusal, Reply};
 use crate::diag_snapshot::Snapshot;
+use crate::session::unhandled_seq::UnhandledSequenceSnapshot;
 
 /// What the worker is willing to say about itself.
 pub trait DiagnosticReports: Send + Sync {
@@ -181,6 +182,7 @@ fn snapshot_json(report: &Snapshot) -> Value {
                     "cap_bytes": ring.cap_bytes,
                     "evicting": ring.evicting,
                 })),
+                "unhandled_sequences": channel.unhandled_sequences.as_ref().map(unhandled_json),
             })
         })
         .collect();
@@ -190,6 +192,31 @@ fn snapshot_json(report: &Snapshot) -> Value {
         "channels": channels,
         "over_budget": report.over_budget().len(),
         "evicting": report.evicting(),
+    })
+}
+
+/// One core's dropped escape sequences, under v2's keys. A final byte, a
+/// private marker and numeric parameters identify a SEQUENCE, not text the
+/// terminal printed, so this stays inside the no-terminal-text property.
+fn unhandled_json(snapshot: &UnhandledSequenceSnapshot) -> Value {
+    let entries: Vec<Value> = snapshot
+        .entries
+        .iter()
+        .map(|entry| {
+            serde_json::json!({
+                "final": entry.final_byte,
+                "private": entry.private,
+                "param_count": entry.param_count,
+                "params": entry.params,
+                "first_seen_mono_ms": entry.first_seen_mono_ms,
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "entries": entries,
+        "logged_total": snapshot.logged_total,
+        "ring_dropped": snapshot.ring_dropped,
+        "capped": snapshot.capped,
     })
 }
 

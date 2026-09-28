@@ -14,6 +14,7 @@ fn channel(id: u16) -> ChannelDiag {
         generation: 3,
         suppression: None,
         ring: None,
+        unhandled_sequences: None,
     }
 }
 

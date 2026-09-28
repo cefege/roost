@@ -1,8 +1,9 @@
 //! The capability surface a terminal core must offer, and the one cell shape
 //! every implementation produces.
 //!
-//! This trait is the whole contract between a terminal emulator and the frame
-//! emitter. It exists so the emulator can be replaced — it was a patched
+//! This trait is the whole contract between a terminal emulator and its two
+//! readers: the frame emitter, and the worker's query-reply lane and
+//! unhandled-sequence diagnostics. It exists so the emulator can be replaced — it was a patched
 //! WebAssembly build of a Zig library and is now `alacritty_terminal` — without
 //! the emitter, the wire format, or a single test noticing. The method names
 //! are the v2 WebAssembly ABI's, deliberately: that ABI is what the emitter's
@@ -14,6 +15,7 @@
 //! and asked what it now holds.
 
 use crate::error::{TerminalCoreError, TerminalCoreResult};
+use crate::unhandled::UnhandledSequenceRing;
 
 /// A terminal's cursor, as a position in the viewport plus whether it is shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -86,7 +88,30 @@ pub trait TerminalCore {
     /// Feed PTY output. Infallible: an emulator that cannot parse a byte
     /// renders nothing for it, which is the emulator's decision and not an
     /// error the caller could act on.
+    ///
+    /// Any reply the bytes provoke is DISCARDED, along with anything still
+    /// queued: this is the replay and rebuild entry, and a probe answered from
+    /// history would be a reply to a question nobody is waiting on — landing
+    /// on the application's stdin ahead of the next live answer, which is how
+    /// a cursor report ends up answering a device-attributes query. v2 drained
+    /// and dropped the queue after every such write; here a plain write cannot
+    /// leave one behind.
     fn write(&mut self, bytes: &[u8]);
+
+    /// Feed PTY output and KEEP the replies it provokes for
+    /// [`TerminalCore::get_response`]. v2's `writeRaw`: the live query-reply
+    /// lane is its only caller, and it drains after every call.
+    fn write_raw(&mut self, bytes: &[u8]);
+
+    /// Pop the oldest reply the core owes the application, `None` when none is
+    /// queued. v2's `getResponse`: ONE per call, in the order the core
+    /// produced them, so a caller drains until `None`.
+    fn get_response(&mut self) -> Option<String>;
+
+    /// The CSI sequences this core's dispatcher dropped, as a never-cleared
+    /// ring. A partial detector by construction: it sees unrecognised CSI, not
+    /// an OSC or a mode number the emulator accepts and ignores.
+    fn unhandled_sequences(&self) -> &UnhandledSequenceRing;
 
     /// Resize the viewport. A core that reflows its history reports the change
     /// through the discarded count on the next read.

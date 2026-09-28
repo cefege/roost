@@ -6,30 +6,21 @@
 //! the conformance vectors all still describe the same thing and a behaviour
 //! difference is a diff against the code it replaces rather than a mystery.
 //!
-//! **`TerminalCore` is NOT the whole of v2's capability surface, and this
-//! header previously claimed it was.** It carried "the trait is the v2
-//! WebAssembly ABI's capability surface under the same names", and a slice
-//! that read it, believed the surface was complete, and discovered otherwise
-//! at the call site. Four members v2's worker callers actually use are still
-//! absent: `getResponse` and `writeRaw` (draining and feeding the core's own
-//! queued native replies, which is what the query-reply lane needs),
-//! `getResourceState` and `synchronizedOutput` (per-cell-sync state, which
-//! `stream_fence.rs` and the diagnostics `SyncOutput` gate are written
-//! against). The ABI is the *emitter's* contract; v2's callers did not live
-//! inside it.
+//! **`TerminalCore` is NOT the whole of v2's capability surface**, and a
+//! caller who assumes it is finds out at the call site. The ABI is the
+//! emitter's contract; v2's callers did not all live inside it. Two members
+//! v2's worker callers use are absent: `getResourceState`
+//! and `synchronizedOutput` (per-cell-sync state, which `stream_fence.rs` and
+//! the diagnostics `SyncOutput` gate are written against). The emulator cannot
+//! offer them, so a caller that needs one builds it beside the core, and a
+//! reader who assumes the trait is merely incomplete should not add them.
 //!
-//! **They are absent because the emulator behind the trait cannot offer them,
-//! so this trait will not grow them.** `alacritty_terminal` has no raw-byte
-//! entry, no reply queue and no per-cell-sync state. A caller that needs one
-//! builds it beside the core; it does not belong on a trait whose other
-//! implementors are the emitter's reader, which does not answer capability
-//! probes and should not have to pretend to. A reader who assumes the trait is
-//! merely incomplete will propose adding these four, which is the thing this
-//! header exists to prevent.
-//!
-//! The claim is under-stated rather than over-stated on purpose: a reader who
-//! is told a surface is incomplete spends thirty seconds checking, and a
-//! reader who is told it is complete and is not loses a wave.
+//! Three v2 members ARE here, because alacritty can be made to offer them
+//! without pretending: `write_raw` and `get_response` (the query-reply lane
+//! feeds the core and drains its queued answers — alacritty's `PtyWrite`
+//! events, queued by the adapter), and `unhandled_sequences` (v2's debug ring
+//! of dropped CSI — observed by a shadow parser, because `vte` only logs the
+//! drop). A plain `write` discards replies, so a replay never answers history.
 //!
 //! Three differences from the core it replaces are stated here rather than
 //! discovered later. `alacritty_terminal` has no `CELL_BLINK` flag, so a
@@ -48,6 +39,7 @@ pub mod emitter;
 pub mod error;
 pub mod frame;
 pub mod row_spans;
+pub mod unhandled;
 
 pub use alacritty::AlacrittyCore;
 pub use core::{CellData, CursorState, TerminalCore};
@@ -55,6 +47,7 @@ pub use emitter::{CellEmitState, LIVE_DELTA_SCROLLBACK_ROWS_CAP, next_cell_frame
 pub use error::{TerminalCoreError, TerminalCoreResult};
 pub use frame::{grid_delta_frame, grid_to_cell_frame, read_scrollback_range, scrollback_origin};
 pub use row_spans::{link_uri_within_cap, row_to_spans};
+pub use unhandled::{UNHANDLED_RING_CAPACITY, UnhandledSequence, UnhandledSequenceRing};
 
 /// The palette index meaning "the terminal's own default colour".
 ///

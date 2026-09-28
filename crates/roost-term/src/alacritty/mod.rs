@@ -9,22 +9,28 @@
 //! `Line(-history_size())` the oldest — so `scrollback_line` converts once, in
 //! the one place that does.
 //!
-//! The event listener is `VoidListener`. Alacritty's `Event` has no scroll or
-//! history variant, and the events it does carry are the ones a terminal
-//! application acts on (title, clipboard, bell); the PTY reader behind them
-//! belongs to the worker, not to a core that only renders.
+//! The event listener is [`replies::ReplyListener`]: `PtyWrite` — alacritty
+//! answering a probe — is queued for the query-reply lane, and every other
+//! event (title, clipboard, bell) is dropped, because the PTY reader behind
+//! them belongs to the worker, not to a core that only renders. The processor
+//! parses THROUGH synchronized updates ([`replies::ParseThrough`]), and a
+//! shadow parser ([`csi_shadow`]) records the CSI sequences `vte` drops.
 
 pub(crate) mod cell;
+mod csi_shadow;
+mod replies;
 
 use alacritty_terminal::Term;
-use alacritty_terminal::event::VoidListener;
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::TermMode;
 use alacritty_terminal::vte::ansi::Processor;
 
 use crate::core::{CursorState, TerminalCore};
+use crate::unhandled::UnhandledSequenceRing;
 use cell::LinkScope;
+use csi_shadow::CsiShadow;
+use replies::{ParseThrough, ReplyListener, ReplyQueue};
 
 /// The scrollback capacity Roost runs every terminal with.
 pub const SCROLLBACK_LINES: usize = 10_000;
@@ -32,8 +38,13 @@ pub const SCROLLBACK_LINES: usize = 10_000;
 /// A terminal backed by `alacritty_terminal`.
 ///
 pub struct AlacrittyCore {
-    term: Term<VoidListener>,
-    processor: Processor,
+    term: Term<ReplyListener>,
+    processor: Processor<ParseThrough>,
+    /// What the term has answered and nobody has popped, shared with the
+    /// listener the term owns.
+    replies: ReplyQueue,
+    /// The second parse that observes dropped CSI; one per core, for its life.
+    csi_shadow: CsiShadow,
     /// Per-core link identity; see `cell` for why alacritty's own ids are not
     /// usable directly.
     links: LinkScope,
@@ -62,10 +73,17 @@ impl AlacrittyCore {
             scrolling_history,
             ..alacritty_terminal::term::Config::default()
         };
-        let term = Term::new(config, &GridSize { cols, rows }, VoidListener);
+        let replies = ReplyQueue::default();
+        let term = Term::new(
+            config,
+            &GridSize { cols, rows },
+            ReplyListener::new(replies.clone()),
+        );
         Self {
             term,
-            processor: Processor::default(),
+            processor: Processor::new(),
+            replies,
+            csi_shadow: CsiShadow::default(),
             links: LinkScope::new(),
             dirty: Vec::new(),
         }
@@ -90,8 +108,20 @@ impl std::fmt::Debug for AlacrittyCore {
 
 impl TerminalCore for AlacrittyCore {
     fn write(&mut self, bytes: &[u8]) {
-        self.processor.advance(&mut self.term, bytes);
-        self.snapshot_damage();
+        self.parse(bytes);
+        self.replies.discard();
+    }
+
+    fn write_raw(&mut self, bytes: &[u8]) {
+        self.parse(bytes);
+    }
+
+    fn get_response(&mut self) -> Option<String> {
+        self.replies.pop()
+    }
+
+    fn unhandled_sequences(&self) -> &UnhandledSequenceRing {
+        self.csi_shadow.ring()
     }
 
     fn resize(&mut self, cols: u16, rows: u16) {
@@ -184,6 +214,13 @@ impl TerminalCore for AlacrittyCore {
 }
 
 impl AlacrittyCore {
+    /// Both parses and the damage read one PTY chunk costs.
+    fn parse(&mut self, bytes: &[u8]) {
+        self.processor.advance(&mut self.term, bytes);
+        self.csi_shadow.advance(bytes);
+        self.snapshot_damage();
+    }
+
     /// The grid line for a newest-first scrollback offset.
     ///
     /// Alacritty's scrollback runs newest at `Line(-1)` and oldest at
