@@ -259,6 +259,52 @@ fn a_channel_history_is_refused_because_the_keeper_reports_no_head() {
     );
 }
 
+/// THE GATE'S PREMISE, PINNED AS A BUILD FAILURE RATHER THAN A COMMENT.
+///
+/// `runtime::adoption::history_readable` is a build-capability gate that
+/// works by calling `KeeperChannels::channel_history` and expecting a refusal.
+/// That expectation is load-bearing in a way no doc comment can enforce: the
+/// instant this operation grows a real body, the gate stops being a filter
+/// and becomes the thing deciding whether `adopt_survivor` — and therefore
+/// `abandon` and `keeper.kill_channel` — ever runs against a live terminal on
+/// a restart. W-K implements exactly this operation, so W-K is what will flip
+/// it, and this test is what forces the re-review at the moment it matters
+/// rather than leaving it to whoever reads the file in three weeks and
+/// believes the comment.
+///
+/// It cannot live beside the gate itself: `KeeperPool` takes a
+/// `KeeperHandle`, which takes a `KeeperClient`, and `KeeperClient` is only
+/// constructible by connecting to a socket. So the assertion is against a real
+/// keeper, which is also the stronger form — a stub returns the same `Err`
+/// with or without a live PTY behind it, and this says so about the shipped
+/// seam rather than about a type signature.
+#[test]
+fn the_replayability_gate_is_still_a_gate_because_channel_history_is_still_a_stub() {
+    let fixture = KeeperFixture::start();
+    let _serialised = exclusive();
+    let pool = fixture.pool();
+    let (binding, _) = session("gate-premise");
+    let spawned = opened(
+        pool.spawn(
+            channel(1),
+            &sh_spec(&["-c", "sleep 30"], &[]),
+            80,
+            24,
+            Arc::new(binding),
+        ),
+        "the keeper opens a real PTY",
+    );
+
+    let fault = KeeperChannels::channel_history(pool.as_ref(), spawned.channel_id);
+    assert!(
+        fault.is_err(),
+        "`KeeperPool::channel_history` now returns `Ok`. This gate was a \
+         build-capability check on a stub, and from this commit it is the thing \
+         deciding whether an adopted survivor is killed or left running. \
+         Re-review `adopt_survivor` before shipping this, not after."
+    );
+}
+
 /// A SURVIVOR'S GEOMETRY IS THE KEEPER'S TO REPORT, and it survives the worker
 /// that set it: a resize answered before the restart is still where the PTY is.
 #[test]
