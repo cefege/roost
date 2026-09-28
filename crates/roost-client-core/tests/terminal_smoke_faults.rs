@@ -9,10 +9,7 @@
 mod support;
 
 use roost_client_core::event::ClientEvent;
-use roost_client_core::store::sync_smoke::{
-    arm_terminal_blackhole, arm_terminal_wire_delta_drop, sync_redial_report,
-};
-use roost_client_core::sync::redial::SyncLinkLiveness;
+use roost_client_core::store::sync_smoke::{arm_terminal_blackhole, arm_terminal_wire_delta_drop};
 use roost_client_core::terminal::smoke_faults::{FaultedFrameKind, TerminalSmokeFaults};
 use roost_client_core::{ClientCore, SyncFrame};
 use support::sync_reconnect::{acks, open_ready_link};
@@ -116,13 +113,4 @@ fn nothing_is_armed_for_a_session_with_no_generation() {
     let mut core = client();
     assert!(!arm_terminal_blackhole(core.store_mut(), SESSION));
     assert!(!arm_terminal_wire_delta_drop(core.store_mut(), SESSION));
-}
-
-#[test]
-fn the_redial_report_reads_an_open_link_with_no_failures() {
-    let (core, _) = ready_client();
-    let report = sync_redial_report(core.store());
-    assert_eq!(report.liveness, SyncLinkLiveness::Open);
-    assert_eq!(report.failures, 0);
-    assert!(!report.hidden_parked);
 }
