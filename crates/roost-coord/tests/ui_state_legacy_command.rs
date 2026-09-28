@@ -14,7 +14,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use connectrpc::ErrorCode;
-use roost_coord::ui_state::layout_proto::{canonical_layout_document, layout_document_from_proto};
 use roost_coord::ui_state::legacy_command::{
     canonical_legacy_ui_command, legacy_ui_command_session_ids,
 };
@@ -22,6 +21,9 @@ use roost_proto as proto;
 use roost_proto::__buffa::oneof::layout_document_node::Node;
 use roost_proto::__buffa::oneof::ui_command::Command;
 use roost_proto::buffa::MessageField;
+use roost_protocol::proto_adapters::layout_document_proto::{
+    canonical_layout_document, layout_document_from_proto,
+};
 
 fn select_tab(session_id: &str) -> proto::UiCommand {
     proto::UiCommand {
