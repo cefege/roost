@@ -1,56 +1,47 @@
-//! How a browser command reaches a capability, and how the answers come back.
-//! `runtime::link_drain` hands a command to [`BrowserLink::offer`];
-//! `runtime::link_serve` selects on the receiver. Nothing else touches it.
+//! How a browser command reaches a capability, and how its answers come back.
+//! `runtime::link_downstream` hands a command to [`BrowserLink::offer`] with the
+//! fence of the connection it arrived on; the pump answers through the
+//! [`Uplink`], fenced to that connection, so `runtime::link_serve` admits the
+//! answers on the one uplink arm every off-loop frame uses. Ports the
+//! `onBrowserCommand` hand-off of v2 `apps/worker/src/transport/coord-link-downstream.ts`.
 //!
-//! THE LINK IS THE ONLY THING THAT WRITES BYTES, so the command is handed to a
-//! pump and the frames the pump produced come back to be encoded and admitted on
-//! the socket like any other frame. A pump that is gone REFUSES the command with
-//! a cause rather than dropping it: a browser command that is neither executed
-//! nor refused hangs the coordinator's pending entry until it expires with no
-//! error anywhere, which is the failure this whole arrangement exists to end.
+//! A pump that is gone REFUSES the command with a cause rather than dropping
+//! it: a browser command that is neither executed nor refused hangs the
+//! coordinator's pending entry until it expires with no error anywhere.
 
 use std::sync::Arc;
 
-use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
-
 use crate::browser_commands::{Command, Deps};
+use crate::uplink::{LinkFence, Uplink};
 
-/// The two halves of the same channel pair, held by the one type that owns both.
+/// One command and the connection its answers belong to.
+type FencedCommand = (Command, LinkFence);
+
+/// The sending half of the command pump.
 #[derive(Debug)]
 pub struct BrowserLink {
-    inbound: tokio::sync::mpsc::UnboundedSender<Command>,
-    /// Completed answers, drained by the socket's select.
-    pub(in crate::runtime) answers: tokio::sync::mpsc::UnboundedReceiver<Vec<CoordWorkerUpstream>>,
+    inbound: tokio::sync::mpsc::UnboundedSender<FencedCommand>,
 }
 
 impl BrowserLink {
-    /// A link over a running pump, and the sending half the loop selects on.
+    /// A link over a running pump that answers through `uplink`.
     ///
     /// ONE COMMAND AT A TIME, because the pump is a single `recv` loop: a
     /// worker that ran them concurrently would let a `read-file` against a
     /// network mount block the `diag-snapshot` behind it, and the coordinator
     /// has no ordering guarantee to make that safe.
-    pub fn connect(
-        deps: Arc<Deps>,
-    ) -> (
-        Self,
-        tokio::sync::mpsc::UnboundedSender<Vec<CoordWorkerUpstream>>,
-    ) {
-        let (inbound, mut inbound_rx) = tokio::sync::mpsc::unbounded_channel();
-        let (outbound, answers) = tokio::sync::mpsc::unbounded_channel();
-        // The task gets a CLONE and the caller keeps the original: a send
-        // handle moved into the task and then returned is a use-after-move, and
-        // cloning it the other way round returns a handle with no receiver.
-        let pump_side = outbound.clone();
+    pub fn connect(deps: Arc<Deps>, uplink: Uplink) -> Self {
+        let (inbound, mut inbound_rx) = tokio::sync::mpsc::unbounded_channel::<FencedCommand>();
         tokio::spawn(async move {
-            while let Some(command) = inbound_rx.recv().await {
+            while let Some((command, fence)) = inbound_rx.recv().await {
                 let frames = crate::browser_commands::dispatch(&command, &deps).await;
-                if pump_side.send(frames).is_err() {
-                    return;
+                for frame in frames {
+                    uplink.send_fenced(&fence, frame);
                 }
             }
+            tracing::info!("the browser command pump stopped");
         });
-        (Self { inbound, answers }, outbound)
+        Self { inbound }
     }
 
     /// A link with no pump behind it.
@@ -64,22 +55,20 @@ impl BrowserLink {
         // Dropping the pump's own receiving half is exactly what makes every
         // send fail, and therefore every command refused with a cause.
         drop(inbound_rx);
-        let (outbound, answers) = tokio::sync::mpsc::unbounded_channel();
-        drop(outbound);
-        Self { inbound, answers }
+        Self { inbound }
     }
 
     /// Hand a command to the pump, or hand it BACK so the caller can refuse it.
     ///
-    /// THE ERROR IS BOXED, and `Command` is what made that necessary: it is the
-    /// browser command union and it is 288 bytes, so `Result<(), Command>` moves
-    /// 288 bytes on every call whether it succeeded or not — and this is the
-    /// call the composition root will make once `BrowserLink::connect` replaces
-    /// the detached pump. A refused command is rare and an accepted one is the
-    /// common case, so the size is paid on the path that is not exceptional.
-    pub(in crate::runtime) fn offer(&self, command: Command) -> Result<(), Box<Command>> {
+    /// THE ERROR IS BOXED: `Command` is 288 bytes, so `Result<(), Command>`
+    /// would move that on every call; a refusal is the rare path.
+    pub(in crate::runtime) fn offer(
+        &self,
+        command: Command,
+        fence: LinkFence,
+    ) -> Result<(), Box<Command>> {
         self.inbound
-            .send(command)
-            .map_err(|error| Box::new(error.0))
+            .send((command, fence))
+            .map_err(|error| Box::new(error.0.0))
     }
 }

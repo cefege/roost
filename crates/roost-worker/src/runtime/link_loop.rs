@@ -1,14 +1,18 @@
 //! The coordinator link's own state: who this worker is, the writer's mirror of
 //! the durable queue, and the authorisation slot. Owned by `serve` through
-//! [`LinkLoop::run`], and reached by [`super::link_serve`] and
-//! [`super::link_drain`], which is why the fields are `pub(super)`.
+//! [`LinkLoop::run`], and reached by [`super::link_serve`],
+//! [`super::link_drain`] and [`super::link_downstream`], which is why the fields
+//! are `pub(super)`.
 //!
 //! It composes delivered pieces and owns none of their rules: the ladder is
 //! [`crate::backoff`], the ordering is [`crate::link_barrier::Pump`], the lanes
-//! are [`crate::outbox::Outbox`]. What is here is what those three cannot
-//! express between them, and it is split along that seam — `durable.rs` owns the
-//! rows, `volatile.rs` the two superseding producers, `cell_sink.rs` the
-//! coordinator's cell receiver, and `reconnect_loop.rs` the loop over dials.
+//! are [`crate::outbox::Outbox`], the downstream routing is
+//! [`super::downstream::Dispatcher`] and the off-loop frames arrive on the
+//! [`crate::uplink`]. What is here is what those cannot express between them,
+//! and it is split along that seam — `durable.rs` owns the rows, `volatile.rs`
+//! the two superseding producers, `cell_sink.rs` the coordinator's cell
+//! receiver, `browser.rs` the command pump, and `reconnect_loop.rs` the loop
+//! over dials.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -20,9 +24,12 @@ use crate::backoff::LinkHealth;
 use crate::event_store::Journal;
 use crate::link_barrier::{Barrier, Pump};
 use crate::link_dial::CoordinatorEndpoint;
+use crate::link_ports::DownstreamOwners;
 use crate::outbox::{AdmitError, Admitted, Lane, Outbox, PENDING_BYTES_CAP};
+use crate::uplink::UplinkReceiver;
 
 use super::credential::CredentialSource;
+use super::downstream::Dispatcher;
 use super::link_wire::LinkWire;
 use super::reconnect::{Escalation, ReconnectPolicy};
 use super::snapshot_source::SnapshotSource;
@@ -109,8 +116,18 @@ pub struct LinkLoop {
     pub(super) wire: Arc<dyn LinkWire>,
     pub(super) snapshot: Arc<dyn SnapshotSource>,
     pub(super) credential: Arc<dyn CredentialSource>,
-    /// Where a browser command goes, and where its answers come back.
+    /// Where a browser command goes; its answers come back through `uplink`.
     pub(super) browser: BrowserLink,
+    /// Every frame produced off the link loop, admitted by `link_serve`.
+    pub(super) uplink: UplinkReceiver,
+    /// The downstream dispatch. Shared so a frame can be dispatched while the
+    /// loop itself is the `DownstreamLink` the dispatch answers through.
+    pub(super) dispatcher: Arc<Dispatcher>,
+    /// Whether the coordinator echoed terminal metadata at hello-ack; v2's
+    /// outbox gates raw PTY metadata and compact metadata on it.
+    pub(super) terminal_metadata_negotiated: bool,
+    /// The pending compact-metadata record per channel. `volatile.rs` owns it.
+    pub(super) terminal_metadata: volatile::TerminalMetadataLane,
     pub(super) outbox: Outbox,
     pub(super) pump: Pump,
     pub(super) policy: ReconnectPolicy,
@@ -154,6 +171,8 @@ impl std::fmt::Debug for LinkLoop {
 }
 
 impl LinkLoop {
+    /// A link with no downstream owners: until [`LinkLoop::attach_owners`] it
+    /// answers every terminal request as a v2 worker without those callbacks.
     pub fn new(
         endpoint: CoordinatorEndpoint,
         identity: WorkerIdentity,
@@ -161,13 +180,23 @@ impl LinkLoop {
         snapshot: Arc<dyn SnapshotSource>,
         credential: Arc<dyn CredentialSource>,
         browser: BrowserLink,
+        uplink: UplinkReceiver,
     ) -> Self {
+        let dispatcher = Arc::new(Dispatcher::new(
+            uplink.uplink(),
+            identity.process_epoch.clone(),
+            None,
+        ));
         Self {
             endpoint,
             identity,
             wire,
             snapshot,
             browser,
+            uplink,
+            dispatcher,
+            terminal_metadata_negotiated: false,
+            terminal_metadata: volatile::TerminalMetadataLane::default(),
             credential,
             outbox: Outbox::default(),
             pump: Pump::new(),
@@ -183,6 +212,17 @@ impl LinkLoop {
             pending_acks: Vec::new(),
             cell_sink: None,
         }
+    }
+
+    /// Route downstream terminal frames and link lifecycle to their owners.
+    /// Called once, before [`LinkLoop::run`].
+    pub fn attach_owners(&mut self, owners: DownstreamOwners) {
+        self.dispatcher = Arc::new(Dispatcher::new(
+            self.uplink.uplink(),
+            self.identity.process_epoch.clone(),
+            Some(owners),
+        ));
+        tracing::info!("the coordinator link's downstream owners are attached");
     }
 
     pub fn barrier(&self) -> Barrier {
