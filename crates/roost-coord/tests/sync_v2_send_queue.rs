@@ -348,26 +348,41 @@ fn a_cell_is_fenced_behind_its_announcement_until_the_acknowledgement_lands() {
 // `LastActivity`, or a selection rule that scans past an eligible frame to
 // find the oldest AGED one -- and the latter is a policy change to
 // `select_candidate`, not a port of v2.
-/// THIS IS A POLICY QUESTION, NOT A FIXTURE FAULT, and the fixture is corrected
-/// above. Measured on 2026-09-28 with the corrected `hydrated_uncovered_terminal`
-/// fixture: the test now reaches its aged-out assertion, and FAILS there.
+/// A BUG, NOT A POLICY QUESTION — and the module's own header already answers
+/// it, which is why this is a defect and not a decision waiting to be made.
 ///
-/// Giving the `LastActivity` a DISTINCT, LATER `queued_at_ms` was tried and does
-/// not work, because `send_queue.rs:102-106` and `:133` both take the OLDEST
-/// head with `min_by_key(queued_at_ms)` — at `aged` both frames have aged out
-/// and the earlier one still wins. Making it pass would need a timestamp EARLIER
-/// than a frame enqueued before it, which would stop the fixture describing a
-/// real enqueue order. **A test whose fixture must be arranged against the order
-/// it tests is no longer a test of that order.**
+/// `send_queue.rs:9-15` states the rule this test asserts: "a non-cell frame
+/// that has waited past `LOW_LANE_MAX_AGE_MS` outranks cells outright", one
+/// directionally, "because unbounded cell delay is exactly the state the age
+/// rule exists to bound."
 ///
-/// So the question stands and is a decision, not a port: v2 considers only each
-/// domain's FIRST ELIGIBLE frame (`sync-ws-v2-queue.ts:77-95`) and v3 does the
-/// same, so v3 does not promise aged-out priority across a domain's queue.
-/// Either this test's expectation is wrong, or v3 deliberately improves on v2
-/// here — which departs from the parity rule and belongs in the merge body as
-/// one. **Do not let a fixture edit settle it: a green here would record the
-/// choice without naming it.**
-#[ignore = "UNFINISHED: a POLICY decision, not a fixture fault. select_candidate takes the oldest of each domain's first ELIGIBLE heads (send_queue.rs:102-106,:133), and v2 does the same (sync-ws-v2-queue.ts:77-95), so v3 does not promise aged-out priority across a domain's queue. Measured: a distinct, LATER queued_at_ms does not change the outcome. The fixture is corrected; this needs either the expectation changed or a named, recorded departure from parity."]
+/// **AND THE IMPLEMENTATION CANNOT DELIVER IT.** `:100-106` filters the `heads`
+/// list — one entry per domain, the first eligible frame — and then takes the
+/// oldest aged frame *among those heads*. So a non-cell frame sitting behind an
+/// eligible frame in its OWN domain is never a candidate at all. The rule's
+/// stated purpose — bounding how long a non-cell waits behind a cell — is
+/// reachable within a domain exactly as it is not reachable across domains. The
+/// implementation does not merely fail the override; **it defeats the rule's
+/// purpose through a different door, and no policy question stands in the way.**
+///
+/// v2 HAS THE SAME SHAPE: `sync-ws-v2-queue.ts:76-95` pushes one head per domain
+/// (`heads.push(...); break;`) and then runs the same override over `heads`. So
+/// the Rust port is FAITHFUL and both implementations share the defect, which
+/// makes the fix a small deliberate improvement over a shared defect rather
+/// than a departure from parity.
+///
+/// THE FIX, settled: per domain the candidate becomes the oldest aged non-cell
+/// ANYWHERE in that domain's queue. Round-robin across domains is untouched, so
+/// the fairness the header describes is not what is broken. The override stays
+/// ONE-DIRECTIONAL — an aged cell still does not jump, and a symmetric fix would
+/// be a different product. No starvation follows: each aged frame is sent and
+/// leaves the queue, which is the point of bounding the wait.
+///
+/// A distinct, LATER `queued_at_ms` was tried and does not work — `min_by_key`
+/// takes the oldest — and making it pass would need a timestamp earlier than a
+/// frame enqueued before it, which stops the fixture describing a real enqueue
+/// order. That is why this stayed ignored rather than being bent into green.
+#[ignore = "UNFINISHED: a BUG, and a fix, not a policy question. send_queue.rs:9-15 promises an aged non-cell outranks cells outright, but :100-106 filters to one head per domain first, so a non-cell behind an eligible frame in its own domain is never a candidate. v2 shares the shape (sync-ws-v2-queue.ts:76-95), so the port is faithful and the fix is a deliberate improvement over a shared defect. The fixture is corrected; the implementation is not."]
 #[test]
 fn the_aged_out_lane_outranks_a_streaming_terminal() {
     let (mut session, _tokens) = hydrated_uncovered_terminal();
