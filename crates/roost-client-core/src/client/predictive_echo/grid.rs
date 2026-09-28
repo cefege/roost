@@ -321,7 +321,7 @@ impl PredictiveEcho {
                     // ALREADY judged this pass too: one still pending earlier in
                     // the burst is the same unproven epoch, and keeping it would
                     // paint a guess its own epoch has just been refused on.
-                    for other in preds.iter_mut() {
+                    for other in preds.iter_mut().chain(survivors.iter_mut()) {
                         if other.epoch == pred.epoch {
                             other.epoch = -1;
                         }

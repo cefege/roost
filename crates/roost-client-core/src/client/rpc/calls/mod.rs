@@ -5,6 +5,9 @@
 //! `codec::{encode_message, decode_message}`. v2's equivalent is every
 //! `coordClient.<method>(…)` call site under `apps/web/src/`.
 
+pub mod attachments;
+pub mod files;
 pub mod sessions;
+pub mod terminal_pane;
 pub mod ui_state;
 pub mod workspaces;

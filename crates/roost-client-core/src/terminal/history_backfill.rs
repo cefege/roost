@@ -13,10 +13,9 @@
 
 use crate::terminal::history::{HistoryRange, HistoryScrollTarget};
 
-/// Rows one wave fetches — one worker `SB_BLOCK`. The terminal renderer seals
-/// its history blocks at the same 250, and the two numbers are pinned together
-/// by `roost-web-terminal/tests/scrollback_backfill.rs`; a fetch page that
-/// straddles a sealed block is a page the DOM has to split twice for nothing.
+/// Rows one wave fetches — one worker `SB_BLOCK`, the same 250 the terminal
+/// renderer seals its history blocks at; a fetch page that straddles a sealed
+/// block is a page the DOM has to split twice for nothing.
 pub const BACKFILL_FETCH_ROWS: u32 = 250;
 
 /// Rows above the viewport the trigger window covers, so a demand is raised
@@ -41,17 +40,6 @@ pub struct DemandBounds {
     pub start: u32,
     /// The newest row the wave may ask for, exclusive.
     pub end: u32,
-}
-
-impl DemandBounds {
-    /// The rows the wave asks for, as the interval a history request is named
-    /// in. A demand is never empty — that is what `Option` is for.
-    pub const fn range(&self) -> HistoryRange {
-        HistoryRange {
-            start: self.start,
-            end: self.end,
-        }
-    }
 }
 
 /// The page the reader's exposed gap demands, or `None` when the pager owes
@@ -141,15 +129,4 @@ pub fn find_demand_bounds(
     };
     let end = ceil_row.min(start + BACKFILL_FETCH_ROWS);
     (start < end).then_some(DemandBounds { focus, start, end })
-}
-
-/// Whether a demand names nothing at or below a proven retained floor.
-///
-/// The assertion the pager makes about its own output, and the one a test that
-/// cannot see the DOM leans on: a controller that has proven a floor must be
-/// able to prove, from the requests alone, that it stopped asking for the rows
-/// underneath it.
-#[must_use]
-pub fn demand_is_above_floor(bounds: &DemandBounds, retained_floor: u32) -> bool {
-    bounds.start >= retained_floor
 }

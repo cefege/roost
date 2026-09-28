@@ -1,41 +1,79 @@
 # Track U — web lead handoff
 
 Worktree `/home/almalinux/repos/roost-v3-web`, branch `v3-web`. The worktree
-(`git log --oneline -5 && git status --short`) is the state; this note is the
+(`git log --oneline -12 && git status --short`) is the state; this note is the
 moment it was written. Plan: `roost-v3-finish-and-cutover-plan.md` "### Stage 5".
+Lead: `WebLeadU2` (successor of `WebLeadU`).
 
 ## Build rule
 
 `source /tmp/webenv.sh && c <cargo args>` — wraps every cargo/dx call as
 `flock target-track/.roost-build.lock /home/almalinux/repos/roost-build-slot cargo …`
 with `CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=3 CARGO_TARGET_DIR=target-track`,
-no RUSTFLAGS (recreate the script from this line if `/tmp` was wiped). Never
-end a turn while a build runs. Shared slice brief: `/tmp/web-slice-context.md`
-(also snapshotted below).
+no RUSTFLAGS, and a disk check (< 10 GiB → refuse). Recreate `/tmp/webenv.sh`
+from this line if `/tmp` was wiped. Never end a turn while a build runs.
+Slice brief: `docs/v3-handoff/web-slice-context.md` (copy of `/tmp/web-slice-context.md`);
+wave-B interfaces: `docs/v3-handoff/web-waveB-contract.md`.
 
-## Done (committed, pushed)
+dx bundles are built from a detached worktree of a committed SHA,
+`target-track/dx-tree` (`git worktree add --detach target-track/dx-tree <sha>`),
+sharing `target-track`, so a bundle never picks up a slice's half-written file.
 
-| Item | Commit | Evidence |
-|---|---|---|
-| U-0 items 1–3 | merged into `v3` at `d1258917` | — |
-| U-1 DECODE (+ RPC/Sync client codecs, WebDeviceKey) | `dcfd84bb` | 694/0/3 twice (3 named ignores), clippy workspace 0, lint 0 (2955 inputs), fmt clean, wasm32 build 0; 2 mutations in the commit body |
+## Decisions
 
-## In flight — UNCOMMITTED, snapshot `refs/heads/v3-web-snap-u1pump` = `1c215567`
+- **Layout adapter, one owner**: `crates/roost-protocol/src/proto_adapters/layout_document_proto.rs`
+  (port of v2 `packages/protocol/src/layout-document-proto.ts`) is THE
+  implementation, incl. `canonical_layout_document` (v2 `handlers-ui.ts:66,120`
+  composition). Committed alone as `056885b6`. The coord lead deletes coord's
+  duplicate `crates/roost-coord/src/ui_state/layout_proto.rs` and repoints
+  `ui_state/rpc.rs` + `tests/ui_state_legacy_command.rs`; verified locally
+  (repointed, then reverted): `cargo test -p roost-coord --test ui_state_legacy_command`
+  = 7 passed / 0 failed.
+- **roost-web → roost-platform** allowed (v2 `web → @roost/platform` edge, for
+  `lib/nativePath.ts`): one line in `xtask/src/crate_dag.rs` (cross-owner),
+  one impl `crates/roost-web/src/platform/worker_paths.rs::BrowserWorkerPaths`.
+- `browser/browserPlatform.ts`: SHELL ports the pure shortcut matcher into
+  `crates/roost-web/src/platform/browser_platform.rs`; the BROWSER row extends it.
 
-Restore: `git checkout v3-web && git stash apply 1c215567` (on `f9287f24`).
-Verified after the snapshot: `c check -p roost-client-core --all-targets` 0 errors, 0 warnings (core PUMP changes + rewritten fixtures). roost-web NOT yet compiled: roost-web-terminal slices were mid-edit (their errors, not the pump's).
+## Done (committed)
 
-**Lead's PUMP work (never compiled end to end yet):**
-- client-core: `client/rpc/unary.rs` (UnaryMethod, ConnectCode/ConnectError/CallError, tests), `client/rpc/calls/{mod,sessions,workspaces}.rs`, `codec.rs` owns `encode_message`/`decode_message`; `sync/{redial,hydration}.rs` (v2 sync-redial/sync-watchdog policy, hydration tickets/retry/deadline/probe, tests); `handle_sync/{hydration,lifecycle}.rs` (subscribed → per-domain hydration RPCs → rows applied → `SendSync(DomainReady)` → ready; terminal publish → Authorized + drain retained; device rejection → Unauthorized; 4001 before open; redial loop, stale watchdog, lifecycle wakes, transport controls); `store/root.rs` (`CoordIdentity`, `mark_browser_device_rejected`, `mark_protected_snapshot_published`); Store gains `coord_identity`, `terminal_nav_pad` (GamepadTv slice owns the module). Removed dead paths: `SyncFrame::DomainReady`, `Effect::HydrateDomain`, `ClientEvent::HydrationCompleted`, `Effect::SignChallenge`/`ChallengePurpose`/`ClientEvent::ChallengeSigned` (no producer). `RpcResult::Failed { call_id, error: CallError }`, `RpcResult::{call_id,kind_name}`. New events `PageVisibilityChanged`, `SyncWakeRequested`, `SyncTransportControl`. Subscribed no longer sends Subscribe (v2 parity: only lazy audit subscribes).
-- tests: `tests/support/hydration.rs` (fixtures now reach ready through the real hydration path); `support/sync_reconnect.rs`, `sync_decode_support/mod.rs`, `sync_domain_reset.rs` rewritten; `sync_decode_routable.rs` audit test `#[ignore = "SETTINGS: … lazy hydrator"]`.
-- roost-web: `pump.rs` + `pump/{boot,socket,effects,browser}.rs` (dispatch queue, revision signal bumped only when `store.revision()` moved, socket notify-driven drain, effect executor, boot: key → identity → `#pair=` redeem → dial, 250 ms sweep + visibility/lifecycle listeners), `platform/{connect,self_label}.rs`, `platform/location.rs::replace_location`, `platform/sync_socket.rs` open takes `notify`, `lib.rs` App builds the pump, `app.rs` GatedApp reads `use_store()`. roost-web + roost-web-terminal Cargo web-sys feature lists broadened (lead).
+| Item | Commit |
+|---|---|
+| U-0 items 1–3 | merged into `v3` at `d1258917` |
+| U-1 DECODE | `dcfd84bb` (694/0/3 ×2, gate green) |
+| Layout adapter (shared) | `056885b6` |
+| PUMP (client-core hydration/redial/unary + roost-web pump) | `a5a10810` |
+| UiCommand | `cb19ca85` |
+| GamepadTv (input_nav, terminal_nav_pad) | `c7fe56b2` |
+| MdDesignTheme (md, /design, theme, assets) | `d3628b5b` |
+| RendererInput (input controller, selection, mouse, echo host) | `a61c544c` |
 
-**Wave A slices (task agents, uncommitted in the same tree):** WebMdDesignTheme (components/md, design, theme, assets, index.html), WebRendererInput (echo/input/mouse, client/predictive_echo, client/input), WebRendererCore (CellGridRenderer made generic over `RenderElement`, wasm-gated default impl; cell_renderer/scheduler/backfill/find/links), WebUiCommand (client/ui_state, client/ui_command; adds `SyncCommand::UiApplyLayoutResult`, `calls/ui_state.rs`, roost-protocol `proto_adapters/layout_document_proto.rs` — cross-owner), WebGamepadTv (roost-web input_nav, client-core store/terminal_nav_pad). Cross-owner edits seen in the tree: `Cargo.lock` (+1 dep line), `docs/phase4-client-contract.md`.
+Before these commits the whole tree tested 1314 passed / 8 failed / 4 ignored:
+3 routable fixture defects (fixed in the PUMP commit, v2 `sync-routable.ts:5`)
+and 5 `terminal_links` failures in the cancelled renderer-core port
+(WebRendererCore2 is fixing them).
+
+## In flight (agents of WebLeadU2, uncommitted in the tree)
+
+- WebRendererCore2 — finish renderer core (roost-web-terminal cell_renderer,
+  render_element, scheduler, backfill, find, links, startup_progress,
+  terminal_presentation; client-core `search.rs`, `terminal/{frame_fold,history_backfill}.rs`
+  + their tests). Commit as "web-terminal: renderer core …" after its report.
+- WebWaveAMutate — guard mutations for PUMP/UiCommand/GamepadTv/MdDesignTheme/
+  RendererInput; results go into the next handoff commit body.
+- Wave B: WebTerm (components/terminal + pane registry), WebSmoke (56 SmokeApi
+  methods), WebShell (routes/app/layout/MainPane/…), WebSidebar, WebDeck.
 
 ## Exact next steps
 
-1. Compile: `c check -p roost-client-core -p roost-web --all-targets` + wasm32; fix; `c test -p roost-client-core -p roost-web -p roost-web-terminal`.
-2. PUMP check: `dx build` → `ROOST_SMOKE_WEB_DIST=crates/roost-web/dist bun smoke/terminal/live-stack.ts` → browser leaves `Checking`. Commit PUMP (mutations: hydration publish, revision bump).
-3. Collect wave-A slice reports, gate, commit per slice.
-4. TERM mount (components/terminal port + session-keyed pane registry), SMOKE (56 methods, split by v2 smoke file), then wave B U-2 slices (SHELL, SIDEBAR+DECK — the fixture needs `.workbench-shell[data-compact]` and `folder-list` — PAIRING, SETTINGS incl. lazy audit, BROWSE, MACHINES+AGENTS, SEARCH+PALETTE+HELP, NOTIFICATIONS+PUSH, COMPOSER+VOICE, BROWSER platform, STREAM LIFECYCLE, CARRIER, LOCAL, ATTACH, TERMINAL DIAG).
-5. Port audit: `/tmp/v2-port-audit.sh -v` counted 346/452 v2 modules (46,526 lines) not named in any Rust `//!` header at `f9287f24`.
+1. Collect reports; gate; commit per slice (path-restricted), mutations in bodies.
+2. PUMP live check: dx bundle from `target-track/dx-tree` →
+   `ROOST_SMOKE_WEB_DIST=<dist> bun smoke/terminal/live-stack.ts` → browser leaves `Checking`.
+3. `dist-smoke` bundle (`--features smoke`) → `terminal-delivery.spec.ts`
+   "browser smoke flow creates and cleans its resources".
+4. Remaining U-2 rows: PAIRING, SETTINGS (incl. lazy audit hydrator — un-ignores
+   `sync_decode_routable` audit case), BROWSE, MACHINES+AGENTS, SEARCH+PALETTE+HELP,
+   NOTIFICATIONS+PUSH, COMPOSER+VOICE, BROWSER platform, SYNC LIFECYCLE,
+   STREAM LIFECYCLE, CARRIER, LOCAL, ATTACH, TERMINAL DIAG, ASSETS remainder.
+5. Port audit: `/tmp/v2-port-audit.sh -v` counted 346/452 v2 modules not named
+   in any Rust `//!` header at `f9287f24` (before wave A).

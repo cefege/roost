@@ -1,20 +1,17 @@
-//! Reader intent as the renderer applies it: parking, holding, resuming, and
-//! the anchor a park owns.
-//!
-//! A parked reader freezes the painted DOM while the canonical frame keeps
-//! advancing behind it, so every later frame arrives as a pending one and is
-//! folded into the pending frame rather than painted. The rules that decide
-//! whether a park may be left live in `reader_intent`, which is pure; this
-//! module is the DOM half — re-anchoring, adopting the pending frame, and
-//! reconciling — and it is what makes those rules observable.
+//! Reader intent as the renderer applies it: parking, holding, resuming, the
+//! anchor a park owns, and the bottom-park settle the pane runs. The pure rules
+//! live in `reader_intent`; this is the DOM half. Ports `enterReading` through
+//! `_resumeLive`, `_settleBottomPark` and `settleFollowBand` of
+//! `apps/web/src/renderer/cellRenderer.ts`.
 
 use crate::cell_renderer::CellGridRenderer;
 use crate::presentation::{LiveInteractionResult, NO_LIVE_INTERACTION_RESULT};
 use crate::reader_intent::{
     HoldChange, ReaderAnchor, ReaderIntent, ReaderIntentReason, reader_anchor_at_scroll,
 };
+use crate::render_element::RenderElement;
 
-impl CellGridRenderer {
+impl<E: RenderElement> CellGridRenderer<E> {
     /// The reader's intent: painting at the live tail, or frozen for a reader.
     pub fn reader_intent(&self) -> ReaderIntent {
         self.reader.intent()
@@ -54,6 +51,9 @@ impl CellGridRenderer {
         match self.reader.set_selection_hold(active) {
             HoldChange::Unchanged => NO_LIVE_INTERACTION_RESULT,
             HoldChange::Armed => {
+                // v2 arms through `enterReading("selection")`, which also ends
+                // a pending selection-release bracket.
+                self.live_selection_release_pending = false;
                 self.capture_reader_anchor();
                 NO_LIVE_INTERACTION_RESULT
             }
@@ -79,10 +79,20 @@ impl CellGridRenderer {
     /// park with range left keeps its interval: reaching the bottom, or the
     /// next frame's settle, resumes that one.
     fn flush_if_released(&mut self) -> LiveInteractionResult {
+        if self.reader.holding() {
+            return NO_LIVE_INTERACTION_RESULT;
+        }
         let no_range = self.scroll_height() <= self.client_height();
+        // Short-circuit like v2: the band is measured only for a position-only
+        // park, because measuring it can probe the row pitch.
+        let band_follower = self
+            .reader
+            .reason()
+            .is_some_and(ReaderIntentReason::is_position_only)
+            && self.follows_bottom();
         if !self
             .reader
-            .should_flush_after_release(no_range, self.follows_bottom())
+            .should_flush_after_release(no_range, band_follower)
         {
             return NO_LIVE_INTERACTION_RESULT;
         }
@@ -176,17 +186,31 @@ impl CellGridRenderer {
             request();
         }
         self.bottom_park_settle_epoch = self.bottom_park_settle_epoch.wrapping_add(1);
+        self.reader
+            .arm_bottom_park_settle(self.bottom_park_settle_epoch);
         self.bottom_park_settle_epoch
     }
 
-    /// Resume a position-only park that came to rest inside the follow band.
+    /// The bottom-park settle armed last and not yet run — v2's
+    /// `scheduleReaderSettle` callback, which the renderer cannot schedule.
     ///
-    /// Valid only once scrolling has stopped, which is why it runs off the epoch
-    /// `settle_bottom_park` returned rather than synchronously. A stale epoch is
-    /// inert, so a park that has since moved on is never unparked by an old
-    /// window.
+    /// Pane contract (TERM mount slice, `crates/roost-web/src/components/terminal/`,
+    /// lead `WebLeadU`): after every `apply*` and `handle_scroll`, read this and,
+    /// when it is `Some(epoch)`, call `resume_bottom_park(epoch)` from the next
+    /// `requestAnimationFrame` (a settle must run after layout). v2 discards
+    /// that call's result.
+    pub fn pending_bottom_park_settle(&self) -> Option<u64> {
+        self.reader.pending_bottom_park_settle()
+    }
+
+    /// Run the settle armed under `epoch`: resume a position-only park the
+    /// layout clamped onto the exact bottom.
+    ///
+    /// Each arm runs at most once, and only the latest: an epoch a later arm
+    /// or `dispose` superseded is inert, so a park that has since moved on is
+    /// never unparked by an old callback.
     pub fn resume_bottom_park(&mut self, epoch: u64) -> LiveInteractionResult {
-        if epoch != self.bottom_park_settle_epoch
+        if !self.reader.take_bottom_park_settle(epoch)
             || self.reader.holding()
             || !self.at_bottom()
             || self.reader.intent() != ReaderIntent::Reading
@@ -231,7 +255,7 @@ impl CellGridRenderer {
         }
         self.reader_anchor = reader_anchor_at_scroll(
             self.scroll_top(),
-            f64::from(self.spacer.offset_top()),
+            self.spacer.offset_top(),
             row_height,
             self.scrollback_layout_end,
         );
@@ -240,21 +264,5 @@ impl CellGridRenderer {
     /// The reader's anchor: where its own scroll position sits in absolute rows.
     pub fn reader_anchor(&self) -> Option<ReaderAnchor> {
         self.reader_anchor
-    }
-
-    /// Measure the row height, caching a positive result.
-    ///
-    /// Called once at every paint entry point rather than on every read: a
-    /// measurement forces layout, and the row count is what most readers of
-    /// this value actually need.
-    pub(crate) fn measure_row_height(&mut self) -> f64 {
-        if self.row_height > 0.0 {
-            return self.row_height;
-        }
-        let measured = crate::cell_renderer_dom::measure_cell_row_height(&self.doc, &self.viewport);
-        if measured > 0.0 {
-            self.row_height = measured;
-        }
-        self.row_height
     }
 }

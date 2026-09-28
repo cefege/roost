@@ -1,387 +1,265 @@
-//! Demand-paging terminal history: which absolute rows must be fetched to fill
-//! the painted window, the request batching, the retained-floor clamp, and when
-//! to stop.
-//!
-//! `CellGridRenderer` stays the only owner of the DOM and of painted history;
-//! `roost_client_core::terminal::history_backfill` owns the page geometry. This
-//! controller owns the WAVES: exactly one is in flight, a scroll raised mid-wave
-//! is coalesced rather than orphaning a page the worker already read, and every
-//! settle re-derives the reader's gap instead of waiting for the next gesture.
-//!
-//! Ported from `apps/web/src/renderer/scrollbackBackfill.ts`. The wire shapes,
-//! the page guards and the wave that runs one page are `backfill::request`; the
-//! carrier election is `backfill::direct_history`. No clock is read.
+//! Demand-pages immutable terminal history at the visible or find-targeted gap.
+//! `CellGridRenderer` stays the only DOM/history owner behind `BackfillHost`,
+//! `roost_client_core::terminal::history_backfill` owns the page geometry, and
+//! this pager fences one wave by generation, epoch, columns, total and painted
+//! coverage. Ports `apps/web/src/renderer/scrollbackBackfill.ts`; its RPC, frame
+//! yield and timers are `BackfillAction`s the pane performs and answers.
 
+mod demand;
 pub mod direct_history;
+mod renderer_host;
 pub mod request;
+mod wave;
 
-pub use direct_history::{DirectHistoryOutcome, HistoryCarrier, direct_history_outcome};
-pub use request::{
-    ChunkGuard, Demand, DemandKind, ScrollbackPage, ScrollbackPageRequest, ValidatedPage,
-    validate_page,
+pub use direct_history::{
+    DirectHistoryFailure, DirectHistoryOutcome, DirectReadError, direct_history_outcome,
+    elected_direct_route,
 };
+pub use request::{ScrollbackPage, ScrollbackPageRequest};
 
 use roost_client_core::terminal::history::{HistoryRange, HistoryScrollTarget};
-use roost_client_core::terminal::history_backfill::{
-    BACKFILL_AHEAD_ROWS, DemandBounds, find_demand_bounds, scroll_demand_bounds,
-};
+use roost_client_core::terminal::history_backfill::find_demand_bounds;
 use roost_protocol::cell::CellRow;
 use roost_protocol::terminal_search::ScrollbackHistoryFloor;
 
+use crate::backfill::demand::{DeferredRearm, RaiseOutcome};
+use crate::backfill::request::DemandKind;
+use crate::backfill::wave::ActiveWave;
 use crate::presentation::BackfillAnchor;
 
 /// Cadence of every pager retry: a failed fetch, and a spent identical-retry
 /// budget over a live gap. One wave per interval cannot hot-loop.
 pub const BACKFILL_RETRY_MS: u64 = 2000;
 
-/// The painted surface a pager splices into.
+/// The renderer surface one pager reads and splices into, v2's
+/// `Pick<CellGridRenderer, …>`: the production host is `CellGridRenderer`.
 pub trait BackfillHost {
-    /// The pane's grid identity and absolute range, or nothing before the first
-    /// frame lands.
-    fn anchor(&self) -> Option<BackfillAnchor>;
-    /// Whether the reader is riding the live tail, which owes no history.
+    /// The grid identity and painted head base, or `None` before a frame lands.
+    fn backfill_anchor(&self) -> Option<BackfillAnchor>;
+    /// Whether the reader rides the live tail inside the follow band.
     fn follows_bottom(&self) -> bool;
-    /// Whether every row of a half-open range is painted.
-    fn has_painted_range(&self, start: u32, end: u32) -> bool;
-    /// The missing interval containing one row.
-    fn missing_range(&self, row: u32) -> Option<HistoryRange>;
-    /// The missing interval the reader's own position exposes, widened upward.
-    fn missing_range_at_scroll(&self, ahead_rows: u32) -> Option<HistoryScrollTarget>;
-    /// Tell the renderer which rows the worker has proven it still retains.
+    /// Whether every row of a nonempty half-open absolute range is painted.
+    fn has_painted_scrollback_range(&self, start: u32, end: u32) -> bool;
+    /// The missing interval containing one row, or `None` when it is painted.
+    fn missing_scrollback_range(&self, row: u32) -> Option<HistoryRange>;
+    /// The missing interval the reader's position exposes, widened older.
+    fn missing_scrollback_range_at_scroll(&self, ahead_rows: u32) -> Option<HistoryScrollTarget>;
+    /// Record the oldest row the worker proved it retains; 0 clears it.
     fn set_history_floor(&mut self, row: u32);
+    /// Splice one contiguous page into the one placeholder it fits, or refuse.
+    fn insert_history_page(&mut self, rows: &[CellRow], follow_tail: bool) -> bool;
 }
 
-/// What the host must do for one pager step.
+/// Work the pager hands its pane: v2's awaited RPC, frame and timers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BackfillAction {
-    /// Fetch one page of history rows.
-    Fetch(ScrollbackPageRequest),
-    /// Splice these rows into the painted sheet, newest chunk first.
-    Splice(Vec<CellRow>),
-    /// The rows the worker has now proven it still retains.
-    SetHistoryFloor(u32),
-    /// A wave finished, and whether its focus row ended painted.
-    WaveSettled {
-        /// The pager generation that owned the wave.
-        generation: u32,
-        /// The row the wave owed the reader.
-        focus_row: u32,
-        /// Whether that row is painted now.
-        painted: bool,
+    /// Issue one history read, then answer `on_page` or `on_fetch_failed`.
+    Fetch {
+        /// The wave the answer belongs to.
+        wave: u64,
+        /// The query to send.
+        request: ScrollbackPageRequest,
     },
-    /// A page was refused, and the guard that refused it.
-    PageRefused {
-        /// The guard that named the mismatch.
-        guard: ChunkGuard,
-        /// What the wave asked for.
-        requested_start: u32,
-        /// What the wave asked for.
-        requested_end: u32,
-        /// What came back.
-        response_start: u32,
-        /// What came back.
-        response_end: u32,
-        /// How many rows came back.
-        rows: usize,
+    /// Yield one animation frame, then call `on_animation_frame`.
+    AwaitAnimationFrame {
+        /// The wave that is splicing.
+        wave: u64,
     },
-    /// A gesture arrived while a wave was in flight, so it joined that wave.
-    DemandCoalesced {
-        /// What raised the wave the gesture joined.
-        kind: DemandKind,
-    },
-    /// A settled wave re-derived the reader's gap and asked again.
-    DemandRearmed {
-        /// The row the new demand owes.
-        focus: u32,
-        /// Whether it derived the identical demand the settled wave did.
-        identical: bool,
-    },
-    /// The identical-retry budget is spent, so the next attempt waits an interval.
-    DemandRetryDeferred {
-        /// The row the deferred demand owes.
-        focus: u32,
-        /// How many identical waves have already been spent.
-        retries: u32,
-        /// How long until the next attempt, in milliseconds.
+    /// Sleep, then call `on_fetch_retry_due` for the wave's one retry.
+    ArmFetchRetry {
+        /// The wave whose read failed.
+        wave: u64,
+        /// How long to wait.
         delay_ms: u64,
     },
-    /// A deferred re-arm woke and re-derived the reader's gap.
-    DemandRetryWoke {
-        /// The row it owes.
-        focus: u32,
-        /// Whether a live gap armed a wave.
-        armed: bool,
+    /// Sleep, then call `on_deferred_rearm_due` to re-derive the reader's gap.
+    ArmDeferredRearm {
+        /// The token the wake must present; a superseded one is ignored.
+        timer: u64,
+        /// How long to wait.
+        delay_ms: u64,
+    },
+    /// A find demand concluded, and whether its row is painted now.
+    FindSettled {
+        /// The absolute row the reveal asked for.
+        row: u32,
+        /// Whether that row is painted.
+        painted: bool,
     },
 }
 
-/// The wave currently in flight, and the page it is splicing.
-#[derive(Debug, Clone)]
-struct ActiveWave {
-    demand: Demand,
-    page: Option<ValidatedPage>,
-    /// The next row of `page` this wave has not yet handed the host.
-    cursor: usize,
-    /// The first offset of `page` the demand actually asked for.
-    first_requested_offset: usize,
-    /// Whether this wave has already spent its one fetch retry.
-    fetch_retried: bool,
-}
-
-/// Per-pane scrollback pager: one wave at a time, fenced by generation, epoch,
-/// columns, total and real painted coverage.
+/// Per-pane scrollback pager: exactly one wave in flight at a time.
 #[derive(Debug)]
 pub struct ScrollbackBackfill {
     session_id: String,
-    generation: u32,
+    generation: u64,
     active_wave: Option<ActiveWave>,
     disposed: bool,
+    active: bool,
     frame_epoch: Option<String>,
     frame_cols: u32,
-    frame_total: i64,
-    /// THE RETAINED FLOOR: the oldest row a worker has PROVEN it still holds.
-    /// Every request this pager issues is derived through the clamp in
-    /// `history_backfill`, so no request can name a row under it.
+    frame_total: Option<u64>,
+    /// The oldest row a worker has PROVEN it still holds, 0 when never hit.
+    /// Every demand derives through the clamp in `history_backfill`, so no
+    /// request can name a row under it.
     retained_floor: u32,
     floor_reason: ScrollbackHistoryFloor,
     scroll_demand_owed: bool,
     identical_retries: u32,
-    deferred_rearm_at: Option<u64>,
-    requests: u32,
+    deferred_rearm: Option<DeferredRearm>,
+    rearm_timers: u64,
+    requests: u64,
 }
 
 impl ScrollbackBackfill {
-    /// A pager for one session that has never fetched a page.
+    /// A pager for one session's pane, active until the pane says otherwise.
     pub fn new(session_id: &str) -> Self {
         Self {
             session_id: session_id.to_string(),
             generation: 0,
             active_wave: None,
             disposed: false,
+            active: true,
             frame_epoch: None,
             frame_cols: 0,
-            frame_total: -1,
+            frame_total: None,
             retained_floor: 0,
             floor_reason: ScrollbackHistoryFloor::None,
             scroll_demand_owed: false,
             identical_retries: 0,
-            deferred_rearm_at: None,
+            deferred_rearm: None,
+            rearm_timers: 0,
             requests: 0,
         }
     }
 
-    /// The oldest row the worker has proven it still retains, 0 when never hit.
-    pub fn retained_floor(&self) -> u32 {
-        self.retained_floor
+    /// The proven history floor and WHY it is there, or `None` until a page
+    /// actually came back short with a named reason.
+    pub fn history_floor(&self) -> Option<(u32, &ScrollbackHistoryFloor)> {
+        (self.floor_reason != ScrollbackHistoryFloor::None)
+            .then_some((self.retained_floor, &self.floor_reason))
     }
-    /// Why that floor is there, straight off the page that established it.
-    pub fn floor_reason(&self) -> &ScrollbackHistoryFloor {
-        &self.floor_reason
-    }
-    /// History RPCs this pager has issued.
-    pub fn request_count(&self) -> u32 {
+
+    /// History reads this pager has issued, retries included.
+    pub fn request_count(&self) -> u64 {
         self.requests
     }
-    /// Observe a full frame: a renumbered or rewound grid retires every wave.
-    ///
-    /// A full frame never prefetches. What it does is FENCE: a grid that renumbers
-    /// or a total that rewinds invalidates every page in flight, and the retained
-    /// floor goes with them.
+
+    /// Whether the pane is viewed and the page visible (v2's `active()`): an
+    /// inactive pager raises nothing and every wave in flight stops current.
+    pub fn set_active(&mut self, active: bool) {
+        if self.active != active {
+            tracing::debug!(target: "scrollback", sid = %self.session_id, active, "scrollback.pager_active");
+            self.active = active;
+        }
+    }
+
+    /// Observe a full frame. It never prefetches; a renumbered grid or a total
+    /// that rewound retires the wave in flight and forgets the proven floor.
     pub fn on_full_frame(&mut self, host: &mut dyn BackfillHost) -> Vec<BackfillAction> {
-        let anchor = host.anchor();
-        let total = anchor.as_ref().map_or(-1, |a| a.total as i64);
-        let rewound = anchor.as_ref().is_some_and(|a| {
-            (self.frame_total >= 0 && a.total < self.frame_total as u64)
+        let anchor = host.backfill_anchor();
+        let total_rewound = anchor.as_ref().is_some_and(|anchor| {
+            self.frame_total.is_some_and(|total| anchor.total < total)
                 || self
                     .active_wave
                     .as_ref()
-                    .is_some_and(|wave| a.total < wave.demand.minimum_total)
+                    .is_some_and(|wave| anchor.total < wave.demand.minimum_total)
         });
-        let changed = match &anchor {
-            None => true,
-            Some(a) => {
-                a.grid_epoch != self.frame_epoch.clone().unwrap_or_default()
-                    || a.cols != self.frame_cols
-                    || rewound
+        let identity_changed = anchor.as_ref().is_none_or(|anchor| {
+            self.frame_epoch.as_deref() != Some(anchor.grid_epoch.as_str())
+                || anchor.cols != self.frame_cols
+                || total_rewound
+        });
+        if !identity_changed {
+            if let Some(anchor) = anchor {
+                self.frame_total = Some(
+                    self.frame_total
+                        .map_or(anchor.total, |held| held.max(anchor.total)),
+                );
             }
-        };
-        if changed {
-            self.suspend();
-            self.frame_epoch = anchor.as_ref().map(|a| a.grid_epoch.clone());
-            self.frame_cols = anchor.as_ref().map_or(0, |a| a.cols);
-            self.frame_total = total;
-            return self.clear_floor(host);
+            return Vec::new();
         }
-        if let Some(a) = &anchor {
-            self.frame_total = self.frame_total.max(a.total as i64);
-        }
-        Vec::new()
+        let actions = self.suspend();
+        tracing::info!(
+            target: "scrollback",
+            sid = %self.session_id,
+            grid_epoch = anchor.as_ref().map_or("", |anchor| anchor.grid_epoch.as_str()),
+            total_rewound,
+            "scrollback.grid_identity_changed"
+        );
+        self.frame_epoch = anchor.as_ref().map(|anchor| anchor.grid_epoch.clone());
+        self.frame_cols = anchor.as_ref().map_or(0, |anchor| anchor.cols);
+        self.frame_total = anchor.as_ref().map(|anchor| anchor.total);
+        self.clear_floor(host);
+        actions
     }
 
-    /// A reader gesture: re-arm the budget and page the gap it exposes.
+    /// A reader gesture: re-arm the retry budget and page the gap it exposes.
     pub fn on_user_scroll(&mut self, host: &mut dyn BackfillHost) -> Vec<BackfillAction> {
-        // A real gesture re-arms the budget and supersedes a deferred re-arm.
-        self.deferred_rearm_at = None;
-        self.identical_retries = 0;
+        // A real gesture re-arms the budget and supersedes the deferred re-arm.
+        self.reset_retry_budget();
         let live = self.live_scroll_demand(host);
-        self.raise_demand(DemandKind::Scroll, live, true, host)
+        self.raise_demand(DemandKind::Scroll, live, true, host).1
     }
 
-    /// Bring one history row into the painted window, for a find reveal. Whether
-    /// the row ended painted is reported by `WaveSettled`, which is what a reveal
-    /// waits for rather than assuming.
+    /// Bring one history row into the painted window for a find reveal. The
+    /// answer is always a `FindSettled` for `row`: at once, or when its wave ends.
     pub fn ensure_row_painted(
         &mut self,
         row: u32,
         host: &mut dyn BackfillHost,
     ) -> Vec<BackfillAction> {
-        if self.disposed || host.has_painted_range(row, row + 1) {
-            return Vec::new();
+        let settled = |painted| vec![BackfillAction::FindSettled { row, painted }];
+        if !self.active {
+            return settled(false);
         }
-        let Some(gap) = host.missing_range(row) else {
-            return Vec::new();
-        };
-        let Some(anchor) = host.anchor() else {
-            return Vec::new();
+        if host.has_painted_scrollback_range(row, row.saturating_add(1)) {
+            return settled(true);
+        }
+        let (Some(gap), Some(anchor)) =
+            (host.missing_scrollback_range(row), host.backfill_anchor())
+        else {
+            return settled(false);
         };
         let bounds = find_demand_bounds(gap, row, self.retained_floor, anchor.sb_base);
-        self.raise_demand(DemandKind::Find, bounds, false, host)
-    }
-
-    /// A fetch that never arrived, for whatever reason.
-    ///
-    /// The wave survives so the next `tick` can spend its ONE retry: a worker that
-    /// cannot serve a row must be asked once more on the cadence, and never on a
-    /// loop.
-    pub fn on_fetch_failed(&mut self, now_ms: u64) {
-        let wave = self.active_wave.as_mut();
-        if let Some(wave) = wave
-            && !wave.fetch_retried
-        {
-            wave.fetch_retried = true;
-            self.deferred_rearm_at = Some(now_ms + BACKFILL_RETRY_MS);
+        let (outcome, mut actions) = self.raise_demand(DemandKind::Find, bounds, false, host);
+        if outcome == RaiseOutcome::Refused {
+            actions.extend(settled(false));
         }
+        actions
     }
 
-    /// Retire every wave and cancel the deferred re-arm.
-    pub fn suspend(&mut self) {
+    /// Retire the wave in flight and cancel the deferred re-arm. A retired find
+    /// wave answers `FindSettled { painted: false }`.
+    pub fn suspend(&mut self) -> Vec<BackfillAction> {
         self.generation += 1;
-        self.active_wave = None;
+        let retired = self.active_wave.take();
         self.scroll_demand_owed = false;
-        self.identical_retries = 0;
-        self.deferred_rearm_at = None;
+        self.reset_retry_budget();
+        tracing::debug!(target: "scrollback", sid = %self.session_id, generation = self.generation, "scrollback.pager_suspended");
+        retired
+            .into_iter()
+            .filter_map(ActiveWave::retired_find)
+            .collect()
     }
 
-    /// Retire the pager for good.
-    pub fn dispose(&mut self) {
+    /// Retire the pager for good: nothing it armed may act afterwards.
+    pub fn dispose(&mut self) -> Vec<BackfillAction> {
         self.disposed = true;
-        self.suspend();
+        self.suspend()
     }
 
-    /// Fire a deferred retry whose time has come.
-    pub fn tick(&mut self, now_ms: u64, host: &mut dyn BackfillHost) -> Vec<BackfillAction> {
-        let mut actions = Vec::new();
-        if self.deferred_rearm_at.is_some_and(|at_ms| now_ms >= at_ms) {
-            self.deferred_rearm_at = None;
-            let live = self.live_scroll_demand(host);
-            let focus = live.map_or(0, |bounds| bounds.focus);
-            actions.push(BackfillAction::DemandRetryWoke {
-                focus,
-                armed: live.is_some(),
-            });
-            actions.extend(self.raise_demand(DemandKind::Scroll, live, false, host));
-        }
-        actions
-    }
-
-    /// The page the reader's own position demands, or none when the pager owes
-    /// nothing: a follower at the tail owes no history, and a pane with no
-    /// anchor cannot be derived from at all.
-    pub(crate) fn live_scroll_demand(&mut self, host: &dyn BackfillHost) -> Option<DemandBounds> {
-        if self.disposed || host.follows_bottom() {
-            return None;
-        }
-        let anchor = host.anchor()?;
-        let target = host.missing_range_at_scroll(BACKFILL_AHEAD_ROWS)?;
-        scroll_demand_bounds(&target, self.retained_floor, anchor.sb_base)
-    }
-
-    /// Whether the wave still answers for the pane as it stands.
-    pub(crate) fn wave_is_current(&self, demand: &Demand, host: &dyn BackfillHost) -> bool {
-        if self.disposed || demand.generation != self.generation {
-            return false;
-        }
-        let Some(anchor) = host.anchor() else {
-            return false;
-        };
-        anchor.grid_epoch == demand.grid_epoch
-            && anchor.cols == demand.cols
-            && anchor.total >= demand.minimum_total
-            && anchor.total >= demand.bounds.end as u64
-    }
-
-    /// Raise one demand, or join the wave already in flight.
-    ///
-    /// Depth stays ONE wave. A scroll never orphans a page the worker already
-    /// read and the wire already carried, because the settle re-derives it.
-    pub(crate) fn raise_demand(
-        &mut self,
-        kind: DemandKind,
-        bounds: Option<DemandBounds>,
-        reader_gesture: bool,
-        host: &mut dyn BackfillHost,
-    ) -> Vec<BackfillAction> {
-        let Some(bounds) = bounds else {
-            return Vec::new();
-        };
-        let mut actions = Vec::new();
-        // Only the owed edge of a gesture reports: a fling raises ~60 scroll
-        // events a second and the coalesce line names one wave, not sixty.
-        if reader_gesture && !self.scroll_demand_owed {
-            self.scroll_demand_owed = true;
-            if let Some(wave) = &self.active_wave {
-                actions.push(BackfillAction::DemandCoalesced {
-                    kind: wave.demand.kind,
-                });
-            }
-        }
-        if let Some(wave) = &self.active_wave
-            && (kind == DemandKind::Scroll
-                || (wave.demand.kind == kind && wave.demand.bounds.focus == bounds.focus))
-        {
-            return actions;
-        }
-        let Some(anchor) = host.anchor() else {
-            return actions;
-        };
-        self.generation += 1;
-        let demand = Demand {
-            bounds,
-            generation: self.generation,
-            kind,
-            grid_epoch: anchor.grid_epoch.clone(),
-            cols: anchor.cols,
-            minimum_total: anchor.total,
-        };
-        self.active_wave = Some(ActiveWave {
-            demand: demand.clone(),
-            page: None,
-            cursor: 0,
-            first_requested_offset: 0,
-            fetch_retried: false,
-        });
-        actions.push(BackfillAction::Fetch(ScrollbackPageRequest::for_demand(
-            &self.session_id,
-            &demand.bounds,
-            &demand.grid_epoch,
-        )));
-        actions
-    }
-
-    /// Forget the proven floor, and tell the renderer the head rows are back.
-    pub(crate) fn clear_floor(&mut self, host: &mut dyn BackfillHost) -> Vec<BackfillAction> {
+    /// Forget the proven floor and tell the renderer the head rows are back.
+    fn clear_floor(&mut self, host: &mut dyn BackfillHost) {
         self.retained_floor = 0;
         self.floor_reason = ScrollbackHistoryFloor::None;
         host.set_history_floor(0);
-        vec![BackfillAction::SetHistoryFloor(0)]
+    }
+
+    /// The retry budget and the deferred re-arm it schedules are one state: a
+    /// reader gesture, a changed derivation and a suspend all re-arm both.
+    fn reset_retry_budget(&mut self) {
+        self.identical_retries = 0;
+        self.deferred_rearm = None;
     }
 }

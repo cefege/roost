@@ -1,11 +1,8 @@
 //! The read-only views a terminal pane publishes about itself: the epoch
-//! watermarks, the paint presentation a stress harness reads, and the
-//! presentation snapshot diagnostics diff against.
-//!
-//! Every type here is plain data with no DOM in it, so the same values the
-//! browser shows and the values a native test asserts are the same values. The
-//! renderer builds a `RendererProjection` and this module turns it into the
-//! shapes the smoke API and the incident scanner name.
+//! watermarks, the paint presentation a stress harness reads, and the snapshot
+//! diagnostics diff against. Plain data with no DOM, so what the browser shows and
+//! what a native test asserts are the same values; the smoke API and the incident
+//! scanner read them. Ports `apps/web/src/renderer/cellRendererPresentation.ts`.
 
 use roost_protocol::cell::{CellGridFrame, CellRow, spans_text};
 

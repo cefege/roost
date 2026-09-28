@@ -1,17 +1,15 @@
-//! Pane-local find in terminal scrollback: what one search answers with, the
-//! bounded page chain that walks those answers, and the host conversation that
-//! paints them. `hits` owns what the grid is told; `controller` owns the query
-//! and the cursor; `intent` is the one-shot handoff from global search.
-//!
-//! The match types and the three page guards are `roost_client_core::search`,
-//! reused rather than restated, and `roost_protocol::terminal_search` owns every
-//! bound. Ported from `apps/web/src/client/search/terminalFindPageChain.ts` and
-//! `terminalFindPaging.ts`.
+//! Pane-local find in terminal scrollback: the page answer, the bounded page
+//! chain over it, and the submodules — `controller` (query, cursor, reveal),
+//! `hits` (what the grid is told), `host` (the grid seam), `intent` (global
+//! handoff). Match types and page guards are `roost_client_core::search`; bounds
+//! are `roost_protocol::terminal_search`. Ports
+//! `apps/web/src/client/search/terminalFindPageChain.ts`.
 
 pub mod controller;
 pub mod hits;
 pub mod host;
 pub mod intent;
+mod renderer_host;
 
 pub use controller::{FIND_DEBOUNCE_MS, TerminalFind};
 pub use hits::{
@@ -21,20 +19,19 @@ pub use hits::{
 pub use host::{FindCommand, FindHost, RevealDecision, reveal_decision};
 
 use roost_client_core::search::{
-    FindMatch, RawMatch, SearchPage, continuation_is_valid, fence_page, window_is_valid,
+    FindMatch, RawMatch, SearchPage, continuation_is_valid, fence_page,
 };
 use roost_protocol::terminal_search::{
     TERMINAL_SEARCH_MAX_MATCHES, TERMINAL_SEARCH_MAX_PAGES, TERMINAL_SEARCH_MAX_ROWS,
 };
 
-/// Why a coordinator stopped scanning a page.
-///
-/// A local copy of the wire enum, because the crate that decodes it
-/// (`roost-coord`) is a server and the client needs the same five words to read
-/// a page. It is a stop REASON, not a match: every match on a page is
-/// `roost_client_core::search::RawMatch` and nothing here restates one.
+/// Why a coordinator stopped scanning a page, as the client reads the wire
+/// enum. `Unspecified` is the wire's zero value: its page is read, and then the
+/// chain fails, because no reason is not a reason to continue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchStop {
+    /// The coordinator named no reason.
+    Unspecified,
     /// Every row was scanned.
     Complete,
     /// The row ceiling stopped the scan; older rows remain.
@@ -247,12 +244,6 @@ impl FindChain {
         if !self.pane_accepts_epoch(pane_epoch) {
             return ChainStep::Finish(ChainOutcome::EpochChanged);
         }
-        if !window_is_valid(&reply.page, &reply.matches, self.before_row) {
-            return ChainStep::Finish(self.failed_partial());
-        }
-        if reply.matches.len() as u32 > self.remaining_matches() {
-            return ChainStep::Finish(self.failed_partial());
-        }
         let Some(page_matches) = fence_page(
             &reply.matches,
             &reply.page,
@@ -261,6 +252,9 @@ impl FindChain {
         ) else {
             return ChainStep::Finish(self.failed_partial());
         };
+        if page_matches.len() as u32 > self.remaining_matches() {
+            return ChainStep::Finish(self.failed_partial());
+        }
         self.found.extend(page_matches);
 
         let may_continue = matches!(reply.stop, SearchStop::RowLimit | SearchStop::MatchLimit);
@@ -296,6 +290,7 @@ impl FindChain {
                 self.before_row = reply.page.next_before_row;
                 self.next_request(pane_epoch, current)
             }
+            SearchStop::Unspecified => ChainStep::Finish(self.failed_partial()),
             SearchStop::EpochChanged => ChainStep::Finish(ChainOutcome::EpochChanged),
         }
     }

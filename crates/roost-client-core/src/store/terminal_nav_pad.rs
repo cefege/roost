@@ -70,9 +70,6 @@ pub fn load_terminal_nav_pad(store: &mut Store, storage: &dyn KeyValueStore) -> 
 /// close that disarmed a closed pad would drop a Ctrl the user armed from the
 /// sheet's own toggle a moment earlier. Returns whether the store changed.
 pub fn close_terminal_nav_pad(store: &mut Store, storage: &dyn KeyValueStore) -> bool {
-    if !store.terminal_nav_pad.open {
-        return false;
-    }
     store.terminal_nav_pad.disarm_count += 1;
     persist_open(store, storage, false);
     true

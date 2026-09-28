@@ -21,6 +21,8 @@ use crate::terminal::token::TerminalToken;
 pub struct InputRouter {
     lanes: BTreeMap<String, InputLane>,
     next_input_seq: u64,
+    /// The smoke backdoor's observer; `None` unless a smoke build armed it.
+    pub smoke_observer: Option<crate::terminal::input::smoke_observer::SmokeInputObserver>,
 }
 
 impl InputRouter {
@@ -220,9 +222,14 @@ impl InputRouter {
         if outcome.input_seq() != input_seq {
             return false;
         }
-        self.lanes
+        let settled = self
+            .lanes
             .values_mut()
-            .any(|lane| settle_in(lane, input_seq))
+            .any(|lane| settle_in(lane, input_seq));
+        if settled && let Some(observer) = &mut self.smoke_observer {
+            observer.observe_outcome(&outcome);
+        }
+        settled
     }
 
     /// Settle every held batch whose admission timeout has expired.
@@ -298,6 +305,7 @@ impl InputRouter {
                 outcomes.push(outcome);
             }
         }
+        self.observe_settled(&outcomes);
         outcomes
     }
 
@@ -312,7 +320,7 @@ impl InputRouter {
             .filter(|pending| !pending.started)
             .map(|pending| pending.input_seq)
             .collect();
-        matching
+        let outcomes: Vec<InputOutcome> = matching
             .into_iter()
             .filter_map(|input_seq| {
                 if settle_in(lane, input_seq) {
@@ -324,7 +332,17 @@ impl InputRouter {
                     None
                 }
             })
-            .collect()
+            .collect();
+        self.observe_settled(&outcomes);
+        outcomes
+    }
+
+    fn observe_settled(&mut self, outcomes: &[InputOutcome]) {
+        if let Some(observer) = &mut self.smoke_observer {
+            for outcome in outcomes {
+                observer.observe_outcome(outcome);
+            }
+        }
     }
 
     /// Every batch still outstanding on a session, oldest first.

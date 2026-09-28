@@ -1,13 +1,9 @@
-//! The terminal render scheduler: when one renderer's next frame is worth
-//! painting, when several arriving frames are ONE paint, and when a paint is
-//! held instead.
-//!
-//! A pure state machine: every clock value arrives as `now_ms` and the browser
-//! frame that carries a batch belongs to the caller. Composes
-//! `scheduler::frame_gate` (admission), `scheduler::frames` (the batch) and
-//! `scheduler::cursor_poll` (the shared cursor tick); depends on
-//! `roost-protocol` for the cell frame and on `reader_intent` for the hold mask
-//! and the block reasons.
+//! The terminal render scheduler: which batch one renderer's next browser frame
+//! paints, and what a landed or refused paint leaves behind. Ports
+//! `apps/web/src/renderer/terminal-render-scheduler.ts`; `cursor_poll` ports
+//! `apps/web/src/renderer/cursorPollTicker.ts`. Driven by the terminal stream
+//! view's renderer subscriber; every clock value arrives as `now_ms` and the
+//! browser frame is the caller's. Depends on `roost-protocol`'s cell frame.
 
 mod cursor_poll;
 mod frame_gate;
@@ -16,11 +12,9 @@ mod frames;
 use roost_protocol::cell::CellGridFrame;
 
 use crate::presentation::RendererEpochSeq;
-use crate::reader_intent::ReconcileBlockReason;
 use frame_gate::{
-    GridIdentity, MAX_PENDING_DELTA_FRAMES, MAX_PENDING_DELTA_SPANS, MAX_PENDING_SCROLLBACK_ROWS,
-    ReconciledGrid, count_incoming_spans, delta_follows, full_conflicts_with_known_canonical,
-    hold_block_reason, own_queued_delta,
+    GridIdentity, ReconciledGrid, admit_delta, full_conflicts_with_known_canonical,
+    own_queued_delta,
 };
 use frames::PendingRender;
 
@@ -53,6 +47,10 @@ pub enum EnqueueDecision {
 }
 
 /// What one browser frame decided.
+///
+/// A renderer hold is NOT a reason to skip a paint: the held renderer folds the
+/// batch into its canonical frame off-DOM and answers `Applied`, so deliveries
+/// (terminal modes, cursor, activity) keep flowing while a selection is held.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrameDecision<'a> {
     /// The held batch is due: paint it, then answer `complete_paint`.
@@ -61,24 +59,17 @@ pub enum FrameDecision<'a> {
     /// canonical frame keeps folding off-DOM and the next activation paints the
     /// latest one.
     Parked,
-    /// The batch is retained and NOT painted: the renderer is holding. The
-    /// reason is the same name the reconcile snapshot reports for a held pane,
-    /// read off the mask the caller passed in.
-    Held { reason: ReconcileBlockReason },
     /// There is no batch to paint. A disposed scheduler reads here, because
     /// disposal empties the slot.
     Idle,
 }
 
-/// The counters a new delta would give a batch it may extend.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct DeltaExtend {
-    appended_rows: u64,
-    span_count: usize,
-}
-
 /// One renderer's pending batch, its reconcile watermark, and whether a browser
 /// frame is armed.
+///
+/// Every mutation — `enqueue`, `set_foreground(true)`, `complete_paint` — is
+/// followed by the caller asking `schedule_browser_frame`, which is the v2
+/// `schedule()` those paths end in.
 #[derive(Debug, Clone, Default)]
 pub struct RenderScheduler {
     pending: Option<PendingRender>,
@@ -86,6 +77,11 @@ pub struct RenderScheduler {
     /// arrival inside that frame cannot arm a second one, which is what makes
     /// the arm idempotent from the caller's side.
     frame_armed: bool,
+    /// When the browser frame that handed out the batch now being painted
+    /// fired, or `None` when no paint is outstanding. An answer with no paint
+    /// outstanding changes nothing, so a caller that answers a parked or idle
+    /// frame cannot advance the watermark past a DOM that was never touched.
+    painting_since_ms: Option<u64>,
     foreground: bool,
     disposed: bool,
     /// The grid the painted DOM is reconciled to, or `None` before the first
@@ -101,6 +97,7 @@ impl RenderScheduler {
         Self {
             pending: None,
             frame_armed: false,
+            painting_since_ms: None,
             foreground: false,
             disposed: false,
             reconciled: None,
@@ -111,11 +108,15 @@ impl RenderScheduler {
     ///
     /// Going to the background parks the batch: a queued delta run becomes the
     /// canonical full, the armed frame is dropped, and arrivals keep folding the
-    /// canonical off-DOM with no DOM work. Coming back arms the frame that
+    /// canonical off-DOM with no DOM work. Coming back owes the frame that
     /// paints the latest state.
     pub fn set_foreground(&mut self, active: bool) {
         if self.disposed {
             return;
+        }
+        if self.foreground != active {
+            tracing::debug!(target: "terminal", active, pending = ?self.pending_mode(),
+                "render scheduler foreground changed");
         }
         self.foreground = active;
         if active {
@@ -133,9 +134,12 @@ impl RenderScheduler {
         if self.disposed {
             return;
         }
+        tracing::debug!(target: "terminal", pending = ?self.pending_mode(),
+            "render scheduler disposed");
         self.disposed = true;
         self.pending = None;
         self.frame_armed = false;
+        self.painting_since_ms = None;
     }
 
     /// Offer one arriving frame and the canonical frame it folded onto, and
@@ -151,6 +155,8 @@ impl RenderScheduler {
         }
         if frame.full {
             if full_conflicts_with_known_canonical(&canonical, self.known_grid_identity()) {
+                tracing::debug!(target: "terminal", seq = canonical.seq,
+                    stream_id = %canonical.stream_id, "stale or conflicting full refused");
                 return EnqueueDecision::RefusedStaleFull;
             }
             let appended_rows = self
@@ -170,7 +176,12 @@ impl RenderScheduler {
                 now_ms,
             ));
         }
-        if let Some(extend) = self.admit_delta(frame) {
+        if let Some(extend) = admit_delta(
+            self.foreground,
+            self.pending.as_ref(),
+            self.reconciled.as_ref(),
+            frame,
+        ) {
             let owned = own_queued_delta(frame);
             let batch = match self.pending.take() {
                 None => PendingRender::delta(
@@ -197,10 +208,9 @@ impl RenderScheduler {
                         queued_at_ms,
                     }
                 }
-                // The admission rules answer `Some` only for a slot holding a
-                // delta batch, so this arm is out of reach. It is spelled as the
-                // repair rather than a panic because a queued batch is never
-                // worth losing to a rule that drifted.
+                // `admit_delta` answers `Some` only for an empty slot or a delta
+                // batch; the repair is spelled out rather than a panic because a
+                // queued batch is never worth losing to a rule that drifted.
                 Some(previous) => {
                     PendingRender::fallback_full(Some(previous), frame, canonical, now_ms)
                 }
@@ -208,27 +218,24 @@ impl RenderScheduler {
             return self.retain(batch);
         }
         let previous = self.pending.take();
-        self.retain(PendingRender::fallback_full(
-            previous, frame, canonical, now_ms,
-        ))
+        let batch = PendingRender::fallback_full(previous, frame, canonical, now_ms);
+        tracing::debug!(target: "terminal", seq = frame.seq, base_seq = frame.base_seq,
+            batch_frames = batch.batch_frames(), foreground = self.foreground,
+            "delta cannot ride; batch repairs from the canonical full");
+        self.retain(batch)
     }
 
     /// One browser frame came round at `now_ms`. Answer what is due.
-    ///
-    /// `hold_mask` is the renderer's, read from `ReaderState::hold_mask()`: the
-    /// scheduler does not own the reader, and a hold it could not see would
-    /// hand a batch to a DOM it must not touch.
-    pub fn on_frame_fired(&mut self, now_ms: u64, hold_mask: u32) -> FrameDecision<'_> {
+    pub fn on_frame_fired(&mut self, now_ms: u64) -> FrameDecision<'_> {
         self.frame_armed = false;
+        let foreground = self.foreground;
         let Some(pending) = self.pending.as_ref() else {
             return FrameDecision::Idle;
         };
-        if !self.foreground {
+        if !foreground {
             return FrameDecision::Parked;
         }
-        if let Some(reason) = hold_block_reason(hold_mask) {
-            return FrameDecision::Held { reason };
-        }
+        self.painting_since_ms = Some(now_ms);
         FrameDecision::PaintNow(PaintRequest {
             mode: pending.apply_mode(),
             canonical: pending.canonical(),
@@ -248,16 +255,27 @@ impl RenderScheduler {
     /// as a fallback full and keeps its queue clock, so the next browser frame
     /// paints the canonical instead of retrying a batch that already failed.
     pub fn complete_paint(&mut self, outcome: PaintOutcome) {
+        let Some(fired_at_ms) = self.painting_since_ms.take() else {
+            tracing::warn!(target: "terminal", ?outcome,
+                "render paint answered with no paint outstanding; ignored");
+            return;
+        };
+        let Some(pending) = self.pending.take() else {
+            return;
+        };
+        let queue_ms = fired_at_ms.saturating_sub(pending.queued_at_ms());
         match outcome {
             PaintOutcome::Applied => {
-                if let Some(pending) = self.pending.take() {
-                    self.reconciled = Some(ReconciledGrid::of_canonical(pending.canonical()));
-                }
+                tracing::debug!(target: "terminal", seq = pending.canonical().seq,
+                    mode = ?pending.apply_mode(), batch_frames = pending.batch_frames(),
+                    appended_rows = pending.appended_rows(), queue_ms, "cell.apply_dur");
+                self.reconciled = Some(ReconciledGrid::of_canonical(pending.canonical()));
             }
             PaintOutcome::Refused => {
-                if let Some(pending) = self.pending.take() {
-                    self.pending = Some(pending.downgrade_to_fallback_full());
-                }
+                tracing::info!(target: "terminal", seq = pending.canonical().seq,
+                    mode = ?pending.apply_mode(), queue_ms,
+                    "render paint refused; repairing from the canonical full");
+                self.pending = Some(pending.downgrade_to_fallback_full());
             }
         }
     }
@@ -268,8 +286,8 @@ impl RenderScheduler {
     /// This is the ONLY way to arm, and it is idempotent: a batch already riding
     /// a frame answers `false`, which is what makes two arrivals inside one
     /// interval cost one paint. A parked or disposed scheduler never arms. A
-    /// host with no animation frame at all answers `false` forever, and calls
-    /// `on_frame_fired` on the spot instead.
+    /// host with no animation frame calls `on_frame_fired` on the spot instead
+    /// of requesting one.
     pub fn schedule_browser_frame(&mut self) -> bool {
         if !self.needs_browser_frame() || self.frame_armed {
             return false;
@@ -278,8 +296,7 @@ impl RenderScheduler {
         true
     }
 
-    /// Whether a batch is owed a paint, armed or not. A hold release and a
-    /// foreground regain both ask this; neither may arm a frame on its own.
+    /// Whether a batch is owed a paint, armed or not.
     pub fn needs_browser_frame(&self) -> bool {
         !self.disposed && self.foreground && self.pending.is_some()
     }
@@ -322,53 +339,6 @@ impl RenderScheduler {
         };
         self.pending = Some(batch);
         decision
-    }
-
-    /// The new batch counters when `frame` may extend the held batch, or `None`
-    /// when it must be replaced by a full.
-    ///
-    /// Every rule here is about the BATCH, not the frame: a delta is admitted
-    /// because the run it would join is still contiguous and still inside every
-    /// bound, not because the delta is individually well formed.
-    fn admit_delta(&self, frame: &CellGridFrame) -> Option<DeltaExtend> {
-        if !self.foreground || frame.full || frame.seq != frame.base_seq.saturating_add(1) {
-            return None;
-        }
-        let appended = u64::try_from(frame.scrollback_append.len()).unwrap_or(u64::MAX);
-        let appended_rows = self
-            .pending
-            .as_ref()
-            .map_or(0, PendingRender::appended_rows)
-            .saturating_add(appended);
-        if appended_rows > MAX_PENDING_SCROLLBACK_ROWS {
-            return None;
-        }
-        let (previous, queued_frames, prior_spans) = match self.pending.as_ref() {
-            Some(PendingRender::Delta {
-                deltas, span_count, ..
-            }) => (
-                GridIdentity::of_frame(deltas.last()?),
-                deltas.len(),
-                *span_count,
-            ),
-            // A delta may never join a full: the full already IS the canonical
-            // the run would have to fold onto.
-            Some(PendingRender::Full { .. }) => return None,
-            // With no baseline, nothing shows the delta is a continuation.
-            None => (GridIdentity::of_reconciled(self.reconciled.as_ref()?), 0, 0),
-        };
-        if !delta_follows(previous, frame) || queued_frames + 1 > MAX_PENDING_DELTA_FRAMES {
-            return None;
-        }
-        let remaining_spans = MAX_PENDING_DELTA_SPANS.saturating_sub(prior_spans);
-        let incoming_spans = count_incoming_spans(frame, remaining_spans);
-        if incoming_spans > remaining_spans {
-            return None;
-        }
-        Some(DeltaExtend {
-            appended_rows,
-            span_count: prior_spans.saturating_add(incoming_spans),
-        })
     }
 
     /// The grid identity a stale full is measured against: the canonical the

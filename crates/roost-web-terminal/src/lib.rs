@@ -8,7 +8,9 @@
 //! and the one writer of `scrollTop`. Its `impl` blocks are split across
 //! sibling modules by concern; that is a file split, not a type split, because
 //! the per-frame state those methods share is exactly what keeps painted
-//! history from disagreeing with the frame that described it.
+//! history from disagreeing with the frame that described it. It paints
+//! through the `RenderElement` seam: `web_sys::Element` in a browser, and an
+//! in-memory element in the native test tier.
 //!
 //! Depends on `roost-protocol` for the cell model and `roost-client-core` for
 //! the absolute history arithmetic. It depends on nothing else of the workspace,
@@ -23,6 +25,7 @@ pub mod cell_renderer;
 pub mod cell_renderer_dom;
 pub mod cell_row;
 pub mod echo_overlay;
+#[cfg(target_arch = "wasm32")]
 pub mod element_style;
 pub mod find;
 pub mod input;
@@ -32,7 +35,11 @@ pub mod mouse_forward;
 pub mod painted_history;
 pub mod presentation;
 pub mod reader_intent;
+pub mod reader_scroll;
+pub mod render_element;
 pub mod scheduler;
+pub mod startup_progress;
+pub mod terminal_presentation;
 
 pub use block_placeholder::{DEFAULT_CELL_ROW_PX, SCROLLBACK_BLOCK_ROWS, block_placeholder};
 pub use cell_geometry::{TerminalCellGeometry, cell_from_point, grid_geometry_from_box};
@@ -54,3 +61,4 @@ pub use reader_intent::{
     BOTTOM_FOLLOW_SETTLE_MS, BOTTOM_FOLLOW_SLACK_ROWS, RENDERER_HOLD_LINK, RENDERER_HOLD_SELECTION,
     ReaderAnchor, ReaderIntent, ReaderIntentReason, ReconcileBlockReason, ScrollBoxGeometry,
 };
+pub use render_element::{ElementRect, RenderElement};
