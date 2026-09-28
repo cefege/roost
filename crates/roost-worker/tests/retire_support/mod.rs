@@ -171,6 +171,7 @@ fn contract(digest: &str, platform: HostPlatform) -> KeeperContractV1 {
         supported_features: names(&KeeperFeature::SUPPORTED),
         required_features: names(&KeeperFeature::REQUIRED),
         implementation_digest: Some(digest.to_string()),
+        bun_abi: roost_protocol::keeper_update::KEEPER_RUNTIME_ABI.to_string(),
         platform: platform.as_str().to_string(),
         arch: std::env::consts::ARCH.to_string(),
         build_sha: "retire-authorization-fixture".to_string(),

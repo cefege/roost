@@ -108,6 +108,7 @@ fn contract_with(digest: &str, build: &str) -> KeeperContractV1 {
         "supported_features": [],
         "required_features": [],
         "implementation_digest": digest,
+        "bun_abi": "rust",
         "platform": "linux",
         "arch": "x86_64",
         "build_sha": build,

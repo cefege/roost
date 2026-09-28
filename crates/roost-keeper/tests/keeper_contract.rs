@@ -13,6 +13,7 @@ use std::io::Write;
 
 use roost_keeper::keeper::{Keeper, implementation_digest, implementation_digest_of};
 use roost_keeper::payloads::KeeperContractV1;
+use roost_protocol::keeper_update::KEEPER_RUNTIME_ABI;
 use roost_protocol::keeper_update::KeeperContractV1 as ProtocolContract;
 
 fn contract() -> KeeperContractV1 {
@@ -165,27 +166,79 @@ fn the_digest_follows_the_named_path_not_the_running_process() {
     assert_eq!(running, implementation_digest_of(&own));
 }
 
-/// The contract carries the fields the protocol declares, including the ones an
-/// earlier duplicate dropped: `platform`, `arch` and `build_sha`. `build_sha` is
-/// excluded from restart admission by design, so its PRESENCE matters even
-/// though its value does not.
+/// The Rust keeper's contract, as JSON, satisfies v2's own `KeeperContractV1Schema`
+/// (`packages/protocol/src/keeper-update.ts:17-26`), rule for rule: a TS
+/// coordinator or web client still decoding it applies exactly these. Stated
+/// here rather than delegated to `ProtocolContract::parse`, because that is the
+/// port being checked. zod's `min`/`max` count UTF-16 units, so these do too.
 #[test]
-fn the_contract_carries_every_field_the_protocol_declares() {
+fn the_contract_satisfies_the_v2_schema_field_rules() {
     let value = serde_json::to_value(contract()).expect("serialisable");
-    for field in [
-        "protocol_version",
-        "supported_features",
-        "required_features",
-        "implementation_digest",
-        "platform",
-        "arch",
-        "build_sha",
-    ] {
+    let object = value.as_object().expect("a contract is an object");
+    let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    // `.strict()`: exactly these eight keys, no more and no fewer.
+    assert_eq!(
+        keys,
+        [
+            "arch",
+            "build_sha",
+            "bun_abi",
+            "implementation_digest",
+            "platform",
+            "protocol_version",
+            "required_features",
+            "supported_features",
+        ]
+    );
+    let text = |key: &str, max: usize| {
+        let field = value[key].as_str().expect("a string field");
+        let length = field.encode_utf16().count();
         assert!(
-            value.get(field).is_some(),
-            "the contract is missing {field}: {value}"
+            (1..=max).contains(&length),
+            "{key} length {length}: {value}"
+        );
+        field.to_owned()
+    };
+    let version = value["protocol_version"].as_u64().expect("an integer");
+    assert!(
+        (1..=0xffff_ffff).contains(&version),
+        "protocol_version: {value}"
+    );
+    for key in ["supported_features", "required_features"] {
+        let features: Vec<&str> = value[key]
+            .as_array()
+            .expect("a feature list")
+            .iter()
+            .map(|feature| feature.as_str().expect("a feature name"))
+            .collect();
+        assert!(features.len() <= 32, "{key}: {value}");
+        for feature in &features {
+            assert!(
+                (1..=64).contains(&feature.encode_utf16().count()),
+                "{key}: {value}"
+            );
+        }
+        assert!(
+            features.windows(2).all(|pair| pair[0] < pair[1]),
+            "{key}: {value}"
         );
     }
+    match &value["implementation_digest"] {
+        serde_json::Value::Null => {}
+        serde_json::Value::String(digest) => assert!(
+            digest.len() == 64
+                && digest
+                    .bytes()
+                    .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')),
+            "implementation_digest: {value}"
+        ),
+        other => panic!("implementation_digest is neither null nor a string: {other}"),
+    }
+    assert_eq!(text("bun_abi", 128), KEEPER_RUNTIME_ABI);
+    assert!(["darwin", "linux", "win32"].contains(&text("platform", usize::MAX).as_str()));
+    text("arch", 64);
+    text("build_sha", 128);
 }
 
 /// The feature lists the contract advertises are the ones the keeper actually

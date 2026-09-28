@@ -23,7 +23,7 @@ use roost_coord::workers::registry::{claim_generation, mark_generation_ready};
 /// fixture all spell it the same way. A `pub use … as` is a re-export; a
 /// private one is invisible to every consumer of this module.
 pub use roost_proto::WorkersPrepareKeeperUpdateRequest as PrepareRequest;
-use roost_protocol::keeper_update::KEEPER_EMPTY_BINDING_DIGEST;
+use roost_protocol::keeper_update::{KEEPER_EMPTY_BINDING_DIGEST, KEEPER_RUNTIME_ABI};
 use roost_protocol::wire::WorkerFp;
 use roost_protocol::wire::coord_worker::CoordWorkerDownstream;
 use serde_json::{Value, json};
@@ -65,11 +65,7 @@ pub fn journal(action: &str) -> String {
             "supported_features": ["events-v1"],
             "required_features": [],
             "implementation_digest": implementation,
-            // No `bun_abi`: the v1 proto message still carries it, but v3's
-            // admission contract deliberately does not model it (a v3 keeper
-            // is not a Bun process) and refuses unknown fields. Adding it
-            // here makes every journaled test fail as "malformed" before it
-            // reaches the decision under test.
+            "bun_abi": KEEPER_RUNTIME_ABI,
             "platform": "linux",
             "arch": "x64",
             "build_sha": "deadbeef",

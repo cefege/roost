@@ -271,6 +271,7 @@ fn a_keeper_runtime_and_a_capacity_report_print_on_their_own_lines() {
             "supported_features": [],
             "required_features": [],
             "implementation_digest": "a".repeat(64),
+            "bun_abi": "rust",
             "platform": "linux",
             "arch": "x86_64",
             "build_sha": "b1d1836a"

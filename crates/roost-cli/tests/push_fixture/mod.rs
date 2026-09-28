@@ -13,7 +13,7 @@ pub mod fake_world;
 use std::collections::BTreeSet;
 
 use roost_protocol::keeper_update::{
-    JournaledKeeperUpdateV1, KEEPER_EMPTY_BINDING_DIGEST, KeeperContractV1,
+    JournaledKeeperUpdateV1, KEEPER_EMPTY_BINDING_DIGEST, KEEPER_RUNTIME_ABI, KeeperContractV1,
     KeeperRuntimeObservationV1, keeper_update_admission,
 };
 use sha2::{Digest, Sha256};
@@ -35,6 +35,7 @@ pub fn contract(seed: &str) -> KeeperContractV1 {
         supported_features: vec!["pty".to_string()],
         required_features: Vec::new(),
         implementation_digest: Some(digest(seed)),
+        bun_abi: KEEPER_RUNTIME_ABI.to_string(),
         platform: "linux".to_string(),
         arch: "x86_64".to_string(),
         build_sha: "b".repeat(40),
