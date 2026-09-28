@@ -33,6 +33,13 @@
 //! barrier from `hello` to `replay`." `:32` — "**A newer authenticated hello
 //! immediately supersedes the old connection generation.**"
 //!
+//! # THE PRE-HELLO HANDSHAKE IS ITS OWN FILE
+//!
+//! `worker_link/handshake` owns the forced first frame and the bound it is read
+//! under, because it is a different concern from the loop: it runs BEFORE the
+//! handle exists and touches only the socket, so threading the loop's field block
+//! into it would be the fourth-handle mistake wearing a different costume.
+//!
 //! # ONE OWNER, THREE ARMS, NO SPLIT
 //!
 //! The REQUIREMENT is that the write must be reachable from the `Send + Sync`
@@ -48,7 +55,6 @@
 //! (`:97-99`, and v2's `myHandle.send` likewise), so a live generation must
 //! never answer zero and this one never does.
 
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocket};
@@ -56,8 +62,10 @@ use roost_protocol::wire::WorkerFp;
 // `roost_protocol::wire::coord_worker::CoordWorkerDownstream` — as
 // `coord_core/worker_handle.rs:30` imports it.
 use roost_protocol::wire::coord_worker::CoordWorkerDownstream;
+
+use crate::worker_link::handshake::read_hello;
 use tokio::sync::mpsc;
-use tokio::time::{Duration, interval};
+use tokio::time::interval;
 
 use crate::coord_core::worker_handle::WorkerHandle;
 use crate::services::CoordServices;
@@ -71,10 +79,6 @@ use crate::worker_link::upgrade_admission::{UpgradeDecision, VerifiedWorkerCalle
 /// `STALE_LINK_TIMEOUT_MS` with a `STALE_LINK_CHECK_INTERVAL` tick, cited
 /// rather than chosen: `worker-link.md:46`, authority
 /// `apps/worker/src/transport/coord-link-constants.ts:61-62`. **A socket that
-/// connects, authenticates and never sends a hello waits this long and is then
-/// closed with the no-code default** — it is not admitted and it is not
-/// dropped, because `:28` says the pre-hello state was never usable.
-const PRE_HELLO_WAIT: Duration = crate::worker_link::keepalive::STALE_LINK_TIMEOUT;
 
 /// One connection's minted generation, distinct from every other connection of
 /// the same fingerprint.
@@ -341,52 +345,6 @@ async fn run_link(
     services.workers.retire(&worker_fp);
     // `registration` drops here, and with it the detach.
     tracing::info!(%worker_fp, "worker link: closed");
-}
-
-/// The negotiated facts a `WHello` carries, which are the handle's arguments.
-struct Hello {
-    process_epoch: String,
-    capabilities: BTreeSet<String>,
-}
-
-/// Read the forced first frame, under the pre-hello bound.
-async fn read_hello(socket: &mut WebSocket, worker_fp: &WorkerFp) -> Option<Hello> {
-    let deadline = tokio::time::Instant::now() + PRE_HELLO_WAIT;
-    loop {
-        let received = tokio::time::timeout_at(deadline, socket.recv()).await;
-        let Ok(Some(Ok(message))) = received else {
-            tracing::warn!(%worker_fp, "worker link: no hello inside the pre-hello bound");
-            return None;
-        };
-        let text = match message {
-            Message::Text(text) => text.as_str().as_bytes().to_vec(),
-            Message::Binary(bytes) => bytes.to_vec(),
-            _ => continue,
-        };
-        // `decode_upstream` — `roost_protocol::proto_adapters::coord_worker_proto:55`,
-        // the link's EXISTING codec. Never a second decoder.
-        let frame = match roost_protocol::proto_adapters::coord_worker_proto::decode_upstream(&text)
-        {
-            Ok(frame) => frame,
-            Err(error) => {
-                tracing::warn!(%worker_fp, %error, "worker link: a frame did not decode");
-                return None;
-            }
-        };
-        // `CoordWorkerUpstream::Hello` — `roost_protocol::wire::coord_worker::upstream.rs:36`,
-        // carrying `capabilities` and `process_epoch`.
-        if let roost_protocol::wire::coord_worker::CoordWorkerUpstream::Hello {
-            capabilities,
-            process_epoch,
-            ..
-        } = frame
-        {
-            return Some(Hello {
-                process_epoch,
-                capabilities: capabilities.into_iter().collect(),
-            });
-        }
-    }
 }
 
 /// Hand one inbound message to the dispatcher and await its answer.
