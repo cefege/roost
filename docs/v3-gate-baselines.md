@@ -1953,7 +1953,8 @@ SHA over the whole block is the mistake this file exists to prevent.
 |host recheck after the fix|`cargo check -p roost-host --all-targets`|`7ea8324c`|**exit 0**|
 |lint|`cargo xtask lint`|`01370d2f`|**8, every one `roost-keeper`** (1 lint table, 7 fixture allows). **0 in `roost-coord`**|
 |clippy|**NOT run on the merged tree**|—|the per-crate clippy figures on record come from the track branches, not from here|
-|two agreeing green runs|`cargo test --workspace --no-fail-fast`|**NOT RUN**|no `cargo test` has been executed on this tree. The 1734/1/15 figure in this file is from `3e92e97e` and does not describe a merged tree.|
+|two agreeing green runs|`cargo test --workspace --no-fail-fast`|**NOT RUN**|no `cargo test` has been executed on this tree. The 1734/1/15 figure elsewhere in this file is from `3e92e97e`, which is the v3-coord merge and **predates the CLI merge `dbf0edd2`** — it does not describe this tree.|
+
 
 
 **The risk this gate existed to close is closed by compilation, not by a grep.**
@@ -1967,7 +1968,7 @@ sites. Re-measured on `01370d2f` by
 `roost-worker/src/browser_commands/file_commands.rs` (4: the `use` at `:27`, and
 `Arc<dyn EnvSource + Send + Sync>` at `:93`, `:107`, `:127`), and
 `roost-worker/src/runtime/boot.rs` (6: the `use` at `:19`, then five
-`&dyn EnvSource` parameters). **Only the `+ Sync` on those four
+`&dyn EnvSource` parameters). **Only the `+ Sync` on the THREE
 `Arc<dyn EnvSource + Send + Sync>` sites is now redundant** — `EnvSource: Sync`
 is a supertrait and says nothing about `Send`, so dropping `+ Send` would change
 the type and stop the `Arc` being movable across threads. Making impls harder
