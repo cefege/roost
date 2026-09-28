@@ -8,23 +8,17 @@
 mod layout_proto_support;
 mod support;
 
-use roost_proto as proto;
-use roost_proto::__buffa::oneof::layout_document_node::Node;
-use roost_proto::buffa::{EnumValue, MessageField};
-use roost_protocol::layout::document::{
-    LAYOUT_RATIO_MAX, LAYOUT_RATIO_MIN, LayoutDocumentV1, parse_layout_document_v1,
-};
+use roost_proto::buffa::MessageField;
 use roost_protocol::layout::preflight::{
     LAYOUT_DOCUMENT_MAX_BINDINGS, LAYOUT_DOCUMENT_MAX_DEPTH, LAYOUT_DOCUMENT_MAX_KEY_UTF8_BYTES,
-    LAYOUT_DOCUMENT_MAX_NODES, LAYOUT_DOCUMENT_MAX_SESSION_ID_UTF8_BYTES,
-    LAYOUT_DOCUMENT_MAX_SLOTS,
+    LAYOUT_DOCUMENT_MAX_SESSION_ID_UTF8_BYTES, LAYOUT_DOCUMENT_MAX_SLOTS,
 };
 use roost_protocol::proto_adapters::layout_document_proto::{
     layout_document_from_proto, layout_document_to_proto,
 };
-use serde_json::{Value, json};
+use serde_json::Value;
 
-use support::{SESSION_A, SESSION_B, document, leaf, split};
+use support::{leaf, split};
 
 use layout_proto_support::*;
 
