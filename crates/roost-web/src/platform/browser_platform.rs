@@ -147,11 +147,11 @@ pub fn matches_platform_shortcut(
 }
 
 /// The label to show: the caller's macOS/Linux label, or the Windows binding.
-pub fn platform_shortcut_label<'label>(
+pub fn platform_shortcut_label(
     shortcut: PlatformShortcut,
-    mac_linux_label: &'label str,
+    mac_linux_label: &str,
     platform: BrowserPlatform,
-) -> &'label str {
+) -> &str {
     if platform == BrowserPlatform::Windows {
         shortcut.windows_label()
     } else {
