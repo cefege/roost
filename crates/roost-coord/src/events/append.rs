@@ -235,6 +235,14 @@ pub trait LiveEffects: Send + Sync {
 /// It runs inside the transaction and **after** ownership admission, so a foreign
 /// request cannot make an auxiliary mutation -- that ordering is the whole reason
 /// this is a callback and not a second transaction (`event-transaction.ts:71-74`).
+///
+/// **`Sync` IS LOAD-BEARING AND NOT A NICETY.** `AppendOptions` is held across
+/// the `append_event` await, so a non-`Sync` field makes the append future
+/// non-`Send` -- and a non-`Send` future cannot live in a spawned socket task,
+/// which is where a worker link runs every durable frame. Before this bound,
+/// `AppendOptions` was `!Sync` for exactly these two fields and NO durable
+/// caller anywhere could have been in a `Send` future. Zero call sites
+/// construct an `AtomicExtraWork` today, so the bound costs nothing.
 pub type AtomicExtraWork<'a> = Box<
     dyn for<'connection> FnMut(
             &'connection mut SqliteConnection,
@@ -242,6 +250,7 @@ pub type AtomicExtraWork<'a> = Box<
             'connection,
             Result<(), Box<dyn std::error::Error + Send + Sync>>,
         > + Send
+        + Sync
         + 'a,
 >;
 
@@ -266,7 +275,7 @@ pub struct AppendOptions<'a> {
     pub pending_publications: Option<Arc<Mutex<PendingPublicationStore>>>,
     /// The generation and revocation fence, consulted **after** the commit. False
     /// keeps the durable row and its projection and suppresses every live effect.
-    pub can_publish: Option<&'a dyn Fn() -> bool>,
+    pub can_publish: Option<&'a (dyn Fn() -> bool + Sync)>,
     /// Writes that must commit with the event.
     pub extra_work: Option<AtomicExtraWork<'a>>,
     /// Worker connections defer orphan reaps until their snapshot ACK barrier has

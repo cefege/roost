@@ -233,7 +233,7 @@ pub(crate) struct LivePublication<'a> {
     /// The durable channel index and the orphan reap.
     pub(crate) live_effects: &'a dyn LiveEffects,
     /// The generation and revocation fence.
-    pub(crate) can_publish: Option<&'a dyn Fn() -> bool>,
+    pub(crate) can_publish: Option<&'a (dyn Fn() -> bool + Sync)>,
 }
 
 /// The one publisher. Private, so the call sites above are the only two.
@@ -267,7 +267,7 @@ fn unpublished() -> PublicationResolution {
 
 /// The generation and revocation fence. Absent means "no fence", which is the
 /// coordinator's own direct callers and every test.
-fn fence_allows(can_publish: Option<&dyn Fn() -> bool>) -> bool {
+fn fence_allows(can_publish: Option<&(dyn Fn() -> bool + Sync)>) -> bool {
     can_publish.is_none_or(|fence| fence())
 }
 

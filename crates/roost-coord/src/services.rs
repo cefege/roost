@@ -241,6 +241,22 @@ impl CoordServices {
         self.client_seqs.for_worker(fingerprint)
     }
 
+    /// The frame dispatcher for one admitted worker socket.
+    ///
+    /// ON `Arc<Self>` RATHER THAN `&self`, because the dispatcher holds the
+    /// services for as long as its socket lives and a borrowed `&self` could not
+    /// become that. It is the ONE way a worker socket reaches the three dispatch
+    /// arms, so a link that wanted a second dispatcher over a different event log
+    /// would have to build one itself — which is the outcome this accessor
+    /// exists to make unnecessary.
+    #[must_use]
+    pub fn worker_dispatcher(
+        self: &Arc<Self>,
+        handle: Arc<crate::coord_core::worker_handle::WorkerHandle>,
+    ) -> crate::worker_link::frame_dispatch::WorkerFrameDispatcher {
+        crate::worker_link::dispatcher_for::DispatcherFor::new(Arc::clone(self), handle).build()
+    }
+
     /// A handle to the write gate, cloneable and shared.
     ///
     /// `WriteGate::clone` shares the gate rather than copying it, so a lease

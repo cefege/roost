@@ -110,11 +110,15 @@ pub trait FrameDispatch: Send + Sync {
     /// Durable frames are `SessionEvent`s — orders of magnitude fewer than
     /// the byte frames above — so the allocation lands where the await already
     /// is rather than on the path that does not need it.
+    /// The return type is [`DispatchFuture`] and NOT `Pin<DispatchFuture>`:
+    /// the alias is already a `Pin`, and pinning it twice names
+    /// `Pin<Pin<Box<dyn Future>>>`, which no implementation can build without
+    /// `new_unchecked` because the inner `Pin` is not `Unpin`.
     fn handle_durable<'a>(
         &'a mut self,
         worker_fp: &'a str,
         frame: &'a InboundFrame,
-    ) -> Pin<DispatchFuture<'a>>;
+    ) -> DispatchFuture<'a>;
 }
 
 /// The boxed future a [`FrameDispatch`] returns.
