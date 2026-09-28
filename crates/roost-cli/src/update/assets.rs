@@ -43,11 +43,18 @@ pub fn release_asset_name(
 /// that could name a keeper asset the pipeline never publishes is a 404 on one
 /// architecture and not another — the shape of bug that ships.
 ///
-/// `replacen` with a count of ONE, and that detail is the whole reason this is
-/// written as a substitution rather than as `replace`: `roost-darwin-x64`
-/// names the program twice, and an un-counted replacement of the first
-/// occurrence would ask for `roost-keeper-darwin-x64`, which is an asset name
-/// the pipeline has never published.
+/// **A counted replacement, and the honest reason is defensiveness, not a case
+/// that exists today.** `replacen` with a count of one is what this uses, and an
+/// earlier version of this comment claimed the count was load-bearing because
+/// `roost-darwin-x64` "names the program twice". It does not: the four
+/// published names are `roost`, `roost-darwin-x64`, `roost-linux-x64` and
+/// `roost-linux-arm64`, and `roost` occurs exactly once in each, so
+/// `replace(ROOST_PROGRAM, …)` and `replacen(ROOST_PROGRAM, …, 1)` return the
+/// same string for all of them. **The count is kept because a future suffixed
+/// name could contain the program twice, and an uncounted replacement would
+/// then rewrite the suffix as well** -- `roost-fallback-roost` becoming
+/// `roost-keeper-fallback-roost-keeper`. That is a reason to keep the count, and
+/// it is not the reason this comment used to give.
 ///
 /// Returns an owned `String` where [`release_asset_name`] returns a `&'static
 /// str`, because a substitution produces a new string rather than naming one.
