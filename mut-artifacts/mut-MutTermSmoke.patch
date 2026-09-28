@@ -1,0 +1,73 @@
+diff --git a/crates/roost-client-core/tests/smoke_input_observer.rs b/crates/roost-client-core/tests/smoke_input_observer.rs
+index 0d532bc9..692ce70d 100644
+--- a/crates/roost-client-core/tests/smoke_input_observer.rs
++++ b/crates/roost-client-core/tests/smoke_input_observer.rs
+@@ -86,6 +86,9 @@ fn route_retirement_and_unstarted_refusal_report_their_outcomes() {
+     let started = admit(&mut router, "s1", b"a").unwrap();
+     assert!(router.mark_started(started.input_seq, &token()));
+     let unstarted = admit(&mut router, "s2", b"b").unwrap();
++    // Two refusals against one ambiguity: equal counts could not tell a
++    // rejection counted as ambiguous from the right tally.
++    let also_unstarted = admit(&mut router, "s2", b"c").unwrap();
+ 
+     let _ = router.retire_token(&token(), "route lost");
+     let _ = router.set_phase("s2", InputPhase::Blocked);
+@@ -93,7 +96,7 @@ fn route_retirement_and_unstarted_refusal_report_their_outcomes() {
+     let counts = observer(&mut router).capture().outcomes;
+     assert_eq!(
+         (counts.accepted, counts.rejected, counts.ambiguous),
+-        (0, 1, 1)
++        (0, 2, 1)
+     );
+     assert!(
+         observer(&mut router)
+@@ -105,6 +108,10 @@ fn route_retirement_and_unstarted_refusal_report_their_outcomes() {
+         observer(&mut router).take_outcome(unstarted.input_seq),
+         Some(InputOutcome::Rejected { .. })
+     ));
++    assert!(matches!(
++        observer(&mut router).take_outcome(also_unstarted.input_seq),
++        Some(InputOutcome::Rejected { .. })
++    ));
+ }
+ 
+ #[test]
+diff --git a/crates/roost-web/tests/terminal_dom_repair.rs b/crates/roost-web/tests/terminal_dom_repair.rs
+index 6f6450dc..c765ec3d 100644
+--- a/crates/roost-web/tests/terminal_dom_repair.rs
++++ b/crates/roost-web/tests/terminal_dom_repair.rs
+@@ -86,6 +86,11 @@ fn the_target_clears_only_once_the_dom_reaches_its_captured_watermark() {
+     assert_eq!(repair.next_deadline_ms(), Some(DOM_RECONCILIATION_PROOF_MS));
+     pane.reconciled = mark(2);
+     repair.note_reconciled(&pane);
++    assert_eq!(
++        repair.next_deadline_ms(),
++        None,
++        "reaching the watermark retires the target and its deadline"
++    );
+     repair.on_deadline(DOM_RECONCILIATION_PROOF_MS, &mut pane);
+     assert!(pane.recoveries.is_empty());
+ }
+diff --git a/crates/roost-web/tests/terminal_viewport_publication.rs b/crates/roost-web/tests/terminal_viewport_publication.rs
+index e607a131..c04176c5 100644
+--- a/crates/roost-web/tests/terminal_viewport_publication.rs
++++ b/crates/roost-web/tests/terminal_viewport_publication.rs
+@@ -197,9 +197,17 @@ fn a_pane_that_returns_inside_the_grace_is_never_withdrawn() {
+     assert_eq!(fixture.pane.withdrawals, 0);
+     fixture.pane.active = true;
+     assert!(fixture.publish_now());
++    assert!(
++        !fixture.viewport.grace_armed(),
++        "the return absorbs the grace"
++    );
+     fixture.advance(1_000);
+     assert_eq!(fixture.pane.withdrawals, 0);
+-    assert_eq!(fixture.pane.published.last(), Some(&(80, 20)));
++    assert_eq!(
++        fixture.pane.published,
++        [(80, 20)],
++        "an absorbed grace never fires a second claim"
++    );
+ }
+ 
+ #[test]

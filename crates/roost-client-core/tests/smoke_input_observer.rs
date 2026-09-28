@@ -86,6 +86,9 @@ fn route_retirement_and_unstarted_refusal_report_their_outcomes() {
     let started = admit(&mut router, "s1", b"a").unwrap();
     assert!(router.mark_started(started.input_seq, &token()));
     let unstarted = admit(&mut router, "s2", b"b").unwrap();
+    // Two refusals against one ambiguity: equal counts could not tell a
+    // rejection counted as ambiguous from the right tally.
+    let also_unstarted = admit(&mut router, "s2", b"c").unwrap();
 
     let _ = router.retire_token(&token(), "route lost");
     let _ = router.set_phase("s2", InputPhase::Blocked);
@@ -93,7 +96,7 @@ fn route_retirement_and_unstarted_refusal_report_their_outcomes() {
     let counts = observer(&mut router).capture().outcomes;
     assert_eq!(
         (counts.accepted, counts.rejected, counts.ambiguous),
-        (0, 1, 1)
+        (0, 2, 1)
     );
     assert!(
         observer(&mut router)
@@ -103,6 +106,10 @@ fn route_retirement_and_unstarted_refusal_report_their_outcomes() {
     );
     assert!(matches!(
         observer(&mut router).take_outcome(unstarted.input_seq),
+        Some(InputOutcome::Rejected { .. })
+    ));
+    assert!(matches!(
+        observer(&mut router).take_outcome(also_unstarted.input_seq),
         Some(InputOutcome::Rejected { .. })
     ));
 }

@@ -197,9 +197,17 @@ fn a_pane_that_returns_inside_the_grace_is_never_withdrawn() {
     assert_eq!(fixture.pane.withdrawals, 0);
     fixture.pane.active = true;
     assert!(fixture.publish_now());
+    assert!(
+        !fixture.viewport.grace_armed(),
+        "the return absorbs the grace"
+    );
     fixture.advance(1_000);
     assert_eq!(fixture.pane.withdrawals, 0);
-    assert_eq!(fixture.pane.published.last(), Some(&(80, 20)));
+    assert_eq!(
+        fixture.pane.published,
+        [(80, 20)],
+        "an absorbed grace never fires a second claim"
+    );
 }
 
 #[test]

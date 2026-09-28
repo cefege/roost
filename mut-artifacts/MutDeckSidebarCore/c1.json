@@ -1,0 +1,130 @@
+{
+ "results": [
+  {
+   "id": "DI1",
+   "file": "crates/roost-client-core/src/deck/intent/follow.rs",
+   "line": 43,
+   "change": "observe: note_change on every observation, not only the seeding one",
+   "expected_test": [
+    "observing_seeds_the_folder_once_and_pulls_the_route_into_focus"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "DI2",
+   "file": "crates/roost-client-core/src/deck/state.rs",
+   "line": 161,
+   "change": "request_navigation: a repeated path reuses the previous sequence (dedupe)",
+   "expected_test": [
+    "selecting_a_tab_persists_it_and_navigates_once_per_request"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "DI3",
+   "file": "crates/roost-client-core/src/deck/intent/follow.rs",
+   "line": 82,
+   "change": "select_session: the spotlight no longer follows a tab swapped inside the floated pane",
+   "expected_test": [
+    "a_tab_swapped_inside_the_floated_pane_keeps_the_spotlight"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "DI4",
+   "file": "crates/roost-client-core/src/deck/intent.rs",
+   "line": 177,
+   "change": "FocusPane: drop the already-focused no-op guard (refocus commits again)",
+   "expected_test": [
+    "focusing_a_pane_navigates_to_its_tab_and_refocusing_is_a_no_op"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "DI5",
+   "file": "crates/roost-client-core/src/deck/intent/close.rs",
+   "line": 81,
+   "change": "close_session: navigate even when the closed tab was not the viewed one",
+   "expected_test": [
+    "closing_an_unviewed_tab_does_not_move_the_route_and_the_last_tab_goes_home"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "SP1",
+   "file": "crates/roost-client-core/src/deck/spawn.rs",
+   "line": 52,
+   "change": "refused: Split reuses the NewTab prefix",
+   "expected_test": [
+    "a_refused_split_reports_the_failure_and_commits_no_layout_or_route"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "TB1",
+   "file": "crates/roost-client-core/src/deck/tab_badge.rs",
+   "line": 21,
+   "change": "a lone terminal prints a fraction (count > 0)",
+   "expected_test": [
+    "a_lone_terminal_stays_a_bare_number"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "V1",
+   "file": "crates/roost-client-core/src/deck/view.rs",
+   "line": 77,
+   "change": "deck_view: paints when only one axis is measured (|| -> &&)",
+   "expected_test": [
+    "nothing_paints_before_the_deck_is_measured"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "W1",
+   "file": "crates/roost-client-core/src/deck/warm_set.rs",
+   "line": 74,
+   "change": "advance: closed ids are kept warm",
+   "expected_test": [
+    "a_closed_id_disappears_without_counting_against_the_limit"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "S1",
+   "file": "crates/roost-client-core/src/store/sidebar/cursor.rs",
+   "line": 57,
+   "change": "move_cursor: from no highlight, down lands on the last row",
+   "expected_test": [
+    "moving_from_no_highlight_lands_on_the_first_row_and_clamps_at_the_top"
+   ],
+   "result": "failed"
+  },
+  {
+   "id": "S8",
+   "file": "crates/roost-client-core/src/client/agents/status_projection.rs",
+   "line": 216,
+   "change": "apply_update: an inactive (deletion) report leaves the retained status in place",
+   "expected_test": [
+    "a_removed_status_removes_its_agent_row"
+   ],
+   "result": "survived"
+  }
+ ],
+ "failed": [
+  "a_closed_id_disappears_without_counting_against_the_limit",
+  "a_cursor_move_repaints_and_republishing_the_same_rows_does_not",
+  "a_lone_terminal_stays_a_bare_number",
+  "a_refused_split_reports_the_failure_and_commits_no_layout_or_route",
+  "a_tab_swapped_inside_the_floated_pane_keeps_the_spotlight",
+  "closing_an_unviewed_tab_does_not_move_the_route_and_the_last_tab_goes_home",
+  "focusing_a_pane_navigates_to_its_tab_and_refocusing_is_a_no_op",
+  "moving_from_no_highlight_lands_on_the_first_row_and_clamps_at_the_top",
+  "nothing_paints_before_the_deck_is_measured",
+  "observing_seeds_the_folder_once_and_pulls_the_route_into_focus",
+  "selecting_a_tab_persists_it_and_navigates_once_per_request"
+ ],
+ "unexpected": [
+  "a_cursor_move_repaints_and_republishing_the_same_rows_does_not"
+ ]
+}
