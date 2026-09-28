@@ -63,6 +63,13 @@ not format inside `rsx!`.
   touched test targets). Mutation worktree: `target-track/dx-tree` (detached at
   snapshot `5a43d383`).
 
+- Final state of the two stopped surveys: MutDeckSidebarCore ran its batches
+  (list in its yield); its strengthened `store_sidebar.rs` test is in
+  `target-track/tmp/mut-MutDeckSidebarCore.patch`, NOT yet applied. MutShellSidebar
+  ran only the no-mutant baseline (135/0); its 92-mutant catalogue and harness are
+  in `target-track/tmp/mut-MutShellSidebar/` (`flock target-track/.mut.lock
+  python3 harness.py b1`…`b9`), with 8 predicted survivors listed in its yield.
+
 ## Open items, in order
 
 1. **Lint, 2 violations** (design raw-value ratchet): `crates/roost-web/src/smoke/paint_proof.rs:162`
