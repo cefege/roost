@@ -4145,3 +4145,38 @@ branches. A measurement must also say **what it contradicts** — a report that
 agrees with nothing is a report nobody checks, and the agent who named the
 conflict instead of resolving it is the reason that one was diagnosed as branch
 skew rather than as an error.
+
+### A gate is the job PLUS the trigger PLUS the scope, and checking two of the three is how a green describes nothing
+
+Seven instruments in one session returned a green that described less than the
+reader assumed. Three of them were the same defect wearing different clothes, and
+the answer was in `.github/workflows/ci.yml` the whole time, in a comment
+explaining why.
+
+- A local gate ran `cargo build -p roost-client-core -p roost-web-terminal
+  --target wasm32-unknown-unknown`; CI runs **four** crates. `roost-web` was never
+  compiled, and its 39 tests never ran.
+- A local gate ran `clippy -p roost-cli`; CI runs `--workspace`. Both printed
+  `0`, and the tree was green under one and unknown under the other.
+- `ci.yml:6-10` triggers on `push` and `pull_request` against `main`/`v2`/`v3`
+  only. **`v3-web` is in neither list, so no CI run has ever executed against a
+  `v3-web` push** — the job would not have fired even with the correct crate list.
+
+**The rule: run the gate command copied out of `ci.yml`, never retyped.** There is
+to be exactly one statement of what the gate is. Two commands that can drift is
+the defect, and the narrower one is the one whose number gets quoted, because it
+is the one somebody typed. When a gate figure is produced, it names the tree, the
+toolchain, and **the command** — a figure without its command cannot be
+re-derived, which makes it a claim rather than a measurement.
+
+**The toolchain belongs in the figure too, and it is not a detail.** `148 clippy
+errors` was produced by clippy `1.121.0` on a repo pinning `channel = "1.98.1"` —
+about 23 releases of newer lints. It was neither CI's count nor the local count,
+and it was about to be used to revert a correct merge. **A count from a toolchain
+the repository does not pin is a lower bound on a different rule set**, and the
+only way to know which ruleset produced a number is to read the pin.
+
+**Ask which of the three you are checking.** A correct job on the wrong branch is
+indistinguishable from a correct one, and a job that never fires is
+indistinguishable from a missing one. Checking the job twice and the trigger zero
+times is the shape of the whole failure.
