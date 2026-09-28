@@ -4,8 +4,10 @@
 //! through. `session::binding::RecordBinding` calls it on the keeper's dispatch
 //! thread; `session::terminal_txn` and `session::resize` under the same lock.
 //! Ports the lane choice of `apps/worker/src/session/session-emit.ts`
-//! (`emitUpstreamChunk`) and `session-resize-capture.ts`. Depends on
-//! `session::emit`, `session::binding` and `session::ring`.
+//! (`emitUpstreamChunk`) and `session-resize-capture.ts`, and notifies the
+//! terminal-changed hook (v2 `onTerminalChanged`, `session-emit.ts:115`) for
+//! every chunk on every lane. Depends on `session::emit`, `session::binding`,
+//! `session::ring` and `session::terminal_changed`.
 //!
 //! WHY IT IS A SEPARATE TYPE FROM [`super::cell_delivery::TableCellDelivery`]
 //! when both drive one emitter. `CellDelivery` is "may this channel deliver" —
@@ -29,6 +31,7 @@ use roost_protocol::wire::brand::ChannelId;
 use crate::session::binding::{CapturedOutput, ChannelDelivery};
 use crate::session::emit::CellEmitter;
 use crate::session::ring::SCROLLBACK_CAP_BYTES;
+use crate::session::terminal_changed::TerminalChangedHooks;
 use crate::session::terminal_state::StreamEmission;
 use crate::session::types::SessionRecord;
 
@@ -52,6 +55,7 @@ struct Capture {
 pub struct TableChannelDelivery {
     emitter: Arc<Mutex<CellEmitter>>,
     captures: Mutex<HashMap<ChannelId, Capture>>,
+    terminal_changed: Arc<TerminalChangedHooks>,
 }
 
 impl std::fmt::Debug for TableChannelDelivery {
@@ -70,11 +74,15 @@ impl std::fmt::Debug for TableChannelDelivery {
 
 impl TableChannelDelivery {
     /// The bridge over the emitter [`super::cell_delivery::TableCellDelivery`]
-    /// already holds.
-    pub fn new(emitter: Arc<Mutex<CellEmitter>>) -> Self {
+    /// already holds, notifying `terminal_changed` of every chunk.
+    pub fn new(
+        emitter: Arc<Mutex<CellEmitter>>,
+        terminal_changed: Arc<TerminalChangedHooks>,
+    ) -> Self {
         Self {
             emitter,
             captures: Mutex::new(HashMap::new()),
+            terminal_changed,
         }
     }
 
@@ -110,6 +118,9 @@ impl ChannelDelivery for TableChannelDelivery {
     /// history.
     fn ingest_output(&self, record: &mut SessionRecord, chunk: &[u8], now_ms: i64) {
         let channel_id = record.channel_id();
+        // v2 notifies for every chunk that reached a live record, whichever
+        // lane takes it; the hook only arms the detector's own timer.
+        self.terminal_changed.notify(channel_id.as_u32() as u16);
         if self.holding(channel_id) {
             let head =
                 self.with_emitter(|emitter| emitter.retain_without_parsing(record, chunk, now_ms));
@@ -257,5 +268,9 @@ impl StreamEmission for TableChannelDelivery {
         }
         let session_id = record.session_id();
         self.with_emitter(|emitter| emitter.send_query_replies(session_id, replies.into_bytes()));
+    }
+
+    fn capture_tap(&self) -> crate::capture::CaptureTap {
+        self.with_emitter(|emitter| emitter.capture_tap())
     }
 }
