@@ -18,7 +18,9 @@
 //! `docs/FAILURE-INDEX.md:1503`, "Delayed old-route input crosses a
 //! direct-promotion fence".
 
+pub mod outcome_feed;
 pub mod router;
+pub mod smoke_observer;
 
 pub use router::InputRouter;
 

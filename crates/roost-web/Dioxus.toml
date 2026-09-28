@@ -9,6 +9,11 @@ out_dir = "dist"
 # that land beside it in later waves are served by ONE rule rather than two.
 public_dir = "assets"
 
+[web]
+# The coordinator serves the built assets pre-compressed, and the CSS is ~180 KB
+# of it, so the release build emits .gz/.br beside every asset.
+pre_compress = true
+
 [web.app]
 title = "Roost"
 # v2's Vite build set no `base`, so every URL is root-absolute. The coordinator
@@ -38,9 +43,8 @@ style = [
   "/styles/gamepad.css",
 ]
 
-# The coordinator serves the built assets pre-compressed, and the CSS is ~180 KB
-# of it, so the release build emits .gz/.br beside every asset.
-pre_compress = true
+# dx 0.7 requires the dev table; `dx serve` injects nothing beyond the list above.
+[web.resource.dev]
 
 [web.wasm_opt]
 # `-Oz`. The wasm carries the cell renderer and the protobuf codecs, and the

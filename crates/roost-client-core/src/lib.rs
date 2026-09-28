@@ -19,6 +19,7 @@
 #![forbid(unsafe_code)]
 
 mod core;
+mod handle_close_kill;
 mod handle_event;
 mod handle_input;
 mod handle_sweep;
@@ -26,6 +27,7 @@ mod handle_sync;
 mod handle_terminal;
 
 pub mod client;
+pub mod deck;
 pub mod effect;
 pub mod event;
 pub mod platform;
@@ -36,8 +38,9 @@ pub mod sync;
 pub mod terminal;
 
 pub use core::ClientCore;
-pub use effect::{ChallengePurpose, DirectCommand, Effect, RpcCall, RpcResult, SyncCommand};
+pub use effect::{DirectCommand, Effect, RpcCall, RpcResult, SyncCommand};
 pub use event::ClientEvent;
+pub use handle_sync::lifecycle::TransportControl;
 pub use platform::{Clock, KeyValueStore, MemoryClock, MemoryKeyValueStore};
 pub use search::{FindMatch, PageRefusal, RawMatch, SearchPage};
 pub use sessions::{SessionPlane, WireEvent, WireSession};

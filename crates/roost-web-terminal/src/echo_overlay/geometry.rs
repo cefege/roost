@@ -3,7 +3,8 @@
 //! Offsets are emitted in `ch`/`lh` rather than pixels so a prediction stays on
 //! its cell when the pane's font metrics change, which is the same reason the
 //! row painter works in grid units. Nothing here reads a DOM, so every
-//! placement the overlay can produce is decidable in a test.
+//! placement the overlay can produce is decidable in a test. Ports the
+//! glyph-vs-erase child shape of v2's `apps/web/src/renderer/predictiveEchoOverlay.ts`.
 
 use roost_client_core::client::predictive_echo::{EchoPaint, PredictedCell};
 

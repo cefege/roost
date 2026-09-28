@@ -49,8 +49,8 @@ impl ConnectRequest {
         self.method
     }
 
-    /// The encoded request message. Encoding is the host's: this crate
-    /// deliberately owns no protobuf codec (`docs/phase4-client-contract.md` §3).
+    /// The encoded request message, as `client::rpc::codec::encode_rpc_request`
+    /// produced it. The core never encodes; the host calls the codec.
     pub fn body(&self) -> &[u8] {
         &self.body
     }

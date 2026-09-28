@@ -288,7 +288,7 @@ A delta is admitted only when **all** of these hold
 | `delta.cols == effective_cols` and `delta.rows == effective_rows` | The pane's current geometry, per `protocol/spec/terminal-stream.md:26`. |
 | `delta.base_seq == base.seq` | The delta's declared base is the frame it was computed against. |
 | `delta.seq == delta.base_seq + 1` | **Exact successor.** A gap is not a fast path. |
-| `delta.alt_screen == base.alt_screen` | Alt-screen occupancy changes the row numbering; `apply_delta` refuses it too. |
+| `delta.alt_screen == base.alt_screen` | Alt-screen occupancy changes the row numbering. Enforced by `apply_delta`, reported `delta_fold_rejected` as v2 reports it. |
 | `base.viewport_rows.len() == base.rows` | The base is itself well-formed. |
 | `delta.scrollback_rows` is empty | A delta appends, it does not restate history. |
 | every `delta.viewport_rows[i].index` is in range and appears once | A duplicate index would make the "overwrite by index" fold order-dependent. |
@@ -304,16 +304,18 @@ installed sequence, a duplicate or out-of-range row index, and `scrollback_rows`
 on a delta — are already refused UPSTREAM, by `roost_protocol::cell`'s decoder
 (`proto_to_cell_frame`), before this crate's fold ever sees the frame. The
 remaining rows are the ones only the client's fold can catch: the baseline rule,
-the chunk-in-flight rule, both stream rows, the epoch fence, the pane geometry,
-and alt-screen occupancy.
+the chunk-in-flight rule, both stream rows, the epoch fence and the pane
+geometry. Alt-screen occupancy is `apply_delta`'s, as in v2, so its refusal is
+`delta_fold_rejected`.
 
 Consequence for anyone changing this: a test that asserts only "it was refused"
 passes even with the client's own row deleted, because the decoder caught it
 instead. `tests/terminal_epoch_fence.rs` therefore has two helpers —
-`refuse` (stage-agnostic, for the four decoder-enforced rows) and
+`refuse` (stage-agnostic, for the four decoder-enforced rows and alt-screen,
+whose `delta_fold_rejected` reason `tests/terminal_full_before_delta.rs` pins) and
 `refuse_at_the_client_fence` (insists the reason is `delta_unfollowed`, the
 client's own vocabulary, rather than `delta_fold_rejected` or a decode
-diagnosis). Each of the client's seven rows is mutation-verified: deleting the
+diagnosis). Each of the client's six rows is mutation-verified: deleting the
 row makes its test fail.
 
 `tests/terminal_epoch_fence.rs` fails if any single row of that table is

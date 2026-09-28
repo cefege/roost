@@ -75,8 +75,12 @@ qrcode = "0.14.1"
 idb = "0.6.5"
 rust-embed = "8.12.0"
 regex = "1.13.1"
+unicode-segmentation = "1.13.3"
 pulldown-cmark = { version = "0.13.4", default-features = false }
 ammonia = "4.2.0"
+# WHATWG URL parsing for terminal link targets: the web terminal classifies
+# untrusted OSC 8 and inferred targets exactly as the browser's `new URL()`.
+url = "2.5.8"
 
 # Crypto and encoding.
 ed25519-dalek = "3.0.0"

@@ -18,9 +18,26 @@
 
 pub mod app;
 pub mod components;
+pub mod dead_route_safety_net;
+pub mod display_format;
+pub mod input_nav;
+pub mod keyboard_shortcuts;
+#[cfg(target_arch = "wasm32")]
+pub mod keyboard_shortcuts_dom;
+pub mod motion;
+pub mod new_terminal_target;
 pub mod platform;
+pub mod pump;
+pub mod route_session;
 pub mod router_state;
 pub mod routes;
+pub mod session_actions;
+pub mod session_naming;
+#[cfg(feature = "smoke")]
+pub mod smoke;
+pub mod syntax_lite;
+pub mod terminal_href;
+pub mod theme;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -58,8 +75,12 @@ pub fn install_tracing() {
 
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("roost_web=info,warn"));
+    // `without_time`: the default timer reads `SystemTime::now()`, which panics
+    // on wasm32-unknown-unknown, so the first event that passed the filter
+    // aborted the tab (`RuntimeError: unreachable`). The console stamps lines.
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
+        .without_time()
         .json()
         .with_writer(std::sync::Mutex::new(BrowserConsole))
         .try_init();
@@ -88,8 +109,29 @@ pub fn App() -> Element {
     // level of the tree to reach the two components that read it — and a prop
     // also has to be `PartialEq`, which a state machine with a chunk assembler in
     // it cannot be.
-    provide_context(Rc::new(RefCell::new(build_core())));
-    rsx! { app::GatedApp {} }
+    //
+    // The pump is built once, in the root scope that owns the revision signal,
+    // and started in the same hook: the core it drives is the provided one.
+    let revision = use_signal(|| 0_u64);
+    // The persisted palette lands before the first component paints (v2
+    // `main.tsx` applies it before `render`).
+    use_hook(theme::apply_stored_theme);
+    let pump = use_hook(|| {
+        let tab = tab_id();
+        let core = Rc::new(RefCell::new(build_core(&tab)));
+        pump::start_pump(core, revision, &tab)
+    });
+    use_context_provider(|| pump.core());
+    use_context_provider(|| pump.clone());
+    let _panes = use_context_provider(components::terminal::pane_registry::PaneRegistry::default);
+    #[cfg(all(feature = "smoke", target_arch = "wasm32"))]
+    use_hook(|| smoke::install_smoke_backdoor(&pump, &_panes));
+    components::layout::window_size::WindowSize::provide();
+    motion::resize_drag::ResizeDrag::provide();
+    keyboard_shortcuts::ShortcutOverlays::provide();
+    rsx! {
+        components::app_error_boundary::AppErrorBoundary { app::GatedApp {} }
+    }
 }
 
 /// The client core over this browser's platform.
@@ -98,11 +140,11 @@ pub fn App() -> Element {
 /// that could be shared across threads would need a lock over state that has
 /// exactly one writer. A host that wants the core on a task confines it to that
 /// task and sends results outward.
-fn build_core() -> ClientCore {
+fn build_core(tab_id: &str) -> ClientCore {
     ClientCore::new(
         Rc::new(platform::BrowserClock::new()),
         Rc::new(platform::LocalStorageKeyValueStore::new()),
-        &tab_id(),
+        tab_id,
     )
 }
 

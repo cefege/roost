@@ -9,7 +9,7 @@
 
 mod support;
 
-use roost_client_core::effect::Effect;
+use roost_client_core::effect::{Effect, SyncCommand};
 use roost_client_core::event::ClientEvent;
 use roost_client_core::{ClientCore, SyncDomain, SyncFrame};
 use support::sync_reconnect::{DOMAIN_GENERATION, TAB, open_ready_link};
@@ -38,11 +38,16 @@ fn reset_ready_workers_domain(subscribed: bool) -> (ClientCore, Vec<Effect>) {
     (core, effects)
 }
 
-fn hydrations(effects: &[Effect]) -> Vec<(SyncDomain, u64)> {
-    effects
+/// The generations the reset's hydration calls publish: each call is answered
+/// the way an empty coordinator answers it, and what counts is the
+/// `domain_ready` the answer produces.
+fn hydrations(core: &mut ClientCore, effects: &[Effect]) -> Vec<(SyncDomain, u64)> {
+    support::hydration::answer_hydrations(core, effects)
         .iter()
         .filter_map(|effect| match effect {
-            Effect::HydrateDomain { domain, generation } => Some((*domain, *generation)),
+            Effect::SendSync(SyncCommand::DomainReady {
+                domain, generation, ..
+            }) => Some((*domain, *generation)),
             _ => None,
         })
         .collect()
@@ -50,7 +55,7 @@ fn hydrations(effects: &[Effect]) -> Vec<(SyncDomain, u64)> {
 
 #[test]
 fn a_subscribed_reset_drops_readiness_and_rehydrates_the_new_generation() {
-    let (core, effects) = reset_ready_workers_domain(true);
+    let (mut core, effects) = reset_ready_workers_domain(true);
     assert!(
         !core.store().sync.domain_is_ready(SyncDomain::Workers),
         "a reset domain is never ready until its new snapshot lands"
@@ -60,7 +65,7 @@ fn a_subscribed_reset_drops_readiness_and_rehydrates_the_new_generation() {
         Some(RESET_GENERATION)
     );
     assert_eq!(
-        hydrations(&effects),
+        hydrations(&mut core, &effects),
         vec![(SyncDomain::Workers, RESET_GENERATION)],
         "a still-subscribed domain is hydrated once, for the reset's generation; got {effects:?}"
     );
@@ -68,7 +73,7 @@ fn a_subscribed_reset_drops_readiness_and_rehydrates_the_new_generation() {
 
 #[test]
 fn an_unsubscribed_reset_drops_readiness_and_asks_for_nothing() {
-    let (core, effects) = reset_ready_workers_domain(false);
+    let (mut core, effects) = reset_ready_workers_domain(false);
     assert!(
         !core.store().sync.domain_is_ready(SyncDomain::Workers),
         "an unsubscribed reset still ends readiness"
@@ -78,7 +83,7 @@ fn an_unsubscribed_reset_drops_readiness_and_asks_for_nothing() {
         Some(RESET_GENERATION)
     );
     assert!(
-        hydrations(&effects).is_empty(),
+        hydrations(&mut core, &effects).is_empty(),
         "a domain this client is not subscribed to is not hydrated; got {effects:?}"
     );
 }

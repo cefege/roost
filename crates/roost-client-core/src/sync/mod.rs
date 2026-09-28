@@ -2,17 +2,21 @@
 //! cursor a reconnect resumes from.
 //!
 //! `link` owns the socket generation and the link state, `domain` owns per-domain
-//! hydration and the `domain_ready` barrier, `inbound` names the frames a socket
-//! delivers, and `watermark` owns the recovery cursor. None of them owns a
-//! socket: the core asks for one with an `Effect` and the host reports back with
-//! a `ClientEvent`.
+//! hydration and the `domain_ready` barrier, `hydration` the snapshot calls in
+//! flight, `redial` when the next dial happens, `inbound` names the frames a socket
+//! delivers, `decode` turns the socket's bytes into them, and `watermark` owns
+//! the recovery cursor. None of them owns a socket: the core asks for one with
+//! an `Effect` and the host reports back with a `ClientEvent`.
 //!
 //! Contract: `protocol/spec/sync.md`. Reasons and the two places v2 departs from
 //! the spec's letter are in `docs/phase4-client-contract.md` §7 and §11.
 
+pub mod decode;
 pub mod domain;
+pub mod hydration;
 pub mod inbound;
 pub mod link;
+pub mod redial;
 pub mod watermark;
 
 pub use domain::DomainToken;

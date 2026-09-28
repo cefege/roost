@@ -29,22 +29,28 @@ fn not_found_path(path: &str) -> Option<String> {
 }
 
 #[test]
-fn the_root_is_the_only_served_surface() {
-    assert!(served("/"));
+fn the_root_the_gallery_and_every_main_pane_route_are_served_and_the_rest_are_not() {
+    // v2 `App.tsx` mounts `MainPane` for every terminal, file and search route;
+    // settings, pairing, help and browse belong to later slices.
     for path in [
+        "/",
+        "/design",
         "/s/8f2b1c40-0000-4000-8000-000000000000",
         "/t/a1b2c3d4e5f60718/src",
         "/w/ws-1",
         "/w/ws-1/t/ch-1",
+        "/file/a1b2c3d4e5f60718/etc/hosts",
+        "/search",
+    ] {
+        assert!(served(path), "{path} must be served");
+    }
+    for path in [
         "/settings",
         "/settings/machines",
         "/pair",
         "/help",
-        "/design",
-        "/file/a1b2c3d4e5f60718/etc/hosts",
         "/browse",
         "/browse/a1b2c3d4e5f60718",
-        "/search",
     ] {
         assert!(!served(path), "{path} must not be served yet");
     }
@@ -71,8 +77,8 @@ fn every_grammar_route_the_specs_navigate_to_is_recognised() {
         "/search?q=terminal",
     ] {
         assert!(
-            not_served_path(path).is_some(),
-            "{path} is a grammar route and must resolve to NotServed"
+            not_found_path(path).is_none(),
+            "{path} is a grammar route and must not resolve to NotFound"
         );
     }
 }
@@ -82,12 +88,8 @@ fn the_not_served_panel_names_the_path_the_spec_navigated_to() {
     // The panel is shown to a reader who followed a bookmark, so it has to carry
     // the URL they followed rather than a canonical form of it.
     assert_eq!(
-        not_served_path("/t/a1b2c3d4e5f60718/src").as_deref(),
-        Some("/t/a1b2c3d4e5f60718/src")
-    );
-    assert_eq!(
-        not_served_path("/w/ws-1/t/ch-1").as_deref(),
-        Some("/w/ws-1/t/ch-1")
+        not_served_path("/browse/a1b2c3d4e5f60718").as_deref(),
+        Some("/browse/a1b2c3d4e5f60718")
     );
     assert_eq!(
         not_served_path("/settings/machines").as_deref(),

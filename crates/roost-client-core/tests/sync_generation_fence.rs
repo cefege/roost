@@ -26,6 +26,7 @@ fn state_from_a_previous_generation_is_refused_after_a_new_one_opens() {
     core.handle(ClientEvent::SyncLinkClosed {
         generation: first,
         close_code: Some(1006),
+        close_reason: String::new(),
     });
     let second = open_ready_link(&mut core, "sock-two");
     assert_ne!(first, second);
@@ -37,6 +38,7 @@ fn state_from_a_previous_generation_is_refused_after_a_new_one_opens() {
     let effects = core.handle(ClientEvent::SyncLinkClosed {
         generation: first,
         close_code: Some(4001),
+        close_reason: String::new(),
     });
     assert!(effects.is_empty());
     assert_eq!(core.store().revision(), before, "nothing was mutated");
@@ -100,6 +102,7 @@ fn a_revoked_credential_stops_the_dial_loop() {
     core.handle(ClientEvent::SyncLinkClosed {
         generation,
         close_code: Some(4001),
+        close_reason: String::new(),
     });
     assert!(core.store().sync.auth_revoked);
 

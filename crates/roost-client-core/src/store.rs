@@ -11,6 +11,8 @@ pub mod browse_entries;
 pub mod browse_machine;
 pub mod browse_paths;
 pub mod browse_state;
+pub mod folder_activity;
+pub mod folder_name_validation;
 pub mod layout;
 pub mod mutations;
 pub mod navigation;
@@ -21,7 +23,14 @@ pub mod pending_close;
 pub mod prefs;
 pub mod root;
 pub mod selectors;
+pub mod shell_dialogs;
+pub mod shell_intent;
+pub mod sidebar;
 pub mod spotlight;
+pub mod sync_feeds;
+pub mod sync_smoke;
+pub mod terminal_nav_pad;
+pub mod terminal_transport;
 pub mod toasts;
 pub mod transfers;
 pub mod ui;
@@ -54,17 +63,21 @@ pub use roost_protocol::wire::{
     WorkerFp, WorkerOs, WorkspaceId,
 };
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+
+use roost_protocol::wire::{Task, Workspace};
 
 use crate::search::FindMatch;
 use crate::sessions::SessionPlane;
 use crate::store::optimistic_spawn::SpawnLedger;
 use crate::store::pending_close::PendingCloses;
 use crate::store::prefs::Prefs;
+use crate::store::sync_feeds::{PresenceNotice, ProbeTelemetry, RoutableAssembly};
 use crate::store::toasts::ToastStack;
 use crate::store::transfers::TransferStack;
 use crate::store::ui::UiState;
 use crate::sync::SyncState;
+use crate::sync::inbound::{AuditEntry, InputRouteResult, SessionViewer};
 use crate::terminal::session::TerminalSession;
 use crate::terminal::token::TerminalToken;
 use crate::terminal::{InputPhase, InputRouter, RouteRegistry};
@@ -116,6 +129,18 @@ pub struct Store {
     /// Chrome state that is not a session: the sidebar, the drawer, the
     /// folder view. Mutated only through `store::ui`.
     pub ui: UiState,
+    /// The terminal key pad's open state and its disarm count. Mutated only
+    /// through `store::terminal_nav_pad`.
+    pub terminal_nav_pad: crate::store::terminal_nav_pad::TerminalNavPad,
+    /// The sidebar's cursor and visit memory. Mutated only through `store::sidebar`.
+    pub sidebar: crate::store::sidebar::SidebarState,
+    /// The rename and queue-task dialogs. Mutated only through `store::shell_intent`.
+    pub shell_dialogs: crate::store::shell_dialogs::ShellDialogs,
+    /// The deck's stored arrangements and pending route. Mutated only through `deck::intent`.
+    pub deck: crate::deck::DeckState,
+    /// The coordinator's build and public URL, once `AuthCoordIdentity`
+    /// answered (v2 `rootStore.coord_identity`).
+    pub coord_identity: Option<crate::store::root::CoordIdentity>,
     /// Per-device preferences. Loaded once at boot and persisted by the same
     /// functions that change it, so a stored value and its in-memory value
     /// cannot disagree. Mutated only through `store::prefs`.
@@ -155,6 +180,38 @@ pub struct Store {
     /// Pair requests this browser is waiting on, keyed by their ephemeral id.
     /// Mutated only through `store::mutations`.
     pub pair_requests: BTreeMap<String, PairRequest>,
+
+    // ---- Sync feed slices: written only by the folds under `handle_sync/` ---
+    /// Workspaces by id (v2 `_handleWorkspacesDelta`).
+    pub workspaces: BTreeMap<String, Workspace>,
+    /// Tasks by id (v2 `_handleTasksDelta`).
+    pub tasks: BTreeMap<String, Task>,
+    /// The fingerprints the coordinator can route to RIGHT NOW, or `None`
+    /// before the first set, which means "ask heartbeat freshness instead"
+    /// (`sync-routable.ts:14-19`).
+    pub routable_worker_fps: Option<BTreeSet<String>>,
+    /// The chunked routable seed still being assembled on this socket.
+    pub routable_assembly: RoutableAssembly,
+    /// Coordinator-parsed OSC titles, by session.
+    pub terminal_titles: BTreeMap<String, String>,
+    /// Coordinator-stamped last activity, by session, in milliseconds.
+    pub last_activity_ms: BTreeMap<String, i64>,
+    /// Who is looking at each session, replaced per `viewers` notice.
+    pub session_viewers: BTreeMap<String, Vec<SessionViewer>>,
+    /// Opaque presence notices for the panes' presence handlers, oldest first.
+    pub presence_notices: VecDeque<PresenceNotice>,
+    /// Live audit rows, newest first, deduplicated by id and bounded.
+    pub audit_rows: VecDeque<AuditEntry>,
+    /// UI commands for the UI bridge, oldest first.
+    pub ui_commands: VecDeque<roost_proto::UiCommandFrame>,
+    /// The newest input-route answer per session, for the claim waiter.
+    pub input_route_results: BTreeMap<String, InputRouteResult>,
+    /// The newest successful transport-probe answer per worker.
+    pub transport_probes: BTreeMap<String, ProbeTelemetry>,
+    /// Pairings already announced, oldest first, so one pairing toasts once.
+    pub announced_pairings: VecDeque<String>,
+    /// Smoke-armed frame faults; empty unless a smoke build armed one.
+    pub terminal_smoke_faults: crate::terminal::smoke_faults::TerminalSmokeFaults,
 
     /// The next Connect call id, so a result is correlated with its call.
     next_call_id: u64,
@@ -211,11 +268,30 @@ impl Store {
             transfers: TransferStack::new(),
             spotlight: Spotlight::new(),
             ui: UiState::new(),
+            terminal_nav_pad: crate::store::terminal_nav_pad::TerminalNavPad::new(),
+            sidebar: crate::store::sidebar::SidebarState::default(),
+            shell_dialogs: crate::store::shell_dialogs::ShellDialogs::default(),
+            deck: crate::deck::DeckState::new(0),
+            coord_identity: None,
             prefs: Prefs::new(),
             spawns: SpawnLedger::new(),
             pending_closes: PendingCloses::new(),
             mcp_relays: BTreeMap::new(),
             pair_requests: BTreeMap::new(),
+            workspaces: BTreeMap::new(),
+            tasks: BTreeMap::new(),
+            routable_worker_fps: None,
+            routable_assembly: RoutableAssembly::new(),
+            terminal_titles: BTreeMap::new(),
+            last_activity_ms: BTreeMap::new(),
+            session_viewers: BTreeMap::new(),
+            presence_notices: VecDeque::new(),
+            audit_rows: VecDeque::new(),
+            ui_commands: VecDeque::new(),
+            input_route_results: BTreeMap::new(),
+            transport_probes: BTreeMap::new(),
+            announced_pairings: VecDeque::new(),
+            terminal_smoke_faults: crate::terminal::smoke_faults::TerminalSmokeFaults::default(),
         }
     }
 

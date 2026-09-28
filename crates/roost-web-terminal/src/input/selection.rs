@@ -13,103 +13,17 @@
 //! clear its own yield performs; a hold revalidated against the live selection
 //! would lapse on the very clear that made the composer editable.
 //!
-//! The state is native and the DOM is not. The adapter fills the two structs
-//! and applies what the guard decides.
+//! The state is native and the DOM is not: `pane_selection` fills the two
+//! reads and applies what the guard decides. Ports the capture/suspend/restore
+//! rules of v2's `apps/web/src/renderer/terminalSelectionGuard.ts`.
+
+mod snapshot;
+
+pub use snapshot::{
+    DomNodeId, FocusOwner, LiveSelection, OwnedRow, RetainedRange, SelectionEndpoint,
+};
 
 use crate::reader_intent::RENDERER_HOLD_SELECTION;
-
-/// The adapter's identity for one DOM node. The guard compares these instead
-/// of holding a DOM reference, so a capture survives only while the node it
-/// named is genuinely still there.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct DomNodeId(pub u32);
-
-/// One painted row a capture depends on. A repair that replaced the nodes
-/// changes the text or the identity, and either one invalidates the capture.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OwnedRow {
-    /// The row element's identity.
-    pub id: DomNodeId,
-    /// The row's text as read.
-    pub text: String,
-}
-
-/// One endpoint of a native selection.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct SelectionEndpoint {
-    /// The node's identity.
-    pub node: DomNodeId,
-    /// The offset within that node.
-    pub offset: u32,
-}
-
-/// The document's editing target, which is what a suspended range yields to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FocusOwner {
-    /// The focused element's identity.
-    pub node: DomNodeId,
-    /// Whether it is still connected to the document.
-    pub connected: bool,
-}
-
-/// What the document's selection looks like right now, as the adapter reads
-/// it. Every field is a fact about the LIVE document, which is what lets the
-/// hold be derived rather than latched on an edge that may never arrive.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct LiveSelection {
-    /// Whether the document reports a selection at all.
-    pub present: bool,
-    /// Whether the selection is collapsed to a caret.
-    pub collapsed: bool,
-    /// How many ranges the selection holds.
-    pub range_count: u32,
-    /// The anchor endpoint, or `None` when the document reports none.
-    pub anchor: Option<SelectionEndpoint>,
-    /// The focus endpoint.
-    pub focus: Option<SelectionEndpoint>,
-    /// The selected text, which is what a copy reads.
-    pub text: String,
-    /// The rows the endpoints resolve to, in `cell-row` order. Empty when
-    /// either endpoint is outside the pane's display.
-    pub owned_rows: Vec<OwnedRow>,
-    /// The document's editing target when there is a real one. `None` means
-    /// nothing is focused, which is nothing to yield a range to.
-    pub focus_owner: Option<FocusOwner>,
-}
-
-impl LiveSelection {
-    /// A selection with no endpoints in the pane's rows is not the pane's.
-    pub fn pane_owns_endpoint(&self) -> bool {
-        !self.owned_rows.is_empty()
-    }
-
-    /// A non-collapsed range carrying text, which is the only selection a user
-    /// can act on.
-    pub fn is_live_range(&self) -> bool {
-        self.present && !self.collapsed && self.range_count > 0 && !self.text.is_empty()
-    }
-}
-
-/// What the adapter reads about the range a capture retained.
-///
-/// This is the CAPTURED range, not the document's: a yield clears the
-/// document's ranges and leaves the retained one alone, which is the whole
-/// reason a restore can put the user's selection back.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct RetainedRange {
-    /// The display the capture was taken in.
-    pub display: DomNodeId,
-    /// The anchor endpoint as captured.
-    pub anchor: SelectionEndpoint,
-    /// The focus endpoint as captured.
-    pub focus: SelectionEndpoint,
-    /// The retained range's own text, which a repair would change.
-    pub range_text: String,
-    /// Whether both of the range's containers are still connected.
-    pub containers_connected: bool,
-    /// The captured rows, re-read: identity and text as they stand now.
-    pub rows: Vec<OwnedRow>,
-}
 
 /// Why a suspension stopped holding paint. A lapse is named rather than
 /// silently dropped: a silent one hides the defect behind a pane that merely
@@ -142,17 +56,28 @@ pub struct HoldSync {
     pub lapse: Option<YieldLapse>,
 }
 
+/// What a restore must write to the document before it can be judged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestoreWrite {
+    /// The document's selection already is the captured range.
+    AlreadyLive,
+    /// Re-establish the captured range at these endpoints (`setBaseAndExtent`).
+    SetBaseAndExtent {
+        /// The captured anchor.
+        anchor: SelectionEndpoint,
+        /// The captured focus.
+        focus: SelectionEndpoint,
+    },
+}
+
 /// One capture: the range as taken, and the rows that make it restorable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CapturedRange {
     /// The epoch the capture was taken in. Any transition bumps the epoch,
     /// which invalidates every capture at once.
     epoch: u64,
-    /// The display the capture belongs to.
     display: DomNodeId,
-    /// The anchor endpoint.
     anchor: SelectionEndpoint,
-    /// The focus endpoint.
     focus: SelectionEndpoint,
     /// The selected text at capture time.
     text: String,
@@ -225,7 +150,7 @@ impl SelectionGuard {
     ) -> HoldSync {
         let mut lapse = None;
         let suspension_holds = self.suspension_holds_paint(live, retained, &mut lapse);
-        let live_range_holds = live.is_live_range() && live.pane_owns_endpoint();
+        let live_range_holds = live.is_range() && live.pane_owns_endpoint();
         HoldSync {
             hold: suspension_holds || live_range_holds,
             lapse,
@@ -242,12 +167,12 @@ impl SelectionGuard {
     /// Capture the live selection for a guarded suspend/restore cycle, and
     /// report whether there was one to capture.
     ///
-    /// Refused unless the selection is a real range AND every endpoint
-    /// resolves to a row this pane painted. A selection with an endpoint
-    /// outside is not the pane's, and restoring it would drag the user's
-    /// selection across the rest of the page.
+    /// Refused unless the selection is a real range carrying text AND an
+    /// endpoint resolves to a row this pane painted. A selection with no
+    /// endpoint in a row is not a range the pane can revalidate, and restoring
+    /// it would drag the user's selection across the rest of the page.
     pub fn capture(&mut self, live: &LiveSelection, display: DomNodeId) -> bool {
-        if !live.is_live_range() || !live.pane_owns_endpoint() {
+        if !live.is_live_range() || !live.pane_owns_endpoint() || live.owned_rows.is_empty() {
             return false;
         }
         let (Some(anchor), Some(focus)) = (live.anchor, live.focus) else {
@@ -274,6 +199,7 @@ impl SelectionGuard {
     /// swallowed by a refused range removal.
     pub fn suspend(&mut self, live: &LiveSelection, retained: Option<&RetainedRange>) -> bool {
         if !self.capture_is_restorable(live, retained) {
+            self.captured = None;
             return false;
         }
         if self
@@ -301,21 +227,45 @@ impl SelectionGuard {
             .is_some_and(|held| held.is_live_range(live))
     }
 
-    /// Restore the captured range, reporting whether it is still restorable.
+    /// The first half of a restore: what must be written to the document so
+    /// `restore` can judge the result. `None` ends the capture — it no longer
+    /// validates, or another owner established a range in its place.
+    pub fn restore_target(
+        &mut self,
+        live: &LiveSelection,
+        retained: Option<&RetainedRange>,
+    ) -> Option<RestoreWrite> {
+        if !self.capture_is_restorable(live, retained) {
+            self.captured = None;
+            return None;
+        }
+        let held = self.captured.as_ref()?;
+        Some(if held.is_live_range(live) {
+            RestoreWrite::AlreadyLive
+        } else {
+            RestoreWrite::SetBaseAndExtent {
+                anchor: held.anchor,
+                focus: held.focus,
+            }
+        })
+    }
+
+    /// Judge a restore against the document AFTER `restore_target`'s write,
+    /// reporting whether the captured range is live again.
     ///
     /// A restore that finds the range gone ends the capture rather than
     /// retrying it: the rows the capture named are gone, and the next attempt
     /// would resurrect a detached range.
     pub fn restore(&mut self, live: &LiveSelection, retained: Option<&RetainedRange>) -> bool {
         if !self.capture_is_restorable(live, retained) {
+            self.captured = None;
             return false;
         }
-        if live.collapsed
-            || !self
-                .captured
-                .as_ref()
-                .is_some_and(|held| held.is_live_range(live))
-        {
+        let restored = self
+            .captured
+            .as_ref()
+            .is_some_and(|held| held.is_live_range(live) && live.text == held.text);
+        if live.collapsed || !restored {
             self.captured = None;
             self.suspended_for = None;
             return false;
@@ -367,7 +317,7 @@ impl SelectionGuard {
         }
         // A COLLAPSED live selection is the browser's editable-focus
         // artifact, not another owner claiming the range.
-        live.collapsed || !live.is_live_range() || captured.is_live_range(live)
+        live.collapsed || !live.is_range() || captured.is_live_range(live)
     }
 
     /// Whether a suspension still holds, recording which reason lapsed it.

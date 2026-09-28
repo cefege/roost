@@ -1,11 +1,9 @@
 //! The shared cursor-poll ticker: one 500ms interval for EVERY mounted pane,
-//! armed by the first registration and stopped by the last.
-//!
-//! The deck keeps every open session mounted, so a ticker per pane would mean
-//! a timer per open session. This module owns only the DECISION — who is
-//! registered, whether an interval is wanted, and whether one poll has anything
-//! to report — and every clock value arrives as a parameter. The interval
-//! itself is the caller's.
+//! armed by the first registration and stopped by the last. Ports
+//! `apps/web/src/renderer/cursorPollTicker.ts` plus the per-pane gate of its
+//! caller `apps/web/src/components/terminal/cell-terminal-renderer.ts`. Owns
+//! only the decision; the interval and the `sessionsCursorPos` send are the
+//! caller's, and every clock value arrives as `now_ms`.
 
 use std::collections::BTreeMap;
 
@@ -107,6 +105,7 @@ impl CursorPollTicker {
         }
         let due = now_ms.saturating_add(CURSOR_POLL_INTERVAL_MS);
         self.next_due_ms = Some(due);
+        tracing::debug!(target: "terminal", due_ms = due, "cursor poll interval armed");
         Some(due)
     }
 
@@ -119,15 +118,22 @@ impl CursorPollTicker {
         if !self.panes.is_empty() {
             return false;
         }
-        self.next_due_ms.take().is_some()
+        let stopped = self.next_due_ms.take().is_some();
+        if stopped {
+            tracing::debug!(target: "terminal", "cursor poll interval stopped: last pane left");
+        }
+        stopped
     }
 
     /// Remove every mounted pane at a credential boundary and answer whether
     /// the caller must stop the interval. A credential boundary leaves no
     /// mounted pane whose cursor position may still be published.
     pub fn reset(&mut self) -> bool {
+        let panes = self.panes.len();
         self.panes.clear();
-        self.next_due_ms.take().is_some()
+        let stopped = self.next_due_ms.take().is_some();
+        tracing::debug!(target: "terminal", panes, stopped, "cursor poll ticker reset");
+        stopped
     }
 
     /// Whether the shared interval has come round at `now_ms`, consuming it.

@@ -40,14 +40,19 @@ impl ConnectDispatcher for Recorder {
 /// Every call the state machine can ask for. The set is closed and this
 /// fixture is deliberately exhaustive: a call added to `RpcCall` and not here is
 /// a call no test has ever put on the wire.
-fn calls() -> [RpcCall; 8] {
+fn calls() -> [RpcCall; 13] {
     [
         RpcCall::CoordIdentity { call_id: 1 },
-        RpcCall::SessionsList { call_id: 2 },
+        RpcCall::SessionsList {
+            call_id: 2,
+            sync_socket_id: Some("socket-1".to_owned()),
+        },
         RpcCall::WorkersList { call_id: 3 },
         RpcCall::RedeemPairToken {
             call_id: 4,
             token: "pair-token".to_owned(),
+            ssh_pubkey_b64: "cHVia2V5".to_owned(),
+            label: "Browser".to_owned(),
         },
         RpcCall::FilesListDir {
             call_id: 5,
@@ -58,7 +63,6 @@ fn calls() -> [RpcCall; 8] {
             call_id: 6,
             worker_fp: "worker-fp-01".to_owned(),
             path: "/repo/src/new".to_owned(),
-            recursive: true,
         },
         RpcCall::SessionsSearchGlobal {
             call_id: 7,
@@ -74,19 +78,33 @@ fn calls() -> [RpcCall; 8] {
             call_id: 8,
             search_id: "search-1".to_owned(),
         },
+        RpcCall::WorkspacesList { call_id: 9 },
+        RpcCall::TasksList { call_id: 10 },
+        RpcCall::McpList { call_id: 11 },
+        RpcCall::PairList { call_id: 12 },
+        RpcCall::SessionsKill {
+            call_id: 13,
+            session_id: "s-1".to_owned(),
+            force: false,
+        },
     ]
 }
 
 fn call_id_of(call: &RpcCall) -> u64 {
     match call {
         RpcCall::CoordIdentity { call_id }
-        | RpcCall::SessionsList { call_id }
+        | RpcCall::SessionsList { call_id, .. }
         | RpcCall::WorkersList { call_id }
+        | RpcCall::WorkspacesList { call_id }
+        | RpcCall::TasksList { call_id }
+        | RpcCall::McpList { call_id }
+        | RpcCall::PairList { call_id }
         | RpcCall::RedeemPairToken { call_id, .. }
         | RpcCall::FilesListDir { call_id, .. }
         | RpcCall::FilesMkdir { call_id, .. }
         | RpcCall::SessionsSearchGlobal { call_id, .. }
-        | RpcCall::SessionsCancelGlobalSearch { call_id, .. } => *call_id,
+        | RpcCall::SessionsCancelGlobalSearch { call_id, .. }
+        | RpcCall::SessionsKill { call_id, .. } => *call_id,
     }
 }
 
@@ -98,7 +116,10 @@ fn a_signing_failure_still_dispatches_the_request_unauthenticated() {
     // `None` is the whole of what survives a failed signing attempt.
     let returned = client.dispatch(
         &recorder,
-        &RpcCall::SessionsList { call_id: 9 },
+        &RpcCall::SessionsList {
+            call_id: 9,
+            sync_socket_id: None,
+        },
         b"\x0a\x02hi".to_vec(),
         Credential::from_bearer(None),
     );
@@ -172,7 +193,10 @@ fn the_tab_id_is_the_clients_and_not_the_bodys() {
     let client = ConnectClient::new(TAB);
     // A body with bytes in it, and no tab in it anywhere.
     let request = client.prepare(
-        &RpcCall::SessionsList { call_id: 2 },
+        &RpcCall::SessionsList {
+            call_id: 2,
+            sync_socket_id: None,
+        },
         b"\x0a\x0bworker-fp-01".to_vec(),
         Credential::from_bearer(None),
     );
@@ -201,7 +225,10 @@ fn each_call_goes_out_as_the_method_the_coordinator_declares() {
             "/roost.v1.CoordinatorService/AuthCoordIdentity",
         ),
         (
-            RpcCall::SessionsList { call_id: 2 },
+            RpcCall::SessionsList {
+                call_id: 2,
+                sync_socket_id: None,
+            },
             "SessionsList",
             "/roost.v1.CoordinatorService/SessionsList",
         ),
@@ -214,6 +241,8 @@ fn each_call_goes_out_as_the_method_the_coordinator_declares() {
             RpcCall::RedeemPairToken {
                 call_id: 4,
                 token: "t".to_owned(),
+                ssh_pubkey_b64: "k".to_owned(),
+                label: "l".to_owned(),
             },
             "AuthRedeemBrowser",
             "/roost.v1.CoordinatorService/AuthRedeemBrowser",
@@ -322,7 +351,10 @@ fn a_device_credential_is_never_built_here() {
 
     // The failure reason is for the log, and never reaches the wire.
     let request = ConnectClient::new(TAB).prepare(
-        &RpcCall::SessionsList { call_id: 1 },
+        &RpcCall::SessionsList {
+            call_id: 1,
+            sync_socket_id: None,
+        },
         Vec::new(),
         unavailable,
     );

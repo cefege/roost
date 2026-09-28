@@ -1,17 +1,8 @@
-//! The two DOM properties the renderer needs that `web_sys::Element` does not
-//! expose, on one named seam.
-//!
-//! `style` lives on `HTMLElement` and the double-valued `scrollTop` sits behind
-//! `web_sys_unstable_apis`, so the stable `Element` surface offers neither. The
-//! renderer holds every painted node as an `Element` — the structural `Node`
-//! calls are unambiguous that way, and a web-sys element implements `AsRef` for
-//! its whole IDL chain — so these two functions are where that gap is closed,
-//! once, instead of at every call site.
-//!
-//! Both are total: a node that is not an HTML element, or a property the
-//! document refuses, is a no-op. The renderer's elements are `div`, `span` and
-//! `a`, so the cast succeeds; a caller that hands it something else gets an
-//! unpainted element rather than a panic, and the reconcile watermark repaints.
+//! The DOM properties the wasm32 adapters need that `web_sys::Element` does not
+//! expose: inline `style`, which lives on `HTMLElement`, and the double-valued
+//! `scrollTop`. Read by the renderer, link, reader-scroll, echo and mouse
+//! adapters; every call is total. Ports the `style` and `scrollTop` access
+//! of `apps/web/src/renderer/cellRenderer.ts` and `terminal-links.scan.ts`.
 
 use js_sys::Reflect;
 use wasm_bindgen::{JsCast, JsValue};
@@ -32,6 +23,15 @@ pub fn remove_style_property(element: &Element, property: &str) {
     if let Some(html) = element.dyn_ref::<web_sys::HtmlElement>() {
         let _ = html.style().remove_property(property);
     }
+}
+
+/// One inline CSS property, verbatim; empty when it is unset or the element is
+/// not an HTML element, which is what `style.getPropertyValue` answers.
+pub fn style_property_of(element: &Element, property: &str) -> String {
+    element
+        .dyn_ref::<web_sys::HtmlElement>()
+        .and_then(|html| html.style().get_property_value(property).ok())
+        .unwrap_or_default()
 }
 
 /// The element's scroll position in CSS pixels, as the DOUBLE the DOM reports.

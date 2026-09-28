@@ -13,6 +13,12 @@ use roost_web::platform::{FragmentCredential, capture_and_scrub};
 
 fn main() {
     roost_web::install_tracing();
+    // A wasm panic surfaces as `RuntimeError: unreachable` with no message; the
+    // hook puts the message and location in the console, where the Playwright
+    // oracle's page log and a user's bug report both read it.
+    std::panic::set_hook(Box::new(|panic| {
+        tracing::error!(target: "panic", %panic, "wasm panic");
+    }));
     let credential = capture_and_scrub();
     tracing::info!(
         target: "auth",

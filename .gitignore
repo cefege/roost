@@ -1,5 +1,6 @@
 node_modules/
 dist/
+crates/roost-web/dist-smoke/
 .turbo/
 *.log
 .DS_Store

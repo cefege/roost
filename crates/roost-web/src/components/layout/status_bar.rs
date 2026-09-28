@@ -28,11 +28,10 @@ use roost_client_core::client::agents::{
     AgentStatusLevel, agent_status_presentation, derive_agent_status_level,
 };
 use roost_client_core::store::navigation::worker_online;
-use roost_protocol::wire::{Session, SessionStatus};
+use roost_protocol::wire::SessionStatus;
 
 use super::shell_metrics::{CoordinatorState, session_context, workbench_title};
-use crate::components::design_icon::StatusDot;
-use crate::components::layout::app_shell::is_terminal_route;
+use crate::components::md::StatusDot;
 
 /// One dot-and-word reading.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,6 +69,8 @@ pub struct StatusReadings {
     pub workers_online: usize,
     /// How many workers are registered.
     pub workers_total: usize,
+    /// The coordinator build's short revision, once identity is known.
+    pub revision: Option<String>,
 }
 
 impl StatusReadings {
@@ -93,10 +94,11 @@ impl StatusReadings {
 
 /// The status bar, shown on every desktop path.
 #[component]
-pub fn StatusBar(path: String) -> Element {
-    let core = use_context::<Rc<RefCell<ClientCore>>>();
+pub fn StatusBar() -> Element {
+    let core = crate::pump::use_store().core();
+    let path = crate::router_state::use_location()();
     let now_ms = core.borrow().clock().now_ms() as i64;
-    let readings = use_hook(move || read_status(&path, &core, now_ms));
+    let readings = read_status(&path, &core, now_ms);
     let coordinator = readings.coordinator;
     let machine = readings.machine.clone();
     let agent = readings.agent.clone();
@@ -148,6 +150,13 @@ pub fn StatusBar(path: String) -> Element {
                     span { "aria-hidden": "true", "·" }
                     {readings.workers_worded()}
                 }
+                if let Some(revision) = readings.revision.clone() {
+                    span {
+                        class: "workbench-status-item workbench-status-item--revision",
+                        "data-testid": "workbench-status-revision",
+                        {revision}
+                    }
+                }
             }
         }
     }
@@ -172,12 +181,21 @@ fn read_status(path: &str, core: &Rc<RefCell<ClientCore>>, now_ms: i64) -> Statu
     let workers_online = store
         .workers
         .values()
-        .filter(|worker| worker_online(worker, None, now_ms))
+        .filter(|worker| worker_online(worker, store.routable_worker_fps.as_ref(), now_ms))
         .count();
-    let active = active_session(path, store);
+    let active = crate::route_session::active_session_for_path(
+        store,
+        &crate::platform::worker_paths::BrowserWorkerPaths,
+        path,
+    );
     let context = active.map(|session| {
         let folder = session.spawn_cwd.as_deref().unwrap_or(session.cwd.as_str());
-        let title = workbench_title(path, session.custom_title.as_deref(), Some(folder));
+        let chrome = super::app_shell::session_chrome(store, session);
+        let title = workbench_title(
+            path,
+            chrome.title.as_deref(),
+            chrome.folder.as_deref().or(Some("")),
+        );
         session_context(&title, Some(folder))
     });
     let machine = active.and_then(|session| {
@@ -188,7 +206,7 @@ fn read_status(path: &str, core: &Rc<RefCell<ClientCore>>, now_ms: i64) -> Statu
             } else {
                 worker.label.clone()
             },
-            status: if worker_online(worker, None, now_ms) {
+            status: if worker_online(worker, store.routable_worker_fps.as_ref(), now_ms) {
                 "ok".to_string()
             } else {
                 "offline".to_string()
@@ -218,6 +236,10 @@ fn read_status(path: &str, core: &Rc<RefCell<ClientCore>>, now_ms: i64) -> Statu
         open_sessions,
         workers_online,
         workers_total,
+        revision: store
+            .coord_identity
+            .as_ref()
+            .map(|identity| identity.git_sha.chars().take(7).collect()),
     }
 }
 
@@ -233,26 +255,6 @@ fn agent_dot_status(dot: roost_client_core::client::agents::AgentDotStatus) -> &
         roost_client_core::client::agents::AgentDotStatus::Info => "info",
         roost_client_core::client::agents::AgentDotStatus::Idle => "idle",
     }
-}
-
-/// The session a terminal path names, when it names one exactly.
-///
-/// `/t/:workerFp/*folderPath` and `/w/:workspaceId` do not name a session id.
-/// Resolving those needs the folder index and its newest-wins tiebreak, which
-/// belongs to the terminal surface; the chrome asks only the question it can
-/// answer exactly, so the machine and agent items simply do not appear on a
-/// folder route rather than naming a session the reader did not ask about.
-fn active_session<'a>(path: &str, store: &'a roost_client_core::Store) -> Option<&'a Session> {
-    if !is_terminal_route(path) {
-        return None;
-    }
-    let wanted = path.strip_prefix("/s/")?;
-    let wanted = wanted.split(['/', '?', '#']).next().unwrap_or(wanted);
-    store
-        .sessions
-        .sessions()
-        .values()
-        .find(|session| session.id.as_str() == wanted)
 }
 
 /// Whether the document is in the foreground.
@@ -287,6 +289,7 @@ mod tests {
             open_sessions: open,
             workers_online: online,
             workers_total: total,
+            revision: None,
         }
     }
 
@@ -321,7 +324,7 @@ mod tests {
         ] {
             let name = agent_dot_status(dot);
             assert!(
-                crate::components::design_icon::status_token(name).starts_with("--"),
+                crate::components::md::status_dot::status_dot_token(name).starts_with("--"),
                 "{name} is not a status the dot styles a rule for"
             );
         }
