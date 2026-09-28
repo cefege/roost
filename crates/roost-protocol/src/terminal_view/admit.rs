@@ -5,9 +5,9 @@
 //! by convenience: the paths that decide a record's EXISTENCE live here, and
 //! the paths that change one that already exists live there.
 
+use crate::viewport::TERMINAL_SOCKET_VIEW_CAP;
+use crate::wire::SessionId;
 use roost_proto::{TerminalViewCommand, TerminalViewStatus};
-use roost_protocol::viewport::TERMINAL_SOCKET_VIEW_CAP;
-use roost_protocol::wire::SessionId;
 
 use super::commands::{Caller, SESSION_MOVED};
 use super::machine::Machine;

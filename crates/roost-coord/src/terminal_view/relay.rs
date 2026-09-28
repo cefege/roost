@@ -23,9 +23,9 @@ use std::sync::{Arc, Mutex, RwLock};
 use roost_proto::{TerminalResyncCommand, TerminalViewCommand, TerminalViewStatus};
 use roost_protocol::wire::{SessionId, WorkerFp};
 
-use super::record::validate_view_command;
-use super::registry::SocketRecord;
-use super::sink::PendingReply;
+use roost_protocol::terminal_view::PendingReply;
+use roost_protocol::terminal_view::SocketRecord;
+use roost_protocol::terminal_view::validate_view_command;
 
 /// The authenticated identity a relayed command carries to the owner.
 #[derive(Debug, Clone, PartialEq, Eq)]

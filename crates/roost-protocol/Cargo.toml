@@ -20,3 +20,7 @@ roost-proto = { workspace = true }
 # protobuf runtime and this crate's DAG allowlist names roost-proto, not buffa.
 serde = { workspace = true }
 serde_json = { workspace = true }
+# The terminal view registry logs its membership transitions (admission,
+# release, lease lapse) as the coordinator and the worker both host it; the
+# facade compiles to wasm32 and emits nothing without a subscriber.
+tracing = { workspace = true }

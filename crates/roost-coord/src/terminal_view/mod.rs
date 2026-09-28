@@ -10,9 +10,10 @@
 //! ceiling the hub sizes itself against is read at call time from
 //! `core.services.boot`.
 //!
-//! WHAT THIS OWNS, AND WHAT IT DELIBERATELY DOES NOT. It owns WHO IS VIEWING:
-//! the socket registry, the leases, the park grace, the one
-//! [`record::view_constrains`] predicate, and the one aggregation
+//! WHAT THIS OWNS, AND WHAT IT DELIBERATELY DOES NOT. It hosts WHO IS VIEWING:
+//! `roost_protocol::terminal_view::ViewRegistry` (the socket registry, the
+//! leases, the park grace and the one `view_constrains` predicate, shared with
+//! the worker's view owner), plus the one aggregation
 //! (`roost_protocol::viewport::minimum_terminal_geometry`). It does NOT own a
 //! session's stream: an owner-mode worker mints the stream id and the effective
 //! geometry it runs, and this hub relays browser decisions to it and adopts
@@ -27,16 +28,9 @@
 //! PTY two geometries, which is `docs/FAILURE-INDEX.md`, "A session stays
 //! clipped to a viewer that is no longer looking".
 
-mod admit;
-mod commands;
-mod machine;
 mod owner;
-mod record;
-mod registry;
 mod relay;
 mod settle;
-mod sink;
-mod tombstone;
 mod worker_link;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -53,10 +47,12 @@ use roost_protocol::wire::{SessionId, WorkerFp};
 use crate::coord_core::seams::TerminalViewLifecycle;
 
 pub use owner::{OwnerIndex, OwnerRegistration, OwnerRow, TERMINAL_VIEW_OWNER_CAPABILITY};
-pub use record::{ViewInput, ViewStats};
-pub use registry::{MembershipOutcome, SocketRegistration, ViewRegistry};
 pub use relay::{NoOwnerViewTransport, OwnerRelay, OwnerViewTransport, RelayIdentity};
-pub use sink::{NoTerminalViewSink, PendingReply, SinkCall, TerminalViewSink};
+pub use roost_protocol::terminal_view::{MembershipOutcome, SocketRegistration, ViewRegistry};
+pub use roost_protocol::terminal_view::{
+    NoTerminalViewSink, PendingReply, SinkCall, TerminalViewSink,
+};
+pub use roost_protocol::terminal_view::{ViewInput, ViewStats};
 pub use worker_link::{TERMINAL_VIEW_RELAY_BUDGET_MS, WorkerLinkViewTransport};
 
 /// The view state one coordinator process holds.
@@ -218,7 +214,7 @@ impl TerminalViewHub {
         }
         socket.sink.enqueue_terminal_state(
             socket_id,
-            sink::view_state_frame(
+            roost_protocol::terminal_view::view_state_frame(
                 &frame.view_id,
                 &frame.session_id,
                 frame.revision,

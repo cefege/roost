@@ -20,6 +20,7 @@
 use serde_json::Value;
 
 use roost_protocol::proto_adapters::coord_worker_proto;
+use roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1;
 use roost_protocol::wire::brand::{TraceId, WorkerFp};
 use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 use roost_worker::runtime::link_wire::{LinkWire, ProtoLinkWire, WireError};
@@ -47,7 +48,7 @@ fn upstream_frames() -> Vec<CoordWorkerUpstream> {
         CoordWorkerUpstream::Hello {
             worker_fp: worker_fp(),
             version: "3.0.0".to_owned(),
-            capabilities: vec!["terminal-metadata-v1".to_owned()],
+            capabilities: vec![CAPABILITY_TERMINAL_METADATA_V1.to_owned()],
             process_epoch: "epoch-1".to_owned(),
             trace_id: Some(trace_id()),
         },
@@ -123,7 +124,7 @@ fn a_hello_with_capabilities_differs_on_the_wire_from_one_without() {
             worker_fp: worker_fp(),
             version: "3.0.0".to_owned(),
             capabilities: vec![
-                "terminal-metadata-v1".to_owned(),
+                CAPABILITY_TERMINAL_METADATA_V1.to_owned(),
                 "terminal-view-owner-v1".to_owned(),
             ],
             process_epoch: "epoch-7".to_owned(),

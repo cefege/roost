@@ -115,7 +115,7 @@ async fn force_hello(loop_state: &mut LinkLoop, link: &mut Link) -> Option<LinkE
     // here: a capability this build cannot answer is worse than admitting
     // none, because a coordinator that believes it is answered routes browser
     // view commands here and waits for frames nobody is producing.
-    //  - `terminal-metadata-v1` is advertised because the emitter stages raw
+    //  - `terminal_metadata_v1` is advertised because the emitter stages raw
     //    metadata on every ingest and the drain negotiates it from the ack.
     //  - `terminal-view-owner-v1` is NOT advertised: the coordinator's own
     //    `TerminalViewHub` owns membership for this build, which is v2's

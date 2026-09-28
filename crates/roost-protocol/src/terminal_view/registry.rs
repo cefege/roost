@@ -14,9 +14,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::sync::Arc;
 
+use crate::viewport::TerminalGeometry;
+use crate::wire::SessionId;
 use roost_proto::TerminalViewStatus;
-use roost_protocol::viewport::TerminalGeometry;
-use roost_protocol::wire::SessionId;
 
 use super::machine::{Machine, session_of};
 use super::record::{
@@ -374,7 +374,7 @@ impl ViewRegistry {
     }
 
     /// The mutable view the command machine works through.
-    pub(super) fn machine(&mut self) -> Machine<'_> {
+    pub fn machine(&mut self) -> Machine<'_> {
         Machine {
             sockets: &mut self.sockets,
             views: &mut self.views,
