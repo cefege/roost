@@ -61,8 +61,12 @@ pub fn install_tracing() {
 
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("roost_web=info,warn"));
+    // `without_time`: the default timer reads `SystemTime::now()`, which panics
+    // on wasm32-unknown-unknown, so the first event that passed the filter
+    // aborted the tab (`RuntimeError: unreachable`). The console stamps lines.
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
+        .without_time()
         .json()
         .with_writer(std::sync::Mutex::new(BrowserConsole))
         .try_init();

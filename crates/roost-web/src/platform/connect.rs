@@ -13,9 +13,9 @@ use std::rc::Rc;
 use roost_client_core::client::rpc::{
     CallError, ConnectError, UnaryMethod, connect_method, decode_rpc_response, encode_rpc_request,
 };
-use roost_client_core::{Clock, RpcCall, RpcResult};
+use roost_client_core::{RpcCall, RpcResult};
 
-use crate::platform::clock::BrowserClock;
+use crate::platform::clock::WallClock;
 use crate::platform::device_key::WebDeviceKey;
 use crate::platform::rpc::{
     ConnectTransport, ConnectTransportError, FetchConnectTransport, UnaryRequest,
@@ -26,7 +26,7 @@ use crate::platform::rpc::{
 pub struct CoordRpc {
     transport: FetchConnectTransport,
     key: RefCell<Option<Rc<WebDeviceKey>>>,
-    clock: BrowserClock,
+    clock: WallClock,
 }
 
 impl CoordRpc {
@@ -35,7 +35,7 @@ impl CoordRpc {
         Self {
             transport: FetchConnectTransport::new(base_url, tab_id),
             key: RefCell::new(None),
-            clock: BrowserClock::new(),
+            clock: WallClock,
         }
     }
 

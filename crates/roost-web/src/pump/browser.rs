@@ -30,8 +30,12 @@ pub(super) fn install(pump: &Pump) {
 
     let sweep = {
         let pump = pump.clone();
+        // The core's clock, not `Date.now()`: every deadline the sweep checks
+        // was armed on the monotonic timeline, and a wall-clock reading is ~1.8e12
+        // ms "later", which fired the stale watchdog on every sweep.
+        let clock = crate::platform::BrowserClock::new();
         Closure::<dyn FnMut()>::new(move || {
-            let now_ms = js_sys::Date::now() as u64;
+            let now_ms = roost_client_core::Clock::now_ms(&clock);
             pump.dispatch(ClientEvent::Sweep { now_ms });
         })
     };
