@@ -1,12 +1,52 @@
 # Track U — web lead handoff
 
-Worktree `/home/almalinux/repos/roost-v3-web`, branch `v3-web`. The worktree
+Worktree `/home/mike/repos/roost-v3-web`, branch `v3-web`. The worktree
 (`git log --oneline -20 && git status --short`) is the state; this note is the
 moment it was written. Plan: `roost-v3-finish-and-cutover-plan.md` "### Stage 5".
-Lead: `WebLeadU4` (successor of `WebLeadU3`, `WebLeadU2`, `WebLeadU`). **PAUSED** by
-the integrator's stop order (user moving machines) — see "Pause state" first.
+Lead: `WebLead` (host `/home/mike`, successor of `WebLeadU4`).
 
-## Pause state (WebLeadU4, read this first)
+## Current state (WebLead, read this first)
+
+Gate part 1 on `97ba537c`'s tree — all green:
+- tests ×2 + clippy: see WebLeadU4 below (1323/0/4 twice; clippy exit 0).
+- `ROOST_REPO_ROOT=$PWD cargo xtask lint` → 3953 inputs, 0 violations.
+- `cargo xtask fmt` then `git status --short` → empty.
+- `cargo check -p roost-web --target wasm32-unknown-unknown` exit 0; same with
+  `--features smoke` exit 0; CI line `cargo build -p roost-client-core -p roost-protocol -p roost-web -p roost-web-terminal --target wasm32-unknown-unknown` exit 0.
+
+Bundles (scope item 2). `dx` does NOT clean its output dir: a second build
+leaves the first build's hashed wasm/js beside its own, so a production copy
+taken after a smoke build contains the smoke wasm (measured: `__smoke` total 6,
+all in the stale `…dxhad5c…wasm` that `index.html` does not reference). Always:
+```
+rm -rf target-track/dx/roost-web/release/web/public
+dx build --release -p roost-web --platform web --features smoke   # (under the build lock)
+rm -rf crates/roost-web/dist-smoke && cp -r target-track/dx/roost-web/release/web/public crates/roost-web/dist-smoke
+rm -rf target-track/dx/roost-web/release/web/public
+dx build --release -p roost-web --platform web
+rm -rf crates/roost-web/dist && cp -r target-track/dx/roost-web/release/web/public crates/roost-web/dist
+grep -rc __smoke crates/roost-web/dist | awk -F: '{s+=$2} END {print s}'   # must be 0
+```
+Each dx release build ≈ 4-5 min once it has a slot.
+
+TERM gate (scope item 3):
+`ROOST_SMOKE_WEB_DIST=$PWD/crates/roost-web/dist-smoke bunx playwright test smoke/terminal/terminal-delivery.spec.ts -g "browser smoke flow creates and cleans its resources" --project chromium-desktop --reporter=line`
+(`node` is not on PATH here; use `bunx`). First run on the `97ba537c` bundle: the shell
+mounts, `worker_available`/`shell_painted`/`workspace_created` pass, then
+`flow_exception: terminal transport is not connected` — no view was ever
+published (fixed in `916387f8`, below). The probe layer reports "U-2 TERMINAL
+DIAG … not ported" (expected until that row).
+
+Commits this session: `a30c16bc` (.gitignore dist-smoke), `916387f8` (views
+publish on the v2 publication target; republish on terminal-domain ready),
+`8007ba32` (1013 backpressure close → immediate redial; closes open item 4b).
+
+Host notes: `/home/mike/repos/webenv.sh` defines `c` (cargo) and `dxb` (dx)
+under the build lock. Commits need `GIT_AUTHOR_*`/`GIT_COMMITTER_*` env
+(Mihai Mateias <mateiasmihaiandrei@gmail.com>); no git identity is configured.
+Build-slot waits reached 20 min in this session (all three tracks building).
+
+## Pause state (WebLeadU4, historical)
 
 Tree = `e09f39ca` + this doc commit. No slices were spawned; no services or
 builds of this track are running. Gate on `e09f39ca`'s tree (scope item 1):
@@ -18,24 +58,13 @@ builds of this track are running. Gate on `e09f39ca`'s tree (scope item 1):
   `refuses_a_ninth_simultaneously_demanded_browser_peer` and
   `accepts_a_bounded_ready_for_the_full_256_session_grant` (U-CARRIER).
 - DONE: `cargo clippy --workspace --all-targets --keep-going -- -D warnings` → exit 0.
-- NOT RUN (stopped): `ROOST_REPO_ROOT=$PWD cargo xtask lint` (integrator measured
-  3953 inputs / 0 violations on e09f39ca), `cargo xtask fmt` + `git status --short`,
-  wasm32 `cargo check -p roost-web --target wasm32-unknown-unknown` with and without
-  `--features smoke` (plus the CI line `cargo build -p roost-client-core -p roost-protocol -p roost-web -p roost-web-terminal --target wasm32-unknown-unknown`).
-- Next, in order: finish those three gate parts → report to Main → scope item 2
-  (open item 3 below: `.gitignore` `dist-smoke/`, both dx bundles, zero `__smoke`,
-  terminal-delivery spec on dist-smoke vs the TS backend) → U-2 rows (SYNC
-  LIFECYCLE, STREAM LIFECYCLE, ECHO/SCHED/INPUT/FIND+BACKFILL/RENDERER remainder,
-  PAIRING first; ≤3 slices).
 - Snapshot `v3-web-snap-pause` = `419149c6`: a stash commit on `5a43d383` (the dx-tree mutation
   worktree) holding the 4 dirty mutation-agent test files and, under
   `mut-artifacts/`, the local-only `target-track/tmp` material (the NOT-applied
   `mut-MutDeckSidebarCore.patch`, the MutShellSidebar 92-mutant `mutants.py` +
   `harness.py`, the MutDeckSidebarCore driver/specs/results, `mutation-brief.md`).
   Only the `store_sidebar.rs` change is new; the other three are already in the
-  TERM/SMOKE `fixup!` commits.
-- On a new machine: recreate `/tmp/webenv.sh` from "Build rule"; `target-track`
-  is local-only (rebuilds from scratch).
+  TERM/SMOKE `fixup!` commits. Never apply it wholesale.
 
 ## Build rule
 
