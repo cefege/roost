@@ -41,7 +41,8 @@ thiserror.workspace = true
 # The export route streams a database copy of unbounded size into a response
 # body; `tokio_util::io::ReaderStream` is the named seam for a file as a body.
 tokio-util = { workspace = true, features = ["io"] }
-tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
+# `process` for the deploy job's `roost deploy` subprocess and its piped output.
+tokio = { workspace = true, features = ["macros", "net", "process", "rt-multi-thread", "signal", "time"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 # The admission, security-header and CORS layers are three axum layers around

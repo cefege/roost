@@ -1,5 +1,6 @@
 //! What a revoked key loses in this process the moment its revocation commits:
-//! its pending event publications, its terminal views, and every open Sync
+//! its pending event publications, its direct terminal and attachment grants
+//! (as a worker and as a device), its terminal views, and every open Sync
 //! socket it holds, closed `4001 revoked`.
 //!
 //! Called by `DevicesRevoke`, `DevicesRotateCurrent` and `AuthLogout`
@@ -22,6 +23,13 @@ pub fn release_revoked_key(services: &CoordServices, fingerprint: &str) {
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .clear_worker(fingerprint);
+    services.terminal_direct.release_revoked_key(fingerprint);
+    let attachment_grants = services.attachments.grants();
+    attachment_grants.retire_worker(
+        fingerprint,
+        crate::attachments::grant_state::AttachmentGrantRetireReason::WorkerRevoked,
+    );
+    attachment_grants.revoke_device(fingerprint);
     services
         .views
         .remove_fingerprint(fingerprint, crate::sync_ws::driver::now_ms());

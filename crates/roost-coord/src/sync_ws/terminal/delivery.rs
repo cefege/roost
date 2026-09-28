@@ -12,6 +12,11 @@
 //! from a replaced stream, or a repeat of a part the cursor has already advanced
 //! past, would otherwise rewind the baseline and re-send rows the client already
 //! has.
+//!
+//! A QUEUED STATE OR DELTA HAS ALREADY LEFT ITS LANE. v2 peeked the head and
+//! shifted it on delivery; here the queue owns the frame from enqueue on, so a
+//! delivery only lifts the lane's in-flight mark. Shifting again would drop the
+//! NEXT, unsent frame and leak its charge.
 
 use crate::sync_ws::frame_meta::SyncFrameMeta;
 use crate::sync_ws::retained_frame::{RetainedFrame, SharedCellFrame};
@@ -28,18 +33,13 @@ impl SyncV2Session {
             return;
         }
         if meta.terminal_state {
-            let state_queued = self
-                .terminal_lane(session_id)
-                .is_some_and(|lane| lane.state_queued);
-            if !state_queued {
+            let Some(lane) = self.terminal_sessions.get_mut(session_id) else {
+                return;
+            };
+            if !lane.state_queued {
                 return;
             }
-            if let Some(lane) = self.terminal_sessions.get_mut(session_id) {
-                lane.state_queued = false;
-                if !lane.pending_states.is_empty() {
-                    lane.pending_states.remove(0);
-                }
-            }
+            lane.state_queued = false;
         } else {
             self.advance_cursor(session_id, meta);
         }
@@ -81,20 +81,25 @@ impl SyncV2Session {
             }
             return;
         }
-        if !cursor.delta_tail.is_empty() {
-            let released = cursor.delta_tail[0].estimated_bytes();
+        if let Some(released) = cursor.in_flight_delta_bytes.take() {
             cursor.delta_bytes = cursor.delta_bytes.saturating_sub(released);
-            cursor.delta_tail.remove(0);
         }
     }
 
-    pub(in crate::sync_ws) fn mark_cursor_queued(&mut self, session_id: &str) {
+    /// Mark the lane's cursor in flight; `delta_bytes` names a delta that left
+    /// the tail and stays charged to the lane's bounds until it is delivered.
+    pub(in crate::sync_ws) fn mark_cursor_queued(
+        &mut self,
+        session_id: &str,
+        delta_bytes: Option<u64>,
+    ) {
         if let Some(cursor) = self
             .terminal_sessions
             .get_mut(session_id)
             .and_then(|lane| lane.cursor.as_mut())
         {
             cursor.queued = true;
+            cursor.in_flight_delta_bytes = delta_bytes;
         }
     }
 
@@ -186,5 +191,22 @@ impl SyncV2Session {
             return None;
         }
         Some(cursor.delta_tail.remove(0))
+    }
+
+    /// Put back a delta the queue refused, at the head of the tail, so it is
+    /// retried in order: v2 left it there, and a lost delta is a gap only a
+    /// full can close.
+    pub(in crate::sync_ws) fn restore_delta_tail_head(
+        &mut self,
+        session_id: &str,
+        delta: RetainedFrame,
+    ) {
+        if let Some(cursor) = self
+            .terminal_sessions
+            .get_mut(session_id)
+            .and_then(|lane| lane.cursor.as_mut())
+        {
+            cursor.delta_tail.insert(0, delta);
+        }
     }
 }

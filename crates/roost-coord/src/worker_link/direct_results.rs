@@ -2,8 +2,9 @@
 //! for them together with the exact worker generation that sent them, so a
 //! late frame from a replaced connection cannot settle its successor's control.
 //! Called by `worker_link::live_frames::handle_rpc` after its fence and
-//! readiness checks. Ports the terminal-route half of `apps/coord/src/terminal/
-//! direct/worker-frame-dispatch-direct-results.ts` and `-direct-terminal.ts`.
+//! readiness checks. Ports `apps/coord/src/terminal/direct/
+//! worker-frame-dispatch-direct-results.ts` and `-direct-terminal.ts`, and
+//! `apps/coord/src/attachments/worker-frame-dispatch-direct-attachment.ts`.
 
 use std::sync::Arc;
 
@@ -28,6 +29,23 @@ pub(crate) fn accept_direct_result(
         }
         CoordWorkerUpstream::TerminalTransportProbeResult(result) => {
             route_results.accept_transport_probe_result(source, result)
+        }
+        CoordWorkerUpstream::LocalTerminalPeerAnswer(answer) => services
+            .terminal_direct
+            .negotiations()
+            .accept_answer(source, answer),
+        CoordWorkerUpstream::LocalTerminalPeerError(error) => services
+            .terminal_direct
+            .negotiations()
+            .accept_error(source, error),
+        CoordWorkerUpstream::LocalAttachmentPeerAnswer(answer) => {
+            services.attachments.peers().accept_answer(source, answer)
+        }
+        CoordWorkerUpstream::LocalAttachmentPeerError(error) => {
+            services.attachments.peers().accept_error(source, error)
+        }
+        CoordWorkerUpstream::AttachmentDirectStatus(status) => {
+            services.attachments.statuses().accept_status(source, status)
         }
         _ => return DispatchOutcome::Refused,
     };

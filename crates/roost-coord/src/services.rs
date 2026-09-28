@@ -139,6 +139,10 @@ pub struct CoordServices {
     /// Terminal input: the sender lanes, the input audit queue, and the typed
     /// input-route owner the worker link settles and the lifecycle fences.
     pub terminal_input: crate::terminal_input::TerminalInputRuntime,
+    /// Direct terminal transports: the grant leases a loopback or WebRTC
+    /// terminal authenticates with, and the peer signaling the worker link
+    /// settles and the lifecycle fences.
+    pub terminal_direct: crate::terminal_direct::TerminalDirectRuntime,
     /// The durable session-event store every worker's dispatcher appends to.
     ///
     /// BUILT ONCE HERE AND HANDED OUT BY CLONE. A factory that took one as an
@@ -240,6 +244,19 @@ impl CoordServices {
             Arc::clone(&workers),
             Arc::clone(scrollback.pending()),
         );
+        let attachments =
+            AttachmentsRuntime::new(Arc::clone(&workers), Arc::clone(scrollback.pending()));
+        let terminal_direct = crate::terminal_direct::TerminalDirectRuntime::new(
+            Arc::clone(&workers),
+            Arc::clone(scrollback.pending()),
+            db.clone(),
+            boot.config.as_deref(),
+        );
+        let deploy = DeployRuntime::new();
+        let catch_up_on_ready = Arc::new(crate::deploy::catchup_on_ready::CatchUpOnReady::new(
+            deploy.clone(),
+            db.clone(),
+        ));
         Self {
             db,
             boot,
@@ -254,6 +271,11 @@ impl CoordServices {
                     as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
                 Arc::clone(terminal_input.route_results())
                     as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
+                Arc::clone(terminal_direct.negotiations())
+                    as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
+                attachments.worker_lifecycle_observer(),
+                catch_up_on_ready
+                    as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
             ]),
             scrollback,
             workers,
@@ -261,9 +283,9 @@ impl CoordServices {
             pairing: PairingRuntime::new(),
             sessions,
             agents: AgentsRuntime::new(),
-            attachments: AttachmentsRuntime::new(),
+            attachments,
             search: GlobalSearchRuntime::new(),
-            deploy: DeployRuntime::new(),
+            deploy,
             rate_limit: RateLimiter::new(),
             telemetry: Telemetry::new(),
             feed: FeedRuntime::new(),
@@ -274,6 +296,7 @@ impl CoordServices {
             views,
             titles: Arc::new(crate::terminal_screen::title_hub::TerminalTitleHub::new()),
             terminal_input,
+            terminal_direct,
         }
     }
 

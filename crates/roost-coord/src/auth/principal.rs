@@ -123,6 +123,26 @@ impl Principal {
             ))
         }
     }
+
+    /// The owner identity a browser-scoped lease is keyed by: the account and
+    /// the device together, so a device re-paired into another account owns
+    /// nothing it held before. `None` for a machine, which owns no browser
+    /// lease. Ports v2 `captureOwnerKey` (`terminal-capture-lease.ts:79-83`),
+    /// shared by the capture, terminal-grant and attachment-grant owners.
+    #[must_use]
+    pub fn capture_owner_key(&self) -> Option<String> {
+        match self {
+            Principal::AccountDevice {
+                fingerprint,
+                account_id,
+                ..
+            } => Some(format!("account-device:{account_id}:{fingerprint}")),
+            Principal::LegacySelfHosted { fingerprint, .. } => {
+                Some(format!("legacy-self-hosted:{fingerprint}"))
+            }
+            Principal::Worker { .. } => None,
+        }
+    }
 }
 
 /// The header that names which auth layer refused a request.

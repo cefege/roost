@@ -158,11 +158,42 @@ pub struct WorkerSearchResult {
     pub stop_reason: SearchStop,
 }
 
+/// The fields a worker search result may carry: v2's schema is `.strict()`, so
+/// a result naming anything else is malformed rather than half-read.
+const RESULT_FIELDS: [&str; 10] = [
+    "matches",
+    "truncated",
+    "scrollback_total",
+    "cols",
+    "grid_epoch",
+    "scanned_start_row",
+    "scanned_end_row",
+    "history_floor",
+    "next_before_row",
+    "stop_reason",
+];
+const MATCH_FIELDS: [&str; 4] = ["row", "col", "len", "preview"];
+
 /// Decode one worker answer, or refuse it as malformed.
 pub fn parse_worker_search_result(
     payload: &serde_json::Value,
     request: &ValidatedSearch,
 ) -> Result<WorkerSearchResult, ConnectError> {
+    let result = decode_worker_search_result(payload)?;
+    if disagrees_with_request(&result, request) {
+        return Err(malformed());
+    }
+    Ok(result)
+}
+
+/// Decode one worker search result against the wire schema alone (v2's
+/// `WorkerSearchScrollbackResultSchema`, refinements included), with no
+/// request to compare it to. Global search checks the request itself, per
+/// session, in `search::worker_result`.
+pub fn decode_worker_search_result(
+    payload: &serde_json::Value,
+) -> Result<WorkerSearchResult, ConnectError> {
+    only_fields(payload, &RESULT_FIELDS)?;
     let row = |field: &str| -> Result<u64, ConnectError> {
         let value = number(payload, field)?;
         if value.fract() != 0.0 || value < 0.0 || value > MAX_SAFE_ROW as f64 {
@@ -174,9 +205,11 @@ pub fn parse_worker_search_result(
     let history_floor =
         ScrollbackHistoryFloor::parse("history_floor", text(payload, "history_floor")?)
             .map_err(|_| malformed())?;
-    let matches = parse_matches(payload, request.max_matches as usize)?;
+    let matches = parse_matches(payload, TERMINAL_SEARCH_MAX_MATCHES as usize)?;
     let grid_epoch = text(payload, "grid_epoch")?.to_owned();
-    if grid_epoch.is_empty() {
+    if grid_epoch.is_empty()
+        || grid_epoch.encode_utf16().count() > TERMINAL_SEARCH_GRID_EPOCH_MAX_LENGTH
+    {
         return Err(malformed());
     }
     let result = WorkerSearchResult {
@@ -191,35 +224,19 @@ pub fn parse_worker_search_result(
         next_before_row: optional_row(payload, "next_before_row")?,
         stop_reason,
     };
-    if disagrees_with_request(&result, request) {
+    if violates_schema(&result) {
         return Err(malformed());
     }
     Ok(result)
 }
 
-fn disagrees_with_request(result: &WorkerSearchResult, request: &ValidatedSearch) -> bool {
-    let scanned_rows = result
-        .scanned_end_row
-        .saturating_sub(result.scanned_start_row);
-    // An epoch change and a deadline that scanned nothing are the two answers
-    // that legitimately name an epoch the request did not.
-    let epoch_mismatch_allowed = result.stop_reason == SearchStop::EpochChanged
-        || (result.stop_reason == SearchStop::Deadline
-            && result.scanned_start_row == result.scanned_end_row);
+/// The schema's own refinements: rules about the result alone.
+fn violates_schema(result: &WorkerSearchResult) -> bool {
     let expected_truncated = matches!(
         result.stop_reason,
         SearchStop::MatchLimit | SearchStop::Deadline
     );
-    result.matches.len() > request.max_matches as usize
-        || scanned_rows > u64::from(request.max_rows)
-        || request.before_row.is_some_and(|before| result.scanned_end_row > before)
-        || (result.stop_reason == SearchStop::RowLimit && scanned_rows != u64::from(request.max_rows))
-        || (result.stop_reason == SearchStop::MatchLimit
-            && result.matches.len() != request.max_matches as usize)
-        || (result.truncated != expected_truncated)
-        || (!request.grid_epoch.is_empty()
-            && result.grid_epoch != request.grid_epoch
-            && !epoch_mismatch_allowed)
+    result.truncated != expected_truncated
         || result.scanned_start_row > result.scanned_end_row
         || result
             .matches
@@ -238,6 +255,38 @@ fn disagrees_with_request(result: &WorkerSearchResult, request: &ValidatedSearch
             && result.scanned_start_row != 0)
 }
 
+fn disagrees_with_request(result: &WorkerSearchResult, request: &ValidatedSearch) -> bool {
+    let scanned_rows = result
+        .scanned_end_row
+        .saturating_sub(result.scanned_start_row);
+    // An epoch change and a deadline that scanned nothing are the two answers
+    // that legitimately name an epoch the request did not.
+    let epoch_mismatch_allowed = result.stop_reason == SearchStop::EpochChanged
+        || (result.stop_reason == SearchStop::Deadline
+            && result.scanned_start_row == result.scanned_end_row);
+    result.matches.len() > request.max_matches as usize
+        || scanned_rows > u64::from(request.max_rows)
+        || request
+            .before_row
+            .is_some_and(|before| result.scanned_end_row > before)
+        || (result.stop_reason == SearchStop::RowLimit
+            && scanned_rows != u64::from(request.max_rows))
+        || (result.stop_reason == SearchStop::MatchLimit
+            && result.matches.len() != request.max_matches as usize)
+        || (!request.grid_epoch.is_empty()
+            && result.grid_epoch != request.grid_epoch
+            && !epoch_mismatch_allowed)
+}
+
+fn only_fields(value: &serde_json::Value, allowed: &[&str]) -> Result<(), ConnectError> {
+    let object = value.as_object().ok_or_else(malformed)?;
+    if object.keys().all(|key| allowed.contains(&key.as_str())) {
+        Ok(())
+    } else {
+        Err(malformed())
+    }
+}
+
 fn parse_matches(
     payload: &serde_json::Value,
     max_matches: usize,
@@ -252,6 +301,7 @@ fn parse_matches(
 }
 
 fn parse_match(entry: &serde_json::Value) -> Result<SearchMatch, ConnectError> {
+    only_fields(entry, &MATCH_FIELDS)?;
     let preview = text(entry, "preview")?.to_owned();
     if preview.chars().count() > TERMINAL_SEARCH_PREVIEW_MAX_CODE_POINTS {
         return Err(malformed());
@@ -262,10 +312,18 @@ fn parse_match(entry: &serde_json::Value) -> Result<SearchMatch, ConnectError> {
     }
     Ok(SearchMatch {
         row: row as u64,
-        col: number(entry, "col")? as u32,
-        len: number(entry, "len")? as u32,
+        col: uint32(entry, "col")?,
+        len: uint32(entry, "len")?,
         preview,
     })
+}
+
+fn uint32(value: &serde_json::Value, field: &str) -> Result<u32, ConnectError> {
+    let raw = number(value, field)?;
+    if raw < 0.0 || raw > f64::from(u32::MAX) || raw.fract() != 0.0 {
+        return Err(malformed());
+    }
+    Ok(raw as u32)
 }
 
 fn text<'a>(value: &'a serde_json::Value, field: &str) -> Result<&'a str, ConnectError> {
