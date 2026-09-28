@@ -8,6 +8,7 @@
 //! `apps/web/src/store/sync-watchdog.ts` (`startStaleWatchdog`) and
 //! `apps/web/src/store/sync-smoke.ts`.
 
+use crate::client::sync::classify_close;
 use crate::effect::Effect;
 use crate::store::Store;
 use crate::store::root::{BrowserAccessState, mark_browser_device_rejected};
@@ -52,6 +53,7 @@ pub(crate) fn on_link_closed(
     store: &mut Store,
     generation: u64,
     close_code: Option<u16>,
+    close_reason: &str,
     now_ms: u64,
 ) {
     let was_open = store.sync.close_link(generation, close_code);
@@ -71,12 +73,20 @@ pub(crate) fn on_link_closed(
         mark_browser_device_rejected(store, "sync_4001");
         return;
     }
+    // A backpressure 1013 held the records rather than dropping them, so the
+    // redial is immediate and resumes from the cursor (v2 `flow`); the SAME code
+    // with the rejection reason gets the backoff.
+    let disposition = classify_close(close_code, close_reason);
+    if let Some(reason) = disposition.abort_reason() {
+        store.sync.redial.note_close_abort_reason(reason.as_str());
+    }
     store.sync.redial.schedule_after_close(now_ms);
     let status = store.sync.redial.status();
     tracing::info!(
         target: "sync",
         generation,
         close_code,
+        disposition = disposition.as_str(),
         failures = status.failures,
         delay_ms = status.next_delay_ms,
         parked = status.hidden_parked,

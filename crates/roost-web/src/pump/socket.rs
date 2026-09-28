@@ -48,6 +48,7 @@ pub(super) fn open(pump: &Pump, generation: u64, dial: SyncDial) {
                 pump.dispatch(ClientEvent::SyncLinkClosed {
                     generation,
                     close_code: None,
+                    close_reason: String::new(),
                 });
             }
         }
@@ -95,6 +96,7 @@ fn drain(pump: &Pump) {
                 pump.dispatch(ClientEvent::SyncLinkClosed {
                     generation,
                     close_code: Some(code),
+                    close_reason: reason,
                 });
             }
         }

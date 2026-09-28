@@ -129,6 +129,15 @@ impl SyncRedial {
         self.pending_abort_reason = Some(reason.to_owned());
     }
 
+    /// Record the reason a close VERDICT implies, unless the core already chose
+    /// one: v2 `sync.ts` `onclose` sets `abortReason = "flow"` only while it is
+    /// still null, so this tab's own reason for closing wins over the peer's.
+    pub fn note_close_abort_reason(&mut self, reason: &str) {
+        if self.pending_abort_reason.is_none() {
+            self.pending_abort_reason = Some(reason.to_owned());
+        }
+    }
+
     /// The socket closed: schedule the next dial (v2 `_waitForNextSyncDial`).
     pub fn schedule_after_close(&mut self, now_ms: u64) {
         let reason = self.pending_abort_reason.take();

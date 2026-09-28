@@ -83,7 +83,8 @@ pub fn handle_event(
         ClientEvent::SyncLinkClosed {
             generation,
             close_code,
-        } => on_link_closed(store, *generation, *close_code, host_now_ms),
+            close_reason,
+        } => on_link_closed(store, *generation, *close_code, close_reason, host_now_ms),
         ClientEvent::SyncFrameReceived {
             generation,
             delivery_seq,

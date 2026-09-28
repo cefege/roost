@@ -58,6 +58,7 @@ fn a_boot_wake_does_not_turn_refused_upgrades_into_immediate_redials() {
         core.handle(ClientEvent::SyncLinkClosed {
             generation,
             close_code: REFUSED_UPGRADE,
+            close_reason: String::new(),
         });
         let (dialled_at, next) = next_dial(&mut core, &clock, closed_at);
         waits.push(dialled_at - closed_at);

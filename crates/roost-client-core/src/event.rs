@@ -49,6 +49,10 @@ pub enum ClientEvent {
         /// The WebSocket close code, when there was one. `4001` is the
         /// coordinator refusing the credential, which is terminal for the socket.
         close_code: Option<u16>,
+        /// The close frame's reason string, empty when there was none. `1013`
+        /// means two opposite things and only this separates them
+        /// (`client::sync::classify_close`).
+        close_reason: String,
     },
     /// One frame arrived on the Sync socket, already decoded.
     SyncFrameReceived {
