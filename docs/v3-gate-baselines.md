@@ -1955,8 +1955,6 @@ SHA over the whole block is the mistake this file exists to prevent.
 |clippy|**NOT run on the merged tree**|—|the per-crate clippy figures on record come from the track branches, not from here|
 |two agreeing green runs|`cargo test --workspace --no-fail-fast`|**NOT RUN**|no `cargo test` has been executed on this tree. The 1734/1/15 figure elsewhere in this file is from `3e92e97e`, which is the v3-coord merge and **predates the CLI merge `dbf0edd2`** — it does not describe this tree.|
 
-
-
 **The risk this gate existed to close is closed by compilation, not by a grep.**
 The CLI merge changed `pub trait EnvSource` to `pub trait EnvSource: Sync` in
 `crates/roost-host/src/env.rs` — a crate three others consume. The CLI gate ran
