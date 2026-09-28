@@ -11,8 +11,10 @@
 //! waits on the close request, the outbound queue, the next timer and the next
 //! message, and each dispatch is awaited before the loop's next read. A durable
 //! append lends the socket to `worker_link::result_lane` while it runs, so a
-//! typed completion is not stuck behind it; what else arrived meanwhile waits
-//! in that lane's ordered backlog, which this loop drains before reading again.
+//! typed completion is not stuck behind it and a terminal frame takes the
+//! announced-channel barrier's fast path; what else arrived meanwhile waits in
+//! that lane's ordered backlog, which this loop drains (`FrameOrigin::Backlog`,
+//! already announced) before reading again.
 //!
 //! `WorkerHandle::send` is a synchronous closure, so it ENQUEUES; the loop's
 //! outbound arm is what writes, as protobuf binary through the link's one codec.
@@ -28,7 +30,7 @@ use tokio::time::Instant;
 use crate::services::CoordServices;
 use crate::worker_link::conn_types::SocketClose;
 use crate::worker_link::handshake::read_hello;
-use crate::worker_link::link_session::{LinkSession, LinkStep, LinkTransport};
+use crate::worker_link::link_session::{FrameOrigin, LinkSession, LinkStep, LinkTransport};
 use crate::worker_link::upgrade_admission::{UpgradeDecision, VerifiedWorkerCaller};
 use crate::worker_link::upstream_frame::message_bytes;
 
@@ -92,7 +94,9 @@ async fn run_link(
 
     let ending = loop {
         if let Some(queued) = session.result_lane().take_backlogged() {
-            let step = session.on_bytes(&queued.payload, &mut socket).await;
+            let step = session
+                .on_bytes(&queued.payload, FrameOrigin::Backlog, &mut socket)
+                .await;
             session.result_lane().release_backlogged(&queued);
             if let LinkStep::Close(close) = step {
                 break Ending::Close(close);
@@ -132,7 +136,7 @@ async fn run_link(
                     let Some(bytes) = message_bytes(message) else {
                         continue;
                     };
-                    if let LinkStep::Close(close) = session.on_bytes(&bytes, &mut socket).await {
+                    if let LinkStep::Close(close) = session.on_bytes(&bytes, FrameOrigin::Socket, &mut socket).await {
                         break Ending::Close(close);
                     }
                 }

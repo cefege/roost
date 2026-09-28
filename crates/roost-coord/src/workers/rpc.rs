@@ -215,6 +215,14 @@ pub async fn handle_workers_delete(
             }
             other => internal(other),
         })?;
+    core.services.terminal_direct.retire_worker(
+        fingerprint.as_str(),
+        crate::terminal_direct::TerminalDirectRetireReason::WorkerDeleted,
+    );
+    core.services.attachments.grants().retire_worker(
+        fingerprint.as_str(),
+        crate::attachments::grant_state::AttachmentGrantRetireReason::WorkerDeleted,
+    );
     fence_deleted_worker(core, &fingerprint);
     release_worker_state(core, &fingerprint, &deletion.persisted_session_ids);
     Response::ok(roost_proto::WorkersDeleteResponse {

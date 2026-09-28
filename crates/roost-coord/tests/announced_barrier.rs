@@ -1,372 +1,328 @@
-//! The announced-channel barrier and the worker's durable-event window, with an
-//! injected clock so nothing sleeps and nothing flakes.
+//! The announced-channel barrier: terminal frames that arrive before their
+//! `opened`/`respawned` route commits drain in their original channel order
+//! after the binding, and every loss is reported with what it cost.
 //!
-//! Covers: every refusal the barrier can produce and what each one costs, the
-//! socket-wide retention budget it shares with the ordered frame queue, and the
-//! socket-wide retention budget it shares with the ordered frame queue. The Sync
-//! ACK window and the worker's 600-per-minute rate are in
-//! `transport_windows_ack.rs`.
-//!
-//! These are rules a live socket cannot be asked about reliably -- a frame held
-//! for 3 s needs a deterministic clock to test at all -- which is why they are
-//! pure functions over `now_ms` rather than timers.
-
-// Every unwrap here is an assertion over a value the test just built: the panic
-// IS the failure, which is why `unwrap_used` is denied in product code.
+//! Ports `apps/coord/tests/events/announced-channel-barrier.test.ts`; each
+//! test names its v2 case. Not ported: "frames arriving during the drain join
+//! the tail" — delivery here is a synchronous callback on the socket's one
+//! task, so nothing can arrive mid-drain; its closing assertion (a committed
+//! channel is open again) is the last test below.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::cell::RefCell;
-use std::rc::Rc;
+mod announced_support;
 
-use roost_coord::worker_link::announced_barrier::AnnouncedBarrier;
-use roost_coord::worker_link::announced_types::{
-    ChannelDrop, ChannelPhase, CommitOutcome, DropReason, EnqueueOutcome, FrameLane, MAX_FRAMES,
-    MAX_WAIT_MS, RetainedFrame, RetainedWorkBudget,
+use announced_support::{
+    Barrier, SESSION, binary, cell, chunk, commit_labels, label, metadata, now,
 };
+use roost_coord::worker_link::announced_types::{
+    ANNOUNCED_CHANNEL_MAX_BYTES, ANNOUNCED_CHANNEL_MAX_FRAMES, ANNOUNCED_CHANNEL_MAX_WAIT,
+    BarrierStats, ChannelPhase, DropReason, EnqueueOutcome,
+};
+use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 
-fn budget() -> RetainedWorkBudget {
-    RetainedWorkBudget::new(256, 16 * 1024 * 1024)
-}
-
-fn cell(seq: u64, bytes: u64) -> RetainedFrame {
-    RetainedFrame {
-        lane: FrameLane::Cell { full: false, seq },
-        encoded_bytes: bytes,
-    }
-}
-
-fn full(seq: u64, bytes: u64) -> RetainedFrame {
-    RetainedFrame {
-        lane: FrameLane::Cell { full: true, seq },
-        encoded_bytes: bytes,
-    }
-}
-
-fn metadata(bytes: u64) -> RetainedFrame {
-    RetainedFrame {
-        lane: FrameLane::Metadata,
-        encoded_bytes: bytes,
-    }
-}
-
-/// Collects the drops a barrier reports, so a test can assert which channel died
-/// and why without a terminal view hub.
-///
-/// The `Rc` is load-bearing and was a real bug: `RefCell<Vec<_>>` implements
-/// `Clone` by cloning the *vector*, so a plain `drops.clone()` hands the callback
-/// and the assertions two independent cells and every drop assertion reads an
-/// empty list.
-fn recorder() -> (Rc<RefCell<Vec<ChannelDrop>>>, impl FnMut(ChannelDrop)) {
-    let drops: Rc<RefCell<Vec<ChannelDrop>>> = Rc::new(RefCell::new(Vec::new()));
-    let sink = Rc::clone(&drops);
-    (drops, move |drop| {
-        sink.borrow_mut().push(drop);
-    })
-}
-
-// ── the announced-channel barrier ──────────────────────────────────────────
+const MAX_BYTES: u64 = ANNOUNCED_CHANNEL_MAX_BYTES;
 
 #[test]
-fn a_frame_for_an_unannounced_channel_flows_the_ordinary_way() {
-    let mut barrier = AnnouncedBarrier::new(budget());
-    let mut report = |_drop: ChannelDrop| unreachable!("nothing is announced yet");
+fn a_respawns_binary_frames_and_its_cells_drain_in_arrival_order() {
+    // v2: "a respawn's metadata binary frame and its cell frames drain in arrival order"
+    let mut b = Barrier::new();
+    assert_eq!(b.enqueue(cell(1, true), 100), EnqueueOutcome::NotAnnounced);
+    b.announce(SESSION);
     assert_eq!(
-        barrier.enqueue(7, cell(1, 100), &mut report),
-        EnqueueOutcome::NotAnnounced
-    );
-}
-
-#[test]
-fn a_announced_channel_holds_its_frames_in_arrival_order_until_the_route_commits() {
-    let mut barrier = AnnouncedBarrier::new(budget());
-    let mut report = |_drop: ChannelDrop| unreachable!("nothing should drop");
-    barrier.announce(7, "s-1", 0, &mut report);
-
-    assert!(barrier.is_announced(7));
-    assert_eq!(
-        barrier.enqueue(7, full(1, 100), &mut report),
+        b.enqueue(binary(1, "\u{1b}]0;fresh-title\u{7}"), 60),
         EnqueueOutcome::Buffered
     );
+    assert_eq!(b.enqueue(cell(10, true), 100), EnqueueOutcome::Buffered);
     assert_eq!(
-        barrier.enqueue(7, cell(2, 100), &mut report),
+        b.enqueue(binary(2, "prompt$ "), 40),
         EnqueueOutcome::Buffered
     );
-    assert_eq!(
-        barrier.enqueue(7, cell(3, 100), &mut report),
-        EnqueueOutcome::Buffered
-    );
+    assert_eq!(b.enqueue(cell(11, false), 100), EnqueueOutcome::Buffered);
+    let stats = b.barrier.stats();
+    assert_eq!((stats.channels, stats.frames, stats.bytes), (1, 4, 300));
+    assert_eq!((stats.pending, stats.draining), (1, 0));
 
-    let stats = barrier.stats();
-    assert_eq!(stats.channels, 1);
-    assert_eq!(stats.pending, 1);
-    assert_eq!(stats.draining, 0);
-    assert_eq!(stats.frames, 3);
-    assert_eq!(stats.bytes, 300);
+    let (committed, delivered) = commit_labels(&mut b, SESSION, true);
 
+    assert!(committed);
     assert_eq!(
-        barrier.commit(7, "s-1", true, &mut report),
-        CommitOutcome::Drained { frames: 3 }
+        delivered,
+        [
+            "binary:\u{1b}]0;fresh-title\u{7}",
+            "cell:10:full",
+            "binary:prompt$ ",
+            "cell:11:delta"
+        ]
     );
+    assert_eq!(b.barrier.stats().channels, 0);
     assert_eq!(
-        barrier.stats().frames,
+        b.budget.stats().frames,
         0,
-        "the budget is released on commit"
+        "every held frame gave its charge back"
     );
-    assert!(!barrier.is_announced(7));
+    assert!(b.drops().is_empty());
 }
 
 #[test]
-fn a_cell_sequence_gap_drops_the_channel_because_a_lost_frame_is_unrecoverable() {
-    // The recipient's baseline is already wrong; waiting cannot fix it, and the
-    // recipient's status frames and partial chunks never establish a baseline
-    // (`protocol/spec/terminal-stream.md:27`).
-    let mut barrier = AnnouncedBarrier::new(budget());
-    let (drops, mut report) = recorder();
-    barrier.announce(7, "s-1", 0, &mut report);
+fn semantic_metadata_waits_for_the_announced_channel_route() {
+    // v2: "semantic metadata waits for the announced channel route"
+    let mut b = Barrier::new();
+    b.announce(SESSION);
     assert_eq!(
-        barrier.enqueue(7, full(1, 100), &mut report),
+        b.enqueue(metadata("fresh-title", true, true, 1), 40),
         EnqueueOutcome::Buffered
     );
-    // seq 3 skips 2.
-    assert_eq!(
-        barrier.enqueue(7, cell(3, 100), &mut report),
-        EnqueueOutcome::Dropped
-    );
-
-    let recorded = drops.borrow();
-    assert_eq!(recorded.len(), 1);
-    assert_eq!(recorded[0].reason, DropReason::OutOfOrder);
-    assert_eq!(recorded[0].channel_id, 7);
-    assert_eq!(recorded[0].session_id, "s-1");
-    assert_eq!(recorded[0].phase, ChannelPhase::Pending);
-    assert!(
-        !barrier.is_announced(7),
-        "the channel is gone with its frames"
-    );
+    assert_eq!(b.enqueue(cell(10, true), 100), EnqueueOutcome::Buffered);
+    let (_, delivered) = commit_labels(&mut b, SESSION, true);
+    assert_eq!(delivered, ["metadata:fresh-title", "cell:10:full"]);
+    assert!(b.drops().is_empty());
 }
 
 #[test]
-fn a_delta_before_any_full_is_a_gap_because_there_is_nothing_to_continue() {
-    let mut barrier = AnnouncedBarrier::new(budget());
-    let (drops, mut report) = recorder();
-    barrier.announce(7, "s-1", 0, &mut report);
-    assert_eq!(
-        barrier.enqueue(7, cell(1, 100), &mut report),
-        EnqueueOutcome::Dropped
-    );
-    assert_eq!(drops.borrow()[0].reason, DropReason::OutOfOrder);
+fn early_title_and_activity_facts_merge_before_the_route_announces() {
+    // v2: "early title and activity facts merge before the route announces"
+    let mut b = Barrier::new();
+    assert!(b.retain_early(metadata("early title", true, false, 11), 40));
+    assert!(b.retain_early(metadata("", false, true, 22), 40));
+    b.announce(SESSION);
+    let mut delivered = Vec::new();
+    let committed = b.commit(SESSION, true, &mut |frame| delivered.push(frame));
+    assert!(committed);
+    let [CoordWorkerUpstream::TerminalMetadata(merged)] = delivered.as_slice() else {
+        panic!("exactly one merged metadata frame, got {delivered:?}");
+    };
+    assert_eq!(merged.title, "early title");
+    assert!(merged.title_changed && merged.activity_changed);
+    assert_eq!(merged.activity_ts_ms, 22);
 }
 
 #[test]
-fn a_full_resets_the_run_so_the_next_delta_is_its_successor() {
-    // A full after a gap is precisely the repair that makes a channel usable
-    // again. Refusing it would leave the recipient permanently stuck rather than
-    // momentarily wrong.
-    let mut barrier = AnnouncedBarrier::new(budget());
-    let (_drops, mut report) = recorder();
-    barrier.announce(7, "s-1", 0, &mut report);
-    assert_eq!(
-        barrier.enqueue(7, full(900, 100), &mut report),
-        EnqueueOutcome::Buffered
-    );
-    assert_eq!(
-        barrier.enqueue(7, cell(901, 100), &mut report),
-        EnqueueOutcome::Buffered
-    );
-    assert_eq!(
-        barrier.enqueue(7, cell(903, 100), &mut report),
-        EnqueueOutcome::Dropped
-    );
+fn a_pre_bind_snapshot_chunk_establishes_the_barrier_baseline() {
+    // v2: "a pre-bind snapshot chunk establishes the barrier baseline"
+    let mut b = Barrier::new();
+    b.announce(SESSION);
+    assert_eq!(b.enqueue(chunk(10), 100), EnqueueOutcome::Buffered);
+    assert_eq!(b.enqueue(cell(11, false), 100), EnqueueOutcome::Buffered);
+    let (_, delivered) = commit_labels(&mut b, SESSION, true);
+    assert_eq!(delivered, ["chunk:10", "cell:11:delta"]);
 }
 
 #[test]
-fn the_frame_cap_drops_the_channel_and_names_the_bound() {
-    let mut barrier = AnnouncedBarrier::new(budget());
-    let (drops, mut report) = recorder();
-    barrier.announce(7, "s-1", 0, &mut report);
-    for seq in 1..=MAX_FRAMES as u64 {
-        assert_eq!(
-            barrier.enqueue(7, full(seq, 1), &mut report),
-            EnqueueOutcome::Buffered,
-            "frame {seq}"
-        );
+fn coalesced_metadata_retains_its_original_channel_order() {
+    // v2: "coalesced metadata retains its original channel order"
+    let mut b = Barrier::new();
+    b.announce(SESSION);
+    b.enqueue(metadata("retained-title", true, false, 1), 40);
+    b.enqueue(cell(10, true), 100);
+    b.enqueue(metadata("", false, true, 1), 40);
+    let mut delivered = Vec::new();
+    b.commit(SESSION, true, &mut |frame| delivered.push(frame));
+    let labels: Vec<String> = delivered.iter().map(label).collect();
+    assert_eq!(labels, ["metadata:retained-title", "cell:10:full"]);
+    let CoordWorkerUpstream::TerminalMetadata(merged) = &delivered[0] else {
+        panic!("the first frame is the coalesced metadata");
+    };
+    assert!(merged.title_changed && merged.activity_changed);
+    assert_eq!(merged.title, "retained-title");
+}
+
+#[test]
+fn frame_count_overflow_reports_the_pending_loss_of_both_lanes() {
+    // v2: "frame-count overflow reports the pending loss of both lanes"
+    let mut b = Barrier::new();
+    b.announce(SESSION);
+    assert_eq!(b.enqueue(cell(10, true), 100), EnqueueOutcome::Buffered);
+    for seq in 1..ANNOUNCED_CHANNEL_MAX_FRAMES as u64 {
+        assert_eq!(b.enqueue(binary(seq, "ab"), 10), EnqueueOutcome::Buffered);
     }
+    assert_eq!(b.enqueue(cell(11, false), 10), EnqueueOutcome::Dropped);
+
+    assert_eq!(b.barrier.stats().channels, 0);
+    let drops = b.drops();
+    let [drop] = drops.as_slice() else {
+        panic!("one drop, got {drops:?}");
+    };
     assert_eq!(
-        barrier.enqueue(7, full(MAX_FRAMES as u64 + 1, 1), &mut report),
+        (drop.reason, drop.phase),
+        (DropReason::Overflow, ChannelPhase::Pending)
+    );
+    assert_eq!((drop.channel_id, drop.session_id.as_str()), (7, SESSION));
+    // The refused frame is lost too, so it is counted with the buffer.
+    assert_eq!(drop.cell_frames, 2);
+    assert_eq!(drop.binary_frames, ANNOUNCED_CHANNEL_MAX_FRAMES - 1);
+    assert_eq!(
+        drop.binary_bytes,
+        (ANNOUNCED_CHANNEL_MAX_FRAMES as u64 - 1) * 2
+    );
+    assert_eq!(b.budget.stats().frames, 0, "a drop releases what it held");
+}
+
+#[test]
+fn byte_cap_overflow_drops_the_buffer_and_reports_the_dropped_pty_bytes() {
+    // v2: "byte-cap overflow drops the buffer and reports the dropped PTY bytes"
+    let mut b = Barrier::new();
+    b.announce(SESSION);
+    b.enqueue(cell(10, true), 100);
+    b.enqueue(binary(1, "title-bytes"), 64);
+    assert_eq!(
+        b.enqueue(binary(2, "flood"), MAX_BYTES),
         EnqueueOutcome::Dropped
     );
-    assert_eq!(drops.borrow()[0].reason, DropReason::Overflow);
-    assert_eq!(drops.borrow()[0].cell_frames, MAX_FRAMES);
+    let drops = b.drops();
+    assert_eq!(drops.len(), 1);
+    assert_eq!(drops[0].reason, DropReason::Overflow);
+    assert_eq!((drops[0].cell_frames, drops[0].binary_frames), (1, 2));
+    assert_eq!(
+        drops[0].binary_bytes,
+        ("title-bytes".len() + "flood".len()) as u64
+    );
 }
 
 #[test]
-fn a_socket_wide_budget_refusal_drops_the_channel_rather_than_exceeding_the_budget() {
-    // The budget is the SOCKET's, shared with the ordered frame queue, so one
-    // worker opening many channels exhausts one budget rather than one each
-    // (`apps/coord/src/workers/worker-ws-upgrade.ts:148`).
-    let mut barrier = AnnouncedBarrier::new(RetainedWorkBudget::new(4, 16 * 1024 * 1024));
-    let (drops, mut report) = recorder();
-    barrier.announce(1, "s-1", 0, &mut report);
-    barrier.announce(2, "s-2", 0, &mut report);
-    for seq in 1..=2 {
-        assert_eq!(
-            barrier.enqueue(1, full(seq, 10), &mut report),
-            EnqueueOutcome::Buffered
-        );
-    }
-    for seq in 1..=2 {
-        assert_eq!(
-            barrier.enqueue(2, full(seq, 10), &mut report),
-            EnqueueOutcome::Buffered
-        );
-    }
-    // The fifth frame has nowhere to go.
-    barrier.announce(3, "s-3", 0, &mut report);
+fn metadata_survives_an_overflowed_cell_barrier_until_the_route_commits() {
+    // v2: "metadata survives an overflowed cell barrier until the route commits"
+    let mut b = Barrier::new();
+    b.announce(SESSION);
+    b.enqueue(metadata("survives-overflow", true, true, 1), 40);
+    b.enqueue(cell(10, true), 100);
     assert_eq!(
-        barrier.enqueue(3, full(1, 10), &mut report),
+        b.enqueue(binary(1, "flood"), MAX_BYTES),
         EnqueueOutcome::Dropped
     );
-    assert_eq!(drops.borrow()[0].reason, DropReason::Overflow);
+    let stats = b.barrier.stats();
+    assert_eq!(
+        (stats.channels, stats.frames, stats.recovery_metadata),
+        (0, 1, 1)
+    );
+
+    let (committed, delivered) = commit_labels(&mut b, SESSION, true);
+    assert!(committed);
+    assert_eq!(delivered, ["metadata:survives-overflow"]);
+    assert_eq!(b.barrier.stats().frames, 0);
+    assert_eq!(b.budget.stats().frames, 0);
 }
 
 #[test]
-fn a_re_announcement_supersedes_rather_than_merges() {
-    // Merging would deliver the old channel's cells to a session that no longer
-    // owns the channel.
-    let mut barrier = AnnouncedBarrier::new(budget());
-    let (drops, mut report) = recorder();
-    barrier.announce(7, "s-old", 0, &mut report);
+fn matching_recovery_survives_a_same_session_reannouncement() {
+    // v2: "matching recovery survives a same-session reannouncement"
+    let mut b = Barrier::new();
+    b.announce(SESSION);
+    b.enqueue(metadata("reannounced", true, true, 1), 40);
     assert_eq!(
-        barrier.enqueue(7, full(1, 100), &mut report),
-        EnqueueOutcome::Buffered
-    );
-    barrier.announce(7, "s-new", 0, &mut report);
-    assert_eq!(drops.borrow()[0].reason, DropReason::Superseded);
-    assert_eq!(drops.borrow()[0].session_id, "s-old");
-    // The new announcement starts empty.
-    assert_eq!(barrier.stats().frames, 0);
-    assert_eq!(
-        barrier.commit(7, "s-new", true, &mut report),
-        CommitOutcome::Drained { frames: 0 }
-    );
-}
-
-#[test]
-fn a_commit_naming_a_different_session_is_refused_without_dropping() {
-    let mut barrier = AnnouncedBarrier::new(budget());
-    let (drops, mut report) = recorder();
-    barrier.announce(7, "s-1", 0, &mut report);
-    assert_eq!(
-        barrier.enqueue(7, full(1, 100), &mut report),
-        EnqueueOutcome::Buffered
-    );
-    assert_eq!(
-        barrier.commit(7, "s-2", true, &mut report),
-        CommitOutcome::SessionMismatch
-    );
-    assert!(
-        drops.borrow().is_empty(),
-        "a mismatch is not a drop; the channel is still open"
-    );
-    assert!(barrier.is_announced(7));
-}
-
-#[test]
-fn a_durable_index_that_bound_a_different_session_drops_the_channel() {
-    // This is the one refusal that means the durable state and the announcement
-    // DISAGREE, which is exactly the case where delivering would bind cells to
-    // the wrong session.
-    let mut barrier = AnnouncedBarrier::new(budget());
-    let (drops, mut report) = recorder();
-    barrier.announce(7, "s-1", 0, &mut report);
-    assert_eq!(
-        barrier.enqueue(7, full(1, 100), &mut report),
-        EnqueueOutcome::Buffered
-    );
-    assert_eq!(
-        barrier.commit(7, "s-1", false, &mut report),
-        CommitOutcome::MappingMismatch
-    );
-    assert_eq!(drops.borrow()[0].reason, DropReason::MappingMismatch);
-}
-
-#[test]
-fn a_channel_that_waits_past_the_bound_is_reported_as_expired() {
-    let mut barrier = AnnouncedBarrier::new(budget());
-    let (drops, mut report) = recorder();
-    barrier.announce(7, "s-1", 1_000, &mut report);
-    assert!(barrier.expired(1_000 + MAX_WAIT_MS - 1).is_empty());
-    let expired = barrier.expired(1_000 + MAX_WAIT_MS);
-    assert_eq!(expired, vec![(7, "s-1".to_string())]);
-    barrier.fail(7, DropReason::Timeout, &mut report);
-    assert_eq!(drops.borrow()[0].reason, DropReason::Timeout);
-    assert!(
-        barrier.expired(1_000 + MAX_WAIT_MS * 10).is_empty(),
-        "the channel is gone"
-    );
-}
-
-#[test]
-fn a_draining_channel_is_not_reported_as_expired() {
-    // The deadline is about waiting for the route, and a committed channel is
-    // already past it.
-    let mut barrier = AnnouncedBarrier::new(budget());
-    let mut report = |_drop: ChannelDrop| unreachable!();
-    barrier.announce(7, "s-1", 0, &mut report);
-    barrier.commit(7, "s-1", true, &mut report);
-    assert!(barrier.expired(MAX_WAIT_MS * 2).is_empty());
-}
-
-#[test]
-fn clearing_releases_every_channel_and_its_budget() {
-    let mut budget = RetainedWorkBudget::new(256, 16 * 1024 * 1024);
-    let mut barrier = AnnouncedBarrier::new(budget);
-    budget = RetainedWorkBudget::new(256, 16 * 1024 * 1024);
-    let _ = budget;
-    let mut report = |_drop: ChannelDrop| unreachable!();
-    for channel in 0..4u32 {
-        barrier.announce(channel, "s", 0, &mut report);
-        barrier.enqueue(channel, full(1, 1000), &mut report);
-    }
-    assert_eq!(barrier.stats().bytes, 4000);
-    barrier.clear();
-    assert_eq!(barrier.stats().channels, 0);
-    assert_eq!(barrier.stats().bytes, 0);
-}
-
-#[test]
-fn a_closed_budget_retains_nothing_further() {
-    let mut budget = RetainedWorkBudget::new(4, 1024);
-    budget.close();
-    let mut barrier = AnnouncedBarrier::new(budget);
-    let (drops, mut report) = recorder();
-    barrier.announce(1, "s-1", 0, &mut report);
-    assert_eq!(
-        barrier.enqueue(1, full(1, 10), &mut report),
+        b.enqueue(binary(1, "overflow"), MAX_BYTES),
         EnqueueOutcome::Dropped
     );
-    assert_eq!(drops.borrow()[0].reason, DropReason::Overflow);
+    b.announce(SESSION);
+    let stats = b.barrier.stats();
+    assert_eq!(
+        (stats.channels, stats.frames, stats.recovery_metadata),
+        (1, 1, 0)
+    );
+    let (committed, delivered) = commit_labels(&mut b, SESSION, true);
+    assert!(committed);
+    assert_eq!(delivered, ["metadata:reannounced"]);
 }
 
 #[test]
-fn metadata_and_binary_frames_are_counted_separately_so_a_drop_says_what_was_lost() {
-    let mut barrier = AnnouncedBarrier::new(budget());
-    let (drops, mut report) = recorder();
-    barrier.announce(7, "s-1", 0, &mut report);
-    barrier.enqueue(
-        7,
-        RetainedFrame {
-            lane: FrameLane::Binary { bytes: 4096 },
-            encoded_bytes: 4096,
-        },
-        &mut report,
+fn a_timed_out_cell_barrier_retains_latest_metadata_through_route_binding() {
+    // v2: "a timed-out cell barrier retains latest metadata through route binding"
+    let mut b = Barrier::new();
+    let announced_at = now();
+    b.barrier.announce(7, SESSION, announced_at, &mut b.budget);
+    b.enqueue(metadata("survives-timeout", true, true, 1), 40);
+    b.enqueue(cell(10, true), 100);
+    b.enqueue(binary(1, "osc8-link"), 32);
+
+    b.barrier
+        .expire(announced_at + ANNOUNCED_CHANNEL_MAX_WAIT, &mut b.budget);
+
+    let drops = b.drops();
+    assert_eq!(drops.len(), 1);
+    assert_eq!(
+        (drops[0].reason, drops[0].phase),
+        (DropReason::Timeout, ChannelPhase::Pending)
     );
-    barrier.enqueue(7, metadata(64), &mut report);
-    barrier.fail(7, DropReason::AppendFailed, &mut report);
-    let recorded = &drops.borrow()[0];
-    assert_eq!(recorded.binary_frames, 1);
-    assert_eq!(recorded.binary_bytes, 4096);
-    assert_eq!(recorded.metadata_frames, 1);
-    assert_eq!(recorded.cell_frames, 0);
-    assert_eq!(recorded.reason, DropReason::AppendFailed);
+    assert_eq!((drops[0].cell_frames, drops[0].binary_frames), (1, 1));
+    assert_eq!(drops[0].binary_bytes, "osc8-link".len() as u64);
+    let stats = b.barrier.stats();
+    assert_eq!(
+        (stats.channels, stats.frames, stats.recovery_metadata),
+        (0, 1, 1)
+    );
+    let (committed, delivered) = commit_labels(&mut b, SESSION, true);
+    assert!(committed);
+    assert_eq!(delivered, ["metadata:survives-timeout"]);
+}
+
+#[test]
+fn a_delta_before_the_channels_first_full_grid_is_an_ordering_loss() {
+    // v2: "a delta before the channel's first full grid is an ordering loss"
+    let mut b = Barrier::new();
+    b.announce(SESSION);
+    // A binary frame first is legitimate; a cell DELTA first is not.
+    assert_eq!(b.enqueue(binary(1, "bytes"), 20), EnqueueOutcome::Buffered);
+    assert_eq!(b.enqueue(cell(2, false), 100), EnqueueOutcome::Dropped);
+    let drops = b.drops();
+    assert_eq!(drops[0].reason, DropReason::OutOfOrder);
+    assert_eq!((drops[0].cell_frames, drops[0].binary_frames), (1, 1));
+
+    b.announce(SESSION);
+    assert_eq!(b.enqueue(cell(10, true), 100), EnqueueOutcome::Buffered);
+    assert_eq!(b.enqueue(cell(12, false), 100), EnqueueOutcome::Dropped);
+    assert_eq!(b.drops()[1].reason, DropReason::OutOfOrder);
+}
+
+#[test]
+fn commit_without_the_exact_binding_delivers_nothing() {
+    // v2: "commit without the exact binding delivers nothing"
+    let mut b = Barrier::new();
+    b.announce(SESSION);
+    b.enqueue(cell(10, true), 100);
+    b.enqueue(binary(1, "bytes"), 20);
+    let (committed, delivered) = commit_labels(&mut b, SESSION, false);
+    assert!(!committed);
+    assert!(delivered.is_empty());
+    assert_eq!(b.drops()[0].reason, DropReason::MappingMismatch);
+    assert_eq!(b.barrier.stats().channels, 0);
+
+    // A commit for another session never touches this channel's buffer.
+    b.announce(SESSION);
+    b.enqueue(cell(10, true), 100);
+    let (committed, delivered) = commit_labels(&mut b, "other-session", true);
+    assert!(!committed);
+    assert!(delivered.is_empty());
+    assert_eq!(b.barrier.stats().channels, 1);
+}
+
+#[test]
+fn a_replacement_announcement_reports_the_buffer_it_can_never_bind() {
+    // v2: "a replacement announcement reports the buffer it can never bind"
+    let mut b = Barrier::new();
+    b.announce(SESSION);
+    b.enqueue(cell(10, true), 100);
+    b.announce(SESSION);
+    let drops = b.drops();
+    assert_eq!(drops.len(), 1);
+    assert_eq!(
+        (drops[0].reason, drops[0].cell_frames),
+        (DropReason::Superseded, 1)
+    );
+    let expected = BarrierStats {
+        channels: 1,
+        pending: 1,
+        ..BarrierStats::default()
+    };
+    assert_eq!(b.barrier.stats(), expected);
+}
+
+#[test]
+fn a_committed_channel_is_open_and_its_next_frame_takes_the_fast_path() {
+    // v2: the closing assertion of "frames arriving during the drain join the tail"
+    let mut b = Barrier::new();
+    b.announce(SESSION);
+    b.enqueue(cell(10, true), 100);
+    let (committed, _) = commit_labels(&mut b, SESSION, true);
+    assert!(committed);
+    assert_eq!(b.barrier.stats().channels, 0);
+    assert_eq!(b.enqueue(cell(12, false), 40), EnqueueOutcome::NotAnnounced);
 }

@@ -133,6 +133,14 @@ impl WorkerFrameDispatcher {
         let Ok(worker) = self.authenticated(worker_fp) else {
             return self.refuse(channel, "unaddressable_worker_fp");
         };
+        // Progress settles no pending RPC, so the snapshot barrier does not
+        // gate it: v2 routes it on any socket past hello.
+        if let CoordWorkerUpstream::UpdateProgress(progress) = &upstream {
+            return match self.core.services.deploy.accept_update_progress(&worker, progress) {
+                Ok(()) => DispatchOutcome::Handled,
+                Err(reason) => self.refuse(channel, reason),
+            };
+        }
         if !self.handle.is_ready() {
             tracing::debug!(worker_fp = %worker, what = upstream.kind(),
                 "worker link: unready_rpc_result; dropped");
@@ -156,7 +164,12 @@ impl WorkerFrameDispatcher {
                 pending.resolve_typed(TypedWorkerResult::Input(result), Some(worker.as_str()));
             }
             direct @ (CoordWorkerUpstream::TerminalInputRouteResult(_)
-            | CoordWorkerUpstream::TerminalTransportProbeResult(_)) => {
+            | CoordWorkerUpstream::TerminalTransportProbeResult(_)
+            | CoordWorkerUpstream::LocalTerminalPeerAnswer(_)
+            | CoordWorkerUpstream::LocalTerminalPeerError(_)
+            | CoordWorkerUpstream::LocalAttachmentPeerAnswer(_)
+            | CoordWorkerUpstream::LocalAttachmentPeerError(_)
+            | CoordWorkerUpstream::AttachmentDirectStatus(_)) => {
                 return crate::worker_link::direct_results::accept_direct_result(
                     &self.core.services,
                     &self.handle,

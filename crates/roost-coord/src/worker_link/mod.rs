@@ -13,6 +13,9 @@
 //! the arithmetic that fixes its value.
 
 pub mod announced_barrier;
+mod announced_channel;
+mod announced_lane;
+pub mod announced_retention;
 pub mod announced_types;
 pub mod client_seq;
 pub mod conn_types;
@@ -25,9 +28,11 @@ pub mod frame_queue;
 pub mod handshake;
 pub mod keepalive;
 mod link_session;
+mod link_upkeep;
 pub mod live_frames;
 pub mod rate_window;
 mod reap_outbox;
 mod result_lane;
+pub mod retained_budget;
 pub mod upgrade_admission;
 pub mod upstream_frame;

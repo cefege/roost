@@ -98,11 +98,6 @@ pub fn check_row_order(served_start_row: u64, row_indices: &[u32]) -> Scrollback
     if row_indices.is_empty() {
         return ScrollbackRowOrder::Ordered;
     }
-    if row_indices.len() > u64::BITS as usize {
-        return ScrollbackRowOrder::Refused(
-            "scrollback page carries more rows than a row index can name",
-        );
-    }
     for (offset, index) in row_indices.iter().enumerate() {
         let expected = served_start_row.saturating_add(offset as u64);
         if u64::from(*index) != expected {
