@@ -56,6 +56,17 @@ pub(super) fn page_visible() -> bool {
         .is_none_or(|document| document.visibility_state() == web_sys::VisibilityState::Visible)
 }
 
+/// A fresh view id: `crypto.randomUUID()`, as v2 `terminal-stream-view.ts`.
+/// The authority refuses any view id that is not a UUID (v2
+/// `validateTerminalViewCommand`: "invalid terminal view id"), so there is no
+/// other format to fall back to — without `crypto` (an insecure origin) the pane
+/// cannot publish a view, as v2 cannot.
+pub(super) fn mint_view_id() -> Option<String> {
+    web_sys::window()
+        .and_then(|window| window.crypto().ok())
+        .map(|crypto| crypto.random_uuid())
+}
+
 /// The deck measures zero: every pane leaves layout for one tick.
 pub(super) fn deck_box_collapsed() -> bool {
     web_sys::window()

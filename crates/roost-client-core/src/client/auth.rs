@@ -2,7 +2,7 @@
 //! coordinator credential derived from it, and the pairing requests that enroll
 //! it.
 //!
-//! Nine files, one concern each. `keystore` names what a host must be able to
+//! One concern per file. `keystore` names what a host must be able to
 //! do with the key; `memory_keystore` is the reference implementation of that
 //! discipline and the only one a unit test can drive; `jwt` builds the EdDSA
 //! token the coordinator verifies and holds the one rule about a signing
@@ -11,7 +11,8 @@
 //! that decides which key signs; `ceremony` owns the portable entropy and the
 //! canonical validation of the pairing values; `ceremony_store` retains the two
 //! tab-scoped records; `pairing_requests` and `pairing_session` are the wire
-//! bodies and the stages that order them; and `redeem` spends a one-time grant.
+//! bodies and the stages that order them; `redeem` spends a one-time grant; and
+//! `tab_id` claims the one tab id a document presents on every request.
 //!
 //! The load-bearing property is the one the trait shape enforces: no method
 //! anywhere under this module returns private key material, and none of the
@@ -34,6 +35,7 @@ pub mod pairing_approval;
 pub mod pairing_requests;
 pub mod pairing_session;
 pub mod redeem;
+pub mod tab_id;
 
 pub use ceremony::{
     CeremonyError, CountingRandomSource, FixedRandomSource, PAIR_REQUEST_ID_BYTES,

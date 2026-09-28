@@ -1,10 +1,11 @@
-//! Bringing the pump up: the device key, identity discovery, the captured
-//! `#pair=` redeem, then the first dial and the timers.
+//! Bringing the pump up: the tab id claim, the device key, identity discovery,
+//! the captured `#pair=` redeem, then the first dial and the timers.
 //!
 //! Called once by `App`. Ported from `apps/web/src/store/sync-bootstrap.ts`
 //! (`_bootstrap`, `:162-199`) and `apps/web/src/store/sync-bootstrap.pair.ts`
 //! (`dispatchCapturedFragmentCredential`); the redeem request is
-//! `apps/web/src/store/auth/redeemPairToken.ts:30-55`.
+//! `apps/web/src/store/auth/redeemPairToken.ts:30-55`; the claim is
+//! `apps/web/src/client/auth/tab-id.ts` (`claimTabIdentity`).
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -21,8 +22,11 @@ use crate::platform::self_label::current_browser_self_label;
 
 /// Build the pump for `core` and start it. The returned pump is the one the
 /// app provides in context.
-pub fn start_pump(core: Rc<RefCell<ClientCore>>, revision: Signal<u64>, tab_id: &str) -> Pump {
-    let rpc = Rc::new(CoordRpc::new(coordinator_origin(), tab_id));
+///
+/// The core and the coordinator client start with no tab id: the document has
+/// none until `boot` claims one, and nothing transports before that.
+pub fn start_pump(core: Rc<RefCell<ClientCore>>, revision: Signal<u64>) -> Pump {
+    let rpc = Rc::new(CoordRpc::new(coordinator_origin(), ""));
     let pump = Pump::new(core, revision, rpc);
     let booting = pump.clone();
     wasm_bindgen_futures::spawn_local(async move { boot(booting).await });
@@ -30,6 +34,8 @@ pub fn start_pump(core: Rc<RefCell<ClientCore>>, revision: Signal<u64>, tab_id: 
 }
 
 async fn boot(pump: Pump) {
+    #[cfg(target_arch = "wasm32")]
+    claim_tab_id(&pump).await;
     match WebDeviceKey::load_or_generate().await {
         Ok(key) => pump.inner.rpc.install_key(Rc::new(key)),
         Err(reason) => {
@@ -43,6 +49,20 @@ async fn boot(pump: Pump) {
     #[cfg(target_arch = "wasm32")]
     super::browser::install(&pump);
     pump.dispatch(ClientEvent::DialRequested);
+}
+
+/// Claim this document's tab id and present it on the store (the Sync dial)
+/// and on every Connect call. v2 awaits the claim before any transport
+/// (`sync-bootstrap.ts:163`, `main.tsx:154`); the claim is kept with the
+/// pump's listeners because its channel answers later duplicated documents.
+#[cfg(target_arch = "wasm32")]
+async fn claim_tab_id(pump: &Pump) {
+    let claim = crate::platform::tab_id::claim_document_tab_id().await;
+    claim
+        .id()
+        .clone_into(&mut pump.inner.core.borrow_mut().store_mut().tab_id);
+    pump.inner.rpc.present_tab_id(claim.id());
+    pump.inner.listeners.borrow_mut().push(Box::new(claim));
 }
 
 /// Spend a scrubbed `#pair=` token on this device's key before anything

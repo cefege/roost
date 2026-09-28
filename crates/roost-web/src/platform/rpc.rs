@@ -12,6 +12,7 @@
 //! server-streaming method to this trait would be a protocol change, not a
 //! transport change.
 
+use std::cell::RefCell;
 use std::fmt;
 
 use wasm_bindgen::JsCast as _;
@@ -127,21 +128,27 @@ pub trait ConnectTransport {
 #[derive(Debug, Clone)]
 pub struct FetchConnectTransport {
     base_url: String,
-    tab_id: String,
+    tab_id: RefCell<String>,
 }
 
 impl FetchConnectTransport {
     /// A transport against `base_url`, presenting `tab_id` on every call.
     ///
-    /// The tab id is taken once rather than per call because it is the identity
-    /// of THIS document, and v2 set it unconditionally and independently of auth:
-    /// a request that arrives without it cannot be correlated with a socket, and
-    /// the coordinator uses it to attribute the row in `audit_log`.
+    /// The tab id is the identity of THIS document, and v2 set it
+    /// unconditionally and independently of auth: a request that arrives without
+    /// it cannot be correlated with a socket, and the coordinator uses it to
+    /// attribute the row in `audit_log`.
     pub fn new(base_url: impl Into<String>, tab_id: impl Into<String>) -> Self {
         Self {
             base_url: base_url.into(),
-            tab_id: tab_id.into(),
+            tab_id: RefCell::new(tab_id.into()),
         }
+    }
+
+    /// Present `tab_id` from the next call on: the document's claimed id, which
+    /// the claim may have rotated off a duplicated tab's.
+    pub fn present_tab_id(&self, tab_id: &str) {
+        tab_id.clone_into(&mut self.tab_id.borrow_mut());
     }
 
     /// The full URL one method is called at.
@@ -161,7 +168,7 @@ impl FetchConnectTransport {
             .append("connect-protocol-version", CONNECT_PROTOCOL_VERSION)
             .map_err(js_error)?;
         headers
-            .append(TAB_ID_HEADER, &self.tab_id)
+            .append(TAB_ID_HEADER, &self.tab_id.borrow())
             .map_err(js_error)?;
         if let Some(bearer) = &request.bearer {
             headers
