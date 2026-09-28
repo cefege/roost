@@ -142,6 +142,80 @@ fetch_roost() {
   printf '%s' "$dest"
 }
 
+# The keeper is a SEPARATE BINARY and a joined machine needs it, so this is not
+# optional the way fetching `roost` is. `roost join` looks for `roost-keeper`
+# BESIDE the running binary -- `LocalPrograms::of_this_process` reads
+# `current_exe()` and joins `roost-keeper` onto its parent -- and it filters a
+# missing file out rather than refusing. A machine that enrolled without a
+# keeper would report success, appear in `roost api workers`, and serve no
+# terminal: the "roster looks converged, terminal serves nothing" outcome the
+# selection order above exists to prevent, arriving by a different door.
+#
+# So: SKIP if one is already beside the binary, FETCH if not, DIE if the fetch
+# fails. An optional keeper is the defect.
+ensure_keeper_beside() {
+  local roost_path dir keeper tag base tmp got want
+  roost_path="$1"
+  dir="$(dirname "$roost_path")"
+  if [ -x "${dir}/roost-keeper" ]; then
+    return 0
+  fi
+
+  # The keeper's name is the roost name with its leading `roost` replaced, which
+  # is `update/assets.rs::keeper_release_asset_name`. Written as a strip and a
+  # prepend rather than a replacement: no subprocess, and no expansion form the
+  # rest of this file does not already use. `${keeper#roost}` removes ONE
+  # anchored occurrence, so a name that ever contained `roost` twice cannot have
+  # its own suffix rewritten.
+  keeper="$(asset_name)"
+  keeper="roost-keeper${keeper#roost}"
+  tag="$(newest_v3_tag)"
+  [ -n "$tag" ] || die "The newest published v3 release could not be found, and this" \
+                        "machine has no roost-keeper beside ${roost_path}." \
+                        "A joined machine needs BOTH programs: the worker cannot" \
+                        "run a session without its keeper." \
+                        "Nothing was installed." \
+                        "The release assets are at https://github.com/${RELEASE_REPO}/releases"
+  base="${RELEASE_DOWNLOADS}/${tag}"
+  tmp="$(mktemp -d)" || die "Could not create a temporary directory." "Nothing was installed."
+
+  say "fetching ${keeper} from ${tag}" >&2
+  if ! curl -fsSL -o "${tmp}/roost-keeper" "${base}/${keeper}"; then
+    rm -rf "$tmp"
+    die "The ${tag} release does not publish ${keeper}, and this machine has" \
+        "no keeper beside ${roost_path}." \
+        "A joined machine needs BOTH programs." \
+        "Nothing was installed." \
+        "  ${base}/${keeper}"
+  fi
+  if ! curl -fsSL -o "${tmp}/roost-keeper.sha256" "${base}/${keeper}.sha256"; then
+    rm -rf "$tmp"
+    die "No published digest beside ${keeper}." \
+        "An unverified keeper is not installed: the digest is the only thing" \
+        "that says these bytes are the ones the release published." \
+        "Nothing was installed."
+  fi
+  got="$(sha256_of "${tmp}/roost-keeper")"
+  want="$(head -1 "${tmp}/roost-keeper.sha256" | cut -d' ' -f1 | tr -d '[:space:]')"
+  if [ -z "$want" ]; then
+    rm -rf "$tmp"
+    die "The digest published beside ${keeper} is not a digest." "Nothing was installed."
+  fi
+  if [ "$got" != "$want" ]; then
+    rm -rf "$tmp"
+    die "The ${tag} ${keeper} does not match the digest published beside it." \
+        "  expected ${want}" \
+        "  actual   ${got}" \
+        "Nothing was installed. Fetch it by hand and compare before trusting it:" \
+        "  ${base}/${keeper}"
+  fi
+  mv "${tmp}/roost-keeper" "${dir}/.roost-keeper.incoming" \
+    && chmod 0755 "${dir}/.roost-keeper.incoming" \
+    && mv "${dir}/.roost-keeper.incoming" "${dir}/roost-keeper"
+  rm -rf "$tmp"
+  say "installed ${tag} (${keeper}) to ${dir}/roost-keeper" >&2
+}
+
 # 0. macOS (launchd) or Linux (systemd --user). Nothing else has a service
 # installer. v2 also refused macOS below 13 here, and that check is GONE rather
 # than relaxed: its stated reason was "Bun does [require macOS 13]", and there
@@ -206,6 +280,12 @@ fi
 
 [ -x "$ROOST_BIN" ] || die "ROOST_BIN=$ROOST_BIN is not executable." \
                             "Nothing was installed."
+
+# The keeper is not optional the way the binary above is: `roost join` filters a
+# missing one out rather than refusing, so without this the join succeeds and
+# the machine serves nothing. Called after ROOST_BIN is settled, so a machine
+# that already has both programs is left alone.
+ensure_keeper_beside "$ROOST_BIN"
 
 # 3. Hand the grant over. ROOST_COORDINATOR_URL / ROOST_BOOTSTRAP_TOKEN /
 #    ROOST_WORKER_LABEL are already in the environment and are inherited.
