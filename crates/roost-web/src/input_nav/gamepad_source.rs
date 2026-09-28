@@ -97,10 +97,13 @@ mod browser {
         frame: Option<i32>,
     }
 
+    /// Where one poll's actions go; the shell installs the navigator's handler.
+    type ActionSink = RefCell<Box<dyn FnMut(&[PadAction])>>;
+
     struct Source {
         modality: Signal<NavModality>,
         held: Signal<PadHeld>,
-        on_actions: RefCell<Box<dyn FnMut(&[PadAction])>>,
+        on_actions: ActionSink,
         state: RefCell<LoopState>,
         poll: RefCell<Option<Closure<dyn FnMut()>>>,
         connection: RefCell<Option<Closure<dyn FnMut()>>>,
