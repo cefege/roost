@@ -92,6 +92,20 @@ pub struct BrowserPeer;
 
 impl BrowserPeer {
     /// A fresh adapter. It holds nothing until an `open` succeeds.
+    ///
+    /// `Self::default()` and not `Self`: the two arms of this type are
+    /// DIFFERENT SHAPES behind one name — the wasm arm holds a `peers` map and
+    /// the native arm is a unit struct — so the form that suits the unit struct
+    /// does not compile on the other target, and neither does the empty
+    /// initializer. `default()` is the one form both accept.
+    ///
+    /// The allow is `cfg_attr` for the same reason: `default_constructed_unit_
+    /// structs` is TRUE of the native arm and meaningless on the wasm one, so
+    /// scoping it to the target keeps the lint live everywhere it is real.
+    #[cfg_attr(
+        not(target_arch = "wasm32"),
+        allow(clippy::default_constructed_unit_structs)
+    )]
     pub fn new() -> Self {
         Self::default()
     }
@@ -137,8 +151,12 @@ impl PeerTransport for BrowserPeer {
                 .map_err(|_| unavailable("the peer configuration could not be built"))?;
         }
 
-        let connection = constructor
-            .new_with(&configuration.into())
+        // `constructor` is the `RTCPeerConnection` FUNCTION, not a Rust
+        // constructor, so `new_with` (which builds a function) is the wrong
+        // call. Constructing through `Reflect` is what invokes a JS class with
+        // an argument list, and it reports the browser's refusal the same way
+        // every other call in this file does.
+        let connection = Reflect::construct(&constructor, &Array::of1(&configuration))
             .map_err(|_| unavailable("the browser refused an RTCPeerConnection"))?;
 
         let mut channels = BTreeMap::new();
@@ -195,6 +213,7 @@ impl PeerTransport for BrowserPeer {
             "setRemoteDescription",
             &Array::of1(&description_object("answer", answer_sdp)),
         )
+        .map(|_| ())
     }
 
     /// Write one already-framed packet on one lane. The framing is the CALLER's:
@@ -208,8 +227,8 @@ impl PeerTransport for BrowserPeer {
     ) -> Result<(), TransportError> {
         use js_sys::{Array, Uint8Array};
         let channel = self.channel_of(attempt_id, lane)?;
-        let payload = Uint8Array::new(bytes);
-        call_method(&channel, "send", &Array::of1(&payload.into()))
+        let payload = Uint8Array::from(bytes);
+        call_method(&channel, "send", &Array::of1(&payload.into())).map(|_| ())
     }
 
     /// Write one already-framed content-free probe. Two unanswered probes retire
@@ -353,7 +372,11 @@ fn call_method(
 
 #[cfg(target_arch = "wasm32")]
 fn set_prop(object: &js_sys::Object, key: &str, value: &JsValue) -> Result<(), TransportError> {
+    // `Reflect::set` answers whether the property was set, which is not what
+    // the caller asked: it asked whether the set was REFUSED. The refusal is the
+    // error arm, and the boolean is dropped deliberately.
     Reflect::set(object, &JsValue::from_str(key), value)
+        .map(|_| ())
         .map_err(|_| refused(&format!("{key} could not be set")))
 }
 

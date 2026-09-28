@@ -123,10 +123,15 @@ fn insert_stylesheet(href: &str) -> bool {
 /// recognised and a `<link>` for some other sheet is not mistaken for this one.
 #[cfg(target_arch = "wasm32")]
 fn stylesheet_present(document: &web_sys::Document, href: &str) -> bool {
-    document
-        .get_elements_by_tag_name("link")
-        .iter()
-        .any(|link| link.get_attribute("href").as_deref() == Some(href))
+    // `HtmlCollection` exposes `length` and `item`, not an iterator, so this
+    // walks it by index. A collection that shrinks mid-walk simply yields fewer
+    // elements, which for a "is this sheet already there" question is the answer.
+    let links = document.get_elements_by_tag_name("link");
+    (0..links.length()).any(|index| {
+        links
+            .item(index)
+            .is_some_and(|link| link.get_attribute("href").as_deref() == Some(href))
+    })
 }
 
 /// A native build has no document, so there is nothing to attach and nothing to

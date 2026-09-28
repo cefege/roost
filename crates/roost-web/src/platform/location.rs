@@ -45,11 +45,17 @@ pub fn navigate(href: &str) {
     let Some(window) = web_sys::window() else {
         return;
     };
-    if window
-        .history()
-        .push_state_with_str(&JsValue::NULL, "", href)
-        .is_err()
-    {
+    // `history()` is fallible in this web-sys, and a browser that refuses it
+    // and a browser that refuses the push are the same event to a reader: the
+    // address bar did not move. One warning covers both, and the shell still
+    // repaints from the signal — which is why that one moves both.
+    let refused = match window.history() {
+        Err(_) => true,
+        Ok(history) => history
+            .push_state_with_url(&JsValue::NULL, "", Some(href))
+            .is_err(),
+    };
+    if refused {
         tracing::warn!(target: "router", href, "the browser refused the navigation");
     }
 }

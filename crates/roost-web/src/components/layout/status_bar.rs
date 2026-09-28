@@ -174,7 +174,7 @@ fn read_status(path: &str, core: &Rc<RefCell<ClientCore>>, now_ms: i64) -> Statu
         .values()
         .filter(|worker| worker_online(worker, None, now_ms))
         .count();
-    let active = active_session(path, &store);
+    let active = active_session(path, store);
     let context = active.map(|session| {
         let folder = session.spawn_cwd.as_deref().unwrap_or(session.cwd.as_str());
         let title = workbench_title(path, session.custom_title.as_deref(), Some(folder));

@@ -59,7 +59,7 @@ pub fn navigation_handler(path: Signal<String>) -> EventHandler<String> {
 /// document. Dropping the handle would leave `popstate` firing into freed
 /// memory the first time the shell unmounted.
 #[cfg(target_arch = "wasm32")]
-fn install_popstate_listener(path: Signal<String>) {
+fn install_popstate_listener(mut path: Signal<String>) {
     use wasm_bindgen::JsCast as _;
     use wasm_bindgen::closure::Closure;
 

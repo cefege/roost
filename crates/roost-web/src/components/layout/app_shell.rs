@@ -168,11 +168,21 @@ fn read_session(path: &str, core: &Rc<RefCell<ClientCore>>) -> Option<SessionChr
 /// The viewport, in CSS pixels.
 #[cfg(target_arch = "wasm32")]
 fn viewport() -> (u32, u32) {
+    use wasm_bindgen::JsValue;
+
+    // A refused read is the SAME condition as no window at all, and this
+    // function's existing answer to no window is `(0, 0)`. So a browser that
+    // withholds its width is treated as having none, rather than being handed a
+    // number it never measured — a layout that divides by a width the browser
+    // declined to give is the failure this avoids.
     web_sys::window().map_or((0, 0), |window| {
-        (
-            window.inner_width().max(0) as u32,
-            window.inner_height().max(0) as u32,
-        )
+        let edge = |read: Result<JsValue, JsValue>| {
+            read.ok()
+                .and_then(|value| value.as_f64())
+                .unwrap_or(0.0f64)
+                .max(0.0) as u32
+        };
+        (edge(window.inner_width()), edge(window.inner_height()))
     })
 }
 

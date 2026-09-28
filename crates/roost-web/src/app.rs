@@ -181,7 +181,18 @@ fn RouteContent(surface: Surface, on_navigate: EventHandler<String>) -> Element 
 /// effect is to fire once.
 #[cfg(target_arch = "wasm32")]
 fn apple_keyboard() -> bool {
-    web_sys::window().is_some_and(|window| window.navigator().user_agent().contains("Mac"))
+    // A REFUSED read is an unknown platform, not a non-Apple one, and this file
+    // already resolves unknown to `Ctrl` (the native arm below, and the comment
+    // on it: `Ctrl` is wrong on fewer machines than `⌘`). So the error arm is
+    // deliberately the same answer as a UA without "Mac" in it — a Mac whose UA
+    // read failed shows `Ctrl+K`, which names a shortcut that does not exist
+    // there, rather than `⌘K`, which does nothing on every other machine.
+    web_sys::window().is_some_and(|window| {
+        window
+            .navigator()
+            .user_agent()
+            .is_ok_and(|agent| agent.contains("Mac"))
+    })
 }
 
 /// A native build reports no platform, and `Ctrl` is the reading that is wrong
