@@ -105,7 +105,7 @@ async fn a_semantic_metadata_frame_without_the_negotiated_capability_is_refused(
     assert_eq!(
         outcome,
         DispatchOutcome::Refused,
-        "a worker that never advertised terminal-metadata-v1 gets no semantic hub"
+        "a worker that never advertised terminal_metadata_v1 gets no semantic hub"
     );
 }
 

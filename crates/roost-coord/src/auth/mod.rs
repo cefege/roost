@@ -28,3 +28,4 @@ pub mod rpc_devices;
 pub mod rpc_identity;
 pub mod rpc_pairing;
 pub mod self_hosted_tenant;
+pub mod ws_auth_deadline;
