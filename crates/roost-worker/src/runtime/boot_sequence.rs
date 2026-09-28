@@ -1,188 +1,47 @@
-//! The worker as a service: boot order, the keeper it owns, the coordinator
-//! link, and the one rule that a dropped link is not a stopped process.
-//! `serve` is the entry point; `roost-cli` and the `roost-worker` binary call
-//! it and nothing else here.
+//! The boot sequence itself: the ordered steps, in one function, so the order
+//! is a thing a reader reads top to bottom rather than something they infer
+//! from which helper happens to be called first. `runtime::serve_until` is the
+//! only caller.
 //!
-//! The boot order is [`boot_order::BOOT_ORDER`] and it is not negotiable. The
-//! identity is settled before anything is probed or spawned; the link dials
-//! BEFORE the keeper is admitted, because the survivor decision needs the
-//! coordinator's open-session set and a set nobody has read cannot decide
-//! anything; and readiness is announced last because readiness is a claim
-//! about the steps before it.
+//! The order is [`super::boot_order::BOOT_ORDER`] and it is not negotiable, and
+//! the two orderings that look surprising are both forced by a DATA
+//! dependency rather than chosen. The door opens before the link because a
+//! browser on this machine reaches its own PTYs through it and has to keep
+//! doing that while the coordinator is unreachable. The link is CONSTRUCTED
+//! after the keeper because the object it dials with dispatches browser
+//! commands into the session layer, and the session layer is built over the
+//! keeper pool — while the decision that admits the keeper needed the
+//! coordinator's open-session set, which is read over Connect at step 5 and
+//! needs no socket of ours.
 //!
-//! Two rules span every module here. A coordinator disconnect is a reconnect,
-//! never a shutdown: the keeper holds the PTYs and outlives this process on
-//! purpose, so the only things that end the worker are a signal and an explicit
-//! shutdown frame. And nothing here may mutate a survivor it cannot prove empty
-//! — see [`keeper_boot::decide`], which is a pure function precisely so that
-//! decision can be tested without a keeper, a coordinator, or a PTY.
-
-pub mod boot;
-pub mod cell_delivery;
-
-// The crate-root contract the CLI calls: `serve` blocks until the worker is
-// asked to stop, and `WorkerBoot` is the already-resolved configuration it
-// takes. Both re-exported here so a host depends on `runtime`, not on the
-// shape of the module tree behind it.
-pub use boot::{WorkerBoot, WorkerOverrides};
-pub mod boot_order;
-pub mod bootstrap_redeem;
-pub mod channel_delivery;
-pub mod credential;
-pub mod deps;
-pub mod door_serve;
-pub mod keeper_boot;
-pub mod keeper_probe;
-pub mod link_drain;
-pub mod link_loop;
-pub mod link_serve;
-pub mod link_wire;
-pub mod reconcile;
-pub mod reconnect;
-pub mod session_stack;
-pub mod snapshot_source;
-pub mod stop;
+//! Every step logs. A boot that cannot say where it got to is a boot whose
+//! refusal an operator has to guess at, and this one refuses in more places
+//! than it proceeds.
 
 use std::sync::Arc;
 
 use anyhow::Context as _;
 use roost_host::{ProcessEnv, supported_host_platform};
 
-use crate::event_store::database::{DATABASE_FILE_NAME, Journal};
-use crate::keeper_pool::KeeperPool;
+use super::boot::{WorkerBoot};
+use super::boot_order::{BootSequence, Readiness, ReadyStep, StepId};
+use super::bootstrap_redeem::activation;
+use super::bootstrap_redeem::enroll_this_activation;
+use super::credential::WorkerKeyCredential;
+use super::door_serve::LocalDoor;
+use super::keeper_boot::{self, KeeperBootOutcome};
+use super::link_loop::{BrowserLink, CoordinatorCellSink, LinkLoop, WorkerIdentity};
+use super::link_wire::ProtoLinkWire;
+use super::reconcile::{self, read_open_session_count};
+use super::session_stack::{self, SessionStack};
+use super::snapshot_source::SessionSnapshot;
+use super::stop::StopRequests;
+use super::{KeeperPool, DATABASE_FILE_NAME, Journal};
 use crate::link_dial::CoordinatorEndpoint;
 use crate::session::resume::{AdoptionRequest, AdoptRefusal};
-use boot_order::{BootSequence, Readiness, ReadyStep, StepId};
-use bootstrap_redeem::activation;
-use bootstrap_redeem::enroll_this_activation;
-use credential::WorkerKeyCredential;
-use door_serve::LocalDoor;
-use keeper_boot::KeeperBootOutcome;
-use link_loop::{BrowserLink, CoordinatorCellSink, LinkLoop, WorkerIdentity};
-use link_wire::ProtoLinkWire;
-use reconcile::read_open_session_count;
-use session_stack::SessionStack;
-use snapshot_source::SessionSnapshot;
-use stop::{StopRequests, stop_requests_from_signals};
 
-/// Run the worker until it is asked to stop.
-///
-/// Blocks on its own runtime and RETURNS when the daemon stops; it never ends
-/// the process. `roost-cli` runs its own shutdown and exit-code handling around
-/// this, and a library that ends the process cannot be called from a test or
-/// from a subcommand.
-pub fn serve(boot: WorkerBoot) -> anyhow::Result<()> {
-    // `block_on` from inside a runtime panics, and a caller that already has one
-    // is `roost-cli`. Saying so is better than a panic inside a subcommand.
-    if tokio::runtime::Handle::try_current().is_ok() {
-        anyhow::bail!("serve owns its runtime; call serve_until from inside one");
-    }
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .context("the worker's async runtime could not be built")?;
-    let stop = stop_requests_from_signals()?;
-    runtime.block_on(serve_until(boot, stop))
-}
-
-/// Run the worker until the given requester asks it to stop.
-///
-/// The seam a caller drives when it owns the runtime and the signals: hand in a
-/// [`StopRequests`] rather than relying on a signal handler, and the reason the
-/// run ended is the one that was requested.
-pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<()> {
-    boot.check()?;
-    install_observability();
-    let mut sequence = BootSequence::new();
-    // Readiness is the boot's own claim about the steps before it, and it is a
-    // state machine because the claim is about ORDER: reconciliation must
-    // reserve every durable session before a snapshot publishes, so a failed
-    // keeper adoption cannot expose a partial worker state. It is advanced at
-    // the points that earn it, and `Readiness::advance` refuses any other order
-    // rather than trusting this function to keep it.
-    let mut readiness = Readiness::default();
-    tracing::info!(
-        fingerprint = %boot.fingerprint,
-        version = %boot.worker_version,
-        process_epoch = %boot.process_epoch,
-        coordinator = %boot.coordinator_base,
-        keeper_socket = %boot.keeper_socket.display(),
-        "the worker is starting"
-    );
-
-    // 1. Identity, settled above before anything was probed or spawned. The
-    //    step is recorded so the log says where the refusals happened.
-    let because = sequence.complete(StepId::Identity);
-    tracing::info!(
-        step = StepId::Identity.name(),
-        because,
-        "boot: identity settled"
-    );
-
-    // 2. Enrollment, BEFORE the link dials and therefore before the keeper is
-    //    admitted. A link that opens before the coordinator holds this
-    //    machine's `authorized_keys` row sends its first frame to a
-    //    coordinator that does not know the sender, and the retry that follows
-    //    is a reconnect rather than a registration. Position is the whole
-    //    property here: `enroll_this_activation` on the far side of the dial
-    //    satisfies every test in the enrollment suite and is still the defect
-    //    the suite was written to prevent.
-    //
-    // One client for every boot-time call, so the scheme refusal and the
-    // base-URL parse happen once. Built BEFORE enrollment, so a coordinator
-    // this worker cannot dial is refused before a token is spent against it,
-    // and reused by the open-session read below.
-    let coordinator_client =
-        activation::coordinator_client(&boot.coordinator_base).with_context(|| {
-            format!(
-                "{} is not a coordinator this worker can dial",
-                boot.coordinator_base
-            )
-        })?;
-    let enrollment = enroll_this_activation(&boot)
-        .await
-        .context("this activation could not be enrolled")?;
-    if enrollment.is_some() {
-        tracing::info!(
-            fingerprint = %boot.fingerprint,
-            "boot: this machine is a member of the fleet before the link opens"
-        );
-    }
-
-    // 3. The local door, and it is HERE because of what it is for rather than
-    //    where it is convenient: a browser on this machine reaches its own PTYs
-    //    through the door, and it has to keep doing that while the coordinator
-    //    is unreachable. v2 opens it at `main.ts:158`, before the link at
-    //    `:173`, and a worker that opened it only once the link was up takes the
-    //    local terminal away exactly when the link is the thing that is broken.
-    //    A door that cannot be opened is a BOOT REFUSAL naming the door, never a
-    //    worker that came up without one.
-    //    The ROUTES on it are `crate::door`'s to mount; what this step owns is
-    //    the bind and the refusal.
-    let platform = supported_host_platform()
-        .map_err(|error| anyhow::anyhow!("this host's platform is not one v3 runs on: {error}"))?;
-    let door = LocalDoor::bind(Some(&door_bind(&boot))).await?;
-
-    // 4. The durable outbox, opened BEFORE anything can write a session event
-    //    and before the link is told about it. Attaching is what makes the
-    //    barrier resume at the outbox's high water mark: a link that starts its
-    //    sequence at 1 while rows it must replay are numbered from a higher one
-    //    would wait for ever for an acknowledgement it never issued. A store
-    //    that cannot be opened is a boot refusal, not a warning — a worker that
-    //    accepted sessions it could not record would leave the coordinator
-    //    believing a dead session is alive.
-    let outbox_path = boot.data_dir.join(DATABASE_FILE_NAME);
-    let outbox = Arc::new(Journal::open(&outbox_path).await.with_context(|| {
-        format!(
-            "the durable outbox at {} could not be opened",
-            outbox_path.display()
-        )
-    })?);
-    // Logged, not propagated: a stats read that fails says the store is
-    // answering, which is the only thing the line is for. The open above
-    // already refused anything that is not.
-    match outbox.stats().await {
-        Ok(stats) => tracing::info!(
+/// Run the ordered boot and then the link, until the requester asks to stop.
+pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<()> {
             path = %outbox_path.display(),
             rows = stats.rows,
             resumed_at = outbox.handed_over_at(),
@@ -442,16 +301,4 @@ pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result
     drop(door);
     drop(keeper);
     Ok(())
-}
-
-/// Install the JSON-lines log subscriber, or accept that one is already there.
-///
-/// The second case is `roost-cli`, which installs its own so a subcommand's
-/// output is uniform. A subscriber that is already installed is a success for
-/// everything this function is for, so the only thing worth saying about it is
-/// why it happened.
-fn install_observability() {
-    if let Err(error) = roost_observability::init() {
-        tracing::debug!(?error, "a global log subscriber was already installed");
-    }
 }

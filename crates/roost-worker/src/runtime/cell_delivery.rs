@@ -14,12 +14,23 @@
 //! type rather than an impl: `session::binding` says in so many words that the
 //! wiring is `runtime`'s and "the only place allowed to hold both halves".
 //!
-//! IT OWNS THE EMITTER, rather than borrowing one. `CellEmitter` has no other
-//! production owner, and the trait hands out `&mut self`, which an `Arc` cannot
-//! provide. Owning it here is therefore both the only form that compiles and the
-//! honest one: this type IS the emitter's lifetime.
+//! IT SHARES THE EMITTER, and that is the reason it is behind a lock.
+//! `SessionManager::new` takes TWO slots that both drive one emitter — `cells:
+//! Arc<Mutex<dyn CellDelivery>>` and `ingest: Arc<Mutex<dyn ChannelDelivery>>` —
+//! so this type hands [`TableCellDelivery::emitter`] to the sibling bridge in
+//! `super::channel_delivery` and the two share one `Arc<Mutex<CellEmitter>>`.
+//! Two emitters would be two answers to "is this channel due a frame", and the
+//! two would disagree within one tick.
+//!
+//! THE LOCK ORDER IS THE NOTE THE NEXT PERSON NEEDS. `install_stream` and
+//! `forget_channel` take the inner lock, and so do `ingest_output` and the
+//! capture pair on the other trait. Neither trait's methods route through the
+//! other's, so the inner lock is never held across a call that wants it again.
+//! A future edit that reaches `install_stream` from an ingest call deadlocks on
+//! a non-reentrant `std::sync::Mutex`, and it presents as a parked thread
+//! rather than as an error.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use roost_protocol::wire::brand::ChannelId;
 
@@ -30,7 +41,7 @@ use crate::session::lifecycle::SessionTable;
 /// `CellDelivery` over a `CellEmitter` and the table that locates the records it
 /// re-addresses.
 pub struct TableCellDelivery {
-    emitter: CellEmitter,
+    emitter: Arc<Mutex<CellEmitter>>,
     sessions: Arc<SessionTable>,
 }
 
@@ -48,7 +59,24 @@ impl std::fmt::Debug for TableCellDelivery {
 impl TableCellDelivery {
     /// The bridge over an emitter and the table that holds its records.
     pub fn new(emitter: CellEmitter, sessions: Arc<SessionTable>) -> Self {
-        Self { emitter, sessions }
+        Self {
+            emitter: Arc::new(Mutex::new(emitter)),
+            sessions,
+        }
+    }
+
+    /// The emitter behind the lock, so `super::channel_delivery` can share it.
+    pub fn emitter(&self) -> Arc<Mutex<CellEmitter>> {
+        Arc::clone(&self.emitter)
+    }
+
+    /// Take the emitter for the duration of one call, or recover the lock.
+    fn with_emitter<R>(&self, call: impl FnOnce(&mut CellEmitter) -> R) -> R {
+        let mut emitter = self
+            .emitter
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        call(&mut emitter)
     }
 }
 
@@ -87,7 +115,7 @@ impl CellDelivery for TableCellDelivery {
         let mut record = record
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        self.emitter.install_stream(&mut record, stream_id);
+        self.with_emitter(|emitter| emitter.install_stream(&mut record, stream_id));
     }
 
     /// A channel is gone; its delivery state and parked cursors go with it.
@@ -98,6 +126,6 @@ impl CellDelivery for TableCellDelivery {
     /// after, and a record that outlives its forget would leak the state
     /// forever.
     fn forget_channel(&mut self, channel_id: ChannelId) {
-        self.emitter.forget_channel(channel_id);
+        self.with_emitter(|emitter| emitter.forget_channel(channel_id));
     }
 }
