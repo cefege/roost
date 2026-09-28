@@ -26,6 +26,14 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: test
         run: cargo test --workspace
+      # `cargo test --workspace` never enables roost-web's `smoke` feature, so
+      # every `#![cfg(feature = "smoke")]` test file compiles to nothing there
+      # and the 387-test smoke suite never runs. The `__smoke` backdoor's own
+      # production code is wasm32-only, so the host test run cannot reach it
+      # either. Same failure mode as the omitted wasm32 crates above: a gate
+      # that is green because the feature is absent is not a gate.
+      - name: web smoke suite
+        run: cargo test -p roost-web --features smoke
       - name: repo invariants
         run: cargo xtask lint
       # The vendored terminal core is not a workspace member, so its own suite
