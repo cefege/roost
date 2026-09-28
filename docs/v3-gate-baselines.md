@@ -650,24 +650,28 @@ apart at exactly the rate the tree moves.
 A gate that cannot run the suite at all has proved nothing. Say so rather
 than reporting a partial pass as a green one.
 
-### EXPECTED RED: `a_deferred_reap_waits_for_the_callers_readiness_barrier`
+### CLOSED: `a_deferred_reap_waits_for_the_callers_readiness_barrier`
 
-**Read this before the 2C-GATE merge and before the S3.0 workspace run. One test
-is red on purpose, and it is not a regression.**
+**GREEN as of `8880699f` on `v3-coord`. The property is closed, and it closed in
+R3 — not in R4.** Three records said otherwise until 2026-09-28 and were wrong the
+same way: each described a test that was red by design pending a drain. A reader
+who dates this fix to R4 will look for it in the wrong commit.
 
 | | |
 |---|---|
 |**test**|`crates/roost-coord/tests/event_publication.rs::a_deferred_reap_waits_for_the_callers_readiness_barrier`|
 |**introduced**|`c02cb9dc` on `v3-coord` — reaches `v3` at the 2C-GATE merge, not before|
-|**measured**|`cargo test -p roost-coord --test event_publication` = **5 passed / 1 failed**|
-|**green when — the test has TWO halves and R3 satisfies only the first**|1. the dispatcher sets `defer_snapshot_reap: true` — **R3, `frame_dispatch.rs`**; 2. a **production reader of the returned `snapshot_reap_ids` exists** — **R4, `connection.rs`**, the drain. **A second assertion for (2) is being added to the test in R3**, so one green run means both halves. **Until that assertion lands, a green run means only (1).**|
-|**what green does and does not mean, until then**|**green after R3 alone means the FLAG is set. It does NOT mean a force-closed PTY on an offline worker is killed** — the ids are undrained and the defect is live. The test's question is REACHABILITY; the defect is EFFECTIVENESS.|
-|**three states, two of them red for NAMED reasons**|before R3: red, nothing sets the flag · after R3 before R4: red, the flag is set and nothing drains · after R4: green, meaning both. **The middle state is the point** — a test that goes red→green across one commit leaves a reader unable to tell which half landed, and this test has already taught that lesson once: its first version was satisfied by a producer.|
+|**measured**|`cargo test -p roost-coord --test event_publication` = **6 passed / 0 failed** on `8880699f`. The same binary before R3: **5 passed / 1 failed**. This guard is the one figure measured twice tonight.|
+|**green when — TWO halves, and R3 satisfied BOTH**|1. the dispatcher sets `defer_snapshot_reap: true`; 2. a **production reader of the returned `snapshot_reap_ids`** exists. Both hold in `8880699f`. The second assertion for (2) landed in R3, so one green run has meant both since.|
+|**why this green means the property, and not a nearby one**|the reader is `frame_dispatch.rs:354` — `self.drain_reaps(&self.handle.worker_fp, &result.snapshot_reap_ids)` — a **dotted read in a file outside the four named producers**. It satisfies conjunct two by **direction**, not by mention. Had (2) stayed a bare grep, this green would have been the v1 failure arriving by a different route: a producer satisfying a consumer's test.|
+|**what R4 is, since three records conflated it**|the announced-channel barrier (announce before an `opened`/`respawned` append, commit after the handler settles), the `FrameQueue` producer, and `LiveOrphanKills::attach`/`detach` — so an owed reap has a **socket to travel on**. R3 made an owed reap **drainable**; R4 gives it somewhere to go. R4 is a different property, and its landing does not date this one.|
 
-**The test asks one question: does anything set `defer_snapshot_reap: true`?** Only
-a caller constructing `AppendOptions` to defer can write one. The declaration
+**The test asks two questions: does anything set `defer_snapshot_reap: true`, and
+does anything READ the ids it returns?** Only a caller constructing
+`AppendOptions` to defer can answer the first. The declaration
 (`events/append.rs:274`), the `Debug` field (`:284`) and the read inside
-`build_result` (`:367`) are the only other mentions and none can produce a `true`.
+`build_result` (`:367`) are the only other mentions and none can produce a
+`true`.
 
 **IT MUST NOT BE "FIXED" BY EDITING WHAT IT ASKS.** A softened guard is this defect
 with a green suite on top, which is how it was found once already: the first version
@@ -1989,7 +1993,11 @@ the first time it has been checked on a merged tree.
 Everything measured on 2026-09-27 while the tracks were running is in the
 sections above, and each says which tree it was measured on:
 
-- **EXPECTED RED** — the one deliberately red test, its commit, and its green condition.
+- **CLOSED, not EXPECTED RED** — the deferred-reap reachability guard is **green on
+  both conjuncts** at `8880699f` (`--test event_publication`, 6 passed / 0 failed,
+  against 5/1 before). There is **no deliberately red test** in this file any
+  more; three records said otherwise until 2026-09-28, each dating the fix to R4
+  when R4 is a different property. See the CLOSED section above.
 - **The gate ratchets** — on `v3` @ `dbf0edd2`: `AwaitingDomainPort` 27,
   `UnwiredInV2` 16, `UNFINISHED` 3 (all three `#[ignore]` attributes, in
   `push_sender_bounds.rs:175` and `sync_v2_send_queue.rs:215,257`), `todo!` 0.

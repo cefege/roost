@@ -2626,11 +2626,25 @@ lands on a green test that does not check the path: the name matches and the bod
 not.** That is why the commit is cited rather than the file. A file and a test name are
 not a citation; a commit is.
 
-At `c02cb9dc` the test is **red by design**, asking only whether anything sets
-`defer_snapshot_reap: true`, and it stays red until the worker link appends with the
-flag set and drains the returned ids — the failure message carries that green condition
-verbatim, so the test is a specification rather than a failure. Do not soften it into a
-passing assertion, and do not "fix" it by editing what it asks: a softened guard is this
-defect with a green suite on top. The two value tests beside it assert the returned ids
-come back correctly, and passing them is not evidence about this one.
+**STATUS: CLOSED at `8880699f`, and closed by the fix rather than by a softening.**
+At `c02cb9dc` the test was red by design, asking only whether anything sets
+`defer_snapshot_reap: true`. It is now **green on both conjuncts** — the flag is
+set *and* a production reader of the returned ids exists — measured
+`cargo test -p roost-coord --test event_publication` **6 passed / 0 failed**,
+against **5 passed / 1 failed** on the same binary before the fix. The assertion
+was not edited; the two value tests beside it still assert only that the ids
+come back correctly, and passing them is still not evidence about this one.
+
+**The reader is at `frame_dispatch.rs:354`, and WHERE it is is the whole entry.**
+`self.drain_reaps(&self.handle.worker_fp, &result.snapshot_reap_ids)` is a
+**dotted read in a file outside the four named producers**, so it satisfies the
+second conjunct by **direction**. Had that conjunct stayed a bare grep — the
+guard this entry is about — the green would have been **this same defect
+arriving by a different route**: a producer satisfying a consumer's test. The
+name joins the list; it does not replace the dot.
+
+**Do not re-open this by adding a second path to the grep.** A second reader is
+the fix; a second *mention* is the defect. If a future change moves the read,
+update the direction claim here or delete the entry — do not leave a green that
+means a mention.
 
