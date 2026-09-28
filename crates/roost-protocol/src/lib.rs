@@ -24,6 +24,7 @@ pub mod wire;
 
 pub mod agent_conversation_reference;
 pub mod fingerprint;
+pub mod fleet_update;
 pub mod keeper_update;
 pub mod layout;
 pub mod local_ui_door;

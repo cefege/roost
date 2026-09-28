@@ -16,7 +16,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use roost_cli::status::update_state::{WorkerUpdateState, worker_update_label};
 use roost_cli::update::candidate::parse_published_digest;
 use roost_cli::update::release::{
     RELEASE_API_URL, RELEASE_BASE_URL_ENV, RELEASE_DOWNLOAD_ORIGIN, RELEASE_REPOSITORY,
@@ -26,6 +25,7 @@ use roost_cli::update::{
     ALREADY_LATEST, NO_PUBLISHED_RELEASE, canonical_release_version, needs_update,
 };
 use roost_host::{HostPlatform, MapEnv};
+use roost_protocol::fleet_update::{WorkerUpdateState, worker_update_label};
 use serde_json::json;
 
 /// Every published asset name, one per platform this product ships. A name
