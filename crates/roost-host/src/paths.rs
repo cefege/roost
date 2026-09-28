@@ -14,9 +14,7 @@ use std::path::PathBuf;
 use roost_platform::HostPlatform;
 use roost_protocol::{ProtocolError, ProtocolResult};
 
-use crate::env::{
-    EnvSource, HOME_ENV, XDG_DATA_HOME_ENV, XDG_STATE_HOME_ENV,
-};
+use crate::env::{EnvSource, HOME_ENV, XDG_DATA_HOME_ENV, XDG_STATE_HOME_ENV};
 
 /// The launchd label the coordinator installs under on macOS.
 pub const COORD_LABEL_DARWIN: &str = "com.roost.coordinator-v3";
@@ -124,7 +122,6 @@ pub fn config_root(env: &dyn EnvSource) -> ProtocolResult<PathBuf> {
 pub fn state_root(env: &dyn EnvSource) -> ProtocolResult<PathBuf> {
     xdg_root(env, XDG_STATE_HOME_ENV, XDG_STATE_DEFAULT_LEAF)
 }
-
 
 /// Where the worker keeps its durable state.
 pub fn worker_data_dir(env: &dyn EnvSource, platform: HostPlatform) -> ProtocolResult<PathBuf> {
