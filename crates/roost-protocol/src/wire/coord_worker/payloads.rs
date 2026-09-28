@@ -132,7 +132,8 @@ pub struct UpdateProgress {
 
 /// A volatile agent-status observation the worker publishes for one session.
 /// Never placed in the durable outbox: a lost status is replaced by the next
-/// one, and a stale one is fenced by the status epoch.
+/// one, and a stale one is fenced by the status epoch. `status.active == false`
+/// is the occupant's retirement: bounded like any update, never a retained row.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentStatusFrame {
     pub status: AgentStatus,
