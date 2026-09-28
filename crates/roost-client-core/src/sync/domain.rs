@@ -164,7 +164,6 @@ impl SyncState {
             // The announcement and a reset are what CREATE the subscription
             // state, so they are the two frames that are always admissible.
             SyncFrame::Subscribed { .. } | SyncFrame::DomainReset { .. } => true,
-            SyncFrame::DomainReady { domain, .. } => self.domain_generation(*domain).is_some(),
             SyncFrame::UiState
             | SyncFrame::UiCommand { .. }
             | SyncFrame::CoordinatorRelocation { .. }

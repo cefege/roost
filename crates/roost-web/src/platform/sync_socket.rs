@@ -94,10 +94,14 @@ pub trait SyncSocket {
     /// Open the socket the dial describes, with `bearer` as the credential
     /// subprotocol. A `None` bearer opens the socket unauthenticated, which the
     /// coordinator refuses — that is a real answer, not an error to hide.
+    ///
+    /// `notify` runs after every observation is queued, so the owner drains
+    /// the inbox when something arrived rather than on a timer.
     fn open(
         &self,
         dial: &SyncDial,
         bearer: Option<String>,
+        notify: Rc<dyn Fn()>,
     ) -> Result<SyncSocketHandle, SyncSocketError>;
 }
 
@@ -244,6 +248,7 @@ impl SyncSocket for WebSocketSyncSocket {
         &self,
         dial: &SyncDial,
         bearer: Option<String>,
+        notify: Rc<dyn Fn()>,
     ) -> Result<SyncSocketHandle, SyncSocketError> {
         let url = sync_socket_url(&self.base_url, dial);
         // `WebSocket::new_with_str_sequence` panics on an unparseable URL, and a
@@ -273,12 +278,15 @@ impl SyncSocket for WebSocketSyncSocket {
 
         let on_open = {
             let inbox = Rc::clone(&inbox);
+            let notify = Rc::clone(&notify);
             Closure::wrap(Box::new(move |_event: JsValue| {
                 push(&inbox, SyncSocketMessage::Open);
+                notify();
             }) as Box<dyn FnMut(JsValue)>)
         };
         let on_message = {
             let inbox = Rc::clone(&inbox);
+            let notify = Rc::clone(&notify);
             Closure::wrap(Box::new(move |event: MessageEvent| {
                 let Ok(data) = event.data().dyn_into::<js_sys::ArrayBuffer>() else {
                     // A text frame on a binary socket is a coordinator that
@@ -291,6 +299,7 @@ impl SyncSocket for WebSocketSyncSocket {
                     &inbox,
                     SyncSocketMessage::Binary(Uint8Array::new(&data).to_vec()),
                 );
+                notify();
             }) as Box<dyn FnMut(MessageEvent)>)
         };
         let on_error = {
@@ -308,6 +317,7 @@ impl SyncSocket for WebSocketSyncSocket {
                         reason: event.reason(),
                     },
                 );
+                notify();
             }) as Box<dyn FnMut(CloseEvent)>)
         };
 

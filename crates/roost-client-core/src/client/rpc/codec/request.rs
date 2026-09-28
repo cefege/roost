@@ -5,14 +5,13 @@
 //! `redeemPairToken.ts:36-40`, `browseDirectoryListing.ts:53`,
 //! `browseNewFolder.ts:72-75`); a list request v2 sends empty goes out empty.
 
-use roost_proto::buffa::Message;
 use roost_proto::{
     AuthCoordIdentityRequest, AuthRedeemBrowserRequest, FilesListDirRequest, FilesMkdirRequest,
     McpListRequest, PairListRequest, SessionsCancelGlobalSearchRequest, SessionsListRequest,
     SessionsSearchGlobalRequest, TasksListRequest, WorkersListRequest, WorkspacesListRequest,
 };
 
-use super::RpcCodecError;
+use super::{RpcCodecError, encode_message as encode};
 use crate::client::rpc::methods::connect_method;
 use crate::effect::RpcCall;
 
@@ -98,15 +97,4 @@ pub fn encode_rpc_request(call: &RpcCall) -> Result<Vec<u8>, RpcCodecError> {
             },
         ),
     }
-}
-
-fn encode<M: Message>(method: &'static str, message: &M) -> Result<Vec<u8>, RpcCodecError> {
-    let mut body = Vec::new();
-    message
-        .try_encode(&mut body)
-        .map_err(|error| RpcCodecError::UnencodableRequest {
-            method,
-            detail: error.to_string(),
-        })?;
-    Ok(body)
 }

@@ -6,7 +6,7 @@
 //! and it is deliberately not a second gate. The registry, session-metadata and
 //! control folds live in the sibling `fold_*` files; this match only routes.
 
-use crate::effect::{Effect, SyncCommand};
+use crate::effect::Effect;
 use crate::store::Store;
 use crate::sync::{SyncDomain, SyncFrame};
 
@@ -21,6 +21,7 @@ use super::fold_registry::{
 use super::fold_session_meta::{
     fold_last_activity, fold_session_presence, fold_session_viewers, fold_terminal_title,
 };
+use super::hydration::trigger_hydration;
 
 /// Apply one already-admitted frame, without acknowledging it.
 ///
@@ -36,59 +37,21 @@ pub(super) fn apply_frame(
 ) {
     match frame {
         SyncFrame::Subscribed { domains, .. } => {
-            store.sync.install_subscribed(generation, domains);
+            if !store.sync.install_subscribed(generation, domains) {
+                return;
+            }
+            store.sync.hydrations.note_subscribed();
             // A new socket starts with no routable seed in progress: v2 builds a
             // fresh `routableChunks` map per `subscribed` (`sync-inbound.ts:107-112`).
             store.routable_assembly.clear();
             store.note_change();
-            // Subscribe to exactly the domains the coordinator did not report as
-            // already subscribed. Asking for a set other than the announced one
-            // is how a client ends up with a terminal domain it never subscribed
-            // to, and a frame on that domain is then a protocol violation.
-            for (domain, domain_generation, already) in domains {
-                if !already {
-                    out.push(Effect::SendSync(SyncCommand::Subscribe {
-                        domain: *domain,
-                        generation: *domain_generation,
-                    }));
-                }
-            }
-        }
-        SyncFrame::DomainReady {
-            domain,
-            generation: domain_generation,
-            snapshot_token,
-        } => {
-            if store.sync.domain_generation(*domain) != Some(*domain_generation) {
-                // A ready frame for a superseded generation is stale, not a reset.
-                tracing::debug!(
-                    target: "sync",
-                    domain = domain.as_str(),
-                    "domain_ready for a superseded generation"
-                );
-                return;
-            }
-            match store
-                .sync
-                .mark_domain_ready(generation, *domain, snapshot_token.as_deref())
-            {
-                Ok(()) => out.push(Effect::SendSync(SyncCommand::DomainReady {
-                    domain: *domain,
-                    generation: *domain_generation,
-                    snapshot_token: snapshot_token.clone(),
-                })),
-                Err(reason) => {
-                    // Only a subscribed domain is sent a `domain_ready` to refuse.
-                    store
-                        .sync
-                        .reset_domain(generation, *domain, *domain_generation, true);
-                    store.note_change();
-                    tracing::warn!(
-                        target: "sync",
-                        domain = domain.as_str(),
-                        reason,
-                        "domain_ready refused"
-                    );
+            tracing::info!(target: "sync", generation, "sync subscribed");
+            // Hydrate exactly the domains the coordinator announced as
+            // subscribed; a lazy domain waits for the surface that needs it
+            // (`sync-inbound.ts:124-127`).
+            for (domain, _, subscribed) in domains {
+                if *subscribed {
+                    trigger_hydration(store, *domain, now_ms, out);
                 }
             }
         }
@@ -121,10 +84,7 @@ pub(super) fn apply_frame(
                 "domain reset"
             );
             if *subscribed {
-                out.push(Effect::HydrateDomain {
-                    domain: *domain,
-                    generation: *domain_generation,
-                });
+                trigger_hydration(store, *domain, now_ms, out);
             }
         }
         SyncFrame::SessionEvent { event, event_id } => {

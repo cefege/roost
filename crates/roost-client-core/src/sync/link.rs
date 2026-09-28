@@ -208,6 +208,10 @@ pub struct SyncState {
     retained: Vec<RetainedFrame>,
     /// The coordinator rejected the credential; no further dial is automatic.
     pub auth_revoked: bool,
+    /// The per-domain snapshot calls in flight and their retries.
+    pub hydrations: crate::sync::hydration::Hydrations,
+    /// When the next dial happens.
+    pub redial: crate::sync::redial::SyncRedial,
 }
 
 impl SyncState {
@@ -221,6 +225,8 @@ impl SyncState {
             watermark: RecoveryWatermark::from_storage(storage),
             retained: Vec::new(),
             auth_revoked: false,
+            hydrations: crate::sync::hydration::Hydrations::default(),
+            redial: crate::sync::redial::SyncRedial::default(),
         }
     }
 

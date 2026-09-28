@@ -54,16 +54,6 @@ pub enum SyncFrame {
         /// domain is re-hydrated; an unsubscribed one just stops being ready.
         subscribed: bool,
     },
-    /// The snapshot/live gap for a domain is closed.
-    DomainReady {
-        /// Which domain.
-        domain: SyncDomain,
-        /// The generation the ready frame belongs to. A `domain_ready` for a
-        /// generation other than the current one is stale and is refused.
-        generation: u64,
-        /// The one-time snapshot token, required for the terminal domain.
-        snapshot_token: Option<String>,
-    },
     /// A session-plane event, already decoded to the shared wire shape.
     SessionEvent {
         /// The event. Folded by `roost_protocol::wire::fold_event` and never by
@@ -259,7 +249,7 @@ impl SyncFrame {
     /// domain, and every control is `None`.
     pub const fn domain(&self) -> Option<SyncDomain> {
         match self {
-            Self::DomainReady { domain, .. } | Self::DomainReset { domain, .. } => Some(*domain),
+            Self::DomainReset { domain, .. } => Some(*domain),
             Self::CellGrid { .. }
             | Self::CellGridChunk { .. }
             | Self::AgentStatus { .. }
@@ -294,7 +284,6 @@ impl SyncFrame {
         match self {
             Self::Subscribed { .. } => "subscribed",
             Self::DomainReset { .. } => "domain_reset",
-            Self::DomainReady { .. } => "domain_ready",
             Self::SessionEvent { .. } => "session_event",
             Self::SessionEventRejected { .. } => "session_event_rejected",
             Self::SessionsSnapshot { .. } => "sessions_snapshot",
