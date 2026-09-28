@@ -8,6 +8,10 @@
 //! two synchronous arms in a sibling `impl` keeps the boxed-future machinery on
 //! one side of the line where it is worth paying for.
 //!
+//! The agent-status arm is v2's `agents/worker-agent-status-frame.ts` as well:
+//! it builds the update from the upstream frame and hands it to the hub, and
+//! the hub owns every question about whether the report may be applied.
+//!
 //! NEITHER ARM OWNS A SOCKET. Both resolve to synchronous coordinator state —
 //! the byte hub, the view hub, a bus, the pending-RPC table — and neither can
 //! ask for a close it does not understand. An arm with no destination is

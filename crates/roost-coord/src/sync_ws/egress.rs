@@ -7,6 +7,11 @@
 //! below and the flush turn below, on one type, with nothing in between to
 //! forward.
 //!
+//! `prepareTerminalApplicationFrame` from that same
+//! `apps/coord/src/sync/sync-ws-v2-terminal-payload.ts` is the send-time half:
+//! `snapshot_fanout_stamp`, the per-recipient `outbound_copy`, and
+//! `chunk_transfer_of`.
+//!
 //! THE FLUSH IS A TURN, NOT A LOOP, AND IT COMMITS BEFORE THE CALLER SENDS.
 //! v2's `flushV2` sent up to 64 frames in one turn with `ws.send` in the middle:
 //! it prepared the frame, checked the window, sent, and only then dequeued and

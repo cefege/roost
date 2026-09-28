@@ -7,6 +7,10 @@
 //! copies of one admission rule is how one surface silently keeps accepting
 //! what the other refuses.
 //!
+//! The userinfo rule is v2's `apps/coord/src/auth/url-user-info.ts`, inlined
+//! here as `ParsedEndpoint::has_userinfo`: its other v2 importer is the
+//! Windows deploy path, which is not ported.
+//!
 //! PARSED BY HAND, NOT WITH A URL CRATE, for the reason
 //! `http_admission.rs:normalize_host_origins` gives: the accepted grammar is
 //! exactly `https://authority[/path][?query]` and nothing else, so a general

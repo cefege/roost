@@ -6,6 +6,10 @@
 //! upgrade DECISIONS live in `http::upgrade`, the Host/Origin gate's decisions
 //! live in `http_admission`, and the SQL lives in `db`.
 //!
+//! v2's `apps/coord/src/rpc/bun-handler.ts` is this mount on Bun's server:
+//! `build_router` is its `makeConnectBunHandler`, and the trust-header
+//! strip-then-set is `middleware::caller_origin`.
+//!
 //! THE ORDER IS THE CONTRACT (`apps/coord/src/bun-coordinator-listeners.ts:314-352`).
 //! Outside in:
 //!

@@ -11,6 +11,13 @@
 //! The frame vocabulary and the limits both come from
 //! `protocol/spec/worker-link.md`, and each constant here cites the incident or
 //! the arithmetic that fixes its value.
+//!
+//! v2's type-only `workers/worker-conn-types.ts` has no file here because it
+//! had no behaviour to port: `WorkerConn` is this module's `connection`, its
+//! `WorkerServiceDeps` bag is `CoordServices` (`services.rs`), its
+//! `WorkerUpdateProgress` is a generated `roost_protocol::wire::coord_worker`
+//! message, and its `TerminalInputRouteResultSink` is
+//! `terminal_input::route_results`.
 
 pub mod announced_barrier;
 mod announced_channel;
