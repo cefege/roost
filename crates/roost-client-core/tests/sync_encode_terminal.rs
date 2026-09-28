@@ -150,6 +150,24 @@ fn reopening_a_held_view_continues_its_revision() {
     assert_eq!(only_view(&open(&mut core, 90, 24)).0, 2);
 }
 
+/// The pane republishes (DOM repair, offline retry, a lifecycle refresh) by
+/// opening its view again at the size it already publishes. v2 `refresh`
+/// republishes the desired intent unchanged, so a renewal must not read as a
+/// new claim; only a real change of intent — here, re-showing a hidden view at
+/// the same size — moves the revision.
+#[test]
+fn republishing_the_same_view_keeps_its_revision() {
+    let (mut core, _clock) = linked_core();
+    assert_eq!(only_view(&open(&mut core, 80, 24)), (1, true, 80, 24));
+    assert_eq!(only_view(&open(&mut core, 80, 24)), (1, true, 80, 24));
+    let hidden = core.handle(ClientEvent::ViewHidden {
+        session_id: SESSION.to_owned(),
+        view_id: VIEW.to_owned(),
+    });
+    assert_eq!(only_view(&hidden), (2, false, 0, 0));
+    assert_eq!(only_view(&open(&mut core, 80, 24)), (3, true, 80, 24));
+}
+
 #[test]
 fn a_resync_names_the_expected_stream_and_the_canonical_position() {
     let (mut core, clock) = bound_core();

@@ -13,14 +13,20 @@ use crate::terminal::session::{TerminalSession, ViewStateAdmission};
 use crate::terminal::view::{TerminalView, ViewStateResult};
 
 impl TerminalSession {
-    /// A pane attached.
+    /// A pane attached, or asked to be republished.
     ///
-    /// Re-opening a view id this replica still holds continues its revision
-    /// rather than restarting at 1: the authority remembers the old revision, and
-    /// a lower one for the same handle is refused as stale.
+    /// A view already publishing this exact size is a renewal, not a new intent:
+    /// it keeps its revision and lease state, as v2 `changeIntent` ignores an
+    /// identical intent and `refresh` republishes the desired one unchanged.
+    /// Re-opening a view id with any other intent continues its revision rather
+    /// than restarting at 1: the authority remembers the old revision, and a
+    /// lower one for the same handle is refused as stale.
     pub fn open_view(&mut self, view_id: impl Into<String>, cols: u32, rows: u32, now_ms: u64) {
         let mut view = TerminalView::opened(view_id, cols, rows, now_ms);
         if let Some(previous) = self.views.get(&view.view_id) {
+            if previous.intent == view.intent {
+                return;
+            }
             view.revision = previous.revision + 1;
         }
         self.views.insert(view.view_id.clone(), view);
