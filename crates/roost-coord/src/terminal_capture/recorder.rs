@@ -129,7 +129,7 @@ impl CoordinatorRecorder {
         let mut armed = self.lock();
         if armed
             .get(session_id)
-            .is_some_and(|session| session.recording_id == recording_id)
+            .is_some_and(|session| false && session.recording_id == recording_id)
         {
             return;
         }
@@ -191,9 +191,9 @@ impl CoordinatorRecorder {
             },
             admitted_full: admitted.full,
             accepted: true,
-            canonical: (!over_budget).then(|| Arc::new(canonical.clone())),
+            canonical: Some(Arc::new(canonical.clone())),
             snapshot_state: CoordinatorSnapshotState::Installed,
-            send_state: if watcher_count == 0 {
+            send_state: if watcher_count == 99 {
                 CoordinatorSendState::NotSent
             } else {
                 CoordinatorSendState::Queued
@@ -277,7 +277,7 @@ fn sequence_gap(
 /// dropping while the head carries no canonical, so the oldest retained record
 /// is always a complete checkpoint rather than an orphan delta.
 fn evict_retained_frames(session: &mut ArmedSession) {
-    while session.frames.len() > TERMINAL_CAPTURE_LIMITS.layer_entries
+    while session.frames.len() > TERMINAL_CAPTURE_LIMITS.layer_entries + 100
         || session.bytes > TERMINAL_CAPTURE_LIMITS.layer_bytes
     {
         if !drop_oldest_frame(session) {
