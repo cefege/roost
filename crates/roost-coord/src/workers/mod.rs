@@ -17,6 +17,7 @@
 pub mod attachment_send;
 pub mod claims;
 pub mod delete;
+pub mod diag_send;
 pub mod heartbeat;
 pub mod hop_deadline;
 pub mod live_effects;

@@ -1,9 +1,9 @@
 //! Per-device push dispatch for an agent transition: who gets told, who is
 //! suppressed, and the identity-derived deduplication token.
 //!
-//! The viewer seam is a trait parameter here rather than a call into the
-//! terminal domain, which does not exist yet. `NoTerminalViewers` is the value
-//! a caller passes until it does, and it means "nobody is viewing".
+//! Where only the dispatch's own filtering is under test the viewers are the
+//! coordinator's real `TerminalViewHub`, empty, so nobody is watching; the
+//! suppression case pins a fixed viewer set instead.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 //!
@@ -16,14 +16,14 @@
 
 mod push_fixture;
 
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use push_fixture::{PUSH_ORIGIN, PushFixture, seed_open_session, viewer_fp};
 use roost_coord::push::dispatch::{
-    ActiveTerminalViewers, AgentPushTransition, NoTerminalViewers, PushTransition,
-    fire_push_for_transition,
+    ActiveTerminalViewers, AgentPushTransition, PushTransition, fire_push_for_transition,
 };
+use roost_coord::terminal_view::TerminalViewHub;
 use roost_protocol::wire::{AgentOccupantId, SessionId, StatusEpoch};
 use serde_json::Value;
 
@@ -31,10 +31,10 @@ const STATUS_EPOCH: &str = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const OCCUPANT_ID: &str = "11111111-aaaa-4aaa-8aaa-111111111111";
 
 /// A viewer set that always answers with `fingerprints`.
-struct FixedViewers(HashSet<String>);
+struct FixedViewers(BTreeSet<String>);
 
 impl ActiveTerminalViewers for FixedViewers {
-    fn active_viewer_fingerprints(&self, _session_id: &str) -> HashSet<String> {
+    fn active_viewer_fingerprints(&self, _session_id: &SessionId) -> BTreeSet<String> {
         self.0.clone()
     }
 }
@@ -97,7 +97,7 @@ async fn a_transition_notifies_every_background_device_with_the_full_payload() {
         fixture.database().pool(),
         &transition(PushTransition::Blocked, 7),
         &[PUSH_ORIGIN.to_owned()],
-        &NoTerminalViewers,
+        &TerminalViewHub::new(),
         &current,
         transport.as_ref(),
     )
@@ -148,7 +148,7 @@ async fn a_done_transition_says_finished_rather_than_needs_your_input() {
         fixture.database().pool(),
         &transition(PushTransition::Done, 1),
         &[PUSH_ORIGIN.to_owned()],
-        &NoTerminalViewers,
+        &TerminalViewHub::new(),
         &current,
         transport.as_ref(),
     )
@@ -178,7 +178,7 @@ async fn a_device_already_watching_the_session_is_not_notified() {
     }
     let transport = push_fixture::FakeTransport::accepting();
     let current = always_current();
-    let viewers = FixedViewers(HashSet::from([watching.clone()]));
+    let viewers = FixedViewers(BTreeSet::from([watching.clone()]));
 
     fire_push_for_transition(
         fixture.database().pool(),
@@ -236,7 +236,7 @@ async fn a_device_removed_from_the_registry_has_its_row_pruned_and_is_not_told()
         fixture.database().pool(),
         &transition(PushTransition::Done, 8),
         &[PUSH_ORIGIN.to_owned()],
-        &NoTerminalViewers,
+        &TerminalViewHub::new(),
         &current,
         transport.as_ref(),
     )
@@ -277,7 +277,7 @@ async fn a_disabled_account_keeps_its_rows_but_receives_nothing() {
         fixture.database().pool(),
         &transition(PushTransition::Done, 9),
         &[PUSH_ORIGIN.to_owned()],
-        &NoTerminalViewers,
+        &TerminalViewHub::new(),
         &current,
         transport.as_ref(),
     )
@@ -317,7 +317,7 @@ async fn a_subscription_whose_origin_left_the_allowlist_is_dropped_not_delivered
         fixture.database().pool(),
         &transition(PushTransition::Blocked, 1),
         &[PUSH_ORIGIN.to_owned()],
-        &NoTerminalViewers,
+        &TerminalViewHub::new(),
         &current,
         transport.as_ref(),
     )
@@ -355,7 +355,7 @@ async fn a_closed_session_produces_no_notification() {
         fixture.database().pool(),
         &transition(PushTransition::Blocked, 1),
         &[PUSH_ORIGIN.to_owned()],
-        &NoTerminalViewers,
+        &TerminalViewHub::new(),
         &current,
         transport.as_ref(),
     )

@@ -19,6 +19,7 @@ pub mod sender;
 pub mod subscription_store;
 pub mod transport;
 pub mod vapid;
+pub mod viewers;
 
 use std::fmt;
 use std::sync::Arc;
