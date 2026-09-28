@@ -42,6 +42,96 @@ use crate::session::resume::{AdoptionRequest, AdoptRefusal};
 
 /// Run the ordered boot and then the link, until the requester asks to stop.
 pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<()> {
+    let mut sequence = BootSequence::new();
+    // Readiness is the boot's own claim about the steps before it, and it is a
+    // state machine because the claim is about ORDER: reconciliation must
+    // reserve every durable session before a snapshot publishes, so a failed
+    // keeper adoption cannot expose a partial worker state. It is advanced at
+    // the points that earn it, and `Readiness::advance` refuses any other order
+    // rather than trusting this function to keep it.
+    let mut readiness = Readiness::default();
+    tracing::info!(
+        fingerprint = %boot.fingerprint,
+        version = %boot.worker_version,
+        process_epoch = %boot.process_epoch,
+        coordinator = %boot.coordinator_base,
+        keeper_socket = %boot.keeper_socket.display(),
+        "the worker is starting"
+    );
+
+    // 1. Identity, settled by `serve_until` before anything was probed or
+    //    spawned. The step is recorded so the log says where the refusals
+    //    happened.
+    let because = sequence.complete(StepId::Identity);
+    tracing::info!(
+        step = StepId::Identity.name(),
+        because,
+        "boot: identity settled"
+    );
+
+    // 2. Enrollment, BEFORE the link dials and therefore before the keeper is
+    //    admitted. A link that opens before the coordinator holds this
+    //    machine's `authorized_keys` row sends its first frame to a
+    //    coordinator that does not know the sender, and the retry that follows
+    //    is a reconnect rather than a registration. Position is the whole
+    //    property here: `enroll_this_activation` on the far side of the dial
+    //    satisfies every test in the enrollment suite and is still the defect
+    //    the suite was written to prevent.
+    //    One client for every boot-time call, so the scheme refusal and the
+    //    base-URL parse happen once. Built BEFORE enrollment, so a coordinator
+    //    this worker cannot dial is refused before a token is spent against it,
+    //    and reused by the open-session read below.
+    let coordinator_client = activation::coordinator_client(&boot.coordinator_base).with_context(
+        || {
+            format!(
+                "{} is not a coordinator this worker can dial",
+                boot.coordinator_base
+            )
+        },
+    )?;
+    let enrollment = enroll_this_activation(&boot)
+        .await
+        .context("this activation could not be enrolled")?;
+    if enrollment.is_some() {
+        tracing::info!(
+            fingerprint = %boot.fingerprint,
+            "boot: this machine is a member of the fleet before the link opens"
+        );
+    }
+
+    // 3. The local door, and it is HERE because of what it is for rather than
+    //    where it is convenient: a browser on this machine reaches its own PTYs
+    //    through the door, and it has to keep doing that while the coordinator
+    //    is unreachable. v2 opens it at `main.ts:158`, before the link at
+    //    `:173`, and a worker that opened it only once the link was up takes the
+    //    local terminal away exactly when the link is the thing that is broken.
+    //    A door that cannot be opened is a BOOT REFUSAL naming the door, never a
+    //    worker that came up without one. The ROUTES on it are `crate::door`'s
+    //    to mount; what this step owns is the bind and the refusal.
+    let platform = supported_host_platform()
+        .map_err(|error| anyhow::anyhow!("this host's platform is not one v3 runs on: {error}"))?;
+    let door = LocalDoor::bind(Some(&door_bind())).await?;
+
+    // 4. The durable outbox, opened BEFORE anything can write a session event
+    //    and before the link is told about it. Attaching is what makes the
+    //    barrier resume at the outbox's high water mark: a link that starts its
+    //    sequence at 1 while rows it must replay are numbered from a higher one
+    //    would wait for ever for an acknowledgement it never issued. A store
+    //    that cannot be opened is a boot refusal, not a warning — a worker that
+    //    accepted sessions it could not record would leave the coordinator
+    //    believing a dead session is alive.
+    let outbox_path = boot.data_dir.join(DATABASE_FILE_NAME);
+    let outbox = Arc::new(Journal::open(&outbox_path).await.with_context(|| {
+        format!(
+            "the durable outbox at {} could not be opened",
+            outbox_path.display()
+        )
+    })?);
+    // Logged, not propagated: a stats read that fails says the store is
+    // answering, which is the only thing the line is for. The open above
+    // already refused anything that is not.
+    match outbox.stats().await {
+        Ok(stats) => tracing::info!(
             path = %outbox_path.display(),
             rows = stats.rows,
             resumed_at = outbox.handed_over_at(),
@@ -60,14 +150,27 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     //    not a gap a later step filled — it was permanent. `decide` reads an
     //    unread set as "do not replace", so a machine whose keeper genuinely
     //    needed replacing never replaced it, forever, and no test noticed
-    //    because the refusal is the safe direction.
-    //    `open_sessions_or_unknown` is `reconcile`'s, not a closure written
-    //    here, so the "an unanswered coordinator is not an empty one" half of
-    //    that decision is something a test can call. It shipped untested
-    //    precisely because it was an `unwrap_or_else` two lines wide.
-    let open_sessions = reconcile::open_sessions_or_unknown(
-        read_open_session_count(&coordinator_client, boot.fingerprint.as_str()).await,
-    );
+    //    because the refusal is the safe direction. `open_sessions_or_unknown`
+    //    is `reconcile`'s, not a closure written here, so the "an unanswered
+    //    coordinator is not an empty one" half of that decision is something a
+    //    test can call — it shipped untested precisely because it was an
+    //    `unwrap_or_else` two lines wide.
+    //    The ROWS, kept, and not just the count. The keeper decision needs only
+    //    the number, but the adoption at step 9 needs this session's own id and
+    //    folder to adopt it INTO — and re-reading for those would be a second
+    //    answer to "which sessions are open" arriving after the keeper had
+    //    already been decided on the first. One read, both consumers.
+    let open_read =
+        reconcile::read_open_sessions(&coordinator_client, boot.fingerprint.as_str()).await;
+    let open_sessions =
+        reconcile::open_sessions_or_unknown(open_read.as_ref().map(|rows| rows.len()));
+    let open_rows = open_read.unwrap_or_default();
+    if open_rows.is_empty() && open_sessions.is_some() {
+        tracing::info!(
+            "boot: the coordinator reports no open session on this worker, so every channel \
+             the keeper holds is one it has already closed"
+        );
+    }
 
     let keeper = match keeper_boot::ensure_keeper(&boot, open_sessions, &boot.log_dir).await {
         Ok(KeeperBootOutcome::Adopted { channels, keeper }) => {
@@ -75,11 +178,11 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
                 ?channels,
                 "boot: adopted the keeper that already holds this machine's terminals"
             );
-            Some(keeper)
+            Some((keeper, channels))
         }
         Ok(KeeperBootOutcome::StartedFresh { keeper }) => {
             tracing::info!("boot: started a fresh keeper");
-            Some(keeper)
+            Some((keeper, Vec::new()))
         }
         Ok(KeeperBootOutcome::Held { decision }) => {
             tracing::warn!(
@@ -101,6 +204,10 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     // started after the first history read would lose the bytes a survivor
     // produced during the read. Nothing reports that loss: the frames were
     // never expected by anyone.
+    let (keeper, survivor_channels) = match keeper {
+        Some((handle, channels)) => (Some(handle), channels),
+        None => (None, Vec::new()),
+    };
     let pool = keeper
         .as_ref()
         .map(|handle| KeeperPool::new(handle.clone()));
@@ -140,6 +247,11 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
              empty session set"
         );
     };
+    // The stack takes ownership of the pool, and the adoption needs the same
+    // object to read the keeper's channel list through. A CLONE of the handle
+    // rather than a second connection: the keeper socket is one, its dispatch
+    // loop is one, and a second client would be a second frame stream.
+    let survivors = Arc::clone(&pool);
     let stack: SessionStack = session_stack::build(
         boot.fingerprint.clone(),
         pool,
@@ -238,13 +350,20 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     // 9. Survivors. `advance_past_keeper` moved the id counter; this is the
     //    other half, and it is a DIFFERENT question: a channel the keeper still
     //    holds is a PTY this worker did not spawn, and adopting it rebuilds a
-    //    record around a live terminal. The admission is
-    //    `adopt_survivor`'s own — it refuses, it does not guess — and a refusal
-    //    here is LOGGED AND COUNTED rather than propagated, because the design
-    //    is explicit that the survivor is killed and the session must be
+    //    record around a live terminal. The admission is `adopt_survivor`'s own
+    //    — it refuses, it does not guess — and a refusal there is counted and
+    //    logged by `runtime::adoption` rather than propagated, because that
+    //    design is explicit that the survivor is killed and the session must be
     //    respawned. Propagating would abort a boot over one unreplayable
     //    terminal and take every other survivor with it.
-    let adopted = adopt_survivors(&stack, &boot).await;
+    let adopted = super::adoption::adopt_survivors(
+        &stack,
+        &survivors,
+        &survivor_channels,
+        &open_rows,
+        &boot.keeper_socket.display().to_string(),
+    )
+    .await;
     tracing::info!(
         ?adopted,
         "boot: the keeper's survivors were reconciled against the session table"
@@ -309,7 +428,7 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
 /// `WorkerBoot`: the door is the one collaborator whose address an operator
 /// changes without changing anything else about the worker, and a value frozen
 /// into the boot configuration would be a second place to change it.
-fn door_bind(boot: &WorkerBoot) -> String {
+fn door_bind() -> String {
     let environment = ProcessEnv::new();
     environment
         .get(super::door_serve::ENV_DOOR_BIND)

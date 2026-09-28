@@ -61,6 +61,12 @@ pub struct SessionStack {
     /// to register a sink (the coordinator's, the local door's) reaches one
     /// object rather than a second copy of the delivery state.
     pub emitter: Arc<Mutex<CellEmitter>>,
+    /// The resolver, kept so a survivor's launch contract can be resolved for
+    /// the record it is adopted as. Holding it here rather than re-resolving at
+    /// the call site is what stops a second resolver existing: two resolvers
+    /// write two bootstrap rcfiles for the same session, and the shell that
+    /// reads one of them is reading whichever wrote last.
+    resolver: Arc<dyn ShellSpecResolver>,
 }
 
 /// Why the session layer could not be built.
@@ -116,6 +122,7 @@ pub fn build(
     let spawner: Arc<dyn ShellSpawner> = pool;
     let cells: Arc<Mutex<dyn CellDelivery>> = Arc::new(Mutex::new(cells));
 
+    let resolver_for_manager = Arc::clone(&resolver);
     let manager = SessionManager::new(
         worker_fp,
         Arc::clone(&table),
@@ -125,21 +132,39 @@ pub fn build(
         ingest,
         Arc::clone(&clock) as Arc<dyn EventClock>,
         spawner,
-        resolver,
+        resolver_for_manager,
     );
     tracing::info!(
         fingerprint = %worker_fp_text,
         attachments_root = %attachment_root(data_dir).display(),
         log_dir = %log_dir.display(),
-        "the session layer is built: one keeper pool answers both seams, and one emitter \
-         answers both delivery traits"
+        "the session layer is built: one keeper pool answers both seams, one emitter answers \
+         both delivery traits, and one resolver answers every launch contract"
     );
     Ok(SessionStack {
         manager,
         table,
         clock,
         emitter,
+        resolver,
     })
+}
+
+impl SessionStack {
+    /// The launch contract a session's PTY is opened under, resolved through the
+    /// ONE resolver this stack owns.
+    ///
+    /// A survivor's adoption needs it as much as a spawn does, and it needs it
+    /// VERBATIM: a record whose PTY was opened under a different contract than
+    /// the one a later respawn resolves is a session that changes shape when it
+    /// is replaced, which is the defect the adoption exists to avoid.
+    pub fn resolve_shell_spec(
+        &self,
+        cwd: &str,
+        session_id: &str,
+    ) -> Result<crate::shell_spec::ShellSpec, String> {
+        self.resolver.resolve_shell_spec(cwd, session_id)
+    }
 }
 
 /// The root every session's attachment directory hangs from.

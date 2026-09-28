@@ -18,10 +18,12 @@
 //! — see [`keeper_boot::decide`], which is a pure function precisely so that
 //! decision can be tested without a keeper, a coordinator, or a PTY.
 
+pub mod adoption;
 pub mod boot;
 pub mod boot_order;
 pub mod boot_sequence;
 pub mod bootstrap_redeem;
+pub mod capabilities;
 pub mod cell_delivery;
 pub mod channel_delivery;
 pub mod credential;

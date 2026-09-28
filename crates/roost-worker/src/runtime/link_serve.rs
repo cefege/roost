@@ -110,14 +110,24 @@ async fn force_hello(loop_state: &mut LinkLoop, link: &mut Link) -> Option<LinkE
     // `LinkLoopState` already carries it, and v2 sent it, so omitting it was a
     // parity gap rather than a missing feature.
     //
-    // `capabilities` is the remaining half and stays UNIMPLEMENTED. An empty
-    // vec encodes to zero bytes, because a proto3 repeated field with no
-    // entries is absent — so the bytes on the wire are identical to a build
-    // that has no such field, and this change is a no-op for a coordinator
-    // rather than a newly-incompatible hello. The list is W-2's: advertising a
-    // capability the worker cannot yet serve is a worse failure than admitting
-    // none, and every `browser_commands::Deps` implementation is still a test
-    // fake.
+    // `capabilities` is what this worker can actually SERVE, and the list is
+    // derived from the two collaborators that decide it rather than written
+    // here: a capability this build cannot answer is worse than admitting
+    // none, because a coordinator that believes it is answered routes browser
+    // view commands here and waits for frames nobody is producing.
+    //  - `terminal-metadata-v1` is advertised because the emitter stages raw
+    //    metadata on every ingest and the drain negotiates it from the ack.
+    //  - `terminal-view-owner-v1` is NOT advertised: the coordinator's own
+    //    `TerminalViewHub` owns membership for this build, which is v2's
+    //    fallback and not a degraded answer to a capability claim.
+    //  - the WebRTC carriers are NOT advertised: `crate::peer` has no transport
+    //    behind it yet, and a local browser on this machine reaches its PTYs
+    //    through the door instead.
+    let capabilities = crate::runtime::capabilities::advertised();
+    tracing::debug!(
+        ?capabilities,
+        "the hello advertises the capabilities this worker can serve"
+    );
     let hello = CoordWorkerUpstream::Hello {
         worker_fp: loop_state.identity.worker_fp.clone(),
         version: loop_state.identity.version.clone(),
