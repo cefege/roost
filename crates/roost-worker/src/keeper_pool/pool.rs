@@ -35,16 +35,17 @@ use std::time::Duration;
 use roost_keeper::client::KeeperClient;
 use roost_keeper::client_error::ClientError;
 use roost_keeper::client_resize::{ResizeOutcome, ResizeUnknownReason};
-use roost_keeper::codec::MuxFrame;
+use roost_keeper::codec::{KEEPER_MAX_INPUT_BYTES, MuxFrame};
 use roost_keeper::frames::ChannelBinding as KeeperChannelBinding;
-use roost_keeper::payloads::PtyInResult;
 
 use super::PoolChannel;
 use super::channel_ids::ChannelIds;
 use super::channels::ChannelRegistry;
 use super::dispatch::dispatch_loop;
 use super::error::PoolError;
+use super::input_command::{PendingInputUsage, PendingInputs};
 use crate::runtime::keeper_boot::KeeperHandle;
+use crate::session::keeper_channels::{InputNotWritten, KeeperInputCommand};
 use crate::session::sinks::ChannelBinding;
 
 /// A PTY the keeper opened, and the channel it is addressed by.
@@ -68,6 +69,9 @@ pub struct KeeperPool {
     /// Cleared the moment the keeper is known to be gone, so a later request
     /// fails instead of writing into a socket nobody is reading.
     connected: AtomicBool,
+    /// Written acknowledged-input batches awaiting their result frame.
+    /// `pub(super)` so `dispatch` can settle them.
+    pub(super) pending_inputs: Arc<PendingInputs>,
 }
 
 impl std::fmt::Debug for KeeperPool {
@@ -93,6 +97,7 @@ impl KeeperPool {
             channels: ChannelRegistry::default(),
             channel_ids: ChannelIds::new(),
             connected: AtomicBool::new(true),
+            pending_inputs: Arc::new(PendingInputs::default()),
         });
         tracing::info!("the keeper pool is driving its connection");
         let weak: Weak<Self> = Arc::downgrade(&pool);
@@ -126,23 +131,52 @@ impl KeeperPool {
 
     /// Write input without waiting for an answer.
     ///
-    /// The keystroke path: a round trip per character is what made the terminal
-    /// feel broken, so the unacknowledged frame is the default and
-    /// [`KeeperPool::input_sequenced`] is for a caller that needs the receipt.
+    /// The keystroke path of the legacy binary frame: nothing is owed back, so
+    /// nothing correlates it. [`KeeperPool::begin_acknowledged_input`] is the
+    /// form whose outcome a caller can report.
     pub fn input(&self, channel_id: u16, bytes: &[u8]) -> Result<(), PoolError> {
         self.require_connected()?;
         self.request(|client| client.write_input(channel_id, bytes))
     }
 
-    /// Write input and wait for the keeper to say how much of it landed.
-    pub fn input_sequenced(
-        &self,
-        channel_id: u16,
-        input_seq: u64,
-        bytes: &[u8],
-    ) -> Result<PtyInResult, PoolError> {
-        self.require_connected()?;
-        self.request(|client| client.write_input_sequenced(channel_id, input_seq, bytes))
+    /// Put one acknowledged batch on the socket under a worker-owned sequence,
+    /// and hand back its two halves (v2 `beginInput`).
+    ///
+    /// The sequence is claimed, written and registered while this call holds
+    /// the connection, and the dispatcher needs the connection to take frames,
+    /// so no answer can arrive before its waiter exists. A write that failed
+    /// registered nothing, which is what makes its refusal provable.
+    pub fn begin_acknowledged_input(&self, channel_id: u16, bytes: Vec<u8>) -> KeeperInputCommand {
+        if self.require_connected().is_err() {
+            return KeeperInputCommand::not_written(InputNotWritten::Disconnected);
+        }
+        if bytes.is_empty() || bytes.len() > KEEPER_MAX_INPUT_BYTES as usize {
+            return KeeperInputCommand::not_written(InputNotWritten::InvalidRequest);
+        }
+        let expected = bytes.len() as u32;
+        let written: Result<KeeperInputCommand, String> = self.keeper.with(|client| {
+            let input_seq = match self.pending_inputs.reserve(channel_id, bytes.len()) {
+                Ok(input_seq) => input_seq,
+                Err(refusal) => return Ok(KeeperInputCommand::not_written(refusal)),
+            };
+            match client.send_input_request(channel_id, input_seq, &bytes) {
+                Ok(()) => Ok(self
+                    .pending_inputs
+                    .register(channel_id, input_seq, expected)),
+                Err(error) => Err(error.to_string()),
+            }
+        });
+        written.unwrap_or_else(|error| {
+            self.keeper_lost(format!(
+                "the keeper connection failed writing input: {error}"
+            ));
+            KeeperInputCommand::not_written(InputNotWritten::Disconnected)
+        })
+    }
+
+    /// What a channel has written and not yet heard back about.
+    pub fn pending_input(&self, channel_id: u16) -> PendingInputUsage {
+        self.pending_inputs.usage(channel_id)
     }
 
     /// Apply a geometry change, and report what the keeper did with it.
@@ -213,6 +247,7 @@ impl KeeperPool {
 
     /// Drop a channel from the pool entirely, for a session that has closed.
     pub fn forget(&self, channel_id: u16) -> Option<PoolChannel> {
+        self.pending_inputs.forget_channel(channel_id);
         self.channels.forget(channel_id)
     }
 
@@ -277,6 +312,8 @@ impl KeeperPool {
             tracing::debug!(%reason, "the keeper connection was already reported gone");
             return;
         }
+        // Every written batch is unknowable now: its result will never arrive.
+        self.pending_inputs.settle_all_disconnected();
         let channels = self.channels.drain();
         tracing::error!(
             %reason,

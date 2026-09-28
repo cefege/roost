@@ -29,6 +29,13 @@ pub const KEEPER_EMPTY_BINDING_DIGEST: &str =
 /// The first bytes of every binding digest input. Part of the digest, so it
 /// must match the running keeper's byte for byte.
 pub const KEEPER_BINDING_DIGEST_PREAMBLE: &str = "keeper-bindings-v1\n";
+/// The runtime family a v3 keeper reports as `bun_abi`. Two Rust keepers agree,
+/// a Bun keeper and a Rust keeper never do, so a restart handoff across
+/// runtimes is refused exactly as v2 refuses a Bun-version change; the binary
+/// itself is pinned by `implementation_digest`. It is a FIXED family name and
+/// never a version string: `keeper_contracts_same_implementation` compares it
+/// for equality, so a per-release value would refuse every worker-only upgrade.
+pub const KEEPER_RUNTIME_ABI: &str = "rust";
 
 pub(crate) const SHA256_DIGEST_LENGTH: usize = 64;
 
@@ -134,6 +141,7 @@ pub fn keeper_contracts_same_implementation(
     ) {
         (Some(target_digest), Some(running_digest)) => {
             target_digest == running_digest
+                && target.bun_abi == running.bun_abi
                 && target.platform == running.platform
                 && target.arch == running.arch
                 && target.supported_features == running.supported_features

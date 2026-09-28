@@ -83,6 +83,19 @@ pub struct SessionManager {
     pub(super) channels: Mutex<crate::strays::ChannelAllocator>,
     /// Wall-clock ms at which this worker last closed each of these sessions.
     pub(super) recently_closed: Mutex<HashMap<SessionId, i64>>,
+    /// The per-channel control and write-ordering lanes every terminal write
+    /// and stream transaction takes (v2 `terminalControlChains` +
+    /// `keeperAdmissionLane`). One per worker, so an input and a resize on one
+    /// channel land in the order they were made.
+    pub(super) lanes: Arc<super::control_lanes::ControlLanes>,
+    /// Which coordinator-minted generation owns each channel (v2
+    /// `terminalStreams` + `lastAppliedSize`).
+    pub(super) terminal_streams: super::terminal_state::TerminalStreams,
+    /// The worker's terminal-core admission (v2 `terminalCoreCapacity`): every
+    /// record's core holds a lease here from construction through teardown.
+    pub(super) core_capacity: Arc<crate::terminal_core_capacity::TerminalCoreCapacity>,
+    /// The owners told when a held session ends (v2 `onSessionClosed`).
+    pub(super) closed_hooks: super::closed_hooks::SessionClosedHooks,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -109,6 +122,7 @@ impl SessionManager {
         clock: Arc<dyn EventClock>,
         spawner: Arc<dyn ShellSpawner>,
         resolver: Arc<dyn ShellSpecResolver>,
+        core_capacity: Arc<crate::terminal_core_capacity::TerminalCoreCapacity>,
     ) -> Arc<Self> {
         // `new_cyclic`, and the reason is not style. `Arc::get_mut` requires
         // the weak count to be ZERO, so filling the handle after construction
@@ -131,6 +145,10 @@ impl SessionManager {
             channels: Mutex::new(crate::strays::ChannelAllocator::new()),
             recently_closed: Mutex::new(HashMap::new()),
             resize_seqs: Mutex::new(HashMap::new()),
+            lanes: Arc::new(super::control_lanes::ControlLanes::new()),
+            terminal_streams: super::terminal_state::TerminalStreams::default(),
+            core_capacity,
+            closed_hooks: super::closed_hooks::SessionClosedHooks::default(),
             self_handle: self_handle.clone(),
         })
     }
@@ -144,6 +162,19 @@ impl SessionManager {
     /// that cannot be given a durable sink is told so rather than answered.
     pub fn owned(&self) -> Option<Arc<Self>> {
         self.self_handle.upgrade()
+    }
+
+    /// The terminal-core admission this manager leases every core from; the
+    /// boot survivor gate and the heartbeat read the same one.
+    pub fn terminal_core_capacity(
+        &self,
+    ) -> &Arc<crate::terminal_core_capacity::TerminalCoreCapacity> {
+        &self.core_capacity
+    }
+
+    /// Register an owner to be told when a session this worker held ends.
+    pub fn on_session_closed(&self, hook: super::closed_hooks::SessionClosedHook) {
+        self.closed_hooks.register(hook);
     }
 
     /// Claim durable capacity for one event of this session's own.
@@ -182,6 +213,9 @@ impl SessionManager {
         let Some(entry) = self.sessions.forget(channel_id) else {
             return Ok(SessionOutcome::Killed);
         };
+        // The record left the table and its core with it: v2 `_dropChannelState`
+        // releases the core lease beside `sessions.delete`.
+        self.core_capacity.release_channel(channel_id);
         // EVERYTHING THAT NEEDS THE RECORD HAPPENS INSIDE THIS BLOCK, so the
         // guard goes out of SCOPE before the first `.await` below rather than
         // being dropped by hand. That distinction is load-bearing and it cost a
@@ -190,7 +224,7 @@ impl SessionManager {
         // `MutexGuard` live across every await in the function — which makes
         // this future `!Send` and takes `SessionManager` with it. Scoping is the
         // only version the borrow checker can prove.
-        let (session_id, branded_channel_id, trace_id, now_ms, reservation, head_seq, closes) = {
+        let (session_id, branded_channel_id, trace_id, now_ms, reservation, head_seq, transition) = {
             let mut record = entry
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -201,10 +235,7 @@ impl SessionManager {
             let reservation = record.close_reservation;
             let head_seq = record.head_seq;
             super::respawn::note_birth(self, &record, now_ms);
-            let transition = record
-                .fsm
-                .close(exit_code)
-                .map_err(|refusal| Refusal::failed("sessions", refusal.reason()))?;
+            let transition = record.fsm.close(exit_code);
             (
                 session_id,
                 branded_channel_id,
@@ -212,9 +243,16 @@ impl SessionManager {
                 now_ms,
                 reservation,
                 head_seq,
-                transition.closes,
+                transition,
             )
         };
+        // v2 `_dropChannelState` → `onSessionClosed`: the record has left the
+        // table, so the owners holding per-session state (input routes, view
+        // membership and stream identity) drop it now, with no lock held.
+        self.closed_hooks.notify(&session_id);
+        let closes = transition
+            .map_err(|refusal| Refusal::failed("sessions", refusal.reason()))?
+            .closes;
         let Some(closed_code) = closes else {
             // No guard to release here: the block above already ended.
             self.events.release(reservation).await;
@@ -235,6 +273,7 @@ impl SessionManager {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .forget_channel(branded_channel_id);
+        self.terminal_streams.forget(branded_channel_id);
         self.mark_recently_closed(&session_id, now_ms);
         match recorded {
             Ok(()) => {

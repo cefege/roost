@@ -79,13 +79,15 @@
 //! into, and killing a session the coordinator has already closed is not this
 //! worker's decision to take.
 //!
-//! EVERY REFUSAL IS COUNTED AND LOGGED, NEVER PROPAGATED. A refusal AFTER the
-//! probe passed is `session::resume`'s designed repair — the history was
-//! proven replayable, so an adoption that still cannot complete kills the
+//! EVERY REFUSAL IS COUNTED AND LOGGED, NEVER PROPAGATED — but one. A refusal
+//! AFTER the probe passed is `session::resume`'s designed repair — the history
+//! was proven replayable, so an adoption that still cannot complete kills the
 //! survivor and the session must be respawned. But propagating any of it
 //! would abort the boot and take every OTHER survivor and the worker's link
 //! down with it, over one terminal. A refused adoption is NOT a boot
-//! failure.
+//! failure. The exception is terminal-core capacity (v2 `boot-keeper.ts`): the
+//! WHOLE survivor set is admitted before any channel is touched, and a refusal
+//! stops the boot rather than respawning terminals the worker cannot hold.
 
 use std::sync::Arc;
 
@@ -98,48 +100,10 @@ use super::reconcile::OpenSession;
 use super::session_stack::SessionStack;
 use crate::keeper_pool::KeeperPool;
 use crate::session::keeper_channels::{KeeperChannels, KeeperFault};
-use crate::session::resume::AdoptionRequest;
+use crate::session::resume::{AdoptFailure, AdoptRefusal, AdoptionRequest};
+use crate::terminal_core_capacity::TerminalCoreCapacityError;
 
-/// What reconciling the keeper's survivors against the session table did.
-///
-/// FIVE COUNTERS AND NOT ONE, because the outcomes are different facts: two of
-/// them left a live PTY running and three did not, and a single "unreplayable"
-/// count cannot tell an operator which happened.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct Adopted {
-    /// Channels the keeper still held and this worker adopted around.
-    pub adopted: usize,
-    /// Channels this build cannot bring into a cold core, so NO adoption was
-    /// attempted. Every one of these was left RUNNING and undisturbed — held,
-    /// not killed, not adopted, not abandoned — and the boot continued. Either
-    /// the channel is not one this worker can address, or [`history_readable`]
-    /// said this build cannot assemble a replay. The second is the expected
-    /// outcome of every boot this build performs today, and it is a fact about
-    /// the binary rather than about any machine.
-    pub unreplayable: usize,
-    /// Channels whose adoption FAILED AFTER KILLING THE SURVIVOR. This is the
-    /// counter an operator reads to learn that a terminal was actually ended,
-    /// and it is counted from `AdoptFailure::abandoned` rather than from the
-    /// refusal variant — because five of the seven exits that return
-    /// `AdoptRefusal::Unreplayable` did NOT kill anything, and a counter keyed
-    /// on the variant claimed a kill five times out of ten.
-    pub refused: usize,
-    /// Channels whose adoption was refused WITHOUT the survivor being killed.
-    ///
-    /// The ordinary outcome against a keeper this build cannot finish a replay
-    /// against, and the counterpart to `refused`: together they are every
-    /// refusal, and the split is the difference between "a terminal ended" and
-    /// "a terminal is still running and this worker declined to touch it".
-    pub declined: usize,
-    /// Channels the keeper holds that the coordinator does not list as open, so
-    /// there is no session identity to adopt them into. These were left RUNNING
-    /// and undisturbed.
-    pub unknown_to_coordinator: usize,
-    /// Survivors whose adoption had no durable capacity reserved for its end.
-    /// Left running, because a session that cannot record its own close must not
-    /// be made live here.
-    pub unreservable: usize,
-}
+pub use super::adoption_outcome::Adopted;
 
 /// Whether this build can assemble a replay for this channel at all.
 ///
@@ -186,7 +150,8 @@ pub async fn adopt_survivors(
     held: &[u16],
     open: &[OpenSession],
     socket_path: &str,
-) -> Adopted {
+) -> Result<Adopted, TerminalCoreCapacityError> {
+    admit_survivor_set(stack, held)?;
     let mut adopted = Adopted::default();
     let trace = stack.manager.trace_id();
     for raw in held.iter().copied() {
@@ -328,6 +293,15 @@ pub async fn adopt_survivors(
                      cold core"
                 );
             }
+            // Capacity is the one refusal that stops the boot (v2 rethrows it
+            // from `resume`); the survivor was left untouched.
+            Err(AdoptFailure {
+                refusal: AdoptRefusal::TerminalCoreCapacity { channel, refusal },
+                ..
+            }) => {
+                tracing::error!(channel_id = channel, %refusal, "boot: a survivor's terminal core was refused, so the boot stops");
+                return Err(refusal);
+            }
             // THE FACT DECIDES THE COUNTER, NOT THE VARIANT. Seven of the
             // ten exits in `adopt_survivor` return `AdoptRefusal::Unreplayable`
             // and TWO of those did kill the survivor, so a counter keyed on
@@ -364,7 +338,28 @@ pub async fn adopt_survivors(
             }
         }
     }
-    adopted
+    Ok(adopted)
+}
+
+/// v2 `handleKeeperSurvivor`: the distinct survivor channels must all fit
+/// before any is attached, so capacity never admits a partial set.
+fn admit_survivor_set(stack: &SessionStack, held: &[u16]) -> Result<(), TerminalCoreCapacityError> {
+    let survivor_channels = held.iter().collect::<std::collections::HashSet<_>>().len();
+    let capacity = stack.manager.terminal_core_capacity();
+    capacity
+        .assert_can_adopt_survivors(survivor_channels)
+        .inspect_err(|refusal| {
+            let snapshot = capacity.snapshot();
+            tracing::error!(
+                survivor_channels,
+                capacity = snapshot.capacity,
+                used = snapshot.used,
+                pending = snapshot.pending,
+                refusal_count = snapshot.refusal_count,
+                %refusal,
+                "keeper_survivor_capacity_refused"
+            );
+        })
 }
 
 /// The channel ids a keeper admission proved this worker must not collide with.

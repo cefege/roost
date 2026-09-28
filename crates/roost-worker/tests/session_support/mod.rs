@@ -14,11 +14,14 @@
 use futures_util::FutureExt as _;
 
 mod fakes;
+pub mod input_script;
+mod scripted_keeper;
 
-// Only the two the four test binaries actually name are re-exported. The rest
+// Only the names the test binaries actually use are re-exported. The rest
 // are imported privately because `Harness` below is their only consumer, and a
 // `pub use` nothing reaches is its own lint in a private module.
-pub use fakes::{PinnedClock, ScriptedKeeper};
+pub use fakes::PinnedClock;
+pub use scripted_keeper::ScriptedKeeper;
 
 use fakes::{
     CountingCells, FixedResolver, NeverSpawns, RecordingDelivery, RecordingSink, shared_delivery,
@@ -38,6 +41,9 @@ use roost_worker::session::ring::ScrollbackRing;
 use roost_worker::session::sinks::SessionEventSink;
 use roost_worker::session::types::{SessionIdentity, SessionRecord};
 use roost_worker::shell_spec::{SHELL_SPEC_VERSION, ShellSpec};
+use roost_worker::terminal_core_capacity::{
+    TERMINAL_CORE_ALLOCATION_BYTES, TerminalCoreCapacity, TerminalCoreCapacityOptions,
+};
 
 pub const SESSION: &str = "00000000-0000-4000-8000-00000000beef";
 pub const OTHER: &str = "00000000-0000-4000-8000-00000000cafe";
@@ -84,14 +90,26 @@ pub struct Harness {
     pub keeper: Arc<ScriptedKeeper>,
     pub delivery: Arc<RecordingDelivery>,
     pub cells: Arc<Mutex<CountingCells>>,
+    pub core_capacity: Arc<TerminalCoreCapacity>,
 }
 
 impl Harness {
     pub fn with_keeper(keeper: Arc<ScriptedKeeper>) -> Self {
+        Self::with_capacity(keeper, None)
+    }
+
+    /// The manager over a deterministic core admission: `terminal_core_cap`
+    /// bounds a ceiling roomy enough for the hard maximum.
+    pub fn with_capacity(keeper: Arc<ScriptedKeeper>, terminal_core_cap: Option<u32>) -> Self {
         let table = Arc::new(SessionTable::default());
         let sink = Arc::new(RecordingSink::default());
         let delivery = Arc::new(RecordingDelivery::default());
         let cells = Arc::new(Mutex::new(CountingCells::default()));
+        let core_capacity = TerminalCoreCapacity::new(TerminalCoreCapacityOptions {
+            effective_memory_ceiling_bytes: 1_000 * TERMINAL_CORE_ALLOCATION_BYTES,
+            boot_rss_bytes: 0,
+            terminal_core_cap,
+        });
         let manager = SessionManager::new(
             worker_fp(),
             Arc::clone(&table),
@@ -104,6 +122,7 @@ impl Harness {
             Arc::new(FixedResolver {
                 spec: shell_spec("/home/user/project"),
             }),
+            Arc::clone(&core_capacity),
         );
         Self {
             manager,
@@ -112,6 +131,7 @@ impl Harness {
             keeper,
             delivery,
             cells,
+            core_capacity,
         }
     }
 

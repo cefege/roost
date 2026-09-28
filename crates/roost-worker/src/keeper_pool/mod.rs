@@ -14,6 +14,7 @@ mod channel_ids;
 mod channels;
 mod dispatch;
 mod error;
+mod input_command;
 mod pool;
 mod pool_spawn;
 mod session_seam;
@@ -24,6 +25,7 @@ pub use session_seam::{NO_REPORTED_BASE_GEOMETRY, NO_REPORTED_HEAD};
 
 pub use dispatch::DISPATCH_IDLE;
 pub use error::PoolError;
+pub use input_command::{COMMAND_RESULT_TIMEOUT, PendingInputUsage};
 pub use pool::{KeeperPool, Spawned};
 pub use spawn_spec::{PtyCommand, pty_command};
 

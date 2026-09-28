@@ -41,6 +41,7 @@ use super::lifecycle::SessionManager;
 use super::sinks::ChannelBinding;
 use crate::event_store::Reservation;
 use crate::shell_spec::ShellSpec;
+use crate::terminal_core_capacity::{TerminalCoreAllocationKind, TerminalCoreCapacityError};
 
 /// What an adoption did: the window's floor, and the head it was seeded with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,6 +68,14 @@ pub enum AdoptRefusal {
          adopting it would splice a byte gap; it was killed instead"
     )]
     StagingOverflow { channel: u16, cap: usize },
+    /// The worker's terminal-core admission refused an adoption core. The
+    /// survivor was not touched and the close claim was given back (v2
+    /// `session-resume.ts:294`); the boot must stop rather than respawn.
+    #[error("channel {channel} could not be adopted: {refusal}")]
+    TerminalCoreCapacity {
+        channel: u16,
+        refusal: TerminalCoreCapacityError,
+    },
 }
 
 /// What a survivor is adopted as.
@@ -103,12 +112,12 @@ pub struct AdoptionRequest {
 /// A refusal, and the fact of whether the survivor died.
 ///
 /// WHY THE FACT IS CARRIED AND NOT DERIVED FROM THE VARIANT. `adopt_survivor`
-/// has TEN refusal exits. Three call `abandon` and therefore
-/// `keeper.kill_channel`; seven return bare. Five of those seven produce
+/// has ELEVEN refusal exits. Three call `abandon` and therefore
+/// `keeper.kill_channel`; eight return bare. Five of those eight produce
 /// `AdoptRefusal::Unreplayable` — the SAME variant the abandoned record-build
 /// and the abandoned table-insert produce — so a caller that infers "this
 /// killed the survivor" from the variant it received is wrong five times out
-/// of ten, on a path whose whole consequence is a terminal ending.
+/// of eleven, on a path whose whole consequence is a terminal ending.
 ///
 /// `Deref` is there so a caller that only wants the reason reads it without
 /// unwrapping, and so a test naming a refusal keeps naming it.
@@ -179,6 +188,21 @@ impl SessionManager {
         let Some(survivor) = live.iter().find(|held| held.channel_id == channel) else {
             return Err(AdoptFailure::left_alone(AdoptRefusal::NoSurvivor(channel)));
         };
+        // The core is admitted BEFORE anything is read or rebound (v2 reserves
+        // "adoption" before the reattach), so a refusal leaves the survivor as
+        // the last worker left it.
+        let lease = match self
+            .core_capacity
+            .reserve(TerminalCoreAllocationKind::Adoption)
+        {
+            Ok(lease) => lease,
+            Err(refusal) => {
+                self.events.release(request.close_reservation).await;
+                return Err(AdoptFailure::left_alone(
+                    AdoptRefusal::TerminalCoreCapacity { channel, refusal },
+                ));
+            }
+        };
         let binding = RecordBinding::staged(
             channel,
             Arc::clone(&self.sessions),
@@ -243,6 +267,10 @@ impl SessionManager {
                 }));
             }
         };
+        // The record holds the adopted core from here until its teardown.
+        if let Err(misuse) = self.core_capacity.install_channel(channel, lease) {
+            tracing::error!(channel_id = channel, error = %misuse, "an adopted core's lease could not become resident");
+        }
         let (replay_offset, head_seq, stream_id) = {
             let record = entry
                 .lock()
@@ -325,6 +353,7 @@ impl SessionManager {
             );
         }
         self.sessions.forget(channel);
+        self.core_capacity.release_channel(channel);
         self.events.release(request.close_reservation).await;
         let staged = binding.abandon();
         tracing::warn!(

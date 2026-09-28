@@ -8,15 +8,16 @@
 //! The contract is `protocol/spec/keeper.md`.
 
 use crate::channel_history::ChannelHistory;
-use crate::codec::{CodecError, MuxFrame, MuxFrameType};
+use crate::codec::{CodecError, KEEPER_MAX_INPUT_BYTES, MuxFrame, MuxFrameType};
 use crate::frames::{ChannelBinding, ListChannelsResp, SpawnAck, SpawnErr, SpawnRequest};
+use crate::input_queue::InputReply;
 use crate::keeper::{Channel, Keeper, resize_reject, result_frame};
 use crate::payloads::TerminalState;
 use crate::payloads::{
     KeeperHelloRequest, KeeperHelloResponse, KeeperObservation, PtyInRejectReason, PtyInRequest,
     PtyInResult, ResizeRequest, negotiate_features,
 };
-use crate::pty_channel::{PtyChannel, WriteOutcome};
+use crate::pty_channel::PtyChannel;
 
 impl Keeper {
     pub fn hello(&self, frame: &MuxFrame) -> Result<Vec<MuxFrame>, CodecError> {
@@ -130,52 +131,52 @@ impl Keeper {
         }
     }
 
+    /// Legacy input shares the acknowledged FIFO, so the two lanes can never
+    /// interleave mid-batch. It is owed no answer, so a refusal is only logged.
     pub fn legacy_input(&mut self, frame: &MuxFrame) -> Vec<MuxFrame> {
-        // Unacknowledged by definition: there is no sequence to report, which is
-        // why the sequenced form exists.
-        if let Some(channel) = self.channels.get_mut(&frame.channel_id) {
-            channel.pty.write_input(&frame.payload);
+        if frame.payload.is_empty() || frame.payload.len() > KEEPER_MAX_INPUT_BYTES as usize {
+            return Vec::new();
+        }
+        if let Some(channel) = self.channels.get_mut(&frame.channel_id)
+            && let Err(reason) = channel
+                .pty
+                .enqueue_input(frame.payload.clone(), InputReply::Unacknowledged)
+        {
+            tracing::warn!(
+                channel_id = frame.channel_id,
+                bytes = frame.payload.len(),
+                ?reason,
+                "keeper: legacy input was not queued"
+            );
         }
         Vec::new()
     }
 
+    /// Queue sequenced input. The lane answers once the batch is written; only
+    /// a refusal decided before anything was queued is answered here.
     pub fn sequenced_input(&mut self, frame: &MuxFrame) -> Result<Vec<MuxFrame>, CodecError> {
         let request = PtyInRequest::decode(&frame.payload, "PtyInRequest")?;
-        let Some(channel) = self.channels.get_mut(&frame.channel_id) else {
-            return Ok(vec![result_frame(
-                MuxFrameType::PtyInReject,
-                frame.channel_id,
-                PtyInResult::Reject {
-                    input_seq: request.input_seq,
-                    reason: PtyInRejectReason::NoSuchChannel,
-                },
-            )?]);
+        let reply = InputReply::Acknowledged {
+            input_seq: request.input_seq,
+            route: std::sync::Arc::clone(&self.input_route),
+            generation: self.input_route.current(),
         };
-
-        let outcome = channel.pty.write_input(&request.bytes);
-        let result = match outcome {
-            WriteOutcome::Complete { written } => PtyInResult::Ack {
-                input_seq: request.input_seq,
-                written,
-            },
-            WriteOutcome::Rejected { reason } => PtyInResult::Reject {
-                input_seq: request.input_seq,
-                reason,
-            },
-            // A partial write is the case a client must NOT retry, and saying
-            // so is the entire reason this frame exists.
-            WriteOutcome::Partial { written, reason } => PtyInResult::Ambiguous {
-                input_seq: request.input_seq,
-                written,
-                reason,
+        let refused = match self.channels.get_mut(&frame.channel_id) {
+            None => PtyInRejectReason::NoSuchChannel,
+            Some(channel) => match channel.pty.enqueue_input(request.bytes, reply) {
+                Ok(()) => return Ok(Vec::new()),
+                Err(reason) => reason,
             },
         };
-        let tag = match result {
-            PtyInResult::Ack { .. } => MuxFrameType::PtyInAck,
-            PtyInResult::Reject { .. } => MuxFrameType::PtyInReject,
-            PtyInResult::Ambiguous { .. } => MuxFrameType::PtyInAmbiguous,
+        let result = PtyInResult::Reject {
+            input_seq: request.input_seq,
+            reason: refused,
         };
-        Ok(vec![result_frame(tag, frame.channel_id, result)?])
+        Ok(vec![result_frame(
+            MuxFrameType::PtyInReject,
+            frame.channel_id,
+            result,
+        )?])
     }
 
     pub fn legacy_resize(&mut self, frame: &MuxFrame) -> Result<Vec<MuxFrame>, CodecError> {

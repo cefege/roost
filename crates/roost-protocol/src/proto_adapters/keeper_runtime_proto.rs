@@ -2,9 +2,6 @@
 //! persists to decide admission. The contract itself lives in `keeper_update`:
 //! this file only maps it, and re-checks the value in both directions so a wide
 //! counter or an optional field cannot make the two sides disagree.
-//!
-//! The `bun_abi` field the message still carries is deliberately left unmapped:
-//! a v3 keeper is not a Bun process, so there is nothing truthful to put in it.
 
 use roost_proto::KeeperContractV1 as PbKeeperContractV1;
 use roost_proto::KeeperRuntimeObservationV1 as PbKeeperRuntimeObservationV1;
@@ -34,6 +31,7 @@ pub fn keeper_contract_to_proto(contract: &KeeperContractV1) -> ProtocolResult<P
         // A keeper that cannot prove which binary it is sends no digest, and
         // no restart may be admitted against it.
         implementation_digest: contract.implementation_digest.clone(),
+        bun_abi: contract.bun_abi.clone(),
         platform: contract.platform.clone(),
         arch: contract.arch.clone(),
         build_sha: contract.build_sha.clone(),
@@ -49,6 +47,7 @@ pub fn keeper_contract_from_proto(
         supported_features: contract.supported_features.clone(),
         required_features: contract.required_features.clone(),
         implementation_digest: contract.implementation_digest.clone(),
+        bun_abi: contract.bun_abi.clone(),
         platform: contract.platform.clone(),
         arch: contract.arch.clone(),
         build_sha: contract.build_sha.clone(),

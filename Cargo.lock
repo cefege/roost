@@ -4723,6 +4723,7 @@ dependencies = [
  "roost-proto",
  "serde",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]
@@ -4731,6 +4732,7 @@ version = "3.0.0"
 dependencies = [
  "alacritty_terminal",
  "base64 0.23.1",
+ "log",
  "roost-observability",
  "roost-protocol",
  "serde",

@@ -4,12 +4,21 @@
 //! One table, so a limit cannot drift between the layer that produces evidence
 //! and the layer that refuses it: the worker's recorder, the coordinator's
 //! bridge and the storage writer all read these numbers from here. The bundle
-//! shapes and the validation of a bundle's contents live with the recorder and
-//! the coordinator; this file is the bounds and the answer they agree on.
+//! shape (`bundle`, `frame_json`), the canonical view comparison (`view`), the
+//! evidence envelope check (`envelope`) and the bundle validator (`validate`)
+//! live in the submodules below, the same set v2 `terminal-capture.ts` exports.
 //!
 //! The answer vocabulary lives here rather than in the worker because the
 //! coordinator narrows a worker's reply against the SAME literals: a code only
 //! the worker can name is a capture the coordinator treats as a worker failure.
+
+pub mod bundle;
+pub mod envelope;
+pub mod frame_json;
+pub mod validate;
+pub mod validate_fields;
+mod validate_layers;
+pub mod view;
 
 use serde::{Deserialize, Serialize};
 

@@ -296,7 +296,7 @@ pub struct LaneSnapshot {
 ///
 /// A monotonic reading, never a wall clock: a lane held for an hour has been
 /// held for an hour whether or not NTP moved the time under it.
-pub(super) fn mono_ms() -> u64 {
+pub(crate) fn mono_ms() -> u64 {
     static START: LazyLock<Instant> = LazyLock::new(Instant::now);
     START.elapsed().as_millis() as u64
 }

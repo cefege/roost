@@ -87,6 +87,7 @@ fn link_for_test() -> LinkLoop {
         std::sync::Arc::new(FixedSnapshot),
         std::sync::Arc::new(FixedCredential),
         BrowserLink::detached(),
+        crate::uplink::channel().1,
     )
 }
 
@@ -173,6 +174,9 @@ async fn an_opened_event_is_offered_before_that_sessions_first_cells() {
     link.attach_durable_outbox(std::sync::Arc::new(journal))
         .expect("a fresh barrier aligns");
     let sink = std::sync::Arc::new(CoordinatorCellSink::new(std::sync::Arc::new(ProtoLinkWire)));
+    // A sink is detached until the lifecycle attaches it at hello-ack; this
+    // test drives the drain order, not the lifecycle.
+    sink.set_attached(true);
     link.attach_cell_sink(std::sync::Arc::clone(&sink));
 
     let row = link

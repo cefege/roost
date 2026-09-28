@@ -15,12 +15,12 @@ use std::collections::BTreeSet;
 
 use roost_protocol::keeper_update::{
     INCOMPATIBLE_WITH_LIVE_SESSIONS, JournaledKeeperUpdateV1, KEEPER_BINDING_DIGEST_PREAMBLE,
-    KEEPER_EMPTY_BINDING_DIGEST, KEEPER_RESTART_REQUIRED, KeeperBinding, KeeperContractV1,
-    KeeperRuntimeObservationV1, PRESERVE, REPLACE_EMPTY, UNPROVEN, WORKER_ONLY_SAFE,
-    classify_keeper_update, keeper_binding_digest_input, keeper_contracts_exactly_equal,
-    keeper_contracts_protocol_compatible, keeper_contracts_same_implementation,
-    keeper_update_admission, keeper_update_outcome_matches_action,
-    validate_keeper_coordinator_open_session_ids,
+    KEEPER_EMPTY_BINDING_DIGEST, KEEPER_RESTART_REQUIRED, KEEPER_RUNTIME_ABI, KeeperBinding,
+    KeeperContractV1, KeeperRuntimeObservationV1, PRESERVE, REPLACE_EMPTY, UNPROVEN,
+    WORKER_ONLY_SAFE, classify_keeper_update, keeper_binding_digest_input,
+    keeper_contracts_exactly_equal, keeper_contracts_protocol_compatible,
+    keeper_contracts_same_implementation, keeper_update_admission,
+    keeper_update_outcome_matches_action, validate_keeper_coordinator_open_session_ids,
 };
 
 const SOURCE_DIGEST: &str = "1111111111111111111111111111111111111111111111111111111111111111";
@@ -36,6 +36,7 @@ fn contract() -> KeeperContractV1 {
         supported_features: vec!["keeper-contract-v1".to_owned()],
         required_features: vec!["keeper-contract-v1".to_owned()],
         implementation_digest: Some(SOURCE_DIGEST.to_owned()),
+        bun_abi: KEEPER_RUNTIME_ABI.to_owned(),
         platform: String::from("linux"),
         arch: String::from("x64"),
         build_sha: "a".repeat(40),
@@ -177,6 +178,37 @@ fn a_feature_or_protocol_difference_is_a_different_implementation() {
         &contract(),
         &running.running_contract
     ));
+}
+
+/// Ports v2 `keeper-update.test.ts` "journal envelope rejects a classification
+/// inconsistent with full contracts", which varies only `bun_abi`
+/// (`keeper-update.ts:207`): same digest, different runtime, different keeper.
+#[test]
+fn a_runtime_abi_difference_is_a_different_implementation() {
+    let mut bun_keeper = contract();
+    bun_keeper.bun_abi = String::from("1.3.14");
+    let running = observation(&contract(), false);
+
+    assert!(!keeper_contracts_same_implementation(
+        &bun_keeper,
+        &running.running_contract
+    ));
+    assert_eq!(
+        classify_keeper_update(&bun_keeper, Some(&running), &no_open_sessions()),
+        KEEPER_RESTART_REQUIRED
+    );
+
+    let preserving = keeper_update_admission(&contract(), Some(&running), &no_open_sessions())
+        .expect("the same keeper is preservable");
+    let journal = JournaledKeeperUpdateV1 {
+        admission: preserving,
+        source_contract: contract(),
+        target_contract: bun_keeper,
+    };
+    assert!(
+        journal.validate().is_err(),
+        "a journal may not call a cross-runtime handoff worker-only-safe"
+    );
 }
 
 #[test]

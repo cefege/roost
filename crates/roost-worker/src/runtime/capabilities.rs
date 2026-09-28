@@ -1,39 +1,39 @@
 //! What this worker's hello tells the coordinator it can be asked for. One
 //! named list, called by `runtime::link_serve` on every dial, and by nothing
-//! else. Depends on `roost_protocol::versioning` for the spellings — and on
-//! nothing here.
+//! else. Ports v2 `apps/worker/src/transport/coord-link-deps.ts:96-100` and the
+//! `additionalCapabilities` of `main.ts:181-185`; the spellings are
+//! `roost_protocol::versioning`'s.
 //!
-//! WHY IT IS ITS OWN MODULE rather than a literal in the hello. A capability is
-//! a PROMISE: a coordinator that reads one believes this worker will answer the
-//! traffic it routes here, and a worker that advertises a capability it cannot
-//! serve does not fail — it fails a browser, on a command, minutes later, with
-//! nothing in the log saying which promise was broken. So the list is named,
-//! and each entry names the collaborator that earns it, so adding a capability
-//! is a change someone has to justify against a collaborator that exists.
+//! A capability is a PROMISE: a coordinator that reads one routes traffic here
+//! and waits for the answer. Each entry names the collaborator that earns it:
+//!  - `terminal-metadata-v1` — the cell emitter stages compact metadata and
+//!    the link negotiates it from the hello-ack.
+//!  - `terminal-view-owner-v1` — `terminal_view::TerminalViewOwner` owns view
+//!    membership, geometry and stream generations for this worker's sessions.
+//!  - `terminal-input-route-v1` — `terminal_input::TerminalInputRouteOwner`
+//!    answers the coordinator's route claims.
 //!
-//! WHAT IS NOT HERE, and why, is the more useful half:
-//!  - `terminal-view-owner-v1` — a worker advertising this owns terminal view
-//!    membership, geometry aggregation and stream generations for its own
-//!    sessions. This build has no view owner, so the coordinator's own
-//!    `TerminalViewHub` owns them, which is v2's fallback and not a degraded
-//!    answer to a claim.
-//!  - `terminal-input-route-v1` — the coordinator hands back input routing to a
-//!    worker that advertises it. Nothing here routes input yet.
-//!  - `terminal-peer-webrtc-v1` and `attachment-transfer-peer-webrtc-v1` — the
-//!    direct carriers need a transport `crate::peer` does not have. A browser on
-//!    this machine reaches its own PTYs through the door instead.
+//! NOT here: `terminal-peer-webrtc-v1` and `attachment-transfer-peer-webrtc-v1`.
+//! v2 adds them only when its peer owner is supported, and this build's
+//! `crate::peer` has no transport behind it.
 
-use roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1;
+use roost_protocol::versioning::{
+    CAPABILITY_TERMINAL_INPUT_ROUTE_V1, CAPABILITY_TERMINAL_METADATA_V1,
+    CAPABILITY_TERMINAL_VIEW_OWNER_V1,
+};
 
 /// The capabilities this worker advertises, in the order the coordinator
 /// compares them.
 ///
-/// SORTED, and that is not cosmetic: a hello is compared field by field in a
-/// golden test and a reordered list is a different hello. The set is tiny enough
-/// that sorting costs nothing and removes the question.
+/// SORTED, as v2 sorts them: a hello is compared field by field and a
+/// reordered list is a different hello.
 #[must_use]
 pub fn advertised() -> Vec<String> {
-    let mut capabilities = vec![CAPABILITY_TERMINAL_METADATA_V1.to_owned()];
+    let mut capabilities = vec![
+        CAPABILITY_TERMINAL_METADATA_V1.to_owned(),
+        CAPABILITY_TERMINAL_VIEW_OWNER_V1.to_owned(),
+        CAPABILITY_TERMINAL_INPUT_ROUTE_V1.to_owned(),
+    ];
     capabilities.sort();
     capabilities.dedup();
     capabilities
@@ -79,22 +79,17 @@ mod tests {
     }
 
     /// THE LIST IS A PROMISE, and a capability this build cannot serve must not
-    /// be in it. This is the test that fails the day someone adds a name
-    /// without the collaborator behind it — the day the failure is otherwise
-    /// invisible until a browser waits on a command nobody serves.
+    /// be in it: the WebRTC carriers have no transport behind `crate::peer`.
     #[test]
     fn a_capability_with_no_collaborator_behind_it_is_not_advertised() {
         let advertised = advertised();
         for unimplemented in [
-            CAPABILITY_TERMINAL_VIEW_OWNER_V1,
-            CAPABILITY_TERMINAL_INPUT_ROUTE_V1,
             CAPABILITY_TERMINAL_PEER_WEBRTC_V1,
             CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1,
         ] {
             assert!(
                 !advertised.contains(&unimplemented.to_owned()),
-                "the hello advertises {unimplemented:?}, and this build has no collaborator \
-                 that can serve it: no view owner, no input route owner, and no WebRTC \
+                "the hello advertises {unimplemented:?}, and this build has no WebRTC \
                  carrier behind crate::peer"
             );
         }

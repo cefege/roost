@@ -20,7 +20,8 @@ use roost_term::TerminalCore;
 use super::ids::mint_uuid;
 use super::keeper_channels::SurvivorHistory;
 use super::lifecycle::SessionManager;
-use super::resize::pin_for_adoption;
+use super::replay_align::skip_orphan_sequence_prefix;
+use super::resize_pin::pin_for_adoption;
 use super::resume::{AdoptRefusal, AdoptionRequest};
 use super::ring::ScrollbackRing;
 use super::stream_scan;
@@ -105,14 +106,27 @@ impl SessionManager {
 /// are why this is not [`super::scrollback::replay_retained_into`]: a resize
 /// reflows the lines above it, so a flat replay with only the final geometry
 /// paints a screen the user is not looking at.
+///
+/// Under eviction the cold core's FIRST output write starts at an arbitrary
+/// cut, so its orphan prefix is dropped (the ring keeps every byte); every
+/// later record continues a warm parser and is replayed verbatim.
 fn replay_ordered(
     core: &mut AlacrittyCore,
     history: &SurvivorHistory,
     channel: u16,
 ) -> Result<(), AdoptRefusal> {
+    let mut drop_orphan_prefix = history.evicted();
     for record in &history.records {
         match record {
-            HistoryRecord::Output { bytes, .. } => core.write(bytes),
+            HistoryRecord::Output { bytes, .. } => {
+                let from = if drop_orphan_prefix {
+                    skip_orphan_sequence_prefix(bytes)
+                } else {
+                    0
+                };
+                core.write(&bytes[from..]);
+                drop_orphan_prefix = false;
+            }
             HistoryRecord::Resize { cols, rows, .. } => {
                 core.resize(*cols, *rows);
                 if core.cols() != *cols || core.rows() != *rows {

@@ -1,15 +1,8 @@
-//! Stream generation fencing, and the synchronized-output hold. Owned by the
-//! worker.
-//!
-//! Both exist because a terminal can be replaced WHILE work for the old one is
-//! still in flight, and the failure is a terminal that paints cells from a
-//! generation that no longer exists.
-//!
-//! The fence is the general answer: every unit of scheduled work carries the
-//! generation it was scheduled for, and work whose generation is stale is
-//! dropped at the moment it would have been delivered. Not "ignored quietly" —
-//! dropped, counted, and attributed, so a diagnostic snapshot says which
-//! generation was superseded and how much work it still had outstanding.
+//! Stream generation fencing, and the synchronized-output hold's two ceilings
+//! (v2 `apps/worker/src/session/session-sync-output.ts`, `session-constants.ts`
+//! `SYNC_OUTPUT_MAX_MS`/`SYNC_OUTPUT_MAX_PENDING_ROWS`). `session::sync_output`
+//! owns one [`SyncOutputHold`] per synchronized frame and the cadence arms its
+//! wake at [`SyncOutputHold::deadline`]. Depends on nothing in the crate.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -209,11 +202,24 @@ impl SyncOutputHold {
         self.pending_rows = 0;
     }
 
-    /// Note output the browser has not yet been given.
-    pub fn note_pending(&mut self, rows: u64) {
+    /// Record what the browser is missing right now. v2 re-measures it from
+    /// the core at every evaluation (`session-sync-output.ts` `syncPendingRows`),
+    /// so this REPLACES the last measurement rather than accumulating.
+    pub fn measure_pending(&mut self, rows: u64) {
         if self.is_open() {
-            self.pending_rows = self.pending_rows.saturating_add(rows);
+            self.pending_rows = rows;
         }
+    }
+
+    /// When the silent ceiling fires, while a hold is open. The owner arms its
+    /// wake for exactly this instant, so firing IS the expiry.
+    pub fn deadline(&self) -> Option<Instant> {
+        self.open_since.map(|since| since + SYNC_OUTPUT_MAX_SILENT)
+    }
+
+    /// Whether the last measurement reached the row ceiling.
+    pub fn rows_exceeded(&self) -> bool {
+        self.is_open() && self.pending_rows >= SYNC_OUTPUT_MAX_PENDING_ROWS
     }
 
     /// What to do about the hold right now.

@@ -132,7 +132,8 @@ pub struct UpdateProgress {
 
 /// A volatile agent-status observation the worker publishes for one session.
 /// Never placed in the durable outbox: a lost status is replaced by the next
-/// one, and a stale one is fenced by the status epoch.
+/// one, and a stale one is fenced by the status epoch. `status.active == false`
+/// is the occupant's retirement: bounded like any update, never a retained row.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentStatusFrame {
     pub status: AgentStatus,
@@ -271,5 +272,9 @@ pub struct TerminalStreamResult {
     pub resized: bool,
     pub reason: String,
     pub phase: TerminalWritePhase,
-    pub failure_kind: TerminalStreamFailureKind,
+    /// `None` on a committed result: v2 sends `UNSPECIFIED` there
+    /// (`coord-link-terminal-results.ts` `terminalStreamFailureKind(undefined)`),
+    /// and a committed stream has no failure to name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_kind: Option<TerminalStreamFailureKind>,
 }

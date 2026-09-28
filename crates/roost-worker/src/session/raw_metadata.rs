@@ -1,75 +1,92 @@
-//! The old-coordinator raw-metadata compatibility lane: PTY bytes copied and
-//! staged for a coordinator that has NOT negotiated the semantic metadata
-//! capability, and dropped the moment it has. `runtime` drains it into the
-//! link's outbox. Depends on `roost_protocol` for the channel brand and on
-//! nothing that calls back into emission.
-//!
-//! IT IS A BOUNDED QUEUE, NOT A SECOND HISTORY. The retained PTY bytes live in
-//! `SessionRecord::scrollback` and nothing here reads them. What lives here is
-//! the SHORT-LIVED COPY on its way to the socket, and it exists only because
-//! the coordinator's scanners need the raw stream in order: the outbox bounds
-//! encoded frames, but a single chatty channel could take all of it, and a
-//! per-channel cap is the only bound that says "this one session is flooding".
-//!
-//! The copy is not optional. A keeper read buffer is reused the moment the
-//! callback returns, so a staged frame that aliased it would ship whatever the
-//! next chunk wrote there.
+//! The old-coordinator raw-metadata compatibility lane: v2
+//! `apps/worker/src/session/session-raw-metadata.ts`. Copied PTY bytes are staged
+//! only while semantic metadata is NOT negotiated, bounded per channel and in
+//! aggregate, and dispatched round-robin (32 frames / 4 ms per turn, a 16 ms
+//! trailing window). `session::emit` stages; the cadence dispatches into the link.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::time::{Duration, Instant};
 
 use roost_protocol::wire::brand::ChannelId;
 
-/// The per-channel staging cap.
+/// v2 `RAW_METADATA_CHANNEL_CAP_BYTES`.
 pub const RAW_METADATA_CHANNEL_CAP_BYTES: usize = 256 * 1024;
-
-/// The aggregate staging cap, across every channel.
+/// v2 `RAW_METADATA_AGGREGATE_CAP_BYTES`.
 pub const RAW_METADATA_AGGREGATE_CAP_BYTES: usize = 2 * 1024 * 1024;
-
-/// How many staged frames one drain pass hands over. A dispatch that took
-/// everything in one turn starves the cell frames queued behind it.
+/// v2 `RAW_METADATA_DISPATCH_FRAME_BUDGET`.
 pub const RAW_METADATA_DISPATCH_FRAME_BUDGET: usize = 32;
+/// v2 `RAW_METADATA_DISPATCH_MAX_TURN_MS`.
+pub const RAW_METADATA_DISPATCH_MAX_TURN: Duration = Duration::from_millis(4);
+/// v2's trailing window: `CELL_EMIT_COALESCE_MS`.
+pub const RAW_METADATA_TRAILING_WINDOW: Duration = Duration::from_millis(16);
 
-/// One chunk of raw PTY bytes with the offset of its end, ready to encode.
+/// One chunk of raw PTY bytes and the logical offset of its END.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StagedRawFrame {
     pub channel_id: ChannelId,
-    /// The logical byte offset of the chunk's END. The splice seam is placed
-    /// per byte on this number, not inferred from a frame boundary.
     pub end_seq: u64,
     pub bytes: Vec<u8>,
 }
 
+/// What the link did with one raw frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RawSend {
+    Accepted,
+    /// The link refused it: the channel's whole queue is dropped (v2 `dropRawMetadataQueue`).
+    Dropped,
+}
+
+/// v2 `rawMetadataWake`: an immediate dispatch, or the trailing timer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RawWake {
+    Idle,
+    Immediate,
+    At(Instant),
+}
+
 /// The staging area for the compatibility lane, and the one place its caps live.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct RawMetadataStage {
     negotiated: bool,
-    queues: HashMap<ChannelId, VecDeque<StagedRawFrame>>,
-    channel_bytes: HashMap<ChannelId, usize>,
+    queues: HashMap<ChannelId, (VecDeque<StagedRawFrame>, usize)>,
+    ready: VecDeque<ChannelId>,
+    ready_set: HashSet<ChannelId>,
     queued_bytes: usize,
-    /// Frames refused because a cap was reached. Reported by the diagnostic
-    /// snapshot, because a silently empty raw lane looks exactly like a
-    /// coordinator that scans nothing.
+    wake: RawWake,
+    /// Frames refused because a cap was reached, for the diagnostic snapshot.
     dropped: u64,
 }
 
+impl Default for RawMetadataStage {
+    fn default() -> Self {
+        Self {
+            negotiated: false,
+            queues: HashMap::new(),
+            ready: VecDeque::new(),
+            ready_set: HashSet::new(),
+            queued_bytes: 0,
+            wake: RawWake::Idle,
+            dropped: 0,
+        }
+    }
+}
+
 impl RawMetadataStage {
-    /// Whether the coordinator negotiated the semantic metadata lane. True means
-    /// this whole path is dormant, which is the state every v3 coordinator
-    /// leaves it in.
     pub fn semantic_metadata_negotiated(&self) -> bool {
         self.negotiated
     }
 
-    /// Record the coordinator's answer. Losing the capability mid-link refills
-    /// the lane from the next chunk; bytes already sent are not re-sent, and a
-    /// scanner that missed them is a scanner that was not there.
+    /// Record the coordinator's answer; negotiation empties the lane.
     pub fn set_semantic_metadata_negotiated(&mut self, negotiated: bool) {
         if self.negotiated == negotiated {
             return;
         }
         self.negotiated = negotiated;
         if negotiated {
-            self.clear();
+            let channels: Vec<ChannelId> = self.queues.keys().copied().collect();
+            for channel_id in channels {
+                self.forget_channel(channel_id);
+            }
         }
         tracing::info!(
             negotiated,
@@ -77,12 +94,13 @@ impl RawMetadataStage {
         );
     }
 
-    /// Stage one chunk, unless a cap says no.
-    pub fn stage(&mut self, channel_id: ChannelId, end_seq: u64, chunk: &[u8]) {
+    /// v2 `_enqueueRawMetadata`: stage one copied chunk unless a cap says no.
+    /// Returns whether an immediate dispatch became owed.
+    pub fn stage(&mut self, channel_id: ChannelId, end_seq: u64, chunk: &[u8]) -> bool {
         if self.negotiated || chunk.is_empty() {
-            return;
+            return false;
         }
-        let channel_bytes = self.channel_bytes.get(&channel_id).copied().unwrap_or(0);
+        let channel_bytes = self.queues.get(&channel_id).map_or(0, |(_, bytes)| *bytes);
         if chunk.len() > RAW_METADATA_CHANNEL_CAP_BYTES
             || channel_bytes + chunk.len() > RAW_METADATA_CHANNEL_CAP_BYTES
             || self.queued_bytes + chunk.len() > RAW_METADATA_AGGREGATE_CAP_BYTES
@@ -93,81 +111,148 @@ impl RawMetadataStage {
                 frame_bytes = chunk.len(),
                 channel_bytes,
                 aggregate_bytes = self.queued_bytes,
-                "a raw metadata frame was dropped: the staging caps were reached"
+                "transport.raw_metadata_drop: the staging caps were reached"
             );
-            return;
+            return false;
         }
-        self.queues
-            .entry(channel_id)
-            .or_default()
-            .push_back(StagedRawFrame {
-                channel_id,
-                end_seq,
-                bytes: chunk.to_vec(),
-            });
-        *self.channel_bytes.entry(channel_id).or_insert(0) += chunk.len();
+        let (queue, bytes) = self.queues.entry(channel_id).or_default();
+        queue.push_back(StagedRawFrame {
+            channel_id,
+            end_seq,
+            bytes: chunk.to_vec(),
+        });
+        *bytes += chunk.len();
         self.queued_bytes += chunk.len();
-    }
-
-    /// Take up to one dispatch budget of staged frames, oldest channel first.
-    ///
-    /// A channel drains to empty before the next one starts, so one busy
-    /// session cannot reorder another session's bytes against each other.
-    pub fn drain(&mut self) -> Vec<StagedRawFrame> {
-        let mut ready: Vec<ChannelId> = self
-            .queues
-            .iter()
-            .filter(|(_, queue)| !queue.is_empty())
-            .map(|(channel_id, _)| *channel_id)
-            .collect();
-        ready.sort_unstable();
-        let mut taken = Vec::new();
-        let mut budget = RAW_METADATA_DISPATCH_FRAME_BUDGET;
-        for channel_id in ready {
-            if budget == 0 {
-                break;
-            }
-            while budget > 0 {
-                let Some(frame) = self.queues.get_mut(&channel_id).and_then(|q| q.pop_front())
-                else {
-                    break;
-                };
-                self.release(channel_id, frame.bytes.len());
-                taken.push(frame);
-                budget -= 1;
-            }
+        self.mark_ready(channel_id);
+        if self.wake == RawWake::Idle {
+            self.wake = RawWake::Immediate;
+            return true;
         }
-        taken
+        false
     }
 
-    /// How many bytes are staged right now.
+    /// Whether a dispatch is owed at `now`.
+    pub fn dispatch_due(&self, now: Instant) -> bool {
+        match self.wake {
+            RawWake::Idle => false,
+            RawWake::Immediate => true,
+            RawWake::At(due) => due <= now,
+        }
+    }
+
+    /// The trailing timer, while one is armed.
+    pub fn next_wake(&self) -> Option<Instant> {
+        match self.wake {
+            RawWake::At(due) => Some(due),
+            _ => None,
+        }
+    }
+
+    /// v2 `drainRawMetadata`: one bounded, round-robin turn. `live` is the
+    /// session table's answer; `send` puts one frame on the link.
+    pub fn dispatch(
+        &mut self,
+        live: &dyn Fn(ChannelId) -> bool,
+        send: &mut dyn FnMut(&StagedRawFrame) -> RawSend,
+        now: Instant,
+    ) -> usize {
+        self.wake = RawWake::Idle;
+        // The turn bound is real elapsed work, independent of the cadence clock.
+        let turn_started = Instant::now();
+        let mut frames = 0usize;
+        while frames < RAW_METADATA_DISPATCH_FRAME_BUDGET
+            && turn_started.elapsed() < RAW_METADATA_DISPATCH_MAX_TURN
+        {
+            let Some(channel_id) = self.ready.pop_front() else {
+                break;
+            };
+            self.ready_set.remove(&channel_id);
+            if self.negotiated || !live(channel_id) {
+                self.forget_channel(channel_id);
+                continue;
+            }
+            let Some(frame) = self
+                .queues
+                .get(&channel_id)
+                .and_then(|(queue, _)| queue.front().cloned())
+            else {
+                self.queues.remove(&channel_id);
+                continue;
+            };
+            frames += 1;
+            if send(&frame) == RawSend::Dropped {
+                self.drop_queue(channel_id);
+                continue;
+            }
+            self.release_head(channel_id);
+            tracing::debug!(%channel_id, len = frame.bytes.len(), end_seq = frame.end_seq, "emit_upstream");
+        }
+        // Keep one trailing window after a real drain so a following burst joins
+        // the metadata cadence instead of racing a cell coalesce.
+        if frames > 0 || !self.ready.is_empty() {
+            self.wake = RawWake::At(now + RAW_METADATA_TRAILING_WINDOW);
+        }
+        frames
+    }
+
     pub fn staged_bytes(&self) -> usize {
         self.queued_bytes
     }
 
-    /// How many frames the caps have refused since this stage was created.
     pub fn dropped_frames(&self) -> u64 {
         self.dropped
     }
 
-    /// Drop one channel's staging, without disturbing another's.
+    /// One channel's staged frames and bytes (v2 `rawMetadataQueues.get(ch)`).
+    pub fn channel_backlog(&self, channel_id: ChannelId) -> (usize, usize) {
+        self.queues
+            .get(&channel_id)
+            .map_or((0, 0), |(queue, bytes)| (queue.len(), *bytes))
+    }
+
+    /// v2 `disposeRawMetadataState`: one channel, without another's wake.
     pub fn forget_channel(&mut self, channel_id: ChannelId) {
-        self.queues.remove(&channel_id);
-        if let Some(bytes) = self.channel_bytes.remove(&channel_id) {
+        if self.ready_set.remove(&channel_id) {
+            self.ready.retain(|queued| *queued != channel_id);
+        }
+        if let Some((_, bytes)) = self.queues.remove(&channel_id) {
             self.queued_bytes = self.queued_bytes.saturating_sub(bytes);
         }
-    }
-
-    fn release(&mut self, channel_id: ChannelId, bytes: usize) {
-        self.queued_bytes = self.queued_bytes.saturating_sub(bytes);
-        if let Some(remaining) = self.channel_bytes.get_mut(&channel_id) {
-            *remaining = remaining.saturating_sub(bytes);
+        if self.ready.is_empty() && matches!(self.wake, RawWake::At(_)) {
+            self.wake = RawWake::Idle;
         }
     }
 
-    fn clear(&mut self) {
-        self.queues.clear();
-        self.channel_bytes.clear();
-        self.queued_bytes = 0;
+    fn mark_ready(&mut self, channel_id: ChannelId) {
+        if self.ready_set.insert(channel_id) {
+            self.ready.push_back(channel_id);
+        }
+    }
+
+    fn release_head(&mut self, channel_id: ChannelId) {
+        let Some((queue, bytes)) = self.queues.get_mut(&channel_id) else {
+            return;
+        };
+        let Some(frame) = queue.pop_front() else {
+            return;
+        };
+        *bytes = bytes.saturating_sub(frame.bytes.len());
+        self.queued_bytes = self.queued_bytes.saturating_sub(frame.bytes.len());
+        if queue.is_empty() {
+            self.queues.remove(&channel_id);
+        } else {
+            self.mark_ready(channel_id);
+        }
+    }
+
+    fn drop_queue(&mut self, channel_id: ChannelId) {
+        let Some((queue, bytes)) = self.queues.remove(&channel_id) else {
+            return;
+        };
+        self.queued_bytes = self.queued_bytes.saturating_sub(bytes);
+        if self.ready_set.remove(&channel_id) {
+            self.ready.retain(|queued| *queued != channel_id);
+        }
+        tracing::warn!(%channel_id, frames = queue.len(), bytes, "transport.raw_metadata_drop: the link refused a raw frame");
     }
 }

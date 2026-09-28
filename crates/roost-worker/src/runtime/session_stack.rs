@@ -59,6 +59,9 @@ pub struct SessionStack {
     pub table: Arc<SessionTable>,
     /// The clock every session fact is stamped from.
     pub clock: Arc<SystemClock>,
+    /// The ONE cell emitter both deliveries share; the cell cadence, the
+    /// pipeline owner and the query-reply lane attach to this same `Arc`.
+    pub emitter: Arc<Mutex<CellEmitter>>,
     /// The search admission ledger, opened ONCE and shared by every `Deps`
     /// this stack hands out.
     ///
@@ -101,6 +104,8 @@ impl std::fmt::Debug for SessionStack {
 pub enum StackError {
     #[error("this host's platform is not one v3 runs on: {0}")]
     Platform(String),
+    #[error(transparent)]
+    TerminalCoreCap(#[from] crate::terminal_core_capacity::TerminalCoreCapConfigError),
 }
 
 /// Build the session layer over one keeper pool and one open outbox.
@@ -159,6 +164,20 @@ pub fn build(
     let keeper: Arc<dyn KeeperChannels> = keeper;
     let cells: Arc<Mutex<dyn CellDelivery>> = Arc::new(Mutex::new(cells));
 
+    // One terminal-core admission per worker, sized from this host (v2
+    // `main.ts:104`); the manager leases every core from it.
+    let platform = roost_host::supported_host_platform()
+        .map_err(|error| StackError::Platform(error.to_string()))?;
+    let core_capacity = crate::terminal_core_capacity::create_worker_terminal_core_capacity(
+        crate::terminal_core_capacity::WorkerTerminalCoreCapacityOptions {
+            platform,
+            terminal_core_cap: crate::terminal_core_capacity::terminal_core_cap_from_env(
+                &roost_host::ProcessEnv::new(),
+            )?,
+            host_memory_bytes: None,
+            boot_rss_bytes: None,
+        },
+    );
     let resolver_for_manager = Arc::clone(&resolver);
     let manager = SessionManager::new(
         worker_fp,
@@ -170,6 +189,7 @@ pub fn build(
         Arc::clone(&clock) as Arc<dyn EventClock>,
         spawner,
         resolver_for_manager,
+        core_capacity,
     );
     tracing::info!(
         fingerprint = %worker_fp_text,
@@ -182,6 +202,7 @@ pub fn build(
         manager,
         table,
         clock,
+        emitter,
         searches,
         resolver,
     })

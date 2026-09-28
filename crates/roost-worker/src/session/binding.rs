@@ -57,6 +57,14 @@ pub trait CellDelivery: Send + Sync {
     fn install_stream(&mut self, channel_id: ChannelId, stream_id: &str);
     /// A channel is gone; its delivery state and parked cursors go with it.
     fn forget_channel(&mut self, channel_id: ChannelId);
+    /// v2 `markInputSensitive`: the next echo chunk leads instead of waiting out
+    /// the coalesce window. A channel the table does not hold is ignored.
+    fn note_input_echo(&mut self, channel_id: ChannelId);
+    /// v2 `cancelCellEmission`: the channel's queued emission only.
+    fn cancel_cell_emission(&mut self, channel_id: ChannelId);
+    /// v2 `_releaseSyncOutputHold`: the core the hold is expressed in froze or
+    /// was replaced.
+    fn release_sync_output_hold(&mut self, channel_id: ChannelId);
 }
 
 /// What a frozen core's capture held.
@@ -103,12 +111,14 @@ pub trait ChannelDelivery: Send + Sync {
     /// Parse and ship one chunk, or retain it without parsing while the core is
     /// frozen.
     fn ingest_output(&self, record: &mut SessionRecord, chunk: &[u8], now_ms: i64);
-    /// Stop parsing this channel and hold what arrives.
+    /// Stop parsing this channel and hold what arrives; `now_ms` dates the
+    /// emission hold, so a gate that overstays its budget is measured from
+    /// the moment it was set.
     ///
     /// `false` when a capture is already open on the channel, which is a caller
     /// bug rather than a race: two unresolved boundaries would each have to be
     /// the one the core is resized at.
-    fn freeze_capture(&self, channel_id: ChannelId) -> bool;
+    fn freeze_capture(&self, channel_id: ChannelId, now_ms: i64) -> bool;
     /// Close the capture and hand back what it held, oldest first.
     ///
     /// The gate opens in the same call, so a chunk delivered afterwards is
@@ -116,6 +126,13 @@ pub trait ChannelDelivery: Send + Sync {
     /// they are parsed at the old or the new geometry is the boundary's answer
     /// and not the delivery's.
     fn close_capture(&self, channel_id: ChannelId) -> CapturedOutput;
+    /// The emitter a stream transaction mints, baselines and traps through,
+    /// under this delivery's lock so it never interleaves with a parse.
+    /// `None` is a delivery that ships no cells; a stream transaction refuses
+    /// against it rather than committing a generation nothing can paint.
+    fn stream_emission(&self) -> Option<&dyn super::terminal_state::StreamEmission> {
+        None
+    }
 }
 
 /// The keeper's output for one channel, delivered into its record.

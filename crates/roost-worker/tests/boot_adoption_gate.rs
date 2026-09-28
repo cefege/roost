@@ -204,7 +204,8 @@ async fn a_survivor_the_keeper_cannot_describe_is_left_running_rather_than_kille
         &open,
         ADOPTED_OVER,
     )
-    .await;
+    .await
+    .expect("the survivor set fits the worker's terminal-core capacity");
 
     // THE SURVIVAL ASSERTION COMES FIRST, before the counters. It is the one
     // that matters; the counters are the diagnosis. The other way round, a test
@@ -273,7 +274,8 @@ async fn a_boot_that_declines_every_survivor_still_completes() {
         }],
         ADOPTED_OVER,
     )
-    .await;
+    .await
+    .expect("the survivor set fits the worker's terminal-core capacity");
 
     assert_eq!(
         outcome,

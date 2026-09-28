@@ -116,10 +116,9 @@ impl SessionSnapshot {
 }
 
 impl SnapshotSource for SessionSnapshot {
-    /// Always true, and the asymmetry with [`NoSnapshot`] is the point: this
-    /// source exists only once a session table does, and a table that exists
-    /// can be described even when it is empty. An empty set is a claim, and
-    /// this worker is entitled to make it.
+    /// Always true: this source exists only once a session table does, and a
+    /// table that exists can be described even when it is empty. An empty set
+    /// is a claim, and this worker is entitled to make it.
     fn is_active(&self) -> bool {
         true
     }
@@ -166,29 +165,5 @@ fn row(worker_fp: &WorkerFp, record: &SessionRecord) -> Session {
             .ports
             .as_ref()
             .map(|ports| ports.iter().map(|port| i64::from(*port)).collect()),
-    }
-}
-
-/// The source a worker with no session table installs, which cannot describe one.
-///
-/// Kept, and not deleted, because the tests that exercise the link's
-/// SNAPSHOT-LIVE BARRIER need a link whose barrier never releases, and
-/// `SessionSnapshot` is by construction always active. Production does not
-/// install this: `runtime::serve_until` builds a [`SessionSnapshot`], so a
-/// worker in the field never reaches the state this describes.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct NoSnapshot;
-
-impl SnapshotSource for NoSnapshot {
-    fn is_active(&self) -> bool {
-        false
-    }
-
-    fn snapshot(&self) -> Result<Vec<u8>, SnapshotError> {
-        Err(SnapshotError::Unavailable {
-            reason:
-                "this worker was built without a session table, so it has no session set to publish"
-                    .to_string(),
-        })
     }
 }

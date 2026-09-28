@@ -125,20 +125,6 @@ impl KeeperClient {
         }
     }
 
-    /// Wait for whichever of the three input results the keeper chose.
-    pub(crate) fn wait_for_any_input_result(
-        &self,
-        channel_id: u16,
-        timeout: Duration,
-    ) -> Result<MuxFrame, ClientError> {
-        use MuxFrameType as T;
-        self.wait_as_result(
-            channel_id,
-            timeout,
-            &[T::PtyInAck, T::PtyInReject, T::PtyInAmbiguous],
-        )
-    }
-
     /// A wait with no better cause to report, reported as the one error this
     /// protocol has always reported — so a disconnect during a plain control
     /// round trip does not change the message an operator reads.

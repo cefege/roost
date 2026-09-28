@@ -55,20 +55,12 @@ pub(super) async fn serve(
             () = wake.notified() => {
                 if let Some(end) = on_tick(loop_state, &mut link).await { return end; }
             }
-            // A capability finished a browser command. Its frames go out
-            // through `push_upstream` like any other, so the link stays the
-            // only thing that writes bytes. A CLOSED channel means the pump is
-            // gone, which is a leak to notice — not a reason to tear down a
-            // healthy socket, so the arm just stops hearing from it.
-            answers = loop_state.browser.answers.recv() => {
-                match answers {
-                    Some(frames) => {
-                        for frame in &frames {
-                            super::link_drain::push_answer(loop_state, frame);
-                        }
-                    }
-                    None => tracing::warn!("the browser command pump stopped answering"),
-                }
+            // Everything produced off the loop — owner replies, browser-command
+            // answers — arrives here and is admitted like any other frame, so
+            // the link stays the only thing that writes bytes. `recv` has
+            // already dropped a reply whose connection is gone.
+            Some(frame) = loop_state.uplink.recv() => {
+                super::link_drain::admit_uplink(loop_state, frame);
             }
             incoming = link.recv() => {
                 let now = Instant::now();
@@ -77,7 +69,7 @@ pub(super) async fn serve(
                     Some(Err(reason)) => return LinkEnd::FrameError(reason),
                     Some(Ok(message)) => {
                         loop_state.policy.note_downstream(now);
-                        if let Some(end) = super::link_drain::on_frame(loop_state, message) {
+                        if let Some(end) = super::link_downstream::on_frame(loop_state, message) {
                             return end;
                         }
                     }
@@ -110,19 +102,11 @@ async fn force_hello(loop_state: &mut LinkLoop, link: &mut Link) -> Option<LinkE
     // `LinkLoopState` already carries it, and v2 sent it, so omitting it was a
     // parity gap rather than a missing feature.
     //
-    // `capabilities` is what this worker can actually SERVE, and the list is
-    // derived from the two collaborators that decide it rather than written
-    // here: a capability this build cannot answer is worse than admitting
-    // none, because a coordinator that believes it is answered routes browser
-    // view commands here and waits for frames nobody is producing.
-    //  - `terminal-metadata-v1` is advertised because the emitter stages raw
-    //    metadata on every ingest and the drain negotiates it from the ack.
-    //  - `terminal-view-owner-v1` is NOT advertised: the coordinator's own
-    //    `TerminalViewHub` owns membership for this build, which is v2's
-    //    fallback and not a degraded answer to a capability claim.
-    //  - the WebRTC carriers are NOT advertised: `crate::peer` has no transport
-    //    behind it yet, and a local browser on this machine reaches its PTYs
-    //    through the door instead.
+    // `capabilities` is what this worker can actually SERVE, and the list and
+    // the collaborator behind each entry live in `runtime::capabilities`: a
+    // capability this build cannot answer is worse than admitting none, because
+    // a coordinator that believes it is answered routes traffic here and waits
+    // for frames nobody is producing.
     let capabilities = crate::runtime::capabilities::advertised();
     tracing::debug!(
         ?capabilities,
@@ -131,7 +115,7 @@ async fn force_hello(loop_state: &mut LinkLoop, link: &mut Link) -> Option<LinkE
     let hello = CoordWorkerUpstream::Hello {
         worker_fp: loop_state.identity.worker_fp.clone(),
         version: loop_state.identity.version.clone(),
-        capabilities: Vec::new(),
+        capabilities,
         process_epoch: loop_state.identity.process_epoch.clone(),
         trace_id: None,
     };
@@ -150,6 +134,12 @@ async fn force_hello(loop_state: &mut LinkLoop, link: &mut Link) -> Option<LinkE
         barrier = ?loop_state.pump.barrier(),
         "the hello is the only forced first write"
     );
+    // v2 calls `onOpen` after the forced hello write, never for a hello that
+    // failed; a fresh socket's session half starts suspended until hello-ack.
+    loop_state.terminal_metadata_negotiated = false;
+    if let Some(owners) = loop_state.dispatcher.owners() {
+        owners.lifecycle.on_open();
+    }
     None
 }
 

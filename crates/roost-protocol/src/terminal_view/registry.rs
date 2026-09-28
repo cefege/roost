@@ -10,13 +10,15 @@
 //! this registry, because the recompute hook reads the registry to recompute and
 //! a self-call under the same lock would deadlock.
 
+mod queries;
+
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::sync::Arc;
 
+use crate::viewport::TerminalGeometry;
+use crate::wire::SessionId;
 use roost_proto::TerminalViewStatus;
-use roost_protocol::viewport::TerminalGeometry;
-use roost_protocol::wire::SessionId;
 
 use super::machine::{Machine, session_of};
 use super::record::{
@@ -315,6 +317,12 @@ impl ViewRegistry {
             }
             self.machine().drop_record(&key, true, now_ms, None);
             if let Some(session_id) = session_of(&record) {
+                // v2's sweep `syncWatching`: a socket that is still registered
+                // and just lost its last view of this session stops being fed it.
+                if self.sockets.contains_key(&record.socket_id) {
+                    let watch = self.machine().sync_watching(&record.socket_id, &session_id);
+                    outcome.calls.extend(watch);
+                }
                 outcome.changed.insert(session_id);
             }
         }
@@ -374,7 +382,7 @@ impl ViewRegistry {
     }
 
     /// The mutable view the command machine works through.
-    pub(super) fn machine(&mut self) -> Machine<'_> {
+    pub fn machine(&mut self) -> Machine<'_> {
         Machine {
             sockets: &mut self.sockets,
             views: &mut self.views,

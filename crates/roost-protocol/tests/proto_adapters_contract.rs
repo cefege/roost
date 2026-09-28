@@ -16,6 +16,7 @@ use roost_proto::{
 use roost_protocol::agent_conversation_reference::{
     AgentConversationRecoveryMetadata, AgentConversationReferenceKind, AgentConversationReferenceV1,
 };
+use roost_protocol::keeper_update::KEEPER_RUNTIME_ABI;
 use roost_protocol::keeper_update::{KeeperContractV1, KeeperRuntimeObservationV1};
 use roost_protocol::proto_adapters::agent_conversation_reference_proto::{
     agent_conversation_reference_from_proto, agent_conversation_reference_to_proto,
@@ -45,6 +46,7 @@ fn contract() -> KeeperContractV1 {
         supported_features: vec!["channels-v1".to_owned(), "history-v1".to_owned()],
         required_features: vec!["channels-v1".to_owned()],
         implementation_digest: Some(DIGEST.to_owned()),
+        bun_abi: KEEPER_RUNTIME_ABI.to_owned(),
         platform: "linux".to_owned(),
         arch: "x86_64".to_owned(),
         build_sha: "abc123".to_owned(),
@@ -76,18 +78,17 @@ fn capacity() -> TerminalCoreCapacityReport {
     }
 }
 
+/// v2 `wire.proto` field 5, `keeper-update.ts:22`: `bun_abi` crosses both ways.
 #[test]
-fn a_keeper_contract_survives_the_boundary_without_its_bun_identity() {
+fn a_keeper_contract_carries_its_runtime_abi_across_the_boundary() {
     let proto = keeper_contract_to_proto(&contract()).expect("the contract encodes");
-    assert!(
-        proto.bun_abi.is_empty(),
-        "v3 keepers do not report a Bun ABI"
-    );
-    assert_eq!(proto.implementation_digest.as_deref(), Some(DIGEST));
-    assert_eq!(
-        keeper_contract_from_proto(&proto).expect("the contract decodes"),
-        contract()
-    );
+    assert_eq!(proto.bun_abi, KEEPER_RUNTIME_ABI);
+    let round_trip = keeper_contract_from_proto(&proto).expect("the contract decodes");
+    assert_eq!(round_trip, contract());
+    let mut bun_keeper = proto;
+    bun_keeper.bun_abi = "1.3.14".to_owned();
+    let decoded = keeper_contract_from_proto(&bun_keeper).expect("a Bun keeper decodes");
+    assert_eq!(decoded.bun_abi, "1.3.14");
 }
 
 #[test]

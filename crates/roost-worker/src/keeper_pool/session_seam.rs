@@ -24,7 +24,9 @@ use roost_keeper::payloads::TerminalState;
 
 use super::KeeperPool;
 use super::error::PoolError;
-use crate::session::keeper_channels::{KeeperChannels, KeeperFault, SurvivorHistory};
+use crate::session::keeper_channels::{
+    KeeperChannels, KeeperFault, KeeperInputCommand, SurvivorHistory,
+};
 use crate::session::sinks::ChannelBinding;
 
 /// The head a retained window was cut from is not on the wire.
@@ -176,43 +178,47 @@ impl KeeperChannels for KeeperPool {
         Ok(())
     }
 
-    /// Resize this channel, returning once the keeper has acknowledged `seq`.
+    /// Resize this channel and hand back the keeper's own answer.
     ///
-    /// The acknowledgement is the contract, so the three outcomes are three
-    /// answers rather than one: a keeper that refused is a PTY that will not
-    /// move, and a caller that read that as a success would paint a grid the
-    /// PTY is not at.
+    /// The three outcomes stay three answers: a refusal is a PTY that will not
+    /// move and names why, and an unknown is the one case a caller recovers
+    /// from history instead of assuming. `Err` is only a pool that no longer
+    /// has a connection, so the request never reached the keeper.
     fn resize_channel(
         &self,
         channel_id: u16,
         seq: u64,
         cols: u16,
         rows: u16,
-    ) -> Result<(), KeeperFault> {
-        let fault = |reason: String| KeeperFault {
-            operation: "resize_channel",
-            reason,
-        };
-        match self.resize(channel_id, seq, cols, rows) {
-            Ok(ResizeOutcome::Applied { seq: applied, .. }) => {
-                tracing::info!(
-                    channel_id,
-                    seq,
-                    applied,
-                    cols,
-                    rows,
-                    "keeper: a resize was applied"
-                );
-                Ok(())
-            }
-            Ok(ResizeOutcome::Refused { reason, .. }) => {
-                Err(fault(format!("the keeper refused seq {seq}: {reason:?}")))
-            }
-            Ok(ResizeOutcome::Unknown { reason, .. }) => Err(fault(format!(
-                "the keeper did not answer seq {seq}: {reason:?}"
-            ))),
-            Err(error) => Err(fault(error.to_string())),
-        }
+    ) -> Result<ResizeOutcome, KeeperFault> {
+        let outcome = self
+            .resize(channel_id, seq, cols, rows)
+            .map_err(|error| KeeperFault {
+                operation: "resize_channel",
+                reason: error.to_string(),
+            })?;
+        tracing::info!(
+            channel_id,
+            seq,
+            cols,
+            rows,
+            ?outcome,
+            "keeper: a resize was answered"
+        );
+        Ok(outcome)
+    }
+
+    /// One acknowledged batch, written under a worker-owned keeper sequence.
+    fn begin_input(&self, channel_id: u16, bytes: Vec<u8>) -> KeeperInputCommand {
+        self.begin_acknowledged_input(channel_id, bytes)
+    }
+
+    /// The unacknowledged legacy frame.
+    fn write_legacy_input(&self, channel_id: u16, bytes: &[u8]) -> Result<(), KeeperFault> {
+        self.input(channel_id, bytes).map_err(|error| KeeperFault {
+            operation: "write_legacy_input",
+            reason: error.to_string(),
+        })
     }
 }
 

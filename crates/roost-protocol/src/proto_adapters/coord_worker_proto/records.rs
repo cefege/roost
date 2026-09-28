@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 use roost_proto::{WAgentStatus, WTerminalMetadata, WUpdateProgress};
 
-use crate::wire::agent_status::{AgentStatus, AgentStatusSource};
+use crate::wire::agent_status::{AgentStatus, AgentStatusSource, AgentStatusUpdate};
 use crate::wire::brand::ChannelId;
 use crate::wire::coord_worker::{AgentStatusFrame, TerminalMetadata, UpdateProgress};
 use crate::{ProtocolError, ProtocolResult};
@@ -122,9 +122,11 @@ pub(super) fn agent_status_from_proto(status: &WAgentStatus) -> ProtocolResult<A
         )?),
         None => None,
     };
-    // The domain type's own parse is the admission path: it re-runs the field
-    // bounds and refuses an inactive status, which is an update rather than a
-    // retained row.
+    // The domain types' own parses are the admission path, as v2's hub
+    // (`apps/coord/src/agents/agent-status-hub.ts:136-140`): every status is
+    // an update bounded by the common checks, and only an ACTIVE one is parsed
+    // as a retained row. An inactive status is its occupant's retirement and
+    // travels with `active: false`; refusing it would strand the row.
     let value = json!({
         "session_id": status.session_id,
         "agent_id": status.agent_id,
@@ -139,7 +141,14 @@ pub(super) fn agent_status_from_proto(status: &WAgentStatus) -> ProtocolResult<A
         "occupant_exited": status.occupant_exited,
         "active": status.active,
     });
-    AgentStatus::parse(value)
+    if status.active {
+        return AgentStatus::parse(value);
+    }
+    let retirement = AgentStatusUpdate::parse(value)?;
+    Ok(AgentStatus {
+        common: retirement.common,
+        active: false,
+    })
 }
 
 /// Journal-backed update progress, in both directions.

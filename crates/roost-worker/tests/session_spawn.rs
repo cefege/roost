@@ -17,6 +17,7 @@ use roost_worker::session::types::SessionRecord;
 
 use spawn_support::{
     BindingThatRecordsDelivery, FakeKeeper, FixedResolver, LedgerSink, context, request,
+    roomy_capacity,
 };
 use spawn_support::{session_id as support_session_id, shell_spec, worker_fp};
 
@@ -31,9 +32,10 @@ async fn a_spawn_the_keeper_refuses_releases_both_claims_and_opens_nothing() {
     let keeper = FakeKeeper::refusing();
     let resolver = FixedResolver::at("/tmp");
     let fp = worker_fp();
+    let capacity = roomy_capacity();
 
     let refused = spawn_shell(
-        &context(&keeper, &events, &resolver, &fp),
+        &context(&keeper, &events, &resolver, &fp, &capacity),
         opened,
         close,
         Arc::new(BindingThatRecordsDelivery),
@@ -76,9 +78,10 @@ async fn a_spawn_consumes_the_opened_claim_and_leaves_the_close_claim_committed(
     let keeper = FakeKeeper::working();
     let resolver = FixedResolver::at("/tmp");
     let fp = worker_fp();
+    let capacity = roomy_capacity();
 
     let record: SessionRecord = spawn_shell(
-        &context(&keeper, &events, &resolver, &fp),
+        &context(&keeper, &events, &resolver, &fp, &capacity),
         opened,
         close,
         Arc::new(BindingThatRecordsDelivery),
@@ -134,13 +137,14 @@ async fn a_respawn_announces_a_respawn_and_not_an_opened() {
     let keeper = FakeKeeper::working();
     let resolver = FixedResolver::at("/tmp");
     let fp = worker_fp();
+    let capacity = roomy_capacity();
     let mut wanted = request(23);
     wanted.event = DurableEventKind::State;
     wanted.session_id = Some(support_session_id());
     wanted.shell_spec = Some(shell_spec("/somewhere/that/is/gone"));
 
     let record = spawn_shell(
-        &context(&keeper, &events, &resolver, &fp),
+        &context(&keeper, &events, &resolver, &fp, &capacity),
         opened,
         close,
         Arc::new(BindingThatRecordsDelivery),
@@ -180,11 +184,12 @@ async fn geometry_is_refused_before_a_pty_or_a_claim_is_touched() {
     let keeper = FakeKeeper::working();
     let resolver = FixedResolver::at("/tmp");
     let fp = worker_fp();
+    let capacity = roomy_capacity();
     let mut too_wide = request(24);
     too_wide.cols = 900;
 
     let refused = spawn_shell(
-        &context(&keeper, &events, &resolver, &fp),
+        &context(&keeper, &events, &resolver, &fp, &capacity),
         opened,
         close,
         Arc::new(BindingThatRecordsDelivery),
@@ -217,11 +222,12 @@ async fn a_close_may_not_announce_a_spawn() {
     let keeper = FakeKeeper::working();
     let resolver = FixedResolver::at("/tmp");
     let fp = worker_fp();
+    let capacity = roomy_capacity();
     let mut wrong = request(25);
     wrong.event = DurableEventKind::Exited;
 
     let refused = spawn_shell(
-        &context(&keeper, &events, &resolver, &fp),
+        &context(&keeper, &events, &resolver, &fp, &capacity),
         opened,
         close,
         Arc::new(BindingThatRecordsDelivery),

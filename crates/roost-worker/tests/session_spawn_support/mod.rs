@@ -29,6 +29,10 @@ use roost_worker::session::sinks::{
 };
 use roost_worker::session::spawn::{ShellSpawner, ShellSpecResolver, SpawnContext, SpawnRequest};
 use roost_worker::shell_spec::ShellSpec;
+use roost_worker::terminal_core_capacity::{
+    TERMINAL_CORE_ALLOCATION_BYTES, TerminalCoreAllocationKind, TerminalCoreCapacity,
+    TerminalCoreCapacityOptions,
+};
 
 // RE-EXPORTED, and the re-export is the fix rather than tidiness. The test that
 // includes this module used to reach `session_emit_support` ITSELF, under a
@@ -251,25 +255,37 @@ pub fn request(channel_id: i64) -> SpawnRequest {
         session_id: None,
         shell_spec: None,
         event: DurableEventKind::Opened,
+        core_allocation: TerminalCoreAllocationKind::Fresh,
     }
 }
 
 /// The collaborators one spawn is driven through.
 ///
-/// The fingerprint is a parameter rather than a call to `worker_fp()` inside
-/// here, because `SpawnContext` BORROWS it: `&worker_fp()` would hand back a
-/// reference to a temporary that dies when this function returns, and the
+/// The fingerprint and the capacity are parameters rather than values built
+/// in here, because `SpawnContext` BORROWS them: `&worker_fp()` would hand back
+/// a reference to a temporary that dies when this function returns, and the
 /// borrow would outlive the value it names.
 pub fn context<'a>(
     keeper: &'a Arc<FakeKeeper>,
     events: &'a Arc<LedgerSink>,
     resolver: &'a FixedResolver,
     worker_fp: &'a WorkerFp,
+    core_capacity: &'a TerminalCoreCapacity,
 ) -> SpawnContext<'a> {
     SpawnContext {
         spawner: keeper.as_ref(),
         resolver,
         events: events.as_ref(),
         worker_fp,
+        core_capacity,
     }
+}
+
+/// A core admission these spawns never exhaust: the hard maximum.
+pub fn roomy_capacity() -> Arc<TerminalCoreCapacity> {
+    TerminalCoreCapacity::new(TerminalCoreCapacityOptions {
+        effective_memory_ceiling_bytes: 1_000 * TERMINAL_CORE_ALLOCATION_BYTES,
+        boot_rss_bytes: 0,
+        terminal_core_cap: None,
+    })
 }

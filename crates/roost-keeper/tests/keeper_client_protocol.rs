@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use roost_keeper::client::connect;
+use roost_keeper::client::{KeeperClient, connect};
 use roost_keeper::frames::ShellSpec;
 use roost_keeper::payloads::{PtyInRejectReason, PtyInResult};
 use std::os::unix::net::UnixStream;
@@ -95,6 +95,24 @@ fn cat() -> ShellSpec {
     }
 }
 
+/// Send one sequenced input, then read its answer off the event stream, where
+/// the keeper's input lane writes it once the batch has settled.
+fn answered(client: &KeeperClient, channel_id: u16, input_seq: u64, bytes: &[u8]) -> PtyInResult {
+    client
+        .send_input_request(channel_id, input_seq, bytes)
+        .expect("the request is written");
+    let deadline = Instant::now() + STARTUP;
+    while Instant::now() < deadline {
+        if let Some(frame) = client.next_event(Duration::from_millis(50))
+            && frame.channel_id == channel_id
+            && let Some(result) = PtyInResult::decode(frame.frame_type, &frame.payload)
+        {
+            return result;
+        }
+    }
+    panic!("input {input_seq} on channel {channel_id} was never answered");
+}
+
 /// property a client needs to decide between a safe retry and a duplicate.
 #[test]
 fn a_sequenced_write_reports_what_reached_the_pty() {
@@ -106,9 +124,7 @@ fn a_sequenced_write_reports_what_reached_the_pty() {
         .spawn(1, cat(), 80, 24)
         .expect("the spawn is acknowledged");
 
-    let result = client
-        .write_input_sequenced(1, 1, b"sequenced\r")
-        .expect("the write is answered");
+    let result = answered(&client, 1, 1, b"sequenced\r");
     match result {
         PtyInResult::Ack { input_seq, written } => {
             assert_eq!(input_seq, 1, "the answer names the request");
@@ -126,9 +142,7 @@ fn a_sequenced_write_to_an_unknown_channel_is_rejected() {
     let _keeper = Keeper::start(&temp);
 
     let client = connect(temp.socket()).expect("a handshake");
-    let result = client
-        .write_input_sequenced(99, 7, b"nowhere\r")
-        .expect("the write is answered");
+    let result = answered(&client, 99, 7, b"nowhere\r");
 
     match result {
         PtyInResult::Reject { input_seq, reason } => {
