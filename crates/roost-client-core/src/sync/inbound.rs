@@ -98,6 +98,12 @@ pub enum SyncFrame {
         generation: u64,
         /// Whether the authority holds the view.
         accepted: bool,
+        /// The stream the authority now mints, empty when it minted none.
+        stream_id: String,
+        /// The authority's effective columns for that stream.
+        effective_cols: u32,
+        /// The authority's effective rows for that stream.
+        effective_rows: u32,
     },
     /// A truthful terminal-write result for one admitted input batch.
     InputResult {
