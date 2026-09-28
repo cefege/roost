@@ -80,8 +80,10 @@ use roost_proto::{
     FilesListDirEntry, FilesListDirResponse, FilesMkdirResponse, FilesReadChunkResponse,
     FilesReadResponse, ListAttachmentsResponse,
 };
+use roost_protocol::wire::SessionId;
 use roost_protocol::wire::WorkerFp;
 use roost_protocol::wire::control::ClientControlFrame;
+use roost_protocol::wire::coord_worker::CoordWorkerDownstream;
 
 use connectrpc::{ConnectError, ErrorCode};
 
@@ -401,4 +403,113 @@ fn decode_base64(encoded: &str) -> Result<Vec<u8>, String> {
         }
     }
     Ok(out)
+}
+
+/// List a directory. v2 `:86-95`, and the `resolved_path` fallback is v2 `:95`.
+pub async fn files_list_dir(
+    relay: &ScrollbackRelay,
+    worker_fp: &str,
+    viewer_id: &str,
+    path: &str,
+    request_id: &str,
+) -> Result<FilesListDirResponse, ConnectError> {
+    let reply = relay_once(
+        relay,
+        worker_fp,
+        viewer_id,
+        request_id,
+        DEADLINE_MS,
+        ClientControlFrame::ListDir {
+            request_id: request_id.to_owned(),
+            path: path.to_owned(),
+            trace_id: None,
+        },
+    )
+    .await?;
+    Ok(FilesListDirResponse {
+        __buffa_unknown_fields: Default::default(),
+        entries: files_list_dir_entries(&reply)?,
+        resolved_path: optional_str(&reply, "resolved_path", path).to_owned(),
+    })
+}
+
+/// The content-dedup probe, so the SPA skips a byte upload it already has.
+/// v2 `:126-140`.
+pub async fn attachment_probe(
+    relay: &ScrollbackRelay,
+    worker_fp: &str,
+    viewer_id: &str,
+    session_id: &SessionId,
+    sha256: &str,
+    short_path: bool,
+    request_id: &str,
+) -> Result<(bool, String), ConnectError> {
+    let reply = relay_once(
+        relay,
+        worker_fp,
+        viewer_id,
+        request_id,
+        DEADLINE_MS,
+        ClientControlFrame::AttachmentProbe {
+            request_id: request_id.to_owned(),
+            session_id: session_id.clone(),
+            sha256: sha256.to_owned(),
+            short_path,
+            trace_id: None,
+        },
+    )
+    .await?;
+    probe_hit(&reply)
+}
+
+/// What a session's attachment directory already holds. v2 `:142-156`.
+pub async fn list_attachments(
+    relay: &ScrollbackRelay,
+    worker_fp: &str,
+    viewer_id: &str,
+    session_id: &SessionId,
+    request_id: &str,
+) -> Result<Vec<AttachmentEntry>, ConnectError> {
+    let reply = relay_once(
+        relay,
+        worker_fp,
+        viewer_id,
+        request_id,
+        DEADLINE_MS,
+        ClientControlFrame::ListAttachments {
+            request_id: request_id.to_owned(),
+            session_id: session_id.clone(),
+            trace_id: None,
+        },
+    )
+    .await?;
+    attachment_entries(&reply)
+}
+
+/// v2 `:158-172`.
+pub async fn delete_attachment(
+    relay: &ScrollbackRelay,
+    worker_fp: &str,
+    viewer_id: &str,
+    session_id: &SessionId,
+    filename: &str,
+    request_id: &str,
+) -> Result<bool, ConnectError> {
+    let reply = relay_once(
+        relay,
+        worker_fp,
+        viewer_id,
+        request_id,
+        DEADLINE_MS,
+        ClientControlFrame::DeleteAttachment {
+            request_id: request_id.to_owned(),
+            session_id: session_id.clone(),
+            filename: filename.to_owned(),
+            trace_id: None,
+        },
+    )
+    .await?;
+    reply.get("ok").and_then(Value::as_bool).ok_or_else(|| {
+        ConnectError::new(ErrorCode::Internal, "the worker did not answer the delete")
+    })
 }
