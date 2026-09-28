@@ -1,28 +1,24 @@
-//! Painting the live grid: the viewport row diff, the cursor, and the find
-//! highlights.
-//!
-//! The viewport diff is O(dirty rows). Each row element carries a hash of
-//! everything the painter sets on it, so a frame that repaints the same cells
-//! touches no DOM at all — which is what keeps an ordinary delta from costing a
-//! full-grid repaint on a chatty pane.
+//! Painting the live grid: the viewport row diff, the cursor, the grid width and
+//! the find highlights. The diff is O(dirty rows): each row element carries the
+//! hash of everything the painter sets, so a frame repainting the same cells
+//! touches no DOM. Ports `renderDelta`, `renderViewportRepair`, `updateCursor`,
+//! `setGridWidth`, `setFindHighlights` and `_repaintScrollbackRow` of
+//! `apps/web/src/renderer/cellRenderer.ts`.
 
 use std::collections::BTreeMap;
-
-use web_sys::Element;
 
 use crate::cell_renderer::CellGridRenderer;
 use crate::cell_renderer::history_page::to_row_index;
 use crate::cell_renderer::scrollback::BLOCK_CLASS;
 use crate::cell_renderer_dom::{
-    DomResult, as_node, detach, is_child_of, paint_cell_grid_width, replace_element,
-    sync_alternate_screen,
+    DomResult, is_placed_in, paint_cell_grid_width, sync_alternate_screen,
 };
 use crate::cell_row::dom::render_row;
 use crate::cell_row::{FindHit, row_hash};
-use crate::element_style::set_style_property;
+use crate::render_element::RenderElement;
 use roost_protocol::cell::CellRow;
 
-impl CellGridRenderer {
+impl<E: RenderElement> CellGridRenderer<E> {
     /// The find hits for one row, and the active match's column on that row.
     ///
     /// Find hits are keyed in the worker's ABSOLUTE row space, so a viewport row
@@ -51,12 +47,12 @@ impl CellGridRenderer {
                 if self.row_hashes[index] == hash {
                     continue;
                 }
-                let element = render_row(row, &self.doc, hits, active_col)?;
-                replace_element(&self.row_elements[index], &element);
+                let element = render_row(row, &self.container, hits, active_col)?;
+                self.row_elements[index].replace_with(&element);
                 self.row_elements[index] = element;
                 self.row_hashes[index] = hash;
             } else {
-                let element = render_row(row, &self.doc, hits, active_col)?;
+                let element = render_row(row, &self.container, hits, active_col)?;
                 self.insert_viewport_row(&element);
                 self.row_elements.push(element);
                 self.row_hashes.push(hash);
@@ -64,7 +60,7 @@ impl CellGridRenderer {
         }
         while self.row_elements.len() > frame.viewport_rows.len() {
             if let Some(element) = self.row_elements.pop() {
-                detach(&element);
+                element.remove();
             }
             self.row_hashes.pop();
         }
@@ -78,11 +74,10 @@ impl CellGridRenderer {
         let Some(frame) = self.frame.clone() else {
             return Ok(());
         };
-        self.measure_row_height();
         let viewport_base = to_row_index(frame.scrollback_total);
         let shifted = usize::try_from(scrolled.min(self.row_elements.len() as u32)).unwrap_or(0);
         for element in self.row_elements.iter().take(shifted) {
-            detach(element);
+            element.remove();
         }
         if shifted > 0 {
             self.row_elements.drain(..shifted);
@@ -98,8 +93,8 @@ impl CellGridRenderer {
             if self.row_hashes[index] == hash {
                 continue;
             }
-            let element = render_row(row, &self.doc, hits, active_col)?;
-            replace_element(&self.row_elements[index], &element);
+            let element = render_row(row, &self.container, hits, active_col)?;
+            self.row_elements[index].replace_with(&element);
             self.row_elements[index] = element;
             self.row_hashes[index] = hash;
         }
@@ -108,7 +103,7 @@ impl CellGridRenderer {
             let row = &frame.viewport_rows[index];
             let (hits, active_col) = self.hits_for(viewport_base + index as u32);
             let hash = row_hash(row, hits, active_col);
-            let element = render_row(row, &self.doc, hits, active_col)?;
+            let element = render_row(row, &self.container, hits, active_col)?;
             self.insert_viewport_row(&element);
             self.row_elements.push(element);
             self.row_hashes.push(hash);
@@ -119,20 +114,20 @@ impl CellGridRenderer {
 
     /// Append one row element BELOW the overlays, so a row never lands between
     /// the cursor and the rows it points at.
-    fn insert_viewport_row(&self, element: &Element) {
-        let anchor = is_child_of(&self.cursor, &self.viewport).then_some(as_node(&self.cursor));
-        let _ = self.viewport.insert_before(element, anchor);
+    fn insert_viewport_row(&self, element: &E) {
+        let anchor = is_placed_in(&self.cursor, &self.viewport).then_some(&self.cursor);
+        self.viewport.insert_before(element, anchor);
     }
 
     /// Keep the cursor and the ghost host inside the viewport, then place the
     /// cursor. The overlays must be the LAST children so a row appended above
     /// them does not cover the cursor.
     fn attach_viewport_overlays(&mut self) {
-        if !is_child_of(&self.cursor, &self.viewport) {
-            let _ = self.viewport.append_child(&self.cursor);
+        if !is_placed_in(&self.cursor, &self.viewport) {
+            self.viewport.append_child(&self.cursor);
         }
-        if !is_child_of(&self.ghosts, &self.viewport) {
-            let _ = self.viewport.append_child(&self.ghosts);
+        if !is_placed_in(&self.ghosts, &self.viewport) {
+            self.viewport.append_child(&self.ghosts);
         }
         self.update_cursor();
     }
@@ -156,32 +151,27 @@ impl CellGridRenderer {
         let visible = frame.cursor_visible;
         if self.painted_cursor_visible != Some(visible) {
             self.painted_cursor_visible = Some(visible);
-            let _ = self
-                .cursor
+            self.cursor
                 .set_attribute("data-visible", if visible { "true" } else { "false" });
-            set_style_property(
-                &self.cursor,
-                "display",
-                if visible { "block" } else { "none" },
-            );
+            self.cursor
+                .set_style("display", if visible { "block" } else { "none" });
         }
         if !visible {
             return;
         }
         if self.painted_cursor_row != i64::from(frame.cursor_row) {
             self.painted_cursor_row = i64::from(frame.cursor_row);
-            let _ = self
-                .cursor
+            self.cursor
                 .set_attribute("data-row", &frame.cursor_row.to_string());
-            set_style_property(&self.cursor, "top", &format!("{}lh", frame.cursor_row));
+            self.cursor
+                .set_style("top", &format!("{}lh", frame.cursor_row));
         }
         let column = self.predicted_col.unwrap_or(frame.cursor_col);
         if self.painted_cursor_col != i64::from(column) {
             self.painted_cursor_col = i64::from(column);
-            let _ = self
-                .cursor
+            self.cursor
                 .set_attribute("data-column", &column.to_string());
-            set_style_property(&self.cursor, "left", &format!("{column}ch"));
+            self.cursor.set_style("left", &format!("{column}ch"));
         }
     }
 
@@ -243,15 +233,15 @@ impl CellGridRenderer {
             if block.class_name() != BLOCK_CLASS {
                 continue;
             }
-            for child_index in 0..block.children().length() {
-                let Some(child) = block.children().item(child_index) else {
+            for child_index in 0..block.child_count() {
+                let Some(child) = block.child_at(child_index) else {
                     continue;
                 };
-                if child.get_attribute("data-row-index").as_deref() != Some(wanted.as_str()) {
+                if child.attribute("data-row-index").as_deref() != Some(wanted.as_str()) {
                     continue;
                 }
                 if let Ok(replacement) = self.render_scrollback_row(&row) {
-                    replace_element(&child, &replacement);
+                    child.replace_with(&replacement);
                 }
                 return;
             }
@@ -260,10 +250,10 @@ impl CellGridRenderer {
 
     /// Paint one immutable history row, stamping the absolute index the
     /// backfill and the find overlay both address it by.
-    pub(crate) fn render_scrollback_row(&self, row: &CellRow) -> DomResult<Element> {
+    pub(crate) fn render_scrollback_row(&self, row: &CellRow) -> DomResult<E> {
         let (hits, active_col) = self.hits_for(row.index);
-        let element = render_row(row, &self.doc, hits, active_col)?;
-        let _ = element.set_attribute("data-row-index", &row.index.to_string());
+        let element = render_row(row, &self.container, hits, active_col)?;
+        element.set_attribute("data-row-index", &row.index.to_string());
         Ok(element)
     }
 }

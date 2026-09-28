@@ -1,19 +1,18 @@
 //! Keeping the painted DOM bounded and the scroll space truthful: leading-block
 //! eviction, head-gap collapse, and the head spacer that reserves the whole
-//! session's history rather than only the painted tail.
-//!
-//! The two are the same contract. A row the renderer drops becomes a row the
-//! spacer reserves, at exactly the height it had, so an absolute row index
-//! keeps a fixed pixel offset for the epoch and native `scrollTop` preserves
-//! the reader's row with ZERO application scroll writes.
+//! session's history, so a dropped row keeps its exact height and native
+//! `scrollTop` holds the reader's row with no application scroll write. Ports
+//! `_evictScrollback`, `_collapseLeadingGaps`, `_syncSpacer` and `setHistoryFloor`
+//! of `apps/web/src/renderer/cellRenderer.ts`.
 
+use crate::block_placeholder::fixed_px;
 use crate::cell_renderer::CellGridRenderer;
 use crate::cell_renderer::scrollback::{BLOCK_CLASS, GAP_CLASS};
-use crate::cell_renderer_dom::{detach, effective_row_height, size_scrollback_block};
-use crate::element_style::set_style_property;
+use crate::cell_renderer_dom::{effective_row_height, size_scrollback_block};
 use crate::painted_history::{MAX_HELD_SCROLLBACK_ROWS, plan_eviction};
+use crate::render_element::RenderElement;
 
-impl CellGridRenderer {
+impl<E: RenderElement> CellGridRenderer<E> {
     /// Drop whole leading blocks until the painted store is back inside its cap.
     ///
     /// Only a tail-following reader evicts: a reader parked in history is
@@ -25,27 +24,27 @@ impl CellGridRenderer {
         }
         while self.painted.len() > MAX_HELD_SCROLLBACK_ROWS {
             self.collapse_leading_gaps();
-            let Some(lead) = self.scrollback.first_element_child() else {
+            let Some(lead) = self.scrollback.first_child() else {
                 break;
             };
             if lead.class_name() != BLOCK_CLASS {
                 break;
             }
-            let leading_rows = lead.children().length();
+            let leading_rows = lead.child_count();
             let Some(step) = plan_eviction(&self.painted, MAX_HELD_SCROLLBACK_ROWS, leading_rows)
             else {
                 break;
             };
             if step.removes_block {
-                detach(&lead);
+                lead.remove();
             } else {
                 for _ in 0..step.rows {
-                    if let Some(child) = lead.first_element_child() {
-                        detach(&child);
+                    if let Some(child) = lead.first_child() {
+                        child.remove();
                     }
                 }
                 let row_height = self.row_height();
-                size_scrollback_block(&lead, leading_rows - step.rows, row_height);
+                size_scrollback_block(&lead, lead.child_count(), row_height);
             }
             if self.painted.evict_leading(step.rows as usize).is_none() {
                 break;
@@ -73,7 +72,7 @@ impl CellGridRenderer {
     /// space for rows that are already there.
     fn collapse_leading_gaps(&mut self) {
         loop {
-            let Some(lead) = self.scrollback.first_element_child() else {
+            let Some(lead) = self.scrollback.first_child() else {
                 return;
             };
             if lead.class_name() != GAP_CLASS {
@@ -90,7 +89,7 @@ impl CellGridRenderer {
                 self.tail_gap = None;
             }
             self.painted_sb_base = range.end;
-            detach(&lead);
+            lead.remove();
         }
     }
 
@@ -103,11 +102,10 @@ impl CellGridRenderer {
     /// thumb therefore reflects the real session total, and a reader who drags
     /// into reserved-but-unpainted space keeps the backfill drain pulling toward
     /// them.
-    pub(crate) fn sync_spacer(&mut self) -> bool {
+    pub(crate) fn sync_spacer(&mut self) {
         // The head reservation is the one pixel value every absolute row offset
         // is measured against, so it is stamped from a MEASURED height, falling
         // back to the default pitch — never from a stale or zeroed cache.
-        self.measure_row_height();
         let row_height = self.row_height();
         if row_height > 0.0 && row_height != self.painted_gap_row_height {
             self.resize_history_placeholders(row_height);
@@ -118,20 +116,16 @@ impl CellGridRenderer {
         // pageable, and splices move that base, so this is derived, never
         // latched.
         if self.history_floor_row > 0 && self.history_floor_row >= self.painted_sb_base {
-            let _ = self.spacer.set_attribute("data-history-floor", "1");
+            self.spacer.set_attribute("data-history-floor", "1");
         } else {
-            let _ = self.spacer.remove_attribute("data-history-floor");
+            self.spacer.remove_attribute("data-history-floor");
         }
-        let height = format!(
-            "{:.2}px",
-            f64::from(self.painted_sb_base) * effective_row_height(row_height)
-        );
+        let height = fixed_px(f64::from(self.painted_sb_base) * effective_row_height(row_height));
         if height == self.painted_spacer_height {
-            return true;
+            return;
         }
-        self.painted_spacer_height = height.clone();
-        set_style_property(&self.spacer, "height", &height);
-        true
+        self.spacer.set_style("height", &height);
+        self.painted_spacer_height = height;
     }
 
     /// The pager owns the floor VALUE; the spacer's marker derives from it.
@@ -139,7 +133,8 @@ impl CellGridRenderer {
         if row == self.history_floor_row {
             return;
         }
+        tracing::debug!(target: "scrollback", row, sb_base = self.painted_sb_base, "scrollback.history_floor_set");
         self.history_floor_row = row;
-        let _ = self.sync_spacer();
+        self.sync_spacer();
     }
 }

@@ -1,11 +1,8 @@
 //! Pure cell-to-DOM row rendering: the xterm-palette-to-CSS mapping, one span's
-//! inline style, the find-hit sub-span arithmetic, and the allocation-free row
-//! hash the viewport diff compares.
-//!
-//! `cell_row/dom.rs` paints what this module decides; `CellGridRenderer`
-//! composes the two and owns everything stateful. Nothing here reads the DOM,
-//! so every rule below — including the wide-glyph box and the hash's link
-//! identity folding — is testable natively.
+//! inline style, the find-hit sub-span arithmetic in GRID columns, and the
+//! allocation-free row hash the viewport diff compares. `cell_row/dom.rs` paints
+//! what this decides; nothing here reads the DOM, so every rule tests natively.
+//! Ports `apps/web/src/renderer/cellRow.ts`.
 
 pub mod dom;
 
@@ -78,6 +75,9 @@ pub fn ansi256_to_css(index: u16) -> String {
     if index < 16 {
         return format!("var(--term-color-{index})");
     }
+    // Widened: a malformed wire index above the palette paints a nonsense
+    // colour, as v2 does, instead of overflowing.
+    let index = u32::from(index);
     if index >= 232 {
         let value = 8 + (index - 232) * 10;
         return format!("rgb({value},{value},{value})");
@@ -197,49 +197,51 @@ fn join_declarations(parts: Vec<&str>) -> String {
         .join(";")
 }
 
-/// Split one span at every find-match boundary inside it.
+/// Split one span that starts at grid column `column` at every find-match
+/// boundary inside it. Hits are addressed in GRID columns, so the span's own
+/// start column is what places them.
 ///
 /// An ATOMIC span is all-or-nothing, because slicing it by column would cut a
-/// surrogate pair or strip a combining mark. Only a coalesced narrow run
-/// splits, and there column offsets and code-unit offsets coincide by
-/// construction — which is what makes the painter's text slicing exact.
-///
-/// A span no match touches yields one unhighlighted slice, so the caller always
-/// paints the same element list it would without find state.
-pub fn span_slices(span: &CellSpan, hits: &[FindHit], active_col: Option<u32>) -> Vec<SpanSlice> {
+/// surrogate pair or strip a combining mark: it is one slice, highlighted when
+/// any hit overlaps it. Only a coalesced narrow run splits, and there column
+/// offsets and scalar offsets coincide by construction — which is what makes
+/// `slice_text` exact. A zero-width run yields no slice at all.
+pub fn span_slices(
+    span: &CellSpan,
+    column: u32,
+    hits: &[FindHit],
+    active_col: Option<u32>,
+) -> Vec<SpanSlice> {
+    let span_end = column.saturating_add(span.columns);
     if span_is_atomic(span) {
-        let whole = SpanSlice {
+        let hit = hits
+            .iter()
+            .find(|hit| column < hit_end(hit) && hit.col < span_end);
+        return vec![SpanSlice {
             start: 0,
             columns: span.columns,
-            highlighted: hits.iter().any(|hit| overlaps(hit, 0, span.columns)),
-            active: false,
-        };
-        let mut slices = vec![whole];
-        if whole.highlighted {
-            let hit = hits
-                .iter()
-                .find(|hit| overlaps(hit, 0, span.columns))
-                .copied();
-            slices[0].active = hit.is_some_and(|hit| Some(hit.col) == active_col);
-        }
-        return slices;
+            highlighted: hit.is_some(),
+            active: hit.is_some_and(|hit| Some(hit.col) == active_col),
+        }];
     }
     let mut slices = Vec::new();
     let mut at = 0u32;
     while at < span.columns {
+        let absolute = column + at;
         let hit = hits
             .iter()
-            .find(|hit| at >= hit.col && at < hit.col.saturating_add(hit.len));
+            .find(|hit| absolute >= hit.col && absolute < hit_end(hit));
+        // Both arms end strictly past `at`: a covering hit ends past `absolute`,
+        // and the next hit start is only taken when it lies past `at`.
         let end = match hit {
-            Some(hit) => span.columns.min(hit.col.saturating_add(hit.len)),
+            Some(hit) => span.columns.min(hit_end(hit) - column),
             None => hits
                 .iter()
-                .map(|hit| hit.col)
-                .filter(|col| *col > at && *col < span.columns)
+                .filter_map(|hit| hit.col.checked_sub(column))
+                .filter(|relative| *relative > at && *relative < span.columns)
                 .min()
                 .unwrap_or(span.columns),
         };
-        let end = end.max(at + 1).min(span.columns);
         slices.push(SpanSlice {
             start: at,
             columns: end - at,
@@ -248,23 +250,18 @@ pub fn span_slices(span: &CellSpan, hits: &[FindHit], active_col: Option<u32>) -
         });
         at = end;
     }
-    if slices.is_empty() {
-        slices.push(SpanSlice {
-            start: 0,
-            columns: span.columns,
-            highlighted: false,
-            active: false,
-        });
-    }
     slices
 }
 
 /// The text of one slice, addressed by its column interval inside the span.
 ///
-/// A slice is only ever produced for a coalesced narrow run, where every
-/// scalar is one column, so the column offset is also the scalar offset. An
-/// atomic span is never sliced.
+/// An atomic span is never cut, so any slice of one is its whole text — a wide
+/// glyph or a joined emoji cluster keeps every scalar. A narrow run has one
+/// scalar per column, so the column offset is also the scalar offset.
 pub fn slice_text(span: &CellSpan, start: u32, columns: u32) -> String {
+    if span_is_atomic(span) {
+        return span.text.clone();
+    }
     span.text
         .chars()
         .skip(start as usize)
@@ -272,17 +269,19 @@ pub fn slice_text(span: &CellSpan, start: u32, columns: u32) -> String {
         .collect()
 }
 
-fn overlaps(hit: &FindHit, start: u32, columns: u32) -> bool {
-    let hit_end = hit.col.saturating_add(hit.len);
-    let slice_end = start.saturating_add(columns);
-    start < hit_end && hit.col < slice_end
+fn hit_end(hit: &FindHit) -> u32 {
+    hit.col.saturating_add(hit.len)
 }
 
 const FNV_OFFSET: u32 = 2_166_136_261;
 const FNV_PRIME: u32 = 16_777_619;
 
 fn fold(hash: u32, value: u32) -> u32 {
-    hash.wrapping_mul(FNV_PRIME) ^ value
+    (hash ^ value).wrapping_mul(FNV_PRIME)
+}
+
+fn utf16_len(text: &str) -> u32 {
+    u32::try_from(text.encode_utf16().count()).unwrap_or(u32::MAX)
 }
 
 /// Visual identity of a row, as a 32-bit FNV-1a hash of every attribute the row
@@ -302,13 +301,14 @@ fn fold(hash: u32, value: u32) -> u32 {
 /// epoch that repaints every row unconditionally. Hashing a 2 KB URI per span
 /// per row per frame would cost far more than the collision it rules out.
 pub fn row_hash(row: &CellRow, hits: Option<&[FindHit]>, active_col: Option<u32>) -> u32 {
-    let mut hash =
-        (FNV_OFFSET ^ u32::try_from(row.spans.len()).unwrap_or(u32::MAX)).wrapping_mul(FNV_PRIME);
+    let mut hash = fold(
+        FNV_OFFSET,
+        u32::try_from(row.spans.len()).unwrap_or(u32::MAX),
+    );
     for span in row.spans.iter() {
-        let units: Vec<u16> = span.text.encode_utf16().collect();
-        hash = fold(hash, u32::try_from(units.len()).unwrap_or(u32::MAX));
+        hash = fold(hash, utf16_len(&span.text));
         hash = fold(hash, span.columns);
-        for unit in units {
+        for unit in span.text.encode_utf16() {
             hash = fold(hash, u32::from(unit));
         }
         hash = fold(hash, span.fg.into());
@@ -319,19 +319,11 @@ pub fn row_hash(row: &CellRow, hits: Option<&[FindHit]>, active_col: Option<u32>
         match span.link_key.as_deref() {
             None => hash = fold(hash, 0),
             Some(key) => {
-                hash = fold(
-                    hash,
-                    u32::try_from(key.encode_utf16().count()).unwrap_or(u32::MAX) + 1,
-                );
+                hash = fold(hash, utf16_len(key).wrapping_add(1));
                 for unit in key.encode_utf16() {
                     hash = fold(hash, u32::from(unit));
                 }
-                hash = fold(
-                    hash,
-                    span.link_uri.as_deref().map_or(0, |uri| {
-                        u32::try_from(uri.encode_utf16().count()).unwrap_or(u32::MAX)
-                    }),
-                );
+                hash = fold(hash, span.link_uri.as_deref().map_or(0, utf16_len));
             }
         }
     }

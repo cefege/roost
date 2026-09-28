@@ -25,7 +25,7 @@ fn repairs_from_canonical_full_when_a_pending_batch_exceeds_a_bound() {
         frame_bound_baseline.clone(),
         0,
     );
-    flush_frame(&mut frame_bound, &mut frame_bound_renderer, 4, 0);
+    flush_frame(&mut frame_bound, &mut frame_bound_renderer, 4);
     for seq in 2..=66u64 {
         let text = seq.to_string();
         offer(
@@ -35,7 +35,7 @@ fn repairs_from_canonical_full_when_a_pending_batch_exceeds_a_bound() {
             seq * 10,
         );
     }
-    let frame_bound_repair = flush_frame(&mut frame_bound, &mut frame_bound_renderer, 700, 0);
+    let frame_bound_repair = flush_frame(&mut frame_bound, &mut frame_bound_renderer, 700);
     assert_eq!(frame_bound_repair.mode, Some(ApplyMode::FallbackFull));
     assert_eq!(
         frame_bound_repair.batch_frames,
@@ -55,7 +55,7 @@ fn repairs_from_canonical_full_when_a_pending_batch_exceeds_a_bound() {
         history_bound_baseline.clone(),
         0,
     );
-    flush_frame(&mut history_bound, &mut history_bound_renderer, 4, 0);
+    flush_frame(&mut history_bound, &mut history_bound_renderer, 4);
     let mut too_much_history = delta_frame(2, "B");
     too_much_history.scrollback_append = (0..251u32).map(|index| row_shell(index, &[])).collect();
     too_much_history.scrollback_total = 251;
@@ -68,7 +68,7 @@ fn repairs_from_canonical_full_when_a_pending_batch_exceeds_a_bound() {
             appended_rows: 251,
         }
     );
-    flush_frame(&mut history_bound, &mut history_bound_renderer, 12, 0);
+    flush_frame(&mut history_bound, &mut history_bound_renderer, 12);
     assert_eq!(history_bound_renderer.full_seqs(), vec![1, 2]);
     assert!(history_bound_renderer.delta_seqs().is_empty());
 
@@ -82,13 +82,13 @@ fn repairs_from_canonical_full_when_a_pending_batch_exceeds_a_bound() {
         span_bound_baseline.clone(),
         0,
     );
-    flush_frame(&mut span_bound, &mut span_bound_renderer, 4, 0);
+    flush_frame(&mut span_bound, &mut span_bound_renderer, 4);
     let mut too_many_spans = delta_frame(2, "B");
     // One span past the bound is enough; the counter stops as soon as the limit
     // is passed, so a real paste never gets fully counted.
     too_many_spans.viewport_rows = vec![row_shell_of(0, 65_537, "x")];
     offer(&mut span_bound, &too_many_spans, full_frame(2, "B"), 8);
-    flush_frame(&mut span_bound, &mut span_bound_renderer, 12, 0);
+    flush_frame(&mut span_bound, &mut span_bound_renderer, 12);
     assert_eq!(span_bound_renderer.full_seqs(), vec![1, 2]);
     assert!(span_bound_renderer.delta_seqs().is_empty());
 }

@@ -1,29 +1,26 @@
 //! Admitting one page of history rows into the painted set: a backfilled page
-//! the reader asked for, and a frame's own authoritative rows.
-//!
-//! Two admission rules, and they are the same rule. A page is painted only when
-//! it names exactly the interval it is filling, its rows are contiguous and in
-//! order, and it lies inside the layout the current frame describes. A page
-//! that fails is REFUSED, never approximated — the painted set would otherwise
-//! claim coverage it does not have, and every later interval query would answer
-//! from that lie.
+//! the reader asked for, and a frame's own authoritative rows. A page is painted
+//! only when it names exactly the interval it fills, in order, inside the current
+//! layout; anything else is REFUSED, never approximated. Ports `insertHistoryPage`,
+//! `_insertAuthoritativeHistory` and `_extendScrollbackGap` of
+//! `apps/web/src/renderer/cellRenderer.ts`.
 
 use crate::cell_renderer::CellGridRenderer;
 use crate::cell_renderer_dom::DomResult;
 use crate::painted_history::page_is_contiguous;
 use crate::presentation::same_scrollback_row;
+use crate::render_element::RenderElement;
 use roost_protocol::cell::CellRow;
 
-impl CellGridRenderer {
+impl<E: RenderElement> CellGridRenderer<E> {
     /// Splice one backfilled page into the painted history.
     ///
     /// The page is admitted only when it lands in a gap the current layout
     /// actually reserves; a page arriving for an interval that is already
     /// painted, or for rows past the frame's own total, is refused so the next
     /// demand can be re-derived from live state rather than from a stale one.
-    pub(crate) fn insert_history_page(&mut self, rows: &[CellRow], follow_tail: bool) -> bool {
+    pub fn insert_history_page(&mut self, rows: &[CellRow], follow_tail: bool) -> bool {
         self.observe_history_insert();
-        self.measure_row_height();
         let Some(frame_total) = self.frame.as_ref().map(|frame| frame.scrollback_total) else {
             return false;
         };
@@ -130,7 +127,7 @@ impl CellGridRenderer {
         }
         if !reused {
             let tail = self.create_gap(to_row_index(start), to_row_index(end))?;
-            self.scrollback.append_child(&tail).ok();
+            self.scrollback.append_child(&tail);
             self.tail_gap = Some(tail);
         }
         self.gap_rows += end - start;

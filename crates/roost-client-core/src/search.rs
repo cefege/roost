@@ -10,7 +10,7 @@
 //! Ported from `apps/web/src/client/search/terminalFindPaging.ts`. The limits
 //! are `roost_protocol::terminal_search` and are not restated here.
 
-use roost_protocol::terminal_search::{TERMINAL_SEARCH_MAX_MATCHES, TERMINAL_SEARCH_MAX_ROWS};
+use roost_protocol::terminal_search::TERMINAL_SEARCH_MAX_ROWS;
 
 /// The fleet-wide content search's wire-shaped rows, beside the per-session
 /// find rows above. Both are rows a coordinator answers with, and both are
@@ -69,9 +69,8 @@ pub struct SearchPage {
 /// Why a page was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PageRefusal {
-    /// The scanned window runs backwards, runs past the row ceiling, carries more
-    /// matches than the ceiling allows, or does not continue from the row the
-    /// reader was on.
+    /// The scanned window runs backwards, runs past the row ceiling, or does not
+    /// continue from the row the reader was on.
     BadWindow,
     /// A match names a row outside the scanned window. This is the one that
     /// matters: the row is absolute, and a match outside the window the
@@ -103,9 +102,6 @@ pub fn window_is_valid(page: &SearchPage, matches: &[RawMatch], before_row: Opti
         return false;
     }
     if page.scanned_end_row - page.scanned_start_row > TERMINAL_SEARCH_MAX_ROWS {
-        return false;
-    }
-    if matches.len() as u32 > TERMINAL_SEARCH_MAX_MATCHES {
         return false;
     }
     if before_row.is_some_and(|expected| page.scanned_end_row != expected) {

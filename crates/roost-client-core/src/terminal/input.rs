@@ -19,6 +19,7 @@
 //! direct-promotion fence".
 
 pub mod router;
+pub mod smoke_observer;
 
 pub use router::InputRouter;
 
