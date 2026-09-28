@@ -213,6 +213,36 @@ fn a_cancelled_walk_is_not_a_complete_page() {
     );
 }
 
+/// v2 `browser-command-terminal.ts:115-117` asks for live authority only
+/// before a slice that has rows: authority that ends after the last slice was
+/// taken leaves a complete page, and an empty page is never cancelled.
+#[test]
+fn authority_is_asked_only_before_a_slice_that_has_rows() {
+    let page = page_for(&request("", 1_000, 300), 1_000, 80, &binding()).expect("bound");
+    let mut asked = 0u32;
+    let outcome = walk_page(
+        &page,
+        |_| true,
+        || {
+            asked += 1;
+            // Both slices were admitted; any later question is refused.
+            asked <= 2
+        },
+    );
+    assert_eq!(
+        outcome,
+        WalkOutcome::Complete {
+            taken: (0..300).collect()
+        }
+    );
+
+    let empty = page_for(&request("", 0, 10), 1_000, 80, &binding()).expect("bound");
+    assert_eq!(
+        walk_page(&empty, |_| true, || false),
+        WalkOutcome::Complete { taken: Vec::new() }
+    );
+}
+
 /// A read that was refused by the budget leaves the grid's own bookkeeping
 /// untouched, which is what makes a retry possible.
 #[test]
