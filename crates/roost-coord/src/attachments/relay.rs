@@ -4,7 +4,8 @@
 //!
 //! Ported from v2 `apps/coord/src/attachments/handlers-attachments.ts`
 //! (`requireWorkerHubSocket`, `createPendingRpc` + `sendBrowserCmd`). Called by
-//! `files`, `session_files` and `rpc_files`; the table is `ScrollbackRelay`'s.
+//! `files`, `session_files` and `rpc_files` (and `settle_within` by the session
+//! RPCs); the table is `ScrollbackRelay`'s.
 
 use std::time::Duration;
 
@@ -176,7 +177,7 @@ pub(super) async fn relay_once(
 /// timer itself and rejects with `DeadlineExceeded` "worker did not reply
 /// within {ms}ms" (`router/pending-rpcs.ts`); here the caller owns the timer,
 /// so the same answer is produced here.
-pub(super) async fn settle_within(
+pub(crate) async fn settle_within(
     pending: &mut PendingRpc,
     deadline_ms: u64,
 ) -> Result<Value, ConnectError> {
@@ -187,7 +188,7 @@ pub(super) async fn settle_within(
                 request_id = pending.request_id(),
                 worker_fp = pending.worker_fp(),
                 timeout_ms = deadline_ms,
-                "files: the worker did not reply before the deadline"
+                "a worker did not reply before the RPC deadline"
             );
             Err(ConnectError::new(
                 ErrorCode::DeadlineExceeded,

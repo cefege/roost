@@ -14,7 +14,7 @@
 //! "already the latest release" means "this binary is the newest one published".
 //! They are the same three words about two different facts, and a shared
 //! constant would make a change to one silently edit the other. The fleet's five
-//! wordings live in `status::update_state`; this module does not import them and
+//! wordings live in `roost_protocol::fleet_update`; this module does not import them and
 //! `tests/update_release_decision.rs` holds the two apart.
 
 pub mod assets;

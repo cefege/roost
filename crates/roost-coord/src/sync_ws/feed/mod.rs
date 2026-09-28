@@ -1,6 +1,6 @@
 //! The Sync firehose adapters: one bus message in, one `FirehoseFrame` and the
-//! lane metadata that orders it out. Nothing else lives here -- the seed and the
-//! socket shell are other modules' work.
+//! lane metadata that orders it out. Nothing else lives here -- the seed
+//! (`sync_ws::seed`) and the socket shell are other modules' work.
 //!
 //! `FeedFrame` is the type the whole directory exists to produce. It is a frame
 //! AND the `SyncFrameMeta` that describes where the frame belongs, held
@@ -17,32 +17,59 @@
 //! Ported from `apps/coord/src/sync/sync-feed-frames.ts` (the typed bus
 //! adapters it exports), `sync-feed-ui.ts`, `sync/presence-hub.ts` and
 //! `sync/last-activity-hub.ts`. The subscription ENGINE that installs these on
-//! the live buses, seeds a fresh subscriber and narrows each frame to the
-//! sockets that may see it belongs to the socket shell
-//! (`sync_ws::socket` / `sync_ws::driver`), not here: nothing in this directory
+//! the live buses and narrows each frame to the sockets that may see it is
+//! `sync_ws::live_feed`, and the retained seed is `sync_ws::seed`: nothing
+//! in this directory
 //! subscribes to a bus except the one lifecycle subscription `last_activity`
 //! owns, because that one is the hub's own retained state and not a fan-out.
+//!
+//! The process-wide half of the Sync socket also lives on this one field, in
+//! `sync_state`: the domain-generation source, the snapshot-token registry the
+//! `SessionsList` RPC binds into, the process epoch the `subscribed` barrier
+//! announces, and every open socket a key revocation must reach
+//! (`sync_ws::open_sockets`).
 
 pub mod frames;
 pub mod last_activity;
 pub mod presence;
+pub mod sync_state;
 pub mod ui;
 pub mod worker_frames;
+
+use std::sync::{Arc, Mutex};
 
 use roost_proto::FirehoseFrame;
 use roost_protocol::ProtocolError;
 
 use crate::sync_ws::admission::EnqueueOutcome;
+use crate::sync_ws::domain_table::DomainGenerations;
 use crate::sync_ws::frame_meta::{SyncFrameMeta, frame_meta_for};
+use crate::sync_ws::open_sockets::OpenSyncSockets;
 use crate::sync_ws::session::SyncV2Session;
+use crate::sync_ws::snapshot_registry::SnapshotTokenRegistry;
 use crate::sync_ws::terminal::snapshot::TerminalSnapshotHub;
 
 pub use last_activity::LastActivityHub;
 
 /// The firehose state one coordinator process holds.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct FeedRuntime {
     last_activity: LastActivityHub,
+    /// One generation source for every socket in the process, so a reset on
+    /// one socket can never mint a generation another is already using.
+    generations: Arc<DomainGenerations>,
+    /// Every live Sync v2 socket's bound session snapshots.
+    snapshot_tokens: Mutex<SnapshotTokenRegistry>,
+    /// This process's Sync identity, announced in every `subscribed` barrier.
+    process_epoch: String,
+    /// Every open Sync socket, by the fingerprint that opened it.
+    open_sockets: OpenSyncSockets,
+}
+
+impl Default for FeedRuntime {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FeedRuntime {
@@ -51,6 +78,10 @@ impl FeedRuntime {
     pub fn new() -> Self {
         Self {
             last_activity: LastActivityHub::new(),
+            generations: Arc::new(sync_state::process_generations()),
+            snapshot_tokens: Mutex::new(SnapshotTokenRegistry::new()),
+            process_epoch: sync_state::mint_process_epoch(),
+            open_sockets: OpenSyncSockets::default(),
         }
     }
 
@@ -59,6 +90,12 @@ impl FeedRuntime {
     #[must_use]
     pub fn last_activity(&self) -> &LastActivityHub {
         &self.last_activity
+    }
+
+    /// The open Sync sockets, for a revocation or a worker delete to reach.
+    #[must_use]
+    pub fn open_sockets(&self) -> &OpenSyncSockets {
+        &self.open_sockets
     }
 }
 
@@ -108,6 +145,14 @@ impl FeedFrame {
     #[must_use]
     pub fn frame(&self) -> &FirehoseFrame {
         &self.frame
+    }
+
+    /// The frame alone, for the v1 live path, which has no queue to place it
+    /// in and so no use for its meta: it stamps a delivery sequence onto the
+    /// frame and sends it at once (`sync-ws-v1-delivery.ts:164-172`).
+    #[must_use]
+    pub fn into_frame(self) -> FirehoseFrame {
+        self.frame
     }
 
     /// The metadata the queue places, fences and ages this frame by.

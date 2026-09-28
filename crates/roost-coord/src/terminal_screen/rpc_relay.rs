@@ -7,7 +7,6 @@
 //! guards, and a cancel nobody arms are three ways to write a relay that
 //! forwards and forgets.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use connectrpc::{ConnectError, ErrorCode};
@@ -29,18 +28,6 @@ use crate::terminal_screen::scrollback_result::{SearchStop, WorkerSearchResult};
 use crate::terminal_screen::scrollback_window::{
     ScrollbackRowOrder, ScrollbackWindow, check_row_order,
 };
-
-/// A fresh correlation id for one browser-to-worker request.
-///
-/// v2 mints a v4 uuid per request. This is a monotonic counter: the id only has
-/// to be unique among the entries in one correlation table, and that table
-/// namespaces it by worker anyway, so a random source would be buying a
-/// property nothing checks.
-#[must_use]
-pub fn request_id() -> String {
-    static SEQUENCE: AtomicU64 = AtomicU64::new(1);
-    format!("rpc-{}", SEQUENCE.fetch_add(1, Ordering::Relaxed))
-}
 
 /// The branded session id a request names, or the refusal a malformed one earns.
 pub fn session_id(raw: &str) -> Result<SessionId, ConnectError> {

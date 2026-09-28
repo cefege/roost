@@ -15,7 +15,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock, Weak};
 
 use roost_proto::WTerminalViewProjection;
 use roost_protocol::viewport::{TerminalGeometry, minimum_terminal_geometry};
@@ -88,6 +88,19 @@ struct OwnerData {
     rows: HashMap<SessionId, OwnerRow>,
 }
 
+/// The byte hub's session route cache, as the owner lookup reads it: which
+/// worker a session's channel was last routed to.
+pub trait SessionRouteCache: Send + Sync {
+    /// The worker the session last routed to, if the cache holds one.
+    fn cached_worker(&self, session_id: &SessionId) -> Option<WorkerFp>;
+}
+
+impl SessionRouteCache for crate::terminal_screen::ByteHub {
+    fn cached_worker(&self, session_id: &SessionId) -> Option<WorkerFp> {
+        self.cached_route(session_id).map(|route| route.worker_fp)
+    }
+}
+
 /// Which workers own their own views, and what they published.
 ///
 /// Interior mutability rather than a `Mutex` the hub holds, because an
@@ -96,6 +109,9 @@ struct OwnerData {
 #[derive(Debug, Default)]
 pub struct OwnerIndex {
     data: Mutex<OwnerData>,
+    /// Weak: the byte hub's screen replica reaches this index through its
+    /// repair sink, and a strong edge back would be a cycle.
+    routes: RwLock<Option<Weak<dyn SessionRouteCache>>>,
 }
 
 impl OwnerIndex {
@@ -142,15 +158,53 @@ impl OwnerIndex {
         tracing::info!(worker_fp = %worker_fp, "terminal view owner released");
     }
 
+    /// Install the byte hub's route cache the owner lookup reads first.
+    pub fn set_route_cache(&self, routes: Weak<dyn SessionRouteCache>) {
+        *self
+            .routes
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(routes);
+    }
+
     /// The owner-mode worker that owns this session's views, if one does.
     ///
-    /// A session bound to a worker that is no longer registered stops being
-    /// owned rather than staying bound to a dead connection.
+    /// The route cache answers first, as v2's `terminalViewOwnerForSession`
+    /// does: a freshly opened session is routed long before its owner
+    /// publishes a projection, and looking only at remembered bindings would
+    /// hand its first view command to the coordinator's own registry -- a
+    /// second minimizer. A session bound to a worker that is no longer
+    /// registered stops being owned rather than staying bound to a dead
+    /// connection.
     #[must_use]
     pub fn owner_for_session(&self, session_id: &SessionId) -> Option<WorkerFp> {
-        let data = self.data();
-        let owner = data.owner_sessions.get(session_id)?;
-        data.owners.contains(owner).then(|| owner.clone())
+        // Read with this index unlocked: the cache takes the byte hub's lock.
+        let cached = self.cached_worker(session_id);
+        let mut data = self.data();
+        if let Some(cached) = cached {
+            if !data.owners.contains(&cached) {
+                data.owner_sessions.remove(session_id);
+                return None;
+            }
+            data.owner_sessions
+                .insert(session_id.clone(), cached.clone());
+            return Some(cached);
+        }
+        let remembered = data.owner_sessions.get(session_id)?.clone();
+        if data.owners.contains(&remembered) {
+            return Some(remembered);
+        }
+        data.owner_sessions.remove(session_id);
+        None
+    }
+
+    fn cached_worker(&self, session_id: &SessionId) -> Option<WorkerFp> {
+        let routes = self
+            .routes
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .and_then(Weak::upgrade)?;
+        routes.cached_worker(session_id)
     }
 
     /// Bind a session to the connection the route index resolved for it.

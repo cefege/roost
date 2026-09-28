@@ -43,6 +43,7 @@ fn sync_request() -> SyncUpgradeRequest {
         caller: Some(VerifiedSyncCaller {
             fingerprint: FP.to_string(),
             label: "browser".to_string(),
+            key_generation: 0,
         }),
         tab: Some("tab-1".to_string()),
         since: Some("42".to_string()),

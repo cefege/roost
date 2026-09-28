@@ -19,10 +19,11 @@ use agent_fixture::{
     AgentFixture, OCCUPANT_B, OCCUPANT_C, SESSION_IDS, WORKER_A, session, status, worker,
 };
 use roost_coord::agents::status_push::{AgentStatusPushDelivery, PushTransitions};
-use roost_coord::push::dispatch::{AgentPushTransition, NoTerminalViewers};
+use roost_coord::push::dispatch::AgentPushTransition;
 use roost_coord::push::transport::{
     PushDeliveryRequest, PushNotificationTransport, PushTransportError,
 };
+use roost_coord::terminal_view::TerminalViewHub;
 use serde_json::{Value, json};
 
 /// Long enough that a delivery which is going to happen has not yet, short
@@ -323,14 +324,14 @@ async fn an_empty_operator_allowlist_is_push_switched_off() {
     let switched_off = PushTransitions::new(
         fixture.database().pool().clone(),
         Vec::new(),
-        Arc::new(NoTerminalViewers),
+        Arc::new(TerminalViewHub::new()),
         Arc::new(SilentTransport),
     );
     assert!(!switched_off.is_enabled());
     let allowed = PushTransitions::new(
         fixture.database().pool().clone(),
         vec!["https://push.example".to_owned()],
-        Arc::new(NoTerminalViewers),
+        Arc::new(TerminalViewHub::new()),
         Arc::new(SilentTransport),
     );
     assert!(allowed.is_enabled());

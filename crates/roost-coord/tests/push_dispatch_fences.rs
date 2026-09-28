@@ -1,30 +1,25 @@
 //! Per-device push dispatch for an agent transition: who gets told, who is
 //! suppressed, and the identity-derived deduplication token.
 //!
-//! The viewer seam is a trait parameter here rather than a call into the
-//! terminal domain, which does not exist yet. `NoTerminalViewers` is the value
-//! a caller passes until it does, and it means "nobody is viewing".
+//! The viewers are the coordinator's real `TerminalViewHub`, empty here, so a
+//! send that does not happen is the fence's doing and never a suppression:
+//! `push_terminal_viewers.rs` pins that an empty hub reports nobody watching.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 //!
-//! The fences a push dispatch runs under, and the viewer seam it takes while
-//! the terminal domain does not exist yet.
+//! The fences a push dispatch runs under.
 //!
 //! A fence checked only before the batch lets a transition superseded while
 //! the query was running notify the fleet anyway; checked again inside the
-//! sender, it stops. `NoTerminalViewers` must mean "nobody is viewing" and
-//! not "everyone is" -- the other reading silently suppresses every push in
-//! the fleet until the terminal slice lands.
+//! sender, it stops.
 
 mod push_fixture;
 
 use std::sync::Arc;
 
 use push_fixture::{PUSH_ORIGIN, PushFixture, seed_open_session};
-use roost_coord::push::dispatch::{
-    ActiveTerminalViewers, AgentPushTransition, NoTerminalViewers, PushTransition,
-    fire_push_for_transition,
-};
+use roost_coord::push::dispatch::{AgentPushTransition, PushTransition, fire_push_for_transition};
+use roost_coord::terminal_view::TerminalViewHub;
 use roost_protocol::wire::{AgentOccupantId, SessionId, StatusEpoch};
 
 const STATUS_EPOCH: &str = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -69,7 +64,7 @@ async fn a_transition_that_is_already_superseded_sends_nothing() {
         fixture.database().pool(),
         &transition(PushTransition::Blocked, 1),
         &[PUSH_ORIGIN.to_owned()],
-        &NoTerminalViewers,
+        &TerminalViewHub::new(),
         &superseded,
         transport.as_ref(),
     )
@@ -96,20 +91,11 @@ async fn an_empty_allowlist_sends_nothing_at_all() {
         fixture.database().pool(),
         &transition(PushTransition::Blocked, 1),
         &[],
-        &NoTerminalViewers,
+        &TerminalViewHub::new(),
         &current,
         transport.as_ref(),
     )
     .await;
 
     assert!(transport.deliveries().is_empty());
-}
-
-#[tokio::test]
-async fn the_no_viewers_value_reports_nobody_as_watching() {
-    // Until the terminal domain lands, every dispatch takes this value. It has
-    // to mean "nobody is viewing" and not "everyone is": the alternative would
-    // silently suppress every push in the fleet.
-    let views = NoTerminalViewers.active_viewer_fingerprints(push_fixture::SESSION_ID);
-    assert!(views.is_empty(), "no hub means nobody is watching");
 }

@@ -59,8 +59,6 @@ pub enum KeeperUpdateRefusal {
     /// A shutdown reported an identity: the worker answered about a different
     /// keeper than the one this call replaced.
     UnexpectedKeeperIdentity,
-    /// The machine has no current routable generation.
-    WorkerOffline,
 }
 
 impl KeeperUpdateRefusal {
@@ -126,7 +124,6 @@ impl KeeperUpdateRefusal {
             Self::UnexpectedKeeperIdentity => {
                 ("worker returned unexpected keeper identity", DataLoss)
             }
-            Self::WorkerOffline => ("worker offline", Unavailable),
         }
     }
 

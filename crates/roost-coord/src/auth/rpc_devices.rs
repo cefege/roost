@@ -25,6 +25,7 @@ use crate::auth::db_statements::{
 };
 use crate::auth::jwt_key_cache::JwtKeyCache;
 use crate::auth::key_retirement::retire_principal;
+use crate::auth::key_revocation::release_revoked_key;
 use crate::auth::principal::Principal;
 use crate::auth::principal::{device_refusal, require_account_device};
 use crate::coord_core::{Caller, CoordCore};
@@ -174,6 +175,7 @@ pub async fn handle_devices_revoke(
     commit(transaction).await?;
 
     core.services.jwt_keys.invalidate_jwt_key(&fingerprint);
+    release_revoked_key(&core.services, &fingerprint);
     tracing::info!(%fingerprint, %revoked_by, "device.revoked");
     ok_response(proto::DevicesRevokeResponse {
         ok: true,
@@ -260,6 +262,7 @@ pub async fn handle_devices_rotate_current(
     commit(transaction).await?;
 
     rotate_key_cache(&core.services.jwt_keys, &fingerprint, &current);
+    release_revoked_key(&core.services, &current);
     tracing::info!(previous = %current, %fingerprint, "device.rotated");
     ok_response(proto::DevicesRotateCurrentResponse {
         fingerprint,
@@ -315,6 +318,7 @@ pub async fn handle_auth_logout(
     commit(transaction).await?;
 
     core.services.jwt_keys.invalidate_jwt_key(&fingerprint);
+    release_revoked_key(&core.services, &fingerprint);
     tracing::info!(%fingerprint, "device.logged_out");
     ok_response(proto::AuthLogoutResponse {
         ok: true,

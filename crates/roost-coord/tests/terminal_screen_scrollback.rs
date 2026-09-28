@@ -10,6 +10,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use connectrpc::ErrorCode;
+use roost_coord::terminal_screen::rpc_relay::decode_cells_page;
 use roost_coord::terminal_screen::scrollback_window::{
     ScrollbackRowOrder, ScrollbackWindow, check_row_order, require_json_safe_row,
 };
@@ -80,4 +81,27 @@ fn served_rows_must_be_one_ascending_contiguous_run_from_the_served_start() {
         check_row_order(10, &[9]),
         ScrollbackRowOrder::Refused(_)
     ));
+}
+
+// The browser pages history 250 rows at a time (smoke "streaming sequence
+// repair leaves an off-bottom reader fixed"); v2 relays the worker's page whole
+// (`handlers-sessions-scrollback.ts:216-226`), so a full page is served whole.
+#[test]
+fn a_full_browser_page_of_history_is_served_whole() {
+    let window = ScrollbackWindow::for_request(1_397, 250, "scrollback cells end_row").unwrap();
+    let rows: Vec<serde_json::Value> = (1_147..1_397)
+        .map(|index| serde_json::json!({ "index": index, "spans": [] }))
+        .collect();
+    let payload = serde_json::json!({
+        "rows": rows,
+        "start_row": 1_147,
+        "end_row": 1_397,
+        "cols": 110,
+        "total": 1_500,
+        "grid_epoch": "epoch-1",
+    });
+    let page = decode_cells_page(&payload, &window).unwrap();
+    assert_eq!(page.rows.len(), 250);
+    assert_eq!((page.start_row, page.end_row), (1_147, 1_397));
+    assert_eq!(page.rows.last().map(|row| row.index), Some(1_396));
 }

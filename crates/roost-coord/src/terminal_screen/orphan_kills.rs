@@ -81,9 +81,15 @@ impl LiveOrphanKills {
     ///
     /// Called when a link ends. Without it a dead link would keep collecting
     /// kills into an outbox nobody reads, and a reconnecting worker would find
-    /// it empty and believe it owed nothing.
-    pub fn detach(&self, worker_fp: &WorkerFp) {
-        if let Ok(mut links) = self.links.lock() {
+    /// it empty and believe it owed nothing. Only THIS link's outbox is removed:
+    /// a superseded socket closes after its replacement attached, and removing
+    /// by fingerprint alone would detach the replacement.
+    pub fn detach(&self, worker_fp: &WorkerFp, outbox: &Outbox) {
+        if let Ok(mut links) = self.links.lock()
+            && links
+                .get(worker_fp)
+                .is_some_and(|attached| Arc::ptr_eq(attached, outbox))
+        {
             links.remove(worker_fp);
         }
     }

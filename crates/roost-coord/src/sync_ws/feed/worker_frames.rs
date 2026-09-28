@@ -95,6 +95,37 @@ pub fn worker_routable_frame(
     })
 }
 
+/// How many fingerprints one retained routable chunk carries
+/// (`sync-feed-seed.ts:134`).
+pub const ROUTABLE_SEED_CHUNK_FPS: usize = 256;
+
+/// The retained routable set as the chunks a `domain_ready` seed replays: one
+/// `snapshot_id` across them, and at least one chunk even for an empty set so
+/// the client still learns the snapshot is complete (`sync-feed-seed.ts:131-149`).
+pub fn worker_routable_seed_frames(fps: &[WorkerFp], snapshot_id: &str) -> Vec<FeedFrame> {
+    let chunks: Vec<&[WorkerFp]> = if fps.is_empty() {
+        vec![&[]]
+    } else {
+        fps.chunks(ROUTABLE_SEED_CHUNK_FPS).collect()
+    };
+    let chunk_count = u32::try_from(chunks.len()).unwrap_or(u32::MAX);
+    (0..chunk_count)
+        .zip(chunks)
+        .map(|(chunk_index, chunk)| {
+            FeedFrame::of(FirehoseFrame {
+                frame: Some(Frame::WorkerRoutable(Box::new(WorkerRoutableFrame {
+                    fps: chunk.iter().map(|fp| fp.as_str().to_owned()).collect(),
+                    snapshot_id: snapshot_id.to_owned(),
+                    chunk_index,
+                    chunk_count,
+                    ..WorkerRoutableFrame::default()
+                }))),
+                ..FirehoseFrame::default()
+            })
+        })
+        .collect()
+}
+
 /// A decoded worker record as the message a browser renders.
 fn worker_to_proto(worker: &WireWorker) -> Result<PbWorker, FeedRefusal> {
     let keeper_runtime = worker

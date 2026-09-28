@@ -43,8 +43,8 @@ use roost_proto::roost::v1::CoordinatorService;
 use roost_proto::*;
 
 use super::service::{
-    CoordinatorServiceImpl, caller_of, db_export_url, delegated_reply, delegated_stream,
-    misc_health_reply, now_ms, sync_moved_stream,
+    CoordinatorServiceImpl, caller_of, db_export_url, delegated_reply, misc_health_reply, now_ms,
+    sync_moved_stream,
 };
 
 use crate::agents::rpc_status::{
@@ -171,24 +171,38 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn workers_deploy_start<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, WorkersDeployStartRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, WorkersDeployStartRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<WorkersDeployStartResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<WorkersDeployStartResponse>("WorkersDeployStart")
+        async move {
+            let caller = caller_of(&ctx, "WorkersDeployStart")?;
+            crate::deploy::rpc_deploy::handle_workers_deploy_start(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
 
     fn workers_deploy_output(
         &self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, WorkersDeployOutputRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, WorkersDeployOutputRequest>,
     ) -> impl Future<
         Output = ServiceResult<
             ServiceStream<impl Encodable<WorkersDeployOutputFrame> + Send + use<>>,
         >,
     > + Send {
-        delegated_stream::<WorkersDeployOutputFrame>("WorkersDeployOutput")
+        std::future::ready(caller_of(&ctx, "WorkersDeployOutput").and_then(|caller| {
+            crate::deploy::rpc_deploy::handle_workers_deploy_output(
+                &self.core,
+                caller,
+                &r.to_owned_message(),
+            )
+        }))
     }
     // ── deploy ──────────────────────────────────────────────────────────
 
@@ -208,87 +222,155 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn sessions_list<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsListRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsListRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<SessionsListResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<SessionsListResponse>("SessionsList")
+        async move {
+            let caller = caller_of(&ctx, "SessionsList")?;
+            crate::sessions::rpc_sessions::handle_sessions_list(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
 
     fn sessions_spawn<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsSpawnRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsSpawnRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<SessionsSpawnResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<SessionsSpawnResponse>("SessionsSpawn")
+        async move {
+            let caller = caller_of(&ctx, "SessionsSpawn")?;
+            crate::sessions::spawn::handle_sessions_spawn(&self.core, caller, r.to_owned_message())
+                .await
+        }
     }
 
     fn sessions_attach<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsAttachRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsAttachRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<SessionsAttachResponse> + Send + use<'a>>>
     + Send {
-        delegated_reply::<SessionsAttachResponse>("SessionsAttach")
+        async move {
+            let caller = caller_of(&ctx, "SessionsAttach")?;
+            crate::sessions::rpc_sessions::handle_sessions_attach(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
 
     fn sessions_kill<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsKillRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsKillRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<SessionsKillResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<SessionsKillResponse>("SessionsKill")
+        async move {
+            let caller = caller_of(&ctx, "SessionsKill")?;
+            crate::sessions::rpc_sessions::handle_sessions_kill(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
 
     fn sessions_rename<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsRenameRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsRenameRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<SessionsRenameResponse> + Send + use<'a>>>
     + Send {
-        delegated_reply::<SessionsRenameResponse>("SessionsRename")
+        async move {
+            let caller = caller_of(&ctx, "SessionsRename")?;
+            crate::sessions::rpc_sessions::handle_sessions_rename(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
 
     fn sessions_input<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsInputRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsInputRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<SessionsInputResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<SessionsInputResponse>("SessionsInput")
+        async move {
+            let caller = caller_of(&ctx, "SessionsInput")?;
+            crate::terminal_input::rpc_input::handle_sessions_input(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
     // ── agents ──────────────────────────────────────────────────────────
 
     fn sessions_prompt<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsPromptRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsPromptRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<SessionsPromptResponse> + Send + use<'a>>>
     + Send {
-        delegated_reply::<SessionsPromptResponse>("SessionsPrompt")
+        async move {
+            let caller = caller_of(&ctx, "SessionsPrompt")?;
+            crate::agents::rpc_prompt::handle_sessions_prompt(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
     // ── sessions ────────────────────────────────────────────────────────
 
     fn sessions_cursor_pos<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsCursorPosRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsCursorPosRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<SessionsCursorPosResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<SessionsCursorPosResponse>("SessionsCursorPos")
+        async move {
+            let caller = caller_of(&ctx, "SessionsCursorPos")?;
+            crate::sessions::cursor_pos::handle_sessions_cursor_pos(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
 
     fn sessions_assign_workspace<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsAssignWorkspaceRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsAssignWorkspaceRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<SessionsAssignWorkspaceResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<SessionsAssignWorkspaceResponse>("SessionsAssignWorkspace")
+        async move {
+            let caller = caller_of(&ctx, "SessionsAssignWorkspace")?;
+            crate::sessions::assign_workspace::handle_sessions_assign_workspace(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
 
     fn sessions_get_scrollback_cells<'a>(
@@ -335,62 +417,98 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn sessions_search_global<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsSearchGlobalRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsSearchGlobalRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<SessionsSearchGlobalResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<SessionsSearchGlobalResponse>("SessionsSearchGlobal")
+        async move {
+            let caller = caller_of(&ctx, "SessionsSearchGlobal")?;
+            crate::search::rpc_search::handle_sessions_search_global(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
 
     fn sessions_cancel_global_search<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsCancelGlobalSearchRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsCancelGlobalSearchRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<SessionsCancelGlobalSearchResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<SessionsCancelGlobalSearchResponse>("SessionsCancelGlobalSearch")
+        async move {
+            let caller = caller_of(&ctx, "SessionsCancelGlobalSearch")?;
+            crate::search::cancel::handle_sessions_cancel_global_search(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
     // ── sessions ────────────────────────────────────────────────────────
 
     fn sessions_grant_local_terminal<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsGrantLocalTerminalRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsGrantLocalTerminalRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<SessionsGrantLocalTerminalResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<SessionsGrantLocalTerminalResponse>("SessionsGrantLocalTerminal")
+        async move {
+            let caller = caller_of(&ctx, "SessionsGrantLocalTerminal")?;
+            crate::terminal_direct::grant_rpc::handle_sessions_grant_local_terminal(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
 
     fn sessions_negotiate_local_terminal_peer<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsNegotiateLocalTerminalPeerRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsNegotiateLocalTerminalPeerRequest>,
     ) -> impl Future<
         Output = ServiceResult<
             impl Encodable<SessionsNegotiateLocalTerminalPeerResponse> + Send + use<'a>,
         >,
     > + Send {
-        delegated_reply::<SessionsNegotiateLocalTerminalPeerResponse>(
-            "SessionsNegotiateLocalTerminalPeer",
-        )
+        async move {
+            let caller = caller_of(&ctx, "SessionsNegotiateLocalTerminalPeer")?;
+            crate::terminal_direct::peer_rpc::handle_sessions_negotiate_local_terminal_peer(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
     // ── attachments ─────────────────────────────────────────────────────
 
     fn sessions_negotiate_attachment_peer<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsNegotiateAttachmentPeerRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsNegotiateAttachmentPeerRequest>,
     ) -> impl Future<
         Output = ServiceResult<
             impl Encodable<SessionsNegotiateAttachmentPeerResponse> + Send + use<'a>,
         >,
     > + Send {
-        delegated_reply::<SessionsNegotiateAttachmentPeerResponse>(
-            "SessionsNegotiateAttachmentPeer",
-        )
+        async move {
+            let caller = caller_of(&ctx, "SessionsNegotiateAttachmentPeer")?;
+            crate::attachments::rpc_direct::handle_sessions_negotiate_attachment_peer(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
     // ── agents ──────────────────────────────────────────────────────────
 
@@ -634,27 +752,29 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn auth_redeem_worker<'a>(
         &'a self,
-        ctx: RequestContext,
+        _ctx: RequestContext,
         r: ServiceRequest<'_, AuthRedeemWorkerRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<AuthRedeemWorkerResponse> + Send + use<'a>>,
     > + Send {
         async move {
-            let caller = caller_of(&ctx, "AuthRedeemWorker")?;
-            handle_auth_redeem_worker(&self.core, caller, r.to_owned_message()).await
+            // Public by contract: the bootstrap token is the credential, so the
+            // auth gate stamps no caller and none is read.
+            handle_auth_redeem_worker(&self.core, r.to_owned_message()).await
         }
     }
 
     fn auth_redeem_browser<'a>(
         &'a self,
-        ctx: RequestContext,
+        _ctx: RequestContext,
         r: ServiceRequest<'_, AuthRedeemBrowserRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<AuthRedeemBrowserResponse> + Send + use<'a>>,
     > + Send {
         async move {
-            let caller = caller_of(&ctx, "AuthRedeemBrowser")?;
-            handle_auth_redeem_browser(&self.core, caller, r.to_owned_message()).await
+            // Public by contract: the bootstrap token is the credential, so the
+            // auth gate stamps no caller and none is read.
+            handle_auth_redeem_browser(&self.core, r.to_owned_message()).await
         }
     }
 
@@ -847,11 +967,21 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn diag_snapshot<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, DiagSnapshotRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, DiagSnapshotRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<DiagSnapshotResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<DiagSnapshotResponse>("DiagSnapshot")
+        async move {
+            let caller = caller_of(&ctx, "DiagSnapshot")?;
+            crate::diagnostics::diag_snapshot::handle_diag_snapshot(
+                &self.core,
+                caller,
+                &self.core.services.diag_pipelines,
+                &self.git_sha,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
     // ── attachments ─────────────────────────────────────────────────────
 
@@ -957,22 +1087,38 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn attachments_grant_direct<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AttachmentsGrantDirectRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AttachmentsGrantDirectRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<AttachmentsGrantDirectResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<AttachmentsGrantDirectResponse>("AttachmentsGrantDirect")
+        async move {
+            let caller = caller_of(&ctx, "AttachmentsGrantDirect")?;
+            crate::attachments::rpc_direct::handle_attachments_grant_direct(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
 
     fn attachments_direct_status<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AttachmentsDirectStatusRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AttachmentsDirectStatusRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<AttachmentsDirectStatusResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<AttachmentsDirectStatusResponse>("AttachmentsDirectStatus")
+        async move {
+            let caller = caller_of(&ctx, "AttachmentsDirectStatus")?;
+            crate::attachments::rpc_direct::handle_attachments_direct_status(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
     // ── rpc ─────────────────────────────────────────────────────────────
 

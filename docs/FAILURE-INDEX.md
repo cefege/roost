@@ -224,7 +224,10 @@ mount state is not part of the continuity proof.
 `a_forced_small_full_reassembles_to_the_original_frame` and
 `a_frame_over_one_mib_is_split_on_whole_row_boundaries`
 (was `packages/protocol/tests/cell-frame-chunks.test.ts`);
-`apps/coord/tests/terminal/screen/terminal-screen-hub.test.ts`;
+`apps/coord/tests/terminal/screen/terminal-screen-hub.test.ts`, ported for the Rust coordinator as
+`crates/roost-coord/tests/terminal_screen_hub.rs` —
+`a_stale_stream_is_ignored_and_a_broken_delta_run_latches_one_repair` and
+`the_old_baseline_stays_served_until_a_replacement_assembles_completely`;
 `apps/web/tests/terminalStream.test.ts`;
 `smoke/terminal/terminal-multiview.spec.ts`.
 
@@ -1056,7 +1059,8 @@ Diagnose `wire_received` → browser `replica` → `handler_canonical` →
 `apps/worker/tests/terminal/terminal-stream-state.test.ts`;
 `apps/coord/tests/terminal/view/terminal-view-hub.test.ts`;
 `apps/coord/tests/terminal/view/terminal-view-registry-membership.test.ts`;
-`apps/coord/tests/terminal/screen/terminal-screen-hub.test.ts`;
+`apps/coord/tests/terminal/screen/terminal-screen-hub.test.ts` (Rust:
+`crates/roost-coord/tests/terminal_screen_hub.rs` and `terminal_screen_hub_lifecycle.rs`);
 `apps/web/tests/terminalStream.test.ts`;
 `smoke/terminal/terminal-multiview.spec.ts`.
 
@@ -1080,7 +1084,10 @@ outright without a resync.
 
 **Guard** — `apps/coord/tests/terminal/screen/terminal-screen-hub-chunks.test.ts` —
 `"holds live deltas during chunk assembly and folds them like an uninterrupted run"`,
-`"falls back to the resync latch when the delta hold overflows"`.
+`"falls back to the resync latch when the delta hold overflows"`; Rust:
+`crates/roost-coord/tests/terminal_screen_hub_hold.rs` —
+`deltas_held_during_assembly_fold_as_if_the_run_was_never_interrupted`,
+`a_hold_that_overflows_falls_back_to_the_single_resync_latch`.
 
 ### A newly minted terminal stream whose baseline never arrives hangs forever
 
@@ -1116,7 +1123,12 @@ of being inferred from a blank pane.
 **Guard** — `apps/coord/tests/terminal/screen/terminal-screen-hub-snapshot.test.ts`, `describe("TerminalScreenHub baseline
 watchdog")` — escalation to a fresh stream across both ladder attempts; zero requests when the baseline
 lands in time; a re-mint replacing the superseded deadline while the stale callback stays inert; a chunked
-transfer in flight at the deadline left to the chunk stall timer.
+transfer in flight at the deadline left to the chunk stall timer. Rust:
+`crates/roost-coord/tests/terminal_screen_hub_snapshot.rs` —
+`a_stream_whose_baseline_never_arrives_climbs_the_repair_ladder`,
+`a_baseline_that_lands_before_the_deadline_asks_for_nothing`,
+`a_reminted_stream_deadline_replaces_the_superseded_one`,
+`a_baseline_mid_transfer_is_left_to_the_chunk_stall_deadline`.
 
 ### A refused view-command write leaves an actively-viewed pane unscheduled
 
@@ -2362,7 +2374,11 @@ re-creates the double.
 **Guard** — `smoke/terminal/perf.spec.ts:302` "delayed worker-link split recovery" pins
 `after.fullFrames === before.fullFrames + 1` across a transport resume, and
 `apps/coord/tests/terminal/view/terminal-view-owner-mode.test.ts` pins exactly one source-full request for a
-replica that cannot seed and zero for a new stream id.
+replica that cannot seed and zero for a new stream id; Rust:
+`crates/roost-coord/tests/terminal_view_owner_screen.rs` —
+`a_lease_heartbeat_on_an_attached_view_pushes_no_second_baseline`,
+`a_socket_attaching_to_a_held_stream_is_seeded_from_the_replica`,
+`a_new_stream_id_asks_the_owner_for_no_source_full`.
 
 ---
 
@@ -2383,7 +2399,9 @@ bypass, repair was collateral.
 
 **Guard** — `smoke/terminal/terminal-stream-reliability.spec.ts:87` "worker upstream delta loss
 obtains a source full on the same browser socket" plus the reveal/deck specs
-(`terminal-render-reveal*.spec.ts`, `terminal-render-deck-overlay.spec.ts`).
+(`terminal-render-reveal*.spec.ts`, `terminal-render-deck-overlay.spec.ts`); for the Rust coordinator,
+`crates/roost-coord/tests/terminal_view_owner_screen.rs` —
+`a_lost_baseline_is_repaired_by_the_owning_worker_once`.
 
 ---
 

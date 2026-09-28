@@ -11,10 +11,10 @@
 
 use std::sync::{Arc, Mutex};
 
-use roost_coord::terminal_screen::replica::{ScreenHub, ScreenReplicaSink};
 use roost_coord::terminal_screen::screen_budget::{
     TerminalScreenCaps, sync_backpressure_bytes, terminal_screen_budget_bytes, terminal_screen_caps,
 };
+use roost_coord::terminal_screen::{ScreenHub, ScreenReplicaSink};
 use roost_protocol::cell::{CELL_GRID_PART_MAX_BYTES, CELL_GRID_SNAPSHOT_MAX_SPANS};
 use roost_protocol::viewport::TERMINAL_MAX_ROWS;
 use roost_protocol::wire::SessionId;
@@ -79,6 +79,10 @@ struct RecordingSink {
 }
 
 impl ScreenReplicaSink for RecordingSink {
+    fn request_snapshot(&self, _session_id: &SessionId, _stream_id: &str) {}
+
+    fn request_fresh_stream(&self, _session_id: &SessionId, _stream_id: &str, _reason: &str) {}
+
     fn unavailable(&self, session_id: &SessionId, reason: &str) {
         self.unavailable
             .lock()
@@ -150,13 +154,13 @@ fn a_screen_past_its_budget_is_dropped_and_named_unavailable_not_trimmed() {
     // full cannot be paid for at all, which is the case a silent truncation
     // would turn into a half-painted grid.
     let sink = Arc::new(RecordingSink::default());
-    let hub = ScreenHub::with_sink(
+    let hub = Arc::new(ScreenHub::with_sink(
         TerminalScreenCaps {
             max_resident_rows: 12,
             max_resident_spans: 2_097_152,
         },
         sink.clone(),
-    );
+    ));
     let id = session("1");
     hub.expect_stream(&id, STREAM, COLS, ROWS);
 
@@ -189,13 +193,13 @@ fn a_screen_past_its_budget_is_dropped_and_named_unavailable_not_trimmed() {
 #[test]
 fn the_budget_is_shared_so_the_session_that_misses_out_is_named() {
     let sink = Arc::new(RecordingSink::default());
-    let hub = ScreenHub::with_sink(
+    let hub = Arc::new(ScreenHub::with_sink(
         TerminalScreenCaps {
             max_resident_rows: u64::from(ROWS) * 2,
             max_resident_spans: 2_097_152,
         },
         sink.clone(),
-    );
+    ));
     let (first, second, third) = (session("1"), session("2"), session("3"));
     for id in [&first, &second, &third] {
         hub.expect_stream(id, STREAM, COLS, ROWS);
@@ -227,7 +231,7 @@ fn the_budget_is_shared_so_the_session_that_misses_out_is_named() {
 #[test]
 fn an_admissible_baseline_is_installed_and_announced_once() {
     let sink = Arc::new(RecordingSink::default());
-    let hub = ScreenHub::with_sink(roomy_caps(), sink.clone());
+    let hub = Arc::new(ScreenHub::with_sink(roomy_caps(), sink.clone()));
     let id = session("1");
     hub.expect_stream(&id, STREAM, COLS, ROWS);
 
@@ -254,7 +258,7 @@ fn an_admissible_baseline_is_installed_and_announced_once() {
 #[test]
 fn a_delta_that_does_not_follow_the_baseline_invalidates_rather_than_skips() {
     let sink = Arc::new(RecordingSink::default());
-    let hub = ScreenHub::with_sink(roomy_caps(), sink);
+    let hub = Arc::new(ScreenHub::with_sink(roomy_caps(), sink));
     let id = session("1");
     hub.expect_stream(&id, STREAM, COLS, ROWS);
     let mut baseline = baseline_proto(1);
@@ -276,7 +280,7 @@ fn a_delta_that_does_not_follow_the_baseline_invalidates_rather_than_skips() {
 #[test]
 fn a_geometry_change_drops_the_old_baseline_rather_than_reusing_it() {
     let sink = Arc::new(RecordingSink::default());
-    let hub = ScreenHub::with_sink(roomy_caps(), sink.clone());
+    let hub = Arc::new(ScreenHub::with_sink(roomy_caps(), sink.clone()));
     let id = session("1");
     hub.expect_stream(&id, STREAM, COLS, ROWS);
     let mut baseline = baseline_proto(1);

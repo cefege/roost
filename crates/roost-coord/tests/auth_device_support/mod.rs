@@ -254,20 +254,6 @@ fn caller(principal: Principal) -> Caller {
     }
 }
 
-/// The caller a public redemption arrives with: no credential at all.
-pub fn anonymous() -> Caller {
-    Caller {
-        principal: Principal::LegacySelfHosted {
-            fingerprint: String::new(),
-            label: String::new(),
-        },
-        tab_id: None,
-        remote_address: Some("198.51.100.4".to_owned()),
-        on_host: false,
-        listener_trust: ListenerTrust::Forwarded,
-    }
-}
-
 /// A 32-byte public key derived from a label, so no two tests collide.
 pub fn public_key_for(label: &str) -> [u8; 32] {
     let digest: [u8; 32] = <sha2::Sha256 as sha2::Digest>::digest(label.as_bytes()).into();

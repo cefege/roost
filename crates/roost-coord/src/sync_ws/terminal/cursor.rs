@@ -41,8 +41,12 @@ pub struct SnapshotCursor {
     pub(in crate::sync_ws) materialized: Option<RetainedFrame>,
     /// Deltas that arrived while the baseline was still streaming.
     pub delta_tail: Vec<RetainedFrame>,
-    /// The tail's charged bytes.
+    /// The tail's charged bytes, including the delta in flight.
     pub delta_bytes: u64,
+    /// The bytes of the one delta taken off the tail and queued. v2 left that
+    /// delta at the head of the tail until the socket delivered it, so it still
+    /// counts against the lane's bounds until then; its charge is the queue's.
+    pub(in crate::sync_ws) in_flight_delta_bytes: Option<u64>,
 }
 
 /// The cursor without its source handle, which is a trait object and therefore
@@ -56,7 +60,7 @@ impl std::fmt::Debug for SnapshotCursor {
             .field("part_count", &self.part_count())
             .field("queued", &self.queued)
             .field("fanout_ms", &self.fanout_ms)
-            .field("delta_frames", &self.delta_tail.len())
+            .field("delta_frames", &self.buffered_delta_frames())
             .field("delta_bytes", &self.delta_bytes)
             .finish()
     }
@@ -74,6 +78,7 @@ impl SnapshotCursor {
             materialized: None,
             delta_tail: Vec::new(),
             delta_bytes: 0,
+            in_flight_delta_bytes: None,
         }
     }
 
@@ -100,6 +105,12 @@ impl SnapshotCursor {
     /// baseline before its first part would rebaseline in a loop.
     pub(in crate::sync_ws) fn is_mid_baseline(&self) -> bool {
         self.source.is_some() && self.index > 0 && self.index < self.part_count()
+    }
+
+    /// The deltas this cursor still answers for: the tail plus the one in
+    /// flight, which v2 counted as the tail's head.
+    pub(in crate::sync_ws) fn buffered_delta_frames(&self) -> usize {
+        self.delta_tail.len() + usize::from(self.in_flight_delta_bytes.is_some())
     }
 }
 
@@ -174,5 +185,6 @@ impl SnapshotCursor {
             session.release_charge(&mut delta);
         }
         self.delta_bytes = 0;
+        self.in_flight_delta_bytes = None;
     }
 }

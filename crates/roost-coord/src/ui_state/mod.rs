@@ -10,7 +10,6 @@
 pub mod fence;
 pub mod identity_rate;
 pub mod layout_apply;
-pub mod layout_proto;
 pub mod legacy_command;
 pub mod limits;
 pub mod rejected_reason;

@@ -159,6 +159,16 @@ impl ByteHub {
     ) {
         if let Ok(mut routes) = self.routes.lock() {
             routes.bind(worker_fp, channel_id, session_id);
+            // v2 caches the session's worker on the same event
+            // (`byte-hub.ts:405-407`): the view owner lookup reads that cache
+            // before any exact snapshot has bound a freshly opened session.
+            routes.cache_route(
+                session_id,
+                crate::terminal_screen::route_index::CachedRoute {
+                    worker_fp: worker_fp.clone(),
+                    channel_id,
+                },
+            );
         }
     }
 
@@ -196,6 +206,22 @@ impl ByteHub {
         if let Ok(mut routes) = self.routes.lock() {
             routes.reset_reconcile(worker_fp);
         }
+    }
+
+    /// The route a keystroke batch may use for an open session whose durable
+    /// row names `durable`, decided under one lock: the cached route when it
+    /// agrees, nothing once the worker's exact live set is known, else the
+    /// durable route, cached for the pre-reconcile window.
+    #[must_use]
+    pub fn admit_durable_route(
+        &self,
+        session_id: &SessionId,
+        durable: CachedRoute,
+    ) -> Option<CachedRoute> {
+        self.routes
+            .lock()
+            .ok()?
+            .admit_durable_route(session_id, durable)
     }
 
     /// `respawned`: rebind a session to the channel its keeper just handed it,

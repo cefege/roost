@@ -168,11 +168,15 @@ pub fn handle_client_frame(
     if frame.socket_id != session.socket_id {
         return CommandOutcome::Nothing;
     }
+    // An acknowledgement and a command may ride one frame, and v2 applies the
+    // ack and THEN the command (`sync-ws-client-ingress.ts:69-76`). Only a
+    // frame with neither is a violation: a stale or repeated ack releases
+    // nothing and is harmless.
     let ack = frame.ack_delivery_seq.unwrap_or_default();
+    let mut released = 0;
     if ack > 0 {
         match session.apply_ack(ack, now_ms) {
-            Ok(released) if released > 0 => return CommandOutcome::Acknowledged { released },
-            Ok(_) => {}
+            Ok(count) => released = count,
             Err(close) => {
                 session.fault(close);
                 return CommandOutcome::Invalid;
@@ -180,6 +184,7 @@ pub fn handle_client_frame(
         }
     }
     match &frame.command {
+        None if ack > 0 => CommandOutcome::Acknowledged { released },
         None => CommandOutcome::Invalid,
         Some(Command::DomainReady(ready)) => handle_domain_ready(session, context, ready, tokens),
         Some(Command::DomainSubscribe(subscribe)) => {

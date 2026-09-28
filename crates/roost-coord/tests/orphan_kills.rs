@@ -100,7 +100,7 @@ fn a_link_that_ends_goes_back_to_recording_rather_than_delivering_into_the_void(
     let mine = worker('a');
     let socket = outbox();
     kills.attach(&mine, Arc::clone(&socket));
-    kills.detach(&mine);
+    kills.detach(&mine, &socket);
     assert_eq!(kills.connected_workers(), 0);
 
     // Without the detach this would push into an outbox nobody reads, and a
@@ -114,6 +114,28 @@ fn a_link_that_ends_goes_back_to_recording_rather_than_delivering_into_the_void(
     assert_eq!(
         ids(&kills.attach(&mine, Arc::clone(&socket))),
         vec!["after-detach"]
+    );
+}
+
+#[test]
+fn a_superseded_links_late_detach_leaves_its_replacement_attached() {
+    // A reconnect whose old socket closes AFTER the new hello attached: the old
+    // link's detach must not remove the new link's outbox, or the new link's
+    // kills are recorded as owed and never carried (v2 `_deleteIfStillMine`).
+    let kills = LiveOrphanKills::new();
+    let mine = worker('a');
+    let superseded = outbox();
+    let replacement = outbox();
+    kills.attach(&mine, Arc::clone(&superseded));
+    kills.attach(&mine, Arc::clone(&replacement));
+    kills.detach(&mine, &superseded);
+
+    kills.kill(&mine, "after-reconnect");
+    assert_eq!(ids(&drain(&replacement)), vec!["after-reconnect"]);
+    assert_eq!(
+        kills.owed_count(),
+        0,
+        "a live link's kill is carried, not owed"
     );
 }
 

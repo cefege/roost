@@ -29,12 +29,12 @@ use crate::ui_state::fence::{
     labels_for_fingerprints, require_bounded_ui_text, require_persisted_sessions, require_tab_fence,
 };
 use crate::ui_state::layout_apply::LayoutApplyRequest;
-use crate::ui_state::layout_proto::canonical_layout_document;
 use crate::ui_state::legacy_command::{canonical_legacy_ui_command, legacy_ui_command_session_ids};
 use crate::ui_state::limits::{
     UI_ACTIVE_PATH_MAX_UTF8_BYTES, UI_FOLDER_KEY_MAX_UTF8_BYTES, UI_TAB_ID_MAX_UTF8_BYTES,
 };
 use crate::ui_state::state_owner::UiStateReportError;
+use roost_protocol::proto_adapters::layout_document_proto::canonical_layout_document;
 
 /// `CoordinatorService.UiReportState` -- retain and fan out one tab's report.
 pub async fn handle_ui_report_state(

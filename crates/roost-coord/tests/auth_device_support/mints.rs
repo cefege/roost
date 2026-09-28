@@ -16,7 +16,7 @@ use roost_coord::coord_core::CoordCore;
 use roost_coord::db::CoordDb;
 use roost_proto as proto;
 
-use super::{anonymous, pubkey_b64};
+use super::pubkey_b64;
 
 /// A browser redemption of `token` by `label`'s key.
 pub fn redeem_browser(
@@ -123,7 +123,7 @@ pub async fn redeem_browser_via_handler(
     // `Result<Response<T>, ConnectError>` -- the envelope, not the message. The
     // fixture promises the message, so the envelope is unwrapped here rather
     // than in every caller.
-    handle_auth_redeem_browser(core, &anonymous(), request)
+    handle_auth_redeem_browser(core, request)
         .await
         .map(|response| response.body)
 }
@@ -133,7 +133,7 @@ pub async fn redeem_worker_via_handler(
     core: &CoordCore,
     request: proto::AuthRedeemWorkerRequest,
 ) -> Result<proto::AuthRedeemWorkerResponse, ConnectError> {
-    handle_auth_redeem_worker(core, &anonymous(), request)
+    handle_auth_redeem_worker(core, request)
         .await
         .map(|response| response.body)
 }

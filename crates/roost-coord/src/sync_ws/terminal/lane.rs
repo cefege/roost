@@ -301,7 +301,9 @@ impl SyncV2Session {
         let too_many = self
             .terminal_lane(session_id)
             .and_then(|lane| lane.cursor.as_ref())
-            .is_some_and(|cursor| cursor.delta_tail.len() + 1 > TERMINAL_LANE_MAX_DELTA_FRAMES);
+            .is_some_and(|cursor| {
+                cursor.buffered_delta_frames() + 1 > TERMINAL_LANE_MAX_DELTA_FRAMES
+            });
         if too_many {
             self.request_scoped_rebaseline(session_id, "terminal_delta_lane_pressure");
             return false;

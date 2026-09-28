@@ -1,22 +1,44 @@
-//! The one call Web Push delivery makes, as the sender sees it.
+//! The one call Web Push delivery makes, as the sender sees it, and the
+//! production transport that makes it.
 //!
 //! Owned by the push domain. v2's `PushNotificationTransport` is
 //! `Pick<typeof webpush, "sendNotification">` and the tests substitute a fake;
 //! here that substitution is a trait, which is the same seam with a name a
-//! reader can grep for.
+//! reader can grep for. [`WebPushTransport`] is the production half, ported
+//! from `ensureConfigured` and the `webpush.sendNotification` call in
+//! `push-sender.ts:22-37,99-112`; `serve.rs` builds it once at boot and hands
+//! it to `PushTransitions`.
 //!
 //! WHY THE ERROR CARRIES A STATUS AND NOT AN ENUM. `push-sender.ts:52-61`
 //! reaches for `statusCode` on whatever the transport threw, because the
 //! decision that follows is a status comparison and nothing else. An enum would
 //! move that comparison to the transport and make every new status a change in
 //! two files.
+//!
+//! THE STATUS IS THE ONE THE PUSH SERVICE ANSWERED, NOT A GUESS. `web-push`
+//! encrypts (RFC 8291) and signs (RFC 8292) the message, and `reqwest` sends
+//! it, so the status a 404/410 prune decision reads is the response line
+//! itself. `web-push`'s bundled client folds most statuses into an error enum
+//! whose code can come from the response BODY, which would let a provider's
+//! JSON decide that a subscription is dead.
 
 use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
 
-/// The `web-push` `WebPushClient` this trait's production half delegates to.
-pub use web_push::WebPushClient;
+use web_push::{
+    ContentEncoding, SubscriptionInfo, VapidSignatureBuilder, WebPushMessage, WebPushMessageBuilder,
+};
+
+use crate::db::CoordDb;
+use crate::push::vapid::{VapidKeyStore, VapidKeys};
+
+/// The VAPID `sub` claim: who a push service contacts about this sender.
+///
+/// `mailto:roost@local` (`push-sender.ts:27`). A self-hosted coordinator has no
+/// operator address to publish, and the claim is required, so this is the same
+/// placeholder v2 signs with.
+pub const VAPID_SUBJECT: &str = "mailto:roost@local";
 
 /// How long a push service may hold a message for an offline device.
 ///
@@ -136,6 +158,132 @@ pub trait PushNotificationTransport: Send + Sync {
         &'a self,
         request: &PushDeliveryRequest,
     ) -> Pin<Box<dyn Future<Output = Result<(), PushTransportError>> + Send + 'a>>;
+}
+
+/// The production transport: one encrypted, VAPID-signed POST per delivery.
+///
+/// Holds the coordinator's [`VapidKeyStore`] rather than a keypair, so the
+/// identity is the one `PushGetConfig` handed the browser and is loaded (or
+/// minted) on first use exactly as v2's `ensureConfigured` did. A failure to
+/// load it fails that one delivery, and the next one tries again, as v2 reset
+/// its configure promise (`push-sender.ts:31-36`).
+#[derive(Debug, Clone)]
+pub struct WebPushTransport {
+    client: reqwest::Client,
+    database: CoordDb,
+    vapid: VapidKeyStore,
+}
+
+impl WebPushTransport {
+    /// A transport over the coordinator's database and VAPID identity.
+    ///
+    /// REDIRECTS ARE NEVER FOLLOWED. `web-push` issues one request and rejects
+    /// every non-2xx (`push-sender.ts:97-98`); a push service answering 3xx is
+    /// a failed delivery, not an instruction to post the payload elsewhere.
+    pub fn new(database: CoordDb, vapid: VapidKeyStore) -> Result<Self, reqwest::Error> {
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
+        Ok(Self {
+            client,
+            database,
+            vapid,
+        })
+    }
+
+    /// Encrypt, sign, POST, and read the status the push service answered.
+    async fn deliver(&self, request: PushDeliveryRequest) -> Result<(), PushTransportError> {
+        let keys = self.vapid.keys(&self.database).await.map_err(|error| {
+            PushTransportError::without_status(format!("vapid identity unavailable: {error}"))
+        })?;
+        let outbound = {
+            let message = encrypted_message(&keys, &request)?;
+            let (parts, body) =
+                web_push::request_builder::build_request::<Vec<u8>>(message).into_parts();
+            let mut outbound = self
+                .client
+                .post(parts.uri.to_string())
+                .timeout(request.timeout)
+                .body(body);
+            for (name, value) in &parts.headers {
+                outbound = outbound.header(name.as_str(), value.as_bytes());
+            }
+            outbound
+        };
+        let response = outbound.send().await.map_err(|error| {
+            if error.is_timeout() {
+                PushTransportError::without_status(format!(
+                    "no answer within {}ms",
+                    request.timeout.as_millis()
+                ))
+            } else {
+                PushTransportError::without_status(error.to_string())
+            }
+        })?;
+        let status = response.status();
+        if status.is_success() {
+            return Ok(());
+        }
+        Err(PushTransportError::with_status(
+            status.as_u16(),
+            format!("received unexpected response code {}", status.as_u16()),
+        ))
+    }
+}
+
+impl PushNotificationTransport for WebPushTransport {
+    fn send<'a>(
+        &'a self,
+        request: &PushDeliveryRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<(), PushTransportError>> + Send + 'a>> {
+        // Owned, because the future may borrow only `self` (see the trait).
+        Box::pin(self.deliver(request.clone()))
+    }
+}
+
+/// The RFC 8291 `aes128gcm` message, signed with the coordinator's VAPID key.
+///
+/// `aes128gcm` is `web-push`'s default in v2 too; the older `aesgcm` exists
+/// only for browsers that predate the RFC. A TTL too wide for the header is
+/// held at `u32::MAX` rather than wrapped to a short one.
+///
+/// THE AUDIENCE IS THE ENDPOINT'S ORIGIN, PORT INCLUDED. v2's `web-push` signs
+/// `protocol//host` of the WHATWG URL, which keeps a non-default port; the
+/// Rust crate's default drops it, and a push service on a non-default port
+/// would then refuse every token as addressed to someone else.
+fn encrypted_message(
+    keys: &VapidKeys,
+    request: &PushDeliveryRequest,
+) -> Result<WebPushMessage, PushTransportError> {
+    let refused = |what: &str, error: web_push::WebPushError| {
+        PushTransportError::without_status(format!("{what}: {error}"))
+    };
+    let subscription = SubscriptionInfo::new(
+        request.endpoint.as_str(),
+        request.p256dh.as_str(),
+        request.auth.as_str(),
+    );
+    let mut signature = VapidSignatureBuilder::from_base64(&keys.private_key, &subscription)
+        .map_err(|error| refused("vapid private key", error))?;
+    let audience = reqwest::Url::parse(&request.endpoint)
+        .map_err(|error| PushTransportError::without_status(format!("push endpoint: {error}")))?
+        .origin()
+        .ascii_serialization();
+    signature.add_claim("aud", audience);
+    signature.add_claim("sub", VAPID_SUBJECT);
+    let signature = signature
+        .build()
+        .map_err(|error| refused("vapid signature", error))?;
+    let mut message = WebPushMessageBuilder::new(&subscription);
+    message.set_ttl(u32::try_from(request.ttl.as_secs()).unwrap_or(u32::MAX));
+    if let Some(topic) = &request.topic {
+        message.set_topic(topic.clone());
+    }
+    message.set_payload(ContentEncoding::Aes128Gcm, request.body.as_bytes());
+    message.set_vapid_signature(signature);
+    message
+        .build()
+        .map_err(|error| refused("push message", error))
 }
 
 #[cfg(test)]
