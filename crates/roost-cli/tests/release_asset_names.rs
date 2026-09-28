@@ -86,7 +86,9 @@ fn matrix_assets(workflow: &str, key: &str) -> BTreeSet<String> {
         .lines()
         .filter_map(|line| {
             let trimmed = line.trim();
-            trimmed.starts_with(&prefix).then(|| trimmed[prefix.len()..].to_string())
+            trimmed
+                .starts_with(&prefix)
+                .then(|| trimmed[prefix.len()..].to_string())
         })
         .collect()
 }
