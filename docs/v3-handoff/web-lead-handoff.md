@@ -7,54 +7,157 @@ Lead: `WebLead3` (host `/home/mike`, successor of `WebLead2`).
 
 ## Current state (WebLead3, read this first)
 
-Gated tip `f17b305c` "web: the terminal diagnostic probe joins browser, coordinator
-and worker" — pushed, `origin/v3-web` = the same SHA. It is the finished version
-of the WIP the integrator preserved at `origin/v3-web-snap-resume2` (`dabfd789`);
-every file is byte-identical to that snapshot except the three fixes below, which
-are named in the commit body.
+Tip `77b4e38b` "web-terminal, web: the wasm32 half of the UI crates is inside a
+lint at last" — pushed, `origin/v3-web` = the same SHA, tree clean. Three
+commits this session, all gated:
 
-The three fixes the WIP needed to compile and to stop lying:
-
-1. `smoke/stream_probe.rs` called a `string_member` that did not exist. Added it
-   (v2's `typeof record.key === "string" ? record.key : null`).
-2. `harness_host.rs`'s `FlowHost::terminal_stream_probe` answered
+1. `f17b305c` — the preserved WIP finished: the TERMINAL DIAG half of U-2. It is
+   byte-identical to `origin/v3-web-snap-resume2` (`dabfd789`) except three fixes
+   the snapshot needed to compile and to stop lying: `smoke/stream_probe.rs`
+   called a `string_member` that did not exist;
+   `harness_host.rs`'s `FlowHost::terminal_stream_probe` answered
    `unported_refusal("terminalStreamProbe")`, which for a now-ported member is
-   `None` and produced an empty-string refusal. It calls the real probe.
-3. `tests/smoke_stream_probe.rs` had a vacuous case (fixed in the commit): its
-   fixture named no session, so the error arm never ran and every member read
-   `null` for free.
+   `None` and produced an empty-string refusal; and one of the new tests was
+   vacuous (its fixture named no session, so the error arm never ran and every
+   member read `null` for free). The wire contract is under "The `__smoke` member
+   the coordinator's X2 slice consumes" below — it is the only place it is
+   written down.
+2. `3489db11`, `654bd72a` — this note.
+3. `77b4e38b` — **run this gate from now on, it is the one that was missing:**
+   `cargo clippy -p roost-web --features smoke --target wasm32-unknown-unknown
+   --all-targets -- -D warnings`. It was red on **13** findings (3 in
+   `roost-web-terminal`, 10 in `roost-web`) and no CI step could see any of them,
+   because `ci.yml`'s wasm32 step is `cargo build` and every wasm-only file is
+   skipped by the host clippy, by host `--all-targets` and by `cargo test`. It is
+   now exit 0. The tree passed BOTH the host workspace clippy and the CI wasm32
+   `cargo build` the whole time all thirteen sat there, which is
+   `docs/v3-handoff/silent-no-ops.md` #4 with a fresh example.
+   `TerminalInputOptions` moved to `input/options.rs` in that commit: the lint's
+   type alias pushed `controller_dom.rs` to 403 lines against a 400 baseline, and
+   the honest fix is the concept split the file was already asking for.
 
-Gate on this tip:
+Gate on `77b4e38b`:
 
-- `cargo nextest run -p roost-client-core -p roost-web -p roost-web-terminal --no-fail-fast`
-  twice, agreeing: **1344 passed / 4 skipped**.
-- `cargo nextest run -p roost-web --features smoke --no-fail-fast`:
-  **387 passed / 0 skipped**. Run this one too — CI's `cargo test --workspace`
-  never enables the `smoke` feature, so every `#![cfg(feature = "smoke")]` test
-  file compiles to nothing there (`docs/v3-handoff/silent-no-ops.md` #5).
-- `cargo test -p roost-client-core -p roost-web -p roost-web-terminal --no-fail-fast`:
-  195 suites, 0 failed. (nextest is the honest total; the per-suite counts sum to
-  the same 1344.)
+- `cargo clippy -p roost-web --features smoke --target wasm32-unknown-unknown
+  --all-targets -- -D warnings` → **exit 0** (was 13 errors).
 - `cargo clippy --workspace --all-targets --keep-going -- -D warnings` → exit 0.
-- `ROOST_REPO_ROOT=$PWD cargo xtask lint` → **3985 inputs, 0 violations**.
+- `cargo nextest run -p roost-client-core -p roost-web -p roost-web-terminal --no-fail-fast`
+  → **1344 passed / 4 skipped**. Run this one too: CI's `cargo test --workspace`
+  never enables the `smoke` feature, so every `#![cfg(feature = "smoke")]` test
+  file compiles to nothing there (silent-no-ops #5).
+- `cargo nextest run -p roost-web --features smoke --no-fail-fast`
+  → **387 passed / 0 skipped**.
+- `ROOST_REPO_ROOT=$PWD cargo xtask lint` → **3988 inputs, 0 violations**.
 - `cargo xtask fmt` → clean, confirmed by `git status --short` (its success word
-  is "formatted", which asserts nothing — silent-no-ops #11). Formatting the two
-  touched crates' sources needs `cargo fmt -p roost-web -p roost-client-core`;
-  bare `rustfmt --edition 2024 <file>` disagrees with it on `stream_diagnostics.rs`.
-- `cargo build -p roost-client-core -p roost-protocol -p roost-web -p roost-web-terminal --target wasm32-unknown-unknown`
-  exit 0; `cargo check -p roost-web --target wasm32-unknown-unknown` with and
-  without `--features smoke` exit 0.
+  is "formatted", which asserts nothing — silent-no-ops #11). For the crates you
+  touch use `cargo fmt -p <crate>`; bare `rustfmt --edition 2024 <file>`
+  disagrees with `cargo fmt` and produces a red fmt check.
+- `cargo build -p roost-client-core -p roost-protocol -p roost-web
+  -p roost-web-terminal --target wasm32-unknown-unknown` → exit 0; `cargo check
+  -p roost-web --target wasm32-unknown-unknown` with and without
+  `--features smoke` → exit 0.
+- No test was added or changed for the lint commit: nothing in it is a behaviour
+  change, and a test that cannot fail on any of it would be a test of the
+  formatter.
 
-### A gate CI does not run, and it is red — `roost-web-terminal` under wasm32 clippy
+## U-2 PAIRING — scoped, NOT started. Start here.
 
-`cargo clippy -p roost-web --features smoke --target wasm32-unknown-unknown
---all-targets -- -D warnings` fails with three `clippy::type_complexity` errors in
-`roost-web-terminal`. This is silent-no-ops #4 exactly: wasm-only code is skipped
-by the host clippy, by host `--all-targets` and by `cargo test`, and `ci.yml`'s
-wasm32 step is `cargo build`, not `cargo clippy`. **Not introduced by this session
-and not fixed by it** — it is pre-existing on `roost-web-terminal`, and it is the
-first thing the next lead should clear, because until it is the wasm32 half of the
-UI crates is outside every lint.
+The budget went on finishing the WIP and closing the lint hole. PAIRING is a
+~1,900-line row and roughly 40% of it is already landed, which makes it a trap for
+the next session that reads the plan and starts porting. What is ALREADY DONE —
+do not re-port it:
+
+- `browser/browserSelfLabel.ts` → `crates/roost-web/src/platform/self_label.rs`
+  (129 lines, unit-tested; already consumed by `pump/boot.rs`).
+- `lib/pairedBrowserNotice.ts` → `sync/inbound/payloads.rs:113`
+  (`PairedBrowser::announcement_label`) + `handle_sync/fold_controls.rs:88` and
+  `ANNOUNCED_PAIRINGS_MAX` in `store/sync_feeds.rs:39`. The dedupe is done.
+- `components/pairing/AccessCheckingScreen.tsx` → `components/access_gate.rs:31`
+  (`CheckingScreen`, `UnauthorizedScreen`). The v2 file is a DROP.
+- The whole ceremony value-machine → `roost-client-core/src/client/auth/`
+  (`pairing_session.rs`, `pairing_approval.rs`, `ceremony_store.rs`,
+  `pairing_requests.rs`, `redeem.rs`). Timer-free by design
+  (`pairing_session.rs:12-16`): the row's work is the HOST.
+- The three pairing stylesheets are already in
+  `crates/roost-web/assets/components/pairing/`.
+- Every `md/` primitive the row composes from is ported: `Surface`, `StatusDot`,
+  `Button`, `Card` (already takes `title`/`supporting`/`trailing`/`test_id`),
+  `List`/`ListRow`, `Chip`, `Dialog`, `TextField`, `EmptyState`, `SectionTitle`.
+
+`Route::Pair` already exists (`routes.rs:74`); `app.rs:61-77` deliberately maps it
+into the `NotServed` arm, so `/pair` renders `not_served::NotServed` today. The
+cutover is a new `ServedSurface::Pair` moved OUT of that arm, plus a `RouteContent`
+arm, plus `in_shell()` returning `false` for `Pair` (the arm `Design` already
+takes). Three existing tests will then be WRONG, not incidental, and get
+  re-pinned: the two in `app.rs` and `tests/route_surfaces.rs:29,38`.
+
+Order, every step compiling (★ = independently committable):
+
+1. `roost-client-core/src/client/auth/pairing_transient.rs` —
+   `is_transient_pairing_error(&CallError)`. The whole 19-line v2 file is the
+   remainder; `ConnectCode` already has all five wire names and `CallError::code()`
+   already returns `None` for exactly the non-Connect arms. ★
+2. `client/auth/pair_approval_lifecycle.rs` + `pair_approval_resolve.rs` — the
+   largest genuine remainder: `classifyPairRpcFailure`, `parseApprovalStatus`,
+   the two evidence enums, `resolveApprovalStatus`, `resolveCancellation`, the
+   step/outcome/status enums, `PAIR_APPROVAL_OUTCOME_TOASTS`. **The load-bearing
+   rule is the `default` arm**: a stale ceremony version, `Unimplemented` and any
+   unclassified refusal map to `reload`, NOT to `authority` — collapsing them
+   shows "Pairing authority is no longer valid" to a client that only needs a
+   reload, and destroys the approver's code. `PairApprovalStatus` is a 5-value
+   subset of the ported `PairPollStatus`; express it as a subset, never re-declare
+   it. `resolveCancellation` has the mirror rule: a denial whose RESPONSE was lost
+   must fall through to a status read, because the row may already be gone
+   precisely because that denial committed. ★
+3. `client/rpc/calls/pairing.rs` — six `UnaryMethod` impls (`PairCreate`,
+   `PairPoll`, `PairConfirm`, `PairApprove`, `PairDeny`, `PairApprovalStatus`).
+   No new transport, no `RpcCall` variant, no `rpc/methods.rs` change:
+   `CoordRpc::call` is already generic. Everything after this is host work. ★
+4. `components/pairing/` leaves: `status_notice.rs`, `page_header.rs`,
+   `verification_code_dialog.rs`, `request_card.rs`, `pair_request_card.rs`
+   (the approver card; `is_pair_request_expired` is pure and lives in it with
+   `#[cfg(test)]`), `other_options.rs`. All presentational, all ★. Add
+   `pub mod pairing;` to `components/mod.rs`.
+5. `pairing/ceremony/{operation,controller,host}.rs` — the requester. MUST be
+   three files: v2's `onboarding-pairing-ceremony.ts` is 393 lines and a faithful
+   port with the fence and the retry schedule is 500-600. The testable unit is
+   the FENCE, which is what all 8 `onboardingPairVerification` cases assert. Not ★.
+6. `pairing/approval/{operation,controller,host}.rs` — the approver, same split
+   (`PairApprovalProvider.tsx` is 370 and ports to 500+). `armExpiry` is
+   pre-acknowledgement only, and the replay-on-restore effect is a real
+   requirement, not polish. Not ★.
+7. `pairing/{requester_provider,gate_panel,approver_list,surface}.rs` + the
+   `Route::Pair` cutover. `Onboarding.tsx`'s wheel/touch scroll handling goes in
+   its own `scroll_owner.rs` so the presentational half stays native.
+8. Specs: `pair-gate`, `pair-verification`, `local-first-onboarding`, and
+   `tv-dpad.spec.ts` (it also asserts on `/pair`, so it is a fourth gate even
+   though the plan names three). `design-reviewer` is mandatory on the diff.
+
+BLOCKERS OWNED BY ANOTHER ROW — raise them, do not work around them:
+
+- **No component can raise a toast.** `store::toasts::add_toast` exists
+  (`store/toasts.rs:92`) but is reachable only from inside `ClientCore::handle`,
+  and grep for `add_toast|ToastKind` under `crates/roost-web/src` returns ZERO
+  hits. Every pairing outcome is a toast in v2 (14 call sites). Needs either a
+  generic `ClientEvent` toast variant (NOTIFICATIONS row) or a thin host-side
+  `store.toasts::raise` shim. Do NOT declare a toast store inside pairing — that
+  is the two-implementations-of-one-value defect `CLAUDE.md` §12 exists to stop.
+- `PairRequestNotifier.tsx` renders into the notification dock, which has no Rust
+  owner yet (`assets/components/notifications/NotificationDock.css` is present
+  and unreferenced). Droppable in this row — the card and deny/approve are
+  covered — but it is a cross-row call, not a local decision.
+- No `DeviceKeyProbe` impl for the browser (`PairingOtherOptions`'s
+  `isResetWebKeyEligible`); the trait and `WebDeviceKey::reset` are ported, the
+  host adapter is a one-method write.
+- `pump/boot.rs:105-116` duplicates `redeem.rs::RefusalCode::is_authoritative`
+  rather than using it, so the authoritative set is spelled twice. Worth
+  collapsing in this row, since `other_options` needs the redeem path anyway.
+
+Two `docs/FAILURE-INDEX.md` entries CONSTRAIN the port and are not bugs to fix:
+L1449-1468 (a global key router must not claim bare ↑/↓/⏎ on a route with no
+cursor, naming `/pair`; ⏎ must not `preventDefault()` a focused `<button>`) and
+L1470-1487 (`<body>` counting as a D-pad origin on the unpaired gate). The Rust
+equivalents already exist in `input_nav/spatial.rs`.
 
 ## Bundles
 
