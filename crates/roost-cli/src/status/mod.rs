@@ -16,7 +16,6 @@ pub mod render;
 pub mod report;
 pub mod service_definition;
 pub mod service_probe;
-pub mod update_state;
 
 use std::process::ExitCode;
 

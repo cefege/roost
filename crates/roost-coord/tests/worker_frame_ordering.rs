@@ -48,7 +48,7 @@ async fn a_sequence_slot_is_offered_before_the_append_it_belongs_to_runs() {
     let dispatched = tokio::spawn(async move {
         let mut dispatcher = dispatcher;
         dispatcher
-            .handle_durable(&worker_fp, &event_frame(opened(WORKER_FP, 1), 1))
+            .handle_durable(&worker_fp, event_frame(opened(WORKER_FP, 1), 1))
             .await
     });
     tokio::task::spawn_blocking(move || {
@@ -95,7 +95,7 @@ async fn a_sequence_slot_is_offered_even_when_the_append_itself_refuses_the_even
 
     // An `opened` claiming another worker is refused by admission (row 3).
     let refused = dispatcher
-        .handle_durable(WORKER_FP, &event_frame(opened(STRANGER, 1), 1))
+        .handle_durable(WORKER_FP, event_frame(opened(STRANGER, 1), 1))
         .await;
     assert_eq!(refused, DispatchOutcome::Refused);
 
@@ -105,7 +105,7 @@ async fn a_sequence_slot_is_offered_even_when_the_append_itself_refuses_the_even
         "the slot was reserved before the append refused the event"
     );
     let admitted = dispatcher
-        .handle_durable(WORKER_FP, &event_frame(opened(WORKER_FP, 1), 2))
+        .handle_durable(WORKER_FP, event_frame(opened(WORKER_FP, 1), 2))
         .await;
     assert_eq!(
         admitted,
@@ -120,13 +120,13 @@ async fn a_snapshot_that_force_closes_a_session_reaches_the_owed_kills_from_the_
     let fixture = LinkFixture::new("deferred-reap").await;
     let mut dispatcher = fixture.dispatcher();
     dispatcher
-        .handle_durable(WORKER_FP, &event_frame(opened(WORKER_FP, 1), 1))
+        .handle_durable(WORKER_FP, event_frame(opened(WORKER_FP, 1), 1))
         .await;
     // A durable `closed` is a TOMBSTONE, not a status: it is what permanently
     // force-closes a session, and nothing else can. The next test pins the half
     // of that which is easy to get wrong.
     dispatcher
-        .handle_durable(WORKER_FP, &event_frame(closed(), 2))
+        .handle_durable(WORKER_FP, event_frame(closed(), 2))
         .await;
     assert_eq!(
         fixture.services.orphan_kills.owed_count(),
@@ -141,7 +141,7 @@ async fn a_snapshot_that_force_closes_a_session_reaches_the_owed_kills_from_the_
     // is the reader `tests/event_publication.rs` asserts exists in production.
     let reannounced = snapshot(vec![live_session(&worker(WORKER_FP), 11)]);
     let outcome = dispatcher
-        .handle_durable(WORKER_FP, &event_frame(reannounced, 3))
+        .handle_durable(WORKER_FP, event_frame(reannounced, 3))
         .await;
 
     assert_eq!(outcome, DispatchOutcome::Handled);
@@ -178,13 +178,13 @@ async fn a_snapshot_that_omits_a_session_no_closed_tombstoned_owes_no_kill() {
     let fixture = LinkFixture::new("deferred-reap-open").await;
     let mut dispatcher = fixture.dispatcher();
     dispatcher
-        .handle_durable(WORKER_FP, &event_frame(opened(WORKER_FP, 1), 1))
+        .handle_durable(WORKER_FP, event_frame(opened(WORKER_FP, 1), 1))
         .await;
 
     // Re-announced, and never tombstoned: the filter has nothing to strip.
     let reannounced = snapshot(vec![live_session(&worker(WORKER_FP), 1)]);
     let outcome = dispatcher
-        .handle_durable(WORKER_FP, &event_frame(reannounced, 2))
+        .handle_durable(WORKER_FP, event_frame(reannounced, 2))
         .await;
 
     assert_eq!(outcome, DispatchOutcome::Handled);

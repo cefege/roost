@@ -59,6 +59,8 @@ enum Surface {
     },
     /// A plain HTTP request the listener answered itself.
     NonConnect(NonConnectSurface),
+    /// A Sync terminal-input batch, audited by the input path that awaits it.
+    SyncTerminalInput,
 }
 
 /// The fingerprint of the caller the auth gate stamped on a request, or `None`
@@ -139,6 +141,23 @@ impl AuditRecord {
         }
     }
 
+    /// One Sync terminal-input batch's outcome. Never skipped: the input path
+    /// persists it through [`write_audit_rows`] and turns a failed write into
+    /// the batch's own outcome (`terminal/input/input-control.ts:98-118`).
+    #[must_use]
+    pub fn sync_terminal_input(path: String, status: u16, caller_fp: String) -> Self {
+        Self {
+            method: "SYNC".to_string(),
+            path,
+            status,
+            caller_fp: Some(caller_fp),
+            trace_id: None,
+            pair_confirmation_failed: false,
+            surface: Surface::SyncTerminalInput,
+            written: false,
+        }
+    }
+
     /// Record that a `PairConfirm` returned `ok: false`. A *successful*
     /// `PairConfirm` is on the skip list; a refused one is the row an operator
     /// needs ("who tried to authorize which device, and failed").
@@ -176,6 +195,7 @@ impl AuditRecord {
                 (!should_persist_non_connect_audit(*surface, &self.method, self.status))
                     .then_some(AuditSkip::LowValueHttpRead)
             }
+            Surface::SyncTerminalInput => None,
         }
     }
 }

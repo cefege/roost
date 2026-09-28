@@ -23,9 +23,9 @@ use std::sync::{Arc, Mutex, RwLock};
 use roost_proto::{TerminalResyncCommand, TerminalViewCommand, TerminalViewStatus};
 use roost_protocol::wire::{SessionId, WorkerFp};
 
-use super::record::validate_view_command;
-use super::registry::SocketRecord;
-use super::sink::PendingReply;
+use roost_protocol::terminal_view::PendingReply;
+use roost_protocol::terminal_view::SocketRecord;
+use roost_protocol::terminal_view::validate_view_command;
 
 /// The authenticated identity a relayed command carries to the owner.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +63,10 @@ pub trait OwnerViewTransport: Send + Sync {
     /// Tell the owning worker a relayed browser socket is gone, so its own
     /// registry can park that socket's views.
     fn socket_closed(&self, worker_fp: &WorkerFp, socket_id: &str) -> bool;
+
+    /// Ask the owning worker for a source full of the stream the coordinator's
+    /// replica already expects: the owner is the only source of one.
+    fn snapshot(&self, worker_fp: &WorkerFp, session_id: &SessionId, stream_id: &str) -> bool;
 }
 
 /// A transport with no worker link behind it.
@@ -105,6 +109,15 @@ impl OwnerViewTransport for NoOwnerViewTransport {
         tracing::warn!(
             worker_fp = %worker_fp,
             "a terminal view socket-close relay was refused: no worker-link transport is installed"
+        );
+        false
+    }
+
+    fn snapshot(&self, worker_fp: &WorkerFp, session_id: &SessionId, _stream_id: &str) -> bool {
+        tracing::warn!(
+            worker_fp = %worker_fp,
+            %session_id,
+            "a terminal snapshot repair was refused: no worker-link transport is installed"
         );
         false
     }
@@ -287,6 +300,26 @@ impl OwnerRelay {
                 );
             }
         }
+    }
+
+    /// The replica lost a baseline and the coordinator owns no stream for the
+    /// session, so the owning worker is the only source of a fresh full
+    /// (`repairSession`, `terminal-view-owner-relay.ts:188-192`).
+    pub fn repair_session(
+        &self,
+        owner: &WorkerFp,
+        session_id: &SessionId,
+        stream_id: &str,
+    ) -> bool {
+        let sent = self.transport().snapshot(owner, session_id, stream_id);
+        tracing::info!(
+            worker_fp = %owner,
+            %session_id,
+            stream_id,
+            sent,
+            "terminal snapshot repair asked of the owner"
+        );
+        sent
     }
 
     /// Record one owner view decision, reporting whether the socket still holds

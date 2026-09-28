@@ -1,7 +1,7 @@
 //! The exact human-facing `roost status` line ordering, and nothing else.
 //! Called by status/mod.rs (which prints the result) and by
 //! tests/status_output_shape.rs, which pins the string. Depends on
-//! status/report.rs for the shapes and status/update_state.rs for the one
+//! status/report.rs for the shapes and `roost_protocol::fleet_update` for the one
 //! classifier, and on nothing that touches the disk or a socket: the documented
 //! output is a pure function of a report plus the two service labels, so it
 //! can be asserted with no services running.
@@ -12,8 +12,9 @@
 //! shapes, the marks, the field order and the spacing are unchanged — see
 //! docs/phase6-cli-contract.md, "status".
 
+use roost_protocol::fleet_update::{WorkerUpdateInputs, worker_update_label, worker_update_state};
+
 use crate::status::report::{SpaStatus, StatusReport, WorkerStatus};
-use crate::status::update_state::{WorkerUpdateInputs, worker_update_label, worker_update_state};
 
 /// The two service identities this host's install uses. They are parameters
 /// rather than module constants because `roost-host` resolves them from the

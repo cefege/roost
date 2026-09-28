@@ -10,6 +10,8 @@
 
 use std::collections::HashMap;
 
+use roost_protocol::keeper_update::KEEPER_RUNTIME_ABI;
+
 use crate::channel_history::ChannelHistory;
 use crate::codec::{CodecError, MuxFrame, MuxFrameType, write_sequence};
 use crate::frames::ExitFrame;
@@ -110,6 +112,7 @@ fn contract() -> KeeperContractV1 {
         supported_features: sorted_feature_names(&KeeperFeature::SUPPORTED),
         required_features: sorted_feature_names(&KeeperFeature::REQUIRED),
         implementation_digest: implementation_digest(),
+        bun_abi: KEEPER_RUNTIME_ABI.to_owned(),
         // `as_str`, the wire spelling (darwin/linux/win32) — NOT
         // `display_name`, which is for humans and which the validator rejects.
         platform: roost_platform::HostPlatform::current()

@@ -78,22 +78,26 @@ impl TerminalSnapshotHub for NoTerminalSnapshotHub {
     }
 }
 
-/// A canonical full planned by `roost-protocol`, shared by every cursor.
+/// A canonical full planned by `roost-protocol`, shared by every cursor: a
+/// clone shares the one plan rather than copying the grid.
 #[derive(Debug, Clone)]
 pub struct ProtocolCellSnapshot {
-    source: CellGridSnapshotSource,
+    source: Arc<CellGridSnapshotSource>,
 }
 
 impl ProtocolCellSnapshot {
     /// Plan `frame` into a source, refusing anything that is not a complete
-    /// full before a byte of it is shared.
+    /// full before a byte of it is shared. A full that fits one part stays one
+    /// frame, as v2's `createCellGridSnapshotSource` default does.
     pub fn plan(frame: &roost_proto::PbCellGridFrame) -> Result<Self, CellGridSnapshotPlanError> {
         let source =
-            roost_protocol::cell::frame_chunks::create_cell_grid_snapshot_source(frame, true)
+            roost_protocol::cell::frame_chunks::create_cell_grid_snapshot_source(frame, false)
                 .map_err(|error| CellGridSnapshotPlanError {
                     reason: error.to_string(),
                 })?;
-        Ok(Self { source })
+        Ok(Self {
+            source: Arc::new(source),
+        })
     }
 
     /// How many parts every cursor of this source walks.

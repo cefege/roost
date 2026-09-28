@@ -29,7 +29,7 @@ use crate::auth::principal::require_account_device;
 use crate::coord_core::{Caller, CoordCore};
 use crate::terminal_screen::rpc_relay::{
     CancelSearchOnDrop, await_page, await_search, decode_cells_page, encode_search_response,
-    error_text, request_id, send_browser_command, session_id,
+    error_text, send_browser_command, session_id,
 };
 use crate::terminal_screen::scrollback_relay::ScrollbackRelay;
 use crate::terminal_screen::scrollback_result::{
@@ -75,11 +75,9 @@ pub async fn handle_sessions_get_scrollback_cells(
     let binding = relay
         .session_worker_socket(&core.services.db, &session)
         .await?;
-    let mut pending = relay.pending().create(
-        &request_id(),
-        Some(binding.worker_fp.as_str()),
-        relay.now_ms(),
-    )?;
+    let mut pending = relay
+        .pending()
+        .create_fresh(Some(binding.worker_fp.as_str()), relay.now_ms())?;
     let send = send_browser_command(
         &binding.handle,
         caller.fingerprint(),
@@ -145,11 +143,9 @@ pub async fn handle_sessions_search_scrollback(
                 .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))
         })
         .transpose()?;
-    let mut pending = relay.pending().create(
-        &request_id(),
-        Some(binding.worker_fp.as_str()),
-        relay.now_ms(),
-    )?;
+    let mut pending = relay
+        .pending()
+        .create_fresh(Some(binding.worker_fp.as_str()), relay.now_ms())?;
     let frame = ClientControlFrame::SearchScrollback {
         request_id: pending.request_id().to_owned(),
         session_id: session.clone(),

@@ -6,6 +6,10 @@
 //! the module-global maps become one value on `CoordServices`, because a second
 //! instance would be a second answer to "is that agent still running".
 //!
+//! The order predicate is v2's `agents/agent-status-order.ts`, lifted to
+//! `roost_protocol::wire::agent_status::order` because the browser applies the
+//! same one and v2 kept two copies; this hub holds one per session.
+//!
 //! OWNERSHIP IS NOT THE PAYLOAD'S TO CLAIM: a frame is accepted only when the
 //! byte hub's route cache names the sending worker as that session's owner.
 //! THE APPLY-IF-NEWER CHECK LIVES IN EXACTLY ONE PLACE: every path that can

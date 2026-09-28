@@ -9,9 +9,17 @@
 //! runs on the worker and is relayed from here.
 
 pub mod byte_hub;
+pub mod hub_contract;
+pub mod hub_fanout;
+pub mod hub_state;
 pub mod live_effects;
 pub mod orphan_kills;
 pub mod pending_rpcs;
+pub mod pipeline_cache;
+mod pipeline_cache_entry;
+pub mod pipeline_projection;
+pub mod pipeline_request;
+pub mod pipeline_snapshot;
 pub mod replica;
 pub mod replica_admission;
 pub mod residency;
@@ -23,10 +31,15 @@ pub mod scrollback_relay;
 pub mod scrollback_result;
 pub mod scrollback_window;
 pub mod search_ledger;
+pub mod snapshot_controller;
+pub mod snapshot_source;
+pub mod title_hub;
+pub mod typed_results;
 pub mod unmapped_drop;
 
 pub use byte_hub::ByteHub;
-pub use replica::{NoScreenReplicaSink, ScreenHub, ScreenReplicaSink};
+pub use hub_contract::{NoScreenReplicaSink, ScreenReplicaSink, TerminalScreenSocketSink};
+pub use replica::ScreenHub;
 pub use residency::{ResidentCache, SessionCharge, TerminalScreenResidency};
 pub use route_index::{NoRouteRetirement, RouteIndex, RouteRetirement, RouteRetirementSink};
 pub use rpc::SCROLLBACK_METHODS;

@@ -14,10 +14,15 @@
 //! the two traits in `coord_core::seams` -- which is what lets every test in
 //! `tests/workers_*.rs` drive a whole delete with no terminal hub in the process.
 
+pub mod attachment_send;
 pub mod claims;
 pub mod delete;
+pub mod diag_send;
 pub mod heartbeat;
+pub mod hop_deadline;
 pub mod live_effects;
+pub mod local_terminal_send;
+pub mod maintenance_send;
 pub mod projection;
 pub mod register;
 pub mod registry;
@@ -25,5 +30,8 @@ pub mod respawn;
 pub mod rows;
 pub mod rpc;
 pub mod send;
+pub mod terminal_peer_send;
+pub mod terminal_request;
+pub mod terminal_send;
 
 pub use send::{SendOutcome, SendRefusal};

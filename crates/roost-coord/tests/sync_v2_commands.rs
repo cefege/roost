@@ -19,6 +19,7 @@ use roost_coord::sync_ws::commands::{
     ClientContext, CommandOutcome, TerminalCommand, handle_client_frame,
 };
 use roost_coord::sync_ws::domain_table::DomainGenerations;
+use roost_coord::sync_ws::invalid_frame::InvalidFrame;
 use roost_coord::sync_ws::session::SyncV2Session;
 use roost_coord::sync_ws::snapshot_registry::SnapshotTokenRegistry;
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
@@ -257,8 +258,31 @@ fn a_frame_with_neither_a_command_nor_an_acknowledgement_is_refused() {
         1_000,
     );
     assert!(
-        matches!(outcome, CommandOutcome::Invalid),
+        matches!(
+            outcome,
+            CommandOutcome::Invalid(InvalidFrame::NeitherAckNorCommand)
+        ),
         "a frame the coordinator cannot interpret must close the socket, not be ignored"
+    );
+}
+
+#[test]
+fn an_acknowledgement_above_the_last_sent_sequence_names_its_own_cause() {
+    let mut session = SyncV2Session::new("socket-1".to_owned(), generations(), true);
+    let mut tokens = SnapshotTokenRegistry::new();
+    let mut frame = client_frame("socket-1", None);
+    frame.ack_delivery_seq = Some(1);
+    let outcome = handle_client_frame(&mut session, &context(), &frame, &mut tokens, 1_000);
+    // The close is 1008 either way, so the cause is the whole diagnosis: an
+    // ack the coordinator never sent and a frame it cannot read are different
+    // faults with the same code.
+    assert!(matches!(
+        outcome,
+        CommandOutcome::Invalid(InvalidFrame::AckAboveLastSent)
+    ));
+    assert_ne!(
+        InvalidFrame::AckAboveLastSent.cause(),
+        InvalidFrame::NeitherAckNorCommand.cause()
     );
 }
 

@@ -30,7 +30,6 @@ use roost_coord::worker_link::client_seq::ClientSeqCursor;
 use roost_coord::worker_link::dispatch::{FrameClass, InboundFrame};
 use roost_coord::worker_link::frame_dispatch::WorkerFrameDispatcher;
 use roost_coord::workers::registry::claim_generation;
-use roost_protocol::proto_adapters::coord_worker_proto::encode_upstream;
 
 pub mod events;
 
@@ -259,20 +258,11 @@ pub fn rpc_frame(upstream: CoordWorkerUpstream) -> InboundFrame {
     encoded(FrameClass::Rpc, 0, upstream)
 }
 
-/// Bytes that are not a frame at all.
-pub fn garbage_frame() -> InboundFrame {
-    InboundFrame {
-        class: FrameClass::Durable,
-        channel: 0,
-        payload: vec![0xff, 0xff, 0xff, 0xff],
-    }
-}
-
 fn encoded(class: FrameClass, channel: u32, upstream: CoordWorkerUpstream) -> InboundFrame {
     InboundFrame {
         class,
         channel,
-        payload: encode_upstream(&upstream).expect("the fixture frame encodes"),
+        frame: upstream,
     }
 }
 

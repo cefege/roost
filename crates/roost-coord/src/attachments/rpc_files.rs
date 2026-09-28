@@ -23,7 +23,6 @@ use super::session_files::{
 };
 use crate::auth::principal::require_account_device;
 use crate::coord_core::{Caller, CoordCore};
-use crate::terminal_screen::rpc_relay::request_id;
 use crate::terminal_screen::scrollback_relay::SessionWorkerBinding;
 
 /// Whole-file read. v2 `filesRead`.
@@ -35,7 +34,8 @@ pub async fn handle_files_read(
     let viewer_id = require_account_device(caller)?;
     let relay = &core.services.scrollback;
     let worker_fp = require_worker_hub_socket(&core.services.db, relay, &req.worker_fp).await?;
-    Response::ok(files_read(relay, &worker_fp, viewer_id, &req.path, &request_id()).await?)
+    let request_id = relay.pending().next_request_id();
+    Response::ok(files_read(relay, &worker_fp, viewer_id, &req.path, &request_id).await?)
 }
 
 /// One page of a download. v2 `filesReadChunk`: the worker is resolved before
@@ -57,7 +57,7 @@ pub async fn handle_files_read_chunk(
             &req.path,
             offset,
             i64::from(req.len),
-            &request_id(),
+            &relay.pending().next_request_id(),
         )
         .await?,
     )
@@ -72,7 +72,8 @@ pub async fn handle_files_list_dir(
     let viewer_id = require_account_device(caller)?;
     let relay = &core.services.scrollback;
     let worker_fp = require_worker_hub_socket(&core.services.db, relay, &req.worker_fp).await?;
-    Response::ok(files_list_dir(relay, &worker_fp, viewer_id, &req.path, &request_id()).await?)
+    let request_id = relay.pending().next_request_id();
+    Response::ok(files_list_dir(relay, &worker_fp, viewer_id, &req.path, &request_id).await?)
 }
 
 /// Create a directory. v2 `filesMkdir`.
@@ -84,7 +85,8 @@ pub async fn handle_files_mkdir(
     let viewer_id = require_account_device(caller)?;
     let relay = &core.services.scrollback;
     let worker_fp = require_worker_hub_socket(&core.services.db, relay, &req.worker_fp).await?;
-    Response::ok(files_mkdir(relay, &worker_fp, viewer_id, &req.path, &request_id()).await?)
+    let request_id = relay.pending().next_request_id();
+    Response::ok(files_mkdir(relay, &worker_fp, viewer_id, &req.path, &request_id).await?)
 }
 
 /// One chunk of an upload. v2 `attachFileChunk` checks `upload_id`, then
@@ -125,7 +127,7 @@ pub async fn handle_attachment_probe(
         &session,
         &req.sha256,
         req.short_path,
-        &request_id(),
+        &core.services.scrollback.pending().next_request_id(),
     )
     .await?;
     Response::ok(AttachmentProbeResponse {
@@ -148,7 +150,7 @@ pub async fn handle_list_attachments(
         &binding.worker_fp,
         viewer_id,
         &session,
-        &request_id(),
+        &core.services.scrollback.pending().next_request_id(),
     )
     .await?;
     Response::ok(ListAttachmentsResponse {
@@ -171,7 +173,7 @@ pub async fn handle_delete_attachment(
         viewer_id,
         &session,
         &req.filename,
-        &request_id(),
+        &core.services.scrollback.pending().next_request_id(),
     )
     .await?;
     Response::ok(DeleteAttachmentResponse {

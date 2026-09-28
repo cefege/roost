@@ -94,23 +94,55 @@ pub async fn worker_upgrade(
             refusal.body(),
         )
             .into_response(),
-        crate::worker_link::upgrade_admission::UpgradeDecision::Admitted { .. } => {
-            // Admitted without a credential cannot happen: the credential check
-            // is inside the decision, and a `None` caller is always a refusal.
-            (
-                axum::http::StatusCode::UNAUTHORIZED,
-                [(
-                    axum::http::header::CONTENT_TYPE,
-                    "text/plain; charset=utf-8",
-                )],
-                "unauthorized",
-            )
-                .into_response()
+        decision @ crate::worker_link::upgrade_admission::UpgradeDecision::Admitted { .. } => {
+            upgrade_worker_socket(request, decision, Arc::clone(&state.services)).await
         }
     }
 }
 
-/// The Sync upgrade. The decision is in `sync_ws::upgrade_admission`.
+/// The admitted half of the worker upgrade: switch protocols echoing ONLY the
+/// marker, never the credential (`worker-ws-upgrade.ts:112-117`), and hand the
+/// socket to `worker_link::connection::serve_socket`. A request the runtime
+/// cannot upgrade answers `400 upgrade failed`, the contract's step 6.
+async fn upgrade_worker_socket(
+    request: Request,
+    decision: crate::worker_link::upgrade_admission::UpgradeDecision,
+    services: Arc<crate::services::CoordServices>,
+) -> Response {
+    use axum::extract::FromRequestParts as _;
+    let (mut parts, _body) = request.into_parts();
+    let upgrade =
+        match axum::extract::ws::WebSocketUpgrade::from_request_parts(&mut parts, &()).await {
+            Ok(upgrade) => upgrade,
+            Err(rejection) => {
+                tracing::warn!(%rejection, "worker upgrade: the runtime upgrade failed");
+                return (
+                    axum::http::StatusCode::BAD_REQUEST,
+                    [(
+                        axum::http::header::CONTENT_TYPE,
+                        "text/plain; charset=utf-8",
+                    )],
+                    "upgrade failed",
+                )
+                    .into_response();
+            }
+        };
+    upgrade
+        .protocols([crate::worker_link::upgrade_admission::WORKER_AUTH_SUBPROTOCOL])
+        .max_message_size(crate::http::listener::MAX_WEBSOCKET_PAYLOAD_BYTES)
+        .max_frame_size(crate::http::listener::MAX_WEBSOCKET_PAYLOAD_BYTES)
+        .on_failed_upgrade(|error| {
+            tracing::warn!(%error, "worker upgrade: the connection did not switch protocols");
+        })
+        .on_upgrade(move |socket| async move {
+            crate::worker_link::connection::serve_socket(socket, decision, &services).await;
+        })
+}
+
+/// The Sync upgrade. The decision is in `sync_ws::upgrade_admission`; an
+/// admitted request is upgraded with the marker echoed, never the credential,
+/// and handed to `sync_ws::socket::serve_socket` with no reauth deadline, as
+/// v2's production listener passes none (`bun-coordinator-listeners.ts:328`).
 pub async fn sync_upgrade(State(state): State<Arc<ListenerState>>, request: Request) -> Response {
     let offered = offered_protocols(&request);
     let credential = offered.get(1).cloned();
@@ -126,6 +158,7 @@ pub async fn sync_upgrade(State(state): State<Arc<ListenerState>>, request: Requ
         .ok(),
         None => None,
     };
+    let query = SyncQuery::of_uri(request.uri());
     let decision = crate::sync_ws::upgrade_admission::admit_sync_upgrade(
         &crate::sync_ws::upgrade_admission::SyncUpgradeRequest {
             path: request.uri().path().to_string(),
@@ -136,12 +169,13 @@ pub async fn sync_upgrade(State(state): State<Arc<ListenerState>>, request: Requ
                 crate::sync_ws::upgrade_admission::VerifiedSyncCaller {
                     fingerprint: caller.fingerprint.clone(),
                     label: caller.label.clone(),
+                    key_generation: caller.key_generation,
                 }
             }),
-            tab: None,
-            since: None,
-            flow: None,
-            sync_v: None,
+            tab: query.tab,
+            since: query.since,
+            flow: query.flow,
+            sync_v: query.sync_v,
         },
         &crate::sync_ws::upgrade_admission::OriginPolicy {
             public_url: state.service.config.public_url.clone(),
@@ -155,12 +189,17 @@ pub async fn sync_upgrade(State(state): State<Arc<ListenerState>>, request: Requ
             // An absent credential is already a refusal by the time this runs;
             // naming it a browser here would be a second, weaker answer.
             None => crate::sync_ws::upgrade_admission::PrincipalKind::AccountDevice,
-            Some(principal) if principal.is_worker() => {
-                crate::sync_ws::upgrade_admission::PrincipalKind::Worker(
-                    principal.fingerprint().to_string(),
-                )
+            Some(crate::auth::principal::Principal::Worker { fingerprint, .. }) => {
+                crate::sync_ws::upgrade_admission::PrincipalKind::Worker(fingerprint.clone())
             }
-            Some(_) => crate::sync_ws::upgrade_admission::PrincipalKind::AccountDevice,
+            // A pre-account key authenticates but has no scope to admit a
+            // feed over: `404`, never folded into a browser.
+            Some(crate::auth::principal::Principal::LegacySelfHosted { .. }) => {
+                crate::sync_ws::upgrade_admission::PrincipalKind::LegacySelfHosted
+            }
+            Some(crate::auth::principal::Principal::AccountDevice { .. }) => {
+                crate::sync_ws::upgrade_admission::PrincipalKind::AccountDevice
+            }
         },
     );
     match decision {
@@ -174,15 +213,82 @@ pub async fn sync_upgrade(State(state): State<Arc<ListenerState>>, request: Requ
             refusal.body(),
         )
             .into_response(),
-        crate::sync_ws::upgrade_admission::SyncUpgradeDecision::Admitted { .. } => (
-            axum::http::StatusCode::UNAUTHORIZED,
+        crate::sync_ws::upgrade_admission::SyncUpgradeDecision::Admitted { caller, scope } => {
+            upgrade_sync_socket(&state, request, caller, scope).await
+        }
+    }
+}
+
+/// Hijack an admitted Sync request: echo the marker and hand the socket to
+/// the Sync loop. A request that is not a well-formed WebSocket handshake is
+/// `400 upgrade failed`, v2's answer when `server.upgrade` refuses it
+/// (`sync-ws-upgrade.ts:208-212`).
+async fn upgrade_sync_socket(
+    state: &Arc<ListenerState>,
+    request: Request,
+    caller: crate::sync_ws::upgrade_admission::VerifiedSyncCaller,
+    scope: crate::sync_ws::upgrade_admission::SyncScope,
+) -> Response {
+    use axum::extract::FromRequestParts as _;
+    let (mut parts, _body) = request.into_parts();
+    let Ok(upgrade) =
+        axum::extract::ws::WebSocketUpgrade::from_request_parts(&mut parts, state).await
+    else {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
             [(
                 axum::http::header::CONTENT_TYPE,
                 "text/plain; charset=utf-8",
             )],
-            "unauthorized",
+            "upgrade failed",
         )
-            .into_response(),
+            .into_response();
+    };
+    let services = Arc::clone(&state.services);
+    upgrade
+        .protocols([crate::sync_ws::upgrade_admission::SYNC_AUTH_SUBPROTOCOL])
+        .max_message_size(crate::http::listener::MAX_WEBSOCKET_PAYLOAD_BYTES)
+        .on_upgrade(move |socket| {
+            crate::sync_ws::socket::serve_socket(socket, caller, scope, None, services)
+        })
+}
+
+/// The four query values a Sync upgrade reads, decoded as a browser's
+/// `URLSearchParams.get` decodes them: percent-escapes and `+` resolved, and
+/// the FIRST value when a name repeats (`sync-ws-upgrade.ts:172-180`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SyncQuery {
+    /// `tab`, the browser tab this socket speaks for.
+    pub tab: Option<String>,
+    /// `since`, the last durable event id the client holds.
+    pub since: Option<String>,
+    /// `flow`, the ACK-window negotiation.
+    pub flow: Option<String>,
+    /// `sync_v`, the v2 negotiation.
+    pub sync_v: Option<String>,
+}
+
+impl SyncQuery {
+    /// Read the values out of a request's URI. A query that does not decode
+    /// names nothing, which negotiates nothing: the socket is a plain v1 feed,
+    /// exactly as it would be with no query at all.
+    #[must_use]
+    pub fn of_uri(uri: &axum::http::Uri) -> Self {
+        let pairs = axum::extract::Query::<Vec<(String, String)>>::try_from_uri(uri)
+            .map(|axum::extract::Query(pairs)| pairs)
+            .unwrap_or_default();
+        let first = |name: &str| {
+            pairs
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.clone())
+        };
+        Self {
+            tab: first("tab"),
+            since: first("since"),
+            flow: first("flow"),
+            sync_v: first("sync_v"),
+        }
     }
 }
 

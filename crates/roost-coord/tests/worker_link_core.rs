@@ -1,17 +1,14 @@
-//! The three properties the worker socket's core exists to hold: the close-code
-//! table is a promise to the peer, the queue preserves order and refuses at its
-//! budget, and a silent socket is closed rather than held open.
+//! Two properties the worker socket's core exists to hold: the close-code
+//! table is a promise to the peer, and the queue preserves order and refuses at
+//! its budget.
 //!
-//! Each of these was a real failure mode in the source transport and each is
-//! invisible through a live socket without a clock, which is why the three
-//! modules they cover take the clock as an argument.
+//! Each of these was a real failure mode in the source transport, and both are
+//! pure values here so neither needs a live socket to observe.
 //!
 //! `expect` and `unwrap` are denied outside `#[cfg(test)]`, and an integration
 //! test is its own crate rather than a module of one, so the exemption has to
 //! be stated here rather than inherited.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
-
-use std::time::{Duration, Instant};
 
 use roost_coord::worker_link::conn_types::{
     CLOSE_POLICY_VIOLATION, CLOSE_QUEUE_OVERFLOW, CLOSE_REAUTH_REQUIRED, CLOSE_REVOKED,
@@ -20,9 +17,6 @@ use roost_coord::worker_link::conn_types::{
 use roost_coord::worker_link::frame_queue::{
     FrameQueue, QueueRefusal, Queued, QueuedFrame, WORKER_FRAME_QUEUE_MAX_BYTES,
     WORKER_FRAME_QUEUE_MAX_FRAMES,
-};
-use roost_coord::worker_link::keepalive::{
-    Keepalive, STALE_LINK_CHECK_INTERVAL, STALE_LINK_TIMEOUT,
 };
 
 #[test]
@@ -176,49 +170,6 @@ fn the_contract_bounds_are_the_ones_the_queue_ships_with() {
     assert_eq!(queue.depth(), 0);
     assert!(!queue.is_latched());
     assert_eq!(queue.charged_bytes(), 0);
-}
-
-#[test]
-fn a_silent_socket_is_declared_dead_and_a_slow_one_is_not() {
-    let start = Instant::now();
-    let mut keepalive = Keepalive::at(start, STALE_LINK_TIMEOUT);
-
-    // Inside the window, however many checks have gone by. A route that is
-    // merely slow must not be declared dead between two pings.
-    for _ in 0..5 {
-        keepalive.note_activity(start + STALE_LINK_CHECK_INTERVAL);
-    }
-    let busy = start + STALE_LINK_CHECK_INTERVAL * 5;
-    assert!(
-        !keepalive.is_stale(busy),
-        "a socket that just spoke is alive"
-    );
-
-    // Now it stops. The last word was at the end of the loop, so the silence is
-    // measured from THERE and not from `start`: a socket that spoke 15 s ago
-    // is alive, and only a socket that has not spoken for the whole window is
-    // the one nothing else in the read loop will ever notice.
-    let last_word = start + STALE_LINK_CHECK_INTERVAL * 5;
-    let dead = last_word + STALE_LINK_TIMEOUT + STALE_LINK_CHECK_INTERVAL;
-    assert!(
-        !keepalive.is_stale(last_word + STALE_LINK_CHECK_INTERVAL),
-        "one interval of silence is not a dead link"
-    );
-    assert!(keepalive.is_stale(dead));
-    assert!(
-        keepalive.silence(dead) > STALE_LINK_TIMEOUT,
-        "the close log line says how long it went quiet"
-    );
-}
-
-#[test]
-fn the_heartbeat_interval_is_well_inside_the_timeout() {
-    // One interval of silence must never be enough to close a link, or a
-    // coordinator that pings on this exact cadence would declare every worker
-    // dead on the tick between two pings.
-    assert!(STALE_LINK_CHECK_INTERVAL < STALE_LINK_TIMEOUT);
-    assert_eq!(STALE_LINK_TIMEOUT, Duration::from_secs(90));
-    assert_eq!(STALE_LINK_CHECK_INTERVAL, Duration::from_secs(15));
 }
 
 #[test]

@@ -18,6 +18,8 @@
 //! once, and a worker that keeps sending during the close cannot keep growing
 //! the queue it is being closed for overflowing.
 
+use crate::worker_link::retained_budget::{RetainOutcome, RetainedWorkBudget};
+
 /// The frame ceiling, 256 (`worker-frame-queue.ts:5`).
 pub const WORKER_FRAME_QUEUE_MAX_FRAMES: usize = 256;
 
@@ -65,13 +67,15 @@ pub enum Queued {
 }
 
 /// One socket's ordered, bounded, charged queue.
+///
+/// The bounds are the socket's [`RetainedWorkBudget`], which this queue owns
+/// and lends to the announced-channel barrier (`budget_mut`): v2 binds the
+/// queue's budget into the barrier (`worker-ws-handler.ts:143`), so the 256
+/// frames and 16 MiB are one socket's total, not one owner's.
 #[derive(Debug)]
 pub struct FrameQueue {
     frames: std::collections::VecDeque<QueuedFrame>,
-    charged_bytes: usize,
-    max_frames: usize,
-    max_bytes: usize,
-    latched: bool,
+    budget: RetainedWorkBudget,
 }
 
 impl FrameQueue {
@@ -87,10 +91,7 @@ impl FrameQueue {
     pub fn with_bounds(max_frames: usize, max_bytes: usize) -> Self {
         Self {
             frames: std::collections::VecDeque::with_capacity(max_frames.min(64)),
-            charged_bytes: 0,
-            max_frames,
-            max_bytes,
-            latched: false,
+            budget: RetainedWorkBudget::with_bounds(max_frames, max_bytes as u64),
         }
     }
 
@@ -100,18 +101,18 @@ impl FrameQueue {
     /// occupy a queue slot forever and charge nothing, so a peer sending empty
     /// frames could hold every slot without ever reaching the byte bound.
     pub fn push(&mut self, frame: QueuedFrame) -> Queued {
-        if self.latched {
+        if !self.budget.is_open() {
             return Queued::Refused(QueueRefusal::Latched);
         }
-        if frame.charged_bytes == 0
-            || frame.charged_bytes > self.max_bytes
-            || self.frames.len() >= self.max_frames
-            || self.charged_bytes + frame.charged_bytes > self.max_bytes
-        {
+        if frame.charged_bytes == 0 {
             self.latch();
             return Queued::Refused(QueueRefusal::Overflow);
         }
-        self.charged_bytes += frame.charged_bytes;
+        match self.budget.retain(frame.charged_bytes as u64) {
+            RetainOutcome::Retained => {}
+            RetainOutcome::Closed => return Queued::Refused(QueueRefusal::Latched),
+            RetainOutcome::Overflow => return Queued::Refused(QueueRefusal::Overflow),
+        }
         self.frames.push_back(frame);
         Queued::Admitted {
             depth: self.frames.len(),
@@ -126,7 +127,7 @@ impl FrameQueue {
     /// Release the bytes of a frame taken by [`Self::take_front`], once its
     /// handler has settled.
     pub fn release(&mut self, frame: &QueuedFrame) {
-        self.charged_bytes = self.charged_bytes.saturating_sub(frame.charged_bytes);
+        self.budget.release(frame.charged_bytes as u64);
     }
 
     /// Mark the queue closed to further work, and report whether this call is
@@ -136,15 +137,15 @@ impl FrameQueue {
     /// log a line per refused frame afterwards, which is how an overflow turns
     /// into a log flood that hides the one line that mattered.
     pub fn latch(&mut self) -> bool {
-        let was_open = !self.latched;
-        self.latched = true;
+        let was_open = self.budget.is_open();
+        self.budget.close();
         was_open
     }
 
     /// Whether the queue has latched.
     #[must_use]
     pub fn is_latched(&self) -> bool {
-        self.latched
+        !self.budget.is_open()
     }
 
     /// Frames still held, which is the depth the budget is checked against.
@@ -153,10 +154,22 @@ impl FrameQueue {
         self.frames.len()
     }
 
-    /// Bytes still charged, including frames whose handlers have not settled.
+    /// Bytes still charged by every owner on the socket, including frames
+    /// whose handlers have not settled.
     #[must_use]
     pub fn charged_bytes(&self) -> usize {
-        self.charged_bytes
+        usize::try_from(self.budget.stats().bytes).unwrap_or(usize::MAX)
+    }
+
+    /// The socket's shared budget, lent to every other retention owner.
+    pub fn budget_mut(&mut self) -> &mut RetainedWorkBudget {
+        &mut self.budget
+    }
+
+    /// The socket's shared budget, read-only.
+    #[must_use]
+    pub fn budget(&self) -> &RetainedWorkBudget {
+        &self.budget
     }
 }
 

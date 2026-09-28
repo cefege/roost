@@ -179,6 +179,15 @@ pub enum Relayed {
         /// The socket that closed.
         socket_id: String,
     },
+    /// A snapshot repair was asked of a worker.
+    Snapshot {
+        /// The worker asked.
+        worker_fp: WorkerFp,
+        /// The session to repair.
+        session_id: String,
+        /// The stream the replica expects.
+        stream_id: String,
+    },
 }
 
 /// A transport that records every relay and admits, or drops, all of them.
@@ -243,6 +252,15 @@ impl OwnerViewTransport for RecordingTransport {
         self.relayed.lock().unwrap().push(Relayed::Closed {
             worker_fp: worker_fp.clone(),
             socket_id: socket_id.to_owned(),
+        });
+        *self.admit.lock().unwrap()
+    }
+
+    fn snapshot(&self, worker_fp: &WorkerFp, session_id: &SessionId, stream_id: &str) -> bool {
+        self.relayed.lock().unwrap().push(Relayed::Snapshot {
+            worker_fp: worker_fp.clone(),
+            session_id: session_id.as_str().to_owned(),
+            stream_id: stream_id.to_owned(),
         });
         *self.admit.lock().unwrap()
     }

@@ -12,7 +12,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_protocol::keeper_update::{
-    KEEPER_EMPTY_BINDING_DIGEST, KeeperContractV1, KeeperRuntimeObservationV1,
+    KEEPER_EMPTY_BINDING_DIGEST, KEEPER_RUNTIME_ABI, KeeperContractV1, KeeperRuntimeObservationV1,
     KeeperUpdateAdmissionV1, REPLACE_EMPTY, UNPROVEN, keeper_update_admission,
 };
 use std::collections::BTreeSet;
@@ -27,6 +27,7 @@ fn contract() -> KeeperContractV1 {
         supported_features: vec!["keeper-contract-v1".to_owned()],
         required_features: vec!["keeper-contract-v1".to_owned()],
         implementation_digest: Some(SOURCE_DIGEST.to_owned()),
+        bun_abi: KEEPER_RUNTIME_ABI.to_owned(),
         platform: String::from("linux"),
         arch: String::from("x64"),
         build_sha: "a".repeat(40),
@@ -48,10 +49,22 @@ fn empty_observation() -> KeeperRuntimeObservationV1 {
 #[test]
 fn a_contract_is_refused_for_a_shape_the_schema_would_have_refused() {
     let mut wire = serde_json::to_value(contract()).expect("a contract serializes");
-    wire["bun_abi"] = serde_json::Value::String("1.2.3".to_owned());
+    wire["not_a_field"] = serde_json::Value::String("1.2.3".to_owned());
     assert!(
         KeeperContractV1::parse(&wire).is_err(),
         "an unknown field must be refused"
+    );
+
+    // v2 `packages/protocol/src/keeper-update.ts:22` declares `bun_abi` a
+    // required field of the strict schema: a contract without it is no proof.
+    let mut no_runtime = serde_json::to_value(contract()).expect("a contract serializes");
+    no_runtime
+        .as_object_mut()
+        .expect("a contract is an object")
+        .remove("bun_abi");
+    assert!(
+        KeeperContractV1::parse(&no_runtime).is_err(),
+        "a contract without its runtime ABI must be refused"
     );
 
     let mut unsorted = serde_json::to_value(contract()).expect("a contract serializes");
@@ -71,6 +84,63 @@ fn a_contract_is_refused_for_a_shape_the_schema_would_have_refused() {
         KeeperContractV1::parse(&absent_digest).is_ok(),
         "a null digest is legal; it is the admission that then fails closed"
     );
+}
+
+/// v2 `packages/protocol/src/keeper-update.ts:22`: `bun_abi` is
+/// `z.string().min(1).max(128)`. An empty runtime would compare equal to every
+/// other empty runtime, so it must not be a contract at all.
+#[test]
+fn a_contract_whose_runtime_abi_is_empty_or_oversized_is_refused() {
+    let empty = KeeperContractV1 {
+        bun_abi: String::new(),
+        ..contract()
+    };
+    assert_eq!(
+        empty
+            .validate()
+            .expect_err("an empty runtime ABI is refused")
+            .field,
+        "keeper_contract.bun_abi"
+    );
+    let wire = serde_json::to_value(&empty).expect("a contract serializes");
+    assert!(KeeperContractV1::parse(&wire).is_err());
+
+    let oversized = KeeperContractV1 {
+        bun_abi: "1".repeat(129),
+        ..contract()
+    };
+    assert!(oversized.validate().is_err(), "129 bytes exceeds max(128)");
+    let at_limit = KeeperContractV1 {
+        bun_abi: "1".repeat(128),
+        ..contract()
+    };
+    assert!(
+        at_limit.validate().is_ok(),
+        "128 bytes is the inclusive bound"
+    );
+}
+
+/// The exact object v2's keeper builds (`apps/worker/src/keeper/keeper-stamp.ts:40-50`:
+/// protocol 3, the sorted `protocol-io.ts` feature lists, `bun_abi: Bun.version`,
+/// `arch: process.arch`), in `JSON.stringify`'s key order. A TS worker still in
+/// the fleet reports this, and it must decode and re-encode byte for byte.
+#[test]
+fn a_v2_keeper_stamp_decodes_and_reencodes_unchanged() {
+    let stamp = concat!(
+        r#"{"protocol_version":3,"#,
+        r#""supported_features":["acknowledged_input_v1","acknowledged_resize_v1","#,
+        r#""ordered_history_v1","terminal_state_v1"],"#,
+        r#""required_features":["acknowledged_input_v1","acknowledged_resize_v1","#,
+        r#""ordered_history_v1"],"#,
+        r#""implementation_digest":"1111111111111111111111111111111111111111111111111111111111111111","#,
+        r#""bun_abi":"1.3.14","platform":"linux","arch":"x64","#,
+        r#""build_sha":"0123456789abcdef0123456789abcdef01234567"}"#
+    );
+    let wire: serde_json::Value = serde_json::from_str(stamp).expect("the stamp is JSON");
+    let parsed = KeeperContractV1::parse(&wire).expect("a v2 keeper's stamp is a contract");
+    assert_eq!(parsed.bun_abi, "1.3.14");
+    assert_eq!(serde_json::to_value(&parsed).expect("serializes"), wire);
+    assert_eq!(serde_json::to_string(&parsed).expect("serializes"), stamp);
 }
 
 #[test]

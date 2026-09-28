@@ -17,7 +17,10 @@
 
 use std::sync::Arc;
 
-use connectrpc::interceptor::{Interceptor, Next, UnaryRequest, UnaryResponse};
+use connectrpc::interceptor::{
+    Interceptor, Next, NextStream, PayloadStream, StreamRequest, StreamResponse, UnaryRequest,
+    UnaryResponse,
+};
 use connectrpc::{ConnectError, ErrorCode, RequestContext};
 
 use crate::coord_core::{Caller, CoordCore, ListenerTrust};
@@ -91,8 +94,8 @@ impl AuthGate {
     }
 
     /// Authorize and stamp one request, or refuse before the handler runs.
-    async fn admit(&self, request: &mut UnaryRequest) -> Result<(), ConnectError> {
-        let Some(spec) = request.ctx.spec() else {
+    async fn admit(&self, context: &mut RequestContext) -> Result<(), ConnectError> {
+        let Some(spec) = context.spec() else {
             return Err(ConnectError::new(
                 ErrorCode::Internal,
                 "request carried no procedure spec",
@@ -104,7 +107,7 @@ impl AuthGate {
         // A public method still gets a caller when a valid credential rides
         // along, so a handler can personalise its answer; it is not required to
         // present one.
-        let authenticated = self.resolve(&request.ctx).await.ok();
+        let authenticated = self.resolve(context).await.ok();
         let Some(authenticated) = authenticated else {
             if matches!(requirement, AuthRequirement::Public) {
                 return Ok(());
@@ -119,7 +122,7 @@ impl AuthGate {
             return Err(permission_denied_for(requirement));
         }
 
-        let remote_address = request.ctx.peer_addr().map(|addr| addr.to_string());
+        let remote_address = context.peer_addr().map(|addr| addr.to_string());
         // A forwarded peer's address is the proxy's claim, not an observation,
         // so locality is only asserted from a connection the listener saw.
         let on_host = if self.listener_trust.asserts_locality() {
@@ -130,12 +133,12 @@ impl AuthGate {
 
         let caller = Caller {
             principal: authenticated.principal,
-            tab_id: Self::claimed_tab_id(&request.ctx),
+            tab_id: Self::claimed_tab_id(context),
             remote_address,
             on_host,
             listener_trust: self.listener_trust,
         };
-        request.ctx.extensions_mut().insert(caller);
+        context.extensions_mut().insert(caller);
         Ok(())
     }
 }
@@ -161,8 +164,21 @@ impl Interceptor for AuthGate {
         mut request: UnaryRequest,
         next: Next<'_>,
     ) -> Result<UnaryResponse, ConnectError> {
-        self.admit(&mut request).await?;
+        self.admit(&mut request.ctx).await?;
         next.run(request).await
+    }
+
+    /// A server stream is admitted once, at establishment, by the same rule a
+    /// unary call is: without this a streaming method would reach its handler
+    /// with no caller and no requirement checked.
+    async fn intercept_streaming(
+        &self,
+        mut request: StreamRequest,
+        inbound: PayloadStream,
+        next: NextStream<'_>,
+    ) -> Result<StreamResponse, ConnectError> {
+        self.admit(&mut request.ctx).await?;
+        next.run(request, inbound).await
     }
 }
 

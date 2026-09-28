@@ -40,13 +40,17 @@ const SERVICE_IMPL: &str = "crates/roost-coord/src/rpc/service_impl.rs";
 /// refused with `410` before `ConnectRpcService` opens a stream at all
 /// (`http/listener.rs`, and the module header explains why — a throwing stub
 /// would still let Connect open a response stream and keep the runtime's
-/// abort-listener crash path reachable). So there is no `fn sync` arm, and
-/// there must not be one.
+/// abort-listener crash path reachable). The trait still demands a `fn sync`
+/// arm, and the only body it may have is [`TRANSPORT_ANSWERED_ARM`].
 ///
-/// The list is asserted to be EXACTLY the set of implemented rows with no
-/// service arm, so a second method answered this way is named here rather than
-/// quietly tolerated.
+/// The list is asserted to be EXACTLY the set of implemented rows whose arm is
+/// that refusal, so a second method answered this way is named here rather
+/// than quietly tolerated.
 const TRANSPORT_ANSWERED: &[&str] = &["Sync"];
+
+/// The arm body of a method the listener answers: the moved refusal, which no
+/// admitted request reaches.
+const TRANSPORT_ANSWERED_ARM: &str = "sync_moved_stream";
 
 /// Every method the table claims is implemented, with the row's domain.
 fn every_row() -> Vec<&'static MethodRoute> {
@@ -67,9 +71,14 @@ fn implemented_rows() -> BTreeMap<String, String> {
 /// Returns the text from the method's own `fn` to the brace that closes its
 /// body, so a `delegated_reply` in a NEIGHBOURING method cannot be mistaken for
 /// this one's.
+///
+/// A unary arm borrows the service (`fn name<'a>(`); a server-streaming arm's
+/// stream outlives the call and so borrows nothing (`fn name(`), which is the
+/// shape `roost_proto`'s trait gives every streaming method.
 fn arm_body(source: &str, method: &str) -> Option<String> {
-    let needle = format!("fn {method}<'a>(");
-    let start = source.find(&needle)?;
+    let start = [format!("fn {method}<'a>("), format!("fn {method}(")]
+        .iter()
+        .find_map(|needle| source.find(needle.as_str()))?;
     let rest = &source[start..];
     // The body opens at the first `{` after the signature's return type and
     // closes at its matching brace. Counting braces is the only way to find it
@@ -120,9 +129,7 @@ fn every_row_the_table_calls_implemented_has_an_arm_that_is_not_a_delegation() {
     let mut missing = Vec::new();
     for (method, domain) in implemented_rows() {
         let Some(body) = arm_body(&source, &arm_name(&method)) else {
-            if !TRANSPORT_ANSWERED.contains(&method.as_str()) {
-                missing.push(method);
-            }
+            missing.push(method);
             continue;
         };
         // `delegated_reply` and `delegated_stream` are the two shapes an
@@ -171,28 +178,31 @@ fn an_unwired_row_is_allowed_to_delegate_and_is_the_only_thing_that_is() {
 }
 
 #[test]
-fn the_transport_answered_set_is_exactly_the_implemented_rows_with_no_arm() {
+fn the_transport_answered_set_is_exactly_the_implemented_rows_the_service_refuses() {
     // The mirror that keeps the exception honest. A second method answered by a
     // mounted route would have to be added to `TRANSPORT_ANSWERED`, and until
     // it is, this names it — which is the difference between a documented
     // exception and a hole that grows.
     let source = service_source();
     let implemented = implemented_rows();
-    let mut armless_sorted: Vec<String> = implemented
+    let mut refused_sorted: Vec<String> = implemented
         .keys()
-        .filter(|method| arm_body(&source, &arm_name(method)).is_none())
+        .filter(|method| {
+            arm_body(&source, &arm_name(method))
+                .is_some_and(|body| body.contains(TRANSPORT_ANSWERED_ARM))
+        })
         .cloned()
         .collect();
-    armless_sorted.sort_unstable();
+    refused_sorted.sort_unstable();
     let mut declared: Vec<String> = TRANSPORT_ANSWERED
         .iter()
         .map(|name| (*name).to_owned())
         .collect();
     declared.sort_unstable();
     assert_eq!(
-        armless_sorted, declared,
-        "a row is implemented with no service arm and is not declared as \
-         transport-answered"
+        refused_sorted, declared,
+        "a row is implemented with the moved refusal as its arm and is not \
+         declared as transport-answered"
     );
 }
 

@@ -106,6 +106,10 @@ pub struct VerifiedSyncCaller {
     pub fingerprint: String,
     /// The key's authorized label.
     pub label: String,
+    /// The key's revocation generation when it verified. The socket re-checks
+    /// it as it opens and closes `4001 revoked` if it moved in between
+    /// (`sync-ws-handler.ts:181-184`).
+    pub key_generation: u64,
 }
 
 /// Why a Sync upgrade was refused.

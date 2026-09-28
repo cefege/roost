@@ -241,8 +241,9 @@ pub trait LiveEffects: Send + Sync {
 /// non-`Send` -- and a non-`Send` future cannot live in a spawned socket task,
 /// which is where a worker link runs every durable frame. Before this bound,
 /// `AppendOptions` was `!Sync` for exactly these two fields and NO durable
-/// caller anywhere could have been in a `Send` future. Zero call sites
-/// construct an `AtomicExtraWork` today, so the bound costs nothing.
+/// caller anywhere could have been in a `Send` future. The one constructor,
+/// `sessions::assign_workspace`, captures only an `Arc<Mutex<_>>` and a
+/// `String`, so the bound costs nothing.
 pub type AtomicExtraWork<'a> = Box<
     dyn for<'connection> FnMut(
             &'connection mut SqliteConnection,

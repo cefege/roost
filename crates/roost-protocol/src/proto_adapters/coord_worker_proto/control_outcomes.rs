@@ -99,7 +99,10 @@ fn stream_status_from_proto(field: &str, value: i32) -> ProtocolResult<TerminalS
     }
 }
 
-fn failure_kind_to_proto(kind: TerminalStreamFailureKind) -> PbTerminalStreamFailureKind {
+fn failure_kind_to_proto(kind: Option<TerminalStreamFailureKind>) -> PbTerminalStreamFailureKind {
+    let Some(kind) = kind else {
+        return PbTerminalStreamFailureKind::Unspecified;
+    };
     match kind {
         TerminalStreamFailureKind::RetryablePreWrite => {
             PbTerminalStreamFailureKind::RetryablePreWrite
@@ -113,17 +116,18 @@ fn failure_kind_to_proto(kind: TerminalStreamFailureKind) -> PbTerminalStreamFai
     }
 }
 
-fn failure_kind_from_proto(field: &str, value: i32) -> ProtocolResult<TerminalStreamFailureKind> {
+/// Zero is v2's `UNSPECIFIED`, which a committed result carries: `None`.
+fn failure_kind_from_proto(
+    field: &str,
+    value: i32,
+) -> ProtocolResult<Option<TerminalStreamFailureKind>> {
     match value {
-        1 => Ok(TerminalStreamFailureKind::RetryablePreWrite),
-        2 => Ok(TerminalStreamFailureKind::SessionNotLive),
-        3 => Ok(TerminalStreamFailureKind::InvalidRequest),
-        4 => Ok(TerminalStreamFailureKind::CoreFailed),
-        5 => Ok(TerminalStreamFailureKind::AmbiguousBoundary),
-        0 => Err(ProtocolError::new(
-            field,
-            "the unspecified failure kind says nothing",
-        )),
+        0 => Ok(None),
+        1 => Ok(Some(TerminalStreamFailureKind::RetryablePreWrite)),
+        2 => Ok(Some(TerminalStreamFailureKind::SessionNotLive)),
+        3 => Ok(Some(TerminalStreamFailureKind::InvalidRequest)),
+        4 => Ok(Some(TerminalStreamFailureKind::CoreFailed)),
+        5 => Ok(Some(TerminalStreamFailureKind::AmbiguousBoundary)),
         other => Err(ProtocolError::new(
             field,
             format!("{other} is not a stream failure kind this build names"),

@@ -54,8 +54,8 @@ impl FakeAsset {
             "# marker: roost\n",
             "if [ \"$1\" = \"__keeper-contract\" ]; then\n",
             "  printf '%s\\n' '{\"protocol_version\":3,\"supported_features\":[],\
-             \"required_features\":[],\"implementation_digest\":null,\"platform\":\"linux\",\
-             \"arch\":\"x86_64\",\"build_sha\":\"0.0.0\"}'\n",
+             \"required_features\":[],\"implementation_digest\":null,\"bun_abi\":\"rust\",\
+             \"platform\":\"linux\",\"arch\":\"x86_64\",\"build_sha\":\"0.0.0\"}'\n",
             "  exit 0\n",
             "fi\n",
             "echo \"this is not the coordinator you are looking for\" >&2\nexit 2\n"

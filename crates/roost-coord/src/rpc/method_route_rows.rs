@@ -39,8 +39,8 @@ pub const ROWS_WORKERS: &[MethodRoute] = &[
     route("WorkersHeartbeat", "workers", AuthRequirement::Worker, PortStatus::Implemented),
     route("WorkersRename", "workers", AuthRequirement::Device, PortStatus::Implemented),
     route("WorkersDelete", "workers", AuthRequirement::Device, PortStatus::Implemented),
-    route("WorkersDeployStart", "workers", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("WorkersDeployOutput", "workers", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
+    route("WorkersDeployStart", "workers", AuthRequirement::Device, PortStatus::Implemented),
+    route("WorkersDeployOutput", "workers", AuthRequirement::Device, PortStatus::Implemented),
 ];
 
 /// keeper-update preparation, the host-local change that replaces the binary every live PTY depends on.
@@ -76,19 +76,19 @@ pub const ROWS_DEPLOY: &[MethodRoute] = &[route(
 /// the session lifecycle, scrollback, and direct-terminal grants.
 #[rustfmt::skip]
 pub const ROWS_SESSIONS: &[MethodRoute] = &[
-    route("SessionsList", "sessions", AuthRequirement::DeviceOrOwnWorkerRecovery, PortStatus::AwaitingDomainPort),
-    route("SessionsSpawn", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("SessionsAttach", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("SessionsKill", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("SessionsRename", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("SessionsInput", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("SessionsCursorPos", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("SessionsAssignWorkspace", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
+    route("SessionsList", "sessions", AuthRequirement::DeviceOrOwnWorkerRecovery, PortStatus::Implemented),
+    route("SessionsSpawn", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("SessionsAttach", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("SessionsKill", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("SessionsRename", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("SessionsInput", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("SessionsCursorPos", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("SessionsAssignWorkspace", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("SessionsGetScrollbackCells", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("SessionsSearchScrollback", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("SessionsCancelScrollbackSearch", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("SessionsGrantLocalTerminal", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("SessionsNegotiateLocalTerminalPeer", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
+    route("SessionsGrantLocalTerminal", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("SessionsNegotiateLocalTerminalPeer", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("WorkspacesList", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("WorkspacesCreate", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("WorkspacesUpdate", "sessions", AuthRequirement::Device, PortStatus::Implemented),
@@ -117,7 +117,7 @@ pub const ROWS_SESSIONS: &[MethodRoute] = &[
 /// would be a claim about a fence none of the five consults.
 #[rustfmt::skip]
 pub const ROWS_AGENTS: &[MethodRoute] = &[
-    route("SessionsPrompt", "agents", AuthRequirement::DevicePlusFence, PortStatus::AwaitingDomainPort),
+    route("SessionsPrompt", "agents", AuthRequirement::DevicePlusFence, PortStatus::Implemented),
     route("AgentStatusGet", "agents", AuthRequirement::Device, PortStatus::Implemented),
     route("AgentStatusList", "agents", AuthRequirement::Device, PortStatus::Implemented),
     route("AgentStatusWait", "agents", AuthRequirement::Device, PortStatus::Implemented),
@@ -128,20 +128,20 @@ pub const ROWS_AGENTS: &[MethodRoute] = &[
 /// global session search across every worker.
 #[rustfmt::skip]
 pub const ROWS_SEARCH: &[MethodRoute] = &[
-    route("SessionsSearchGlobal", "search", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("SessionsCancelGlobalSearch", "search", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
+    route("SessionsSearchGlobal", "search", AuthRequirement::Device, PortStatus::Implemented),
+    route("SessionsCancelGlobalSearch", "search", AuthRequirement::Device, PortStatus::Implemented),
 ];
 
 /// files, the attachment chunk relay, direct grants, and peer negotiation.
 #[rustfmt::skip]
 pub const ROWS_ATTACHMENTS: &[MethodRoute] = &[
-    route("SessionsNegotiateAttachmentPeer", "attachments", AuthRequirement::DevicePlusFence, PortStatus::AwaitingDomainPort),
+    route("SessionsNegotiateAttachmentPeer", "attachments", AuthRequirement::DevicePlusFence, PortStatus::Implemented),
     route("FilesRead", "attachments", AuthRequirement::Device, PortStatus::Implemented),
     route("FilesReadChunk", "attachments", AuthRequirement::Device, PortStatus::Implemented),
     route("FilesListDir", "attachments", AuthRequirement::Device, PortStatus::Implemented),
     route("FilesMkdir", "attachments", AuthRequirement::Device, PortStatus::Implemented),
-    route("AttachmentsGrantDirect", "attachments", AuthRequirement::DevicePlusFence, PortStatus::AwaitingDomainPort),
-    route("AttachmentsDirectStatus", "attachments", AuthRequirement::DevicePlusFence, PortStatus::AwaitingDomainPort),
+    route("AttachmentsGrantDirect", "attachments", AuthRequirement::DevicePlusFence, PortStatus::Implemented),
+    route("AttachmentsDirectStatus", "attachments", AuthRequirement::DevicePlusFence, PortStatus::Implemented),
     route("AttachFileChunk", "attachments", AuthRequirement::Device, PortStatus::Implemented),
     route("AttachmentProbe", "attachments", AuthRequirement::Device, PortStatus::Implemented),
     route("ListAttachments", "attachments", AuthRequirement::Device, PortStatus::Implemented),
@@ -243,7 +243,7 @@ pub const ROWS_RPC: &[MethodRoute] = &[
     route("TranscriptionTest", "rpc", AuthRequirement::Device, PortStatus::Implemented),
     route("Sync", "rpc", AuthRequirement::Device, PortStatus::Implemented),
     route("DiagDebugLogBatch", "rpc", AuthRequirement::Device, PortStatus::Implemented),
-    route("DiagSnapshot", "rpc", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
+    route("DiagSnapshot", "rpc", AuthRequirement::Device, PortStatus::Implemented),
 ];
 
 /// ui-cc typed state and layout application, both fenced to one socket generation.

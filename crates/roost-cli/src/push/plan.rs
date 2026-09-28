@@ -355,7 +355,7 @@ fn short_sha(sha: Option<&str>) -> String {
 /// push: which machines this push left alone, why, and how each one catches up.
 ///
 /// The phrase is `update pending` and it is deliberately NOT the constant in
-/// `status::update_state` that words a machine's row as `Update pending —
+/// `roost_protocol::fleet_update` that words a machine's row as `Update pending —
 /// offline`. That one classifies a machine against the running coordinator; this
 /// one states that a whole-fleet rollout left it for its own catch-up. Same
 /// words, different facts, so they never share a string.

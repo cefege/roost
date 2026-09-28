@@ -1,6 +1,11 @@
 //! One frame as a single Sync socket owns it: its payload, its byte estimate,
 //! and the per-recipient scalars that are stamped on at send time.
 //!
+//! Ports `apps/coord/src/sync/sync-ws-v2-terminal-payload.ts`: `OwnedFrame` is
+//! its `ownTerminalApplicationFrame`, `conservative_bytes` is its
+//! `conservativeTerminalApplicationFrameBytes`, and `ChunkTransfer` is its
+//! `TerminalChunkTransfer`.
+//!
 //! Owned by the Sync session's queues. The important decision here is that a
 //! canonical terminal full is held as an `Arc` and COPIED only when it is
 //! stamped for one recipient, because that is what makes a five-viewer session

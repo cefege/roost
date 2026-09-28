@@ -33,6 +33,7 @@ use roost_proto::{
 use crate::sync_ws::admission::EnqueueOutcome;
 use crate::sync_ws::control_frames::ResetNotice;
 use crate::sync_ws::frame_meta::is_lazy_domain;
+use crate::sync_ws::invalid_frame::InvalidFrame;
 use crate::sync_ws::session::SyncV2Session;
 use crate::sync_ws::snapshot_registry::SnapshotTokenRegistry;
 
@@ -126,14 +127,17 @@ pub enum CommandOutcome {
     /// The terminal domain must be reset: the one-time snapshot token was
     /// missing, already consumed, or named a socket that is gone.
     ResetTerminal(ResetNotice),
-    /// The frame is not a legal client frame and the socket must close `1008`.
+    /// The frame is not a legal client frame and the socket must close `1008`,
+    /// naming the check that refused it.
     ///
-    /// Two frames land here and both are protocol violations rather than
-    /// refusals: a frame from this socket that carries neither an
-    /// acknowledgement nor a command, and a frame whose bytes are not the
-    /// canonical encoding of what it decoded to. Ignoring either would leave the
-    /// client waiting for an answer to a frame the coordinator never understood.
-    Invalid,
+    /// Every frame that lands here is a protocol violation rather than a
+    /// refusal: a frame from this socket that carries neither an
+    /// acknowledgement nor a command, an acknowledgement above what was sent, a
+    /// command naming a domain this build does not know, or a frame whose bytes
+    /// are not the canonical encoding of what it decoded to. Ignoring any of
+    /// them would leave the client waiting for an answer to a frame the
+    /// coordinator never understood.
+    Invalid(InvalidFrame),
 }
 
 /// Whether a decoded client frame is byte-for-byte the canonical encoding of
@@ -144,13 +148,73 @@ pub enum CommandOutcome {
 /// otherwise be accepted with the unknown parts silently dropped, which is how a
 /// client and a coordinator end up disagreeing about what was sent
 /// (`sync-ws-client-ingress.ts:44-52`).
+///
+/// CANONICAL MEANS FIELD-NUMBER ORDER. v2's canonical bytes are protobuf-es's,
+/// which writes a message's fields in ascending field number; buffa writes
+/// them in declaration order. `SyncClientFrame` declares its `command` oneof
+/// before `socket_id = 10`, yet two cases (`input_route_claim = 11`,
+/// `terminal_transport_probe = 12`) number after it, so comparing against
+/// buffa's bytes refused every route claim the browser sent and closed the
+/// socket `1008` (terminal-peer smoke, "disabled peer capability"). The
+/// re-encoding's top-level fields are put in field-number order before the
+/// comparison; every message nested in a client frame declares its fields in
+/// ascending order, so buffa's bytes for them are already protobuf-es's.
 #[must_use]
 pub fn is_canonical_client_frame(frame: &SyncClientFrame, raw: &[u8]) -> bool {
     let mut encoded = Vec::new();
     if frame.try_encode(&mut encoded).is_err() {
         return false;
     }
-    encoded == raw
+    let Some(mut fields) = top_level_fields(&encoded) else {
+        return false;
+    };
+    // Stable: a repeated field keeps its elements' order.
+    fields.sort_by_key(|(number, _)| *number);
+    let mut rest = raw;
+    for (_, bytes) in fields {
+        match rest.strip_prefix(bytes) {
+            Some(after) => rest = after,
+            None => return false,
+        }
+    }
+    rest.is_empty()
+}
+
+/// One encoding split into its top-level fields: each field's number and its
+/// whole bytes, tag included. `None` for bytes that are not a well-formed
+/// encoding, which buffa's own output never is.
+fn top_level_fields(mut bytes: &[u8]) -> Option<Vec<(u64, &[u8])>> {
+    let mut fields = Vec::new();
+    while !bytes.is_empty() {
+        let (tag, after_tag) = read_varint(bytes)?;
+        let after_field = match tag & 0b111 {
+            0 => read_varint(after_tag)?.1,
+            1 => after_tag.get(8..)?,
+            2 => {
+                let (length, payload) = read_varint(after_tag)?;
+                payload.get(usize::try_from(length).ok()?..)?
+            }
+            5 => after_tag.get(4..)?,
+            _ => return None,
+        };
+        let field_length = bytes.len() - after_field.len();
+        fields.push((tag >> 3, bytes.get(..field_length)?));
+        bytes = after_field;
+    }
+    Some(fields)
+}
+
+/// One base-128 varint and the bytes after it; `None` if it does not end
+/// within the ten bytes a `u64` can take.
+fn read_varint(bytes: &[u8]) -> Option<(u64, &[u8])> {
+    let mut value = 0_u64;
+    for (index, byte) in bytes.iter().take(10).enumerate() {
+        value |= u64::from(byte & 0x7f) << (7 * index);
+        if byte & 0x80 == 0 {
+            return bytes.get(index + 1..).map(|rest| (value, rest));
+        }
+    }
+    None
 }
 
 /// Apply one client frame to one session.
@@ -168,19 +232,24 @@ pub fn handle_client_frame(
     if frame.socket_id != session.socket_id {
         return CommandOutcome::Nothing;
     }
+    // An acknowledgement and a command may ride one frame, and v2 applies the
+    // ack and THEN the command (`sync-ws-client-ingress.ts:69-76`). Only a
+    // frame with neither is a violation: a stale or repeated ack releases
+    // nothing and is harmless.
     let ack = frame.ack_delivery_seq.unwrap_or_default();
+    let mut released = 0;
     if ack > 0 {
         match session.apply_ack(ack, now_ms) {
-            Ok(released) if released > 0 => return CommandOutcome::Acknowledged { released },
-            Ok(_) => {}
+            Ok(count) => released = count,
             Err(close) => {
                 session.fault(close);
-                return CommandOutcome::Invalid;
+                return CommandOutcome::Invalid(InvalidFrame::AckAboveLastSent);
             }
         }
     }
     match &frame.command {
-        None => CommandOutcome::Invalid,
+        None if ack > 0 => CommandOutcome::Acknowledged { released },
+        None => CommandOutcome::Invalid(InvalidFrame::NeitherAckNorCommand),
         Some(Command::DomainReady(ready)) => handle_domain_ready(session, context, ready, tokens),
         Some(Command::DomainSubscribe(subscribe)) => {
             set_lazy_domain_subscription(session, context, subscribe, true)
@@ -203,7 +272,7 @@ fn handle_domain_ready(
     // command for another domain: the client named something that cannot exist,
     // and answering `Nothing` would leave it believing the fence closed.
     let Some(domain) = ready.domain.as_known() else {
-        return CommandOutcome::Invalid;
+        return CommandOutcome::Invalid(InvalidFrame::UnknownDomain);
     };
     let Some(state) = session.domain(domain) else {
         return CommandOutcome::Nothing;
@@ -247,7 +316,7 @@ fn handle_domain_ready(
 fn reset_terminal(session: &mut SyncV2Session, reason: &'static str) -> CommandOutcome {
     match session.reset_domain(SyncDomain::Terminal, reason) {
         EnqueueOutcome::Reset(notice) => CommandOutcome::ResetTerminal(notice),
-        _ => CommandOutcome::Invalid,
+        _ => CommandOutcome::Invalid(InvalidFrame::TerminalResetRefused),
     }
 }
 
@@ -258,7 +327,7 @@ fn set_lazy_domain_subscription(
     subscribe: bool,
 ) -> CommandOutcome {
     let Some(domain) = command.domain.as_known() else {
-        return CommandOutcome::Invalid;
+        return CommandOutcome::Invalid(InvalidFrame::UnknownDomain);
     };
     if !is_lazy_domain(domain) {
         return CommandOutcome::Nothing;

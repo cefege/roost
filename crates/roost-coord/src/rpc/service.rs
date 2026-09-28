@@ -10,6 +10,10 @@
 //! -- not the silent 501 that a second `router.service()` call produced in v2
 //! (`apps/coord/src/rpc/router.ts:114-118`).
 //!
+//! v2's retired streaming surface is one file,
+//! `apps/coord/src/rpc/handlers-streaming.ts`, whose only method is that same
+//! `Sync` stub: [`sync_moved_stream`] is it, and the message is its own.
+//!
 //! WHY THE UNPORTED METHODS RETURN A NAMED `Unimplemented` RATHER THAN A STUB.
 //! 87 of v2's 103 methods are answered by per-domain handler modules this slice
 //! does not port. The reply names the owning domain from

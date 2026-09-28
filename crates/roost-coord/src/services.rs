@@ -50,6 +50,7 @@ use crate::sync_ws::feed::FeedRuntime;
 use crate::terminal_screen::byte_hub::ByteHub;
 use crate::terminal_screen::live_effects::TerminalLiveEffects;
 use crate::terminal_screen::orphan_kills::LiveOrphanKills;
+use crate::terminal_screen::pipeline_cache::WorkerTerminalPipelineSnapshotCache;
 use crate::terminal_screen::scrollback_relay::ScrollbackRelay;
 use crate::terminal_view::TerminalViewHub;
 use crate::ui_state::UiStateRuntime;
@@ -106,6 +107,15 @@ pub struct CoordServices {
     /// test's search. It holds the SAME `Arc<WorkerRegistry>` as `workers`, so
     /// a route and its correlation namespace cannot drift apart.
     pub scrollback: ScrollbackRelay,
+    /// The DiagSnapshot pipeline-sample cache over `scrollback`: one worker is
+    /// asked for its terminal pipelines at most once per cache window however
+    /// many dumps arrive (`worker-terminal-pipeline-cache.ts`). Read only by
+    /// `diagnostics::diag_snapshot`.
+    pub diag_pipelines: WorkerTerminalPipelineSnapshotCache,
+    /// Opt-in terminal incident capture: the leases and the coordinator
+    /// recorder they arm. The screen hub feeds the recorder; DiagSnapshot's
+    /// `terminal_capture` request reaches it through `terminal_capture::bridge`.
+    pub terminal_capture: Arc<crate::terminal_capture::TerminalCaptureRuntime>,
     /// Retained browser UI reports and the reserved layout applies, one pair
     /// for the RPC that reserves an apply and the Sync ingress that settles it.
     pub ui_state: UiStateRuntime,
@@ -133,6 +143,16 @@ pub struct CoordServices {
     /// The terminal view hub. The workers domain consumes it as the
     /// `TerminalViewLifecycle` seam.
     pub views: Arc<TerminalViewHub>,
+    /// Every session's retained terminal title, deduplicated across spinner
+    /// animation; the Sync seed replays it to a fresh subscriber.
+    pub titles: Arc<crate::terminal_screen::title_hub::TerminalTitleHub>,
+    /// Terminal input: the sender lanes, the input audit queue, and the typed
+    /// input-route owner the worker link settles and the lifecycle fences.
+    pub terminal_input: crate::terminal_input::TerminalInputRuntime,
+    /// Direct terminal transports: the grant leases a loopback or WebRTC
+    /// terminal authenticates with, and the peer signaling the worker link
+    /// settles and the lifecycle fences.
+    pub terminal_direct: crate::terminal_direct::TerminalDirectRuntime,
     /// The durable session-event store every worker's dispatcher appends to.
     ///
     /// BUILT ONCE HERE AND HANDED OUT BY CLONE. A factory that took one as an
@@ -158,6 +178,10 @@ pub struct CoordServices {
     /// full, and the one that bites hardest is that a reconnect RESUMES the
     /// worker's durable outbox, so the sequence outlives the socket.
     pub client_seqs: ClientSeqCursors,
+    /// The owners every worker link's transitions reach (hello, ready,
+    /// superseded, closed). The pending-RPC table is the first; later owners
+    /// register here rather than editing the link.
+    pub worker_lifecycle: crate::coord_core::worker_lifecycle::WorkerLifecycle,
 }
 
 impl CoordServices {
@@ -186,7 +210,30 @@ impl CoordServices {
         // two bus sets, and the reason the buses are built once.
         let pending_publications = Arc::new(std::sync::Mutex::new(PendingPublicationStore::new()));
         let buses = Buses::shared();
-        let byte_hub = Arc::new(ByteHub::with_defaults());
+        // The view hub first: the screen replica asks it for repairs, and it
+        // reads the byte hub's route cache back (weakly) to find an owner.
+        let views = Arc::new(TerminalViewHub::new());
+        views.set_owner_transport(Arc::new(
+            crate::terminal_view::WorkerLinkViewTransport::new(Arc::clone(&workers)),
+        ));
+        let screens = Arc::new(crate::terminal_screen::ScreenHub::with_sink(
+            crate::terminal_screen::screen_budget::TerminalScreenCaps {
+                max_resident_rows:
+                    crate::terminal_screen::residency::TERMINAL_SCREEN_MAX_RESIDENT_ROWS,
+                max_resident_spans:
+                    crate::terminal_screen::residency::TERMINAL_SCREEN_MAX_RESIDENT_SPANS,
+            },
+            crate::terminal_view::owner_screen_repair(&views),
+        ));
+        let terminal_capture = Arc::new(crate::terminal_capture::TerminalCaptureRuntime::new());
+        screens.install_capture(Arc::clone(&terminal_capture));
+        views.set_screens(Arc::downgrade(&screens));
+        let byte_hub = Arc::new(ByteHub::new(
+            screens,
+            Arc::new(crate::terminal_screen::route_index::NoRouteRetirement),
+        ));
+        views.set_route_cache(Arc::downgrade(&byte_hub)
+            as std::sync::Weak<dyn crate::terminal_view::SessionRouteCache>);
         let orphan_kills = Arc::new(LiveOrphanKills::new());
         // The terminal half of the chain, built ONCE. `event_log` holds this
         // exact value, so there is one `LiveEffects` in the process rather than
@@ -203,6 +250,25 @@ impl CoordServices {
             Arc::clone(&pending_publications),
             Arc::clone(&live_effects),
         );
+        let scrollback = ScrollbackRelay::new(Arc::clone(&workers));
+        let sessions = SessionsRuntime::new();
+        let terminal_input = crate::terminal_input::TerminalInputRuntime::new(
+            Arc::clone(&workers),
+            Arc::clone(scrollback.pending()),
+        );
+        let attachments =
+            AttachmentsRuntime::new(Arc::clone(&workers), Arc::clone(scrollback.pending()));
+        let terminal_direct = crate::terminal_direct::TerminalDirectRuntime::new(
+            Arc::clone(&workers),
+            Arc::clone(scrollback.pending()),
+            db.clone(),
+            boot.config.as_deref(),
+        );
+        let deploy = DeployRuntime::new();
+        let catch_up_on_ready = Arc::new(crate::deploy::catchup_on_ready::CatchUpOnReady::new(
+            deploy.clone(),
+            db.clone(),
+        ));
         Self {
             db,
             boot,
@@ -210,15 +276,30 @@ impl CoordServices {
             jwt_keys: JwtKeyCache::new(),
             pending_publications,
             buses,
-            scrollback: ScrollbackRelay::new(Arc::clone(&workers)),
+            worker_lifecycle: crate::coord_core::worker_lifecycle::WorkerLifecycle::new(vec![
+                Arc::clone(scrollback.pending())
+                    as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
+                Arc::clone(sessions.pending_spawns())
+                    as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
+                Arc::clone(terminal_input.route_results())
+                    as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
+                Arc::clone(terminal_direct.negotiations())
+                    as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
+                attachments.worker_lifecycle_observer(),
+                catch_up_on_ready
+                    as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
+            ]),
+            diag_pipelines: WorkerTerminalPipelineSnapshotCache::new(scrollback.clone()),
+            terminal_capture,
+            scrollback,
             workers,
             ui_state: UiStateRuntime::new(),
             pairing: PairingRuntime::new(),
-            sessions: SessionsRuntime::new(),
+            sessions,
             agents: AgentsRuntime::new(),
-            attachments: AttachmentsRuntime::new(),
+            attachments,
             search: GlobalSearchRuntime::new(),
-            deploy: DeployRuntime::new(),
+            deploy,
             rate_limit: RateLimiter::new(),
             telemetry: Telemetry::new(),
             feed: FeedRuntime::new(),
@@ -226,7 +307,10 @@ impl CoordServices {
             orphan_kills,
             client_seqs: ClientSeqCursors::new(),
             event_log,
-            views: Arc::new(TerminalViewHub::new()),
+            views,
+            titles: Arc::new(crate::terminal_screen::title_hub::TerminalTitleHub::new()),
+            terminal_input,
+            terminal_direct,
         }
     }
 

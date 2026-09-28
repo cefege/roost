@@ -222,6 +222,7 @@ fn a_malformed_keeper_contract_is_refused() {
         "supported_features": [],
         "required_features": [],
         "implementation_digest": "a".repeat(64),
+        "bun_abi": "rust",
         "platform": "linux",
         "arch": "x86_64",
         "build_sha": "b1d1836a"

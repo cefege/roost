@@ -1,8 +1,11 @@
 //! The one gate every coordinator→worker frame passes, and the three senders
 //! the worker registry RPCs and the event path need.
 //!
-//! Ported from `apps/coord/src/workers/worker-send-target.ts` (the gate) and
-//! the `sendBrowserCommand` arm of `apps/coord/src/workers/worker-send.ts:74-91`.
+//! Ported from `apps/coord/src/workers/worker-send-target.ts` (the gate), the
+//! `sendBrowserCommand` arm of `apps/coord/src/workers/worker-send.ts:74-91`, and
+//! its `getWorkerHubSocket` shim (`:25-69`): the lookup is `current_routable_worker`
+//! and the write `send_frame_through`. The shim's raw-binary branch is not
+//! ported: no v2 caller sends PTY bytes through it (input is `InputRequest`).
 //!
 //! WHY THE GATE IS HERE AND NOT IN THE HANDLE. v2 re-checks
 //! `connectWorkers.get(workerFp) !== myHandle` inside the transport's own

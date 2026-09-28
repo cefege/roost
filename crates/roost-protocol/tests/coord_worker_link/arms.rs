@@ -105,7 +105,7 @@ pub fn upstream_arms() -> Vec<(&'static str, CoordWorkerUpstream)> {
                 resized: true,
                 reason: String::new(),
                 phase: TerminalWritePhase::Written,
-                failure_kind: TerminalStreamFailureKind::SessionNotLive,
+                failure_kind: Some(TerminalStreamFailureKind::SessionNotLive),
             }),
         ),
         (
