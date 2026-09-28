@@ -1930,14 +1930,27 @@ overstated.** A gate is two agreeing green runs of the track's crates, clippy 0,
   fixture allows. The ladder below says in advance that the `v3-worker` merge
   takes them to **0** — a known outstanding rather than a new finding, and still
   outstanding.
-- **clippy — NOT RUN** on the merged tree.
+- **clippy — MET.** `cargo clippy --workspace --all-targets -- -D warnings` on
+  `8c332da8`: **exit 0, zero errors**, every crate and every target. This is the
+  gate that finds the silent impossibilities — an `!Send` future or a trait no
+  implementation can satisfy is a compile error wearing a green build's
+  clothes — and it had never been run on a merged tree.
 - **two agreeing green runs — NOT RUN.** No `cargo test` has been executed here
   at all.
 
-**One met, three unmet or unrun.** A workspace that compiles and a binary that
-answers `--help` are not a gate. The first revision of this block said "one
-criterion is unmet" — which counted only the criterion that had been run, and
-reported a number where the honest answer was a smaller fraction of the whole.
+**Two met, two outstanding.** `roost-cli` alone had already been checked under
+all three of clippy, fmt and lint before the workspace run, because the CLI
+track reported its gate half as unrun and that code was already on this branch.
+It is: `cargo clippy -p roost-cli --all-targets -- -D warnings` exit 0, `cargo
+xtask fmt` exit 0, and `cargo xtask lint` with **0 in `roost-cli`**.
+
+
+**A workspace that compiles and a binary that answers `--help` are not a gate.**
+The first revision of this block said "one criterion is unmet" — counting only
+the criterion that had been run, and reporting a number where the honest answer
+was a fraction of the whole. The second said "one met, three unmet or unrun",
+which was right at the time and went stale the moment clippy was run. **A status
+line is a measurement too, and it rots the same way a number does.**
 
 
 **Each row names its own tree.** They are not the same commit, and hanging one
@@ -1952,7 +1965,8 @@ SHA over the whole block is the mistake this file exists to prevent.
 |fmt re-verified|`cargo xtask fmt`|`01370d2f`|**exit 0, 0 diff lines**|
 |host recheck after the fix|`cargo check -p roost-host --all-targets`|`7ea8324c`|**exit 0**|
 |lint|`cargo xtask lint`|`01370d2f`|**8, every one `roost-keeper`** (1 lint table, 7 fixture allows). **0 in `roost-coord`**|
-|clippy|**NOT run on the merged tree**|—|the per-crate clippy figures on record come from the track branches, not from here|
+|clippy, cli only|`cargo clippy -p roost-cli --all-targets -- -D warnings`|`8c332da8`|**exit 0, 0 errors**|
+|clippy, workspace|`cargo clippy --workspace --all-targets -- -D warnings`|`8c332da8`|**exit 0, 0 errors** — every crate, every target|
 |two agreeing green runs|`cargo test --workspace --no-fail-fast`|**NOT RUN**|no `cargo test` has been executed on this tree. The 1734/1/15 figure elsewhere in this file is from `3e92e97e`, which is the v3-coord merge and **predates the CLI merge `dbf0edd2`** — it does not describe this tree.|
 
 **The risk this gate existed to close is closed by compilation, not by a grep.**
