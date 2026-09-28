@@ -111,21 +111,83 @@ fn the_boot_order_is_declared_and_every_step_says_why_it_is_there() {
 fn the_sequence_records_steps_in_the_order_they_complete() {
     let mut sequence = BootSequence::new();
     assert!(sequence.completed().is_empty());
+    // The order here is the one `boot_sequence::run` ACTUALLY RECORDS, which
+    // was always this and not the order the array declared — the test's own
+    // name says "what actually ran", and its body had drifted to the
+    // declaration instead. With `complete` refusing out-of-order steps it now
+    // has to be right.
     for step in [
         StepId::Identity,
-        StepId::CoordinatorLink,
         StepId::KeeperAdmission,
+        StepId::CoordinatorLink,
     ] {
-        let because = sequence.complete(step);
+        let because = sequence
+            .complete(step)
+            .expect("the executed order is the declared order");
         assert_eq!(because, BOOT_ORDER[step as usize].because);
     }
     assert_eq!(
         sequence.completed(),
-        &[
-            StepId::Identity,
-            StepId::CoordinatorLink,
-            StepId::KeeperAdmission
-        ]
+        &[StepId::Identity, StepId::KeeperAdmission, StepId::CoordinatorLink]
+    );
+}
+
+/// THE GUARD F5 EXISTS FOR. `complete` accepted any order until this landed,
+/// so the stop-time log printed whatever sequence it was handed while the
+/// declaration beside it asserted a different one, and nothing noticed for as
+/// long as both were wrong.
+///
+/// The assertion is against `StepId::ALL` and not against a list written out
+/// again here, because a second list is a second thing to forget to update —
+/// which is exactly how this file's oracle and `boot_sequence` came to
+/// disagree.
+#[test]
+fn a_step_recorded_out_of_order_is_refused_rather_than_logged() {
+    let mut sequence = BootSequence::new();
+    sequence
+        .complete(StepId::Identity)
+        .expect("identity is first");
+
+    let refusal = sequence
+        .complete(StepId::CoordinatorLink)
+        .expect_err("the link is not second; the keeper is");
+    assert_eq!(refusal.step, StepId::CoordinatorLink);
+    assert_eq!(
+        refusal.recorded_names(),
+        vec!["identity"],
+        "the refusal names where boot actually was, so an operator reading it          knows which step is out of place rather than only that one is"
+    );
+    assert_eq!(
+        sequence.completed(),
+        &[StepId::Identity],
+        "a refused step is NOT recorded: the log must not contain an order the \
+         declaration does not allow"
+    );
+
+    // And the whole declared order is accepted, one at a time, end to end.
+    let mut whole = BootSequence::new();
+    for step in StepId::ALL {
+        whole
+            .complete(step)
+            .unwrap_or_else(|refusal| panic!("{}: {refusal}", step.name()));
+    }
+    assert_eq!(
+        whole.completed(),
+        StepId::ALL.as_slice(),
+        "a boot that ran the declared order records exactly it"
+    );
+}
+
+/// A STEP ALREADY RECORDED IS NOT RECORDED AGAIN, and that is a different
+/// refusal from an out-of-order one: it is a boot that reached `ready` twice,
+/// not a boot that reached it early.
+#[test]
+fn a_step_recorded_twice_is_refused() {
+    let mut sequence = BootSequence::new();
+    sequence.complete(StepId::Identity).expect("first");
+    assert!(
+        sequence.complete(StepId::Identity).is_err(),
+        "a second identity is not a stricter boot, it is a different one"
     );
 }
 
@@ -157,7 +219,11 @@ fn the_enum_and_the_array_agree_on_which_step_is_which() {
         // The production accessor, not `BOOT_ORDER[step as usize].because`
         // written out again here: that would restate the very index
         // arithmetic under test and pass whatever the array says.
-        reasons_from_the_enum.push(sequence.complete(step));
+        reasons_from_the_enum.push(
+            sequence
+                .complete(step)
+                .expect("StepId::ALL is the order complete accepts"),
+        );
     }
 
     let names_from_the_array: Vec<&str> = BOOT_ORDER.iter().map(|step| step.name).collect();

@@ -31,11 +31,11 @@ pub const BOOT_ORDER: [BootStep; 5] = [
     },
     BootStep {
         name: "keeper-admission",
-        because: "a surviving keeper is adopted or proved empty INSIDE the reconcile, once that set is in hand, because 'this keeper holds no channels' is not the proof — a session the coordinator still lists as open is one somebody is looking at, and replacing its keeper ends it",
+        because: "the keeper is admitted BEFORE the link is built, because the survivor decision reads the coordinator's open-session set over Connect and that read needs no socket of ours, while the link object dispatches browser commands into the session layer that is built over the keeper — so the link cannot exist before the keeper, and a machine that replaced its keeper on an unread set would end somebody's terminal",
     },
     BootStep {
         name: "coordinator-link",
-        because: "the link dials before the keeper is admitted, because the survivor decision needs the coordinator's COMPLETE open-session set, and a set nobody has read cannot decide whether a replacement ends somebody's terminal",
+        because: "the link is recorded after the keeper and its DIAL is last of all, because the object is built over the session layer and the session layer over the pool, and the dial is `link.run` at the end of boot — the previous text here claimed the link DIALS before the keeper is admitted, which was false and sent an incident reader to the wrong place",
     },
     BootStep {
         name: "session-reconcile",
@@ -100,14 +100,52 @@ impl BootSequence {
     pub fn new() -> Self {
         Self::default()
     }
+}
 
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{} cannot be recorded while boot has recorded {recorded:?}", step.name())]
+pub struct StepOutOfOrder {
+    /// The step that was asked for.
+    pub step: StepId,
+    /// What had been recorded when it was asked for, in order.
+    pub recorded: Vec<StepId>,
+}
+
+impl StepOutOfOrder {
+    /// The names of what was already recorded, in order.
+    pub fn recorded_names(&self) -> Vec<&'static str> {
+        self.recorded.iter().map(|step| step.name()).collect()
+    }
+}
+
+impl BootSequence {
     /// Record a step, and return the reason it is where it is so the caller can
     /// log the two together.
-    pub fn complete(&mut self, step: StepId) -> &'static str {
+    ///
+    /// **THIS REFUSES AN OUT-OF-ORDER STEP, and refusing is the whole point of
+    /// F5.** It accepted any order until now, which is why the declaration and
+    /// the execution could disagree for so long with nothing noticing: the log
+    /// printed whatever sequence it was given, and the declaration beside it
+    /// asserted a different one. A boot that records `coordinator-link` before
+    /// `keeper-admission` is a boot whose own log contradicts its own
+    /// architecture, and a refusal is the only answer that stops it being
+    /// written.
+    ///
+    /// The rule is `StepId::ALL` POSITIONALLY, so it is the same array the
+    /// declaration is, and a step is legal exactly when it is the one after
+    /// everything already recorded. Re-recording a step is refused too: a
+    /// second `ready` is not a stricter boot, it is a different one.
+    pub fn complete(&mut self, step: StepId) -> Result<&'static str, StepOutOfOrder> {
+        let expected = self.completed.len();
+        if StepId::ALL.get(expected) != Some(&step) {
+            return Err(StepOutOfOrder {
+                step,
+                recorded: self.completed.clone(),
+            });
+        }
         self.completed.push(step);
-        BOOT_ORDER[step as usize].because
+        Ok(BOOT_ORDER[step as usize].because)
     }
-
     /// The steps completed, in order.
     pub fn completed(&self) -> &[StepId] {
         &self.completed

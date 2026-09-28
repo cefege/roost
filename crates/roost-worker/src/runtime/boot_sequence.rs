@@ -62,7 +62,9 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     // 1. Identity, settled by `serve_until` before anything was probed or
     //    spawned. The step is recorded so the log says where the refusals
     //    happened.
-    let because = sequence.complete(StepId::Identity);
+    let because = sequence
+        .complete(StepId::Identity)
+        .map_err(|refusal| anyhow::anyhow!("boot refused: {refusal}"))?;
     tracing::info!(
         step = StepId::Identity.name(),
         because,
@@ -157,7 +159,9 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     let admission = reconcile::admit_keeper(&boot, &coordinator_client).await?;
     let keeper_admitted = matches!(admission, reconcile::KeeperAdmission::Owned(_));
 
-    let because = sequence.complete(StepId::KeeperAdmission);
+    let because = sequence
+        .complete(StepId::KeeperAdmission)
+        .map_err(|refusal| anyhow::anyhow!("boot refused: {refusal}"))?;
     tracing::info!(
         step = StepId::KeeperAdmission.name(),
         because,
@@ -296,7 +300,9 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     //    `BOOT_ORDER` states the link before the keeper for the DECISION — the
     //    survivor decision needs the coordinator's open-session set — and that
     //    set is read at step 5 over Connect, not over this socket.
-    let because = sequence.complete(StepId::CoordinatorLink);
+    let because = sequence
+        .complete(StepId::CoordinatorLink)
+        .map_err(|refusal| anyhow::anyhow!("boot refused: {refusal}"))?;
     tracing::info!(
         step = StepId::CoordinatorLink.name(),
         because,
@@ -334,7 +340,9 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     //     sessions. `Readiness::advance` refuses any other sequence rather than
     //     trusting this function, and an advance that fails is a BOOT REFUSAL
     //     for the same reason.
-    let because = sequence.complete(StepId::SessionReconcile);
+    let because = sequence
+        .complete(StepId::SessionReconcile)
+        .map_err(|refusal| anyhow::anyhow!("boot refused: {refusal}"))?;
     tracing::info!(
         step = StepId::SessionReconcile.name(),
         because,
@@ -350,7 +358,9 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     readiness = readiness
         .advance(ReadyStep::MarkedReady)
         .map_err(|refusal| anyhow::anyhow!("boot refused: {refusal}"))?;
-    let because = sequence.complete(StepId::Ready);
+    let because = sequence
+        .complete(StepId::Ready)
+        .map_err(|refusal| anyhow::anyhow!("boot refused: {refusal}"))?;
     tracing::info!(
         step = StepId::Ready.name(),
         because,
