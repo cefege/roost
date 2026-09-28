@@ -2,6 +2,7 @@
 //! `apps/web/tests/folderPalette.test.ts`, plus the identity and display rules
 //! of `apps/web/src/lib/nativePath.ts` that the sidebar's folder keys and
 //! labels depend on.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_client_core::store::WorkerPaths;
 use roost_web::platform::worker_paths::palette::{

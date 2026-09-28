@@ -86,6 +86,11 @@ fn the_target_clears_only_once_the_dom_reaches_its_captured_watermark() {
     assert_eq!(repair.next_deadline_ms(), Some(DOM_RECONCILIATION_PROOF_MS));
     pane.reconciled = mark(2);
     repair.note_reconciled(&pane);
+    assert_eq!(
+        repair.next_deadline_ms(),
+        None,
+        "reaching the watermark retires the target and its deadline"
+    );
     repair.on_deadline(DOM_RECONCILIATION_PROOF_MS, &mut pane);
     assert!(pane.recoveries.is_empty());
 }

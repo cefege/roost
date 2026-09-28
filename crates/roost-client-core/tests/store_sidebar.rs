@@ -149,7 +149,7 @@ fn the_folder_filter_matches_every_term_across_name_machine_and_path() {
     let groups = [web.clone(), api.clone()];
     assert_eq!(
         filter_folder_groups(&groups, " WEB\n build /apps/web "),
-        [web.clone()]
+        std::slice::from_ref(&web)
     );
     assert_eq!(filter_folder_groups(&groups, "deploy /apps/api"), [api]);
 }

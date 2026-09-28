@@ -157,7 +157,7 @@ pub fn build_folder_groups_from(
         .into_iter()
         .filter_map(|(key, members)| group_of(store, paths, now_ms, key, &members))
         .collect();
-    groups.sort_by(|left, right| right.latest_activity.cmp(&left.latest_activity));
+    groups.sort_by_key(|group| std::cmp::Reverse(group.latest_activity));
     groups
 }
 

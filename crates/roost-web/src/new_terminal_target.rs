@@ -41,7 +41,7 @@ pub fn default_new_terminal_worker_fp(
         return Some(active.to_owned());
     }
     let mut sessions = all_sessions(store);
-    sessions.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+    sessions.sort_by_key(|session| std::cmp::Reverse(session.created_at));
     sessions
         .iter()
         .map(|session| session.worker_fp.as_str())
