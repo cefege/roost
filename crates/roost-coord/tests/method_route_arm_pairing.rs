@@ -15,6 +15,22 @@
 //! Both directions are asserted. A one-sided guard catches a row that lies and
 //! would pass on a row that under-claims, which is the drift this file exists
 //! to stop.
+//!
+//! # THIS PARSER IS A RATCHET, NOT THE DESTINATION
+//!
+//! It has already been repaired twice under test — once for the arm spellings,
+//! once because a `delegated_reply` puts its method literal on the line below
+//! the marker, which a line-oriented scan cannot see. **Both repairs were
+//! parser improvements rather than design changes, and that is the signal: an
+//! invariant enforced by reading two hand-maintained statements of one value
+//! keeps costing parser maintenance forever** (CLAUDE.md rule 10 — "two
+//! hand-maintained statements of one value is the defect this repo pays for
+//! most"; a text guard over them is what that defect costs).
+//!
+//! **The design that retires this file is to make an arm CARRY its row**, so
+//! there is one statement to drift and nothing to parse. The `search` slice
+//! starts there. A working parser here is a sign of a missing design, not an
+//! achievement — so do not spend a third repair on the pattern.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
