@@ -224,6 +224,8 @@ fn hello(contract: &KeeperContractV1, live: usize) -> Result<MuxFrame, CodecErro
             observation: KeeperObservation {
                 contract: contract.clone(),
                 live_channel_count: live as u32,
+                keeper_pid: None,
+                process_epoch: None,
             },
             // Every feature this build requires, which is what the client's own
             // hello refuses a keeper for lacking.

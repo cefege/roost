@@ -144,11 +144,9 @@ async fn a_fail_closed_core_is_reproved_from_keeper_history_on_the_next_desire()
     *held(&harness.keeper.history) = Some(SurvivorHistory {
         records: vec![
             HistoryRecord::Output {
-                seq: 1,
                 bytes: b"BEFORE-TRAP".to_vec(),
             },
             HistoryRecord::Output {
-                seq: 2,
                 bytes: b"\r\nAFTER-TRAP".to_vec(),
             },
         ],

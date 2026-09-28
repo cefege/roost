@@ -64,6 +64,16 @@ pub struct SpawnRequest {
     /// Which core lease this spawn takes: `Fresh`, or `Replacement` for a
     /// respawn of a session this worker still holds (v2 `session-respawn.ts:78`).
     pub core_allocation: TerminalCoreAllocationKind,
+    /// Who gives the two claims back when the spawn fails.
+    pub claims: ClaimsOnFailure,
+}
+
+/// Who owns the claims of a spawn that failed (v2 `releaseReservationsOnFailure`):
+/// the spawn itself, or a caller that releases them after its own retries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClaimsOnFailure {
+    Release,
+    Keep,
 }
 
 /// The keeper seam: open a PTY from a resolved launch contract.
@@ -99,6 +109,13 @@ pub trait ShellSpawner: Send + Sync {
 /// environment.
 pub trait ShellSpecResolver: Send + Sync {
     fn resolve_shell_spec(&self, cwd: &str, session_id: &str) -> Result<ShellSpec, String>;
+}
+
+/// The per-session variables every launch contract carries — the agent
+/// report endpoint and its capability, derived from the session id. An `Err`
+/// refuses the spawn: a PTY must not carry an endpoint nobody serves.
+pub trait SessionEnvironmentOverlay: Send + Sync {
+    fn session_overlay(&self, session_id: &str) -> Result<Vec<(String, String)>, String>;
 }
 
 /// The collaborators one spawn borrows for its duration.
@@ -163,6 +180,22 @@ pub async fn spawn_shell(
     request: SpawnRequest,
     now_ms: i64,
 ) -> Result<SessionRecord, SpawnRefusal> {
+    let claims = request.claims;
+    let spawned = spawn_claimed(context, opened_reservation, close_reservation, binding, request, now_ms).await;
+    if spawned.is_err() && claims == ClaimsOnFailure::Release {
+        release_both(context.events, opened_reservation, close_reservation).await;
+    }
+    spawned
+}
+
+async fn spawn_claimed(
+    context: &SpawnContext<'_>,
+    opened_reservation: Reservation,
+    close_reservation: Reservation,
+    binding: Arc<dyn ChannelBinding>,
+    request: SpawnRequest,
+    now_ms: i64,
+) -> Result<SessionRecord, SpawnRefusal> {
     let cols = if request.cols == 0 {
         DEFAULT_SPAWN_COLS
     } else {
@@ -207,7 +240,6 @@ pub async fn spawn_shell(
     let lease = match context.core_capacity.reserve(request.core_allocation) {
         Ok(lease) => lease,
         Err(refusal) => {
-            release_both(context.events, opened_reservation, close_reservation).await;
             return Err(SpawnRefusal::TerminalCoreCapacity(refusal));
         }
     };
@@ -251,7 +283,6 @@ pub async fn spawn_shell(
         Ok(child_pid) => child_pid,
         Err(reason) => {
             context.core_capacity.release_channel(raw_channel);
-            release_both(context.events, opened_reservation, close_reservation).await;
             return Err(SpawnRefusal::KeeperRefused { channel_id, reason });
         }
     };

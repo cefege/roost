@@ -27,7 +27,7 @@ use roost_worker::event_store::{DurableEventKind, Reservation, Store};
 use roost_worker::session::sinks::{
     ChannelBinding, EventFuture, SessionEventError, SessionEventSink,
 };
-use roost_worker::session::spawn::{ShellSpawner, ShellSpecResolver, SpawnContext, SpawnRequest};
+use roost_worker::session::spawn::{ShellSpawner, ShellSpecResolver, SpawnContext, SpawnRequest, ClaimsOnFailure};
 use roost_worker::shell_spec::ShellSpec;
 use roost_worker::terminal_core_capacity::{
     TERMINAL_CORE_ALLOCATION_BYTES, TerminalCoreAllocationKind, TerminalCoreCapacity,
@@ -256,6 +256,7 @@ pub fn request(channel_id: i64) -> SpawnRequest {
         shell_spec: None,
         event: DurableEventKind::Opened,
         core_allocation: TerminalCoreAllocationKind::Fresh,
+        claims: ClaimsOnFailure::Release,
     }
 }
 

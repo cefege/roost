@@ -79,6 +79,8 @@ fn fake_keeper(socket: &std::path::Path, output: Vec<Vec<u8>>) -> std::thread::J
                             observation: KeeperObservation {
                                 contract: contract.clone(),
                                 live_channel_count: 1,
+                                keeper_pid: None,
+                                process_epoch: None,
                             },
                             features,
                             contract,

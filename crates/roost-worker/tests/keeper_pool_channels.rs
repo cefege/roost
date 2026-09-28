@@ -70,12 +70,12 @@ fn an_exited_channel_is_omitted_from_the_live_bindings() {
     );
 }
 
-/// A LOST KEEPER IS NOT A LOST TERMINAL. The keeper outlives its connection, so
-/// every PTY it was driving may still be running in it; the sessions are told
-/// the connection is gone, not that their shells ended. And they are told ONCE,
-/// because a channel that ends twice is a close the caller sees twice.
+/// v2's socket-close handler (`keeper-pool-lifecycle.ts`): a lost keeper ends
+/// every channel it drove with `onExit(null)` — ONCE, because a channel that ends
+/// twice is a close the caller sees twice — and fires the death hook once, which
+/// is what drives the reconcile that respawns the sessions.
 #[test]
-fn a_lost_keeper_tells_every_channel_exactly_once() {
+fn a_lost_keeper_ends_every_channel_exactly_once() {
     let keeper = KeeperFixture::start();
     let pool = keeper.pool();
     let (first, first_record) = session("first");
@@ -101,18 +101,24 @@ fn a_lost_keeper_tells_every_channel_exactly_once() {
         "the keeper opens a real PTY",
     );
 
+    let deaths = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = Arc::clone(&deaths);
+    pool.set_on_keeper_death(Arc::new(move || {
+        counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }));
     pool.keeper_lost("the keeper process ended".to_string());
     pool.keeper_lost("the keeper process ended".to_string());
 
     for record in [&first_record, &second_record] {
         let seen = record.settled();
-        assert_eq!(seen.exit, None, "the PTY may still be running");
-        assert_eq!(
-            seen.error.as_deref(),
-            Some("the keeper process ended"),
-            "every channel is told once, with the reason"
-        );
+        assert_eq!(seen.exit, Some(None), "every channel ends with no exit code");
+        assert_eq!(seen.error, None, "a death is an ending, not a break");
     }
+    assert_eq!(
+        deaths.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "the death hook fires once per lost connection"
+    );
     assert!(
         pool.live_bindings().is_empty(),
         "a lost keeper owns nothing here"

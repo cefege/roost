@@ -198,6 +198,11 @@ impl KeeperFixture {
         }
     }
 
+    /// The socket this keeper listens on.
+    pub fn socket(&self) -> &std::path::Path {
+        &self.socket
+    }
+
     /// A pool driving this keeper, with its dispatch loop running.
     pub fn pool(&self) -> Arc<KeeperPool> {
         let client =

@@ -1,6 +1,7 @@
 //! The session layer's PTY-input entry points: coordinator input under a
 //! request budget and live browser authority, worker-owned input under
-//! neither, and the legacy unacknowledged binary frame. Called by
+//! neither, the legacy unacknowledged binary frame, and the agent prompt's
+//! held lane (`agents::prompt_control`). Called by
 //! `terminal_input::InputOwner` (the coordinator link), the query-reply lane,
 //! and the local door. Ports the input half of v2
 //! `apps/worker/src/session/session-terminal-control.ts` and
@@ -19,8 +20,8 @@ use std::sync::{Arc, Mutex};
 use roost_protocol::wire::brand::SessionId;
 
 use super::binding::CellDelivery;
-use super::keeper_admission::{Admission, AdmissionKind};
-use super::keeper_channels::KeeperInputResult;
+use super::keeper_admission::{Admission, AdmissionKind, AdmissionTicket};
+use super::keeper_channels::{KeeperChannels, KeeperInputCommand, KeeperInputResult};
 use super::lifecycle::SessionManager;
 use super::table::SessionTable;
 use crate::uplink::OwnerFuture;
@@ -160,8 +161,7 @@ impl SessionManager {
             }
             mark_input_sensitive(&sessions, &cells, channel_id);
             let expected = bytes.len() as u32;
-            let begun =
-                tokio::task::spawn_blocking(move || keeper.begin_input(channel_id, bytes)).await;
+            let begun = begin_keeper_input(&keeper, channel_id, bytes).await;
             // The ordering boundary is the request on the socket, not its answer.
             ticket.release();
             let command = match begun {
@@ -192,6 +192,86 @@ impl SessionManager {
             }
         })
     }
+}
+
+/// A write-ordering slot held across more than one keeper batch: the agent
+/// prompt's text and the CR that submits it. v2 `acquireKeeperAdmission(..,
+/// "terminal_input")` plus the pool's `beginInput`, as
+/// agent-prompt-{control,submit}.ts use them.
+pub struct HeldInputLane {
+    ticket: AdmissionTicket,
+    channel_id: u16,
+    sessions: Arc<SessionTable>,
+    cells: Arc<Mutex<dyn CellDelivery>>,
+    keeper: Arc<dyn KeeperChannels>,
+}
+
+impl std::fmt::Debug for HeldInputLane {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("HeldInputLane")
+            .field("channel_id", &self.channel_id)
+            .finish_non_exhaustive()
+    }
+}
+
+impl SessionManager {
+    /// Take the channel's terminal-input slot now, to be granted in receive
+    /// order and held until [`HeldInputLane::release`].
+    pub fn admit_held_input(&self, channel_id: u16) -> Result<HeldInputLane, &'static str> {
+        let branded = self
+            .sessions
+            .with_channel_record(channel_id, |record| record.channel_id())
+            .ok_or(SESSION_NOT_LIVE)?;
+        match self.lanes.admit(branded, AdmissionKind::TerminalInput) {
+            Admission::Granted(ticket) => Ok(HeldInputLane {
+                ticket,
+                channel_id,
+                sessions: Arc::clone(&self.sessions),
+                cells: Arc::clone(&self.cells),
+                keeper: Arc::clone(&self.keeper),
+            }),
+            Admission::Refused(reason) => Err(reason),
+        }
+    }
+}
+
+impl HeldInputLane {
+    pub fn channel_id(&self) -> u16 {
+        self.channel_id
+    }
+
+    /// Resolves once every earlier ticket on the channel has released.
+    pub async fn granted(&self) {
+        self.ticket.granted().await;
+    }
+
+    /// Queue the input-echo promotion. `false` when the channel is gone.
+    pub fn mark_input_sensitive(&self) -> bool {
+        mark_input_sensitive(&self.sessions, &self.cells, self.channel_id)
+    }
+
+    /// `None` when the blocking begin itself failed (v2 `beginInput` threw).
+    pub async fn begin_input(&self, bytes: Vec<u8>) -> Option<KeeperInputCommand> {
+        begin_keeper_input(&self.keeper, self.channel_id, bytes)
+            .await
+            .ok()
+    }
+
+    pub fn release(&self) {
+        self.ticket.release();
+    }
+}
+
+/// The one path a keeper input batch is begun on; blocking because the pool
+/// writes the request to its socket before it answers.
+async fn begin_keeper_input(
+    keeper: &Arc<dyn KeeperChannels>,
+    channel_id: u16,
+    bytes: Vec<u8>,
+) -> Result<KeeperInputCommand, tokio::task::JoinError> {
+    let keeper = Arc::clone(keeper);
+    tokio::task::spawn_blocking(move || keeper.begin_input(channel_id, bytes)).await
 }
 
 /// The rechecks that run after the lane is granted and before the keeper write,

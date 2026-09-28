@@ -41,6 +41,7 @@ impl CellEmitter {
         let end_seq = append_pty_chunk(record, chunk, &mut |session_id, cwd| {
             note_cwd_change(cwd_events, channel_id, session_id, cwd, now_ms);
         });
+        self.capture.retain_output(record, end_seq, chunk);
         answer_terminal_queries(record, chunk, &self.query_replies);
         self.observe_sync_output(channel_id, chunk);
         let input_echo = self.consume_input_echo_promotion(channel_id);
@@ -76,6 +77,7 @@ impl CellEmitter {
         let end_seq = append_pty_chunk(record, chunk, &mut |session_id, cwd| {
             note_cwd_change(cwd_events, channel_id, session_id, cwd, now_ms);
         });
+        self.capture.retain_output(record, end_seq, chunk);
         advance_captured_query_carry(record, chunk);
         self.observe_sync_output(channel_id, chunk);
         let input_echo = self.consume_input_echo_promotion(channel_id);

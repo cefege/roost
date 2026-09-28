@@ -38,18 +38,25 @@ impl KeeperPipelineSource for KeeperPool {
     }
 
     fn keeper_facts(&self, channel_id: u16, now: Instant) -> KeeperPipelineFacts {
-        keeper_facts_from_pending(&self.pending_input(channel_id), now)
+        keeper_facts_from_pending(&self.pending_input(channel_id), &self.pending_resize_starts(channel_id), now)
     }
 }
 
-/// v2 `sampleKeeperFacts` for one channel: every pending input is one frame
-/// aged from its start, and the usage ledger can only raise the frame count.
-/// `KeeperPool::resize` is one synchronous round trip with no pending table, so
-/// no resize is ever observed in flight here.
-pub fn keeper_facts_from_pending(pending: &PendingInputUsage, now: Instant) -> KeeperPipelineFacts {
+/// v2 `sampleKeeperFacts` for one channel: every pending input and every
+/// pending resize is one frame aged from its start, and the usage ledger can
+/// only raise the input frame count (`terminal-pipeline-snapshot.ts:160-180`).
+pub fn keeper_facts_from_pending(
+    pending: &PendingInputUsage,
+    resize_starts: &[Instant],
+    now: Instant,
+) -> KeeperPipelineFacts {
     let mut facts = KeeperPipelineFacts::default();
     for started in &pending.started {
         facts.input_frames += 1;
+        facts.observe_age(age_ms(now.saturating_duration_since(*started).as_millis()));
+    }
+    for started in resize_starts {
+        facts.resize_frames += 1;
         facts.observe_age(age_ms(now.saturating_duration_since(*started).as_millis()));
     }
     facts.input_frames = facts.input_frames.max(u64::from(pending.commands));

@@ -16,15 +16,17 @@
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use roost_keeper::client_resize::{ResizeOutcome as KeeperResize, ResizeRejectReason};
+use roost_protocol::terminal_capture::bundle::TerminalWorkerResizeOutcome;
 use roost_protocol::wire::brand::ChannelId;
 
 use super::binding::ChannelDelivery;
 use super::ids::mint_uuid;
 use super::lifecycle::SessionManager;
 use super::query_reply::answer_queries;
-use super::resize_pin::{PinInputs, pin_for};
+use super::resize_pin::{CoreCounters, PinInputs, pin_for};
 use super::types::SessionRecord;
 use crate::browser_commands::Refusal;
+use crate::capture::ResizeBoundaryNote;
 
 /// What a resize did at the keeper's boundary (v2 `applyResizeResultAtBoundary`
 /// and the transaction's admission check, as one answer).
@@ -86,26 +88,29 @@ impl SessionManager {
             ));
         };
         let seq = self.channel_resize_seq(raw) + 1;
-        let (from, install_seq, query_carry) = {
+        let boundary = {
             let record = lock(&entry);
             let from = (record.terminal_core.cols(), record.terminal_core.rows());
             if from == (cols, rows) {
                 return Ok(ResizeOutcome::Unchanged);
             }
-            if !lock(&self.ingest).freeze_capture(channel_id, self.clock.now_epoch_ms()) {
+            let delivery = lock(&self.ingest);
+            if !delivery.freeze_capture(channel_id, self.clock.now_epoch_ms()) {
                 return Ok(ResizeOutcome::NotWritten {
                     reason: format!("channel {raw} already has an unresolved resize in flight"),
                 });
             }
-            (from, record.head_seq, record.query_carry.clone())
+            let boundary = OpenBoundary {
+                seq,
+                install_seq: record.head_seq,
+                from,
+                to: (cols, rows),
+                query_carry: record.query_carry.clone(),
+            };
+            note_resize(&*delivery, &record, &boundary, None);
+            boundary
         };
-        let boundary = OpenBoundary {
-            seq,
-            install_seq,
-            from,
-            to: (cols, rows),
-            query_carry,
-        };
+        let (from, install_seq) = (boundary.from, boundary.install_seq);
         tracing::info!(channel_id = raw, seq, ?from, to = ?(cols, rows), install_seq, "a resize boundary opened and its request went to the keeper");
         let answer = match self.keeper.resize_channel(raw, seq, cols, rows) {
             Err(fault) => BoundaryAnswer::NotWritten(fault.reason),
@@ -153,10 +158,19 @@ impl SessionManager {
         let (outcome, loss) = {
             let mut record = lock(&entry);
             let delivery = lock(&self.ingest);
+            let boundary_seq = record.head_seq;
             let captured = delivery.close_capture(channel_id);
+            let captured_bytes = captured.bytes.len() as u64;
             if captured.overflowed {
                 let reason = "resize boundary output was evicted before alignment";
-                return trap_boundary(&record, &*delivery, boundary, reason);
+                return trap_boundary(
+                    &record,
+                    &*delivery,
+                    boundary,
+                    reason,
+                    CORE_FAILED,
+                    captured_bytes,
+                );
             }
             // Answering the held bytes IS their core write, at the old size.
             let mut carry = boundary.query_carry.clone();
@@ -169,16 +183,41 @@ impl SessionManager {
                 BoundaryAnswer::Applied { seq, cols, rows } => {
                     if seq != boundary.seq || (cols, rows) != boundary.to {
                         let reason = "keeper acknowledged conflicting resize geometry";
-                        return trap_boundary(&record, &*delivery, boundary, reason);
+                        return trap_boundary(
+                            &record,
+                            &*delivery,
+                            boundary,
+                            reason,
+                            CORE_FAILED,
+                            captured_bytes,
+                        );
                     }
                     match self.resize_in_place(&mut record, &*delivery, boundary.to) {
                         Ok(loss) => (ResizeOutcome::Applied { cols, rows }, loss),
                         Err(reason) => {
-                            return trap_boundary(&record, &*delivery, boundary, &reason);
+                            return trap_boundary(
+                                &record,
+                                &*delivery,
+                                boundary,
+                                &reason,
+                                CORE_FAILED,
+                                captured_bytes,
+                            );
                         }
                     }
                 }
             };
+            let outcome = if matches!(settled.0, ResizeOutcome::Applied { .. }) {
+                TerminalWorkerResizeOutcome::Accepted
+            } else {
+                TerminalWorkerResizeOutcome::Rejected
+            };
+            note_resize(
+                &*delivery,
+                &record,
+                boundary,
+                Some((outcome, captured_bytes, Some(boundary_seq))),
+            );
             if let Some(emission) = delivery.stream_emission() {
                 emission.forward_query_replies(&record, replies);
             }
@@ -255,6 +294,34 @@ impl SessionManager {
     }
 }
 
+const CORE_FAILED: TerminalWorkerResizeOutcome = TerminalWorkerResizeOutcome::CoreFailed;
+
+/// v2 `noteResizeInstall` (`result: None`) / `noteResizeResult`: the
+/// recorder's resize record, noted under the record and delivery locks.
+pub(super) fn note_resize(
+    delivery: &dyn ChannelDelivery,
+    record: &SessionRecord,
+    boundary: &OpenBoundary,
+    result: Option<(TerminalWorkerResizeOutcome, u64, Option<u64>)>,
+) {
+    let Some(emission) = delivery.stream_emission() else {
+        return;
+    };
+    let tap = emission.capture_tap();
+    let note = ResizeBoundaryNote {
+        resize_seq: boundary.seq,
+        install_seq: boundary.install_seq,
+        from: boundary.from,
+        to: boundary.to,
+    };
+    match result {
+        None => tap.resize_install(record, &note),
+        Some((outcome, captured_bytes, boundary_seq)) => {
+            tap.resize_result(record, &note, outcome, captured_bytes, boundary_seq);
+        }
+    }
+}
+
 /// Latch a core whose boundary cannot be proven (v2 `failCore`). The caller has
 /// already closed the capture, so its gate is back; the latch is what keeps
 /// emission refused and later chunks on the retain-only lane.
@@ -263,7 +330,15 @@ pub(super) fn trap_boundary(
     delivery: &dyn ChannelDelivery,
     boundary: &OpenBoundary,
     reason: &str,
+    outcome: TerminalWorkerResizeOutcome,
+    captured_bytes: u64,
 ) -> ResizeOutcome {
+    note_resize(
+        delivery,
+        record,
+        boundary,
+        Some((outcome, captured_bytes, None)),
+    );
     let channel_id = record.channel_id();
     match delivery.stream_emission() {
         Some(emission) => emission.trap_core(channel_id),
@@ -300,27 +375,5 @@ pub(super) fn report_capture_loss(channel_id: u16, loss: Option<CaptureLoss>) {
             replay_lost_rows = loss.rows,
             "this resize moved the history floor: rows a never-resized session would still hold are gone"
         );
-    }
-}
-
-/// The two counters a pin is computed from.
-struct CoreCounters {
-    discarded: u64,
-    total: u64,
-}
-
-impl CoreCounters {
-    fn read(record: &SessionRecord) -> Self {
-        let discarded = record.terminal_core.discarded_line_count().unwrap_or(0);
-        Self {
-            discarded,
-            total: discarded + record.terminal_core.scrollback_count() as u64,
-        }
-    }
-
-    /// The rows the core still holds, as opposed to the `total` it has ever
-    /// held: a pin's fresh count is a LOSS measure.
-    fn retained(&self) -> u64 {
-        self.total.saturating_sub(self.discarded)
     }
 }

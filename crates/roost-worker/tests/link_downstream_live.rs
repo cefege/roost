@@ -76,7 +76,7 @@ async fn a_live_link_dispatches_answers_and_calls_every_lifecycle_hook_across_a_
     };
     assert_eq!(
         capabilities,
-        roost_worker::runtime::capabilities::advertised()
+        roost_worker::runtime::capabilities::advertised(Default::default())
     );
     // v2 `coord-link-deps.ts:96-100` + `main.ts:181-185`, by the protocol's own spellings.
     for capability in [
