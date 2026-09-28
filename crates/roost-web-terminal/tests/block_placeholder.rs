@@ -14,10 +14,23 @@ fn a_measured_block_height_is_two_decimals_of_rows_times_row_height() {
     assert_eq!(block_placeholder(1, 16.0), "16.00px");
     assert_eq!(block_placeholder(3, 16.75), "50.25px");
     assert_eq!(block_placeholder(0, 16.75), "0.00px");
+    assert_eq!(block_placeholder(250, 16.0), "4000.00px");
+}
+
+#[test]
+fn an_exact_two_decimal_tie_rounds_away_from_zero_like_to_fixed() {
+    // 1/64-px layout units make these pitches ordinary; v2's `toFixed(2)`
+    // stamps the tie's larger neighbour, where `{:.2}` would pick the even one.
+    assert_eq!(block_placeholder(24, 16.796875), "403.13px");
+    assert_eq!(block_placeholder(1, 16.125), "16.13px");
+    assert_eq!(block_placeholder(1, 16.625), "16.63px");
+    assert_eq!(block_placeholder(1, 16.375), "16.38px");
+    assert_eq!(block_placeholder(8, 16.796875), "134.38px");
 }
 
 #[test]
 fn an_unmeasured_block_reserves_the_default_row_pitch() {
+    assert_eq!(block_placeholder(10, 0.0), "168.00px");
     let expected = format!("{:.2}px", f64::from(7) * DEFAULT_CELL_ROW_PX);
     assert_eq!(block_placeholder(7, 0.0), expected);
     assert_eq!(block_placeholder(7, -3.0), expected);

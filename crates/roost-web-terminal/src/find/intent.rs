@@ -1,14 +1,9 @@
 //! One-shot handoff from fleet-wide content search to pane-local terminal
 //! find. A mounted pane consumes an intent immediately; a cold pane consumes the
 //! latest one on registration. A credential boundary clears both the mounted
-//! callbacks and the pending session identities.
-//!
-//! The registry is a VALUE, not a module singleton: v2 held it in a module-level
-//! `Map` that only a credential reset emptied, which is exactly the shape that
-//! leaks one credential's session ids into the next. Here the owner is whoever
-//! holds the registry, so a boundary is `reset()` on a value the boundary owns.
-//!
-//! Ported from `apps/web/src/renderer/terminalFindIntent.ts`.
+//! callbacks and the pending session identities. The registry is a value its
+//! owner resets, not a module singleton. Ports
+//! `apps/web/src/renderer/terminalFindIntent.ts`.
 
 use std::collections::BTreeMap;
 
@@ -111,6 +106,7 @@ impl FindIntentRegistry {
         self.registrations
             .insert(session_id.to_string(), (id, sink));
         if let Some(intent) = self.pending.remove(session_id) {
+            tracing::info!(target: "find", session_id, "find intent consumed on pane mount");
             self.apply(session_id, &intent);
         }
         id
@@ -136,9 +132,11 @@ impl FindIntentRegistry {
     ) {
         let intent = options.intent(literal_query);
         if self.registrations.contains_key(session_id) {
+            tracing::info!(target: "find", session_id, "find intent applied to mounted pane");
             self.apply(session_id, &intent);
             return;
         }
+        tracing::info!(target: "find", session_id, "find intent held for pane mount");
         self.pending.insert(session_id.to_string(), intent);
     }
 
@@ -158,6 +156,12 @@ impl FindIntentRegistry {
     /// must not survive into the next one, because a pane mounting afterwards
     /// would consume a query the new credential never issued.
     pub fn reset(&mut self) {
+        tracing::info!(
+            target: "find",
+            mounted = self.registrations.len(),
+            pending = self.pending.len(),
+            "find intents reset at credential boundary"
+        );
         self.registrations.clear();
         self.pending.clear();
     }

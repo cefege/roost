@@ -1,25 +1,16 @@
-//! The DOM the renderer owns: the element tree it builds inside a container,
-//! the exact-height placeholders it stamps on scrollback blocks, and the two
-//! node operations the layout needs.
-//!
-//! `CellGridRenderer` composes these; nothing else constructs or destroys a
-//! terminal element. The container is stamped with BOTH `wterm` and
-//! `cell-grid` because the first carries the overflow rules that make history
-//! scrollable at all and the second scopes every cell-grid rule.
-//!
-//! Only the head spacer is an `HtmlElement`, and only because `offset_top` is
-//! the one measured offset the renderer reads off it. Everything else is an
-//! `Element`, which keeps the structural calls unambiguous: a web-sys element
-//! implements `AsRef` for its whole IDL chain, so an `as_ref()` on one is
-//! ambiguous between `Node`, `Element` and the document.
-
-use wasm_bindgen::JsCast;
-use web_sys::{Document, Element, HtmlElement, Node};
+//! The DOM the renderer owns: the element tree it builds inside a container
+//! (stamped BOTH `wterm`, which makes history scrollable, and `cell-grid`), the
+//! exact-height placeholders on scrollback blocks, and the probe and box reads
+//! the layout needs. `CellGridRenderer` composes these through `RenderElement`.
+//! Ports `apps/web/src/renderer/cellRendererDom.ts`.
 
 use crate::block_placeholder::{DEFAULT_CELL_ROW_PX, block_placeholder};
 use crate::cell_geometry::{TerminalCellGeometry, grid_geometry_from_box};
-use crate::element_style::set_style_property;
+use crate::render_element::RenderElement;
 use roost_protocol::cell::{CellGridFrame, spans_text};
+
+#[cfg(target_arch = "wasm32")]
+pub use web_nodes::{as_node, create_div, create_span, detach, is_child_of};
 
 /// The only two ways element creation fails: a tag name the document rejects,
 /// and a `div` that comes back as something the renderer cannot stamp inline
@@ -37,8 +28,7 @@ pub enum DomSetupError {
     },
     /// The document produced a tag the renderer stamps inline styles on, but
     /// not as an HTML element — an XML document's `div`, where `style` has
-    /// nowhere to land. The renderer's geometry would be derived from reserved
-    /// pixels the element never reserves.
+    /// nowhere to land.
     #[error("the document produced a {tag} that is not an HTML element")]
     NotHtmlElement {
         /// The tag the renderer asked for.
@@ -51,22 +41,20 @@ pub type DomResult<T> = Result<T, DomSetupError>;
 
 /// The elements a renderer owns inside its container.
 #[derive(Debug)]
-pub struct CellRendererElements {
-    /// The document the container lives in; every created node comes from it.
-    pub doc: Document,
+pub struct CellRendererElements<E> {
     /// Reserved height of the unpainted history HEAD, a SIBLING of the
     /// scrollback sheet. Sibling placement is load-bearing: the sheet's first
     /// child is the eviction unit, and an absolute row's pixel offset is the
     /// spacer's offset plus its row number.
-    pub spacer: HtmlElement,
+    pub spacer: E,
     /// The immutable painted history: blocks and exact-height gaps.
-    pub scrollback: Element,
+    pub scrollback: E,
     /// The live grid rows, plus the cursor and ghost overlays.
-    pub viewport: Element,
+    pub viewport: E,
     /// The local cursor block.
-    pub cursor: Element,
+    pub cursor: E,
     /// Remote cursor overlays, sharing the viewport as their host.
-    pub ghosts: Element,
+    pub ghosts: E,
 }
 
 /// One remote operator's cursor, in grid cells from the pane's top-left.
@@ -82,41 +70,9 @@ pub struct GhostCursor {
     pub label: Option<String>,
 }
 
-/// One element as the node every structural `Node` call takes.
-pub fn as_node(element: &Element) -> &Node {
-    AsRef::<Node>::as_ref(element)
-}
-
-/// One HTML element as the node every structural `Node` call takes.
-pub fn html_as_node(element: &HtmlElement) -> &Node {
-    AsRef::<Node>::as_ref(element)
-}
-
-/// Create one of the renderer's fixed `div` elements.
-pub fn create_div(doc: &Document) -> DomResult<Element> {
-    doc.create_element("div")
-        .map_err(|_| DomSetupError::RefusedTag {
-            tag: "div".to_string(),
-        })
-}
-
-/// Create one inline `span`, the unit a painted row is built from.
-pub fn create_span(doc: &Document) -> DomResult<Element> {
-    doc.create_element("span")
-        .map_err(|_| DomSetupError::RefusedTag {
-            tag: "span".to_string(),
-        })
-}
-
-/// Whether `child` is currently a direct child of `parent`.
-///
-/// Identity, not equality: a web-sys element has no `PartialEq`, and the
-/// overlays have to be re-appended exactly when they are no longer children of
-/// the viewport rather than merely when their contents differ.
-pub fn is_child_of(child: &Element, parent: &Element) -> bool {
-    child
-        .parent_node()
-        .is_some_and(|owner| std::ptr::eq(&owner, as_node(parent)))
+/// Whether `child` is currently a direct child of `parent`, by node identity.
+pub fn is_placed_in<E: RenderElement>(child: &E, parent: &E) -> bool {
+    child.parent().is_some_and(|owner| owner == *parent)
 }
 
 /// Create the renderer's element tree inside `container`.
@@ -124,31 +80,23 @@ pub fn is_child_of(child: &Element, parent: &Element) -> bool {
 /// The container's class list ends up holding BOTH `wterm` and `cell-grid`,
 /// and it takes `role=log` so assistive technology reads the terminal as a log
 /// rather than as layout.
-pub fn create_cell_renderer_elements(container: &Element) -> DomResult<CellRendererElements> {
-    let doc = container
-        .owner_document()
-        .ok_or_else(|| DomSetupError::RefusedTag {
-            tag: "document".to_string(),
-        })?;
-    let _ = container.class_list().add_2("wterm", "cell-grid");
-    let _ = container.set_attribute("role", "log");
-    let spacer = classed_div(&doc, "cell-sb-spacer")?;
-    set_style_property(&spacer, "height", "0px");
-    let scrollback = classed_div(&doc, "cell-scrollback")?;
-    let viewport = classed_div(&doc, "cell-viewport")?;
-    set_style_property(&viewport, "position", "relative");
-    let cursor = classed_div(&doc, "cell-cursor")?;
-    let ghosts = classed_div(&doc, "cell-ghosts")?;
-    let spacer: HtmlElement = spacer
-        .dyn_into()
-        .map_err(|_| DomSetupError::NotHtmlElement {
-            tag: "div".to_string(),
-        })?;
-    let _ = container.append_child(html_as_node(&spacer));
-    let _ = container.append_child(as_node(&scrollback));
-    let _ = container.append_child(as_node(&viewport));
+pub fn create_cell_renderer_elements<E: RenderElement>(
+    container: &E,
+) -> DomResult<CellRendererElements<E>> {
+    container.add_class("wterm");
+    container.add_class("cell-grid");
+    container.set_attribute("role", "log");
+    let spacer = classed_div(container, "cell-sb-spacer")?;
+    spacer.set_style("height", "0px");
+    let scrollback = classed_div(container, "cell-scrollback")?;
+    let viewport = classed_div(container, "cell-viewport")?;
+    viewport.set_style("position", "relative");
+    let cursor = classed_div(container, "cell-cursor")?;
+    let ghosts = classed_div(container, "cell-ghosts")?;
+    container.append_child(&spacer);
+    container.append_child(&scrollback);
+    container.append_child(&viewport);
     Ok(CellRendererElements {
-        doc,
         spacer,
         scrollback,
         viewport,
@@ -157,28 +105,10 @@ pub fn create_cell_renderer_elements(container: &Element) -> DomResult<CellRende
     })
 }
 
-fn classed_div(doc: &Document, class_name: &str) -> DomResult<Element> {
-    let element = create_div(doc)?;
+fn classed_div<E: RenderElement>(factory: &E, class_name: &str) -> DomResult<E> {
+    let element = factory.create_element("div")?;
     element.set_class_name(class_name);
     Ok(element)
-}
-
-/// Remove an element from wherever it currently sits.
-///
-/// Going through the parent rather than the `ChildNode.remove` mixin keeps
-/// every structural change on the inherent `Node` surface, and makes a detached
-/// element a no-op instead of a throw.
-pub fn detach(element: &Element) {
-    if let Some(parent) = element.parent_node() {
-        let _ = parent.remove_child(element);
-    }
-}
-
-/// Swap one element for another in place, keeping its position among siblings.
-pub fn replace_element(old: &Element, new: &Element) {
-    if let Some(parent) = old.parent_node() {
-        let _ = parent.replace_child(new, old);
-    }
 }
 
 /// Stamp the exact reserved height of a block or gap of rows onto one element.
@@ -187,9 +117,8 @@ pub fn replace_element(old: &Element, new: &Element) {
 /// browser reuse a block's LAST RENDERED size, so a block that grew while
 /// skipped understates `scrollHeight` until it materializes — and every scroll
 /// position in the pane is derived from that number.
-pub fn size_scrollback_block(block: &Element, rows: u32, row_height: f64) {
-    set_style_property(
-        block,
+pub fn size_scrollback_block<E: RenderElement>(block: &E, rows: u32, row_height: f64) {
+    block.set_style(
         "contain-intrinsic-size",
         &block_placeholder(rows, row_height),
     );
@@ -200,19 +129,17 @@ pub fn size_scrollback_block(block: &Element, rows: u32, row_height: f64) {
 /// A ghost that cannot be created is dropped: an overlay is decoration, and
 /// refusing to paint the whole grid because one remote box failed would trade a
 /// missing cursor for a frozen pane.
-pub fn create_ghost_elements(doc: &Document, ghosts: &[GhostCursor]) -> Vec<Element> {
+pub fn create_ghost_elements<E: RenderElement>(factory: &E, ghosts: &[GhostCursor]) -> Vec<E> {
     ghosts
         .iter()
         .filter_map(|ghost| {
-            let box_element = create_div(doc).ok()?;
-            box_element.set_class_name("cell-ghost");
-            let _ = box_element.set_attribute("data-operator-id", &ghost.operator_id);
-            let _ = box_element.set_attribute(
+            let box_element = classed_div(factory, "cell-ghost").ok()?;
+            box_element.set_attribute("data-operator-id", &ghost.operator_id);
+            box_element.set_attribute(
                 "title",
                 ghost.label.as_deref().unwrap_or(&ghost.operator_id),
             );
-            set_style_property(
-                &box_element,
+            box_element.set_style(
                 "transform",
                 &format!("translate({}ch, {}lh)", ghost.x, ghost.y),
             );
@@ -252,53 +179,47 @@ pub fn cell_scrollback_text(frame: Option<&CellGridFrame>, max_rows: usize) -> S
 /// The probe is detached before returning, so a measurement never becomes a
 /// painted row: the viewport diff owns the row list, and a stray probe would
 /// make the diff's row count disagree with the grid.
-pub fn measure_cell_row_height(doc: &Document, viewport: &Element) -> f64 {
-    let Ok(probe) = doc.create_element("div") else {
+pub fn measure_cell_row_height<E: RenderElement>(viewport: &E) -> f64 {
+    let Ok(probe) = classed_div(viewport, "cell-row") else {
         return 0.0;
     };
-    probe.set_class_name("cell-row");
-    set_style_property(&probe, "position", "absolute");
-    set_style_property(&probe, "visibility", "hidden");
-    probe.set_text_content(Some(" "));
-    if viewport.append_child(&probe).is_err() {
-        return 0.0;
-    }
-    let height = probe.get_bounding_client_rect().height();
-    detach(&probe);
+    probe.set_style("position", "absolute");
+    probe.set_style("visibility", "hidden");
+    probe.set_text(" ");
+    viewport.append_child(&probe);
+    let height = probe.bounding_rect().height;
+    probe.remove();
     height
 }
 
 /// The grid geometry a measured viewport box implies, or `None` before the pane
-/// has laid out.
-pub fn viewport_cell_geometry(
-    cols: u32,
-    rows: u32,
-    viewport: &Element,
+/// has measured a row or laid out a box.
+pub fn viewport_cell_geometry<E: RenderElement>(
+    frame: Option<&CellGridFrame>,
+    viewport: &E,
     row_height: f64,
 ) -> Option<TerminalCellGeometry> {
-    let rect = viewport.get_bounding_client_rect();
+    let frame = frame?;
+    if row_height <= 0.0 {
+        return None;
+    }
+    let rect = viewport.bounding_rect();
     grid_geometry_from_box(
-        cols,
-        rows,
-        rect.left(),
-        rect.top(),
-        rect.width(),
-        row_height,
+        frame.cols, frame.rows, rect.left, rect.top, rect.width, row_height,
     )
 }
 
-/// Toggle the alternate-screen class, returning the state now painted.
-pub fn sync_alternate_screen(
-    container: &Element,
+/// Force the alternate-screen class to the frame's state, returning the state
+/// now painted. The class is FORCED, not flipped: a first paint of a normal
+/// screen must leave it off, not turn it on.
+pub fn sync_alternate_screen<E: RenderElement>(
+    container: &E,
     frame: Option<&CellGridFrame>,
     painted: Option<bool>,
 ) -> bool {
     let active = frame.is_some_and(|frame| frame.alt_screen);
     if Some(active) != painted {
-        // `classList` exposes only a TOGGLING `toggle`, so the state this call
-        // lands on is the guard's own watermark rather than a re-read: the call
-        // happens exactly when the class is not yet `active`.
-        let _ = container.class_list().toggle("alt-active");
+        container.toggle_class("alt-active", active);
     }
     active
 }
@@ -306,8 +227,8 @@ pub fn sync_alternate_screen(
 /// Publish the grid's column count as a custom property, returning the count
 /// now painted. The CSS paints exactly `cols` x `1ch`, so this value is what
 /// stops a narrower fallback font from painting columns outside the clip.
-pub fn paint_cell_grid_width(
-    container: &Element,
+pub fn paint_cell_grid_width<E: RenderElement>(
+    container: &E,
     frame: Option<&CellGridFrame>,
     painted: Option<u32>,
 ) -> Option<u32> {
@@ -317,7 +238,7 @@ pub fn paint_cell_grid_width(
     if Some(frame.cols) == painted {
         return painted;
     }
-    set_style_property(container, "--cell-cols", &frame.cols.to_string());
+    container.set_style("--cell-cols", &frame.cols.to_string());
     Some(frame.cols)
 }
 
@@ -328,5 +249,50 @@ pub fn effective_row_height(row_height: f64) -> f64 {
         row_height
     } else {
         DEFAULT_CELL_ROW_PX
+    }
+}
+
+/// The raw `web_sys` node helpers the predictive-echo overlay paints with. The
+/// renderer itself goes through `RenderElement`; these stay for the overlay,
+/// which owns its own `wasm32` adapter.
+#[cfg(target_arch = "wasm32")]
+mod web_nodes {
+    use web_sys::{Document, Element, Node};
+
+    use super::{DomResult, DomSetupError};
+
+    /// One element as the node every structural `Node` call takes.
+    pub fn as_node(element: &Element) -> &Node {
+        AsRef::<Node>::as_ref(element)
+    }
+
+    /// Create one `div`.
+    pub fn create_div(doc: &Document) -> DomResult<Element> {
+        created(doc, "div")
+    }
+
+    /// Create one inline `span`.
+    pub fn create_span(doc: &Document) -> DomResult<Element> {
+        created(doc, "span")
+    }
+
+    fn created(doc: &Document, tag: &str) -> DomResult<Element> {
+        doc.create_element(tag)
+            .map_err(|_| DomSetupError::RefusedTag {
+                tag: tag.to_string(),
+            })
+    }
+
+    /// Whether `child` is currently a direct child of `parent`, by identity.
+    pub fn is_child_of(child: &Element, parent: &Element) -> bool {
+        child.parent_element().is_some_and(|owner| owner == *parent)
+    }
+
+    /// Remove an element from wherever it currently sits; a detached element
+    /// is a no-op instead of a throw.
+    pub fn detach(element: &Element) {
+        if let Some(parent) = as_node(element).parent_node() {
+            let _ = parent.remove_child(as_node(element));
+        }
     }
 }

@@ -36,7 +36,7 @@ fn folds_parked_deliveries_canonically_and_repairs_with_the_latest_full_on_activ
 
     scheduler.set_foreground(true);
     assert!(scheduler.schedule_browser_frame());
-    let activation = flush_frame(&mut scheduler, &mut renderer, 20, 0);
+    let activation = flush_frame(&mut scheduler, &mut renderer, 20);
     assert_eq!(activation.mode, Some(ApplyMode::FallbackFull));
     assert_eq!(
         renderer.full_seqs(),
@@ -63,7 +63,7 @@ fn repairs_a_renderer_only_dropped_delta_with_a_viewport_only_checkpoint() {
     scheduler.set_foreground(true);
     let baseline = full_frame(1, "A");
     offer(&mut scheduler, &baseline, baseline.clone(), 0);
-    flush_frame(&mut scheduler, &mut renderer, 4, 0);
+    flush_frame(&mut scheduler, &mut renderer, 4);
 
     // The delta is dropped for the RENDERER alone: the replica folds it, the
     // scheduler is never offered it, and the painted DOM never reaches its seq.
@@ -96,7 +96,7 @@ fn repairs_a_renderer_only_dropped_delta_with_a_viewport_only_checkpoint() {
         "a delta that skips a sequence repairs from the canonical checkpoint"
     );
 
-    let repair = flush_frame(&mut scheduler, &mut renderer, 16, 0);
+    let repair = flush_frame(&mut scheduler, &mut renderer, 16);
     assert_eq!(repair.mode, Some(ApplyMode::FallbackFull));
     let painted = renderer
         .full_frames
@@ -106,6 +106,11 @@ fn repairs_a_renderer_only_dropped_delta_with_a_viewport_only_checkpoint() {
     assert_eq!(painted.base_seq, 0);
     assert_eq!(painted.seq, 3);
     assert_eq!(painted.sb_base, checkpoint_base);
+    assert_eq!(painted.scrollback_total, 2);
+    assert!(
+        painted.scrollback_rows.is_empty(),
+        "a viewport-only checkpoint ships no history rows"
+    );
     let delivery = repair.delivery.expect("the repair published a delivery");
     assert_eq!(delivery.frame.seq, 3);
     assert!(
@@ -139,7 +144,7 @@ fn cancels_a_queued_renderer_frame_when_stream_state_resets() {
         "a reset must leave no frame that can paint a dead stream"
     );
     assert!(!scheduler.needs_browser_frame());
-    assert_eq!(scheduler.on_frame_fired(8, 0), FrameDecision::Idle);
+    assert_eq!(scheduler.on_frame_fired(8), FrameDecision::Idle);
     assert!(renderer.full_seqs().is_empty());
 
     // A replacement view starts with nothing, so its first frame must be
@@ -149,7 +154,7 @@ fn cancels_a_queued_renderer_frame_when_stream_state_resets() {
     let mut replacement_renderer = RecordingRenderer::default();
     let rebaseline = full_frame(1, "A");
     offer(&mut replacement, &rebaseline, rebaseline.clone(), 12);
-    let fresh = flush_frame(&mut replacement, &mut replacement_renderer, 16, 0);
+    let fresh = flush_frame(&mut replacement, &mut replacement_renderer, 16);
     assert_eq!(fresh.mode, Some(ApplyMode::WireFull));
     assert_eq!(replacement_renderer.full_seqs(), vec![1]);
     assert_eq!(

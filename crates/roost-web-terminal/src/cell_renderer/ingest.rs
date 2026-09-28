@@ -1,19 +1,17 @@
-//! Applying frames to the renderer: one authoritative full, or one batch of
-//! sparse deltas.
-//!
-//! Both paths make the same first decision — is a reader parked? — because the
-//! answer changes what "applied" means. A parked reader does not get its frame
-//! painted: the frame is retained as the CANONICAL one, deltas fold into it,
-//! and the DOM stays byte-for-byte what the reader is looking at. That is the
-//! whole reason the canonical and the painted model are two watermarks.
+//! Applying frames: one authoritative full, or one batch of sparse deltas.
+//! A parked reader's frame is retained as the CANONICAL one and deltas fold
+//! into it while the DOM stays what the reader is looking at — why canonical
+//! and painted are two watermarks. Ports `apply`, `applyFullFrame`,
+//! `applyDeltaFrames` and `_canRetainPaintedHistory` of `apps/web/src/renderer/cellRenderer.ts`.
 
 use roost_protocol::cell::{CellGridFrame, clone_cell_grid_frame, fold_cell_delta_batch};
 
 use crate::cell_renderer::CellGridRenderer;
 use crate::presentation::{RendererFrameMode, RendererIncidentPhase};
 use crate::reader_intent::{ReaderIntent, ReaderIntentReason};
+use crate::render_element::RenderElement;
 
-impl CellGridRenderer {
+impl<E: RenderElement> CellGridRenderer<E> {
     /// Apply either an authoritative full or one sparse delta.
     pub fn apply(&mut self, incoming: &CellGridFrame) -> bool {
         if incoming.full {

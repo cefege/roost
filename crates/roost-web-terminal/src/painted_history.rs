@@ -1,16 +1,9 @@
-//! The rows the renderer has actually painted, kept sorted by absolute index,
-//! plus the eviction arithmetic that bounds them.
-//!
-//! The interval questions ("which rows are missing", "does this page land in a
-//! gap") are NOT reimplemented here: `roost-client-core`'s `terminal::history`
-//! owns that arithmetic and this store is the adapter that feeds it a sorted
-//! index list. Two hand-maintained answers to "what is painted" is exactly the
-//! defect that lets a second implementation of history arithmetic disagree with
-//! the first.
-//!
-//! The store is deliberately NOT contiguous: a retained-but-unpainted gap
-//! between two painted intervals is a first-class state, so a reserved gap
-//! needs no inference to stand in for it.
+//! The rows the renderer has actually painted, sorted by absolute index, and the
+//! eviction arithmetic that bounds them. Interval questions are answered by
+//! `roost-client-core`'s `terminal::history`, fed from here, never re-derived, and
+//! disjoint painted intervals are first-class. Ports `_paintedRows` of
+//! `apps/web/src/renderer/cellRenderer.ts`, `paintedRowAt` of `cellRendererDom.ts`
+//! and `MAX_HELD_SCROLLBACK_ROWS` of `cellRendererPresentation.ts`.
 
 use roost_client_core::terminal::history as intervals;
 use roost_protocol::cell::CellRow;

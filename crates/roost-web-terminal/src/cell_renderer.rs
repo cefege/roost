@@ -1,20 +1,9 @@
 //! The one terminal grid renderer: immutable worker-width cell rows, painted
-//! without any client-side reflow.
-//!
-//! It is ONE type because its per-frame state is private and shared: the
-//! painted row list, the scrollback layout, the reader's park and the reconcile
-//! watermark all read and write each other, and a second owner of any one of
-//! them is how painted history ends up disagreeing with the frame that
-//! described it. Its `impl` blocks are split across the `cell_renderer/`
-//! modules by concern — that is a file split, not a type split.
-//!
-//! Scrollback is append-only while ordinary deltas patch only dirty viewport
-//! rows. Nothing here re-parses VT, and nothing here reflows text: the worker
-//! ships pre-rendered cells and the renderer draws them.
-//!
-//! Depended on by the pane component (which owns the events), the backfill
-//! pager and the smoke API. Depends on `roost-protocol` for the cell model and
-//! `roost-client-core` for the absolute history arithmetic.
+//! without client-side reflow. ONE type because its per-frame state (painted rows,
+//! scrollback layout, reader park, reconcile watermark) is shared, and a second
+//! owner is how painted history disagrees with its frame; the `impl` blocks split
+//! across `cell_renderer/` by concern, all painting through `RenderElement`.
+//! Ports `apps/web/src/renderer/cellRenderer.ts`.
 
 mod eviction;
 mod history_page;
@@ -26,22 +15,22 @@ mod reconcile;
 mod scroll_events;
 mod scrollback;
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::fmt;
 
 use roost_protocol::cell::CellGridFrame;
-use wasm_bindgen::prelude::wasm_bindgen;
-use web_sys::{Document, Element, HtmlElement};
 
 use crate::cell_geometry::TerminalCellGeometry;
 use crate::cell_renderer_dom::{
-    DomSetupError, GhostCursor, create_cell_renderer_elements, create_ghost_elements, detach,
-    is_child_of,
+    DomSetupError, GhostCursor, create_cell_renderer_elements, create_ghost_elements, is_placed_in,
+    measure_cell_row_height,
 };
 use crate::cell_row::FindHit;
 use crate::painted_history::PaintedHistory;
 use crate::presentation::{RendererIncidentObserver, RendererTerminalModeSnapshot};
 use crate::reader_intent::{ReaderAnchor, ReaderState};
+use crate::render_element::RenderElement;
 
 /// The painted terminal grid for one pane.
 ///
@@ -50,15 +39,13 @@ use crate::reader_intent::{ReaderAnchor, ReaderState};
 /// `div.cell-viewport` to it, and stamps the container with BOTH `wterm` and
 /// `cell-grid` — the first carries the overflow rules that make history
 /// scrollable at all, the second scopes every cell-grid rule.
-#[wasm_bindgen]
-pub struct CellGridRenderer {
-    container: Element,
-    doc: Document,
-    spacer: HtmlElement,
-    scrollback: Element,
-    viewport: Element,
-    cursor: Element,
-    ghosts: Element,
+pub struct CellGridRenderer<E = web_sys::Element> {
+    container: E,
+    spacer: E,
+    scrollback: E,
+    viewport: E,
+    cursor: E,
+    ghosts: E,
     frame: Option<CellGridFrame>,
     /// The newest frame, held back while a reader is parked. It is the CANONICAL
     /// frame: the pane keeps advancing while the DOM is immutable.
@@ -95,14 +82,17 @@ pub struct CellGridRenderer {
 
     /// The OPEN tail block, which still accepts rows and therefore opts out of
     /// content-visibility until it seals.
-    cur_block: Option<Element>,
+    cur_block: Option<E>,
     cur_block_rows: u32,
     /// The gap that ends at the layout end, when the tail is unpainted.
-    tail_gap: Option<Element>,
+    tail_gap: Option<E>,
 
-    row_elements: Vec<Element>,
+    row_elements: Vec<E>,
     row_hashes: Vec<u32>,
-    row_height: f64,
+    /// The measured row pitch, zero until measured. Measured LAZILY on read, so
+    /// every reader of the pitch sees the one a paint would use — a cleared
+    /// cache re-measures at its next use instead of answering zero.
+    row_height: Cell<f64>,
     painted_gap_row_height: f64,
 
     find_hits: BTreeMap<u32, Vec<FindHit>>,
@@ -139,7 +129,7 @@ pub struct CellGridRenderer {
     incident_observer: Option<Box<dyn RendererIncidentObserver>>,
 }
 
-impl fmt::Debug for CellGridRenderer {
+impl<E> fmt::Debug for CellGridRenderer<E> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("CellGridRenderer")
@@ -153,26 +143,25 @@ impl fmt::Debug for CellGridRenderer {
     }
 }
 
-impl CellGridRenderer {
+impl<E: RenderElement> CellGridRenderer<E> {
     /// Build a renderer over `container`.
-    pub fn new(container: &Element) -> Result<Self, DomSetupError> {
+    pub fn new(container: &E) -> Result<Self, DomSetupError> {
         Self::with_callbacks(container, None, None, None)
     }
 
     /// Build a renderer with the pane's three hooks: first reconcile, every
     /// reconcile, and the follow-band settle request.
     pub fn with_callbacks(
-        container: &Element,
+        container: &E,
         on_first_reconcile: Option<Box<dyn FnOnce()>>,
         on_reconcile: Option<Box<dyn Fn()>>,
         request_follow_band_settle: Option<Box<dyn Fn()>>,
     ) -> Result<Self, DomSetupError> {
         let elements = create_cell_renderer_elements(container)?;
-        elements.cursor.set_attribute("data-blink", "false").ok();
-        let last_box_height = f64::from(container.client_height());
+        elements.cursor.set_attribute("data-blink", "false");
+        let last_box_height = container.client_height();
         Ok(Self {
             container: container.clone(),
-            doc: elements.doc,
             spacer: elements.spacer,
             scrollback: elements.scrollback,
             viewport: elements.viewport,
@@ -196,7 +185,7 @@ impl CellGridRenderer {
             tail_gap: None,
             row_elements: Vec::new(),
             row_hashes: Vec::new(),
-            row_height: 0.0,
+            row_height: Cell::new(0.0),
             painted_gap_row_height: 0.0,
             find_hits: BTreeMap::new(),
             active_hit: None,
@@ -223,33 +212,28 @@ impl CellGridRenderer {
     }
 
     /// The scroll container this renderer paints into.
-    pub fn container(&self) -> &Element {
+    pub fn container(&self) -> &E {
         &self.container
     }
 
     /// The immutable history sheet, whose first child is the eviction unit.
-    pub fn scrollback_element(&self) -> &Element {
+    pub fn scrollback_element(&self) -> &E {
         &self.scrollback
     }
 
     /// The live grid host, which the echo predictor also paints into.
-    pub fn prediction_host(&self) -> &Element {
+    pub fn prediction_host(&self) -> &E {
         &self.viewport
     }
 
     /// The head spacer, a SIBLING of the history sheet.
-    pub fn spacer_element(&self) -> &HtmlElement {
+    pub fn spacer_element(&self) -> &E {
         &self.spacer
     }
 
     /// The cursor element the viewport overlay owns.
-    pub fn cursor_element(&self) -> &Element {
+    pub fn cursor_element(&self) -> &E {
         &self.cursor
-    }
-
-    /// The document every painted node is created from.
-    pub fn document(&self) -> &Document {
-        &self.doc
     }
 
     /// The frame the painted DOM was built from.
@@ -266,65 +250,76 @@ impl CellGridRenderer {
     /// Enable or disable the focused-pane cursor blink presentation policy.
     pub fn set_cursor_blink_enabled(&mut self, enabled: bool) {
         let value = if enabled { "true" } else { "false" };
-        if self.cursor.get_attribute("data-blink").as_deref() == Some(value) {
+        if self.cursor.attribute("data-blink").as_deref() == Some(value) {
             return;
         }
-        let _ = self.cursor.set_attribute("data-blink", value);
+        self.cursor.set_attribute("data-blink", value);
     }
 
     /// Attach remote cursor overlays to the viewport.
     pub fn set_ghosts(&mut self, ghosts: &[GhostCursor]) {
-        let boxes = create_ghost_elements(&self.doc, ghosts);
-        self.ghosts.set_inner_html("");
-        for element in boxes {
-            let _ = self.ghosts.append_child(&element);
+        let boxes = create_ghost_elements(&self.container, ghosts);
+        self.ghosts.clear_children();
+        for element in &boxes {
+            self.ghosts.append_child(element);
         }
-        if !is_child_of(&self.ghosts, &self.viewport) {
-            let _ = self.viewport.append_child(&self.ghosts);
+        if !is_placed_in(&self.ghosts, &self.viewport) {
+            self.viewport.append_child(&self.ghosts);
         }
     }
 
     /// Set the pane's accessible name on the scroll container.
     pub fn set_accessible_label(&mut self, label: &str) {
-        let _ = self.container.set_attribute("aria-label", label);
+        self.container.set_attribute("aria-label", label);
     }
 
-    /// The measured row height, or zero before the pane has measured one.
+    /// The row pitch, measured with a probe the first time it is asked for
+    /// after a paint or a font swap cleared it; zero while the pane cannot
+    /// measure one.
     pub fn row_height(&self) -> f64 {
-        self.row_height
+        let cached = self.row_height.get();
+        if cached > 0.0 {
+            return cached;
+        }
+        let measured = measure_cell_row_height(&self.viewport);
+        if measured > 0.0 {
+            self.row_height.set(measured);
+        }
+        self.row_height.get()
     }
 
     /// The painted grid's geometry, derived from the canonical frame's box.
     pub fn viewport_cell_geometry(&self) -> Option<TerminalCellGeometry> {
-        let frame = self.canonical_frame()?;
         crate::cell_renderer_dom::viewport_cell_geometry(
-            frame.cols,
-            frame.rows,
+            self.canonical_frame(),
             &self.viewport,
             self.row_height(),
         )
     }
 
     /// Forget the measured row height, the reserved spacer height and the
-    /// placeholder pitch, so the next paint re-measures. A font swap changes
-    /// the cell box, and every scroll offset in the pane is derived from it.
+    /// placeholder pitch, so the next paint re-measures.
     pub fn invalidate_row_height(&mut self) {
-        self.row_height = 0.0;
+        self.row_height.set(0.0);
         self.painted_spacer_height.clear();
         self.painted_gap_row_height = 0.0;
     }
 
     /// Repair the exact-height history placeholders and the bottom placement
-    /// after the pane's font settles.
+    /// once the pane's font has settled; the pane calls it when the document's
+    /// `fonts.ready` resolves. Returns false, changing nothing, when no row can
+    /// be measured yet.
     ///
     /// A font swap invalidates every measured placeholder, so a bottom reader
     /// would otherwise keep the pixel position it had under the fallback face
     /// and land mid-history. The placement is preserved, not recomputed.
     pub fn on_fonts_settled(&mut self) -> bool {
         let was_at_bottom = self.at_bottom();
-        self.invalidate_row_height();
-        self.measure_row_height();
+        self.row_height.set(0.0);
         let row_height = self.row_height();
+        if row_height <= 0.0 {
+            return false;
+        }
         self.resize_history_placeholders(row_height);
         self.sync_spacer();
         self.pin_to_bottom(was_at_bottom);
@@ -334,9 +329,9 @@ impl CellGridRenderer {
     /// Release every DOM node the renderer owns and reset its state.
     pub fn dispose(&mut self) {
         self.incident_observer = None;
-        detach(&self.spacer);
-        detach(&self.scrollback);
-        detach(&self.viewport);
+        self.spacer.remove();
+        self.scrollback.remove();
+        self.viewport.remove();
         self.frame = None;
         self.reader_pending_frame = None;
         self.reader_pending_frame_retains_history = true;
@@ -358,9 +353,5 @@ impl CellGridRenderer {
         self.tail_gap = None;
         self.row_elements.clear();
         self.row_hashes.clear();
-        self.cur_block = None;
-        self.cur_block_rows = 0;
-        self.find_hits.clear();
-        self.active_hit = None;
     }
 }

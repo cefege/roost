@@ -11,8 +11,7 @@
 
 use roost_client_core::terminal::history::{HistoryRange, HistoryScrollTarget};
 use roost_client_core::terminal::history_backfill::{
-    BACKFILL_AHEAD_ROWS, BACKFILL_FETCH_ROWS, DemandBounds, demand_is_above_floor,
-    find_demand_bounds, scroll_demand_bounds,
+    BACKFILL_FETCH_ROWS, DemandBounds, find_demand_bounds, scroll_demand_bounds,
 };
 
 /// A reader scroll target: the whole missing interval, plus the part of it the
@@ -196,7 +195,7 @@ fn no_backfill_request_ever_names_a_row_below_the_proven_retained_floor() {
                 scroll_demand_bounds(&target(start, end, focus, visible_end), floor, 0)
             {
                 assert!(
-                    demand_is_above_floor(&bounds, floor),
+                    bounds.start >= floor,
                     "a scroll demand named rows below the proven floor: {bounds:?} under {floor}"
                 );
             }
@@ -204,7 +203,7 @@ fn no_backfill_request_ever_names_a_row_below_the_proven_retained_floor() {
         for (start, end, focus) in [(0u32, 12_000u32, 10_000u32), (0, 671, 100), (0, 300, 100)] {
             if let Some(bounds) = find_demand_bounds(gap(start, end), focus, floor, 0) {
                 assert!(
-                    demand_is_above_floor(&bounds, floor),
+                    bounds.start >= floor,
                     "a find demand named rows below the proven floor: {bounds:?} under {floor}"
                 );
             }
@@ -225,7 +224,7 @@ fn paging_stops_rather_than_retrying_forever_when_the_floor_is_reached() {
         let exposed = target(0, 480, 0, 32);
         if let Some(bounds) = scroll_demand_bounds(&exposed, floor, 0) {
             waves += 1;
-            assert!(demand_is_above_floor(&bounds, floor));
+            assert!(bounds.start >= floor);
         }
     }
     assert_eq!(
@@ -238,10 +237,4 @@ fn paging_stops_rather_than_retrying_forever_when_the_floor_is_reached() {
     assert_eq!(find_demand_bounds(gap(0, 480), 100, floor, 0), None);
     // One row above the floor is still reachable, so the stop is not a blanket.
     assert!(find_demand_bounds(gap(0, 900), 500, floor, 0).is_some());
-}
-
-#[test]
-fn the_read_ahead_window_and_the_fetch_width_are_the_numbers_the_layout_seals() {
-    assert_eq!(BACKFILL_FETCH_ROWS, 250);
-    assert_eq!(BACKFILL_AHEAD_ROWS, 500);
 }

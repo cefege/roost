@@ -1,11 +1,9 @@
-//! The batch one terminal renderer's browser frame carries: the sparse deltas
+//! The batch one terminal renderer's browser frame carries — v2's
+//! `PendingTerminalRender` and `fullPending` in
+//! `apps/web/src/renderer/terminal-render-scheduler.ts`: the sparse deltas
 //! waiting to fold, the canonical frame that stands in for them, and the
-//! delivery a landed paint publishes.
-//!
-//! Owned by `RenderScheduler`, which builds a batch on every arrival and takes
-//! one on every paint. Depends on `roost-protocol` for the cell frame; the
-//! admission rules that decide a batch's shape are `scheduler::frame_gate`, and
-//! the browser frame that carries it is the caller's.
+//! delivery a landed paint publishes. Owned by `RenderScheduler`; the rules
+//! that shape a batch are `scheduler::frame_gate`.
 
 use roost_protocol::cell::CellGridFrame;
 

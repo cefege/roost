@@ -1,14 +1,9 @@
-//! What one match list means for the PAINTED GRID: the column intervals a row
-//! highlights, which match is active, which row must be visible for it, the
-//! published state the painter reads, and the whole host conversation.
-//!
-//! `roost_client_core::search` owns the match and the epoch fence; `cell_row`
-//! owns the `FindHit` column interval and the slicing arithmetic. This module
-//! joins them. Nothing here reads the DOM or issues an RPC, so both the decision
-//! and the ORDER it is demanded in are testable natively.
-//!
-//! `find::controller` drives searches and feeds this publication; `find::intent`
-//! hands a global result to a pane that has not asked for one.
+//! What one match list means for the PAINTED GRID: highlight intervals per row,
+//! the active match, preference selection, the published display state and the
+//! reveals waiting on a pull. `find::controller` drives it; `cell_row` owns
+//! `FindHit`. Ports the publish/install/step state of
+//! `apps/web/src/renderer/terminalFindController.ts` and the selection types of
+//! `apps/web/src/client/search/terminalFindHandoff.ts`.
 
 use std::collections::BTreeMap;
 
@@ -45,6 +40,10 @@ impl HitRows {
     /// Every row's intervals, ascending by row then by column.
     pub fn iter(&self) -> impl Iterator<Item = (u32, &[FindHit])> {
         self.0.iter().map(|(row, hits)| (*row, hits.as_slice()))
+    }
+    /// The row map itself, handed to the painter without a copy.
+    pub fn into_rows(self) -> BTreeMap<u32, Vec<FindHit>> {
+        self.0
     }
     /// Record one interval, keeping the row's intervals column-ascending.
     ///
@@ -100,9 +99,12 @@ pub struct FindQueryOptions {
     pub preferred_match: Option<PreferredMatch>,
 }
 
-/// A reveal a fetch is owed, fenced to the search that asked for it.
+/// A reveal waiting on its row's pull, fenced to the search token that armed it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingReveal {
+    /// The id the pull's answer names, so an answer can only settle its own
+    /// reveal even when two reveals wait on the same row.
+    pub reveal: u64,
     /// The row the pull is for.
     pub row: u32,
     /// The grid numbering the match was found under.
@@ -202,7 +204,10 @@ pub struct FindPublication {
     failed: bool,
     preferred_match: Option<PreferredMatch>,
     older_page: Option<OlderMatchPage>,
-    pending_reveal: Option<PendingReveal>,
+    /// Every reveal still waiting on a pull. A step does not retire the reveal
+    /// before it; only the search token fences them.
+    pending_reveals: Vec<PendingReveal>,
+    reveals_armed: u64,
 }
 
 impl FindPublication {
@@ -239,14 +244,14 @@ impl FindPublication {
 
     /// Drop every published match, the older-rows cursor, and the failure a
     /// previous search reported. The paint is re-issued, because a cleared bar is
-    /// a state the painter has to be told about.
+    /// a state the painter has to be told about. Pending reveals survive: the
+    /// search token, not the published list, decides whether one may scroll.
     pub fn clear(&mut self, host: &mut dyn FindHost) {
         self.matches.clear();
         self.index = 0;
         self.truncated = false;
         self.failed = false;
         self.older_page = None;
-        self.pending_reveal = None;
         self.paint(host);
     }
 
@@ -289,14 +294,16 @@ impl FindPublication {
         self.active_match()
     }
 
-    /// Move the active match by `delta`, wrapping at both ends.
-    pub fn step(&mut self, delta: i64) -> Option<(u32, String)> {
+    /// Move the active match by `delta`, wrapping at both ends, and repaint the
+    /// active highlight before the caller reveals it.
+    pub fn step(&mut self, delta: i64, host: &mut dyn FindHost) -> Option<(u32, String)> {
         if self.matches.is_empty() {
             return None;
         }
         let length = self.matches.len() as i64;
         let next = ((self.index as i64 - 1 + delta) % length + length) % length;
         self.index = next as u32 + 1;
+        self.paint(host);
         self.active_match()
     }
 
@@ -307,33 +314,43 @@ impl FindPublication {
             .map(|found| (found.row, found.epoch.clone()))
     }
 
-    /// Arm the reveal of one match, which is owed a fetch when it is history.
-    pub fn arm_reveal(&mut self, row: u32, epoch: &str, token: u64, budget: u32) {
-        self.pending_reveal = Some(PendingReveal {
+    /// Arm the reveal of one match until its row's pull answers, returning the
+    /// id that answer names. Reveals armed under an older token can never scroll,
+    /// so they are dropped here.
+    pub fn arm_reveal(&mut self, row: u32, epoch: &str, token: u64, budget: u32) -> u64 {
+        self.pending_reveals
+            .retain(|pending| pending.token == token);
+        self.reveals_armed += 1;
+        self.pending_reveals.push(PendingReveal {
+            reveal: self.reveals_armed,
             row,
             epoch: epoch.to_string(),
             token,
             epoch_retry_budget: budget,
         });
+        self.reveals_armed
     }
 
-    /// Take the reveal owed a fetch of `row`, if that is the one outstanding.
-    pub fn take_pending_reveal(&mut self, row: u32) -> Option<PendingReveal> {
-        let pending = self
-            .pending_reveal
-            .clone()
-            .filter(|reveal| reveal.row == row)?;
-        self.pending_reveal = None;
-        Some(pending)
+    /// Take the reveal a pull answer names, if it is still waiting.
+    pub fn take_pending_reveal(&mut self, reveal: u64) -> Option<PendingReveal> {
+        let at = self
+            .pending_reveals
+            .iter()
+            .position(|pending| pending.reveal == reveal)?;
+        Some(self.pending_reveals.remove(at))
     }
 
     /// Choose the match the next publication activates: the newest of a freshly
-    /// slid page, or the one the reader was parked on when it added none.
+    /// slid page (the first of equal rows), or the one the reader was parked on
+    /// when it added none.
     pub fn prefer_newest_of(&mut self, slid: &[FindMatch], parked: &[FindMatch]) {
-        let choice = slid
+        let newest = slid
             .iter()
-            .max_by_key(|found| found.row)
-            .or_else(|| parked.first());
+            .fold(None::<&FindMatch>, |choice, found| match choice {
+                Some(held) if found.row <= held.row => Some(held),
+                _ => Some(found),
+            });
+        let choice = newest.or_else(|| parked.first());
         self.preferred_match = choice.map(|found| PreferredMatch {
             grid_epoch: found.epoch.clone(),
             row: found.row,
@@ -345,11 +362,11 @@ impl FindPublication {
     fn paint(&mut self, host: &mut dyn FindHost) {
         if matches_belong_to_pane(&self.matches, &host.pane_epoch()) {
             host.publish_hits(
-                &hit_rows(&self.matches),
+                hit_rows(&self.matches),
                 active_hit(&self.matches, self.index),
             );
         } else {
-            host.publish_hits(&HitRows::empty(), None);
+            host.publish_hits(HitRows::empty(), None);
         }
     }
 }
