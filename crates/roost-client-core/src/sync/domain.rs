@@ -59,11 +59,14 @@ impl SyncState {
     /// gone, so live traffic for that domain is not admissible yet. That is the
     /// difference between a reset and a re-subscribe, and getting it wrong is
     /// how a client paints a grid on top of a session list it never received.
+    /// `subscribed` is stored verbatim, as v2 `handleDomainReset` does
+    /// (`apps/web/src/store/sync-inbound.ts:137-139`).
     pub fn reset_domain(
         &mut self,
         generation: u64,
         domain: SyncDomain,
         domain_generation: u64,
+        subscribed: bool,
     ) -> bool {
         if !self.accepts(generation) {
             return false;
@@ -72,7 +75,7 @@ impl SyncState {
             domain,
             DomainToken {
                 generation: domain_generation,
-                subscribed: true,
+                subscribed,
                 ready: false,
                 snapshot_token: None,
             },

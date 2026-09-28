@@ -54,9 +54,10 @@ pub(super) fn apply_frame(
                     snapshot_token: snapshot_token.clone(),
                 })),
                 Err(reason) => {
+                    // Only a subscribed domain is sent a `domain_ready` to refuse.
                     store
                         .sync
-                        .reset_domain(generation, *domain, *domain_generation);
+                        .reset_domain(generation, *domain, *domain_generation, true);
                     store.note_change();
                     tracing::warn!(
                         target: "sync",
@@ -71,17 +72,31 @@ pub(super) fn apply_frame(
             domain,
             generation: domain_generation,
             reason,
+            subscribed,
         } => {
-            store
+            // v2 `handleDomainReset` (`apps/web/src/store/sync-inbound.ts:131-148`):
+            // the domain is never ready after a reset, and only a domain this
+            // client is still subscribed to is hydrated again.
+            if !store
                 .sync
-                .reset_domain(generation, *domain, *domain_generation);
+                .reset_domain(generation, *domain, *domain_generation, *subscribed)
+            {
+                return;
+            }
             store.note_change();
             tracing::info!(
                 target: "sync",
                 domain = domain.as_str(),
                 reason = %reason,
+                subscribed = *subscribed,
                 "domain reset"
             );
+            if *subscribed {
+                out.push(Effect::HydrateDomain {
+                    domain: *domain,
+                    generation: *domain_generation,
+                });
+            }
         }
         SyncFrame::SessionEvent { event, event_id } => {
             store.sessions.apply(&event.0);

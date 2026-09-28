@@ -41,6 +41,10 @@ pub enum SyncFrame {
         generation: u64,
         /// The coordinator's reason string, carried through to the log.
         reason: String,
+        /// Whether this client is still subscribed to the domain on this socket
+        /// (`SyncDomainResetFrame.subscribed`, proto field 4). Only a subscribed
+        /// domain is re-hydrated; an unsubscribed one just stops being ready.
+        subscribed: bool,
     },
     /// The snapshot/live gap for a domain is closed.
     DomainReady {

@@ -83,6 +83,17 @@ pub enum Effect {
         /// The worker whose loopback door or peer the grant opens.
         worker_fp: String,
     },
+    /// Run this domain's snapshot hydrator for its current generation: v2
+    /// `_triggerSyncDomainHydration` (`apps/web/src/store/sync-domain-hydration.ts:66-69`).
+    ///
+    /// The host owns the per-domain snapshot call and its retry; the generation
+    /// is carried so a hydrator already running for this one is not restarted.
+    HydrateDomain {
+        /// The domain whose retained snapshot is owed.
+        domain: SyncDomain,
+        /// The domain generation the snapshot must belong to.
+        generation: u64,
+    },
 }
 
 /// What a challenge signature is for. Named so a host cannot sign one thing and
