@@ -6,10 +6,11 @@
 //!
 //! THE VIEWS ARE A PARAMETER, NOT A CALL. v2 imports
 //! `activeTerminalViewerFingerprints` from
-//! `terminal/view/terminal-view-hub.ts` (`push-dispatch.ts:9`). That module is a
-//! later wave, and a crate-global here would make every coordinator test share
-//! one set of viewers -- so the answer is a trait, the same discipline
-//! `sync_ws/terminal/snapshot.rs` used for `TerminalSnapshotHub`.
+//! `terminal/view/terminal-view-hub.ts` (`push-dispatch.ts:9`), a module
+//! global. Here the answer is the [`ActiveTerminalViewers`] trait, whose one
+//! production implementation is the coordinator's `TerminalViewHub`
+//! (`push/viewers.rs`), so no two coordinators in one test process share one
+//! set of viewers.
 //!
 //! THE FENCE IS REVALIDATED ASYNCHRONOUSLY. `is_current` is checked before the
 //! database work, after it, and again inside the sender before each individual
@@ -17,7 +18,7 @@
 //! the query ran must not notify anybody, and the window is exactly as wide as
 //! the query.
 
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use roost_observability::LogFields;
@@ -90,21 +91,7 @@ pub struct AgentPushTransition {
 /// a push would be a second copy of what is on the screen.
 pub trait ActiveTerminalViewers: Send + Sync {
     /// The device fingerprints currently viewing `session_id`.
-    fn active_viewer_fingerprints(&self, session_id: &str) -> HashSet<String>;
-}
-
-/// A coordinator with no terminal-view hub wired, so nobody is ever viewing.
-///
-/// The value a caller passes when the terminal domain has not landed. It is a
-/// VALUE rather than an `Option` so a caller cannot forget the argument, and it
-/// matches the `NoTerminalSnapshotHub` precedent.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct NoTerminalViewers;
-
-impl ActiveTerminalViewers for NoTerminalViewers {
-    fn active_viewer_fingerprints(&self, _session_id: &str) -> HashSet<String> {
-        HashSet::new()
-    }
+    fn active_viewer_fingerprints(&self, session_id: &SessionId) -> BTreeSet<String>;
 }
 
 /// What one notification says.
@@ -174,7 +161,7 @@ pub async fn fire_push_for_transition(
         return;
     }
 
-    let viewing = viewers.active_viewer_fingerprints(session_id);
+    let viewing = viewers.active_viewer_fingerprints(&transition.session_id);
     let (targets, suppressed) = select_targets(&subscriptions, allowed_origins, &viewing);
     if targets.is_empty() {
         roost_observability::log::info(
@@ -252,7 +239,7 @@ pub async fn fire_push_for_transition(
 fn select_targets(
     subscriptions: &[StoredSubscription],
     allowed_origins: &[String],
-    viewing: &HashSet<String>,
+    viewing: &BTreeSet<String>,
 ) -> (Vec<StoredSubscription>, usize) {
     let mut targets = Vec::with_capacity(subscriptions.len());
     let mut suppressed = 0;

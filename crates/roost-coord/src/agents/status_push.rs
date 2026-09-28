@@ -52,9 +52,9 @@ pub trait CurrentAgentStatus: Send + Sync {
 
 /// How an accepted transition reaches a phone.
 ///
-/// The trait is the seam because the coordinator has no production
-/// [`PushNotificationTransport`] to hand the dispatch yet, while the decision of
-/// WHICH transitions are worth one belongs here and not in the push domain.
+/// The trait is the seam because the decision of WHICH transitions are worth a
+/// push belongs here, while HOW one is delivered (the push dispatch over the
+/// production Web Push transport) belongs to the push domain.
 pub trait AgentStatusPushDelivery: Send + Sync {
     /// Whether this deployment can deliver a push at all. An empty operator
     /// allowlist is not "quiet", it is switched off, and the schedule must not

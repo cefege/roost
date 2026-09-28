@@ -1,9 +1,8 @@
 //! Per-device push dispatch for an agent transition: who gets told, who is
 //! suppressed, and the identity-derived deduplication token.
 //!
-//! The viewer seam is a trait parameter here rather than a call into the
-//! terminal domain, which does not exist yet. `NoTerminalViewers` is the value
-//! a caller passes until it does, and it means "nobody is viewing".
+//! The viewers are the coordinator's real `TerminalViewHub`, empty here: no
+//! device is watching the session, so every subscription is a target.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 //!
@@ -17,9 +16,8 @@ mod push_fixture;
 use std::sync::Arc;
 
 use push_fixture::{PUSH_ORIGIN, PushFixture, seed_open_session};
-use roost_coord::push::dispatch::{
-    AgentPushTransition, NoTerminalViewers, PushTransition, fire_push_for_transition,
-};
+use roost_coord::push::dispatch::{AgentPushTransition, PushTransition, fire_push_for_transition};
+use roost_coord::terminal_view::TerminalViewHub;
 use roost_protocol::wire::{AgentOccupantId, SessionId, StatusEpoch};
 use serde_json::Value;
 
@@ -66,7 +64,7 @@ async fn a_custom_title_wins_over_the_directory_leaf() {
         fixture.database().pool(),
         &transition(PushTransition::Blocked, 1),
         &[PUSH_ORIGIN.to_owned()],
-        &NoTerminalViewers,
+        &TerminalViewHub::new(),
         &current,
         transport.as_ref(),
     )
@@ -99,7 +97,7 @@ async fn two_revisions_of_one_transition_get_different_deduplication_tokens() {
             fixture.database().pool(),
             &transition(PushTransition::Blocked, revision),
             &[PUSH_ORIGIN.to_owned()],
-            &NoTerminalViewers,
+            &TerminalViewHub::new(),
             &current,
             transport.as_ref(),
         )
