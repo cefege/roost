@@ -69,7 +69,14 @@ fn fences_a_mismatched_door_and_advances_a_pre_send_loopback_failure_to_webrtc()
     let mut fenced = FakeEnvironment::with_door("other-worker");
     let attempt = upload_attachment_direct(&request(), &mut fenced);
     assert_eq!(opened_route(&attempt), DirectRoute::Peer);
-    assert_eq!(fenced.calls, vec!["mint", "peer"]);
+    assert_eq!(
+        fenced.calls,
+        vec!["mint", "peer-id", "peer"],
+        "the peer route mints its identity before it opens: `create_peer_id` is a \
+         step of its own that can fail on its own, which is why the two cases \
+         below end on `peer-id` alone or carry it before `peer`. This \
+         expectation predates that step."
+    );
 
     // A door that matches but refuses before any chunk is also fenced off, and
     // the peer follows it.
