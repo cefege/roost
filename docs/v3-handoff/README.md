@@ -84,10 +84,26 @@ coordinator, and a Rust worker cannot complete boot against it. The worker
 already holds the credential everywhere else: enrollment passes one explicitly
 (`activation.rs:58-59`) and the link dial gets `WorkerKeyCredential`
 (`boot_sequence.rs:252-253`). The fix is to attach that credential to the
-Connect client the way the dial does, not to relax the route. Fix it in the
-worker track after its merge into `v3` and before the workspace gate; no gate
+Connect client the way the dial does, not to relax the route. No gate
 criterion would otherwise catch it, because nothing in `cargo test` crosses
 the two processes.
+
+**Fixed on `v3` at `c92d793f`, and the trial merge then found a second one.**
+`bootstrap_redeem::authenticated_call_options` mints the key and attaches it as
+a `Bearer` header with `try_with_header`, `register.rs` routes through that one
+function instead of spelling the header a second time, and
+`tests/open_session_credential.rs` serves a real Connect server that answers
+`SessionsList` only to a caller presenting a bearer — the defect is a header on
+the wire, so a fake transport passes with or without the fix. Mutation, seen to
+fail and reverted: returning bare `boot_call_options()` with no header made the
+read fail with `unauthenticated: sessions.list requires a worker credential`.
+
+The worker series, merged afterwards, brought `CoordinatorOpenSessions` — a
+long-lived `OpenSessionSource` that holds the same bare client and calls
+`read_open_sessions` again after boot. It was refused for the same reason, and
+no gate run on either branch separately would ever have seen it: the two call
+sites live on opposite sides of the merge. The merged tree gives that struct an
+`Arc<dyn CredentialSource>` and `boot_sequence` hands it the same key.
 
 ## RESUME STATE — read this first
 
