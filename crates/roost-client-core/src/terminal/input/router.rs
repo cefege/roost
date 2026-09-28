@@ -21,6 +21,10 @@ use crate::terminal::token::TerminalToken;
 pub struct InputRouter {
     lanes: BTreeMap<String, InputLane>,
     next_input_seq: u64,
+    /// The smoke backdoor's observer; `None` unless a smoke build armed it.
+    pub smoke_observer: Option<crate::terminal::input::smoke_observer::SmokeInputObserver>,
+    /// Per-view admission answers and outcomes, drained by the terminal pane.
+    pub outcome_feed: crate::terminal::input::outcome_feed::InputOutcomeFeed,
 }
 
 impl InputRouter {
@@ -220,9 +224,14 @@ impl InputRouter {
         if outcome.input_seq() != input_seq {
             return false;
         }
-        self.lanes
+        let settled = self
+            .lanes
             .values_mut()
-            .any(|lane| settle_in(lane, input_seq))
+            .any(|lane| settle_in(lane, input_seq));
+        if settled {
+            self.observe_settled(std::slice::from_ref(&outcome));
+        }
+        settled
     }
 
     /// Settle every held batch whose admission timeout has expired.
@@ -298,6 +307,7 @@ impl InputRouter {
                 outcomes.push(outcome);
             }
         }
+        self.observe_settled(&outcomes);
         outcomes
     }
 
@@ -312,7 +322,7 @@ impl InputRouter {
             .filter(|pending| !pending.started)
             .map(|pending| pending.input_seq)
             .collect();
-        matching
+        let outcomes: Vec<InputOutcome> = matching
             .into_iter()
             .filter_map(|input_seq| {
                 if settle_in(lane, input_seq) {
@@ -324,7 +334,18 @@ impl InputRouter {
                     None
                 }
             })
-            .collect()
+            .collect();
+        self.observe_settled(&outcomes);
+        outcomes
+    }
+
+    fn observe_settled(&mut self, outcomes: &[InputOutcome]) {
+        for outcome in outcomes {
+            self.outcome_feed.observe_outcome(outcome);
+            if let Some(observer) = &mut self.smoke_observer {
+                observer.observe_outcome(outcome);
+            }
+        }
     }
 
     /// Every batch still outstanding on a session, oldest first.
