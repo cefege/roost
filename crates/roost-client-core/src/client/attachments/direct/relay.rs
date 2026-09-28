@@ -109,7 +109,12 @@ impl RelayUpload {
         if self.completed {
             return self.total_bytes;
         }
-        let progress = (self.offset + RELAY_CHUNK_BYTES).min(self.total_bytes);
+        // The running settled total IS `offset`: `frame` has already advanced it
+        // by the bytes THIS chunk carried, so adding `RELAY_CHUNK_BYTES` on top
+        // counted every chunk twice. A 4 MiB + 1 byte file reported 100% after
+        // its first chunk, and a 100 MiB file raced to the end at twice the real
+        // rate. This is the slice boundary the doc above already promised.
+        let progress = self.offset.min(self.total_bytes);
         if !abs_path.is_empty() {
             self.completed = true;
             self.abs_path = abs_path.to_owned();
