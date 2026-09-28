@@ -43,11 +43,13 @@ pub fn release_asset_name(
 /// that could name a keeper asset the pipeline never publishes is a 404 on one
 /// architecture and not another — the shape of bug that ships.
 ///
-/// `replacen` with a count of ONE, and that detail is the whole reason this is
-/// written as a substitution rather than as `replace`: `roost-darwin-x64`
-/// names the program twice, and an un-counted replacement of the first
-/// occurrence would ask for `roost-keeper-darwin-x64`, which is an asset name
-/// the pipeline has never published.
+/// **A counted replacement, so only the prefix is rewritten.** Each published
+/// name contains `roost` exactly once, so the count changes nothing for the
+/// four names above; it is set because a name that contained the program twice —
+/// `roost-fallback-roost` — would otherwise have its suffix rewritten as well,
+/// becoming `roost-keeper-fallback-roost-keeper`. A keeper's name is a prefixed
+/// roost name and never a second table: a name present in one and absent from
+/// the other is a 404 on one architecture and not another.
 ///
 /// Returns an owned `String` where [`release_asset_name`] returns a `&'static
 /// str`, because a substitution produces a new string rather than naming one.

@@ -63,7 +63,16 @@ pub struct LocalPrograms {
 
 impl LocalPrograms {
     /// This process's own executable and the keeper beside it.
-    pub fn of_this_process() -> Result<Self, CommandFailure> {
+    ///
+    /// The keeper is OPTIONAL for a source build, which is the case the field
+    /// was optional for: a development tree ships no separate keeper binary and
+    /// still installs a working `roost`. It is NOT optional for a release, and
+    /// the reason is the caller's behaviour rather than the file's absence:
+    /// `roost join` filters a missing keeper out rather than refusing, so a
+    /// release that found none would enroll a machine, report success, and
+    /// serve no terminal — the "roster looks converged, terminal serves
+    /// nothing" outcome. Refusing here is the only place it can be caught.
+    pub fn of_this_process(env: &dyn EnvSource) -> Result<Self, CommandFailure> {
         let roost = std::env::current_exe().map_err(|error| {
             CommandFailure::generic(format!(
                 "this command cannot locate its own executable to install: {error}"
@@ -71,10 +80,45 @@ impl LocalPrograms {
         })?;
         let keeper = roost
             .parent()
-            .map(|directory| directory.join(crate::deploy::apply_release::KEEPER_PROGRAM));
-        let keeper = keeper.filter(|candidate| candidate.is_file());
+            .map(|directory| directory.join(crate::deploy::apply_release::KEEPER_PROGRAM))
+            .filter(|candidate| candidate.is_file());
+        let identity = roost_host::build_identity(env);
+        require_keeper_for_release(keeper.as_deref(), &roost, &identity.artifact_version)?;
         Ok(Self { roost, keeper })
     }
+}
+
+/// Whether a build with no keeper beside its `roost` may install anyway.
+///
+/// Split out of [`LocalPrograms::of_this_process`] because
+/// `artifact_version` is a COMPILE-TIME constant
+/// (`build_identity.rs:42-45`), so a test binary is always `dev` and the
+/// release refusal cannot be reached through the constructor at all. The
+/// decision is here so the refusal is a thing tests can exercise; the
+/// constructor is only the thing that supplies its inputs.
+///
+/// Optional for a source build, which is the case the field was optional for:
+/// a development tree ships no separate keeper binary and still installs a
+/// working `roost`. NOT optional for a release, and the reason is the caller's
+/// behaviour rather than the file's absence — `roost join` filters a missing
+/// keeper out rather than refusing, so a release that found none would enroll a
+/// machine, report success, and serve no terminal.
+pub fn require_keeper_for_release(
+    keeper: Option<&Path>,
+    roost: &Path,
+    artifact_version: &str,
+) -> Result<(), CommandFailure> {
+    if keeper.is_some() || artifact_version == roost_host::DEV_BUILD_STAMP {
+        return Ok(());
+    }
+    let directory = roost.parent().unwrap_or_else(|| Path::new("."));
+    Err(CommandFailure::generic(format!(
+        "no {} beside {}, and this is a {artifact_version} build. A joined machine needs \
+         both programs: the worker cannot run a session without its keeper. The release \
+         publishes it in the same directory as this binary.",
+        crate::deploy::apply_release::KEEPER_PROGRAM,
+        directory.display()
+    )))
 }
 
 /// Deploy one definition on this machine, holding the machine transaction for

@@ -99,7 +99,7 @@ sha256_of() {
 
 # Install the release's `roost` for this machine and print where it went.
 fetch_roost() {
-  local tag asset dest base dest_dir tmp got want
+  local tag asset keeper dest base dest_dir tmp got want
   tag="$(newest_v3_tag)"
   [ -n "$tag" ] || return 0
   asset="$(asset_name)"
@@ -133,12 +133,70 @@ fetch_roost() {
         "Nothing was installed. Fetch it by hand and compare before trusting it:" \
         "  ${base}/${asset}"
   fi
-  # Move into place only after the bytes matched, and through a name this
-  # account owns: a system-wide roost belongs to the system, not to a join.
+  # NOTHING is moved into place until BOTH assets have been fetched and both
+  # digests have matched. The single-asset shape verified then installed, and
+  # splitting the fetch across two install points broke that: a keeper digest
+  # mismatch used to `die` with a bare `roost` already at `$dest`, so the next
+  # run's `is_v3` would accept it, skip this function entirely, and never fetch
+  # a keeper. The machine would hold a v3 binary and no keeper forever, which is
+  # the defect this whole change exists to remove.
+
+  # The keeper is a SEPARATE PROGRAM and it must come from the SAME TAG as the
+  # roost beside it. A keeper from a different release is a keeper contract the
+  # worker was never built against, which is the mismatch
+  # `ops/keeper_contract.rs` and keeper-update admission exist to refuse -- so
+  # this runs inside fetch_roost, from `$tag`, into `$dest_dir`, and never for
+  # a binary this function did not fetch.
+  #
+  # It is FATAL where the roost fetch is optional. `roost join` looks for
+  # `roost-keeper` BESIDE `current_exe()` and FILTERS a missing one out rather
+  # than refusing, so a machine that enrolled without it reports success,
+  # appears in `roost api workers`, and serves no terminal: the "roster looks
+  # converged, terminal serves nothing" outcome the selection order above
+  # exists to prevent, arriving by a different door. An optional keeper is the
+  # defect, so this one refuses.
+  keeper="$(asset_name)"
+  keeper="roost-keeper${keeper#roost}"
+  say "fetching ${keeper} from ${tag}" >&2
+  if ! curl -fsSL -o "${tmp}/roost-keeper" "${base}/${keeper}"; then
+    rm -rf "$tmp"
+    die "The ${tag} release does not publish ${keeper}, so this machine would" \
+        "join with a worker whose keeper was never installed." \
+        "Nothing was installed. Both programs are needed:" \
+        "  ${base}/${asset}" \
+        "  ${base}/${keeper}"
+  fi
+  if ! curl -fsSL -o "${tmp}/roost-keeper.sha256" "${base}/${keeper}.sha256"; then
+    rm -rf "$tmp"
+    die "No published digest beside ${keeper}." \
+        "An unverified keeper is not installed: the sidecar is the only thing" \
+        "that says these bytes are the ones this release published." \
+        "Nothing was installed."
+  fi
+  got="$(sha256_of "${tmp}/roost-keeper")"
+  want="$(head -1 "${tmp}/roost-keeper.sha256" | cut -d' ' -f1 | tr -d '[:space:]')"
+  if [ -z "$want" ]; then
+    rm -rf "$tmp"
+    die "The digest published beside ${keeper} is not a digest." "Nothing was installed."
+  fi
+  if [ "$got" != "$want" ]; then
+    rm -rf "$tmp"
+    die "The ${tag} ${keeper} does not match the digest published beside it." \
+        "  expected ${want}" \
+        "  actual   ${got}" \
+        "Nothing was installed. Fetch it by hand and compare before trusting it:" \
+        "  ${base}/${keeper}"
+  fi
+  # BOTH digests have now matched and nothing has been installed, so the two
+  # moves below are the first writes to `$dest_dir`. Through a name this account
+  # owns: a system-wide roost belongs to the system, not to a join.
   mv "${tmp}/roost" "${dest}.incoming" && chmod 0755 "${dest}.incoming" && mv "${dest}.incoming" "$dest"
+  mv "${tmp}/roost-keeper" "${dest_dir}/.roost-keeper.incoming" \
+    && chmod 0755 "${dest_dir}/.roost-keeper.incoming" \
+    && mv "${dest_dir}/.roost-keeper.incoming" "${dest_dir}/roost-keeper"
   rm -rf "$tmp"
-  say "installed ${tag} (${asset}) to ${dest}" >&2
-  say "it matches the digest published beside it" >&2
+  say "installed ${tag} (${asset} and ${keeper}) to ${dest_dir}" >&2
+  say "both match the digests published beside them" >&2
   printf '%s' "$dest"
 }
 
@@ -198,14 +256,23 @@ fi
 if [ -z "$ROOST_BIN" ]; then
   ROOST_BIN="$(fetch_roost)"
 fi
-[ -n "$ROOST_BIN" ] || die "No v3 \`roost\` on this machine, and none could be fetched." \
-                            "Nothing was installed." \
+[ -n "$ROOST_BIN" ] || die "No v3 \`roost\` is available on this machine." \
+                            "If a message above named a specific asset, that is why:" \
+                            "\`fetch_roost\` runs inside a command substitution, so a refusal" \
+                            "there exits only the substitution and not this script." \
                             "The release assets are at https://github.com/cefege/roost/releases" \
                             "To try a local build instead, set ROOST_BIN to its path, e.g." \
                             "  ROOST_BIN=./target/release/roost"
 
 [ -x "$ROOST_BIN" ] || die "ROOST_BIN=$ROOST_BIN is not executable." \
                             "Nothing was installed."
+
+# NOTE ON A BINARY THIS SCRIPT DID NOT FETCH. If ROOST_BIN was already on the
+# machine, no keeper is fetched beside it, because the newest release's keeper
+# may not match that binary's version and a mismatched pair is the contract
+# `ops/keeper_contract.rs` refuses. `roost join` then finds no keeper beside it,
+# so the Rust side must refuse rather than filter -- which is the other half of
+# this fix, on `LocalPrograms::of_this_process`, and is not in this file.
 
 # 3. Hand the grant over. ROOST_COORDINATOR_URL / ROOST_BOOTSTRAP_TOKEN /
 #    ROOST_WORKER_LABEL are already in the environment and are inherited.
