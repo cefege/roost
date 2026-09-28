@@ -55,12 +55,24 @@
 //! continues. "Not rebound" is the part that is silent today and is the whole
 //! reason the probe runs before `deliver_into` rather than after it.
 //!
-//! THE PROBE IS A KEEPER READ AND NOTHING ELSE. It runs per channel, before
-//! the adoption is attempted, through the same [`KeeperChannels`] seam the
-//! adoption itself uses, so there is one answer to "can this keeper describe
-//! this channel" and it is read from one place. It is a refusal the EXPECTED
-//! outcome against a keeper that cannot report history, so it is logged at
-//! `info` and never at `error`.
+//! THE GATE IS A BUILD-CAPABILITY CHECK, NOT A KEEPER READ, and the file says
+//! so because the code is: [`history_readable`] calls
+//! `KeeperPool::channel_history`, whose entire body is
+//! `Err(KeeperFault { … })` naming `NO_REPORTED_HEAD` and
+//! `NO_REPORTED_BASE_GEOMETRY`. It never opens the socket. Asking it is
+//! asking THIS BUILD whether it knows how to assemble a replay, and the
+//! answer is no until W-K implements the real operation.
+//!
+//! **WHAT THIS BECOMES WHEN W-K LANDS, WHICH NOTHING ELSE IN THE TREE WILL
+//! SAY.** The day `KeeperPool::channel_history` grows a body that talks to the
+//! keeper, this one line stops being a build check and becomes a PER-CHANNEL
+//! KEEPER READ, with no edit to this file. That transition is the single most
+//! consequential silent change in the worker: from that day, this call — and
+//! only this call — decides whether `adopt_survivor` is ever entered, and so
+//! whether `abandon` and therefore `keeper.kill_channel` ever runs against a
+//! live terminal on a restart. It is written here because the diff that makes
+//! it true will be in `keeper_pool/`, and a reader there has no reason to come
+//! looking for what it just enabled.
 //!
 //! A CHANNEL THE COORDINATOR DOES NOT LIST IS LEFT ALONE for a different
 //! reason and by a different rule: there is no session identity to adopt it
@@ -96,13 +108,13 @@ use crate::session::resume::{AdoptionRequest, AdoptRefusal, KeeperChannels, Keep
 pub struct Adopted {
     /// Channels the keeper still held and this worker adopted around.
     pub adopted: usize,
-    /// Channels whose history could not be brought into a cold core, so NO
-    /// adoption was attempted. Every one of these was left RUNNING and
-    /// undisturbed — held, not killed, not adopted, not abandoned — and the
-    /// boot continued. Either the channel is not one this worker can address,
-    /// or the replayability probe found the keeper cannot describe it. Against
-    /// any keeper that cannot report a history head — which is every keeper
-    /// this build speaks to — this is the expected outcome, not a fault.
+    /// Channels this build cannot bring into a cold core, so NO adoption was
+    /// attempted. Every one of these was left RUNNING and undisturbed — held,
+    /// not killed, not adopted, not abandoned — and the boot continued. Either
+    /// the channel is not one this worker can address, or [`history_readable`]
+    /// said this build cannot assemble a replay. The second is the expected
+    /// outcome of every boot this build performs today, and it is a fact about
+    /// the binary rather than about any machine.
     pub unreplayable: usize,
     /// Channels the probe PASSED and whose adoption then failed. Each of these
     /// was KILLED, because this is `session::resume`'s designed repair and
@@ -122,25 +134,36 @@ pub struct Adopted {
     pub unreservable: usize,
 }
 
-/// Whether the keeper can describe this channel's history well enough to
-/// replay it into a cold core.
+/// Whether this build can assemble a replay for this channel at all.
 ///
-/// THE GATE, and it is a keeper READ: it asks for the history and reports
-/// whether the keeper produced one. It changes nothing — no binding is
-/// installed, no record is taken, no claim is reserved — so a refusal here
-/// leaves the survivor exactly as the last worker left it.
+/// **A BUILD-CAPABILITY GATE, NOT A KEEPER READ, and the difference is not
+/// pedantic.** `KeeperPool::channel_history` (`keeper_pool/session_seam.rs`)
+/// has no body but an `Err` naming `NO_REPORTED_HEAD` and
+/// `NO_REPORTED_BASE_GEOMETRY`: it never opens the socket. Calling it asks
+/// THIS BUILD whether it knows how to turn a survivor's history into a cold
+/// core, and the answer is no until the keeper protocol carries the head and
+/// the base geometry. The `fault` it returns is therefore a statement about
+/// the binary, and the log line says so — a machine-level fault reported for a
+/// compile-level one, once per survivor, on every boot, is how an operator
+/// learns to ignore the line that would have told them something real.
 ///
-/// The two refusals this exists to tell apart live one level apart. A
-/// refusal HERE means the worker does not know how to bring this terminal
-/// forward, and the survivor is left running. A refusal INSIDE
-/// [`crate::session::resume::adopt_survivor`] means the worker knew how and
-/// could not, and the survivor is killed. Passing the same fault through both
-/// is what made a restart destructive.
+/// It changes nothing: no binding is installed, no record taken, no claim
+/// reserved, and the survivor is left exactly as the last worker left it.
 ///
-/// `Ok` here is necessary and not sufficient: the adoption still does the
-/// reattach, the geometry check and the atomic swap, and can still refuse. It
-/// only establishes that the refusal will not be a refusal to DESCRIBE.
-fn probe_replayable(pool: &KeeperPool, channel: u16) -> Result<(), KeeperFault> {
+/// The two refusals this exists to tell apart live one level apart. A refusal
+/// HERE means this build cannot bring the terminal forward, and the survivor
+/// is left running. A refusal INSIDE
+/// [`crate::session::resume::adopt_survivor`] means the build knew how and
+/// could not, and the survivor may be killed. Passing the same fault through
+/// both is what made a restart destructive.
+///
+/// `Ok` is necessary and not sufficient: the adoption still reattaches, checks
+/// the geometry and swaps, and can still refuse.
+///
+/// **WHEN `KeeperPool::channel_history` GAINS A BODY, THIS BECOMES A REAL
+/// KEEPER READ AND NOTHING IN THIS FILE CHANGES.** See the module header for
+/// why that silent transition is the one worth writing down.
+fn history_readable(pool: &KeeperPool, channel: u16) -> Result<(), KeeperFault> {
     KeeperChannels::channel_history(pool, channel).map(|_| ())
 }
 
@@ -169,25 +192,22 @@ pub async fn adopt_survivors(
             );
             continue;
         };
-        // THE REPLAYABILITY PROBE, IN FRONT OF THE ADOPTION, AND IT IS THE
-        // ONLY WAY PAST. `adopt_survivor` kills whatever it refuses, and the
-        // refusal this probe is here to intercept is the common one: against a
-        // keeper that reports no history head, EVERY channel reaches it and
-        // EVERY live terminal on this machine dies on every restart. So the
-        // keeper is asked first, the answer decides, and a refusal leaves the
-        // survivor alone.
+        // THE GATE, AND IT IS A QUESTION ABOUT THIS BUILD. `adopt_survivor`
+        // has paths that kill the survivor they refuse, and every one of them
+        // is behind an adoption that cannot start. So the build is asked
+        // first whether it knows how to assemble a replay at all, and a `no`
+        // leaves the survivor alone.
         //
-        // `info`, NOT `error`, and that level is the difference between "this
-        // build cannot adopt yet" and "this machine lost its terminals". The
-        // boot continues either way: one undescribable channel is not a
-        // reason to take every other survivor and the link down with it.
-        if let Err(fault) = probe_replayable(pool, raw) {
+        // `info`, NOT `error`, and the wording is a build fact rather than a
+        // machine one: this says the BINARY cannot yet, not that the keeper
+        // misbehaved. The boot continues either way — one unadoptable
+        // survivor is not a reason to take every other one and the link down.
+        if let Err(fault) = history_readable(pool, raw) {
             adopted.unreplayable += 1;
             tracing::info!(
                 channel_id = raw,
-                operation = %fault.operation,
-                reason = %fault.reason,
-                "boot: the keeper cannot describe this survivor's history, so it was NOT \
+                build_limit = %fault.reason,
+                "boot: this build cannot assemble a replay for this survivor, so it was NOT \
                  adopted; it is LEFT RUNNING and undisturbed, because a worker that cannot \
                  rebuild a record around a terminal is not evidence the terminal is broken"
             );
