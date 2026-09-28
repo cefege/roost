@@ -86,9 +86,16 @@ pub enum AuthRequirement {
 pub enum PortStatus {
     /// Answered in this slice, with real behaviour.
     Implemented,
-    /// The v2 coordinator answers it; the owning domain has not been ported into
-    /// this slice. The reply is `Unimplemented` with the domain named, so the
+    /// The v2 coordinator answers it, and this crate's handler for it has not
+    /// been ported. The reply is `Unimplemented` with the domain named, so the
     /// failure says who owns it rather than pretending the method is retired.
+    ///
+    /// A fact about ONE METHOD, not about its domain folder: five of the six
+    /// folders that carry an awaiting row also carry implemented ones
+    /// (`sessions` is 10 and 17), so a status keyed on the folder cannot exist
+    /// and this comment once implied one. `tests/method_route_arm_pairing.rs`
+    /// is what keeps the two hand-maintained statements of this — this status
+    /// and `service_impl.rs`'s `delegated_*` arm — from drifting apart.
     AwaitingDomainPort,
     /// v2 does not answer it either: it is declared in the proto and routed to
     /// Connect's own unimplemented stub. Sixteen methods are in this class.

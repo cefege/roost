@@ -54,6 +54,8 @@ tower-http.workspace = true
 roost-protocol.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+# `test-util` for `tokio::time::pause`, so a deadline test does not wait it out.
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

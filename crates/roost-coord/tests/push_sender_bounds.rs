@@ -156,23 +156,6 @@ async fn a_superseded_transition_sends_nothing_at_all() {
     );
 }
 
-// UNFINISHED, and the assertion is NOT wrong -- it is deferred because the
-// test is not deterministic yet, not because the claim is disputed.
-//
-// The fence IS correct: it is checked per send inside `deliver_one`
-// (src/push/sender.rs:129), so a batch that takes a second does not send all
-// 64. The sibling test above, where the flag is false from the start, passes
-// and does pin it.
-//
-// What is unsolved: under `buffer_unordered(4)` the four in-flight futures
-// are each already PAST their check when the flip lands, and blocking the
-// transport until the test releases did not settle it either. 64 of 64
-// attempted means the fence never returned false for this run, which points
-// at the test not flipping the flag the sender actually reads -- but that is
-// not established, so it is not claimed.
-//
-// A weakened assertion here would prove nothing. Red, not green.
-#[ignore = "UNFINISHED: the fence is correct and checked per send inside deliver_one; the mid-batch test is not yet deterministic. See the comment above."]
 #[tokio::test]
 async fn a_transition_superseded_while_the_batch_is_running_stops_further_sends() {
     let fixture = PushFixture::new("superseded-mid").await;
@@ -185,10 +168,10 @@ async fn a_transition_superseded_while_the_batch_is_running_stops_further_sends(
     // asserts is "attempts the transport was asked for", not "notifications a
     // user saw".
     //
-    // The transport here flips the fence the moment four attempts are in
-    // flight and then holds every attempt open until the flip is visible. So
-    // the first four are the ones running when the transition stops being
-    // current, and everything after them is refused.
+    // The transport below flips the fence the moment four attempts have been
+    // authorised, and holds every attempt open until it has. So the first four
+    // are the ones running when the transition stops being current, and
+    // everything after them is refused.
     let flag = Arc::new(AtomicBool::new(true));
     let transport = SupersedeOnSaturation::new(MAX_CONCURRENT_SENDS, Arc::clone(&flag));
     let fence: Arc<dyn Fn() -> bool + Send + Sync> = {
@@ -228,23 +211,29 @@ async fn a_transition_superseded_while_the_batch_is_running_stops_further_sends(
 
 /// A transport that supersedes the transition once the ceiling saturates.
 ///
-/// The flip is the point; the transport then answers immediately, because the
-/// fence is checked BEFORE a send is attempted, so a superseded transition has
-/// nothing in flight to hold open.
+/// THE COMPLETION ORDER IS INJECTED, NOT RACED. The attempts park on the
+/// fixture's self-opening gate until `saturation` of them overlap, and the
+/// attempt that reaches the ceiling is the one that flips the fence -- so the
+/// flip lands in a state the sender provably reached, with four sends already
+/// authorised and none of them finished. A transport that answered immediately
+/// would let each attempt complete inside its own first poll, the overlap count
+/// would never leave one, the fence would never flip, and all sixty-four would
+/// be attempted: a batch that always finishes is a batch where "superseded
+/// mid-flight" is unrepresentable, not a batch where the fence failed.
 struct SupersedeOnSaturation {
     inner: Arc<FakeTransport>,
     flag: Arc<AtomicBool>,
     saturation: usize,
-    in_flight: AtomicUsize,
+    started: AtomicUsize,
 }
 
 impl SupersedeOnSaturation {
     fn new(saturation: usize, flag: Arc<AtomicBool>) -> Self {
         Self {
-            inner: FakeTransport::accepting(),
+            inner: FakeTransport::self_releasing(saturation),
             flag,
             saturation,
-            in_flight: AtomicUsize::new(0),
+            started: AtomicUsize::new(0),
         }
     }
 
@@ -258,17 +247,16 @@ impl PushNotificationTransport for SupersedeOnSaturation {
         &'a self,
         request: &PushDeliveryRequest,
     ) -> Pin<Box<dyn Future<Output = Result<(), PushTransportError>> + Send + 'a>> {
-        let now = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+        // Counted where the attempt is AUTHORISED, not where it finishes: the
+        // sender has already read the fence by the time it asks for a send, so
+        // the attempt that trips the ceiling is one that passed the check while
+        // the transition was still current.
+        let now = self.started.fetch_add(1, Ordering::SeqCst) + 1;
         if now >= self.saturation {
             self.flag.store(false, Ordering::SeqCst);
         }
         let inner = self.inner.clone();
         let request = request.clone();
-        let counter = &self.in_flight;
-        Box::pin(async move {
-            let outcome = inner.as_ref().send(&request).await;
-            counter.fetch_sub(1, Ordering::SeqCst);
-            outcome
-        })
+        Box::pin(async move { inner.as_ref().send(&request).await })
     }
 }

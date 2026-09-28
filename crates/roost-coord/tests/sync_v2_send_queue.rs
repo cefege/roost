@@ -11,130 +11,22 @@
 // IS the failure, which is why `unwrap_used` is denied in product code.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::collections::BTreeSet;
-use std::sync::Arc;
+mod sync_v2_send_queue_support;
 
 use roost_coord::sync_ws::admission::EnqueueOutcome;
-use roost_coord::sync_ws::commands::{ClientContext, CommandOutcome, handle_client_frame};
-use roost_coord::sync_ws::domain_table::DomainGenerations;
+use roost_coord::sync_ws::commands::{CommandOutcome, handle_client_frame};
 use roost_coord::sync_ws::domain_table::{DOMAIN_MAX_QUEUED_FRAMES, LOW_LANE_MAX_AGE_MS};
 use roost_coord::sync_ws::egress::FlushStep;
-use roost_coord::sync_ws::frame_meta::{FeedLane, SyncFrameMeta, frame_meta_for};
-use roost_coord::sync_ws::session::SyncV2Session;
+use roost_coord::sync_ws::frame_meta::{FeedLane, SyncFrameMeta};
 use roost_coord::sync_ws::snapshot_registry::SnapshotTokenRegistry;
-use roost_coord::sync_ws::terminal::snapshot::{NoTerminalSnapshotHub, TerminalSnapshotHub};
+use roost_coord::sync_ws::terminal::snapshot::NoTerminalSnapshotHub;
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
-use roost_proto::__buffa::oneof::session_event_proto::Kind;
 use roost_proto::__buffa::oneof::sync_client_frame::Command as ClientCommand;
-use roost_proto::{
-    FirehoseFrame, OpenedEvt, PbCellGridFrame, PbCellRow, PbCellSpan, SessionEventProto,
-    SyncClientFrame, SyncDomain, SyncDomainReadyCommand,
+use roost_proto::{FirehoseFrame, SyncClientFrame, SyncDomain, SyncDomainReadyCommand};
+use sync_v2_send_queue_support::{
+    SESSION_A, cell_frame, context, hydrated_terminal, hydrated_uncovered_terminal, meta_of,
+    opened_event,
 };
-
-const SESSION_A: &str = "11111111-1111-4111-8111-111111111111";
-const SNAPSHOT_A: &str = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-
-fn generations() -> Arc<DomainGenerations> {
-    Arc::new(DomainGenerations::new(1_000))
-}
-
-fn context() -> ClientContext {
-    let mut session_ids = BTreeSet::new();
-    session_ids.insert(SESSION_A.to_owned());
-    ClientContext {
-        read_only: false,
-        tab_id: Some("tab-1".to_owned()),
-        viewer_key: Some("fingerprint:tab-1".to_owned()),
-        fingerprint: "fingerprint".to_owned(),
-        session_ids,
-    }
-}
-
-/// The hub the session calls back into when a lane rebaselines.
-#[derive(Default)]
-#[allow(dead_code)]
-struct RecordingHub;
-
-impl TerminalSnapshotHub for RecordingHub {
-    fn request_rebaseline(&mut self, _socket_id: &str, _session_id: &str) -> bool {
-        true
-    }
-}
-
-fn cell_frame(session_id: &str, marker: &str, seq: u64) -> FirehoseFrame {
-    FirehoseFrame {
-        frame: Some(Frame::CellGrid(Box::new(PbCellGridFrame {
-            session_id: session_id.to_owned(),
-            cols: 80,
-            rows: 24,
-            seq,
-            grid_epoch: format!("{session_id}:grid"),
-            viewport_rows: vec![PbCellRow {
-                index: 0,
-                spans: vec![PbCellSpan {
-                    text: marker.to_owned(),
-                    ..PbCellSpan::default()
-                }],
-                __buffa_unknown_fields: Default::default(),
-            }],
-            ..PbCellGridFrame::default()
-        }))),
-        ..FirehoseFrame::default()
-    }
-}
-
-fn opened_event(session_id: &str) -> FirehoseFrame {
-    FirehoseFrame {
-        frame: Some(Frame::SessionEvent(Box::new(SessionEventProto {
-            kind: Some(Kind::Opened(Box::new(OpenedEvt {
-                session_id: session_id.to_owned(),
-                worker_fp: "worker-1".to_owned(),
-                channel: 0,
-                ..OpenedEvt::default()
-            }))),
-            event_id: 1,
-            __buffa_unknown_fields: Default::default(),
-        }))),
-        ..FirehoseFrame::default()
-    }
-}
-
-fn meta_of(frame: &FirehoseFrame) -> SyncFrameMeta {
-    frame_meta_for(frame.frame.as_ref().expect("a test frame carries a oneof"))
-}
-
-fn hydrated_terminal() -> (SyncV2Session, SnapshotTokenRegistry) {
-    let mut session = SyncV2Session::new("socket-1".to_owned(), generations(), true);
-    let mut tokens = SnapshotTokenRegistry::new();
-    tokens.register_socket("socket-1", "fingerprint");
-    let mut covered = BTreeSet::new();
-    covered.insert(SESSION_A.to_owned());
-    assert!(tokens.bind("socket-1", "fingerprint", SNAPSHOT_A, covered));
-    let frame = SyncClientFrame {
-        ack_delivery_seq: None,
-        socket_id: "socket-1".to_owned(),
-        command: Some(ClientCommand::DomainReady(Box::new(
-            SyncDomainReadyCommand {
-                domain: SyncDomain::Terminal.into(),
-                generation: session
-                    .domain_generation(SyncDomain::Terminal)
-                    .expect("a domain exists"),
-                snapshot_token: Some(SNAPSHOT_A.to_owned()),
-                __buffa_unknown_fields: Default::default(),
-            },
-        ))),
-        __buffa_unknown_fields: Default::default(),
-    };
-    let context = context();
-    assert!(matches!(
-        handle_client_frame(&mut session, &context, &frame, &mut tokens, 1_000),
-        CommandOutcome::DomainReady {
-            domain: SyncDomain::Terminal,
-            ..
-        }
-    ));
-    (session, tokens)
-}
 
 #[test]
 fn the_queue_drops_one_frame_and_resets_the_domain_rather_than_growing() {
@@ -212,10 +104,11 @@ fn the_queue_drops_one_frame_and_resets_the_domain_rather_than_growing() {
     assert!(!notice.terminal_sessions_dropped);
 }
 
-#[ignore = "UNFINISHED: a terminal lane is pumped once and never again, so the second baseline part is never queued. The pump that queues it is in terminal/ready_ring.rs::pump_lane; the fault was not diagnosed before this slice ran out of budget. Every assertion below is correct against v2 and fails against the port."]
+/// Runs on the uncovered fixture: on `hydrated_terminal` the seed has already
+/// announced `SESSION_A`, so its cell would never be fenced at all.
 #[test]
 fn a_cell_is_fenced_behind_its_announcement_until_the_acknowledgement_lands() {
-    let (mut session, _tokens) = hydrated_terminal();
+    let (mut session, _tokens) = hydrated_uncovered_terminal();
     let mut hub = NoTerminalSnapshotHub;
 
     let opened = opened_event(SESSION_A);
@@ -254,10 +147,12 @@ fn a_cell_is_fenced_behind_its_announcement_until_the_acknowledgement_lands() {
     assert!(matches!(second.frame.frame, Some(Frame::CellGrid(_))));
 }
 
-#[ignore = "UNFINISHED: a terminal lane is pumped once and never again, so the second baseline part is never queued. The pump that queues it is in terminal/ready_ring.rs::pump_lane; the fault was not diagnosed before this slice ran out of budget. Every assertion below is correct against v2 and fails against the port."]
+/// The age override ranks domain HEADS only, as v2 does (`sync-ws-v2-queue.ts:72-95`):
+/// within one domain a non-cell frame waits behind the frames queued ahead of it, so
+/// the aged `LastActivity` goes out after the `LATE` cell enqueued before it.
 #[test]
-fn the_aged_out_lane_outranks_a_streaming_terminal() {
-    let (mut session, _tokens) = hydrated_terminal();
+fn an_aged_non_cell_waits_behind_eligible_frames_in_its_own_domain() {
+    let (mut session, _tokens) = hydrated_uncovered_terminal();
     let mut hub = NoTerminalSnapshotHub;
 
     // A cell for a session nobody announced stays queued and ineligible.
@@ -285,13 +180,13 @@ fn the_aged_out_lane_outranks_a_streaming_terminal() {
         Some(Frame::TerminalTitle(_))
     ));
 
-    // A cell for an ANNOUNCED session that has waited past the age bound is
-    // overtaken by a non-cell frame queued behind it.
+    // The announcement, a cell, and a non-cell queued behind that cell, all in
+    // the terminal domain and all past the age bound when the drain runs.
     let opened = opened_event(SESSION_A);
     session.enqueue_frame(&opened, Some(&meta_of(&opened)), 2_000, &mut hub);
-    let cell2 = cell_frame(SESSION_A, "LATE", 2);
-    session.enqueue_frame(&cell2, Some(&meta_of(&cell2)), 2_000, &mut hub);
-    let late_title = FirehoseFrame {
+    let late_cell = cell_frame(SESSION_A, "LATE", 2);
+    session.enqueue_frame(&late_cell, Some(&meta_of(&late_cell)), 2_000, &mut hub);
+    let last_activity = FirehoseFrame {
         frame: Some(Frame::LastActivity(Box::new(
             roost_proto::LastActivityFrame {
                 session_id: SESSION_A.to_owned(),
@@ -301,15 +196,44 @@ fn the_aged_out_lane_outranks_a_streaming_terminal() {
         ))),
         ..FirehoseFrame::default()
     };
-    session.enqueue_frame(&late_title, Some(&meta_of(&late_title)), 2_000, &mut hub);
+    session.enqueue_frame(
+        &last_activity,
+        Some(&meta_of(&last_activity)),
+        2_000,
+        &mut hub,
+    );
+
+    // Drain as a client would, acknowledging each frame so the announcement
+    // releases the session's cells, until the `LastActivity` goes out.
     let aged = 2_000 + LOW_LANE_MAX_AGE_MS;
-    let next = session.take_next_sendable(aged, &mut hub);
-    let FlushStep::Send(next) = next else {
-        panic!("a frame is eligible");
-    };
+    let mut sent = Vec::new();
+    for _ in 0..16 {
+        let FlushStep::Send(next) = session.take_next_sendable(aged, &mut hub) else {
+            panic!("the drain stalled before the LastActivity was sent; sent {sent:?}");
+        };
+        session
+            .apply_ack(next.delivery_seq, aged)
+            .expect("a valid ack");
+        let reached = matches!(next.frame.frame, Some(Frame::LastActivity(_)));
+        sent.push(next.frame.frame);
+        if reached {
+            break;
+        }
+    }
+    let last_activity_at = sent
+        .iter()
+        .position(|frame| matches!(frame, Some(Frame::LastActivity(_))))
+        .unwrap_or_else(|| panic!("the LastActivity was never sent in 16 steps; sent {sent:?}"));
+    let late_cell_at = sent
+        .iter()
+        .position(|frame| {
+            matches!(frame, Some(Frame::CellGrid(grid))
+                if grid.viewport_rows.iter().any(|row| row.spans.iter().any(|span| span.text == "LATE")))
+        })
+        .unwrap_or_else(|| panic!("the LATE cell was never sent before the drain ended; sent {sent:?}"));
     assert!(
-        matches!(next.frame.frame, Some(Frame::LastActivity(_))),
-        "the aged-out non-cell lane outranks a fenced cell"
+        late_cell_at < last_activity_at,
+        "within its own domain the aged non-cell waits behind the cell queued ahead of it; sent {sent:?}"
     );
     assert_eq!(
         roost_coord::sync_ws::domain_table::DOMAIN_SLOTS,

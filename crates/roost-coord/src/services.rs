@@ -39,16 +39,21 @@ use crate::coord_core::worker_handle::WorkerRegistry;
 use crate::db::CoordDb;
 use crate::deploy::DeployRuntime;
 use crate::diagnostics::telemetry::Telemetry;
+use crate::events::append::LiveEffects;
 use crate::events::bus_domains::Buses;
+use crate::events::event_log::EventLog;
 use crate::events::pending_publications::PendingPublicationStore;
 use crate::middleware::rate_limit::RateLimiter;
 use crate::search::GlobalSearchRuntime;
 use crate::sessions::SessionsRuntime;
 use crate::sync_ws::feed::FeedRuntime;
 use crate::terminal_screen::byte_hub::ByteHub;
+use crate::terminal_screen::live_effects::TerminalLiveEffects;
+use crate::terminal_screen::orphan_kills::LiveOrphanKills;
 use crate::terminal_screen::scrollback_relay::ScrollbackRelay;
 use crate::terminal_view::TerminalViewHub;
 use crate::ui_state::UiStateRuntime;
+use crate::worker_link::client_seq::{ClientSeqCursor, ClientSeqCursors};
 use crate::write_gate::WriteGate;
 
 /// The coordinator's process-wide state.
@@ -128,6 +133,31 @@ pub struct CoordServices {
     /// The terminal view hub. The workers domain consumes it as the
     /// `TerminalViewLifecycle` seam.
     pub views: Arc<TerminalViewHub>,
+    /// The durable session-event store every worker's dispatcher appends to.
+    ///
+    /// BUILT ONCE HERE AND HANDED OUT BY CLONE. A factory that took one as an
+    /// argument would let two dispatchers be built against two different event
+    /// logs, which is the third instance of a second handle where one owner is
+    /// required.
+    pub event_log: EventLog,
+    /// The kills this coordinator owes workers whose PTYs were force-closed
+    /// while they were offline, and the links that can carry them.
+    ///
+    /// ON `CoordServices` rather than on a socket, because a kill is addressed
+    /// to a FINGERPRINT and the reap runs when the worker is offline by
+    /// definition. `connection.rs` registers and deregisters a link here; it
+    /// does not own a kill.
+    ///
+    /// An `Arc` because [`Self::event_log`] holds the same value inside its
+    /// `LiveEffects`: one registry, one set of owed kills, shared by handle.
+    pub orphan_kills: Arc<LiveOrphanKills>,
+    /// Every worker's `client_seq` position, keyed by fingerprint.
+    ///
+    /// PER WORKER, NOT PER SOCKET, and that is the property a reader is most
+    /// likely to undo — `worker_link::client_seq` states all three reasons in
+    /// full, and the one that bites hardest is that a reconnect RESUMES the
+    /// worker's durable outbox, so the sequence outlives the socket.
+    pub client_seqs: ClientSeqCursors,
 }
 
 impl CoordServices {
@@ -151,13 +181,35 @@ impl CoordServices {
     #[must_use]
     pub fn booted(db: CoordDb, boot: BootFacts) -> Self {
         let workers = Arc::new(WorkerRegistry::new());
+        // ONE store, shared by clone. A second `PendingPublicationStore` would
+        // be two answers to "what is pending publication" -- the same defect as
+        // two bus sets, and the reason the buses are built once.
+        let pending_publications = Arc::new(std::sync::Mutex::new(PendingPublicationStore::new()));
+        let buses = Buses::shared();
+        let byte_hub = Arc::new(ByteHub::with_defaults());
+        let orphan_kills = Arc::new(LiveOrphanKills::new());
+        // The terminal half of the chain, built ONCE. `event_log` holds this
+        // exact value, so there is one `LiveEffects` in the process rather than
+        // one per dispatcher -- the same reason the buses and the pending
+        // publication store are built once.
+        let live_effects: Arc<dyn LiveEffects> = Arc::new(TerminalLiveEffects::new(
+            Arc::clone(&byte_hub),
+            Arc::clone(&orphan_kills)
+                as Arc<dyn crate::terminal_screen::live_effects::OrphanPtyKill>,
+        ));
+        let event_log = EventLog::new(
+            db.clone(),
+            Arc::clone(&buses),
+            Arc::clone(&pending_publications),
+            Arc::clone(&live_effects),
+        );
         Self {
             db,
             boot,
             write_gate: WriteGate::new(),
             jwt_keys: JwtKeyCache::new(),
-            pending_publications: Arc::new(std::sync::Mutex::new(PendingPublicationStore::new())),
-            buses: Buses::shared(),
+            pending_publications,
+            buses,
             scrollback: ScrollbackRelay::new(Arc::clone(&workers)),
             workers,
             ui_state: UiStateRuntime::new(),
@@ -170,9 +222,39 @@ impl CoordServices {
             rate_limit: RateLimiter::new(),
             telemetry: Telemetry::new(),
             feed: FeedRuntime::new(),
-            byte_hub: Arc::new(ByteHub::with_defaults()),
+            byte_hub,
+            orphan_kills,
+            client_seqs: ClientSeqCursors::new(),
+            event_log,
             views: Arc::new(TerminalViewHub::new()),
         }
+    }
+
+    /// One worker's `client_seq` cursor, created on first use and shared by
+    /// every socket for that fingerprint.
+    ///
+    /// An accessor rather than a public field read, because handing out the
+    /// whole registry would let a caller iterate a worker's peers, and the one
+    /// question this answers is "what is THIS worker's position".
+    #[must_use]
+    pub fn client_seq_cursor(&self, fingerprint: &str) -> Arc<ClientSeqCursor> {
+        self.client_seqs.for_worker(fingerprint)
+    }
+
+    /// The frame dispatcher for one admitted worker socket.
+    ///
+    /// ON `Arc<Self>` RATHER THAN `&self`, because the dispatcher holds the
+    /// services for as long as its socket lives and a borrowed `&self` could not
+    /// become that. It is the ONE way a worker socket reaches the three dispatch
+    /// arms, so a link that wanted a second dispatcher over a different event log
+    /// would have to build one itself — which is the outcome this accessor
+    /// exists to make unnecessary.
+    #[must_use]
+    pub fn worker_dispatcher(
+        self: &Arc<Self>,
+        handle: Arc<crate::coord_core::worker_handle::WorkerHandle>,
+    ) -> crate::worker_link::frame_dispatch::WorkerFrameDispatcher {
+        crate::worker_link::dispatcher_for::DispatcherFor::new(Arc::clone(self), handle).build()
     }
 
     /// A handle to the write gate, cloneable and shared.

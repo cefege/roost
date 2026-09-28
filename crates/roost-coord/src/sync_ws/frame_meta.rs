@@ -177,6 +177,8 @@ fn domain_meta(domain: SyncDomain) -> SyncFrameMeta {
 
 /// Session-keyed metadata: the terminal domain owns every session-keyed frame,
 /// including presence, title, activity and agent status.
+/// Its frames go to `SyncDomain::Terminal`, the queue cells use, so they wait
+/// behind cells queued ahead of them.
 fn session_keyed_meta(session_id: Option<&str>) -> SyncFrameMeta {
     SyncFrameMeta {
         domain: Some(SyncDomain::Terminal),

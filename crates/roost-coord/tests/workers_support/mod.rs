@@ -202,13 +202,25 @@ impl WorkersFixture {
     ///
     /// A test that wants to see the workers domain reach its collaborators
     /// THROUGH the seams asks for them here; every other test runs with
-    /// `CoordTerminal::none()`, which is the state a coordinator is in before
-    /// the terminal hubs are built.
-    pub fn attach_terminal_seams(
-        &mut self,
-        routes: Arc<dyn WorkerRouteIndex>,
-        views: Arc<dyn TerminalViewLifecycle>,
-    ) {
+    /// Install terminal collaborators, the way `serve` does.
+    ///
+    /// GENERIC over the two, because `311b89b9` made `CoordTerminal::new`
+    /// generic so it could capture their real type names for `Debug`, and a
+    /// generic parameter is `Sized` by default — so this fixture taking the two
+    /// trait objects stopped compiling and took `workers_send` and
+    /// `keeper_update_drain` with it. `serve.rs` was always right because it
+    /// passes concrete types.
+    ///
+    /// The doubles these tests actually need are still injectable: a caller
+    /// passes `Arc<RecordingRoutes>` or `Arc<FailingViews>` and the seam records
+    /// what it was asked. A test wanting no terminal collaborator calls
+    /// [`CoordTerminal::none`], which is the state a coordinator is in before the
+    /// hubs are built.
+    pub fn attach_terminal_seams<R, V>(&mut self, routes: Arc<R>, views: Arc<V>)
+    where
+        R: WorkerRouteIndex + 'static,
+        V: TerminalViewLifecycle + 'static,
+    {
         self.core = CoordCore::with_terminal(
             Arc::clone(&self.services),
             CoordTerminal::new(routes, views),

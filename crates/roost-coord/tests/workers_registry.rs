@@ -194,9 +194,10 @@ async fn a_retired_route_releases_the_session_it_carried() {
     fixture.connect_worker(WORKER_FP, "generation-a", &socket);
     let routes = Arc::new(RecordingRoutes::default());
     let views = Arc::new(RecordingViews::default());
-    let erased_routes: Arc<dyn WorkerRouteIndex> = routes.clone();
-    let erased_views: Arc<dyn TerminalViewLifecycle> = views.clone();
-    fixture.attach_terminal_seams(erased_routes, erased_views);
+    // The CONCRETE types, not the two trait objects: the constructor is generic
+    // and a generic parameter is `Sized`, so an already-erased `Arc` does not
+    // fit. The doubles are still what is wired.
+    fixture.attach_terminal_seams(routes.clone(), views.clone());
 
     handle_workers_delete(
         &fixture.core,
@@ -233,8 +234,8 @@ async fn a_failing_view_cleanup_does_not_undo_the_route_retirement() {
     fixture.enroll_session(WORKER_FP, SESSION_ID).await;
     let socket = Arc::new(RecordingSocket::new());
     fixture.connect_worker(WORKER_FP, "generation-a", &socket);
-    let routes: Arc<dyn WorkerRouteIndex> = Arc::new(RecordingRoutes::default());
-    let views: Arc<dyn TerminalViewLifecycle> = Arc::new(FailingViews);
+    let routes = Arc::new(RecordingRoutes::default());
+    let views = Arc::new(FailingViews);
     fixture.attach_terminal_seams(routes, views);
 
     let deleted = handle_workers_delete(
