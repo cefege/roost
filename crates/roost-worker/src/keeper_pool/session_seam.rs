@@ -80,6 +80,47 @@ impl KeeperChannels for KeeperPool {
     /// [`NO_REPORTED_BASE_GEOMETRY`]. A caller that would rather have a wrong
     /// history than none gets a respawn instead, which is the outcome
     /// `AdoptRefusal::Unreplayable` already exists to produce.
+    ///
+    /// # IF YOU ARE IMPLEMENTING THIS, READ THIS BEFORE YOU WRITE THE BODY
+    ///
+    /// **Giving this a real body changes what a worker restart does to a live
+    /// terminal, and nothing in your diff will say so.** Three mechanisms
+    /// compose, and the composition is not visible from any one of them:
+    ///
+    /// 1. `runtime::adoption::history_readable` calls this and expects a
+    ///    refusal. That is how a boot decides whether to offer a survivor to
+    ///    `SessionManager::adopt_survivor` at all. It is currently a
+    ///    build-capability gate that works by hitting this stub, and it is
+    ///    named that way because the other name was a lie.
+    /// 2. `adopt_survivor` has three refusal paths that call `abandon`, and
+    ///    `abandon` calls `keeper.kill_channel`. Two of the three are reachable
+    ///    only when a history came back: `adopted_record` refusing on geometry
+    ///    convergence, and the table insert failing.
+    /// 3. `CloseClaim` in `runtime::adoption` returns the durable close claim
+    ///    on every exit — because while this stub refuses, no claim is ever
+    ///    taken and every one of those arms is unreachable.
+    ///
+    /// So: **the first green `channel_history` makes a restart capable of
+    /// killing live terminals, and at the same moment makes the capacity
+    /// leaks this branch fixed reachable.** That is the transition, and it is
+    /// one commit wide in each direction.
+    ///
+    /// `tests/keeper_survivor_adoption.rs`'s
+    /// `the_replayability_gate_is_still_a_gate_because_channel_history_is_still_a_stub`
+    /// will fail on your first green run, on purpose, with the instruction to
+    /// re-review `adopt_survivor` before shipping. **That failure IS the
+    /// re-review gate. Do not delete or relax it to make the suite green.**
+    ///
+    /// What the re-review has to check, and it is not re-derivable from this
+    /// comment: that `history_readable` still means the right thing now that
+    /// it is a real per-channel keeper read and no longer a constant; that its
+    /// `info` line, which today reports a BUILD limit, now reports a MACHINE
+    /// one and needs different words; that a keeper which is up but cannot
+    /// answer is a refusal this gate handles rather than a crash; and that
+    /// `adopt_survivor`'s rebind still follows both reads — moved in `a8d6c4e7`,
+    /// with the ordering rationale corrected in `resume.rs`'s header — so a
+    /// failing `terminal_state` cannot leave a survivor bound to a binding
+    /// whose record was never installed.
     fn channel_history(&self, _channel_id: u16) -> Result<SurvivorHistory, KeeperFault> {
         Err(KeeperFault {
             operation: "channel_history",
