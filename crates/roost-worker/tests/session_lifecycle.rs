@@ -7,6 +7,8 @@
 
 mod session_support;
 
+use std::sync::{Arc, Mutex};
+
 use roost_protocol::wire::event::SessionEvent;
 use roost_worker::browser_commands::session_lifecycle::{SessionLifecycle, SessionOutcome};
 use roost_worker::session::respawn::classify_birth;
@@ -207,5 +209,43 @@ async fn a_fast_child_with_no_output_is_stillborn_and_one_with_output_is_not() {
         long_lived,
         Stillborn::LivedLongEnough,
         "a child that lived long enough is ordinary whatever it printed"
+    );
+}
+
+/// v2 `_dropChannelState` → `onSessionClosed` (`session-lifecycle.ts:245`,
+/// wired at `main.ts:228-236`): every registered owner hears a held session's
+/// close once, in registration order, after the record left the table and with
+/// no table lock held; a repeated close and an orphan's tombstone reach nobody.
+#[tokio::test]
+async fn a_held_session_close_tells_every_registered_owner_once() {
+    let harness = Harness::new();
+    harness.install(SESSION, 7, "/home/user/project", "/home/user/project");
+    // (owner, session, still in the table when the owner heard)
+    type Heard = Vec<(&'static str, String, bool)>;
+    let heard: Arc<Mutex<Heard>> = Arc::default();
+    for owner in ["routes", "view"] {
+        let heard = Arc::clone(&heard);
+        let table = Arc::clone(&harness.table);
+        harness.manager.on_session_closed(Arc::new(move |closed| {
+            let still_held = table.channel_of(closed).is_some();
+            heard
+                .lock()
+                .unwrap()
+                .push((owner, closed.to_string(), still_held));
+        }));
+    }
+    for session in [SESSION, SESSION, OTHER] {
+        harness
+            .manager
+            .kill_held_session(&session_id(session))
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        *heard.lock().unwrap(),
+        [
+            ("routes", SESSION.to_owned(), false),
+            ("view", SESSION.to_owned(), false)
+        ]
     );
 }

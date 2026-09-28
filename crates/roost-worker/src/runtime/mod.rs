@@ -20,23 +20,28 @@
 
 pub mod adoption;
 mod adoption_claim;
+mod adoption_outcome;
 pub mod boot;
 pub mod boot_order;
 mod boot_outbox;
 pub mod boot_sequence;
 pub mod bootstrap_redeem;
 pub mod capabilities;
+pub mod cell_cadence;
 pub mod cell_delivery;
 pub mod channel_delivery;
 pub mod credential;
 pub mod deps;
 pub mod door_serve;
+pub mod downstream;
 pub mod keeper_boot;
 pub mod keeper_probe;
+pub mod link_downstream;
 pub mod link_drain;
 pub mod link_loop;
 pub mod link_serve;
 pub mod link_wire;
+pub mod owners;
 pub mod reconcile;
 pub mod reconnect;
 pub mod session_stack;

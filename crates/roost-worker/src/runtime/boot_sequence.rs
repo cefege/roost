@@ -31,7 +31,7 @@ use super::bootstrap_redeem::activation;
 use super::bootstrap_redeem::enroll_this_activation;
 use super::credential::WorkerKeyCredential;
 use super::door_serve::LocalDoor;
-use super::link_loop::{BrowserLink, CoordinatorCellSink, LinkLoop, WorkerIdentity};
+use super::link_loop::{BrowserLink, LinkLoop, WorkerIdentity};
 use super::link_wire::ProtoLinkWire;
 use super::reconcile;
 use super::session_stack::{self, SessionStack};
@@ -151,23 +151,14 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     // at which the authorisation is known to have been spent.
     crate::host::install::spend_keeper_force_live_retire_authorization(&ProcessEnv::new()).await;
 
-    // 6. The session layer, over the pool above. THIS IS WHERE THE ORDER IN
-    //    THIS FUNCTION BECOMES VISIBLE: the manager needs the pool, the pool
-    //    needs the keeper, and the keeper needed the coordinator's open-session
-    //    set — which is why the link is CONSTRUCTED here and not before. The
-    //    link's own DIAL is still after everything, and it is `link.run` below
-    //    that opens the socket; what this step builds is the object that dial
-    //    will use, and it cannot exist before the session layer it dispatches
-    //    browser commands into.
-    //    A HELD KEEPER IS A BOOT REFUSAL, and this is the change from the
-    //    previous shape: that shape logged a warning and carried on to run a
-    //    link with no session layer, which answers no browser command, adopts
-    //    no survivor, and publishes a snapshot of nothing. All three fail
-    //    silently, so the worker now refuses with a reason instead. The
-    //    refusal stays HERE rather than in step 5 with the admission that
-    //    produced it: it is a fact about the session layer below, and a boot
-    //    that said it before building that layer would be explaining a
-    //    consequence it had not reached.
+    // 6. The session layer, over the pool above: the manager needs the pool,
+    //    the pool needs the keeper, and the keeper needed the coordinator's
+    //    open-session set — which is why the link is CONSTRUCTED here and not
+    //    before (`link.run` below is what dials).
+    //    A HELD KEEPER IS A BOOT REFUSAL: a link with no session layer answers
+    //    no browser command, adopts no survivor, and publishes a snapshot of
+    //    nothing, all silently. The refusal is a fact about the session layer,
+    //    so it is stated here rather than at the admission in step 5.
     let reconcile::KeeperAdmission::Owned(reconciled) = admission else {
         anyhow::bail!(
             "the keeper endpoint is held by a process this worker could not admit, and a \
@@ -228,15 +219,24 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
         platform,
         boot.fingerprint.as_str(),
     ));
-    let (browser, answers) = BrowserLink::connect(Arc::clone(&deps));
+    // One uplink for the process: every owner that puts a frame on the
+    // coordinator link sends through a clone of it, and the link loop owns the
+    // receiving half, so the link stays the only writer of bytes.
+    let (uplink, uplink_rx) = crate::uplink::channel();
+    let browser = BrowserLink::connect(Arc::clone(&deps), uplink.clone());
+    // The downstream owners, the cell cadence and the query-reply writer, over
+    // the stack (moved in; reached as `owners.stack` from here on).
+    let owners = super::owners::WorkerOwners::build(
+        stack,
+        &uplink,
+        &boot.process_epoch,
+        Arc::clone(&survivors),
+    );
 
     // 7. The link, over the session layer's snapshot source. `SessionSnapshot`
     //    is ALWAYS ACTIVE, and that is the point: this worker has a session
     //    table and can describe it even when the set is empty, and an empty set
-    //    is a CLAIM it is entitled to make. `NoSnapshot` — which refuses to
-    //    describe anything and therefore holds the barrier at `snapshot` for
-    //    ever — is what this replaced, and the link used to tear itself down
-    //    within a dial of opening because of it.
+    //    is a CLAIM it is entitled to make.
     let mut link = LinkLoop::new(
         CoordinatorEndpoint::new(boot.coordinator_base.clone(), boot.fingerprint.as_str())?,
         WorkerIdentity {
@@ -247,17 +247,13 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
         Arc::new(ProtoLinkWire),
         Arc::new(SessionSnapshot::new(
             boot.fingerprint.clone(),
-            Arc::clone(&stack.table),
-            stack.clock.now_epoch_ms(),
+            Arc::clone(&owners.stack.table),
+            owners.stack.clock.now_epoch_ms(),
         )),
         Arc::new(WorkerKeyCredential::new(boot.worker_key_path.clone())),
         browser,
+        uplink_rx,
     );
-    // The answers channel is the pump's own half of the pair `connect` returns.
-    // The link selects on `link.browser.answers` rather than on this handle, and
-    // holding it here is what keeps the sender alive for the run: a dropped
-    // handle would end the channel the select is reading.
-    let _answers = answers;
 
     // An unaligned barrier is a boot refusal, not a warning: rows written under
     // a sequence the barrier will not issue are worse than rows never written,
@@ -268,7 +264,10 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
             outbox_path.display()
         )
     })?;
-    link.attach_cell_sink(Arc::new(CoordinatorCellSink::new(Arc::new(ProtoLinkWire))));
+    // The SAME sink the cadence registered with the emitter, so a cell the
+    // emitter hands it is the cell this link drains.
+    link.attach_cell_sink(Arc::clone(&owners.coord_sink));
+    link.attach_owners(owners.downstream.clone());
 
     // 8. The link records its step, and it is recorded AFTER the keeper because
     //    that is the order this function runs in: the object the link dials
@@ -295,15 +294,17 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     //    their output behind a record it cannot build. A refusal there is
     //    counted and logged, never propagated: propagating would abort a boot
     //    over one undescribable terminal and take every other survivor and the
-    //    worker's link down with it.
+    //    worker's link down with it. The ONE propagated refusal is the survivor
+    //    SET exceeding the terminal-core capacity (v2 `boot-keeper.ts` admits
+    //    the set before adopting any of it), which is a boot refusal.
     let adopted = super::adoption::adopt_survivors(
-        &stack,
+        &owners.stack,
         &survivors,
         &survivor_channels,
         &open_rows,
         &boot.keeper_socket.display().to_string(),
     )
-    .await;
+    .await?;
     tracing::info!(
         ?adopted,
         "boot: the keeper's survivors were reconciled against the session table"
@@ -322,7 +323,7 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     tracing::info!(
         step = StepId::SessionReconcile.name(),
         because,
-        live_sessions = stack.table.live().len(),
+        live_sessions = owners.stack.table.live().len(),
         "boot: the local session set is reconciled and reserved"
     );
     readiness = readiness
@@ -360,7 +361,8 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     // the keeper, dropping the connection is the whole contract: it treats a
     // disconnect as a reason to keep serving, and a worker that took its PTYs
     // down on the way out would be the one bug this architecture exists to
-    // prevent.
+    // prevent. The owners release their sockets, routes and cadence first.
+    owners.shutdown();
     drop(door);
     drop(keeper);
     Ok(())
