@@ -59,10 +59,12 @@ pub(super) fn page_visible() -> bool {
 /// A fresh view id: `crypto.randomUUID()`, as v2 `terminal-stream-view.ts`.
 /// The authority refuses any view id that is not a UUID (v2
 /// `validateTerminalViewCommand`: "invalid terminal view id"), so there is no
-/// other format to fall back to — without `crypto` (an insecure origin) the pane
-/// cannot publish a view, as v2 cannot.
+/// other format to fall back to. `crypto.randomUUID` exists only in a secure
+/// context and calling it elsewhere throws, so an insecure origin mints nothing
+/// and the pane cannot publish a view, as v2 cannot.
 pub(super) fn mint_view_id() -> Option<String> {
     web_sys::window()
+        .filter(web_sys::Window::is_secure_context)
         .and_then(|window| window.crypto().ok())
         .map(|crypto| crypto.random_uuid())
 }
