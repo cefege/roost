@@ -15,10 +15,10 @@
 //! handle the frame; it is not a claim that the frame was malformed.
 
 use roost_protocol::proto_adapters::coord_worker_proto::decode_upstream;
+use roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1;
 use roost_protocol::wire::agent_status::AgentStatusUpdate;
 use roost_protocol::wire::coord_worker::{CoordWorkerUpstream, TerminalMetadata};
 use roost_protocol::wire::{ChannelId, WorkerFp};
-use roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1;
 
 use crate::events::bus_messages::SessionTitleUpdate;
 use crate::worker_link::dispatch::{DispatchOutcome, InboundFrame};
@@ -26,20 +26,16 @@ use crate::worker_link::frame_dispatch::WorkerFrameDispatcher;
 
 impl WorkerFrameDispatcher {
     /// One live frame: bytes, cells, or a semantic observation.
-    pub(crate) fn handle_live(
-        &self,
-        worker_fp: &str,
-        frame: &InboundFrame,
-    ) -> DispatchOutcome {
+    pub(crate) fn handle_live(&self, worker_fp: &str, frame: &InboundFrame) -> DispatchOutcome {
         if self.fenced("live") {
             return DispatchOutcome::Refused;
         }
         let Ok(worker) = self.authenticated(worker_fp) else {
             return self.refuse(frame, "unaddressable_worker_fp");
         };
-        let Ok(upstream) = roost_protocol::proto_adapters::coord_worker_proto::decode_upstream(
-            &frame.payload,
-        ) else {
+        let Ok(upstream) =
+            roost_protocol::proto_adapters::coord_worker_proto::decode_upstream(&frame.payload)
+        else {
             return self.refuse(frame, "live_decode_failed");
         };
         match upstream {
@@ -50,10 +46,12 @@ impl WorkerFrameDispatcher {
                 let Some(body) = grid.frame.as_option_mut() else {
                     return self.refuse(frame, "cell_grid_carried_no_frame");
                 };
-                self.core
-                    .services
-                    .byte_hub
-                    .publish_cell_grid(&worker, declared, body, crate::serve::now_ms());
+                self.core.services.byte_hub.publish_cell_grid(
+                    &worker,
+                    declared,
+                    body,
+                    crate::serve::now_ms(),
+                );
                 DispatchOutcome::Handled
             }
             CoordWorkerUpstream::CellGridChunk(mut chunk) => {
@@ -63,10 +61,12 @@ impl WorkerFrameDispatcher {
                 let Some(body) = chunk.chunk.as_option_mut() else {
                     return self.refuse(frame, "cell_grid_chunk_carried_no_chunk");
                 };
-                self.core
-                    .services
-                    .byte_hub
-                    .publish_cell_grid_chunk(&worker, declared, body, crate::serve::now_ms());
+                self.core.services.byte_hub.publish_cell_grid_chunk(
+                    &worker,
+                    declared,
+                    body,
+                    crate::serve::now_ms(),
+                );
                 DispatchOutcome::Handled
             }
             CoordWorkerUpstream::TerminalMetadata(metadata) => {
@@ -120,11 +120,7 @@ impl WorkerFrameDispatcher {
     /// routes a typed result, a stream result and a pipeline sample through the
     /// identical `resolvePendingRpc` an `rpc-ok` uses, and splitting them would
     /// be a distinction without a difference.
-    pub(crate) fn handle_rpc(
-        &self,
-        worker_fp: &str,
-        frame: &InboundFrame,
-    ) -> DispatchOutcome {
+    pub(crate) fn handle_rpc(&self, worker_fp: &str, frame: &InboundFrame) -> DispatchOutcome {
         if self.fenced("rpc") {
             return DispatchOutcome::Refused;
         }
@@ -136,11 +132,15 @@ impl WorkerFrameDispatcher {
             return self.refuse(frame, "rpc_decode_failed");
         };
         match upstream {
-            CoordWorkerUpstream::RpcOk { request_id, data, .. } => {
+            CoordWorkerUpstream::RpcOk {
+                request_id, data, ..
+            } => {
                 pending.resolve(&request_id, data, Some(worker.as_str()));
             }
             CoordWorkerUpstream::RpcError {
-                request_id, message, ..
+                request_id,
+                message,
+                ..
             } => {
                 pending.reject(&request_id, &message, Some(worker.as_str()));
             }
@@ -210,10 +210,11 @@ impl WorkerFrameDispatcher {
         if metadata.activity_changed
             && let Ok(observed_at_ms) = i64::try_from(metadata.activity_ts_ms)
         {
-            services
-                .feed
-                .last_activity()
-                .observe_and_publish(&services.buses, session_id.as_str(), observed_at_ms);
+            services.feed.last_activity().observe_and_publish(
+                &services.buses,
+                session_id.as_str(),
+                observed_at_ms,
+            );
         }
         DispatchOutcome::Handled
     }

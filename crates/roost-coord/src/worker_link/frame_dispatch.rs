@@ -18,12 +18,12 @@ use crate::coord_core::core::CoordCore;
 use crate::coord_core::worker_handle::WorkerHandle;
 use crate::events::append::{AppendEventResult, AppendOptions, Caller};
 use crate::serve::now_ms;
-use crate::workers::registry::mark_generation_ready;
 use crate::worker_link::client_seq::ClientSeqCursor;
 use crate::worker_link::dispatch::{
     DispatchFuture, DispatchOutcome, FrameClass, FrameDispatch, FrameRefusal, InboundFrame,
     close_for_append_error,
 };
+use crate::workers::registry::mark_generation_ready;
 
 /// One worker socket's frame dispatcher.
 ///
@@ -52,11 +52,7 @@ impl std::fmt::Debug for WorkerFrameDispatcher {
 impl WorkerFrameDispatcher {
     /// A dispatcher over one socket's handle and one worker's sequence cursor.
     #[must_use]
-    pub fn new(
-        core: CoordCore,
-        handle: Arc<WorkerHandle>,
-        cursor: Arc<ClientSeqCursor>,
-    ) -> Self {
+    pub fn new(core: CoordCore, handle: Arc<WorkerHandle>, cursor: Arc<ClientSeqCursor>) -> Self {
         Self {
             core,
             handle,
@@ -186,16 +182,13 @@ impl FrameDispatch for WorkerFrameDispatcher {
 impl WorkerFrameDispatcher {
     /// One durable `SessionEvent`: the gates, the sequence, the append, and the
     /// decisions the commit makes possible.
-    async fn handle_one_durable(
-        &self,
-        worker_fp: &str,
-        frame: &InboundFrame,
-    ) -> DispatchOutcome {
+    async fn handle_one_durable(&self, worker_fp: &str, frame: &InboundFrame) -> DispatchOutcome {
         if !self.is_this_socket(worker_fp) {
             return DispatchOutcome::Refused;
         }
-        let Ok(CoordWorkerUpstream::Event { event, client_seq, .. }) =
-            decode_upstream(&frame.payload)
+        let Ok(CoordWorkerUpstream::Event {
+            event, client_seq, ..
+        }) = decode_upstream(&frame.payload)
         else {
             return self.refuse(frame, "durable_arm_mismatch");
         };
@@ -267,8 +260,11 @@ impl WorkerFrameDispatcher {
                 "a worker link cannot append before the tenancy scope is established"
             );
         })?;
-        let caller =
-            Caller::worker(self.handle.worker_fp.clone(), client_seq, &tenant.dashboard_id);
+        let caller = Caller::worker(
+            self.handle.worker_fp.clone(),
+            client_seq,
+            &tenant.dashboard_id,
+        );
         let fence = || self.is_current_generation();
         let mut options = AppendOptions {
             now_ms: now_ms(),
@@ -303,7 +299,11 @@ impl WorkerFrameDispatcher {
         // A refusal is a DATA outcome: no ACK and no close, so a prober cannot
         // tell "never existed" from "not yours" (`event-admission.ts`).
         if !result.admitted {
-            tracing::debug!(worker_fp, client_seq, "a durable append was refused as data");
+            tracing::debug!(
+                worker_fp,
+                client_seq,
+                "a durable append was refused as data"
+            );
             return DispatchOutcome::Refused;
         }
         if self.fenced("event_post_commit") {
@@ -337,7 +337,11 @@ impl WorkerFrameDispatcher {
         result: AppendEventResult,
     ) -> DispatchOutcome {
         if !result.published {
-            tracing::debug!(worker_fp, client_seq, "a snapshot committed without publishing");
+            tracing::debug!(
+                worker_fp,
+                client_seq,
+                "a snapshot committed without publishing"
+            );
             return DispatchOutcome::Refused;
         }
         if mark_generation_ready(
@@ -356,11 +360,7 @@ impl WorkerFrameDispatcher {
     }
 
     /// A frame this dispatcher will not process, named for the log line.
-    pub(crate) fn refuse(
-        &self,
-        frame: &InboundFrame,
-        reason: &'static str,
-    ) -> DispatchOutcome {
+    pub(crate) fn refuse(&self, frame: &InboundFrame, reason: &'static str) -> DispatchOutcome {
         tracing::warn!(
             worker_fp = %self.handle.worker_fp,
             reason,

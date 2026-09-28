@@ -42,17 +42,14 @@ use roost_protocol::wire::{
     ChannelId, Session, SessionEvent, SessionId, SessionKind, SessionStatus, WorkerFp,
 };
 
-
 use crate::workers_support::RecordingSocket;
 
 /// The worker every test drives: 64 hex characters, which is what the brand
 /// accepts and therefore what a redeemed token would have minted.
-pub const WORKER_FP: &str =
-    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+pub const WORKER_FP: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 /// A second machine, for the frames that must not act on this socket's state.
-pub const OTHER_FP: &str =
-    "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+pub const OTHER_FP: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
 
 /// The session every snapshot test opens and then omits.
 pub const SESSION_ID: &str = "11111111-1111-4111-8111-111111111111";
@@ -94,9 +91,10 @@ impl LinkFixture {
         let database = roost_coord::db::open(&root.join("coord.db"))
             .await
             .expect("a migrated database");
-        let tenant = roost_coord::auth::self_hosted_tenant::ensure_self_hosted_tenant(&database, 1_000)
-            .await
-            .expect("the self-hosted tenant");
+        let tenant =
+            roost_coord::auth::self_hosted_tenant::ensure_self_hosted_tenant(&database, 1_000)
+                .await
+                .expect("the self-hosted tenant");
         let mut services = CoordServices::booted(
             database.clone(),
             BootFacts {
@@ -127,11 +125,7 @@ impl LinkFixture {
             std::collections::BTreeSet::new(),
             socket.sender(),
         ));
-        claim_generation(
-            &services.buses,
-            &services.workers,
-            Arc::clone(&handle),
-        );
+        claim_generation(&services.buses, &services.workers, Arc::clone(&handle));
         Self {
             services,
             database,

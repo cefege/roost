@@ -28,9 +28,7 @@ use serde_json::json;
 fn cell_grid(channel: u32) -> CoordWorkerUpstream {
     CoordWorkerUpstream::CellGrid(roost_proto::WCellGrid {
         channel_id: channel,
-        frame: roost_proto::buffa::MessageField::some(
-            roost_proto::PbCellGridFrame::default(),
-        ),
+        frame: roost_proto::buffa::MessageField::some(roost_proto::PbCellGridFrame::default()),
         ..Default::default()
     })
 }
@@ -119,7 +117,9 @@ async fn a_semantic_metadata_frame_on_an_unbound_channel_is_refused_not_attribut
         frame_dispatch_support::worker(WORKER_FP),
         None,
         "negotiated".to_owned(),
-        std::collections::BTreeSet::from([roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1.to_owned()]),
+        std::collections::BTreeSet::from([
+            roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1.to_owned(),
+        ]),
         fixture.socket.sender(),
     ));
     roost_coord::workers::registry::claim_generation(
@@ -190,9 +190,16 @@ async fn an_rpc_error_rejects_the_request_rather_than_resolving_it() {
     );
 
     assert_eq!(outcome, DispatchOutcome::Handled);
-    let error = pending.settle().await.expect_err("a rejection is not a value");
+    let error = pending
+        .settle()
+        .await
+        .expect_err("a rejection is not a value");
     assert!(
-        error.message.as_deref().unwrap_or_default().contains("the keeper refused"),
+        error
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("the keeper refused"),
         "the worker's own words reach the caller, got {:?}",
         error.message
     );

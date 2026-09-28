@@ -17,11 +17,15 @@ mod workers_support;
 
 use std::sync::Arc;
 
-use frame_dispatch_support::events::{agent_reference, attached, closed, opened, respawned, snapshot};
+use frame_dispatch_support::events::{
+    agent_reference, attached, closed, opened, respawned, snapshot,
+};
 use frame_dispatch_support::{
     LinkFixture, OTHER_FP, WORKER_FP, event_frame, garbage_frame, live_session, session_id, worker,
 };
-use roost_coord::worker_link::dispatch::{DispatchOutcome, FrameClass, FrameDispatch, InboundFrame};
+use roost_coord::worker_link::dispatch::{
+    DispatchOutcome, FrameClass, FrameDispatch, InboundFrame,
+};
 use roost_coord::worker_link::frame_dispatch::WorkerFrameDispatcher;
 
 /// Open the fixture's one session, so a later event has a row to speak about.
@@ -257,7 +261,11 @@ async fn a_superseded_generation_drops_the_frame_with_no_ack() {
         .await;
 
     assert_eq!(outcome, DispatchOutcome::Refused);
-    assert_eq!(fixture.rows_for(1).await, 0, "a fenced socket writes nothing");
+    assert_eq!(
+        fixture.rows_for(1).await,
+        0,
+        "a fenced socket writes nothing"
+    );
     assert!(fixture.acks().is_empty());
 }
 
@@ -278,7 +286,10 @@ async fn a_durable_frame_on_the_synchronous_arm_is_refused_and_never_acked() {
         dispatcher.handle_now(WORKER_FP, &misrouted),
         DispatchOutcome::Refused
     );
-    assert!(fixture.acks().is_empty(), "nothing releases the replay barrier");
+    assert!(
+        fixture.acks().is_empty(),
+        "nothing releases the replay barrier"
+    );
     assert_eq!(fixture.rows_for(1).await, 0, "and no row was written");
 }
 
