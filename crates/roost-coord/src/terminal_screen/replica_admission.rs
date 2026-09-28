@@ -23,6 +23,8 @@ use crate::terminal_screen::hub_state::{ExpectedStream, SessionScreen};
 use crate::terminal_screen::replica::ScreenHub;
 use crate::terminal_screen::residency::ResidentCache;
 use crate::terminal_screen::snapshot_source::cell_grid_envelope;
+use crate::terminal_capture::TerminalCaptureRuntime;
+use crate::terminal_capture::recorder::AdmittedFrameIdentity;
 
 const CAPACITY_EXCEEDED: &str = "coordinator terminal cache capacity exceeded";
 
@@ -119,6 +121,11 @@ impl ScreenHub {
         effects: &mut Vec<ScreenEffect>,
     ) {
         let rows = u64::from(frame.rows);
+        let admitted = AdmittedFrameIdentity {
+            full: true,
+            seq: frame.seq,
+            base_seq: frame.base_seq,
+        };
         {
             let mut residency = self.locked_residency();
             if !residency.can_replace(&screen.charge, rows, spans) {
@@ -143,6 +150,7 @@ impl ScreenHub {
         }
         screen.source = None;
         screen.resync_latched = false;
+        self.record_capture(session_id, screen, admitted);
         let Some(stream_id) = screen
             .expected
             .as_ref()
@@ -212,6 +220,12 @@ impl ScreenHub {
         };
         screen.source = None;
         screen.resync_latched = false;
+        let admitted = AdmittedFrameIdentity {
+            full: false,
+            seq: proto.seq,
+            base_seq: proto.base_seq,
+        };
+        self.record_capture(session_id, screen, admitted);
         let frame = Arc::new(cell_grid_envelope(proto.clone()));
         // The fallback full is planned only for a socket that refuses the
         // delta: planning one per delta would cost a snapshot per keystroke.
@@ -224,6 +238,32 @@ impl ScreenHub {
                 generation,
             });
         }
+    }
+
+    /// Feed accepted frames to the capture recorder. Installed once at boot:
+    /// the first recorder is the one the capture leases arm.
+    pub fn install_capture(&self, capture: Arc<TerminalCaptureRuntime>) {
+        if self.capture.set(capture).is_err() {
+            tracing::warn!("terminal capture: a second recorder install was ignored");
+        }
+    }
+
+    /// The capture hook after an accepted full or folded delta, with the
+    /// canonical just installed (`terminal-screen-hub.ts:323,373`).
+    fn record_capture(
+        &self,
+        session_id: &SessionId,
+        screen: &SessionScreen,
+        admitted: AdmittedFrameIdentity,
+    ) {
+        let (Some(capture), Some(cache)) = (self.capture.get(), screen.charge.current()) else {
+            return;
+        };
+        let watchers = self.locked_sockets().watchers_of(session_id).len();
+        let at_ms = (self.clock)();
+        capture
+            .recorder
+            .record(session_id.as_str(), &cache.frame, admitted, watchers, at_ms);
     }
 
     fn folded_delta(

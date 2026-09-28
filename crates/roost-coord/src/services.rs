@@ -112,6 +112,10 @@ pub struct CoordServices {
     /// many dumps arrive (`worker-terminal-pipeline-cache.ts`). Read only by
     /// `diagnostics::diag_snapshot`.
     pub diag_pipelines: WorkerTerminalPipelineSnapshotCache,
+    /// Opt-in terminal incident capture: the leases and the coordinator
+    /// recorder they arm. The screen hub feeds the recorder; DiagSnapshot's
+    /// `terminal_capture` request reaches it through `terminal_capture::bridge`.
+    pub terminal_capture: Arc<crate::terminal_capture::TerminalCaptureRuntime>,
     /// Retained browser UI reports and the reserved layout applies, one pair
     /// for the RPC that reserves an apply and the Sync ingress that settles it.
     pub ui_state: UiStateRuntime,
@@ -221,6 +225,8 @@ impl CoordServices {
             },
             crate::terminal_view::owner_screen_repair(&views),
         ));
+        let terminal_capture = Arc::new(crate::terminal_capture::TerminalCaptureRuntime::new());
+        screens.install_capture(Arc::clone(&terminal_capture));
         views.set_screens(Arc::downgrade(&screens));
         let byte_hub = Arc::new(ByteHub::new(
             screens,
@@ -284,6 +290,7 @@ impl CoordServices {
                     as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
             ]),
             diag_pipelines: WorkerTerminalPipelineSnapshotCache::new(scrollback.clone()),
+            terminal_capture,
             scrollback,
             workers,
             ui_state: UiStateRuntime::new(),
