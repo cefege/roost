@@ -10,8 +10,9 @@
 //! statement about the FEATURE SET, not about reachability: the module is
 //! compiled because `platform` declares it, and it is reachable like any other.
 //! Because it names no `web_sys` type, it builds against the features the crate
-//! actually declares; the wasm32 build is what type-checks the sixteen
-//! browser-only items below, and a native `cargo check` covers the rest.
+//! actually declares; the wasm32 build is what type-checks the browser-only
+//! items below. The open-peer bookkeeping is `peer/table.rs`, target-independent
+//! and natively tested, so no counting rule lives behind the `wasm32` gate.
 
 #[cfg(target_arch = "wasm32")]
 use std::collections::BTreeMap;
@@ -23,6 +24,9 @@ pub use roost_client_core::client::carriers::{
 };
 
 mod interop;
+mod table;
+
+pub use table::PeerTable;
 
 // Six of the seven helpers are browser-only, exactly as they were here, so the
 // import is gated the same way they are. `unavailable` is not: the native arm's
@@ -76,9 +80,9 @@ pub fn is_available() -> bool {
 /// One open peer and its three negotiated channels.
 ///
 /// Owned by the adapter, not the core: the core's token is a generation, and a
-/// transport is a live object with callbacks attached. Keyed by attempt id, so
-/// an event naming a dead attempt is discarded rather than applied to whatever
-/// connection took its place.
+/// transport is a live object with callbacks attached. Keyed by attempt id in
+/// [`PeerTable`], so an event naming a dead attempt is discarded rather than
+/// applied to whatever connection took its place.
 #[cfg(target_arch = "wasm32")]
 #[derive(Debug)]
 struct OpenPeer {
@@ -86,43 +90,28 @@ struct OpenPeer {
     channels: BTreeMap<u16, JsValue>,
 }
 
+/// A build with no browser never opens a peer, so there is nothing to hold.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug)]
+enum OpenPeer {}
+
 /// The browser's WebRTC stack, behind the client core's own transport trait.
-#[cfg(target_arch = "wasm32")]
+/// Total on every target: a build with no browser answers every open the one
+/// way that is true, which is `Unavailable`, and so never holds a peer.
 #[derive(Debug, Default)]
 pub struct BrowserPeer {
-    peers: BTreeMap<u64, OpenPeer>,
+    peers: PeerTable<OpenPeer>,
 }
-
-/// The browser's WebRTC stack. Total on every target: a build with no browser
-/// answers every open the one way that is true, which is `Unavailable`.
-#[cfg(not(target_arch = "wasm32"))]
-#[derive(Debug, Default)]
-pub struct BrowserPeer;
 
 impl BrowserPeer {
     /// A fresh adapter. It holds nothing until an `open` succeeds.
-    ///
-    /// `Self::default()` and not `Self`: the two arms of this type are
-    /// DIFFERENT SHAPES behind one name — the wasm arm holds a `peers` map and
-    /// the native arm is a unit struct — so the form that suits the unit struct
-    /// does not compile on the other target, and neither does the empty
-    /// initializer. `default()` is the one form both accept.
-    ///
-    /// The allow is `cfg_attr` for the same reason: `default_constructed_unit_
-    /// structs` is TRUE of the native arm and meaningless on the wasm one, so
-    /// scoping it to the target keeps the lint live everywhere it is real.
-    #[cfg_attr(
-        not(target_arch = "wasm32"),
-        allow(clippy::default_constructed_unit_structs)
-    )]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// How many peers this adapter is holding, for the document-wide cap.
-    #[cfg(target_arch = "wasm32")]
     pub fn open_count(&self) -> usize {
-        self.peers.len()
+        self.peers.open_count()
     }
 }
 
@@ -186,13 +175,15 @@ impl PeerTransport for BrowserPeer {
             &Array::of1(&description_object("offer", &sdp)),
         )?;
 
-        self.peers.insert(
-            attempt.attempt_id,
-            OpenPeer {
-                connection,
-                channels,
-            },
-        );
+        let opened = OpenPeer {
+            connection,
+            channels,
+        };
+        // An attempt id is never reused by the core; if one were, the peer it
+        // displaced is closed rather than left open behind the new one.
+        if let Some(displaced) = self.peers.open(attempt.attempt_id, opened) {
+            close_browser_peer(&displaced);
+        }
         Ok(())
     }
 
@@ -250,14 +241,9 @@ impl PeerTransport for BrowserPeer {
     /// Close the peer and every channel on it. Closing one that is already gone
     /// is not an error: a fault path and a page teardown both reach here.
     fn close(&mut self, attempt_id: u64, _reason: &str) {
-        use js_sys::Array;
-        let Some(peer) = self.peers.remove(&attempt_id) else {
-            return;
-        };
-        for channel in peer.channels.values() {
-            let _ = call_method(channel, "close", &Array::new());
+        if let Some(peer) = self.peers.close(attempt_id) {
+            close_browser_peer(&peer);
         }
-        let _ = call_method(&peer.connection, "close", &Array::new());
     }
 }
 
@@ -291,17 +277,28 @@ fn no_browser() -> TransportError {
     unavailable("this build has no browser WebRTC stack")
 }
 
+/// Close every channel on a peer, then the connection. A refusal from the
+/// browser is ignored: the peer is already gone from the table either way.
+#[cfg(target_arch = "wasm32")]
+fn close_browser_peer(peer: &OpenPeer) {
+    use js_sys::Array;
+    for channel in peer.channels.values() {
+        let _ = call_method(channel, "close", &Array::new());
+    }
+    let _ = call_method(&peer.connection, "close", &Array::new());
+}
+
 #[cfg(target_arch = "wasm32")]
 impl BrowserPeer {
     fn connection_of(&self, attempt_id: u64) -> Result<JsValue, TransportError> {
         self.peers
-            .get(&attempt_id)
+            .get(attempt_id)
             .map(|peer| peer.connection.clone())
             .ok_or_else(closed)
     }
 
     fn channel_of(&self, attempt_id: u64, lane: PeerLane) -> Result<JsValue, TransportError> {
-        let peer = self.peers.get(&attempt_id).ok_or_else(closed)?;
+        let peer = self.peers.get(attempt_id).ok_or_else(closed)?;
         peer.channels
             .get(&lane.stream_id())
             .cloned()
