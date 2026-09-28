@@ -302,3 +302,18 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     drop(keeper);
     Ok(())
 }
+
+/// The address the door binds, from the environment or the shared default.
+///
+/// Read HERE, at the moment the bind needs it, and not resolved into
+/// `WorkerBoot`: the door is the one collaborator whose address an operator
+/// changes without changing anything else about the worker, and a value frozen
+/// into the boot configuration would be a second place to change it.
+fn door_bind(boot: &WorkerBoot) -> String {
+    let environment = ProcessEnv::new();
+    environment
+        .get(super::door_serve::ENV_DOOR_BIND)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| roost_protocol::local_ui_door::DEFAULT_WORKER_LOCAL_UI_BIND.to_string())
+}

@@ -28,8 +28,19 @@ use connectrpc::client::ClientTransport;
 use connectrpc::http_body;
 use roost_proto::{CoordinatorServiceClient, SessionsListRequest};
 
-/// The open-session count, or `None` while nobody has read it.
+/// The coordinator's open-session count, or `None` while nobody has read it.
 pub type OpenSessionCount = Option<usize>;
+
+/// The coordinator's own row for a session it still lists as open here.
+///
+/// THE ROW, NOT THE COUNT, and that is the whole reason this type exists. A
+/// survivor's adoption needs this session's id, its folder, the coordinator's
+/// own stream generation and the trace every event about it has carried — and
+/// every one of those is a FIELD of this row rather than something the worker
+/// may invent. Reading the count and throwing the rows away left the adoption
+/// with no identity to adopt INTO, and the fields it then made up described a
+/// session wearing another session's channel.
+pub type OpenSession = roost_proto::Session;
 
 /// Ask the coordinator which sessions it still lists as open on this worker.
 ///
@@ -37,10 +48,10 @@ pub type OpenSessionCount = Option<usize>;
 /// the caller treats that as "unknown" — the direction that cannot end a
 /// terminal. This function's own failure is an error rather than a `None`,
 /// because the caller has to be able to say which of the two happened.
-pub async fn read_open_session_count<T>(
+pub async fn read_open_sessions<T>(
     client: &CoordinatorServiceClient<T>,
     worker_fp: &str,
-) -> anyhow::Result<OpenSessionCount>
+) -> anyhow::Result<Vec<OpenSession>>
 where
     T: ClientTransport,
     <T::ResponseBody as http_body::Body>::Error: std::fmt::Display,
@@ -60,14 +71,32 @@ where
         .sessions_list(request)
         .await
         .context("the coordinator did not report its open-session set")?;
-    let count = response.view().sessions.len();
+    let sessions = response.view().sessions.clone();
     tracing::info!(
         %worker_fp,
-        open_sessions = count,
-        "the coordinator's open-session set is in hand, and the keeper survivor \
-         decision may proceed on a read fact rather than an assumed-empty one"
+        open_sessions = sessions.len(),
+        "the coordinator's open-session rows are in hand, so the keeper survivor \
+         decision may proceed on a read fact and an adoption may name the session it adopts"
     );
-    Ok(Some(count))
+    Ok(sessions)
+}
+
+/// The count of the coordinator's open-session rows, for the decision that only
+/// needs the number.
+///
+/// A THIN WRAPPER over [`read_open_sessions`], and deliberately: the keeper
+/// decision asks "is anything open" and the adoption asks "which", so a second
+/// reader would be a second answer to the same question arriving at two
+/// different times.
+pub async fn read_open_session_count<T>(
+    client: &CoordinatorServiceClient<T>,
+    worker_fp: &str,
+) -> anyhow::Result<OpenSessionCount>
+where
+    T: ClientTransport,
+    <T::ResponseBody as http_body::Body>::Error: std::fmt::Display,
+{
+    Ok(Some(read_open_sessions(client, worker_fp).await?.len()))
 }
 
 /// What the boot does with a coordinator that did not answer: `None`.
