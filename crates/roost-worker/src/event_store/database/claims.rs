@@ -278,5 +278,6 @@ fn kind_name(kind: DurableEventKind) -> &'static str {
         DurableEventKind::State => "state",
         DurableEventKind::Exited => "exited",
         DurableEventKind::Closed => "closed",
+        DurableEventKind::AgentReference => "agent_reference",
     }
 }

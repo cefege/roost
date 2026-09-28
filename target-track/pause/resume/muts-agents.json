@@ -1,0 +1,98 @@
+[
+ {
+  "id": "WAgentsReport-M1",
+  "slice": "WAgentsReport",
+  "file": "crates/roost-worker/src/agents/report_connection.rs",
+  "old": ".verify_capability(session_id, request.capability())",
+  "new": ".verify_capability(session_id, request.capability())\n            && false",
+  "pkg": "roost-worker",
+  "name": "refuses_a_capability_minted_for_another_session",
+  "tests": [
+   "agent_report_server"
+  ]
+ },
+ {
+  "id": "WAgentsReport-M2",
+  "slice": "WAgentsReport",
+  "file": "crates/roost-worker/src/agents/report_connection.rs",
+  "old": "                    && let Screened::Admit(request) = self.screen(line)\n                {\n                    self.admission = Some(self.admission_for(request));\n                }\n                return Some(refusal(\"too_many_requests\", None));",
+  "new": "                    && let Screened::Admit(_request) = self.screen(line)\n                {\n                }\n                return Some(refusal(\"too_many_requests\", None));",
+  "pkg": "roost-worker",
+  "name": "a_second_request_line_is_refused_while_the_first_still_lands",
+  "tests": [
+   "agent_report_server"
+  ]
+ },
+ {
+  "id": "WAgentsReport-M3",
+  "slice": "WAgentsReport",
+  "file": "crates/roost-worker/src/agents/report_admission.rs",
+  "old": "let seq = last_seq.saturating_add(1).max(wall_clock_micros());",
+  "new": "let seq = *last_seq;",
+  "pkg": "roost-worker",
+  "name": "accepts_state_with_fresh_worker_derived_identity_and_ordering",
+  "tests": [
+   "agent_report_server"
+  ]
+ },
+ {
+  "id": "WAgentsReport-M4",
+  "slice": "WAgentsReport",
+  "file": "crates/roost-worker/src/agents/report_admission.rs",
+  "old": "if identity.agent_id != BuiltinAgentId::Omp {",
+  "new": "if identity.agent_id == BuiltinAgentId::Codex {",
+  "pkg": "roost-worker",
+  "name": "durably_acknowledges_omp_set_replace_and_clear_after_fresh_pid_proof",
+  "tests": [
+   "agent_report_server"
+  ]
+ },
+ {
+  "id": "WAgentsReport-M8",
+  "slice": "WAgentsReport",
+  "file": "crates/roost-worker/src/agents/manifest_engine.rs",
+  "old": "incumbent.priority < rule.priority",
+  "new": "incumbent.priority > rule.priority",
+  "pkg": "roost-worker",
+  "name": "honors_blocker_priority_visible_idle_and_skip_state_screens",
+  "tests": [
+   "agent_manifest_rules"
+  ]
+ },
+ {
+  "id": "WAgentsReport-M9",
+  "slice": "WAgentsReport",
+  "file": "crates/roost-worker/src/agents/manifests.rs",
+  "old": "                compile(BuiltinAgentId::Codex)?,\n                compile(BuiltinAgentId::Gemini)?,",
+  "new": "                compile(BuiltinAgentId::Gemini)?,\n                compile(BuiltinAgentId::Codex)?,",
+  "pkg": "roost-worker",
+  "name": "every_agent_is_evaluated_against_its_own_manifest",
+  "tests": [
+   "agent_manifest_rules"
+  ]
+ },
+ {
+  "id": "WAgentsReport-M11",
+  "slice": "WAgentsReport",
+  "file": "crates/roost-worker/src/agents/environment.rs",
+  "old": "&[SESSION_CAPABILITY_CONTEXT, session_id.as_bytes()],",
+  "new": "&[SESSION_CAPABILITY_CONTEXT, session_id.as_bytes(), format!(\"{:?}\", std::time::Instant::now()).as_bytes()],",
+  "pkg": "roost-worker",
+  "name": "a_session_capability_survives_a_worker_restart_and_is_per_session",
+  "tests": [
+   "agent_report_environment"
+  ]
+ },
+ {
+  "id": "WAgentsInstall-M9",
+  "slice": "WAgentsInstall",
+  "file": "crates/roost-worker/src/agents/install_mutation.rs",
+  "old": "    mutation.installed = true;\n    let installed = fs::symlink_metadata(&mutation.target)?;",
+  "new": "    let installed = fs::symlink_metadata(&mutation.target)?;",
+  "pkg": "roost-worker",
+  "name": "rolls_back_owned_replacements_and_absent_creates_after_a_commit_failure",
+  "tests": [
+   "agent_status_install_rollback"
+  ]
+ }
+]

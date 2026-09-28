@@ -64,10 +64,23 @@ fn a_healthy_survivor_is_adopted_with_its_channels() {
     );
 }
 
-/// A keeper that PROVES it is empty is the other start-fresh case.
+/// v2 `boot-keeper.ts:94-141`: an authenticated, protocol-compatible keeper is
+/// ADOPTED even when it proves it is empty; only an INCOMPATIBLE keeper that
+/// proves it is empty is the start-fresh (replace) case.
 #[test]
-fn a_survivor_that_proves_it_is_empty_means_start_fresh() {
-    let admission = admit(&empty_survivor());
+fn an_empty_survivor_is_adopted_when_compatible_and_replaced_only_when_not() {
+    assert_eq!(
+        admit(&empty_survivor()),
+        Admission::Adopt {
+            channels: Vec::new()
+        }
+    );
+    let incompatible_empty = ProbeResult {
+        protocol_compatible: false,
+        exact_target: false,
+        ..empty_survivor()
+    };
+    let admission = admit(&incompatible_empty);
     assert_eq!(admission, Admission::StartFresh);
     assert!(
         may_replace(&admission),
@@ -186,36 +199,33 @@ fn a_channel_mid_spawn_counts_as_a_channel() {
     );
 }
 
-/// A protocol-incompatible survivor cannot be adopted and cannot be replaced on
-/// a guess, so it lands unproven with the cause that says so.
+/// v2 `boot-keeper.ts:190-202`: an incompatible survivor that holds channels
+/// cannot be adopted, and replacing it would end them, so it is BLOCKED.
 #[test]
-fn a_protocol_incompatible_survivor_is_unproven_rather_than_replaced() {
+fn a_protocol_incompatible_survivor_holding_channels_is_blocked() {
     let probe = ProbeResult {
         protocol_compatible: false,
+        exact_target: false,
         ..survivor_with(&[1])
     };
-    let admission = admit(&probe);
-    assert!(
-        matches!(
-            admission,
-            Admission::Unproven {
-                reason: Unproven::PredatesBindingProof
-            }
-        ),
-        "adopting it would put two incompatible cores on one grid, and replacing \
-         it without proof that it holds nothing would end a session"
+    assert_eq!(
+        admit(&probe),
+        Admission::Blocked {
+            reason: Blocked::LiveChannels
+        }
     );
 }
 
-/// A survivor whose exact target contract does not match is the same case: the
-/// digest is missing or differs, and a missing digest is never exact.
+/// v2 adopts a compatible keeper whether or not it is the exact build target
+/// (`keeper_survivor_adopted` logs `exact_target`); refusing it bricked boot
+/// on every keeper binary upgrade.
 #[test]
-fn a_target_contract_mismatch_is_unproven() {
+fn a_compatible_survivor_is_adopted_even_off_the_exact_target() {
     let probe = ProbeResult {
         exact_target: false,
-        ..empty_survivor()
+        ..survivor_with(&[4])
     };
-    assert!(matches!(admit(&probe), Admission::Unproven { .. }));
+    assert_eq!(admit(&probe), Admission::Adopt { channels: vec![4] });
 }
 
 /// FORCE-LIVE RETIREMENT IS THE ONLY destructive path out of the unproven

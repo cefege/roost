@@ -174,10 +174,11 @@ async fn a_respawn_announces_a_respawn_and_not_an_opened() {
     assert_eq!(record.identity.shell_spec.cwd, "/somewhere/that/is/gone");
 }
 
-/// Geometry is validated before anything is claimed or opened, and a request
-/// that states none gets the default rather than a zero-sized PTY.
+/// Geometry is validated before a PTY is opened, and the refusal gives BOTH
+/// claims back: v2 `session-spawn.ts:49-50` throws inside the try whose catch
+/// (`:143-146`) releases the opened and close reservations it still owns.
 #[tokio::test]
-async fn geometry_is_refused_before_a_pty_or_a_claim_is_touched() {
+async fn a_refused_geometry_opens_no_pty_and_releases_both_claims() {
     let events = LedgerSink::new();
     let opened = events.reserve(DurableEventKind::Opened);
     let close = events.reserve(DurableEventKind::Closed);
@@ -201,9 +202,15 @@ async fn geometry_is_refused_before_a_pty_or_a_claim_is_touched() {
         matches!(refused, Err(SpawnRefusal::Geometry { cols: 900, .. })),
         "an impossible geometry was not refused, got {refused:?}"
     );
-    assert!(
-        events.released().is_empty(),
-        "a refused geometry released a claim"
+    let mut released = events.released();
+    released.sort_unstable();
+    let mut expected = vec![opened.id(), close.id()];
+    expected.sort_unstable();
+    assert_eq!(released, expected, "a refused geometry kept a claim");
+    assert_eq!(
+        events.live_claims(),
+        0,
+        "the store is still holding capacity"
     );
     assert!(events.emitted().is_empty());
     assert!(

@@ -1,0 +1,354 @@
+
+running 9 tests
+test control_characters_relative_paths_and_oversized_references_are_unsupported ... ok
+test the_descriptor_pins_the_official_executable_and_option_form ... ok
+test a_reference_already_claimed_in_this_pass_never_resumes_twice ... ok
+test windows_has_no_restore_materialization ... ok
+test disabled_missing_and_unsupported_restores_write_zero_input ... ok
+test a_proven_rejection_releases_the_reference_claim_and_an_ambiguous_one_keeps_it ... FAILED
+test a_partly_delivered_resume_command_is_discarded_from_the_prompt ... FAILED
+test each_keeper_result_is_terminal_after_one_batch_and_never_logs_the_reference ... ok
+test every_reference_stays_one_opaque_argv_element ... ok
+
+failures:
+
+---- a_proven_rejection_releases_the_reference_claim_and_an_ambiguous_one_keeps_it stdout ----
+
+thread 'a_proven_rejection_releases_the_reference_claim_and_an_ambiguous_one_keeps_it' (668271) panicked at crates/roost-worker/tests/agent_conversation_restore.rs:263:5:
+assertion failed: !keys.contains(&key)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- a_partly_delivered_resume_command_is_discarded_from_the_prompt stdout ----
+
+thread 'a_partly_delivered_resume_command_is_discarded_from_the_prompt' (668270) panicked at crates/roost-worker/tests/agent_conversation_restore.rs:314:5:
+assertion `left == right` failed
+  left: 0
+ right: 1
+
+
+failures:
+    a_partly_delivered_resume_command_is_discarded_from_the_prompt
+    a_proven_rejection_releases_the_reference_claim_and_an_ambiguous_one_keeps_it
+
+test result: FAILED. 7 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 4 tests
+test every_session_in_one_pass_shares_the_reference_claim_set ... ok
+test an_adopted_sessions_reference_is_claimed_before_any_respawn_restore ... FAILED
+test an_unexpected_restore_failure_never_escapes_the_pass ... ok
+test a_rejected_write_frees_the_reference_for_the_next_session_in_the_pass ... FAILED
+
+failures:
+
+---- an_adopted_sessions_reference_is_claimed_before_any_respawn_restore stdout ----
+
+thread 'an_adopted_sessions_reference_is_claimed_before_any_respawn_restore' (668286) panicked at crates/roost-worker/tests/agent_conversation_restore_reconcile.rs:119:5:
+assertion `left == right` failed
+  left: [[]]
+ right: [["omp\0path\0/private/opaque-secret.jsonl"]]
+
+---- a_rejected_write_frees_the_reference_for_the_next_session_in_the_pass stdout ----
+
+thread 'a_rejected_write_frees_the_reference_for_the_next_session_in_the_pass' (668285) panicked at crates/roost-worker/tests/agent_conversation_restore_reconcile.rs:160:9:
+Skipped(Duplicate)
+
+
+failures:
+    a_rejected_write_frees_the_reference_for_the_next_session_in_the_pass
+    an_adopted_sessions_reference_is_claimed_before_any_respawn_restore
+
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 6 tests
+test keeper_rejected_partial_and_unknown_truth_is_kept_without_a_retry ... ok
+test a_prompt_expires_behind_an_unresolved_predecessor_without_losing_receive_order ... ok
+test the_prompt_uses_the_final_bracketed_paste_mode_raw_input_stays_byte_exact_and_logs_omit_the_text ... ok
+test utf8_bytes_safe_revision_and_the_hop_budget_are_enforced_before_any_scan_or_write ... ok
+test a_budget_that_cannot_cover_the_submit_delay_rejects_without_writing ... FAILED
+test the_cr_goes_out_only_after_the_settle_delay_and_is_accepted_only_when_acknowledged ... ok
+
+failures:
+
+---- a_budget_that_cannot_cover_the_submit_delay_rejects_without_writing stdout ----
+
+thread 'a_budget_that_cannot_cover_the_submit_delay_rejects_without_writing' (668290) panicked at crates/roost-worker/tests/agent_prompt_control.rs:238:5:
+assertion `left == right` failed
+  left: Accepted { written_bytes: 9 }
+ right: Rejected { reason: "prompt budget cannot cover the submit delay" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    a_budget_that_cannot_cover_the_submit_delay_rejects_without_writing
+
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+
+
+running 6 tests
+test blocked_and_screen_only_status_reject_without_a_process_refresh ... ok
+test the_final_deadline_connection_and_refreshed_process_proof_all_gate_the_write ... ok
+test a_queued_ticket_drains_when_the_initial_process_proof_is_rejected ... ok
+test a_stale_revision_a_replaced_occupant_and_a_closed_session_reject_after_queueing ... ok
+test a_stalled_final_scan_is_aborted_and_input_released_at_budget_expiry ... ok
+test a_prompt_reserves_its_receive_order_before_the_initial_scan_settles ... FAILED
+
+failures:
+
+---- a_prompt_reserves_its_receive_order_before_the_initial_scan_settles stdout ----
+
+thread 'a_prompt_reserves_its_receive_order_before_the_initial_scan_settles' (668304) panicked at crates/roost-worker/tests/agent_prompt_fences.rs:106:5:
+assertion `left == right` failed
+  left: ["later-raw-input", "continue", "\r"]
+ right: ["continue", "\r", "later-raw-input"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    a_prompt_reserves_its_receive_order_before_the_initial_scan_settles
+
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+
+running 5 tests
+test a_reference_the_event_schema_refuses_never_reaches_the_outbox ... ok
+test a_later_turn_waits_for_the_one_holding_the_gate_and_runs_in_arrival_order ... ok
+test a_failed_turn_still_hands_the_gate_on ... ok
+test a_set_and_a_clear_each_consume_their_own_claim ... ok
+test a_failed_append_gives_its_claim_back ... FAILED
+
+failures:
+
+---- a_failed_append_gives_its_claim_back stdout ----
+
+thread 'a_failed_append_gives_its_claim_back' (668315) panicked at crates/roost-worker/tests/agent_reference_admission.rs:134:5:
+assertion `left == right` failed: the failed append leaked its claim
+  left: 1
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    a_failed_append_gives_its_claim_back
+
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+test a_refused_boot_pass_leaves_the_snapshot_held ... ok
+test a_disposed_link_refuses_the_boot_pass_without_a_read ... FAILED
+test the_boot_pass_reads_only_after_the_replay_and_the_snapshot_only_follows_the_pass ... FAILED
+test a_reference_reporter_queued_during_a_pass_enters_only_after_it ... ok
+
+failures:
+
+---- a_disposed_link_refuses_the_boot_pass_without_a_read stdout ----
+
+thread 'a_disposed_link_refuses_the_boot_pass_without_a_read' (668321) panicked at crates/roost-worker/tests/boot_admission.rs:245:14:
+called `Result::unwrap_err()` on an `Ok` value: true
+
+---- the_boot_pass_reads_only_after_the_replay_and_the_snapshot_only_follows_the_pass stdout ----
+
+thread 'the_boot_pass_reads_only_after_the_replay_and_the_snapshot_only_follows_the_pass' (668324) panicked at crates/roost-worker/tests/boot_admission.rs:154:5:
+assertion `left == right` failed: the boot pass read the coordinator before the durable replay drained
+  left: 1
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    a_disposed_link_refuses_the_boot_pass_without_a_read
+    the_boot_pass_reads_only_after_the_replay_and_the_snapshot_only_follows_the_pass
+
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+
+running 6 tests
+test a_blocking_claim_holds_the_snapshot_until_it_is_held ... FAILED
+test a_restart_replays_the_unacknowledged_rows_before_its_snapshot ... ok
+test a_held_snapshot_drains_the_replay_and_publishes_only_once_activated ... FAILED
+test the_snapshot_and_a_journal_row_never_share_a_sequence ... FAILED
+test sink_rows_reach_the_coordinator_before_the_snapshot_and_while_live ... FAILED
+test the_replay_barrier_waits_for_acked_rows_and_unblocked_claims ... FAILED
+
+failures:
+
+---- a_blocking_claim_holds_the_snapshot_until_it_is_held stdout ----
+
+thread 'a_blocking_claim_holds_the_snapshot_until_it_is_held' (668327) panicked at crates/roost-worker/tests/durable_delivery.rs:306:5:
+a frame went out while a claim blocked the snapshot
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- a_held_snapshot_drains_the_replay_and_publishes_only_once_activated stdout ----
+
+thread 'a_held_snapshot_drains_the_replay_and_publishes_only_once_activated' (668328) panicked at crates/roost-worker/tests/link_downstream_support/live.rs:175:14:
+called `Result::unwrap()` on an `Err` value: Elapsed(())
+
+---- the_snapshot_and_a_journal_row_never_share_a_sequence stdout ----
+
+thread 'the_snapshot_and_a_journal_row_never_share_a_sequence' (668332) panicked at crates/roost-worker/tests/link_downstream_support/live.rs:175:14:
+called `Result::unwrap()` on an `Err` value: Elapsed(())
+
+---- sink_rows_reach_the_coordinator_before_the_snapshot_and_while_live stdout ----
+
+thread 'sink_rows_reach_the_coordinator_before_the_snapshot_and_while_live' (668330) panicked at crates/roost-worker/tests/link_downstream_support/live.rs:175:14:
+called `Result::unwrap()` on an `Err` value: Elapsed(())
+
+---- the_replay_barrier_waits_for_acked_rows_and_unblocked_claims stdout ----
+
+thread 'the_replay_barrier_waits_for_acked_rows_and_unblocked_claims' (668331) panicked at crates/roost-worker/tests/link_downstream_support/live.rs:175:14:
+called `Result::unwrap()` on an `Err` value: Elapsed(())
+
+
+failures:
+    a_blocking_claim_holds_the_snapshot_until_it_is_held
+    a_held_snapshot_drains_the_replay_and_publishes_only_once_activated
+    sink_rows_reach_the_coordinator_before_the_snapshot_and_while_live
+    the_replay_barrier_waits_for_acked_rows_and_unblocked_claims
+    the_snapshot_and_a_journal_row_never_share_a_sequence
+
+test result: FAILED. 1 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.34s
+
+
+running 2 tests
+test an_agent_prompt_reaches_its_owner_synchronously_and_is_answered_once ... ok
+test an_owner_failure_answers_a_static_ambiguous_result_and_logs_none_of_it ... FAILED
+
+failures:
+
+---- an_owner_failure_answers_a_static_ambiguous_result_and_logs_none_of_it stdout ----
+
+thread 'an_owner_failure_answers_a_static_ambiguous_result_and_logs_none_of_it' (668719) panicked at crates/roost-worker/tests/link_downstream_support/mod.rs:155:42:
+prompt-and-status-secret-from-dependency
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'an_owner_failure_answers_a_static_ambiguous_result_and_logs_none_of_it' (668719) panicked at crates/roost-worker/tests/link_downstream_agent_prompt.rs:104:5:
+assertion `left == right` failed
+  left: "worker agent prompt handler is unavailable"
+ right: "worker agent prompt handler failed"
+
+
+failures:
+    an_owner_failure_answers_a_static_ambiguous_result_and_logs_none_of_it
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling roost-proto v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-proto)
+   Compiling roost-protocol v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-protocol)
+   Compiling roost-host v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-host)
+   Compiling roost-keeper v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-keeper)
+   Compiling roost-term v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-term)
+   Compiling roost-worker v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-worker)
+warning: unused import: `PROMPT_SUBMIT_DELAY`
+  --> crates/roost-worker/src/agents/prompt_control.rs:23:28
+   |
+23 | use super::prompt_submit::{PROMPT_SUBMIT_DELAY, submit_agent_prompt};
+   |                            ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `IpAddr`, `Ipv4Addr`, and `Ipv6Addr`
+ --> crates/roost-worker/src/runtime/door_serve.rs:8:16
+  |
+8 | use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+  |                ^^^^^^  ^^^^^^^^  ^^^^^^^^
+
+warning: unreachable statement
+  --> crates/roost-worker/src/attachments/grant_checks.rs:49:5
+   |
+48 |     return true;
+   |     ----------- any code following this expression is unreachable
+49 |     let expected = Sha256::digest(expected.as_bytes());
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unreachable statement
+   |
+   = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `keys`
+   --> crates/roost-worker/src/agents/conversation_restore.rs:191:21
+    |
+191 |         if let Some(keys) = resumed_reference_keys.as_deref_mut() {
+    |                     ^^^^ help: if this is intentional, prefix it with an underscore: `_keys`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `remaining`
+   --> crates/roost-worker/src/agents/prompt_control.rs:260:13
+    |
+260 |         let remaining = match check_prompt_budget(self.budget) {
+    |             ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_remaining`
+
+warning: unused variable: `expected`
+  --> crates/roost-worker/src/attachments/grant_checks.rs:47:23
+   |
+47 | fn capability_matches(expected: &str, received: &str) -> bool {
+   |                       ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_expected`
+
+warning: unused variable: `received`
+  --> crates/roost-worker/src/attachments/grant_checks.rs:47:39
+   |
+47 | fn capability_matches(expected: &str, received: &str) -> bool {
+   |                                       ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_received`
+
+warning: unused variable: `host`
+  --> crates/roost-worker/src/door/admission.rs:62:31
+   |
+62 |     pub fn admits_host(&self, host: &str) -> bool {
+   |                               ^^^^ help: if this is intentional, prefix it with an underscore: `_host`
+
+warning: unused variable: `extra`
+   --> crates/roost-worker/src/door/admission.rs:109:43
+    |
+109 | fn browser_origins(coordinator_url: &str, extra: &[String]) -> Vec<String> {
+    |                                           ^^^^^ help: if this is intentional, prefix it with an underscore: `_extra`
+
+warning: unused variable: `replay`
+   --> crates/roost-worker/src/runtime/reconcile_gate.rs:251:13
+    |
+251 |         let replay = Arc::clone(&self.inner.admission.durable_replay);
+    |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_replay`
+
+warning: field `hosts` is never read
+  --> crates/roost-worker/src/door/admission.rs:15:5
+   |
+14 | pub struct DoorAdmission {
+   |            ------------- field in this struct
+15 |     hosts: HashSet<String>,
+   |     ^^^^^
+   |
+   = note: `DoorAdmission` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `AGENT_PROMPT_HANDLER_FAILED` is never used
+  --> crates/roost-worker/src/runtime/downstream/replies.rs:31:18
+   |
+31 | pub(super) const AGENT_PROMPT_HANDLER_FAILED: &str = "worker agent prompt handler failed";
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `roost-worker` (lib) generated 12 warnings (run `cargo fix --lib -p roost-worker` to apply 9 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 46s
+     Running tests/agent_conversation_restore.rs (target-track/debug/deps/agent_conversation_restore-885fe4125d1c81b4)
+error: test failed, to rerun pass `-p roost-worker --test agent_conversation_restore`
+     Running tests/agent_conversation_restore_reconcile.rs (target-track/debug/deps/agent_conversation_restore_reconcile-079916c0d107b471)
+error: test failed, to rerun pass `-p roost-worker --test agent_conversation_restore_reconcile`
+     Running tests/agent_prompt_control.rs (target-track/debug/deps/agent_prompt_control-1d98f3cebb203a34)
+error: test failed, to rerun pass `-p roost-worker --test agent_prompt_control`
+     Running tests/agent_prompt_fences.rs (target-track/debug/deps/agent_prompt_fences-bbdd17e70b0571d2)
+error: test failed, to rerun pass `-p roost-worker --test agent_prompt_fences`
+     Running tests/agent_reference_admission.rs (target-track/debug/deps/agent_reference_admission-4fc97dde47d1f1c0)
+error: test failed, to rerun pass `-p roost-worker --test agent_reference_admission`
+     Running tests/boot_admission.rs (target-track/debug/deps/boot_admission-289cea36c23df4f0)
+error: test failed, to rerun pass `-p roost-worker --test boot_admission`
+     Running tests/durable_delivery.rs (target-track/debug/deps/durable_delivery-359cce7b95291233)
+error: test failed, to rerun pass `-p roost-worker --test durable_delivery`
+     Running tests/link_downstream_agent_prompt.rs (target-track/debug/deps/link_downstream_agent_prompt-bf7f383db36590b9)
+error: test failed, to rerun pass `-p roost-worker --test link_downstream_agent_prompt`
+error: 8 targets failed:
+    `-p roost-worker --test agent_conversation_restore`
+    `-p roost-worker --test agent_conversation_restore_reconcile`
+    `-p roost-worker --test agent_prompt_control`
+    `-p roost-worker --test agent_prompt_fences`
+    `-p roost-worker --test agent_reference_admission`
+    `-p roost-worker --test boot_admission`
+    `-p roost-worker --test durable_delivery`
+    `-p roost-worker --test link_downstream_agent_prompt`

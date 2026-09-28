@@ -27,6 +27,8 @@ use crate::browser_commands::Refusal;
 struct LiveSet {
     by_channel: HashMap<u16, Arc<Mutex<SessionRecord>>>,
     by_session: HashMap<SessionId, u16>,
+    /// Sessions with a respawn in flight (v2 `pendingSpawnSessionIds`).
+    respawning: std::collections::HashSet<SessionId>,
 }
 
 /// The worker's live sessions: the one answer to "does this worker hold it".
@@ -57,6 +59,44 @@ impl SessionTable {
         live.by_channel.insert(channel_id, Arc::clone(&entry));
         live.by_session.insert(session_id, channel_id);
         Ok(entry)
+    }
+
+    /// Install a respawned record under the SAME session id, displacing the
+    /// record on `replaces` (v2 `session-respawn.ts` swaps the map entries).
+    /// The displaced entry is handed back for the caller to retire; a session
+    /// held on any other channel, or a channel already live, is refused.
+    #[allow(clippy::type_complexity)]
+    pub fn insert_replacing(
+        &self,
+        record: SessionRecord,
+        replaces: Option<u16>,
+    ) -> Result<(Arc<Mutex<SessionRecord>>, Option<Arc<Mutex<SessionRecord>>>), Refusal> {
+        let channel_id = record.channel_id().as_u32() as u16;
+        let session_id = record.session_id().clone();
+        let mut live = self.lock();
+        if live.by_channel.contains_key(&channel_id)
+            || live.by_session.get(&session_id).copied() != replaces
+        {
+            return Err(Refusal::failed(
+                "sessions",
+                format!("channel {channel_id} or session {session_id} is already live here"),
+            ));
+        }
+        let displaced = replaces.and_then(|old| live.by_channel.remove(&old));
+        let entry = Arc::new(Mutex::new(record));
+        live.by_channel.insert(channel_id, Arc::clone(&entry));
+        live.by_session.insert(session_id, channel_id);
+        Ok((entry, displaced))
+    }
+
+    /// Claim `session_id` for one respawn; `false` when one is already in flight.
+    pub(super) fn begin_respawn(&self, session_id: &SessionId) -> bool {
+        self.lock().respawning.insert(session_id.clone())
+    }
+
+    /// End a claim `begin_respawn` took.
+    pub(super) fn end_respawn(&self, session_id: &SessionId) {
+        self.lock().respawning.remove(session_id);
     }
 
     /// Read the live record for a session id.
@@ -113,6 +153,17 @@ impl SessionTable {
     /// it.
     pub fn channel_of(&self, session_id: &SessionId) -> Option<u16> {
         self.lock().by_session.get(session_id).copied()
+    }
+
+    /// The session a keeper channel carries, or `None` when this worker does
+    /// not hold it. Leaf lock only: a direct cell frame names its session, and
+    /// its sink runs under the emitter's lock.
+    pub fn session_of_channel(&self, channel_id: u16) -> Option<SessionId> {
+        self.lock()
+            .by_session
+            .iter()
+            .find(|(_, channel)| **channel == channel_id)
+            .map(|(session, _)| session.clone())
     }
 
     /// Every live session and its channel, in no particular order.

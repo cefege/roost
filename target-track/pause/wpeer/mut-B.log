@@ -1,0 +1,600 @@
+   Compiling roost-proto v3.0.0 (/home/almalinux/repos/roost-v3-worker/target-track/tmp/wpeer/mut/crates/roost-proto)
+   Compiling roost-protocol v3.0.0 (/home/almalinux/repos/roost-v3-worker/target-track/tmp/wpeer/mut/crates/roost-protocol)
+   Compiling roost-host v3.0.0 (/home/almalinux/repos/roost-v3-worker/target-track/tmp/wpeer/mut/crates/roost-host)
+   Compiling roost-keeper v3.0.0 (/home/almalinux/repos/roost-v3-worker/target-track/tmp/wpeer/mut/crates/roost-keeper)
+   Compiling roost-term v3.0.0 (/home/almalinux/repos/roost-v3-worker/target-track/tmp/wpeer/mut/crates/roost-term)
+   Compiling roost-worker v3.0.0-wpeer-mutant (/home/almalinux/repos/roost-v3-worker/target-track/tmp/wpeer/mut/crates/roost-worker)
+warning: unused imports: `IpAddr`, `Ipv4Addr`, and `Ipv6Addr`
+ --> crates/roost-worker/src/runtime/door_serve.rs:8:16
+  |
+8 | use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+  |                ^^^^^^  ^^^^^^^^  ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unreachable statement
+  --> crates/roost-worker/src/attachments/grant_checks.rs:49:5
+   |
+48 |     return true;
+   |     ----------- any code following this expression is unreachable
+49 |     let expected = Sha256::digest(expected.as_bytes());
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unreachable statement
+   |
+   = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `expected`
+  --> crates/roost-worker/src/attachments/grant_checks.rs:47:23
+   |
+47 | fn capability_matches(expected: &str, received: &str) -> bool {
+   |                       ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_expected`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `received`
+  --> crates/roost-worker/src/attachments/grant_checks.rs:47:39
+   |
+47 | fn capability_matches(expected: &str, received: &str) -> bool {
+   |                                       ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_received`
+
+warning: unused variable: `host`
+  --> crates/roost-worker/src/door/admission.rs:62:31
+   |
+62 |     pub fn admits_host(&self, host: &str) -> bool {
+   |                               ^^^^ help: if this is intentional, prefix it with an underscore: `_host`
+
+warning: unused variable: `extra`
+   --> crates/roost-worker/src/door/admission.rs:109:43
+    |
+109 | fn browser_origins(coordinator_url: &str, extra: &[String]) -> Vec<String> {
+    |                                           ^^^^^ help: if this is intentional, prefix it with an underscore: `_extra`
+
+warning: unused variable: `channel`
+  --> crates/roost-worker/src/peer/packet_lanes.rs:86:44
+   |
+86 |     fn receive(&self, core: &mut PortCore, channel: usize, binary: bool, data: Vec<u8>) {
+   |                                            ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_channel`
+
+warning: field `hosts` is never read
+  --> crates/roost-worker/src/door/admission.rs:15:5
+   |
+14 | pub struct DoorAdmission {
+   |            ------------- field in this struct
+15 |     hosts: HashSet<String>,
+   |     ^^^^^
+   |
+   = note: `DoorAdmission` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `roost-worker` (lib) generated 8 warnings (run `cargo fix --lib -p roost-worker` to apply 6 suggestions)
+error[E0599]: no method named `send` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+  --> crates/roost-worker/tests/terminal_peer_packet_port.rs:29:22
+   |
+29 |         fixture.port.send(vec![7, 8, 9], Lane::Control),
+   |                      ^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPacketPort` which provides `send` is implemented but not in scope; perhaps you want to import it
+   |
+ 8 + use roost_worker::local_terminal::TerminalPacketPort;
+   |
+
+error[E0599]: no method named `send` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+  --> crates/roost-worker/tests/terminal_peer_packet_port.rs:46:22
+   |
+46 |         fixture.port.send(vec![1], Lane::Control),
+   |                      ^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPacketPort` which provides `send` is implemented but not in scope; perhaps you want to import it
+   |
+ 8 + use roost_worker::local_terminal::TerminalPacketPort;
+   |
+
+error[E0599]: no method named `reserve` found for struct `TerminalPeerQuota` in the current scope
+  --> crates/roost-worker/tests/terminal_peer_packet_port.rs:58:21
+   |
+58 |     assert!(history.reserve(TERMINAL_PEER_APPLICATION_QUEUE_MAX_BYTES));
+   |                     ^^^^^^^ method not found in `TerminalPeerQuota`
+   |
+  ::: crates/roost-protocol/src/terminal_peer/packets.rs:91:8
+   |
+91 |     fn reserve(&mut self, bytes: usize) -> bool;
+   |        ------- the method is available for `TerminalPeerQuota` here
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPeerPacketQuota` which provides `reserve` is implemented but not in scope; perhaps you want to import it
+   |
+ 8 + use roost_protocol::terminal_peer::packets::TerminalPeerPacketQuota;
+   |
+
+error[E0599]: no method named `reserve` found for struct `TerminalPeerQuota` in the current scope
+  --> crates/roost-worker/tests/terminal_peer_packet_port.rs:59:21
+   |
+59 |     assert!(control.reserve(TERMINAL_PEER_CONTROL_QUEUE_MAX_BYTES));
+   |                     ^^^^^^^ method not found in `TerminalPeerQuota`
+   |
+  ::: crates/roost-protocol/src/terminal_peer/packets.rs:91:8
+   |
+91 |     fn reserve(&mut self, bytes: usize) -> bool;
+   |        ------- the method is available for `TerminalPeerQuota` here
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPeerPacketQuota` which provides `reserve` is implemented but not in scope; perhaps you want to import it
+   |
+ 8 + use roost_protocol::terminal_peer::packets::TerminalPeerPacketQuota;
+   |
+
+error[E0599]: no method named `reserve` found for struct `TerminalPeerQuota` in the current scope
+  --> crates/roost-worker/tests/terminal_peer_packet_port.rs:60:22
+   |
+60 |     assert!(!history.reserve(1));
+   |                      ^^^^^^^ method not found in `TerminalPeerQuota`
+   |
+  ::: crates/roost-protocol/src/terminal_peer/packets.rs:91:8
+   |
+91 |     fn reserve(&mut self, bytes: usize) -> bool;
+   |        ------- the method is available for `TerminalPeerQuota` here
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPeerPacketQuota` which provides `reserve` is implemented but not in scope; perhaps you want to import it
+   |
+ 8 + use roost_protocol::terminal_peer::packets::TerminalPeerPacketQuota;
+   |
+
+error[E0599]: no method named `reserve` found for struct `TerminalPeerQuota` in the current scope
+  --> crates/roost-worker/tests/terminal_peer_packet_port.rs:61:22
+   |
+61 |     assert!(!control.reserve(1));
+   |                      ^^^^^^^ method not found in `TerminalPeerQuota`
+   |
+  ::: crates/roost-protocol/src/terminal_peer/packets.rs:91:8
+   |
+91 |     fn reserve(&mut self, bytes: usize) -> bool;
+   |        ------- the method is available for `TerminalPeerQuota` here
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPeerPacketQuota` which provides `reserve` is implemented but not in scope; perhaps you want to import it
+   |
+ 8 + use roost_protocol::terminal_peer::packets::TerminalPeerPacketQuota;
+   |
+
+error[E0599]: no method named `release` found for struct `TerminalPeerQuota` in the current scope
+  --> crates/roost-worker/tests/terminal_peer_packet_port.rs:62:13
+   |
+62 |     control.release(TERMINAL_PEER_CONTROL_QUEUE_MAX_BYTES);
+   |             ^^^^^^^ method not found in `TerminalPeerQuota`
+   |
+  ::: crates/roost-protocol/src/terminal_peer/packets.rs:92:8
+   |
+92 |     fn release(&mut self, bytes: usize);
+   |        ------- the method is available for `TerminalPeerQuota` here
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPeerPacketQuota` which provides `release` is implemented but not in scope; perhaps you want to import it
+   |
+ 8 + use roost_protocol::terminal_peer::packets::TerminalPeerPacketQuota;
+   |
+
+error[E0599]: no method named `release` found for struct `TerminalPeerQuota` in the current scope
+  --> crates/roost-worker/tests/terminal_peer_packet_port.rs:63:13
+   |
+63 |     history.release(TERMINAL_PEER_APPLICATION_QUEUE_MAX_BYTES);
+   |             ^^^^^^^ method not found in `TerminalPeerQuota`
+   |
+  ::: crates/roost-protocol/src/terminal_peer/packets.rs:92:8
+   |
+92 |     fn release(&mut self, bytes: usize);
+   |        ------- the method is available for `TerminalPeerQuota` here
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPeerPacketQuota` which provides `release` is implemented but not in scope; perhaps you want to import it
+   |
+ 8 + use roost_protocol::terminal_peer::packets::TerminalPeerPacketQuota;
+   |
+
+error[E0599]: no method named `reserve` found for struct `TerminalPeerQuota` in the current scope
+  --> crates/roost-worker/tests/terminal_peer_packet_port.rs:73:23
+   |
+73 |     assert!(quotas[0].reserve(TERMINAL_PEER_APPLICATION_QUEUE_MAX_BYTES));
+   |                       ^^^^^^^ method not found in `TerminalPeerQuota`
+   |
+  ::: crates/roost-protocol/src/terminal_peer/packets.rs:91:8
+   |
+91 |     fn reserve(&mut self, bytes: usize) -> bool;
+   |        ------- the method is available for `TerminalPeerQuota` here
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPeerPacketQuota` which provides `reserve` is implemented but not in scope; perhaps you want to import it
+   |
+ 8 + use roost_protocol::terminal_peer::packets::TerminalPeerPacketQuota;
+   |
+
+error[E0599]: no method named `reserve` found for struct `TerminalPeerQuota` in the current scope
+  --> crates/roost-worker/tests/terminal_peer_packet_port.rs:74:23
+   |
+74 |     assert!(quotas[1].reserve(TERMINAL_PEER_APPLICATION_QUEUE_MAX_BYTES));
+   |                       ^^^^^^^ method not found in `TerminalPeerQuota`
+   |
+  ::: crates/roost-protocol/src/terminal_peer/packets.rs:91:8
+   |
+91 |     fn reserve(&mut self, bytes: usize) -> bool;
+   |        ------- the method is available for `TerminalPeerQuota` here
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPeerPacketQuota` which provides `reserve` is implemented but not in scope; perhaps you want to import it
+   |
+ 8 + use roost_protocol::terminal_peer::packets::TerminalPeerPacketQuota;
+   |
+
+error[E0599]: no method named `reserve` found for struct `TerminalPeerQuota` in the current scope
+  --> crates/roost-worker/tests/terminal_peer_packet_port.rs:76:20
+   |
+76 |         !quotas[2].reserve(1),
+   |                    ^^^^^^^ method not found in `TerminalPeerQuota`
+   |
+  ::: crates/roost-protocol/src/terminal_peer/packets.rs:91:8
+   |
+91 |     fn reserve(&mut self, bytes: usize) -> bool;
+   |        ------- the method is available for `TerminalPeerQuota` here
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPeerPacketQuota` which provides `reserve` is implemented but not in scope; perhaps you want to import it
+   |
+ 8 + use roost_protocol::terminal_peer::packets::TerminalPeerPacketQuota;
+   |
+
+error[E0599]: no method named `release` found for struct `TerminalPeerQuota` in the current scope
+  --> crates/roost-worker/tests/terminal_peer_packet_port.rs:79:15
+   |
+79 |     quotas[0].release(TERMINAL_PEER_APPLICATION_QUEUE_MAX_BYTES);
+   |               ^^^^^^^ method not found in `TerminalPeerQuota`
+   |
+  ::: crates/roost-protocol/src/terminal_peer/packets.rs:92:8
+   |
+92 |     fn release(&mut self, bytes: usize);
+   |        ------- the method is available for `TerminalPeerQuota` here
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPeerPacketQuota` which provides `release` is implemented but not in scope; perhaps you want to import it
+   |
+ 8 + use roost_protocol::terminal_peer::packets::TerminalPeerPacketQuota;
+   |
+
+error[E0599]: no method named `release` found for struct `TerminalPeerQuota` in the current scope
+  --> crates/roost-worker/tests/terminal_peer_packet_port.rs:80:15
+   |
+80 |     quotas[1].release(TERMINAL_PEER_APPLICATION_QUEUE_MAX_BYTES);
+   |               ^^^^^^^ method not found in `TerminalPeerQuota`
+   |
+  ::: crates/roost-protocol/src/terminal_peer/packets.rs:92:8
+   |
+92 |     fn release(&mut self, bytes: usize);
+   |        ------- the method is available for `TerminalPeerQuota` here
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPeerPacketQuota` which provides `release` is implemented but not in scope; perhaps you want to import it
+   |
+ 8 + use roost_protocol::terminal_peer::packets::TerminalPeerPacketQuota;
+   |
+
+error[E0599]: no method named `send` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+  --> crates/roost-worker/tests/terminal_peer_packet_port.rs:87:22
+   |
+87 |         fixture.port.send(vec![1], Lane::History),
+   |                      ^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPacketPort` which provides `send` is implemented but not in scope; perhaps you want to import it
+   |
+ 8 + use roost_worker::local_terminal::TerminalPacketPort;
+   |
+
+error[E0599]: no method named `send` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+  --> crates/roost-worker/tests/terminal_peer_packet_port.rs:91:22
+   |
+91 |         fixture.port.send(vec![2], Lane::Terminal),
+   |                      ^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPacketPort` which provides `send` is implemented but not in scope; perhaps you want to import it
+   |
+ 8 + use roost_worker::local_terminal::TerminalPacketPort;
+   |
+
+error[E0599]: no method named `send` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+  --> crates/roost-worker/tests/terminal_peer_packet_port.rs:95:22
+   |
+95 |         fixture.port.send(vec![3], Lane::Control),
+   |                      ^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPacketPort` which provides `send` is implemented but not in scope; perhaps you want to import it
+   |
+ 8 + use roost_worker::local_terminal::TerminalPacketPort;
+   |
+
+error[E0599]: no method named `send` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+   --> crates/roost-worker/tests/terminal_peer_packet_port.rs:111:22
+    |
+111 |         fixture.port.send(vec![0; size], Lane::Control);
+    |                      ^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPacketPort` which provides `send` is implemented but not in scope; perhaps you want to import it
+    |
+  8 + use roost_worker::local_terminal::TerminalPacketPort;
+    |
+
+error[E0599]: no method named `close` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+   --> crates/roost-worker/tests/terminal_peer_packet_port.rs:117:18
+    |
+117 |     fixture.port.close(1000, "test");
+    |                  ^^^^^
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: there is a method `clone` with a similar name, but with different arguments
+   --> /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/clone.rs:236:4
+help: trait `TerminalPacketPort` which provides `close` is implemented but not in scope; perhaps you want to import it
+    |
+  8 + use roost_worker::local_terminal::TerminalPacketPort;
+    |
+
+error[E0599]: no method named `send` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+   --> crates/roost-worker/tests/terminal_peer_packet_port.rs:125:22
+    |
+125 |         fixture.port.send(vec![9], Lane::History),
+    |                      ^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPacketPort` which provides `send` is implemented but not in scope; perhaps you want to import it
+    |
+  8 + use roost_worker::local_terminal::TerminalPacketPort;
+    |
+
+error[E0599]: no method named `wait_for_lane_drain` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+   --> crates/roost-worker/tests/terminal_peer_packet_port.rs:128:32
+    |
+128 |     let drained = fixture.port.wait_for_lane_drain(Lane::History);
+    |                                ^^^^^^^^^^^^^^^^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `PeerTerminalPacketPort` which provides `wait_for_lane_drain` is implemented but not in scope; perhaps you want to import it
+    |
+  8 + use roost_worker::local_terminal::PeerTerminalPacketPort;
+    |
+
+error[E0599]: no method named `reserve_history_read` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+   --> crates/roost-worker/tests/terminal_peer_packet_port.rs:141:10
+    |
+139 |       let mut reservation = fixture
+    |  ___________________________-
+140 | |         .port
+141 | |         .reserve_history_read(reserved)
+    | |         -^^^^^^^^^^^^^^^^^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+    | |_________|
+    |
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `PeerTerminalPacketPort` which provides `reserve_history_read` is implemented but not in scope; perhaps you want to import it
+    |
+  8 + use roost_worker::local_terminal::PeerTerminalPacketPort;
+    |
+
+error[E0599]: no method named `send` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+   --> crates/roost-worker/tests/terminal_peer_packet_port.rs:151:22
+    |
+151 |         fixture.port.send(vec![7], Lane::History),
+    |                      ^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPacketPort` which provides `send` is implemented but not in scope; perhaps you want to import it
+    |
+  8 + use roost_worker::local_terminal::TerminalPacketPort;
+    |
+
+error[E0599]: no method named `send` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+   --> crates/roost-worker/tests/terminal_peer_packet_port.rs:157:22
+    |
+157 |         fixture.port.send(vec![9], Lane::History),
+    |                      ^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPacketPort` which provides `send` is implemented but not in scope; perhaps you want to import it
+    |
+  8 + use roost_worker::local_terminal::TerminalPacketPort;
+    |
+
+error[E0599]: no method named `wait_for_lane_drain` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+   --> crates/roost-worker/tests/terminal_peer_packet_port.rs:164:18
+    |
+164 |     fixture.port.wait_for_lane_drain(Lane::History).await;
+    |                  ^^^^^^^^^^^^^^^^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `PeerTerminalPacketPort` which provides `wait_for_lane_drain` is implemented but not in scope; perhaps you want to import it
+    |
+  8 + use roost_worker::local_terminal::PeerTerminalPacketPort;
+    |
+
+error[E0599]: no method named `reserve_history_read` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+   --> crates/roost-worker/tests/terminal_peer_packet_port.rs:170:10
+    |
+168 |       let reservation = orphan
+    |  _______________________-
+169 | |         .port
+170 | |         .reserve_history_read(reserved)
+    | |         -^^^^^^^^^^^^^^^^^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+    | |_________|
+    |
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `PeerTerminalPacketPort` which provides `reserve_history_read` is implemented but not in scope; perhaps you want to import it
+    |
+  8 + use roost_worker::local_terminal::PeerTerminalPacketPort;
+    |
+
+error[E0599]: no method named `close` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+   --> crates/roost-worker/tests/terminal_peer_packet_port.rs:172:17
+    |
+172 |     orphan.port.close(1000, "test");
+    |                 ^^^^^
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: there is a method `clone` with a similar name, but with different arguments
+   --> /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/clone.rs:236:4
+help: trait `TerminalPacketPort` which provides `close` is implemented but not in scope; perhaps you want to import it
+    |
+  8 + use roost_worker::local_terminal::TerminalPacketPort;
+    |
+
+error[E0599]: no method named `reserve_history_read` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+   --> crates/roost-worker/tests/terminal_peer_packet_port.rs:190:10
+    |
+188 |       let first_reservation = first
+    |  _____________________________-
+189 | |         .port
+190 | |         .reserve_history_read(TERMINAL_PEER_APPLICATION_QUEUE_MAX_BYTES)
+    | |         -^^^^^^^^^^^^^^^^^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+    | |_________|
+    |
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `PeerTerminalPacketPort` which provides `reserve_history_read` is implemented but not in scope; perhaps you want to import it
+    |
+  8 + use roost_worker::local_terminal::PeerTerminalPacketPort;
+    |
+
+error[E0599]: no method named `reserve_history_read` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+   --> crates/roost-worker/tests/terminal_peer_packet_port.rs:194:10
+    |
+192 |       let second_reservation = second
+    |  ______________________________-
+193 | |         .port
+194 | |         .reserve_history_read(TERMINAL_PEER_APPLICATION_QUEUE_MAX_BYTES)
+    | |         -^^^^^^^^^^^^^^^^^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+    | |_________|
+    |
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `PeerTerminalPacketPort` which provides `reserve_history_read` is implemented but not in scope; perhaps you want to import it
+    |
+  8 + use roost_worker::local_terminal::PeerTerminalPacketPort;
+    |
+
+error[E0599]: no method named `send` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+   --> crates/roost-worker/tests/terminal_peer_packet_port.rs:198:22
+    |
+198 |         healthy.port.send(vec![0; 16 * 1024], Lane::Terminal),
+    |                      ^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPacketPort` which provides `send` is implemented but not in scope; perhaps you want to import it
+    |
+  8 + use roost_worker::local_terminal::TerminalPacketPort;
+    |
+
+error[E0599]: no method named `is_open` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+   --> crates/roost-worker/tests/terminal_peer_packet_port.rs:201:26
+    |
+201 |     assert!(healthy.port.is_open());
+    |                          ^^^^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPacketPort` which provides `is_open` is implemented but not in scope; perhaps you want to import it
+    |
+  8 + use roost_worker::local_terminal::TerminalPacketPort;
+    |
+
+error[E0599]: no method named `is_open` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+   --> crates/roost-worker/tests/terminal_peer_packet_port.rs:202:25
+    |
+202 |     assert!(!first.port.is_open());
+    |                         ^^^^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPacketPort` which provides `is_open` is implemented but not in scope; perhaps you want to import it
+    |
+  8 + use roost_worker::local_terminal::TerminalPacketPort;
+    |
+
+error[E0599]: no method named `is_open` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+   --> crates/roost-worker/tests/terminal_peer_packet_port.rs:208:25
+    |
+208 |     assert!(second.port.is_open());
+    |                         ^^^^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPacketPort` which provides `is_open` is implemented but not in scope; perhaps you want to import it
+    |
+  8 + use roost_worker::local_terminal::TerminalPacketPort;
+    |
+
+error[E0599]: no method named `close` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+   --> crates/roost-worker/tests/terminal_peer_packet_port.rs:212:17
+    |
+212 |     second.port.close(1000, "test");
+    |                 ^^^^^
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: there is a method `clone` with a similar name, but with different arguments
+   --> /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/clone.rs:236:4
+help: trait `TerminalPacketPort` which provides `close` is implemented but not in scope; perhaps you want to import it
+    |
+  8 + use roost_worker::local_terminal::TerminalPacketPort;
+    |
+
+error[E0599]: no method named `close` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+   --> crates/roost-worker/tests/terminal_peer_packet_port.rs:213:18
+    |
+213 |     healthy.port.close(1000, "test");
+    |                  ^^^^^
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: there is a method `clone` with a similar name, but with different arguments
+   --> /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/clone.rs:236:4
+help: trait `TerminalPacketPort` which provides `close` is implemented but not in scope; perhaps you want to import it
+    |
+  8 + use roost_worker::local_terminal::TerminalPacketPort;
+    |
+
+error[E0599]: no method named `send` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+   --> crates/roost-worker/tests/terminal_peer_packet_port.rs:224:22
+    |
+224 |         fixture.port.send(vec![0; frame], Lane::Control),
+    |                      ^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPacketPort` which provides `send` is implemented but not in scope; perhaps you want to import it
+    |
+  8 + use roost_worker::local_terminal::TerminalPacketPort;
+    |
+
+error[E0599]: no method named `send` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+   --> crates/roost-worker/tests/terminal_peer_packet_port.rs:228:22
+    |
+228 |         fixture.port.send(vec![0; frame], Lane::Control),
+    |                      ^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPacketPort` which provides `send` is implemented but not in scope; perhaps you want to import it
+    |
+  8 + use roost_worker::local_terminal::TerminalPacketPort;
+    |
+
+error[E0599]: no method named `send` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+   --> crates/roost-worker/tests/terminal_peer_packet_port.rs:232:22
+    |
+232 |         fixture.port.send(vec![0; 1], Lane::Control),
+    |                      ^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPacketPort` which provides `send` is implemented but not in scope; perhaps you want to import it
+    |
+  8 + use roost_worker::local_terminal::TerminalPacketPort;
+    |
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `roost-worker` (test "terminal_peer_packet_port") due to 37 previous errors
+warning: build failed, waiting for other jobs to finish...
+warning: `roost-worker` (lib test) generated 8 warnings (8 duplicates)
+exit=101

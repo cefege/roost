@@ -15,11 +15,11 @@
 //! it. Every rule below is about telling those two apart, and every threshold
 //! comes from a case where guessing wrong was observed.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 /// How often the reverse-reap sweep diffs the keeper's channels against the
-/// worker's own sessions.
+/// worker's own sessions (v2 `STRAY_REAP_INTERVAL_MS`).
 pub const SWEEP_INTERVAL: Duration = Duration::from_secs(60);
 
 /// How many CONSECUTIVE sweeps a channel must read stray before it is reaped.
@@ -64,7 +64,7 @@ pub const DEGRADED_THRESHOLD: u32 = 5;
 /// What a sweep decided about one channel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verdict {
-    /// Tracked by this worker, or recently closed. Leave it alone.
+    /// Tracked by this worker. Leave it alone.
     Keep,
     /// Untracked, but not for long enough to be sure. Count a strike.
     Strike { channel_id: u16 },
@@ -72,18 +72,16 @@ pub enum Verdict {
     Reap { channel_id: u16 },
 }
 
-/// The worker's view of which channels are strays.
+/// The worker's view of which channels are strays: the decision half of v2
+/// `session-lifecycle.ts` `reapStrayKeeperChannels`, whose `strayStrikes` map
+/// this is. `session::stray_reap` lists the keeper and kills the reaps.
 #[derive(Debug, Default)]
 pub struct StrayTracker {
-    /// Consecutive sweeps each channel has read stray. Reset to zero the moment
-    /// it is seen as tracked, so a channel that flaps in and out of the
-    /// worker's view never accumulates to a kill.
+    /// Consecutive sweeps each channel has read stray. Dropped the moment it
+    /// is seen as tracked, so a channel that flaps in and out of the worker's
+    /// view never accumulates to a kill, and dropped on the reap, so a kill
+    /// that did not land starts its two strikes over.
     strikes: HashMap<u16, u32>,
-    /// When each session's record was dropped, for the tail-emission TTL.
-    closed_at: HashMap<u16, Instant>,
-    /// A channel whose strike count this sweep is incrementing, for the caller
-    /// to log.
-    last_sweep: Option<Instant>,
 }
 
 impl StrayTracker {
@@ -91,69 +89,32 @@ impl StrayTracker {
         Self::default()
     }
 
-    /// A channel was just spawned. It is tracked, so it starts with no strikes
-    /// and no expectation of being reaped.
-    pub fn on_spawn(&mut self, channel_id: u16) {
-        self.strikes.remove(&channel_id);
-        self.closed_at.remove(&channel_id);
-    }
-
-    /// A session record was dropped. The channel may still emit for a moment
-    /// and those emissions are benign, so it is not a stray yet.
-    pub fn on_session_closed(&mut self, channel_id: u16, now: Instant) {
-        self.strikes.insert(channel_id, 0);
-        self.closed_at.insert(channel_id, now);
-    }
-
     /// Run a sweep, deciding what to do with each channel the keeper reports.
     ///
-    /// `tracked` is the worker's own authoritative set. `keeper_channels` is
-    /// what the keeper says exists. The DIFF is what matters: a channel in
-    /// both is ours, and one only in the second is a candidate.
-    pub fn sweep(
-        &mut self,
-        keeper_channels: &[u16],
-        tracked: &HashMap<u16, ()>,
-        now: Instant,
-    ) -> Vec<Verdict> {
-        let mut verdicts = Vec::new();
-        let mut seen: Vec<u16> = Vec::new();
-
-        for &channel_id in keeper_channels {
-            seen.push(channel_id);
-            if tracked.contains_key(&channel_id) {
-                // Tracked: every strike it ever had is stale the moment the
-                // worker's view catches up.
-                self.strikes.remove(&channel_id);
-                verdicts.push(Verdict::Keep);
-                continue;
-            }
-            if let Some(closed_at) = self.closed_at.get(&channel_id)
-                && now.saturating_duration_since(*closed_at) < RECENTLY_CLOSED_TTL
-            {
-                // Inside the tail-emission window. Benign, and treating it as a
-                // stray is what started the restart loop.
-                verdicts.push(Verdict::Keep);
-                continue;
-            }
-
-            let strikes = self.strikes.entry(channel_id).or_insert(0);
-            *strikes = strikes.saturating_add(1);
-            verdicts.push(if *strikes >= STRAY_STRIKES {
-                Verdict::Reap { channel_id }
-            } else {
-                Verdict::Strike { channel_id }
-            });
-        }
-
-        // A channel the keeper no longer reports has nothing to reap, and its
-        // bookkeeping is dead weight that would grow without bound.
+    /// `tracked` is the worker's own authoritative set; `keeper_channels` is
+    /// what the keeper says exists. A channel in both is ours, one only in the
+    /// keeper is a candidate.
+    pub fn sweep(&mut self, keeper_channels: &[u16], tracked: &HashSet<u16>) -> Vec<Verdict> {
+        // A channel the keeper no longer reports exited on its own; its strike
+        // is dead weight that would grow without bound.
         self.strikes
-            .retain(|channel_id, _| seen.contains(channel_id));
-        self.closed_at
-            .retain(|channel_id, _| seen.contains(channel_id));
-        self.last_sweep = Some(now);
-        verdicts
+            .retain(|channel_id, _| keeper_channels.contains(channel_id));
+        keeper_channels
+            .iter()
+            .map(|&channel_id| {
+                if tracked.contains(&channel_id) {
+                    self.strikes.remove(&channel_id);
+                    return Verdict::Keep;
+                }
+                let strikes = self.strikes(channel_id).saturating_add(1);
+                if strikes < STRAY_STRIKES {
+                    self.strikes.insert(channel_id, strikes);
+                    return Verdict::Strike { channel_id };
+                }
+                self.strikes.remove(&channel_id);
+                Verdict::Reap { channel_id }
+            })
+            .collect()
     }
 
     /// How many strikes a channel has. For diagnostics, so an operator can see

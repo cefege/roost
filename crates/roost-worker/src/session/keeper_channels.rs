@@ -1,14 +1,14 @@
 //! The keeper seam the session layer drives: the operations it performs on a
 //! keeper, the fault each one can return, and a survivor's ordered history.
 //! `keeper_pool` implements [`KeeperChannels`]; `session::resume`,
-//! `session::lifecycle` and `runtime::adoption` call it. Depends on
+//! `session::lifecycle` and `runtime::session_reconcile` call it. Depends on
 //! `roost_keeper` for the frame and history vocabulary.
 
 use std::pin::Pin;
 use std::sync::Arc;
 
 use roost_keeper::frames::ChannelBinding as KeeperChannel;
-use roost_keeper::history::HistoryRecord;
+use roost_keeper::history::{HistoryRecord, HistoryRecords};
 use roost_keeper::payloads::TerminalState;
 
 use super::sinks::ChannelBinding;
@@ -33,14 +33,15 @@ pub trait KeeperChannels: Send + Sync {
     fn channel_history(&self, channel_id: u16) -> Result<SurvivorHistory, KeeperFault>;
     /// The geometry the keeper has actually applied to this channel.
     fn terminal_state(&self, channel_id: u16) -> Result<TerminalState, KeeperFault>;
-    /// Deliver this channel's output into `binding` from now on. The reattach is
-    /// what establishes the keeper's ordered boundary, so it MUST precede the
-    /// history request.
-    fn deliver_into(
+    /// v2 `reattach` + `getHistoryRecords` as one step at one keeper boundary:
+    /// `binding` receives everything the survivor emits after the returned
+    /// history's head, and nothing inside it.
+    fn reattach_with_history(
         &self,
         channel_id: u16,
+        pid: u32,
         binding: Arc<dyn ChannelBinding>,
-    ) -> Result<(), KeeperFault>;
+    ) -> Result<SurvivorHistory, KeeperFault>;
     /// Terminate this channel's child.
     fn kill_channel(&self, channel_id: u16) -> Result<(), KeeperFault>;
     /// Resize this channel and report the keeper's own answer: applied (with
@@ -82,6 +83,17 @@ pub struct SurvivorHistory {
     /// the wrong width paints a screen that was never on that terminal.
     pub base_cols: u16,
     pub base_rows: u16,
+}
+
+impl From<HistoryRecords> for SurvivorHistory {
+    fn from(history: HistoryRecords) -> Self {
+        Self {
+            records: history.records,
+            head_seq: history.head_seq,
+            base_cols: history.base_cols,
+            base_rows: history.base_rows,
+        }
+    }
 }
 
 impl SurvivorHistory {

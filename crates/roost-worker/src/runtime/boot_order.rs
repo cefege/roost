@@ -35,7 +35,7 @@ pub const BOOT_ORDER: [BootStep; 5] = [
     },
     BootStep {
         name: "coordinator-link",
-        because: "the link is recorded after the keeper and its DIAL is last of all, because the object is built over the session layer and the session layer over the pool, and the dial is `link.run` at the end of boot — the previous text here claimed the link DIALS before the keeper is admitted, which was false and sent an incident reader to the wrong place",
+        because: "the link is built after the keeper, because the object is built over the session layer and the session layer over the pool, and it DIALS before the session reconcile, because every reconcile pass waits for the durable replay this link performs before it reads the coordinator's recovery state — its snapshot stays held until that pass has reserved the session set",
     },
     BootStep {
         name: "session-reconcile",

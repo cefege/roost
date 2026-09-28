@@ -8,10 +8,9 @@
 //! or a history assembled from a head nobody reported, is a wrong screen that
 //! no amount of stubbing would have caught.
 //!
-//! `channel_history` is asserted to REFUSE, and that assertion is the finding:
-//! the keeper socket does not report the head or the base geometry a replay
-//! needs, so the adoption ends as a respawn rather than as a plausible wrong
-//! terminal. Depends on `keeper_pool_support` for the fixture — nothing else.
+//! The history is the keeper's ordered answer (v2 `getHistoryRecords`): the
+//! byte head, the base geometry and the resize markers a replay needs, read at
+//! the boundary a reattach takes effect. Depends on `keeper_pool_support`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -20,7 +19,8 @@ mod keeper_pool_support;
 use std::sync::Arc;
 
 use keeper_pool_support::{KeeperFixture, channel, opened, session, sh_spec, wait_until};
-use roost_worker::keeper_pool::{KeeperPool, NO_REPORTED_BASE_GEOMETRY, NO_REPORTED_HEAD};
+use roost_keeper::history::HistoryRecord;
+use roost_worker::keeper_pool::KeeperPool;
 use roost_worker::session::keeper_channels::KeeperChannels;
 use roost_worker::session::sinks::ChannelBinding;
 
@@ -86,19 +86,22 @@ fn a_restarted_worker_finds_the_channels_the_keeper_still_holds() {
     );
 }
 
-/// A SURVIVOR'S BYTES GO WHERE THE NEW WORKER PUT THEM. This is the reattach:
-/// registering the binding is the whole of it on this side, and the assertion is
-/// that output produced AFTER the registration lands in the new binding rather
-/// than in the dead worker's.
+/// A SURVIVOR'S BYTES GO WHERE THE NEW WORKER PUT THEM, from exactly the
+/// history's head: v2 `reattach` + `getHistoryRecords` at one keeper boundary,
+/// so output inside the returned history is never delivered again and output
+/// after it reaches only the new binding.
 #[test]
-fn a_restarted_worker_receives_the_survivors_output() {
+fn a_restarted_worker_reattaches_at_the_history_boundary() {
     let fixture = KeeperFixture::start();
     let _serialised = exclusive();
     let (first, _) = session("before-restart");
     let spawned = opened(
         fixture.pool().spawn(
             channel(1),
-            &sh_spec(&["-c", "printf BEFORE; sleep 1; printf AFTER"], &[]),
+            &sh_spec(
+                &["-c", "printf BEFORE; sleep 1; printf AFTER; sleep 30"],
+                &[],
+            ),
             80,
             24,
             Arc::new(first),
@@ -107,21 +110,42 @@ fn a_restarted_worker_receives_the_survivors_output() {
     );
 
     let fresh = restarted_pool(&fixture);
+    wait_until(
+        || {
+            let history = KeeperChannels::channel_history(fresh.as_ref(), spawned.channel_id)
+                .expect("the keeper reports the history");
+            String::from_utf8_lossy(&history.window()).contains("BEFORE")
+        },
+        "the survivor's first output to be retained",
+    );
     let (second, record) = session("after-restart");
-    KeeperChannels::deliver_into(
+    let history = KeeperChannels::reattach_with_history(
         fresh.as_ref(),
         spawned.channel_id,
+        spawned.pid,
         Arc::new(second) as Arc<dyn ChannelBinding>,
     )
-    .expect("the keeper still holds the channel, so its pid is known");
+    .expect("the keeper still holds the channel");
 
-    // `printed` waits rather than polls a snapshot, and it deliberately does
-    // NOT wait for the child to end: this one is meant to keep running, and a
-    // channel whose child has exited is already out of the announced set.
+    assert!(String::from_utf8_lossy(&history.window()).contains("BEFORE"));
+    assert_eq!(
+        (history.base_cols, history.base_rows),
+        (80, 24),
+        "the spawn geometry is the base"
+    );
+    assert_eq!(
+        history.head_seq,
+        history.window().len() as u64,
+        "nothing was evicted"
+    );
     let text = record.printed("AFTER");
     assert!(
         text.contains("AFTER"),
         "the reattached channel delivered nothing: {text:?}"
+    );
+    assert!(
+        !text.contains("BEFORE"),
+        "output inside the history was delivered twice: {text:?}"
     );
 }
 
@@ -156,32 +180,6 @@ fn a_kill_through_the_seam_reaches_the_keeper() {
                 .any(|held| held.channel_id == spawned.channel_id)
         },
         "the keeper to reap the killed channel",
-    );
-}
-
-/// THE REATTACH MUST NOT INVENT A PID. A channel the keeper does not hold has
-/// no pid, and announcing one would put a number in this worker's hello that no
-/// process has — which is how a later adopter inherits a channel list holding a
-/// process nothing owns.
-#[test]
-fn a_channel_the_keeper_does_not_hold_is_refused_rather_than_announced() {
-    let fixture = KeeperFixture::start();
-    let _serialised = exclusive();
-    let pool = fixture.pool();
-    let (binding, _) = session("never-existed");
-
-    let fault = KeeperChannels::deliver_into(
-        pool.as_ref(),
-        4242,
-        Arc::new(binding) as Arc<dyn ChannelBinding>,
-    )
-    .expect_err("a channel nobody holds cannot be adopted");
-
-    assert_eq!(fault.operation, "deliver_into");
-    assert!(
-        fault.reason.contains("no pid"),
-        "the refusal names what is missing: {}",
-        fault.reason
     );
 }
 
@@ -234,14 +232,11 @@ fn a_refused_resize_is_reported_rather_than_swallowed() {
     );
 }
 
-/// THE ADOPTION REFUSES, AND THE REFUSAL NAMES WHY. This is the finding, pinned:
-/// the keeper's records carry a per-RECORD sequence counter rather than the byte
-/// offset a replay's floor is computed from, and nothing on the wire reports the
-/// geometry the oldest retained record was produced at. Filling either in here
-/// would produce a screen that was never on that terminal, so the operation
-/// refuses and the caller respawns.
+/// A resize is a marker in the history at the byte it took effect, under the
+/// sequence that applied it, so an adopter reflows exactly where the PTY did
+/// (v2 `appendResizeHistory`).
 #[test]
-fn a_channel_history_is_refused_because_the_keeper_reports_no_head() {
+fn a_resize_is_a_marker_in_the_survivors_history() {
     let fixture = KeeperFixture::start();
     let _serialised = exclusive();
     let pool = fixture.pool();
@@ -256,65 +251,20 @@ fn a_channel_history_is_refused_because_the_keeper_reports_no_head() {
         ),
         "the keeper opens a real PTY",
     );
+    KeeperChannels::resize_channel(pool.as_ref(), spawned.channel_id, 3, 132, 43)
+        .expect("the resize is written");
 
-    let fault = KeeperChannels::channel_history(pool.as_ref(), spawned.channel_id)
-        .expect_err("the keeper cannot report a head, so a history is not assembled");
-
-    assert_eq!(fault.operation, "channel_history");
-    let reason = format!("{fault}");
+    let history = KeeperChannels::channel_history(pool.as_ref(), spawned.channel_id)
+        .expect("the keeper reports the history");
+    assert_eq!((history.base_cols, history.base_rows), (80, 24));
     assert!(
-        reason.contains(NO_REPORTED_HEAD),
-        "the refusal names the missing head: {reason}"
-    );
-    assert!(
-        reason.contains(NO_REPORTED_BASE_GEOMETRY),
-        "the refusal names the missing base geometry: {reason}"
-    );
-}
-
-/// THE GATE'S PREMISE, PINNED AS A BUILD FAILURE RATHER THAN A COMMENT.
-///
-/// `runtime::adoption::history_readable` is a build-capability gate that
-/// works by calling `KeeperChannels::channel_history` and expecting a refusal.
-/// That expectation is load-bearing in a way no doc comment can enforce: the
-/// instant this operation grows a real body, the gate stops being a filter
-/// and becomes the thing deciding whether `adopt_survivor` — and therefore
-/// `abandon` and `keeper.kill_channel` — ever runs against a live terminal on
-/// a restart. W-K implements exactly this operation, so W-K is what will flip
-/// it, and this test is what forces the re-review at the moment it matters
-/// rather than leaving it to whoever reads the file in three weeks and
-/// believes the comment.
-///
-/// It cannot live beside the gate itself: `KeeperPool` takes a
-/// `KeeperHandle`, which takes a `KeeperClient`, and `KeeperClient` is only
-/// constructible by connecting to a socket. So the assertion is against a real
-/// keeper, which is also the stronger form — a stub returns the same `Err`
-/// with or without a live PTY behind it, and this says so about the shipped
-/// seam rather than about a type signature.
-#[test]
-fn the_replayability_gate_is_still_a_gate_because_channel_history_is_still_a_stub() {
-    let fixture = KeeperFixture::start();
-    let _serialised = exclusive();
-    let pool = fixture.pool();
-    let (binding, _) = session("gate-premise");
-    let spawned = opened(
-        pool.spawn(
-            channel(1),
-            &sh_spec(&["-c", "sleep 30"], &[]),
-            80,
-            24,
-            Arc::new(binding),
-        ),
-        "the keeper opens a real PTY",
-    );
-
-    let fault = KeeperChannels::channel_history(pool.as_ref(), spawned.channel_id);
-    assert!(
-        fault.is_err(),
-        "`KeeperPool::channel_history` now returns `Ok`. This gate was a \
-         build-capability check on a stub, and from this commit it is the thing \
-         deciding whether an adopted survivor is killed or left running. \
-         Re-review `adopt_survivor` before shipping this, not after."
+        history.records.contains(&HistoryRecord::Resize {
+            seq: 3,
+            cols: 132,
+            rows: 43
+        }),
+        "the marker is retained: {:?}",
+        history.records
     );
 }
 

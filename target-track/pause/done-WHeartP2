@@ -1,0 +1,1 @@
+PAUSED: all drafts wired and compiling; 10 test binaries pass (74 tests) + throwaway RPC smoke passed and was deleted; 18/19 mutations seen failing; unverified: new miss-reset phase in tests/heartbeat.rs (unbuilt), M4 re-run, clippy

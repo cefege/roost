@@ -1,242 +1,204 @@
-//! Loopback sockets before and after an authenticated terminal Hello, and the
-//! grants that authenticate them. Owned by the worker.
-//!
-//! The door is reachable from anything on the machine, so everything here is
-//! about what an unauthenticated peer can hold open. Two rules do the work:
-//! an unauthenticated socket is EXPIRED rather than left to wait, and
-//! replaying a grant REPLACES its prior socket rather than multiplying sinks.
+//! Bounded loopback terminal sockets before and after an authenticated Hello.
+//! This owner expires unauthenticated local sockets, caps live grant bindings,
+//! and makes replaying one grant REPLACE its prior socket rather than multiply
+//! sinks. Called by `local_terminal::sockets` for every loopback port; the peer
+//! carrier has its own negotiation bound. Ports
+//! `apps/worker/src/local-door/local-terminal-prehello.ts`.
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::time::Duration;
 
-/// How long an unauthenticated local socket may wait for its Hello.
-///
-/// Three seconds. Long enough for a browser to send one, short enough that a
-/// peer which opens sockets and says nothing cannot hold them.
-pub const PREHELLO_DEADLINE: Duration = Duration::from_secs(3);
-
-/// How many sockets may be established against this worker at once, whether
-/// waiting for a Hello or already authenticated.
-///
-/// Bounded because the door is local: an unbounded one is a loopback peer
-/// opening sockets until the worker runs out of memory, and the answer must
-/// not require the peer to authenticate first.
-pub const MAX_ESTABLISHED: usize = 32;
-
-/// The identity of a socket for the lifetime of its connection.
-pub type SocketId = u64;
+use roost_protocol::terminal_peer::peer::{
+    TERMINAL_PEER_HELLO_DEADLINE_MS, TERMINAL_PEER_MAX_ESTABLISHED_PER_WORKER,
+};
+use tokio::runtime::Handle;
+use tokio::task::AbortHandle;
 
 /// What authenticating a socket against a grant did.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Authenticated {
-    /// The socket is authenticated and may carry terminal frames.
-    pub socket_id: SocketId,
-    /// The socket this one REPLACED, if any.
-    ///
-    /// Reported rather than silently done, because the caller has to close it.
-    /// A grant replayed on a new connection is the normal case for a device
-    /// that reconnected, and the prior socket is a leak if nobody closes it.
-    pub replaced: Option<SocketId>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthenticatedAdmission {
+    pub admitted: bool,
+    /// The socket this grant was bound to before, which the caller closes.
+    pub replaced_socket_id: Option<String>,
 }
 
-/// Why a socket was not admitted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Refusal {
-    /// Already waiting for a Hello on this socket.
-    AlreadyAdmitted,
-    /// The worker is at its socket ceiling.
-    AtCapacity,
-    /// The grant is expired, or was never issued.
-    UnknownGrant,
-    /// The presented secret does not match the grant's digest.
-    ///
-    /// Reported distinctly from [`Refusal::UnknownGrant`] so a caller can tell a
-    /// stale authorization from a wrong one, and log them differently.
-    BadSecret,
+/// Called with the id of a socket whose Hello deadline passed, from the timer
+/// task and with no lock of this owner held.
+pub type PreHelloTimeout = Arc<dyn Fn(&str) + Send + Sync>;
+
+struct HelloTimer {
+    id: u64,
+    task: AbortHandle,
 }
 
-/// What authenticating a socket did.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Authentication {
-    Authenticated(Authenticated),
-    Refused(Refusal),
+#[derive(Default)]
+struct PreHelloState {
+    timers: HashMap<String, HelloTimer>,
+    authenticated_by_grant: HashMap<String, String>,
+    grant_by_socket: HashMap<String, String>,
+    next_timer: u64,
 }
 
-/// A grant, as the worker holds it.
-///
-/// The secret is a DIGEST. The coordinator installs digests and the worker can
-/// never read the secret back, so a bug in the worker cannot leak a credential
-/// — the process simply does not have it.
-#[derive(Debug, Clone)]
-struct Grant {
-    secret_digest: [u8; 32],
-    expires_at: Instant,
+struct PreHelloShared {
+    on_timeout: PreHelloTimeout,
+    runtime: Handle,
+    state: Mutex<PreHelloState>,
 }
 
-/// Sockets waiting for a Hello, and grants already authenticated.
-#[derive(Debug, Default)]
-pub struct PreHelloOwner {
-    waiting: HashMap<SocketId, Instant>,
-    /// Grant id to the socket currently authenticated by it.
-    authenticated_by_grant: HashMap<String, SocketId>,
-    /// Socket to the grant that authenticated it, so a close can find its grant.
-    grant_by_socket: HashMap<SocketId, String>,
-    grants: HashMap<String, Grant>,
-    next_socket_id: SocketId,
+/// v2 `LocalTerminalPreHelloOwner`. Cheap to clone; clones share one table.
+#[derive(Clone)]
+pub struct LocalTerminalPreHelloOwner {
+    shared: Arc<PreHelloShared>,
 }
 
-impl PreHelloOwner {
-    pub fn new() -> Self {
+impl std::fmt::Debug for LocalTerminalPreHelloOwner {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug = formatter.debug_struct("LocalTerminalPreHelloOwner");
+        if let Ok(state) = self.shared.state.try_lock() {
+            debug
+                .field("waiting", &state.timers.len())
+                .field("authenticated", &state.authenticated_by_grant.len());
+        }
+        debug.finish_non_exhaustive()
+    }
+}
+
+impl LocalTerminalPreHelloOwner {
+    /// Deadline timers run on `runtime`; `on_timeout` closes what expired.
+    pub fn new(on_timeout: PreHelloTimeout, runtime: Handle) -> Self {
+        let shared = PreHelloShared {
+            on_timeout,
+            runtime,
+            state: Mutex::default(),
+        };
         Self {
-            waiting: HashMap::new(),
-            authenticated_by_grant: HashMap::new(),
-            grant_by_socket: HashMap::new(),
-            grants: HashMap::new(),
-            next_socket_id: 1,
+            shared: Arc::new(shared),
         }
     }
 
-    /// Mint a socket id. The owner owns socket identity so that a caller cannot
-    /// present one it invented.
-    pub fn next_socket_id(&mut self) -> SocketId {
-        let id = self.next_socket_id;
-        self.next_socket_id = self.next_socket_id.saturating_add(1);
-        id
-    }
-
-    /// Admit a socket that has connected but not yet authenticated.
-    pub fn admit(&mut self, socket_id: SocketId, now: Instant) -> Result<(), Refusal> {
-        if self.waiting.contains_key(&socket_id) {
-            return Err(Refusal::AlreadyAdmitted);
+    /// Admit an unauthenticated socket and start its Hello deadline, or refuse
+    /// it: already waiting, or the worker already holds its bound of them.
+    pub fn admit(&self, socket_id: &str) -> bool {
+        let mut state = self.lock();
+        if state.timers.contains_key(socket_id)
+            || state.timers.len() >= TERMINAL_PEER_MAX_ESTABLISHED_PER_WORKER
+        {
+            return false;
         }
-        if self.established() >= MAX_ESTABLISHED {
-            return Err(Refusal::AtCapacity);
-        }
-        self.waiting.insert(socket_id, now);
-        Ok(())
-    }
-
-    /// Sockets this worker is holding, waiting or authenticated.
-    pub fn established(&self) -> usize {
-        self.waiting.len() + self.grant_by_socket.len()
-    }
-
-    /// Sockets whose Hello deadline has passed, and drops them from the wait
-    /// set.
-    ///
-    /// The caller closes what this returns. An unauthenticated socket that is
-    /// merely forgotten stays open, and a peer that opens sockets and never
-    /// says anything would then hold them indefinitely.
-    pub fn expire(&mut self, now: Instant) -> Vec<SocketId> {
-        let expired: Vec<SocketId> = self
-            .waiting
-            .iter()
-            .filter(|(_, since)| now.saturating_duration_since(**since) >= PREHELLO_DEADLINE)
-            .map(|(id, _)| *id)
-            .collect();
-        for id in &expired {
-            self.waiting.remove(id);
-        }
-        expired
-    }
-
-    /// Install a grant, replacing any existing one with the same id.
-    pub fn install_grant(
-        &mut self,
-        grant_id: impl Into<String>,
-        secret_digest: [u8; 32],
-        ttl: Duration,
-        now: Instant,
-    ) {
-        self.grants.insert(
-            grant_id.into(),
-            Grant {
-                secret_digest,
-                expires_at: now + ttl,
+        state.next_timer += 1;
+        let id = state.next_timer;
+        let weak = Arc::downgrade(&self.shared);
+        let owned = socket_id.to_owned();
+        let task = self.shared.runtime.spawn(async move {
+            tokio::time::sleep(Duration::from_millis(TERMINAL_PEER_HELLO_DEADLINE_MS)).await;
+            expire(&weak, &owned, id);
+        });
+        state.timers.insert(
+            socket_id.to_owned(),
+            HelloTimer {
+                id,
+                task: task.abort_handle(),
             },
         );
+        true
     }
 
-    /// Authenticate a socket with a grant and a secret.
-    ///
-    /// The secret is hashed and compared; it is never stored, so this function
-    /// cannot leak it and neither can anything that reads this type.
-    pub fn authenticate(
-        &mut self,
-        grant_id: &str,
-        secret: &[u8],
-        socket_id: SocketId,
-        now: Instant,
-    ) -> Authentication {
-        let Some(grant) = self.grants.get(grant_id) else {
-            return Authentication::Refused(Refusal::UnknownGrant);
-        };
-        if now >= grant.expires_at {
-            // ACTIVE expiry: a connected carrier must not outlive its
-            // authorization just because the coordinator is unreachable to
-            // renew it.
-            self.grants.remove(grant_id);
-            return Authentication::Refused(Refusal::UnknownGrant);
+    /// Bind `socket_id` to `grant_id`. A grant already bound to another socket
+    /// is re-pointed and that socket reported for closing; a new grant past the
+    /// authenticated bound is refused.
+    pub fn authenticate(&self, grant_id: &str, socket_id: &str) -> AuthenticatedAdmission {
+        let mut state = self.lock();
+        let previous = state.authenticated_by_grant.get(grant_id).cloned();
+        if previous.is_none()
+            && state.authenticated_by_grant.len() >= TERMINAL_PEER_MAX_ESTABLISHED_PER_WORKER
+        {
+            return AuthenticatedAdmission {
+                admitted: false,
+                replaced_socket_id: None,
+            };
         }
-        if sha256_of(secret) != grant.secret_digest {
-            return Authentication::Refused(Refusal::BadSecret);
-        }
-
-        // Replaying a grant REPLACES its socket. It does not add a second, and
-        // that is the whole point: one grant is one terminal, and a second
-        // socket would be a second sink for the same frames.
-        let replaced = self
+        clear_locked(&mut state, socket_id);
+        state
             .authenticated_by_grant
-            .insert(grant_id.to_string(), socket_id);
-        if let Some(prior) = replaced
-            && prior != socket_id
-        {
-            self.grant_by_socket.remove(&prior);
-        }
-        self.waiting.remove(&socket_id);
-        self.grant_by_socket.insert(socket_id, grant_id.to_string());
-        Authentication::Authenticated(Authenticated {
-            socket_id,
-            replaced: replaced.filter(|prior| *prior != socket_id),
-        })
-    }
-
-    /// Whether this socket is authenticated, and by which grant.
-    pub fn grant_for(&self, socket_id: SocketId) -> Option<&str> {
-        self.grant_by_socket.get(&socket_id).map(String::as_str)
-    }
-
-    /// A socket is gone. Its grant becomes available again, so a reconnecting
-    /// device is not refused for a limit it is no longer occupying.
-    pub fn close(&mut self, socket_id: SocketId) {
-        self.waiting.remove(&socket_id);
-        if let Some(grant_id) = self.grant_by_socket.remove(&socket_id)
-            && self.authenticated_by_grant.get(&grant_id) == Some(&socket_id)
-        {
-            self.authenticated_by_grant.remove(&grant_id);
+            .insert(grant_id.to_owned(), socket_id.to_owned());
+        state
+            .grant_by_socket
+            .insert(socket_id.to_owned(), grant_id.to_owned());
+        AuthenticatedAdmission {
+            admitted: true,
+            replaced_socket_id: previous.filter(|prior| prior != socket_id),
         }
     }
 
-    /// Grants that have expired, dropped. Called on a tick; an expired grant
-    /// nobody presents is still an entry this process is holding.
-    pub fn expire_grants(&mut self, now: Instant) -> usize {
-        let before = self.grants.len();
-        self.grants.retain(|_, grant| now < grant.expires_at);
-        before - self.grants.len()
+    /// Stop a socket's Hello deadline.
+    pub fn clear(&self, socket_id: &str) {
+        clear_locked(&mut self.lock(), socket_id);
+    }
+
+    /// A socket is gone: its deadline stops and its grant binding is released
+    /// when it still holds it.
+    pub fn retire(&self, socket_id: &str) {
+        let mut state = self.lock();
+        clear_locked(&mut state, socket_id);
+        let Some(grant_id) = state.grant_by_socket.remove(socket_id) else {
+            return;
+        };
+        if state
+            .authenticated_by_grant
+            .get(&grant_id)
+            .is_some_and(|bound| bound == socket_id)
+        {
+            state.authenticated_by_grant.remove(&grant_id);
+        }
+    }
+
+    pub fn dispose(&self) {
+        let mut state = self.lock();
+        for (_, timer) in state.timers.drain() {
+            timer.task.abort();
+        }
+        state.authenticated_by_grant.clear();
+        state.grant_by_socket.clear();
+    }
+
+    fn lock(&self) -> MutexGuard<'_, PreHelloState> {
+        self.shared
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
-/// The grant digest. SHA-256, because a grant secret is a bearer credential
-/// and a weak digest would make a stolen digest a usable credential.
-///
-/// Public so a caller can compute the digest to INSTALL, and so a test can check
-/// it against a published value.
-pub fn sha256_of(secret: &[u8]) -> [u8; 32] {
-    // The digest is computed and compared, never stored. Implemented over
-    // `sha2` so this is the real algorithm rather than a stand-in: a stand-in
-    // here would make every test pass and every deployment insecure.
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(secret);
-    hasher.finalize().into()
+fn clear_locked(state: &mut PreHelloState, socket_id: &str) {
+    if let Some(timer) = state.timers.remove(socket_id) {
+        timer.task.abort();
+    }
+}
+
+/// The deadline passed. Only the timer that is still registered fires, so a
+/// `clear` that raced the wake-up wins.
+fn expire(shared: &Weak<PreHelloShared>, socket_id: &str, timer_id: u64) {
+    let Some(shared) = shared.upgrade() else {
+        return;
+    };
+    {
+        let mut state = shared
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if state
+            .timers
+            .get(socket_id)
+            .is_none_or(|timer| timer.id != timer_id)
+        {
+            return;
+        }
+        state.timers.remove(socket_id);
+    }
+    tracing::info!(
+        socket_id,
+        "a local terminal socket reached its hello deadline"
+    );
+    (shared.on_timeout)(socket_id);
 }

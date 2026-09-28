@@ -1,0 +1,5 @@
+- M4 roost-worker peer/history_reservation.rs: `if reserved != 0 { self.base.clone().release(reserved);` -> `if reserved != 0 { let _ = reserved;` => SURVIVED (named guard * stayed green) — open, see handoff
+- M3 roost-worker peer/packet_budget.rs: `for (id, handler) in handlers {` -> `for (id, handler) in handlers.into_iter().take(0) {` => FAILS retires_a_history_holder_instead_of_the_healthy_terminal_sender_under_worker_pressure
+- M6 roost-worker peer/owner_offer.rs: `format!("{}-smoke-mismatch", request.worker_epoch)` -> `request.worker_epoch.clone()` => FAILS every_offer_fault_fires_once_at_its_owner_boundary
+- M7 roost-worker peer/packet_lanes.rs: `if channel != TerminalPeerPacketLane::Control as usize || !binary {` -> `if !binary {` => FAILS refuses_non_control_client_data_before_it_can_reach_a_terminal_ingress
+- M17 roost-worker peer/coordinator_generation.rs: `Some(adopted) => adopted == generation,` -> `Some(_) => true,` => SURVIVED (named guard * stayed green) — open, see handoff

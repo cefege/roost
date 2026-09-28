@@ -14,8 +14,14 @@ pub mod live;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use roost_proto::DAgentPrompt;
+use roost_proto::DKeeperUpdatePrepare;
 use roost_proto::{
-    DInputRequest, DTerminalInputRouteClaim, DTerminalPipelineSnapshotRequest,
+    AttachmentTransferStatus, DAttachmentChunk, DAttachmentDirectStatusRequest,
+    DLocalAttachmentGrant,
+};
+use roost_proto::{
+    DInputRequest, DLocalTerminalGrant, DTerminalInputRouteClaim, DTerminalPipelineSnapshotRequest,
     DTerminalStreamState, DTerminalViewRelay, TerminalInputRouteResult, WTerminalPipelineSnapshot,
 };
 use roost_protocol::wire::brand::{ChannelId, SessionId};
@@ -23,10 +29,14 @@ use roost_protocol::wire::coord_worker::{
     CoordWorkerUpstream, InputResult, TerminalInputStatus, TerminalSnapshotRequest,
     TerminalStreamResult, TerminalStreamStatus, TerminalWritePhase,
 };
+use roost_worker::attachments::upload::RelayChunkOutcome;
 use roost_worker::browser_commands::Command;
+use roost_worker::link_ports::AgentPromptPort;
+use roost_worker::link_ports::AttachmentLinkPort;
+use roost_worker::link_ports::KeeperUpdatePort;
 use roost_worker::link_ports::{
-    DownstreamOwners, LinkLifecyclePort, LinkPipelineState, TerminalInputPort,
-    TerminalPipelinePort, TerminalStreamPort, TerminalViewPort,
+    DownstreamOwners, LinkLifecyclePort, LinkPipelineState, LocalTerminalGrantPort,
+    TerminalInputPort, TerminalPipelinePort, TerminalStreamPort, TerminalViewPort,
 };
 use roost_worker::runtime::downstream::DownstreamLink;
 use roost_worker::uplink::{LinkFence, OwnerFuture, RequestBudget, UplinkReceiver};
@@ -89,7 +99,13 @@ impl Fakes {
             stream: Arc::clone(&fakes) as Arc<dyn TerminalStreamPort>,
             pipeline: Arc::clone(&fakes) as Arc<dyn TerminalPipelinePort>,
             view: Arc::clone(&fakes) as Arc<dyn TerminalViewPort>,
+            local_terminal: Arc::clone(&fakes) as Arc<dyn LocalTerminalGrantPort>,
+            agent_prompt: Arc::clone(&fakes) as Arc<dyn AgentPromptPort>,
+            attachments: Arc::clone(&fakes) as Arc<dyn AttachmentLinkPort>,
+            keeper_update: Arc::clone(&fakes) as Arc<dyn KeeperUpdatePort>,
             lifecycle: fakes as Arc<dyn LinkLifecyclePort>,
+            direct: None,
+            attachment_peers: None,
         }
     }
 
@@ -104,6 +120,49 @@ impl Fakes {
             }
             answer
         })
+    }
+}
+
+impl KeeperUpdatePort for Fakes {
+    fn prepare(
+        &self,
+        request: DKeeperUpdatePrepare,
+    ) -> OwnerFuture<Result<serde_json::Value, String>> {
+        self.log
+            .push(format!("keeper_update.prepare:{}", request.request_id));
+        let answer = if request.maintenance {
+            Ok(serde_json::json!({ "outcome": "shutdown" }))
+        } else {
+            Err("journaled keeper update request is malformed".to_owned())
+        };
+        self.settle(answer)
+    }
+}
+
+impl AgentPromptPort for Fakes {
+    fn write_prompt(
+        &self,
+        request: DAgentPrompt,
+        _: RequestBudget,
+        _: LinkFence,
+    ) -> OwnerFuture<Option<InputResult>> {
+        self.log
+            .push(format!("agent_prompt.write_prompt:{}", request.request_id));
+        // The failure carries the prompt text, so a secrecy test proves the
+        // dispatch never lets an owner's own failure reach a log or a reply.
+        if self.mode == OwnerMode::Panic {
+            let text = request.text;
+            return Box::pin(async move { panic!("{text}") });
+        }
+        self.settle(Some(InputResult {
+            request_id: request.request_id,
+            session_id: SessionId::try_from(request.session_id.as_str()).unwrap(),
+            input_seq: request.input_seq,
+            status: TerminalInputStatus::Accepted,
+            written_bytes: u32::try_from(request.text.len() + 1).unwrap(),
+            reason: String::new(),
+            phase: TerminalWritePhase::Written,
+        }))
     }
 }
 
@@ -282,4 +341,51 @@ pub async fn next_uplink(receiver: &mut UplinkReceiver) -> CoordWorkerUpstream {
         .await
         .expect("an owner answered within the bound")
         .expect("the uplink channel is open")
+}
+
+impl LocalTerminalGrantPort for Fakes {
+    fn install_grant(&self, request: &DLocalTerminalGrant) -> Result<(), String> {
+        self.log
+            .push(format!("local_terminal.install_grant:{}", request.grant_id));
+        if request.grant_id.is_empty() {
+            Err("grant_id is invalid".to_owned())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn revoke_device(&self, device_fingerprint: &str) {
+        self.log
+            .push(format!("local_terminal.revoke_device:{device_fingerprint}"));
+    }
+}
+
+impl AttachmentLinkPort for Fakes {
+    fn accept_relay_chunk(&self, chunk: DAttachmentChunk) -> OwnerFuture<RelayChunkOutcome> {
+        self.log.push(format!(
+            "attachments.accept_relay_chunk:{}",
+            chunk.request_id
+        ));
+        self.settle(RelayChunkOutcome::Progress)
+    }
+
+    fn install_grant(&self, request: &DLocalAttachmentGrant) -> Result<(), String> {
+        self.log
+            .push(format!("attachments.install_grant:{}", request.grant_id));
+        Ok(())
+    }
+
+    fn revoke_device(&self, device_fingerprint: &str) {
+        self.log
+            .push(format!("attachments.revoke_device:{device_fingerprint}"));
+    }
+
+    fn direct_status(&self, request: &DAttachmentDirectStatusRequest) -> AttachmentTransferStatus {
+        self.log
+            .push(format!("attachments.direct_status:{}", request.upload_id));
+        AttachmentTransferStatus {
+            upload_id: request.upload_id.clone(),
+            ..Default::default()
+        }
+    }
 }

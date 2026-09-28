@@ -33,6 +33,9 @@ pub enum StopReason {
     /// end it. `serve` holds the requester for the whole run, so this is a
     /// never-in-production path kept named rather than left as `None`.
     RequesterGone,
+    /// A reconcile pass could not make a session event durable; v2 rethrows
+    /// that to the uncaught handler, so the worker does not run on.
+    DurabilityLost,
 }
 
 impl std::fmt::Display for StopReason {
@@ -43,6 +46,9 @@ impl std::fmt::Display for StopReason {
                 formatter.write_str("the coordinator asked the worker to shut down")
             }
             StopReason::RequesterGone => formatter.write_str("the stop requester went away"),
+            StopReason::DurabilityLost => {
+                formatter.write_str("a session event could not be made durable")
+            }
         }
     }
 }

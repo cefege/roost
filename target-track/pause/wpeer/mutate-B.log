@@ -1,0 +1,5 @@
+M4 peer/history_reservation.rs | self.base.clone().release(reserved);
+M3 peer/packet_budget.rs | for (id, handler) in handlers {
+M6 peer/owner_offer.rs | format!("{}-smoke-mismatch", request.worker_epoch)
+M7 peer/packet_lanes.rs | if channel != TerminalPeerPacketLane::Control as usize || !binary {
+M17 peer/coordinator_generation.rs | Some(adopted) => adopted == generation,

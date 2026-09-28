@@ -1,0 +1,1 @@
+- M9 roost-worker agents/install_mutation.rs: `mutation.installed = true; let installed = fs::symlink_metadata(&mu...` -> `let installed = fs::symlink_metadata(&mutation.target)?;` => FAILS rolls_back_owned_replacements_and_absent_creates_after_a_commit_failure

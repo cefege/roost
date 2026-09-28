@@ -80,11 +80,12 @@ impl KeeperChannels for ScriptedKeeper {
     fn terminal_state(&self, _channel_id: u16) -> Result<TerminalState, KeeperFault> {
         Ok(*self.applied.lock().expect("held"))
     }
-    fn deliver_into(
+    fn reattach_with_history(
         &self,
         _channel_id: u16,
+        _pid: u32,
         binding: Arc<dyn ChannelBinding>,
-    ) -> Result<(), KeeperFault> {
+    ) -> Result<SurvivorHistory, KeeperFault> {
         // The staged bytes go in AFTER the binding is stored and BEFORE this
         // call returns, so they land in a `RecordBinding` still in `Staged`
         // mode — which is the window the adoption is supposed to bridge.
@@ -92,7 +93,7 @@ impl KeeperChannels for ScriptedKeeper {
             binding.on_output(&chunk);
         }
         *self.delivered.lock().expect("held") = Some(binding);
-        Ok(())
+        Ok(self.history.lock().expect("held").clone())
     }
     fn kill_channel(&self, channel_id: u16) -> Result<(), KeeperFault> {
         self.killed.lock().expect("held").push(channel_id);

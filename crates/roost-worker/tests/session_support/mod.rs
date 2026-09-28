@@ -39,6 +39,7 @@ use roost_worker::session::lifecycle::{SessionManager, SessionTable};
 use roost_worker::session::resume::AdoptionRequest;
 use roost_worker::session::ring::ScrollbackRing;
 use roost_worker::session::sinks::SessionEventSink;
+use roost_worker::session::spawn::ShellSpawner;
 use roost_worker::session::types::{SessionIdentity, SessionRecord};
 use roost_worker::shell_spec::{SHELL_SPEC_VERSION, ShellSpec};
 use roost_worker::terminal_core_capacity::{
@@ -101,6 +102,19 @@ impl Harness {
     /// The manager over a deterministic core admission: `terminal_core_cap`
     /// bounds a ceiling roomy enough for the hard maximum.
     pub fn with_capacity(keeper: Arc<ScriptedKeeper>, terminal_core_cap: Option<u32>) -> Self {
+        Self::build(keeper, terminal_core_cap, Arc::new(NeverSpawns))
+    }
+
+    /// A manager whose PTY opens go to `spawner` (the creation-gate tests hold one).
+    pub fn with_spawner(spawner: Arc<dyn ShellSpawner>) -> Self {
+        Self::build(Arc::new(ScriptedKeeper::default()), None, spawner)
+    }
+
+    fn build(
+        keeper: Arc<ScriptedKeeper>,
+        terminal_core_cap: Option<u32>,
+        spawner: Arc<dyn ShellSpawner>,
+    ) -> Self {
         let table = Arc::new(SessionTable::default());
         let sink = Arc::new(RecordingSink::default());
         let delivery = Arc::new(RecordingDelivery::default());
@@ -118,7 +132,7 @@ impl Harness {
             Arc::clone(&cells) as Arc<Mutex<dyn CellDelivery>>,
             shared_delivery(&delivery),
             Arc::new(PinnedClock),
-            Arc::new(NeverSpawns),
+            spawner,
             Arc::new(FixedResolver {
                 spec: shell_spec("/home/user/project"),
             }),
@@ -176,20 +190,12 @@ impl Harness {
             channel_id: channel(channel_id as i64),
             folder: folder.to_string(),
             shell_spec: shell_spec("/home/user/project"),
-            session_trace_id: trace(),
-            // A coordinator-minted stream id, which is a UUID by admission
-            // (`roost_protocol::viewport::is_terminal_uuid`) — a stream id that
-            // is not one is a coordinator that never minted it.
-            stream_id: "00000000-0000-4000-8000-0000000000a1".to_string(),
             close_reservation: self
                 .sink
                 .reserve(DurableEventKind::Closed)
                 .now_or_never()
                 .expect("a reserve against the in-memory fake is ready at once")
                 .expect("a fresh store has room"),
-            socket_path: "mux:1".to_string(),
-            now_ms: NOW,
-            mono_ms: 5_000,
         }
     }
 }
