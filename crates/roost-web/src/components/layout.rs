@@ -1,23 +1,27 @@
-//! The workbench chrome: the grid every path is drawn inside, and the six pieces
-//! that fill it. Ported from `apps/web/src/components/layout/AppShell.tsx` and
-//! the `Workbench*` components beside it.
+//! The workbench chrome: the grid every in-shell path is drawn inside, and the
+//! pieces that fill it. Ports `apps/web/src/components/layout/*` (AppShell,
+//! WorkbenchTitleBar, WorkbenchActivityBar, SidebarResizer, WorkbenchStatusBar,
+//! MobileTopBar, MobileSidebarDrawer) and the reactive half of
+//! `apps/web/src/browser/windowSizeClass.ts`.
 //!
-//! The chrome is STRUCTURAL. It owns the grid, the sidebar region's width, the
-//! compact/desktop split and the status readouts; it does not own a session list,
-//! a terminal, or a settings pane, and nothing here reaches for one. The route
-//! content arrives as this module's `children`, in the editor slot.
-//!
-//! `shell_metrics` holds every decision; the components here turn a decision into
-//! class names and attributes that `assets/styles/workbench-shell.css` already
-//! draws. No inline colour, no raw size, and no geometry decided in a component
-//! that a test cannot reach.
+//! The chrome is STRUCTURAL: it owns the grid, the sidebar region's width, the
+//! compact/desktop split and the status readouts; the route content arrives as
+//! `AppShell`'s children. `shell_metrics` and `shell_style` hold the decisions;
+//! `assets/styles/workbench-shell.css` draws them.
 
 pub mod activity_bar;
 pub mod app_shell;
+#[cfg(target_arch = "wasm32")]
+mod app_shell_dom;
+pub mod drawer_gesture;
 pub mod mobile_bar;
+pub mod mobile_sidebar_drawer;
 pub mod shell_metrics;
+pub mod shell_style;
 pub mod sidebar_region;
+pub mod sidebar_resizer;
 pub mod status_bar;
 pub mod title_bar;
+pub mod window_size;
 
 pub use app_shell::AppShell;

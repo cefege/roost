@@ -1,8 +1,8 @@
 //! The URL grammar: what path means what, and nothing that renders. Owned by
-//! the track lead and depended on by the router, by every component that links,
-//! and by the Playwright specs, which navigate by these exact strings. The
-//! grammar is decided here so a component never re-derives "is this a terminal
-//! link or a file link" from the shape of a path.
+//! the SHELL slice (the one route authority) and depended on by the router, by
+//! every component that links, and by the Playwright specs, which navigate by
+//! these exact strings. Ports `apps/web/src/routes.ts`, including its concrete
+//! href builders, the only sanctioned way to link to a parameterized route.
 //!
 //! The patterns are the route table the plan fixes — `/`, `/s/:sessionId`,
 //! `/t/:workerFp/*folderPath`, the legacy `/w/:workspaceId` and
@@ -25,7 +25,9 @@ pub enum Route {
     Terminal {
         /// The worker that owns the PTY.
         worker_fp: String,
-        /// The folder, as `/`-separated segments with no leading slash.
+        /// The folder's ROUTE splat, still route-encoded (no leading slash; a
+        /// Windows root is tagged `~drive/`/`~unc/`). Decode it with
+        /// `terminal_href::decode_folder_path`, which knows the worker's platform.
         folder_path: String,
     },
     /// `/w/:workspaceId` and `/w/:workspaceId/t/:channelId` — the legacy
@@ -127,7 +129,7 @@ impl Route {
             Some("t") => match (decoded.get(1), decoded.get(2)) {
                 (Some(worker_fp), Some(_)) => Route::Terminal {
                     worker_fp: worker_fp.clone(),
-                    folder_path: decoded[2..].join("/"),
+                    folder_path: segments[2..].join("/"),
                 },
                 _ => Route::Unknown {
                     path: path.to_string(),
@@ -208,6 +210,30 @@ impl Route {
             Self::Unknown { path } => path.clone(),
         }
     }
+}
+
+/// `/s/:sessionId` for one session.
+pub fn session_href(session_id: &str) -> String {
+    Route::Session {
+        session_id: session_id.to_owned(),
+    }
+    .to_path()
+}
+
+/// `/browse/:workerFp` for one machine.
+pub fn browse_href(worker_fp: &str) -> String {
+    Route::Browse {
+        worker_fp: Some(worker_fp.to_owned()),
+    }
+    .to_path()
+}
+
+/// `/settings/:pane` for one settings pane.
+pub fn settings_pane_href(pane: &str) -> String {
+    Route::Settings {
+        pane: Some(pane.to_owned()),
+    }
+    .to_path()
 }
 
 /// Percent-decode one path segment, leaving a malformed escape as it was.
