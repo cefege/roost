@@ -365,12 +365,14 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     // 9. Survivors. `advance_past_keeper` moved the id counter; this is the
     //    other half, and it is a DIFFERENT question: a channel the keeper still
     //    holds is a PTY this worker did not spawn, and adopting it rebuilds a
-    //    record around a live terminal. The admission is `adopt_survivor`'s own
-    //    — it refuses, it does not guess — and a refusal there is counted and
-    //    logged by `runtime::adoption` rather than propagated, because that
-    //    design is explicit that the survivor is killed and the session must be
-    //    respawned. Propagating would abort a boot over one unreplayable
-    //    terminal and take every other survivor with it.
+    //    record around a live terminal.
+    //    `runtime::adoption` asks the keeper FIRST whether it can describe that
+    //    terminal at all, and declines the ones it cannot — leaving them
+    //    running rather than offering them to an adoption that would reattach
+    //    their output behind a record it cannot build. A refusal there is
+    //    counted and logged, never propagated: propagating would abort a boot
+    //    over one undescribable terminal and take every other survivor and the
+    //    worker's link down with it.
     let adopted = super::adoption::adopt_survivors(
         &stack,
         &survivors,
