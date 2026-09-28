@@ -1917,6 +1917,27 @@ it is the one failure mode a pass/fail/skip summary cannot show.
 
 ### Gate results
 
+**S3.0 WORKSPACE GATE — GREEN at `78d5dc24`, 2026-09-28.** Tree: `v3` after
+merging `v3-worker@cceaf15a`, `v3-coord@f3a717a6`, `v3-web@10822254` (zero
+conflicts; checked first with `git merge-tree --write-tree`) plus `78d5dc24`,
+which fixed the two guards the merged tree failed (`v3_install_identity` and
+`join_script`, both inherited from `v3`, both seen red first). Target
+`target-gate`, `CARGO_BUILD_JOBS=8`, host `~/.cargo/config.toml` debug
+settings (dev/test line tables, no dependency debuginfo, compressed sections).
+
+|criterion|result|
+|---|---|
+|`cargo xtask fmt`|exit 0; `git status --short` empty|
+|`ROOST_REPO_ROOT=$PWD cargo xtask lint`|**0 violations, 2863 inputs**|
+|`cargo clippy --workspace --all-targets -- -D warnings`|exit 0|
+|`cargo test --workspace --no-fail-fast` run 1|395 binaries, **2950 passed / 0 failed / 15 ignored**|
+|`cargo test --workspace --no-fail-fast` run 2|395 binaries, **2950 passed / 0 failed / 15 ignored**|
+
+The 15 ignored: the three `#[ignore = "U-CARRIER: …"]`/`"U-ATTACH: …"` tests
+in `roost-client-core` plus 12 `ignore`-fenced doc-test blocks in `roost_proto`; `grep -rn
+'#\[ignore' crates` finds exactly three attributes, all in the named form.
+`roost-coord` has none. The NOT GREEN record below is kept as history.
+
 **S3.0 WORKSPACE GATE — NOT GREEN. Two of four criteria met. 2026-09-28.**
 First run of this gate on a merged tree; it had never been run since the CLI
 merge, and the gate script had refused four times for want of a quiet machine.
