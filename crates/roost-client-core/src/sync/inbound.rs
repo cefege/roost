@@ -186,3 +186,85 @@ impl SyncFrame {
         }
     }
 }
+
+/// The `FirehoseFrame` arms this build KNOWINGLY folds into
+/// [`SyncFrame::Unknown`], with the proto field each arrives on.
+///
+/// **These are not dead proto.** Every one of them is constructed by
+/// `roost-coord` — `grep -rhoE 'Frame::[A-Za-z]+' crates/roost-coord/src/` names
+/// all fourteen — so folding them is not a hedge against a hypothetical future
+/// arm. It is fourteen arms the coordinator demonstrably sends that this build
+/// would SEQUENCE, ACKNOWLEDGE, and APPLY NOTHING, which is the
+/// `AgentStatus` failure recorded at `inbound.rs:111-118` repeated fourteen
+/// times and, unlike that one, invisible in the count.
+///
+/// Folding is correct for a first slice and wrong for a finished client. This
+/// constant is the record of which fourteen, so that a reader can diff it
+/// against `protocol/proto/roost/v1/sync.proto` and disagree in one place
+/// rather than reverse-engineering fourteen folds out of a `match`.
+///
+/// A decoder that grows a variant for one of these MUST delete its row here, so
+/// the list and the mapping cannot drift apart.
+pub const KNOWINGLY_UNMAPPED_ARMS: &[(u32, &str)] = &[
+    (10, "audit_row"),
+    (12, "workspace_delta"),
+    (13, "task_delta"),
+    (16, "mcp_msg"),
+    (17, "worker_presence"),
+    (19, "worker_routable"),
+    (21, "terminal_title"),
+    (22, "last_activity"),
+    (23, "pair_request_delta"),
+    (24, "ui_state"),
+    (25, "ui_command"),
+    (27, "coordinator_relocation"),
+    (49, "input_route_result"),
+    (50, "terminal_transport_probe_result"),
+];
+
+/// Whether `field` is one this build folds on purpose rather than by omission.
+#[must_use]
+pub fn is_knownly_unmapped(field: u32) -> bool {
+    KNOWINGLY_UNMAPPED_ARMS
+        .iter()
+        .any(|(number, _)| *number == field)
+}
+
+#[cfg(test)]
+mod knowingly_unmapped_tests {
+    use super::{KNOWINGLY_UNMAPPED_ARMS, SyncFrame, is_knownly_unmapped};
+
+    #[test]
+    fn the_list_is_the_fourteen_arms_the_coordinator_really_sends() {
+        assert_eq!(
+            KNOWINGLY_UNMAPPED_ARMS.len(),
+            14,
+            "a reader budgeting this build needs the count, and a decoder that \
+             grows a variant for one of them must delete its row"
+        );
+        // Field numbers are unique: a duplicate would silently make one arm
+        // unreachable behind another.
+        let mut numbers: Vec<u32> = KNOWINGLY_UNMAPPED_ARMS.iter().map(|(n, _)| *n).collect();
+        numbers.sort_unstable();
+        numbers.dedup();
+        assert_eq!(numbers.len(), KNOWINGLY_UNMAPPED_ARMS.len());
+        for (field, name) in KNOWINGLY_UNMAPPED_ARMS {
+            assert!(
+                is_knownly_unmapped(*field),
+                "{name} is listed, so the lookup must find it"
+            );
+        }
+        assert!(!is_knownly_unmapped(20), "cell_grid is MAPPED");
+        assert!(!is_knownly_unmapped(29), "agent_status is MAPPED");
+        assert!(!is_knownly_unmapped(40), "subscribed is MAPPED");
+    }
+
+    #[test]
+    fn an_unmapped_arm_still_names_itself_rather_than_being_dropped() {
+        // The obligation `Unknown` exists to carry: the frame is still sequenced,
+        // so it still has to be acknowledged or the window stops releasing.
+        let folded = SyncFrame::Unknown { field: 24 };
+        assert_eq!(folded, SyncFrame::Unknown { field: 24 });
+        assert!(is_knownly_unmapped(24));
+    }
+}
