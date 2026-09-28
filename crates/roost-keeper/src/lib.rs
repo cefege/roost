@@ -16,6 +16,7 @@ pub mod client_resize;
 pub mod codec;
 pub mod frames;
 pub mod history;
+pub mod input_queue;
 pub mod keeper;
 pub mod keeper_ops;
 pub mod output_ring;

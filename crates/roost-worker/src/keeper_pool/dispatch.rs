@@ -1,5 +1,6 @@
-//! What the keeper sends that is not an answer to a request: PTY bytes and
-//! exits, delivered to the session each belongs to. `pool::KeeperPool` starts
+//! What the keeper sends that is not an answer to a blocking request: PTY bytes
+//! and exits, delivered to the session each belongs to, and acknowledged-input
+//! results, settled into `input_command`'s waiters. `pool::KeeperPool` starts
 //! the loop in its constructor; nothing else drives it. Depends on the pool and
 //! the keeper's frame types — nothing here.
 //!
@@ -8,12 +9,14 @@
 //! second one would steal a reply from the request that is blocked on it, and a
 //! request that loses its reply looks precisely like a wedged keeper.
 //!
-//! A REQUEST'S ANSWER IS NEVER DISPATCHED. A frame that answers a request is
+//! A BLOCKING REQUEST'S ANSWER IS NEVER DISPATCHED. A frame that answers one is
 //! consumed inside the call, while the connection handle is held, and the
-//! dispatcher cannot run at the same time. So every answer seen here belongs to
-//! a request that already returned — a late reply to a call that timed out — and
-//! it is reported rather than dropped silently, because "the keeper answered a
-//! request nobody is waiting for" is the first sign of a sequence bug.
+//! dispatcher cannot run at the same time. So every such answer seen here
+//! belongs to a request that already returned — a late reply to a call that
+//! timed out — and it is reported rather than dropped silently, because "the
+//! keeper answered a request nobody is waiting for" is the first sign of a
+//! sequence bug. Acknowledged input is the one request that does not block: its
+//! waiter is registered under the handle, before the dispatcher can see its answer.
 
 use std::sync::Weak;
 use std::time::Duration;
@@ -90,6 +93,12 @@ impl KeeperPool {
                     }
                 };
                 self.end_channel(frame.channel_id, exit_code);
+            }
+            // An acknowledged batch's answer. It arrives here rather than inside
+            // a request because the writer released the connection once the
+            // batch was on the socket; its waiter was registered before that.
+            MuxFrameType::PtyInAck | MuxFrameType::PtyInReject | MuxFrameType::PtyInAmbiguous => {
+                self.pending_inputs.settle_frame(&frame);
             }
             other => tracing::debug!(
                 channel_id = frame.channel_id,

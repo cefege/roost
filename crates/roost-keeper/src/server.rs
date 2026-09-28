@@ -7,12 +7,14 @@
 //! after: a listener that exists for a moment with default permissions is a
 //! window, and a window on a PTY control socket is a shell.
 
-use std::io::{Read, Write};
+use std::io::Read;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::codec::{CodecError, FrameDecoder, MuxFrame, StreamEvent};
+use crate::input_queue::ConnectionWriter;
 use crate::keeper::Keeper;
 
 /// The longest a single read waits before the loop re-checks its stop flag.
@@ -269,10 +271,22 @@ impl Server {
         ConnectionEnd::UnframeablePayload
     }
 
-    /// Serve a single connection to completion, reporting why it ended.
-    pub fn serve_one(&mut self, mut stream: UnixStream) -> ConnectionEnd {
+    /// Serve a single connection to completion, reporting why it ended. Its one writer is
+    /// shared with every input lane; detaching drops what the departed connection left unstarted.
+    pub fn serve_one(&mut self, stream: UnixStream) -> ConnectionEnd {
         let _ = stream.set_read_timeout(Some(READ_POLL));
         let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(5)));
+        let Ok(writer) = ConnectionWriter::for_stream(&stream).map(Arc::new) else {
+            return ConnectionEnd::WorkerUnreachable;
+        };
+        let sink: Arc<ConnectionWriter> = Arc::clone(&writer);
+        self.keeper.attach_input_results(sink);
+        let end = self.serve_frames(stream, &writer);
+        self.keeper.detach_input_results();
+        end
+    }
+
+    fn serve_frames(&mut self, mut stream: UnixStream, writer: &ConnectionWriter) -> ConnectionEnd {
         let mut decoder = FrameDecoder::new();
         let mut buffer = vec![0u8; READ_BUFFER_BYTES];
         let mut stopping = false;
@@ -284,14 +298,14 @@ impl Server {
                 Ok(output) => output,
                 Err(err) => return Self::unframeable(err),
             };
-            if write_frames(&mut stream, &output).is_err() {
+            if writer.write_frames(&output).is_err() {
                 return ConnectionEnd::WorkerUnreachable;
             }
             for exit in match self.keeper.reap_exited() {
                 Ok(exits) => exits,
                 Err(err) => return Self::unframeable(err),
             } {
-                if write_frames(&mut stream, &[exit]).is_err() {
+                if writer.write_frames(&[exit]).is_err() {
                     return ConnectionEnd::WorkerUnreachable;
                 }
             }
@@ -332,7 +346,7 @@ impl Server {
                             payload,
                         };
                         let replies = self.keeper.handle(&frame);
-                        if write_frames(&mut stream, &replies).is_err() {
+                        if writer.write_frames(&replies).is_err() {
                             return ConnectionEnd::WorkerUnreachable;
                         }
                         match frame.frame_type {
@@ -383,11 +397,4 @@ pub fn should_stop(keeper: &Keeper, shutdown: Shutdown) -> bool {
         Shutdown::StopPreserving => true,
         Shutdown::StopIfEmpty => keeper.is_empty(),
     }
-}
-
-fn write_frames(stream: &mut UnixStream, frames: &[MuxFrame]) -> Result<(), std::io::Error> {
-    for frame in frames {
-        stream.write_all(&frame.encode())?;
-    }
-    stream.flush()
 }

@@ -8,11 +8,10 @@
 //! module needs no raw descriptors of its own. The crate keeps its `unsafe`
 //! allowance for the socket, not for the terminal.
 
-use std::io::Write;
-
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize};
 
 use crate::frames::ShellSpec;
+use crate::input_queue::{InputLane, InputReply};
 use crate::output_ring::{OutputRing, spawn_reader};
 use crate::payloads::{PtyInRejectReason, TerminalState};
 
@@ -55,7 +54,8 @@ pub struct PtyChannel {
     channel_id: u16,
     master: Box<dyn MasterPty + Send>,
     output: OutputRing,
-    writer: Box<dyn Write + Send>,
+    /// The channel's input FIFO; its thread owns the PTY's write half.
+    input: InputLane,
     child: Box<dyn Child + Send + Sync>,
     /// The last resize sequence the keeper actually applied. Zero means none,
     /// so the first applied sequence is 1 and a client can tell "no resize yet"
@@ -165,6 +165,8 @@ impl PtyChannel {
             .master
             .take_writer()
             .map_err(|err| SpawnError::Pty(err.to_string()))?;
+        let input =
+            InputLane::start(channel_id, writer).map_err(|err| SpawnError::Pty(err.to_string()))?;
         let (output, reader_thread) =
             spawn_reader(channel_id, reader).map_err(|err| SpawnError::Pty(err.to_string()))?;
 
@@ -172,7 +174,7 @@ impl PtyChannel {
             channel_id,
             master: pair.master,
             output,
-            writer,
+            input,
             child,
             applied_seq: 0,
             cols,
@@ -240,44 +242,24 @@ impl PtyChannel {
         }
     }
 
-    /// Write input, reporting exactly how much reached the PTY.
+    /// Queue input behind every earlier batch on this channel.
     ///
-    /// A short write is reported as `Partial` rather than being completed
-    /// here, because the bytes that DID land are indistinguishable from the
-    /// ones still queued. Silently completing the write would duplicate them
-    /// at the far end.
-    pub fn write_input(&mut self, bytes: &[u8]) -> WriteOutcome {
-        if bytes.is_empty() {
-            return WriteOutcome::Complete { written: 0 };
-        }
+    /// The refusal is decided here, before anything is written, which is what
+    /// makes it the one answer a client may retry: an exited child and a spent
+    /// budget both prove nothing reached the PTY. An accepted batch is written
+    /// by the lane's thread, and an acknowledged one answers from there.
+    pub fn enqueue_input(
+        &mut self,
+        bytes: Vec<u8>,
+        reply: InputReply,
+    ) -> Result<(), PtyInRejectReason> {
         if self.exited().is_some() {
-            return WriteOutcome::Rejected {
-                reason: PtyInRejectReason::ChildExited,
-            };
+            return Err(PtyInRejectReason::ChildExited);
         }
-        match self.writer.write(bytes) {
-            Ok(written) if written == bytes.len() => {
-                // A buffered writer that accepted bytes is not proof they
-                // reached the child, so the flush is checked and its failure
-                // reported rather than swallowed.
-                match self.writer.flush() {
-                    Ok(()) => WriteOutcome::Complete {
-                        written: written as u32,
-                    },
-                    Err(_) => WriteOutcome::Partial {
-                        written: written as u32,
-                        reason: PtyInRejectReason::PartialWrite,
-                    },
-                }
-            }
-            Ok(written) => WriteOutcome::Partial {
-                written: written as u32,
-                reason: PtyInRejectReason::PartialWrite,
-            },
-            Err(_) => WriteOutcome::Rejected {
-                reason: PtyInRejectReason::NoReader,
-            },
+        if !self.input.enqueue(bytes, reply) {
+            return Err(PtyInRejectReason::QueueFull);
         }
+        Ok(())
     }
 
     /// Take whatever output is available, up to `limit` bytes.
@@ -297,9 +279,14 @@ impl PtyChannel {
         self.output.is_eof()
     }
 
-    /// The child's exit status, or `None` while it is still running.
+    /// The child's exit status, or `None` while it is still running. An exit
+    /// seen here also closes the input lane to every batch not yet written.
     pub fn exited(&mut self) -> Option<portable_pty::ExitStatus> {
-        self.child.try_wait().ok().flatten()
+        let status = self.child.try_wait().ok().flatten();
+        if status.is_some() {
+            self.input.mark_exited();
+        }
+        status
     }
 
     /// Terminate the child. Used by `KillChild` and by shutdown.

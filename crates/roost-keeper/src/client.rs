@@ -212,24 +212,27 @@ impl KeeperClient {
         self.write(&frame)
     }
 
-    /// Write input and wait for the keeper to say how much it wrote.
-    pub fn write_input_sequenced(
+    /// Put one sequenced input request on the socket, and return as soon as it
+    /// is there.
+    ///
+    /// The answer arrives later as a `PtyInAck`, `PtyInReject` or
+    /// `PtyInAmbiguous` event naming `input_seq`, which the caller correlates.
+    /// Waiting here instead would hold the connection for as long as a PTY takes
+    /// to accept the batch, and a child that stopped reading would stall every
+    /// other channel behind it. `Ok` is the proof the request was written.
+    pub fn send_input_request(
         &self,
         channel_id: u16,
         input_seq: u64,
         bytes: &[u8],
-    ) -> Result<crate::payloads::PtyInResult, ClientError> {
+    ) -> Result<(), ClientError> {
         let request = PtyInRequest {
             input_seq,
             bytes: bytes.to_vec(),
         };
-        let payload = request.encode();
-        let frame = MuxFrame::new(MuxFrameType::PtyInRequest, channel_id, payload.clone())
+        let frame = MuxFrame::new(MuxFrameType::PtyInRequest, channel_id, request.encode())
             .map_err(|err| ClientError::Io(err.to_string()))?;
-        self.write(&frame)?;
-        let reply = self.wait_for_any_input_result(channel_id, Duration::from_secs(10))?;
-        crate::payloads::PtyInResult::decode(reply.frame_type, &reply.payload)
-            .ok_or_else(|| ClientError::Io("the input result did not decode".into()))
+        self.write(&frame)
     }
 
     /// Write one frame to the socket, whole or not at all.

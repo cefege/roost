@@ -9,11 +9,13 @@
 //! The contract is `protocol/spec/keeper.md`.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::channel_history::ChannelHistory;
 use crate::codec::{CodecError, MuxFrame, MuxFrameType, write_sequence};
 use crate::frames::ExitFrame;
 use crate::history::HistoryRecords;
+use crate::input_queue::{InputResultSink, InputRoute};
 use crate::payloads::{
     KEEPER_PROTOCOL_VERSION, KeeperContractV1, KeeperFeature, PtyInRejectReason, PtyInResult,
 };
@@ -66,6 +68,9 @@ pub struct Keeper {
     /// The contract reported at `Hello`, computed once because digesting the
     /// binary on every handshake would be a denial-of-service vector.
     pub(crate) contract: KeeperContractV1,
+    /// The connection acknowledged input answers on; every channel's lane
+    /// writes its result frames through it.
+    pub(crate) input_route: Arc<InputRoute>,
 }
 
 /// One channel: its PTY, its retained history, and the sequence the keeper
@@ -134,6 +139,7 @@ impl Keeper {
         Self {
             channels: HashMap::new(),
             contract: self::contract(),
+            input_route: Arc::new(InputRoute::default()),
         }
     }
 
@@ -343,5 +349,17 @@ impl Keeper {
     pub fn legacy_history(&self, channel_id: u16) -> Option<(u64, HistoryRecords)> {
         let channel = self.channels.get(&channel_id)?;
         Some((channel.history.head_seq(), channel.history.records()))
+    }
+
+    /// Send acknowledged-input results to this connection from now on. The
+    /// server attaches its connection writer before serving a frame.
+    pub fn attach_input_results(&mut self, sink: Arc<dyn InputResultSink>) -> u64 {
+        self.input_route.attach(sink)
+    }
+
+    /// The connection ended: batches it queued and no lane has started are
+    /// dropped rather than written, and nothing is answered to it any more.
+    pub fn detach_input_results(&mut self) {
+        self.input_route.detach();
     }
 }
