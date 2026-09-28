@@ -69,8 +69,6 @@ pub enum Withheld {
     Gate,
     /// A full is parked as a cursor for at least one sink.
     SnapshotPending,
-    /// An active sink holds no complete baseline yet.
-    BaselineOwed,
     /// The emitter could not build a frame from this core.
     Unbuildable(String),
 }
@@ -172,7 +170,8 @@ impl CellEmitter {
 
     /// Emit one frame for this channel. `force` is the caller's claim that
     /// every receiver must be given a complete grid. Deltas flow only after
-    /// EVERY active sink holds a baseline.
+    /// EVERY active sink holds a baseline; until then this emit builds the full
+    /// that is owed, forced or not.
     pub fn emit_cell_frame(
         &mut self,
         record: &mut SessionRecord,
@@ -204,13 +203,16 @@ impl CellEmitter {
             }
             return FrameOutcome::Withheld(Withheld::SnapshotPending);
         }
-        if !force && !aggregate.baseline_ready {
-            self.mark_stream_delivery_dirty(channel_id);
-            self.note_dirty(channel_id);
-            self.note_gate_suppression(channel_id, now_ms);
-            return FrameOutcome::Withheld(Withheld::BaselineOwed);
-        }
-        let full_owed = force || !record.cell_emit.sent_full || stream.pending_sync_snapshot;
+        // An active sink with no baseline is owed a full, and this emit builds
+        // it. v2 builds that full inside the register or resume that created
+        // the debt (`session-cell-sinks.ts:90-100,258-269`); this emitter holds
+        // no record there, so the debt waits for the next emit, and withholding
+        // here would leave it with nothing to pay it — every delta blocked
+        // behind one sink that was never sent a baseline.
+        let full_owed = force
+            || !aggregate.baseline_ready
+            || !record.cell_emit.sent_full
+            || stream.pending_sync_snapshot;
         let built = match self.build_frame(record, full_owed, now_ms) {
             Ok(built) => built,
             Err(reason) => {
@@ -269,6 +271,11 @@ impl CellEmitter {
             };
         }
         let fanout = self.sinks.send_frame_to_active(channel_id, &frame, timings);
+        for sink_id in &fanout.overflowed {
+            // The registry already dropped it; a record left behind would keep a
+            // gone sink's cursor parked in every later drain.
+            self.forget_sink_records(sink_id);
+        }
         if fanout.accepted == 0 {
             // Nobody took this sequence, so the repair full re-uses it and the
             // receiver's sequence space stays contiguous. The emit state must

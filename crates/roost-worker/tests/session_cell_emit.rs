@@ -157,26 +157,46 @@ fn a_delta_past_the_row_cap_becomes_a_viewport_only_full() {
 /// had lost one. It is rebuilt as a full, which does.
 #[test]
 fn a_delta_too_large_for_one_part_is_escalated_to_a_full() {
-    const COLS: u16 = 3000;
-    const ROWS: u16 = 60;
+    // The widest grid the protocol admits (`TERMINAL_MAX_COLS`, v2's
+    // `packages/protocol/src/viewport.ts:6`). This test once used 3000 columns,
+    // which no frame may describe, so its baseline never installed and the
+    // "escalation" it asserted was a withheld frame.
+    const COLS: u16 = 256;
+    const ROWS: u16 = 40;
     let fixture = RecordFixture::new();
     let mut record = fixture.record(channel(4), COLS, ROWS);
     let sink = RecordingSink::new("coord", Answer::Sent);
     let mut emitter = CellEmitter::new();
     emitter.register_sink(sink.clone());
     emitter.install_stream(&mut record, &stream_id(4));
-    emitter.emit_cell_frame(&mut record, true, 1_000);
+    let baseline = emitter.emit_cell_frame(&mut record, true, 1_000);
+    assert!(
+        matches!(
+            baseline,
+            FrameOutcome::Full {
+                installed: true,
+                ..
+            }
+        ),
+        "the baseline must install, or no delta is ever built, got {baseline:?}"
+    );
 
-    // One styled cell per column: a span per cell is what pushes a delta past
-    // the 1 MiB part limit, which a plain run of text never would.
-    let mut styled = String::new();
+    // One hyperlink run per cell, alternating two link ids: a span per cell
+    // that each carries its URI is what pushes a delta past the 1 MiB part
+    // limit at a legal width, as v2's `DenseLinkedCore` does
+    // (`apps/worker/tests/terminal/terminal-stream-state-harness.ts:227-262`).
+    // A span per colour change cannot: 256 columns of styled cells stay far
+    // under the limit.
+    let uri = format!("https://chunk.test/{}", "x".repeat(160));
+    let mut dense = String::new();
     for row in 0..ROWS {
+        dense.push_str(&format!("\x1b[{};1H", row + 1));
         for col in 0..COLS {
-            styled.push_str(&format!("\x1b[38;5;{}mX", (row + col) % 256));
+            let id = if col % 2 == 0 { "dense-a" } else { "dense-b" };
+            dense.push_str(&format!("\x1b]8;id={id};{uri}\x1b\\X"));
         }
-        styled.push_str("\r\n");
     }
-    emitter.ingest_pty_chunk(&mut record, styled.as_bytes(), 1_010);
+    emitter.ingest_pty_chunk(&mut record, dense.as_bytes(), 1_010);
     let escalated = emitter.emit_cell_frame(&mut record, false, 1_020);
     assert!(
         matches!(

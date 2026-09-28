@@ -27,10 +27,44 @@ use roost_term::{CellEmitState, scrollback_origin};
 use tracing::warn;
 
 use super::cell_sink::{
-    CellSink, FrameTimings, SnapshotCursor, StreamDeliveryAggregate, aggregate_stream_delivery,
+    CellSink, FrameTimings, StreamDeliveryAggregate, aggregate_stream_delivery,
 };
 use super::emit::CellEmitter;
 use super::ids::{MintError, mint_uuid};
+
+/// One part of a parked full, in the shape the sink method that takes it wants.
+///
+/// A full that fits one part is handed WHOLE to [`CellSink::send_frame`], as
+/// v2's `sendCellPartToSink` hands a `frame` part to `sendFrame`
+/// (`apps/worker/src/session/session-cell-sinks.ts:220-222`); only a chunk of a
+/// full too large for one part reaches [`CellSink::send_snapshot_part`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParkedPart {
+    Whole(CellGridFrame),
+    /// Always the protocol's `Chunk` arm. It is kept in the enum the sink takes
+    /// so a send borrows it instead of rebuilding it for every sink.
+    Chunk(CellGridSnapshotPart),
+}
+
+/// One parked immutable full, drained part by part for one sink alone.
+///
+/// The parts are an `Arc`: validation and chunking run ONCE per full and every
+/// sink walks the same immutable plan, so only each sink's position in it is
+/// private. A deep copy per sink would be the whole frame, per browser.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SnapshotCursor {
+    pub stream_id: String,
+    pub snapshot_id: String,
+    /// The full's sequence number, for a receiver that logs which baseline it
+    /// is installing.
+    pub seq: u64,
+    pub parts: Arc<Vec<ParkedPart>>,
+    pub next_part: usize,
+    /// The two clocks the FULL was measured with. Every part of it carries the
+    /// same pair, and they are kept with the cursor rather than recomputed: a
+    /// part sent minutes later must not claim it was prepared minutes later.
+    pub timings: FrameTimings,
+}
 
 /// How one drain of a parked full ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,22 +146,22 @@ impl CellEmitter {
     ) -> Result<(), SnapshotError> {
         let snapshot_id = mint_uuid()?;
         // The canonical size IS a protobuf byte count, so the frame is
-        // materialised once here to be validated and measured. The sinks
-        // materialise it again for the wire: this crate may not depend on
-        // `roost-proto`, and a second value model to avoid the copy would be a
-        // worse trade than the copy.
+        // materialised once here to be validated and measured. A full that fits
+        // one part is parked as the value model and the sink materialises it
+        // again for the wire: this crate may not depend on `roost-proto`, and a
+        // second value model to avoid the copy would be a worse trade.
         let wire = cell_frame_to_proto(&frame, "")?;
         assert_cell_grid_snapshot(&wire)?;
+        let seq = frame.seq;
         let parts = if encoded_cell_grid_frame_size(&wire) <= CELL_GRID_PART_MAX_BYTES {
-            vec![CellGridSnapshotPart::Frame(wire)]
+            vec![ParkedPart::Whole(frame)]
         } else {
             chunk_cell_grid_frame(&wire, &snapshot_id)?
                 .into_iter()
-                .map(CellGridSnapshotPart::Chunk)
+                .map(|chunk| ParkedPart::Chunk(CellGridSnapshotPart::Chunk(chunk)))
                 .collect()
         };
         let parts = Arc::new(parts);
-        let seq = frame.seq;
         let Some(stream) = self.streams.get_mut(&channel_id) else {
             return Ok(());
         };
@@ -231,6 +265,13 @@ impl CellEmitter {
         }
     }
 
+    /// One owed full per watched channel for a sink that just gained delivery,
+    /// as v2's `forceBaselineForSink` (`session-cell-sinks.ts:258-269`).
+    ///
+    /// Every parked cursor is dropped, not waited on: the new full supersedes
+    /// it, and a forced build withheld behind one leaves every sink owing a
+    /// baseline with nothing left to force it. The emitter holds no record, so
+    /// the debt is recorded here and the next emit on the channel builds it.
     fn force_baseline_for_sink(&mut self, sink_id: &str) {
         let watching: Vec<ChannelId> = self
             .streams
@@ -239,18 +280,15 @@ impl CellEmitter {
             .map(|(channel_id, _)| *channel_id)
             .collect();
         for channel_id in watching {
-            // A cursor parked on ANY sink withholds the forced build: the
-            // builder is shared, and it may not consume rows a parked snapshot
-            // is still carrying.
-            if self.delivery_aggregate(channel_id).snapshot_pending {
-                continue;
-            }
-            if let Some(stream) = self.streams.get_mut(&channel_id)
-                && let Some(delivery) = stream.deliveries.get_mut(sink_id)
-            {
+            if let Some(stream) = self.streams.get_mut(&channel_id) {
+                for parked in stream.deliveries.values_mut() {
+                    parked.cursor = None;
+                }
+                let delivery = stream.deliveries.entry(sink_id.to_owned()).or_default();
                 delivery.baseline_ready = false;
             }
             self.mark_stream_delivery_dirty(channel_id);
+            self.note_dirty(channel_id);
             tracing::info!(%channel_id, sink_id, "a full frame is owed to a sink that just gained delivery");
         }
     }

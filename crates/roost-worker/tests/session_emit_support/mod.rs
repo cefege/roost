@@ -25,13 +25,19 @@ use roost_worker::session::types::{SessionIdentity, SessionRecord};
 use roost_worker::shell_spec::ShellSpec;
 
 /// What this sink answers for every frame.
+///
+/// `Dropped` and `Overflow` refuse DELTAS and take every full, which is how the
+/// v2 tests they port drive a refusing sink: the repair tests answer `sent` for
+/// any `frame.full` (`apps/worker/tests/session/session-cell-sinks.test.ts:60`,
+/// `:122`), and the overflow test flips its sink to `overflow` only after the
+/// baseline landed (same file, `:91-97`). A sink that refused its baseline too
+/// would park a cursor, and no delta would ever be built to refuse.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Answer {
     Sent,
-    /// Refuses the frame and keeps its registration.
+    /// Refuses every delta and keeps its registration.
     Dropped,
-    /// Refuses the frame and its queue cannot drain: the registry drops the sink
-    /// and tells it once.
+    /// Overflows on every delta: the registry drops the sink and tells it once.
     Overflow,
     /// Accepts the first `n` frames and parts, then overflows.
     SentThenOverflow(usize),
@@ -116,6 +122,15 @@ impl CellSink for RecordingSink {
         let mut log = self.log.lock().unwrap();
         if self.saturated(log.frames.len() + log.parts.len()) {
             return CellSinkResult::Overflow;
+        }
+        // These two answers were declared and never returned, so every sink in
+        // the sink tests answered `Sent` and no refusal was ever exercised.
+        if !frame.full {
+            match self.answer {
+                Answer::Dropped => return CellSinkResult::Dropped,
+                Answer::Overflow => return CellSinkResult::Overflow,
+                Answer::Sent | Answer::SentThenOverflow(_) => {}
+            }
         }
         log.frames.push((frame.clone(), timings));
         CellSinkResult::Sent

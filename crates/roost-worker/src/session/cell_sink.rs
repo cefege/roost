@@ -1,8 +1,9 @@
 //! Who receives this session's cell frames, and what each receiver still owes.
 //! `session::emit` builds a frame and hands it here; the coordinator link and
 //! every local terminal socket implement [`CellSink`]. Depends on
-//! `roost_protocol` for the frame, part and channel shapes — and on nothing
-//! that calls back into emission.
+//! `roost_protocol` for the frame, part and channel shapes, and on
+//! `super::snapshot_cursor` for the parked cursor's shape only — never on
+//! anything that calls back into emission.
 //!
 //! THE OVERFLOW RULE, which is the whole reason the registry is its own file.
 //! A sink that answers [`CellSinkResult::Overflow`] is DROPPED and told once
@@ -22,6 +23,8 @@ use std::sync::Arc;
 use roost_protocol::cell::CellGridFrame;
 use roost_protocol::cell::frame_chunks::CellGridSnapshotPart;
 use roost_protocol::wire::brand::ChannelId;
+
+use super::snapshot_cursor::{ParkedPart, SnapshotCursor};
 
 /// The coordinator link's sink id. Byte-compatible with v2's, because it is
 /// the same word in both workers' logs and a diagnostic that has to be read
@@ -114,26 +117,6 @@ pub struct CellDeltaFanout {
     /// registered, so the caller owes them nothing and must forget their
     /// delivery records.
     pub overflowed: Vec<String>,
-}
-
-/// One parked immutable full, drained part by part for one sink alone.
-///
-/// The parts are an `Arc`: validation and chunking run ONCE per full and every
-/// sink walks the same immutable plan, so only each sink's position in it is
-/// private. A deep copy per sink would be the whole frame, per browser.
-#[derive(Debug, Clone, PartialEq)]
-pub struct SnapshotCursor {
-    pub stream_id: String,
-    pub snapshot_id: String,
-    /// The full's sequence number, for a receiver that logs which baseline it
-    /// is installing.
-    pub seq: u64,
-    pub parts: Arc<Vec<CellGridSnapshotPart>>,
-    pub next_part: usize,
-    /// The two clocks the FULL was measured with. Every part of it carries the
-    /// same pair, and they are kept with the cursor rather than recomputed: a
-    /// part sent minutes later must not claim it was prepared minutes later.
-    pub timings: FrameTimings,
 }
 
 /// One registered sink's independent progress on one stream.
@@ -312,28 +295,37 @@ impl CellSinkRegistry {
             match sink.send_frame(channel_id, frame, timings) {
                 CellSinkResult::Sent => fanout.accepted += 1,
                 CellSinkResult::Dropped => fanout.dropped += 1,
-                CellSinkResult::Overflow => self.drop_for_overflow(sink.id(), channel_id),
+                CellSinkResult::Overflow => {
+                    self.drop_for_overflow(sink.id(), channel_id);
+                    fanout.overflowed.push(sink.id().to_owned());
+                }
             }
         }
         fanout
     }
 
-    /// One snapshot part for one sink.
+    /// One part of a parked full for one sink.
     ///
-    /// An overflow already dropped the sink, so the caller sees a
-    /// non-advancing answer and abandons that cursor.
+    /// A full that fits one part goes to [`CellSink::send_frame`] and only a
+    /// chunk to [`CellSink::send_snapshot_part`], as v2's `sendCellPartToSink`
+    /// routes them (`apps/worker/src/session/session-cell-sinks.ts:220-222`).
+    /// An overflow already dropped the sink, so the caller sees a non-advancing
+    /// answer and abandons that cursor.
     pub fn send_part_to_sink(
         &mut self,
         channel_id: ChannelId,
         sink_id: &str,
-        part: &CellGridSnapshotPart,
+        part: &ParkedPart,
         timings: FrameTimings,
     ) -> CellSinkResult {
         let Some(entry) = self.sinks.get(sink_id) else {
             return CellSinkResult::Dropped;
         };
         let sink = entry.sink.clone();
-        let answer = sink.send_snapshot_part(channel_id, part, timings);
+        let answer = match part {
+            ParkedPart::Whole(frame) => sink.send_frame(channel_id, frame, timings),
+            ParkedPart::Chunk(chunk) => sink.send_snapshot_part(channel_id, chunk, timings),
+        };
         if answer == CellSinkResult::Overflow {
             self.drop_for_overflow(sink_id, channel_id);
             return CellSinkResult::Dropped;

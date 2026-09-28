@@ -16,8 +16,8 @@ impl CellEmitter {
     /// The record's emit state is re-addressed HERE rather than at the first
     /// emit: a frame naming the placeholder the record was born with would be
     /// addressed to a generation the coordinator never minted. A full is owed
-    /// immediately; a caller that installs none ships nothing, because every
-    /// later emit is withheld while a sink holds no baseline.
+    /// immediately: no sink holds a baseline for a fresh stream, so the next
+    /// emit builds one whether or not the caller forces it.
     pub fn install_stream(&mut self, record: &mut SessionRecord, stream_id: &str) {
         let channel_id = record.channel_id();
         record.cell_emit.stream_id = stream_id.to_owned();

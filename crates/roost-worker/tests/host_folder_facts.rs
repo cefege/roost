@@ -42,7 +42,9 @@ fn platform() -> HostPlatform {
 static SPAWNS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn exclusive() -> std::sync::MutexGuard<'static, ()> {
-    SPAWNS.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    SPAWNS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Write an executable script into the scratch and return its path.
