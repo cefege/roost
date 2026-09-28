@@ -100,10 +100,10 @@ before touching that track.
 
 | Track | Branch tip | Uncommitted → snapshot | Track handoff |
 |---|---|---|---|
-| integrator | `v3` = `4e2b002b` | `v3-integrator-snap-trialmerge` = `67312bd3` → `a116afe7` (the trial merge plus three uncommitted conflict fixups) | this file |
-| coord (Stage 2C) | `v3-coord` = `0fd87e56` (local only, `origin/v3-coord` = `8196fc88`) | `v3-coord-snap-resume2` = `f88552d7` → `0fd87e56` (the six mutants the dead subagent left applied; reverted in the worktree, kept here as evidence) | `coord-lead-handoff.md` |
-| worker (Stage 2W) | `recover/workerroot` = `v3-worker` = `7a46b99a` | `recover/workerroot-snap-resume2` = `0865947d` → `7a46b99a` (the whole uncommitted wave 2+3 series: 153 modified + 250 untracked). Older: `…-snap-resume1` = `fe96f411` (13:40), `…-snap-drafts2` = `9e64ae3b` (`target-track/pause/` drafts and mutation artefacts) | `worker-lead-handoff.md` "RESUME STATE" |
-| web (Stage 5) | `v3-web` = `28eebcee` | `v3-web-snap-resume2` = `dabfd789` → `28eebcee` (10 modified + 5 new files: the terminal stream probe, a diagnostics RPC call, pane registry/surface) | `web-lead-handoff.md` "Current state" |
+| integrator | `v3` = `c92d793f` | none — the tree is clean; the trial merge is superseded by the real merges | this file |
+| coord (Stage 2C) | `v3-coord` = `1888d9c5`, **merged into `v3`** at `7ef53cfb` | `v3-coord-snap-resume2` = `f88552d7` (the six mutants the dead subagent left applied; reverted, kept as evidence) | `coord-lead-handoff.md` |
+| worker (Stage 2W) | `recover/workerroot` = `v3-worker` = `91dd7656` | none needed — the worktree is clean. `recover/workerroot-snap-resume2` = `0865947d` still holds the pre-series state | `worker-lead-handoff.md` "SERIES_SHAS" / "OPEN" |
+| web (Stage 5) | `v3-web` = `654bd72a`, **merged into `v3`** at `11e73966` (gated tip `f17b305c`) | `v3-web-snap-u2a` = `d28d7a5a` → `654bd72a` (13 files of in-flight U-2) | `web-lead-handoff.md` "Current state" |
 
 **The session that ran here 10:45–14:50 on 2026-09-28 died mid-flight.** Its
 `omp` process (pid 1487922) ended with no panic, nothing in the kernel log and
@@ -114,30 +114,42 @@ four dirty worktrees to origin (the table above) before touching anything.
 
 Where each track stands:
 
-- **Coord.** Waves C-B, C-INPUT, C-SEND, SY3, C-SCREEN, S4, C-DIRECT, AT, GS,
-  D1, C-RETAIN, C-BOOT and wave 4 (AG2, C-PUSH, X2) committed; ratchet
-  `PortStatus::AwaitingDomainPort` rows = **0**, `#[ignore]` = 0. C-CAPTURE is
-  committed locally as `0fd87e56` with a placeholder body and its mutation
-  evidence lost. `terminal-render` 5/5, `terminal-delivery` 4/4, attachment-direct
-  3/3, global-search 1/1 against the Rust coordinator. One open product defect:
-  after `__smoke.pauseSyncTransport()`/`resumeSyncTransport()` every new sync
-  socket is closed 1008 `invalid_client_frame` (`terminal-peer.spec.ts:209`).
-- **Worker.** Wave 1 committed and gated (1223/0/0 ×2, clippy 0, lint 0). Waves
-  2–3 — 13 slices, all wired and compiling — are **uncommitted**; a 57-mutant
-  run at resume killed 56. Owed: the series as per-slice commits, the mutations
-  never run (WAgentsDetect, WAttach, WCapture, WDoorHttp), the WKUpdate K-M1b
-  survivor, the v2-map audit, the live door check, the CellCadence
-  unattached-sink inference. Cross-track gaps: the worker Connect client sends
-  no worker credential; the v3 coord does not fill `recovery_metadata`.
-- **Web.** U-0, DECODE, PUMP, wave A, renderer core and wave B committed; gated
-  tip `659b50c8` was 1333/0/4 twice, clippy 0, lint 3958 inputs 0, wasm32 clean,
-  TERM gate 1 passed, production `dist` `__smoke` 0. Two commits landed after it
-  (`32120c5e`, `28eebcee`) and a WIP is uncommitted. Not done: both dx bundles,
-  the delivery spec on `dist-smoke`, and every U-2 row.
-- **v3 itself** is still the Stage 0 merge (S3.0 green at `78d5dc24`) plus docs.
-  No track work after Stage 0 has been merged into it; the trial merge in
-  `roost-v3-trial` reached `a116afe7` (worker `7a46b99a`, coord `8196fc88`,
-  web `c6f7af07`) and is stale against the tips above.
+- **Coord — DONE and merged.** Every `AwaitingDomainPort` row has an arm (0
+  rows), `#[ignore]` = 0, 204 of 204 v2 `apps/coord/src` non-test modules named
+  by a `//!` header or listed in `crates/roost-coord/README.md`, and C-CAPTURE
+  is committed with its 26 ported tests. The "open Sync-resume defect" was log
+  blindness, not a defect: five client-frame checks logged one reason, and
+  `367c139d` had already fixed the real cause — `terminal-peer.spec.ts:209` is
+  green. `d6395a97` gave each check its own reason; `1888d9c5` fixed the three
+  `terminal_input_sync` reds that same blindness had hidden. Specs against the
+  Rust coordinator: terminal-render 5/5, terminal-delivery 4/4, terminal-peer
+  4/5 (`:61` is the environment failure above), attachment-direct 3/3,
+  global-search 1/1.
+- **Worker — series landed, track gate running.** Waves 2–3 are 16 per-slice
+  commits (`3901daa9` … `e565f760`) plus the handoff; the tree type-checks at
+  `e565f760`. The owed mutation batches are RUN: 31 of 40 killed, with nine
+  survivors that need a guard not yet written (WAttach A1, A2; WCapture CC1, CC2,
+  CC4, CC7, CC8; WAgentsDetect M10, M12) and WDoorHttp D1b classified as
+  equivalent-and-masked. K-M1b and the CellCadence boot-state inference are both
+  RESOLVED — the first was a broken oracle (`pgrep -f` counts a fork-to-`exec`
+  window, not an identity), the second is v2 parity. Still open: the track gate,
+  the live door check (needs a release binary), 13 files of the header audit,
+  and those nine survivors. Both cross-track gaps it flagged are closed: the
+  credential is `c92d793f`, and `recovery_metadata` is filled.
+- **Web — merged at its gated tip, U-2 in flight.** U-0, DECODE, PUMP, wave A,
+  renderer core and wave B are committed; the gated tip is `f17b305c` (nextest
+  1344 passed / 4 skipped twice and agreeing, 387 passed with `--features smoke`,
+  clippy exit 0, lint 3985 inputs 0 violations, fmt clean, wasm32 clean with and
+  without the smoke feature), and `v3` carries it. That tip's slice is the
+  terminal diagnostic probe: `__smoke.terminalStreamProbe` crosses client-core
+  into coord's X2 `DiagSnapshot` and back. Three fixes rode with it, named in
+  the commit: a `string_member` that did not exist, a harness still answering
+  `unported_refusal` for a now-ported member, and a vacuous probe test whose
+  fixture named no session. U-2 (PAIRING first) is running in the worktree.
+- **v3 itself** now carries the coord merge (`7ef53cfb`), the web merge
+  (`11e73966`) and the cross-track credential fix (`c92d793f`). The trial merge
+  in `roost-v3-trial` is superseded; the workspace gate has not been run on
+  this tree yet.
 
 Rulings made during the run (all in the tracks' commit bodies): parity = v2 wins, with ONE user-visible exception — resumed direct uploads append at `bytesWritten` (v2 wrote at offset 0, corrupting the file). Deliberate path deviations: worker agent-report endpoint and attachment base live in the v3 worker data dir. `bun_abi` restored on `KeeperContractV1` with the Rust keeper reporting `"rust"`. `terminal_metadata_v1` (underscores) is v2's spelling. Public auth routes = v2's 7 exactly. `SmokeApi` has 53 members.
 
