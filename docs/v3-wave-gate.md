@@ -4188,3 +4188,58 @@ before anyone re-derived it, and the first time I wrote that rule down.
 indistinguishable from a correct one, and a job that never fires is
 indistinguishable from a missing one. Checking the job twice and the trigger zero
 times is the shape of the whole failure.
+
+### `xtask` walks the tree it was COMPILED from, so a shared target dir gates a worktree you are not in
+
+**Symptom** — `cargo xtask lint` and `cargo xtask fmt` report a **clean tree**,
+and the same command on a merge reports violations that are not in the tree you
+are looking at. Measured 2026-09-28, three runs on the same unchanged
+directory, differing only in `CARGO_TARGET_DIR`:
+
+| invocation | inputs checked | violations |
+|---|---|---|
+| `v3` @ `1ea558c8`, default target dir, **3 consecutive runs** | **2146** | **8** |
+| `v3` @ `1ea558c8`, shared `CARGO_TARGET_DIR` | **14** | **0** |
+| merged tree, `v3-web` @ `b4d1c650` staged | **2444** | **9** |
+
+**`checked 14 inputs` against a 2146-file tree is not a pass. It is a gate that
+did not run**, and the two numbers are printed on the same line:
+```
+xtask: checked 2444 inputs   xtask: 9 violations     <- a measurement
+xtask: checked   14 inputs   xtask: 0 violations     <- a gate that did not run
+```
+**The violations half flatters the tree and the inputs half tells the truth.**
+Read the inputs count first, every time.
+
+**Cause** — `xtask/src/source_tree.rs:29-36`:
+```rust
+pub fn repo_root() -> PathBuf {
+    if let Ok(r) = std::env::var("ROOST_REPO_ROOT") && !r.is_empty() {
+        return PathBuf::from(r);
+    }
+    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."))
+}
+```
+`env!("CARGO_MANIFEST_DIR")` is resolved **when xtask compiles**. With a shared
+`CARGO_TARGET_DIR`, **whichever worktree last compiled xtask decides which tree
+every later `cargo xtask lint` walks — and `pwd` does not correct it.** Cargo
+itself is fine: `cargo test` / `build` / `clippy` read the manifest from the
+current directory. **Only xtask is affected, and only its two repo-walking
+subcommands.**
+
+**The rule** — **pin `ROOST_REPO_ROOT=$PWD` on every `xtask` invocation made
+from a worktree other than the integrator's, or give each worktree its own
+target directory.** The override is not a convenience; the header at
+`source_tree.rs:25-28` says it exists *"so a gate can be run against a track
+worktree before that branch is merged."* Running one without it is the mistake.
+
+**Why it is in this file rather than only in a session note:** the same session
+produced six instruments that returned a confident answer about the wrong thing —
+a bare `:162` a path pattern could not see, a `delegated_reply` on the line
+below its marker, a `Cargo.toml` a lowercase pattern excluded, an unverified
+cause stated as fact, a shared `CARGO_TARGET_DIR`, and this. **In every case the
+failure looked like agreement, and in every case the answer was in a second
+number or a second line of the same output.** The general form is worth more
+than any one instance: *a figure must carry what it looked at beside what it
+found, and a negative result is only as good as the shape of the instrument that
+produced it.*
