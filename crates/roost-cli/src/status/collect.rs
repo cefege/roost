@@ -21,6 +21,7 @@ use roost_host::{
     coord_service_path, normalize_https_origin, worker_service_label,
 };
 
+use crate::services::web_bundle::WEB_INDEX;
 use crate::status::http_probe::HttpProbe;
 use crate::status::inventory::{self, InventoryError};
 use crate::status::report::{CoordStatus, EndpointStatus, SpaStatus, StatusReport, WorkerStatus};
@@ -194,7 +195,7 @@ pub fn installed_coordinator_environment(
 /// coordinator's responder is the authority on what it serves; this answers the
 /// narrower question the `spa:` line needs, which is whether the file is there.
 fn holds_index_html(dist_path: &Path) -> bool {
-    dist_path.join("index.html").is_file()
+    dist_path.join(WEB_INDEX).is_file()
 }
 
 async fn read_workers(

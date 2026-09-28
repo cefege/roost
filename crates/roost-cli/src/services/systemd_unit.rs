@@ -12,11 +12,14 @@ use roost_host::{ProtocolError, ProtocolResult};
 use crate::services::service_spec::{ServiceRole, ServiceSpec};
 use crate::services::systemd_syntax::{environment_directive, quoted_value, raw_path_value};
 
-/// The main log file a service's stdout is appended to.
-const STDOUT_FILE: &str = "main.out.log";
+/// The main log file a service's stdout is appended to. Public because the
+/// logrotate configuration rotates exactly these two files, and a second
+/// spelling of a log file's name is a rotation that quietly stops matching the
+/// logs it was written for.
+pub const STDOUT_FILE: &str = "main.out.log";
 
 /// The main log file a service's stderr is appended to.
-const STDERR_FILE: &str = "main.err.log";
+pub const STDERR_FILE: &str = "main.err.log";
 
 /// A one-second restart delay. Ten, the launchd default throttle, freezes
 /// every browser's event stream for ten seconds on a crash; one turns the same

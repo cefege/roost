@@ -41,8 +41,9 @@ use crate::services::deploy_transaction::{DeployOutcome, deploy_service_definiti
 use crate::services::install::{
     InstallOutcome, ensure_service_directories, install_release_programs,
 };
+use crate::services::logrotate::{RotationOutcome, install_rotation};
 use crate::services::service_control::PlatformServiceManager;
-use crate::services::service_spec::ServiceSpec;
+use crate::services::service_spec::{ServiceRole, ServiceSpec};
 use crate::wall_clock;
 
 /// The programs a local install puts in place, when the command can find them.
@@ -52,6 +53,7 @@ use crate::wall_clock;
 /// release before they may install one is how quickstart never gets run. The
 /// keeper is looked for beside it and is optional, so a development build that
 /// ships no separate keeper binary still installs a `roost` and says so.
+#[derive(Debug)]
 pub struct LocalPrograms {
     /// The `roost` this process is running from.
     pub roost: PathBuf,
@@ -157,6 +159,40 @@ pub fn report_change(outcome: &DeployOutcome, action: &'static str) {
         "{action}"
     );
 }
+
+/// Install one role's log rotation and say what happened, on stderr.
+///
+/// Shared by quickstart and join because both are first installs on a machine
+/// with nothing of ours on it, and a rotation written by one and not the other
+/// is a machine whose logs grow until something else stops them. A skip is
+/// reported rather than swallowed: the operator is the only one who can install
+/// `logrotate`, and silence here reads as "rotated".
+pub fn report_rotation(role: ServiceRole, env: &dyn EnvSource, platform: HostPlatform) {
+    let rotation = match install_rotation(env, platform, role) {
+        Ok(rotation) => rotation,
+        Err(error) => {
+            eprintln!(
+                "WARN: the {}'s log rotation could not be written: {error}",
+                role.display_name()
+            );
+            return;
+        }
+    };
+    match rotation {
+        RotationOutcome::Installed(files) => info!(
+            role = %role.display_name(),
+            files = files.len(),
+            "installed the log rotation"
+        ),
+        RotationOutcome::Skipped(reason) => {
+            eprintln!(
+                "WARN: no log rotation for the {}: {reason}",
+                role.display_name()
+            );
+        }
+    }
+}
+
 /// The service directory this install keeps its release versions and its
 /// deploy journal in.
 pub fn service_dir(env: &dyn EnvSource, platform: HostPlatform) -> Result<PathBuf, CommandFailure> {

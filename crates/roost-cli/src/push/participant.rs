@@ -62,7 +62,7 @@ pub async fn deploy_participant(
     let home = ssh::remote_home(&args.host).await?;
 
     let triple = release::target_triple(platform, &arch)?;
-    let mut staged = release::build_release(source_root, triple).await?;
+    let mut staged = release::build_release(source_root, triple, None).await?;
     staged.git_sha = git_sha.to_string();
     let contract = target_contract(&staged.keeper_contract, git_sha)?;
 

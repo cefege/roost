@@ -193,7 +193,7 @@ fn a_binary_that_is_neither_copy_this_update_names_is_left_alone() {
 fn a_journal_of_an_unknown_schema_is_refused_rather_than_ignored() {
     let service = ServiceDir::new("schema");
     let executable = service.executable(SOURCE);
-    let journal = service.prepared_journal(&executable, SOURCE, TARGET);
+    let _journal = service.prepared_journal(&executable, SOURCE, TARGET);
     let path = SelfUpdateJournal::path_in(&service.root);
     let mut recorded: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&path).expect("the journal is readable"))

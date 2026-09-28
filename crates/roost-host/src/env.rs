@@ -26,7 +26,7 @@ pub const XDG_STATE_HOME_ENV: &str = "XDG_STATE_HOME";
 /// TypeScript originals used both `??` and a truthiness test on the same
 /// variables, and they disagreed: an empty `ROOST_COORD_PLIST` names a real
 /// file, while an empty `ROOST_WORKER_DATA_DIR` falls back to the default.
-pub trait EnvSource {
+pub trait EnvSource: Sync {
     /// The value of `key`, or `None` when it is not set at all.
     fn get(&self, key: &str) -> Option<String>;
 

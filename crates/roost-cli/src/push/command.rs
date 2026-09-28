@@ -136,6 +136,10 @@ fn deploy_source_root() -> Result<PathBuf, CommandFailure> {
         allow_unpublished_local: false,
         coordinator_release: false,
         force_live: false,
+        // `roost push` always builds from its own checkout, so neither of the
+        // flags that redirect an install at something else is ever set here.
+        web_dist: None,
+        release: None,
     })
 }
 
@@ -263,7 +267,7 @@ async fn target_contract_for(
     let platform = ssh::remote_platform(host).await?;
     let arch = ssh::remote_arch(host).await?;
     let triple = release::target_triple(platform, &arch)?;
-    let staged = release::build_release(source_root, triple).await?;
+    let staged = release::build_release(source_root, triple, None).await?;
     invocation::target_contract(&staged.keeper_contract, target_sha)
 }
 
@@ -307,7 +311,7 @@ async fn hold_and_converge(
     );
 
     let triple = release::target_triple(location.platform, std::env::consts::ARCH)?;
-    let staged = release::build_release(source_root, triple).await?;
+    let staged = release::build_release(source_root, triple, None).await?;
     eprintln!(">> stage the coordinator release {target_sha}");
     coordinator::install_staged_release(location, &staged, target_sha)?;
     // The durable transaction, written before the first byte of the

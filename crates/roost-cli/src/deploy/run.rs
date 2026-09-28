@@ -32,6 +32,7 @@ use crate::deploy::keeper_step::{self, KeeperPlan};
 use crate::deploy::machine_txn::TransactionKind;
 use crate::deploy::manifest::{ApplyManifest, ApplyOutcome, ApplyReport};
 use crate::deploy::release;
+use crate::deploy::release_fetch;
 use crate::deploy::release_stage;
 use crate::deploy::ssh;
 use crate::deploy::txn_session::{self, RemoteTransaction};
@@ -59,9 +60,17 @@ fn progress(line: impl AsRef<str>) {
 pub async fn run(args: &DeployArgs) -> Result<ExitCode, CommandFailure> {
     validate(args)?;
     let ambient = identity_env::ambient_environment();
-    let source_root = source_root(args)?;
-    let git_sha =
-        prove_identity(args, &source_root, roost_host::supported_host_platform()?).await?;
+    // A `--release` deploy has no checkout to prove: the tag IS the build
+    // identity, and it is proved against the digest the release published
+    // rather than against a HEAD this box happens to have.
+    let build_identity = match &args.release {
+        Some(tag) => tag.clone(),
+        None => {
+            let source_root = source_root(args)?;
+            prove_identity(args, &source_root, roost_host::supported_host_platform()?).await?
+        }
+    };
+    let git_sha = build_identity;
 
     progress(format!(">> reachability check ssh {}", args.host));
     ssh::require_reachable(&args.host).await?;
@@ -74,8 +83,22 @@ pub async fn run(args: &DeployArgs) -> Result<ExitCode, CommandFailure> {
     }
 
     let triple = release::target_triple(platform, &arch)?;
-    let mut staged = release::build_release(&source_root, triple).await?;
-    staged.git_sha = git_sha.clone();
+    let mut staged = match &args.release {
+        Some(tag) => {
+            progress(format!(
+                ">> fetching the published {tag} release for {triple}"
+            ));
+            release_fetch::fetch_release(&roost_host::ProcessEnv::new(), tag, platform, &arch)
+                .await?
+        }
+        None => {
+            let source_root = source_root(args)?;
+            release::build_release(&source_root, triple, args.web_dist.as_deref()).await?
+        }
+    };
+    if staged.git_sha.is_empty() {
+        staged.git_sha = git_sha.clone();
+    }
     if let Some(expected) = &args.expected_manifest_sha256
         && !expected.eq_ignore_ascii_case(&staged.digest)
     {

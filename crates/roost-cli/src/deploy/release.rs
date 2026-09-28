@@ -13,6 +13,7 @@
 use std::path::{Path, PathBuf};
 
 use roost_host::HostPlatform;
+use tracing::info;
 
 use crate::command_error::CommandFailure;
 use crate::deploy::apply_release::{RELEASE_BIN_DIR, ROOST_PROGRAM};
@@ -89,6 +90,10 @@ pub struct StagedRelease {
     /// The keeper contract the shipped `roost-keeper` reports for itself, read
     /// from those bytes rather than from this process.
     pub keeper_contract: String,
+    /// The staged `web/` directory, or `None` when this release ships no page.
+    /// It sits beside `bin/` in the same staging tree, so it crosses the ssh
+    /// boundary with the binaries and needs no separate transport.
+    pub web: Option<PathBuf>,
 }
 
 /// The cargo target triple a target machine's platform and architecture mean, or
@@ -137,6 +142,7 @@ fn host_triple() -> Result<&'static str, CommandFailure> {
 pub async fn build_release(
     source_root: &Path,
     triple: &str,
+    web_dist: Option<&Path>,
 ) -> Result<StagedRelease, CommandFailure> {
     let mut argv: Vec<String> = vec![
         "build".to_string(),
@@ -192,13 +198,20 @@ pub async fn build_release(
             ),
         ));
     }
-    let bin_dir = assemble_release_tree(&profile_dir)?;
+    let bin_dir = assemble_release_tree(&profile_dir, web_dist)?;
     let keeper_contract = read_keeper_contract(&bin_dir.join(ROOST_PROGRAM))?;
+    let web = web_dist.map(|_| {
+        bin_dir.parent().map_or_else(
+            || bin_dir.join(crate::services::web_bundle::WEB_DIR_NAME),
+            |staging| staging.join(crate::services::web_bundle::WEB_DIR_NAME),
+        )
+    });
     Ok(StagedRelease {
         digest: release_digest(&bin_dir)?,
         local_dir: bin_dir,
         git_sha: String::new(),
         keeper_contract,
+        web,
     })
 }
 
@@ -215,7 +228,10 @@ pub async fn build_release(
 /// `incremental/` to a machine that would have no use for them. It is inside
 /// the target directory on purpose: `cargo clean` then takes it with everything
 /// else it built.
-pub fn assemble_release_tree(profile_dir: &Path) -> Result<PathBuf, CommandFailure> {
+pub fn assemble_release_tree(
+    profile_dir: &Path,
+    web_dist: Option<&Path>,
+) -> Result<PathBuf, CommandFailure> {
     let staging = profile_dir.join(RELEASE_STAGING_DIR);
     let bin_dir = staging.join(RELEASE_BIN_DIR);
     let _ = std::fs::remove_dir_all(&staging);
@@ -240,6 +256,17 @@ pub fn assemble_release_tree(profile_dir: &Path) -> Result<PathBuf, CommandFailu
                 ),
             )
         })?;
+    }
+    if let Some(source) = web_dist {
+        let staged_web = crate::services::web_bundle::install_from_dir(
+            source,
+            &staging.join(crate::services::web_bundle::WEB_DIR_NAME),
+        )
+        .map_err(|error| codes::refuse(codes::BUILD_FAILED, error.to_string()))?;
+        info!(
+            files = staged_web.files,
+            "collected the web bundle into the release tree",
+        );
     }
     Ok(bin_dir)
 }

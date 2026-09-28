@@ -117,6 +117,10 @@ impl<'a> FleetRuntime<'a> {
             allow_unpublished_local: false,
             coordinator_release: false,
             force_live: false,
+            // `roost push` always builds from its own checkout, so neither of
+            // the flags that redirect an install at something else is set here.
+            web_dist: None,
+            release: None,
         }
     }
 
@@ -287,3 +291,15 @@ fn text(failure: CommandFailure) -> String {
 fn io_text(error: std::io::Error) -> String {
     error.to_string()
 }
+
+/// **THE `Sync` ANSWER, AS AN ASSERTION RATHER THAN A REASONING.** This was NOT
+/// `Sync` before the `EnvSource: Sync` supertrait, and the single reason was
+/// this struct's `&'a dyn EnvSource` field: with no `Sync` on the trait,
+/// `dyn EnvSource` is not `Sync`, and a reference to it is not either. One
+/// supertrait on `roost_host::EnvSource` fixed the whole chain, because
+/// `&T: Sync` whenever `T: Sync`. Written down so a future field that breaks
+/// the claim is a compile failure here rather than a comment that decays.
+const _: () = {
+    const fn assert_sync<T: Sync + ?Sized>() {}
+    assert_sync::<FleetRuntime<'_>>();
+};

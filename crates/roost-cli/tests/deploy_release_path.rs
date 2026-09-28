@@ -12,19 +12,12 @@
 
 use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use roost_cli::deploy::codes;
 use roost_cli::deploy::facts::{self, RemoteFacts};
-use roost_cli::deploy::installed::{
-    installed_build_sha, installed_release_dir, launchd_program_argument, systemd_working_directory,
-};
 use roost_cli::deploy::manifest::{ApplyManifest, ApplyOutcome, ApplyReport};
-use roost_cli::deploy::release::release_digest;
-use roost_cli::deploy::retire::{Retirement, plan_retirement};
 use roost_cli::deploy::ssh::{self, REMOTE_PATH_PREFIX, SSH_OPTS, read_remote_file};
-use roost_cli::status::service_definition::parse_installed_environment;
-use roost_host::HostPlatform;
 use roost_protocol::keeper_update::KeeperContractV1;
 use roost_worker::runtime::boot::ENV_COORDINATOR_URL;
 use serde_json::json;
@@ -55,7 +48,7 @@ fn an_ssh_argv_cannot_be_smuggled_into_by_the_host() {
     let options = &argv[1..separator];
     assert_eq!(options.len() % 2, 0, "options come in pairs: {argv:?}");
     assert!(
-        options.chunks_exact(2).all(|pair| pair[0] == "-o"
+        options.as_chunks::<2>().0.iter().all(|pair| pair[0] == "-o"
             && (SSH_OPTS.contains(&pair[1].as_str()) || pair[1] == "BatchMode=yes")),
         "only the shared options and the caller's explicit ones: {argv:?}"
     );

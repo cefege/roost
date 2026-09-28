@@ -10,94 +10,19 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeMap;
-use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use roost_cli::quickstart::endpoint::{EndpointMode, fresh_endpoint, installed_endpoint};
+use roost_cli::quickstart::endpoint::{EndpointMode, installed_endpoint};
+
+mod quickstart_dry_run_support;
+
+use quickstart_dry_run_support::{TempMachine, tree_snapshot};
+use roost_cli::quickstart::endpoint::fresh_endpoint;
 use roost_cli::quickstart::plan;
 use roost_cli::services::definition_text::render_definition;
 use roost_cli::services::service_spec::{ServiceRole, ServiceSpec};
 use roost_cli::status::service_definition::parse_installed_environment;
-use roost_host::{HostPlatform, MapEnv};
-
-/// A throwaway tree that removes itself, standing in for a machine with no
-/// install of any kind.
-struct TempMachine {
-    root: PathBuf,
-}
-
-impl TempMachine {
-    fn new(case: &str) -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "roost-quickstart-{}-{case}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|elapsed| elapsed.as_nanos())
-                .unwrap_or(0)
-        ));
-        std::fs::create_dir_all(&root).expect("the throwaway machine is created");
-        Self { root }
-    }
-
-    /// An account with a home and nothing else under it.
-    fn environment(&self) -> MapEnv {
-        let text = |relative: &str| self.root.join(relative).display().to_string();
-        MapEnv::new()
-            .with("HOME", &text("home"))
-            .with(
-                roost_host::COORD_UNIT_ENV,
-                &text("unit/roost3-coord.service"),
-            )
-            .with(
-                roost_host::WORKER_UNIT_ENV,
-                &text("unit/roost3-worker.service"),
-            )
-            .with(roost_host::WORKER_DATA_DIR_ENV, &text("data/worker"))
-            .with(roost_host::COORD_DATA_DIR_ENV, &text("data/coord"))
-    }
-}
-
-impl Drop for TempMachine {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
-    }
-}
-
-/// Every file under `root` as its bytes and permission bits, keyed by its path
-/// relative to `root`. This is the whole comparison: a file that appeared, a
-/// directory that was created, a byte that changed.
-fn tree_snapshot(root: &Path) -> BTreeMap<PathBuf, (Vec<u8>, u32)> {
-    let mut snapshot = BTreeMap::new();
-    let mut pending = vec![root.to_path_buf()];
-    while let Some(directory) = pending.pop() {
-        let Ok(entries) = std::fs::read_dir(&directory) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let relative = path
-                .strip_prefix(root)
-                .expect("every entry is under the root")
-                .to_path_buf();
-            let Ok(metadata) = entry.metadata() else {
-                continue;
-            };
-            if metadata.is_dir() {
-                pending.push(path);
-            } else {
-                snapshot.insert(
-                    relative,
-                    (
-                        std::fs::read(&path).unwrap_or_default(),
-                        metadata.permissions().mode() & 0o7777,
-                    ),
-                );
-            }
-        }
-    }
-    snapshot
-}
+use roost_host::HostPlatform;
 
 #[test]
 fn a_dry_run_resolves_both_services_on_a_machine_with_nothing_installed() {
@@ -115,7 +40,7 @@ fn a_dry_run_resolves_both_services_on_a_machine_with_nothing_installed() {
     let endpoint = fresh_endpoint(None).expect("a loopback endpoint needs no front door");
     assert_eq!(endpoint.mode, EndpointMode::Local);
 
-    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, false)
+    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, None, false)
         .expect("the plan resolves on a machine with nothing installed");
 
     assert_eq!(resolved.coordinator.spec.role, ServiceRole::Coordinator);
@@ -148,7 +73,7 @@ fn a_dry_run_renders_the_definitions_a_real_run_would_install() {
         "ROOST_COORDINATOR_BIND=127.0.0.1:{}",
         endpoint.loopback_port
     );
-    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, false)
+    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, None, false)
         .expect("the plan resolves");
 
     for service in [&resolved.coordinator, &resolved.worker] {
@@ -184,7 +109,7 @@ fn a_dry_run_changes_nothing_on_disk() {
     // A release program at the path the plan resolves, so a dry run that
     // installed one would overwrite a file whose bytes a snapshot would catch.
     let endpoint = fresh_endpoint(None).expect("a loopback endpoint");
-    let first = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, false)
+    let first = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, None, false)
         .expect("the plan resolves");
     let program = first.coordinator.spec.program.clone();
     std::fs::create_dir_all(program.parent().expect("a parent")).expect("the release dir exists");
@@ -193,7 +118,7 @@ fn a_dry_run_changes_nothing_on_disk() {
     let before = tree_snapshot(&machine.root);
 
     let endpoint = fresh_endpoint(None).expect("a loopback endpoint");
-    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, false)
+    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, None, false)
         .expect("the plan resolves");
     // The rendered text is materialised, exactly as `print_plan` does.
     let _ = resolved
@@ -263,8 +188,15 @@ fn a_dry_run_of_a_rerun_keeps_the_installed_front_door() {
         "the listener stays on the loopback bind the install already declared"
     );
 
-    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, Some(&installed), false)
-        .expect("the rerun plan resolves");
+    let resolved = plan::resolve_plan(
+        &env,
+        HostPlatform::Linux,
+        endpoint,
+        None,
+        Some(&installed),
+        false,
+    )
+    .expect("the rerun plan resolves");
     assert!(resolved.coordinator_already_installed);
     let unit_text = resolved
         .coordinator
@@ -284,7 +216,7 @@ fn the_dry_run_definition_is_the_text_the_install_would_write() {
     let env = machine.environment();
     let endpoint = fresh_endpoint(None).expect("a loopback endpoint");
     let endpoint_origin = endpoint.loopback_origin();
-    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, false)
+    let resolved = plan::resolve_plan(&env, HostPlatform::Linux, endpoint, None, None, false)
         .expect("the plan resolves");
 
     let spec = &resolved.worker.spec;

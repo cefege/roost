@@ -148,7 +148,8 @@ fn a_release_is_only_the_two_programs_under_a_bin_directory() {
     std::fs::write(profile.join("build/out"), b"junk").unwrap();
     std::fs::write(profile.join("incremental"), b"junk").unwrap();
 
-    let bin_dir = release::assemble_release_tree(&profile).expect("the release tree is assembled");
+    let bin_dir =
+        release::assemble_release_tree(&profile, None).expect("the release tree is assembled");
 
     // The programs are under `bin/`, byte for byte, and they are the ONLY
     // things under it.
@@ -196,7 +197,7 @@ fn a_release_is_only_the_two_programs_under_a_bin_directory() {
     // Re-assembling over a previous run replaces it rather than merging, so a
     // release directory can never be a mixture of two builds.
     std::fs::write(bin_dir.join(release::RELEASE_PROGRAMS[0]), b"stale").unwrap();
-    release::assemble_release_tree(&profile).expect("a second build replaces the first");
+    release::assemble_release_tree(&profile, None).expect("a second build replaces the first");
     assert_eq!(
         std::fs::read(bin_dir.join(release::RELEASE_PROGRAMS[0])).unwrap(),
         std::fs::read(profile.join(release::RELEASE_PROGRAMS[0])).unwrap(),

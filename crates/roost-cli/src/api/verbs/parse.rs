@@ -126,7 +126,7 @@ pub fn parse(spec: &'static VerbSpec, args: &[String]) -> Result<Invocation, Com
     Ok(parsed)
 }
 
-fn option_for<'row>(
+fn option_for(
     spec: &'static VerbSpec,
     name: &str,
     as_typed: &str,
