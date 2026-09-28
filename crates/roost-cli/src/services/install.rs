@@ -72,6 +72,13 @@ pub enum InstallError {
         /// The operating system's answer.
         cause: String,
     },
+    #[error("{path} is not a web bundle: it holds no {index}")]
+    NotABundle {
+        /// The directory the operator named as a bundle.
+        path: PathBuf,
+        /// The file every bundle has to hold.
+        index: &'static str,
+    },
     #[error(transparent)]
     Host(#[from] ProtocolError),
 }

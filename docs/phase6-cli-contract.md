@@ -467,7 +467,7 @@ roost deploy <host> [--label LABEL] [--reachable-addr ADDR]
                   [--source-root DIR] [--expected-sha SHA]
                   [--expected-manifest-sha256 HEX]
                   [--allow-unpublished-local] [--coordinator-release]
-                  [--force-live]
+                  [--force-live] [--web-dist DIR] [--release TAG]
 ```
 
 The one command in this crate that replaces the binary every live PTY on a
@@ -525,17 +525,38 @@ failure mode this table exists to prevent.
 
 ### What a release is
 
-A release is a directory whose **only** entry is `bin/`, and whose `bin/`
-contains **only** `roost` and `roost-keeper`. Three separate facts depend on
-that shape:
+A release is a directory whose entries are `bin/` and, when a web bundle is
+being shipped, `web/` — and whose `bin/` contains **only** `roost` and
+`roost-keeper`. Four separate facts depend on that shape:
 
 - `stage_over_ssh` tars `local_dir.parent()`, so what ships is the release
-  root — `deps/`, `build/` and `incremental/` must never be inside it.
+  root — `deps/`, `build/` and `incremental/` must never be inside it, and
+  `web/` rides along with the binaries rather than needing a second transport.
 - The target unpacks to `<staging>` and installs `staging/bin` into
   `<release_root>/<sha>/bin`, so `bin/` is where the programs have to be.
 - The target recomputes the manifest's `release_digest` over exactly those
   bytes, so the deploying box's digest and the target's must be taken over the
   same two files and nothing else.
+
+**`web/` is optional and its absence is not an error.** A release that
+publishes no `roost-web.tar.gz` installs and runs; refusing it would make
+deploying an older tag impossible. The probe is the digest **sidecar**, asked
+for before the body, so a release that has no bundle costs one small request
+rather than a 404 that aborts the deploy. A release that publishes the asset
+and has it fail its digest **is** a refusal, and the message names the
+expected and actual digests — a truncated download and a tampered one produce
+the same "checksum failed" otherwise, and the operator cannot tell which
+machine they are standing on.
+
+`web/` lives inside the release directory rather than beside the unit file,
+and that is the whole of the retirement story: a settled deploy removes the
+prior release directory, so a bundle that outlived its release — and kept
+serving a retired UI while `roost status` reported a healthy `spa:` line — is
+impossible. `__remote-apply` stamps `ROOST_WEB_DIST_PATH` from the
+`release_dir` **it just computed**, never from a path the deploying box
+supplied: only the target can say where its own release root is, and a value
+decided on the other side is a path into *its* version tree that the next
+settlement deletes. It is re-stamped on every install, never preserved.
 
 Cargo does not produce that shape — it writes each binary straight into the
 profile directory — so `deploy::release::assemble_release_tree` is the explicit
@@ -548,6 +569,26 @@ with `the release built for x86_64-unknown-linux-gnu but roost and
 roost-keeper missing from .../target/release/bin` — over a build that had
 succeeded, in a tree where every test was green. The command had never
 succeeded on any invocation.
+
+**`--release TAG`** fetches the target's own published binaries instead of
+building them on the deploying box. This is the only way a coordinator can
+reach a machine it cannot build for: an x86_64 Linux coordinator cannot
+produce an aarch64 or a macOS binary, and three of the production machines are
+exactly that. It is a change of *where the bytes come from*, not of what the
+deploy does — the same staged tree, the same digest, the same keeper contract
+read from the downloaded bytes, the same admission.
+
+The tag **is** this deploy's build identity, and it is proved against the
+digest the release published rather than against the deploying box's `HEAD`.
+So `--expected-sha`, `--source-root` and `--coordinator-release` are each
+**refused** alongside it rather than ignored: every one of them is an
+instruction about which build to install, and accepting two answers while
+silently preferring one is how a deploy reports a build nobody asked for.
+
+**`--web-dist DIR`** ships a built web bundle in the same staged tree. `DIR`
+must hold an `index.html`; a directory without one is refused before anything
+is staged, because a worker serving it answers 404 for every URL and reports
+itself healthy. Without either flag the behaviour is exactly what it was.
 
 ### The keeper admission environment
 
@@ -598,11 +639,12 @@ than implementation detail.
 **Arguments: none.** The link target is resolved, never configured, so a flag
 here would be an argument this command does not have.
 
-**Output.** The outcome on stdout as one word the operator reads — `created`,
-`repaired`, or `unchanged` — plus, on stderr, a line naming the target the link
-now points at. If `~/.local/bin` is not on this account's `PATH` it says so and
-names the directory, because a correct link that nothing can find is not a
-working install. Exit 0 on all three outcomes.
+**Output.** One line on stdout naming the link, an arrow, and the target —
+`<link> -> <target>`, suffixed `(already correct)` or `(replaced a broken link)`
+or `(was <previous>)`, so a rerun and a repair are distinguishable without a
+second command. On stderr, a `NOTE:` when `~/.local/bin` is not on this
+account's `PATH`, because a correct link nothing can find is not a working
+install. Exit 0 on all three outcomes.
 
 **The target is resolved, never configured.** It is the `roost` inside the
 release directory the **installed service definition** names, and only when
@@ -641,83 +683,589 @@ script, and they are one `rm` from repairing it.
 **The replace is symlink-to-a-temp-name plus `rename`**, so a cutover
 interrupted between the two leaves the old link intact rather than a
 half-written one. The command is **idempotent**: a second run reports
-`unchanged` and rewrites nothing.
+`(already correct)` and rewrites nothing.
+
+---
+
+## `roost quickstart`
+
+```
+roost quickstart [--coordinator-url URL] [--web-dist DIR] [--dry-run]
+```
+
+Installs this build's `roost` and `roost-keeper` into the release directory,
+installs and waits for `roost3-coord`, installs `roost3-worker`, prints the
+status readout, and opens a paired browser. It is the only command that writes
+both definitions on a machine that has neither.
+
+**`--coordinator-url URL`** is the HTTPS front door to put in front of the
+coordinator. The listener stays on loopback either way; the front door owns TLS
+and the forwarded client address, and naming it is what writes
+`ROOST_TRUST_PROXY=1` into the coordinator's definition. **On a machine that is
+already installed the installed definition wins**, and the flag only promotes
+the install to a front door — every other setting is the one the install
+already resolved. A rerun therefore cannot silently re-point a machine.
+
+**`--web-dist DIR`** installs a built web bundle into
+`<versions>/<ver>/web/`, beside the executables, and writes
+`ROOST_WEB_DIST_PATH` into **both** definitions — the coordinator's and the
+worker's, because the worker's local door serves the same page. `DIR` must
+hold an `index.html`; a directory without one is a **usage error, refused
+before anything is written**, because a coordinator serving it answers 404 for
+every URL while reporting itself healthy. The directory is the release's own,
+so a later release retirement removes the page with the binaries that served
+it, and `roost status` — which reports `web_dist_present` separately from
+`serves` for exactly this reason — keeps both facts.
+
+Without the flag neither definition names a directory, and that is the honest
+state of a machine that was given no bundle: the coordinator writes
+`ROOST_WEB_DIST_PATH=` blank (an absent entry would fall back to the service
+manager's own environment, which is how a cleared value comes back stale) and
+the worker's definition carries no such key at all.
+
+**Log rotation is installed by the first run, not left to the operator.** One
+`logrotate.d` entry per role and a shared pair of user units that run it, in
+the unit directory systemd reads them from. `copytruncate` because
+`StandardOutput=append:` holds the descriptor open — a rename-based rotation
+would leave the service appending to an inode with no name. A skip is
+**reported, not swallowed**: a machine with no `logrotate` is told its logs
+will grow unbounded, because silence there reads as "rotated".
+
+**On macOS this installs nothing, and that is the v2 answer rather than a
+gap.** Both v2 installers branch on the platform before this step
+(`apps/coord/scripts/install.sh:601`, `apps/worker/scripts/install.sh:518`),
+so a macOS account relies on `newsyslog`, which `roost logs` already points
+at. The skip line says so by name.
+
+**`--dry-run`** resolves the whole plan, renders both definitions, prints them,
+and writes nothing. It runs to completion on a machine with nothing installed,
+and `tests/quickstart_dry_run.rs` proves the "writes nothing" half with a
+before-and-after tree snapshot rather than a return value.
+
+**stdout** is the answer: the rendered plan and both definitions under
+`--dry-run`; under a real run the `roost status` readout, then
+`Roost is installed and serving.` with the local origin, the remote origin (or
+`optional / unconfigured`), and `roost status` named as the health command.
+**stderr** is progress (`>> installing …`, `>> waiting for …`) and the remedy
+printed when the paired browser could not be opened. **The one-shot grant is
+never printed and never logged** — it is minted, used, and discarded.
+
+**Exit codes.** 0 on a completed install and on a completed dry run. 1 for a
+refusal: a front door that is not a usable HTTPS origin, an installed
+definition this build cannot parse, or a service that did not come up. 2 for a
+usage error. The deploy codes 5–9 are not raised here: this command calls the
+install path directly rather than over ssh, so the keeper-adoption fence does
+not apply.
+
+---
+
+## `roost join`
+
+```
+roost join
+```
+
+Installs and registers **this** machine's worker from a grant. Takes no
+arguments: everything it needs comes from the environment, because the command
+is pasted into a fresh shell on a machine that has no Roost in it.
+
+| Variable | Meaning |
+| --- | --- |
+| `ROOST_COORDINATOR_URL` | **Required.** The door the new worker dials. |
+| `ROOST_BOOTSTRAP_TOKEN` | **Required.** The one-shot grant `roost add-machine` printed. |
+| `ROOST_WORKER_LABEL` | Optional. The name the coordinator shows while this machine is still enrolling. |
+
+The two required variables are reported **one at a time**, in that order, and
+the refusal for each names where the other half comes from. A refusal that
+listed both would leave the operator guessing which one to go and get.
+
+**The web bundle is downloaded, not assumed.** A joined machine gets
+`roost-web.tar.gz` from the same release the running binary came from,
+checked against that release's own `.sha256`, installed into
+`<versions>/<ver>/web/`, and named in the installed definition. A **source
+build** has no published tag, so it installs no bundle and says so rather than
+refusing to join: enrollment is the one step a machine cannot do without, and a
+missing page is a smaller problem than a machine that is not in the fleet. A
+**failed download is a refusal** — silently joining with no page reports
+success for a machine that serves 404s.
+
+**Log rotation is installed here too**, by the same code as the first run and
+with the same platform rule: nothing on macOS, and a reported skip rather than
+silence on a box with no `logrotate`.
+
+**stdout** is four lines naming the installed service, the build SHA this
+machine is now identified by, the door it dials, the program path, and
+`roost status` as the health command. **stderr** is everything else, including
+the bundle and rotation lines above.
+
+**Exit codes.**
+
+| Situation | Code |
+| --- | --- |
+| installed and registered | 0 |
+| either required variable missing, or the door is not a usable origin | 1 |
+| a dirty tree, an unpushed commit, or a checkout that is not the release it claims to be | **7** (`IDENTITY_UNPROVED`) |
+
+7 and not 1 because the remedy is different: a wrapper that retries exit 1
+would retry a machine whose checkout cannot be proved, forever.
+
+---
+
+## `roost add-machine`
+
+```
+roost add-machine <macos|linux> [--label NAME]
+```
+
+Mints a one-shot worker grant against this machine's coordinator database and
+prints the one line the new machine runs.
+
+**The door comes from the installed coordinator definition, searched whole
+before the environment is searched at all** — `ROOST_COORDINATOR_URL`, then
+`ROOST_COORDINATOR_PUBLIC_URL`, then `ROOST_WEB_PUBLIC_URL`. Per-name
+interleaving would let a shell that exports the most specific name outrank an
+installed definition that declares a different one, which enrolls the next
+machine somewhere the operator did not choose and says nothing. The installed
+definition wins because it is the only place a front door survives; the
+environment answers only for a host with no install. A declared loopback door
+is refused rather than printed, because a worker dialing `127.0.0.1` from
+another machine reaches that machine's own loopback, which is nothing.
+
+**The printed command is a credential being pasted into a shell**, so every
+value it carries is one single-quoted word, whatever the value contains.
+`tests/add_machine_enrollment.rs` proves that by reading the printed line the
+way a POSIX shell reads it and unquoting it back to the hostile URL and label
+it was given.
+
+**stdout** is `Run this on the new <platform>:`, a blank line, the command, and
+a blank line — kept copy-pasteable, which is why the key-loading chatter goes
+to stderr instead. **stderr** carries that chatter and the line naming the
+coordinator the grant was enrolled against.
+
+**Exit codes.** 0 on a minted grant. 1 for a refusal: no declared door, a
+declared loopback or non-HTTPS door, no installed coordinator database to
+mint the grant against, or a `--label` carrying a control character. 2 for a
+usage error, including `windows` as the platform — v3 ships no Windows host
+install to enroll, and the refusal says so.
+
+---
+
+## `roost push`
+
+```
+roost push
+```
+
+Proves this checkout's commit, publishes it, holds the local coordinator onto
+it, and converges the whole fleet in **one journaled transaction with a single
+decision boundary**. It takes no arguments on purpose: a push with a flag is a
+push that was asked for something other than the whole fleet, and the fleet is
+the unit the transaction commits or does not.
+
+**The order is the safety property.** Nothing is mutated until the commit is
+proved and published, the registry's identity is whole, every participant is
+classified, and at least one of them is safe to touch. Then the local
+coordinator is held, and only then does the rollout converge. Every refusal
+above the hold leaves the fleet exactly where it was.
+
+**A failure before the durable decision rolls the whole fleet back**,
+exhaustively — the machine that failed and every machine already moved, then
+the coordinator, then a fresh proof of the prior commit. Past the decision
+there is no rollback, and a failure there is the one situation exit 8 exists
+for. A machine that cannot be converged *now* is **deferred, not failed**:
+not reachable, stale, or on a different commit, each with its own reason, and
+reported beside the success rather than counted as converged.
+
+**stdout** is the one line the operator asked for plus the deferred report.
+**stderr** is progress (`>> git push`, `>> stage the coordinator release …`,
+`>> converging N participants`). **Everything the fleet did is a `tracing`
+event**, never a line on either stream.
+
+**Exit codes.** The shared install/deploy codes, so one wrapper can read a
+refusal from `deploy`, `keeper-refresh` and `push` without knowing which it
+is talking to: **1** generic, **2** rejected invocation or SSH unreachable,
+**5** a keeper could not be adopted, **6** no coordinator URL and no prior
+install to reuse one from, **7** the build identity could not be proved,
+**8** the transaction reached its irreversible point and could not be settled
+(including a decision that could not be recorded at all), **9** a remote
+process or lease died mid-transaction.
+
+---
+
+## `roost api <verb>`
+
+```
+roost api <verb> [<arg>...] [options]
+```
+
+Introspects and drives a running coordinator without a browser. Every method is
+called through the **generated** Connect client; there is no hand-rolled method
+name anywhere in the verb table, because a hand-written path is a second answer
+to "what does the coordinator call this RPC" beside the one the coordinator
+serves.
+
+**Each verb parses its own arguments**, because the shapes disagree: `input`
+takes text that must not be read as an option, `ws-set-sessions` takes a list
+that runs until the next option, and `rename` takes a title an operator types
+as several words. One grammar cannot be given to all of them, and a grammar
+invented here would be a second answer beside the table in `api::verbs`.
+
+| Verb | Takes |
+| --- | --- |
+| `agents`, `sessions`, `workers`, `cells`, `tasks`, `workspaces` | filters only |
+| `agent-status <session>` | `--json` |
+| `agent-wait <session>` | `--until STATES --timeout DURATION` |
+| `agent-prompt` | the prompt, plus its proof flags |
+| `input` | `<text>` or `--stdin`, plus `--enter` |
+| `spawn`, `attach`, `assign`, `kill` | the session arguments each needs |
+| `rename` | `<id> <title…>` |
+| `ws-create`, `ws-update`, `ws-delete`, `ws-set-sessions` | the workspace id and its own flags |
+| `ui` | a sub-command, plus `--tab`, `--first`, `--off` |
+| `ui-state`, `tasks`, `task-enqueue`, `task-cancel`, `device-revoke-local` | see `api::verbs` |
+
+**`events` is removed**, and `cat` and `watch` are **tombstones**: they remain
+answerable, and answer with a refusal naming the replacement — `cells` for
+scrollback, and nothing for the live output stream — at **exit 1**. A stale
+script that still types them gets told what to use; a usage error about a name
+that used to work would only tell it the name is wrong.
+**stdout** is whatever the verb produces, and for the one verb that produces
+JSON (`agent-status --json`) it is the only thing on the stream. **stderr**
+carries diagnostics. The task queue's payload column collapses every run of
+whitespace to one space **without trimming**, so a pretty-printed document
+still occupies one row and a stored payload compares as it was written.
+
+**Exit codes.** 0 when the coordinator answered. 1 for a transport or
+coordinator failure. 2 for a usage error: no verb, an unknown verb, or a
+malformed argument — each prints the verb table.
+
+---
+
+## `roost dev`
+
+```
+roost dev
+```
+
+Runs the coordinator, the worker and the web dev server as three children of
+this process, for a checkout. Takes no arguments: everything it needs is
+resolved, and an argument here would be one whose value this command would have
+to keep in step with `roost coord` and `roost worker`.
+
+**SIGINT and SIGTERM fan out to all three.** The termination watch is installed
+**before the first child exists**, so a signal arriving during startup is caught
+instead of ending this process with children attached. A child that exits on
+its own stops the rest, because a dev stack with one server missing is a
+mistake someone would otherwise read as a hang.
+
+**Nothing is exported into this shell.** The dev coordinator's boot is resolved
+through the same resolver `roost coord` uses, against an environment overlaid
+in memory, because a variable that reached the loader by being exported would
+outlive the command and describe this machine's dev identity to whatever ran
+next in the same shell.
+
+**stdout and stderr are the children's.** This command prints no readout of its
+own: the three dev servers' output *is* the output, and a line of its own
+interleaved into a web dev server's build log helps nobody. Its own state
+transitions are `tracing` events. **Exit code 0** on a clean stop, whatever
+signal asked for it; 1 when the stack could not be started at all.
+
+## `roost import-v2`
+
+```
+roost import-v2 --from PATH [--dry-run]
+```
+
+Carries a v2 coordinator's account, paired devices and browser keys into this
+install, **once**, and is the only code in the tree that opens a v2 database.
+The coordinator never does: that is the invariant which keeps a v3 install from
+growing a migration path it would have to support forever.
+
+**It exists because browser keys are origin-bound.** A paired browser cannot
+be handed to another origin and expected to work, so the only way a browser
+survives the cutover is for its key to already be in the v3 database. This
+command puts it there, and the Stage 4 proof that a paired browser keeps
+working is the proof that it did.
+
+**It must run before anything creates the v3 database.**
+`ensure_self_hosted_tenant` creates a fresh account in an empty database, and a
+later import could not reconcile that — the account it carried across would be
+a second one, and the coordinator refuses two. The refusal below enforces the
+half an operator can get wrong.
+
+**What is copied**, from the v2 schema, and the column lists are column for
+column identical: `accounts`, `account_identities`, `organizations`,
+`organization_memberships`, `dashboards`, `dashboard_memberships`,
+`account_devices`, `app_settings`, and `authorized_key_revocations` in full.
+`authorized_keys` is copied **only where the fingerprint is one an account
+paired** — 26 of the 31 rows on the database this was written for. The other
+five are machine keys whose fingerprint is a `workers.fp`; importing them would
+enrol five authenticators that no human paired and no browser can present.
+
+**What is not copied, and the reason each is not:** `sessions` (terminal
+sessions bound to v2 workers, not authentication), `events` and `audit_log`
+(~1.5 M rows of the product being replaced), `workers`, `bootstrap_tokens`,
+`tasks`, `pair_requests`, `email_outbox`, `mcp_relays`, `workspaces`,
+`workspace_sessions`, `push_subscriptions`, the token and redemption tables,
+`feature_flags`, and `_migrations` — v3's own migrations have already run by
+the time any of this executes.
+
+**Mechanics, each of which is load-bearing.**
+
+- The source is ATTACHed **read-only** (`mode=ro` in the filename, not left to
+  file permissions) and read inside the same transaction that writes, so the
+  import sees one consistent snapshot of a file the v2 coordinator is still
+  writing to. A device paired during the read is either wholly in the snapshot
+  or wholly out of it.
+- Each table is copied by a single `INSERT … SELECT`, so SQLite performs the
+  copy rather than a reader and a writer marshalling values between two
+  representations of the same row.
+- The target is opened with **roost-coord's own** `db::open`, so v3's
+  migrations run and the file is the one the coordinator will read.
+- The column list is read from the **target's** `PRAGMA table_info`, so a
+  column v3 has and v2 lacks fails loudly inside a transaction that rolls back,
+  rather than a row that quietly loses a field.
+- After the commit, the coordinator's own `ensure_self_hosted_tenant` runs
+  against the target and must return the account the import carried. That call
+  is the validator, and it is why the order above is not negotiable.
+
+**A re-run is a refresh, not a merge.** A target holding exactly one account
+that is not the one being imported is **refused by name** — two accounts in
+one coordinator is a state v3 does not have, and the repair is for the
+operator to say which install the machine is. Otherwise new
+`account_devices`/`authorized_keys` rows are added, new revocations are
+applied, the rows a revocation covers are deleted, and `app_settings` is left
+alone where v3 already has a row — so an operator who has already changed the
+Deepgram key or the VAPID pair in v3 does not have it reverted by re-running an
+import. This is how the production flip picks up devices paired on v2 during
+the cutover window.
+
+**stdout** is one line per table, `<table>: <n> copied, <m> already present`,
+under a first line saying whether this was a first import or a refresh. Those
+are the numbers a real run produced, not an estimate: a run inserts exactly the
+rows the target did not have. **stderr** is nothing; every failure is the one
+JSON failure line described under [The failure line](#the-failure-line).
+
+**Exit codes.**
+
+| Situation | Code |
+| --- | --- |
+| imported, or dry-run reported | 0 |
+| `--from` is not a file; the coordinator is running; the target belongs to another install; the target is not a single-account install | 2 |
+| the source has no account, or more than one; the source could not be attached; a statement failed; the imported topology is not a valid self-hosted install | 1 |
+
+---
+
+## `roost update`
+
+```
+roost update
+```
+
+Replaces **this binary** with the latest published v3 release, atomically, on
+this machine. It takes no arguments: what to install, from where, and whether
+that is safe here are all decisions, not configuration.
+
+**The order is the safety property.** An interrupted update is resolved
+**first**, because a machine that lost power mid-swap already has a binary in a
+state this run must account for before it makes a second change to it. Then the
+release is resolved, the candidate is downloaded and proved against the
+release's published digest, the running keeper is admitted, and only then does
+the rename happen.
+
+**Only a `v3.` tag is installable, and pre-releases count.** This repository
+publishes both series from one tag namespace, so "the newest release" is today
+a TypeScript `roost` — and a digest-verified download of it passes every check
+this command makes while replacing a Rust binary with a Bun one that answers
+none of the commands in this document. Resolution is the GitHub releases
+**listing** filtered to `v3.`, drafts excluded, and the download names the tag
+it chose: a `latest/download` URL would fetch whatever series published last.
+Until `v3.0.0` exists the fleet runs `v3.0.0-rc.N`, so a pre-release is the
+answer and a final release is not a filter.
+
+**The web bundle is swapped with the binaries.** After the rename, the
+release's `roost-web.tar.gz` is downloaded and checked against the same
+release's digest, and unpacked into the release directory the replaced binary
+lives in. Both installed definitions already point at that directory, so
+neither is rewritten. A swap that moved only the binary would leave a machine
+running the new coordinator over the old page — an index referencing asset
+hashes the new build does not ship, which loads its shell and then fails every
+request for its code.
+
+A binary **outside a release tree** — a tarball dropped in `~/bin`, which is
+how a machine with no version directory at all was installed — has no bundle
+directory to put one in. That is reported by name rather than worked around,
+because the alternative is writing `~/web` and leaving the operator to find it.
+A failed bundle download is likewise reported and does not fail the update: the
+swap already settled, the page is a second problem, and a refusal here would
+report a completed update as failed and send the operator to re-run a swap that
+has already happened.
+
+**`ROOST_RELEASE_BASE_URL`** replaces the download origin for a mirror, exactly
+as the deploy paths use it. A listing with no `v3.` tag in it is
+`no published release to update to` on stdout and exit 0 — the same sentence a
+v2-only repository produces, and not a v2 download.
+
+**This command replaces `roost` and nothing else.** It does not write
+`roost-keeper`, signal a keeper, or restart a worker, so a running keeper
+holding live PTYs is not disturbed by the swap. What the keeper gate decides is
+whether the CANDIDATE's keeper contract is one the running keeper cannot live
+under — and the candidate is interrogated **by running it**, never by asking
+this process, because a contract read from the binary that happens to be
+installed is a contract for the wrong program.
+
+**stdout** is the answer: `>> updated to <version>`, the line saying the
+running services keep the old binary until they restart, and one line about
+the keeper — preserved with its worker fingerprint, or `no keeper was running
+here` with the reason. `>> already the latest release (<tag>)` when there is
+nothing to do. **stderr** carries nothing: every failure is the one JSON
+failure line described under [The failure line](#the-failure-line).
+
+**Exit codes.** 0 for updated, already latest, or no published release. 1 for
+every refusal, and each names its remedy: a source build refuses to replace
+itself; an interrupted update that was rolled back is **not** retried
+automatically, because re-running the command is a decision; Windows is
+refused by name. **2** for a usage error.
+
+---
+
+## The subcommand count is 26, and three numbers are each correct
+
+`crates/roost-cli/src/lib.rs`'s `Command` enum has **26 variants**, and both
+`name()` and `dispatch()` answer all 26 — checked arm by arm, so there is no
+orphan variant and no arm without one. 21 are visible; 5 are hidden
+(`__keeper-contract` and the four `__remote-*`).
+
+- **21** is v2's operator-and-daemon surface: v2's `main.ts` carried 23
+  subcommand keys, minus 2 deliberately dropped (`cutover`,
+  `__windows-updater-broker`). v3 adds 4 v2 did not have — the `__remote-*`.
+- **26** is what the v3 dispatcher actually answers, and it is what
+  `tests/command_tree_shape.rs` asserts, because that file's own doc says its
+  list is *"every subcommand the crate's dispatcher answers"* and it exists
+  precisely because a deploy's journal addresses `__keeper-contract` by string
+  and a deploy addresses the `__remote-*` over ssh. **Asserting 21 would drop
+  exactly the five commands the file exists to protect** — and it dropped one:
+  `roost update` had a complete implementation and no `Command` variant, so the
+  shape test reported a full surface while nothing could invoke the command.
+- **26** is also the number of subcommands *this document* names under its own
+  `` ## `roost …` `` headings, in 24 sections — the three server modes share
+  one because they share an output contract, and a heading may carry its
+  argument (`roost deploy <host>`). The same test asserts the mapping is total
+  in both directions against `SUBCOMMANDS`: every command named by exactly one
+  section, and every section naming at least one command. A command in the tree
+  with no section, or a section for a command this build does not answer, is a
+  contract that has drifted from the product.
+
+Three correct numbers about three different objects, which is why the count
+disagreed across briefs, the test, and this contract. **26 is the answer.**
 
 ---
 
 ## The target side: `roost __remote-*`
 
-Four hidden subcommands, all `#[command(hide = true)]`, all taking **no
-arguments**, all reading and writing **standard input and stdout**. They are
-what `roost deploy <host>` runs *on the target*, over ssh. They appear in no
-other section of this document, which is a gap: a machine that has never run a
-deploy cannot tell from the contract that this is what a deploy invokes on it.
+Four hidden subcommands, all `#[command(hide = true)]`, all reading and
+writing **standard input and stdout**. They are what `roost deploy <host>` runs
+*on the target*, over ssh, and they are addressed by string — a deploy's
+manifest names them, so a rename breaks a deploy rather than a person. They are
+each specified below because a machine that has never run a deploy cannot tell
+from this document that this is what a deploy invokes on it, and an operator
+who types one by hand is running a machine mutation outside the transaction
+that exists to make it safe.
 
-| Command | What it does on the target |
-|---|---|
-| `roost __remote-facts` | what this machine has installed — the facts probe, read from the process environment for the command that spawned it |
-| `roost __remote-evidence` | may a release be staged here? one command plus the markers that answer whether a staged release has anything to destroy |
-| `roost __remote-transaction` | take the machine transaction, say so, and **hold it until stdin closes** |
-| `roost __remote-apply` | install the release the manifest on stdin names, and print the report the deploying box reads |
+## Deliberately dropped from v2
 
-**The wait in `__remote-transaction` is the mechanism, not an artefact of it.**
-Closing this process's input is how the holder says it is done, and **the kernel
-releasing the file lock** is how the machine notices when the holder dies
-without saying anything. So a deploy that loses its ssh connection does not
-leave a machine locked — the lock dies with the process. That is the whole
-reason the command is a process that waits rather than a flag with a timeout,
-and it is not visible from the name.
+Two of v2's 23 command keys are **not** in v3, and their absence is a decision
+rather than an omission. A missing subcommand is a usage error, not a stub.
+
+| Command | v2 arguments | v2 exit codes | Why v3 does not have it |
+| --- | --- | --- | --- |
+| `roost cutover` | `--force` | 2, 3 | It migrated `coordinator.db` → `coordinator_v2.db`. v3 is a fresh install with a new data directory (`RoostCoordinatorV3`) and its own database name, so there is no v1 database to migrate and no code path that could open one. |
+| `roost __windows-updater-broker` | none | — | v3 ships Linux and macOS only. The broker existed to service a Windows self-update request from a privileged helper; with no Windows host install there is nothing to broker. |
+
+---
+
+## `roost __remote-facts`
+
+```
+roost __remote-facts
+```
+
+Reports what this machine has installed, for the deploy that asked.
+
+**Arguments: none.** The facts are read from the **process environment of the
+command that spawned this one**, not from a scan of the machine: a probe that
+looked around on its own would report whatever it found first, and the deploying
+box's composed environment is the only statement of intent there is.
+
+**stdout** is the encoded facts document behind its own prefix, and nothing
+else. **stderr** is the one JSON failure line. **Exit codes.** 0 when the
+facts were read and encoded; 1 when the platform is not one this product
+installs on, or the document could not be encoded.
+
+## `roost __remote-evidence`
+
+```
+roost __remote-evidence
+```
+
+Answers one question: may a release be staged on this machine, and what would
+staging it destroy?
+
+**Arguments: none.** It runs one command — the service manager's own status for
+this machine's worker label — and reports the markers that answer whether a
+staged release has anything to destroy.
+
+**stdout is the command's own output, plus the markers**, and that is
+deliberate: a deploy parses the markers out of what the service manager
+reported, and capturing the run would mean inventing a second rendering of it.
+**Exit codes.** 0 when the evidence was gathered; 1 when the service label or
+the definition path could not be resolved for this platform.
+
+## `roost __remote-transaction`
+
+```
+roost __remote-transaction --kind KIND
+```
+
+Takes **the machine transaction** — the lock that makes a deploy the only
+thing mutating this machine — says so, and then **holds it until stdin closes**.
+
+`--kind KIND` records what the holder is doing, so the next operator reading
+the lock file knows whether a deploy or a recovery held it.
+
+**The wait is the mechanism, not an artefact of it.** Closing this process's
+input is how the holder says it is done, and **the kernel releasing the file
+lock** is how the machine notices when the holder dies without saying anything.
+So a deploy that loses its ssh connection does not leave a machine locked — the
+lock dies with the process. That is the whole reason the command is a process
+that waits rather than a flag with a timeout, and it is not visible from the
+name.
 
 It blocks on a **blocking thread** rather than through tokio's stdin, which is
 behind a feature this crate does not enable: a transaction holder is a process
 whose only job is to wait, and the thread it waits on is idle by construction.
 
-### The subcommand count is 25, and three different numbers are each correct
+**stdout** says the transaction was taken, naming its kind. **Exit codes.** 0
+when it was taken and then released; 1 when the lock is already held, naming
+the holder; 2 for an unknown `--kind`.
 
-`crates/roost-cli/src/lib.rs`'s `Command` enum has **25 variants**, and both
-`name()` and `dispatch()` answer all 25 — checked arm by arm, so there is no
-orphan variant and no arm without one. 20 are visible; 5 are hidden
-(`__keeper-contract` and these four).
+## `roost __remote-apply`
 
-- **21** is v2's operator-and-daemon surface: v2's `main.ts` carried 23
-  subcommand keys, minus 2 deliberately dropped (`cutover`,
-  `__windows-updater-broker`). v3 adds 4 v2 did not have — these four.
-- **25** is what the v3 dispatcher actually answers, and it is what
-  `tests/command_tree_shape.rs` asserts, because that file's own doc says its
-  list is *"every subcommand the crate's dispatcher answers"* and it exists
-  precisely because a deploy's journal addresses `__keeper-contract` by string
-  and a deploy addresses the `__remote-*` over ssh. **Asserting 21 would drop
-  exactly the four commands the file exists to protect.**
-- **14 + 7 = 21** is what *this document* covered before this section: 14
->   under its own `## roost …` headings and 7 in the "Not in the tree yet"
->   table.
+```
+roost __remote-apply
+```
 
-Three correct numbers about three different objects, which is why the count
-disagreed across briefs, the test, and this contract. **25 is the answer.**
+Installs the release the **manifest on standard input** names, and prints the
+report the deploying box reads.
 
-## Not in the tree yet
+**Arguments: none** — everything it acts on arrives on stdin, because a
+mutation this deep must be described by the transaction that took the lock, not
+by argv a second deploy could have written differently.
 
-These are part of the Phase 6 command list and are **not implemented in this
-slice**. They are recorded here so whoever implements them has the v2 contract
-to port, and so nobody discovers their absence at runtime. Nothing in the tree
-pretends to be one of them: a missing subcommand is a usage error, not a stub.
-
-`roost deploy <host>` and `roost keeper-refresh <host>` **were** on this list and
-have moved above, with their argument table, their guard map and their observed
-exit codes. They are the two commands that change another machine, so they are
-documented next to the deploy guards rather than in a list of what is missing.
-
-| Command | v2 arguments | v2 exit codes | Notes |
-| --- | --- | --- | --- |
-| `roost quickstart` | `--coordinator-url URL`, `--dry-run` | 1, plus the deploy codes it calls | Installs coord + worker, waits for health, prints a status readout, opens a paired browser. Never prints or logs the one-shot grant. |
-| `roost push` | none | 1, 2, 5, 7, 8 | One journaled fleet transaction with a single decision boundary; rolls the whole fleet back on any failure before the finalizing checkpoint. |
-| `roost add-machine` | `--platform macos\|linux`, `--label` | 1 | Mints a one-shot worker token and prints a copy-pasteable enrollment command. The URL comes from the **installed coordinator definition**, never from derivation. |
-| `roost join` | none; needs `ROOST_COORDINATOR_URL` + `ROOST_BOOTSTRAP_TOKEN` | 7 on a dirty tree | Installs and registers this machine's worker. |
-| `roost update` | none | 1 | POSIX atomic self-replace. |
-| `roost api <verb>` | `sessions`, `agents`, `agent-status <session> [--json]`, `agent-wait <session> --until STATES --timeout DURATION`, `agent-prompt`, `input`, `ui`, `ui-state`, `ws-*`, `tasks`, `cells`, `workers`, `workspaces`, … | 1, 2 | Must be built on the **generated** Connect types, never a hand-rolled method name. |
-| `roost dev` | none | 0 | Three dev servers with SIGINT fan-out. |
-| `roost cutover` | `--force` | 2, 3 | **Deliberately dropped.** It migrated `coordinator.db` → `coordinator_v2.db`, and v3 is a fresh install that must never open a v2 database. |
-| `roost __windows-updater-broker` | none | — | **Deliberately dropped.** v3 ships Linux and macOS only. |
+**stdout** is the encoded report behind its own prefix. **Exit code 0 for both
+a refused apply and a rolled-back one**, because the report IS the answer and
+the exit code is the operator's; a caller that treated a non-zero exit as "no
+report" would have to guess at what went wrong. A failure to read the manifest
+or encode the report is 1.
 
 ---
 

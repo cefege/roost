@@ -1,0 +1,256 @@
+name: release
+
+# Triggered by a v3 tag. Every asset name below is a value from
+# `crates/roost-cli/src/update/assets.rs` -- `release_asset_name` for the roost
+# binary, `keeper_release_asset_name` for the keeper beside it, and
+# `WEB_ASSET_NAME` for the page. They are NOT derived from the target triple:
+# macOS arm64 publishes an unsuffixed `roost`, so a workflow that named assets
+# after triples would publish `roost-aarch64-apple-darwin` and 404 on the one
+# platform with the most machines. `join.sh:63-75` resolves the same four names,
+# and a machine that joins by script and a machine that later runs `roost update`
+# must end up on the same release.
+#
+# `crates/roost-cli/tests/release_asset_names.rs` fails if the names here stop
+# matching that table, or if this file's verify job stops running ci.yml's
+# commands. It checks the STRINGS. It cannot check that a `cp` path is right,
+# which is why the staging step below reads `target/<triple>/release` -- the
+# layout cargo produces when `--target` is passed, and the layout it does not
+# produce without it.
+on:
+  push:
+    tags: ['v3.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build and publish (e.g. v3.0.0-rc.1)'
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The gate, verbatim from ci.yml's `rust` job. A release that skips a step the
+  # merge gate runs can ship what the merge gate would have refused, and a
+  # release that runs a step the merge gate does not is the same defect wearing
+  # a different hat. Copy, never retype.
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+      - name: fmt
+        run: cargo xtask fmt
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: test
+        run: cargo test --workspace
+      - name: repo invariants
+        run: cargo xtask lint
+      - name: vendored terminal core
+        run: cargo test --manifest-path third_party/alacritty_terminal/Cargo.toml
+      - name: wasm32 build
+        run: cargo build -p roost-client-core -p roost-protocol -p roost-web -p roost-web-terminal --target wasm32-unknown-unknown
+
+  # Phase 2/3/6 proof against the RELEASE binaries, not a local build. This is
+  # the only job that exercises what a fleet machine will download.
+  smoke:
+    name: release binaries against the terminal oracle
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - name: build the binaries the smoke run will drive
+        run: cargo build --release -p roost-cli -p roost-keeper
+      - name: build the web bundle
+        run: bun run --cwd apps/web build
+      - name: terminal
+        env:
+          ROOST_SMOKE_COORD_EXECUTABLE: ${{ github.workspace }}/target/release/roost
+          ROOST_SMOKE_WORKER_EXECUTABLE: ${{ github.workspace }}/target/release/roost
+        run: bun run test:terminal
+      - name: terminal artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-smoke-artifacts
+          path: |
+            playwright-report/
+            test-results/
+
+  build:
+    name: ${{ matrix.roost_asset }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            roost_asset: roost-linux-x64
+            keeper_asset: roost-keeper-linux-x64
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            roost_asset: roost-linux-arm64
+            keeper_asset: roost-keeper-linux-arm64
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            roost_asset: roost
+            keeper_asset: roost-keeper
+          # Cross-compiled: macos-15 is arm64, so this row needs the target
+          # installed explicitly. rust-toolchain.toml only adds wasm32.
+          - runner: macos-15
+            target: x86_64-apple-darwin
+            roost_asset: roost-darwin-x64
+            keeper_asset: roost-keeper-darwin-x64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+      - name: install the target
+        run: rustup target add ${{ matrix.target }}
+      - name: build
+        run: cargo build --release -p roost-cli -p roost-keeper --target ${{ matrix.target }}
+      - name: stage under the published names, with a digest beside each
+        shell: bash
+        run: |
+          set -euo pipefail
+          # `--target` puts artifacts in target/<triple>/release, NOT
+          # target/release/<triple>. The latter is the path a build without
+          # --target produces, and it is empty here.
+          out="target/${{ matrix.target }}/release"
+          test -x "$out/roost"       || { echo "::error::$out/roost missing"; exit 1; }
+          test -x "$out/roost-keeper" || { echo "::error::$out/roost-keeper missing"; exit 1; }
+          mkdir -p dist
+          cp "$out/roost"        "dist/${{ matrix.roost_asset }}"
+          cp "$out/roost-keeper" "dist/${{ matrix.keeper_asset }}"
+          chmod +x "dist/${{ matrix.roost_asset }}" "dist/${{ matrix.keeper_asset }}"
+          # macOS runners ship `shasum`, not `sha256sum`; join.sh:90-92 falls
+          # back for the same reason. The sidecar FORMAT is the standard
+          # `<hash>  <name>`, which join.sh:122 parses with `cut -d' ' -f1`.
+          for asset in "${{ matrix.roost_asset }}" "${{ matrix.keeper_asset }}"; do
+            if command -v sha256sum >/dev/null 2>&1; then
+              ( cd dist && sha256sum "$asset" > "$asset.sha256" )
+            else
+              ( cd dist && shasum -a 256 "$asset" > "$asset.sha256" )
+            fi
+            echo "published $asset $(cut -d' ' -f1 "dist/$asset.sha256")"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-bin-${{ matrix.target }}
+          path: dist/
+
+  # ONE page serves all four targets: it is the same build, differing only in
+  # which binaries serve it. A per-platform bundle would be four chances to
+  # invent a name the installer does not fetch.
+  web:
+    name: web bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      # Until Stage 5.5 this packages apps/web. That one step is what changes
+      # to `crates/roost-web/dist`; nothing else in this file moves.
+      - name: build the production page
+        run: bun run --cwd apps/web build
+      - name: the bundle must carry no smoke backdoor
+        run: |
+          set -euo pipefail
+          # `window.__smoke` is only compiled in when VITE_ROOST_SMOKE=1, so a
+          # bundle containing the name was built by the wrong command. This is a
+          # hard failure: a production page with a test backdoor in it is a page
+          # anyone can drive.
+          if grep -rl '__smoke' apps/web/dist; then
+            echo "::error::apps/web/dist contains __smoke; this is not a production bundle"
+            exit 1
+          fi
+          mkdir -p dist
+          tar -czf dist/roost-web.tar.gz -C apps/web dist
+          ( cd dist && sha256sum roost-web.tar.gz > roost-web.tar.gz.sha256 )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-web
+          path: dist/
+
+  publish:
+    name: publish
+    runs-on: ubuntu-latest
+    needs: [smoke, build, web]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-bin-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-web
+          path: dist
+      - name: every asset the installer resolves is here, with its digest
+        run: |
+          set -euo pipefail
+          missing=0
+          for a in roost roost-linux-x64 roost-linux-arm64 roost-darwin-x64 \
+                   roost-keeper roost-keeper-linux-x64 roost-keeper-linux-arm64 \
+                   roost-keeper-darwin-x64 roost-web.tar.gz; do
+            if [ ! -f "dist/$a" ]; then
+              echo "::error::dist/$a was never published"
+              missing=1
+              continue
+            fi
+            if [ ! -f "dist/$a.sha256" ]; then
+              # The installer refuses an unverified asset, so an asset without a
+              # sidecar is not a release that half works -- it is a release
+              # where one platform's machines cannot install at all.
+              echo "::error::dist/$a.sha256 missing; the installer refuses an unverified asset"
+              missing=1
+              continue
+            fi
+            echo "ok  $a  $(cut -d' ' -f1 "dist/$a.sha256")"
+          done
+          test "$missing" -eq 0
+          echo "all nine assets present with digests"
+      - name: create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # This job never checks the repository out, so `gh` has no git remote
+          # to infer from and fails with "not a git repository" without this.
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # `--prerelease` keeps GitHub's `latest` OFF an rc, so a link that
+          # resolves "latest" never lands a candidate. It does NOT stop
+          # `roost update`: `update/release.rs:56-58` excludes drafts and
+          # deliberately INCLUDES pre-releases, because the fleet runs
+          # `v3.0.0-rc.N` until `v3.0.0` exists and a join that cannot find an
+          # rc is a join that cannot find a release.
+          #
+          # `--verify-tag` refuses to create the tag it was handed. Without it a
+          # mistyped `workflow_dispatch` input mints a new tag on the default
+          # branch, and the release it publishes points at a commit nothing ever
+          # gated -- the one outcome this pipeline exists to make impossible.
+          if [[ "$TAG" == *-rc* ]]; then
+            gh release create "$TAG" dist/* --verify-tag --title "$TAG" \
+              --generate-notes --prerelease
+          else
+            gh release create "$TAG" dist/* --verify-tag --title "$TAG" \
+              --generate-notes
+          fi
+          echo "published $TAG"

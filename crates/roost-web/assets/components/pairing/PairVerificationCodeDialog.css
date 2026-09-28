@@ -1,0 +1,15 @@
+/* Approver code dialog presentation (PairVerificationCodeDialog.tsx).
+   The dialog portals out of whichever page opened it, so its layout rules
+   ship with the component rather than a page stylesheet. */
+
+.pair-code-dialog__code {
+  display: block;
+  margin: 0;
+  color: var(--text-hi);
+  text-align: center;
+  user-select: text;
+}
+
+.pair-code-dialog__notice {
+  margin-top: var(--md-space-3);
+}

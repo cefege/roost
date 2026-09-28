@@ -11,6 +11,7 @@ mod lint_table;
 mod ratchet;
 mod source_tree;
 mod stdout_rule;
+mod unreached_module;
 mod violation;
 
 use std::process::ExitCode;
@@ -84,6 +85,7 @@ fn lint(arguments: &LintArgs) -> ExitCode {
         crate_dag::run(),
         stdout_rule::run(),
         lint_table::run(),
+        unreached_module::run(),
         fixture_allow::run(),
     ] {
         checked += outcome.checked;

@@ -41,6 +41,7 @@ pub fn handle_terminal_input(
             return;
         }
     };
+    store.note_change();
     // The route is the generation the session's replica is fenced to. That is the
     // generation whose grid the keystroke belongs to, so it is the one whose
     // authority has to accept the write.
@@ -93,6 +94,7 @@ pub fn handle_input_result(
     outcome: &InputOutcome,
 ) {
     if store.input.settle(input_seq, outcome.clone()) {
+        store.note_change();
         tracing::info!(
             target: "terminal",
             session_id,
@@ -115,6 +117,7 @@ pub fn settle_as_unsent(store: &mut Store, session_id: &str, input_seq: u64, rea
             reason: reason.to_string(),
         },
     );
+    store.note_change();
     tracing::info!(
         target: "terminal",
         session_id,
@@ -134,6 +137,7 @@ pub fn retire_route(
     out: &mut Vec<Effect>,
 ) {
     store.routes.retire_route(session_id, token);
+    store.note_change();
 
     // `retire_token` settles only what THAT carrier had been sent. A batch on
     // another route is that route's business and is left alone — retiring one

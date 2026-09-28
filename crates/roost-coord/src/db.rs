@@ -5,6 +5,16 @@
 //! never opens a connection, so the pragma set and the migration are stated in
 //! exactly one place.
 //!
+//! **THE COORDINATOR NEVER OPENS A v2 DATABASE.** It has its own data
+//! directory, its own database name, and its own squashed migration, and there
+//! is no code path by which it could read a file the previous product wrote.
+//! The one exception is deliberate and lives in another crate: `roost
+//! import-v2` ATTACHes a v2 database read-only, once, before this install's
+//! first boot, to carry paired browsers across a cutover. It is an operator
+//! command, not a boot path, and a coordinator that has started has nothing
+//! left to import — which is why `roost import-v2` refuses to run while one is
+//! running.
+//!
 //! ONE CONNECTION, NOT A POOL. v2 opens a single `bun:sqlite` handle and Kysely
 //! reads and writes through it (`apps/coord/src/db/connection.ts:26-49`);
 //! concurrency comes from WAL plus a busy timeout plus the in-process write gate.

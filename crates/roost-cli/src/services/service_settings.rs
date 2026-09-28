@@ -68,8 +68,8 @@ fn coordinator_settings(
         config.log_dir.display().to_string(),
     );
     settings.insert(ENV_COORDINATOR_BIND.to_string(), config.bind.clone());
-    settings.insert(ENV_TRUST_PROXY.to_string(), config.trust_proxy.to_string());
-    settings.insert(ENV_RELAXED_CSP.to_string(), config.relaxed_csp.to_string());
+    settings.insert(ENV_TRUST_PROXY.to_string(), flag(config.trust_proxy));
+    settings.insert(ENV_RELAXED_CSP.to_string(), flag(config.relaxed_csp));
     settings.insert(
         ENV_COORDINATOR_JWT_MAX_AGE_SECS.to_string(),
         config.jwt_max_age_secs.to_string(),
@@ -80,7 +80,7 @@ fn coordinator_settings(
     );
     settings.insert(
         ENV_TERMINAL_PEER_ENABLED.to_string(),
-        config.terminal_peer_enabled.to_string(),
+        flag(config.terminal_peer_enabled),
     );
     for (name, value) in [
         (ENV_WEB_DIST_PATH, optional_path(&config.web_dist_path)),
@@ -89,13 +89,26 @@ fn coordinator_settings(
             optional_text(&config.public_url),
         ),
         (ENV_WEB_PUBLIC_URL, optional_text(&config.web_public_url)),
-        (
-            ENV_CF_ACCESS_TEAM_DOMAIN,
-            optional_text(&config.cf_access_team_domain),
-        ),
-        (ENV_CF_ACCESS_AUD, optional_text(&config.cf_access_aud)),
     ] {
         settings.insert(name.to_string(), value);
+    }
+    // CF Access is omitted rather than written blank, and the difference is
+    // not cosmetic. `normalize_https_origin` reads a blank public URL as "no
+    // front door", which is what makes writing it the way a cleared value is
+    // cleared; the CF Access validator instead refuses a blank team domain
+    // outright, so a definition that carries `ROOST_CF_ACCESS_TEAM_DOMAIN=`
+    // is a coordinator that will not boot. v2 never wrote either key, so
+    // omitting one nothing configured is also the parity answer.
+    for (name, value) in [
+        (
+            ENV_CF_ACCESS_TEAM_DOMAIN,
+            config.cf_access_team_domain.as_deref(),
+        ),
+        (ENV_CF_ACCESS_AUD, config.cf_access_aud.as_deref()),
+    ] {
+        if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
+            settings.insert(name.to_string(), value.to_string());
+        }
     }
     for (name, values) in [
         (ENV_CORS_ALLOWED_ORIGINS, &config.cors_allowed_origins),
@@ -147,6 +160,19 @@ fn worker_settings(
         }
     }
     settings
+}
+
+/// A boolean as the coordinator's own configuration reads one.
+///
+/// `1` and `0`, never `true` and `false`. The loader's `is_enabled` compares
+/// against `"1"` exactly, so a definition carrying `true` resolves to
+/// DISABLED — a coordinator installed behind a front door that then refuses to
+/// believe the proxy in front of it. `parse_terminal_peer_enabled` is stricter
+/// still and refuses anything but `0` and `1`, so a definition carrying `true`
+/// does not boot at all. Writing Rust's own spelling here is how an install
+/// silently installs the opposite of the policy it resolved.
+fn flag(value: bool) -> String {
+    if value { "1" } else { "0" }.to_string()
 }
 
 fn optional_text(value: &Option<String>) -> String {

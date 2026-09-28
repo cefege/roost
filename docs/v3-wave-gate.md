@@ -2857,18 +2857,30 @@ aimed at the `lib.rs` spelling would compile identically and change nothing. The
 `emitter.rs:29` spelling is given because that is where the value is defined;
 the re-export is not an alternative site.
 
-## Web track (U-1c) — four rows, all RECONSTRUCTED, none run
+## Web track (U-1c) — four rows, all RUN, all four BITE
 
-Sent as written by `WebLeadU2` before the 33 failures are triaged. **Every
-must-fail claim below is a pre-registered prediction, not a result**, and the
-rows are labelled `RECONSTRUCTED against the tree as it stands, not re-verified`.
+Run at `v3-web@93063caf`, the first time these rows have ever been executed
+against a green baseline. **Two of them were previously unrunnable**, because
+the tests they name were themselves red; that is now fixed, and it is the same
+distinction as the worker row above — *unrunnable* is not *failing*.
 
-| # | Property | Edit (`file:line`) | Must fail | Must still pass |
+**The standing warning elsewhere in this file that one of these rows
+historically did not bite does NOT apply to this tree. None did.**
+
+| # | Property | Edit | Result | Named control |
 |---|---|---|---|---|
-| M-U1 | `MemorySecureKeyStore::new()` stores and signs; the two degraded stores are reachable only by asking | `client/auth/memory_keystore.rs:71-81` — delete the hand-written `impl Default` body | `auth_device_key::a_generated_key_is_non_extractable_and_nothing_the_store_hands_back_carries_its_bytes` — panics on `PersistenceUnavailable { detail: "this store keeps keys in memory only" }`, the exact signature the old derive produced | `auth_first_boot_race::a_signing_failure_still_dispatches_the_request_unauthenticated` — needs `with_failing_signing` to be a *distinct* store from `new()`. **This is the row that separates the two flags**: a default of `true` for both plus two opt-out constructors is the only shape where that test means anything |
-| M-U2 | A status whose completion predates this profile never reads `done`; an identified occupant's first completion does | `client/agents/status_policy.rs:240` — `EVERY_COMPLETION_ALREADY_SEEN` → `0` | `agent_status_policy::a_legacy_status_never_reads_done_because_it_could_not_have_been_missed` — `left: Done, right: Idle` | `::an_unseen_completion_of_an_identified_occupant_reads_done_and_a_seen_one_reads_idle` — the other arm of the same `unwrap_or_else`, which goes `Done` only because the identified floor stayed at `-1` |
-| M-U3 | A child of home is `~/src`; one `..` from there is `~`, not `/` | `store/browse_paths.rs:60-62` — restore `\|\| dir == BROWSE_HOME` to the early return in `child` | `browse_machine_scope::the_home_sentinel_is_a_path_browse_can_start_on_and_up_cannot_leave` — `left: "/", right: "~"` at the `cwd()` assertion | `::a_machines_recents_never_include_another_machines_even_at_the_same_path` — its guard assertion fires first; if the two lists come back equal the row did not bite and the guard is doing its job |
-| M-U4 | A stored legacy spelling is rewritten to one of the four on the next write, and the revision moves only when the *mode* moved | `store/prefs/predict.rs:75-77` — delete the `already_canonical` term so the early return fires on `!changed` alone | `prefs_persistence::the_two_spellings_an_earlier_build_wrote_still_mean_something` — `left: Some("force"), right: Some("always")` | `::preferences_round_trip_through_storage` — the same `PREDICT_MODE_KEY` normaliser reached by a different route |
+| M-U1 | `MemorySecureKeyStore::new()` stores and signs; the two degraded stores are reachable only by asking | `memory_keystore.rs:71-81` — the hand-written `Default` body set both flags false, the shape a derive would produce | **BITES, WIDER THAN PRE-REGISTERED: 9 tests failed**, including the predicted `a_generated_key_is_non_extractable_and_nothing_the_store_hands_back_carries_its_bytes` | **UNRUN.** `auth_first_boot_race::a_signing_failure_still_dispatches_the_request_unauthenticated` lives in `connect_interceptor`, which was not run. The control is not claimed |
+| M-U2 | A status whose completion predates this profile never reads `done`; an identified occupant's first completion does | `status_policy.rs:212` — `EVERY_COMPLETION_ALREADY_SEEN` `i64::MAX` → `0` | **BITES as predicted**: 11 → 10 passed, 0 → 1 failed. `a_legacy_status_never_reads_done_because_it_could_not_have_been_missed` FAILED | passed — the other arm of the same `unwrap_or_else`, which goes `Done` only because the identified floor stayed at `-1` |
+| M-U3 | A child of home is `~/src`; one `..` from there is `~`, not `/` | `browse_paths.rs:60` — restore `\|\| dir == BROWSE_HOME` to `child()`'s early return | **BITES**: 8 → 7 passed, 0 → 1 failed. `the_home_sentinel_is_a_path_browse_can_start_on_and_up_cannot_leave` FAILED | passed — and it had been passing for the wrong reason: the **inverted guard** was what stopped it |
+| M-U4 | A stored legacy spelling is rewritten to one of the four on the next write, and the revision moves only when the *mode* moved | `predict.rs:75-77` — delete the `already_canonical` term so the early return fires on `!changed` alone | **BITES**: 8 → 7 passed, 0 → 1 failed. `the_two_spellings_an_earlier_build_wrote_still_mean_something` FAILED | passed — the same `PREDICT_MODE_KEY` normaliser reached by a different route |
+
+**M-U1 biting wider than pre-registered is the finding, not the shortfall.** A
+row registers one edit and one expected failure; getting nine means the edit sits
+under more behaviour than the row's author knew, which is a good result for the
+gate and a correction to the row. **M-U3's control passing for the wrong reason is
+the other one worth keeping**: a control that is green because the defect under
+test has inverted its own guard proves the control works and proves nothing about
+the property, and only running the row told you which of the two you had.
 
 **Rows deliberately NOT written, and the reason is the point.** The seven
 test-side corrections this wave made — the rollup expecting `Working` where v2
@@ -3359,16 +3371,18 @@ warning about three lines in a file it never mentions.
 
 | Where | What is unverified | The one failure mode reading could not exclude |
 |---|---|---|
-| `crates/roost-worker/src/runtime/bootstrap_redeem/label.rs:32,40,79` | `LabelSources`, `HostLabelSources`, `resolve_worker_label` are `pub(super)`, narrowed from `pub` with **no compiler having seen the change** | a `pub(super)` item reached through `use super::{..}` from a `#[cfg(test)]` child |
 
-Every other line in that module is also unbuilt; **these three are unbuilt *and*
-edited after the last full read.** The whole of
-`crates/roost-worker/src/runtime/bootstrap_redeem/` is 661 lines across three
-files and has never been through a compiler.
+**Nothing is outstanding.** The last row, the `pub(super)` narrowing in
+`crates/roost-worker/src/runtime/bootstrap_redeem/label.rs`, was retired on
+2026-09-27 by `cargo check -p roost-worker --all-targets` at `v3-worker@e3ce4c33`:
+0 errors. `--all-targets` covers both halves of the failure the row named — the
+lib the three lines were in, and the `#[cfg(test)]` children that could have
+reached them through `use super::{..}`. It also settles the 661 lines around
+them, which the row called unbuilt: `runtime/mod.rs` declares the module
+unconditionally, so nothing in `bootstrap_redeem/` is behind a `cfg`.
 
-**Remove this entry when `cargo check -p roost-worker --lib` has been run over
-the module**, not when the tests pass — a test run needs the lib, and the lib is
-what these three lines are in.
+Add a row the moment a change is made that no compiler has seen, and delete it
+the moment one has.
 
 ## Two rules about WHERE a mutation goes, both from a row that would have measured nothing
 
@@ -4131,3 +4145,155 @@ branches. A measurement must also say **what it contradicts** — a report that
 agrees with nothing is a report nobody checks, and the agent who named the
 conflict instead of resolving it is the reason that one was diagnosed as branch
 skew rather than as an error.
+
+### A gate is the job PLUS the trigger PLUS the scope, and checking two of the three is how a green describes nothing
+
+Seven instruments in one session returned a green that described less than the
+reader assumed. Three of them were the same defect wearing different clothes, and
+the answer was in `.github/workflows/ci.yml` the whole time, in a comment
+explaining why.
+
+- A local gate ran `cargo build -p roost-client-core -p roost-web-terminal
+  --target wasm32-unknown-unknown`; CI runs **four** crates. `roost-web` was never
+  compiled, and its 39 tests never ran.
+- A local gate ran `clippy -p roost-cli`; CI runs `--workspace`. Both printed
+  `0`, and the tree was green under one and unknown under the other.
+- `ci.yml:6-10` triggers on `push` and `pull_request` against `main`/`v2`/`v3`
+  only. **`v3-web` is in neither list, so no CI run has ever executed against a
+  `v3-web` push** — the job would not have fired even with the correct crate list.
+
+**The rule: run the gate command copied out of `ci.yml`, never retyped.** There is
+to be exactly one statement of what the gate is. Two commands that can drift is
+the defect, and the narrower one is the one whose number gets quoted, because it
+is the one somebody typed. When a gate figure is produced, it names the tree, the
+toolchain, and **the command** — a figure without its command cannot be
+re-derived, which makes it a claim rather than a measurement.
+
+A figure must also name its toolchain, and a figure you did not produce is not
+yours to state. During this session a **relayed** report offered "148 clippy
+errors" as grounds to revert a merge; it was attributed to a clippy release the
+repository does not pin, **and that attribution could not be reproduced from any
+log in this session** — the artifact it was read from turned out to be a todo
+dump. The reversion was wrong on the merits regardless, and the local run on the
+pinned `channel = "1.98.1"` returned `CLIPPY_EXIT=0` with zero errors. The rule
+that survives: **a count from a toolchain the repository does not pin, or from a
+run you cannot produce, is a claim and not a measurement, and it may not be acted
+on.** This file records it because the sentence **did** go into a commit as fact:
+`88bb1388`, which is pushed. A reader who saw that commit should know the
+attribution in it was retracted here and that the number behind it was never
+reproduced. That is the second time in one session a claim reached a commit body
+before anyone re-derived it, and the first time I wrote that rule down.
+
+**Ask which of the three you are checking.** A correct job on the wrong branch is
+indistinguishable from a correct one, and a job that never fires is
+indistinguishable from a missing one. Checking the job twice and the trigger zero
+times is the shape of the whole failure.
+
+### `xtask` walks the tree it was COMPILED from, so a shared target dir gates a worktree you are not in
+
+**Symptom** — `cargo xtask lint` and `cargo xtask fmt` report a **clean tree**,
+and the same command on a merge reports violations that are not in the tree you
+are looking at. Measured 2026-09-28, three runs on the same unchanged
+directory, differing only in `CARGO_TARGET_DIR`:
+
+| invocation | inputs checked | violations |
+|---|---|---|
+| `v3` @ `1ea558c8`, default target dir, **3 consecutive runs** | **2146** | **8** |
+| `v3` @ `1ea558c8`, shared `CARGO_TARGET_DIR` | **14** | **0** |
+| merged tree, `v3-web` @ `b4d1c650` staged | **2444** | **9** |
+
+**`checked 14 inputs` against a 2146-file tree is not a pass. It is a gate that
+did not run**, and the two numbers are printed on the same line:
+```
+xtask: checked 2444 inputs   xtask: 9 violations     <- a measurement
+xtask: checked   14 inputs   xtask: 0 violations     <- a gate that did not run
+```
+**The violations half flatters the tree and the inputs half tells the truth.**
+Read the inputs count first, every time.
+
+**Cause** — `xtask/src/source_tree.rs:29-36`:
+```rust
+pub fn repo_root() -> PathBuf {
+    if let Ok(r) = std::env::var("ROOST_REPO_ROOT") && !r.is_empty() {
+        return PathBuf::from(r);
+    }
+    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."))
+}
+```
+`env!("CARGO_MANIFEST_DIR")` is resolved **when xtask compiles**. With a shared
+`CARGO_TARGET_DIR`, **whichever worktree last compiled xtask decides which tree
+every later `cargo xtask lint` walks — and `pwd` does not correct it.**
+
+**`xtask lint` ONLY. `xtask fmt` is unaffected**: `fmt.rs` never calls
+`repo_root()` — it enumerates packages with `cargo metadata` (`fmt.rs:46-50`),
+which runs from the current directory. `grep -c repo_root xtask/src/fmt.rs` is
+**0**; `lint_table.rs` is **2**. Cargo is unaffected too: `test` / `build` /
+`clippy` read the manifest from `pwd`. **A `xtask fmt` result stands under a
+shared target dir; a `xtask lint` result does not.**
+
+**The rule** — **pin `ROOST_REPO_ROOT=$PWD` on every `cargo xtask lint`, or give
+each worktree its own target directory.** The condition is **any** shared
+`CARGO_TARGET_DIR`, **wherever you run it**: the 14-input row above was measured
+in `roost-v3`, the integrator's own tree, because a `/tmp` worktree had been the
+last to compile xtask into the shared directory. **A worktree is not a safe
+harbour; the target directory is what decides.**
+**The override is not a convenience**; the header at
+`source_tree.rs:25-28` says it exists *"so a gate can be run against a track
+worktree before that branch is merged."* Running one without it is the mistake.
+
+**Why it is in this file rather than only in a session note:** that session
+produced six instruments returning a confident answer about the wrong thing — a
+bare `:162` a path pattern could not see, a `delegated_reply` on the line below
+its marker, a `Cargo.toml` a lowercase pattern excluded, an unverified cause
+stated as fact, a shared `CARGO_TARGET_DIR` walking the wrong tree, and a **test
+comment cited as an authority because it agreed with me.** That last one is the
+worst of the six, because it produced a CORRECT answer from a source that could
+not support it, and a right answer for the wrong reason passes every test and
+ships a rule nobody wrote. **In every case the failure looked like agreement, and
+in every case the answer was in a second number, a second line of the same
+output, or the file nobody opened.**
+The general form is worth more than any one instance: *a figure must carry what
+it looked at beside what it found, and a negative result is only as good as the
+shape of the instrument that produced it.*
+
+
+### A correct count is silent about a defect nobody wrote a test for
+
+Measured 2026-09-28 on `roost-client-core` at `dd32c4e9`, reported by WebLead4.
+The suite went **347 passed / 11 failed to 350 passed / 9 failed**, and the fifth
+defect fixed in the same session -- a carrier-fallback guard that was failing
+**open**, where v2 shuts it -- **turned none of the eleven green.** No test in the
+suite was watching it. The defect was found by *writing a test for a different
+question*, and it was invisible to the number for the whole life of the bug.
+
+**This is a stronger claim than "a count is a lower bound", which is where the
+rest of this file puts it -- and the distinction is ACCURACY versus COVERAGE,
+because the two fail differently and only one of them is self-correcting.**
+
+- **A lower bound is an ACCURACY problem.** The number under-reports, so a re-run
+  finds more and the number was merely premature. Annoying, and the fix is to run
+  it again.
+- **This is a COVERAGE problem.** The number is *exactly right* and the defect is
+  real, and **no number of re-runs will ever surface it, because there is nothing
+  to under-report.** `350/9` was correct before and after the `rollback_chunk` fix
+  in the sense that mattered, and was silent about a guard failing open the entire
+  time. Re-running is not merely insufficient here; it is **category**-insufficient,
+  because the instrument's subject is failing tests and the defect has none.
+
+**The sentence that generalises, and it says what the lower-bound framing does
+not:** *the count is downstream of the test suite, so it can only ever report what
+the suite already knows -- a defect nobody wrote a test for is invisible to it by
+construction rather than by accident.* And therefore: **a green count is not
+evidence about defects no test was written for. It is evidence about the tests.**
+
+So the number is the criterion, the classification and the new tests are the
+method, and **the method is the only thing that finds what the criterion cannot
+see.** Of the diagnoses in that session, three came from something other than
+re-running the count: F1 from a review, the relay double-count from reading two
+functions together, the ack-not-delivered from a test that failed for the wrong
+reason, and the fail-open guard from a test written to settle a semantic. **The
+cheapest way to find a test is often to write one for a different question.**
+
+**A guard that fails OPEN is worse than a missing one**, because the code reads as
+though the case were handled. The same asymmetry applies to a count that is merely
+silent.

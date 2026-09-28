@@ -108,8 +108,20 @@ pub enum SyncFrame {
         /// The domain generation the result belongs to.
         generation: u64,
     },
-    /// A timestamp-only liveness frame.
+    /// One agent-status report. Proto field 29, `sync.proto:286`.
+    ///
+    /// Carries the SHARED wire type rather than the raw proto message,
+    /// because the freshness fence operates on the validated type and a
+    /// second parse of the same frame in this crate is exactly what
+    /// `client::agents::status_projection` refuses to do. Without this
+    /// variant every report decoded as `Unknown { field: 29 }` — sequenced
+    /// and acknowledged, and applied to nothing.
+    AgentStatus {
+        /// The report, already shape-checked.
+        update: roost_protocol::wire::AgentStatusUpdate,
+    },
     Keepalive,
+    /// A timestamp-only liveness frame.
     /// A frame kind this build has no rule for.
     ///
     /// Named rather than dropped: an unrecognised frame is still sequenced, so
@@ -131,7 +143,9 @@ impl SyncFrame {
     pub const fn domain(&self) -> Option<SyncDomain> {
         match self {
             Self::DomainReady { domain, .. } | Self::DomainReset { domain, .. } => Some(*domain),
-            Self::CellGrid { .. } | Self::CellGridChunk { .. } => Some(SyncDomain::Terminal),
+            Self::CellGrid { .. } | Self::CellGridChunk { .. } | Self::AgentStatus { .. } => {
+                Some(SyncDomain::Terminal)
+            }
             Self::Subscribed { .. }
             | Self::SessionEvent { .. }
             | Self::SessionsSnapshot { .. }
@@ -154,6 +168,7 @@ impl SyncFrame {
             Self::CellGridChunk { .. } => "cell_grid_chunk",
             Self::ViewState { .. } => "view_state",
             Self::InputResult { .. } => "input_result",
+            Self::AgentStatus { .. } => "agent_status",
             Self::Keepalive => "keepalive",
             Self::Unknown { .. } => "unknown",
         }
@@ -166,6 +181,7 @@ impl SyncFrame {
             | Self::CellGridChunk { session_id, .. }
             | Self::ViewState { session_id, .. }
             | Self::InputResult { session_id, .. } => Some(session_id),
+            Self::AgentStatus { update, .. } => Some(update.common.session_id.as_str()),
             _ => None,
         }
     }

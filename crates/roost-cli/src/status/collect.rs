@@ -21,6 +21,7 @@ use roost_host::{
     coord_service_path, normalize_https_origin, worker_service_label,
 };
 
+use crate::services::web_bundle::WEB_INDEX;
 use crate::status::http_probe::HttpProbe;
 use crate::status::inventory::{self, InventoryError};
 use crate::status::report::{CoordStatus, EndpointStatus, SpaStatus, StatusReport, WorkerStatus};
@@ -194,7 +195,7 @@ pub fn installed_coordinator_environment(
 /// coordinator's responder is the authority on what it serves; this answers the
 /// narrower question the `spa:` line needs, which is whether the file is there.
 fn holds_index_html(dist_path: &Path) -> bool {
-    dist_path.join("index.html").is_file()
+    dist_path.join(WEB_INDEX).is_file()
 }
 
 async fn read_workers(
@@ -221,6 +222,17 @@ async fn read_workers(
                 target: "status",
                 msg = "coordinator_db_absent",
                 fields = path.display().to_string(),
+            );
+            Vec::new()
+        }
+        Err(InventoryError::ColumnDecode { column, cause }) => {
+            // The database answered; what it holds is something this build
+            // cannot read. Logged apart from a database that would not open,
+            // because the remedy is a newer client, not a permission.
+            tracing::warn!(
+                target: "status",
+                msg = "worker_inventory_column_unreadable",
+                fields = format!("{column}: {cause}"),
             );
             Vec::new()
         }
