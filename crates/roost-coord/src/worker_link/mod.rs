@@ -15,6 +15,7 @@ pub mod announced_barrier;
 pub mod announced_types;
 pub mod client_seq;
 pub mod conn_types;
+pub mod connection;
 pub mod dispatch;
 pub mod dispatcher_for;
 pub mod frame_dispatch;
