@@ -37,7 +37,7 @@ still-running slices wrote after the snapshot. Seams: `worker-w1-contract.md`; v
 | WCells | DONE — `runtime/cell_cadence.rs` driver (cells now flow), sync-output hold, raw + semantic metadata lanes, `LinkLifecyclePort` |
 | WView | DONE — `terminal_view/` owner over the shared registry; 12 tests, 4 mutations |
 | WDown | DONE (after the first snapshot; in snapshot 2 below) — uplink, link_ports, every downstream arm, `grep 'other =>'` empty, link_wire `InvalidBrowserCommand`; hello now sends `advertised()`; seams changed: `write_input`/`apply_stream_state` return `OwnerFuture<Option<..>>`, `apply_stream_state` takes a `LinkFence`. Still needed: `link.attach_owners(..)`. Parity gaps it reported (fix in the gate pass): control lane not cleared on detach (v2 clears it); pong waits for the barrier (v2 sends before live); `coord-link-repair-order.test.ts` unported — Rust outbox drains Control before Terminal, needs an outbox decision |
-| WStream | RUNNING at snapshot — stream-state txn, core reprove, resize production caller, `TerminalStreamPort` |
+| WStream | DONE (in the latest snapshot) — `session/{terminal_state,terminal_control,terminal_txn,core_reprove}.rs`, resize.rs rewritten as the txn's keeper step, `StreamOwner` implements `TerminalStreamPort`; 16 tests incl. real-keeper resize. Mutation 2 caught; mutation 1 (skip the resize in a committed txn) only partly observed — re-run it against terminal_stream_state + terminal_stream_keeper in the gate pass. Constructor: `StreamOwner` in `session/terminal_control.rs` (see its result at history://WorkerLead2W.WStream) |
 
 ## Next steps, in order (exact)
 1. Read `agent://WorkerLead2W.WDown` / `.WStream`; if unfinished, complete their `# Done`
