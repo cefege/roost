@@ -167,7 +167,7 @@ async fn install_everything(
     eprintln!(">> installing this build into {}", bin_dir.display());
 
     let service_dir = service_dir(env, platform)?;
-    let programs = LocalPrograms::of_this_process()?;
+    let programs = LocalPrograms::of_this_process(env)?;
     install_programs(&programs, &bin_dir)?;
     // The bundle goes in before either definition names it, for the same reason
     // the programs do: a definition pointing at a directory that is not there

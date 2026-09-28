@@ -4255,3 +4255,41 @@ output, or the file nobody opened.**
 The general form is worth more than any one instance: *a figure must carry what
 it looked at beside what it found, and a negative result is only as good as the
 shape of the instrument that produced it.*
+
+
+### A correct count is silent about a defect nobody wrote a test for
+
+Measured 2026-09-28 on `roost-client-core` at `dd32c4e9`, reported by WebLead4.
+The suite went **347 passed / 11 failed → 350 passed / 9 failed**, and the
+fifth defect fixed in the same session — a carrier-fallback guard that was
+failing **open**, where v2 shuts it — **turned none of the eleven green.** No
+test in the suite was watching it. The defect was found by *writing a test for a
+different question*, and it was invisible to the number for the whole life of
+the bug.
+
+**This is a stronger claim than "a count is a lower bound", which is where the
+rest of this file puts it.** A lower bound under-reports failures. This one says
+a count **cannot see a defect that has no failing test at all** — and the number
+is not wrong, it is *correct*, and it is silent about a guard that admits a
+duplicate upload. **A correct count and an invisible defect coexisted the whole
+time.**
+
+**The consequence for how a red baseline is read:** *N failures is a statement
+about the tests that exist, not about the code.* Naming which two of eleven were
+product defects and which one was a test defect mattered more than the delta —
+and the delta was the only number the gate could see. So:
+
+- **The number is the criterion. The classification and the new tests are the
+  method, and the method is the only thing that finds what the criterion cannot
+  see.**
+- **"Two of eleven fixed" and "a fail-open guard closed" are independent
+  results**, and only the first is visible in a figure. A merge gated on the
+  first has said nothing about the second.
+- **A defect with no test is not a lower-bound problem, it is an absent
+  instrument.** The fix is to write the test, and the cheapest way to find one
+  is often to write it for a *different* question: of the four diagnoses in that
+  session, three came from something other than re-running the count.
+
+**A guard that fails OPEN is worse than a missing one**, because the code reads
+as though the case were handled. The same asymmetry applies to a count that is
+merely silent.

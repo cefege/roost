@@ -191,7 +191,7 @@ pub async fn run(env: &dyn EnvSource) -> Result<ExitCode, CommandFailure> {
     let build_sha = joined_build_sha(&root).await?;
 
     let service_dir = service_dir(env, platform)?;
-    let programs = LocalPrograms::of_this_process()?;
+    let programs = LocalPrograms::of_this_process(env)?;
     let bin_dir = release_bin_dir(env, platform)?;
     install_programs(&programs, &bin_dir)?;
 
