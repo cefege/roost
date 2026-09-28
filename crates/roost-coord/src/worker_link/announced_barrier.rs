@@ -1,122 +1,251 @@
-//! The announced-channel barrier itself: announce, enqueue, commit, fail.
+//! The announced-channel barrier: a channel's first terminal frames wait
+//! behind the durable `opened`/`respawned` that makes the channel routable,
+//! then publish in arrival order once the route commits.
 //!
-//! Owned by the coordinator's worker link, one per worker connection. The
-//! vocabulary it speaks is in `announced_types`; this file is only the machine.
-//! It holds no socket, no database and no clock -- the caller supplies `now_ms`
-//! and performs delivery -- which is what lets the whole ordering contract be
-//! tested without a network.
+//! One per worker socket, held by `worker_link::announced_lane`. Ports
+//! `apps/coord/src/events/announced-channel-barrier.ts`; the metadata a
+//! cell-loss drop parks is `announced_retention`'s, and one channel's held
+//! state is `announced_channel`'s. No socket and no database: the caller
+//! supplies `now` wherever a wait starts, the budget, and the delivery.
 //!
-//! THE ORDERING RULE, IN ONE PARAGRAPH. A worker sends `opened` and its first
-//! cell frames back to back, and the cell frames overtake the durable append. So
-//! a cell frame can reach the coordinator before the `(worker, channel) ->
-//! session` route that makes it addressable. The symptom is a terminal that
-//! never paints -- not an ordering error -- which is why the fix lives here
-//! rather than in whatever notices the symptom. `announce` opens a channel, the
-//! cell/binary/metadata frames for it are held, and `commit` -- called on the
-//! same socket lane after the durable append settles -- drains them in arrival
-//! order. A channel that is not committed inside [`MAX_WAIT_MS`], or that
-//! overflows, is dropped and its session's terminal stream is invalidated.
-//!
-//! WHY A CELL SEQUENCE GAP DROPS THE WHOLE CHANNEL. A delta whose `seq` is not
-//! the exact successor of the last held one means a frame was lost, and a lost
-//! frame is not recoverable by waiting: the recipient's baseline is already
-//! wrong. This is the only place on the coordinator that validates cell
-//! ordering before a frame reaches a replica, which is why it knows about
-//! `full` and `seq` at all. A `full` frame is exempt from the rule and *resets*
-//! the run, because a full after a gap is precisely the repair that makes the
-//! channel usable again -- refusing it would leave the recipient permanently
-//! stuck rather than momentarily wrong.
+//! A cell sequence gap drops the channel, because a lost delta is not
+//! recoverable by waiting; a `full` is exempt and restarts the run. Delivery is
+//! a synchronous callback on the socket's one task, so v2's frames arriving
+//! mid-drain cannot occur and the drain runs start to finish.
 
 use std::collections::HashMap;
 
-use super::announced_types::{
-    BarrierStats, ChannelDrop, ChannelPhase, CommitOutcome, DropReason, EnqueueOutcome, FrameLane,
-    MAX_BYTES, MAX_FRAMES, MAX_WAIT_MS, RetainOutcome, RetainedFrame, RetainedWorkBudget,
+use roost_protocol::wire::coord_worker::{CoordWorkerUpstream, TerminalMetadata};
+use tokio::time::Instant;
+
+use crate::worker_link::announced_channel::{Channel, LaneCounts, release_frame, remove_lane};
+use crate::worker_link::announced_retention::{RetainedMetadata, SemanticRetention};
+use crate::worker_link::announced_types::{
+    ANNOUNCED_CHANNEL_MAX_WAIT, BarrierStats, ChannelDrop, ChannelPhase, DropReason, EnqueueOutcome,
 };
+use crate::worker_link::retained_budget::RetainedWorkBudget;
 
-/// One announced channel's held state.
-#[derive(Debug, Clone)]
-struct Channel {
-    session_id: String,
-    phase: ChannelPhase,
-    buffered: Vec<RetainedFrame>,
-    bytes: u64,
-    cell_frames: usize,
-    metadata_frames: usize,
-    binary_frames: usize,
-    binary_bytes: u64,
-    saw_cell_frame: bool,
-    last_cell_seq: u64,
-    announced_at_ms: u64,
-}
+/// Where every drop is reported: the screen replica's invalidation in
+/// production (`worker-ws-upgrade.ts:21-28`), a recorder in tests.
+pub type ChannelDropSink = Box<dyn FnMut(&ChannelDrop) + Send + Sync>;
 
-impl Channel {
-    fn new(session_id: String, announced_at_ms: u64) -> Self {
-        Self {
-            session_id,
-            phase: ChannelPhase::Pending,
-            buffered: Vec::new(),
-            bytes: 0,
-            cell_frames: 0,
-            metadata_frames: 0,
-            binary_frames: 0,
-            binary_bytes: 0,
-            saw_cell_frame: false,
-            last_cell_seq: 0,
-            announced_at_ms,
-        }
-    }
-
-    fn report(&self, channel_id: u32, reason: DropReason) -> ChannelDrop {
-        ChannelDrop {
-            channel_id,
-            session_id: self.session_id.clone(),
-            reason,
-            phase: self.phase,
-            cell_frames: self.cell_frames,
-            metadata_frames: self.metadata_frames,
-            binary_frames: self.binary_frames,
-            binary_bytes: self.binary_bytes,
-        }
-    }
-}
-
-/// One worker connection's announced-channel barrier.
-///
-/// The drop callback is a **parameter on each call** rather than a stored
-/// closure. v2 constructs the barrier with its `onDrop` wired at construction
-/// (`apps/coord/src/workers/worker-ws-upgrade.ts:21-28`), but the reason that
-/// matters is the same either way: the callback reaches the terminal view hub,
-/// and the hub does not exist when the upgrade handler builds this. Passing it
-/// per call keeps the barrier free of a lifetime parameter and free of a
-/// half-initialised hub, and it is what lets a test collect the drops without
-/// standing up a coordinator.
-#[derive(Debug)]
-pub struct AnnouncedBarrier {
+/// One worker socket's announced-channel barrier.
+pub struct AnnouncedChannelBarrier {
     channels: HashMap<u32, Channel>,
-    budget: RetainedWorkBudget,
+    retention: SemanticRetention,
+    on_drop: ChannelDropSink,
 }
 
-impl AnnouncedBarrier {
-    /// A barrier charging the given socket-wide budget.
-    ///
-    /// The budget is passed in rather than created here because it is the
-    /// **socket's**, shared with the ordered frame queue
-    /// (`apps/coord/src/workers/worker-ws-upgrade.ts:148`): one worker opening
-    /// sixty-four channels must exhaust one budget, not sixty-four of them.
+impl std::fmt::Debug for AnnouncedChannelBarrier {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AnnouncedChannelBarrier")
+            .field("stats", &self.stats())
+            .finish_non_exhaustive()
+    }
+}
+
+impl AnnouncedChannelBarrier {
+    /// A barrier reporting every drop to `on_drop`.
     #[must_use]
-    pub fn new(budget: RetainedWorkBudget) -> Self {
+    pub fn new(on_drop: ChannelDropSink) -> Self {
         Self {
             channels: HashMap::new(),
-            budget,
+            retention: SemanticRetention::default(),
+            on_drop,
         }
     }
 
-    /// The current counters, for the `1009` decision and for diagnostics.
+    /// `(channel_id, session_id)` has a durable append in flight. A repeat
+    /// supersedes; a same-session recovery and an early fact move in first.
+    pub fn announce(
+        &mut self,
+        channel_id: u32,
+        session_id: &str,
+        now: Instant,
+        budget: &mut RetainedWorkBudget,
+    ) {
+        self.fail(channel_id, DropReason::Superseded, budget);
+        let recovered = self
+            .retention
+            .take_recovery_for_session(channel_id, session_id, budget);
+        let mut channel = Channel::new(session_id, now + ANNOUNCED_CHANNEL_MAX_WAIT);
+        let early = self.retention.take_pre_announced(channel_id);
+        for fact in recovered.into_iter().chain(early) {
+            channel.append_retained_metadata(fact);
+        }
+        self.channels.insert(channel_id, channel);
+    }
+
+    /// Whether a channel's terminal frames are held at all.
+    #[must_use]
+    pub fn is_announced(&self, channel_id: u32) -> bool {
+        self.channels.contains_key(&channel_id)
+    }
+
+    /// See `SemanticRetention::reconcile_mapped_route`.
+    pub fn reconcile_retained_metadata(
+        &mut self,
+        channel_id: u32,
+        session_id: &str,
+        budget: &mut RetainedWorkBudget,
+    ) -> bool {
+        self.retention
+            .reconcile_mapped_route(channel_id, session_id, budget)
+    }
+
+    /// See `SemanticRetention::retain_unannounced`.
+    pub fn retain_unannounced_metadata(
+        &mut self,
+        channel_id: u32,
+        metadata: &TerminalMetadata,
+        encoded_bytes: u64,
+        now: Instant,
+        budget: &mut RetainedWorkBudget,
+    ) -> bool {
+        self.retention
+            .retain_unannounced(channel_id, metadata, encoded_bytes, now, budget)
+    }
+
+    /// Hold one frame behind the channel's durable append; a refusal drops
+    /// the whole channel, because a partial baseline is worse than none.
+    pub fn enqueue(
+        &mut self,
+        channel_id: u32,
+        frame: CoordWorkerUpstream,
+        encoded_bytes: u64,
+        now: Instant,
+        budget: &mut RetainedWorkBudget,
+    ) -> EnqueueOutcome {
+        let Some(channel) = self.channels.get_mut(&channel_id) else {
+            return EnqueueOutcome::NotAnnounced;
+        };
+        match channel.admit(frame, encoded_bytes, budget) {
+            Ok(()) => EnqueueOutcome::Buffered,
+            Err((reason, rejected)) => {
+                if let Some(channel) = self.channels.remove(&channel_id) {
+                    self.report_drop(channel_id, channel, reason, rejected, now, budget);
+                }
+                EnqueueOutcome::Dropped
+            }
+        }
+    }
+
+    /// The durable route committed: deliver the held frames in arrival order.
+    /// `mapping_matches` is whether the durable index bound this exact
+    /// session; a channel already gone defers to its parked recovery.
+    /// `Ok(true)` only when everything held was delivered.
+    pub fn commit<E>(
+        &mut self,
+        channel_id: u32,
+        session_id: &str,
+        mapping_matches: bool,
+        budget: &mut RetainedWorkBudget,
+        deliver: &mut dyn FnMut(CoordWorkerUpstream) -> Result<(), E>,
+    ) -> Result<bool, E> {
+        let Some(channel) = self.channels.get(&channel_id) else {
+            return self.retention.commit_recovery(
+                channel_id,
+                session_id,
+                mapping_matches,
+                budget,
+                deliver,
+            );
+        };
+        if channel.session_id != session_id {
+            return Ok(false);
+        }
+        let Some(mut channel) = self.channels.remove(&channel_id) else {
+            return Ok(false);
+        };
+        let now = Instant::now();
+        if !mapping_matches {
+            let none = LaneCounts::default();
+            self.report_drop(
+                channel_id,
+                channel,
+                DropReason::MappingMismatch,
+                none,
+                now,
+                budget,
+            );
+            return Ok(false);
+        }
+        channel.phase = ChannelPhase::Draining;
+        channel.metadata = None;
+        let mut held = std::mem::take(&mut channel.buffered).into_iter();
+        while let Some(mut next) = held.next() {
+            channel.bytes -= next.encoded_bytes;
+            let lane = next.lane;
+            release_frame(&mut next, budget);
+            let delivered = deliver(next.frame);
+            remove_lane(&mut channel.counts, lane);
+            if let Err(failure) = delivered {
+                channel.buffered = held.collect();
+                let none = LaneCounts::default();
+                self.report_drop(
+                    channel_id,
+                    channel,
+                    DropReason::PublishFailed,
+                    none,
+                    now,
+                    budget,
+                );
+                return Err(failure);
+            }
+        }
+        Ok(true)
+    }
+
+    /// Drop a live announcement; an `AppendFailed` for a channel with none
+    /// discards its parked recovery instead.
+    pub fn fail(&mut self, channel_id: u32, reason: DropReason, budget: &mut RetainedWorkBudget) {
+        match self.channels.remove(&channel_id) {
+            Some(channel) => {
+                let none = LaneCounts::default();
+                self.report_drop(channel_id, channel, reason, none, Instant::now(), budget);
+            }
+            None if reason == DropReason::AppendFailed => {
+                self.retention.discard_recovery(channel_id, budget);
+            }
+            None => {}
+        }
+    }
+
+    /// Drop every channel whose wait ran out and forget every expired record.
+    pub fn expire(&mut self, now: Instant, budget: &mut RetainedWorkBudget) {
+        let expired: Vec<u32> = self
+            .channels
+            .iter()
+            .filter(|(_, channel)| channel.deadline <= now)
+            .map(|(channel_id, _)| *channel_id)
+            .collect();
+        for channel_id in expired {
+            if let Some(channel) = self.channels.remove(&channel_id) {
+                let none = LaneCounts::default();
+                self.report_drop(channel_id, channel, DropReason::Timeout, none, now, budget);
+            }
+        }
+        self.retention.expire(now, budget);
+    }
+
+    /// The earliest channel or record expiry, for the read loop's timer.
+    #[must_use]
+    pub fn next_deadline(&self) -> Option<Instant> {
+        let channels = self.channels.values().map(|channel| channel.deadline);
+        channels.chain(self.retention.next_deadline()).min()
+    }
+
+    /// The counters, barrier and retention together.
     #[must_use]
     pub fn stats(&self) -> BarrierStats {
+        let semantic = self.retention.stats();
         let mut stats = BarrierStats {
             channels: self.channels.len(),
+            frames: semantic.frames,
+            bytes: semantic.bytes,
+            pre_announced_metadata: semantic.pre_announced,
+            recovery_metadata: semantic.recovery,
             ..BarrierStats::default()
         };
         for channel in self.channels.values() {
@@ -130,201 +259,49 @@ impl AnnouncedBarrier {
         stats
     }
 
-    /// Whether a channel is announced, so the socket layer knows to hold its
-    /// frames at all.
-    #[must_use]
-    pub fn is_announced(&self, channel_id: u32) -> bool {
-        self.channels.contains_key(&channel_id)
-    }
-
-    /// Declare that `(channel_id, session_id)` now has a durable append in
-    /// flight.
-    ///
-    /// A repeat announcement **supersedes** the previous one rather than
-    /// merging with it: the old channel's frames were held for a route that is
-    /// being replaced, and delivering them would bind cells to a session that no
-    /// longer owns the channel.
-    pub fn announce(
+    /// Release a removed channel, park its latest fact when the drop is a
+    /// pending cell loss, and report what it cost.
+    fn report_drop(
         &mut self,
         channel_id: u32,
-        session_id: &str,
-        now_ms: u64,
-        on_drop: &mut dyn FnMut(ChannelDrop),
+        channel: Channel,
+        reason: DropReason,
+        rejected: LaneCounts,
+        now: Instant,
+        budget: &mut RetainedWorkBudget,
     ) {
-        if self.channels.contains_key(&channel_id) {
-            self.drop_channel(channel_id, DropReason::Superseded, on_drop);
-        }
-        self.channels
-            .insert(channel_id, Channel::new(session_id.to_string(), now_ms));
-    }
-
-    /// Hold one frame behind the channel's durable append.
-    ///
-    /// The refusal rules, in order, each of which drops the whole channel because
-    /// a partially-delivered baseline is worse than none:
-    ///
-    /// 1. not announced: the frame flows the ordinary way and nothing is held;
-    /// 2. a zero encoded size: `overflow`;
-    /// 3. [`MAX_FRAMES`] already held, or [`MAX_BYTES`] already held: `overflow`;
-    /// 4. a delta that does not continue the run exactly: `out_of_order`;
-    /// 5. the socket-wide budget refusing the charge: `overflow`.
-    pub fn enqueue(
-        &mut self,
-        channel_id: u32,
-        frame: RetainedFrame,
-        on_drop: &mut dyn FnMut(ChannelDrop),
-    ) -> EnqueueOutcome {
-        let Some(channel) = self.channels.get(&channel_id) else {
-            return EnqueueOutcome::NotAnnounced;
+        let parked_index = (channel.phase == ChannelPhase::Pending && reason.parks_metadata())
+            .then_some(channel.metadata)
+            .flatten();
+        let report = ChannelDrop {
+            channel_id,
+            session_id: channel.session_id,
+            reason,
+            phase: channel.phase,
+            cell_frames: channel.counts.cell_frames + rejected.cell_frames,
+            metadata_frames: channel.counts.metadata_frames + rejected.metadata_frames,
+            binary_frames: channel.counts.binary_frames + rejected.binary_frames,
+            binary_bytes: channel.counts.binary_bytes + rejected.binary_bytes,
         };
-
-        if frame.encoded_bytes == 0
-            || channel.buffered.len() >= MAX_FRAMES
-            || channel.bytes.saturating_add(frame.encoded_bytes) > MAX_BYTES as u64
-        {
-            return self.drop_and(channel_id, DropReason::Overflow, on_drop);
-        }
-
-        if let FrameLane::Cell { full: false, seq } = frame.lane
-            && (!channel.saw_cell_frame || seq != channel.last_cell_seq.saturating_add(1))
-        {
-            return self.drop_and(channel_id, DropReason::OutOfOrder, on_drop);
-        }
-
-        if self.budget.retain(frame.encoded_bytes) != RetainOutcome::Retained {
-            return self.drop_and(channel_id, DropReason::Overflow, on_drop);
-        }
-
-        if let Some(channel) = self.channels.get_mut(&channel_id) {
-            match frame.lane {
-                FrameLane::Cell { full: false, seq } => {
-                    channel.saw_cell_frame = true;
-                    channel.last_cell_seq = seq;
+        let mut parked = None;
+        for (index, mut frame) in channel.buffered.into_iter().enumerate() {
+            match frame.frame {
+                CoordWorkerUpstream::TerminalMetadata(metadata)
+                    if Some(index) == parked_index && frame.retained =>
+                {
+                    let encoded_bytes = frame.encoded_bytes;
+                    parked = Some(RetainedMetadata {
+                        metadata,
+                        encoded_bytes,
+                    });
                 }
-                FrameLane::Cell { full: true, seq } => {
-                    // A full establishes a new baseline, so the run restarts
-                    // here and the next delta must be this frame's successor.
-                    channel.saw_cell_frame = true;
-                    channel.last_cell_seq = seq;
-                }
-                FrameLane::Metadata => channel.metadata_frames += 1,
-                FrameLane::Binary { bytes } => {
-                    channel.binary_frames += 1;
-                    channel.binary_bytes += bytes;
-                }
+                _ => release_frame(&mut frame, budget),
             }
-            channel.cell_frames += u32::from(matches!(frame.lane, FrameLane::Cell { .. })) as usize;
-            channel.buffered.push(frame);
-            channel.bytes = channel.bytes.saturating_add(frame.encoded_bytes);
         }
-        EnqueueOutcome::Buffered
-    }
-
-    /// The durable route committed. Release the held frames in arrival order.
-    ///
-    /// `mapping_matches` is the caller's check that the durable index really
-    /// bound `(worker, channel)` to the announced session. It is a value rather
-    /// than a closure because the caller has already read it: a barrier that
-    /// asked later could act on a route that changed in between, and a
-    /// `mapping_mismatch` is a drop -- the one refusal that means the durable
-    /// state and the announcement disagree, which is exactly the case where a
-    /// stale re-read would deliver cells to the wrong session.
-    pub fn commit(
-        &mut self,
-        channel_id: u32,
-        session_id: &str,
-        mapping_matches: bool,
-        on_drop: &mut dyn FnMut(ChannelDrop),
-    ) -> CommitOutcome {
-        let Some(channel) = self.channels.get(&channel_id) else {
-            return CommitOutcome::NotAnnounced;
-        };
-        if channel.session_id != session_id {
-            return CommitOutcome::SessionMismatch;
+        if let Some(fact) = parked {
+            self.retention
+                .park_recovery(channel_id, &report.session_id, fact, now, budget);
         }
-        if !mapping_matches {
-            self.drop_channel(channel_id, DropReason::MappingMismatch, on_drop);
-            return CommitOutcome::MappingMismatch;
-        }
-        if let Some(channel) = self.channels.get_mut(&channel_id) {
-            channel.phase = ChannelPhase::Draining;
-        }
-        let frames = self
-            .channels
-            .get(&channel_id)
-            .map_or(0, |channel| channel.buffered.len());
-        self.release_channel(channel_id);
-        CommitOutcome::Drained { frames }
-    }
-
-    /// The durable append failed, or a delivery threw. Drop the channel.
-    ///
-    /// Called from the socket queue's error handler
-    /// (`apps/coord/src/workers/worker-ws-handler.ts:109-113`): a throw there
-    /// is fatal, the socket is torn down, and the worker reconnects and replays
-    /// whatever it never had acknowledged.
-    pub fn fail(
-        &mut self,
-        channel_id: u32,
-        reason: DropReason,
-        on_drop: &mut dyn FnMut(ChannelDrop),
-    ) {
-        self.drop_channel(channel_id, reason, on_drop);
-    }
-
-    /// Drop every channel and release the whole budget. Called on socket close.
-    pub fn clear(&mut self) {
-        self.channels.clear();
-    }
-
-    /// Channels whose wait has run out, as `(channel_id, session_id)` pairs.
-    ///
-    /// The caller drives the timer, because this file takes no clock: a test
-    /// advances an injected clock and asserts the pair comes back, with nothing
-    /// sleeping and nothing flaky.
-    #[must_use]
-    pub fn expired(&self, now_ms: u64) -> Vec<(u32, String)> {
-        self.channels
-            .iter()
-            .filter(|(_, channel)| {
-                channel.phase == ChannelPhase::Pending
-                    && now_ms.saturating_sub(channel.announced_at_ms) >= MAX_WAIT_MS
-            })
-            .map(|(channel_id, channel)| (*channel_id, channel.session_id.clone()))
-            .collect()
-    }
-
-    fn drop_and(
-        &mut self,
-        channel_id: u32,
-        reason: DropReason,
-        on_drop: &mut dyn FnMut(ChannelDrop),
-    ) -> EnqueueOutcome {
-        self.drop_channel(channel_id, reason, on_drop);
-        EnqueueOutcome::Dropped
-    }
-
-    fn drop_channel(
-        &mut self,
-        channel_id: u32,
-        reason: DropReason,
-        on_drop: &mut dyn FnMut(ChannelDrop),
-    ) {
-        let Some(channel) = self.channels.remove(&channel_id) else {
-            return;
-        };
-        for frame in &channel.buffered {
-            self.budget.release(frame.encoded_bytes);
-        }
-        on_drop(channel.report(channel_id, reason));
-    }
-
-    fn release_channel(&mut self, channel_id: u32) {
-        let Some(channel) = self.channels.remove(&channel_id) else {
-            return;
-        };
-        for frame in &channel.buffered {
-            self.budget.release(frame.encoded_bytes);
-        }
+        (self.on_drop)(&report);
     }
 }

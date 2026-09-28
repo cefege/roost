@@ -4,20 +4,20 @@
 //!
 //! Called only by `worker_link::connection`'s read loop. Ports the post-hello
 //! half of `apps/coord/src/workers/worker-conn.ts` (hello admission, pong,
-//! supersede, revoke, close, the delayed respawn) and the per-message admission
-//! of `worker-ws-handler.ts` (superseded fence, readiness gate, rate window);
-//! the completion lane beside a durable append is `worker_link::result_lane`.
+//! supersede, revoke, close) and the per-message admission of
+//! `worker-ws-handler.ts` (superseded fence, readiness gate, rate window, the
+//! announce-append-commit order); the completion lane and the announced-channel
+//! barrier beside a durable append are `worker_link::result_lane`'s.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::time::Duration;
 
 use axum::extract::ws::WebSocket;
 use roost_protocol::versioning::{
     CAPABILITY_TERMINAL_METADATA_V1, CAPABILITY_TERMINAL_VIEW_OWNER_V1,
 };
+use roost_protocol::wire::WorkerFp;
 use roost_protocol::wire::coord_worker::CoordWorkerDownstream;
-use roost_protocol::wire::{SessionId, WorkerFp};
 use tokio::sync::{Notify, mpsc};
 use tokio::time::Instant;
 
@@ -26,23 +26,26 @@ use crate::coord_core::worker_handle::WorkerHandle;
 use crate::coord_core::worker_lifecycle::LinkEnd;
 use crate::services::CoordServices;
 use crate::terminal_view::OwnerRegistration;
+use crate::worker_link::announced_lane::{Announcement, is_terminal_frame};
 use crate::worker_link::conn_types::SocketClose;
 use crate::worker_link::dispatch::{DispatchOutcome, FrameClass, FrameDispatch, InboundFrame};
 use crate::worker_link::frame_dispatch::WorkerFrameDispatcher;
 use crate::worker_link::handshake::{acknowledged_capabilities, credential_refresh_accepted};
 use crate::worker_link::keepalive::{KeepaliveDue, PingSchedule};
+use crate::worker_link::link_upkeep::{RESPAWN_DELAY, deliver_owed_reaps, spawn_respawn};
 use crate::worker_link::rate_window::DurableEventWindow;
 use crate::worker_link::reap_outbox::ReapOutbox;
 use crate::worker_link::result_lane::ResultLane;
 use crate::worker_link::upstream_frame::{HelloFrame, LinkFrame, decode_link_frame};
 use crate::workers::registry::{claim_generation, publish_routable};
-use crate::workers::respawn::respawn_missing_for_worker;
-use crate::workers::send::reap_orphan_pty;
 
-/// How long after readiness the respawn-if-missing pass runs (v2
-/// `scheduleRespawn`, `worker-conn.ts:151-160`): long enough for the worker's
-/// own post-snapshot replay to land first.
-pub(super) const RESPAWN_DELAY: Duration = Duration::from_secs(3);
+/// Where a message's bytes came from: read off the socket now, or drained from
+/// the backlog that held them behind an append (announced when they arrived).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FrameOrigin {
+    Socket,
+    Backlog,
+}
 
 /// What the read loop does after one step.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -163,10 +166,11 @@ impl LinkSession {
 
     /// When the read loop must wake for a timer, if at all.
     pub(super) fn next_wake(&self) -> Option<Instant> {
-        match (self.keepalive.next_wake(), self.respawn_at) {
-            (Some(ping), Some(respawn)) => Some(ping.min(respawn)),
-            (ping, respawn) => ping.or(respawn),
-        }
+        let announced = self.result_lane.next_announced_deadline();
+        [self.keepalive.next_wake(), self.respawn_at, announced]
+            .into_iter()
+            .flatten()
+            .min()
     }
 
     /// A timer fired: the heartbeat, the delayed respawn, and owed reaps.
@@ -193,14 +197,20 @@ impl LinkSession {
         }
         if self.respawn_at.is_some_and(|at| now >= at) {
             self.respawn_at = None;
-            self.spawn_respawn();
+            spawn_respawn(&self.services, &self.handle);
         }
-        self.deliver_owed_reaps();
+        self.result_lane.expire_announced(now);
+        deliver_owed_reaps(&self.services, &self.handle, &self.reaps);
         LinkStep::Continue
     }
 
     /// One data message's bytes; a durable append reads `socket` while it runs.
-    pub(super) async fn on_bytes(&mut self, bytes: &[u8], socket: &mut WebSocket) -> LinkStep {
+    pub(super) async fn on_bytes(
+        &mut self,
+        bytes: &[u8],
+        origin: FrameOrigin,
+        socket: &mut WebSocket,
+    ) -> LinkStep {
         if let Some(close) = self.fenced_close() {
             return LinkStep::Close(close);
         }
@@ -237,12 +247,21 @@ impl LinkSession {
                     LinkStep::Close(SocketClose::Default)
                 }
             }
-            LinkFrame::Dispatch(frame) => self.dispatch(*frame, socket).await,
+            LinkFrame::Dispatch(frame) => self.dispatch(*frame, bytes.len(), origin, socket).await,
         }
     }
 
-    /// Hand one frame to the dispatcher, then act on what it changed.
-    async fn dispatch(&mut self, frame: InboundFrame, socket: &mut WebSocket) -> LinkStep {
+    /// Hand one frame to the dispatcher, then act on what it changed. A
+    /// durable frame read now announces its channel and charges the socket
+    /// budget until its append and commit settle; a terminal frame takes the
+    /// barrier's fast path.
+    async fn dispatch(
+        &mut self,
+        frame: InboundFrame,
+        encoded_bytes: usize,
+        origin: FrameOrigin,
+        socket: &mut WebSocket,
+    ) -> LinkStep {
         let worker_fp = self.handle.worker_fp.clone();
         let outcome = if frame.class == FrameClass::Durable {
             let now_ms = u64::try_from(crate::serve::now_ms()).unwrap_or(0);
@@ -251,8 +270,29 @@ impl LinkSession {
                     "worker link: event_rate_exceeded; closing");
                 return LinkStep::Close(SocketClose::EventRateExceeded);
             }
+            let announcement = Announcement::of(&frame, &worker_fp);
+            let in_flight = origin == FrameOrigin::Socket;
+            if in_flight {
+                if let Some(announcement) = &announcement {
+                    self.result_lane.announce(announcement);
+                }
+                if !self.result_lane.charge_in_flight(encoded_bytes) {
+                    let close = self.result_lane.take_close();
+                    return LinkStep::Close(close.unwrap_or(SocketClose::QueueOverflow));
+                }
+            }
             let append = self.dispatcher.handle_durable(worker_fp.as_str(), frame);
-            self.result_lane.await_append(append, socket).await
+            let appended = self.result_lane.await_append(append, socket).await;
+            let outcome = self.result_lane.commit_announced(announcement, appended);
+            if in_flight {
+                self.result_lane.release_in_flight(encoded_bytes);
+            }
+            outcome
+        } else if is_terminal_frame(&frame.frame) {
+            match self.result_lane.route_terminal(frame, encoded_bytes) {
+                Some(now) => self.dispatcher.handle_now(worker_fp.as_str(), now),
+                None => DispatchOutcome::Handled,
+            }
         } else {
             self.dispatcher.handle_now(worker_fp.as_str(), frame)
         };
@@ -268,7 +308,7 @@ impl LinkSession {
             self.respawn_at = Some(Instant::now() + RESPAWN_DELAY);
             self.services.worker_lifecycle.ready(&self.handle);
         }
-        self.deliver_owed_reaps();
+        deliver_owed_reaps(&self.services, &self.handle, &self.reaps);
         LinkStep::Continue
     }
 
@@ -292,44 +332,6 @@ impl LinkSession {
         } else {
             SocketClose::Revoked
         })
-    }
-
-    /// Carry the kills this worker is owed, once its generation is routable.
-    fn deliver_owed_reaps(&self) {
-        if !self.handle.is_routable() {
-            return;
-        }
-        for kill in self.reaps.take_pending() {
-            match SessionId::try_from(kill.session_id.as_str()) {
-                Ok(session_id) => {
-                    reap_orphan_pty(&self.services.workers, &kill.worker_fp, &session_id);
-                }
-                Err(error) => tracing::warn!(worker_fp = %kill.worker_fp, %error,
-                    "worker link: an owed reap names no addressable session"),
-            }
-        }
-    }
-
-    /// Offer the worker every open session it still owns, off the read loop.
-    fn spawn_respawn(&self) {
-        let services = Arc::clone(&self.services);
-        let handle = Arc::clone(&self.handle);
-        tokio::spawn(async move {
-            if !handle.is_routable() {
-                return;
-            }
-            let report = respawn_missing_for_worker(
-                &services.db,
-                &services.workers,
-                &*services.views,
-                &services.write_gate(),
-                &handle,
-            )
-            .await;
-            tracing::info!(worker_fp = %handle.worker_fp, dispatched = report.dispatched,
-                skipped = report.skipped, deferred = report.deferred,
-                "worker link: respawn-if-missing pass finished");
-        });
     }
 
     /// Give the generation back (v2 `close`, and `revoke` for a fenced one).
