@@ -31,6 +31,10 @@ use roost_proto::{
 use sqlx::AssertSqlSafe;
 use tokio_tungstenite::tungstenite::Message;
 
+mod canonical_bytes;
+
+use canonical_bytes::canonical_client_bytes;
+
 use crate::ws_client_support::{Dialed, WsClient, dial, next_frame, send_binary};
 use crate::ws_credential_support::{mint_coordinator_jwt, now_secs};
 
@@ -231,7 +235,7 @@ pub async fn send_client_frame(
         command,
         ..SyncClientFrame::default()
     };
-    send_binary(socket, frame.encode_to_vec()).await;
+    send_binary(socket, canonical_client_bytes(&frame)).await;
 }
 
 /// `domain_ready` for a domain with no snapshot fence.
