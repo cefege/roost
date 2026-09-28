@@ -1917,7 +1917,7 @@ it is the one failure mode a pass/fail/skip summary cannot show.
 
 ### Gate results
 
-**S3.0 WORKSPACE GATE — NOT GREEN. One criterion of four met. 2026-09-28.**
+**S3.0 WORKSPACE GATE — NOT GREEN. Two of four criteria met. 2026-09-28.**
 First run of this gate on a merged tree; it had never been run since the CLI
 merge, and the gate script had refused four times for want of a quiet machine.
 
@@ -1931,10 +1931,21 @@ overstated.** A gate is two agreeing green runs of the track's crates, clippy 0,
   takes them to **0** — a known outstanding rather than a new finding, and still
   outstanding.
 - **clippy — MET.** `cargo clippy --workspace --all-targets -- -D warnings` on
-  `8c332da8`: **exit 0, zero errors**, every crate and every target. This is the
-  gate that finds the silent impossibilities — an `!Send` future or a trait no
-  implementation can satisfy is a compile error wearing a green build's
-  clothes — and it had never been run on a merged tree.
+  `8c332da8`: **exit 0, zero errors**, every crate and every target. First run
+  of this command on a merged tree.
+
+  **Be exact about what that does and does not prove, because this file has
+  already been wrong about it once.** Clippy is **not** what finds an `!Send`
+  future held across an await, or a trait whose signature no implementation can
+  satisfy. Those are **rustc** errors, and they surface only once something
+  actually spawns the future or implements the trait. R3 is the proof: it found
+  both — `AppendOptions` was `!Sync` so the append future was `!Send`, and
+  `handle_durable` returned `Pin<DispatchFuture>` where `DispatchFuture` is
+  already `Pin<Box<dyn Future + Send>>` — and it reported clippy **0** in the
+  library and in every target it added. **Clippy 0 means the code is clean under
+  clippy. It does not mean the impossible things are absent.** Only a first
+  implementation finds those, and that is why the "two agreeing green runs"
+  criterion below is the one that has to stay open.
 - **two agreeing green runs — NOT RUN.** No `cargo test` has been executed here
   at all.
 
