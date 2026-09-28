@@ -15,9 +15,7 @@ use roost_proto::buffa::MessageField;
 use roost_proto::{CoordinatorServiceClient, WorkersRegisterRequest};
 use roost_protocol::proto_adapters::host_identity_to_proto;
 
-use super::{
-    AUTHORIZATION, EnrollmentError, MachineFacts, boot_call_options, coordinator_is_silent,
-};
+use super::{EnrollmentError, MachineFacts, coordinator_is_silent};
 use crate::host::identity::static_host_identity;
 use crate::runtime::credential::CredentialSource;
 
@@ -40,36 +38,22 @@ where
     T: ClientTransport,
     <T::ResponseBody as http_body::Body>::Error: std::fmt::Display,
 {
-    let token = match credential.mint() {
-        Ok(token) => token,
+    // ONE mechanism, shared with the open-session read: this call and that one
+    // are both boot-time calls to the same coordinator, and a second spelling
+    // of the credential header is how the read ended up travelling without one.
+    let options = match super::authenticated_call_options(credential) {
+        Ok(options) => options,
         Err(error) => {
             tracing::error!(
                 fingerprint = %machine.fingerprint,
                 reason = %error,
-                "enroll: no worker credential could be minted for the registration"
+                "enroll: the registration could not be authenticated"
             );
             return Err(EnrollmentError::Credential {
                 reason: error.to_string(),
             });
         }
     };
-    // `try_with_header`, not `with_header`: the latter drops a value it cannot
-    // spell, and a credential this worker built wrong would then arrive as an
-    // `Unauthenticated` with no header on it and nothing to point at.
-    let options =
-        match boot_call_options().try_with_header(AUTHORIZATION, format!("Bearer {token}")) {
-            Ok(options) => options,
-            Err(error) => {
-                tracing::error!(
-                    fingerprint = %machine.fingerprint,
-                    reason = %error,
-                    "enroll: the worker credential is not a header value"
-                );
-                return Err(EnrollmentError::Credential {
-                    reason: error.to_string(),
-                });
-            }
-        };
     // The host identity is always sent, empty fields and all. The coordinator
     // normalises an identity whose every field is absent to the same "nothing
     // was collected" it answers for a missing message, so sending it costs

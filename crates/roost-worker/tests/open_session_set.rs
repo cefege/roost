@@ -29,6 +29,19 @@ use roost_proto::CoordinatorServiceClient;
 use roost_worker::runtime::keeper_boot::{self, KeeperBootOutcome};
 use roost_worker::runtime::reconcile::open_sessions_or_unknown;
 
+/// A credential that always mints. Nothing in this file reaches a coordinator,
+/// so the header it would carry is not what is under test — the refusal is.
+#[derive(Debug, Clone, Copy)]
+struct FixedCredential;
+
+impl roost_worker::runtime::credential::CredentialSource for FixedCredential {
+    fn mint(
+        &self,
+    ) -> Result<String, roost_worker::runtime::credential::CredentialError> {
+        Ok("a-test-credential".to_owned())
+    }
+}
+
 /// A suffix no two fixtures in this binary can share, because the tests run in
 /// parallel and a `Drop` that removed a directory another test was still using
 /// looks exactly like a missing file.
@@ -83,9 +96,15 @@ async fn an_unread_open_session_set_is_not_a_licence_to_replace_anything() {
     // ---- FIRST HALF: the read really does fail, and becomes `None`. ----
     let refusing = refusing_client();
     let read =
-        roost_worker::runtime::reconcile::read_open_session_count(&refusing, "fp-under-test")
-            .await
-            .expect_err("a coordinator that is not there cannot answer");
+        roost_worker::runtime::reconcile::read_open_session_count(
+            &refusing,
+            "fp-under-test",
+            // A client that is not there answers to no credential, so this
+            // fixture's part is the refusal and not the header.
+            &FixedCredential,
+        )
+        .await
+        .expect_err("a coordinator that is not there cannot answer");
     let open_sessions = open_sessions_or_unknown(Err(read));
     assert_eq!(
         open_sessions, None,

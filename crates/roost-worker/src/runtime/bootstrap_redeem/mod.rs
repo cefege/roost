@@ -22,7 +22,7 @@ use self::label::{named, resolve_worker_label};
 use self::register::register;
 use crate::host::install::{BOOTSTRAP_TOKEN_ENV, scrub_service_definition_env};
 use crate::host::jwt::read_existing_worker_key;
-use crate::runtime::credential::CredentialSource;
+use crate::runtime::credential::{CredentialError, CredentialSource};
 
 pub(crate) mod activation;
 mod label;
@@ -324,6 +324,31 @@ fn build_sha(env: &dyn EnvSource) -> Option<String> {
 /// The per-call options every boot-time coordinator call carries.
 fn boot_call_options() -> CallOptions {
     CallOptions::default().with_timeout(BOOT_CALL_TIMEOUT)
+}
+
+/// The per-call options a boot-time coordinator call travels under when it
+/// must present this machine's worker credential.
+///
+/// `pub(crate)` because the open-session read is a boot-time call too
+/// ([`crate::runtime::reconcile`]) and it was travelling on a bare client:
+/// `SessionsList` is `DeviceOrOwnWorkerRecovery` on the coordinator, so the
+/// read that decides keeper admission was refused with an `Unauthenticated`
+/// and nothing to point at. One function, because "how does this worker
+/// authenticate to its coordinator" having a second answer is the defect this
+/// exists to remove — the registration in `register.rs` already spelled it
+/// correctly, and this is that spelling with a name.
+pub(crate) fn authenticated_call_options(
+    credential: &dyn CredentialSource,
+) -> Result<CallOptions, CredentialError> {
+    let token = credential.mint()?;
+    // `try_with_header`, not `with_header`: the latter drops a value it cannot
+    // spell, and a credential this worker built wrong would then arrive as an
+    // `Unauthenticated` with no header on it and nothing to point at.
+    boot_call_options()
+        .try_with_header(AUTHORIZATION, format!("Bearer {token}"))
+        .map_err(|error| CredentialError::Unspellable {
+            reason: error.to_string(),
+        })
 }
 
 #[cfg(test)]

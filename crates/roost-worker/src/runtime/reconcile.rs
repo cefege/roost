@@ -33,6 +33,7 @@ use roost_proto::{CoordinatorServiceClient, SessionsListRequest};
 use super::boot::WorkerBoot;
 use super::keeper_boot::{self, KeeperBootDecision, KeeperBootOutcome, KeeperHandle};
 use crate::keeper_pool::KeeperPool;
+use crate::runtime::credential::CredentialSource;
 
 /// The coordinator's open-session count, or `None` while nobody has read it.
 pub type OpenSessionCount = Option<usize>;
@@ -57,11 +58,20 @@ pub type OpenSession = roost_proto::Session;
 pub async fn read_open_sessions<T>(
     client: &CoordinatorServiceClient<T>,
     worker_fp: &str,
+    credential: &dyn CredentialSource,
 ) -> anyhow::Result<Vec<OpenSession>>
 where
     T: ClientTransport,
     <T::ResponseBody as http_body::Body>::Error: std::fmt::Display,
 {
+    // THE CREDENTIAL IS A PARAMETER, not an ambient thing the client already
+    // carries. The boot builds one Connect client for every call it makes and
+    // that client attaches nothing, so this read — the one that decides keeper
+    // admission — was refused by a coordinator whose `SessionsList` row is
+    // `DeviceOrOwnWorkerRecovery`. The same key the link dials with is the one
+    // that answers here.
+    let options = crate::runtime::bootstrap_redeem::authenticated_call_options(credential)
+        .context("no worker credential could be presented for the open-session read")?;
     let request = SessionsListRequest {
         worker_fp: Some(worker_fp.to_owned()),
         // "open" is the default, and it is STATED rather than inherited: the
@@ -82,7 +92,7 @@ where
     // code offers, and it is infallible: the bytes already validated as they
     // were decoded.
     let response = client
-        .sessions_list(request)
+        .sessions_list_with_options(request, options)
         .await
         .context("the coordinator did not report its open-session set")?
         .into_owned();
@@ -106,12 +116,17 @@ where
 pub async fn read_open_session_count<T>(
     client: &CoordinatorServiceClient<T>,
     worker_fp: &str,
+    credential: &dyn CredentialSource,
 ) -> anyhow::Result<OpenSessionCount>
 where
     T: ClientTransport,
     <T::ResponseBody as http_body::Body>::Error: std::fmt::Display,
 {
-    Ok(Some(read_open_sessions(client, worker_fp).await?.len()))
+    Ok(Some(
+        read_open_sessions(client, worker_fp, credential)
+            .await?
+            .len(),
+    ))
 }
 
 /// What the boot does with a coordinator that did not answer: `None`.
@@ -231,12 +246,13 @@ pub enum KeeperAdmission {
 pub async fn admit_keeper<T>(
     boot: &WorkerBoot,
     client: &CoordinatorServiceClient<T>,
+    credential: &dyn CredentialSource,
 ) -> anyhow::Result<KeeperAdmission>
 where
     T: ClientTransport,
     <T::ResponseBody as http_body::Body>::Error: std::fmt::Display,
 {
-    let open_read = read_open_sessions(client, boot.fingerprint.as_str()).await;
+    let open_read = read_open_sessions(client, boot.fingerprint.as_str(), credential).await;
     // `open_sessions_or_unknown` takes a CLAIM — `Result<Option<usize>, _>` —
     // and the rows are borrowed here and moved a few lines down, so the count
     // is derived by reference and the error re-wrapped into an owned one. The

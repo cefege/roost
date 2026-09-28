@@ -132,7 +132,15 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     //    step 9 needs this session's id and folder to adopt it INTO, and a
     //    second read would be a second answer arriving after the first was
     //    spent. One read, both consumers.
-    let admission = reconcile::admit_keeper(&boot, &coordinator_client).await?;
+    let admission = reconcile::admit_keeper(
+        &boot,
+        &coordinator_client,
+        // The same key the link below dials with. The client built above
+        // attaches nothing to itself, so without this the read is refused by a
+        // coordinator that answers `SessionsList` to a worker principal only.
+        &WorkerKeyCredential::new(boot.worker_key_path.clone()),
+    )
+    .await?;
     let keeper_admitted = matches!(admission, reconcile::KeeperAdmission::Owned(_));
 
     let because = sequence

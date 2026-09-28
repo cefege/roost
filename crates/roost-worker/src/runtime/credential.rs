@@ -19,11 +19,19 @@ use crate::host::jwt::{
     COORDINATOR_AUDIENCE, CREDENTIAL_LIFETIME, WorkerKeyError, load_worker_key,
 };
 
-/// Why no credential could be produced for a dial.
+/// Why a credential could not be produced, or could not be spelled as a header.
+///
+/// TWO, because they are different events and the boot says so. A key that
+/// cannot be read produces nothing; a credential that cannot become a header
+/// value is a string this worker built wrong, and it has to be told apart from
+/// an outage — the second used to arrive as a bare `Unauthenticated` with no
+/// header on it and nothing to point at.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CredentialError {
     #[error("no coordinator credential could be minted: {reason}")]
     Unavailable { reason: String },
+    #[error("the coordinator credential is not a header value: {reason}")]
+    Unspellable { reason: String },
 }
 
 impl From<WorkerKeyError> for CredentialError {
