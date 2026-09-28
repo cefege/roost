@@ -12,7 +12,9 @@ use roost_proto::{
 };
 
 use super::{RpcCodecError, encode_message as encode};
+use crate::client::rpc::calls::sessions::KillSession;
 use crate::client::rpc::methods::connect_method;
+use crate::client::rpc::unary::UnaryMethod;
 use crate::effect::RpcCall;
 
 /// Encode the request body for one call.
@@ -96,5 +98,12 @@ pub fn encode_rpc_request(call: &RpcCall) -> Result<Vec<u8>, RpcCodecError> {
                 ..Default::default()
             },
         ),
+        RpcCall::SessionsKill {
+            session_id, force, ..
+        } => KillSession {
+            session_id: session_id.clone(),
+            force: *force,
+        }
+        .encode_request(),
     }
 }

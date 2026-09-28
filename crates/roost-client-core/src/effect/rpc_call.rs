@@ -123,6 +123,16 @@ pub enum RpcCall {
         /// the request (`coordinator.proto:409`).
         search_id: String,
     },
+    /// `SessionsKill` — end a session's PTY once its close's undo window has
+    /// run out (`closeSession.ts` `killAfterUndo`).
+    SessionsKill {
+        /// Correlates the answer with this call.
+        call_id: u64,
+        /// The session to kill.
+        session_id: String,
+        /// Skip the graceful hangup; sent only after a graceful kill was refused.
+        force: bool,
+    },
 }
 
 /// The bootstrap snapshot call one domain's hydrator makes for

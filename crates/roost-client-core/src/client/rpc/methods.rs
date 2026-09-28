@@ -56,6 +56,7 @@ pub fn connect_method(call: &RpcCall) -> &'static str {
         RpcCall::FilesMkdir { .. } => "FilesMkdir",
         RpcCall::SessionsSearchGlobal { .. } => "SessionsSearchGlobal",
         RpcCall::SessionsCancelGlobalSearch { .. } => "SessionsCancelGlobalSearch",
+        RpcCall::SessionsKill { .. } => "SessionsKill",
     }
 }
 
@@ -73,7 +74,8 @@ pub fn connect_call_id(call: &RpcCall) -> u64 {
         | RpcCall::FilesListDir { call_id, .. }
         | RpcCall::FilesMkdir { call_id, .. }
         | RpcCall::SessionsSearchGlobal { call_id, .. }
-        | RpcCall::SessionsCancelGlobalSearch { call_id, .. } => *call_id,
+        | RpcCall::SessionsCancelGlobalSearch { call_id, .. }
+        | RpcCall::SessionsKill { call_id, .. } => *call_id,
     }
 }
 

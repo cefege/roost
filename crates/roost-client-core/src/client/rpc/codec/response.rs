@@ -23,7 +23,9 @@ use super::wire_rows::{
     workspace_from_proto,
 };
 use super::{RpcCodecError, decode_message as decode};
+use crate::client::rpc::calls::sessions::KillSession;
 use crate::client::rpc::methods::connect_method;
+use crate::client::rpc::unary::UnaryMethod;
 use crate::effect::{RpcCall, RpcResult};
 use crate::store::browse_entries::BrowseEntry;
 
@@ -165,6 +167,16 @@ pub fn decode_rpc_response(call: &RpcCall, body: &[u8]) -> Result<RpcResult, Rpc
                 search_id: search_id.clone(),
             }
         }
+        RpcCall::SessionsKill {
+            call_id,
+            session_id,
+            force,
+        } => RpcResult::SessionKillAnswered {
+            call_id: *call_id,
+            session_id: session_id.clone(),
+            force: *force,
+            accepted: KillSession::decode_response(body)?,
+        },
     })
 }
 

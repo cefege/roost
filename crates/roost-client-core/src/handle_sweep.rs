@@ -36,6 +36,9 @@ pub fn handle_sweep(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
         out.push(Effect::PersistWatermark { event_id });
     }
 
+    // Closes whose undo window ran out owe their session a kill.
+    crate::handle_close_kill::issue_due_kills(store, now_ms, out);
+
     // The acknowledgement ledger second, and for the same reason: one write per
     // sweep no matter how many rows the reader looked at since the last one.
     if store.agent_seen_dirty {

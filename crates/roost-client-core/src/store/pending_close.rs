@@ -1,10 +1,9 @@
 //! Pending closes: the undo window a session's close waits out.
 //!
 //! Clicking ✕ on a session row does not kill the PTY. The row hides at once, the
-//! close waits five seconds, and a snackbar offers the way back. The kill is the
-//! host's to issue — it is a Connect call and this crate never calls one — so
-//! this queue owns the WINDOW and hands the host the list of ids whose window
-//! has run out.
+//! close waits five seconds, and a snackbar offers the way back. This queue owns
+//! the WINDOW; the sweep turns each expired id into a `SessionsKill` effect
+//! (`handle_close_kill.rs`), and the in-flight ledger here correlates the answer.
 //!
 //! Each close is independent: its own window, its own card, its own undo. Closing
 //! a second tab does not touch the first tab's countdown, and re-clicking a row
@@ -55,12 +54,25 @@ pub struct PendingClose {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct PendingCloses {
     entries: BTreeMap<String, PendingClose>,
+    /// Kills issued and not yet answered: call id → session id. A failed
+    /// answer carries only its call id, and this is how it finds its session.
+    kills_in_flight: BTreeMap<u64, String>,
 }
 
 impl PendingCloses {
     /// Nothing pending.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Record a `SessionsKill` call awaiting its answer.
+    pub fn begin_kill(&mut self, call_id: u64, session_id: String) {
+        self.kills_in_flight.insert(call_id, session_id);
+    }
+
+    /// Settle a kill call; its session when `call_id` was one.
+    pub fn take_kill(&mut self, call_id: u64) -> Option<String> {
+        self.kills_in_flight.remove(&call_id)
     }
 
     /// How many closes are waiting.
@@ -159,7 +171,7 @@ pub fn undo_all(store: &mut Store) -> Vec<CloseLabels> {
 ///
 /// Called by the sweep, and the return value is the whole point — the kill is a
 /// Connect call, and a deadline that quietly dropped its ids on the floor would
-/// leave a PTY the user believes they closed. The host issues one
+/// leave a PTY the user believes they closed. The sweep issues one
 /// `SessionsKill` per id, in the order returned.
 pub fn sweep_pending_closes(store: &mut Store, now_ms: u64) -> Vec<String> {
     let due: Vec<String> = store

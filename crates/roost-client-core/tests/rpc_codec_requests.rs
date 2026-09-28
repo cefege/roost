@@ -10,8 +10,8 @@ use roost_client_core::sync::link::SyncDomain;
 use roost_proto::buffa::Message;
 use roost_proto::{
     AuthRedeemBrowserRequest, FilesListDirRequest, FilesMkdirRequest,
-    SessionsCancelGlobalSearchRequest, SessionsListRequest, SessionsSearchGlobalRequest,
-    TasksListRequest,
+    SessionsCancelGlobalSearchRequest, SessionsKillRequest, SessionsListRequest,
+    SessionsSearchGlobalRequest, TasksListRequest,
 };
 
 fn body(call: &RpcCall) -> Vec<u8> {
@@ -140,6 +140,18 @@ fn a_global_search_page_carries_the_client_minted_id_and_the_caps() {
     ))
     .unwrap();
     assert_eq!(cancel.search_id, "search-1");
+}
+
+#[test]
+fn a_kill_carries_its_session_and_force_flag() {
+    let call = RpcCall::SessionsKill {
+        call_id: 3,
+        session_id: "s-1".to_owned(),
+        force: true,
+    };
+    assert_eq!(connect_method(&call), "SessionsKill");
+    let request = SessionsKillRequest::decode_from_slice(&body(&call)).unwrap();
+    assert_eq!((request.session_id.as_str(), request.force), ("s-1", true));
 }
 
 #[test]

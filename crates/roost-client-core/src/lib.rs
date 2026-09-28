@@ -19,6 +19,7 @@
 #![forbid(unsafe_code)]
 
 mod core;
+mod handle_close_kill;
 mod handle_event;
 mod handle_input;
 mod handle_sweep;

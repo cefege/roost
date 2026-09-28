@@ -10,8 +10,9 @@ use roost_client_core::{RpcCall, RpcResult};
 use roost_proto::buffa::Message;
 use roost_proto::{
     AuthCoordIdentityResponse, FilesListDirEntry, FilesListDirResponse, FilesMkdirResponse,
-    GlobalSearchPartialReason as PbReason, Session as PbSession, SessionsListResponse,
-    SessionsSearchGlobalMatch, SessionsSearchGlobalPartial, SessionsSearchGlobalResponse,
+    GlobalSearchPartialReason as PbReason, Session as PbSession, SessionsKillResponse,
+    SessionsListResponse, SessionsSearchGlobalMatch, SessionsSearchGlobalPartial,
+    SessionsSearchGlobalResponse,
 };
 
 const SESSION: &str = "00000000-0000-4000-8000-00000000000a";
@@ -304,6 +305,24 @@ fn the_acknowledgement_only_calls_answer_with_their_identity() {
             search_id: "search-1".to_owned(),
         }
     );
+    let kill = RpcCall::SessionsKill {
+        call_id: 10,
+        session_id: SESSION.to_owned(),
+        force: true,
+    };
+    let refused = SessionsKillResponse {
+        accepted: false,
+        ..Default::default()
+    };
+    assert_eq!(
+        decode_rpc_response(&kill, &refused.encode_to_vec()).unwrap(),
+        RpcResult::SessionKillAnswered {
+            call_id: 10,
+            session_id: SESSION.to_owned(),
+            force: true,
+            accepted: false,
+        }
+    );
 }
 
 #[test]
@@ -359,6 +378,11 @@ fn every_call() -> Vec<RpcCall> {
         RpcCall::SessionsCancelGlobalSearch {
             call_id: 1,
             search_id: String::new(),
+        },
+        RpcCall::SessionsKill {
+            call_id: 1,
+            session_id: String::new(),
+            force: false,
         },
     ]
 }

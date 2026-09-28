@@ -142,6 +142,17 @@ pub enum RpcResult {
         /// The search the coordinator stopped.
         search_id: String,
     },
+    /// `SessionsKill` answered; `accepted` is the coordinator's verdict.
+    SessionKillAnswered {
+        /// Which call this answers.
+        call_id: u64,
+        /// The session the kill targeted.
+        session_id: String,
+        /// Whether the kill was the forced one.
+        force: bool,
+        /// Whether the coordinator accepted it.
+        accepted: bool,
+    },
 }
 
 impl RpcResult {
@@ -160,7 +171,8 @@ impl RpcResult {
             | Self::DirectoryListed { call_id, .. }
             | Self::DirectoryCreated { call_id, .. }
             | Self::SearchPage { call_id, .. }
-            | Self::GlobalSearchCancelled { call_id, .. } => *call_id,
+            | Self::GlobalSearchCancelled { call_id, .. }
+            | Self::SessionKillAnswered { call_id, .. } => *call_id,
         }
     }
 
@@ -180,6 +192,7 @@ impl RpcResult {
             Self::DirectoryCreated { .. } => "directory_created",
             Self::SearchPage { .. } => "search_page",
             Self::GlobalSearchCancelled { .. } => "global_search_cancelled",
+            Self::SessionKillAnswered { .. } => "session_kill_answered",
         }
     }
 }

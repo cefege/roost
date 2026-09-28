@@ -241,6 +241,9 @@ pub fn handle_rpc_result(
     if hydration::settle_hydration_result(store, result, now_ms, out) {
         return;
     }
+    if crate::handle_close_kill::settle_kill(store, result, now_ms, out) {
+        return;
+    }
     match result {
         RpcResult::CoordIdentity {
             git_sha,
