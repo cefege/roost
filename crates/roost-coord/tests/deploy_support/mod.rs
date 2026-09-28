@@ -177,13 +177,11 @@ pub async fn settled(journal: &DeployJournal, job_id: &str) {
 }
 
 /// A line message.
-#[must_use]
 pub fn line(text: &str) -> Result<DeployStreamMsg, SubscriberQueueOverflow> {
     Ok(DeployStreamMsg::Line(text.to_owned()))
 }
 
 /// A done message.
-#[must_use]
 pub fn done(
     exit: Option<i32>,
     error: Option<&str>,

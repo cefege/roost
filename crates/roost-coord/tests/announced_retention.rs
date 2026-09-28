@@ -78,9 +78,8 @@ fn a_stale_recovery_cannot_absorb_metadata_after_exact_route_replacement() {
         "the discarded fact gave its charge back"
     );
     assert!(
-        b.barrier
-            .reconcile_retained_metadata(CHANNEL, SESSION, &mut b.budget)
-            == false,
+        !b.barrier
+            .reconcile_retained_metadata(CHANNEL, SESSION, &mut b.budget),
         "nothing of the old session survives to absorb a later fact"
     );
 }
@@ -116,7 +115,7 @@ fn an_early_fact_waits_three_seconds_for_its_announcement() {
     let mut b = Barrier::new();
     let retained_at = now();
     assert!(b.retain_early(metadata("early", true, false, 1), 40));
-    assert_eq!(b.barrier.next_deadline().is_some(), true);
+    assert!(b.barrier.next_deadline().is_some());
     b.barrier.expire(
         retained_at + SEMANTIC_METADATA_PREANNOUNCE_MAX - std::time::Duration::from_millis(1),
         &mut b.budget,

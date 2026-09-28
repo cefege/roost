@@ -136,7 +136,12 @@ impl WorkerFrameDispatcher {
         // Progress settles no pending RPC, so the snapshot barrier does not
         // gate it: v2 routes it on any socket past hello.
         if let CoordWorkerUpstream::UpdateProgress(progress) = &upstream {
-            return match self.core.services.deploy.accept_update_progress(&worker, progress) {
+            return match self
+                .core
+                .services
+                .deploy
+                .accept_update_progress(&worker, progress)
+            {
                 Ok(()) => DispatchOutcome::Handled,
                 Err(reason) => self.refuse(channel, reason),
             };
