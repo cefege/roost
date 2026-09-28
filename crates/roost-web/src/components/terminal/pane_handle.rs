@@ -74,8 +74,9 @@ impl PaneHandle {
 
     /// Unmount: the pane disposes its renderer, view and listeners.
     pub fn unmount(&self) {
-        let previous = self.mount.borrow_mut().take();
-        drop(previous);
+        // Taken out of the cell first, so the mount's teardown runs with the
+        // cell unborrowed.
+        let _previous = self.mount.borrow_mut().take();
     }
 
     fn with_mount(&self, run: impl FnOnce(&PaneMount)) {
