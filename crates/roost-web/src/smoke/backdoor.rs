@@ -40,6 +40,8 @@ pub(super) enum Reply {
     Later(Pin<Box<dyn Future<Output = Result<Option<Value>, String>>>>),
 }
 
+/// One in-flight timing measurement's key listener, keyed by its timing id.
+type TimingListeners = BTreeMap<String, Closure<dyn FnMut(KeyboardEvent)>>;
 /// The backdoor's state; one per document.
 pub(super) struct SmokeBackdoor {
     pub(super) pump: Pump,
@@ -48,7 +50,7 @@ pub(super) struct SmokeBackdoor {
     pub(super) timings: RefCell<TimingLedger>,
     pub(super) holds: RefCell<DomHolds>,
     pub(super) geometry_proofs: RefCell<GeometryProofs>,
-    timing_listeners: RefCell<BTreeMap<String, Closure<dyn FnMut(KeyboardEvent)>>>,
+    timing_listeners: RefCell<TimingListeners>,
     session_storage: Rc<SessionStorageKeyValueStore>,
 }
 

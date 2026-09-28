@@ -23,10 +23,13 @@ use host::{WebLinkHost, touched_rows};
 
 type SharedLinks = RefCell<TerminalLinks<WebLinkHost>>;
 
+/// One link listener's browser closure, paired with the listener it feeds.
+type ListenerClosure = Closure<dyn FnMut(Event)>;
+
 /// The browser callbacks one attachment owns. Each holds only a weak handle,
 /// so a callback the browser still queues after disposal does nothing.
 struct LinkCallbacks {
-    listeners: Vec<(LinkListener, Closure<dyn FnMut(Event)>)>,
+    listeners: Vec<(LinkListener, ListenerClosure)>,
     scan_frame: Closure<dyn FnMut(f64)>,
     activation_frame: Closure<dyn FnMut(f64)>,
     idle_scan: Closure<dyn FnMut()>,

@@ -44,12 +44,16 @@ fn active_index(items: &[HtmlElement]) -> Option<usize> {
     })
 }
 
+/// The self-replacing frame step: a closure the cell keeps so each retry can
+/// hand the browser its own successor.
+type StepCell = Rc<RefCell<Option<Closure<dyn FnMut()>>>>;
+
 /// Focus the menu `menu_id`'s first or last enabled item once it has mounted,
 /// retrying by frame because a portal can miss the first attempt.
 pub fn focus_menu_edge(menu_id: &str, edge: MenuFocusEdge) {
     let menu_id = menu_id.to_owned();
     let attempts = Rc::new(RefCell::new(0_u32));
-    let step: Rc<RefCell<Option<Closure<dyn FnMut()>>>> = Rc::new(RefCell::new(None));
+    let step: StepCell = Rc::new(RefCell::new(None));
     let next = Rc::clone(&step);
     *step.borrow_mut() = Some(Closure::new(move || {
         let Some(window) = web_sys::window() else {
