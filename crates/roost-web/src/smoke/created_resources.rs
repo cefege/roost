@@ -88,7 +88,7 @@ pub fn free_workspace_name(existing: &[String], basename: Option<&str>) -> Strin
     let base = basename.filter(|name| !name.is_empty()).unwrap_or("~");
     let mut name = base.to_owned();
     let mut suffix = 2;
-    while existing.iter().any(|taken| *taken == name) {
+    while existing.contains(&name) {
         name = format!("{base} {suffix}");
         suffix += 1;
     }

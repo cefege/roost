@@ -10,13 +10,16 @@ use std::rc::Rc;
 
 use super::pane_registry::PaneRegistry;
 
+/// Told which session's delivery the smoke backdoor just dropped.
+pub type DropTakenHook = Rc<dyn Fn(&str)>;
+
 /// The armed faults, keyed by session.
 #[derive(Default)]
 pub struct PaneFaults {
     dom_held: BTreeSet<String>,
     drop_armed: BTreeSet<String>,
     dropped: BTreeMap<String, u64>,
-    drop_taken_hook: Option<Rc<dyn Fn(&str)>>,
+    drop_taken_hook: Option<DropTakenHook>,
 }
 
 impl std::fmt::Debug for PaneFaults {

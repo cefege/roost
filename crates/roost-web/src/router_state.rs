@@ -29,10 +29,7 @@ use crate::platform::location::{current_location, navigate};
 pub fn use_path_signal() -> Signal<String> {
     let path = use_hook(|| Signal::new(current_location()));
     #[cfg(target_arch = "wasm32")]
-    use_hook({
-        let path = path;
-        move || install_popstate_listener(path)
-    });
+    use_hook(move || install_popstate_listener(path));
     path
 }
 

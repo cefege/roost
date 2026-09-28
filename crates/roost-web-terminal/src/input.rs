@@ -32,6 +32,8 @@ pub mod controller_dom;
 #[cfg(target_arch = "wasm32")]
 pub mod dom;
 #[cfg(target_arch = "wasm32")]
+pub mod options;
+#[cfg(target_arch = "wasm32")]
 pub mod pane_selection;
 
 pub use chord::{KeyChord, KeyKind, Modifiers, NamedKey};
@@ -55,8 +57,10 @@ pub use selection::{
 #[cfg(target_arch = "wasm32")]
 pub use compose_dom::{ComposeSelectionOptions, TerminalComposeSelection};
 #[cfg(target_arch = "wasm32")]
-pub use controller_dom::{TerminalInputController, TerminalInputOptions};
+pub use controller_dom::TerminalInputController;
 #[cfg(target_arch = "wasm32")]
 pub use dom::{DomSelectionReader, key_chord_from_event};
+#[cfg(target_arch = "wasm32")]
+pub use options::{PasteHandler, TerminalInputOptions};
 #[cfg(target_arch = "wasm32")]
 pub use pane_selection::{PaneRead, PaneSelection};
