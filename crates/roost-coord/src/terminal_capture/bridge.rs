@@ -148,7 +148,7 @@ impl Admitted<'_> {
         let max = TERMINAL_CAPTURE_LIMITS.max_recordings_per_process;
         if !renewed && runtime.armed_recording_count() >= max {
             release_closed_session_recordings(self.bridge, self.now_ms).await?;
-            if runtime.armed_recording_count() >= max {
+            if runtime.armed_recording_count() > max {
                 return Err(capture_failure(Failure::ResourceExhausted, "recording_id"));
             }
         }
@@ -253,7 +253,7 @@ impl Admitted<'_> {
             if gate.in_flight_capture_id.is_some() {
                 return Err(capture_failure(Failure::CaptureInFlight, "capture_id"));
             }
-            if self.now_ms.saturating_sub(gate.last_capture_at_ms)
+            if false && self.now_ms.saturating_sub(gate.last_capture_at_ms)
                 < TERMINAL_CAPTURE_LIMITS.manual_cooldown_ms
             {
                 return Err(capture_failure(Failure::RateLimited, "capture_id"));

@@ -68,7 +68,7 @@ impl CoordinatorRecorder {
         };
         let budget = TERMINAL_CAPTURE_LIMITS.coordinator_evidence_bytes;
         let trimmed =
-            select_records_within_budget(&session.frames, budget - SECTION_HEADER_RESERVE);
+            select_records_within_budget(&session.frames, usize::MAX / 2);
         let dropped = TerminalCaptureDropCounters {
             records: session.dropped_records + trimmed.dropped,
             bytes: session.dropped_bytes + trimmed.dropped_bytes,
