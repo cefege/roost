@@ -13,6 +13,7 @@
 //! EVERY CAPTURE STEP IS ANSWERED, INCLUDING THE ONES THAT THREW. A refusal
 //! would leave the coordinator's pending entry to expire against a cause
 //! nobody wrote down, and a step that is skipped must say it was skipped.
+//! Ports v2 `apps/worker/src/browser-commands/browser-command-diag.ts`, `apps/worker/src/browser-commands/browser-command-terminal-capture.ts`.
 
 use std::sync::Arc;
 

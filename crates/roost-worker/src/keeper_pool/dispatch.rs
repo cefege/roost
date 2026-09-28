@@ -20,6 +20,7 @@
 //!
 //! A PASS HOLDS `routing` FROM TAKE TO LAST DELIVERY, so a history read at an
 //! ordered boundary (`pool_history`) never races a batch taken before it.
+//! Ports v2 `apps/worker/src/keeper/keeper-pool-lifecycle.ts`.
 
 use std::sync::{PoisonError, Weak};
 use std::time::Duration;

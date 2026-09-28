@@ -16,6 +16,7 @@
 //! GAP in the sequence, never a repeat. A repeat is the one defect a durable
 //! path cannot recover from on its own, because the coordinator acknowledges by
 //! `client_seq` and has no second name for an event.
+//! Ports v2 `apps/worker/src/transport/session-event-store-sequence.ts`.
 
 use super::super::SEQUENCE_BLOCK_SIZE;
 use super::{Journal, JournalError, rows};

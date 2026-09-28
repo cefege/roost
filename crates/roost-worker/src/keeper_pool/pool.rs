@@ -26,6 +26,7 @@
 //! returned. That is also what keeps a resize's result ahead of the PTY bytes
 //! the resize produced: the result is settled inside the request, and no later
 //! frame is dispatched until the handle is free.
+//! Ports v2 `apps/worker/src/keeper/keeper-pool-io.ts`, `apps/worker/src/keeper/keeper-pool-lifecycle.ts`, `apps/worker/src/keeper/multiplexed-client.ts`.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};

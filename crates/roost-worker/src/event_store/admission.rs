@@ -9,6 +9,7 @@
 //! disagree the first time a bound moved — invisibly, until a spawn could not
 //! record that it ended. So the state arrives as ARGUMENTS and the rule decides
 //! nothing about where it came from.
+//! Ports v2 `apps/worker/src/transport/session-event-store.ts`.
 
 use super::{DurableEventKind, MAX_PAYLOAD_BYTES, MAX_ROWS, ReserveError};
 

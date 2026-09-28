@@ -9,6 +9,7 @@
 //! POSIX ONLY, and deliberately: the key's mode is read with `std::os::unix`
 //! and a key any other user can read is refused rather than signed with. v2's
 //! `win32` arm applied a service DACL instead, and v3 ships no Windows worker.
+//! Ports v2 `apps/worker/src/host/jwt.ts`.
 use std::fs::Permissions;
 use std::io::{self, Read as _, Write as _};
 use std::os::unix::fs::PermissionsExt as _;

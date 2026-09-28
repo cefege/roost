@@ -12,6 +12,7 @@
 //! usage error are this program's interface to whoever typed them. Routing those
 //! through a log subscriber would make them invisible to the person who asked.
 //! Everything else the worker says goes through `tracing`.
+//! Ports v2 `apps/worker/src/main.ts`.
 
 #![forbid(unsafe_code)]
 

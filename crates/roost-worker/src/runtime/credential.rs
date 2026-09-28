@@ -10,6 +10,7 @@
 //! that reads like a coordinator outage. v2 did the same and refreshed in band
 //! on a schedule; the per-dial mint here is strictly simpler and strictly
 //! harder to get wrong, at the cost of one signature per reconnect.
+//! Ports v2 `apps/worker/src/transport/coord-link.ts`, `apps/worker/src/host/jwt.ts`.
 
 use std::path::{Path, PathBuf};
 

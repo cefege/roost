@@ -13,6 +13,7 @@
 //! the terminal metadata producer, `agent_status.rs` the agent-status outbox,
 //! `cell_sink.rs` the coordinator's cell receiver, `browser.rs` the command
 //! pump, and `reconnect_loop.rs` the loop over dials.
+//! Ports v2 `apps/worker/src/transport/coord-link.ts`.
 
 use std::collections::VecDeque;
 use std::sync::Arc;

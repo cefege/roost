@@ -13,6 +13,7 @@
 //! `hold` stops that claim from blocking snapshots WITHOUT giving it up: the
 //! session is committed, so its close capacity is no longer speculative, and
 //! the same token remains the sole owner of that close.
+//! Ports v2 `apps/worker/src/transport/session-event-store-errors.ts`, `apps/worker/src/transport/session-event-store-limits.ts`, `apps/worker/src/transport/session-event-store.ts`.
 
 use std::collections::HashMap;
 use std::time::Duration;

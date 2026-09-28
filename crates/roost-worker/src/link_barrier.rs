@@ -16,6 +16,7 @@
 //! `open` is NOT application-ready. The only forced first write is the hello.
 //! Everything after that is gated on the coordinator acknowledging the previous
 //! step, because each step establishes something the next one relies on.
+//! Ports v2 `apps/worker/src/transport/coord-link-replay-barrier.ts`, `apps/worker/src/transport/coord-link-unacked.ts`.
 
 use std::collections::VecDeque;
 

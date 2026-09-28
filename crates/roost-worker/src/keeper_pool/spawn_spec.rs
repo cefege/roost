@@ -16,6 +16,7 @@
 //! The predicate is case-insensitive on purpose. A case-SENSITIVE check smuggles
 //! a credential into a PTY under any mixed-case spelling, and every command the
 //! user runs afterwards inherits it.
+//! Ports v2 `apps/worker/src/shell-spec.ts`.
 
 use roost_keeper::frames::ShellSpec as KeeperShellSpec;
 

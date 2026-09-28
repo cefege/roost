@@ -12,6 +12,7 @@
 //! held by the recently-closed set. Killing twice must not tell the coordinator
 //! one channel ended twice, while a session this worker NEVER held still needs
 //! a tombstone: an orphan whose keeper died is otherwise unkillable.
+//! Ports v2 `apps/worker/src/session/session-lifecycle.ts`, `apps/worker/src/session/session-manager-state.ts`, `apps/worker/src/session/session-manager.ts`, `apps/worker/src/session/session-respawn-admission.ts`.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};

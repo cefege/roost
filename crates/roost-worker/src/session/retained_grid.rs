@@ -21,6 +21,7 @@
 //! a capability trait returns is a shape, not a requirement to do I/O in it, and
 //! a guard held across it would make this type's `Send`ness a function of how
 //! the session table happens to be locked.
+//! Ports v2 `apps/worker/src/browser-commands/browser-command-terminal.ts`.
 
 use std::sync::Arc;
 

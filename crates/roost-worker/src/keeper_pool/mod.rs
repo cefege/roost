@@ -9,6 +9,7 @@
 //! decides whether this worker adopts a survivor or starts a keeper, and a pool
 //! that decided for itself would be a second answer to "is it safe to replace
 //! the thing holding this machine's terminals".
+//! Ports v2 `apps/worker/src/keeper/multiplexed-client.ts`.
 
 mod channel_ids;
 mod channels;

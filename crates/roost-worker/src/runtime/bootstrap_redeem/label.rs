@@ -7,6 +7,7 @@
 //! not set the shell's by default. An ordering that consulted `HOSTNAME` first
 //! fell through to the same final fallback on every macOS host at once, and
 //! every worker in a fleet registered as the literal string `"worker"`.
+//! Ports v2 `apps/worker/src/host/install.ts`.
 
 use roost_host::{EnvSource, HostPlatform};
 

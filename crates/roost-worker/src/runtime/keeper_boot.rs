@@ -15,6 +15,7 @@
 //! open is a session somebody is looking at, and replacing its keeper ends it.
 //! So a replacement waits for the coordinator, and an adoption — which changes
 //! nothing about anyone's terminals — does not.
+//! Ports v2 `apps/worker/src/boot/boot-keeper.ts`, `apps/worker/src/keeper/keeper-pool-config.ts`, `apps/worker/src/keeper/multiplexed-client.ts`.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};

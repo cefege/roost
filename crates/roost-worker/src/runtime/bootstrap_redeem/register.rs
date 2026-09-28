@@ -8,6 +8,7 @@
 //! [`super::label`], the key by `runtime::boot`, the commit by
 //! `roost_host::build_identity`. What lives here is the credential and the two
 //! ways the call can fail, which are not the same event.
+//! Ports v2 `apps/worker/src/transport/coord-client.ts`, `apps/worker/src/host/install.ts`.
 
 use connectrpc::client::ClientTransport;
 use connectrpc::http_body;

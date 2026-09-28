@@ -14,6 +14,7 @@
 //! with every spawn failing `worker not connected`. And a barrier that cannot
 //! leave the snapshot stage, which is a build gap and is torn down so it shows
 //! up in the ladder instead of looking healthy.
+//! Ports v2 `apps/worker/src/transport/coord-link-native-writer.ts`, `apps/worker/src/transport/coord-link.ts`.
 
 use std::sync::Arc;
 use std::time::Instant;

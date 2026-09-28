@@ -20,6 +20,7 @@
 //! THE BOUND IS CHECKED TWICE, ON PURPOSE. Once where the bytes arrive, so the
 //! buffer cannot grow without limit, and once at the moment of the swap, so a
 //! buffer that overflowed can never be replayed as though it had not.
+//! Ports v2 `apps/worker/src/session/session-constants.ts`, `apps/worker/src/session/session-resume-events.ts`, `apps/worker/src/session/session-terminal-state.ts`.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 

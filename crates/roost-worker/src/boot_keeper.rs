@@ -14,6 +14,7 @@
 //! Calling it BUSY blocks boot over a process nobody can identify. Both are
 //! worse than saying "unproven", which is a state an operator can act on and
 //! the code refuses to guess past.
+//! Ports v2 `apps/worker/src/boot/boot-keeper.ts`.
 
 use std::time::Duration;
 

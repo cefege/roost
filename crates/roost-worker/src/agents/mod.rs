@@ -11,6 +11,7 @@
 //! ([`crate::session::agent_osc::AgentOscState`]) rather than here: it is a
 //! property of the BYTES, not of the agent, and a copy would be a second place
 //! to look for the same title.
+//! Ports v2 `apps/worker/src/agents/process-scan.ts`, `apps/worker/src/agents/report-protocol.ts`.
 
 pub mod conversation_recovery;
 pub mod conversation_restore;

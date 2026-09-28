@@ -14,6 +14,7 @@
 //! backoff — never fires. A link that has not been up for
 //! [`STABLE_SESSION`](crate::backoff::STABLE_SESSION) has not proved anything,
 //! so it counts as a non-open dial.
+//! Ports v2 `apps/worker/src/transport/coord-link-reconnect.ts`.
 
 use std::time::{Duration, Instant};
 

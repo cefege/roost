@@ -21,6 +21,7 @@
 //! forever, and that is a condition no per-request answer can fix. It is
 //! reported as its own outcome so the caller can stop the worker rather than
 //! retry.
+//! Ports v2 `apps/worker/src/browser-commands/browser-command-spawn.ts`.
 
 use roost_protocol::wire::brand::SessionId;
 use roost_protocol::wire::control::ClientControlFrame;

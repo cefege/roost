@@ -16,6 +16,7 @@
 //! A sink that merely answers [`CellSinkResult::Dropped`] keeps its
 //! registration and owes a fresh baseline — it still has a transport, and a
 //! receiver that missed a delta can no longer reproduce the shipped screen.
+//! Ports v2 `apps/worker/src/session/session-cell-sinks.ts`.
 
 use std::collections::HashMap;
 use std::sync::Arc;

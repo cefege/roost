@@ -12,6 +12,7 @@
 //! The contract is resolved BEFORE the spawn rather than applied by the keeper:
 //! a spawn that fails has to fail with a reason the caller can read, and a
 //! reason the keeper invents three frames later is a reason nobody sees.
+//! Ports v2 `apps/worker/src/shell-spec.ts`.
 
 use roost_host::HostPlatform;
 use roost_keeper::frames::ShellSpec as KeeperShellSpec;

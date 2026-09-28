@@ -12,6 +12,7 @@
 //! everything that controls them. That is a deliberate choice to let a backlog
 //! of cells wait — a late frame is still correct, a frame ahead of its own
 //! `opened` is not recoverable.
+//! Ports v2 `apps/worker/src/transport/coord-link-constants.ts`, `apps/worker/src/transport/coord-link-outbox.ts`.
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};

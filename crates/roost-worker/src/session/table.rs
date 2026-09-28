@@ -13,6 +13,7 @@
 //! `session::retained_grid`, `runtime::deps`. Depends on `super::types` for the
 //! record and on `roost_protocol` for the two id brands — nothing that depends
 //! on it back.
+//! Ports v2 `apps/worker/src/session/session-lifecycle.ts`, `apps/worker/src/session/session-manager.ts`.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};

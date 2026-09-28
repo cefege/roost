@@ -15,6 +15,7 @@
 //! [`SnapshotSource::snapshot`]: the link asks once, at boot, whether the barrier
 //! will ever be released, rather than discovering the answer once per dial from
 //! an error nobody can act on.
+//! Ports v2 `apps/worker/src/snapshot.ts`.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

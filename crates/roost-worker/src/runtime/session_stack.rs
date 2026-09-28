@@ -24,6 +24,7 @@
 //! could make: no socket, no clock and no filesystem of its own. The pool owns
 //! the keeper socket, the clock is `roost_observability`'s, and the resolver
 //! is the only thing here that touches a path.
+//! Ports v2 `apps/worker/src/transport/coord-link-deps.ts`.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

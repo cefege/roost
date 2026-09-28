@@ -18,6 +18,7 @@
 //! A LISTING IS A FIXED NUMBER OF ENTRIES, DIRS FIRST. The browse page renders
 //! folders as drill-in rows above files, and a cap reached in readdir order
 //! would hide whichever entries the filesystem happened to name last.
+//! Ports v2 `apps/worker/src/browser-commands/browser-command-files.ts`, `apps/worker/src/file-rpcs.ts`, `apps/worker/src/util/path.ts`.
 
 use std::path::PathBuf;
 use std::sync::Arc;

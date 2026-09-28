@@ -7,6 +7,7 @@
 //! redemption: a one-shot secret held longer than the grant it was is a secret
 //! with a longer life than its own value. The label's own resolution, and the
 //! reason its ordering is that ordering, is the `label` submodule beside this.
+//! Ports v2 `apps/worker/src/transport/coord-client.ts`, `apps/worker/src/host/install.ts`.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;

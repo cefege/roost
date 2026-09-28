@@ -16,6 +16,7 @@
 //! suppressed. An operator reads one report instead of correlating logs, and a
 //! gate past its own ceiling is marked rather than left to be inferred from a
 //! timeout somewhere else.
+//! Ports v2 `apps/worker/src/browser-commands/browser-command-diag.ts`, `apps/worker/src/session/session-diag-snapshot.ts`.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};

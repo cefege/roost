@@ -25,6 +25,7 @@
 //! abandons a search, and the abandon routinely overtakes the search on the
 //! wire; the ledger in [`super::search_cancellation`] is what makes the second
 //! one stop instead of scanning a grid nobody is watching.
+//! Ports v2 `apps/worker/src/terminal/search/terminal-search-batch.ts`.
 
 use roost_protocol::wire::brand::SessionId;
 use roost_protocol::wire::control::ClientControlFrame;

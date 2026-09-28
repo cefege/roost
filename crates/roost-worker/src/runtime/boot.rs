@@ -19,6 +19,7 @@
 //!
 //! Every path here comes from a `roost-host` path function. This file decides
 //! which file lives where; it does not decide where a file lives.
+//! Ports v2 `apps/worker/src/host/config.ts`.
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};

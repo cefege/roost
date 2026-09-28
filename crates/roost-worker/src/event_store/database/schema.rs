@@ -9,6 +9,7 @@
 //! quietly adopted: a worker that starts anyway would accept events it cannot
 //! replay, and the loss would surface as a session the coordinator never heard
 //! of rather than as a store that would not start.
+//! Ports v2 `apps/worker/src/transport/session-event-store-schema.ts`.
 
 use sqlx::AssertSqlSafe;
 use sqlx::sqlite::SqlitePool;

@@ -14,6 +14,7 @@
 //! untracked is a LIVE session, and killing it takes a user's terminal with
 //! it. Every rule below is about telling those two apart, and every threshold
 //! comes from a case where guessing wrong was observed.
+//! Ports v2 `apps/worker/src/session/session-lifecycle.ts`.
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};

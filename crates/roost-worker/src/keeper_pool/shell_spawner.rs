@@ -13,6 +13,7 @@
 //! a reason, the other cannot fail at all — and a caller that got them mixed up
 //! would either give up on a survivor it could have adopted, or wait for an
 //! answer a kill never sends.
+//! Ports v2 `apps/worker/src/session/session-spawn.ts`.
 
 use std::sync::Arc;
 

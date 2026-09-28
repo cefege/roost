@@ -15,6 +15,7 @@
 //! twice: a restart's unacknowledged rows replay under the sequences they were
 //! written with, and the snapshot draws its own from the outbox
 //! (`super::durable_sync`).
+//! Ports v2 `apps/worker/src/transport/coord-link-replay-barrier.ts`, `apps/worker/src/transport/coord-link-unacked.ts`.
 
 use std::sync::Arc;
 

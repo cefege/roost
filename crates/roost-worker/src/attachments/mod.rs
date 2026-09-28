@@ -4,6 +4,7 @@
 //! carriers themselves (`direct_*`, `peer_*`). Ports v2
 //! `apps/worker/src/attachments/`. Composed once by `runtime::owners`; the
 //! coordinator link reaches it through [`link`].
+//! Ports v2 `apps/worker/src/attachments/attachment-operation-receipts.ts`.
 
 pub mod direct_chunks;
 pub mod direct_frames;

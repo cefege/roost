@@ -17,6 +17,7 @@
 //! `browser_commands::mod.rs` says the same thing from the other side, and both
 //! are there because the failure is silent — a dispatcher with a missing
 //! capability still compiles, and a browser still waits.
+//! Ports v2 `apps/worker/src/transport/coord-link-deps.ts`.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

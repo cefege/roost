@@ -18,6 +18,7 @@
 //! the owner's internals, and `tests/link_wire_parity.rs` is what keeps the
 //! delegation honest — a second mapping would round-trip against itself
 //! perfectly and still be wrong.
+//! Ports v2 `apps/worker/src/transport/coord-link-codec.ts`.
 
 use roost_proto::CoordWorkerDown;
 use roost_proto::buffa::Message as _;

@@ -1,3 +1,5 @@
+//! Ports v2 `apps/worker/src/session/session-respawn.ts` and
+//! `session-respawn-admission.ts`.
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 

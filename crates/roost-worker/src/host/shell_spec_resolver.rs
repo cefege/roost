@@ -17,6 +17,7 @@
 //! purpose and it runs over the overlays as well as the inherited environment:
 //! a worker that leaks one hands every command the user types the ability to
 //! speak to the keeper as this worker, which is every terminal on the machine.
+//! Ports v2 `apps/worker/src/shell-spec.ts`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

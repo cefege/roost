@@ -17,6 +17,7 @@
 //! shutdown frame. And nothing here may mutate a survivor it cannot prove empty
 //! — see [`keeper_boot::decide`], which is a pure function precisely so that
 //! decision can be tested without a keeper, a coordinator, or a PTY.
+//! Ports v2 `apps/worker/src/main.ts`.
 
 pub mod agent_owners;
 pub mod boot;

@@ -24,6 +24,7 @@
 //! `ReserveError` derives `Copy` because it is the token-level vocabulary and
 //! every match on it is allocation-free, and a store failure has to carry a
 //! reason string. Adding a `String` variant there red-lines every consumer.
+//! Ports v2 `apps/worker/src/transport/session-event-store-database.ts`.
 
 use sqlx::sqlite::SqlitePool;
 

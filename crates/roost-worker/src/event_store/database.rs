@@ -25,6 +25,7 @@
 //! single ordered stream, so two events in flight make the two acknowledgements
 //! ambiguous — and an ambiguous acknowledgement is the one state a durable path
 //! cannot recover from on its own.
+//! Ports v2 `apps/worker/src/transport/session-event-store-database.ts`, `apps/worker/src/transport/session-event-store-errors.ts`.
 
 pub mod claims;
 pub mod rows;

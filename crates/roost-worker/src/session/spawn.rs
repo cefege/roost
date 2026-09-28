@@ -12,6 +12,7 @@
 //! touched, the PTY is killed, both claims are released and no record is
 //! returned. A leaked claim is how a store eventually refuses every write, and
 //! an orphan PTY is how a keeper fills up with terminals nobody can see.
+//! Ports v2 `apps/worker/src/session/session-spawn.ts`, `apps/worker/src/util/path.ts`.
 
 use std::sync::Arc;
 

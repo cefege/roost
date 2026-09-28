@@ -10,6 +10,7 @@
 //!
 //! SERIALS NEVER ENTER HERE. A machine's serial number is an inventory
 //! identifier, not a display value, and it has no field to travel in.
+//! Ports v2 `apps/worker/src/host/host-identity.ts`.
 
 use std::borrow::Cow;
 use std::path::PathBuf;
