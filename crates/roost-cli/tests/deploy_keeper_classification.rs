@@ -27,6 +27,7 @@ fn keeper(channel_count: u32, digest: &str) -> KeeperRuntimeObservationV1 {
             "supported_features": [],
             "required_features": [],
             "implementation_digest": RUNNING_DIGEST,
+            "bun_abi": "rust",
             "platform": "linux",
             "arch": "x86_64",
             "build_sha": "b1d1836a"
@@ -46,6 +47,7 @@ fn contract(digest: &str) -> KeeperContractV1 {
         "supported_features": [],
         "required_features": [],
         "implementation_digest": digest,
+        "bun_abi": "rust",
         "platform": "linux",
         "arch": "x86_64",
         "build_sha": "b1d1836a"

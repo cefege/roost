@@ -71,6 +71,7 @@ fn fake_keeper(socket: &std::path::Path, output: Vec<Vec<u8>>) -> std::thread::J
                             supported_features: sorted_names(&KeeperFeature::SUPPORTED),
                             required_features: sorted_names(&KeeperFeature::REQUIRED),
                             implementation_digest: Some("0".repeat(64)),
+                            bun_abi: roost_protocol::keeper_update::KEEPER_RUNTIME_ABI.to_string(),
                             platform: std::env::consts::OS.to_string(),
                             arch: std::env::consts::ARCH.to_string(),
                             build_sha: "f1-proof".to_string(),
