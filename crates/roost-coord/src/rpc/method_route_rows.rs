@@ -135,13 +135,13 @@ pub const ROWS_SEARCH: &[MethodRoute] = &[
 /// files, the attachment chunk relay, direct grants, and peer negotiation.
 #[rustfmt::skip]
 pub const ROWS_ATTACHMENTS: &[MethodRoute] = &[
-    route("SessionsNegotiateAttachmentPeer", "attachments", AuthRequirement::DevicePlusFence, PortStatus::AwaitingDomainPort),
+    route("SessionsNegotiateAttachmentPeer", "attachments", AuthRequirement::DevicePlusFence, PortStatus::Implemented),
     route("FilesRead", "attachments", AuthRequirement::Device, PortStatus::Implemented),
     route("FilesReadChunk", "attachments", AuthRequirement::Device, PortStatus::Implemented),
     route("FilesListDir", "attachments", AuthRequirement::Device, PortStatus::Implemented),
     route("FilesMkdir", "attachments", AuthRequirement::Device, PortStatus::Implemented),
-    route("AttachmentsGrantDirect", "attachments", AuthRequirement::DevicePlusFence, PortStatus::AwaitingDomainPort),
-    route("AttachmentsDirectStatus", "attachments", AuthRequirement::DevicePlusFence, PortStatus::AwaitingDomainPort),
+    route("AttachmentsGrantDirect", "attachments", AuthRequirement::DevicePlusFence, PortStatus::Implemented),
+    route("AttachmentsDirectStatus", "attachments", AuthRequirement::DevicePlusFence, PortStatus::Implemented),
     route("AttachFileChunk", "attachments", AuthRequirement::Device, PortStatus::Implemented),
     route("AttachmentProbe", "attachments", AuthRequirement::Device, PortStatus::Implemented),
     route("ListAttachments", "attachments", AuthRequirement::Device, PortStatus::Implemented),

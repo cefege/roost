@@ -95,8 +95,13 @@ impl LinkSession {
                 return None;
             }
         };
-        let acknowledged =
+        let mut acknowledged =
             acknowledged_capabilities(&hello.capabilities, &services.worker_lifecycle);
+        crate::attachments::worker_conn::acknowledge_attachment_peer_capability(
+            &services.boot,
+            &hello.capabilities,
+            &mut acknowledged,
+        );
         let handle = Arc::new(
             WorkerHandle::new(
                 worker_fp.clone(),

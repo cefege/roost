@@ -455,16 +455,22 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn sessions_negotiate_attachment_peer<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsNegotiateAttachmentPeerRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsNegotiateAttachmentPeerRequest>,
     ) -> impl Future<
         Output = ServiceResult<
             impl Encodable<SessionsNegotiateAttachmentPeerResponse> + Send + use<'a>,
         >,
     > + Send {
-        delegated_reply::<SessionsNegotiateAttachmentPeerResponse>(
-            "SessionsNegotiateAttachmentPeer",
-        )
+        async move {
+            let caller = caller_of(&ctx, "SessionsNegotiateAttachmentPeer")?;
+            crate::attachments::rpc_direct::handle_sessions_negotiate_attachment_peer(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
     // ── agents ──────────────────────────────────────────────────────────
 
@@ -1033,22 +1039,38 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn attachments_grant_direct<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AttachmentsGrantDirectRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AttachmentsGrantDirectRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<AttachmentsGrantDirectResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<AttachmentsGrantDirectResponse>("AttachmentsGrantDirect")
+        async move {
+            let caller = caller_of(&ctx, "AttachmentsGrantDirect")?;
+            crate::attachments::rpc_direct::handle_attachments_grant_direct(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
 
     fn attachments_direct_status<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, AttachmentsDirectStatusRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AttachmentsDirectStatusRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<AttachmentsDirectStatusResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<AttachmentsDirectStatusResponse>("AttachmentsDirectStatus")
+        async move {
+            let caller = caller_of(&ctx, "AttachmentsDirectStatus")?;
+            crate::attachments::rpc_direct::handle_attachments_direct_status(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
     // ── rpc ─────────────────────────────────────────────────────────────
 
