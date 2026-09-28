@@ -215,3 +215,34 @@ fn a_pong_stamped_before_the_epoch_is_refused_rather_than_wrapped() {
         error.reason
     );
 }
+
+#[test]
+fn a_committed_stream_result_carries_v2s_unspecified_failure_kind() {
+    // v2 sends `UNSPECIFIED` (zero) as the failure kind of a COMMITTED result
+    // (`coord-link-terminal-results.ts` `terminalStreamFailureKind(undefined)`),
+    // so zero must decode as "no failure" rather than refuse the frame: a
+    // refused committed result is a resize the coordinator never learns landed.
+    use roost_protocol::wire::coord_worker::{
+        TerminalStreamResult, TerminalStreamStatus, TerminalWritePhase,
+    };
+    let committed = CoordWorkerUpstream::TerminalStreamResult(TerminalStreamResult {
+        request_id: "req-committed".to_owned(),
+        session_id: session(SESSION),
+        stream_id: STREAM.to_owned(),
+        enabled: true,
+        status: TerminalStreamStatus::Committed,
+        channel_resize_seq: 3,
+        effective_cols: 100,
+        effective_rows: 30,
+        resized: true,
+        reason: String::new(),
+        phase: TerminalWritePhase::Written,
+        failure_kind: None,
+    });
+    let bytes = encode_upstream(&committed).unwrap();
+    let decoded = decode_upstream(&bytes).unwrap();
+    let CoordWorkerUpstream::TerminalStreamResult(result) = decoded else {
+        panic!("a stream result came back as another arm");
+    };
+    assert_eq!(result.failure_kind, None);
+}
