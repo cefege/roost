@@ -43,8 +43,8 @@ use roost_proto::roost::v1::CoordinatorService;
 use roost_proto::*;
 
 use super::service::{
-    CoordinatorServiceImpl, caller_of, db_export_url, delegated_reply, delegated_stream,
-    misc_health_reply, now_ms, sync_moved_stream,
+    CoordinatorServiceImpl, caller_of, db_export_url, delegated_reply, misc_health_reply, now_ms,
+    sync_moved_stream,
 };
 
 use crate::agents::rpc_status::{
@@ -171,24 +171,38 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn workers_deploy_start<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, WorkersDeployStartRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, WorkersDeployStartRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<WorkersDeployStartResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<WorkersDeployStartResponse>("WorkersDeployStart")
+        async move {
+            let caller = caller_of(&ctx, "WorkersDeployStart")?;
+            crate::deploy::rpc_deploy::handle_workers_deploy_start(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
 
     fn workers_deploy_output(
         &self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, WorkersDeployOutputRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, WorkersDeployOutputRequest>,
     ) -> impl Future<
         Output = ServiceResult<
             ServiceStream<impl Encodable<WorkersDeployOutputFrame> + Send + use<>>,
         >,
     > + Send {
-        delegated_stream::<WorkersDeployOutputFrame>("WorkersDeployOutput")
+        std::future::ready(caller_of(&ctx, "WorkersDeployOutput").and_then(|caller| {
+            crate::deploy::rpc_deploy::handle_workers_deploy_output(
+                &self.core,
+                caller,
+                &r.to_owned_message(),
+            )
+        }))
     }
     // ── deploy ──────────────────────────────────────────────────────────
 

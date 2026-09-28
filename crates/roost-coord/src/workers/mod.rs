@@ -21,6 +21,7 @@ pub mod heartbeat;
 pub mod hop_deadline;
 pub mod live_effects;
 pub mod local_terminal_send;
+pub mod maintenance_send;
 pub mod projection;
 pub mod register;
 pub mod registry;

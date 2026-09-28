@@ -39,8 +39,8 @@ pub const ROWS_WORKERS: &[MethodRoute] = &[
     route("WorkersHeartbeat", "workers", AuthRequirement::Worker, PortStatus::Implemented),
     route("WorkersRename", "workers", AuthRequirement::Device, PortStatus::Implemented),
     route("WorkersDelete", "workers", AuthRequirement::Device, PortStatus::Implemented),
-    route("WorkersDeployStart", "workers", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("WorkersDeployOutput", "workers", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
+    route("WorkersDeployStart", "workers", AuthRequirement::Device, PortStatus::Implemented),
+    route("WorkersDeployOutput", "workers", AuthRequirement::Device, PortStatus::Implemented),
 ];
 
 /// keeper-update preparation, the host-local change that replaces the binary every live PTY depends on.

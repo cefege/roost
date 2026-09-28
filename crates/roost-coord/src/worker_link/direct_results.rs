@@ -44,9 +44,10 @@ pub(crate) fn accept_direct_result(
         CoordWorkerUpstream::LocalAttachmentPeerError(error) => {
             services.attachments.peers().accept_error(source, error)
         }
-        CoordWorkerUpstream::AttachmentDirectStatus(status) => {
-            services.attachments.statuses().accept_status(source, status)
-        }
+        CoordWorkerUpstream::AttachmentDirectStatus(status) => services
+            .attachments
+            .statuses()
+            .accept_status(source, status),
         _ => return DispatchOutcome::Refused,
     };
     if !settled {

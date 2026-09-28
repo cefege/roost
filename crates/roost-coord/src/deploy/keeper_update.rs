@@ -1,8 +1,8 @@
 //! The coordinator's half of a keeper update: the exclusive write drain, the
 //! fail-closed admission decision, and the frame the worker must converge on.
 //! Answers `WorkersPrepareKeeperUpdate`; the deploy domain reaches it as
-//! `core.services.deploy`. Depends on the write gate, the worker registry, the
-//! pending-RPC table, and the shared `roost_protocol::keeper_update` contract.
+//! `core.services.deploy`. Depends on the write gate, the maintenance sender
+//! (`workers::maintenance_send`), and the shared `roost_protocol::keeper_update` contract.
 //!
 //! WHY THE COORDINATOR DECIDES AT ALL. The keeper is the process every live PTY
 //! depends on and only the worker can observe it on the host, so this RPC holds
@@ -19,14 +19,12 @@ mod request;
 
 use std::time::Duration;
 
-use connectrpc::{ConnectError, ErrorCode, Response, ServiceResult};
+use connectrpc::{Response, ServiceResult};
 use roost_protocol::wire::WorkerFp;
-use roost_protocol::wire::coord_worker::CoordWorkerDownstream;
-use serde_json::Value;
 
 use crate::auth::authorized_keys::resolve_key_principal;
 use crate::coord_core::{Caller, CoordCore};
-use crate::workers::send::{SendOutcome, current_routable_worker, send_frame_through};
+use crate::workers::maintenance_send::{KeeperUpdatePreparation, send_keeper_update_preparation};
 
 // The module directory is private, so these are the names the service arm and
 // this crate's own tests reach the decision through. Each `pub use` is also
@@ -47,24 +45,16 @@ const KEEPER_UPDATE_RPC_DEADLINE: Duration = Duration::from_millis(10_000);
 
 /// The envelope as the worker link carries it, field for field.
 impl KeeperUpdateAdmission {
-    /// The frame's protobuf body, correlated to the caller's pending RPC.
+    /// The maintenance command this admission sends.
     #[must_use]
-    pub fn to_proto(&self, request_id: &str) -> roost_proto::DKeeperUpdatePrepare {
-        roost_proto::DKeeperUpdatePrepare {
-            request_id: request_id.to_owned(),
+    pub fn preparation(&self) -> KeeperUpdatePreparation {
+        KeeperUpdatePreparation {
             journaled_update_json: self.journaled_update_json.clone(),
             direction: self.direction.clone(),
             maintenance: self.maintenance,
-            coordinator_open_session_ids: self.open_session_ids.clone(),
             force_live: self.force_live,
-            ..Default::default()
+            coordinator_open_session_ids: self.open_session_ids.clone(),
         }
-    }
-
-    /// The downstream frame, the only shape the worker link accepts.
-    #[must_use]
-    pub fn to_frame(&self, request_id: &str) -> CoordWorkerDownstream {
-        CoordWorkerDownstream::KeeperUpdatePrepare(self.to_proto(request_id))
     }
 }
 
@@ -105,40 +95,6 @@ async fn require_live_worker(
                 KeeperUpdateRefusal::CoordinatorReadFailed
             })?;
     live.map(|_| ()).ok_or(KeeperUpdateRefusal::WorkerNotFound)
-}
-
-/// Hand the envelope to the worker's current generation and await its proof.
-async fn dispatch_preparation(
-    core: &CoordCore,
-    worker_fp: &WorkerFp,
-    admission: &KeeperUpdateAdmission,
-) -> Result<Value, ConnectError> {
-    let relay = &core.services.scrollback;
-    let handle = current_routable_worker(&core.services.workers, worker_fp)
-        .ok_or(KeeperUpdateRefusal::WorkerOffline)?;
-    let mut pending = relay
-        .pending()
-        .create_fresh(Some(worker_fp.as_str()), relay.now_ms())?;
-    let frame = admission.to_frame(pending.request_id());
-    if let SendOutcome::Refused(refusal) =
-        send_frame_through(&core.services.workers, &handle, frame)
-    {
-        let message = refusal.to_string();
-        relay.pending().reject_unavailable(
-            pending.request_id(),
-            &message,
-            Some(worker_fp.as_str()),
-        );
-        return Err(ConnectError::new(ErrorCode::Unavailable, message));
-    }
-    tracing::info!(%worker_fp, "a keeper update preparation reached the worker");
-    match tokio::time::timeout(KEEPER_UPDATE_RPC_DEADLINE, pending.settle()).await {
-        Ok(reply) => reply,
-        Err(_) => Err(ConnectError::new(
-            ErrorCode::DeadlineExceeded,
-            "the worker did not answer the keeper update preparation in time",
-        )),
-    }
 }
 
 /// Prepare a keeper update: may this release take over the live PTYs.
@@ -192,7 +148,13 @@ pub async fn handle_workers_prepare_keeper_update(
             "keeper_maintenance_force_live_authorized",
         );
     }
-    let payload = dispatch_preparation(core, &worker_fp, &decision).await?;
+    let payload = send_keeper_update_preparation(
+        &core.services.scrollback,
+        &worker_fp,
+        decision.preparation(),
+        KEEPER_UPDATE_RPC_DEADLINE,
+    )
+    .await?;
     let identity = match verify_worker_result(decision.action, &payload) {
         Ok(identity) => identity,
         Err(refusal) => {
