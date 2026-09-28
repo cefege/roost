@@ -76,14 +76,14 @@ pub const ROWS_DEPLOY: &[MethodRoute] = &[route(
 /// the session lifecycle, scrollback, and direct-terminal grants.
 #[rustfmt::skip]
 pub const ROWS_SESSIONS: &[MethodRoute] = &[
-    route("SessionsList", "sessions", AuthRequirement::DeviceOrOwnWorkerRecovery, PortStatus::AwaitingDomainPort),
-    route("SessionsSpawn", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("SessionsAttach", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("SessionsKill", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("SessionsRename", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
+    route("SessionsList", "sessions", AuthRequirement::DeviceOrOwnWorkerRecovery, PortStatus::Implemented),
+    route("SessionsSpawn", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("SessionsAttach", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("SessionsKill", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("SessionsRename", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("SessionsInput", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("SessionsCursorPos", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
-    route("SessionsAssignWorkspace", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
+    route("SessionsCursorPos", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("SessionsAssignWorkspace", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("SessionsGetScrollbackCells", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("SessionsSearchScrollback", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("SessionsCancelScrollbackSearch", "sessions", AuthRequirement::Device, PortStatus::Implemented),

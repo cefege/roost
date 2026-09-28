@@ -208,6 +208,7 @@ impl CoordServices {
             Arc::clone(&live_effects),
         );
         let scrollback = ScrollbackRelay::new(Arc::clone(&workers));
+        let sessions = SessionsRuntime::new();
         Self {
             db,
             boot,
@@ -218,12 +219,14 @@ impl CoordServices {
             worker_lifecycle: crate::coord_core::worker_lifecycle::WorkerLifecycle::new(vec![
                 Arc::clone(scrollback.pending())
                     as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
+                Arc::clone(sessions.pending_spawns())
+                    as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
             ]),
             scrollback,
             workers,
             ui_state: UiStateRuntime::new(),
             pairing: PairingRuntime::new(),
-            sessions: SessionsRuntime::new(),
+            sessions,
             agents: AgentsRuntime::new(),
             attachments: AttachmentsRuntime::new(),
             search: GlobalSearchRuntime::new(),

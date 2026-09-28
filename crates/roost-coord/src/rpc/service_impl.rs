@@ -208,47 +208,83 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn sessions_list<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsListRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsListRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<SessionsListResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<SessionsListResponse>("SessionsList")
+        async move {
+            let caller = caller_of(&ctx, "SessionsList")?;
+            crate::sessions::rpc_sessions::handle_sessions_list(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
 
     fn sessions_spawn<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsSpawnRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsSpawnRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<SessionsSpawnResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<SessionsSpawnResponse>("SessionsSpawn")
+        async move {
+            let caller = caller_of(&ctx, "SessionsSpawn")?;
+            crate::sessions::spawn::handle_sessions_spawn(&self.core, caller, r.to_owned_message())
+                .await
+        }
     }
 
     fn sessions_attach<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsAttachRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsAttachRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<SessionsAttachResponse> + Send + use<'a>>>
     + Send {
-        delegated_reply::<SessionsAttachResponse>("SessionsAttach")
+        async move {
+            let caller = caller_of(&ctx, "SessionsAttach")?;
+            crate::sessions::rpc_sessions::handle_sessions_attach(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
 
     fn sessions_kill<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsKillRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsKillRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<SessionsKillResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<SessionsKillResponse>("SessionsKill")
+        async move {
+            let caller = caller_of(&ctx, "SessionsKill")?;
+            crate::sessions::rpc_sessions::handle_sessions_kill(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
 
     fn sessions_rename<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsRenameRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsRenameRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<SessionsRenameResponse> + Send + use<'a>>>
     + Send {
-        delegated_reply::<SessionsRenameResponse>("SessionsRename")
+        async move {
+            let caller = caller_of(&ctx, "SessionsRename")?;
+            crate::sessions::rpc_sessions::handle_sessions_rename(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
 
     fn sessions_input<'a>(
@@ -273,22 +309,38 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn sessions_cursor_pos<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsCursorPosRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsCursorPosRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<SessionsCursorPosResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<SessionsCursorPosResponse>("SessionsCursorPos")
+        async move {
+            let caller = caller_of(&ctx, "SessionsCursorPos")?;
+            crate::sessions::cursor_pos::handle_sessions_cursor_pos(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
 
     fn sessions_assign_workspace<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsAssignWorkspaceRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsAssignWorkspaceRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<SessionsAssignWorkspaceResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<SessionsAssignWorkspaceResponse>("SessionsAssignWorkspace")
+        async move {
+            let caller = caller_of(&ctx, "SessionsAssignWorkspace")?;
+            crate::sessions::assign_workspace::handle_sessions_assign_workspace(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
 
     fn sessions_get_scrollback_cells<'a>(

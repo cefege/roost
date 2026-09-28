@@ -20,6 +20,6 @@ impl AttachmentsRuntime {
     }
 }
 pub mod files;
-mod relay;
+pub(crate) mod relay;
 pub mod rpc_files;
 pub mod session_files;
