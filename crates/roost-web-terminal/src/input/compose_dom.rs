@@ -348,10 +348,11 @@ impl ComposeShared {
                 .compose
                 .try_borrow()
                 .is_ok_and(|compose| compose.keyup_restore_is_current(input));
-        if current && self.restore() {
-            if let Ok(mut compose) = self.compose.try_borrow_mut() {
-                compose.finish_keyup_restore(input);
-            }
+        if current
+            && self.restore()
+            && let Ok(mut compose) = self.compose.try_borrow_mut()
+        {
+            compose.finish_keyup_restore(input);
         }
     }
 

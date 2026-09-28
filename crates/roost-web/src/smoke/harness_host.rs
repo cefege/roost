@@ -23,7 +23,7 @@ impl FlowHost for SmokeBackdoor {
             .iter()
             .map(|(fp, worker)| (fp, worker.last_seen_ms))
             .collect();
-        workers.sort_by(|left, right| right.1.cmp(&left.1));
+        workers.sort_by_key(|(_, last_seen_ms)| std::cmp::Reverse(*last_seen_ms));
         workers.into_iter().map(|(fp, _)| fp.clone()).collect()
     }
 
