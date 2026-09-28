@@ -225,6 +225,13 @@ pub enum ClientEvent {
         encoded: String,
     },
 
+    /// A sidebar action (`store::sidebar::intent`).
+    Sidebar(crate::store::sidebar::SidebarIntent),
+    /// A shell action (`store::shell_intent`).
+    Shell(crate::store::shell_intent::ShellIntent),
+    /// A terminal-deck gesture or observation (`deck::intent`).
+    Deck(crate::deck::DeckIntent),
+
     // ---- time ------------------------------------------------------------------
     /// One pass over every deadline: the chunk stall, the resync retry, the view
     /// lease, the held-input timeout, the watermark write, the Sync liveness
@@ -267,6 +274,9 @@ impl ClientEvent {
             Self::SearchPageReceived { .. } => "search_page_received",
             Self::AgentStatusSeen { .. } => "agent_status_seen",
             Self::AgentSeenMerged { .. } => "agent_seen_merged",
+            Self::Sidebar(_) => "sidebar",
+            Self::Shell(_) => "shell",
+            Self::Deck(_) => "deck",
             Self::Sweep { .. } => "sweep",
         }
     }
