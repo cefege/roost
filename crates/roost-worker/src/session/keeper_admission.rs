@@ -18,6 +18,7 @@
 //! advance the lane past a writer that has not been admitted — a double release
 //! that handed the permit on twice would let two keepers writes overlap for
 //! exactly as long as the first one takes.
+//! Ports v2 `apps/worker/src/transport/coord-link-keeper-update.ts`, `apps/worker/src/session/session-control-lanes.ts`.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};

@@ -17,28 +17,44 @@
 //! shutdown frame. And nothing here may mutate a survivor it cannot prove empty
 //! — see [`keeper_boot::decide`], which is a pure function precisely so that
 //! decision can be tested without a keeper, a coordinator, or a PTY.
+//! Ports v2 `apps/worker/src/main.ts`.
 
-pub mod adoption;
-mod adoption_claim;
+pub mod agent_owners;
 pub mod boot;
+pub mod boot_admission;
 pub mod boot_order;
 mod boot_outbox;
 pub mod boot_sequence;
 pub mod bootstrap_redeem;
 pub mod capabilities;
+pub mod cell_cadence;
 pub mod cell_delivery;
 pub mod channel_delivery;
 pub mod credential;
 pub mod deps;
+pub mod door_routes;
 pub mod door_serve;
+pub mod downstream;
+pub mod heart_owners;
+pub mod heartbeat;
+pub mod heartbeat_metrics;
+pub mod heartbeat_sources;
 pub mod keeper_boot;
+pub mod keeper_prepare;
 pub mod keeper_probe;
+pub mod keeper_retire;
+pub mod link_downstream;
 pub mod link_drain;
 pub mod link_loop;
 pub mod link_serve;
 pub mod link_wire;
+pub mod owners;
 pub mod reconcile;
+mod reconcile_claim;
+pub mod reconcile_gate;
+pub mod reconcile_restore;
 pub mod reconnect;
+pub mod session_reconcile;
 pub mod session_stack;
 pub mod snapshot_source;
 pub mod stop;

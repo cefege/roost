@@ -8,15 +8,16 @@
 //! The contract is `protocol/spec/keeper.md`.
 
 use crate::channel_history::ChannelHistory;
-use crate::codec::{CodecError, MuxFrame, MuxFrameType};
+use crate::codec::{CodecError, KEEPER_MAX_INPUT_BYTES, MuxFrame, MuxFrameType};
 use crate::frames::{ChannelBinding, ListChannelsResp, SpawnAck, SpawnErr, SpawnRequest};
+use crate::input_queue::InputReply;
 use crate::keeper::{Channel, Keeper, resize_reject, result_frame};
 use crate::payloads::TerminalState;
 use crate::payloads::{
     KeeperHelloRequest, KeeperHelloResponse, KeeperObservation, PtyInRejectReason, PtyInRequest,
     PtyInResult, ResizeRequest, negotiate_features,
 };
-use crate::pty_channel::{PtyChannel, WriteOutcome};
+use crate::pty_channel::PtyChannel;
 
 impl Keeper {
     pub fn hello(&self, frame: &MuxFrame) -> Result<Vec<MuxFrame>, CodecError> {
@@ -31,6 +32,8 @@ impl Keeper {
             observation: KeeperObservation {
                 contract: self.contract.clone(),
                 live_channel_count: self.channels.len() as u32,
+                keeper_pid: Some(std::process::id()),
+                process_epoch: self.process_epoch.clone(),
             },
             features,
         };
@@ -98,8 +101,7 @@ impl Keeper {
                     request.channel_id,
                     Channel {
                         pty,
-                        history: ChannelHistory::new(),
-                        next_output_seq: 0,
+                        history: ChannelHistory::new(request.cols, request.rows),
                     },
                 );
                 let ack = SpawnAck {
@@ -130,52 +132,52 @@ impl Keeper {
         }
     }
 
+    /// Legacy input shares the acknowledged FIFO, so the two lanes can never
+    /// interleave mid-batch. It is owed no answer, so a refusal is only logged.
     pub fn legacy_input(&mut self, frame: &MuxFrame) -> Vec<MuxFrame> {
-        // Unacknowledged by definition: there is no sequence to report, which is
-        // why the sequenced form exists.
-        if let Some(channel) = self.channels.get_mut(&frame.channel_id) {
-            channel.pty.write_input(&frame.payload);
+        if frame.payload.is_empty() || frame.payload.len() > KEEPER_MAX_INPUT_BYTES as usize {
+            return Vec::new();
+        }
+        if let Some(channel) = self.channels.get_mut(&frame.channel_id)
+            && let Err(reason) = channel
+                .pty
+                .enqueue_input(frame.payload.clone(), InputReply::Unacknowledged)
+        {
+            tracing::warn!(
+                channel_id = frame.channel_id,
+                bytes = frame.payload.len(),
+                ?reason,
+                "keeper: legacy input was not queued"
+            );
         }
         Vec::new()
     }
 
+    /// Queue sequenced input. The lane answers once the batch is written; only
+    /// a refusal decided before anything was queued is answered here.
     pub fn sequenced_input(&mut self, frame: &MuxFrame) -> Result<Vec<MuxFrame>, CodecError> {
         let request = PtyInRequest::decode(&frame.payload, "PtyInRequest")?;
-        let Some(channel) = self.channels.get_mut(&frame.channel_id) else {
-            return Ok(vec![result_frame(
-                MuxFrameType::PtyInReject,
-                frame.channel_id,
-                PtyInResult::Reject {
-                    input_seq: request.input_seq,
-                    reason: PtyInRejectReason::NoSuchChannel,
-                },
-            )?]);
+        let reply = InputReply::Acknowledged {
+            input_seq: request.input_seq,
+            route: std::sync::Arc::clone(&self.input_route),
+            generation: self.input_route.current(),
         };
-
-        let outcome = channel.pty.write_input(&request.bytes);
-        let result = match outcome {
-            WriteOutcome::Complete { written } => PtyInResult::Ack {
-                input_seq: request.input_seq,
-                written,
-            },
-            WriteOutcome::Rejected { reason } => PtyInResult::Reject {
-                input_seq: request.input_seq,
-                reason,
-            },
-            // A partial write is the case a client must NOT retry, and saying
-            // so is the entire reason this frame exists.
-            WriteOutcome::Partial { written, reason } => PtyInResult::Ambiguous {
-                input_seq: request.input_seq,
-                written,
-                reason,
+        let refused = match self.channels.get_mut(&frame.channel_id) {
+            None => PtyInRejectReason::NoSuchChannel,
+            Some(channel) => match channel.pty.enqueue_input(request.bytes, reply) {
+                Ok(()) => return Ok(Vec::new()),
+                Err(reason) => reason,
             },
         };
-        let tag = match result {
-            PtyInResult::Ack { .. } => MuxFrameType::PtyInAck,
-            PtyInResult::Reject { .. } => MuxFrameType::PtyInReject,
-            PtyInResult::Ambiguous { .. } => MuxFrameType::PtyInAmbiguous,
+        let result = PtyInResult::Reject {
+            input_seq: request.input_seq,
+            reason: refused,
         };
-        Ok(vec![result_frame(tag, frame.channel_id, result)?])
+        Ok(vec![result_frame(
+            MuxFrameType::PtyInReject,
+            frame.channel_id,
+            result,
+        )?])
     }
 
     pub fn legacy_resize(&mut self, frame: &MuxFrame) -> Result<Vec<MuxFrame>, CodecError> {
@@ -188,17 +190,20 @@ impl Keeper {
             name: "Resize",
             reason: "unreadable".into(),
         })?;
-        // Unacknowledged, so it is given the next sequence: the keeper is the
-        // ordering authority, and an unsequenced resize must not be able to
-        // overtake a sequenced one that came before it.
+        // Unsequenced: v2 resizes the PTY without touching the applied
+        // sequence, and records the marker under sequence zero, "reserved for
+        // the deployed legacy frame" (`keeper-frame-handler.ts:350-378`).
         let Some(channel) = self.channels.get_mut(&frame.channel_id) else {
             return Ok(Vec::new());
         };
-        let seq = channel.next_output_seq + 1;
-        channel.next_output_seq = seq;
-        let applied = channel.pty.apply_resize(seq, request.cols, request.rows);
-        if let Ok(state) = applied.map(|_| channel.pty.terminal_state()) {
-            channel.history.record_resize(seq, state);
+        match channel
+            .pty
+            .apply_unsequenced_resize(request.cols, request.rows)
+        {
+            Ok(()) => channel.history.record_resize(0, request.cols, request.rows),
+            Err(err) => {
+                tracing::warn!(channel_id = frame.channel_id, %err, "keeper: legacy_resize_failed")
+            }
         }
         Ok(Vec::new())
     }
@@ -212,13 +217,20 @@ impl Keeper {
             return Ok(vec![resize_reject(frame.channel_id, request.seq, 1)?]);
         };
 
+        let before = channel.pty.terminal_state().applied_seq;
         match channel
             .pty
             .apply_resize(request.seq, request.cols, request.rows)
         {
             Ok(_) => {
                 let state = channel.pty.terminal_state();
-                channel.history.record_resize(request.seq, state);
+                // Only a newly applied sequence moved the PTY, so only it is a
+                // point in the stream a replay must reflow at.
+                if request.seq > before && state.applied_seq == request.seq {
+                    channel
+                        .history
+                        .record_resize(request.seq, state.cols, state.rows);
+                }
                 let ack = ResizeRequest {
                     seq: state.applied_seq,
                     cols: state.cols,
@@ -277,23 +289,29 @@ impl Keeper {
             })
     }
 
-    pub fn history_records(
-        &mut self,
-        frame: &MuxFrame,
-        legacy_head: Option<u64>,
-    ) -> Result<Vec<MuxFrame>, CodecError> {
-        let Some(channel) = self.channels.get(&frame.channel_id) else {
-            return Ok(Vec::new());
-        };
-        let payload = match legacy_head {
-            Some(_) => channel.history.records().encode()?,
-            None => channel.history.records().encode()?,
-        };
+    /// v2 `GetHistoryRecords` (`keeper-frame-handler.ts:505-520`): the ordered
+    /// history, or the empty default for a channel this keeper does not hold.
+    pub fn history_records(&mut self, frame: &MuxFrame) -> Result<Vec<MuxFrame>, CodecError> {
+        let payload = self.ordered_history(frame.channel_id).encode()?;
         let response = MuxFrame::new(
             MuxFrameType::GetHistoryRecordsResp,
             frame.channel_id,
             payload,
         )?;
         Ok(vec![response])
+    }
+
+    /// v2 `GetHistory` (`keeper-frame-handler.ts:487-498`): `[head:u64][ring]`,
+    /// head 0 and no bytes for a channel this keeper does not hold.
+    pub fn legacy_history_resp(&mut self, frame: &MuxFrame) -> Result<Vec<MuxFrame>, CodecError> {
+        let (head_seq, ring) = self.legacy_history(frame.channel_id).unwrap_or_default();
+        let mut payload = Vec::with_capacity(8 + ring.len());
+        payload.extend_from_slice(&head_seq.to_be_bytes());
+        payload.extend_from_slice(&ring);
+        Ok(vec![MuxFrame::new(
+            MuxFrameType::GetHistoryResp,
+            frame.channel_id,
+            payload,
+        )?])
     }
 }

@@ -14,6 +14,7 @@
 //! with every spawn failing `worker not connected`. And a barrier that cannot
 //! leave the snapshot stage, which is a build gap and is torn down so it shows
 //! up in the ladder instead of looking healthy.
+//! Ports v2 `apps/worker/src/transport/coord-link-native-writer.ts`, `apps/worker/src/transport/coord-link.ts`.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -22,6 +23,7 @@ use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 
 use crate::link_barrier::{Action, Barrier};
 use crate::link_dial::Link;
+use crate::session::durable_delivery::DurableDelivery;
 
 use super::link_loop::{DRAIN_TICK, LinkLoop, SNAPSHOT_STARVATION};
 use super::stop::{LinkEnd, StopSignal};
@@ -38,6 +40,7 @@ pub(super) async fn serve(
     // Bound outside the loop state so no branch of the select holds a borrow of
     // it while another branch mutates it.
     let wake = Arc::clone(&loop_state.wake);
+    let delivery = loop_state.durable_delivery.clone();
     let mut ticker = tokio::time::interval(DRAIN_TICK);
     loop {
         // A FRESH observer each pass. `requested` takes `&mut self` for the
@@ -55,20 +58,16 @@ pub(super) async fn serve(
             () = wake.notified() => {
                 if let Some(end) = on_tick(loop_state, &mut link).await { return end; }
             }
-            // A capability finished a browser command. Its frames go out
-            // through `push_upstream` like any other, so the link stays the
-            // only thing that writes bytes. A CLOSED channel means the pump is
-            // gone, which is a leak to notice — not a reason to tear down a
-            // healthy socket, so the arm just stops hearing from it.
-            answers = loop_state.browser.answers.recv() => {
-                match answers {
-                    Some(frames) => {
-                        for frame in &frames {
-                            super::link_drain::push_answer(loop_state, frame);
-                        }
-                    }
-                    None => tracing::warn!("the browser command pump stopped answering"),
-                }
+            // v2 `coordLinkSink`: the durable sink wrote a row or moved a claim.
+            () = store_changed(delivery.as_deref()) => {
+                if let Some(end) = on_tick(loop_state, &mut link).await { return end; }
+            }
+            // Everything produced off the loop — owner replies, browser-command
+            // answers — arrives here and is admitted like any other frame, so
+            // the link stays the only thing that writes bytes. `recv` has
+            // already dropped a reply whose connection is gone.
+            Some(frame) = loop_state.uplink.recv() => {
+                super::link_drain::admit_uplink(loop_state, frame);
             }
             incoming = link.recv() => {
                 let now = Instant::now();
@@ -77,7 +76,7 @@ pub(super) async fn serve(
                     Some(Err(reason)) => return LinkEnd::FrameError(reason),
                     Some(Ok(message)) => {
                         loop_state.policy.note_downstream(now);
-                        if let Some(end) = super::link_drain::on_frame(loop_state, message) {
+                        if let Some(end) = super::link_downstream::on_frame(loop_state, message) {
                             return end;
                         }
                     }
@@ -110,20 +109,12 @@ async fn force_hello(loop_state: &mut LinkLoop, link: &mut Link) -> Option<LinkE
     // `LinkLoopState` already carries it, and v2 sent it, so omitting it was a
     // parity gap rather than a missing feature.
     //
-    // `capabilities` is what this worker can actually SERVE, and the list is
-    // derived from the two collaborators that decide it rather than written
-    // here: a capability this build cannot answer is worse than admitting
-    // none, because a coordinator that believes it is answered routes browser
-    // view commands here and waits for frames nobody is producing.
-    //  - `terminal_metadata_v1` is advertised because the emitter stages raw
-    //    metadata on every ingest and the drain negotiates it from the ack.
-    //  - `terminal-view-owner-v1` is NOT advertised: the coordinator's own
-    //    `TerminalViewHub` owns membership for this build, which is v2's
-    //    fallback and not a degraded answer to a capability claim.
-    //  - the WebRTC carriers are NOT advertised: `crate::peer` has no transport
-    //    behind it yet, and a local browser on this machine reaches its PTYs
-    //    through the door instead.
-    let capabilities = crate::runtime::capabilities::advertised();
+    // `capabilities` is what this worker can actually SERVE, and the list and
+    // the collaborator behind each entry live in `runtime::capabilities`: a
+    // capability this build cannot answer is worse than admitting none, because
+    // a coordinator that believes it is answered routes traffic here and waits
+    // for frames nobody is producing.
+    let capabilities = crate::runtime::capabilities::advertised(loop_state.direct_peers);
     tracing::debug!(
         ?capabilities,
         "the hello advertises the capabilities this worker can serve"
@@ -131,7 +122,7 @@ async fn force_hello(loop_state: &mut LinkLoop, link: &mut Link) -> Option<LinkE
     let hello = CoordWorkerUpstream::Hello {
         worker_fp: loop_state.identity.worker_fp.clone(),
         version: loop_state.identity.version.clone(),
-        capabilities: Vec::new(),
+        capabilities,
         process_epoch: loop_state.identity.process_epoch.clone(),
         trace_id: None,
     };
@@ -150,6 +141,12 @@ async fn force_hello(loop_state: &mut LinkLoop, link: &mut Link) -> Option<LinkE
         barrier = ?loop_state.pump.barrier(),
         "the hello is the only forced first write"
     );
+    // v2 calls `onOpen` after the forced hello write, never for a hello that
+    // failed; a fresh socket's session half starts suspended until hello-ack.
+    loop_state.terminal_metadata_negotiated = false;
+    if let Some(owners) = loop_state.dispatcher.owners() {
+        owners.lifecycle.on_open();
+    }
     None
 }
 
@@ -178,7 +175,8 @@ async fn on_tick(loop_state: &mut LinkLoop, link: &mut Link) -> Option<LinkEnd> 
 /// is the only thing that makes the condition visible in the ladder, and a
 /// visible failure beats a healthy-looking link that carries nothing.
 fn snapshot_starvation(loop_state: &mut LinkLoop, now: Instant) -> Option<LinkEnd> {
-    if loop_state.pump.barrier() != Barrier::Snapshot {
+    // A stage boot still holds is waiting on the boot reconcile, not starving.
+    if loop_state.pump.barrier() != Barrier::Snapshot || loop_state.snapshot_held() {
         loop_state.snapshot_since = None;
         return None;
     }
@@ -191,4 +189,12 @@ fn snapshot_starvation(loop_state: &mut LinkLoop, now: Instant) -> Option<LinkEn
         "the barrier cannot leave the snapshot stage, so this link will never carry live traffic"
     );
     Some(LinkEnd::SnapshotStarved { waited })
+}
+
+/// The durable sink's change signal, or never when no outbox is attached.
+async fn store_changed(delivery: Option<&DurableDelivery>) {
+    match delivery {
+        Some(delivery) => delivery.store_changed().await,
+        None => std::future::pending().await,
+    }
 }

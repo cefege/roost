@@ -1,24 +1,11 @@
-//! The coordinator link's [`CellSink`]: the one receiver of cell frames that is
-//! not a local browser socket. Owned by [`super::LinkLoop`], which drains it.
-//! Depends on `roost_protocol`'s cell value model, on [`crate::outbox::Outbox`]
-//! and on the link's own codec — and on nothing that calls back into emission.
-//!
-//! WHY THIS SINK HOLDS ITS OWN OUTBOX. [`CellSink::send_frame`] takes `&self`
-//! and must not block, because the emitter holds a session's lock across the
-//! fan-out and a blocking send would hold a PTY's lock across a socket write.
-//! The link's own outbox is behind `&mut LinkLoop`, which the emitter cannot
-//! reach. So the sink admits into a bounded outbox of its own and the link's
-//! drain moves what is there onto [`crate::outbox::Lane::Terminal`] — bounded
-//! twice, once per owner, and both bounds are the outbox's.
-//!
-//! The three answers are the trait's, and each is a fact rather than a policy. A
-//! frame this link cannot take right now is [`CellSinkResult::Dropped`] and owes
-//! a fresh baseline, because a receiver that missed a delta cannot reproduce the
-//! screen. A frame that alone exceeds the byte cap is
-//! [`CellSinkResult::Overflow`], because a queue holding it can never drain. A
-//! queue that is merely full is neither: the link drains it, so the sink keeps
-//! its registration and the frame is refused for this tick.
+//! The coordinator link's [`CellSink`]: v2 `main.ts:211-217`'s `"coord"` sink
+//! over `transport/coord-link-outbox.ts` `sendCellGrid`/`sendCellGridChunk`.
+//! `runtime::cell_cadence` registers it with the emitter and suspends/resumes it
+//! across the link's lifecycle; the link drain moves its queue onto the Terminal
+//! lane and consumes [`CoordinatorCellSink::take_writable_owed`] (v2
+//! `maybeNotifyWritable`). Depends on the link codec and `crate::outbox` only.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -30,44 +17,46 @@ use roost_protocol::cell::proto::cell_frame_to_proto;
 use roost_protocol::wire::brand::ChannelId;
 use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 
-use crate::outbox::{AdmitError, Lane, Outbox, PENDING_BYTES_CAP, PENDING_CAP};
+use crate::outbox::{Lane, Outbox, PENDING_BYTES_CAP, PENDING_CAP};
 use crate::runtime::link_wire::LinkWire;
 use crate::session::cell_sink::{COORD_CELL_SINK_ID, CellSink, CellSinkResult, FrameTimings};
 
 use super::LinkLoop;
 
-/// One clock, as the wire spells it.
-///
-/// The producer's clock is signed — an unset arrival is `0` and a clock that went
-/// back is negative — and the wire's is not. A negative reading is not a time
-/// before the epoch, it is a clock that could not be read, and `0` is what the
-/// coordinator already reads as "not measured". Saturating is therefore the
-/// truthful mapping rather than a clamp that invents a number.
+/// One clock, as the wire spells it. A negative producer reading is a clock
+/// that could not be read, and `0` is what the coordinator reads as "not
+/// measured", so saturating is the truthful mapping.
 fn measured_at(clock_ms: i64) -> u64 {
     u64::try_from(clock_ms).unwrap_or(0)
 }
 
 /// The session id a worker stamps into a cell frame it builds.
 ///
-/// Empty on purpose, and not a gap: the coordinator fills it in from its own
-/// channel-to-session map and explicitly adopts an empty one
-/// (`apps/coord/src/terminal/screen/byte-hub.ts:195` — a NON-empty value that
-/// disagrees is refused). A worker cannot know the coordinator's session id for
-/// a channel, and inventing one would be a claim about a mapping the
-/// coordinator owns.
+/// Empty on purpose: the coordinator fills it in from its own channel-to-session
+/// map and explicitly adopts an empty one
+/// (`apps/coord/src/terminal/screen/byte-hub.ts:195`), while a NON-empty value
+/// that disagrees is refused.
 pub const NO_SESSION_ID: &str = "";
 
 /// The coordinator link, as a receiver of cell frames.
+///
+/// It holds its own bounded queue because [`CellSink::send_frame`] is `&self`
+/// and must not block (the emitter holds a record lock across the fan-out),
+/// while the link's outbox is behind `&mut LinkLoop`. Its answers are v2's
+/// `TerminalCellSendResult`: `Sent` or `Dropped`, never `Overflow` — the
+/// coordinator's transport is not a local socket the registry may close, and
+/// dropping this sink would darken every session on the machine.
 pub struct CoordinatorCellSink {
-    /// The link's OWN codec, not a second one: a sink that encoded with
-    /// different bytes than the drain writes would be a private wire definition,
-    /// and every frame it produced would be refused by the coordinator.
+    /// The link's OWN codec: a sink encoding with different bytes than the
+    /// drain writes would be a private wire definition.
     wire: Arc<dyn LinkWire>,
     queue: Mutex<Outbox>,
-    /// Whether the link is attached and draining. A detached link is the
-    /// `Dropped` case: the transport still exists, so the sink keeps its
-    /// registration and still owes the coordinator a baseline.
-    attached: Mutex<bool>,
+    /// v2 `linkReady && nativeWriter.isAttached()`: false from a socket's open
+    /// until its hello-ack, and after it detaches.
+    attached: AtomicBool,
+    /// v2 `writableNotificationPending`: a frame was refused, so the session
+    /// layer is owed an `on_writable` once the link has room again.
+    writable_owed: AtomicBool,
 }
 
 impl std::fmt::Debug for CoordinatorCellSink {
@@ -77,27 +66,30 @@ impl std::fmt::Debug for CoordinatorCellSink {
             .field("frames", &self.frame_count())
             .field("bytes", &self.byte_count())
             .field("attached", &self.is_attached())
+            .field("writable_owed", &self.writable_owed.load(Ordering::Acquire))
             .finish()
     }
 }
 
 impl CoordinatorCellSink {
+    /// A sink that is detached until the lifecycle attaches it at hello-ack.
     pub fn new(wire: Arc<dyn LinkWire>) -> Self {
         Self {
             wire,
             queue: Mutex::new(Outbox::new(PENDING_CAP, PENDING_BYTES_CAP)),
-            attached: Mutex::new(true),
+            attached: AtomicBool::new(false),
+            writable_owed: AtomicBool::new(false),
         }
     }
 
     pub fn is_attached(&self) -> bool {
-        self.attached.lock().map(|held| *held).unwrap_or(false)
+        self.attached.load(Ordering::Acquire)
     }
 
-    /// Whether the coordinator link is attached enough to take cells.
+    /// Whether the coordinator link can take cells for its current generation.
     pub fn set_attached(&self, attached: bool) {
-        if let Ok(mut held) = self.attached.lock() {
-            *held = attached;
+        if self.attached.swap(attached, Ordering::AcqRel) != attached {
+            tracing::info!(attached, "the coordinator cell sink's attachment changed");
         }
     }
 
@@ -112,34 +104,50 @@ impl CoordinatorCellSink {
         self.queue.lock().map(|held| held.byte_count()).unwrap_or(0)
     }
 
+    /// Whether a refused frame still owes the session layer an `on_writable`
+    /// (v2 `writableNotificationPending`); the link drain holds its controls
+    /// behind it.
+    pub fn writable_owed(&self) -> bool {
+        self.writable_owed.load(Ordering::Acquire)
+    }
+
+    /// Consume the owed writable notification. The link drain calls it once
+    /// the link is live and its terminal lane is empty, so the flag is only
+    /// taken when the notification can actually be acted on.
+    pub fn take_writable_owed(&self) -> bool {
+        self.writable_owed.swap(false, Ordering::AcqRel)
+    }
+
+    /// Drop every queued frame: they describe a socket generation that is gone,
+    /// and v2 never queued a cell across a detach. Returns how many were dropped.
+    pub fn discard_queued(&self) -> usize {
+        let Ok(mut held) = self.queue.lock() else {
+            return 0;
+        };
+        let dropped = held.discard(Lane::Terminal);
+        if dropped > 0 {
+            tracing::info!(dropped, "stale coordinator cell frames were discarded");
+        }
+        dropped
+    }
+
     /// Move everything this sink holds onto the link's terminal lane, and return
-    /// how many frames moved.
-    ///
-    /// Called from the link's drain, the only thing that writes to the socket.
-    /// The count is returned so a drain log can say what it took and not only
-    /// what it wrote.
+    /// how many frames moved. Called from the link's drain only.
     pub fn drain_into(&self, outbox: &mut Outbox, now: Instant) -> usize {
-        let mut held = match self.queue.lock() {
-            Ok(held) => held,
-            // A poisoned queue is frames nobody can describe any more. The count
-            // of zero against a link that is now behind is what the next full
-            // repairs, so this is reported and not worked around.
-            Err(_) => {
-                tracing::error!("the coordinator cell queue is unusable; cells are being refused");
-                return 0;
-            }
+        let Ok(mut held) = self.queue.lock() else {
+            tracing::error!("the coordinator cell queue is unusable; cells are being refused");
+            return 0;
         };
         let mut moved = 0usize;
-        for frame in held.drain_all(now) {
-            match outbox.admit(Lane::Terminal, frame.bytes, frame.label, now) {
+        while let Some(frame) = held.drain_one(now) {
+            let label = frame.label.clone();
+            match outbox.admit(Lane::Terminal, frame.bytes, label, now) {
                 Ok(_) => moved += 1,
                 Err(error) => {
-                    // The link's lane is full, so the frames stay here and the
-                    // sink keeps its registration: a full link reconnects, and
-                    // dropping this sink would apply a local browser socket's
-                    // answer to the transport every session on this machine
-                    // depends on.
+                    // The link's lane is full; the refused frame is lost, which
+                    // is a dropped cell and owes the sink's streams a repair.
                     tracing::warn!(%error, "the coordinator link's terminal lane is full");
+                    self.writable_owed.store(true, Ordering::Release);
                     break;
                 }
             }
@@ -147,12 +155,13 @@ impl CoordinatorCellSink {
         moved
     }
 
+    /// A refused frame: v2 sets `writableNotificationPending` on every drop.
+    fn refuse(&self) -> CellSinkResult {
+        self.writable_owed.store(true, Ordering::Release);
+        CellSinkResult::Dropped
+    }
+
     /// Encode with the link's codec and admit to this sink's own queue.
-    ///
-    /// Every refusal here is answered, never swallowed. An unencodable frame is
-    /// a frame the coordinator never sees and the registry has to re-baseline a
-    /// whole stream around; a frame left unaccounted for is a terminal that
-    /// stops painting with no error anywhere.
     fn enqueue(
         &self,
         channel: ChannelId,
@@ -168,21 +177,19 @@ impl CoordinatorCellSink {
                     reason = %error,
                     "a cell frame did not encode, so the stream owes a fresh baseline"
                 );
-                return CellSinkResult::Dropped;
+                return self.refuse();
             }
         };
-        let mut held = match self.queue.lock() {
-            Ok(held) => held,
-            Err(_) => return CellSinkResult::Overflow,
+        let Ok(mut held) = self.queue.lock() else {
+            return self.refuse();
         };
         match held.admit(Lane::Terminal, bytes, label, Instant::now()) {
             Ok(_) => CellSinkResult::Sent,
-            // A frame that alone exceeds the byte cap can never fit, so a queue
-            // holding it can never drain. That IS the overflow case.
-            Err(AdmitError::FrameTooLarge { .. }) => CellSinkResult::Overflow,
-            // The queue is over its bounds but the link drains it, so the sink
-            // stays registered and the frame is refused for this tick.
-            Err(_) => CellSinkResult::Dropped,
+            Err(error) => {
+                tracing::debug!(channel = %channel, %error, "the coordinator cell queue refused a frame");
+                drop(held);
+                self.refuse()
+            }
         }
     }
 }
@@ -199,25 +206,21 @@ impl CellSink for CoordinatorCellSink {
         timings: FrameTimings,
     ) -> CellSinkResult {
         if !self.is_attached() {
-            return CellSinkResult::Dropped;
+            return self.refuse();
         }
         let mut proto = match cell_frame_to_proto(frame, NO_SESSION_ID) {
             Ok(proto) => proto,
             Err(error) => {
-                // A frame that cannot be built is not this sink's to drop
-                // outright: it is a stream that owes a baseline, and the registry
-                // learns that from `Dropped`.
                 tracing::error!(
                     channel = %channel_id,
                     reason = %error,
                     "a cell frame did not build, so the stream owes a fresh baseline"
                 );
-                return CellSinkResult::Dropped;
+                return self.refuse();
             }
         };
-        // The producer measured these; a sink cannot, so they are stamped here
-        // rather than left at the mapping's zero. The coordinator reads them to
-        // attribute per-hop latency, and a zero reads as "this hop was free".
+        // The producer measured these; the coordinator reads them to attribute
+        // per-hop latency, and a zero reads as "this hop was free".
         proto.pty_out_ms = measured_at(timings.pty_out_ms);
         proto.worker_emit_ms = measured_at(timings.worker_emit_ms);
         self.enqueue(
@@ -238,7 +241,7 @@ impl CellSink for CoordinatorCellSink {
         timings: FrameTimings,
     ) -> CellSinkResult {
         if !self.is_attached() {
-            return CellSinkResult::Dropped;
+            return self.refuse();
         }
         let frame = match part {
             CellGridSnapshotPart::Frame(proto) => {
@@ -261,35 +264,21 @@ impl CellSink for CoordinatorCellSink {
         };
         self.enqueue(channel_id, frame, "cell-grid-chunk")
     }
-
-    fn on_overflow(&self) {
-        // The queue cannot drain, so this sink's transport is the coordinator
-        // link and the honest thing is to mark it detached: every later frame
-        // answers `Dropped`, and a link that comes back is re-attached by the
-        // drain rather than by a latch nobody is watching.
-        self.set_attached(false);
-        tracing::error!(
-            "the coordinator cell queue cannot drain; cells are refused until the link drains it"
-        );
-    }
 }
 
 impl LinkLoop {
-    /// Install the coordinator's cell sink, and return the one it replaced.
-    pub fn attach_cell_sink(&mut self, sink: Arc<super::cell_sink::CoordinatorCellSink>) {
+    /// Install the coordinator's cell sink. The SAME `Arc` is registered with
+    /// the emitter by `runtime::cell_cadence::CellCadence::spawn`.
+    pub fn attach_cell_sink(&mut self, sink: Arc<CoordinatorCellSink>) {
         self.cell_sink = Some(sink);
     }
 
     /// The coordinator's cell sink, if one is installed.
-    pub fn cell_sink(&self) -> Option<&Arc<super::cell_sink::CoordinatorCellSink>> {
+    pub fn cell_sink(&self) -> Option<&Arc<CoordinatorCellSink>> {
         self.cell_sink.as_ref()
     }
 
     /// Move the cell sink's held frames onto this link's terminal lane.
-    ///
-    /// Synchronous and called from the drain, because the sink is `&self` by the
-    /// `CellSink` trait's own signature and the drain is the only place on this
-    /// link that is already holding the tick.
     pub fn move_cell_frames_into(&mut self) -> usize {
         let Some(sink) = self.cell_sink.clone() else {
             return 0;

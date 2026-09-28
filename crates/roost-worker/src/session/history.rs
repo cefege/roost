@@ -10,6 +10,7 @@
 //! never parsed. Everything here is DIAGNOSTIC; the emit path reads neither, and
 //! a diagnostic that could change what a client paints is a diagnostic that can
 //! itself be the outage.
+//! Ports v2 `apps/worker/src/session/session-record.ts`, `apps/worker/src/session/session-unhandled-seq.ts`.
 
 /// How many distinct unhandled escape sequences one core reports.
 ///

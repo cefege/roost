@@ -12,6 +12,7 @@
 //! touched, the PTY is killed, both claims are released and no record is
 //! returned. A leaked claim is how a store eventually refuses every write, and
 //! an orphan PTY is how a keeper fills up with terminals nobody can see.
+//! Ports v2 `apps/worker/src/session/session-spawn.ts`, `apps/worker/src/util/path.ts`.
 
 use std::sync::Arc;
 
@@ -28,6 +29,9 @@ use crate::session::ring::ScrollbackRing;
 use crate::session::sinks::{ChannelBinding, SessionEventError, SessionEventSink};
 use crate::session::types::{SessionIdentity, SessionRecord};
 use crate::shell_spec::ShellSpec;
+use crate::terminal_core_capacity::{
+    TerminalCoreAllocationKind, TerminalCoreCapacity, TerminalCoreCapacityError,
+};
 
 /// The geometry a spawn with none stated gets.
 pub const DEFAULT_SPAWN_COLS: u16 = 80;
@@ -58,6 +62,19 @@ pub struct SpawnRequest {
     /// for a respawn — a respawn that announced an `opened` would tell every
     /// browser watching that row to paint a start moment it never had.
     pub event: DurableEventKind,
+    /// Which core lease this spawn takes: `Fresh`, or `Replacement` for a
+    /// respawn of a session this worker still holds (v2 `session-respawn.ts:78`).
+    pub core_allocation: TerminalCoreAllocationKind,
+    /// Who gives the two claims back when the spawn fails.
+    pub claims: ClaimsOnFailure,
+}
+
+/// Who owns the claims of a spawn that failed (v2 `releaseReservationsOnFailure`):
+/// the spawn itself, or a caller that releases them after its own retries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClaimsOnFailure {
+    Release,
+    Keep,
 }
 
 /// The keeper seam: open a PTY from a resolved launch contract.
@@ -95,12 +112,21 @@ pub trait ShellSpecResolver: Send + Sync {
     fn resolve_shell_spec(&self, cwd: &str, session_id: &str) -> Result<ShellSpec, String>;
 }
 
+/// The per-session variables every launch contract carries — the agent
+/// report endpoint and its capability, derived from the session id. An `Err`
+/// refuses the spawn: a PTY must not carry an endpoint nobody serves.
+pub trait SessionEnvironmentOverlay: Send + Sync {
+    fn session_overlay(&self, session_id: &str) -> Result<Vec<(String, String)>, String>;
+}
+
 /// The collaborators one spawn borrows for its duration.
 pub struct SpawnContext<'a> {
     pub spawner: &'a dyn ShellSpawner,
     pub resolver: &'a dyn ShellSpecResolver,
     pub events: &'a dyn SessionEventSink,
     pub worker_fp: &'a WorkerFp,
+    /// The worker's one terminal-core admission; a spawn's core is leased here.
+    pub core_capacity: &'a TerminalCoreCapacity,
 }
 
 impl std::fmt::Debug for SpawnContext<'_> {
@@ -143,9 +169,35 @@ pub enum SpawnRefusal {
     CoreGeometryDrift,
     #[error("the durable boundary refused the spawn: {0}")]
     Event(#[from] SessionEventError),
+    #[error("the terminal core was refused: {0}")]
+    TerminalCoreCapacity(#[from] TerminalCoreCapacityError),
 }
 
 pub async fn spawn_shell(
+    context: &SpawnContext<'_>,
+    opened_reservation: Reservation,
+    close_reservation: Reservation,
+    binding: Arc<dyn ChannelBinding>,
+    request: SpawnRequest,
+    now_ms: i64,
+) -> Result<SessionRecord, SpawnRefusal> {
+    let claims = request.claims;
+    let spawned = spawn_claimed(
+        context,
+        opened_reservation,
+        close_reservation,
+        binding,
+        request,
+        now_ms,
+    )
+    .await;
+    if spawned.is_err() && claims == ClaimsOnFailure::Release {
+        release_both(context.events, opened_reservation, close_reservation).await;
+    }
+    spawned
+}
+
+async fn spawn_claimed(
     context: &SpawnContext<'_>,
     opened_reservation: Reservation,
     close_reservation: Reservation,
@@ -193,6 +245,13 @@ pub async fn spawn_shell(
                 reason,
             })?,
     };
+    // After the launch contract, before the core: v2 `allocateTerminalCore`.
+    let lease = match context.core_capacity.reserve(request.core_allocation) {
+        Ok(lease) => lease,
+        Err(refusal) => {
+            return Err(SpawnRefusal::TerminalCoreCapacity(refusal));
+        }
+    };
     let core = AlacrittyCore::new(cols, rows);
     if core.cols() != cols || core.rows() != rows {
         return Err(SpawnRefusal::CoreGeometryDrift);
@@ -216,6 +275,12 @@ pub async fn spawn_shell(
         CellEmitState::new(mint_uuid()?, mint_uuid()?),
         ScrollbackRing::default(),
     );
+    let raw_channel = channel_id.as_u32() as u16;
+    // The record now holds the core: the lease is resident from here until the
+    // record's teardown (`SessionManager::close_channel`) or a failure below.
+    if let Err(misuse) = context.core_capacity.install_channel(raw_channel, lease) {
+        tracing::error!(%channel_id, error = %misuse, "a spawned core's lease could not become resident");
+    }
     let opened = spawn_event(&record, context.worker_fp, request.event, now_ms);
     // The record exists before the PTY does: the shell's first prompt can arrive
     // inside the spawn round trip, and a chunk with no record to receive it is
@@ -226,14 +291,14 @@ pub async fn spawn_shell(
     {
         Ok(child_pid) => child_pid,
         Err(reason) => {
-            release_both(context.events, opened_reservation, close_reservation).await;
+            context.core_capacity.release_channel(raw_channel);
             return Err(SpawnRefusal::KeeperRefused { channel_id, reason });
         }
     };
     record.child_pid = Some(child_pid);
     if let Err(error) = context.events.emit(&opened, Some(opened_reservation)).await {
         context.spawner.kill_channel(channel_id);
-        release_both(context.events, opened_reservation, close_reservation).await;
+        context.core_capacity.release_channel(raw_channel);
         return Err(SpawnRefusal::Event(error));
     }
     // The future close's claim is now committed: it no longer blocks a snapshot,

@@ -76,6 +76,9 @@ idb = "0.6.5"
 rust-embed = "8.12.0"
 regex = "1.13.1"
 unicode-segmentation = "1.13.3"
+# The agent-integration installer compares loader paths the way v2 did: NFC
+# first, so two spellings of one directory are one directory.
+unicode-normalization = "0.1.25"
 pulldown-cmark = { version = "0.13.4", default-features = false }
 ammonia = "4.2.0"
 # WHATWG URL parsing for terminal link targets: the web terminal classifies
@@ -104,6 +107,9 @@ tracing = "0.1.44"
 # exist; the two-writer split below is a filtered layer over a registry, not
 # a formatter with two writers.
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json", "registry"] }
+# `vte` (inside alacritty_terminal) reports a CSI it drops only as a
+# `log::debug!` record; roost-term's parity test is the one reader of it.
+log = "0.4.34"
 
 # CLI and errors.
 clap = { version = "4.6.7", features = ["derive"] }

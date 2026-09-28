@@ -112,28 +112,19 @@ fn a_sink_that_refuses_a_frame_keeps_its_registration_and_owes_a_full() {
         emitter.sinks().contains(&local_cell_sink_id("4")),
         "a refused frame dropped the sink, which is the overflow policy's job and not this one's"
     );
-    assert!(
-        emitter.take_pending_repair(channel(12)),
-        "no repair was latched"
-    );
-
-    // The repair: one forced full, and the refusing sink now holds a baseline
-    // again so deltas may flow.
-    emitter.ingest_pty_chunk(&mut record, b"more", 1_030);
-    let repaired = emitter.emit_cell_frame(&mut record, true, 1_040);
-    assert!(
-        matches!(
-            repaired,
-            FrameOutcome::Full {
-                installed: true,
-                ..
-            }
-        ),
-        "the repair full did not install, got {repaired:?}"
-    );
+    // v2 `emitCellFrame`: the repair is ONE stream-wide forced full built in the
+    // same emit, and the refusing sink takes it (it refuses deltas only).
     assert_eq!(healthy.frames().len(), 3);
+    assert!(
+        healthy.frames()[2].full,
+        "the healthy sink was not re-baselined with its sibling"
+    );
     assert_eq!(refusing.frames().len(), 2);
     assert!(refusing.frames().last().unwrap().full);
+    assert!(
+        !emitter.take_pending_repair(channel(12)),
+        "the repair latch outlived the baseline that paid it"
+    );
 }
 
 /// A full is parked, not pushed: a sink that refuses one part retries that part
@@ -152,12 +143,15 @@ fn a_parked_full_is_retried_from_the_part_the_sink_refused() {
 
     // The slow socket connects after the baseline and immediately overflows its
     // queue, so it never receives a byte and owes a full.
-    emitter.register_sink(slow.clone());
+    emitter.register_cell_sink(slow.clone());
     assert!(
         emitter.take_pending_repair(channel(13))
             || emitter.delivery_aggregate(channel(13)).baseline_dirty,
         "a sink that just joined recorded no debt"
     );
+    // The owed forced full is built by the cadence; the slow sink overflows on
+    // it and is dropped, the fast one takes it.
+    emitter.run_cadence_work(&mut record, 1_005, std::time::Instant::now());
     emitter.ingest_pty_chunk(&mut record, b"after the join", 1_010);
     emitter.emit_cell_frame(&mut record, false, 1_020);
     assert!(slow.frames().is_empty(), "a dropped sink received a frame");
@@ -192,5 +186,12 @@ fn output_kept_while_no_sink_can_take_it_is_still_in_the_core() {
         record.cell_emit.seq, 0,
         "a withheld frame consumed a sequence"
     );
-    assert!(emitter.is_dirty(channel(14)));
+    // v2: a stream nobody delivers to records nothing, and the next sink to
+    // register is owed a forced full that carries this output.
+    let late = RecordingSink::new("coord", Answer::Sent);
+    emitter.register_cell_sink(late.clone());
+    emitter.run_cadence_work(&mut record, 1_020, std::time::Instant::now());
+    let frames = late.frames();
+    assert_eq!(frames.len(), 1, "the late sink was not handed its baseline");
+    assert!(frames[0].full && frames[0].seq == 1);
 }

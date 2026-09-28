@@ -1,6 +1,6 @@
 //! What this worker knows about the machine it runs on: the raw counters a
 //! heartbeat samples, and the git and GitHub facts a session's folder carries.
-//! `runtime::serve` owns the samplers, `session::types::SessionRecord` retains
+//! `runtime::heartbeat_metrics` owns the samplers, `session::types::SessionRecord` retains
 //! their results, and `crate::shell_spec` names the platform they read. Depends
 //! on `roost_protocol` for the PR projection's own vocabulary — and on nothing
 //! that depends on it back.
@@ -10,18 +10,22 @@
 //! session id and owned by this module, so a session that has closed cannot
 //! leave a file handle open and a record stays plain data. A caller that wants
 //! a watcher stopped asks here.
+//! Ports v2 `apps/worker/src/host/host-sample-types.ts`.
 
 pub mod git_branch;
 pub mod identity;
 pub mod install;
 pub mod jwt;
+pub mod local_endpoint;
 pub mod openssh_key;
 pub mod ports;
 pub mod pr_status;
 pub mod samples;
+pub mod samples_darwin;
 pub mod sampling;
 pub mod shell_bootstrap;
 pub mod shell_spec_resolver;
+pub mod tailnet;
 pub mod tool_path;
 
 use roost_protocol::wire::session::{PullRequestChecks, PullRequestState};

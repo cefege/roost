@@ -17,6 +17,7 @@
 //! unbounded one is a loopback peer that never sends a search, only cancels,
 //! growing this table until the worker is out of memory — and no authentication
 //! stands between that peer and this table.
+//! Ports v2 `apps/worker/src/terminal/search/terminal-search-cancellation.ts`.
 
 use std::collections::VecDeque;
 use std::time::Duration;

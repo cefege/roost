@@ -20,6 +20,7 @@
 //! `//server/share` paths from drive and UNC emissions; a POSIX worker's
 //! `file://` payload is already the path, so `parse_osc7_worker_path` returns it
 //! percent-decoded and nothing more.
+//! Ports v2 `apps/worker/src/session/session-constants.ts`, `apps/worker/src/terminal/terminal-stream-scan.ts`, `apps/worker/src/util/path.ts`.
 
 /// The longest tail of a split DEC private mode sequence kept for the next
 /// chunk.

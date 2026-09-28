@@ -7,6 +7,7 @@
 //! appear only when a page can actually continue, and the history floor must be
 //! the same answer a scrollback page gives. All three are cross-field rules, and
 //! a reader checking them should not have to hold a scan loop in their head.
+//! Ports v2 `apps/worker/src/terminal/search/terminal-search-result.ts`.
 
 use roost_protocol::terminal_search::ScrollbackHistoryFloor;
 use serde_json::{Map, Value};

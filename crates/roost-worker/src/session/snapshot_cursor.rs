@@ -14,6 +14,7 @@
 //! COMPLETION IS STREAM-WIDE: a repair or a gate release that fired while one
 //! sink still owed a baseline would let a delta reach a sink that cannot
 //! reproduce the screen.
+//! Ports v2 `apps/worker/src/session/session-snapshot-cursor.ts`.
 
 use std::sync::Arc;
 

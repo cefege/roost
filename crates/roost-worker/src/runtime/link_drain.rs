@@ -1,6 +1,9 @@
 //! What goes on the coordinator link, and in what order. Called by
-//! [`super::link_serve`] from its tick and from every downstream frame, and by
-//! [`super::link_loop`] when a producer offers a durable event.
+//! [`super::link_serve`] from its tick and for every frame the [`crate::uplink`]
+//! carries, by [`super::link_downstream`] for every answer a downstream frame
+//! produces, and by [`super::link_loop`] when a producer offers a durable event
+//! (v2 `apps/worker/src/transport/coord-link-outbox.ts`'s gates and
+//! `maybeNotifyWritable`).
 //!
 //! This is the file where the pump's decisions become bytes. The pump says which
 //! one durable event may go out and the outbox says which lane comes next; this
@@ -13,10 +16,11 @@
 //! told about is a frame the browser cannot place, and the failure looks like a
 //! terminal that never paints rather than like an ordering bug.
 
+use std::sync::Arc;
 use std::time::Instant;
 
-use roost_protocol::wire::coord_worker::{CoordWorkerDownstream, CoordWorkerUpstream};
-use tokio_tungstenite::tungstenite::Message;
+use roost_protocol::wire::agent_status::AgentStatusUpdate;
+use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 
 use crate::link_barrier::Action;
 use crate::link_dial::Link;
@@ -35,122 +39,46 @@ enum NextWrite {
     Snapshot { bytes: Vec<u8> },
     /// A control, terminal or raw-metadata frame, in lane order.
     Queued(Pending),
+    /// An agent status: v2 `drainQueues` writes these after the events and the
+    /// writable notification, ahead of the controls.
+    AgentStatus { bytes: Vec<u8> },
+    /// The repair a refused cell sink produced when told the link is writable,
+    /// written as one run ahead of the queued controls (v2 `notifyingWritable`).
+    Repair(Vec<Pending>),
 }
 
-/// Handle one downstream frame. Returns an end only for a stop.
-pub(super) fn on_frame(loop_state: &mut LinkLoop, message: Message) -> Option<LinkEnd> {
-    let Message::Binary(bytes) = message else {
-        // This link carries binary protobuf. A text frame is something else
-        // answering, and answering it is how a worker ends up speaking a second
-        // protocol on the socket that carries its events.
-        tracing::warn!("a non-binary frame arrived on the coordinator link; ignoring it");
-        return None;
-    };
-    let frame = match loop_state.wire.decode_downstream(&bytes) {
-        Ok(frame) => frame,
-        Err(error) => {
-            tracing::warn!(%error, "a downstream frame did not decode");
-            return None;
-        }
-    };
+/// Admit one frame the uplink carried, on its lane, under v2's outbox gates:
+/// compact metadata only once negotiated, raw PTY metadata only while not.
+pub(super) fn admit_uplink(loop_state: &mut LinkLoop, frame: CoordWorkerUpstream) {
     match frame {
-        CoordWorkerDownstream::HelloAck { .. } => {
-            tracing::info!("the coordinator acknowledged the hello");
-            let action = loop_state.pump.on_hello_ack();
-            apply_to(loop_state, action);
-        }
-        CoordWorkerDownstream::Ping { ts, .. } => {
-            // Admitted to the control lane, so the barrier governs when it goes
-            // out like every other frame. The coordinator reads the round trip
-            // as liveness, and a pong held behind a barrier that has not opened
-            // is the barrier working, not a lost heartbeat.
-            push_upstream(
-                loop_state,
-                &CoordWorkerUpstream::Pong { ts, trace_id: None },
-                "pong",
-            );
-        }
-        CoordWorkerDownstream::BrowserCommand {
-            request_id,
-            browser_id,
-            viewer_id,
-            frame,
-            ..
-        } => {
-            // The dispatch is ASYNC and this handler is not, so the command
-            // goes to a pump and the frames it produced come back through
-            // `BrowserLink::answers` to be encoded on the socket like any other.
-            // A pump that is gone is the ONE case that refuses here, and it
-            // refuses with a cause: silence would hang the coordinator's
-            // pending entry until it expired with no error anywhere.
-            let command =
-                crate::browser_commands::Command::new(browser_id, viewer_id, request_id, frame);
-            if let Err(command) = loop_state.browser.offer(command) {
-                // The command came BACK, so its ids are still in hand — the
-                // refusal is correlated on the envelope the coordinator is
-                // waiting on, not on one reconstructed from the frame.
-                let request_id = command.request_id;
-                tracing::warn!(
-                    request_id,
-                    "a browser command arrived with no command pump to run it"
-                );
-                push_upstream(
-                    loop_state,
-                    &CoordWorkerUpstream::RpcError {
-                        request_id,
-                        message: super::link_loop::NO_SESSION_LAYER_REFUSAL.to_string(),
-                        trace_id: None,
-                    },
-                    "browser-command-refusal",
-                );
+        CoordWorkerUpstream::TerminalMetadata(metadata) => {
+            if !loop_state.terminal_metadata_negotiated {
+                tracing::debug!(channel = %metadata.channel_id, "terminal metadata dropped: this link did not negotiate it");
+                return;
+            }
+            if let Err(error) = loop_state.send_terminal_metadata(metadata.channel_id, &metadata) {
+                tracing::warn!(%error, "terminal metadata was refused by the link");
             }
         }
-        // ONE SEQUENCE SPACE, ONE ARM. The coordinator acknowledges the
-        // snapshot on the same numbering a durable event uses, so this frame
-        // serves both. The pump knows which one it is waiting on; reading it as
-        // a durable ack first and falling through when the barrier ignores it
-        // is the same decision without a second API on the pump.
-        CoordWorkerDownstream::EventAck(ack) => {
-            let action = match loop_state.pump.on_event_ack(ack.client_seq) {
-                Action::IgnoredAck { .. } => loop_state.pump.on_snapshot_ack(ack.client_seq),
-                other => other,
+        CoordWorkerUpstream::Binary(binary) => {
+            if loop_state.terminal_metadata_negotiated {
+                tracing::trace!(channel = %binary.channel_id, "raw metadata dropped: compact metadata is negotiated");
+                return;
+            }
+            let frame = CoordWorkerUpstream::Binary(binary);
+            admit_to_lane(loop_state, &frame, Lane::RawMetadata, "raw-metadata");
+        }
+        CoordWorkerUpstream::AgentStatus(frame) => {
+            let status = AgentStatusUpdate {
+                common: frame.status.common,
+                active: frame.status.active,
             };
-            // The ROW is deleted in `drain`, not here. This handler is
-            // synchronous and a SQLite delete cannot be, so the split is: the
-            // frame handler records WHICH sequence was answered, and the tick
-            // that already owns the socket removes it.
-            loop_state.note_durable_ack(ack.client_seq);
-            apply_to(loop_state, action);
+            if let Err(error) = loop_state.send_agent_status(&status) {
+                tracing::warn!(%error, "an agent status was refused by the link");
+            }
         }
-        // Every other arm is one the worker's link does not act on yet. The
-        // union is complete so the wire is fixed, but the handlers are not:
-        // each belongs to the wave that gives it a real implementation.
-        //
-        // This is deliberately a LOGGED REFUSAL and not a wildcard `..`. The
-        // point of the arm is that a frame nobody handles is never silent —
-        // a frame that is neither executed nor refused leaves the browser's
-        // request to time out with no error anywhere. It is not an
-        // `RpcError` because that needs a `request_id` to be routed on, and
-        // inventing one would be worse than saying so: a coordinator that
-        // matched the refusal to the wrong request has failed a request that
-        // might otherwise have succeeded.
-        other => {
-            tracing::warn!(
-                kind = other.kind(),
-                "a downstream frame arrived that this worker build does not act on yet"
-            );
-        }
+        control => push_upstream(loop_state, &control, control.kind()),
     }
-    None
-}
-
-/// Encode, admit and wake one frame a capability produced.
-///
-/// The same path a control frame takes, deliberately: a browser command's
-/// answer is an ordinary upstream frame, and a second writer for "answers
-/// specifically" would be a second set of admission rules for the same socket.
-pub(super) fn push_answer(loop_state: &mut LinkLoop, frame: &CoordWorkerUpstream) {
-    push_upstream(loop_state, frame, "browser-command-answer");
 }
 
 /// Take what the barrier and the outbox allow, and put it on the socket.
@@ -166,6 +94,10 @@ pub(super) async fn drain(loop_state: &mut LinkLoop, link: &mut Link) -> Option<
             "the coordinator's acknowledgements retired durable rows"
         );
     }
+    // v2 `coordLinkSink`: rows the sink wrote reach the pump before anything is
+    // chosen, and a snapshot the barrier asked for is numbered by the outbox.
+    loop_state.sync_durable_rows().await;
+    loop_state.authorise_snapshot().await;
     let moved = loop_state.move_cell_frames_into();
     if moved > 0 {
         tracing::debug!(
@@ -175,7 +107,8 @@ pub(super) async fn drain(loop_state: &mut LinkLoop, link: &mut Link) -> Option<
     }
     let now = Instant::now();
     let mut written = 0u64;
-    while let Some(next) = next_write(loop_state, now) {
+    let mut notified = false;
+    while let Some(next) = next_write(loop_state, now, &mut notified) {
         let sent = match next {
             NextWrite::Durable { seq } => {
                 let Some(frame) = loop_state.durable.front() else {
@@ -205,6 +138,13 @@ pub(super) async fn drain(loop_state: &mut LinkLoop, link: &mut Link) -> Option<
             }
             NextWrite::Snapshot { bytes } => link.send(bytes).await.map(|()| 0),
             NextWrite::Queued(frame) => link.send(frame.bytes).await.map(|()| 0),
+            // Committed only once the socket took it, so a failed write stays
+            // pending for the next link (v2 keeps it until `tryWrite` succeeds).
+            NextWrite::AgentStatus { bytes } => link.send(bytes).await.map(|()| {
+                loop_state.agent_statuses.commit_written();
+                0
+            }),
+            NextWrite::Repair(frames) => write_repair(link, frames).await,
         };
         match sent {
             Ok(seq) => {
@@ -224,16 +164,55 @@ pub(super) async fn drain(loop_state: &mut LinkLoop, link: &mut Link) -> Option<
     if written > 0 {
         tracing::debug!(written, "the outbox drained to the coordinator link");
     }
+    loop_state.decide_replay_barrier();
     None
 }
 
-/// What goes on the socket next, or nothing.
+async fn write_repair(
+    link: &mut Link,
+    frames: Vec<Pending>,
+) -> Result<u64, crate::link_dial::DialError> {
+    for frame in frames {
+        link.send(frame.bytes).await?;
+    }
+    Ok(0)
+}
+
+/// v2 `maybeNotifyWritable`: a cell sink that refused a frame is told the link
+/// can take cells again only once the link is live, no durable event is left to
+/// write, and the terminal lane has drained. The session layer builds its repair
+/// inside `on_writable`, and what it produced is returned to be written next.
+fn notify_writable(loop_state: &mut LinkLoop, now: Instant) -> Option<Vec<Pending>> {
+    if !loop_state.durable.is_empty() || loop_state.outbox.lane_len(Lane::Terminal) > 0 {
+        return None;
+    }
+    let sink = Arc::clone(loop_state.cell_sink.as_ref()?);
+    if !sink.take_writable_owed() {
+        return None;
+    }
+    tracing::debug!("the coordinator link is writable again for a cell sink that was refused");
+    if let Some(owners) = loop_state.dispatcher.owners() {
+        owners.lifecycle.on_writable();
+    }
+    let mut repair = crate::outbox::Outbox::default();
+    sink.drain_into(&mut repair, now);
+    Some(repair.drain_all(now))
+}
+
+/// What goes on the socket next, or nothing — v2 `drainQueues`' order.
 ///
-/// A durable write the barrier has released goes first, ahead of anything the
-/// outbox holds, because the coordinator's acknowledgement of that sequence is
-/// what the barrier is waiting on and nothing else may sit between them. After
-/// that, only a live barrier releases the lanes, in the outbox's own order.
-fn next_write(loop_state: &mut LinkLoop, now: Instant) -> Option<NextWrite> {
+/// The pong first, even before the link is live, so a ping is answered while
+/// replay runs. Then a durable write the barrier has released, because the
+/// coordinator's acknowledgement of that sequence is what the barrier is
+/// waiting on. After that only a live barrier releases the lanes, and a cell
+/// sink still owed a writable notification holds the controls: the repair the
+/// notification produces leads any queued reply, once per pass
+/// (`coord-link-repair-order.test.ts`: opened → full → RPC). Agent statuses go
+/// after that and ahead of the lanes (v2: events → agent statuses → controls).
+fn next_write(loop_state: &mut LinkLoop, now: Instant, notified: &mut bool) -> Option<NextWrite> {
+    if let Some(pong) = loop_state.outbox.take_from(Lane::Liveness) {
+        return Some(NextWrite::Queued(pong));
+    }
     if let Some(authorised) = loop_state.authorised.take() {
         return Some(match authorised {
             Authorised::Durable(seq) => NextWrite::Durable { seq },
@@ -242,6 +221,26 @@ fn next_write(loop_state: &mut LinkLoop, now: Instant) -> Option<NextWrite> {
     }
     if !loop_state.pump.barrier().allows_live_traffic() {
         return None;
+    }
+    if loop_state
+        .cell_sink
+        .as_ref()
+        .is_some_and(|sink| sink.writable_owed())
+    {
+        if let Some(cells) = loop_state.outbox.take_from(Lane::Terminal) {
+            return Some(NextWrite::Queued(cells));
+        }
+        if *notified {
+            return None;
+        }
+        let repair = notify_writable(loop_state, now)?;
+        *notified = true;
+        return Some(NextWrite::Repair(repair));
+    }
+    if let Some(bytes) = loop_state.agent_statuses.next_bytes() {
+        return Some(NextWrite::AgentStatus {
+            bytes: bytes.to_vec(),
+        });
     }
     loop_state.outbox.drain_one(now).map(NextWrite::Queued)
 }
@@ -263,7 +262,10 @@ pub(super) fn apply_to(loop_state: &mut LinkLoop, action: Action) {
                 );
             }
             Some(frame) => {
-                if let Some(previous) = frame.seq {
+                // A reconnect re-releases the same row under the same sequence.
+                if let Some(previous) = frame.seq
+                    && previous != seq
+                {
                     tracing::error!(
                         seq,
                         previous,
@@ -274,7 +276,12 @@ pub(super) fn apply_to(loop_state: &mut LinkLoop, action: Action) {
                 loop_state.authorised = Some(Authorised::Durable(seq));
             }
         },
-        Action::WriteSnapshot => authorise_snapshot(loop_state),
+        // The sequence is the outbox's, and drawing it is async: the drain
+        // authorises the snapshot (`link_loop::durable_sync`).
+        Action::WriteSnapshot => {
+            loop_state.snapshot_wanted = true;
+            loop_state.wake();
+        }
         Action::IgnoredAck { seq } => {
             // Not an error. A duplicate or stale acknowledgement is normal on a
             // reconnect, and refusing one would turn a benign duplicate into an
@@ -288,23 +295,20 @@ pub(super) fn apply_to(loop_state: &mut LinkLoop, action: Action) {
     }
 }
 
-fn authorise_snapshot(loop_state: &mut LinkLoop) {
-    match loop_state.snapshot.snapshot() {
-        Ok(bytes) => {
-            loop_state.snapshot_since = None;
-            tracing::info!(bytes = bytes.len(), "publishing the worker snapshot");
-            loop_state.authorised = Some(Authorised::Snapshot(bytes));
-        }
-        Err(error) => {
-            tracing::warn!(%error, "the barrier cannot leave the snapshot stage yet");
-        }
-    }
+/// Encode, admit to its lane and wake: the pong to the liveness lane, every
+/// other answer to the control lane (v2 `send`). A frame that does not fit is
+/// reported, never silently dropped: the caller is a liveness reply or an
+/// answer, and both are worse absent than refused.
+pub(super) fn push_upstream(loop_state: &mut LinkLoop, frame: &CoordWorkerUpstream, label: &str) {
+    let lane = if matches!(frame, CoordWorkerUpstream::Pong { .. }) {
+        Lane::Liveness
+    } else {
+        Lane::Control
+    };
+    admit_to_lane(loop_state, frame, lane, label);
 }
 
-/// Encode, admit and wake. A frame that does not fit is reported, never
-/// silently dropped: the caller is a liveness reply or an error reply, and both
-/// are worse absent than refused.
-fn push_upstream(loop_state: &mut LinkLoop, frame: &CoordWorkerUpstream, label: &str) {
+fn admit_to_lane(loop_state: &mut LinkLoop, frame: &CoordWorkerUpstream, lane: Lane, label: &str) {
     let bytes = match loop_state.wire.encode_upstream(frame) {
         Ok(bytes) => bytes,
         Err(error) => {
@@ -316,10 +320,7 @@ fn push_upstream(loop_state: &mut LinkLoop, frame: &CoordWorkerUpstream, label: 
             return;
         }
     };
-    if let Err(error) = loop_state
-        .outbox
-        .admit(Lane::Control, bytes, label, Instant::now())
-    {
+    if let Err(error) = loop_state.outbox.admit(lane, bytes, label, Instant::now()) {
         tracing::error!(label, %error, "an upstream frame did not fit the outbox");
         return;
     }

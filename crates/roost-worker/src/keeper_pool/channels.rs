@@ -16,6 +16,7 @@
 //! values — a cloned `Arc`, a `PoolChannel`, a vector — and the caller invokes
 //! the binding after the lock is gone. A session that blocks inside `on_output`
 //! must not be able to stall the dispatcher for every other session.
+//! Ports v2 `apps/worker/src/keeper/keeper-pool-channels.ts`.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};

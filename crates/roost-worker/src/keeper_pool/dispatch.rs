@@ -1,21 +1,28 @@
-//! What the keeper sends that is not an answer to a request: PTY bytes and
-//! exits, delivered to the session each belongs to. `pool::KeeperPool` starts
+//! What the keeper sends that is not an answer to a blocking request: PTY bytes
+//! and exits, delivered to the session each belongs to, and acknowledged-input
+//! results, settled into `input_command`'s waiters. `pool::KeeperPool` starts
 //! the loop in its constructor; nothing else drives it. Depends on the pool and
-//! the keeper's frame types — nothing here.
+//! the keeper's frame types — nothing here. A connection the keeper closed is
+//! seen here first and reported as a lost keeper (v2's socket `close` handler).
 //!
 //! THE LOOP OWNS THE EVENT STREAM. The client hands a frame to whoever is
 //! waiting for it and drops the rest here, so there is exactly one reader: a
 //! second one would steal a reply from the request that is blocked on it, and a
 //! request that loses its reply looks precisely like a wedged keeper.
 //!
-//! A REQUEST'S ANSWER IS NEVER DISPATCHED. A frame that answers a request is
+//! A BLOCKING REQUEST'S ANSWER IS NEVER DISPATCHED. A frame that answers one is
 //! consumed inside the call, while the connection handle is held, and the
-//! dispatcher cannot run at the same time. So every answer seen here belongs to
-//! a request that already returned — a late reply to a call that timed out — and
-//! it is reported rather than dropped silently, because "the keeper answered a
-//! request nobody is waiting for" is the first sign of a sequence bug.
+//! dispatcher cannot run at the same time. So every such answer seen here
+//! belongs to a request that already returned — a late reply to a call that
+//! timed out — and it is reported rather than dropped silently. Acknowledged
+//! input is the one request that does not block: its waiter is registered
+//! under the handle, before the dispatcher can see its answer.
+//!
+//! A PASS HOLDS `routing` FROM TAKE TO LAST DELIVERY, so a history read at an
+//! ordered boundary (`pool_history`) never races a batch taken before it.
+//! Ports v2 `apps/worker/src/keeper/keeper-pool-lifecycle.ts`.
 
-use std::sync::Weak;
+use std::sync::{PoisonError, Weak};
 use std::time::Duration;
 
 use roost_keeper::codec::{MuxFrame, MuxFrameType};
@@ -53,10 +60,15 @@ impl KeeperPool {
     /// that held the handle across a wait would put every keystroke behind the
     /// keeper's silence.
     pub(crate) fn dispatch_ready(&self) -> usize {
-        let frames = self.take_arrived_frames();
-        let delivered = frames.len();
-        for frame in frames {
+        let routing = self.routing.lock().unwrap_or_else(PoisonError::into_inner);
+        let arrived = self.take_arrived_frames();
+        let delivered = arrived.frames.len();
+        for frame in arrived.frames {
             self.route(frame);
+        }
+        drop(routing);
+        if arrived.closed && self.is_connected() {
+            self.keeper_lost("the keeper closed its connection".to_owned());
         }
         delivered
     }
@@ -91,6 +103,12 @@ impl KeeperPool {
                 };
                 self.end_channel(frame.channel_id, exit_code);
             }
+            // An acknowledged batch's answer. It arrives here rather than inside
+            // a request because the writer released the connection once the
+            // batch was on the socket; its waiter was registered before that.
+            MuxFrameType::PtyInAck | MuxFrameType::PtyInReject | MuxFrameType::PtyInAmbiguous => {
+                self.pending_inputs.settle_frame(&frame);
+            }
             other => tracing::debug!(
                 channel_id = frame.channel_id,
                 ?other,
@@ -102,9 +120,8 @@ impl KeeperPool {
     /// End a channel exactly once, whoever gets there first.
     ///
     /// The claim is the table's decision, not the caller's: a connection that
-    /// dies while an exit is in flight must not produce an exit AND an error
-    /// for one channel, and the loser of that race is the one that finds the
-    /// channel already gone.
+    /// dies while an exit is in flight must not produce two endings for one
+    /// channel, and the loser of that race is the one that finds it gone.
     fn end_channel(&self, channel_id: u16, exit_code: Option<i32>) {
         match self.claim_channel_exit(channel_id) {
             Some(output) => {

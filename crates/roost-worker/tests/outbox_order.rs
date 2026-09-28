@@ -276,7 +276,9 @@ fn the_drain_order_places_terminal_last() {
             .position(|l| *l == lane)
             .expect("the lane is listed")
     };
-    assert_eq!(position(Lane::Durable), 0, "durable first");
+    // v2 `drainQueues` (`coord-link-outbox.ts:165-177`): liveness, then events.
+    assert_eq!(position(Lane::Liveness), 0, "the pong first");
+    assert_eq!(position(Lane::Durable), 1, "durable next");
     assert!(
         position(Lane::Control) < position(Lane::Terminal),
         "control gates what the link does next, so it precedes the cells"

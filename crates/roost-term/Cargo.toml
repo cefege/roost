@@ -9,6 +9,9 @@ description = "The TerminalCore trait, its Alacritty-backed implementation, and 
 
 [dev-dependencies]
 base64 = { workspace = true }
+# The oracle of tests/unhandled_csi_parity.rs: vte reports a dropped CSI only
+# through `log::debug!`, so the test captures those records.
+log = { workspace = true, features = ["std"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

@@ -20,6 +20,7 @@
 //! `wss` dial in the same terms — so an `https` coordinator is refused by name
 //! rather than dialled in the clear. An operator who needs TLS needs it on the
 //! link too, and half of it is not half of a fix.
+//! Ports v2 `apps/worker/src/host/install.ts`.
 
 use anyhow::Context as _;
 use connectrpc::client::{ClientConfig, HttpClient};

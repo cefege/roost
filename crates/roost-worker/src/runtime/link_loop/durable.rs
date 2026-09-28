@@ -10,13 +10,12 @@
 //! and which rows a coordinator answer has authorised this link to remove, and
 //! everything else is the store's.
 //!
-//! The one thing here that is not a thin call is the SEQUENCE ALIGNMENT in
-//! [`LinkLoop::attach_durable_outbox`]. The barrier allocates the sequence the
-//! coordinator acknowledges under and the outbox allocates the sequence a row is
-//! stored under; they are one space, and a restart has to resume both at the
-//! same number. A barrier that restarted at 1 while the rows it must replay are
-//! numbered from the outbox's high water would be waiting for an acknowledgement
-//! for a sequence it never issued, and the link would sit in `replay` for ever.
+//! The outbox allocates the `client_seq` a row is stored under and the barrier
+//! is TOLD it (`Pump::enqueue_durable_at`), so the two never allocate one space
+//! twice: a restart's unacknowledged rows replay under the sequences they were
+//! written with, and the snapshot draws its own from the outbox
+//! (`super::durable_sync`).
+//! Ports v2 `apps/worker/src/transport/coord-link-replay-barrier.ts`, `apps/worker/src/transport/coord-link-unacked.ts`.
 
 use std::sync::Arc;
 
@@ -24,6 +23,7 @@ use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 use roost_protocol::wire::event::SessionEvent;
 
 use crate::event_store::database::{Journal, JournalError, JournalStats, PendingRow};
+use crate::session::durable_delivery::DurableDelivery;
 
 use super::{DurableWrite, LinkLoop};
 
@@ -47,42 +47,24 @@ pub enum OutboxRefusal {
     Mirror(#[from] super::DurableRefusal),
     #[error("the barrier refused the outbox's sequence: {reason}")]
     UnusableSequence { reason: String },
-    #[error(
-        "this link's barrier already issued up to {issued}, so it cannot resume the outbox's \
-         sequence at {next_sequence}"
-    )]
-    UnalignedBarrier { next_sequence: u64, issued: u64 },
 }
 
 impl LinkLoop {
-    /// Install the outbox this link replays from, and align the barrier's
-    /// sequence space with it.
+    /// Install the outbox this link replays from and the signal its sink
+    /// raises on every change.
     ///
     /// Additive to [`LinkLoop::new`] rather than a parameter, because the outbox
     /// is a FILE: opening it is I/O with a real failure mode, and a constructor
     /// that took a path would be a constructor that can fail before the link
-    /// exists. The high water is read from the store itself rather than
-    /// recomputed from the rows, so it includes the block this process has
-    /// already burned.
-    pub fn attach_durable_outbox(&mut self, outbox: Arc<Journal>) -> Result<(), OutboxRefusal> {
-        let next_sequence = outbox.handed_over_at().saturating_add(1);
-        // A barrier that has already issued a sequence cannot be aligned, and an
-        // unaligned barrier wedges in `replay` for ever rather than replaying
-        // anything wrong — which is the safe direction, but only if the caller
-        // is TOLD. So the outbox is not attached: rows written under a sequence
-        // the barrier will not issue are worse than rows that were never written.
-        if let Err(refusal) = self.pump.seed_next_sequence(next_sequence) {
-            return Err(OutboxRefusal::UnalignedBarrier {
-                next_sequence,
-                issued: refusal.issued,
-            });
-        }
+    /// exists. Every row already in the file is offered on the next drain, in
+    /// sequence order, which is how a restart's unacknowledged rows reach the
+    /// coordinator (v2 `coord-link-unacked.ts` `oldestDurable`).
+    pub fn attach_durable_outbox(&mut self, outbox: Arc<Journal>, delivery: Arc<DurableDelivery>) {
         self.durable_rows = Some(outbox);
-        tracing::info!(
-            next_sequence,
-            "the coordinator link replays from a durable outbox and the barrier resumes there"
-        );
-        Ok(())
+        self.durable_delivery = Some(delivery);
+        self.durable_offered_through = 0;
+        self.durable_resync = true;
+        tracing::info!("the coordinator link replays from a durable outbox");
     }
 
     /// The outbox this link replays from, if one is installed.
@@ -158,6 +140,7 @@ impl LinkLoop {
             .map_err(|refusal| OutboxRefusal::UnusableSequence {
                 reason: refusal.to_string(),
             })?;
+        self.durable_offered_through = self.durable_offered_through.max(client_seq);
         crate::runtime::link_drain::apply_to(self, action);
         Ok(())
     }

@@ -12,6 +12,7 @@
 //! [`super::types::SessionRecord::head_seq`], because the emitter, the
 //! `dead-birth` check and the wire's `end_seq` all read that one number, and a
 //! second counter inside the ring would be a second answer to it.
+//! Ports v2 `apps/worker/src/session/session-record.ts`, `apps/worker/src/session-scrollback-ring.ts`.
 
 use std::collections::VecDeque;
 

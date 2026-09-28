@@ -21,6 +21,7 @@
 //! an undispatchable receiver cannot back a `dyn`. Depends on
 //! `super::lifecycle`, `super::respawn` and `roost_worker::browser_commands` — and
 //! on nothing that depends on it back.
+//! Ports v2 `apps/worker/src/browser-commands/browser-command-spawn.ts`, `apps/worker/src/session/session-manager.ts`.
 
 use crate::browser_commands::Refusal;
 use crate::browser_commands::session_lifecycle::{SessionLifecycle, SessionOutcome};

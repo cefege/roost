@@ -9,6 +9,9 @@
 //! The contract is `protocol/spec/keeper.md`.
 
 use std::collections::HashMap;
+use std::sync::Arc;
+
+use roost_protocol::keeper_update::KEEPER_RUNTIME_ABI;
 
 use roost_protocol::keeper_update::KEEPER_RUNTIME_ABI;
 
@@ -16,6 +19,7 @@ use crate::channel_history::ChannelHistory;
 use crate::codec::{CodecError, MuxFrame, MuxFrameType, write_sequence};
 use crate::frames::ExitFrame;
 use crate::history::HistoryRecords;
+use crate::input_queue::{InputResultSink, InputRoute};
 use crate::payloads::{
     KEEPER_PROTOCOL_VERSION, KeeperContractV1, KeeperFeature, PtyInRejectReason, PtyInResult,
 };
@@ -68,18 +72,17 @@ pub struct Keeper {
     /// The contract reported at `Hello`, computed once because digesting the
     /// binary on every handshake would be a denial-of-service vector.
     pub(crate) contract: KeeperContractV1,
+    /// The connection acknowledged input answers on; every channel's lane
+    /// writes its result frames through it.
+    pub(crate) input_route: Arc<InputRoute>,
+    /// This process's epoch, reported in every Hello.
+    pub(crate) process_epoch: Option<String>,
 }
 
-/// One channel: its PTY, its retained history, and the sequence the keeper
-/// stamps on the next thing it emits.
+/// One channel: its PTY and its retained history (ring, head, resize markers).
 pub(crate) struct Channel {
     pub(crate) pty: PtyChannel,
     pub(crate) history: ChannelHistory,
-    /// The next sequence the keeper will stamp on this channel's output. It
-    /// advances for every chunk the keeper EMITS, which is what makes the
-    /// history a log of what a client could have seen rather than of what the
-    /// program wrote.
-    pub(crate) next_output_seq: u64,
 }
 
 impl std::fmt::Debug for Channel {
@@ -87,7 +90,6 @@ impl std::fmt::Debug for Channel {
         f.debug_struct("Channel")
             .field("pty", &self.pty)
             .field("head_seq", &self.history.head_seq())
-            .field("next_output_seq", &self.next_output_seq)
             .finish()
     }
 }
@@ -137,6 +139,8 @@ impl Keeper {
         Self {
             channels: HashMap::new(),
             contract: self::contract(),
+            input_route: Arc::new(InputRoute::default()),
+            process_epoch: crate::process_epoch::mint_process_epoch(),
         }
     }
 
@@ -229,12 +233,8 @@ impl Keeper {
             MuxFrameType::ResizeRequest if per_channel(frame) => self.sequenced_resize(frame)?,
             MuxFrameType::ResizeStatus if per_channel(frame) => self.resize_status(frame)?,
             MuxFrameType::GetTerminalState if per_channel(frame) => self.terminal_state(frame)?,
-            MuxFrameType::GetHistoryRecords if per_channel(frame) => {
-                self.history_records(frame, None)?
-            }
-            MuxFrameType::GetHistory if per_channel(frame) => {
-                self.history_records(frame, Some(u64::MAX))?
-            }
+            MuxFrameType::GetHistoryRecords if per_channel(frame) => self.history_records(frame)?,
+            MuxFrameType::GetHistory if per_channel(frame) => self.legacy_history_resp(frame)?,
             MuxFrameType::KillChild if per_channel(frame) => {
                 if let Some(channel) = self.channels.get_mut(&frame.channel_id) {
                     channel.pty.kill();
@@ -252,8 +252,9 @@ impl Keeper {
         })
     }
 
-    /// Drain whatever output is ready on every channel, stamping each chunk
-    /// with the next sequence and retaining it.
+    /// Drain whatever output is ready on every channel, recording each chunk
+    /// into the channel's history BEFORE it is framed, so a history answer on
+    /// this connection is an exact boundary (v2 `releaseOutput`).
     ///
     /// Called by the socket loop on a tick. Returns nothing for a channel with
     /// nothing to say, which is the common case and must stay cheap: a keeper
@@ -268,9 +269,7 @@ impl Keeper {
             let Some(bytes) = channel.pty.read_output(limit) else {
                 continue;
             };
-            channel.next_output_seq += 1;
-            let seq = channel.next_output_seq;
-            channel.history.record_output(seq, &bytes);
+            channel.history.record_output(&bytes);
             frames.push(MuxFrame::new(MuxFrameType::PtyOut, *channel_id, bytes)?);
         }
         Ok(frames)
@@ -335,16 +334,54 @@ impl Keeper {
         self.channels.is_empty()
     }
 
+    /// Reap every live channel's whole process tree before the daemon exits
+    /// (v2 `reapAllChannels`): a keeper that stops must not leave a PTY's
+    /// children running with nothing to reach them.
+    pub fn reap_all_channels(&mut self) {
+        let targets: Vec<crate::process_reap::ReapTarget> = self
+            .channels
+            .values_mut()
+            .filter_map(|channel| channel.pty.reap_target())
+            .collect();
+        tracing::info!(
+            channels = targets.len(),
+            "keeper: reaping every channel before exit"
+        );
+        crate::process_reap::reap_all_channels(&targets);
+    }
+
     /// The contract this build reports, for `roost doctor` to compare against a
     /// worker's.
     pub fn contract(&self) -> &KeeperContractV1 {
         &self.contract
     }
 
-    /// The history a channel has retained, for the socket layer's legacy
-    /// `GetHistoryResp` framing, which is the head sequence plus the raw ring.
-    pub fn legacy_history(&self, channel_id: u16) -> Option<(u64, HistoryRecords)> {
+    /// The legacy `GetHistoryResp` view of a channel: the head and the raw
+    /// retained ring (v2 `keeper-frame-handler.ts:487-498`).
+    pub fn legacy_history(&self, channel_id: u16) -> Option<(u64, Vec<u8>)> {
         let channel = self.channels.get(&channel_id)?;
-        Some((channel.history.head_seq(), channel.history.records()))
+        Some((channel.history.head_seq(), channel.history.ring_bytes()))
+    }
+
+    /// A channel's ordered history; a channel the keeper does not hold answers
+    /// "nothing emitted" at the default geometry (v2 `:510-515`).
+    pub fn ordered_history(&self, channel_id: u16) -> HistoryRecords {
+        self.channels
+            .get(&channel_id)
+            .map_or_else(HistoryRecords::unknown_channel, |channel| {
+                channel.history.ordered()
+            })
+    }
+
+    /// Send acknowledged-input results to this connection from now on. The
+    /// server attaches its connection writer before serving a frame.
+    pub fn attach_input_results(&mut self, sink: Arc<dyn InputResultSink>) -> u64 {
+        self.input_route.attach(sink)
+    }
+
+    /// The connection ended: batches it queued and no lane has started are
+    /// dropped rather than written, and nothing is answered to it any more.
+    pub fn detach_input_results(&mut self) {
+        self.input_route.detach();
     }
 }

@@ -5,18 +5,21 @@
 //! `DEADLINE` is the point: a test that hangs is indistinguishable from a
 //! keeper that does, so every wait here fails rather than blocks.
 // NO `allow(clippy::unwrap_used)` here, deliberately. The allow is a property
-// of the COMPILATION UNIT, not of this file: every one of the nine test
-// binaries that declares `mod support;` declares the allow at its own root,
+// of the COMPILATION UNIT, not of this file: every test binary that declares
+// `mod support;` declares the allow at its own root,
 // and a crate-level `#![allow]` covers the modules it pulls in. Adding one here
 // as well would be dead weight — a reader would have two declarations to keep
 // in step and no way to tell which is load-bearing.
 #![allow(dead_code)]
 
+use std::sync::Arc;
+use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant};
 
 use roost_keeper::codec::MuxFrame;
 use roost_keeper::codec::MuxFrameType;
 use roost_keeper::frames::{ShellSpec, SpawnRequest};
+use roost_keeper::input_queue::InputResultSink;
 use roost_keeper::keeper::Keeper;
 use roost_keeper::payloads::{PtyInRequest, ResizeRequest};
 
@@ -125,4 +128,28 @@ pub fn wait_until(what: &str, mut predicate: impl FnMut() -> bool) {
         std::thread::sleep(Duration::from_millis(5));
     }
     panic!("{what} never happened within {DEADLINE:?}");
+}
+
+/// What a connection would have read from the input lanes: acknowledged
+/// results are written by each channel's lane thread, not returned by `handle`.
+pub struct ResultTap(pub Sender<MuxFrame>);
+
+impl InputResultSink for ResultTap {
+    fn deliver(&self, frame: &MuxFrame) -> bool {
+        self.0.send(frame.clone()).is_ok()
+    }
+}
+
+/// Attach a tap as the keeper's connection, and return what it will receive.
+pub fn tap_results(keeper: &mut Keeper) -> Receiver<MuxFrame> {
+    let (sender, results) = std::sync::mpsc::channel();
+    keeper.attach_input_results(Arc::new(ResultTap(sender)));
+    results
+}
+
+/// The next acknowledged-input result, failing at the deadline rather than hanging.
+pub fn next_result(results: &Receiver<MuxFrame>) -> MuxFrame {
+    results
+        .recv_timeout(DEADLINE)
+        .expect("the lane answers an acknowledged batch before the deadline")
 }

@@ -4733,6 +4733,7 @@ version = "3.0.0"
 dependencies = [
  "alacritty_terminal",
  "base64 0.23.1",
+ "log",
  "roost-observability",
  "roost-protocol",
  "serde",
@@ -4779,6 +4780,7 @@ name = "roost-worker"
 version = "3.0.0"
 dependencies = [
  "anyhow",
+ "async-compression",
  "axum",
  "base64 0.23.1",
  "connectrpc",
@@ -4801,6 +4803,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.30.0",
  "tracing",
+ "unicode-normalization",
 ]
 
 [[package]]

@@ -103,6 +103,13 @@ pub struct KeeperHelloRequest {
 pub struct KeeperObservation {
     pub contract: KeeperContractV1,
     pub live_channel_count: u32,
+    /// The keeper's own pid, so a worker can prove which process holds its PTYs.
+    #[serde(default)]
+    pub keeper_pid: Option<u32>,
+    /// This keeper process's incarnation (a v4 uuid minted at start); a recycled
+    /// pid carries a different epoch.
+    #[serde(default)]
+    pub process_epoch: Option<String>,
 }
 
 /// The keeper's `Hello` answer.

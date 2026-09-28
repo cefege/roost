@@ -5,6 +5,7 @@
 //! `session::snapshot_cursor` parks the cursor it walks. Depends on
 //! `super::snapshot_cursor` for the part type and `super::cell_sink` for the
 //! answers.
+//! Ports v2 `apps/worker/src/session/session-snapshot-cursor.ts`.
 
 use std::sync::Arc;
 

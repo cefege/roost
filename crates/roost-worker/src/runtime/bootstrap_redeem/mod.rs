@@ -7,6 +7,7 @@
 //! redemption: a one-shot secret held longer than the grant it was is a secret
 //! with a longer life than its own value. The label's own resolution, and the
 //! reason its ordering is that ordering, is the `label` submodule beside this.
+//! Ports v2 `apps/worker/src/transport/coord-client.ts`, `apps/worker/src/host/install.ts`.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -45,7 +46,7 @@ pub const ENV_REACHABLE_ADDR: &str = "ROOST_REACHABLE_ADDR";
 /// Spelled here because it cannot be imported: `roost_coord::rpc::auth_gate`
 /// keeps the same name private, and a header that does not arrive is an
 /// `Unauthenticated` with nothing in it to say the spelling was wrong.
-const AUTHORIZATION: &str = "authorization";
+pub(crate) const AUTHORIZATION: &str = "authorization";
 
 /// How long a boot-time coordinator call may take.
 ///
@@ -313,7 +314,7 @@ fn coordinator_is_silent(error: &ConnectError) -> bool {
 /// `GIT_SHA`, so the `git_sha` a registration records and the one the hello
 /// reports are the same value by construction. A source checkout with no stamp
 /// sends nothing, which is what v2 did.
-fn build_sha(env: &dyn EnvSource) -> Option<String> {
+pub(crate) fn build_sha(env: &dyn EnvSource) -> Option<String> {
     let sha = build_identity(env).build_sha;
     if sha.is_empty() || sha == DEV_BUILD_STAMP {
         return None;

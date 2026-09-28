@@ -27,7 +27,7 @@ use roost_worker::link_dial::CoordinatorEndpoint;
 use roost_worker::runtime::credential::{CredentialError, CredentialSource};
 use roost_worker::runtime::link_loop::{BrowserLink, LinkLoop, WorkerIdentity};
 use roost_worker::runtime::link_wire::{LinkWire, WireError};
-use roost_worker::runtime::snapshot_source::{NoSnapshot, SnapshotError, SnapshotSource};
+use roost_worker::runtime::snapshot_source::{SnapshotError, SnapshotSource};
 use roost_worker::runtime::stop::{
     LinkEnd, LinkEndOutcome, StopReason, StopRequests, verdict_for_link_end,
 };
@@ -39,6 +39,23 @@ const FINGERPRINT: &str = "0123456789abcdef0123456789abcdef0123456789abcdef01234
 /// Long enough that a slow machine does not fail the test, short enough that a
 /// genuine hang is a failure rather than a stall.
 const PATIENCE: Duration = Duration::from_secs(10);
+
+/// A snapshot source that never answers, so the barrier never goes live and
+/// the loop's dial/close behaviour is the only thing under test.
+#[derive(Debug, Clone, Copy)]
+struct HeldSnapshot;
+
+impl SnapshotSource for HeldSnapshot {
+    fn is_active(&self) -> bool {
+        false
+    }
+
+    fn snapshot(&self) -> Result<roost_protocol::wire::event::SessionEvent, SnapshotError> {
+        Err(SnapshotError::Unavailable {
+            reason: "the test holds the barrier".to_string(),
+        })
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 struct FixedCredential;
@@ -167,9 +184,10 @@ async fn a_dropped_link_is_a_reconnect_and_a_stop_is_a_stop() {
                 process_epoch: "test-epoch".to_string(),
             },
             Arc::new(NameCodec),
-            Arc::new(NoSnapshot),
+            Arc::new(HeldSnapshot),
             Arc::new(FixedCredential),
             BrowserLink::detached(),
+            roost_worker::uplink::channel().1,
         )
         .run(stop),
     );
@@ -204,22 +222,4 @@ async fn a_dropped_link_is_a_reconnect_and_a_stop_is_a_stop() {
         .expect("the run task did not panic");
     assert_eq!(reason, StopReason::ShutdownFrame);
     coordinator.abort();
-}
-
-/// A snapshot source that cannot answer is not the same as one that answers with
-/// nothing, and the loop has to be able to tell the difference.
-#[test]
-fn a_source_with_no_sessions_is_not_a_source_with_no_snapshot() {
-    let inactive: &dyn SnapshotSource = &NoSnapshot;
-    assert!(
-        !inactive.is_active(),
-        "an inactive source is what the link reports at boot, so the missing \
-         snapshot is one log line rather than one per dial"
-    );
-    assert!(
-        matches!(inactive.snapshot(), Err(SnapshotError::Unavailable { .. })),
-        "an inactive source refuses as UNAVAILABLE, not as an encoding failure: \
-         the two say opposite things about whether there was anything to encode, \
-         and `is_err()` accepts either for a test named for the difference"
-    );
 }
