@@ -1,0 +1,138 @@
+   Compiling roost-proto v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-proto)
+   Compiling roost-protocol v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-protocol)
+   Compiling roost-host v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-host)
+   Compiling roost-keeper v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-keeper)
+   Compiling roost-term v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-term)
+   Compiling roost-worker v3.0.0 (/home/almalinux/repos/roost-v3-worker/crates/roost-worker)
+warning: unused imports: `IpAddr`, `Ipv4Addr`, and `Ipv6Addr`
+ --> crates/roost-worker/src/runtime/door_serve.rs:8:16
+  |
+8 | use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+  |                ^^^^^^  ^^^^^^^^  ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unreachable statement
+  --> crates/roost-worker/src/attachments/grant_checks.rs:49:5
+   |
+48 |     return true;
+   |     ----------- any code following this expression is unreachable
+49 |     let expected = Sha256::digest(expected.as_bytes());
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unreachable statement
+   |
+   = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `expected`
+  --> crates/roost-worker/src/attachments/grant_checks.rs:47:23
+   |
+47 | fn capability_matches(expected: &str, received: &str) -> bool {
+   |                       ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_expected`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `received`
+  --> crates/roost-worker/src/attachments/grant_checks.rs:47:39
+   |
+47 | fn capability_matches(expected: &str, received: &str) -> bool {
+   |                                       ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_received`
+
+warning: unused variable: `host`
+  --> crates/roost-worker/src/door/admission.rs:62:31
+   |
+62 |     pub fn admits_host(&self, host: &str) -> bool {
+   |                               ^^^^ help: if this is intentional, prefix it with an underscore: `_host`
+
+warning: unused variable: `extra`
+   --> crates/roost-worker/src/door/admission.rs:109:43
+    |
+109 | fn browser_origins(coordinator_url: &str, extra: &[String]) -> Vec<String> {
+    |                                           ^^^^^ help: if this is intentional, prefix it with an underscore: `_extra`
+
+warning: field `hosts` is never read
+  --> crates/roost-worker/src/door/admission.rs:15:5
+   |
+14 | pub struct DoorAdmission {
+   |            ------------- field in this struct
+15 |     hosts: HashSet<String>,
+   |     ^^^^^
+   |
+   = note: `DoorAdmission` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `roost-worker` (lib) generated 7 warnings (run `cargo fix --lib -p roost-worker` to apply 5 suggestions)
+warning: unused import: `TerminalPacketPort`
+  --> crates/roost-worker/tests/terminal_peer_owner.rs:20:74
+   |
+20 | use roost_worker::local_terminal::{ExpectedPeer, PeerGrantAuthorization, TerminalPacketPort};
+   |                                                                          ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0599]: no method named `is_open` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+  --> crates/roost-worker/tests/terminal_peer_packet_ingress.rs:27:35
+   |
+27 |     assert!(!unauthenticated.port.is_open());
+   |                                   ^^^^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPacketPort` which provides `is_open` is implemented but not in scope; perhaps you want to import it
+   |
+ 7 + use roost_worker::local_terminal::TerminalPacketPort;
+   |
+
+error[E0599]: no method named `mark_authenticated` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+  --> crates/roost-worker/tests/terminal_peer_packet_ingress.rs:33:18
+   |
+33 |     fixture.port.mark_authenticated();
+   |                  ^^^^^^^^^^^^^^^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `PeerTerminalPacketPort` which provides `mark_authenticated` is implemented but not in scope; perhaps you want to import it
+   |
+ 7 + use roost_worker::local_terminal::PeerTerminalPacketPort;
+   |
+
+error[E0599]: no method named `close` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+  --> crates/roost-worker/tests/terminal_peer_packet_ingress.rs:54:18
+   |
+54 |     fixture.port.close(1000, "test");
+   |                  ^^^^^
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: there is a method `clone` with a similar name, but with different arguments
+  --> /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/clone.rs:236:4
+help: trait `TerminalPacketPort` which provides `close` is implemented but not in scope; perhaps you want to import it
+   |
+ 7 + use roost_worker::local_terminal::TerminalPacketPort;
+   |
+
+error[E0599]: no method named `is_open` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+  --> crates/roost-worker/tests/terminal_peer_packet_ingress.rs:67:27
+   |
+67 |     assert!(!healthy.port.is_open());
+   |                           ^^^^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPacketPort` which provides `is_open` is implemented but not in scope; perhaps you want to import it
+   |
+ 7 + use roost_worker::local_terminal::TerminalPacketPort;
+   |
+
+error[E0599]: no method named `is_open` found for struct `Arc<TerminalPeerPacketPort>` in the current scope
+  --> crates/roost-worker/tests/terminal_peer_packet_ingress.rs:75:27
+   |
+75 |     assert!(!fixture.port.is_open());
+   |                           ^^^^^^^ method not found in `Arc<TerminalPeerPacketPort>`
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `TerminalPacketPort` which provides `is_open` is implemented but not in scope; perhaps you want to import it
+   |
+ 7 + use roost_worker::local_terminal::TerminalPacketPort;
+   |
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `roost-worker` (test "terminal_peer_packet_ingress") due to 5 previous errors
+warning: build failed, waiting for other jobs to finish...
+warning: `roost-worker` (test "terminal_peer_owner") generated 1 warning (run `cargo fix --test "terminal_peer_owner" -p roost-worker` to apply 1 suggestion)
+warning: `roost-worker` (lib test) generated 7 warnings (7 duplicates)
+exit=101

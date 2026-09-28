@@ -1,0 +1,490 @@
+[
+ {
+  "id": "WDoorTerm-M1",
+  "file": "crates/roost-worker/src/local_terminal/grants.rs",
+  "old": "if capability_matches(installed, &sha256_hex(credential.secret)) {",
+  "new": "if capability_matches(installed, installed) {",
+  "pkg": "roost-worker",
+  "tests": [
+   "local_terminal_socket"
+  ],
+  "name": "a_hello_whose_secret_does_not_match_is_closed_and_registers_nothing"
+ },
+ {
+  "id": "WDoorTerm-M2",
+  "file": "crates/roost-worker/src/local_terminal/sockets.rs",
+  "old": "_ if !session.is_authenticated() => self.close(&session, \"hello required\"),",
+  "new": "_ if !session.is_authenticated() => {}",
+  "pkg": "roost-worker",
+  "tests": [
+   "local_terminal_socket"
+  ],
+  "name": "any_frame_before_the_hello_closes_the_socket"
+ },
+ {
+  "id": "WDoorTerm-M3",
+  "file": "crates/roost-worker/src/local_terminal/sockets.rs",
+  "old": "GrantChange::Removed { grant, .. } => (&grant.grant_id, \"local terminal grant revoked\"),",
+  "new": "GrantChange::Removed { .. } => return,",
+  "pkg": "roost-worker",
+  "tests": [
+   "local_terminal_socket"
+  ],
+  "name": "revoking_the_device_closes_its_socket"
+ },
+ {
+  "id": "WDoorTerm-M5",
+  "file": "crates/roost-worker/src/local_door.rs",
+  "old": "|| state.timers.len() >= TERMINAL_PEER_MAX_ESTABLISHED_PER_WORKER",
+  "new": "|| state.timers.len() > TERMINAL_PEER_MAX_ESTABLISHED_PER_WORKER",
+  "pkg": "roost-worker",
+  "tests": [
+   "local_terminal_prehello"
+  ],
+  "name": "caps_and_expires_loopback_sockets_awaiting_hello"
+ },
+ {
+  "id": "WDoorTerm-M6",
+  "file": "crates/roost-worker/src/local_door.rs",
+  "old": "    (shared.on_timeout)(socket_id);",
+  "new": "    let _ = &shared.on_timeout;",
+  "pkg": "roost-worker",
+  "tests": [
+   "local_terminal_socket"
+  ],
+  "name": "a_socket_that_never_says_hello_is_closed_at_the_deadline"
+ },
+ {
+  "id": "WDoorTerm-M7",
+  "file": "crates/roost-worker/src/local_terminal/grants.rs",
+  "old": "    fn expire_install(&self, grant_id: &str, install: u64) {\n",
+  "new": "    fn expire_install(&self, grant_id: &str, install: u64) {\n        if install > 0 {\n            return;\n        }\n",
+  "pkg": "roost-worker",
+  "tests": [
+   "local_terminal_grants"
+  ],
+  "name": "renewal_grows_in_place_reports_scope_reduction_and_actively_expires"
+ },
+ {
+  "id": "WDoorTerm-M8",
+  "file": "crates/roost-worker/src/local_terminal/authority.rs",
+  "old": ".any(|granted| granted == session_id)",
+  "new": ".any(|granted| !granted.is_empty())",
+  "pkg": "roost-worker",
+  "tests": [
+   "local_terminal_socket_input"
+  ],
+  "name": "input_takes_the_real_write_path_and_reports_its_outcome_per_session"
+ },
+ {
+  "id": "WDoorTerm-M8b",
+  "file": "crates/roost-worker/src/local_terminal/authority.rs",
+  "old": ".any(|granted| granted == session_id)",
+  "new": ".any(|granted| !granted.is_empty())",
+  "pkg": "roost-worker",
+  "tests": [
+   "local_terminal_socket"
+  ],
+  "name": "a_view_for_a_session_outside_the_grant_is_refused"
+ },
+ {
+  "id": "WDoorTerm-M9",
+  "file": "crates/roost-worker/src/local_terminal/delivery.rs",
+  "old": "        } => ServerFrame::from(InputAmbiguous {\n            session_id,\n            input_seq,\n            domain_generation: generation,\n            written_bytes: *written_bytes,\n            reason: reason.clone(),",
+  "new": "        } => ServerFrame::from(InputRejected {\n            session_id,\n            input_seq,\n            domain_generation: generation,\n            reason: format!(\"{reason}{written_bytes}\"),",
+  "pkg": "roost-worker",
+  "tests": [
+   "local_terminal_socket_input"
+  ],
+  "name": "a_written_batch_whose_answer_is_lost_is_ambiguous"
+ },
+ {
+  "id": "WDoorTerm-M10",
+  "file": "crates/roost-worker/src/local_terminal/hello.rs",
+  "old": "        return hello.peer_id.is_empty() && hello.worker_epoch.is_empty();",
+  "new": "        return true;",
+  "pkg": "roost-worker",
+  "tests": [
+   "local_terminal_peer_socket"
+  ],
+  "name": "loopback_rejects_a_peer_shaped_hello_instead_of_accepting_old_compatibility"
+ },
+ {
+  "id": "WDoorTerm-M11",
+  "file": "crates/roost-worker/src/local_terminal/authority.rs",
+  "old": "            (Some(_), true) => false,",
+  "new": "            (Some(_), true) => true,",
+  "pkg": "roost-worker",
+  "tests": [
+   "local_terminal_peer_socket"
+  ],
+  "name": "peer_hello_matches_the_offer_tuple_before_it_becomes_authenticated"
+ },
+ {
+  "id": "WDoorTerm-M12",
+  "file": "crates/roost-worker/src/scrollback_read.rs",
+  "old": "        if offset >= slice_end {\n            break;\n        }\n        // v2 `browser-command-terminal.ts:115-117` asks only before a slice\n        // that has rows, so an empty page costs no authority check.\n        if !continue_read() {\n            return WalkOutcome::Cancelled { taken };\n        }\n",
+  "new": "        if !continue_read() {\n            return WalkOutcome::Cancelled { taken };\n        }\n        if offset >= slice_end {\n            break;\n        }\n",
+  "pkg": "roost-worker",
+  "tests": [
+   "local_terminal_scrollback"
+  ],
+  "name": "post_read_authority_loss_suppresses_the_direct_scrollback_page"
+ },
+ {
+  "id": "WDoorTerm-M13",
+  "file": "crates/roost-worker/src/runtime/downstream/local_grants.rs",
+  "old": "data: serde_json::json!({ \"grant_id\": request.grant_id }),",
+  "new": "data: serde_json::json!({}),",
+  "pkg": "roost-worker",
+  "tests": [
+   "link_downstream_local_grant"
+  ],
+  "name": "an_accepted_install_is_acknowledged_with_its_grant_id"
+ },
+ {
+  "id": "WDoorTerm-M14",
+  "file": "crates/roost-worker/src/session/table.rs",
+  "old": ".find(|(_, channel)| **channel == channel_id)",
+  "new": ".find(|(_, channel)| **channel != channel_id)",
+  "pkg": "roost-worker",
+  "tests": [
+   "local_terminal_socket"
+  ],
+  "name": "a_granted_socket_receives_cells_for_its_view"
+ },
+ {
+  "id": "WDoorTerm-M15",
+  "file": "crates/roost-worker/src/local_terminal/delivery.rs",
+  "old": "        PacketSendResult::Refused => {\n            close();\n            CellSinkResult::Overflow\n        }",
+  "new": "        PacketSendResult::Refused => {\n            let _ = close;\n            CellSinkResult::Sent\n        }",
+  "pkg": "roost-worker",
+  "tests": [
+   "local_terminal_socket"
+  ],
+  "name": "a_socket_that_stops_draining_is_dropped_alone"
+ },
+ {
+  "id": "WAttachDirect-M0",
+  "file": "crates/roost-worker/src/attachments/direct_hello.rs",
+  "old": "if replayed {",
+  "new": "if false && replayed {",
+  "pkg": "roost-worker",
+  "tests": [
+   "attachment_direct_socket"
+  ],
+  "name": "a_replayed_grant"
+ },
+ {
+  "id": "WAttachDirect-M1",
+  "file": "crates/roost-worker/src/attachments/direct_sockets.rs",
+  "old": "|session| !session.holds_admitted_slot()",
+  "new": "|_session| true",
+  "pkg": "roost-worker",
+  "tests": [
+   "attachment_direct_socket"
+  ],
+  "name": "an_admitted_upload_frees"
+ },
+ {
+  "id": "WAttachDirect-M2",
+  "file": "crates/roost-worker/src/attachments/direct_sockets.rs",
+  "old": "metadata.device_fingerprint == device_fingerprint",
+  "new": "metadata.device_fingerprint != device_fingerprint",
+  "pkg": "roost-worker",
+  "tests": [
+   "attachment_direct_socket"
+  ],
+  "name": "explicit_device_revocation"
+ },
+ {
+  "id": "WAttachDirect-M3",
+  "file": "crates/roost-worker/src/attachments/direct_chunks.rs",
+  "old": "send_attachment_closed(port.as_ref(), COMPLETE_REASON);",
+  "new": "let _ = &port;",
+  "pkg": "roost-worker",
+  "tests": [
+   "attachment_direct_socket"
+  ],
+  "name": "writes_exact_bytes"
+ },
+ {
+  "id": "WAttachDirect-M4",
+  "file": "crates/roost-worker/src/attachments/direct_hello.rs",
+  "old": "Duration::from_millis(HELLO_DEADLINE_MS)",
+  "new": "Duration::from_millis(HELLO_DEADLINE_MS * 2)",
+  "pkg": "roost-worker",
+  "tests": [
+   "attachment_direct_socket"
+  ],
+  "name": "a_loopback_socket_that_never_says_hello"
+ },
+ {
+  "id": "WAttachDirect-M5",
+  "file": "crates/roost-worker/src/attachments/peer_packet_port.rs",
+  "old": "if !state.authenticated && lane != PeerChannelLane::Control {",
+  "new": "if false {",
+  "pkg": "roost-worker",
+  "tests": [
+   "attachment_peer_port"
+  ],
+  "name": "the_data_channel_is_closed"
+ },
+ {
+  "id": "WAttachDirect-M6",
+  "file": "crates/roost-worker/src/attachments/peer_packet_port.rs",
+  "old": "&& state.hello_timer.is_none()",
+  "new": "&& false",
+  "pkg": "roost-worker",
+  "tests": [
+   "attachment_peer_port"
+  ],
+  "name": "an_unadmitted_peer_is_retired"
+ },
+ {
+  "id": "WAttachDirect-M7",
+  "file": "crates/roost-worker/src/attachments/peer_negotiation.rs",
+  "old": "state.active.remove(peer_id);",
+  "new": "let _ = peer_id;",
+  "pkg": "roost-worker",
+  "tests": [
+   "attachment_peer_owner"
+  ],
+  "name": null
+ },
+ {
+  "id": "WAttachDirect-M8",
+  "file": "crates/roost-worker/src/attachments/peer_budget.rs",
+  "old": "&& !shared.reserve_worker_data(bytes)",
+  "new": "&& !shared.reserve_worker_data(0)",
+  "pkg": "roost-worker",
+  "tests": [
+   "--lib"
+  ],
+  "name": "the_worker_wide_data_ceiling"
+ },
+ {
+  "id": "WAttachDirect-M9",
+  "file": "crates/roost-protocol/src/attachment_transfer/packets.rs",
+  "old": "|| header.offset_bytes as usize != partial.bytes.len()",
+  "new": "|| false",
+  "pkg": "roost-protocol",
+  "tests": [
+   "attachment_transfer_packets"
+  ],
+  "name": "rejects_terminal_magic"
+ },
+ {
+  "id": "WAttachDirect-M10",
+  "file": "crates/roost-worker/src/attachments/peer_request_validation.rs",
+  "old": "(b'1'..=b'5').contains(byte)",
+  "new": "byte.is_ascii_hexdigit()",
+  "pkg": "roost-worker",
+  "tests": [
+   "--lib"
+  ],
+  "name": "refuses_an_unversioned_peer"
+ },
+ {
+  "id": "WAttachDirect-M11",
+  "file": "crates/roost-worker/src/runtime/downstream/attachment_peer.rs",
+  "old": "attachment_peer_error(&refused, &epoch, reason)",
+  "new": "attachment_peer_error(&refused, &epoch, PeerErrorReason::IceFailed)",
+  "pkg": "roost-worker",
+  "tests": [
+   "link_downstream_attachment_peer"
+  ],
+  "name": "attachment_controls_emit"
+ },
+ {
+  "id": "WResume-K1",
+  "file": "crates/roost-keeper/src/client_history.rs",
+  "old": "                    dropped += frame.payload.len();",
+  "new": "                    self.defer(frame);",
+  "pkg": "roost-keeper",
+  "tests": [
+   "keeper_queries"
+  ],
+  "name": "pre_boundary_output_is_dropped_exactly_once"
+ },
+ {
+  "id": "WResume-K2",
+  "file": "crates/roost-keeper/src/channel_history.rs",
+  "old": "            self.base_cols = evicted.cols;\n            self.base_rows = evicted.rows;\n",
+  "new": "",
+  "pkg": "roost-keeper",
+  "tests": [
+   "channel_history"
+  ],
+  "name": "an_evicted_marker_becomes_the_base_geometry"
+ },
+ {
+  "id": "WResume-K3",
+  "file": "crates/roost-keeper/src/keeper_ops.rs",
+  "old": "if request.seq > before && state.applied_seq == request.seq {",
+  "new": "if false {",
+  "pkg": "roost-keeper",
+  "tests": [
+   "keeper_queries"
+  ],
+  "name": "the_ordered_history_is_the_resize_the_keeper_recorded"
+ },
+ {
+  "id": "WResume-W1",
+  "file": "crates/roost-worker/src/keeper_pool/pool_lifecycle.rs",
+  "old": "channel.output().on_exit(None);",
+  "new": "channel.output().on_error(reason.clone());",
+  "pkg": "roost-worker",
+  "tests": [
+   "keeper_pool_channels"
+  ],
+  "name": null
+ },
+ {
+  "id": "WResume-W2",
+  "file": "crates/roost-worker/src/session/respawn_replace.rs",
+  "old": "if let Err(fault) = self.keeper.kill_channel(raw) {",
+  "new": "if let Err(fault) = Ok::<(), super::keeper_channels::KeeperFault>(()) {",
+  "pkg": "roost-worker",
+  "tests": [
+   "boot_adoption_gate"
+  ],
+  "name": null
+ },
+ {
+  "id": "WResume-W3",
+  "file": "crates/roost-worker/src/boot_keeper.rs",
+  "old": "if probe.authenticated && probe.protocol_compatible {",
+  "new": "if probe.authenticated && probe.protocol_compatible && probe.exact_target {",
+  "pkg": "roost-worker",
+  "tests": [
+   "boot_keeper"
+  ],
+  "name": null
+ },
+ {
+  "id": "WResume-W4",
+  "file": "crates/roost-worker/src/runtime/reconcile_gate.rs",
+  "old": "if state.keeper_restarts.len() >= KEEPER_RESTART_BUDGET {",
+  "new": "if state.keeper_restarts.len() > KEEPER_RESTART_BUDGET {",
+  "pkg": "roost-worker",
+  "tests": [
+   "reconcile_gate"
+  ],
+  "name": null
+ },
+ {
+  "id": "WResume-W5",
+  "file": "crates/roost-worker/src/terminal_pipeline/mod.rs",
+  "old": "        facts.resize_frames += 1;\n",
+  "new": "",
+  "pkg": "roost-worker",
+  "tests": [
+   "terminal_pipeline_bounds"
+  ],
+  "name": null
+ },
+ {
+  "id": "WResume-W6",
+  "file": "crates/roost-worker/src/session/resume.rs",
+  "old": "if let Err(fault) = self.keeper.kill_channel(channel) {",
+  "new": "if let Err(fault) = Ok::<(), super::keeper_channels::KeeperFault>(()) {",
+  "pkg": "roost-worker",
+  "tests": [
+   "session_resume_teardown",
+   "session_adoption"
+  ],
+  "name": null
+ },
+ {
+  "id": "WHeart-M4",
+  "file": "crates/roost-worker/src/runtime/heartbeat.rs",
+  "old": "                self.consecutive_misses = 0;\n",
+  "new": "",
+  "pkg": "roost-worker",
+  "tests": [
+   "heartbeat"
+  ],
+  "name": "counts_one_miss_per_settlement"
+ },
+ {
+  "id": "WPeer-M4",
+  "file": "crates/roost-worker/src/peer/history_reservation.rs",
+  "old": "        if reserved != 0 {\n            self.base.clone().release(reserved);",
+  "new": "        if reserved != 0 {\n            let _ = reserved;",
+  "pkg": "roost-worker",
+  "tests": [
+   "terminal_peer_owner",
+   "terminal_peer_packet_port",
+   "terminal_peer_offer_faults",
+   "terminal_peer_packet_ingress",
+   "link_downstream_direct",
+   "direct_terminal"
+  ],
+  "name": null
+ },
+ {
+  "id": "WPeer-M3",
+  "file": "crates/roost-worker/src/peer/packet_budget.rs",
+  "old": "for (id, handler) in handlers {",
+  "new": "for (id, handler) in handlers.into_iter().take(0) {",
+  "pkg": "roost-worker",
+  "tests": [
+   "terminal_peer_owner",
+   "terminal_peer_packet_port",
+   "terminal_peer_offer_faults",
+   "terminal_peer_packet_ingress",
+   "link_downstream_direct",
+   "direct_terminal"
+  ],
+  "name": null
+ },
+ {
+  "id": "WPeer-M6",
+  "file": "crates/roost-worker/src/peer/owner_offer.rs",
+  "old": "format!(\"{}-smoke-mismatch\", request.worker_epoch)",
+  "new": "request.worker_epoch.clone()",
+  "pkg": "roost-worker",
+  "tests": [
+   "terminal_peer_owner",
+   "terminal_peer_packet_port",
+   "terminal_peer_offer_faults",
+   "terminal_peer_packet_ingress",
+   "link_downstream_direct",
+   "direct_terminal"
+  ],
+  "name": null
+ },
+ {
+  "id": "WPeer-M7",
+  "file": "crates/roost-worker/src/peer/packet_lanes.rs",
+  "old": "if channel != TerminalPeerPacketLane::Control as usize || !binary {",
+  "new": "if !binary {",
+  "pkg": "roost-worker",
+  "tests": [
+   "terminal_peer_owner",
+   "terminal_peer_packet_port",
+   "terminal_peer_offer_faults",
+   "terminal_peer_packet_ingress",
+   "link_downstream_direct",
+   "direct_terminal"
+  ],
+  "name": null
+ },
+ {
+  "id": "WPeer-M17",
+  "file": "crates/roost-worker/src/peer/coordinator_generation.rs",
+  "old": "Some(adopted) => adopted == generation,",
+  "new": "Some(_) => true,",
+  "pkg": "roost-worker",
+  "tests": [
+   "terminal_peer_owner",
+   "terminal_peer_packet_port",
+   "terminal_peer_offer_faults",
+   "terminal_peer_packet_ingress",
+   "link_downstream_direct",
+   "direct_terminal"
+  ],
+  "name": null
+ }
+]

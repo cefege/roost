@@ -1,0 +1,1 @@
+PAUSED: ProtoAgentRetire fix + test written; baseline green (3/3 new, 13/13 coord_worker_proto); mutation P1 run was killed mid-build (rc=-15), NOT observed red; reverted (tree verified clean).

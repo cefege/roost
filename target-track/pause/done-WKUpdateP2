@@ -1,0 +1,8 @@
+DONE
+WKUpdate is wired and compiles, and its tests pass: roost-keeper 35/35 (keeper_child_reap 3, keeper_update_proof 2), and roost-worker keeper_update_action 8, keeper_maintenance_admission 7, keeper_update_prepare 6, keeper_update_prepare_drain 2, keeper_update_preservation 1, keeper_update_terminal_freeze 2, link_downstream_keeper_update 3 and link_downstream_absent 8.
+The keeperUpdatePrepare arm now routes to KeeperUpdatePreparer, whose boundary is ReconcileGate.
+Worker mutations were each seen to fail (details in commits2/WKUpdate.msg).
+Still open at budget end:
+- These mutations were cancelled while waiting for the build lock and never ran (the tree was checked clean of mutants): keeper M2 (reap SIGTERM plus sweep), M3 (bin reap_all_channels), M4 (hello epoch None), worker WB (channel-set check; rollback on Journaled), and M1b (sweep removal against the hardened nohup test). The driver is /tmp/wkupdate-mutate.sh <label> <file> <old> <new> -- <cargo test args>.
+- Clippy did not run: roost-protocol (lib) failed to compile in the shared build, which is not WKUpdate's code.
+- link_agent_status successful_retirements_replay_in_order_without_an_active_snapshot fails. The test is an agent-status replay, not WKUpdate's; the one change this slice made on that path is the added DownstreamOwners field.

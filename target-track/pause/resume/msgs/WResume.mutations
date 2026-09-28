@@ -1,0 +1,9 @@
+- K1 roost-keeper client_history.rs: `dropped += frame.payload.len();` -> `self.defer(frame);` => FAILS pre_boundary_output_is_dropped_exactly_once
+- K2 roost-keeper channel_history.rs: `self.base_cols = evicted.cols; self.base_rows = evicted.rows;` -> `` => FAILS an_evicted_marker_becomes_the_base_geometry
+- W1 roost-worker keeper_pool/pool_lifecycle.rs: `channel.output().on_exit(None);` -> `channel.output().on_error(reason.clone());` => FAILS a_lost_keeper_ends_every_channel_exactly_once
+- W2 roost-worker session/respawn_replace.rs: `if let Err(fault) = self.keeper.kill_channel(raw) {` -> `if let Err(fault) = Ok::<(), super::keeper_channels::KeeperFault>((...` => FAILS respawning_a_held_session_kills_the_pty_it_replaces
+- W3 roost-worker boot_keeper.rs: `if probe.authenticated && probe.protocol_compatible {` -> `if probe.authenticated && probe.protocol_compatible && probe.exact_...` => FAILS a_compatible_survivor_is_adopted_even_off_the_exact_target
+- W4 roost-worker runtime/reconcile_gate.rs: `if state.keeper_restarts.len() >= KEEPER_RESTART_BUDGET {` -> `if state.keeper_restarts.len() > KEEPER_RESTART_BUDGET {` => FAILS a_degraded_keeper_restarts_only_past_the_grace_window_and_within_budget
+- W5 roost-worker terminal_pipeline/mod.rs: `facts.resize_frames += 1;` -> `` => FAILS keeper_facts_count_and_age_each_pending_resize
+- W6 roost-worker session/resume.rs: `if let Err(fault) = self.keeper.kill_channel(channel) {` -> `if let Err(fault) = Ok::<(), super::keeper_channels::KeeperFault>((...` => FAILS a_forced_post_reattach_rejection_kills_the_adopted_keeper_channel, a_channel_list_that_cannot_be_read_refuses_with_the_keeper_s_reason …
+- K3 roost-keeper keeper_ops.rs: `if request.seq > before && state.applied_seq == request.seq {` -> `if false {` => FAILS the_ordered_history_is_the_resize_the_keeper_recorded

@@ -1,0 +1,1 @@
+- M4 roost-worker runtime/heartbeat.rs: `self.consecutive_misses = 0;` -> `` => FAILS counts_one_miss_per_settlement_resets_on_success_and_isolates_instances

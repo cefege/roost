@@ -1,0 +1,1 @@
+PAUSED: all files in place; 21 integration + 7 lib door + roost-host tests green; mutations A/B/D + http_security failed as expected and reverted (tree clean); unrun: mutation batch C (door_routes.rs:82, spa.rs:124), D1 masked single-side, clippy

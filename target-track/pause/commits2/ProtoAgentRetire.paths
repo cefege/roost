@@ -1,0 +1,3 @@
+crates/roost-protocol/src/proto_adapters/coord_worker_proto/records.rs
+crates/roost-protocol/src/wire/coord_worker/payloads.rs
+crates/roost-protocol/tests/agent_status_retirement_proto.rs

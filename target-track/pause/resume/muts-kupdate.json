@@ -1,0 +1,93 @@
+[
+ {
+  "id": "WKUpdate-K-M1b",
+  "slice": "WKUpdate",
+  "file": "crates/roost-keeper/src/process_reap.rs",
+  "old": "            sweep_survivors(&members);",
+  "new": "            drop(members);",
+  "pkg": "roost-keeper",
+  "name": "a_nohup_job_that_ignores_sighup_is_still_reaped",
+  "why": "v2 keeper-process-reap.ts escalation SIGKILL sweep; keeper-child-reap.test.ts:171 'nohup'd job that IGNORES SIGHUP is still reaped'",
+  "tests": [
+   "keeper_child_reap"
+  ]
+ },
+ {
+  "id": "WKUpdate-K-M2",
+  "slice": "WKUpdate",
+  "file": "crates/roost-keeper/src/process_reap.rs",
+  "old": "    hang_up(target);\n    signal_group(target.leader, libc::SIGTERM);",
+  "new": "    send(target.leader, libc::SIGTERM);\n    let tree: Vec<i32> = {\n        drop(tree);\n        Vec::new()\n    };",
+  "pkg": "roost-keeper",
+  "name": "an_interactive_shell_and_its_foreground_and_background_jobs_all_die",
+  "why": "reap degraded to one SIGTERM to the leader: no hangup, no group SIGTERM, empty snapshot so the sweep kills nothing; v2 keeper-child-reap.test.ts:121 (interactive shell ignores SIGTERM)",
+  "tests": [
+   "keeper_child_reap"
+  ]
+ },
+ {
+  "id": "WKUpdate-K-M3",
+  "slice": "WKUpdate",
+  "file": "crates/roost-keeper/src/bin/roost-keeper.rs",
+  "old": "    server.keeper_mut().reap_all_channels();",
+  "new": "    let _ = server.keeper_mut();",
+  "pkg": "roost-keeper",
+  "name": "a_forced_shutdown_ends_the_keeper_and_every_pty_it_held",
+  "why": "v2 multiplexed-main.ts:152 reapAllChannels before exit; the HUP-immune child outlives the keeper",
+  "tests": [
+   "keeper_update_proof"
+  ]
+ },
+ {
+  "id": "WKUpdate-K-M4",
+  "slice": "WKUpdate",
+  "file": "crates/roost-keeper/src/keeper_ops.rs",
+  "old": "                process_epoch: self.process_epoch.clone(),",
+  "new": "                process_epoch: None,",
+  "pkg": "roost-keeper",
+  "name": "the_hello_proves_one_keeper_identity_and_its_channels_across_reconnects",
+  "why": "v2 multiplexed-main.ts:79,247 hello carries process_epoch",
+  "tests": [
+   "keeper_update_proof"
+  ]
+ },
+ {
+  "id": "WKUpdate-W-WB1",
+  "slice": "WKUpdate",
+  "file": "crates/roost-worker/src/keeper_pool/update_admission.rs",
+  "old": "    if keeper_channels != action.worker_open_channel_ids {",
+  "new": "    if false && keeper_channels != action.worker_open_channel_ids {",
+  "pkg": "roost-worker",
+  "name": "preserve_rejects_a_keeper_channel_absent_from_the_worker_session_map",
+  "why": "v2 update-admission.ts:134 channel-set check",
+  "tests": [
+   "keeper_update_action"
+  ]
+ },
+ {
+  "id": "WKUpdate-W-WB2a",
+  "slice": "WKUpdate",
+  "file": "crates/roost-worker/src/keeper_pool/update_prepare.rs",
+  "old": "                Ok(Prepared::Journaled(result)) => {\n                    serde_json::to_value(result)",
+  "new": "                Ok(Prepared::Journaled(result)) => {\n                    rollback_admission.rollback();\n                    serde_json::to_value(result)",
+  "pkg": "roost-worker",
+  "name": "a_journaled_preparation_that_succeeds_stays_closed_and_holds_the_boundary",
+  "why": "v2 coord-link-keeper-update.ts:93-95 rolls admission back only after maintenance; a journaled success stays closed",
+  "tests": [
+   "keeper_update_prepare"
+  ]
+ },
+ {
+  "id": "WKUpdate-W-WB2b",
+  "slice": "WKUpdate",
+  "file": "crates/roost-worker/src/keeper_pool/update_prepare.rs",
+  "old": "                Ok(Prepared::Journaled(result)) => {\n                    serde_json::to_value(result)",
+  "new": "                Ok(Prepared::Journaled(result)) => {\n                    if let Some(release) = reconcile.take() {\n                        release();\n                    }\n                    serde_json::to_value(result)",
+  "pkg": "roost-worker",
+  "name": "a_journaled_preparation_that_succeeds_stays_closed_and_holds_the_boundary",
+  "why": "v2 coord-link-keeper-update.ts:93-94 releases the reconcile boundary only after maintenance; a journaled success holds it",
+  "tests": [
+   "keeper_update_prepare"
+  ]
+ }
+]

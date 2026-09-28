@@ -1,0 +1,21 @@
+15 mutants in 4 batches
+## batch 0: ['WKUpdate-K-M1b', 'WKUpdate-K-M3', 'WKUpdate-W-WB1', 'WKUpdate-W-WB2a', 'WAgentsReport-M1', 'WAgentsReport-M8', 'WAgentsReport-M11', 'WAgentsInstall-M9']
+WKUpdate-K-M1b SURVIVED crates/roost-keeper/src/process_reap.rs -> ['keeper_child_reap']::a_nohup_job_that_ignores_sighup_is_still_reaped
+WKUpdate-K-M3 KILLED crates/roost-keeper/src/bin/roost-keeper.rs -> ['keeper_update_proof']::['a_forced_shutdown_ends_the_keeper_and_every_pty_it_held']
+WKUpdate-W-WB1 KILLED crates/roost-worker/src/keeper_pool/update_admission.rs -> ['keeper_update_action']::['preserve_rejects_a_keeper_channel_absent_from_the_worker_session_map']
+WKUpdate-W-WB2a KILLED crates/roost-worker/src/keeper_pool/update_prepare.rs -> ['keeper_update_prepare']::['a_journaled_preparation_that_succeeds_stays_closed_and_holds_the_boundary']
+WAgentsReport-M1 KILLED crates/roost-worker/src/agents/report_connection.rs -> ['agent_report_server']::['refuses_a_capability_minted_for_another_session']
+WAgentsReport-M8 KILLED crates/roost-worker/src/agents/manifest_engine.rs -> ['agent_manifest_rules']::['honors_blocker_priority_visible_idle_and_skip_state_screens']
+WAgentsReport-M11 KILLED crates/roost-worker/src/agents/environment.rs -> ['agent_report_environment']::['a_session_capability_survives_a_worker_restart_and_is_per_session']
+WAgentsInstall-M9 KILLED crates/roost-worker/src/agents/install_mutation.rs -> ['agent_status_install_rollback']::['rolls_back_owned_replacements_and_absent_creates_after_a_commit_failure']
+## batch 1: ['WKUpdate-K-M2', 'WKUpdate-K-M4', 'WKUpdate-W-WB2b', 'WAgentsReport-M2', 'WAgentsReport-M9']
+WKUpdate-K-M2 KILLED crates/roost-keeper/src/process_reap.rs -> ['keeper_child_reap']::['an_interactive_shell_and_its_foreground_and_background_jobs_all_die']
+WKUpdate-K-M4 KILLED crates/roost-keeper/src/keeper_ops.rs -> ['keeper_update_proof']::['the_hello_proves_one_keeper_identity_and_its_channels_across_reconnects']
+WKUpdate-W-WB2b KILLED crates/roost-worker/src/keeper_pool/update_prepare.rs -> ['keeper_update_prepare']::['a_journaled_preparation_that_succeeds_stays_closed_and_holds_the_boundary']
+WAgentsReport-M2 KILLED crates/roost-worker/src/agents/report_connection.rs -> ['agent_report_server']::['a_second_request_line_is_refused_while_the_first_still_lands']
+WAgentsReport-M9 KILLED crates/roost-worker/src/agents/manifests.rs -> ['agent_manifest_rules']::['every_agent_is_evaluated_against_its_own_manifest']
+## batch 2: ['WAgentsReport-M3']
+WAgentsReport-M3 KILLED crates/roost-worker/src/agents/report_admission.rs -> ['agent_report_server']::['accepts_state_with_fresh_worker_derived_identity_and_ordering']
+## batch 3: ['WAgentsReport-M4']
+WAgentsReport-M4 KILLED crates/roost-worker/src/agents/report_admission.rs -> ['agent_report_server']::['durably_acknowledges_omp_set_replace_and_clear_after_fresh_pid_proof']
+## done

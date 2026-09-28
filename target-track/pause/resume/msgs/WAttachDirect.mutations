@@ -1,0 +1,12 @@
+- M0 roost-worker attachments/direct_hello.rs: `if replayed {` -> `if false && replayed {` => FAILS a_replayed_grant_cannot_admit_a_second_carrier_or_disturb_the_admitted_upload
+- M5 roost-worker attachments/peer_packet_port.rs: `if !state.authenticated && lane != PeerChannelLane::Control {` -> `if false {` => FAILS the_data_channel_is_closed_to_a_peer_that_was_never_admitted
+- M7 roost-worker attachments/peer_negotiation.rs: `state.active.remove(peer_id);` -> `let _ = peer_id;` => FAILS attachment_peer_failure_leaves_the_terminal_peer_established
+- M8 roost-worker attachments/peer_budget.rs: `&& !shared.reserve_worker_data(bytes)` -> `&& !shared.reserve_worker_data(0)` => FAILS attachments::peer_budget::tests::the_worker_wide_data_ceiling_refuses_a_peer_that_its_own_lane_would_admit
+- M9 roost-protocol attachment_transfer/packets.rs: `|| header.offset_bytes as usize != partial.bytes.len()` -> `|| false` => FAILS rejects_terminal_magic_wrong_versions_malformed_order_and_frames_above_one_mib
+- M11 roost-worker runtime/downstream/attachment_peer.rs: `attachment_peer_error(&refused, &epoch, reason)` -> `attachment_peer_error(&refused, &epoch, PeerErrorReason::IceFailed)` => FAILS attachment_controls_emit_a_typed_answer_and_error_and_route_the_cancel
+- M1 roost-worker attachments/direct_sockets.rs: `|session| !session.holds_admitted_slot()` -> `|_session| true` => FAILS an_admitted_upload_frees_its_pre_hello_slot_for_the_next_loopback_socket
+- M6 roost-worker attachments/peer_packet_port.rs: `&& state.hello_timer.is_none()` -> `&& false` => FAILS an_unadmitted_peer_is_retired_at_the_hello_deadline
+- M10 roost-worker attachments/peer_request_validation.rs: `(b'1'..=b'5').contains(byte)` -> `byte.is_ascii_hexdigit()` => FAILS attachments::peer_request_validation::tests::refuses_an_unversioned_peer_an_empty_or_oversized_id_and_control_characters
+- M2 roost-worker attachments/direct_sockets.rs: `metadata.device_fingerprint == device_fingerprint` -> `metadata.device_fingerprint != device_fingerprint` => FAILS explicit_device_revocation_closes_a_leased_port_after_grant_expiry
+- M3 roost-worker attachments/direct_chunks.rs: `send_attachment_closed(port.as_ref(), COMPLETE_REASON);` -> `let _ = &port;` => FAILS writes_exact_bytes_then_acks_each_chunk_and_returns_the_committed_path
+- M4 roost-worker attachments/direct_hello.rs: `Duration::from_millis(HELLO_DEADLINE_MS)` -> `Duration::from_millis(HELLO_DEADLINE_MS * 2)` => FAILS a_loopback_socket_that_never_says_hello_is_refused_at_the_deadline

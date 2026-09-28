@@ -1,0 +1,12 @@
+M1 peer/packet_lanes.rs | fragment.commit();
+M2 peer/packet_budget.rs | self.application_bytes + bytes > TERMINAL_PEER_WORKER_APPLICATION_QUEUE_MAX_BYTE
+M4 peer/history_reservation.rs | self.base.clone().release(reserved);
+M5 peer/owner_offer.rs | if state.pending.len() >= TERMINAL_PEER_MAX_NEGOTIATIONS_PER_WORKER
+M8 runtime/downstream/direct.rs | uplink.send_fenced(&reply_fence, frame);
+M9 peer/native/driver.rs | let Some(socket) = socket else {
+M10 runtime/capabilities.rs | if direct.terminal {
+M11 peer/direct.rs | (request.worker_epoch == self.process_epoch).then(
+M12 peer/direct.rs | request.worker_epoch != self.process_epoch || !RETIRE_REASONS.contains(&request.
+M14 peer/config.rs | if min < 1024 || max > 65_535 || min > max {
+M15 peer/native/stun.rs | port ^= u16::from_be_bytes([cookie[0], cookie[1]]);
+M16 peer/request_validation.rs | && matches!(third.as_bytes()[0], b'1'..=b'5')
