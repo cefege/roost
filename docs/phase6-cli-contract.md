@@ -467,7 +467,7 @@ roost deploy <host> [--label LABEL] [--reachable-addr ADDR]
                   [--source-root DIR] [--expected-sha SHA]
                   [--expected-manifest-sha256 HEX]
                   [--allow-unpublished-local] [--coordinator-release]
-                  [--force-live]
+                  [--force-live] [--web-dist DIR] [--release TAG]
 ```
 
 The one command in this crate that replaces the binary every live PTY on a
@@ -525,17 +525,38 @@ failure mode this table exists to prevent.
 
 ### What a release is
 
-A release is a directory whose **only** entry is `bin/`, and whose `bin/`
-contains **only** `roost` and `roost-keeper`. Three separate facts depend on
-that shape:
+A release is a directory whose entries are `bin/` and, when a web bundle is
+being shipped, `web/` — and whose `bin/` contains **only** `roost` and
+`roost-keeper`. Four separate facts depend on that shape:
 
 - `stage_over_ssh` tars `local_dir.parent()`, so what ships is the release
-  root — `deps/`, `build/` and `incremental/` must never be inside it.
+  root — `deps/`, `build/` and `incremental/` must never be inside it, and
+  `web/` rides along with the binaries rather than needing a second transport.
 - The target unpacks to `<staging>` and installs `staging/bin` into
   `<release_root>/<sha>/bin`, so `bin/` is where the programs have to be.
 - The target recomputes the manifest's `release_digest` over exactly those
   bytes, so the deploying box's digest and the target's must be taken over the
   same two files and nothing else.
+
+**`web/` is optional and its absence is not an error.** A release that
+publishes no `roost-web.tar.gz` installs and runs; refusing it would make
+deploying an older tag impossible. The probe is the digest **sidecar**, asked
+for before the body, so a release that has no bundle costs one small request
+rather than a 404 that aborts the deploy. A release that publishes the asset
+and has it fail its digest **is** a refusal, and the message names the
+expected and actual digests — a truncated download and a tampered one produce
+the same "checksum failed" otherwise, and the operator cannot tell which
+machine they are standing on.
+
+`web/` lives inside the release directory rather than beside the unit file,
+and that is the whole of the retirement story: a settled deploy removes the
+prior release directory, so a bundle that outlived its release — and kept
+serving a retired UI while `roost status` reported a healthy `spa:` line — is
+impossible. `__remote-apply` stamps `ROOST_WEB_DIST_PATH` from the
+`release_dir` **it just computed**, never from a path the deploying box
+supplied: only the target can say where its own release root is, and a value
+decided on the other side is a path into *its* version tree that the next
+settlement deletes. It is re-stamped on every install, never preserved.
 
 Cargo does not produce that shape — it writes each binary straight into the
 profile directory — so `deploy::release::assemble_release_tree` is the explicit
@@ -548,6 +569,26 @@ with `the release built for x86_64-unknown-linux-gnu but roost and
 roost-keeper missing from .../target/release/bin` — over a build that had
 succeeded, in a tree where every test was green. The command had never
 succeeded on any invocation.
+
+**`--release TAG`** fetches the target's own published binaries instead of
+building them on the deploying box. This is the only way a coordinator can
+reach a machine it cannot build for: an x86_64 Linux coordinator cannot
+produce an aarch64 or a macOS binary, and three of the production machines are
+exactly that. It is a change of *where the bytes come from*, not of what the
+deploy does — the same staged tree, the same digest, the same keeper contract
+read from the downloaded bytes, the same admission.
+
+The tag **is** this deploy's build identity, and it is proved against the
+digest the release published rather than against the deploying box's `HEAD`.
+So `--expected-sha`, `--source-root` and `--coordinator-release` are each
+**refused** alongside it rather than ignored: every one of them is an
+instruction about which build to install, and accepting two answers while
+silently preferring one is how a deploy reports a build nobody asked for.
+
+**`--web-dist DIR`** ships a built web bundle in the same staged tree. `DIR`
+must hold an `index.html`; a directory without one is refused before anything
+is staged, because a worker serving it answers 404 for every URL and reports
+itself healthy. Without either flag the behaviour is exactly what it was.
 
 ### The keeper admission environment
 
@@ -649,7 +690,7 @@ half-written one. The command is **idempotent**: a second run reports
 ## `roost quickstart`
 
 ```
-roost quickstart [--coordinator-url URL] [--dry-run]
+roost quickstart [--coordinator-url URL] [--web-dist DIR] [--dry-run]
 ```
 
 Installs this build's `roost` and `roost-keeper` into the release directory,
@@ -664,6 +705,37 @@ and the forwarded client address, and naming it is what writes
 already installed the installed definition wins**, and the flag only promotes
 the install to a front door — every other setting is the one the install
 already resolved. A rerun therefore cannot silently re-point a machine.
+
+**`--web-dist DIR`** installs a built web bundle into
+`<versions>/<ver>/web/`, beside the executables, and writes
+`ROOST_WEB_DIST_PATH` into **both** definitions — the coordinator's and the
+worker's, because the worker's local door serves the same page. `DIR` must
+hold an `index.html`; a directory without one is a **usage error, refused
+before anything is written**, because a coordinator serving it answers 404 for
+every URL while reporting itself healthy. The directory is the release's own,
+so a later release retirement removes the page with the binaries that served
+it, and `roost status` — which reports `web_dist_present` separately from
+`serves` for exactly this reason — keeps both facts.
+
+Without the flag neither definition names a directory, and that is the honest
+state of a machine that was given no bundle: the coordinator writes
+`ROOST_WEB_DIST_PATH=` blank (an absent entry would fall back to the service
+manager's own environment, which is how a cleared value comes back stale) and
+the worker's definition carries no such key at all.
+
+**Log rotation is installed by the first run, not left to the operator.** One
+`logrotate.d` entry per role and a shared pair of user units that run it, in
+the unit directory systemd reads them from. `copytruncate` because
+`StandardOutput=append:` holds the descriptor open — a rename-based rotation
+would leave the service appending to an inode with no name. A skip is
+**reported, not swallowed**: a machine with no `logrotate` is told its logs
+will grow unbounded, because silence there reads as "rotated".
+
+**On macOS this installs nothing, and that is the v2 answer rather than a
+gap.** Both v2 installers branch on the platform before this step
+(`apps/coord/scripts/install.sh:601`, `apps/worker/scripts/install.sh:518`),
+so a macOS account relies on `newsyslog`, which `roost logs` already points
+at. The skip line says so by name.
 
 **`--dry-run`** resolves the whole plan, renders both definitions, prints them,
 and writes nothing. It runs to completion on a machine with nothing installed,
@@ -707,9 +779,24 @@ The two required variables are reported **one at a time**, in that order, and
 the refusal for each names where the other half comes from. A refusal that
 listed both would leave the operator guessing which one to go and get.
 
+**The web bundle is downloaded, not assumed.** A joined machine gets
+`roost-web.tar.gz` from the same release the running binary came from,
+checked against that release's own `.sha256`, installed into
+`<versions>/<ver>/web/`, and named in the installed definition. A **source
+build** has no published tag, so it installs no bundle and says so rather than
+refusing to join: enrollment is the one step a machine cannot do without, and a
+missing page is a smaller problem than a machine that is not in the fleet. A
+**failed download is a refusal** — silently joining with no page reports
+success for a machine that serves 404s.
+
+**Log rotation is installed here too**, by the same code as the first run and
+with the same platform rule: nothing on macOS, and a reported skip rather than
+silence on a box with no `logrotate`.
+
 **stdout** is four lines naming the installed service, the build SHA this
 machine is now identified by, the door it dials, the program path, and
-`roost status` as the health command. **stderr** is everything else.
+`roost status` as the health command. **stderr** is everything else, including
+the bundle and rotation lines above.
 
 **Exit codes.**
 
@@ -994,6 +1081,24 @@ none of the commands in this document. Resolution is the GitHub releases
 it chose: a `latest/download` URL would fetch whatever series published last.
 Until `v3.0.0` exists the fleet runs `v3.0.0-rc.N`, so a pre-release is the
 answer and a final release is not a filter.
+
+**The web bundle is swapped with the binaries.** After the rename, the
+release's `roost-web.tar.gz` is downloaded and checked against the same
+release's digest, and unpacked into the release directory the replaced binary
+lives in. Both installed definitions already point at that directory, so
+neither is rewritten. A swap that moved only the binary would leave a machine
+running the new coordinator over the old page — an index referencing asset
+hashes the new build does not ship, which loads its shell and then fails every
+request for its code.
+
+A binary **outside a release tree** — a tarball dropped in `~/bin`, which is
+how a machine with no version directory at all was installed — has no bundle
+directory to put one in. That is reported by name rather than worked around,
+because the alternative is writing `~/web` and leaving the operator to find it.
+A failed bundle download is likewise reported and does not fail the update: the
+swap already settled, the page is a second problem, and a refusal here would
+report a completed update as failed and send the operator to re-run a swap that
+has already happened.
 
 **`ROOST_RELEASE_BASE_URL`** replaces the download origin for a mirror, exactly
 as the deploy paths use it. A listing with no `v3.` tag in it is
