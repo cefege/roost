@@ -5,6 +5,12 @@
 //! the route cache and the retirement bookkeeping, and `byte_hub` owns the
 //! cells. Neither names a caller.
 //!
+//! Names `apps/coord/src/terminal/input/terminal-route-retirement.ts`, v2's
+//! publication of a retired route key. Its sole v2 subscriber,
+//! `terminal-metadata-adapter.ts` `removeLegacyParser`, is not ported because
+//! the legacy WBinary title path is refused, so that publication has no reader
+//! and [`NoRouteRetirement`] is the whole of it.
+//!
 //! WHY THE FORWARD INDEX IS NESTED BY WORKER. v2 keeps one `Map` keyed by the
 //! string `"<fp>:<channel>"` and prefix-sweeps it. A nested `BTreeMap` makes
 //! "every key of this worker" a single subtree, so a replacement is one
@@ -153,6 +159,25 @@ impl RouteIndex {
     #[must_use]
     pub fn cached_route(&self, session_id: &SessionId) -> Option<&CachedRoute> {
         self.session_to_worker.get(session_id)
+    }
+
+    /// The route an open session's durable row may be written through: the
+    /// cached route when it agrees with the row; nothing once the worker's
+    /// exact live set is known, because a session absent from it is offline;
+    /// otherwise the row itself, cached for the pre-reconcile window.
+    pub fn admit_durable_route(
+        &mut self,
+        session_id: &SessionId,
+        durable: CachedRoute,
+    ) -> Option<CachedRoute> {
+        if self.session_to_worker.get(session_id) == Some(&durable) {
+            return Some(durable);
+        }
+        if self.is_reconciled(&durable.worker_fp) {
+            return None;
+        }
+        self.cache_route(session_id, durable.clone());
+        Some(durable)
     }
 
     /// Forget a session's cached route and its last-cell record's owner.

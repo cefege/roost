@@ -81,7 +81,7 @@ pub const ROWS_SESSIONS: &[MethodRoute] = &[
     route("SessionsAttach", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("SessionsKill", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("SessionsRename", "sessions", AuthRequirement::Device, PortStatus::Implemented),
-    route("SessionsInput", "sessions", AuthRequirement::Device, PortStatus::AwaitingDomainPort),
+    route("SessionsInput", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("SessionsCursorPos", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("SessionsAssignWorkspace", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("SessionsGetScrollbackCells", "sessions", AuthRequirement::Device, PortStatus::Implemented),

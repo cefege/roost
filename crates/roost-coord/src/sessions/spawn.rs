@@ -28,7 +28,6 @@ use crate::sessions::pending_spawns::{
 };
 use crate::sessions::rpc_sessions::{lease, read_failed, viewer_key};
 use crate::terminal_screen::pending_rpcs::PendingRpc;
-use crate::terminal_screen::rpc_relay::request_id;
 use crate::workers::send::{SendOutcome, send_browser_command};
 
 /// How long the worker has to answer the spawn command itself. Past it the
@@ -130,10 +129,9 @@ impl SpawnDispatch<'_> {
         }
         let frame = spawn_frame_for(req, self.session_id.clone())?;
         let relay = &services.scrollback;
-        let pending =
-            relay
-                .pending()
-                .create(&request_id(), Some(self.worker_fp.as_str()), relay.now_ms())?;
+        let pending = relay
+            .pending()
+            .create_fresh(Some(self.worker_fp.as_str()), relay.now_ms())?;
         let outcome = send_browser_command(
             &services.workers,
             self.worker_fp,

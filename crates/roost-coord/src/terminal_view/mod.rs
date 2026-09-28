@@ -11,15 +11,30 @@
 //! `core.services.boot`.
 //!
 //! WHAT THIS OWNS, AND WHAT IT DELIBERATELY DOES NOT. It hosts WHO IS VIEWING:
-//! `roost_protocol::terminal_view::ViewRegistry` (the socket registry, the
-//! leases, the park grace and the one `view_constrains` predicate, shared with
-//! the worker's view owner), plus the one aggregation
+//! `roost_protocol::terminal_view::ViewRegistry` plus the one aggregation
 //! (`roost_protocol::viewport::minimum_terminal_geometry`). It does NOT own a
-//! session's stream: an owner-mode worker mints the stream id and the effective
-//! geometry it runs, and this hub relays browser decisions to it and adopts
-//! what it published. That is the coordinator-owned authority fallback being
-//! dropped -- v2's `TerminalViewStreamController`, with its snapshot requests,
-//! redrive and unavailable policy, has no port here and no stub for it.
+//! session's stream: an owner-mode worker mints the stream id and the geometry,
+//! this hub relays browser decisions to it, adopts what it published, and asks
+//! it for a repair full (`screen_repair`). Ports `terminal-view-hub.ts` minus
+//! the stream controller.
+//!
+//! DROPPED v2 FILES, NO PORT AND NO STUB. v2's coordinator-owned stream
+//! authority runs only for a session whose worker did NOT advertise
+//! `terminal-view-owner-v1`; the v2 worker (`coord-link-deps.ts:96-100`) and
+//! the Rust worker (`runtime/capabilities.rs`) always do, so for every session
+//! the controller holds no entry and its screen callbacks fall through to
+//! `repairUnownedSession`, which `screen_repair` ports. Dropped:
+//! `terminal/view/terminal-view-stream-controller.ts` and `-types.ts` (the
+//! desire, redrive and unavailable policy of unowned sessions),
+//! `terminal-view-stream-snapshot-request.ts` (its owned-session half),
+//! `terminal-view-stream-worker-generations.ts`, and
+//! `terminal/screen/terminal-stream-dispatcher.ts` with its `-lane`,
+//! `-settler`, `-types` and `-worker-lifecycle` siblings (the stream-state RPC
+//! queue only that controller drives). Measured against this coordinator with
+//! the TypeScript worker: `terminal-delivery.spec.ts` passes 4/4 and
+//! `terminal-render.spec.ts` 3/5; its two history cases ("streaming sequence
+//! repair leaves an off-bottom reader fixed", "main screen history survives
+//! width and height perturbations") fail with browser history missing.
 //!
 //! WHY ONE MINIMIZER PER SESSION. A session either has an owner-mode worker, in
 //! which case every browser decision is relayed and the worker's registry
@@ -28,23 +43,26 @@
 //! PTY two geometries, which is `docs/FAILURE-INDEX.md`, "A session stays
 //! clipped to a viewer that is no longer looking".
 
+mod lifecycle;
 mod owner;
 mod relay;
+mod screen_repair;
 mod settle;
+mod socket_scope;
 mod worker_link;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
-use std::time::Duration;
 
 use roost_proto::{
     TerminalResyncCommand, TerminalViewCommand, TerminalViewStateFrame, TerminalViewStatus,
     WTerminalViewProjection,
 };
-use roost_protocol::viewport::{TERMINAL_VIEW_SWEEP_MS, TerminalGeometry};
+use roost_protocol::viewport::TerminalGeometry;
 use roost_protocol::wire::{SessionId, WorkerFp};
 
-use crate::coord_core::seams::TerminalViewLifecycle;
+pub use lifecycle::spawn_view_sweep;
+pub use owner::SessionRouteCache;
 
 pub use owner::{OwnerIndex, OwnerRegistration, OwnerRow, TERMINAL_VIEW_OWNER_CAPABILITY};
 pub use relay::{NoOwnerViewTransport, OwnerRelay, OwnerViewTransport, RelayIdentity};
@@ -53,6 +71,8 @@ pub use roost_protocol::terminal_view::{
     NoTerminalViewSink, PendingReply, SinkCall, TerminalViewSink,
 };
 pub use roost_protocol::terminal_view::{ViewInput, ViewStats};
+pub use screen_repair::{OwnerScreenRepair, owner_screen_repair};
+pub use socket_scope::SocketScope;
 pub use worker_link::{TERMINAL_VIEW_RELAY_BUDGET_MS, WorkerLinkViewTransport};
 
 /// The view state one coordinator process holds.
@@ -65,6 +85,10 @@ pub struct TerminalViewHub {
     /// geometry when its last viewer leaves, so a flapping link cannot become a
     /// stream re-mint storm.
     pub(super) effective: std::sync::Mutex<std::collections::HashMap<SessionId, TerminalGeometry>>,
+    /// Each registered socket's live session scope.
+    pub(super) scopes: socket_scope::SocketScopes,
+    /// The screen replica a closed session is released from.
+    pub(super) screens: lifecycle::ScreenRelease,
 }
 
 impl TerminalViewHub {
@@ -77,6 +101,11 @@ impl TerminalViewHub {
     /// Install the worker-link transport the owner relay writes through.
     pub fn set_owner_transport(&self, transport: Arc<dyn OwnerViewTransport>) {
         self.relay.set_transport(transport);
+    }
+
+    /// Install the byte hub's route cache the owner lookup reads first.
+    pub fn set_route_cache(&self, routes: std::sync::Weak<dyn SessionRouteCache>) {
+        self.owners.set_route_cache(routes);
     }
 
     /// The owner index, for the worker-connect path that registers owners and
@@ -95,6 +124,7 @@ impl TerminalViewHub {
     pub fn close_socket(&self, socket_id: &str, now_ms: u64) {
         self.locked().close_socket(socket_id, now_ms);
         self.relay.close_socket(socket_id);
+        self.scopes.remove(socket_id);
     }
 
     /// A device lost its authority: its sockets stop reaching any owner before
@@ -120,7 +150,7 @@ impl TerminalViewHub {
             self.settle(outcome, now_ms);
             return;
         };
-        let Some(socket) = self.locked().socket(socket_id).cloned() else {
+        let Some(socket) = self.live_socket(socket_id, &command.session_id) else {
             return;
         };
         if let Some(relayed) = self.relay.relay_view(&socket, &owner, command)
@@ -133,7 +163,7 @@ impl TerminalViewHub {
     /// One resync request from a Sync socket.
     pub fn handle_resync(&self, socket_id: &str, command: &TerminalResyncCommand, now_ms: u64) {
         if let Some(owner) = self.owner_of(command.session_id.as_str()) {
-            let Some(socket) = self.locked().socket(socket_id).cloned() else {
+            let Some(socket) = self.live_socket(socket_id, &command.session_id) else {
                 return;
             };
             if self.relay.relay_resync(&socket, &owner, command) {
@@ -180,7 +210,7 @@ impl TerminalViewHub {
             );
             return;
         }
-        let Some(socket) = self.locked().socket(socket_id).cloned() else {
+        let Some(socket) = self.live_socket(socket_id, &frame.session_id) else {
             return;
         };
         if !socket.allows(&frame.session_id) {
@@ -270,12 +300,14 @@ impl TerminalViewHub {
         }
     }
 
-    /// A session closed: its membership, its claims and its owner row go.
+    /// A session closed: its membership, its claims, its owner row and its
+    /// screen replica go (`terminal-view-hub.ts` `closeSession`).
     pub fn close_session(&self, session_id: &SessionId, now_ms: u64) {
         let outcome = self.locked().close_session(session_id);
         self.owners.drop_projection(session_id);
         self.locked_effective().remove(session_id);
         self.settle(outcome, now_ms);
+        self.screens.drop_session(session_id);
     }
 
     /// One sweep tick, for a caller that drives the sweep itself.
@@ -329,46 +361,4 @@ impl TerminalViewHub {
         let session_id = SessionId::try_from(session_id).ok()?;
         self.owners.owner_for_session(&session_id)
     }
-}
-
-impl TerminalViewLifecycle for TerminalViewHub {
-    fn notify_worker_retired(&self, worker_fp: &WorkerFp, session_ids: &[SessionId]) {
-        self.owners.drop_owner(worker_fp);
-        let now_ms = crate::serve::now_ms().max(0) as u64;
-        for session_id in session_ids {
-            // The worker is gone, so nothing can answer for these sessions any
-            // more: their membership is released rather than left to a lease
-            // that will never be renewed.
-            self.owners.drop_projection(session_id);
-            self.locked_effective().remove(session_id);
-            let outcome = self.locked().close_session(session_id);
-            self.settle(outcome, now_ms);
-        }
-        tracing::info!(
-            worker_fp = %worker_fp,
-            sessions = session_ids.len(),
-            "terminal views released for a retired worker"
-        );
-    }
-
-    fn effective_geometry(&self, session_id: &SessionId) -> Option<TerminalGeometry> {
-        let now_ms = crate::serve::now_ms().max(0) as u64;
-        if let Some(row) = self.owners.row(session_id) {
-            return row.effective;
-        }
-        self.session_geometry(session_id, now_ms)
-    }
-}
-
-/// Sweep lapsed leases and lapsed park graces on an interval, for a booted
-/// coordinator. The lead calls this from `serve` beside the other schedulers.
-pub fn spawn_view_sweep(views: Arc<TerminalViewHub>) {
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(Duration::from_millis(TERMINAL_VIEW_SWEEP_MS));
-        loop {
-            ticker.tick().await;
-            let now_ms = crate::serve::now_ms().max(0) as u64;
-            views.sweep(now_ms);
-        }
-    });
 }

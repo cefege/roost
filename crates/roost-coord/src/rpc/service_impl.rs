@@ -289,11 +289,19 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn sessions_input<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsInputRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsInputRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<SessionsInputResponse> + Send + use<'a>>> + Send
     {
-        delegated_reply::<SessionsInputResponse>("SessionsInput")
+        async move {
+            let caller = caller_of(&ctx, "SessionsInput")?;
+            crate::terminal_input::rpc_input::handle_sessions_input(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
     // ── agents ──────────────────────────────────────────────────────────
 

@@ -183,6 +183,18 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
         state.services.db.clone(),
         boot.config.audit_retention_days,
     );
+    // The terminal view lease sweep (v2 arms it when the hub is built,
+    // `terminal-view-hub.ts:256`), and the view and title hubs' release of
+    // closed sessions, held for as long as this coordinator serves.
+    crate::terminal_view::spawn_view_sweep(Arc::clone(&state.services.views));
+    let _view_release = state
+        .services
+        .views
+        .subscribe_session_close(&state.services.buses);
+    let _title_release = state
+        .services
+        .titles
+        .subscribe_session_close(&state.services.buses);
 
     // Boot step 9, the pair-request half: a sweep that reclaims a request whose
     // deadline passed while this coordinator was DOWN. It runs before its first

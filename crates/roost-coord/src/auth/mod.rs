@@ -21,6 +21,7 @@ pub mod jwt_crypto;
 pub mod jwt_key_cache;
 pub mod jwt_verify;
 pub mod key_retirement;
+pub mod key_revocation;
 pub mod pairing;
 pub mod principal;
 pub mod rpc_bootstrap;

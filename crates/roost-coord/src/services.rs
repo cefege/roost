@@ -133,6 +133,12 @@ pub struct CoordServices {
     /// The terminal view hub. The workers domain consumes it as the
     /// `TerminalViewLifecycle` seam.
     pub views: Arc<TerminalViewHub>,
+    /// Every session's retained terminal title, deduplicated across spinner
+    /// animation; the Sync seed replays it to a fresh subscriber.
+    pub titles: Arc<crate::terminal_screen::title_hub::TerminalTitleHub>,
+    /// Terminal input: the sender lanes, the input audit queue, and the typed
+    /// input-route owner the worker link settles and the lifecycle fences.
+    pub terminal_input: crate::terminal_input::TerminalInputRuntime,
     /// The durable session-event store every worker's dispatcher appends to.
     ///
     /// BUILT ONCE HERE AND HANDED OUT BY CLONE. A factory that took one as an
@@ -190,7 +196,28 @@ impl CoordServices {
         // two bus sets, and the reason the buses are built once.
         let pending_publications = Arc::new(std::sync::Mutex::new(PendingPublicationStore::new()));
         let buses = Buses::shared();
-        let byte_hub = Arc::new(ByteHub::with_defaults());
+        // The view hub first: the screen replica asks it for repairs, and it
+        // reads the byte hub's route cache back (weakly) to find an owner.
+        let views = Arc::new(TerminalViewHub::new());
+        views.set_owner_transport(Arc::new(
+            crate::terminal_view::WorkerLinkViewTransport::new(Arc::clone(&workers)),
+        ));
+        let screens = Arc::new(crate::terminal_screen::ScreenHub::with_sink(
+            crate::terminal_screen::screen_budget::TerminalScreenCaps {
+                max_resident_rows:
+                    crate::terminal_screen::residency::TERMINAL_SCREEN_MAX_RESIDENT_ROWS,
+                max_resident_spans:
+                    crate::terminal_screen::residency::TERMINAL_SCREEN_MAX_RESIDENT_SPANS,
+            },
+            crate::terminal_view::owner_screen_repair(&views),
+        ));
+        views.set_screens(Arc::downgrade(&screens));
+        let byte_hub = Arc::new(ByteHub::new(
+            screens,
+            Arc::new(crate::terminal_screen::route_index::NoRouteRetirement),
+        ));
+        views.set_route_cache(Arc::downgrade(&byte_hub)
+            as std::sync::Weak<dyn crate::terminal_view::SessionRouteCache>);
         let orphan_kills = Arc::new(LiveOrphanKills::new());
         // The terminal half of the chain, built ONCE. `event_log` holds this
         // exact value, so there is one `LiveEffects` in the process rather than
@@ -209,6 +236,10 @@ impl CoordServices {
         );
         let scrollback = ScrollbackRelay::new(Arc::clone(&workers));
         let sessions = SessionsRuntime::new();
+        let terminal_input = crate::terminal_input::TerminalInputRuntime::new(
+            Arc::clone(&workers),
+            Arc::clone(scrollback.pending()),
+        );
         Self {
             db,
             boot,
@@ -220,6 +251,8 @@ impl CoordServices {
                 Arc::clone(scrollback.pending())
                     as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
                 Arc::clone(sessions.pending_spawns())
+                    as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
+                Arc::clone(terminal_input.route_results())
                     as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
             ]),
             scrollback,
@@ -238,7 +271,9 @@ impl CoordServices {
             orphan_kills,
             client_seqs: ClientSeqCursors::new(),
             event_log,
-            views: Arc::new(TerminalViewHub::new()),
+            views,
+            titles: Arc::new(crate::terminal_screen::title_hub::TerminalTitleHub::new()),
+            terminal_input,
         }
     }
 

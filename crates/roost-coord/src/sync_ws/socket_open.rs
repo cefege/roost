@@ -21,7 +21,7 @@ use roost_proto::buffa::Message as _;
 
 use crate::auth::ws_auth_deadline::{REAUTH_CLOSE_CODE, REAUTH_CLOSE_REASON, reauth_expired};
 use crate::services::CoordServices;
-use crate::sync_ws::admission::EnqueueOutcome;
+use crate::sync_ws::backfill::{BackfillTask, spawn_backfill};
 use crate::sync_ws::commands::ClientContext;
 use crate::sync_ws::commands_layout::register_layout_target;
 use crate::sync_ws::control_frames::subscribed_frame;
@@ -30,13 +30,16 @@ use crate::sync_ws::feed::sync_state::mint_socket_id;
 use crate::sync_ws::feed::ui::{UiViewer, ui_state_seed_frames};
 use crate::sync_ws::live_feed::LiveFeed;
 use crate::sync_ws::resource_index::load_sync_resource_index;
+use crate::sync_ws::seed::open_v1_delivery;
 use crate::sync_ws::session::SyncV2Session;
+use crate::sync_ws::session_replay::SessionReplay;
 use crate::sync_ws::socket::write_frame;
-use crate::sync_ws::terminal::snapshot::NoTerminalSnapshotHub;
+use crate::sync_ws::terminal::screen_socket::{
+    SocketScreenHub, register_terminal_socket, release_terminal_socket,
+};
 use crate::sync_ws::upgrade_admission::{
     CONNECTION_REJECTION_CLOSE_CODE, CONNECTION_REJECTION_REASON, SyncScope, VerifiedSyncCaller,
 };
-use crate::sync_ws::v1_delivery::V1Delivery;
 use crate::ui_state::layout_apply::LayoutApplyTargetGuard;
 use crate::worker_link::conn_types::CLOSE_REVOKED;
 
@@ -46,8 +49,9 @@ pub(in crate::sync_ws) const REAUTH: LinkClose = LinkClose {
     reason: REAUTH_CLOSE_REASON,
 };
 
-/// A key revoked between its verification and this socket opening.
-const REVOKED: LinkClose = LinkClose {
+/// A key revoked between its verification and this socket opening, or while
+/// it is open (`sync_ws::open_sockets`).
+pub(in crate::sync_ws) const REVOKED: LinkClose = LinkClose {
     code: CLOSE_REVOKED,
     reason: "revoked",
 };
@@ -86,6 +90,10 @@ pub(in crate::sync_ws) struct OpenedSocket {
     layout_target: Option<LayoutApplyTargetGuard>,
     /// What a layout result is correlated with.
     pub layout_context: ClientContext,
+    /// This socket's entry in the process's open-socket registry.
+    open_handle: u64,
+    /// The durable recovery above `since`, while it runs.
+    backfill: Option<BackfillTask>,
 }
 
 /// Open one admitted socket, or name the close it gets instead.
@@ -128,15 +136,13 @@ pub(in crate::sync_ws) async fn open_socket(
         fingerprint: caller.fingerprint.clone(),
         session_ids: BTreeSet::new(),
     };
-    let delivery = if v2 {
+    let (delivery, unpaced_seed, seeded) = if v2 {
         let generations = Arc::clone(services.feed.domain_generations());
-        Delivery::V2(Box::new(SyncV2Session::new(
-            socket_id.clone(),
-            generations,
-            true,
-        )))
+        let session = SyncV2Session::new(socket_id.clone(), generations, true);
+        (Delivery::V2(Box::new(session)), Vec::new(), None)
     } else {
-        Delivery::V1(V1Delivery::new(scope.flow_control))
+        let v1 = open_v1_delivery(scope.flow_control, &index, services, !scope.read_only);
+        (Delivery::V1(v1.delivery), v1.unpaced, v1.seeded)
     };
     let owned_session_ids = index
         .owner_worker_fp
@@ -149,16 +155,38 @@ pub(in crate::sync_ws) async fn open_socket(
         context: context.clone(),
         index,
         owned_session_ids,
-        replayed_cutoff: scope.since_event_id,
+        replay: SessionReplay::new(scope.since_event_id, v2),
         outbox: Outbox::default(),
         close: None,
-        screen: NoTerminalSnapshotHub,
+        screen: SocketScreenHub::new(Arc::clone(services.byte_hub.screens())),
     }));
+    let open_handle = services
+        .feed
+        .open_sockets()
+        .register(&caller.fingerprint, &link);
+    // The index load awaited: a revocation that landed meanwhile found no
+    // registered socket to close, so this one is closed here instead.
+    if !services
+        .jwt_keys
+        .generation_is_current(&caller.fingerprint, caller.key_generation)
+    {
+        services.feed.open_sockets().unregister(open_handle);
+        return Err(REVOKED);
+    }
     let registration = v2.then(|| {
         services
             .feed
             .register_sync_socket(&socket_id, &caller.fingerprint)
     });
+    if v2 {
+        register_terminal_socket(
+            &link,
+            &socket_id,
+            scope.viewer_key.clone(),
+            &caller.fingerprint,
+            services,
+        );
+    }
     let viewer = match (scope.read_only, v2) {
         (true, _) => UiViewer::suppressed(),
         (false, true) => UiViewer::browser(socket_id.clone()),
@@ -180,19 +208,24 @@ pub(in crate::sync_ws) async fn open_socket(
         registration,
         layout_target: None,
         layout_context: context,
+        open_handle,
+        backfill: None,
     };
-    let opened = if v2 {
+    let mut opened = if v2 {
         announce_subscribed(socket, opened, services).await?
     } else {
-        tracing::warn!(
-            event = "sync-ws",
-            action = "v1_seed_unported",
-            caller_fp = %caller.fingerprint,
-            since = scope.since_event_id,
-            "the v1 retained seed and durable backfill are not sent yet (sync_ws seed, SY3); only live frames follow"
-        );
+        for frame in unpaced_seed {
+            opened.link.deliver_with(|_| Some(frame));
+        }
         opened
     };
+    opened.backfill = spawn_backfill(
+        &opened.link,
+        services.db.pool(),
+        scope.since_event_id,
+        v2,
+        seeded,
+    );
     tracing::info!(
         event = "sync-ws",
         action = "open",
@@ -206,7 +239,8 @@ pub(in crate::sync_ws) async fn open_socket(
 }
 
 /// The v2 open after the feed is listening: the `subscribed` barrier, the
-/// tab's layout-apply target, the UI state seed, and the recovery refusal.
+/// tab's layout-apply target and the UI state seed. Durable recovery above
+/// `since` follows as the socket's backfill.
 async fn announce_subscribed(
     socket: &mut WebSocket,
     mut opened: OpenedSocket,
@@ -245,40 +279,13 @@ async fn announce_subscribed(
             opened.link.deliver_with(|_| Some(frame));
         }
     }
-    refuse_recovery(&opened.link);
     Ok(opened)
-}
-
-/// A v2 socket that asked to resume from `since` cannot be replayed yet, so
-/// its terminal domain is reset with v2's recovery-failure reason
-/// (`sync-feed.ts:340-346`): the client re-hydrates from the authoritative
-/// list instead of believing the gap closed.
-fn refuse_recovery(link: &SyncLink) {
-    let mut state = link.lock();
-    let since = state.replayed_cutoff;
-    if since == 0 {
-        return;
-    }
-    tracing::warn!(
-        event = "sync-ws",
-        action = "recovery_unported",
-        socket_id = %state.socket_id,
-        since,
-        "durable recovery above `since` is not replayed yet (sync_ws seed, SY3); the terminal domain is reset"
-    );
-    let Delivery::V2(session) = &mut state.delivery else {
-        return;
-    };
-    if let EnqueueOutcome::Reset(notice) =
-        session.reset_domain(SyncDomain::Terminal, "recovery_failed")
-    {
-        state.send_control(&notice.to_frame(), now_ms());
-    }
 }
 
 /// Release everything an open socket holds, in v2's `cleanupSocket` order:
 /// listeners first, so nothing more can reach the link, then the queues, the
-/// snapshot binding, the terminal views and the layout target.
+/// snapshot binding, the socket's input routes and queued input, the terminal
+/// views and the layout target.
 pub(in crate::sync_ws) fn release_socket(opened: OpenedSocket, services: &Arc<CoordServices>) {
     let OpenedSocket {
         link,
@@ -286,15 +293,25 @@ pub(in crate::sync_ws) fn release_socket(opened: OpenedSocket, services: &Arc<Co
         socket_id,
         registration,
         layout_target,
+        open_handle,
+        backfill,
+        layout_context,
         ..
     } = opened;
+    drop(backfill);
     drop(feed);
     link.lock().retire();
+    services.feed.open_sockets().unregister(open_handle);
     if let Some(registration) = registration {
         services
             .feed
             .unregister_sync_socket(&socket_id, registration);
-        services.views.close_socket(&socket_id, now_ms());
+        crate::terminal_input::sync_controls::close_sync_terminal_controls(
+            services,
+            &layout_context,
+            &socket_id,
+        );
+        release_terminal_socket(&socket_id, services);
     }
     drop(layout_target);
 }

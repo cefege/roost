@@ -15,26 +15,18 @@
 //! unknown-field budget of zero makes the decode itself refuse it, which is
 //! the same close for the same frame.
 
+use std::collections::BTreeSet;
+
 use roost_proto::buffa::DecodeOptions;
 use roost_proto::{SyncClientFrame, SyncDomain};
 
 use crate::sync_ws::commands::{
     CommandOutcome, TerminalCommand, handle_client_frame, is_canonical_client_frame,
 };
-use crate::sync_ws::control_frames::{
-    ResetNotice, input_rejected_frame, input_route_refusal_frame, transport_probe_refusal_frame,
-};
+use crate::sync_ws::control_frames::ResetNotice;
 use crate::sync_ws::driver::{Delivery, LinkClose, LinkState, SyncLink};
 use crate::sync_ws::feed::FeedRuntime;
 use roost_proto::__buffa::oneof::sync_client_frame::Command;
-
-/// The v2 refusal an `input` gets when the coordinator cannot route it
-/// (`sync-terminal-controls.ts:82`).
-const INPUT_UNROUTABLE: &str = "terminal session is unavailable";
-
-/// The v2 refusal an `inputRouteClaim` gets when there is no route owner
-/// (`sync-terminal-controls.ts:154`).
-const ROUTE_CLAIM_UNROUTABLE: &str = "terminal input route is unavailable";
 
 /// What the socket task must do beyond the link: the parts of an outcome that
 /// own a bus subscription or reach another runtime, and so must run with the
@@ -47,6 +39,17 @@ pub enum IngressEffect {
     AuditSubscription(bool),
     /// Settle a layout acknowledgement against the UI runtime.
     LayoutResult(CommandOutcome),
+    /// Replay a domain's retained state after its `domain_ready`, narrowed to
+    /// the admitted sessions for the terminal domain (`sync-ws-v2-commands.ts:133`).
+    SeedDomain {
+        /// The domain that became ready.
+        domain: SyncDomain,
+        /// The sessions the snapshot token admitted, for the terminal domain.
+        admitted_sessions: Option<BTreeSet<String>>,
+    },
+    /// Carry out a terminal command that passed the gate: view commands reach
+    /// the view hub, which answers through this socket's own sink.
+    Terminal(TerminalCommand),
 }
 
 /// Apply one binary client frame to `link`.
@@ -151,14 +154,10 @@ fn apply_outcome(state: &mut LinkState, outcome: CommandOutcome, now_ms: u64) ->
                 admitted_sessions = admitted_sessions.as_ref().map_or(0, |set| set.len()),
                 "a Sync domain closed its snapshot/live gap"
             );
-            tracing::warn!(
-                event = "sync-ws",
-                action = "domain_seed_unported",
-                socket_id = %state.socket_id,
-                domain = ?domain,
-                "the retained seed for this domain is not sent yet (sync_ws seed, SY3); only live frames follow domain_ready"
-            );
-            IngressEffect::Nothing
+            IngressEffect::SeedDomain {
+                domain,
+                admitted_sessions,
+            }
         }
         CommandOutcome::AuditSubscription { subscribed } => {
             if !subscribed {
@@ -167,10 +166,7 @@ fn apply_outcome(state: &mut LinkState, outcome: CommandOutcome, now_ms: u64) ->
             IngressEffect::AuditSubscription(subscribed)
         }
         outcome @ CommandOutcome::LayoutResult { .. } => IngressEffect::LayoutResult(outcome),
-        CommandOutcome::Terminal(command) => {
-            refuse_unrouted_terminal_command(state, &command, now_ms);
-            IngressEffect::Nothing
-        }
+        CommandOutcome::Terminal(command) => IngressEffect::Terminal(command),
         CommandOutcome::Refusal(frame) => {
             state.send_control(&frame, now_ms);
             IngressEffect::Nothing
@@ -217,45 +213,4 @@ fn announce_unsubscribed(state: &mut LinkState, now_ms: u64) {
         terminal_sessions_dropped: false,
     };
     state.send_control(&notice.to_frame(), now_ms);
-}
-
-/// Answer a terminal command that passed the gate but has nowhere to go.
-///
-/// Execution belongs to the terminal input and view owners, which this
-/// coordinator does not wire to the Sync socket yet. Until it does, each
-/// command gets the definite answer v2 gives a command it cannot route, so the
-/// client restores a draft rather than waiting out a deadline and reporting
-/// possible input loss. A view or resync has no refusal on the wire in v2
-/// either; the warning is its only trace.
-fn refuse_unrouted_terminal_command(state: &mut LinkState, command: &TerminalCommand, now_ms: u64) {
-    tracing::warn!(
-        event = "sync-ws",
-        action = "terminal_command_unrouted",
-        socket_id = %state.socket_id,
-        kind = command.kind(),
-        "terminal command execution is not wired to the Sync socket (C-INPUT); answered as unroutable"
-    );
-    let refusal = match command {
-        TerminalCommand::Input(input) => Some(input_rejected_frame(
-            &input.session_id,
-            input.input_seq,
-            input.domain_generation,
-            INPUT_UNROUTABLE,
-        )),
-        TerminalCommand::RouteClaim(claim) => Some(input_route_refusal_frame(
-            &claim.request_id,
-            &claim.session_id,
-            claim.revision,
-            &claim.worker_epoch,
-            ROUTE_CLAIM_UNROUTABLE,
-        )),
-        TerminalCommand::TransportProbe(probe) => Some(transport_probe_refusal_frame(
-            &probe.request_id,
-            &probe.worker_fp,
-        )),
-        TerminalCommand::View(_) | TerminalCommand::Resync(_) => None,
-    };
-    if let Some(frame) = refusal {
-        state.send_control(&frame, now_ms);
-    }
 }

@@ -5,8 +5,9 @@
 //! Installed by `sync_ws::socket` before the `subscribed` barrier escapes, and
 //! dropped at teardown, which is the unsubscribe. Ports the listener engine of
 //! `apps/coord/src/sync/sync-feed.ts` (`startSyncFeed`'s `unsubs` list and the
-//! lazy audit source). Durable recovery above `since` and the retained seeds
-//! belong to the seed, not to this file.
+//! lazy audit source). Which live session events a recovery holds or drops is
+//! `sync_ws::session_replay`; the durable rows and retained seeds themselves
+//! are `sync_ws::backfill` and `sync_ws::seed`.
 //!
 //! EVERY ROW OF `feed::BUS_FRAME_ADAPTERS` IS SUBSCRIBED HERE, AND NO OTHER BUS.
 //! Thirteen buses, the same thirteen `startSyncFeed` subscribes: twelve at
@@ -21,6 +22,7 @@ use roost_protocol::wire::{SessionEvent, WorkerPresenceEvent, WorkspaceDelta};
 use crate::events::bus::Subscription;
 use crate::events::bus_domains::Buses;
 use crate::events::bus_messages::{AuditRow, SessionBusMessage};
+use crate::sync_ws::backfill::reset_terminal_for_recovery;
 use crate::sync_ws::driver::{LinkState, SyncLink};
 use crate::sync_ws::feed::FeedFrame;
 use crate::sync_ws::feed::frames::{
@@ -31,6 +33,7 @@ use crate::sync_ws::feed::last_activity::last_activity_frame;
 use crate::sync_ws::feed::presence::{presence_echo_is_own_notice, session_presence_frame};
 use crate::sync_ws::feed::ui::{UiViewer, ui_bus_frame};
 use crate::sync_ws::feed::worker_frames::{worker_presence_frame, worker_routable_frame};
+use crate::sync_ws::session_replay::LiveVerdict;
 
 /// One socket's live subscriptions. Dropping it unsubscribes every bus.
 pub struct LiveFeed {
@@ -193,10 +196,28 @@ fn route_session(state: &mut LinkState, message: &SessionBusMessage) -> Option<F
         }
         _ => {}
     }
-    let event_id = message.event_id.unwrap_or(0);
-    if event_id > 0 && event_id <= state.replayed_cutoff {
-        return None;
+    match state.replay.admit_live(message) {
+        LiveVerdict::Emit => emit_session_frame(state, message),
+        LiveVerdict::Duplicate | LiveVerdict::Held => None,
+        LiveVerdict::Abort { reason, emit } => {
+            reset_terminal_for_recovery(state, reason);
+            if emit {
+                emit_session_frame(state, message)
+            } else {
+                None
+            }
+        }
     }
+}
+
+/// One durable session event as this socket's frame, if the socket carries it
+/// at all (`sync-feed.ts:119-122`, `emitSessionFrame`). The live feed and the
+/// backfill both deliver through here, so a worker socket's narrowing is the
+/// same for a replayed row as for a live one.
+pub(in crate::sync_ws) fn emit_session_frame(
+    state: &mut LinkState,
+    message: &SessionBusMessage,
+) -> Option<FeedFrame> {
     if !admit_owned_session_event(state, &message.event) {
         return None;
     }

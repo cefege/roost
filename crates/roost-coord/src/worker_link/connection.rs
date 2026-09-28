@@ -9,9 +9,10 @@
 //! ONE OWNER, NO SPLIT. `WebSocket::recv` and `send` both take `&mut self` and
 //! axum's `WebSocket` is not a `Sink`, so the socket is never divided: the loop
 //! waits on the close request, the outbound queue, the next timer and the next
-//! message, and each dispatch is awaited before the next read. That await is
-//! what keeps durable frames in arrival order without v2's explicit queue —
-//! the runtime here awaits the handler that Bun would not.
+//! message, and each dispatch is awaited before the loop's next read. A durable
+//! append lends the socket to `worker_link::result_lane` while it runs, so a
+//! typed completion is not stuck behind it; what else arrived meanwhile waits
+//! in that lane's ordered backlog, which this loop drains before reading again.
 //!
 //! `WorkerHandle::send` is a synchronous closure, so it ENQUEUES; the loop's
 //! outbound arm is what writes, as protobuf binary through the link's one codec.
@@ -90,6 +91,14 @@ async fn run_link(
     };
 
     let ending = loop {
+        if let Some(queued) = session.result_lane().take_backlogged() {
+            let step = session.on_bytes(&queued.payload, &mut socket).await;
+            session.result_lane().release_backlogged(&queued);
+            if let LinkStep::Close(close) = step {
+                break Ending::Close(close);
+            }
+            continue;
+        }
         let wake = session.next_wake();
         tokio::select! {
             // Biased so a superseded socket closes before it reads another frame.
@@ -123,7 +132,7 @@ async fn run_link(
                     let Some(bytes) = message_bytes(message) else {
                         continue;
                     };
-                    if let LinkStep::Close(close) = session.on_bytes(&bytes).await {
+                    if let LinkStep::Close(close) = session.on_bytes(&bytes, &mut socket).await {
                         break Ending::Close(close);
                     }
                 }

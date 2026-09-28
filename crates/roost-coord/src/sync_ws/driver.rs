@@ -38,7 +38,8 @@ use crate::sync_ws::egress::{FlushStep, frame_kind};
 use crate::sync_ws::feed::FeedFrame;
 use crate::sync_ws::resource_index::SyncResourceIndex;
 use crate::sync_ws::session::{SessionClose, SyncV2Session};
-use crate::sync_ws::terminal::snapshot::NoTerminalSnapshotHub;
+use crate::sync_ws::session_replay::SessionReplay;
+use crate::sync_ws::terminal::screen_socket::SocketScreenHub;
 use crate::sync_ws::v1_delivery::V1Delivery;
 
 /// Encoded bytes the outbox may hold before the socket closes `high_water`
@@ -119,16 +120,16 @@ pub struct LinkState {
     /// A worker socket's sessions, retained after close so a late `closed`
     /// still reaches it (`sync-feed.ts:96-114`); `None` for a browser.
     pub owned_session_ids: Option<std::collections::BTreeSet<String>>,
-    /// Live session events at or below this durable id were already held by
-    /// the client (`sync-feed.ts:92`, `replayedSessionCutoff`).
-    pub replayed_cutoff: u64,
+    /// Which durable session events the client already holds or still waits
+    /// for (`sync-feed.ts:90-98`), shared by the live feed and the backfill.
+    pub replay: SessionReplay,
     /// Bytes for the socket task to write.
     pub outbox: Outbox,
     /// The close this socket will perform, once decided.
     pub close: Option<LinkClose>,
-    /// The terminal screen hub a lane asks for a rebaseline. A socket with no
-    /// screen replica wired asks nobody (`terminal::snapshot`).
-    pub screen: NoTerminalSnapshotHub,
+    /// The terminal screen hub a lane asks for a rebaseline; what it plans is
+    /// carried out once the lane returns (`terminal::screen_socket`).
+    pub screen: SocketScreenHub,
 }
 
 impl LinkState {
@@ -177,7 +178,7 @@ impl LinkState {
         }
         match &mut self.delivery {
             Delivery::V1(v1) => {
-                let outcome = v1.send_guarded(frame.into_frame(), now_ms, &mut self.outbox);
+                let outcome = v1.push_live(frame.into_frame(), now_ms, &mut self.outbox);
                 if let Err((reason, kind)) = outcome {
                     self.close_for_backpressure(reason, kind, now_ms);
                 }
@@ -202,6 +203,7 @@ impl LinkState {
                 }
             },
         }
+        self.settle_screen_rebaselines(now_ms);
     }
 
     /// Send one frame on the control lane: unsequenced, unqueued, and never
@@ -249,6 +251,7 @@ impl LinkState {
     /// nothing, because nothing has changed that could make a frame eligible.
     pub fn flush_turn(&mut self, now_ms: u64) -> bool {
         let Delivery::V2(session) = &mut self.delivery else {
+            self.pump_v1_seed(now_ms);
             return false;
         };
         if self.close.is_some() || !session.take_flush_request() {
@@ -290,6 +293,14 @@ impl LinkState {
         let ack_seq = session.acknowledged_sequence();
         if sent == FLUSH_BATCH_FRAMES && session.has_sendable_work(now_ms, ack_seq) {
             session.request_flush();
+            return true;
+        }
+        // A rebaseline a lane asked for this turn installs its full now, and
+        // the frames it queued need a turn of their own.
+        if self.settle_screen_rebaselines(now_ms) {
+            if let Delivery::V2(session) = &mut self.delivery {
+                session.request_flush();
+            }
             return true;
         }
         false

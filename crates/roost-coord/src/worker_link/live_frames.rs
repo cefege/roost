@@ -19,7 +19,8 @@ use roost_protocol::wire::agent_status::AgentStatusUpdate;
 use roost_protocol::wire::coord_worker::{CoordWorkerUpstream, TerminalMetadata};
 use roost_protocol::wire::{ChannelId, WorkerFp};
 
-use crate::events::bus_messages::SessionTitleUpdate;
+use crate::terminal_screen::pipeline_snapshot::is_terminal_pipeline_snapshot_wire_shape;
+use crate::terminal_screen::typed_results::TypedWorkerResult;
 use crate::worker_link::dispatch::{DispatchOutcome, InboundFrame};
 use crate::worker_link::frame_dispatch::WorkerFrameDispatcher;
 
@@ -115,10 +116,11 @@ impl WorkerFrameDispatcher {
 
     /// One reply to a request the coordinator is holding open.
     ///
-    /// The four settling arms are the same table and the same `request_id`; v2
+    /// Every settling arm is the same table and the same `request_id`; v2
     /// routes a typed result, a stream result and a pipeline sample through the
-    /// identical `resolvePendingRpc` an `rpc-ok` uses, and splitting them would
-    /// be a distinction without a difference.
+    /// identical `resolvePendingRpc` an `rpc-ok` uses. The table key carries the
+    /// authenticated fingerprint, so another worker's reply settles nothing.
+    /// Before the snapshot barrier nothing settles (v2 `pendingResultWorker`).
     pub(crate) fn handle_rpc(&self, worker_fp: &str, frame: InboundFrame) -> DispatchOutcome {
         let InboundFrame {
             channel,
@@ -131,6 +133,11 @@ impl WorkerFrameDispatcher {
         let Ok(worker) = self.authenticated(worker_fp) else {
             return self.refuse(channel, "unaddressable_worker_fp");
         };
+        if !self.handle.is_ready() {
+            tracing::debug!(worker_fp = %worker, what = upstream.kind(),
+                "worker link: unready_rpc_result; dropped");
+            return DispatchOutcome::Refused;
+        }
         let pending = self.core.services.scrollback.pending();
         match upstream {
             CoordWorkerUpstream::RpcOk {
@@ -144,6 +151,26 @@ impl WorkerFrameDispatcher {
                 ..
             } => {
                 pending.reject(&request_id, &message, Some(worker.as_str()));
+            }
+            CoordWorkerUpstream::InputResult(result) => {
+                pending.resolve_typed(TypedWorkerResult::Input(result), Some(worker.as_str()));
+            }
+            direct @ (CoordWorkerUpstream::TerminalInputRouteResult(_)
+            | CoordWorkerUpstream::TerminalTransportProbeResult(_)) => {
+                return crate::worker_link::direct_results::accept_direct_result(
+                    &self.core.services,
+                    &self.handle,
+                    direct,
+                );
+            }
+            CoordWorkerUpstream::TerminalPipelineSnapshot(snapshot) => {
+                if !is_terminal_pipeline_snapshot_wire_shape(&snapshot) {
+                    return self.refuse(channel, "invalid_terminal_pipeline_snapshot");
+                }
+                pending.resolve_typed(
+                    TypedWorkerResult::PipelineSnapshot(snapshot),
+                    Some(worker.as_str()),
+                );
             }
             _ => return self.refuse(channel, "rpc_arm_has_no_destination"),
         }
@@ -203,10 +230,9 @@ impl WorkerFrameDispatcher {
             return DispatchOutcome::Refused;
         };
         if metadata.title_changed {
-            services.buses.title_bus.publish(SessionTitleUpdate {
-                session_id: session_id.as_str().to_owned(),
-                title: metadata.title.clone(),
-            });
+            services
+                .titles
+                .observe_title(&services.buses, session_id.as_str(), &metadata.title);
         }
         if metadata.activity_changed
             && let Ok(observed_at_ms) = i64::try_from(metadata.activity_ts_ms)

@@ -1,6 +1,6 @@
 //! The Sync firehose adapters: one bus message in, one `FirehoseFrame` and the
-//! lane metadata that orders it out. Nothing else lives here -- the seed and the
-//! socket shell are other modules' work.
+//! lane metadata that orders it out. Nothing else lives here -- the seed
+//! (`sync_ws::seed`) and the socket shell are other modules' work.
 //!
 //! `FeedFrame` is the type the whole directory exists to produce. It is a frame
 //! AND the `SyncFrameMeta` that describes where the frame belongs, held
@@ -18,15 +18,16 @@
 //! adapters it exports), `sync-feed-ui.ts`, `sync/presence-hub.ts` and
 //! `sync/last-activity-hub.ts`. The subscription ENGINE that installs these on
 //! the live buses and narrows each frame to the sockets that may see it is
-//! `sync_ws::live_feed`, and the retained seed is the seed's, not here: nothing
+//! `sync_ws::live_feed`, and the retained seed is `sync_ws::seed`: nothing
 //! in this directory
 //! subscribes to a bus except the one lifecycle subscription `last_activity`
 //! owns, because that one is the hub's own retained state and not a fan-out.
 //!
 //! The process-wide half of the Sync socket also lives on this one field, in
 //! `sync_state`: the domain-generation source, the snapshot-token registry the
-//! `SessionsList` RPC binds into, and the process epoch the `subscribed`
-//! barrier announces.
+//! `SessionsList` RPC binds into, the process epoch the `subscribed` barrier
+//! announces, and every open socket a key revocation must reach
+//! (`sync_ws::open_sockets`).
 
 pub mod frames;
 pub mod last_activity;
@@ -43,6 +44,7 @@ use roost_protocol::ProtocolError;
 use crate::sync_ws::admission::EnqueueOutcome;
 use crate::sync_ws::domain_table::DomainGenerations;
 use crate::sync_ws::frame_meta::{SyncFrameMeta, frame_meta_for};
+use crate::sync_ws::open_sockets::OpenSyncSockets;
 use crate::sync_ws::session::SyncV2Session;
 use crate::sync_ws::snapshot_registry::SnapshotTokenRegistry;
 use crate::sync_ws::terminal::snapshot::TerminalSnapshotHub;
@@ -60,6 +62,8 @@ pub struct FeedRuntime {
     snapshot_tokens: Mutex<SnapshotTokenRegistry>,
     /// This process's Sync identity, announced in every `subscribed` barrier.
     process_epoch: String,
+    /// Every open Sync socket, by the fingerprint that opened it.
+    open_sockets: OpenSyncSockets,
 }
 
 impl Default for FeedRuntime {
@@ -77,6 +81,7 @@ impl FeedRuntime {
             generations: Arc::new(sync_state::process_generations()),
             snapshot_tokens: Mutex::new(SnapshotTokenRegistry::new()),
             process_epoch: sync_state::mint_process_epoch(),
+            open_sockets: OpenSyncSockets::default(),
         }
     }
 
@@ -85,6 +90,12 @@ impl FeedRuntime {
     #[must_use]
     pub fn last_activity(&self) -> &LastActivityHub {
         &self.last_activity
+    }
+
+    /// The open Sync sockets, for a revocation or a worker delete to reach.
+    #[must_use]
+    pub fn open_sockets(&self) -> &OpenSyncSockets {
+        &self.open_sockets
     }
 }
 

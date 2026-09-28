@@ -164,6 +164,22 @@ fn carry_out(effect: IngressEffect, opened: &mut OpenedSocket, services: &Arc<Co
                 &outcome,
             );
         }
+        IngressEffect::SeedDomain {
+            domain,
+            admitted_sessions,
+        } => crate::sync_ws::seed::seed_domain(
+            &opened.link,
+            services,
+            domain,
+            admitted_sessions.as_ref(),
+        ),
+        IngressEffect::Terminal(command) => {
+            crate::terminal_input::sync_controls::accept_sync_terminal_command(
+                services,
+                &opened.link,
+                command,
+            );
+        }
     }
 }
 

@@ -245,7 +245,8 @@ fn fence_deleted_worker(core: &CoordCore, fingerprint: &WorkerFp) {
 ///
 /// The order is v2's (`handlers-workers.ts:247-272`) and each step has a
 /// different owner: the key cache is the auth domain's, the routes are the byte
-/// hub's, the views are the view hub's, the two buses are this domain's. The
+/// hub's, the views are the view hub's, the open Sync sockets are the feed's,
+/// the two buses are this domain's. The
 /// route retirement and the view notification are deliberately TWO steps -- they
 /// are separate objects with separate lifetimes, and folding them into one would
 /// make the view hub's failure the byte hub's.
@@ -268,6 +269,12 @@ fn release_worker_state(core: &CoordCore, fingerprint: &WorkerFp, persisted: &[S
     best_effort_cleanup("routable_presence", fingerprint, || {
         publish_routable(&core.services.buses, &core.services.workers);
     });
+    best_effort_cleanup("sync_scope", fingerprint, || {
+        core.services
+            .feed
+            .open_sockets()
+            .remove_worker_from_resource_indexes(fingerprint.as_str());
+    });
     best_effort_cleanup("worker_presence", fingerprint, || {
         core.services
             .buses
@@ -275,6 +282,12 @@ fn release_worker_state(core: &CoordCore, fingerprint: &WorkerFp, persisted: &[S
             .publish(WorkerPresenceEvent::Removed {
                 fp: fingerprint.clone(),
             });
+    });
+    best_effort_cleanup("socket_close", fingerprint, || {
+        core.services
+            .feed
+            .open_sockets()
+            .close_for_fingerprint(fingerprint.as_str());
     });
 }
 

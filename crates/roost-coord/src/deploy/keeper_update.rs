@@ -26,7 +26,6 @@ use serde_json::Value;
 
 use crate::auth::authorized_keys::resolve_key_principal;
 use crate::coord_core::{Caller, CoordCore};
-use crate::terminal_screen::rpc_relay::request_id;
 use crate::workers::send::{SendOutcome, current_routable_worker, send_frame_through};
 
 // The module directory is private, so these are the names the service arm and
@@ -117,10 +116,9 @@ async fn dispatch_preparation(
     let relay = &core.services.scrollback;
     let handle = current_routable_worker(&core.services.workers, worker_fp)
         .ok_or(KeeperUpdateRefusal::WorkerOffline)?;
-    let mut pending =
-        relay
-            .pending()
-            .create(&request_id(), Some(worker_fp.as_str()), relay.now_ms())?;
+    let mut pending = relay
+        .pending()
+        .create_fresh(Some(worker_fp.as_str()), relay.now_ms())?;
     let frame = admission.to_frame(pending.request_id());
     if let SendOutcome::Refused(refusal) =
         send_frame_through(&core.services.workers, &handle, frame)

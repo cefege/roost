@@ -5,12 +5,14 @@
 //! Called only by `worker_link::connection`'s read loop. Ports the post-hello
 //! half of `apps/coord/src/workers/worker-conn.ts` (hello admission, pong,
 //! supersede, revoke, close, the delayed respawn) and the per-message admission
-//! of `worker-ws-handler.ts` (superseded fence, readiness gate, rate window).
+//! of `worker-ws-handler.ts` (superseded fence, readiness gate, rate window);
+//! the completion lane beside a durable append is `worker_link::result_lane`.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
+use axum::extract::ws::WebSocket;
 use roost_protocol::versioning::{
     CAPABILITY_TERMINAL_METADATA_V1, CAPABILITY_TERMINAL_VIEW_OWNER_V1,
 };
@@ -31,6 +33,7 @@ use crate::worker_link::handshake::{acknowledged_capabilities, credential_refres
 use crate::worker_link::keepalive::{KeepaliveDue, PingSchedule};
 use crate::worker_link::rate_window::DurableEventWindow;
 use crate::worker_link::reap_outbox::ReapOutbox;
+use crate::worker_link::result_lane::ResultLane;
 use crate::worker_link::upstream_frame::{HelloFrame, LinkFrame, decode_link_frame};
 use crate::workers::registry::{claim_generation, publish_routable};
 use crate::workers::respawn::respawn_missing_for_worker;
@@ -63,6 +66,7 @@ pub(super) struct LinkSession {
     services: Arc<CoordServices>,
     handle: Arc<WorkerHandle>,
     dispatcher: WorkerFrameDispatcher,
+    result_lane: ResultLane,
     keepalive: PingSchedule,
     event_window: DurableEventWindow,
     reaps: ReapOutbox,
@@ -145,6 +149,7 @@ impl LinkSession {
         );
         Some(Self {
             dispatcher: services.worker_dispatcher(Arc::clone(&handle)),
+            result_lane: ResultLane::new(services.worker_dispatcher(Arc::clone(&handle))),
             reaps: ReapOutbox::attach(&services.orphan_kills, worker_fp),
             services: Arc::clone(services),
             handle,
@@ -194,8 +199,8 @@ impl LinkSession {
         LinkStep::Continue
     }
 
-    /// One data message's bytes.
-    pub(super) async fn on_bytes(&mut self, bytes: &[u8]) -> LinkStep {
+    /// One data message's bytes; a durable append reads `socket` while it runs.
+    pub(super) async fn on_bytes(&mut self, bytes: &[u8], socket: &mut WebSocket) -> LinkStep {
         if let Some(close) = self.fenced_close() {
             return LinkStep::Close(close);
         }
@@ -232,12 +237,12 @@ impl LinkSession {
                     LinkStep::Close(SocketClose::Default)
                 }
             }
-            LinkFrame::Dispatch(frame) => self.dispatch(*frame).await,
+            LinkFrame::Dispatch(frame) => self.dispatch(*frame, socket).await,
         }
     }
 
     /// Hand one frame to the dispatcher, then act on what it changed.
-    async fn dispatch(&mut self, frame: InboundFrame) -> LinkStep {
+    async fn dispatch(&mut self, frame: InboundFrame, socket: &mut WebSocket) -> LinkStep {
         let worker_fp = self.handle.worker_fp.clone();
         let outcome = if frame.class == FrameClass::Durable {
             let now_ms = u64::try_from(crate::serve::now_ms()).unwrap_or(0);
@@ -246,14 +251,16 @@ impl LinkSession {
                     "worker link: event_rate_exceeded; closing");
                 return LinkStep::Close(SocketClose::EventRateExceeded);
             }
-            self.dispatcher
-                .handle_durable(worker_fp.as_str(), frame)
-                .await
+            let append = self.dispatcher.handle_durable(worker_fp.as_str(), frame);
+            self.result_lane.await_append(append, socket).await
         } else {
             self.dispatcher.handle_now(worker_fp.as_str(), frame)
         };
         if let DispatchOutcome::Close(close) = outcome {
             tracing::info!(%worker_fp, reason = close.reason(), "worker link: closing on policy");
+            return LinkStep::Close(close);
+        }
+        if let Some(close) = self.result_lane.take_close() {
             return LinkStep::Close(close);
         }
         if !self.announced_ready && self.handle.is_ready() {
@@ -351,6 +358,11 @@ impl LinkSession {
     /// The fingerprint this link was admitted under.
     pub(super) fn worker_fp(&self) -> &WorkerFp {
         &self.handle.worker_fp
+    }
+
+    /// The completion lane, whose backlog the read loop drains in order.
+    pub(super) fn result_lane(&mut self) -> &mut ResultLane {
+        &mut self.result_lane
     }
 }
 

@@ -172,8 +172,9 @@ async fn an_ack_above_the_last_sent_sequence_closes_1008() {
 
 // v2 sync-ws-keepalive-flow-control.test.ts "legacy sockets remain
 // unsequenced" and the v1 live path of sync-ws-v1-delivery.ts: a v1 socket
-// gets no barrier and no domain fence, a `flow=1` one is sequenced from 1, and
-// a v2-shaped frame on it closes 1008.
+// gets no barrier and no domain fence -- its retained seed, then live frames
+// -- a `flow=1` one is sequenced from 1, and a v2-shaped frame on it closes
+// 1008.
 #[tokio::test]
 async fn a_v1_socket_is_live_and_sequenced_only_with_flow() {
     let fixture = SyncFixture::start("v1").await;
@@ -181,17 +182,25 @@ async fn a_v1_socket_is_live_and_sequenced_only_with_flow() {
 
     let mut sequenced = fixture.dial_sync("flow=1", &token).await.socket();
     let mut legacy = fixture.dial_sync("", &token).await.socket();
+    for (socket, sequence) in [(&mut sequenced, 1), (&mut legacy, 0)] {
+        let seed = next_firehose(socket, EXPECT)
+            .await
+            .expect("the retained seed");
+        assert!(
+            matches!(seed.frame, Some(Frame::WorkerRoutable(_))),
+            "no barrier on v1"
+        );
+        assert_eq!(seed.delivery_seq, sequence);
+    }
+    send_client_frame(&mut sequenced, "", Some(1), None).await;
     tokio::time::sleep(QUIET).await;
     fixture.publish_task("live-1", 8);
 
     let frame = next_firehose(&mut sequenced, EXPECT)
         .await
         .expect("a live frame");
-    assert!(
-        matches!(frame.frame, Some(Frame::TaskDelta(_))),
-        "no barrier on v1"
-    );
-    assert_eq!(frame.delivery_seq, 1);
+    assert!(matches!(frame.frame, Some(Frame::TaskDelta(_))));
+    assert_eq!(frame.delivery_seq, 2);
     let frame = next_firehose(&mut legacy, EXPECT)
         .await
         .expect("a live frame");
@@ -200,7 +209,7 @@ async fn a_v1_socket_is_live_and_sequenced_only_with_flow() {
         (0, "live-1")
     );
 
-    send_client_frame(&mut sequenced, "", Some(1), None).await;
-    send_client_frame(&mut sequenced, "a-v2-socket", Some(1), None).await;
+    send_client_frame(&mut sequenced, "", Some(2), None).await;
+    send_client_frame(&mut sequenced, "a-v2-socket", Some(2), None).await;
     assert_eq!(close_code(&mut sequenced, EXPECT).await, Some(Some(1008)));
 }

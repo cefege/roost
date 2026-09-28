@@ -17,6 +17,7 @@ pub mod cursor;
 pub mod delivery;
 pub mod lane;
 pub mod ready_ring;
+pub mod screen_socket;
 pub mod snapshot;
 
 pub use cursor::{SnapshotCursor, TerminalLane};

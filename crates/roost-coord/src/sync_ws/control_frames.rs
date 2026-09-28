@@ -17,8 +17,8 @@
 
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
 use roost_proto::{
-    FirehoseFrame, InputRejected, SyncDomain, SyncDomainResetFrame, SyncSubscribedFrame,
-    TerminalInputRouteResult, TerminalTransportProbeResult,
+    FirehoseFrame, InputAccepted, InputAmbiguous, InputRejected, SyncDomain, SyncDomainResetFrame,
+    SyncSubscribedFrame, TerminalInputRouteResult, TerminalTransportProbeResult,
 };
 
 /// A domain reset the session performed, with everything the caller's control
@@ -167,6 +167,67 @@ pub fn transport_probe_refusal_frame(request_id: &str, worker_fp: &str) -> Fireh
                 __buffa_unknown_fields: Default::default(),
             },
         ))),
+        ..FirehoseFrame::default()
+    })
+}
+
+/// A batch the keeper proved written, echoing the command's own generation.
+#[must_use]
+pub fn input_accepted_frame(
+    session_id: &str,
+    input_seq: u64,
+    domain_generation: u64,
+    written_bytes: u32,
+) -> FirehoseFrame {
+    control_frame(FirehoseFrame {
+        frame: Some(Frame::InputAccepted(Box::new(InputAccepted {
+            session_id: session_id.to_owned(),
+            input_seq,
+            domain_generation,
+            written_bytes,
+            __buffa_unknown_fields: Default::default(),
+        }))),
+        ..FirehoseFrame::default()
+    })
+}
+
+/// A batch whose write cannot be proven, echoing the command's own
+/// generation: the client reports possible loss and never retries it.
+#[must_use]
+pub fn input_ambiguous_frame(
+    session_id: &str,
+    input_seq: u64,
+    domain_generation: u64,
+    written_bytes: u32,
+    reason: &str,
+) -> FirehoseFrame {
+    control_frame(FirehoseFrame {
+        frame: Some(Frame::InputAmbiguous(Box::new(InputAmbiguous {
+            session_id: session_id.to_owned(),
+            input_seq,
+            domain_generation,
+            written_bytes,
+            reason: reason.to_owned(),
+            __buffa_unknown_fields: Default::default(),
+        }))),
+        ..FirehoseFrame::default()
+    })
+}
+
+/// A worker's validated answer to an `inputRouteClaim`.
+#[must_use]
+pub fn input_route_result_frame(result: TerminalInputRouteResult) -> FirehoseFrame {
+    control_frame(FirehoseFrame {
+        frame: Some(Frame::InputRouteResult(Box::new(result))),
+        ..FirehoseFrame::default()
+    })
+}
+
+/// A worker's validated answer to a `terminalTransportProbe`.
+#[must_use]
+pub fn transport_probe_result_frame(result: TerminalTransportProbeResult) -> FirehoseFrame {
+    control_frame(FirehoseFrame {
+        frame: Some(Frame::TerminalTransportProbeResult(Box::new(result))),
         ..FirehoseFrame::default()
     })
 }

@@ -15,7 +15,7 @@ use crate::auth::principal::require_account_device;
 use crate::coord_core::{Caller, CoordCore};
 use crate::sessions::rpc_sessions::{lease, read_failed, viewer_key};
 use crate::sync_ws::feed::presence::publish_presence;
-use crate::terminal_screen::rpc_relay::{request_id, send_browser_command};
+use crate::terminal_screen::rpc_relay::send_browser_command;
 
 /// Publish the caller's cursor to the session's other viewers, and relay it to
 /// the worker. Presence is tab-scoped; the worker envelope carries the bare
@@ -93,7 +93,7 @@ async fn forward_to_session_worker(
     match send_browser_command(
         &binding.handle,
         viewer_fp,
-        &request_id(),
+        &relay.pending().next_request_id(),
         frame_for(session),
     ) {
         Ok(()) => true,

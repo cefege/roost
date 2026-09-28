@@ -28,7 +28,7 @@ use crate::sessions::list_projection::{
     SessionListScope, read_sessions_list_projection, session_status_filter,
 };
 use crate::terminal_screen::pending_rpcs::DEFAULT_PENDING_RPC_TIMEOUT_MS;
-use crate::terminal_screen::rpc_relay::{request_id, send_browser_command};
+use crate::terminal_screen::rpc_relay::send_browser_command;
 use crate::write_gate::SharedLease;
 
 /// The longest custom title a rename keeps, in UTF-16 code units as v2 counts.
@@ -107,11 +107,9 @@ pub async fn handle_sessions_attach(
         .map_err(|_| {
             ConnectError::new(ErrorCode::InvalidArgument, "from_offset is out of range")
         })?;
-    let mut pending = relay.pending().create(
-        &request_id(),
-        Some(binding.worker_fp.as_str()),
-        relay.now_ms(),
-    )?;
+    let mut pending = relay
+        .pending()
+        .create_fresh(Some(binding.worker_fp.as_str()), relay.now_ms())?;
     send_browser_command(
         &binding.handle,
         browser_fp,
@@ -182,7 +180,8 @@ pub async fn handle_sessions_kill(
         session_id: session.clone(),
         trace_id: None,
     };
-    match send_browser_command(&handle, browser_fp, &request_id(), kill) {
+    let request_id = core.services.scrollback.pending().next_request_id();
+    match send_browser_command(&handle, browser_fp, &request_id, kill) {
         Ok(()) => {
             tracing::info!(session_id = %session, worker_fp, "sessions: kill relayed");
             kill_answer(true)

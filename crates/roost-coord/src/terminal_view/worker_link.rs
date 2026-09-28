@@ -10,13 +10,14 @@ use roost_proto::__buffa::oneof::d_terminal_view_relay::Command as RelayCommand;
 use roost_proto::{
     DTerminalViewRelay, DTerminalViewSocketClosed, TerminalResyncCommand, TerminalViewCommand,
 };
-use roost_protocol::wire::WorkerFp;
 use roost_protocol::wire::coord_worker::CoordWorkerDownstream;
+use roost_protocol::wire::{SessionId, WorkerFp};
 
 use std::sync::Arc;
 
 use crate::coord_core::worker_handle::WorkerRegistry;
 use crate::workers::send::{SendOutcome, send_frame};
+use crate::workers::terminal_send::send_terminal_snapshot_request;
 
 use super::relay::{OwnerViewTransport, RelayIdentity};
 
@@ -83,6 +84,15 @@ impl OwnerViewTransport for WorkerLinkViewTransport {
             __buffa_unknown_fields: Default::default(),
         });
         admitted(send_frame(&self.registry, worker_fp, frame))
+    }
+
+    fn snapshot(&self, worker_fp: &WorkerFp, session_id: &SessionId, stream_id: &str) -> bool {
+        admitted(send_terminal_snapshot_request(
+            &self.registry,
+            worker_fp,
+            session_id,
+            stream_id,
+        ))
     }
 }
 

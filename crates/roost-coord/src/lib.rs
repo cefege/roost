@@ -38,6 +38,7 @@ pub mod serve;
 pub mod services;
 pub mod sessions;
 pub mod sync_ws;
+pub mod terminal_input;
 pub mod terminal_screen;
 pub mod terminal_view;
 pub mod ui_state;

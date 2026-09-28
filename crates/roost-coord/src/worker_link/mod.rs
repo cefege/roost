@@ -2,8 +2,8 @@
 //! session, the frame classifier and dispatcher, the per-socket durable-event
 //! window, and the announced-channel barrier.
 //!
-//! Owned by the coordinator. `connection` and `handshake` are the only modules
-//! that read a socket, and `link_session` the only one holding a link's state;
+//! Owned by the coordinator. `connection`, `handshake` and `result_lane` are the
+//! only modules that read a socket, and `link_session` the only one holding a link's state;
 //! admission, the heartbeat, the rate window, the classifier and the barrier
 //! are pure over values and a clock they are handed, because the ORDER of those
 //! decisions is the property worth testing.
@@ -17,6 +17,7 @@ pub mod announced_types;
 pub mod client_seq;
 pub mod conn_types;
 pub mod connection;
+pub mod direct_results;
 pub mod dispatch;
 pub mod dispatcher_for;
 pub mod frame_dispatch;
@@ -27,5 +28,6 @@ mod link_session;
 pub mod live_frames;
 pub mod rate_window;
 mod reap_outbox;
+mod result_lane;
 pub mod upgrade_admission;
 pub mod upstream_frame;

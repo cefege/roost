@@ -10,7 +10,10 @@
 //! `socket_open` (open and release), `driver` (the state a socket's listeners
 //! and task share, and the flush turn), `live_feed` (the bus listeners),
 //! `ingress` (client frames), with `v1_delivery` for sockets that did not
-//! negotiate v2 and `resource_index` for what a socket may observe.
+//! negotiate v2 and `resource_index` for what a socket may observe. What a
+//! socket is owed besides live frames is `seed` (retained state, paced for v1
+//! by `v1_seed`), `backfill` and `session_replay` (durable events above
+//! `since`), and `open_sockets` is how a key revocation reaches it.
 //!
 //! THE SHARED STATE IS ONE TYPE, AND THAT IS THE POINT. A frame is charged to a
 //! socket's retention budget by exactly one of {a domain queue, a terminal
@@ -28,6 +31,7 @@
 
 pub mod ack_window;
 pub mod admission;
+pub mod backfill;
 pub mod commands;
 pub mod commands_layout;
 pub mod control_frames;
@@ -38,10 +42,13 @@ pub mod feed;
 pub mod frame_meta;
 pub mod ingress;
 pub mod live_feed;
+pub mod open_sockets;
 pub mod resource_index;
 pub mod retained_frame;
+pub mod seed;
 pub mod send_queue;
 pub mod session;
+pub mod session_replay;
 pub mod snapshot_registry;
 pub mod socket;
 pub mod socket_open;
@@ -49,6 +56,7 @@ pub mod terminal;
 pub mod terminal_command;
 pub mod upgrade_admission;
 pub mod v1_delivery;
+pub mod v1_seed;
 
 pub use admission::EnqueueOutcome;
 pub use control_frames::ResetNotice;
