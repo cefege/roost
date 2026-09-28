@@ -74,12 +74,6 @@ use crate::worker_link::dispatch::{DispatchOutcome, FrameClass, FrameDispatch, I
 use crate::worker_link::keepalive::{Keepalive, STALE_LINK_CHECK_INTERVAL};
 use crate::worker_link::upgrade_admission::{UpgradeDecision, VerifiedWorkerCaller};
 
-/// How long a socket may stay in the pre-hello state before it is closed.
-///
-/// `STALE_LINK_TIMEOUT_MS` with a `STALE_LINK_CHECK_INTERVAL` tick, cited
-/// rather than chosen: `worker-link.md:46`, authority
-/// `apps/worker/src/transport/coord-link-constants.ts:61-62`. **A socket that
-
 /// One connection's minted generation, distinct from every other connection of
 /// the same fingerprint.
 ///

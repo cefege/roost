@@ -131,8 +131,8 @@ async fn the_worker_lookup_answers_v2s_refusal_table() {
         async move {
             handle_files_read(&core, &caller, read_request(fp))
                 .await
-                .err()
-                .expect("the read is refused")
+                .map(|_| ())
+                .expect_err("the read is refused")
         }
     };
 
@@ -167,8 +167,8 @@ async fn the_worker_lookup_answers_v2s_refusal_table() {
         },
     )
     .await
-    .err()
-    .expect("an id that is not a session is refused");
+    .map(|_| ())
+    .expect_err("an id that is not a session is refused");
     assert_eq!(
         (listing.code, listing.message.as_deref()),
         (ErrorCode::NotFound, Some("session not found")),
@@ -208,7 +208,9 @@ async fn a_worker_that_never_replies_is_refused_at_the_v2_deadline() {
         .await
         .expect("the relay owns a deadline; without one an unanswered call waits forever")
         .expect("the handler task finished");
-    let error = outcome.err().expect("an unanswered mkdir is refused");
+    let error = outcome
+        .map(|_| ())
+        .expect_err("an unanswered mkdir is refused");
     assert_eq!(error.code, ErrorCode::DeadlineExceeded);
     assert_eq!(
         error.message.as_deref(),
@@ -270,8 +272,8 @@ async fn only_the_final_upload_chunk_waits_for_the_worker() {
     unnamed.upload_id.clear();
     let refused = handle_attach_file_chunk(&harness.core, &harness.caller(), unnamed)
         .await
-        .err()
-        .expect("an upload with no id is refused");
+        .map(|_| ())
+        .expect_err("an upload with no id is refused");
     assert_eq!(
         (refused.code, refused.message.as_deref()),
         (ErrorCode::InvalidArgument, Some("upload_id required"))
@@ -280,8 +282,8 @@ async fn only_the_final_upload_chunk_waits_for_the_worker() {
     sessionless.session_id.clear();
     let refused = handle_attach_file_chunk(&harness.core, &harness.caller(), sessionless)
         .await
-        .err()
-        .expect("an upload with no session is refused");
+        .map(|_| ())
+        .expect_err("an upload with no session is refused");
     assert_eq!(
         (refused.code, refused.message.as_deref()),
         (ErrorCode::InvalidArgument, Some("session_id required"))
