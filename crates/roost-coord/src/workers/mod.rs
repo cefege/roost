@@ -19,6 +19,7 @@ pub mod delete;
 pub mod heartbeat;
 pub mod hop_deadline;
 pub mod live_effects;
+pub mod local_terminal_send;
 pub mod projection;
 pub mod register;
 pub mod registry;
@@ -26,6 +27,7 @@ pub mod respawn;
 pub mod rows;
 pub mod rpc;
 pub mod send;
+pub mod terminal_peer_send;
 pub mod terminal_request;
 pub mod terminal_send;
 

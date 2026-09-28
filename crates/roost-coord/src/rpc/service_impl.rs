@@ -416,26 +416,40 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn sessions_grant_local_terminal<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsGrantLocalTerminalRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsGrantLocalTerminalRequest>,
     ) -> impl Future<
         Output = ServiceResult<impl Encodable<SessionsGrantLocalTerminalResponse> + Send + use<'a>>,
     > + Send {
-        delegated_reply::<SessionsGrantLocalTerminalResponse>("SessionsGrantLocalTerminal")
+        async move {
+            let caller = caller_of(&ctx, "SessionsGrantLocalTerminal")?;
+            crate::terminal_direct::grant_rpc::handle_sessions_grant_local_terminal(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
 
     fn sessions_negotiate_local_terminal_peer<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsNegotiateLocalTerminalPeerRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsNegotiateLocalTerminalPeerRequest>,
     ) -> impl Future<
         Output = ServiceResult<
             impl Encodable<SessionsNegotiateLocalTerminalPeerResponse> + Send + use<'a>,
         >,
     > + Send {
-        delegated_reply::<SessionsNegotiateLocalTerminalPeerResponse>(
-            "SessionsNegotiateLocalTerminalPeer",
-        )
+        async move {
+            let caller = caller_of(&ctx, "SessionsNegotiateLocalTerminalPeer")?;
+            crate::terminal_direct::peer_rpc::handle_sessions_negotiate_local_terminal_peer(
+                &self.core,
+                caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
     // ── attachments ─────────────────────────────────────────────────────
 

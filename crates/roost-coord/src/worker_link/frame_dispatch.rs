@@ -69,17 +69,23 @@ impl WorkerFrameDispatcher {
         self.handle.worker_fp.as_str() == worker_fp
     }
 
-    /// Whether a newer generation has superseded this socket.
+    /// Whether this socket is still the worker's live generation: not revoked,
+    /// and not superseded by a newer one (v2 `worker-conn.ts`
+    /// `_isCurrentGeneration`).
     ///
     /// Identity, not readiness: a superseded socket is fenced even when it is
     /// perfectly ready, and a frame it appends under the old generation would
-    /// be published against a link the worker has already replaced.
+    /// be published against a link the worker has already replaced. A revoked
+    /// generation is fenced before the registry lets go of it, so a late answer
+    /// arriving between the revoke and the removal settles nothing.
     pub(super) fn is_current_generation(&self) -> bool {
-        self.core
-            .services
-            .workers
-            .current(&self.handle.worker_fp)
-            .is_some_and(|current| Arc::ptr_eq(&current, &self.handle))
+        !self.handle.is_revoked()
+            && self
+                .core
+                .services
+                .workers
+                .current(&self.handle.worker_fp)
+                .is_some_and(|current| Arc::ptr_eq(&current, &self.handle))
     }
 
     /// The v2 `fenced(what)` guard: a fenced frame is dropped with no ACK and

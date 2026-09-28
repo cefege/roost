@@ -156,7 +156,12 @@ impl WorkerFrameDispatcher {
                 pending.resolve_typed(TypedWorkerResult::Input(result), Some(worker.as_str()));
             }
             direct @ (CoordWorkerUpstream::TerminalInputRouteResult(_)
-            | CoordWorkerUpstream::TerminalTransportProbeResult(_)) => {
+            | CoordWorkerUpstream::TerminalTransportProbeResult(_)
+            | CoordWorkerUpstream::LocalTerminalPeerAnswer(_)
+            | CoordWorkerUpstream::LocalTerminalPeerError(_)
+            | CoordWorkerUpstream::LocalAttachmentPeerAnswer(_)
+            | CoordWorkerUpstream::LocalAttachmentPeerError(_)
+            | CoordWorkerUpstream::AttachmentDirectStatus(_)) => {
                 return crate::worker_link::direct_results::accept_direct_result(
                     &self.core.services,
                     &self.handle,
