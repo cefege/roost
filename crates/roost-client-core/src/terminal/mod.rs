@@ -4,8 +4,9 @@
 //!
 //! `frame_fold` is the pure rule set and the only place a full or a delta is
 //! judged; `session` is the state that rule is applied to; `repair` is the
-//! conclusion a refusal draws; `token` is the identity every rule is scoped to;
-//! `view` and `session_views` are the leases; `routes` and `registry` are the
+//! conclusion a refusal draws and `resync_position` what its request names;
+//! `token` is the identity every rule is scoped to; `view` and
+//! `session_views` are the leases; `routes` and `registry` are the
 //! carrier election; `input` and `router` are the write path; `history` is the
 //! absolute scrollback arithmetic a pager needs.
 //!
@@ -18,6 +19,7 @@ pub mod history;
 pub mod history_backfill;
 pub mod input;
 pub mod repair;
+pub mod resync_position;
 pub mod routes;
 pub mod session;
 pub mod session_views;
@@ -33,6 +35,7 @@ pub use input::{
     InputLane, InputOutcome, InputPhase, InputRefusal, InputRouter, PendingInput, TerminalFence,
 };
 pub use repair::RepairLatch;
+pub use resync_position::ResyncPosition;
 pub use routes::{
     DirectCarrier, PromotionCandidate, PromotionRefusal, RouteRegistry, SessionRoute,
 };

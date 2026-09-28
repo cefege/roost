@@ -22,6 +22,7 @@ pub mod prefs;
 pub mod root;
 pub mod selectors;
 pub mod spotlight;
+pub mod sync_feeds;
 pub mod toasts;
 pub mod transfers;
 pub mod ui;
@@ -54,17 +55,21 @@ pub use roost_protocol::wire::{
     WorkerFp, WorkerOs, WorkspaceId,
 };
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+
+use roost_protocol::wire::{Task, Workspace};
 
 use crate::search::FindMatch;
 use crate::sessions::SessionPlane;
 use crate::store::optimistic_spawn::SpawnLedger;
 use crate::store::pending_close::PendingCloses;
 use crate::store::prefs::Prefs;
+use crate::store::sync_feeds::{PresenceNotice, ProbeTelemetry, RoutableAssembly};
 use crate::store::toasts::ToastStack;
 use crate::store::transfers::TransferStack;
 use crate::store::ui::UiState;
 use crate::sync::SyncState;
+use crate::sync::inbound::{AuditEntry, InputRouteResult, SessionViewer};
 use crate::terminal::session::TerminalSession;
 use crate::terminal::token::TerminalToken;
 use crate::terminal::{InputPhase, InputRouter, RouteRegistry};
@@ -156,6 +161,36 @@ pub struct Store {
     /// Mutated only through `store::mutations`.
     pub pair_requests: BTreeMap<String, PairRequest>,
 
+    // ---- Sync feed slices: written only by the folds under `handle_sync/` ---
+    /// Workspaces by id (v2 `_handleWorkspacesDelta`).
+    pub workspaces: BTreeMap<String, Workspace>,
+    /// Tasks by id (v2 `_handleTasksDelta`).
+    pub tasks: BTreeMap<String, Task>,
+    /// The fingerprints the coordinator can route to RIGHT NOW, or `None`
+    /// before the first set, which means "ask heartbeat freshness instead"
+    /// (`sync-routable.ts:14-19`).
+    pub routable_worker_fps: Option<BTreeSet<String>>,
+    /// The chunked routable seed still being assembled on this socket.
+    pub routable_assembly: RoutableAssembly,
+    /// Coordinator-parsed OSC titles, by session.
+    pub terminal_titles: BTreeMap<String, String>,
+    /// Coordinator-stamped last activity, by session, in milliseconds.
+    pub last_activity_ms: BTreeMap<String, i64>,
+    /// Who is looking at each session, replaced per `viewers` notice.
+    pub session_viewers: BTreeMap<String, Vec<SessionViewer>>,
+    /// Opaque presence notices for the panes' presence handlers, oldest first.
+    pub presence_notices: VecDeque<PresenceNotice>,
+    /// Live audit rows, newest first, deduplicated by id and bounded.
+    pub audit_rows: VecDeque<AuditEntry>,
+    /// UI commands for the UI bridge, oldest first.
+    pub ui_commands: VecDeque<roost_proto::UiCommandFrame>,
+    /// The newest input-route answer per session, for the claim waiter.
+    pub input_route_results: BTreeMap<String, InputRouteResult>,
+    /// The newest successful transport-probe answer per worker.
+    pub transport_probes: BTreeMap<String, ProbeTelemetry>,
+    /// Pairings already announced, oldest first, so one pairing toasts once.
+    pub announced_pairings: VecDeque<String>,
+
     /// The next Connect call id, so a result is correlated with its call.
     next_call_id: u64,
     /// The next staging attempt id. Monotonic, so a slow fold cannot overwrite a
@@ -216,6 +251,19 @@ impl Store {
             pending_closes: PendingCloses::new(),
             mcp_relays: BTreeMap::new(),
             pair_requests: BTreeMap::new(),
+            workspaces: BTreeMap::new(),
+            tasks: BTreeMap::new(),
+            routable_worker_fps: None,
+            routable_assembly: RoutableAssembly::new(),
+            terminal_titles: BTreeMap::new(),
+            last_activity_ms: BTreeMap::new(),
+            session_viewers: BTreeMap::new(),
+            presence_notices: VecDeque::new(),
+            audit_rows: VecDeque::new(),
+            ui_commands: VecDeque::new(),
+            input_route_results: BTreeMap::new(),
+            transport_probes: BTreeMap::new(),
+            announced_pairings: VecDeque::new(),
         }
     }
 

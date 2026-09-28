@@ -18,6 +18,7 @@
 
 pub mod carrier;
 pub mod clock;
+pub mod device_key;
 pub mod fragment_credential;
 pub mod location;
 pub mod peer;

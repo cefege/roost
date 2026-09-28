@@ -120,7 +120,10 @@ pub fn publish_view(
     let Some(replica) = store.terminal(session_id) else {
         return;
     };
-    let Some(intent) = replica.view_intent(view_id) else {
+    let Some((intent, revision)) = replica
+        .view(view_id)
+        .map(|view| (view.intent, view.revision))
+    else {
         return;
     };
     let Some(token) = replica.generation().cloned() else {
@@ -134,16 +137,18 @@ pub fn publish_view(
     if let Some(replica) = store.terminal_mut_if_present(session_id) {
         replica.mark_view_published(view_id, generation, now_ms);
     }
-    send_intent_with(store, token, session_id, view_id, intent, out);
+    send_intent_with(store, token, session_id, view_id, intent, revision, out);
 }
 
 /// Send one intent without marking it awaited. Hide and close use this: they are
 /// not commands the lease waits on, so there is nothing to await an answer to.
+/// `revision` is the one the view recorded for this intent (`TerminalView`).
 pub fn send_intent(
     store: &mut Store,
     session_id: &str,
     view_id: &str,
     intent: ViewIntent,
+    revision: u64,
     out: &mut Vec<Effect>,
 ) {
     // The token comes from the replica, exactly as it does for a publish: an
@@ -155,7 +160,7 @@ pub fn send_intent(
     else {
         return;
     };
-    send_intent_with(store, token, session_id, view_id, intent, out);
+    send_intent_with(store, token, session_id, view_id, intent, revision, out);
 }
 
 fn send_intent_with(
@@ -164,6 +169,7 @@ fn send_intent_with(
     session_id: &str,
     view_id: &str,
     intent: ViewIntent,
+    revision: u64,
     out: &mut Vec<Effect>,
 ) {
     if token.transport == TerminalTransport::Sync {
@@ -171,6 +177,7 @@ fn send_intent_with(
             session_id: session_id.to_string(),
             view_id: view_id.to_string(),
             intent,
+            revision,
             token,
         }));
     } else if store.routes.route_matches(session_id, &token) {
@@ -220,6 +227,12 @@ pub fn request_repair_if_due(
     let Some(view_id) = replica.repair_view().map(|view| view.view_id.clone()) else {
         return;
     };
+    // And it names the stream it is a baseline OF. With no expected stream there
+    // is nothing to name, so nothing is sent and nothing is marked sent: the
+    // view acceptance that installs the stream re-enters here.
+    let Some(position) = replica.resync_position() else {
+        return;
+    };
     if let Some(replica) = store.terminal_mut_if_present(session_id) {
         replica.mark_repair_sent(&token, now_ms);
     }
@@ -227,6 +240,9 @@ pub fn request_repair_if_due(
         out.push(Effect::SendSync(SyncCommand::TerminalResync {
             session_id: session_id.to_string(),
             view_id,
+            stream_id: position.stream_id,
+            grid_epoch: position.grid_epoch,
+            seq: position.seq,
             token,
         }));
     } else {

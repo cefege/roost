@@ -59,6 +59,20 @@ pub enum ClientEvent {
         /// The frame.
         frame: SyncFrame,
     },
+    /// Bytes arrived on the Sync socket that `sync::decode` refused: not a
+    /// frame, no frame, a control carrying a sequence, an application frame
+    /// without one, or a payload v2 treats as fatal.
+    ///
+    /// The link that delivered them is closed so the dial loop redials onto a
+    /// clean baseline (v2 `_consumeSyncFrame` → `_closeFailedSyncLink`,
+    /// `apps/web/src/store/sync-inbound.ts:53-83`). Nothing is applied or
+    /// acknowledged: an acknowledgement would release records never applied.
+    SyncFrameRefused {
+        /// The generation whose socket delivered the bytes.
+        generation: u64,
+        /// Why decode refused them, for the host's log.
+        reason: String,
+    },
     /// One frame arrived on a DIRECT carrier: loopback or WebRTC.
     ///
     /// A separate event from `SyncFrameReceived` because the routing differs. A
@@ -229,6 +243,7 @@ impl ClientEvent {
             Self::SyncLinkOpened { .. } => "sync_link_opened",
             Self::SyncLinkClosed { .. } => "sync_link_closed",
             Self::SyncFrameReceived { .. } => "sync_frame_received",
+            Self::SyncFrameRefused { .. } => "sync_frame_refused",
             Self::HydrationCompleted { .. } => "hydration_completed",
             Self::RpcResultReceived(_) => "rpc_result_received",
             Self::ChallengeSigned { .. } => "challenge_signed",

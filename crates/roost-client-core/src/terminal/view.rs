@@ -60,6 +60,11 @@ pub struct TerminalView {
     pub rows: u32,
     /// The intent the pane currently wants sent.
     pub intent: ViewIntent,
+    /// The revision of `intent`: v2's `revisionFloor`, bumped on every intent
+    /// CHANGE and repeated unchanged by a heartbeat or a redial replay, so the
+    /// authority can tell a new intent from an idempotent renewal of the same
+    /// one (`terminal-stream-view-commands.ts:139-165`).
+    pub revision: u64,
     /// The generation whose command is still unacknowledged, if any.
     pub unacknowledged: Option<u64>,
     /// When the view last published, for the heartbeat.
@@ -79,6 +84,7 @@ impl TerminalView {
             cols,
             rows,
             intent: ViewIntent::Publish { cols, rows },
+            revision: 1,
             unacknowledged: None,
             published_at_ms: 0,
             acknowledged_at_ms: 0,
@@ -99,13 +105,27 @@ impl TerminalView {
         self.cols = cols;
         self.rows = rows;
         self.intent = ViewIntent::Publish { cols, rows };
+        self.revision += 1;
         true
     }
 
     /// Hide the pane: it keeps its place but stops constraining geometry.
+    /// Parking an already parked view is not a new intent and keeps its revision.
     pub fn park(&mut self) {
-        self.intent = ViewIntent::Park;
+        if self.intent != ViewIntent::Park {
+            self.intent = ViewIntent::Park;
+            self.revision += 1;
+        }
         self.counted = false;
+    }
+
+    /// Remove the pane. Returns the revision the removal is published under —
+    /// one past the last intent, so the authority reads it as new rather than as
+    /// a conflicting replay of whatever the view last said.
+    pub fn retire(&mut self) -> u64 {
+        self.intent = ViewIntent::Unpublish;
+        self.revision += 1;
+        self.revision
     }
 
     /// Whether the heartbeat interval has elapsed and this view must republish.
