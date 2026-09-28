@@ -14,12 +14,19 @@ space to 4 GiB. RAM was fine (31 GiB, 24 available, no OOM). The workspace
 `Cargo.toml` already had dev/test `debug = "line-tables-only"`; on top of it,
 host-local `~/.cargo/config.toml` sets `[profile.dev.package."*"] debug = false`
 and host-target linker flag `--compress-debug-sections=zlib`. Measured on the
-`roost-coord` test build: 12 GiB → 7.3 GiB → 4.3 GiB; the full workspace gate
-dir is ~11 GiB. Every cargo/dx build goes through
+`roost-coord` test build: 12 GiB → 7.3 GiB → 4.3 GiB from clean; the full
+workspace gate dir is ~11 GiB. A track dir mid-wave still grows to 10–14 GiB
+(`debug/` only; compression verified present on newest test binaries): cargo
+never deletes a test binary superseded by a new hash, and those were ~40% of
+each dir. Every cargo/dx build goes through
 `flock <worktree>/target-track/.roost-build.lock /home/almalinux/repos/roost-build-slot <cmd>`,
-which admits at most two builds host-wide. `cargo clean` a track's
-`target-track` once its branch is pushed and it has no build left in its wave.
-Never set `RUSTFLAGS` in a build env (it replaces the config flag).
+which admits at most two builds host-wide. After every gate, under the same
+build lock: `/home/almalinux/repos/roost-target-sweep <worktree>/target-track`
+(keeps the newest hash per executable in `debug/deps`, never touches
+libraries). Delete release dirs after live-stack checks. `cargo clean` a
+track's `target-track` between waves when it passes ~12 GiB. The integrator's
+`target-gate` exists only during a merge gate. Never set `RUSTFLAGS` in a
+build env (it replaces the config flag).
 
 ## Stage 0 state (plan "### Stage 0") — COMPLETE
 
