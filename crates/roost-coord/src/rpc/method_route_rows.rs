@@ -117,7 +117,7 @@ pub const ROWS_SESSIONS: &[MethodRoute] = &[
 /// would be a claim about a fence none of the five consults.
 #[rustfmt::skip]
 pub const ROWS_AGENTS: &[MethodRoute] = &[
-    route("SessionsPrompt", "agents", AuthRequirement::DevicePlusFence, PortStatus::AwaitingDomainPort),
+    route("SessionsPrompt", "agents", AuthRequirement::DevicePlusFence, PortStatus::Implemented),
     route("AgentStatusGet", "agents", AuthRequirement::Device, PortStatus::Implemented),
     route("AgentStatusList", "agents", AuthRequirement::Device, PortStatus::Implemented),
     route("AgentStatusWait", "agents", AuthRequirement::Device, PortStatus::Implemented),

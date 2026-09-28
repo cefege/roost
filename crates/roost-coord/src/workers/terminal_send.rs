@@ -1,12 +1,13 @@
-//! The terminal-control senders: one input batch and one snapshot repair, each
-//! written to the worker's current routable generation.
-//! Ports `sendTerminalInputRequest` and `sendTerminalSnapshotRequest` of
-//! `apps/coord/src/workers/worker-send.ts:174-379`. `sendTerminalStreamStateRequest`
-//! is not ported: its only v2 caller, `terminal-view-stream-controller.ts`, is
-//! dropped by the `terminal_view/mod.rs` ruling. Called by the terminal input
-//! lane and the view hub's repair; correlates through `services.scrollback.pending()`.
+//! The terminal-control senders: one input batch, one fenced agent prompt and
+//! one snapshot repair, each written to the worker's current routable generation.
+//! Ports `sendTerminalInputRequest`, `sendAgentPromptRequest` and
+//! `sendTerminalSnapshotRequest` of `apps/coord/src/workers/worker-send.ts:174-379`.
+//! `sendTerminalStreamStateRequest` is not ported: its only v2 caller,
+//! `terminal-view-stream-controller.ts`, is dropped by the `terminal_view/mod.rs`
+//! ruling. Called by the terminal input lane, `agents::prompt_control` and the
+//! view hub's repair; correlates through `services.scrollback.pending()`.
 
-use roost_proto::DInputRequest;
+use roost_proto::{DAgentPrompt, DInputRequest};
 use roost_protocol::wire::coord_worker::{
     CoordWorkerDownstream, InputResult, TerminalSnapshotRequest,
 };
@@ -73,6 +74,51 @@ pub fn send_terminal_input_request(
             })
         },
     )
+}
+
+/// One status-fenced agent prompt. The worker, not the coordinator, checks the
+/// fence against its live occupant and builds the PTY bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentPromptSend {
+    /// The session whose agent is prompted.
+    pub session_id: SessionId,
+    /// The coordinator-minted write sequence.
+    pub input_seq: u64,
+    /// The status epoch the caller read.
+    pub expected_status_epoch: String,
+    /// The occupant the caller read.
+    pub expected_occupant_id: String,
+    /// The status revision the caller read.
+    pub expected_revision: u64,
+    /// The prompt text, without its submit key.
+    pub text: String,
+}
+
+/// Send one fenced agent prompt and correlate the keeper-completed result.
+#[must_use]
+pub fn send_agent_prompt_request(
+    relay: &ScrollbackRelay,
+    worker_fp: &WorkerFp,
+    message: AgentPromptSend,
+    deadline: HopDeadline,
+) -> TerminalWorkerRequest<InputResult> {
+    let wording = RefusalWording {
+        expired: "agent prompt budget expired before send",
+        dropped: "worker transport dropped agent prompt",
+    };
+    send_typed(relay, worker_fp, deadline, &wording, |request_id, budget_ms| {
+        CoordWorkerDownstream::AgentPrompt(DAgentPrompt {
+            request_id,
+            session_id: message.session_id.as_str().to_owned(),
+            input_seq: message.input_seq,
+            expected_status_epoch: message.expected_status_epoch,
+            expected_occupant_id: message.expected_occupant_id,
+            expected_revision: message.expected_revision,
+            text: message.text,
+            budget_ms,
+            ..Default::default()
+        })
+    })
 }
 
 /// Ask for a full baseline of the currently expected stream. Fire and forget:

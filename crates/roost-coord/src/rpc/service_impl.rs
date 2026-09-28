@@ -321,11 +321,19 @@ impl CoordinatorService for CoordinatorServiceImpl {
 
     fn sessions_prompt<'a>(
         &'a self,
-        _ctx: RequestContext,
-        _r: ServiceRequest<'_, SessionsPromptRequest>,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsPromptRequest>,
     ) -> impl Future<Output = ServiceResult<impl Encodable<SessionsPromptResponse> + Send + use<'a>>>
     + Send {
-        delegated_reply::<SessionsPromptResponse>("SessionsPrompt")
+        async move {
+            let caller = caller_of(&ctx, "SessionsPrompt")?;
+            crate::agents::rpc_prompt::handle_sessions_prompt(
+                &self.core,
+                &caller,
+                r.to_owned_message(),
+            )
+            .await
+        }
     }
     // ── sessions ────────────────────────────────────────────────────────
 
