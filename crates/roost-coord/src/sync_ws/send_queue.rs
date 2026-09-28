@@ -11,9 +11,11 @@
 //! QUEUE. A streaming terminal would starve every other domain if cells simply
 //! won, so the cursor visits each lane a fixed number of times per pass, and a
 //! non-cell frame that has waited past [`LOW_LANE_MAX_AGE_MS`] outranks cells
-//! outright. The override is one-directional on purpose: a cell that waited
-//! three seconds does not get to jump the line, because unbounded cell delay is
-//! exactly the state the age rule exists to bound.
+//! among domain heads — within one domain it still waits behind the frames
+//! queued ahead of it, as v2 does (`sync-ws-v2-queue.ts:72-95`). The override is
+//! one-directional on purpose: a cell that waited three seconds does not get to
+//! jump the line, because unbounded cell delay is exactly the state the age
+//! rule exists to bound.
 
 use std::collections::{BTreeMap, BTreeSet};
 
