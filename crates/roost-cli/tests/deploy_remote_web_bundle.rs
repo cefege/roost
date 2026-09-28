@@ -56,8 +56,14 @@ impl Machine {
         std::fs::create_dir_all(&home).expect("the throwaway home is created");
         let mut env = MapEnv::new();
         env.set("HOME", home.to_str().expect("utf-8"));
-        env.set("XDG_DATA_HOME", root.join("home/data").to_str().expect("utf-8"));
-        env.set("XDG_STATE_HOME", root.join("home/state").to_str().expect("utf-8"));
+        env.set(
+            "XDG_DATA_HOME",
+            root.join("home/data").to_str().expect("utf-8"),
+        );
+        env.set(
+            "XDG_STATE_HOME",
+            root.join("home/state").to_str().expect("utf-8"),
+        );
         env.set("ROOST_WORKER_LABEL", "studio");
         env.set("ROOST_COORDINATOR_URL", "https://v3.mike.roosttt.com");
         Self { root, env }
@@ -92,7 +98,6 @@ impl Machine {
         ("index.html", "<html>marker: deployed bundle</html>\n"),
         ("assets/app.js", "marker: deployed asset\n"),
     ];
-
 
     /// The definition the apply wrote, read back off this machine.
     fn definition(&self) -> String {

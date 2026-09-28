@@ -60,7 +60,12 @@ pub async fn run(manifest_bytes: &[u8], env: &dyn EnvSource) -> ApplyReport {
             );
         }
     };
-    run_with(manifest_bytes, env, &mut PlatformServiceManager::new(platform)).await
+    run_with(
+        manifest_bytes,
+        env,
+        &mut PlatformServiceManager::new(platform),
+    )
+    .await
 }
 
 /// Run the apply, and return the report the deploying box reads.
