@@ -69,6 +69,9 @@ impl ClientCore {
         // reload, and a released occupant whose completion was already
         // delivered then stays on screen until the profile is closed.
         store.agent_seen = AgentSeenLedger::decode(storage.get(AGENT_SEEN_STORAGE_KEY).as_deref());
+        store.sidebar = crate::store::sidebar::SidebarState::load(storage.as_ref());
+        store.deck = crate::deck::DeckState::restore(storage.as_ref(), clock.now_ms());
+        crate::store::ui::load_ui(&mut store, storage.as_ref());
         Self {
             store,
             clock,

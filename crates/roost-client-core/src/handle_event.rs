@@ -203,6 +203,15 @@ pub fn handle_event(
         ClientEvent::AgentSeenMerged { encoded } => {
             handle_agent_seen_merged(store, encoded);
         }
+        ClientEvent::Shell(intent) => {
+            crate::store::shell_intent::apply_shell_intent(store, storage, intent, host_now_ms);
+        }
+        ClientEvent::Sidebar(intent) => {
+            crate::store::sidebar::apply_sidebar_intent(store, storage, intent);
+        }
+        ClientEvent::Deck(intent) => {
+            crate::deck::intent::apply_deck_intent(store, intent, storage, host_now_ms);
+        }
 
         // ---- time -------------------------------------------------------------
         ClientEvent::Sweep { now_ms } => {

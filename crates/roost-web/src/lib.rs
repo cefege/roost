@@ -18,11 +18,25 @@
 
 pub mod app;
 pub mod components;
+pub mod dead_route_safety_net;
+pub mod display_format;
 pub mod input_nav;
+pub mod keyboard_shortcuts;
+#[cfg(target_arch = "wasm32")]
+pub mod keyboard_shortcuts_dom;
+pub mod motion;
+pub mod new_terminal_target;
 pub mod platform;
 pub mod pump;
+pub mod route_session;
 pub mod router_state;
 pub mod routes;
+pub mod session_actions;
+pub mod session_naming;
+#[cfg(feature = "smoke")]
+pub mod smoke;
+pub mod syntax_lite;
+pub mod terminal_href;
 pub mod theme;
 
 use std::cell::RefCell;
@@ -99,6 +113,9 @@ pub fn App() -> Element {
     // The pump is built once, in the root scope that owns the revision signal,
     // and started in the same hook: the core it drives is the provided one.
     let revision = use_signal(|| 0_u64);
+    // The persisted palette lands before the first component paints (v2
+    // `main.tsx` applies it before `render`).
+    use_hook(theme::apply_stored_theme);
     let pump = use_hook(|| {
         let tab = tab_id();
         let core = Rc::new(RefCell::new(build_core(&tab)));
@@ -106,7 +123,15 @@ pub fn App() -> Element {
     });
     use_context_provider(|| pump.core());
     use_context_provider(|| pump.clone());
-    rsx! { app::GatedApp {} }
+    let _panes = use_context_provider(components::terminal::pane_registry::PaneRegistry::default);
+    #[cfg(all(feature = "smoke", target_arch = "wasm32"))]
+    use_hook(|| smoke::install_smoke_backdoor(&pump, &_panes));
+    components::layout::window_size::WindowSize::provide();
+    motion::resize_drag::ResizeDrag::provide();
+    keyboard_shortcuts::ShortcutOverlays::provide();
+    rsx! {
+        components::app_error_boundary::AppErrorBoundary { app::GatedApp {} }
+    }
 }
 
 /// The client core over this browser's platform.

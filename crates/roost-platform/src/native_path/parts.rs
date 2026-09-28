@@ -120,8 +120,9 @@ pub fn native_path_crumbs(
     }
     if platform == HostPlatform::Windows {
         if let Some((drive_letter, tail)) = split_windows_drive_root(&normalized) {
+            // v2 names the drive root crumb `C:` and walks it as `C:/`.
             let root = format!("{drive_letter}:/");
-            let mut crumbs = vec![crumb(&root, &root)];
+            let mut crumbs = vec![crumb(&format!("{drive_letter}:"), &root)];
             let mut current = root;
             for segment in segments(tail) {
                 let trimmed = current.strip_suffix('/').unwrap_or(&current);
@@ -227,10 +228,10 @@ mod tests {
         let crumbs = native_path_crumbs(HostPlatform::Windows, r"c:\a\b").expect("crumbs");
         assert_eq!(
             trail(&crumbs),
-            [("C:/", "C:/"), ("a", "C:/a"), ("b", "C:/a/b")]
+            [("C:", "C:/"), ("a", "C:/a"), ("b", "C:/a/b")]
         );
         let drive_only = native_path_crumbs(HostPlatform::Windows, "C:/").expect("crumbs");
-        assert_eq!(trail(&drive_only), [("C:/", "C:/")]);
+        assert_eq!(trail(&drive_only), [("C:", "C:/")]);
     }
 
     #[test]

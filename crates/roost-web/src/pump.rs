@@ -45,7 +45,8 @@ struct PumpInner {
     dispatching: Cell<bool>,
     queued: RefCell<Vec<ClientEvent>>,
     /// Browser callbacks that must live as long as the pump (timers,
-    /// lifecycle listeners), held type-erased so both targets compile.
+    /// lifecycle listeners), held type-erased; only a browser installs them.
+    #[cfg(target_arch = "wasm32")]
     listeners: RefCell<Vec<Box<dyn std::any::Any>>>,
 }
 
@@ -75,6 +76,7 @@ impl Pump {
                 socket: RefCell::new(None),
                 dispatching: Cell::new(false),
                 queued: RefCell::new(Vec::new()),
+                #[cfg(target_arch = "wasm32")]
                 listeners: RefCell::new(Vec::new()),
             }),
         }
