@@ -32,7 +32,10 @@ use roost_proto::{CoordinatorServiceClient, SessionsListRequest};
 
 use super::boot::WorkerBoot;
 use super::keeper_boot::{self, KeeperBootDecision, KeeperBootOutcome, KeeperHandle};
+use super::keeper_prepare::KeeperProcess;
+use crate::agents::conversation_recovery::{RecoveryReferences, assert_exact_recovery_metadata};
 use crate::keeper_pool::KeeperPool;
+use crate::uplink::OwnerFuture;
 
 /// The coordinator's open-session count, or `None` while nobody has read it.
 pub type OpenSessionCount = Option<usize>;
@@ -57,7 +60,7 @@ pub type OpenSession = roost_proto::Session;
 pub async fn read_open_sessions<T>(
     client: &CoordinatorServiceClient<T>,
     worker_fp: &str,
-) -> anyhow::Result<Vec<OpenSession>>
+) -> anyhow::Result<OpenSessionSet>
 where
     T: ClientTransport,
     <T::ResponseBody as http_body::Body>::Error: std::fmt::Display,
@@ -86,6 +89,13 @@ where
         .await
         .context("the coordinator did not report its open-session set")?
         .into_owned();
+    let session_ids: Vec<String> = response
+        .sessions
+        .iter()
+        .map(|session| session.id.clone())
+        .collect();
+    let references = assert_exact_recovery_metadata(&session_ids, &response.recovery_metadata)
+        .context("the coordinator's recovery metadata does not pair with its open sessions")?;
     let sessions = response.sessions;
     tracing::info!(
         %worker_fp,
@@ -93,7 +103,60 @@ where
         "the coordinator's open-session rows are in hand, so the keeper survivor \
          decision may proceed on a read fact and an adoption may name the session it adopts"
     );
-    Ok(sessions)
+    Ok(OpenSessionSet {
+        rows: sessions,
+        references,
+    })
+}
+
+/// The coordinator's open rows beside each one's recovery reference, admitted
+/// against each other (v2 `_assertExactRecoveryMetadata`): a set whose
+/// metadata does not pair up is refused rather than restoring the wrong
+/// conversation. Read by `runtime::session_reconcile`.
+#[derive(Debug, Default)]
+pub struct OpenSessionSet {
+    pub rows: Vec<OpenSession>,
+    pub references: RecoveryReferences,
+}
+
+/// Where a reconcile pass reads the coordinator's open-session rows from.
+pub trait OpenSessionSource: Send + Sync {
+    fn read(&self) -> OwnerFuture<anyhow::Result<OpenSessionSet>>;
+}
+
+/// The production source: `sessionsList` over the boot's Connect client.
+pub struct CoordinatorOpenSessions {
+    client: CoordinatorServiceClient<connectrpc::client::HttpClient>,
+    worker_fp: String,
+}
+
+impl CoordinatorOpenSessions {
+    pub fn new(
+        client: CoordinatorServiceClient<connectrpc::client::HttpClient>,
+        worker_fp: &str,
+    ) -> Self {
+        Self {
+            client,
+            worker_fp: worker_fp.to_owned(),
+        }
+    }
+}
+
+impl std::fmt::Debug for CoordinatorOpenSessions {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CoordinatorOpenSessions")
+            .field("worker_fp", &self.worker_fp)
+            .finish_non_exhaustive()
+    }
+}
+
+impl OpenSessionSource for CoordinatorOpenSessions {
+    fn read(&self) -> OwnerFuture<anyhow::Result<OpenSessionSet>> {
+        let client = self.client.clone();
+        let worker_fp = self.worker_fp.clone();
+        Box::pin(async move { read_open_sessions(&client, &worker_fp).await })
+    }
 }
 
 /// The count of the coordinator's open-session rows, for the decision that only
@@ -111,7 +174,9 @@ where
     T: ClientTransport,
     <T::ResponseBody as http_body::Body>::Error: std::fmt::Display,
 {
-    Ok(Some(read_open_sessions(client, worker_fp).await?.len()))
+    Ok(Some(
+        read_open_sessions(client, worker_fp).await?.rows.len(),
+    ))
 }
 
 /// What the boot does with a coordinator that did not answer: `None`.
@@ -162,8 +227,8 @@ pub struct Reconciled {
     /// them, so a boot that listed again would be a second answer to "what does
     /// the keeper hold" arriving after the first was already spent.
     pub survivors: Vec<u16>,
-    /// The coordinator's own rows for the sessions it still lists open here.
-    pub open: Vec<OpenSession>,
+    /// The keeper process this worker started, for a degraded restart.
+    pub process: KeeperProcess,
 }
 
 impl std::fmt::Debug for Reconciled {
@@ -174,7 +239,6 @@ impl std::fmt::Debug for Reconciled {
         formatter
             .debug_struct("Reconciled")
             .field("survivors", &self.survivors.len())
-            .field("open", &self.open.len())
             .finish_non_exhaustive()
     }
 }
@@ -245,11 +309,10 @@ where
     let open_sessions = open_sessions_or_unknown(
         open_read
             .as_ref()
-            .map(|rows| Some(rows.len()))
+            .map(|set| Some(set.rows.len()))
             .map_err(|error| anyhow::anyhow!("{error}")),
     );
-    let open_rows = open_read.unwrap_or_default();
-    if open_rows.is_empty() && open_sessions.is_some() {
+    if open_read.as_ref().is_ok_and(|set| set.rows.is_empty()) {
         tracing::info!(
             "boot: the coordinator reports no open session on this worker, so every channel \
              the keeper holds is one it has already closed"
@@ -259,8 +322,9 @@ where
     // behaviour change the move makes: `None` could only ever have come from
     // here, so the caller spent a match arm and a second `Option` to carry a
     // fact this function can simply report.
+    let process = KeeperProcess::default();
     let (keeper, survivors) =
-        match keeper_boot::ensure_keeper(boot, open_sessions, &boot.log_dir).await {
+        match keeper_boot::ensure_keeper(boot, open_sessions, &boot.log_dir, &process).await {
             Ok(KeeperBootOutcome::Adopted { channels, keeper }) => {
                 tracing::info!(
                     ?channels,
@@ -295,6 +359,6 @@ where
         pool: KeeperPool::new(keeper.clone()),
         keeper,
         survivors,
-        open: open_rows,
+        process,
     }))
 }

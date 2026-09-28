@@ -19,6 +19,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use roost_protocol::wire::agent_status::AgentStatusUpdate;
 use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 
 use crate::link_barrier::Action;
@@ -38,6 +39,9 @@ enum NextWrite {
     Snapshot { bytes: Vec<u8> },
     /// A control, terminal or raw-metadata frame, in lane order.
     Queued(Pending),
+    /// An agent status: v2 `drainQueues` writes these after the events and the
+    /// writable notification, ahead of the controls.
+    AgentStatus { bytes: Vec<u8> },
     /// The repair a refused cell sink produced when told the link is writable,
     /// written as one run ahead of the queued controls (v2 `notifyingWritable`).
     Repair(Vec<Pending>),
@@ -64,6 +68,15 @@ pub(super) fn admit_uplink(loop_state: &mut LinkLoop, frame: CoordWorkerUpstream
             let frame = CoordWorkerUpstream::Binary(binary);
             admit_to_lane(loop_state, &frame, Lane::RawMetadata, "raw-metadata");
         }
+        CoordWorkerUpstream::AgentStatus(frame) => {
+            let status = AgentStatusUpdate {
+                common: frame.status.common,
+                active: frame.status.active,
+            };
+            if let Err(error) = loop_state.send_agent_status(&status) {
+                tracing::warn!(%error, "an agent status was refused by the link");
+            }
+        }
         control => push_upstream(loop_state, &control, control.kind()),
     }
 }
@@ -81,6 +94,10 @@ pub(super) async fn drain(loop_state: &mut LinkLoop, link: &mut Link) -> Option<
             "the coordinator's acknowledgements retired durable rows"
         );
     }
+    // v2 `coordLinkSink`: rows the sink wrote reach the pump before anything is
+    // chosen, and a snapshot the barrier asked for is numbered by the outbox.
+    loop_state.sync_durable_rows().await;
+    loop_state.authorise_snapshot().await;
     let moved = loop_state.move_cell_frames_into();
     if moved > 0 {
         tracing::debug!(
@@ -121,6 +138,12 @@ pub(super) async fn drain(loop_state: &mut LinkLoop, link: &mut Link) -> Option<
             }
             NextWrite::Snapshot { bytes } => link.send(bytes).await.map(|()| 0),
             NextWrite::Queued(frame) => link.send(frame.bytes).await.map(|()| 0),
+            // Committed only once the socket took it, so a failed write stays
+            // pending for the next link (v2 keeps it until `tryWrite` succeeds).
+            NextWrite::AgentStatus { bytes } => link.send(bytes).await.map(|()| {
+                loop_state.agent_statuses.commit_written();
+                0
+            }),
             NextWrite::Repair(frames) => write_repair(link, frames).await,
         };
         match sent {
@@ -141,6 +164,7 @@ pub(super) async fn drain(loop_state: &mut LinkLoop, link: &mut Link) -> Option<
     if written > 0 {
         tracing::debug!(written, "the outbox drained to the coordinator link");
     }
+    loop_state.decide_replay_barrier();
     None
 }
 
@@ -183,7 +207,8 @@ fn notify_writable(loop_state: &mut LinkLoop, now: Instant) -> Option<Vec<Pendin
 /// waiting on. After that only a live barrier releases the lanes, and a cell
 /// sink still owed a writable notification holds the controls: the repair the
 /// notification produces leads any queued reply, once per pass
-/// (`coord-link-repair-order.test.ts`: opened → full → RPC).
+/// (`coord-link-repair-order.test.ts`: opened → full → RPC). Agent statuses go
+/// after that and ahead of the lanes (v2: events → agent statuses → controls).
 fn next_write(loop_state: &mut LinkLoop, now: Instant, notified: &mut bool) -> Option<NextWrite> {
     if let Some(pong) = loop_state.outbox.take_from(Lane::Liveness) {
         return Some(NextWrite::Queued(pong));
@@ -212,6 +237,11 @@ fn next_write(loop_state: &mut LinkLoop, now: Instant, notified: &mut bool) -> O
         *notified = true;
         return Some(NextWrite::Repair(repair));
     }
+    if let Some(bytes) = loop_state.agent_statuses.next_bytes() {
+        return Some(NextWrite::AgentStatus {
+            bytes: bytes.to_vec(),
+        });
+    }
     loop_state.outbox.drain_one(now).map(NextWrite::Queued)
 }
 
@@ -232,7 +262,10 @@ pub(super) fn apply_to(loop_state: &mut LinkLoop, action: Action) {
                 );
             }
             Some(frame) => {
-                if let Some(previous) = frame.seq {
+                // A reconnect re-releases the same row under the same sequence.
+                if let Some(previous) = frame.seq
+                    && previous != seq
+                {
                     tracing::error!(
                         seq,
                         previous,
@@ -243,7 +276,12 @@ pub(super) fn apply_to(loop_state: &mut LinkLoop, action: Action) {
                 loop_state.authorised = Some(Authorised::Durable(seq));
             }
         },
-        Action::WriteSnapshot => authorise_snapshot(loop_state),
+        // The sequence is the outbox's, and drawing it is async: the drain
+        // authorises the snapshot (`link_loop::durable_sync`).
+        Action::WriteSnapshot => {
+            loop_state.snapshot_wanted = true;
+            loop_state.wake();
+        }
         Action::IgnoredAck { seq } => {
             // Not an error. A duplicate or stale acknowledgement is normal on a
             // reconnect, and refusing one would turn a benign duplicate into an
@@ -254,19 +292,6 @@ pub(super) fn apply_to(loop_state: &mut LinkLoop, action: Action) {
             );
         }
         Action::Wait => {}
-    }
-}
-
-fn authorise_snapshot(loop_state: &mut LinkLoop) {
-    match loop_state.snapshot.snapshot() {
-        Ok(bytes) => {
-            loop_state.snapshot_since = None;
-            tracing::info!(bytes = bytes.len(), "publishing the worker snapshot");
-            loop_state.authorised = Some(Authorised::Snapshot(bytes));
-        }
-        Err(error) => {
-            tracing::warn!(%error, "the barrier cannot leave the snapshot stage yet");
-        }
     }
 }
 

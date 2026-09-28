@@ -140,22 +140,29 @@ pub(crate) fn row_spans(record: &SessionRecord, absolute_row: u32) -> Option<Arc
     Some(viewport_row_spans(core, row, core.cols()))
 }
 
-/// One row by its absolute index, or `None` when the grid no longer holds it.
+/// One row by its absolute index as the value model, or `None` when the grid
+/// no longer holds it. The page reader and the direct scrollback reader
+/// (`local_terminal::scrollback`) both read rows through here.
 ///
 /// `read_scrollback_range` CLAMPS to the retained window, which is the whole
 /// answer here: a row below the floor or at the end reads as an empty range, and
 /// an empty range is a row this grid does not have.
-fn row_value(record: &SessionRecord, absolute_row: u32) -> Option<CellRowJson> {
+pub(crate) fn row_cells(record: &SessionRecord, absolute_row: u32) -> Option<CellRow> {
     let core = record.terminal_core.as_ref();
     let origin = scrollback_origin(core, record.cell_emit.scrollback_origin).ok()?;
     let index = u64::from(absolute_row);
-    let rows = read_scrollback_range(core, index, index + 1, origin);
+    read_scrollback_range(core, index, index + 1, origin)
+        .into_iter()
+        .next()
+}
+
+fn row_value(record: &SessionRecord, absolute_row: u32) -> Option<CellRowJson> {
     // OWNED, not borrowed, and the lifetime says so. The row is built inside a
     // closure over the session table, and nothing may borrow out of that; what
     // it costs is one `Arc` bump, because `CellRow`'s spans are already behind
     // one. Everything expensive — the span text, the link URI — stays behind
     // the borrow that `Serialize` takes below.
-    rows.into_iter().next().map(CellRowJson::owned)
+    row_cells(record, absolute_row).map(CellRowJson::owned)
 }
 
 /// A monotonic history index as the `u32` the page arithmetic speaks.

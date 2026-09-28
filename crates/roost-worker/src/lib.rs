@@ -9,7 +9,6 @@
 
 pub mod agent_occupancy;
 pub mod agents;
-pub mod attachment_transfer;
 pub mod attachments;
 pub mod backoff;
 pub mod boot_keeper;
@@ -24,6 +23,7 @@ pub mod keeper_pool;
 pub mod link_barrier;
 pub mod link_dial;
 pub mod local_door;
+pub mod local_terminal;
 pub mod outbox;
 pub mod peer;
 pub mod runtime;

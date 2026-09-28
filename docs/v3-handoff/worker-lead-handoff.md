@@ -6,10 +6,10 @@ listed as open is either done on `v3` (S3.0 green at `78d5dc24`) or is a Stage 2
 
 ## Build rule (host-wide, user-agreed)
 Every cargo command: `export PATH="$HOME/.cargo/bin:$PATH" CARGO_INCREMENTAL=0
-CARGO_BUILD_JOBS=3 CARGO_TARGET_DIR=/home/almalinux/repos/roost-v3-worker/target-track`,
-run as `flock <worktree>/target-track/.roost-build.lock /home/almalinux/repos/roost-build-slot cargo …`
-(at most two cargo builds host-wide). Never set RUSTFLAGS. `/tmp/wcargo.sh` wraps all of it
-(recreate from this paragraph if /tmp was cleaned). Stop and `cargo clean` target-track if
+CARGO_BUILD_JOBS=4 CARGO_TARGET_DIR=/home/mike/repos/roost-v3-worker/target-track`,
+run as `flock <worktree>/target-track/.roost-build.lock /home/mike/repos/roost-build-slot cargo …`
+(at most two cargo builds host-wide). Never set RUSTFLAGS. `/home/mike/wl/wcargo.sh` wraps all of it
+(recreate from this paragraph if it is gone). Stop and `cargo clean` target-track if
 `df --output=avail -B1G /home | tail -1` < 10.
 
 Never end a turn while waiting on a build or a slice (a turn with no tool call kills the
@@ -22,7 +22,41 @@ agent): block in the foreground (eval `time.sleep` loop, or `flock <lock> true`)
 | `b69afc30` | `TerminalStreamResult.failure_kind` is `Option` (None ⇄ v2 UNSPECIFIED on a committed result). Guard + mutation in the commit body. |
 | `deda6301` | Shared registry gains v2 `broadcast`, `view`, `set_session_allowed`, sweep → `syncWatching` (coord terminal_view tests 11/7/10 pass). CoordLead2C told the SHA. |
 
-## PAUSE STATE (user stop order, lead `WorkerLead2W2`) — read this first
+## RESUME STATE (lead `WorkerLead`, host /home/mike) — read this first
+- Series on `recover/workerroot` = `v3-worker`: `7a46b99a` protocol terminal-capture types (coord
+  cherry-picked it as `7b19778b`), then the wave 2+3 per-slice commits (SERIES_SHAS). Shared files
+  land whole in the first slice commit that lists them; only the series tip is gated.
+- Compile fixes at resume: keeper_update_support bun_abi; packet-port tests import the split's traits;
+  clippy -D warnings fixes across agents/attachments/capture/peer/runtime + 5 test files; roost-protocol
+  attachment_transfer range checks.
+- Reds classified against v2 (details in the slice commit bodies): boot_adoption_gate ×2, session_adoption
+  ×2, session_spawn ×1 (test defects + one product double-release in spawn.rs); heartbeat fixture
+  bun_abi; roost-host older-generation token in http_security.rs; local_terminal_socket stalled-socket
+  (fixture: unattached coord sink held the baseline); link_agent_status retirement replay (test race
+  before the snapshot barrier went live).
+- Mutations run at resume (`/home/mike/wl/mutbatch.py`, specs `/home/mike/wl/muts-*.json`, logs
+  `mut-base.log`, `mut-2.log`; copies in `target-track/pause/resume/`): 57 mutants: 56 killed (after the guards below), 1 survivor.
+  First-pass survivors and their resolution: WDoorTerm M8/M8b and M12, WPeer M4 -> guards added
+  (a_live_session_the_grant_does_not_name_is_refused, authority_is_asked_only_before_a_slice_that_has_rows,
+  an_untransferred_read_returns_its_ceiling_to_an_open_port), each seen failing under its mutant; WPeer
+  M17 was killed by a --lib test the batch had not run. Remaining survivor: WKUpdate K-M1b.
+- Still open, in plan order: (1) mutations never run: WAgentsDetect M1-M12 + P1 (`pause/wad/run.py`),
+  WAttach 8 (same_carrier, seq check, unique_name, manifest retain, idle-sweep direct, reaper sort,
+  capability_matches, lease deadline()), WCapture 9 (list in its commit body), WDoorHttp batch C + D1;
+  (2) WKUpdate K-M1b survived (process_reap.rs sweep removal not caught by
+  a_nohup_job_that_ignores_sighup_is_still_reaped) — harden the test or classify equivalent;
+  (3) the v2-map audit (`//!` headers naming v2 modules; Windows-only list in
+  `crates/roost-worker/README.md`); (4) the live door check (`curl` the door on a Playwright stack port,
+  never 4114); (5) [INFERENCE, untested] CellCadence registers an active unattached "coord" sink at boot:
+  local-door deltas may stall until a coordinator link attaches (v2 suspends it on socket open,
+  coord-link-deps.ts:148) — verify on a live stack.
+- Cross-track gaps to REPORT (not worker-fixable): the worker Connect client sends no worker credential;
+  the v3 coord does not fill `recovery_metadata` (v2 returns it only to a worker principal).
+- Shared-file edits needing the integrator: root `Cargo.toml` (unicode-normalization, WAgentsInstall) + `Cargo.lock`
+  edges (roost-worker -> unicode-normalization, async-compression); roost-protocol `local_ui_door.rs` (ProtoDoor) and
+  `attachment_transfer/*` (ProtoAttach) are self-contained commits in the series.
+
+## PAUSE STATE (superseded by RESUME STATE above; user stop order, lead `WorkerLead2W2`) — read this first
 - Branch `recover/workerroot` = `v3-worker`: wave 1 (`5f67e12c`..`e5ecfe4a`, handoff `28e3cd1d`), then
   `b8cb104c` protocol bun_abi (cherry-pick of coord `c9772f99`, gated by CoordLead2C; roost-protocol +
   roost-keeper tests pass here) and `5208e0f9` protocol agent-status retirement decode (integrator-ruled;

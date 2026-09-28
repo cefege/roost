@@ -15,6 +15,7 @@
 use std::sync::{Arc, Mutex};
 
 use roost_keeper::history::HistoryRecord;
+use roost_protocol::terminal_capture::bundle::TerminalWorkerResizeOutcome::{LostAck, Recovered};
 use roost_protocol::viewport::{TerminalGeometry, is_terminal_geometry};
 use roost_protocol::wire::brand::ChannelId;
 use roost_term::{AlacrittyCore, CellEmitState, TerminalCore};
@@ -210,6 +211,10 @@ impl SessionManager {
             let mut record = lock(&entry);
             let delivery = lock(&self.ingest);
             let held = delivery.close_capture(channel_id);
+            let (held_bytes, history_head) = (
+                held.bytes.len() as u64,
+                history.as_ref().ok().map(|history| history.head_seq),
+            );
             let settled = history
                 .map_err(|fault| format!("ordered resize history unavailable: {}", fault.reason))
                 .and_then(|history| {
@@ -217,13 +222,15 @@ impl SessionManager {
                 });
             match settled {
                 Ok((loss, replies)) => {
+                    let result = (Recovered, held_bytes, history_head);
+                    super::resize::note_resize(&*delivery, &record, boundary, Some(result));
                     if let Some(emission) = delivery.stream_emission() {
                         emission.forward_query_replies(&record, replies);
                     }
                     loss
                 }
                 Err(reason) => {
-                    trap_boundary(&record, &*delivery, boundary, &reason);
+                    trap_boundary(&record, &*delivery, boundary, &reason, LostAck, held_bytes);
                     return Err(Unrecovered {
                         reason,
                         trapped: true,

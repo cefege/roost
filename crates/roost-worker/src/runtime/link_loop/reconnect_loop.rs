@@ -34,7 +34,7 @@ impl LinkLoop {
         }
         loop {
             if let Some(reason) = stop.reason() {
-                return reason;
+                return self.dispose_replay(reason);
             }
             let attempt = self.policy.begin_dial();
             tracing::info!(attempt, coordinator = %self.endpoint.url(), "dialling the coordinator");
@@ -84,7 +84,7 @@ impl LinkLoop {
                 }
                 LinkEndOutcome::Stop(reason) => {
                     tracing::info!(reason = %reason, "the coordinator link closed for a stop");
-                    return reason;
+                    return self.dispose_replay(reason);
                 }
             }
         }
@@ -94,7 +94,8 @@ impl LinkLoop {
     /// socket's lanes go with it: the pong, every control frame (a reply to a
     /// request of the gone connection, pending terminal metadata the replay
     /// re-asserts), terminal frames the next connection re-baselines, and raw
-    /// metadata. A pending agent status survives, as in v2. The durable mirror
+    /// metadata. A pending agent status survives in the agent-status outbox,
+    /// whose possibly-lost retirements replay first on the next link. The durable mirror
     /// does not reset: a durable row that vanished on reconnect would be a hole
     /// in the coordinator's record of what happened.
     fn detach_link(&mut self) {
@@ -102,14 +103,19 @@ impl LinkLoop {
         self.pump.on_disconnect();
         self.authorised = None;
         self.snapshot_since = None;
+        self.snapshot_wanted = false;
+        // v2 `disconnect`: the replay is pending again until the next link
+        // has replayed and reached its snapshot.
+        if let Some(delivery) = &self.durable_delivery {
+            delivery.mark_pending();
+        }
         self.terminal_metadata_negotiated = false;
         let liveness = self.outbox.discard(Lane::Liveness);
-        let control = self.outbox.retain(Lane::Control, |frame| {
-            frame.label == super::volatile::AGENT_STATUS_LABEL
-        });
+        let control = self.outbox.discard(Lane::Control);
         let terminal = self.outbox.discard(Lane::Terminal);
         let raw = self.outbox.discard(Lane::RawMetadata);
         self.forget_terminal_metadata();
+        self.agent_statuses.disconnect();
         tracing::info!(
             generation,
             liveness,
@@ -119,6 +125,15 @@ impl LinkLoop {
             "the coordinator link detached; its pong, control, terminal and raw frames were dropped"
         );
         self.notify_detach();
+    }
+
+    /// v2 `clear`: the link is gone for good, so a reconcile waiting for its
+    /// durable replay is refused rather than left waiting for ever.
+    fn dispose_replay(&self, reason: StopReason) -> StopReason {
+        if let Some(delivery) = &self.durable_delivery {
+            delivery.dispose();
+        }
+        reason
     }
 
     fn notify_detach(&self) {

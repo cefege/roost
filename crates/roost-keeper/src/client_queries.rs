@@ -1,15 +1,7 @@
-//! The questions a worker asks a keeper ABOUT it: the history a surviving PTY
-//! has retained, the geometry it is actually at, and the two ways to retire it.
-//! Owned by the worker, through [`KeeperClient`].
-//!
-//! The tag table is complete and the daemon answers every frame here
-//! (`keeper.rs:209,:215,:222,:224,:227,:230`), so each method below is a wire
-//! pairing with a handler that already exists. What was missing was the client
-//! half, and the cost of that was concrete: a worker restarting against a
-//! surviving keeper could not read the history it was supposed to adopt, nor
-//! learn the geometry the keeper applied — `FAILURE-INDEX.md:354` names the
-//! user-visible form, "History GONE after worker restart + browser refresh;
-//! pane freezes".
+//! The questions a worker asks a keeper ABOUT it: the geometry a surviving PTY
+//! is actually at, and the two ways to retire it. Owned by the worker, through
+//! [`KeeperClient`]. The history reads live in `client_history`, because they
+//! are the one pair of requests that must cross an ordered output boundary.
 //!
 //! A test for any of these must take its expected value from the DAEMON's
 //! answer, cited by line, and never by calling the method under test: a
@@ -20,7 +12,6 @@ use std::time::Duration;
 use super::client::KeeperClient;
 use crate::client_error::ClientError;
 use crate::codec::MuxFrameType;
-use crate::history::HistoryRecords;
 use crate::payloads::TerminalState;
 
 /// How long a question about live keeper state may take before the keeper is
@@ -28,46 +19,6 @@ use crate::payloads::TerminalState;
 const QUERY_TIMEOUT: Duration = Duration::from_secs(10);
 
 impl KeeperClient {
-    /// The ordered history a surviving channel still retains.
-    ///
-    /// This is what an adopter replays: the bytes, in order, plus the geometry
-    /// records that say where the grid has to be rebuilt. The daemon answers
-    /// `GetHistoryRecords` from `keeper_ops.rs:286`, which reads live channel
-    /// retention rather than anything cached, so the answer is what survived
-    /// even when the worker that produced it is long gone.
-    pub fn history_records(&self, channel_id: u16) -> Result<HistoryRecords, ClientError> {
-        let frame = self.request_empty(
-            MuxFrameType::GetHistoryRecords,
-            MuxFrameType::GetHistoryRecordsResp,
-            channel_id,
-            QUERY_TIMEOUT,
-        )?;
-        HistoryRecords::decode(&frame.payload).map_err(|error| {
-            ClientError::Io(format!("the keeper's history did not decode: {error}"))
-        })
-    }
-
-    /// The same retention, asked the way v2 asked before the records existed.
-    ///
-    /// A separate method rather than a fallback inside
-    /// [`KeeperClient::history_records`] because the two are different
-    /// QUESTIONS, not one question with a retry: the daemon serves both from
-    /// one path (`keeper.rs:224,:227`) and answers both with
-    /// `GetHistoryRecordsResp`, so a caller that wants the legacy shape asks
-    /// for it and a caller that wants the ordered shape is not silently handed
-    /// whatever an older keeper felt like.
-    pub fn legacy_history(&self, channel_id: u16) -> Result<HistoryRecords, ClientError> {
-        let frame = self.request_empty(
-            MuxFrameType::GetHistory,
-            MuxFrameType::GetHistoryRecordsResp,
-            channel_id,
-            QUERY_TIMEOUT,
-        )?;
-        HistoryRecords::decode(&frame.payload).map_err(|error| {
-            ClientError::Io(format!("the keeper's history did not decode: {error}"))
-        })
-    }
-
     /// The geometry the keeper has ACTUALLY applied to a channel.
     ///
     /// Authoritative, and answered from live channel state (`keeper_ops.rs:260`)

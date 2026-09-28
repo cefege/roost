@@ -12,15 +12,18 @@
 //!    membership, geometry and stream generations for this worker's sessions.
 //!  - `terminal-input-route-v1` — `terminal_input::TerminalInputRouteOwner`
 //!    answers the coordinator's route claims.
-//!
-//! NOT here: `terminal-peer-webrtc-v1` and `attachment-transfer-peer-webrtc-v1`.
-//! v2 adds them only when its peer owner is supported, and this build's
-//! `crate::peer` has no transport behind it.
+//!  - `terminal-peer-webrtc-v1` / `attachment-transfer-peer-webrtc-v1` —
+//!    only when that peer owner's native bootstrap was `ready`
+//!    (`peer::DirectPeerSupport`, v2 `boot-local-terminal.ts:173-174`); a
+//!    disabled or unloadable transport is never promised.
 
 use roost_protocol::versioning::{
-    CAPABILITY_TERMINAL_INPUT_ROUTE_V1, CAPABILITY_TERMINAL_METADATA_V1,
+    CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1, CAPABILITY_TERMINAL_INPUT_ROUTE_V1,
+    CAPABILITY_TERMINAL_METADATA_V1, CAPABILITY_TERMINAL_PEER_WEBRTC_V1,
     CAPABILITY_TERMINAL_VIEW_OWNER_V1,
 };
+
+use crate::peer::DirectPeerSupport;
 
 /// The capabilities this worker advertises, in the order the coordinator
 /// compares them.
@@ -28,12 +31,18 @@ use roost_protocol::versioning::{
 /// SORTED, as v2 sorts them: a hello is compared field by field and a
 /// reordered list is a different hello.
 #[must_use]
-pub fn advertised() -> Vec<String> {
+pub fn advertised(direct: DirectPeerSupport) -> Vec<String> {
     let mut capabilities = vec![
         CAPABILITY_TERMINAL_METADATA_V1.to_owned(),
         CAPABILITY_TERMINAL_VIEW_OWNER_V1.to_owned(),
         CAPABILITY_TERMINAL_INPUT_ROUTE_V1.to_owned(),
     ];
+    if direct.terminal {
+        capabilities.push(CAPABILITY_TERMINAL_PEER_WEBRTC_V1.to_owned());
+    }
+    if direct.attachment {
+        capabilities.push(CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1.to_owned());
+    }
     capabilities.sort();
     capabilities.dedup();
     capabilities
@@ -54,6 +63,12 @@ mod tests {
     };
 
     use super::advertised;
+    use crate::peer::DirectPeerSupport;
+
+    const BOTH: DirectPeerSupport = DirectPeerSupport {
+        terminal: true,
+        attachment: true,
+    };
 
     /// EVERY SPELLING IS THE PROTOCOL'S OWN. A capability is compared as a
     /// string on both sides, so a hand-written spelling that differs by a hyphen
@@ -69,7 +84,7 @@ mod tests {
             CAPABILITY_TERMINAL_PEER_WEBRTC_V1.to_owned(),
             CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1.to_owned(),
         ];
-        for capability in advertised() {
+        for capability in advertised(BOTH) {
             assert!(
                 known.contains(&capability),
                 "the hello advertises {capability:?}, which is not a capability the \
@@ -78,21 +93,26 @@ mod tests {
         }
     }
 
-    /// THE LIST IS A PROMISE, and a capability this build cannot serve must not
-    /// be in it: the WebRTC carriers have no transport behind `crate::peer`.
+    /// THE LIST IS A PROMISE: a WebRTC carrier is advertised only when its
+    /// owner bootstrapped, and each one independently of the other.
     #[test]
-    fn a_capability_with_no_collaborator_behind_it_is_not_advertised() {
-        let advertised = advertised();
-        for unimplemented in [
-            CAPABILITY_TERMINAL_PEER_WEBRTC_V1,
-            CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1,
-        ] {
-            assert!(
-                !advertised.contains(&unimplemented.to_owned()),
-                "the hello advertises {unimplemented:?}, and this build has no WebRTC \
-                 carrier behind crate::peer"
-            );
-        }
+    fn a_peer_capability_is_advertised_only_for_a_bootstrapped_owner() {
+        let terminal = CAPABILITY_TERMINAL_PEER_WEBRTC_V1.to_owned();
+        let attachment = CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1.to_owned();
+        let neither = advertised(DirectPeerSupport::default());
+        assert!(!neither.contains(&terminal) && !neither.contains(&attachment));
+        let only_terminal = advertised(DirectPeerSupport {
+            terminal: true,
+            attachment: false,
+        });
+        assert!(only_terminal.contains(&terminal) && !only_terminal.contains(&attachment));
+        let only_attachment = advertised(DirectPeerSupport {
+            terminal: false,
+            attachment: true,
+        });
+        assert!(!only_attachment.contains(&terminal) && only_attachment.contains(&attachment));
+        let both = advertised(BOTH);
+        assert!(both.contains(&terminal) && both.contains(&attachment));
     }
 
     /// A hello is compared field by field, so the list is sorted and free of
@@ -100,7 +120,7 @@ mod tests {
     /// coordinator that matches the first and ignores the second.
     #[test]
     fn the_list_is_sorted_and_free_of_duplicates() {
-        let advertised = advertised();
+        let advertised = advertised(BOTH);
         let mut sorted = advertised.clone();
         sorted.sort();
         sorted.dedup();

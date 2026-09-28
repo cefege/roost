@@ -60,9 +60,23 @@ impl crate::runtime::snapshot_source::SnapshotSource for FixedSnapshot {
         true
     }
 
-    fn snapshot(&self) -> Result<Vec<u8>, crate::runtime::snapshot_source::SnapshotError> {
-        Ok(vec![0xA5])
+    fn snapshot(
+        &self,
+    ) -> Result<
+        roost_protocol::wire::event::SessionEvent,
+        crate::runtime::snapshot_source::SnapshotError,
+    > {
+        Ok(roost_protocol::wire::event::SessionEvent::Snapshot {
+            worker_fp: WorkerFp::try_from(FINGERPRINT).expect("64 hex characters"),
+            sessions: Vec::new(),
+            ts: 0,
+            trace_id: None,
+        })
     }
+}
+
+fn delivery() -> std::sync::Arc<crate::session::durable_delivery::DurableDelivery> {
+    std::sync::Arc::new(crate::session::durable_delivery::DurableDelivery::new())
 }
 
 struct FixedCredential;
@@ -171,8 +185,7 @@ async fn an_opened_event_is_offered_before_that_sessions_first_cells() {
     let journal = Journal::open(&scratch.0.join(DATABASE_FILE_NAME))
         .await
         .expect("a fresh outbox opens");
-    link.attach_durable_outbox(std::sync::Arc::new(journal))
-        .expect("a fresh barrier aligns");
+    link.attach_durable_outbox(std::sync::Arc::new(journal), delivery());
     let sink = std::sync::Arc::new(CoordinatorCellSink::new(std::sync::Arc::new(ProtoLinkWire)));
     // A sink is detached until the lifecycle attaches it at hello-ack; this
     // test drives the drain order, not the lifecycle.
@@ -239,6 +252,8 @@ async fn an_opened_event_is_offered_before_that_sessions_first_cells() {
          wait for a replay that is never coming"
     );
     crate::runtime::link_drain::apply_to(&mut link, acked);
+    // The drain draws the snapshot's number from the outbox before framing it.
+    link.authorise_snapshot().await;
     assert!(matches!(link.authorised, Some(Authorised::Snapshot(_))));
 
     // The snapshot draws from the SAME sequence space and is acknowledged from
@@ -270,8 +285,7 @@ async fn an_un_acknowledged_row_is_still_waiting_for_the_next_link() {
         let journal = Journal::open(&scratch.0.join(DATABASE_FILE_NAME))
             .await
             .expect("a fresh outbox opens");
-        link.attach_durable_outbox(std::sync::Arc::new(journal))
-            .expect("a fresh barrier aligns");
+        link.attach_durable_outbox(std::sync::Arc::new(journal), delivery());
         let row = link
             .publish_durable_event(&opened())
             .await
@@ -286,9 +300,7 @@ async fn an_un_acknowledged_row_is_still_waiting_for_the_next_link() {
         .await
         .expect("the outbox reopens over its own file");
     let journal = std::sync::Arc::new(journal);
-    restarted
-        .attach_durable_outbox(std::sync::Arc::clone(&journal))
-        .expect("a fresh barrier aligns");
+    restarted.attach_durable_outbox(std::sync::Arc::clone(&journal), delivery());
     let head = restarted
         .oldest_durable_row()
         .await

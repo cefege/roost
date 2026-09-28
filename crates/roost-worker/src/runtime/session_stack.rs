@@ -31,17 +31,22 @@ use std::sync::{Arc, Mutex};
 use roost_observability::clock::{EventClock, SystemClock};
 use roost_protocol::wire::brand::WorkerFp;
 
+use crate::agents::environment::{AgentReportEnvironment, AgentReportSite};
+use crate::attachments::store_paths::AttachmentBase;
 use crate::browser_commands::search::Searches;
+use crate::capture::{CaptureRecorder, CaptureRecorderDeps};
 use crate::event_store::Journal;
 use crate::host::shell_spec_resolver::HostShellSpecResolver;
 use crate::keeper_pool::KeeperPool;
 use crate::session::binding::CellDelivery;
+use crate::session::durable_delivery::DurableDelivery;
 use crate::session::emit::CellEmitter;
 use crate::session::journal_sink::JournalSink;
 use crate::session::keeper_channels::KeeperChannels;
 use crate::session::lifecycle::{SessionManager, SessionTable};
 use crate::session::sinks::SessionEventSink;
-use crate::session::spawn::{ShellSpawner, ShellSpecResolver};
+use crate::session::spawn::{SessionEnvironmentOverlay, ShellSpawner, ShellSpecResolver};
+use crate::session::terminal_changed::TerminalChangedHooks;
 
 use super::cell_delivery::TableCellDelivery;
 use super::channel_delivery::TableChannelDelivery;
@@ -78,6 +83,21 @@ pub struct SessionStack {
     /// write two bootstrap rcfiles for the same session, and the shell that
     /// reads one of them is reading whichever wrote last.
     resolver: Arc<dyn ShellSpecResolver>,
+    /// The agent report endpoint every PTY is pointed at (v2 environment.ts);
+    /// the report server and the detector share it.
+    pub agent_environment: Arc<AgentReportEnvironment>,
+    /// v2 `setAgentStatusHooks.terminalChanged`: every chunk's channel, told
+    /// by the channel delivery; the agent detector installs the hook.
+    pub terminal_changed: Arc<TerminalChangedHooks>,
+    /// Where every session's attachments land: the browser attachment
+    /// commands and the upload owner and reaper read this one base.
+    pub attachments: AttachmentBase,
+    /// The one terminal incident recorder (v2 `diag/terminal-capture.ts`): the
+    /// emitter feeds its tap, `deps` hands it to the diagnostics command.
+    pub capture: Arc<CaptureRecorder>,
+    /// The durable sink's change signal and the replay barrier: the link
+    /// drains it, the boot reconcile awaits it before reading recovery data.
+    pub durable_delivery: Arc<DurableDelivery>,
 }
 
 impl std::fmt::Debug for SessionStack {
@@ -114,6 +134,7 @@ pub enum StackError {
 /// opening it is a boot decision with a refusal attached and
 /// [`super::mod::serve_until`] has already made it; a constructor that opened
 /// one here would make that decision twice.
+#[allow(clippy::too_many_arguments)]
 pub fn build(
     worker_fp: WorkerFp,
     pool: Arc<KeeperPool>,
@@ -121,6 +142,8 @@ pub fn build(
     data_dir: &std::path::Path,
     log_dir: &std::path::Path,
     worker_fp_text: String,
+    process_epoch: &str,
+    agent_report: &AgentReportSite,
 ) -> Result<SessionStack, StackError> {
     let table = Arc::new(SessionTable::default());
     let clock = Arc::new(SystemClock);
@@ -129,13 +152,22 @@ pub fn build(
     // this pairing is the reason the file exists.
     let cells = TableCellDelivery::new(CellEmitter::new(), Arc::clone(&table));
     let emitter = cells.emitter();
-    let ingest = Arc::new(Mutex::new(TableChannelDelivery::new(Arc::clone(&emitter))));
+    let terminal_changed = Arc::new(TerminalChangedHooks::default());
+    let ingest = Arc::new(Mutex::new(TableChannelDelivery::new(
+        Arc::clone(&emitter),
+        Arc::clone(&terminal_changed),
+    )));
     // The ONE search ledger, opened here because this is the only object that
     // outlives the call to `deps`. See the field's own doc for why it is a
     // field rather than something `deps` builds.
     let searches: Arc<Mutex<Searches>> = Arc::new(Mutex::new(Searches::default()));
 
-    let events: Arc<dyn SessionEventSink> = Arc::new(JournalSink::new(outbox));
+    let durable_delivery = Arc::new(DurableDelivery::new());
+    let events: Arc<dyn SessionEventSink> =
+        Arc::new(JournalSink::new(outbox, Arc::clone(&durable_delivery)));
+    // v2 environment.ts: every PTY carries the report endpoint and its
+    // per-session capability, and a refused endpoint refuses the spawn.
+    let agent_environment = Arc::new(AgentReportEnvironment::resolve(agent_report));
     // ONE `map_err`, and the second closure is the bug that was here: it named
     // the parameter `error` and then logged `%reason`, which is bound in the
     // FIRST closure and not in scope inside the second. The log line and the
@@ -145,7 +177,8 @@ pub fn build(
             .map_err(|reason| {
                 tracing::error!(%reason, "the shell spec resolver could not be built for this host");
                 StackError::Platform(reason)
-            })?,
+            })?
+            .with_overlay(Arc::clone(&agent_environment) as Arc<dyn SessionEnvironmentOverlay>),
     );
     // The SAME pool answers both seams, and deliberately: `KeeperChannels` is
     // recovery (it can fail, and a fault ends an adoption) while
@@ -191,9 +224,14 @@ pub fn build(
         resolver_for_manager,
         core_capacity,
     );
+    let attachments = AttachmentBase::new(attachment_root(data_dir));
+    let capture = CaptureRecorder::attach_to_emitter(
+        CaptureRecorderDeps::for_process(&table, &manager, log_dir, process_epoch, &worker_fp_text),
+        &emitter,
+    );
     tracing::info!(
         fingerprint = %worker_fp_text,
-        attachments_root = %attachment_root(data_dir).display(),
+        attachments_root = %attachments.root().display(),
         log_dir = %log_dir.display(),
         "the session layer is built: one keeper pool answers both seams, one emitter answers \
          both delivery traits, and one resolver answers every launch contract"
@@ -205,6 +243,11 @@ pub fn build(
         emitter,
         searches,
         resolver,
+        agent_environment,
+        terminal_changed,
+        attachments,
+        capture,
+        durable_delivery,
     })
 }
 
@@ -235,19 +278,12 @@ impl SessionStack {
     /// search ledger is opened once — as a field, in `build` — and every
     /// `Deps` this hands out shares that one `Arc`. It is not a claim about
     /// how many callers there are.
-    pub fn deps(
-        &self,
-        data_dir: &std::path::Path,
-        log_dir: &std::path::Path,
-        platform: roost_host::HostPlatform,
-        worker_fp: &str,
-    ) -> crate::browser_commands::Deps {
+    pub fn deps(&self, platform: roost_host::HostPlatform) -> crate::browser_commands::Deps {
         super::deps::WorkerCapabilities {
             sessions: Arc::clone(&self.table),
             manager: Arc::clone(&self.manager),
-            attachment_root: attachment_root(data_dir),
-            log_dir: log_dir.to_path_buf(),
-            worker_fp: worker_fp.to_owned(),
+            attachment_root: self.attachments.root().to_path_buf(),
+            capture: Arc::clone(&self.capture),
             platform,
             searches: Arc::clone(&self.searches),
         }

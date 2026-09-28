@@ -80,6 +80,11 @@ async fn an_input_request_reaches_a_real_pty_and_equal_browser_sequences_both_la
         &root,
         &root,
         FINGERPRINT.to_owned(),
+        "terminal-input-epoch",
+        &roost_worker::agents::environment::AgentReportSite {
+            data_dir: root.clone(),
+            configured: None,
+        },
     )
     .expect("this host can build a session layer");
     let reservation = stack

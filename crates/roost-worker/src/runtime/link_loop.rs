@@ -10,9 +10,9 @@
 //! [`super::downstream::Dispatcher`] and the off-loop frames arrive on the
 //! [`crate::uplink`]. What is here is what those cannot express between them,
 //! and it is split along that seam — `durable.rs` owns the rows, `volatile.rs`
-//! the two superseding producers, `cell_sink.rs` the coordinator's cell
-//! receiver, `browser.rs` the command pump, and `reconnect_loop.rs` the loop
-//! over dials.
+//! the terminal metadata producer, `agent_status.rs` the agent-status outbox,
+//! `cell_sink.rs` the coordinator's cell receiver, `browser.rs` the command
+//! pump, and `reconnect_loop.rs` the loop over dials.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -33,9 +33,11 @@ use super::downstream::Dispatcher;
 use super::link_wire::LinkWire;
 use super::reconnect::{Escalation, ReconnectPolicy};
 use super::snapshot_source::SnapshotSource;
+pub mod agent_status;
 pub mod browser;
 pub mod cell_sink;
 pub mod durable;
+pub mod durable_sync;
 pub mod reconnect_loop;
 pub mod volatile;
 
@@ -128,6 +130,9 @@ pub struct LinkLoop {
     pub(super) terminal_metadata_negotiated: bool,
     /// The pending compact-metadata record per channel. `volatile.rs` owns it.
     pub(super) terminal_metadata: volatile::TerminalMetadataLane,
+    /// v2 `coord-link-agent-status.ts`'s outbox; `link_drain` drains it after
+    /// the durable rows and ahead of the outbox lanes.
+    pub(super) agent_statuses: agent_status::AgentStatusOutbox,
     pub(super) outbox: Outbox,
     pub(super) pump: Pump,
     pub(super) policy: ReconnectPolicy,
@@ -144,11 +149,24 @@ pub struct LinkLoop {
     /// Acknowledgements the frame handler recorded and the drain has not yet
     /// retired. `durable.rs` owns the rule that decides what happens to them.
     pub(super) pending_acks: Vec<u64>,
+    /// The durable sink's change signal and the replay barrier; `durable_sync.rs`
+    /// reads the one and decides the other.
+    pub(super) durable_delivery: Option<Arc<crate::session::durable_delivery::DurableDelivery>>,
+    /// The newest outbox row already offered to the pump.
+    pub(super) durable_offered_through: u64,
+    /// The outbox must be re-read on the next drain even without a signal.
+    pub(super) durable_resync: bool,
+    /// The barrier asked for the snapshot; the drain draws its sequence.
+    pub(super) snapshot_wanted: bool,
+    /// Boot's hold on the snapshot (`durable_sync.rs`); `None` publishes at once.
+    pub(super) snapshot_hold: Option<super::snapshot_source::SnapshotActivation>,
     /// The coordinator's cell receiver, which is `&self` and so cannot be the
     /// link's own lane. `cell_sink.rs` owns it and the link only drains it.
     pub(super) cell_sink: Option<Arc<CoordinatorCellSink>>,
     pub(super) links_opened: u64,
     pub(super) redisials: u64,
+    /// Which direct peer carriers bootstrapped; the hello advertises them.
+    pub(super) direct_peers: crate::peer::DirectPeerSupport,
 }
 
 impl std::fmt::Debug for LinkLoop {
@@ -197,6 +215,7 @@ impl LinkLoop {
             dispatcher,
             terminal_metadata_negotiated: false,
             terminal_metadata: volatile::TerminalMetadataLane::default(),
+            agent_statuses: agent_status::AgentStatusOutbox::default(),
             credential,
             outbox: Outbox::default(),
             pump: Pump::new(),
@@ -210,7 +229,13 @@ impl LinkLoop {
             redisials: 0,
             durable_rows: None,
             pending_acks: Vec::new(),
+            durable_delivery: None,
+            durable_offered_through: 0,
+            durable_resync: false,
+            snapshot_wanted: false,
+            snapshot_hold: None,
             cell_sink: None,
+            direct_peers: crate::peer::DirectPeerSupport::default(),
         }
     }
 
@@ -223,6 +248,17 @@ impl LinkLoop {
             Some(owners),
         ));
         tracing::info!("the coordinator link's downstream owners are attached");
+    }
+
+    /// Advertise the direct peers whose owners bootstrapped (v2
+    /// `peerSupported` / `attachmentPeerSupported`). Called once, before
+    /// [`LinkLoop::run`].
+    pub fn attach_direct_peers(&mut self, support: crate::peer::DirectPeerSupport) {
+        self.direct_peers = support;
+        tracing::info!(
+            ?support,
+            "the hello advertises the direct peers that bootstrapped"
+        );
     }
 
     pub fn barrier(&self) -> Barrier {

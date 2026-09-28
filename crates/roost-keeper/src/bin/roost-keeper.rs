@@ -214,12 +214,14 @@ fn main() -> std::process::ExitCode {
         }
     };
 
+    // v2 `shutdown()` reaps every channel's tree before the process exits, for
+    // every stop reason: a stopped keeper must not leave PTY children behind.
+    server.keeper_mut().reap_all_channels();
     if let Some(pid_file) = &args.pid_file {
         remove_own_pid_file(pid_file);
     }
     tracing::info!(reason, "keeper stopping");
-    // Channels are dropped here, which closes the master ends and lets the
-    // children see EOF. That is deliberate: a keeper that exits with PTYs
-    // still running would leave orphans holding terminals nothing can reach.
+    // Every channel's tree was reaped above; dropping the channels here only
+    // closes the master ends.
     std::process::ExitCode::SUCCESS
 }
