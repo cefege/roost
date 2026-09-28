@@ -210,7 +210,11 @@ impl Journal {
         })?;
         let kind = rows::wire_kind(&value)?;
         let payload_bytes = event_json.len();
-        let client_seq = self.claim_sequence().await?;
+        // The window stays locked until the row commits, so sequence order is
+        // commit order: a snapshot that draws its number under this lock can
+        // never be overtaken by a row numbered below it (`snapshot_sequence`).
+        let mut window = self.window.lock().await;
+        let client_seq = self.claim_sequence_in(&mut window).await?;
 
         let mut transaction = self.pool.begin().await.map_err(query("begin"))?;
         if let Some(claim) = claim {
@@ -254,6 +258,7 @@ impl Journal {
             return Err(corrupt("the appended row was not retained"));
         }
         transaction.commit().await.map_err(query("commit"))?;
+        drop(window);
         tracing::info!(
             client_seq,
             kind = %kind,

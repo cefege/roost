@@ -1,6 +1,7 @@
 //! Terminal-control result shaping: the pre-write / ambiguous truth mapping for
 //! `input-result`, and the reason bound. Called by `runtime::downstream` for the
-//! answers it gives itself and by the input and stream owners for theirs.
+//! answers it gives itself and by the input, agent-prompt and stream owners for
+//! theirs.
 //! Ports v2 `apps/worker/src/transport/coord-link-terminal-results.ts`
 //! (`sendTerminalInputResult`, `boundedTerminalReason`). v2's
 //! `terminalStreamFailureKind` has no port: the worker's stream outcome already
@@ -10,6 +11,8 @@ use roost_proto::{DAgentPrompt, DInputRequest};
 use roost_protocol::ProtocolError;
 use roost_protocol::wire::brand::SessionId;
 use roost_protocol::wire::coord_worker::{InputResult, TerminalInputStatus, TerminalWritePhase};
+
+use crate::session::input_write::WorkerInputResult;
 
 /// The longest reason, in UTF-8 bytes, an agent-originated result may carry.
 const TERMINAL_REASON_MAX_BYTES: usize = 200;
@@ -91,5 +94,43 @@ impl InputResultKey {
             reason,
             phase,
         })
+    }
+}
+
+/// v2 `sendTerminalInputResult`: the one `input-result` for a worker outcome;
+/// `bound_reason` cuts an agent-originated reason to 200 bytes. `None`, logged,
+/// when the coordinator's session id is not one the wire can carry.
+pub fn worker_input_result(
+    key: &InputResultKey,
+    result: &WorkerInputResult,
+    bound_reason: bool,
+) -> Option<InputResult> {
+    let (status, written_bytes, reason) = match result {
+        WorkerInputResult::Accepted { written_bytes } => {
+            (TerminalInputStatus::Accepted, *written_bytes, "")
+        }
+        WorkerInputResult::Rejected { reason } => {
+            (TerminalInputStatus::Rejected, 0, reason.as_str())
+        }
+        WorkerInputResult::Ambiguous {
+            written_bytes,
+            reason,
+        } => (
+            TerminalInputStatus::Ambiguous,
+            *written_bytes,
+            reason.as_str(),
+        ),
+    };
+    let reason = if bound_reason {
+        bounded_terminal_reason(Some(reason))
+    } else {
+        reason.to_owned()
+    };
+    match key.to_result(status, written_bytes, &reason) {
+        Ok(shaped) => Some(shaped),
+        Err(error) => {
+            tracing::warn!(request_id = %key.request_id, %error, "an input result cannot name the coordinator's session");
+            None
+        }
     }
 }

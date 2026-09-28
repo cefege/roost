@@ -14,6 +14,7 @@ use roost_proto::{
     TerminalInputRouteResult, WAttachmentDirectStatus, WLocalAttachmentPeerError,
     WLocalTerminalPeerError, WTerminalInputRouteResult,
 };
+use roost_protocol::attachment_transfer::PeerErrorReason;
 use roost_protocol::wire::brand::SessionId;
 use roost_protocol::wire::coord_worker::{
     CoordWorkerUpstream, TerminalInputStatus, TerminalStreamFailureKind, TerminalStreamResult,
@@ -25,6 +26,9 @@ use crate::uplink::terminal_results::InputResultKey;
 pub(super) const INPUT_HANDLER_UNAVAILABLE: &str = "worker input handler is unavailable";
 pub(super) const AGENT_PROMPT_HANDLER_UNAVAILABLE: &str =
     "worker agent prompt handler is unavailable";
+/// v2 `coord-link-downstream.ts` `agentPrompt`: the static reason an owner
+/// failure is answered with, so its own error text never reaches the wire.
+pub(super) const AGENT_PROMPT_HANDLER_FAILED: &str = "worker agent prompt handler failed";
 pub(super) const STREAM_ADMISSION_FULL: &str = "worker terminal-stream admission is full";
 pub(super) const LOCAL_TERMINAL_GRANTS_UNSUPPORTED: &str =
     "local terminal grants unsupported by this worker";
@@ -35,9 +39,6 @@ pub(super) const KEEPER_UPDATE_PREPARE_UNSUPPORTED: &str =
 /// v2 `coord-link-deps.ts:381`: the broker is Windows-only.
 pub(super) const UPDATE_BROKER_POSIX: &str =
     "Windows update broker command received on a POSIX worker";
-/// v2 `TerminalPeerOfferFailureReason` / `AttachmentPeerOfferFailureReason`
-/// for a worker with no peer owner.
-const PEER_DISABLED: &str = "disabled";
 /// v2 `refusedClaim`'s reason.
 const ROUTE_CLAIM_BUSY: &str = "route_claim_busy";
 /// v2 `sendUnavailableAttachmentStatus`'s error.
@@ -161,30 +162,52 @@ pub(super) fn route_result(
     })
 }
 
-pub(super) fn terminal_peer_disabled(
-    request: &DLocalTerminalPeerOffer,
+/// The fields a `local-terminal-peer-error` echoes, held past the owner's await.
+#[derive(Debug, Clone)]
+pub(super) struct PeerErrorKey {
+    pub(super) request_id: String,
+    pub(super) connection_generation: String,
+    pub(super) peer_id: String,
+}
+
+impl From<&DLocalTerminalPeerOffer> for PeerErrorKey {
+    fn from(request: &DLocalTerminalPeerOffer) -> Self {
+        Self {
+            request_id: request.request_id.clone(),
+            connection_generation: request.connection_generation.clone(),
+            peer_id: request.peer_id.clone(),
+        }
+    }
+}
+
+/// v2 `sendPeerError`.
+pub(super) fn terminal_peer_error(
+    key: &PeerErrorKey,
     worker_epoch: &str,
+    reason: &str,
 ) -> CoordWorkerUpstream {
     CoordWorkerUpstream::LocalTerminalPeerError(WLocalTerminalPeerError {
-        request_id: request.request_id.clone(),
-        connection_generation: request.connection_generation.clone(),
+        request_id: key.request_id.clone(),
+        connection_generation: key.connection_generation.clone(),
         worker_epoch: worker_epoch.to_owned(),
-        peer_id: request.peer_id.clone(),
-        reason: PEER_DISABLED.to_owned(),
+        peer_id: key.peer_id.clone(),
+        reason: reason.to_owned(),
         ..Default::default()
     })
 }
 
-pub(super) fn attachment_peer_disabled(
+/// v2 `sendAttachmentPeerError`.
+pub(super) fn attachment_peer_error(
     request: &DLocalAttachmentPeerOffer,
     worker_epoch: &str,
+    reason: PeerErrorReason,
 ) -> CoordWorkerUpstream {
     CoordWorkerUpstream::LocalAttachmentPeerError(WLocalAttachmentPeerError {
         request_id: request.request_id.clone(),
         connection_generation: request.connection_generation.clone(),
         worker_epoch: worker_epoch.to_owned(),
         peer_id: request.peer_id.clone(),
-        reason: PEER_DISABLED.to_owned(),
+        reason: reason.as_str().to_owned(),
         ..Default::default()
     })
 }

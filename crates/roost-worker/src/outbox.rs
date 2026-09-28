@@ -377,21 +377,4 @@ impl Outbox {
         while self.take_from(lane).is_some() {}
         dropped
     }
-
-    /// Drop every frame of one lane that `keep` rejects, keeping the rest in
-    /// order. Returns how many were dropped.
-    pub fn retain(&mut self, lane: Lane, mut keep: impl FnMut(&Pending) -> bool) -> usize {
-        let held = std::mem::take(&mut self.lanes[Self::slot(lane)]);
-        let mut dropped = 0;
-        for frame in held {
-            if keep(&frame) {
-                self.lanes[Self::slot(lane)].push_back(frame);
-            } else {
-                dropped += 1;
-                self.frame_count -= 1;
-                self.byte_count -= frame.bytes.len();
-            }
-        }
-        dropped
-    }
 }

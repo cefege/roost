@@ -1,71 +1,79 @@
-//! The watchers that follow a session's folder on this host: its git branch, its
-//! listening ports and its pull request. Keyed by session id and owned here,
-//! NOT hung on the session record. Depends on `host::{git_branch,ports,pr_status}`
-//! for the readings and on `roost_host` for the platform; nothing here depends
-//! back on `session`.
+//! The watchers that follow a session's folder on this host — its git branch
+//! and remote, its pull request and its listening ports — keyed by session id
+//! and owned here, NOT hung on the session record. Ports the polling half of v2
+//! `apps/worker/src/session/session-git-ports.ts` and `host/git-branch.ts`
+//! `watchGitBranch`; `session::git_ports` is the sink that compares each
+//! reading to the record and emits the `git`/`pr`/`ports` events.
 //!
-//! v2 hung a `.git/HEAD` watcher, a PR poller and a ports poller on the record
-//! as optional closures. A closed session then kept a file handle and three
-//! timers alive, and a record — which is logged, snapshotted and printed by
-//! diagnostics — carried three closures it had no business carrying. Here the
-//! record is plain data and a caller that wants a watcher stopped asks this
-//! module, which joins the thread and drops everything it held.
-//!
-//! THE HEAD WATCHER POLLS INSTEAD OF NOTIFYING. v2 used an OS watcher; this
-//! crate takes no notifier dependency, and a branch switch is a write to one
-//! small file, so the thread reads that file. The cost is bounded and it is
-//! paid per WATCHED SESSION, not per host, and a folder that is not a
-//! repository has no file to read at all.
+//! THE SCHEDULE IS v2's: at start the branch, the remote and the ports are read
+//! once; afterwards a branch switch re-reads the branch, and every ninety
+//! seconds the pull request and the ports are re-read. A branch or remote the
+//! sink says CHANGED re-resolves the pull request at once, as v2's
+//! `_resolvePr` after an emit did. The HEAD watcher polls the file instead of
+//! subscribing to an OS notifier (no notifier dependency; a branch switch is a
+//! write to one small file). Stopping flags the thread and detaches it: a
+//! thread inside a `gh` call may run up to the tool timeout, and a close path
+//! must not wait on it — its late reading is refused by the sink's record
+//! check, as v2's `sessions.get(channelId) !== rec` guard refused it.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 use std::time::Duration;
 
 use roost_host::HostPlatform;
 
+use super::PrStatus;
 use super::git_branch::GitReader;
 use super::ports;
 use super::pr_status::PrReader;
+use super::tool_path::process_tool_path;
 
 /// How often a watched `HEAD` is re-read, and so how long a branch switch takes
 /// to reach a browser. The file is tens of bytes; the cost is one read.
 pub const HEAD_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
-/// How often the slow facts — ports and pull request — are re-read. Ninety
-/// seconds because both are expensive relative to a badge: `ss` walks every
-/// listening socket on the host and `gh` is a network round trip.
+/// v2's `setInterval(.., 90_000)` for both the PR poll and the ports poll: `ss`
+/// walks every listening socket on the host and `gh` is a network round trip.
 pub const FACTS_POLL_INTERVAL: Duration = Duration::from_secs(90);
 
-/// How long the watcher sleeps between checks of its stop flag. Short enough
-/// that closing a session releases its thread promptly.
+/// How long the watcher sleeps between checks of its stop flag.
 const STOP_TICK: Duration = Duration::from_millis(25);
 
-/// What a session's folder is currently known to be.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct FolderFacts {
-    pub branch: Option<String>,
-    pub remote: Option<String>,
-    pub ports: Vec<u16>,
-    pub pr: Option<super::PrStatus>,
+/// One reading of one folder fact.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FolderReading {
+    /// The current branch, `None` for a folder that is not a repository.
+    Branch(Option<String>),
+    /// The GitHub `owner/repo` of `origin`, `None` when there is none.
+    Remote(Option<String>),
+    /// The branch's pull request, `None` for every reason there is not one.
+    PullRequest(Option<PrStatus>),
+    /// The reachable LISTEN ports of the session's process tree, ascending.
+    Ports(Vec<u16>),
 }
 
-/// Where a reading goes. A sink rather than a trait so the registry does not
-/// decide the shape of the session event, which `session` owns.
-pub type FactsSink = Arc<dyn Fn(&str, &FolderFacts) + Send + Sync>;
+/// Where one session's readings go. The session layer implements it, because
+/// the record and the event shape are the session's, not this module's.
+pub trait FolderFactsSink: Send + Sync {
+    /// Apply one reading; `true` when it changed what the session shows.
+    fn apply(&self, reading: FolderReading) -> bool;
+    /// The branch a pull request lookup should ask about now, or `None` when
+    /// the session is gone, the branch is unknown, or no GitHub remote is known
+    /// (v2 `_resolvePr`'s guard).
+    fn pull_request_branch(&self) -> Option<String>;
+}
 
-/// One watched session: its thread, and the flag that ends it.
+/// One watched session: the flag that ends its thread.
 struct Watcher {
     stop: Arc<AtomicBool>,
-    thread: Option<JoinHandle<()>>,
 }
 
 /// The live watchers, keyed by session id.
 #[derive(Default)]
 pub struct HostWatchers {
     inner: Mutex<HashMap<String, Watcher>>,
-    /// Threads started and not yet joined, for a test and for a diagnostic.
+    /// Threads started and not yet exited, for a test and for a diagnostic.
     live: Arc<AtomicUsize>,
 }
 
@@ -85,19 +93,16 @@ impl HostWatchers {
         Self::default()
     }
 
-    /// Follow `folder` on behalf of `session_id`, emitting a reading whenever
-    /// one changes. `true` when this started a new watcher.
-    ///
-    /// Re-watching a session that is already watched is refused rather than
-    /// restarted: two threads reading the same folder would each emit, and the
-    /// second reading would be stale by the time it arrived.
+    /// Follow `folder` on behalf of `session_id`. `true` when this started a
+    /// new watcher; re-watching a session that is already watched is refused,
+    /// because two threads reading one folder would each emit.
     pub fn watch(
         &self,
         session_id: &str,
         folder: &str,
         root_pid: Option<u32>,
         platform: HostPlatform,
-        sink: FactsSink,
+        sink: Arc<dyn FolderFactsSink>,
     ) -> bool {
         let mut watchers = self.lock();
         if watchers.contains_key(session_id) {
@@ -106,9 +111,6 @@ impl HostWatchers {
         }
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = Arc::clone(&stop);
-        // Each holder takes its own clone: a handle moved into the closure is
-        // gone for the spawn-failure path below, whether or not the closure
-        // ever runs.
         let thread_live = Arc::clone(&self.live);
         let unwatched_live = Arc::clone(&self.live);
         let watched_session = session_id.to_string();
@@ -117,25 +119,21 @@ impl HostWatchers {
         let thread = std::thread::Builder::new()
             .name(format!("roost-folder-{session_id}"))
             .spawn(move || {
-                watch_folder(
-                    watched_session,
-                    watched_folder,
+                let reader = FolderReader {
+                    git: GitReader::system(),
+                    pr: PrReader::on_path(process_tool_path(platform)),
+                    folder: watched_folder,
                     root_pid,
                     platform,
                     sink,
-                    thread_stop,
-                );
+                    stop: thread_stop,
+                };
+                reader.follow(&watched_session);
                 thread_live.fetch_sub(1, Ordering::SeqCst);
             });
         match thread {
-            Ok(thread) => {
-                watchers.insert(
-                    session_id.to_string(),
-                    Watcher {
-                        stop,
-                        thread: Some(thread),
-                    },
-                );
+            Ok(_detached) => {
+                watchers.insert(session_id.to_string(), Watcher { stop });
                 tracing::info!(%session_id, %folder, "a session folder is now being watched");
                 true
             }
@@ -147,20 +145,13 @@ impl HostWatchers {
         }
     }
 
-    /// Stop the watcher for `session_id`, joining its thread. `true` when there
-    /// was one.
-    ///
-    /// The join is the whole contract: a stopped watcher that is merely flagged
-    /// is a thread that still holds what it read until it next wakes, and a
-    /// closed session that keeps reading is a poll nobody turned off.
+    /// Stop the watcher for `session_id`. `true` when there was one. The
+    /// thread is flagged and detached (see the header).
     pub fn stop(&self, session_id: &str) -> bool {
-        let Some(mut watcher) = self.lock().remove(session_id) else {
+        let Some(watcher) = self.lock().remove(session_id) else {
             return false;
         };
         watcher.stop.store(true, Ordering::SeqCst);
-        if let Some(thread) = watcher.thread.take() {
-            let _ = thread.join();
-        }
         tracing::info!(%session_id, "a session folder is no longer being watched");
         true
     }
@@ -169,11 +160,7 @@ impl HostWatchers {
     pub fn stop_all(&self) -> usize {
         let sessions: Vec<String> = self.lock().keys().cloned().collect();
         let stopped = sessions.iter().filter(|session| self.stop(session)).count();
-        tracing::info!(
-            stopped,
-            watched = sessions.len(),
-            "folder watchers were stopped"
-        );
+        tracing::info!(stopped, "folder watchers were stopped");
         stopped
     }
 
@@ -201,85 +188,87 @@ impl HostWatchers {
     }
 }
 
-/// One reading of everything a folder is known by.
-#[must_use]
-pub fn read_folder_facts(
-    git: &GitReader,
-    pr: &PrReader,
-    folder: &str,
-    root_pid: Option<u32>,
-    platform: HostPlatform,
-) -> FolderFacts {
-    // The branch is read ONCE and used for both facts: `gh pr list --head`
-    // needs it, and reading it twice is two process spawns per poll for an
-    // answer that cannot differ between the two.
-    let branch = git.branch(folder);
-    FolderFacts {
-        remote: git.remote(folder),
-        pr: branch
-            .as_deref()
-            .and_then(|branch| pr.status(folder, branch)),
-        branch,
-        ports: ports::read_listening_ports(root_pid, platform),
-    }
-}
-
-/// The watch loop for one session, until stopped.
-fn watch_folder(
-    session_id: String,
+/// Everything one watcher thread reads with.
+struct FolderReader {
+    git: GitReader,
+    pr: PrReader,
     folder: String,
     root_pid: Option<u32>,
     platform: HostPlatform,
-    sink: FactsSink,
+    sink: Arc<dyn FolderFactsSink>,
     stop: Arc<AtomicBool>,
-) {
-    let git = GitReader::from_tool_path(None, platform);
-    let pr = PrReader::from_tool_path(None, platform);
-    // Resolved once: a repository's HEAD does not move to a different file when
-    // a branch is created, so asking git again every tick would be two process
-    // spawns per second per session for an answer that cannot change.
-    let head = git.head_path(&folder);
-    let mut facts = read_folder_facts(&git, &pr, &folder, root_pid, platform);
-    let mut head_contents = head
-        .as_deref()
-        .and_then(|path| std::fs::read_to_string(path).ok());
-    sink(&session_id, &facts);
+}
 
-    let mut since_facts = Duration::ZERO;
-    while !stop.load(Ordering::SeqCst) {
-        if !sleep_until_stop(&stop, HEAD_POLL_INTERVAL) {
-            break;
+impl FolderReader {
+    /// The watch loop for one session, until stopped.
+    fn follow(&self, session_id: &str) {
+        // v2 `_startGitBranch`: branch, HEAD watch, remote; then `_startPorts`.
+        self.apply_branch();
+        let head = self.git.head_path(&self.folder);
+        let mut head_contents = head
+            .as_deref()
+            .and_then(|path| std::fs::read_to_string(path).ok());
+        if self.stopped() {
+            return;
         }
-        let branch_moved = match (&head, &head_contents) {
-            (Some(path), Some(previous)) => std::fs::read_to_string(path)
-                .ok()
-                .is_some_and(|current| &current != previous),
-            _ => false,
-        };
-        if branch_moved {
-            head_contents = head
-                .as_deref()
-                .and_then(|path| std::fs::read_to_string(path).ok());
-            facts.branch = git.branch(&folder);
+        let remote = self.git.remote(&self.folder);
+        if self.sink.apply(FolderReading::Remote(remote)) {
+            self.resolve_pull_request();
         }
-        since_facts += HEAD_POLL_INTERVAL;
-        if branch_moved || since_facts >= FACTS_POLL_INTERVAL {
-            since_facts = Duration::ZERO;
-            let next = read_folder_facts(&git, &pr, &folder, root_pid, platform);
-            if next != facts {
-                tracing::debug!(%session_id, "a watched folder's facts changed");
-                facts = next;
+        self.resolve_ports();
+        let mut since_poll = Duration::ZERO;
+        while sleep_until_stop(&self.stop, HEAD_POLL_INTERVAL) {
+            if let Some(path) = head.as_deref() {
+                let current = std::fs::read_to_string(path).ok();
+                if current.is_some() && current != head_contents {
+                    head_contents = current;
+                    self.apply_branch();
+                }
+            }
+            since_poll += HEAD_POLL_INTERVAL;
+            if since_poll >= FACTS_POLL_INTERVAL && !self.stopped() {
+                since_poll = Duration::ZERO;
+                self.resolve_pull_request();
+                self.resolve_ports();
             }
         }
-        if branch_moved {
-            sink(&session_id, &facts);
+        tracing::debug!(%session_id, "a folder watcher stopped");
+    }
+
+    /// v2 `readGitBranch(..).then(apply)`: a changed branch re-resolves the PR.
+    fn apply_branch(&self) {
+        let branch = self.git.branch(&self.folder);
+        if !self.stopped() && self.sink.apply(FolderReading::Branch(branch)) {
+            self.resolve_pull_request();
         }
     }
-    tracing::debug!(%session_id, "a folder watcher stopped");
+
+    /// v2 `_resolvePr`: only for a known branch in a known GitHub repository.
+    fn resolve_pull_request(&self) {
+        let Some(branch) = self.sink.pull_request_branch() else {
+            return;
+        };
+        let status = self.pr.status(&self.folder, &branch);
+        if !self.stopped() {
+            self.sink.apply(FolderReading::PullRequest(status));
+        }
+    }
+
+    /// v2 `_resolvePorts`.
+    fn resolve_ports(&self) {
+        let ports = ports::read_listening_ports(self.root_pid, self.platform);
+        if !self.stopped() {
+            self.sink.apply(FolderReading::Ports(ports));
+        }
+    }
+
+    fn stopped(&self) -> bool {
+        self.stop.load(Ordering::SeqCst)
+    }
 }
 
 /// Sleep, waking early if the watcher is stopped. `false` when it was.
-fn sleep_until_stop(stop: &Arc<AtomicBool>, total: Duration) -> bool {
+fn sleep_until_stop(stop: &AtomicBool, total: Duration) -> bool {
     let deadline = std::time::Instant::now() + total;
     while std::time::Instant::now() < deadline {
         if stop.load(Ordering::SeqCst) {

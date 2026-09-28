@@ -20,6 +20,7 @@ pub mod coord_config_loader;
 pub mod coord_config_origin;
 pub mod env;
 pub mod host_memory;
+pub mod http_security;
 pub mod jwt_base;
 pub mod paths;
 pub mod spa_path;
@@ -46,7 +47,7 @@ pub use coord_config_loader::{
     ENV_WEB_DIST_PATH, ENV_WEB_PUBLIC_URL, load_coord_config,
 };
 pub use coord_config_origin::{
-    normalize_https_origin, validate_bare_http_origin, validate_bare_https_origin,
+    browser_origin, normalize_https_origin, validate_bare_http_origin, validate_bare_https_origin,
 };
 pub use env::{
     EnvSource, HOME_ENV, MapEnv, ProcessEnv, XDG_DATA_HOME_ENV, XDG_STATE_HOME_ENV,

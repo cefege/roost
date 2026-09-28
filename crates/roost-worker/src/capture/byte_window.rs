@@ -1,133 +1,112 @@
-//! A per-session window of the last `BYTE_CAPTURE_WINDOW_BYTES` of PTY output,
-//! always on. `capture::recorder` writes into it; `capture::bundle` reads the
-//! tail out of it.
+//! The per-session window of the last [`BYTE_CAPTURE_WINDOW_BYTES`] of PTY
+//! output, always on. Ports `apps/worker/src/diag/byte-capture.ts`: the
+//! capture tap pushes every retained chunk with the session's `head_seq`, the
+//! worker-section freeze snapshots an OWNED tail, and session teardown drops it.
 //!
-//! It is v2's `apps/worker/src/diag/byte-capture.ts`, and the one sentence that
-//! justifies it is the same there: AN ANOMALY FIRES PRECISELY WHEN THE
-//! DIAGNOSTIC GATE WAS OFF, and a recorder that only retained bytes while armed
-//! would find an empty window at exactly the moment it is needed.
-//!
-//! The offsets are LOGICAL BYTE POSITIONS, not ring indices. A window that
-//! evicted its prefix has to report the absolute range it still covers, or an
-//! operator reading a bundle cannot line it up against the session's own
-//! `head_seq` — and "start_offset: 0" on a window that has dropped two hundred
-//! kilobytes is a lie an operator would act on.
+//! The offsets are ABSOLUTE stream positions, stamped from the `head_seq` the
+//! chunk ended at, so an evicted prefix reports the window it still covers
+//! rather than claiming to start at zero.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
+
+use base64::Engine as _;
+use roost_protocol::terminal_capture::bundle::TerminalWorkerByteCaptureTail;
 
 use super::BYTE_CAPTURE_WINDOW_BYTES;
 
-/// How many bytes of raw PTY output are retained per session.
-///
-/// Matches v2's `RING_CAP_BYTES`. The two cannot drift: a bundle written by a
-/// v3 worker is read by an operator comparing it against a v2 incident, and a
-/// window half the size is a bundle missing the start of the event.
-pub const WINDOW_BYTES: usize = BYTE_CAPTURE_WINDOW_BYTES;
-
-/// The retained tail, and the logical position its last byte sits at.
-#[derive(Debug, Default)]
+/// One session's retained tail and the absolute offset its last byte ends at.
+#[derive(Debug)]
 pub struct ByteWindow {
     bytes: VecDeque<u8>,
-    /// The logical offset of the byte BEFORE `bytes[0]`.
-    dropped: u64,
+    end_seq: u64,
+}
+
+impl Default for ByteWindow {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ByteWindow {
-    /// A window with the declared capacity.
+    /// One fixed allocation per session, as v2's `SbRing` makes.
     pub fn new() -> Self {
         Self {
-            bytes: VecDeque::with_capacity(WINDOW_BYTES),
-            dropped: 0,
+            bytes: VecDeque::with_capacity(BYTE_CAPTURE_WINDOW_BYTES),
+            end_seq: 0,
         }
     }
 
-    /// Append a retained chunk, displacing from the front past the cap.
-    pub fn push(&mut self, chunk: &[u8]) {
-        for byte in chunk {
-            if self.bytes.len() == WINDOW_BYTES {
-                self.bytes.pop_front();
-                self.dropped = self.dropped.saturating_add(1);
-            }
-            self.bytes.push_back(*byte);
+    /// Append `chunk`, displacing the oldest bytes past the cap. O(chunk).
+    pub fn push(&mut self, chunk: &[u8], end_seq: u64) {
+        if chunk.len() >= BYTE_CAPTURE_WINDOW_BYTES {
+            self.bytes.clear();
+            self.bytes
+                .extend(&chunk[chunk.len() - BYTE_CAPTURE_WINDOW_BYTES..]);
+        } else {
+            let overflow =
+                (self.bytes.len() + chunk.len()).saturating_sub(BYTE_CAPTURE_WINDOW_BYTES);
+            self.bytes.drain(..overflow);
+            self.bytes.extend(chunk);
         }
+        self.end_seq = end_seq;
     }
 
-    /// Forget the window. A closed session's evidence is not a live session's
-    /// evidence: leaving it behind is a capture that freezes a session nobody
-    /// can reach.
-    pub fn clear(&mut self) {
-        self.bytes.clear();
-        self.dropped = 0;
-    }
-
-    /// The retained tail, OWNED, with its absolute bounds.
-    ///
-    /// The copy is not optional. A bundle assembled after a later append would
-    /// otherwise carry whatever overwrote the bytes it was going to freeze, and
-    /// the bundle is the artefact an operator trusts.
-    pub fn tail(&self) -> Option<ByteTail> {
+    /// The retained tail with its absolute bounds, or `None` when nothing was
+    /// retained. The bytes are COPIED: a bundle assembled after a later push
+    /// would otherwise carry whatever displaced them.
+    pub fn snapshot(&self) -> Option<TerminalWorkerByteCaptureTail> {
         if self.bytes.is_empty() {
             return None;
         }
-        let bytes: Vec<u8> = self.bytes.iter().copied().collect();
-        let byte_length = bytes.len() as u64;
-        Some(ByteTail {
-            bytes,
-            start_offset: self.dropped,
-            end_offset: self.dropped.saturating_add(byte_length),
+        let (front, back) = self.bytes.as_slices();
+        let mut owned = Vec::with_capacity(self.bytes.len());
+        owned.extend_from_slice(front);
+        owned.extend_from_slice(back);
+        let byte_length = owned.len() as u64;
+        let end_offset = self.end_seq.max(byte_length);
+        Some(TerminalWorkerByteCaptureTail {
+            end_offset: end_offset.to_string(),
+            start_offset: (end_offset - byte_length).to_string(),
+            byte_length,
+            base64: base64::engine::general_purpose::STANDARD.encode(&owned),
         })
     }
 }
 
-/// One owned tail, with the absolute range it covers.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ByteTail {
-    pub bytes: Vec<u8>,
-    pub start_offset: u64,
-    pub end_offset: u64,
+/// Every session's window, keyed by session id.
+#[derive(Debug, Default)]
+pub struct ByteWindows {
+    rings: HashMap<String, ByteWindow>,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{ByteWindow, WINDOW_BYTES};
-
-    /// The whole reason the window is always on: an anomaly fires when nothing
-    /// was armed, so an armed-only recorder would freeze an empty window.
-    #[test]
-    fn a_window_that_was_never_armed_still_holds_the_tail() {
+impl ByteWindows {
+    /// v2 `push(sid, chunk, endSeq)`.
+    pub fn push(&mut self, session_id: &str, chunk: &[u8], end_seq: u64) {
+        if let Some(window) = self.rings.get_mut(session_id) {
+            window.push(chunk, end_seq);
+            return;
+        }
         let mut window = ByteWindow::new();
-        window.push(b"before anything was armed");
-        let tail = window.tail().expect("an unarmed window still retains");
-        assert_eq!(tail.bytes, b"before anything was armed");
-        assert_eq!(tail.start_offset, 0);
-        // The END offset is the count of retained bytes, and this literal is 25
-        // of them. It was written as 24, which is a test that fails for a
-        // reason unrelated to the thing it is testing — the worst kind, because
-        // it trains a reader to ignore a red in this file.
-        assert_eq!(tail.end_offset, 25);
+        window.push(chunk, end_seq);
+        self.rings.insert(session_id.to_owned(), window);
     }
 
-    #[test]
-    fn a_displaced_prefix_reports_the_absolute_range_it_still_covers() {
-        let mut window = ByteWindow::new();
-        // One byte past the cap, so the first byte is displaced and the rest is
-        // still addressable. A test that shrank the cap instead would be
-        // exercising a capacity this type is never built with.
-        let mut chunk = vec![b'x'; WINDOW_BYTES + 1];
-        chunk[0] = b'f';
-        window.push(&chunk);
-        let tail = window.tail().expect("the tail survives a displacement");
-        assert_eq!(tail.bytes.len(), WINDOW_BYTES);
-        assert_eq!(tail.start_offset, 1);
-        assert_eq!(tail.end_offset, WINDOW_BYTES as u64 + 1);
-        assert_eq!(tail.bytes[0], b'x');
+    /// v2 `drop(sid)`: a closed session's tail goes with it.
+    pub fn drop_session(&mut self, session_id: &str) {
+        self.rings.remove(session_id);
     }
 
-    #[test]
-    fn a_cleared_window_reports_nothing_rather_than_a_stale_tail() {
-        let mut window = ByteWindow::new();
-        window.push(b"evidence");
-        window.clear();
-        assert_eq!(window.tail(), None);
+    /// v2 `snapshotByteCapture(sid)`.
+    pub fn snapshot(&self, session_id: &str) -> Option<TerminalWorkerByteCaptureTail> {
+        self.rings.get(session_id).and_then(ByteWindow::snapshot)
+    }
+
+    /// Sessions currently holding a window.
+    pub fn len(&self) -> usize {
+        self.rings.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.rings.is_empty()
     }
 }

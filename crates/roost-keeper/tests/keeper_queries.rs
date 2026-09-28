@@ -14,9 +14,9 @@
 //!   FIRST geometry, and a client that echoes its own request cannot produce
 //!   that answer.
 //! * A frame's meaning comes from the byte on the wire, not from the nearest
-//!   vocabulary in the crate. `GetHistory` is answered with
-//!   `GetHistoryRecordsResp` (`keeper.rs:227`), so a client waiting for
-//!   `GetHistoryResp` — the tag the spec's own table names — times out.
+//!   vocabulary in the crate. `GetHistory` is answered with `GetHistoryResp`
+//!   `[head:u64][ring]` and `GetHistoryRecords` with the versioned ordered
+//!   records (v2 `keeper-frame-handler.ts:487-520`).
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 
 use roost_keeper::client::KeeperClient;
 use roost_keeper::client::connect;
-use roost_keeper::history::HistoryRecord;
+use roost_keeper::history::{HistoryRecord, HistoryRecords};
 use roost_keeper::payloads::TerminalState;
 use support::daemon::{Keeper, TempDir, wait_until};
 use support::{echo, idle};
@@ -40,12 +40,9 @@ fn client_with_channel(temp: &TempDir) -> (Keeper, KeeperClient) {
     (keeper, client)
 }
 
-/// F5 — the ordered history an adopter replays.
-///
-/// The daemon records a geometry change synchronously at `keeper_ops.rs:226`
-/// and answers `GetHistoryRecords` from live retention at `keeper_ops.rs:295`,
-/// so the record is assertable with no sleep and no drain: `Output { seq: 9,
-/// cols: 132, rows: 43 }` is exactly what `record_resize(9, state)` was handed.
+/// F5 — the ordered history an adopter replays: the head, the base geometry the
+/// channel was spawned at, and the marker the keeper recorded at the sequence
+/// it applied (v2 `appendResizeHistory`).
 #[test]
 fn the_ordered_history_is_the_resize_the_keeper_recorded() {
     let temp = TempDir::new("history");
@@ -56,52 +53,88 @@ fn the_ordered_history_is_the_resize_the_keeper_recorded() {
         Some((132, 43)),
         "the resize the history will record"
     );
-    let history = client.history_records(1).expect("the retained history");
+    let history = client
+        .history_records(1)
+        .expect("the retained history")
+        .history;
 
     assert_eq!(
-        history.records,
-        vec![HistoryRecord::Resize {
-            seq: 9,
-            cols: 132,
-            rows: 43,
-        }],
-        "the daemon retains the geometry marker at the sequence it applied \
-         (keeper_ops.rs:226), and an adopter needs it to place the boundary"
+        history,
+        HistoryRecords {
+            head_seq: 0,
+            base_cols: 80,
+            base_rows: 24,
+            records: vec![HistoryRecord::Resize {
+                seq: 9,
+                cols: 132,
+                rows: 43
+            }],
+        },
+        "nothing was emitted, the base is the spawn geometry, and the marker is at the applied sequence"
     );
 }
 
-/// F5 — the legacy history question, and the tag it is answered with.
-///
-/// `GetHistory` and `GetHistoryRecords` are one daemon path (`keeper.rs:224`
-/// and `:227`) and BOTH answer `GetHistoryRecordsResp` (`keeper_ops.rs:299`).
-/// So the pairing a client must get right is the legacy REQUEST with the records
-/// RESPONSE: a client that waits for `GetHistoryResp` — what
-/// `protocol/spec/keeper.md:52` names for that tag — waits out its whole
-/// timeout. This is the case that proves the pairing rather than the payload.
+/// F5 — the legacy question is answered with `GetHistoryResp`: the head and the
+/// raw ring, which agree with the ordered answer's head and window.
 #[test]
-fn the_legacy_history_is_answered_with_the_records_the_daemon_sends() {
+fn the_legacy_history_is_the_head_and_the_raw_ring() {
     let temp = TempDir::new("legacy-history");
     let (_keeper, client) = client_with_channel(&temp);
 
-    client.resize(1, 4, 100, 30);
-    let legacy = client.legacy_history(1).expect("the legacy answer arrives");
+    client
+        .write_input(1, b"legacy-ring\n")
+        .expect("input written");
+    let mut legacy = (0, Vec::new());
+    wait_until("the echo is retained", || {
+        legacy = client.legacy_history(1).expect("the legacy answer arrives");
+        String::from_utf8_lossy(&legacy.1).contains("legacy-ring")
+    });
     let ordered = client
         .history_records(1)
-        .expect("the ordered answer arrives");
+        .expect("the ordered answer arrives")
+        .history;
+
+    assert!(
+        legacy.0 > 0 && legacy.0 >= legacy.1.len() as u64,
+        "the head counts every emitted byte"
+    );
+    assert!(
+        ordered.head_seq >= legacy.0,
+        "the head never goes backwards"
+    );
+    assert!(
+        String::from_utf8_lossy(&ordered.window()).contains("legacy-ring"),
+        "the ordered window holds the same retained bytes"
+    );
+}
+
+/// The history answer is an ORDERED boundary: every `PtyOut` the channel sent
+/// before the answer is already inside it and is dropped by the wait, so the
+/// dropped bytes across successive reads add up to exactly the head (v2
+/// `releasePendingHistoryOutput`). A client that deferred them instead would
+/// replay those bytes twice.
+#[test]
+fn pre_boundary_output_is_dropped_exactly_once() {
+    let temp = TempDir::new("history-boundary");
+    let (_keeper, client) = client_with_channel(&temp);
+
+    client
+        .write_input(1, b"boundary-marker\n")
+        .expect("input written");
+    let mut dropped = 0usize;
+    let mut last = HistoryRecords::unknown_channel();
+    wait_until("the echo is retained", || {
+        let bounded = client
+            .history_records(1)
+            .expect("the ordered answer arrives");
+        dropped += bounded.dropped_output_bytes;
+        last = bounded.history;
+        String::from_utf8_lossy(&last.window()).contains("boundary-marker")
+    });
 
     assert_eq!(
-        legacy, ordered,
-        "one daemon path (keeper.rs:227) answers both tags, so the two \
-         questions differ only in which frame was sent"
-    );
-    assert_eq!(
-        legacy.records,
-        vec![HistoryRecord::Resize {
-            seq: 4,
-            cols: 100,
-            rows: 30
-        }],
-        "and the answer is the daemon's retained record, not an empty ring"
+        dropped as u64, last.head_seq,
+        "every emitted byte crossed the boundary once"
     );
 }
 

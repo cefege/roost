@@ -10,6 +10,7 @@ use roost_protocol::wire::WorkerFp;
 use roost_protocol::wire::coord_worker::{
     CoordWorkerDownstream as Down, CoordWorkerUpstream as Up, EventAck,
 };
+use roost_protocol::wire::event::SessionEvent;
 use roost_worker::link_dial::CoordinatorEndpoint;
 use roost_worker::link_dial::WORKER_AUTH_SUBPROTOCOL;
 use roost_worker::link_ports::DownstreamOwners;
@@ -32,8 +33,6 @@ use super::Fakes;
 
 pub const FINGERPRINT: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 pub const PATIENCE: Duration = Duration::from_secs(10);
-/// The snapshot bytes; the loopback coordinator only checks they arrive.
-pub const SNAPSHOT: [u8; 1] = [0xA5];
 
 pub type Socket = WebSocketStream<TcpStream>;
 
@@ -53,8 +52,29 @@ impl SnapshotSource for FixedSnapshot {
     fn is_active(&self) -> bool {
         true
     }
-    fn snapshot(&self) -> Result<Vec<u8>, SnapshotError> {
-        Ok(SNAPSHOT.to_vec())
+    fn snapshot(&self) -> Result<SessionEvent, SnapshotError> {
+        Ok(snapshot_event())
+    }
+}
+
+/// The loopback worker's session set: empty, as the coordinator end reads it.
+/// Stamped like v2's `buildSnapshot` (`Date.now()`): the wire refuses a
+/// snapshot at the epoch (`session_event.snapshot.ts` must be at least 1).
+pub fn snapshot_event() -> SessionEvent {
+    SessionEvent::Snapshot {
+        worker_fp: WorkerFp::try_from(FINGERPRINT).unwrap(),
+        sessions: Vec::new(),
+        ts: 1_700_000_000_000,
+        trace_id: None,
+    }
+}
+
+/// v2's snapshot frame: `Event{snapshot, client_seq}`, acknowledged like a row.
+pub fn snapshot_frame(client_seq: u64) -> Up {
+    Up::Event {
+        event: snapshot_event(),
+        client_seq,
+        trace_id: None,
     }
 }
 
@@ -76,6 +96,19 @@ impl LiveLink {
         owners: DownstreamOwners,
         sink: Option<Arc<CoordinatorCellSink>>,
     ) -> Self {
+        Self::start_configured(owners, |link| {
+            if let Some(sink) = sink {
+                link.attach_cell_sink(sink);
+            }
+        })
+        .await
+    }
+
+    /// A link the test attaches more to (a durable outbox) before it runs.
+    pub async fn start_configured(
+        owners: DownstreamOwners,
+        configure: impl FnOnce(&mut LinkLoop),
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (uplink, receiver) = roost_worker::uplink::channel();
@@ -93,9 +126,7 @@ impl LiveLink {
             receiver,
         );
         link.attach_owners(owners);
-        if let Some(sink) = sink {
-            link.attach_cell_sink(sink);
-        }
+        configure(&mut link);
         let (requests, stop) = StopRequests::channel();
         let worker = tokio::spawn(link.run(stop));
         Self {
@@ -179,8 +210,8 @@ pub async fn go_live(socket: &mut Socket, capabilities: Vec<String>) -> Up {
     )
     .await;
     assert_eq!(
-        next_bytes(socket).await,
-        SNAPSHOT,
+        next_frame(socket).await,
+        snapshot_frame(1),
         "the snapshot follows the hello-ack"
     );
     // A fresh pump's snapshot takes the first sequence.

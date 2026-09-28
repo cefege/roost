@@ -1,375 +1,356 @@
-//! The opt-in terminal-incident recorder behind `diag-terminal-capture`, and
-//! the capability that joins it to the protocol's vocabulary.
-//! `runtime::deps` installs one over the worker's `SessionTable`; nothing else
-//! in the worker holds a recorder.
-//!
-//! It is v2's `apps/worker/src/diag/terminal-capture.ts` and
-//! `terminal-capture-registry.ts`. The other half of the capability it
-//! implements — this worker's answer about ITSELF — is
-//! [`crate::diag_snapshot::Snapshot::of_live_channels`], which is a different
-//! question with no recording in it, and which used to sit here beside the
-//! lease machinery it shares no state with.
-//!
-//! THE THREE LEASE RULES, all of which are about NOT TAKING SOMEBODY ELSE'S
-//! EVIDENCE. They live in [`super::leases`] with the state they move; what is
-//! here is the recorder that owns that state and freezes it into a bundle.
+//! The lease façade over opt-in terminal incident capture: what a START, STOP
+//! and CAPTURE step does, session teardown, and process shutdown. Ports
+//! `apps/worker/src/diag/terminal-capture.ts` (`startTerminalRecording`,
+//! `stopTerminalRecording`, `stopTerminalCaptureMaintenance`) and the teardown
+//! of `terminal-capture-registry.ts`. `runtime::session_stack` builds the one
+//! recorder through [`CaptureRecorder::attach_to_emitter`]; `browser_commands::diagnostics`
+//! reaches it as [`DiagnosticReports`].
 //!
 //! A REPEAT START FROM THE SAME RECORDING RENEWS THE LEASE AND KEEPS EVERY
-//! RETAINED RECORD. The browser re-sends START on a timer while the debugging
-//! pane is visible, so a repeat is the normal case and must not start over.
-//!
-//! A DIFFERENT RECORDING ON A LIVE LEASE IS A CONFLICT, not a replacement.
-//! Evicting another operator's evidence to make room for a second request is
-//! never the right answer, and `lease_conflict` says so instead of doing it.
-//!
-//! LEASE EXPIRY IS DECIDED ON SERVER TIME AND DISARMS ON OBSERVATION. An
-//! expired lease is never silently renewed: a browser that went away for half
-//! an hour must not find its recording still armed when it comes back.
+//! RETAINED RECORD; a different recording on a live lease is a CONFLICT, never
+//! a replacement: evicting another operator's evidence is not an answer.
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::AtomicUsize;
+use std::sync::{Arc, Mutex, PoisonError};
 
-use base64::Engine as _;
 use roost_protocol::terminal_capture::{
-    TERMINAL_CAPTURE_LIMITS, TerminalCaptureErrorCode, TerminalCaptureFileRef,
-    TerminalCaptureStatus, TerminalCaptureWorkerAck,
+    TERMINAL_CAPTURE_LIMITS, TerminalCaptureErrorCode as Code, TerminalCaptureWorkerAck,
 };
-use serde_json::{Map, Value, json};
+use roost_protocol::viewport::TerminalGeometry;
+use roost_protocol::wire::brand::SessionId;
+use tokio::runtime::Handle;
+use tokio::sync::watch;
 
-use crate::browser_commands::diagnostics::{CaptureAction, CaptureCommand, DiagnosticReports};
+use super::ack::{failure_ack, recent_worker_capture_for, recording_ack, stopped_ack};
+use super::byte_window::ByteWindows;
+use super::now_ms;
+use super::recorder_state::{RecorderArming, SegmentRequest, WorkerRecorder};
+use super::registry::Registry;
+use super::storage::CaptureStorage;
+use super::tap::{CaptureShared, CaptureTap};
+use super::worker_section::WorkerProcessIdentity;
+use super::write::{CaptureSources, capture_terminal_incident};
+use crate::browser_commands::diagnostics::{CaptureCommand, DiagnosticReports};
 use crate::browser_commands::{Boxed, Refusal};
 use crate::diag_snapshot::Snapshot;
-use crate::session::lifecycle::SessionTable;
-use crate::session::types::SessionRecord;
+use crate::session::emit::CellEmitter;
+use crate::session::lifecycle::{SessionManager, SessionTable};
 
-use super::bundle::{Stored, write_bundle};
-use super::byte_window::ByteWindow;
-use super::leases::{
-    Armed, Held, Registry, admit_evidence, failed, now_ms, recording_ack, stopped_ack,
-};
+/// Everything the one recorder is built from.
+#[derive(Debug)]
+pub struct CaptureRecorderDeps {
+    pub table: Arc<SessionTable>,
+    pub manager: Arc<SessionManager>,
+    /// The worker's log directory: bundles are written directly into it.
+    pub log_dir: PathBuf,
+    /// This worker process's identity, as every bundle records it.
+    pub process: WorkerProcessIdentity,
+    pub runtime: Handle,
+}
+
+impl CaptureRecorderDeps {
+    /// This worker process's deps: the build identity is read once here, the
+    /// process id is boot's minted epoch. MUST run inside the tokio runtime.
+    pub fn for_process(
+        table: &Arc<SessionTable>,
+        manager: &Arc<SessionManager>,
+        log_dir: &std::path::Path,
+        process_epoch: &str,
+        worker_fp: &str,
+    ) -> Self {
+        let identity = roost_host::build_identity(&roost_host::ProcessEnv::new());
+        Self {
+            table: Arc::clone(table),
+            manager: Arc::clone(manager),
+            log_dir: log_dir.to_path_buf(),
+            process: WorkerProcessIdentity {
+                process_id: process_epoch.to_owned(),
+                git_sha: identity.build_sha,
+                artifact_version: identity.artifact_version,
+                worker_fp: worker_fp.to_owned(),
+            },
+            runtime: Handle::current(),
+        }
+    }
+}
 /// This worker's diagnostic reports, and the recorder behind them.
 pub struct CaptureRecorder {
-    registry: Arc<Mutex<Registry>>,
-    table: Arc<SessionTable>,
-    log_dir: PathBuf,
-    worker_fp: String,
+    shared: Arc<CaptureShared>,
+    sources: CaptureSources,
 }
 
 impl std::fmt::Debug for CaptureRecorder {
-    /// The report itself is the diagnostic surface; this is the recorder's own
-    /// shape, and the two numbers an operator would ask for first.
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let armed = self
-            .held()
-            .map(|registry| registry.armed.len())
-            .unwrap_or_default();
         formatter
             .debug_struct("CaptureRecorder")
-            .field("worker_fp", &self.worker_fp)
-            .field("armed_recordings", &armed)
-            .field(
-                "retained_windows",
-                &self.held().map(|r| r.windows.len()).unwrap_or(0),
-            )
+            .field("worker_fp", &self.shared.process.worker_fp)
+            .field("armed_recordings", &self.shared.registry().armed_count())
+            .field("byte_windows", &self.shared.windows().len())
             .finish_non_exhaustive()
     }
 }
 
 impl CaptureRecorder {
-    /// A recorder over the worker's live sessions, writing under `log_dir`.
-    pub fn new(table: Arc<SessionTable>, log_dir: PathBuf, worker_fp: String) -> Self {
-        Self {
-            registry: Arc::new(Mutex::new(Registry::default())),
-            table,
+    pub fn new(deps: CaptureRecorderDeps) -> Self {
+        let storage = Arc::new(CaptureStorage::new(deps.log_dir, deps.runtime.clone()));
+        let (scheduled, _) = watch::channel(0);
+        let shared = Arc::new(CaptureShared {
+            registry: Mutex::new(Registry::default()),
+            windows: Mutex::new(ByteWindows::default()),
+            armed: AtomicUsize::new(0),
+            storage,
+            process: deps.process,
+            runtime: deps.runtime,
+            scheduled,
+        });
+        let sources = CaptureSources {
+            table: deps.table,
+            manager: deps.manager,
+        };
+        Self { shared, sources }
+    }
+
+    /// The ONE recorder over a session stack: the emitter's data path feeds
+    /// its tap, and a closed session drops its window and recorder (v2
+    /// `session-lifecycle.ts:243-244`). The hook holds the recorder weakly:
+    /// the recorder already holds the manager the hook is registered on.
+    pub fn attach_to_emitter(deps: CaptureRecorderDeps, emitter: &Mutex<CellEmitter>) -> Arc<Self> {
+        let manager = Arc::clone(&deps.manager);
+        let log_dir = deps.log_dir.display().to_string();
+        let recorder = Arc::new(Self::new(deps));
+        emitter
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .attach_capture(recorder.tap());
+        let closing = Arc::downgrade(&recorder);
+        manager.on_session_closed(Arc::new(move |session_id: &SessionId| {
+            if let Some(recorder) = closing.upgrade() {
+                recorder.drop_session(session_id);
+            }
+        }));
+        tracing::info!(
             log_dir,
-            worker_fp,
+            "the terminal incident recorder is attached to the session data path"
+        );
+        recorder
+    }
+    /// The handle the session data path feeds.
+    pub fn tap(&self) -> CaptureTap {
+        CaptureTap::attached(Arc::clone(&self.shared))
+    }
+
+    /// Session close or channel teardown (v2 `byteCapture.drop` +
+    /// `dropTerminalRecorder`): the window, the recorder and the one-shot
+    /// ledger go with the session.
+    pub fn drop_session(&self, session_id: &SessionId) {
+        let session_id = session_id.as_str();
+        let armed = {
+            let mut registry = self.shared.registry();
+            let armed = registry.drop_session(session_id);
+            self.shared.note_armed(&registry);
+            armed
+        };
+        self.shared.windows().drop_session(session_id);
+        if armed {
+            tracing::info!(
+                session_id,
+                "a session closed; its terminal recording was released"
+            );
         }
     }
 
-    /// The worker's fingerprint, as a bundle records it.
-    pub fn worker_fp(&self) -> &str {
-        &self.worker_fp
+    /// Process shutdown: the retention sweep is the only thing here that
+    /// outlives a session.
+    pub fn stop_maintenance(&self) {
+        self.shared.storage.stop_capture_retention();
     }
 
-    /// Retain a chunk of PTY output for the incident stream.
-    ///
-    /// ALWAYS ON, and the reason is in [`super::byte_window`]: an anomaly fires
-    /// when nothing was armed. The armed path costs the same as the unarmed one
-    /// here, and the cost is O(chunk) against a fixed-capacity deque.
-    pub fn retain_output(&self, session_id: &str, chunk: &[u8]) {
-        if chunk.is_empty() {
-            return;
-        }
-        if let Ok(mut registry) = self.held() {
+    /// Diagnostic seam (v2 `_settleScheduledCaptures`): wait until every
+    /// worker-local capture in flight has written, instead of guessing a delay.
+    pub async fn settle_scheduled_captures(&self) {
+        let mut scheduled = self.shared.scheduled.subscribe();
+        let _ = scheduled.wait_for(|count| *count == 0).await;
+    }
+
+    /// Test seam (v2 `terminalRecorderArmed`): whether a live lease is held,
+    /// disarming an expired one on observation.
+    pub fn _terminal_recorder_armed(&self, session_id: &str) -> bool {
+        let mut registry = self.shared.registry();
+        let live = registry.disarm_if_expired(session_id);
+        self.shared.note_armed(&registry);
+        live
+    }
+
+    /// Test seam (v2 `_terminalRecorderForTest`): the raw recorder, WITHOUT an
+    /// expiry check, so a test can age or inspect it.
+    pub fn _with_terminal_recorder<R>(
+        &self,
+        session_id: &str,
+        read: impl FnOnce(Option<&mut WorkerRecorder>) -> R,
+    ) -> R {
+        let mut registry = self.shared.registry();
+        read(
             registry
-                .windows
-                .entry(session_id.to_owned())
-                .or_insert_with(ByteWindow::new)
-                .push(chunk);
-        }
+                .recorders
+                .get_mut(session_id)
+                .map(|armed| &mut armed.recorder),
+        )
     }
 
-    /// A session closed: its window and its lease go with it.
-    ///
-    /// A capture that can still freeze a closed session freezes evidence no
-    /// caller can reach, under a lease that answers `Recording` for a session
-    /// that is gone.
-    pub fn forget_session(&self, session_id: &str) {
-        if let Ok(mut registry) = self.held() {
-            registry.windows.remove(session_id);
-            if registry.armed.remove(session_id).is_some() {
-                tracing::info!(
+    /// v2 `startTerminalRecording`.
+    fn start(&self, command: &CaptureCommand) -> TerminalCaptureWorkerAck {
+        let now = now_ms();
+        let session_id = command.session_id.as_str();
+        let stream = self.sources.stream_facts(&command.session_id);
+        let entry = self.sources.record(&command.session_id);
+        let record = entry.as_ref().map(|entry| {
+            entry
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+        });
+        let mut registry = self.shared.registry();
+        if let Some(existing) = registry.active(session_id) {
+            let recent = recent_worker_capture_for(
+                existing.ledger.recent_worker_local.as_ref(),
+                &command.capture_id,
+            );
+            if existing.recorder.recording_id != command.recording_id {
+                tracing::warn!(
                     session_id,
-                    "a session closed; its recording lease was released"
+                    requested = %command.recording_id,
+                    held_by = %existing.recorder.recording_id,
+                    "a second recording was refused a live lease"
+                );
+                return failure_ack(
+                    Code::LeaseConflict,
+                    recent,
+                    Some(existing.recorder.expires_at_ms),
                 );
             }
+            existing.recorder.expires_at_ms = now + TERMINAL_CAPTURE_LIMITS.lease_ms;
+            tracing::info!(
+                session_id,
+                recording_id = %command.recording_id,
+                expires_at_ms = existing.recorder.expires_at_ms,
+                "a terminal recording lease was renewed"
+            );
+            return recording_ack(existing.recorder.expires_at_ms, recent);
         }
-    }
-
-    fn held(&self) -> Held<'_> {
-        self.registry.lock()
-    }
-
-    /// The bytes of one incident bundle: the armed lease's evidence, the
-    /// retained window, and what the session is, WITHOUT its terminal content.
-    ///
-    /// The second value is the last bundle this worker froze before this one,
-    /// because the answer names it and the naming is the recorder's to get
-    /// right.
-    fn freeze(
-        &self,
-        command: &CaptureCommand,
-    ) -> Result<(Vec<u8>, Option<TerminalCaptureFileRef>), Box<TerminalCaptureWorkerAck>> {
-        if command.action != CaptureAction::Capture {
-            return Err(Box::new(TerminalCaptureWorkerAck::failed(
-                TerminalCaptureErrorCode::InvalidArgument,
-            )));
-        }
-        let (armed, previous, window) = {
-            let mut registry = self
-                .held()
-                .map_err(|_| failed(TerminalCaptureErrorCode::Internal))?;
-            let armed = registry
-                .live_lease(command.session_id.as_str())
-                .ok_or_else(|| failed(TerminalCaptureErrorCode::LeaseAbsent))?;
-            let previous = registry.recent.clone();
-            let window = registry
-                .windows
-                .get(command.session_id.as_str())
-                .and_then(ByteWindow::tail);
-            (armed, previous, window)
+        let Some(record) = record.as_deref() else {
+            return failure_ack(Code::SessionUnknown, None, None);
         };
-        // A lease with no retained output is `CaptureExpired`, not an empty
-        // bundle: a bundle of nothing is a file an operator downloads and finds
-        // blank, which is worse than being told the evidence aged out.
-        let window = window.ok_or_else(|| failed(TerminalCaptureErrorCode::CaptureExpired))?;
-        let identity = self
-            .table
-            .with_record(&command.session_id, record_identity)
-            .ok_or_else(|| failed(TerminalCaptureErrorCode::SessionUnknown))?;
+        if registry.armed_count() >= TERMINAL_CAPTURE_LIMITS.max_recordings_per_process {
+            return failure_ack(Code::ResourceExhausted, None, None);
+        }
+        let mut recorder = WorkerRecorder::new(RecorderArming {
+            session_id: session_id.to_owned(),
+            worker_fp: self.shared.process.worker_fp.clone(),
+            recording_id: command.recording_id.clone(),
+            expires_at_ms: now + TERMINAL_CAPTURE_LIMITS.lease_ms,
+            at_ms: now,
+            head_seq: record.head_seq,
+        });
+        // The first segment opens NOW, so raw bytes arriving before the next
+        // emission still land in an orderable generation.
+        let stream_id = stream.map_or_else(
+            || record.cell_emit.stream_id.clone(),
+            |stream| stream.stream_id,
+        );
+        let core = record.terminal_core.as_ref();
+        let opened = recorder.open_worker_segment(&SegmentRequest {
+            stream_id: &stream_id,
+            grid_epoch: &record.cell_emit.grid_epoch(),
+            grid_epoch_base: &record.cell_emit.grid_epoch_base,
+            geometry: TerminalGeometry {
+                cols: u32::from(core.cols()),
+                rows: u32::from(core.rows()),
+            },
+            head_seq: record.head_seq,
+            at_ms: now,
+        });
+        if let Err(error) = opened {
+            tracing::error!(
+                session_id,
+                %error,
+                "a terminal recording could not open its first segment"
+            );
+            return failure_ack(Code::Internal, None, None);
+        }
+        let (expires_at_ms, armed_offset) = (recorder.expires_at_ms, recorder.armed_offset);
+        registry.register(recorder);
+        self.shared.note_armed(&registry);
+        drop(registry);
+        self.shared.storage.ensure_capture_retention();
+        tracing::info!(
+            session_id,
+            recording_id = %command.recording_id,
+            expires_at_ms,
+            armed_offset,
+            "terminal.capture_started"
+        );
+        recording_ack(expires_at_ms, None)
+    }
 
-        let mut document = Map::with_capacity(7);
-        document.insert(
-            "capture_id".to_owned(),
-            Value::from(command.capture_id.clone()),
+    /// v2 `stopTerminalRecording`: release the lease and free every retained
+    /// record. Saved files are NOT deleted, and a repeat STOP is harmless.
+    fn stop(&self, command: &CaptureCommand) -> TerminalCaptureWorkerAck {
+        let session_id = command.session_id.as_str();
+        let mut registry = self.shared.registry();
+        if !registry.disarm_if_expired(session_id) {
+            self.shared.note_armed(&registry);
+            let one_shot = registry.one_shot.ledger_if_present(session_id);
+            let recent = one_shot.and_then(|ledger| {
+                recent_worker_capture_for(ledger.recent_worker_local.as_ref(), &command.capture_id)
+            });
+            return stopped_ack(recent);
+        }
+        let Some(armed) = registry.recorders.get(session_id) else {
+            return stopped_ack(None);
+        };
+        if armed.recorder.recording_id != command.recording_id {
+            return failure_ack(
+                Code::PermissionDenied,
+                None,
+                Some(armed.recorder.expires_at_ms),
+            );
+        }
+        let recent = recent_worker_capture_for(
+            armed.ledger.recent_worker_local.as_ref(),
+            &command.capture_id,
         );
-        document.insert(
-            "session_id".to_owned(),
-            Value::from(command.session_id.as_str()),
+        registry.forget_recorder(session_id);
+        self.shared.note_armed(&registry);
+        tracing::info!(
+            session_id,
+            recording_id = %command.recording_id,
+            "terminal.capture_stopped"
         );
-        document.insert(
-            "recording_id".to_owned(),
-            Value::from(command.recording_id.clone()),
-        );
-        document.insert("reason".to_owned(), Value::from(command.reason.clone()));
-        document.insert("frozen_at_ms".to_owned(), Value::from(now_ms()));
-        document.insert(
-            "worker".to_owned(),
-            json!({ "fp": self.worker_fp, "session": identity }),
-        );
-        document.insert(
-            "raw".to_owned(),
-            json!({
-                "start_offset": window.start_offset,
-                "end_offset": window.end_offset,
-                "byte_length": window.bytes.len(),
-                "base64": base64::engine::general_purpose::STANDARD.encode(&window.bytes),
-            }),
-        );
-        document.insert(
-            "evidence".to_owned(),
-            json!({
-                "browser": armed.browser_evidence,
-                "coordinator": armed.coordinator_evidence,
-            }),
-        );
-        let payload = serde_json::to_vec(&Value::Object(document))
-            .map_err(|_| failed(TerminalCaptureErrorCode::Internal))?;
-        Ok((payload, previous))
+        stopped_ack(recent)
     }
 }
 
 impl DiagnosticReports for CaptureRecorder {
-    /// The state report, folded against one monotonic reading.
-    ///
-    /// A DELEGATION, and not a shortcut: the fold, and the single reading every
-    /// age in the report is measured against, are the snapshot module's rule
-    /// rather than this recorder's, and a second implementation here is a
-    /// second answer to it.
+    /// The state report is the snapshot module's fold, not this recorder's: a
+    /// second implementation here would be a second answer to it.
     fn snapshot(&self) -> Result<Snapshot, Refusal> {
-        Ok(Snapshot::of_live_channels(&self.table))
+        Ok(Snapshot::of_live_channels(&self.sources.table))
     }
 
-    /// Arm or renew a recording.
     fn start_recording(&self, command: CaptureCommand) -> TerminalCaptureWorkerAck {
-        let mut registry = match self.held() {
-            Ok(registry) => registry,
-            Err(_) => return failed(TerminalCaptureErrorCode::Internal),
-        };
-        if let Some(live) = registry.live_lease(command.session_id.as_str()) {
-            if live.recording_id != command.recording_id {
-                tracing::warn!(
-                    session_id = %command.session_id,
-                    requested = %command.recording_id,
-                    held_by = %live.recording_id,
-                    "a second recording was refused a live lease"
-                );
-                return TerminalCaptureWorkerAck::failed(TerminalCaptureErrorCode::LeaseConflict)
-                    .with_recent_worker_capture(registry.recent.clone(), &command.capture_id);
-            }
-            let expires_at_ms = now_ms().saturating_add(TERMINAL_CAPTURE_LIMITS.lease_ms);
-            if let Some(armed) = registry.armed.get_mut(command.session_id.as_str()) {
-                armed.expires_at_ms = expires_at_ms;
-            }
-            tracing::info!(
-                session_id = %command.session_id,
-                recording_id = %command.recording_id,
-                %expires_at_ms,
-                "a terminal recording lease was renewed"
-            );
-            return recording_ack(Some(expires_at_ms), &command.capture_id, &registry);
-        }
-        if !self
-            .table
-            .live()
-            .iter()
-            .any(|(held, _)| *held == command.session_id)
-        {
-            return failed(TerminalCaptureErrorCode::SessionUnknown);
-        }
-        if registry.armed.len() >= TERMINAL_CAPTURE_LIMITS.max_recordings_per_process {
-            return failed(TerminalCaptureErrorCode::ResourceExhausted);
-        }
-        let (browser, coordinator) = match admit_evidence(&command) {
-            Ok(evidence) => evidence,
-            Err(error) => return failed(error),
-        };
-        let expires_at_ms = now_ms().saturating_add(TERMINAL_CAPTURE_LIMITS.lease_ms);
-        registry.armed.insert(
-            command.session_id.as_str().to_owned(),
-            Armed {
-                recording_id: command.recording_id.clone(),
-                expires_at_ms,
-                browser_evidence: browser,
-                coordinator_evidence: coordinator,
-            },
-        );
-        tracing::info!(
-            session_id = %command.session_id,
-            recording_id = %command.recording_id,
-            %expires_at_ms,
-            "a terminal recording was armed"
-        );
-        recording_ack(Some(expires_at_ms), &command.capture_id, &registry)
+        self.start(&command)
     }
 
-    /// Release a recording.
     fn stop_recording(&self, command: CaptureCommand) -> TerminalCaptureWorkerAck {
-        let mut registry = match self.held() {
-            Ok(registry) => registry,
-            Err(_) => return failed(TerminalCaptureErrorCode::Internal),
-        };
-        let Some(live) = registry.live_lease(command.session_id.as_str()) else {
-            // A repeat STOP by the owner is harmless: the lease is already gone
-            // and there is nothing left to free, so it is `Stopped` rather than a
-            // failure the caller has to tell apart from a real one.
-            return stopped_ack(&command.capture_id, &registry);
-        };
-        if live.recording_id != command.recording_id {
-            // Somebody else's evidence is not this caller's to release.
-            return failed(TerminalCaptureErrorCode::PermissionDenied);
-        }
-        registry.armed.remove(command.session_id.as_str());
-        tracing::info!(
-            session_id = %command.session_id,
-            recording_id = %command.recording_id,
-            "a terminal recording was released"
-        );
-        stopped_ack(&command.capture_id, &registry)
+        self.stop(&command)
     }
 
-    /// Freeze the evidence this worker holds and write one bundle.
+    /// CAPTURE freezes synchronously inside this call and only then awaits the
+    /// compression and the write, so the PTY is never held for either. The
+    /// future OWNS what it needs: a capability cannot lend it a borrow.
     fn capture(&self, command: CaptureCommand) -> Boxed<TerminalCaptureWorkerAck> {
-        // The future OWNS what it needs rather than borrowing this: `&self`
-        // would tie the returned `Send` future to the borrow of the recorder,
-        // and a capability trait cannot ask its caller for a longer lifetime
-        // than the dispatch has. The registry is behind an `Arc` for this, and
-        // the freeze happens BEFORE the future so nothing it makes is borrowed.
-        let log_dir = self.log_dir.clone();
-        let registry = Arc::clone(&self.registry);
-        let frozen = self.freeze(&command);
-        Box::pin(async move {
-            let (payload, previous) = match frozen {
-                Ok(frozen) => frozen,
-                Err(refusal) => return *refusal,
-            };
-            let capture_id = command.capture_id.clone();
-            let ack = match write_bundle(&log_dir, &capture_id, &payload).await {
-                Stored::Written { path, byte_length } => {
-                    let frozen_here = TerminalCaptureFileRef {
-                        capture_id: capture_id.clone(),
-                        path: path.display().to_string(),
-                        byte_length,
-                        status: TerminalCaptureStatus::Captured,
-                    };
-                    // The field names the LAST incident this worker froze, and
-                    // the capture being answered is excluded: echoing it there
-                    // would claim the worker independently found an incident the
-                    // operator requested, and send them looking for a second one
-                    // that does not exist.
-                    let recent = previous
-                        .filter(|last| last.capture_id != capture_id)
-                        .unwrap_or_else(|| frozen_here.clone());
-                    TerminalCaptureWorkerAck {
-                        status: TerminalCaptureStatus::Captured,
-                        path: Some(frozen_here.path.clone()),
-                        byte_length: Some(byte_length),
-                        error: None,
-                        expires_at_ms: None,
-                        recent_worker_capture: Some(recent),
-                    }
-                }
-                Stored::Refused(error) => failed(error),
-            };
-            if let Ok(mut held) = registry.lock() {
-                held.recent = ack.recent_worker_capture.clone();
-            }
-            ack
-        })
+        let shared = Arc::clone(&self.shared);
+        let sources = self.sources.clone();
+        Box::pin(async move { capture_terminal_incident(&shared, &sources, command).await })
     }
-}
-
-/// What a session is, in a bundle, without its terminal content.
-fn record_identity(record: &SessionRecord) -> Value {
-    json!({
-        "channel_id": record.channel_id(),
-        "cwd": record.identity.cwd,
-        "spawned_at_ms": record.identity.spawned_at_ms,
-        "head_seq": record.head_seq,
-        "grid_epoch": record.cell_emit.grid_epoch(),
-        "cols": record.terminal_core.cols(),
-        "rows": record.terminal_core.rows(),
-        "git_branch": record.git_branch,
-        "git_remote": record.git_remote,
-    })
 }

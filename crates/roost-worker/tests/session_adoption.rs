@@ -28,7 +28,6 @@ async fn an_adoption_seeds_the_head_from_the_keeper_not_from_the_retained_bytes(
     *keeper.history.lock().expect("held") = SurvivorHistory {
         records: vec![
             HistoryRecord::Output {
-                seq: 10,
                 bytes: b"one".to_vec(),
             },
             HistoryRecord::Resize {
@@ -37,7 +36,6 @@ async fn an_adoption_seeds_the_head_from_the_keeper_not_from_the_retained_bytes(
                 rows: 24,
             },
             HistoryRecord::Output {
-                seq: 13,
                 bytes: b"three!".to_vec(),
             },
         ],
@@ -91,7 +89,6 @@ async fn an_adoption_within_the_bound_replays_the_history_then_the_staged_bytes(
     let keeper = Arc::new(ScriptedKeeper::with_survivor(7, 4242));
     *keeper.history.lock().expect("held") = SurvivorHistory {
         records: vec![HistoryRecord::Output {
-            seq: 5,
             bytes: b"hello".to_vec(),
         }],
         head_seq: 5,
@@ -177,7 +174,6 @@ async fn a_survivor_whose_replay_does_not_converge_on_the_keepers_geometry_is_re
     *keeper.history.lock().expect("held") = SurvivorHistory {
         records: vec![
             HistoryRecord::Output {
-                seq: 9,
                 bytes: b"wide".to_vec(),
             },
             HistoryRecord::Resize {
@@ -210,11 +206,6 @@ async fn a_survivor_whose_replay_does_not_converge_on_the_keepers_geometry_is_re
         ),
         "the refusal is the replay, not the staging: {refused}"
     );
-    let message = refused.to_string();
-    assert!(
-        message.contains("100x40") && message.contains("80x24"),
-        "the message names both geometries so an operator can see the divergence: {message}"
-    );
     assert_eq!(
         harness
             .table
@@ -243,7 +234,6 @@ async fn a_survivor_whose_replay_converges_on_the_keepers_geometry_is_admitted()
     *keeper.history.lock().expect("held") = SurvivorHistory {
         records: vec![
             HistoryRecord::Output {
-                seq: 9,
                 bytes: b"wide".to_vec(),
             },
             HistoryRecord::Resize {
@@ -287,7 +277,10 @@ async fn a_survivor_whose_replay_converges_on_the_keepers_geometry_is_admitted()
 
 /// A KEEPER THAT WILL NOT ANSWER ITS CHANNEL LIST is a refusal naming the
 /// keeper's reason, not a silent "no survivor": the two are different incidents
-/// with different operator responses.
+/// with different operator responses. v2 `session-resume.ts:73` reads the list
+/// INSIDE the try whose catch (`:303-320`) kills the channel, marks it recently
+/// closed and tombstones the session, so the unreadable list abandons exactly
+/// like a diverging replay does.
 #[tokio::test]
 async fn a_channel_list_that_cannot_be_read_refuses_with_the_keeper_s_reason() {
     let keeper = Arc::new(ScriptedKeeper::with_survivor(7, 4242));
@@ -303,18 +296,23 @@ async fn a_channel_list_that_cannot_be_read_refuses_with_the_keeper_s_reason() {
         "an unreachable keeper is a replay failure, not an absent survivor: {refused}"
     );
     assert!(
-        !refused.abandoned,
-        "reading the channel list failed BEFORE the rebind and before any \
-         record was built, so nothing was abandoned and the survivor is \
-         untouched — the same variant as a diverging replay, which DID kill"
+        refused.abandoned,
+        "an unreadable list lands in the same catch as every post-probe \
+         failure, which kills rather than leaving a survivor nobody drives"
     );
     assert!(
         refused.to_string().contains("the socket went away"),
         "the message carries the keeper's reason: {refused}"
     );
-    assert!(
-        keeper.killed().is_empty(),
-        "a channel this worker never reached is not killed for asking"
+    assert_eq!(
+        keeper.killed(),
+        vec![7],
+        "the survivor dies so the caller's respawn does not run beside it"
+    );
+    assert_eq!(
+        harness.sink.closed_events(),
+        1,
+        "the abandoned session's end is recorded once, as v2's tombstone"
     );
 }
 

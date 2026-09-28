@@ -7,15 +7,31 @@
 
 use std::sync::Arc;
 
+use roost_proto::DAgentPrompt;
+use roost_proto::DKeeperUpdatePrepare;
 use roost_proto::{
-    DInputRequest, DTerminalInputRouteClaim, DTerminalPipelineSnapshotRequest,
+    AttachmentTransferStatus, DAttachmentChunk, DAttachmentDirectStatusRequest,
+    DLocalAttachmentGrant,
+};
+use roost_proto::{
+    DInputRequest, DLocalTerminalGrant, DTerminalInputRouteClaim, DTerminalPipelineSnapshotRequest,
     DTerminalStreamState, DTerminalViewRelay, TerminalInputRouteResult, WTerminalPipelineSnapshot,
 };
+use roost_proto::{
+    DLocalAttachmentPeerCancel, DLocalAttachmentPeerOffer, WLocalAttachmentPeerAnswer,
+};
+use roost_proto::{
+    DLocalTerminalPeerCancel, DLocalTerminalPeerOffer, DTerminalDirectRetire,
+    DTerminalTransportProbe, WLocalTerminalPeerAnswer, WTerminalTransportProbeResult,
+};
+use roost_protocol::attachment_transfer::PeerErrorReason;
 use roost_protocol::wire::brand::ChannelId;
 use roost_protocol::wire::coord_worker::{
     InputResult, TerminalSnapshotRequest, TerminalStreamResult,
 };
 
+use crate::attachments::upload::RelayChunkOutcome;
+use crate::peer::TerminalPeerOfferFailure;
 use crate::uplink::{LinkFence, OwnerFuture, RequestBudget};
 
 /// Browser input reaching a PTY. v2 `onInputRequest`, `onBinary`,
@@ -99,6 +115,127 @@ pub trait LinkLifecyclePort: Send + Sync + std::fmt::Debug {
     fn on_snapshot_ready(&self);
 }
 
+/// Several owners of the link's lifecycle behind the one port the link calls.
+/// v2's `CoordLinkDeps` callbacks each reach several owners —
+/// `coord-link-deps.ts` `onSnapshotReady` replays terminal metadata, resumes
+/// the cell sink AND resends agent status — in registration order.
+#[derive(Debug)]
+pub struct LinkLifecycles {
+    owners: Vec<Arc<dyn LinkLifecyclePort>>,
+}
+
+impl LinkLifecycles {
+    pub fn new(owners: Vec<Arc<dyn LinkLifecyclePort>>) -> Self {
+        Self { owners }
+    }
+}
+
+impl LinkLifecyclePort for LinkLifecycles {
+    fn on_open(&self) {
+        self.owners.iter().for_each(|owner| owner.on_open());
+    }
+    fn on_hello_ack(&self, terminal_metadata_negotiated: bool) {
+        self.owners
+            .iter()
+            .for_each(|owner| owner.on_hello_ack(terminal_metadata_negotiated));
+    }
+    fn on_detach(&self) {
+        self.owners.iter().for_each(|owner| owner.on_detach());
+    }
+    fn on_writable(&self) {
+        self.owners.iter().for_each(|owner| owner.on_writable());
+    }
+    fn on_snapshot_ready(&self) {
+        self.owners
+            .iter()
+            .for_each(|owner| owner.on_snapshot_ready());
+    }
+}
+
+/// The local terminal door's grant half. v2 `onLocalTerminalGrant` /
+/// `onLocalTerminalGrantRevoke`. Implemented by `local_terminal::LocalTerminalDoor`.
+pub trait LocalTerminalGrantPort: Send + Sync + std::fmt::Debug {
+    /// Install or renew a grant; `Err` is the message the install is refused with.
+    fn install_grant(&self, request: &DLocalTerminalGrant) -> Result<(), String>;
+    /// Fence a device: its input routes, then its grants (which close its sockets).
+    fn revoke_device(&self, device_fingerprint: &str);
+}
+
+/// The direct terminal path. v2 `onLocalTerminalPeerOffer`,
+/// `onLocalTerminalPeerCancel`, `onTerminalTransportProbe`,
+/// `onTerminalDirectRetire`. Implemented by `peer::DirectTerminal`.
+pub trait DirectTerminalPort: Send + Sync + std::fmt::Debug {
+    /// Negotiate one browser peer; the answer or refusal is fenced to `fence`.
+    fn peer_offer(
+        &self,
+        request: DLocalTerminalPeerOffer,
+        budget: RequestBudget,
+        fence: LinkFence,
+    ) -> OwnerFuture<Result<WLocalTerminalPeerAnswer, TerminalPeerOfferFailure>>;
+    fn peer_cancel(&self, request: &DLocalTerminalPeerCancel);
+    /// `None` when the probe is not for this worker's direct path.
+    fn transport_probe(
+        &self,
+        request: &DTerminalTransportProbe,
+    ) -> Option<WTerminalTransportProbeResult>;
+    fn direct_retire(&self, request: &DTerminalDirectRetire);
+}
+
+/// Status-fenced agent prompts. v2 `onAgentPrompt`. Implemented by
+/// `agents::prompt_port::AgentPromptOwner`.
+pub trait AgentPromptPort: Send + Sync + std::fmt::Debug {
+    /// Work-budget reservation happens synchronously in this call; the future
+    /// resolves to the ONE `input-result`, or `None` when the session id is not
+    /// one the wire can carry and the dispatcher sends nothing.
+    fn write_prompt(
+        &self,
+        request: DAgentPrompt,
+        budget: RequestBudget,
+        fence: LinkFence,
+    ) -> OwnerFuture<Option<InputResult>>;
+}
+
+/// Attachment peers. v2 `onLocalAttachmentPeerOffer`,
+/// `onLocalAttachmentPeerCancel`. Implemented by
+/// `attachments::direct_owners::AttachmentDirect`.
+pub trait AttachmentPeerPort: Send + Sync + std::fmt::Debug {
+    /// Admission and the pending reservation happen synchronously in this
+    /// call, so a cancel dispatched right after it finds the offer.
+    fn offer(
+        &self,
+        request: DLocalAttachmentPeerOffer,
+        budget: RequestBudget,
+        fence: LinkFence,
+    ) -> OwnerFuture<Result<WLocalAttachmentPeerAnswer, PeerErrorReason>>;
+    fn cancel(&self, request: &DLocalAttachmentPeerCancel);
+}
+
+/// Relayed attachment uploads and the direct-carrier grants the coordinator
+/// installs. v2 `onAttachmentChunk`, `onLocalAttachmentGrant`,
+/// `onLocalAttachmentGrantRevoke`, `onAttachmentDirectStatusRequest`.
+/// Implemented by `attachments::link::AttachmentLink`.
+pub trait AttachmentLinkPort: Send + Sync + std::fmt::Debug {
+    /// The chunk is written in this call (arrival order is write order); the
+    /// future settles what the coordinator is told.
+    fn accept_relay_chunk(&self, chunk: DAttachmentChunk) -> OwnerFuture<RelayChunkOutcome>;
+    /// `Err` is the message v2's `rpc-error` carries.
+    fn install_grant(&self, request: &DLocalAttachmentGrant) -> Result<(), String>;
+    fn revoke_device(&self, device_fingerprint: &str);
+    fn direct_status(&self, request: &DAttachmentDirectStatusRequest) -> AttachmentTransferStatus;
+}
+
+/// Keeper replacement preparation. v2 `onKeeperUpdatePrepare`. Implemented by
+/// `keeper_pool::KeeperUpdatePreparer`.
+pub trait KeeperUpdatePort: Send + Sync + std::fmt::Debug {
+    /// Channel admission closes synchronously in this call (v2 closes it before
+    /// joining its serialized tail); the future resolves to the `rpc-ok` data,
+    /// or the `rpc-error` message.
+    fn prepare(
+        &self,
+        request: DKeeperUpdatePrepare,
+    ) -> OwnerFuture<Result<serde_json::Value, String>>;
+}
+
 /// Every owner a downstream frame can route to.
 #[derive(Clone, Debug)]
 pub struct DownstreamOwners {
@@ -107,4 +244,10 @@ pub struct DownstreamOwners {
     pub pipeline: Arc<dyn TerminalPipelinePort>,
     pub view: Arc<dyn TerminalViewPort>,
     pub lifecycle: Arc<dyn LinkLifecyclePort>,
+    pub local_terminal: Arc<dyn LocalTerminalGrantPort>,
+    pub direct: Option<Arc<dyn DirectTerminalPort>>,
+    pub agent_prompt: Arc<dyn AgentPromptPort>,
+    pub attachment_peers: Option<Arc<dyn AttachmentPeerPort>>,
+    pub attachments: Arc<dyn AttachmentLinkPort>,
+    pub keeper_update: Arc<dyn KeeperUpdatePort>,
 }
