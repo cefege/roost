@@ -18,8 +18,8 @@ use web_sys::{
 use crate::cell_renderer_dom::DomSetupError;
 use crate::input::chord::Modifiers;
 use crate::input::controller::{
-    FocusSurface, InputControllerState, KeyDownAction, TerminalKeyEvent, TextareaCommit,
-    force_focus,
+    FocusRefused, FocusSurface, InputControllerState, KeyDownAction, TerminalKeyEvent,
+    TextareaCommit, force_focus,
 };
 
 /// What the pane hands the controller. The mode reads are called per event,
@@ -373,24 +373,28 @@ impl FocusSurface for TextareaSurface<'_> {
         })
     }
 
-    fn blur(&self) -> Result<(), ()> {
-        self.0.textarea.blur().map_err(|_| ())
+    fn blur(&self) -> Result<(), FocusRefused> {
+        self.0.textarea.blur().map_err(|_| FocusRefused)
     }
 
-    fn focus(&self) -> Result<(), ()> {
+    fn focus(&self) -> Result<(), FocusRefused> {
         let options = FocusOptions::new();
         options.set_prevent_scroll(true);
-        self.0.textarea.focus_with_options(&options).map_err(|_| ())
+        self.0
+            .textarea
+            .focus_with_options(&options)
+            .map_err(|_| FocusRefused)
     }
 
-    fn dispatch_focus(&self) -> Result<(), ()> {
+    fn dispatch_focus(&self) -> Result<(), FocusRefused> {
         let init = FocusEventInit::new();
         init.set_bubbles(true);
-        let event = FocusEvent::new_with_focus_event_init_dict("focus", &init).map_err(|_| ())?;
+        let event =
+            FocusEvent::new_with_focus_event_init_dict("focus", &init).map_err(|_| FocusRefused)?;
         self.0
             .textarea
             .dispatch_event(&event)
             .map(|_| ())
-            .map_err(|_| ())
+            .map_err(|_| FocusRefused)
     }
 }

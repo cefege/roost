@@ -13,8 +13,8 @@
 use std::cell::{Cell, RefCell};
 
 use roost_web_terminal::input::{
-    FOCUS_REPORT_IN, FOCUS_REPORT_OUT, FocusSurface, InputControllerState, KeyDownAction,
-    META_BACKSPACE_BYTES, Modifiers, TerminalKeyEvent, force_focus,
+    FOCUS_REPORT_IN, FOCUS_REPORT_OUT, FocusRefused, FocusSurface, InputControllerState,
+    KeyDownAction, META_BACKSPACE_BYTES, Modifiers, TerminalKeyEvent, force_focus,
 };
 
 /// One pane: the controller state, its textarea and root, and what the PTY got.
@@ -82,20 +82,20 @@ impl FocusSurface for Pane {
         self.active.get()
     }
 
-    fn blur(&self) -> Result<(), ()> {
+    fn blur(&self) -> Result<(), FocusRefused> {
         if self.blur_fails.get() {
-            return Err(());
+            return Err(FocusRefused);
         }
         Pane::blur(self);
         Ok(())
     }
 
-    fn focus(&self) -> Result<(), ()> {
+    fn focus(&self) -> Result<(), FocusRefused> {
         Pane::focus(self);
         Ok(())
     }
 
-    fn dispatch_focus(&self) -> Result<(), ()> {
+    fn dispatch_focus(&self) -> Result<(), FocusRefused> {
         self.fire_focus_change(true);
         Ok(())
     }

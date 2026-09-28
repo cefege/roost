@@ -33,12 +33,15 @@ pub type FileResolver = Box<dyn Fn(&str, Option<u64>, Option<&str>) -> Option<St
 /// A live read of the session's GitHub `owner/repo`, if its remote is known.
 pub type OwnerRepoGetter = Box<dyn Fn() -> Option<String>>;
 
+/// Opens a resolved worker file route in the app.
+pub type FileOpener = Box<dyn Fn(&str)>;
+
 /// v2 `TerminalLinkOpts`, plus the platform's link modifier.
 pub struct TerminalLinkOptions {
     /// Resolves output paths into authenticated `/file/…` routes.
     pub resolve_file: Option<FileResolver>,
     /// Opens a resolved worker file route in the app.
-    pub on_open_file: Option<Box<dyn Fn(&str)>>,
+    pub on_open_file: Option<FileOpener>,
     /// A getter, so scans see a Git remote that resolves after pane mount.
     pub github_owner_repo: Option<OwnerRepoGetter>,
     /// Compact keyboard-sheet arming, separate from physical modifier hover.

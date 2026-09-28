@@ -54,14 +54,13 @@ fn cursor_of(viewport: &FakeEl) -> FakeEl {
         .unwrap()
 }
 
+/// The painted cursor: `(visible, row, col)` as the DOM reads it.
+type PaintedCursor = (Option<bool>, Option<i64>, Option<i64>);
+
 /// `(canonical (visible,row,col), painted (visible,row,col), connected)`.
 fn cursor_snapshot(
     renderer: &render_support::FakeRenderer,
-) -> (
-    Option<(bool, u32, u32)>,
-    (Option<bool>, Option<i64>, Option<i64>),
-    bool,
-) {
+) -> (Option<(bool, u32, u32)>, PaintedCursor, bool) {
     let snapshot = renderer.presentation_snapshot();
     let painted = (
         snapshot.painted_cursor_visible,

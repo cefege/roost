@@ -3,6 +3,7 @@
 //! `apps/web/tests/wtermSizeEstimate.dom.test.ts`), and a pointer to the 1-based
 //! cell it lands on (`apps/web/tests/renderer/terminalMouse.test.ts`
 //! "cellFromPoint"). No measurable box means no geometry, never a fabricated 1x1.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_protocol::viewport::TerminalGeometry;
 use roost_web_terminal::cell_geometry::{

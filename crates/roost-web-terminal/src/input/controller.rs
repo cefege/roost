@@ -257,18 +257,22 @@ impl InputControllerState {
     }
 }
 
+/// A focus call the textarea refused: a detached pane racing cleanup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FocusRefused;
+
 /// The textarea as the force-focus dance drives it. `blur` and `focus` fire
 /// the element's own listeners synchronously, exactly as the DOM does, so an
 /// implementation must not hold the controller state borrowed across them.
 pub trait FocusSurface {
     /// Whether the textarea is the document's active element.
     fn is_active(&self) -> bool;
-    /// Blur the textarea. `Err` is a detached pane racing cleanup.
-    fn blur(&self) -> Result<(), ()>;
+    /// Blur the textarea.
+    fn blur(&self) -> Result<(), FocusRefused>;
     /// Focus the textarea without scrolling.
-    fn focus(&self) -> Result<(), ()>;
+    fn focus(&self) -> Result<(), FocusRefused>;
     /// Dispatch an explicit bubbling `focus` event at the textarea.
-    fn dispatch_focus(&self) -> Result<(), ()>;
+    fn dispatch_focus(&self) -> Result<(), FocusRefused>;
 }
 
 /// The blur-first focus dance. Focusing an already-active textarea fires no
@@ -294,7 +298,7 @@ pub fn force_focus(state: &RefCell<InputControllerState>, surface: &impl FocusSu
         if surface.is_active() {
             surface.dispatch_focus()?;
         }
-        Ok::<(), ()>(())
+        Ok::<(), FocusRefused>(())
     })();
     let landed = surface.is_active();
     tracing::debug!(target: "input", landed, completed = danced.is_ok(), "focus.force");

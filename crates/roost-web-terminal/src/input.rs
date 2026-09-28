@@ -40,8 +40,8 @@ pub use compose_selection::{
     SelectionDirection,
 };
 pub use controller::{
-    FocusSurface, InputControllerState, KeyDownAction, META_BACKSPACE_BYTES, PendingComposition,
-    TerminalKeyEvent, TextareaCommit, force_focus,
+    FocusRefused, FocusSurface, InputControllerState, KeyDownAction, META_BACKSPACE_BYTES,
+    PendingComposition, TerminalKeyEvent, TextareaCommit, force_focus,
 };
 pub use keys::{
     FOCUS_REPORT_IN, FOCUS_REPORT_OUT, apply_ctrl_modifier, is_terminal_printable_key,
