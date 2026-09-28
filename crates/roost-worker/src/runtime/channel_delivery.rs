@@ -208,6 +208,7 @@ mod tests {
     use roost_term::AlacrittyCore;
 
     use crate::event_store::{DurableEventKind, Store};
+    use crate::session::binding::ChannelDelivery;
     use crate::session::emit::CellEmitter;
     use crate::session::lifecycle::SessionTable;
     use crate::session::ring::ScrollbackRing;

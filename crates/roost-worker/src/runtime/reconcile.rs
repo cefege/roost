@@ -67,11 +67,20 @@ where
         sync_socket_id: None,
         ..Default::default()
     };
+    // THE OWNED MESSAGE, not `.view()`. The generated client's body is a
+    // zero-copy `OwnedView` over the response buffer, and its `sessions` field
+    // is a `RepeatedView` of borrowing row views — which borrow from a buffer
+    // that dies with the response. This set is held past the call (the keeper
+    // decision and the adoption are two different consumers of ONE read), so it
+    // has to be `Vec<Session>`. `into_owned` is the conversion the generated
+    // code offers, and it is infallible: the bytes already validated as they
+    // were decoded.
     let response = client
         .sessions_list(request)
         .await
-        .context("the coordinator did not report its open-session set")?;
-    let sessions = response.view().sessions.clone();
+        .context("the coordinator did not report its open-session set")?
+        .into_owned();
+    let sessions = response.sessions;
     tracing::info!(
         %worker_fp,
         open_sessions = sessions.len(),

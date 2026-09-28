@@ -34,10 +34,11 @@ use roost_protocol::wire::brand::WorkerFp;
 use crate::event_store::Journal;
 use crate::host::shell_spec_resolver::HostShellSpecResolver;
 use crate::keeper_pool::KeeperPool;
-use crate::session::binding::{CellDelivery, ChannelDelivery};
+use crate::session::binding::CellDelivery;
 use crate::session::emit::CellEmitter;
 use crate::session::journal_sink::JournalSink;
 use crate::session::lifecycle::{SessionManager, SessionTable};
+use crate::session::resume::KeeperChannels;
 use crate::session::sinks::SessionEventSink;
 use crate::session::spawn::{ShellSpawner, ShellSpecResolver};
 
@@ -69,6 +70,20 @@ pub struct SessionStack {
     resolver: Arc<dyn ShellSpecResolver>,
 }
 
+impl std::fmt::Debug for SessionStack {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // BY COUNTS, not by delegating. The emitter's own `Debug` prints every
+        // live channel's stream state — a page of noise in a log line that is
+        // about whether the session layer came up — and the manager and the
+        // resolver are not `Debug` at all. This is the same summary shape
+        // `super::cell_delivery::TableCellDelivery` prints.
+        formatter
+            .debug_struct("SessionStack")
+            .field("sessions", &self.table.live().len())
+            .finish_non_exhaustive()
+    }
+}
+
 /// Why the session layer could not be built.
 ///
 /// Every variant is a BOOT REFUSAL and not a degraded mode. A worker with no
@@ -93,7 +108,6 @@ pub fn build(
     outbox: Arc<Journal>,
     data_dir: &std::path::Path,
     log_dir: &std::path::Path,
-    platform: roost_host::HostPlatform,
     worker_fp_text: String,
 ) -> Result<SessionStack, StackError> {
     let table = Arc::new(SessionTable::default());
@@ -106,20 +120,32 @@ pub fn build(
     let ingest = Arc::new(Mutex::new(TableChannelDelivery::new(Arc::clone(&emitter))));
 
     let events: Arc<dyn SessionEventSink> = Arc::new(JournalSink::new(outbox));
+    // ONE `map_err`, and the second closure is the bug that was here: it named
+    // the parameter `error` and then logged `%reason`, which is bound in the
+    // FIRST closure and not in scope inside the second. The log line and the
+    // refusal are one closure so they cannot disagree about the reason.
     let resolver: Arc<dyn ShellSpecResolver> = Arc::new(
         HostShellSpecResolver::for_this_host(HostShellSpecResolver::inherited_process_environment())
-            .map_err(|reason| StackError::Platform(reason.clone()))
-            .map_err(|error| {
+            .map_err(|reason| {
                 tracing::error!(%reason, "the shell spec resolver could not be built for this host");
-                error
+                StackError::Platform(reason)
             })?,
     );
     // The SAME pool answers both seams, and deliberately: `KeeperChannels` is
     // recovery (it can fail, and a fault ends an adoption) while
     // `ShellSpawner` is opening (it cannot), and the split is about the failure
     // contract rather than about two objects.
-    let keeper: Arc<dyn KeeperChannels> = Arc::clone(&pool);
-    let spawner: Arc<dyn ShellSpawner> = pool;
+    //
+    // THE CLONES ARE BOUND BEFORE THEY ARE COERCED. `Arc::clone` is generic
+    // over `T: ?Sized`, so writing `let keeper: Arc<dyn KeeperChannels> =
+    // Arc::clone(&pool)` unified the clone's return type with the trait object
+    // and then asked the SOURCE for a `&Arc<dyn KeeperChannels>`, which a pool
+    // is not. Binding the clone as the concrete type first and letting the
+    // unsizing happen on the assignment is the whole fix, for both seams.
+    let keeper: Arc<KeeperPool> = Arc::clone(&pool);
+    let spawner_concrete: Arc<KeeperPool> = Arc::clone(&pool);
+    let spawner: Arc<dyn ShellSpawner> = spawner_concrete;
+    let keeper: Arc<dyn KeeperChannels> = keeper;
     let cells: Arc<Mutex<dyn CellDelivery>> = Arc::new(Mutex::new(cells));
 
     let resolver_for_manager = Arc::clone(&resolver);
@@ -164,6 +190,35 @@ impl SessionStack {
         session_id: &str,
     ) -> Result<crate::shell_spec::ShellSpec, String> {
         self.resolver.resolve_shell_spec(cwd, session_id)
+    }
+
+    /// The one production [`crate::browser_commands::Deps`], built from the
+    /// values this stack already owns.
+    ///
+    /// HERE AND NOT AT THE CALL SITE, and this method is the lost half of that
+    /// argument: the composition root was calling it and the `impl` block was
+    /// missing, so the browser-command pump — the thing that answers every
+    /// browser command on this worker — had no construction site at all, and
+    /// this file's own header described a wiring that did not exist. The
+    /// search ledger inside [`super::deps::WorkerCapabilities`] is therefore
+    /// created exactly once per process, here, and not once per caller that
+    /// wanted a `Deps`.
+    pub fn deps(
+        &self,
+        data_dir: &std::path::Path,
+        log_dir: &std::path::Path,
+        platform: roost_host::HostPlatform,
+        worker_fp: &str,
+    ) -> crate::browser_commands::Deps {
+        super::deps::WorkerCapabilities {
+            sessions: Arc::clone(&self.table),
+            manager: Arc::clone(&self.manager),
+            attachment_root: attachment_root(data_dir),
+            log_dir: log_dir.to_path_buf(),
+            worker_fp: worker_fp.to_owned(),
+            platform,
+        }
+        .into_deps()
     }
 }
 

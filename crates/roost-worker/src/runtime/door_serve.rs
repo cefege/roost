@@ -20,9 +20,7 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use roost_protocol::local_ui_door::{
-    DEFAULT_WORKER_LOCAL_UI_BIND, WORKER_LOCAL_UI_BIND_ENV, is_default_door_origin,
-};
+use roost_protocol::local_ui_door::{DEFAULT_WORKER_LOCAL_UI_BIND, WORKER_LOCAL_UI_BIND_ENV};
 use tokio::net::TcpListener;
 
 /// The environment that overrides the bind, re-exported so a caller resolving
@@ -49,7 +47,8 @@ impl LocalDoor {
     /// Bind the door, or refuse with a reason that names it.
     ///
     /// A NON-LOOPBACK BIND IS REFUSED BY NAME rather than dialled. The
-    /// [`is_default_door_origin`] check is deliberately NOT this one: an operator
+    /// [`roost_protocol::local_ui_door::is_default_door_origin`] check is
+    /// deliberately NOT this one: an operator
     /// who moves the port has also had to allowlist the new origin at the
     /// coordinator, and refusing to bind would leave them with a worker that
     /// starts and a door nothing can reach. Refusing the ADDRESS is the check

@@ -22,6 +22,8 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use roost_host::{ProcessEnv, supported_host_platform};
+use roost_host::env::EnvSource as _;
+use roost_observability::clock::EventClock as _;
 
 use super::boot::{WorkerBoot};
 use super::boot_order::{BootSequence, Readiness, ReadyStep, StepId};
@@ -32,13 +34,12 @@ use super::door_serve::LocalDoor;
 use super::keeper_boot::{self, KeeperBootOutcome};
 use super::link_loop::{BrowserLink, CoordinatorCellSink, LinkLoop, WorkerIdentity};
 use super::link_wire::ProtoLinkWire;
-use super::reconcile::{self, read_open_session_count};
+use super::reconcile;
 use super::session_stack::{self, SessionStack};
 use super::snapshot_source::SessionSnapshot;
 use super::stop::StopRequests;
 use super::{KeeperPool, DATABASE_FILE_NAME, Journal};
 use crate::link_dial::CoordinatorEndpoint;
-use crate::session::resume::{AdoptionRequest, AdoptRefusal};
 
 /// Run the ordered boot and then the link, until the requester asks to stop.
 pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<()> {
@@ -162,8 +163,20 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     //    already been decided on the first. One read, both consumers.
     let open_read =
         reconcile::read_open_sessions(&coordinator_client, boot.fingerprint.as_str()).await;
-    let open_sessions =
-        reconcile::open_sessions_or_unknown(open_read.as_ref().map(|rows| rows.len()));
+    // `open_sessions_or_unknown` takes a CLAIM — `Result<Option<usize>, _>` — and
+    // `open_read.as_ref().map(|rows| rows.len())` is neither: it is
+    // `Result<usize, &anyhow::Error>`, so the `Ok` arm carried a number where
+    // the seam wants the option that distinguishes "read it, it was empty"
+    // from "nobody read it". The rows are borrowed here and moved on the next
+    // line, so the count is derived by reference and the error is re-wrapped
+    // into an owned one; the `Err` arm still reaches the same log line inside
+    // the seam, which is the only thing it is for.
+    let open_sessions = reconcile::open_sessions_or_unknown(
+        open_read
+            .as_ref()
+            .map(|rows| Some(rows.len()))
+            .map_err(|error| anyhow::anyhow!("{error}")),
+    );
     let open_rows = open_read.unwrap_or_default();
     if open_rows.is_empty() && open_sessions.is_some() {
         tracing::info!(
@@ -252,13 +265,15 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     // rather than a second connection: the keeper socket is one, its dispatch
     // loop is one, and a second client would be a second frame stream.
     let survivors = Arc::clone(&pool);
+    // `platform` is NOT passed: nothing in the stack branches on it, and the
+    // two capabilities that do — the file surface and the attachments — take
+    // it through `SessionStack::deps` below, which is where it is used.
     let stack: SessionStack = session_stack::build(
         boot.fingerprint.clone(),
         pool,
         Arc::clone(&outbox),
         &boot.data_dir,
         &boot.log_dir,
-        platform,
         boot.fingerprint.as_str().to_owned(),
     )?;
 
@@ -430,9 +445,11 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
 /// into the boot configuration would be a second place to change it.
 fn door_bind() -> String {
     let environment = ProcessEnv::new();
+    // No `.map(str::to_owned)` here: `EnvSource::get` already returns an
+    // owned `String`, so the extra map asked `str::to_owned` to take a `String`
+    // where it wanted a `&str`.
     environment
         .get(super::door_serve::ENV_DOOR_BIND)
         .filter(|value| !value.is_empty())
-        .map(str::to_owned)
         .unwrap_or_else(|| roost_protocol::local_ui_door::DEFAULT_WORKER_LOCAL_UI_BIND.to_string())
 }

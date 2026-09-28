@@ -26,6 +26,7 @@
 
 use std::sync::Arc;
 
+use roost_observability::clock::EventClock;
 use roost_protocol::wire::brand::{ChannelId, SessionId, TraceId};
 
 use super::keeper_boot::KeeperBootOutcome;
@@ -127,10 +128,14 @@ pub async fn adopt_survivors(
         // The folder is the coordinator's SPAWN folder when the row carries one
         // and its current `cwd` otherwise: a session re-opened in the folder its
         // shell drifted to is a different session wearing this id.
-        let folder = if row.spawn_cwd.is_empty() {
-            row.cwd.clone()
-        } else {
-            row.spawn_cwd.clone()
+        //
+        // `spawn_cwd` IS AN `Option` in the generated row — the proto field is
+        // not a defaulted string — so the "carries one" test is `Some` and
+        // non-empty, not `is_empty`. An absent field falls through to `cwd`,
+        // which is the same folder the row would name anyway.
+        let folder = match row.spawn_cwd.as_deref().filter(|value| !value.is_empty()) {
+            Some(spawn_cwd) => spawn_cwd.to_owned(),
+            None => row.cwd.clone(),
         };
         let shell_spec = match stack.resolve_shell_spec(&row.cwd, &row.id) {
             Ok(spec) => spec,
@@ -176,8 +181,7 @@ pub async fn adopt_survivors(
                      cold core"
                 );
             }
-            Err(AdoptRefusal::Unreplayable { channel, reason })
-            | Err(AdoptRefusal::StagingOverflow { channel, .. }) => {
+            Err(AdoptRefusal::Unreplayable { channel, reason }) => {
                 adopted.unreplayable += 1;
                 tracing::warn!(
                     channel_id = channel,
@@ -186,6 +190,17 @@ pub async fn adopt_survivors(
                     "boot: this survivor's history could not be replayed, so IT was killed and \
                      its session must be respawned; every other survivor and the link are \
                      untouched"
+                );
+            }
+            Err(AdoptRefusal::StagingOverflow { channel, cap }) => {
+                adopted.unreplayable += 1;
+                tracing::warn!(
+                    channel_id = channel,
+                    session_id = %request.session_id,
+                    cap,
+                    "boot: this survivor produced more concurrent output than an adoption can \
+                     stage, so IT was killed and its session must be respawned; every other \
+                     survivor and the link are untouched"
                 );
             }
             Err(refusal) => {
