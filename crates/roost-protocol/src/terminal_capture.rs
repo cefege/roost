@@ -4,15 +4,18 @@
 //! One table, so a limit cannot drift between the layer that produces evidence
 //! and the layer that refuses it: the worker's recorder, the coordinator's
 //! bridge and the storage writer all read these numbers from here. The bundle
-//! shape (`bundle`, `frame_json`), the canonical view comparison (`view`), the
-//! evidence envelope check (`envelope`) and the bundle validator (`validate`)
-//! live in the submodules below, the same set v2 `terminal-capture.ts` exports.
+//! shape (`bundle`, `frame_json`, `coordinator`), the request command and its
+//! answer (`command`), the canonical view comparison (`view`), the evidence
+//! envelope check (`envelope`) and the bundle validator (`validate`) live in
+//! the submodules below, the same set v2 `terminal-capture.ts` exports.
 //!
 //! The answer vocabulary lives here rather than in the worker because the
 //! coordinator narrows a worker's reply against the SAME literals: a code only
 //! the worker can name is a capture the coordinator treats as a worker failure.
 
 pub mod bundle;
+pub mod command;
+pub mod coordinator;
 pub mod envelope;
 pub mod frame_json;
 pub mod validate;
