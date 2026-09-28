@@ -79,6 +79,14 @@ pub enum TerminalWriteAcceptance {
         /// The batch length.
         written_bytes: u32,
     },
+    /// A worker-built write (the fenced agent prompt of
+    /// `agents::prompt_control`): the worker proves the `Written` phase and a
+    /// non-zero byte count no larger than the cap, since only it knows the
+    /// final bytes it put on the PTY.
+    WorkerWritten {
+        /// The largest write the worker may report.
+        maximum_written_bytes: u32,
+    },
 }
 
 /// A definite pre-write refusal.
@@ -190,12 +198,22 @@ fn classify_worker_result(
     result: &InputResult,
     acceptance: TerminalWriteAcceptance,
 ) -> TerminalWriteControlResult {
-    let TerminalWriteAcceptance::ExactBytes {
-        written_bytes: sent,
-    } = acceptance;
-    let written_bytes = result.written_bytes.min(sent);
-    // Raw input predates write-phase proof and keeps its exact-byte rule.
-    if result.status == TerminalInputStatus::Accepted && result.written_bytes == sent {
+    let (maximum, accepted) = match acceptance {
+        // Raw input predates write-phase proof and keeps its exact-byte rule.
+        TerminalWriteAcceptance::ExactBytes {
+            written_bytes: sent,
+        } => (sent, result.written_bytes == sent),
+        TerminalWriteAcceptance::WorkerWritten {
+            maximum_written_bytes,
+        } => (
+            maximum_written_bytes,
+            result.phase == TerminalWritePhase::Written
+                && result.written_bytes > 0
+                && result.written_bytes <= maximum_written_bytes,
+        ),
+    };
+    let written_bytes = result.written_bytes.min(maximum);
+    if result.status == TerminalInputStatus::Accepted && accepted {
         return TerminalWriteControlResult {
             status: TerminalWriteStatus::Accepted,
             session_id: command.session_id.clone(),

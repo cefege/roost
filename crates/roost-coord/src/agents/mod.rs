@@ -9,11 +9,13 @@
 //! needs from configuration is read at call time from `core.services.boot`.
 //!
 //! AG1 owns the six status, push and config files below and the `status` field
-//! on the runtime; AG2 owns `prompt_control` and `rpc_prompt` and adds the
-//! `prompt` field. Each names the other's claim in this header, so the next
-//! reader knows which slice is mid-flight rather than guessing.
+//! on the runtime; AG2 owns `prompt_control` and `rpc_prompt`, which keep no
+//! state of their own (v2's `agent-prompt-control.ts` holds none): a prompt's
+//! wait lives in the status hub's wait queue.
 
 pub mod config;
+pub mod prompt_control;
+pub mod rpc_prompt;
 pub mod rpc_status;
 pub mod status_hub;
 pub mod status_push;
