@@ -19,6 +19,7 @@ pub mod coord_config;
 pub mod coord_config_loader;
 pub mod coord_config_origin;
 pub mod env;
+pub mod host_memory;
 pub mod jwt_base;
 pub mod paths;
 pub mod spa_path;

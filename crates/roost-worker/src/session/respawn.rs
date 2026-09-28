@@ -16,6 +16,7 @@ use crate::browser_commands::session_lifecycle::{DEFAULT_COLS, DEFAULT_ROWS, Ses
 use crate::channel_fsm::ChannelEvent;
 use crate::event_store::DurableEventKind;
 use crate::strays::{DEAD_BIRTH_LIFETIME, DEAD_BIRTH_THRESHOLD, DEGRADED_WINDOW, Stillborn};
+use crate::terminal_core_capacity::TerminalCoreAllocationKind;
 
 impl SessionManager {
     /// The next channel id to ask the keeper for, past every channel it holds.
@@ -198,6 +199,13 @@ impl SessionManager {
                 })
             })
             .filter(|_| replacement);
+        // v2 `session-respawn.ts:78`: replacing a held record borrows the one
+        // serialized replacement slot; anything else is a fresh core.
+        let core_allocation = if held.is_some() {
+            TerminalCoreAllocationKind::Replacement
+        } else {
+            TerminalCoreAllocationKind::Fresh
+        };
         let (folder, shell_spec) = match held {
             // The launch folder, NOT the drifted `cwd`: see the header.
             Some((_, spec)) => (spec.cwd.clone(), Some(spec)),
@@ -225,12 +233,14 @@ impl SessionManager {
             session_id: session_id.cloned(),
             shell_spec,
             event,
+            core_allocation,
         };
         let context = SpawnContext {
             spawner: self.spawner.as_ref(),
             resolver: self.resolver.as_ref(),
             events: self.events.as_ref(),
             worker_fp: &self.worker_fp,
+            core_capacity: &self.core_capacity,
         };
         let record = spawn::spawn_shell(
             &context,
@@ -252,9 +262,19 @@ impl SessionManager {
             );
             Refusal::failed("sessions", error.to_string())
         })?;
-        self.sessions
-            .insert(record)
-            .map_err(|error| Refusal::failed("sessions", error.to_string()))?;
+        let raw_channel = channel_id.as_u32() as u16;
+        if let Err(error) = self.sessions.insert(record) {
+            // No record holds the core any more, so neither does its lease.
+            self.core_capacity.release_channel(raw_channel);
+            return Err(Refusal::failed("sessions", error.to_string()));
+        }
+        // The insert proves the prior record left the table, so the replacement
+        // slot is freed (v2 `completeReplacement` after `_dropChannelState`).
+        if core_allocation == TerminalCoreAllocationKind::Replacement
+            && let Err(misuse) = self.core_capacity.complete_channel_replacement(raw_channel)
+        {
+            tracing::error!(channel_id = raw_channel, error = %misuse, "a respawn's replacement core slot could not be completed");
+        }
         let stream_id = session_id
             .as_ref()
             .and_then(|id| {
