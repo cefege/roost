@@ -4222,24 +4222,36 @@ pub fn repo_root() -> PathBuf {
 ```
 `env!("CARGO_MANIFEST_DIR")` is resolved **when xtask compiles**. With a shared
 `CARGO_TARGET_DIR`, **whichever worktree last compiled xtask decides which tree
-every later `cargo xtask lint` walks — and `pwd` does not correct it.** Cargo
-itself is fine: `cargo test` / `build` / `clippy` read the manifest from the
-current directory. **Only xtask is affected, and only its two repo-walking
-subcommands.**
+every later `cargo xtask lint` walks — and `pwd` does not correct it.**
 
-**The rule** — **pin `ROOST_REPO_ROOT=$PWD` on every `xtask` invocation made
-from a worktree other than the integrator's, or give each worktree its own
-target directory.** The override is not a convenience; the header at
+**`xtask lint` ONLY. `xtask fmt` is unaffected**: `fmt.rs` never calls
+`repo_root()` — it enumerates packages with `cargo metadata` (`fmt.rs:46-50`),
+which runs from the current directory. `grep -c repo_root xtask/src/fmt.rs` is
+**0**; `lint_table.rs` is **2**. Cargo is unaffected too: `test` / `build` /
+`clippy` read the manifest from `pwd`. **A `xtask fmt` result stands under a
+shared target dir; a `xtask lint` result does not.**
+
+**The rule** — **pin `ROOST_REPO_ROOT=$PWD` on every `cargo xtask lint`, or give
+each worktree its own target directory.** The condition is **any** shared
+`CARGO_TARGET_DIR`, **wherever you run it**: the 14-input row above was measured
+in `roost-v3`, the integrator's own tree, because a `/tmp` worktree had been the
+last to compile xtask into the shared directory. **A worktree is not a safe
+harbour; the target directory is what decides.**
+**The override is not a convenience**; the header at
 `source_tree.rs:25-28` says it exists *"so a gate can be run against a track
 worktree before that branch is merged."* Running one without it is the mistake.
 
-**Why it is in this file rather than only in a session note:** the same session
-produced six instruments that returned a confident answer about the wrong thing —
-a bare `:162` a path pattern could not see, a `delegated_reply` on the line
-below its marker, a `Cargo.toml` a lowercase pattern excluded, an unverified
-cause stated as fact, a shared `CARGO_TARGET_DIR`, and this. **In every case the
-failure looked like agreement, and in every case the answer was in a second
-number or a second line of the same output.** The general form is worth more
-than any one instance: *a figure must carry what it looked at beside what it
-found, and a negative result is only as good as the shape of the instrument that
-produced it.*
+**Why it is in this file rather than only in a session note:** that session
+produced six instruments returning a confident answer about the wrong thing — a
+bare `:162` a path pattern could not see, a `delegated_reply` on the line below
+its marker, a `Cargo.toml` a lowercase pattern excluded, an unverified cause
+stated as fact, a shared `CARGO_TARGET_DIR` walking the wrong tree, and a **test
+comment cited as an authority because it agreed with me.** That last one is the
+worst of the six, because it produced a CORRECT answer from a source that could
+not support it, and a right answer for the wrong reason passes every test and
+ships a rule nobody wrote. **In every case the failure looked like agreement, and
+in every case the answer was in a second number, a second line of the same
+output, or the file nobody opened.**
+The general form is worth more than any one instance: *a figure must carry what
+it looked at beside what it found, and a negative result is only as good as the
+shape of the instrument that produced it.*
