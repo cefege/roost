@@ -43,18 +43,13 @@ pub fn release_asset_name(
 /// that could name a keeper asset the pipeline never publishes is a 404 on one
 /// architecture and not another — the shape of bug that ships.
 ///
-/// **A counted replacement, and the honest reason is defensiveness, not a case
-/// that exists today.** `replacen` with a count of one is what this uses, and an
-/// earlier version of this comment claimed the count was load-bearing because
-/// `roost-darwin-x64` "names the program twice". It does not: the four
-/// published names are `roost`, `roost-darwin-x64`, `roost-linux-x64` and
-/// `roost-linux-arm64`, and `roost` occurs exactly once in each, so
-/// `replace(ROOST_PROGRAM, …)` and `replacen(ROOST_PROGRAM, …, 1)` return the
-/// same string for all of them. **The count is kept because a future suffixed
-/// name could contain the program twice, and an uncounted replacement would
-/// then rewrite the suffix as well** -- `roost-fallback-roost` becoming
-/// `roost-keeper-fallback-roost-keeper`. That is a reason to keep the count, and
-/// it is not the reason this comment used to give.
+/// **A counted replacement, so only the prefix is rewritten.** Each published
+/// name contains `roost` exactly once, so the count changes nothing for the
+/// four names above; it is set because a name that contained the program twice —
+/// `roost-fallback-roost` — would otherwise have its suffix rewritten as well,
+/// becoming `roost-keeper-fallback-roost-keeper`. A keeper's name is a prefixed
+/// roost name and never a second table: a name present in one and absent from
+/// the other is a 404 on one architecture and not another.
 ///
 /// Returns an owned `String` where [`release_asset_name`] returns a `&'static
 /// str`, because a substitution produces a new string rather than naming one.

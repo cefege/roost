@@ -48,9 +48,9 @@ fn read_repo(relative: &str) -> String {
 ///
 /// Scoped to a job because a release workflow legitimately runs cargo commands
 /// outside its gate: the matrix build compiles per target and the smoke job
-/// builds the binaries it drives. Comparing whole files reports those as
-/// drift, which the first version of this test did — it failed on its own
-/// second run for exactly that reason.
+/// builds the binaries it drives. Comparing whole files reports those as gate
+/// drift, so this reads one job's body — from its two-space header to the next
+/// key at the same indent — rather than the file.
 ///
 /// Deliberately crude. A YAML-aware parse would accept a restructure this test
 /// is not written to follow, and the thing worth checking is that two jobs name
@@ -118,11 +118,11 @@ fn the_release_matrix_publishes_exactly_the_names_assets_rs_resolves() {
 /// The four names, pinned as literals.
 ///
 /// `keeper_release_asset_name` derives a keeper name by substituting into a roost
-/// name, and the substitution's justification used to be a claim the code did
-/// not support — `assets.rs` argued the replacement count mattered because
-/// `roost-darwin-x64` "names the program twice", and it names it once. These
-/// assertions are here so the names are checked as values rather than trusted
-/// through prose, and so a change to the substitution has to edit them.
+/// name, and each published name contains `roost` exactly once — so the
+/// substitution's count is not exercised by any name here. These assertions
+/// exist so the four names are checked as VALUES rather than trusted through
+/// prose: a change to the substitution has to edit them, and a name that stopped
+/// matching `join.sh` fails here rather than as a 404 on one architecture.
 #[test]
 fn the_four_published_names_are_the_ones_join_sh_fetches() {
     let expected_roost = [
