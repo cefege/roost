@@ -32,9 +32,7 @@ async fn adopt(records: Vec<&[u8]>, head_seq: u64, rows: u16) -> Harness {
     *keeper.history.lock().expect("held") = SurvivorHistory {
         records: records
             .into_iter()
-            .enumerate()
-            .map(|(seq, bytes)| HistoryRecord::Output {
-                seq: seq as u64,
+            .map(|bytes| HistoryRecord::Output {
                 bytes: bytes.to_vec(),
             })
             .collect(),

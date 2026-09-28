@@ -76,6 +76,12 @@ impl CwdEventWriter {
                     "a session's new working folder could not be published"
                 ),
             }
+            // v2 session-scrollback.ts:186-190: a new folder may be another repo — re-watch it.
+            if let Some(session_id) = event.session_id()
+                && let Some(channel_id) = manager.sessions.channel_of(session_id)
+            {
+                manager.notify_session_folder(session_id, channel_id);
+            }
         }
         tracing::info!("the cwd event writer stopped: every lane was dropped");
     }

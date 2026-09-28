@@ -15,9 +15,8 @@ use roost_proto::{
     DAgentPrompt, DAttachmentChunk, DAttachmentDirectStatusRequest, DCoordMovePrepare,
     DCoordMoveSnapshotChunk, DCoordMoveSnapshotStart, DCoordRelocate, DInputRequest,
     DKeeperUpdatePrepare, DLocalAttachmentGrant, DLocalAttachmentGrantRevoke,
-    DLocalAttachmentPeerCancel, DLocalAttachmentPeerOffer, DLocalTerminalGrant,
-    DLocalTerminalGrantRevoke, DLocalTerminalPeerCancel, DLocalTerminalPeerOffer,
-    DTerminalDirectRetire, DTerminalInputRouteClaim, DTerminalTransportProbe, DUpdateBroker,
+    DLocalAttachmentPeerCancel, DLocalAttachmentPeerOffer, DLocalTerminalPeerCancel,
+    DLocalTerminalPeerOffer, DTerminalDirectRetire, DTerminalInputRouteClaim, DTerminalTransportProbe, DUpdateBroker,
 };
 use roost_protocol::wire::coord_worker::{
     CoordWorkerDownstream as Down, CoordWorkerUpstream as Up, TerminalInputStatus,
@@ -41,6 +40,16 @@ fn answers(frame: Down) -> Vec<Up> {
     link.replies
 }
 
+/// v2's answers when the `CoordLinkDeps` callback for the frame is absent.
+fn answers_without_owners(frame: Down) -> Vec<Up> {
+    let (uplink, mut receiver) = channel();
+    let dispatcher = Dispatcher::new(uplink, EPOCH, None);
+    let mut link = FakeLink::default();
+    dispatcher.dispatch(frame, Instant::now(), &mut link);
+    assert!(receiver.try_recv().is_none(), "nothing is answered later");
+    link.replies
+}
+
 fn rpc_error(request_id: &str, message: &str) -> Vec<Up> {
     vec![Up::RpcError {
         request_id: request_id.to_owned(),
@@ -57,28 +66,23 @@ fn only(frames: Vec<Up>) -> Up {
 
 #[test]
 fn unsupported_grants_and_keeper_update_answer_v2s_rpc_errors() {
-    let grant = DLocalTerminalGrant {
-        request_id: "g1".to_owned(),
-        ..Default::default()
-    };
-    assert_eq!(
-        answers(Down::LocalTerminalGrant(grant)),
-        rpc_error("g1", "local terminal grants unsupported by this worker")
-    );
     let grant = DLocalAttachmentGrant {
         request_id: "g2".to_owned(),
         ..Default::default()
     };
     assert_eq!(
-        answers(Down::LocalAttachmentGrant(grant)),
+        answers_without_owners(Down::LocalAttachmentGrant(grant)),
         rpc_error("g2", "local attachment grants unsupported by this worker")
     );
     let prepare = DKeeperUpdatePrepare {
         request_id: "k1".to_owned(),
         ..Default::default()
     };
+    // v2 answers this only when `onKeeperUpdatePrepare` is absent
+    // (`coord-link-downstream.ts:303-309`); the owner's answers are
+    // `link_downstream_keeper_update.rs`'s.
     assert_eq!(
-        answers(Down::KeeperUpdatePrepare(prepare)),
+        answers_without_owners(Down::KeeperUpdatePrepare(prepare)),
         rpc_error("k1", "keeper update preparation unsupported by this worker")
     );
 }
@@ -122,7 +126,9 @@ fn an_agent_prompt_is_rejected_pre_write() {
         text: "hi".to_owned(),
         ..Default::default()
     };
-    let Up::InputResult(result) = only(answers(Down::AgentPrompt(prompt))) else {
+    // v2 rejects only when the `onAgentPrompt` callback is absent; a worker
+    // with owners routes it (`link_downstream_agent_prompt.rs`).
+    let Up::InputResult(result) = only(answers_without_owners(Down::AgentPrompt(prompt))) else {
         panic!("one input-result")
     };
     assert_eq!(
@@ -198,7 +204,7 @@ fn peer_offers_are_disabled_and_an_unknown_upload_is_not_found() {
         ..Default::default()
     };
     let Up::AttachmentDirectStatus(answer) =
-        only(answers(Down::AttachmentDirectStatusRequest(status)))
+        only(answers_without_owners(Down::AttachmentDirectStatusRequest(status)))
     else {
         panic!("a status")
     };
@@ -222,12 +228,9 @@ fn peer_offers_are_disabled_and_an_unknown_upload_is_not_found() {
 fn optional_callbacks_and_retired_tags_are_inert() {
     let inert = [
         Down::TerminalTransportProbe(DTerminalTransportProbe::default()),
-        Down::LocalTerminalGrantRevoke(DLocalTerminalGrantRevoke::default()),
-        Down::LocalAttachmentGrantRevoke(DLocalAttachmentGrantRevoke::default()),
         Down::LocalTerminalPeerCancel(DLocalTerminalPeerCancel::default()),
         Down::LocalAttachmentPeerCancel(DLocalAttachmentPeerCancel::default()),
         Down::TerminalDirectRetire(DTerminalDirectRetire::default()),
-        Down::AttachmentChunk(DAttachmentChunk::default()),
         Down::CoordMovePrepare(DCoordMovePrepare::default()),
         Down::CoordMoveSnapshotStart(DCoordMoveSnapshotStart::default()),
         Down::CoordMoveSnapshotChunk(DCoordMoveSnapshotChunk::default()),
@@ -236,6 +239,19 @@ fn optional_callbacks_and_retired_tags_are_inert() {
     for frame in inert {
         let kind = frame.kind();
         assert!(answers(frame).is_empty(), "{kind} is answered by nobody");
+    }
+}
+
+/// v2 `deps.onAttachmentChunk?.()` / `onLocalAttachmentGrantRevoke?.()`: a
+/// worker without the attachment owner sends nothing.
+#[test]
+fn attachment_chunks_and_revocations_without_the_owner_are_inert() {
+    for frame in [
+        Down::LocalAttachmentGrantRevoke(DLocalAttachmentGrantRevoke::default()),
+        Down::AttachmentChunk(DAttachmentChunk::default()),
+    ] {
+        let kind = frame.kind();
+        assert!(answers_without_owners(frame).is_empty(), "{kind} is answered by nobody");
     }
 }
 

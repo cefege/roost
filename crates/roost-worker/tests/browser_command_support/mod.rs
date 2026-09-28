@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex};
 pub use roost_host::{HostPlatform, MapEnv};
 use roost_protocol::wire::brand::SessionId;
 use roost_worker::browser_commands::Deps;
+use roost_worker::attachments::store_paths::AttachmentBase;
 use roost_worker::browser_commands::attachments::SessionAttachments;
 pub use roost_worker::browser_commands::file_commands::LocalFiles;
 use roost_worker::browser_commands::search::Searches;
@@ -74,10 +75,9 @@ pub fn harness() -> Harness {
     std::fs::create_dir_all(&root).expect("a scratch root");
     let environment = Arc::new(MapEnv::new().with("HOME", root.to_string_lossy().as_ref()));
     let files = Arc::new(LocalFiles::new(environment, HostPlatform::Linux));
-    let attachments = Arc::new(SessionAttachments::new(
+    let attachments = Arc::new(SessionAttachments::new(AttachmentBase::new(
         root.join("attachments"),
-        HostPlatform::Linux,
-    ));
+    )));
     let sessions = Arc::new(FakeSessions::default());
     let presence = Arc::new(FakePresence::default());
     let search = Arc::new(FakeSearch::default());

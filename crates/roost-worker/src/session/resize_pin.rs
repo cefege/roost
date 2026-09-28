@@ -6,6 +6,7 @@
 //! v2's `SbOriginPin` in `session-record.ts`.
 
 use super::history::SbOriginPin;
+use super::types::SessionRecord;
 
 /// The history pin's inputs, read at the moment a core's geometry changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,5 +104,27 @@ pub fn pin_for_adoption(
         clamped: false,
         replay_lost_rows: 0,
         replay_floor: 0,
+    }
+}
+
+/// The two counters a pin is computed from.
+pub(super) struct CoreCounters {
+    pub(super) discarded: u64,
+    pub(super) total: u64,
+}
+
+impl CoreCounters {
+    pub(super) fn read(record: &SessionRecord) -> Self {
+        let discarded = record.terminal_core.discarded_line_count().unwrap_or(0);
+        Self {
+            discarded,
+            total: discarded + record.terminal_core.scrollback_count() as u64,
+        }
+    }
+
+    /// The rows the core still holds, as opposed to the `total` it has ever
+    /// held: a pin's fresh count is a LOSS measure.
+    pub(super) fn retained(&self) -> u64 {
+        self.total.saturating_sub(self.discarded)
     }
 }

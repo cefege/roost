@@ -167,3 +167,70 @@ fn each_activation_gets_its_own_process_epoch() {
             .contains(&std::process::id().to_string())
     );
 }
+
+const RESTORE: &str = roost_platform::AGENT_CONVERSATION_RESTORE_ENV;
+
+/// Every supported worker platform, Windows included: its data and log roots
+/// are named explicitly because they have no POSIX default.
+fn restore_fixture(platform: HostPlatform) -> Fixture {
+    let fixture = Fixture::new();
+    let data = fixture._scratch.path("data").display().to_string();
+    let logs = fixture._scratch.path("logs").display().to_string();
+    match platform {
+        HostPlatform::Windows => fixture
+            .with(roost_host::WORKER_DATA_DIR_ENV, &data)
+            .with(roost_host::WORKER_LOG_DIR_ENV, &logs),
+        _ => fixture,
+    }
+}
+
+fn restore_setting(platform: HostPlatform, value: Option<&str>) -> Result<bool, BootConfigError> {
+    let fixture = restore_fixture(platform);
+    let fixture = match value {
+        Some(value) => fixture.with(RESTORE, value),
+        None => fixture,
+    };
+    WorkerBoot::resolve(&fixture.env, platform).map(|boot| boot.agent_conversation_restore)
+}
+
+/// v2 `tests/host/config.test.ts` "defaults to disabled on every platform when absent".
+#[test]
+fn conversation_restore_defaults_to_disabled_on_every_platform() {
+    for platform in [HostPlatform::Linux, HostPlatform::MacOs, HostPlatform::Windows] {
+        assert_eq!(restore_setting(platform, None), Ok(false), "{platform:?}");
+    }
+}
+
+/// v2 "accepts only exact 0 and 1 values on POSIX".
+#[test]
+fn conversation_restore_accepts_exactly_0_and_1_on_posix() {
+    for platform in [HostPlatform::Linux, HostPlatform::MacOs] {
+        assert_eq!(restore_setting(platform, Some("0")), Ok(false), "{platform:?}");
+        assert_eq!(restore_setting(platform, Some("1")), Ok(true), "{platform:?}");
+    }
+}
+
+/// v2 "rejects every other explicit value".
+#[test]
+fn conversation_restore_rejects_every_other_explicit_value() {
+    for value in ["", "2", "true", "01", " 1 "] {
+        let refused = restore_setting(HostPlatform::Linux, Some(value));
+        assert_eq!(refused, Err(BootConfigError::BadConversationRestore), "{value:?}");
+        assert_eq!(
+            refused.unwrap_err().to_string(),
+            "ROOST_AGENT_CONVERSATION_RESTORE must be exactly 0 or 1"
+        );
+    }
+}
+
+/// v2 "rejects explicit enablement on Windows".
+#[test]
+fn conversation_restore_rejects_explicit_enablement_on_windows() {
+    let refused = restore_setting(HostPlatform::Windows, Some("1"));
+    assert_eq!(refused, Err(BootConfigError::ConversationRestoreOnWindows));
+    assert_eq!(
+        refused.unwrap_err().to_string(),
+        "ROOST_AGENT_CONVERSATION_RESTORE=1 is unsupported on Windows"
+    );
+    assert_eq!(restore_setting(HostPlatform::Windows, Some("0")), Ok(false));
+}

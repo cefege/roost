@@ -102,6 +102,8 @@ pub struct CellEmitter {
     pub(crate) query_replies: QueryReplyLane,
     /// Where an OSC 7 folder change becomes a `cwd` session event.
     pub(crate) cwd_events: super::cwd_events::CwdEventLane,
+    /// The terminal incident recorder's data-path tap (detached by default).
+    pub(crate) capture: crate::capture::CaptureTap,
     /// Woken whenever the cadence owes work; `runtime::cell_cadence` waits on it.
     cadence: Arc<tokio::sync::Notify>,
 }
@@ -145,6 +147,17 @@ impl CellEmitter {
     pub fn attach_cwd_events(&mut self, lane: super::cwd_events::CwdEventLane) {
         self.cwd_events = lane;
         tracing::info!("the cell emitter's cwd event lane was attached");
+    }
+
+    /// The terminal incident recorder's tap (v2 `terminal-capture.ts` taps).
+    pub fn attach_capture(&mut self, tap: crate::capture::CaptureTap) {
+        self.capture = tap;
+        tracing::info!("the cell emitter's terminal capture tap was attached");
+    }
+
+    /// The tap the resize boundary notes its install and result through.
+    pub fn capture_tap(&self) -> crate::capture::CaptureTap {
+        self.capture.clone()
     }
 
     /// Forward probe replies on the same ordered lane (the resize boundary

@@ -12,7 +12,9 @@
 //! commands into the session layer, and the session layer is built over the
 //! keeper pool — while the decision that admits the keeper needed the
 //! coordinator's open-session set, which is read over Connect at step 5 and
-//! needs no socket of ours.
+//! needs no socket of ours. The link DIALS before the boot reconcile (v2
+//! `main.ts`), because every pass waits for the durable replay before it reads
+//! the coordinator's recovery state; its snapshot is held until that pass ends.
 //!
 //! Every step logs. A boot that cannot say where it got to is a boot whose
 //! refusal an operator has to guess at, and this one refuses in more places
@@ -26,11 +28,11 @@ use roost_host::{ProcessEnv, supported_host_platform};
 use roost_observability::clock::EventClock as _;
 
 use super::boot::WorkerBoot;
-use super::boot_order::{BootSequence, Readiness, ReadyStep, StepId};
+use super::boot_order::{BootSequence, StepId};
 use super::bootstrap_redeem::activation;
 use super::bootstrap_redeem::enroll_this_activation;
 use super::credential::WorkerKeyCredential;
-use super::door_serve::LocalDoor;
+use super::door_serve::{DoorConfig, LocalDoor};
 use super::link_loop::{BrowserLink, LinkLoop, WorkerIdentity};
 use super::link_wire::ProtoLinkWire;
 use super::reconcile;
@@ -42,13 +44,6 @@ use crate::link_dial::CoordinatorEndpoint;
 /// Run the ordered boot and then the link, until the requester asks to stop.
 pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<()> {
     let mut sequence = BootSequence::new();
-    // Readiness is the boot's own claim about the steps before it, and it is a
-    // state machine because the claim is about ORDER: reconciliation must
-    // reserve every durable session before a snapshot publishes, so a failed
-    // keeper adoption cannot expose a partial worker state. It is advanced at
-    // the points that earn it, and `Readiness::advance` refuses any other order
-    // rather than trusting this function to keep it.
-    let mut readiness = Readiness::default();
     tracing::info!(
         fingerprint = %boot.fingerprint,
         version = %boot.worker_version,
@@ -110,6 +105,7 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     //    to mount; what this step owns is the bind and the refusal.
     let platform = supported_host_platform()
         .map_err(|error| anyhow::anyhow!("this host's platform is not one v3 runs on: {error}"))?;
+    crate::agents::install_integrations::install_agent_integrations_at_boot(platform).await;
     let door = LocalDoor::bind(Some(&door_bind())).await?;
 
     // 4. The durable outbox, opened BEFORE anything can write a session event
@@ -168,8 +164,7 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
         );
     };
     let pool = reconciled.pool;
-    let open_rows = reconciled.open;
-    let survivor_channels = reconciled.survivors;
+    let process = reconciled.process;
     let keeper = Some(reconciled.keeper);
 
     // The stack takes ownership of the pool, and the adoption needs the same
@@ -187,6 +182,8 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
         &boot.data_dir,
         &boot.log_dir,
         boot.fingerprint.as_str().to_owned(),
+        &boot.process_epoch,
+        &boot.agent_report,
     )?;
 
     // The channel-id counter moves PAST what the keeper still holds before any
@@ -213,12 +210,7 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     // which refuses every command with a cause — honest, and a capability that
     // answers in tests and refuses in production is the defect this whole tree
     // is about.
-    let deps = Arc::new(stack.deps(
-        &boot.data_dir,
-        &boot.log_dir,
-        platform,
-        boot.fingerprint.as_str(),
-    ));
+    let deps = Arc::new(stack.deps(platform));
     // One uplink for the process: every owner that puts a frame on the
     // coordinator link sends through a clone of it, and the link loop owns the
     // receiving half, so the link stays the only writer of bytes.
@@ -226,12 +218,26 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     let browser = BrowserLink::connect(Arc::clone(&deps), uplink.clone());
     // The downstream owners, the cell cadence and the query-reply writer, over
     // the stack (moved in; reached as `owners.stack` from here on).
-    let owners = super::owners::WorkerOwners::build(
+    let mut owners = super::owners::WorkerOwners::build(
         stack,
         &uplink,
         &boot.process_epoch,
         Arc::clone(&survivors),
-    );
+        boot.fingerprint.as_str(),
+        platform,
+        boot.terminal_peer,
+        super::reconcile_gate::ReconcileInputs {
+            boot: boot.clone(),
+            process,
+            sessions: Arc::new(reconcile::CoordinatorOpenSessions::new(
+                coordinator_client.clone(),
+                boot.fingerprint.as_str(),
+            )),
+            stop: stop.clone(),
+            platform,
+        },
+    )?;
+    let door = door.serve(&DoorConfig::for_boot(&boot), owners.loopback_routes())?;
 
     // 7. The link, over the session layer's snapshot source. `SessionSnapshot`
     //    is ALWAYS ACTIVE, and that is the point: this worker has a session
@@ -255,100 +261,65 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
         uplink_rx,
     );
 
-    // An unaligned barrier is a boot refusal, not a warning: rows written under
-    // a sequence the barrier will not issue are worse than rows never written,
-    // and a barrier that cannot be aligned wedges in `replay` for ever.
-    link.attach_durable_outbox(outbox).with_context(|| {
-        format!(
-            "the link barrier could not be aligned to the outbox at {}",
-            outbox_path.display()
-        )
-    })?;
+    // v2 `coordLinkSink`: every row the outbox holds (a restart's unacked ones
+    // included) is replayed under its stored sequence, and each new one reaches
+    // the link through the sink's change signal.
+    tracing::info!(outbox = %outbox_path.display(), "the coordinator link replays the durable outbox");
+    link.attach_durable_outbox(outbox, Arc::clone(&owners.stack.durable_delivery));
     // The SAME sink the cadence registered with the emitter, so a cell the
     // emitter hands it is the cell this link drains.
     link.attach_cell_sink(Arc::clone(&owners.coord_sink));
     link.attach_owners(owners.downstream.clone());
+    link.attach_direct_peers(owners.direct_peer_support().await);
 
-    // 8. The link records its step, and it is recorded AFTER the keeper because
-    //    that is the order this function runs in: the object the link dials
-    //    with is built over the session layer, which is built over the pool.
-    //    `BOOT_ORDER` states the link before the keeper for the DECISION — the
-    //    survivor decision needs the coordinator's open-session set — and that
-    //    set is read at step 5 over Connect, not over this socket.
+    // 8. The link dials NOW, before the boot reconcile, and its snapshot is
+    //    held: the pass waits for the durable replay this link performs before
+    //    it reads the coordinator's recovery state (v2 `beforeRecoveryRead`),
+    //    and the snapshot describes the set that pass reserves (v2 activates
+    //    the provider only after it, `main.ts:296-303`).
+    let snapshot = link.hold_snapshot_until_activated();
     let because = sequence
         .complete(StepId::CoordinatorLink)
         .map_err(|refusal| anyhow::anyhow!("boot refused: {refusal}"))?;
     tracing::info!(
         step = StepId::CoordinatorLink.name(),
         because,
-        "boot: the coordinator link is built and is about to dial"
+        "boot: the coordinator link dials and replays; its snapshot waits for the boot reconcile"
     );
+    // The link runs to completion in this task: the loop owns every reconnect,
+    // and the run ends when something that can END it asks.
+    let link_task = tokio::spawn(link.run(stop.subscribe()));
 
-    // 9. Survivors. `advance_past_keeper` moved the id counter; this is the
-    //    other half, and it is a DIFFERENT question: a channel the keeper still
-    //    holds is a PTY this worker did not spawn, and adopting it rebuilds a
-    //    record around a live terminal.
-    //    `runtime::adoption` asks the keeper FIRST whether it can describe that
-    //    terminal at all, and declines the ones it cannot — leaving them
-    //    running rather than offering them to an adoption that would reattach
-    //    their output behind a record it cannot build. A refusal there is
-    //    counted and logged, never propagated: propagating would abort a boot
-    //    over one undescribable terminal and take every other survivor and the
-    //    worker's link down with it. The ONE propagated refusal is the survivor
-    //    SET exceeding the terminal-core capacity (v2 `boot-keeper.ts` admits
-    //    the set before adopting any of it), which is a boot refusal.
-    let adopted = super::adoption::adopt_survivors(
-        &owners.stack,
-        &survivors,
-        &survivor_channels,
-        &open_rows,
-        &boot.keeper_socket.display().to_string(),
+    // 9-10. Survivors through the one reconcile gate, then snapshot activation,
+    //    then readiness (`boot_admission`). Any refusal is a boot refusal (v2
+    //    `completeWorkerBootAdmission` throws), and a link that never
+    //    published a snapshot goes with it.
+    let admitted = super::boot_admission::complete_worker_boot_admission(
+        &owners.reconcile,
+        &snapshot,
+        &mut sequence,
     )
-    .await?;
+    .await;
+    let readiness = match admitted {
+        Ok((_, readiness)) => readiness,
+        Err(refusal) => {
+            link_task.abort();
+            return Err(refusal);
+        }
+    };
     tracing::info!(
-        ?adopted,
-        "boot: the keeper's survivors were reconciled against the session table"
-    );
-
-    // 10. Reconcile, snapshot activation, readiness — in that order and no
-    //     other. The snapshot describes the session set the reconcile just
-    //     reserved, so publishing it first is a snapshot of a set the
-    //     coordinator has not confirmed, and acting on that closes live
-    //     sessions. `Readiness::advance` refuses any other sequence rather than
-    //     trusting this function, and an advance that fails is a BOOT REFUSAL
-    //     for the same reason.
-    let because = sequence
-        .complete(StepId::SessionReconcile)
-        .map_err(|refusal| anyhow::anyhow!("boot refused: {refusal}"))?;
-    tracing::info!(
-        step = StepId::SessionReconcile.name(),
-        because,
         live_sessions = owners.stack.table.live().len(),
-        "boot: the local session set is reconciled and reserved"
+        "boot: the snapshot publishes the reconciled session set"
     );
-    readiness = readiness
-        .advance(ReadyStep::Reconciled)
-        .map_err(|refusal| anyhow::anyhow!("boot refused: {refusal}"))?;
-    readiness = readiness
-        .advance(ReadyStep::SnapshotProviderActivated)
-        .map_err(|refusal| anyhow::anyhow!("boot refused: {refusal}"))?;
-    readiness = readiness
-        .advance(ReadyStep::MarkedReady)
-        .map_err(|refusal| anyhow::anyhow!("boot refused: {refusal}"))?;
-    let because = sequence
-        .complete(StepId::Ready)
-        .map_err(|refusal| anyhow::anyhow!("boot refused: {refusal}"))?;
-    tracing::info!(
-        step = StepId::Ready.name(),
-        because,
-        readiness = ?readiness,
-        "boot: this worker is ready, and readiness is a claim about every step above it"
-    );
-
-    // The link runs to completion here, which is the whole reason boot is a
-    // function and not a loop of its own: the loop owns every reconnect, and
-    // the run ends when something that can END it asks.
-    let reason = link.run(stop.subscribe()).await;
+    if let Err(error) = owners.heart.start_heartbeat(&boot) {
+        link_task.abort();
+        return Err(error);
+    }
+    let ended = link_task.await;
+    let reason = match &ended {
+        Ok(reason) => reason.to_string(),
+        Err(error) => format!("the coordinator link task failed: {error}"),
+    };
 
     tracing::info!(
         reason = %reason,
@@ -357,15 +328,19 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
         door = %door.origin(),
         "the worker is stopping"
     );
-    // The door listener and the keeper handle are dropped here, not killed. For
+    // The keeper handle is dropped here, not killed. For
     // the keeper, dropping the connection is the whole contract: it treats a
     // disconnect as a reason to keep serving, and a worker that took its PTYs
     // down on the way out would be the one bug this architecture exists to
-    // prevent. The owners release their sockets, routes and cadence first.
+    // prevent. The door stops serving first (v2 `close()`), then the owners
+    // release their sockets, routes and cadence.
+    owners.close_agent_report().await;
+    door.close();
     owners.shutdown();
-    drop(door);
     drop(keeper);
-    Ok(())
+    ended
+        .map(drop)
+        .map_err(|error| anyhow::anyhow!("the coordinator link task failed: {error}"))
 }
 
 /// The address the door binds, from the environment or the shared default.
