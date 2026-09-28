@@ -210,13 +210,19 @@ impl SyncRedial {
         match self.due_ms {
             Some(due) if due <= now_ms => {
                 self.due_ms = None;
-                if self.resume_requested {
-                    self.resume_requested = false;
-                    self.delay_ms = SYNC_REDIAL_BASE_MS;
-                }
                 true
             }
             _ => false,
+        }
+    }
+
+    /// A dial is starting: a pending resume is spent on it, so the close that
+    /// follows waits its backoff (v2 `_waitForSyncDialPermission`, run before
+    /// every dial, the boot dial included).
+    pub fn note_dial_started(&mut self) {
+        if self.resume_requested {
+            self.resume_requested = false;
+            self.delay_ms = SYNC_REDIAL_BASE_MS;
         }
     }
 
@@ -283,6 +289,20 @@ mod tests {
         assert!(redial.take_due(10));
         redial.note_frame_received();
         assert_eq!(redial.status().failures, 0);
+    }
+
+    #[test]
+    fn a_frame_after_failed_dials_restarts_the_backoff_at_one_second() {
+        let mut redial = SyncRedial::default();
+        redial.schedule_after_close(0);
+        assert!(redial.take_due(1_000));
+        redial.schedule_after_close(1_000);
+        assert_eq!(redial.status().failures, 2);
+        redial.note_frame_received();
+        assert_eq!(redial.status().failures, 0);
+        redial.schedule_after_close(5_000);
+        assert_eq!(redial.status().next_delay_ms, 1_000);
+        assert!(redial.take_due(6_000));
     }
 
     #[test]

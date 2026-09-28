@@ -39,6 +39,7 @@ pub(crate) fn dial(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
         tracing::warn!(target: "sync", "dial declined: the credential was revoked");
         return;
     }
+    store.sync.redial.note_dial_started();
     let (generation, dial) = store.sync.begin_dial(&store.tab_id);
     store.sync.hydrations.note_dial_started(now_ms);
     store.note_change();

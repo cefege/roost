@@ -287,3 +287,30 @@ pub(crate) fn request_link_replacement(store: &mut Store, reason: &str, out: &mu
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::platform::MemoryKeyValueStore;
+    use crate::sync::SyncState;
+
+    #[test]
+    fn a_refused_publication_sends_no_domain_ready() {
+        // No socket announced this domain, so the store refuses to mark it ready.
+        let mut store = Store::new(SyncState::new(&MemoryKeyValueStore::new()), "tab-1");
+        let ticket = HydrationTicket {
+            domain: SyncDomain::Workers,
+            domain_generation: 1,
+            socket_generation: 1,
+            deadline_ms: 0,
+        };
+        let mut out = Vec::new();
+        publish_domain(&mut store, &ticket, None, 0, &mut out);
+        assert!(
+            !out.iter()
+                .any(|effect| matches!(effect, Effect::SendSync(SyncCommand::DomainReady { .. }))),
+            "{out:?}"
+        );
+        assert!(!store.sync.domain_is_ready(SyncDomain::Workers));
+    }
+}
