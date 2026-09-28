@@ -70,7 +70,7 @@ fn keeper_facts_age_each_pending_input_and_the_ledger_only_raises_the_frame_coun
         commands: 5,
         bytes: 77,
     };
-    let facts = keeper_facts_from_pending(&pending, now);
+    let facts = keeper_facts_from_pending(&pending, &[], now);
     assert_eq!(
         (facts.input_frames, facts.input_bytes, facts.resize_frames),
         (5, 77, 0)
@@ -88,7 +88,7 @@ fn keeper_facts_age_each_pending_input_and_the_ledger_only_raises_the_frame_coun
         bytes: 0,
     };
     assert_eq!(
-        keeper_facts_from_pending(&fewer_commands, now).input_frames,
+        keeper_facts_from_pending(&fewer_commands, &[], now).input_frames,
         2
     );
     let idle = keeper_facts_from_pending(
@@ -97,9 +97,29 @@ fn keeper_facts_age_each_pending_input_and_the_ledger_only_raises_the_frame_coun
             commands: 0,
             bytes: 0,
         },
+        &[],
         now,
     );
     assert!(idle.histogram_buckets.is_empty() && idle.oldest_age_ms == 0);
+}
+
+/// v2 `sampleKeeperFacts` counts each pending resize as a resize frame aged
+/// from its start (`terminal-pipeline-snapshot.ts:166-171`), which is what the
+/// `KEEPER_RESIZE_PENDING` reason reads.
+#[test]
+fn keeper_facts_count_and_age_each_pending_resize() {
+    let now = Instant::now();
+    let started = now
+        .checked_sub(Duration::from_millis(40_000))
+        .expect("the clock is past boot");
+    let idle = PendingInputUsage {
+        started: Vec::new(),
+        commands: 0,
+        bytes: 0,
+    };
+    let facts = keeper_facts_from_pending(&idle, &[started, now], now);
+    assert_eq!((facts.input_frames, facts.resize_frames), (0, 2));
+    assert!(facts.oldest_age_ms >= 40_000);
 }
 
 #[test]

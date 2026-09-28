@@ -17,6 +17,11 @@
 //! never borrows the sink and stays `Send` while it is in flight — a borrow
 //! would make every caller that holds a sink across an await non-`Send` and take
 //! `SessionManager` with it.
+//!
+//! EVERY STORE CHANGE IS SIGNALLED. A row appended, or a claim taken, held or
+//! given back, raises [`DurableDelivery::note_store_changed`], which is how the
+//! coordinator link learns there is a row to replay or a snapshot to hold (v2
+//! `event-sink.ts` `coordLinkSink`: `link.send` / `snapshotStateChanged`).
 
 use std::sync::Arc;
 
@@ -27,6 +32,7 @@ use crate::event_store::Journal;
 use crate::event_store::Reservation;
 use crate::event_store::database::claims::ClaimRefusal;
 
+use super::durable_delivery::DurableDelivery;
 use super::sinks::{EventFuture, SessionEventError, SessionEventSink};
 
 /// The payload budget one event of a kind is admitted against.
@@ -41,6 +47,7 @@ const DEFAULT_PAYLOAD_BYTES: usize = 64 * 1024;
 #[derive(Debug, Clone)]
 pub struct JournalSink {
     journal: Arc<Journal>,
+    delivery: Arc<DurableDelivery>,
 }
 
 impl JournalSink {
@@ -50,8 +57,8 @@ impl JournalSink {
     /// decision with a refusal attached — a store that cannot be opened is a
     /// worker that must not start — and a constructor that quietly opened one
     /// would make that decision twice.
-    pub fn new(journal: Arc<Journal>) -> Self {
-        Self { journal }
+    pub fn new(journal: Arc<Journal>, delivery: Arc<DurableDelivery>) -> Self {
+        Self { journal, delivery }
     }
 }
 
@@ -61,18 +68,25 @@ impl SessionEventSink for JournalSink {
         kind: DurableEventKind,
     ) -> EventFuture<'_, Result<Reservation, SessionEventError>> {
         let journal = Arc::clone(&self.journal);
+        let delivery = Arc::clone(&self.delivery);
         Box::pin(async move {
-            journal
+            let claim = journal
                 .reserve(kind, DEFAULT_PAYLOAD_BYTES)
                 .await
-                .map_err(claim_refusal)
+                .map_err(claim_refusal)?;
+            // A fresh claim blocks the snapshot until it is held or released.
+            delivery.note_store_changed();
+            Ok(claim)
         })
     }
 
     fn hold(&self, reservation: Reservation) -> EventFuture<'_, ()> {
         let journal = Arc::clone(&self.journal);
+        let delivery = Arc::clone(&self.delivery);
         Box::pin(async move {
-            if let Err(error) = journal.hold(reservation).await {
+            let held = journal.hold(reservation).await;
+            delivery.note_store_changed();
+            if let Err(error) = held {
                 // Logged and NOT propagated, because `hold` returns nothing: it
                 // marks a claim committed, and a store that could not record
                 // that leaves the claim blocking a snapshot it should not. The
@@ -90,8 +104,11 @@ impl SessionEventSink for JournalSink {
 
     fn release(&self, reservation: Reservation) -> EventFuture<'_, ()> {
         let journal = Arc::clone(&self.journal);
+        let delivery = Arc::clone(&self.delivery);
         Box::pin(async move {
-            if let Err(error) = journal.release(reservation).await {
+            let released = journal.release(reservation).await;
+            delivery.note_store_changed();
+            if let Err(error) = released {
                 // The same shape as `hold` and for the same reason: the caller
                 // gets no channel to be told through, and a leaked claim is
                 // recoverable by the lease reclaim at the next open. Silence
@@ -112,8 +129,9 @@ impl SessionEventSink for JournalSink {
         reservation: Option<Reservation>,
     ) -> EventFuture<'a, Result<(), SessionEventError>> {
         let journal = Arc::clone(&self.journal);
+        let delivery = Arc::clone(&self.delivery);
         Box::pin(async move {
-            match reservation {
+            let written = match reservation {
                 // The claim is CONSUMED by the write, inside the insert's own
                 // transaction, so a crash cannot leave the row written and the
                 // claim held — which would be a second copy of one event.
@@ -127,7 +145,11 @@ impl SessionEventSink for JournalSink {
                     .await
                     .map(|_| ())
                     .map_err(|error| SessionEventError::Store(error.to_string())),
+            };
+            if written.is_ok() {
+                delivery.note_store_changed();
             }
+            written
         })
     }
 }

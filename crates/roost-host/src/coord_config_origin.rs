@@ -10,7 +10,12 @@
 use roost_protocol::{ProtocolError, ProtocolResult};
 
 /// The port each scheme drops from an origin because it is the default.
-const DEFAULT_PORTS: [(&str, u16); 2] = [("http", 80), ("https", 443)];
+const DEFAULT_PORTS: [(&str, u16); 5] =
+    [("http", 80), ("https", 443), ("ws", 80), ("wss", 443), ("ftp", 21)];
+
+/// Schemes whose URLs carry a tuple origin; a browser reports every other
+/// scheme's origin as opaque (`"null"`).
+const TUPLE_ORIGIN_SCHEMES: [&str; 5] = ["http", "https", "ws", "wss", "ftp"];
 
 /// Normalize an operator-declared front door to the origin browsers will see.
 ///
@@ -90,6 +95,16 @@ pub fn validate_bare_https_origin(origin: &str, env_name: &str) -> ProtocolResul
         ));
     }
     Ok(())
+}
+
+/// The origin a browser's `URL` reports for `value` (`new URL(value).origin`),
+/// or `None` when `value` does not parse or its origin is opaque.
+#[must_use]
+pub fn browser_origin(value: &str) -> Option<String> {
+    let parsed = parse_origin(value)?;
+    TUPLE_ORIGIN_SCHEMES
+        .contains(&parsed.scheme.as_str())
+        .then(|| parsed.to_origin_string())
 }
 
 /// One parsed origin: the parts a rule needs, already normalized the way a
@@ -201,7 +216,7 @@ fn tail_port(tail: &str) -> Option<Option<u16>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_https_origin, parse_origin, validate_bare_http_origin};
+    use super::{browser_origin, normalize_https_origin, parse_origin, validate_bare_http_origin};
 
     const CORS: &str = "ROOST_CORS_ALLOWED_ORIGINS";
     const WEB_PUBLIC_URL: &str = "ROOST_WEB_PUBLIC_URL";
@@ -292,5 +307,20 @@ mod tests {
         };
         assert!(!origin.has_credentials);
         assert_eq!(origin.to_origin_string(), "https://roost.example.com");
+    }
+
+    #[test]
+    fn a_browser_origin_is_what_a_url_reports() {
+        assert_eq!(
+            browser_origin("HTTPS://Coord.Example:443/path?q#f").as_deref(),
+            Some("https://coord.example")
+        );
+        assert_eq!(
+            browser_origin("http://user:pw@coord.test:4102/").as_deref(),
+            Some("http://coord.test:4102")
+        );
+        assert_eq!(browser_origin("wss://door:443").as_deref(), Some("wss://door"));
+        assert_eq!(browser_origin("file:///tmp/page"), None);
+        assert_eq!(browser_origin("not a url"), None);
     }
 }

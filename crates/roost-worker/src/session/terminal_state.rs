@@ -69,6 +69,8 @@ pub trait StreamEmission: Send + Sync {
     /// Queue the probe replies a boundary replay produced for the PTY, AFTER
     /// the resize (v2 `forwardReplies`), on the same lane live replies take.
     fn forward_query_replies(&self, record: &SessionRecord, replies: String);
+    /// The capture recorder's tap, for the resize boundary's notes.
+    fn capture_tap(&self) -> crate::capture::CaptureTap;
 }
 
 /// One aggregated stream desire (v2 `WorkerTerminalStreamIntent`).

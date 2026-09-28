@@ -15,19 +15,45 @@ mod channels;
 mod dispatch;
 mod error;
 mod input_command;
+mod keeper_shutdown;
+mod pending_resizes;
 mod pool;
+mod pool_history;
+mod pool_lifecycle;
 mod pool_spawn;
+mod runtime_proof;
 mod session_seam;
 mod shell_spawner;
 mod spawn_spec;
-
-pub use session_seam::{NO_REPORTED_BASE_GEOMETRY, NO_REPORTED_HEAD};
+mod update_admission;
+mod update_host;
+mod update_prepare;
 
 pub use dispatch::DISPATCH_IDLE;
 pub use error::PoolError;
 pub use input_command::{COMMAND_RESULT_TIMEOUT, PendingInputUsage};
 pub use pool::{KeeperPool, Spawned};
+pub use pool_lifecycle::KeeperDeathHook;
+pub use keeper_shutdown::{
+    EmptyKeeperShutdownExpectation, ExitWatch, HostFuture, KEEPER_EXIT_CONFIRM_TIMEOUT,
+    KEEPER_EXIT_POLL_INTERVAL, KEEPER_EXIT_PROBE_TIMEOUT, SocketExitWatch, endpoint_reachable,
+    shutdown_empty_keeper_authenticated, shutdown_empty_on, shutdown_forced_on,
+    shutdown_keeper_authenticated, wait_for_exit, wait_for_keeper_exit,
+};
+pub use runtime_proof::{
+    KEEPER_IDENTITY_UNPROVEN, KEEPER_PROBE_TIMEOUT, KeeperRuntimeProbe, KeeperRuntimeProof,
+    binding_digest, probe_endpoint, read_runtime_probe,
+};
 pub use spawn_spec::{PtyCommand, pty_command};
+pub use update_admission::{
+    JournaledKeeperUpdateActionV1, KeeperUpdateActionResult, KeeperUpdateHost, UpdateDirection,
+    apply_journaled_keeper_update_action, shutdown_keeper_for_maintenance,
+};
+pub use update_host::PoolKeeperHost;
+pub use update_prepare::{
+    BoundaryRelease, HostKeeperUpdateActions, KeeperUpdateActions, KeeperUpdateBoundary,
+    KeeperUpdatePreparer,
+};
 
 use std::sync::Arc;
 

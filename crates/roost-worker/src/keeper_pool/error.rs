@@ -51,4 +51,10 @@ pub enum PoolError {
     /// The pool has no record of a channel the caller asked about.
     #[error("channel {0} is not one this worker drives")]
     Untracked(u16),
+
+    /// A resize under this sequence is already in flight on this channel, so a
+    /// second writer could not prove its fate (v2 `resizeCommand`); nothing
+    /// was written.
+    #[error("resize {seq} on channel {channel_id} is already in flight")]
+    ResizeInFlight { channel_id: u16, seq: u64 },
 }

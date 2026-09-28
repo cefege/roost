@@ -24,6 +24,7 @@ use std::sync::{Arc, Mutex};
 use roost_host::HostPlatform;
 use roost_host::env::ProcessEnv;
 
+use crate::attachments::store_paths::AttachmentBase;
 use crate::browser_commands::Deps;
 use crate::browser_commands::attachments::SessionAttachments;
 use crate::browser_commands::file_commands::LocalFiles;
@@ -48,10 +49,9 @@ pub struct WorkerCapabilities {
     pub manager: Arc<SessionManager>,
     /// The root every session's attachment directory hangs from.
     pub attachment_root: PathBuf,
-    /// The worker's log directory, which is where a capture bundle is written.
-    pub log_dir: PathBuf,
-    /// This worker's fingerprint, as a diagnostic report records it.
-    pub worker_fp: String,
+    /// The one terminal incident recorder the session data path feeds; the
+    /// diagnostics command reaches it rather than a second one built here.
+    pub capture: Arc<CaptureRecorder>,
     /// Which host this is, for the two capabilities that branch on it.
     pub platform: HostPlatform,
     /// The admission ledger, ALREADY OPENED by the caller.
@@ -82,8 +82,7 @@ impl WorkerCapabilities {
             sessions,
             manager,
             attachment_root,
-            log_dir,
-            worker_fp,
+            capture,
             platform,
             searches,
         } = self;
@@ -94,8 +93,8 @@ impl WorkerCapabilities {
             grid: Arc::new(SessionGrid::new(Arc::clone(&sessions))),
             search: Arc::new(GridScanner::new(Arc::clone(&sessions))),
             searches: Arc::clone(&searches),
-            attachments: Arc::new(SessionAttachments::new(attachment_root, platform)),
-            diagnostics: Arc::new(CaptureRecorder::new(sessions, log_dir, worker_fp)),
+            attachments: Arc::new(SessionAttachments::new(AttachmentBase::new(attachment_root))),
+            diagnostics: capture,
         }
     }
 }

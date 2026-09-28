@@ -1,18 +1,16 @@
-//! The volatile half of the coordinator link: the two producers whose newest
-//! record SUPERSEDES its predecessor. Ports v2 `transport/coord-link-agent-status.ts`
-//! and `transport/coord-link-terminal-metadata.ts` (latest merged record per
-//! channel, bounded, dropped on reconnect). Owned by [`super::LinkLoop`]; the
-//! uplink admission routes `TerminalMetadata` frames here, and the link end calls
+//! The volatile half of the coordinator link: the terminal metadata producer,
+//! whose newest record SUPERSEDES its predecessor. Ports v2
+//! `transport/coord-link-terminal-metadata.ts` (latest merged record per
+//! channel, bounded, dropped on reconnect); agent status lives in
+//! `agent_status.rs`. Owned by [`super::LinkLoop`]; the uplink admission routes
+//! `TerminalMetadata` frames here, and the link end calls
 //! [`LinkLoop::forget_terminal_metadata`]. Depends on `crate::outbox` only.
 
 use std::collections::HashMap;
 use std::time::Instant;
 
-use roost_protocol::wire::agent_status::{
-    AgentStatus, AgentStatusUpdate, is_identified_agent_status,
-};
 use roost_protocol::wire::brand::ChannelId;
-use roost_protocol::wire::coord_worker::{AgentStatusFrame, CoordWorkerUpstream, TerminalMetadata};
+use roost_protocol::wire::coord_worker::{CoordWorkerUpstream, TerminalMetadata};
 
 use crate::outbox::{AdmitError, Admitted, Lane};
 
@@ -28,11 +26,6 @@ pub const TERMINAL_METADATA_PENDING_BYTES_CAP: usize = TERMINAL_METADATA_PENDING
 /// The lane the metadata frames coalesce in.
 const TERMINAL_METADATA_LANE: Lane = Lane::Control;
 
-/// The label an agent status waits under. v2 keeps a pending agent status
-/// across a detach (`coord-link-agent-status.ts` `disconnect`), so the link's
-/// detach keeps these while it drops every other control frame.
-pub(super) const AGENT_STATUS_LABEL: &str = "agent-status";
-
 /// The last record admitted for each channel, so the next one can MERGE with it
 /// while it is still pending (v2 `pendingByChannel`). The encoded bytes live in
 /// the outbox; a remembered record whose frame already drained is ignored.
@@ -44,12 +37,6 @@ pub struct TerminalMetadataLane {
 /// The coalescing key one channel's terminal metadata lives under.
 fn terminal_metadata_key(channel_id: ChannelId) -> String {
     format!("terminal-metadata:{channel_id}")
-}
-
-/// The coalescing key one session's agent status lives under: the session, not
-/// the occupant, because a session's status is replaced by the next occupant's.
-fn agent_status_key(status: &AgentStatusUpdate) -> String {
-    status.common.session_id.to_string()
 }
 
 impl LinkLoop {
@@ -145,44 +132,6 @@ impl LinkLoop {
             }));
         }
         Ok(())
-    }
-
-    /// v2's `coord-link-agent-status.ts` sender. An UNIDENTIFIED status is
-    /// refused, not queued: no reader could place it.
-    pub fn send_agent_status(
-        &mut self,
-        status: &AgentStatusUpdate,
-    ) -> Result<Admitted, AdmitRefusal> {
-        if !is_identified_agent_status(&status.common) {
-            tracing::warn!(
-                session = %status.common.session_id,
-                revision = status.common.revision,
-                "an agent status with no session or occupant was refused rather than queued"
-            );
-            return Err(AdmitRefusal::UnidentifiedAgentStatus);
-        }
-        let frame = CoordWorkerUpstream::AgentStatus(AgentStatusFrame {
-            status: AgentStatus {
-                common: status.common.clone(),
-                active: status.active,
-            },
-        });
-        let bytes = self.encode_volatile(&frame, AGENT_STATUS_LABEL)?;
-        let key = agent_status_key(status);
-        let admitted = self
-            .outbox
-            .admit_coalescing(
-                &key,
-                Lane::Control,
-                bytes,
-                AGENT_STATUS_LABEL,
-                Instant::now(),
-            )
-            .map_err(AdmitRefusal::Outbox)?;
-        if let Admitted::Queued | Admitted::Coalesced = admitted {
-            self.wake();
-        }
-        Ok(admitted)
     }
 
     /// Encode a volatile frame, or report it as unencodable (a LOGGED refusal).
