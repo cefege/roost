@@ -4723,6 +4723,7 @@ dependencies = [
  "roost-proto",
  "serde",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]

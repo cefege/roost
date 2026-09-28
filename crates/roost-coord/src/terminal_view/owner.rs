@@ -21,7 +21,7 @@ use roost_proto::WTerminalViewProjection;
 use roost_protocol::viewport::{TerminalGeometry, minimum_terminal_geometry};
 use roost_protocol::wire::{SessionId, WorkerFp};
 
-use super::record::ViewInput;
+use roost_protocol::terminal_view::ViewInput;
 
 /// Advertised in a worker's hello capabilities. The worker declares the same
 /// literal for its own hello, and a hello without it is authoritative for its

@@ -12,9 +12,9 @@
 //! effect a returned value keeps one rule -- the registry never calls out -- and
 //! the hub performs the effects after the guard is dropped.
 
+use crate::wire::SessionId;
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
 use roost_proto::{FirehoseFrame, TerminalViewStateFrame, TerminalViewStatus};
-use roost_protocol::wire::SessionId;
 
 /// The screen delivery surface a terminal view host provides.
 ///

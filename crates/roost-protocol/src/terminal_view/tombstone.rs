@@ -9,7 +9,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use roost_protocol::viewport::TERMINAL_VIEW_LEASE_MS;
+use crate::viewport::TERMINAL_VIEW_LEASE_MS;
 
 use super::record::ViewIntent;
 
@@ -65,7 +65,7 @@ impl TombstoneStore {
 
     /// How many claims are retained.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub(super) fn len(&self) -> usize {
         self.entries.len()
     }
 

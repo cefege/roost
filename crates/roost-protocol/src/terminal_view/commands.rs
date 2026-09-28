@@ -10,8 +10,8 @@
 //! reply: a path that did neither would leave the client waiting and the PTY at
 //! a size nobody asked for.
 
+use crate::viewport::{TERMINAL_SOCKET_VIEW_CAP, is_terminal_uuid};
 use roost_proto::{TerminalResyncCommand, TerminalViewCommand, TerminalViewStatus};
-use roost_protocol::viewport::{TERMINAL_SOCKET_VIEW_CAP, is_terminal_uuid};
 
 use super::machine::Machine;
 use super::machine::session_of;
@@ -32,7 +32,7 @@ pub(super) struct Caller {
 
 impl Machine<'_> {
     /// Apply one view command from one socket.
-    pub(super) fn handle_view_command(
+    pub fn handle_view_command(
         &mut self,
         socket_id: &str,
         command: &TerminalViewCommand,
@@ -78,7 +78,7 @@ impl Machine<'_> {
     /// Whether the requested stream is still the current one is the host's to
     /// answer: it owns the replica, and it can prove a checkpoint is reachable
     /// where this machine knows nothing about baselines.
-    pub(super) fn handle_resync(
+    pub fn handle_resync(
         &mut self,
         socket_id: &str,
         command: &TerminalResyncCommand,

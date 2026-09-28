@@ -7,7 +7,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use roost_protocol::wire::SessionId;
+use crate::wire::SessionId;
 
 use super::record::{TombstoneStore, ViewIntent, ViewRecord};
 use super::registry::SocketRecord;
@@ -23,11 +23,25 @@ pub(super) fn session_of(record: &ViewRecord) -> Option<SessionId> {
 }
 
 /// The mutable view of the registry the command machine works through.
-pub(super) struct Machine<'a> {
+pub struct Machine<'a> {
     pub(super) sockets: &'a mut HashMap<String, SocketRecord>,
     pub(super) views: &'a mut HashMap<String, ViewRecord>,
     pub(super) session_views: &'a mut BTreeMap<SessionId, BTreeSet<String>>,
     pub(super) tombstones: &'a mut TombstoneStore,
+}
+
+impl std::fmt::Debug for Machine<'_> {
+    /// Counts, not contents: a socket record holds its host's sink, which has
+    /// no `Debug`, and a log line wants the sizes the machine is working over.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Machine")
+            .field("sockets", &self.sockets.len())
+            .field("views", &self.views.len())
+            .field("sessions", &self.session_views.len())
+            .field("tombstones", &self.tombstones.len())
+            .finish()
+    }
 }
 
 impl Machine<'_> {

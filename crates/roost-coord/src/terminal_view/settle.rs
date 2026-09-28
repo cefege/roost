@@ -11,8 +11,8 @@ use roost_protocol::viewport::{TerminalGeometry, minimum_terminal_geometry};
 use roost_protocol::wire::{SessionId, WorkerFp};
 
 use super::TerminalViewHub;
-use super::registry::{MembershipOutcome, ViewRegistry};
-use super::sink::{PendingReply, SinkCall, view_state_frame};
+use roost_protocol::terminal_view::{MembershipOutcome, ViewRegistry};
+use roost_protocol::terminal_view::{PendingReply, SinkCall, view_state_frame};
 
 impl TerminalViewHub {
     /// Recompute a session's effective geometry, reporting the size it now runs
