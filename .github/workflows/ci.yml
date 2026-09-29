@@ -20,6 +20,17 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      # Caches the DEPENDENCY artifacts, not the workspace crates, so a cache
+      # hit removes the third-party build from the job without ever letting a
+      # stale roost-*.rlib into a build. `shared-key` folds the two gate
+      # workflows onto one cache while `add-job-id-key: false` leaves the
+      # automatic key to carry what actually distinguishes them: OS, toolchain
+      # and lockfile. CARGO_INCREMENTAL is 0 here, which is the setting that
+      # makes the cache restore complete rather than half-consistent.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-gates
+          add-job-id-key: false
       - name: fmt
         run: cargo xtask fmt
       - name: clippy

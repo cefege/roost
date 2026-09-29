@@ -162,5 +162,15 @@ opt-level = "s"
 [profile.dev]
 debug = "line-tables-only"
 
+# Dependencies carry no debuginfo. Their line tables were most of the debug
+# sections in each of this workspace's ~680 integration-test binaries, and
+# nothing in a test build reads them: a backtrace in a test names the file and
+# line, and the std and workspace line tables the dev profile keeps are what it
+# needs. Measured on the roost-coord test build: 12 GiB -> 7.3 GiB, and the
+# link that followed it was correspondingly shorter. `test` inherits `dev`, so
+# this covers both.
+[profile.dev.package."*"]
+debug = false
+
 [profile.test]
 debug = "line-tables-only"

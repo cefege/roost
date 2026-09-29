@@ -43,6 +43,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref_name }}
+      # The same cache, and the same shared key, as ci.yml's `rust` job: this
+      # job runs that job's commands, so a release tag should not pay for the
+      # dependency build a merge of the same lockfile already paid for.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-gates
+          add-job-id-key: false
       - name: fmt
         run: cargo xtask fmt
       - name: clippy
