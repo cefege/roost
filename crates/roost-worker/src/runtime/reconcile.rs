@@ -31,7 +31,8 @@ use connectrpc::http_body;
 use roost_proto::{CoordinatorServiceClient, SessionsListRequest};
 
 use super::boot::WorkerBoot;
-use super::keeper_boot::{self, KeeperBootDecision, KeeperBootOutcome, KeeperHandle};
+use super::keeper_boot::{self, KeeperBootDecision, KeeperBootOutcome};
+use super::keeper_handle::KeeperHandle;
 use super::keeper_prepare::KeeperProcess;
 use crate::agents::conversation_recovery::{RecoveryReferences, assert_exact_recovery_metadata};
 use crate::keeper_pool::KeeperPool;
@@ -73,8 +74,9 @@ where
     // admission — was refused by a coordinator whose `SessionsList` row is
     // `DeviceOrOwnWorkerRecovery`. The same key the link dials with is the one
     // that answers here.
-    let options = crate::runtime::bootstrap_redeem::authenticated_call_options(credential)
-        .context("no worker credential could be presented for the open-session read")?;
+    let options =
+        crate::runtime::bootstrap_redeem::boot_call::authenticated_call_options(credential)
+            .context("no worker credential could be presented for the open-session read")?;
     let request = SessionsListRequest {
         worker_fp: Some(worker_fp.to_owned()),
         // "open" is the default, and it is STATED rather than inherited: the

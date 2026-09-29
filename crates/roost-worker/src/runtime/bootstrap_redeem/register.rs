@@ -16,6 +16,7 @@ use roost_proto::buffa::MessageField;
 use roost_proto::{CoordinatorServiceClient, WorkersRegisterRequest};
 use roost_protocol::proto_adapters::host_identity_to_proto;
 
+use super::boot_call::authenticated_call_options;
 use super::{EnrollmentError, MachineFacts, coordinator_is_silent};
 use crate::host::identity::static_host_identity;
 use crate::runtime::credential::CredentialSource;
@@ -42,7 +43,7 @@ where
     // ONE mechanism, shared with the open-session read: this call and that one
     // are both boot-time calls to the same coordinator, and a second spelling
     // of the credential header is how the read ended up travelling without one.
-    let options = match super::authenticated_call_options(credential) {
+    let options = match authenticated_call_options(credential) {
         Ok(options) => options,
         Err(error) => {
             tracing::error!(

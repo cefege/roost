@@ -40,6 +40,7 @@ pub mod heartbeat;
 pub mod heartbeat_metrics;
 pub mod heartbeat_sources;
 pub mod keeper_boot;
+pub mod keeper_handle;
 pub mod keeper_prepare;
 pub mod keeper_probe;
 pub mod keeper_retire;

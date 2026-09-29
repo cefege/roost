@@ -1,7 +1,7 @@
 //! The keeper pool: every live PTY on this machine, one connection, one table.
 //! `session::spawn` opens channels through it, `session::sinks::ChannelBinding`
 //! receives their bytes, and the boot reconcile re-adopts survivors through it.
-//! Depends on `runtime::keeper_boot::KeeperHandle` for the connection,
+//! Depends on `runtime::keeper_handle::KeeperHandle` for the connection,
 //! `roost_keeper::client` for every request, and `super::channel_ids` for the
 //! one channel-id fact it refuses against. Opening the PTY itself is
 //! `super::pool_spawn`; and this file holds NO allocator, which is the point.
@@ -47,7 +47,7 @@ use super::error::PoolError;
 use super::input_command::{PendingInputUsage, PendingInputs};
 use super::pending_resizes::PendingResizes;
 use super::pool_lifecycle::KeeperDeathHook;
-use crate::runtime::keeper_boot::KeeperHandle;
+use crate::runtime::keeper_handle::KeeperHandle;
 use crate::session::keeper_channels::{InputNotWritten, KeeperInputCommand};
 use crate::session::sinks::ChannelBinding;
 

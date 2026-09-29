@@ -15,7 +15,8 @@ use roost_proto::{CoordinatorServiceClient, WorkersHeartbeatRequest};
 use roost_protocol::keeper_update::KeeperRuntimeObservationV1;
 use roost_protocol::wire::HostMetrics;
 
-use super::bootstrap_redeem::{AUTHORIZATION, ENV_REACHABLE_ADDR};
+use super::bootstrap_redeem::ENV_REACHABLE_ADDR;
+use super::bootstrap_redeem::boot_call::AUTHORIZATION;
 use super::credential::CredentialSource;
 use super::heartbeat::{HeartbeatRpc, HeartbeatSources};
 use super::heartbeat_metrics::HostMetricsCollector;

@@ -23,7 +23,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use roost_keeper::server::{Endpoint, Server};
 use roost_protocol::wire::brand::ChannelId;
 use roost_worker::keeper_pool::{KeeperPool, PoolError};
-use roost_worker::runtime::keeper_boot::KeeperHandle;
+use roost_worker::runtime::keeper_handle::KeeperHandle;
 use roost_worker::session::sinks::ChannelBinding;
 use roost_worker::shell_spec::{SHELL_SPEC_VERSION, ShellSpec};
 
