@@ -13,7 +13,6 @@ use std::sync::Arc;
 
 use roost_protocol::keeper_update::KEEPER_RUNTIME_ABI;
 
-
 use crate::channel_history::ChannelHistory;
 use crate::codec::{CodecError, MuxFrame, MuxFrameType, write_sequence};
 use crate::frames::ExitFrame;

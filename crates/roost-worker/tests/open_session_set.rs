@@ -36,9 +36,7 @@ use roost_worker::runtime::reconcile::open_sessions_or_unknown;
 struct FixedCredential;
 
 impl roost_worker::runtime::credential::CredentialSource for FixedCredential {
-    fn mint(
-        &self,
-    ) -> Result<String, roost_worker::runtime::credential::CredentialError> {
+    fn mint(&self) -> Result<String, roost_worker::runtime::credential::CredentialError> {
         Ok("a-test-credential".to_owned())
     }
 }
@@ -84,16 +82,15 @@ impl Drop for Scratch {
 async fn an_unread_open_session_set_is_not_a_licence_to_replace_anything() {
     // ---- FIRST HALF: the read really does fail, and becomes `None`. ----
     let refusing = refusing_client();
-    let read =
-        roost_worker::runtime::reconcile::read_open_session_count(
-            &refusing,
-            "fp-under-test",
-            // A client that is not there answers to no credential, so this
-            // fixture's part is the refusal and not the header.
-            &FixedCredential,
-        )
-        .await
-        .expect_err("a coordinator that is not there cannot answer");
+    let read = roost_worker::runtime::reconcile::read_open_session_count(
+        &refusing,
+        "fp-under-test",
+        // A client that is not there answers to no credential, so this
+        // fixture's part is the refusal and not the header.
+        &FixedCredential,
+    )
+    .await
+    .expect_err("a coordinator that is not there cannot answer");
     let open_sessions = open_sessions_or_unknown(Err(read));
     assert_eq!(
         open_sessions, None,

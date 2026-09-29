@@ -6,29 +6,21 @@
 //! (`reconcileCoordinatorSessions`). `runtime::reconcile_gate` serializes the
 //! passes; boot, keeper death and keeper degradation all run through it.
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
-
-use roost_protocol::agent_conversation_reference::AgentConversationReferenceV1;
-use roost_protocol::wire::brand::{ChannelId, SessionId};
-
 use super::keeper_prepare::KeeperPreparer;
-use super::reconcile::{OpenSession, OpenSessionSet, OpenSessionSource};
-use super::reconcile_claim::DurableClaim;
+use super::reconcile::{OpenSessionSet, OpenSessionSource};
 use super::reconcile_gate::{ReconcileOutcome, ReconcilePass};
 use super::reconcile_restore::{ConversationRestorer, PassReferenceClaims};
-use crate::agents::conversation_recovery::RecoveryReferences;
-use crate::event_store::DurableEventKind;
+use super::session_reconcile_admission::Admission;
 use crate::keeper_pool::KeeperPool;
 use crate::session::lifecycle::SessionManager;
 use crate::session::respawn_replace::{RespawnError, RespawnRequest};
 use crate::session::resume::{AdoptFailure, AdoptRefusal, AdoptionRequest};
-use crate::session::sinks::SessionEventError;
 use crate::session::spawn::ClaimsOnFailure;
 use crate::session::stray_reap::StraySweeper;
-use crate::shell_spec::ShellSpec;
 use crate::uplink::OwnerFuture;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 /// v2 `BOOT_SESSION_ADMISSION_TIMEOUT_MS`.
 pub const BOOT_SESSION_ADMISSION_TIMEOUT: Duration = Duration::from_secs(10);
@@ -62,30 +54,17 @@ impl ReconcileFailure {
     }
 }
 
-/// One coordinator row with every claim its outcomes need.
-struct Admission {
-    session_id: SessionId,
-    channel_id: ChannelId,
-    cwd: String,
-    shell_spec: ShellSpec,
-    /// The coordinator's recovery reference for this session, if any.
-    agent_reference: Option<AgentConversationReferenceV1>,
-    resume_close: DurableClaim,
-    respawn_event: DurableClaim,
-    future_close: DurableClaim,
-}
-
 /// The production pass.
 pub struct SessionReconciler {
-    manager: Arc<SessionManager>,
-    pool: Arc<KeeperPool>,
-    sessions: Arc<dyn OpenSessionSource>,
-    keeper: KeeperPreparer,
-    sweeper: Arc<StraySweeper>,
-    restorer: Arc<dyn ConversationRestorer>,
+    pub(crate) manager: Arc<SessionManager>,
+    pub(crate) pool: Arc<KeeperPool>,
+    pub(crate) sessions: Arc<dyn OpenSessionSource>,
+    pub(crate) keeper: KeeperPreparer,
+    pub(crate) sweeper: Arc<StraySweeper>,
+    pub(crate) restorer: Arc<dyn ConversationRestorer>,
     /// The keeper boot admitted before this reconciler existed: its survivors
     /// are capacity-checked by the first pass that reaches the check.
-    boot_survivors_unchecked: AtomicBool,
+    pub(crate) boot_survivors_unchecked: AtomicBool,
 }
 
 impl std::fmt::Debug for SessionReconciler {
@@ -213,102 +192,6 @@ impl SessionReconciler {
             })
     }
 
-    async fn read_rows(&self) -> Result<OpenSessionSet, ReconcileFailure> {
-        match tokio::time::timeout(BOOT_SESSION_ADMISSION_TIMEOUT, self.sessions.read()).await {
-            Ok(Ok(set)) => Ok(set),
-            Ok(Err(error)) => Err(ReconcileFailure::recoverable(error.to_string())),
-            Err(_) => Err(ReconcileFailure::recoverable(format!(
-                "sessionsList timed out after {}ms",
-                BOOT_SESSION_ADMISSION_TIMEOUT.as_millis()
-            ))),
-        }
-    }
-
-    /// v2 `:111-165`: capacity for every durable path of the complete set, or
-    /// nothing is touched and every claim taken so far is given back.
-    async fn admit_all(
-        &self,
-        rows: &[OpenSession],
-        references: &RecoveryReferences,
-    ) -> Result<Vec<Admission>, ReconcileFailure> {
-        let mut admissions: Vec<Admission> = Vec::with_capacity(rows.len());
-        for row in rows {
-            match self
-                .admit(row, references.get(&row.id).cloned().flatten())
-                .await
-            {
-                Ok(Some(admission)) => admissions.push(admission),
-                Ok(None) => {}
-                Err(refusal) => {
-                    release_admissions(admissions).await;
-                    return Err(refusal);
-                }
-            }
-        }
-        Ok(admissions)
-    }
-
-    async fn admit(
-        &self,
-        row: &OpenSession,
-        agent_reference: Option<AgentConversationReferenceV1>,
-    ) -> Result<Option<Admission>, ReconcileFailure> {
-        let (Ok(session_id), Ok(channel_id)) = (
-            SessionId::try_from(row.id.clone()),
-            ChannelId::try_from(i64::from(row.channel)),
-        ) else {
-            tracing::warn!(session = %row.id, channel = row.channel, "reconcile: a coordinator row names an id this worker cannot address; it is skipped");
-            return Ok(None);
-        };
-        let shell_spec = self
-            .manager
-            .resolve_shell_spec(&row.cwd, session_id.as_str())
-            .map_err(ReconcileFailure::recoverable)?;
-        let resume_close = self.claim(DurableEventKind::Closed).await?;
-        let respawn_event = match self.claim(DurableEventKind::State).await {
-            Ok(claim) => claim,
-            Err(refusal) => {
-                resume_close.release().await;
-                return Err(refusal);
-            }
-        };
-        let future_close = match self.claim(DurableEventKind::Closed).await {
-            Ok(claim) => claim,
-            Err(refusal) => {
-                respawn_event.release().await;
-                resume_close.release().await;
-                return Err(refusal);
-            }
-        };
-        Ok(Some(Admission {
-            session_id,
-            channel_id,
-            cwd: row.cwd.clone(),
-            shell_spec,
-            agent_reference,
-            resume_close,
-            respawn_event,
-            future_close,
-        }))
-    }
-
-    /// A full outbox is recoverable (v2 `isSessionEventOutboxFullError`); a
-    /// store that refused in its own right is the durability failure the
-    /// worker must not survive (v2 `isSessionEventDurabilityError`).
-    async fn claim(&self, kind: DurableEventKind) -> Result<DurableClaim, ReconcileFailure> {
-        DurableClaim::take(&self.manager, kind)
-            .await
-            .map_err(|error| match error {
-                SessionEventError::Reserve(_) => {
-                    ReconcileFailure::recoverable(format!("session event outbox full: {error}"))
-                }
-                other => ReconcileFailure {
-                    reason: other.to_string(),
-                    fatal: true,
-                },
-            })
-    }
-
     /// v2 `:178-308`: adopt, or respawn with bounded transient retries; an
     /// adopted session claims its reference, a respawned one restores it once.
     async fn resume_or_respawn(
@@ -432,7 +315,7 @@ impl ReconcilePass for SessionReconciler {
 }
 
 /// Give back every claim of admissions the pass will not reach (v2 `finally`).
-async fn release_admissions(admissions: Vec<Admission>) {
+pub(crate) async fn release_admissions(admissions: Vec<Admission>) {
     for admission in admissions {
         admission.future_close.release().await;
         admission.respawn_event.release().await;

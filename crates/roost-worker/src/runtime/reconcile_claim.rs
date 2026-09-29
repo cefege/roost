@@ -14,7 +14,7 @@ use crate::event_store::{DurableEventKind, Reservation};
 use crate::session::lifecycle::SessionManager;
 use crate::session::sinks::SessionEventError;
 
-pub(super) struct DurableClaim {
+pub(crate) struct DurableClaim {
     manager: Arc<SessionManager>,
     reservation: Reservation,
     /// Cleared when the claim is handed over or given back; a still-armed

@@ -183,9 +183,11 @@ pub enum SyncFrame {
         message: McpStreamMessage,
     },
     /// One worker registration, heartbeat or removal, in the shared wire shape.
+    /// The event is boxed: a registration carries the whole worker record, and
+    /// inlining it would make every frame as large as that one arm.
     WorkerPresence {
         /// The presence event.
-        event: WorkerPresenceEvent,
+        event: Box<WorkerPresenceEvent>,
     },
     /// The routable worker set: a live full replacement, or one chunk of a
     /// retained seed.

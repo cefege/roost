@@ -30,7 +30,11 @@ struct Coordinator {
 }
 
 impl Coordinator {
-    fn list(&self, ctx: &RequestContext, _request: SessionsListRequest) -> Result<SessionsListResponse, ConnectError> {
+    fn list(
+        &self,
+        ctx: &RequestContext,
+        _request: SessionsListRequest,
+    ) -> Result<SessionsListResponse, ConnectError> {
         let Some(bearer) = bearer_of(ctx) else {
             // The refusal is the coordinator's, not the fixture's convenience:
             // an anonymous caller here would be a caller the real coordinator
@@ -143,8 +147,10 @@ impl Credential {
 
 impl CredentialSource for Credential {
     fn mint(&self) -> Result<String, CredentialError> {
-        self.token.clone().ok_or_else(|| CredentialError::Unspellable {
-            reason: "this fixture's credential cannot be spelled as a header".to_owned(),
-        })
+        self.token
+            .clone()
+            .ok_or_else(|| CredentialError::Unspellable {
+                reason: "this fixture's credential cannot be spelled as a header".to_owned(),
+            })
     }
 }
