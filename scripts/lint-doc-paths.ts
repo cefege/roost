@@ -33,9 +33,36 @@ function trackedMarkdown(): string[] {
   ).sort();
 }
 
+// The anchor a reference carries after its path, in the three spellings this
+// tree actually writes: `file.rs:97`, `file.rs:97-110,177-185` (a LIST of
+// ranges, which the single-range form did not match), and `file.rs::symbol`.
+// Stripping only the first meant a doc citing `docs/FAILURE-INDEX.md:2354,2386`
+// or `xtask/src/fixture_allow.rs::classify_sites` was reported as naming a
+// MISSING PATH — for files that exist, and that the rule's own point is to
+// check. Both branches need their leading `:`: without it a line anchor also
+// matches a path that merely ENDS IN DIGITS, and `protocol/proto/roost/v1`
+// comes out as `protocol/proto/roost/v`.
+const ANCHOR = /(?:::\S+|:\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)$/;
+const ANCHORED_PATH = new RegExp(`^(.*?)${ANCHOR.source}$`);
+
+// A build output is not a navigation target. A doc that says the bundle lands
+// in `crates/roost-web/dist` is describing what a build PRODUCES, and those
+// directory names are already excluded from the files this rule reads; a
+// checkout has none of them, so checking for them reports a tree that has not
+// been built yet as a tree that documents something that does not exist.
+const BUILD_OUTPUTS: Record<string, true> = {
+	dist: true,
+	"dist-smoke": true,
+	node_modules: true,
+	target: true,
+};
+
 function referencedPath(token: string): string | undefined {
   if (/[*{<…]|\.\.\./.test(token)) return undefined;
-  return token.replace(/#.*$/, "").replace(/:\d+(?:-\d+)?$/, "");
+  const without_fragment = token.replace(/#.*$/, "");
+  const path = without_fragment.match(ANCHORED_PATH)?.[1] ?? without_fragment;
+  if (path.split("/").some((part) => BUILD_OUTPUTS[part])) return undefined;
+  return path;
 }
 
 function missingPath(file: string, line: number, path: string): Violation {
