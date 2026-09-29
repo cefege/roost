@@ -27,16 +27,17 @@ const HUP_MARK: &str = "sleep 7761100";
 /// Grace (2 s) plus margin, as v2 waits.
 const REAPED_WITHIN: Duration = Duration::from_secs(6);
 
-/// Kills whatever a red run left alive, so the test never leaks its sleeps.
-struct Leftovers;
-
-impl Drop for Leftovers {
-    fn drop(&mut self) {
-        for mark in [FG_MARK, BG_MARK, HUP_MARK] {
-            for pid in pgrep(mark) {
-                signal(pid, libc::SIGKILL);
-            }
-        }
+/// SIGKILL anything a previous red run left behind under ONE test's mark.
+///
+/// Scoped to one mark because the three tests share this binary and run
+/// concurrently. A guard that swept all three marks, dropped at each test's
+/// end, ended a SIBLING's live job: `a_nohup_job_that_ignores_sighup_is_still_
+/// reaped` asserts its job is still running 300 ms after the kill, and the
+/// other two tests' cleanup SIGKILLed it in that window. The test then failed
+/// on a neighbour's cleanup rather than on the behaviour it names.
+fn sweep_previous_run(mark: &str) {
+    for pid in pgrep(mark) {
+        signal(pid, libc::SIGKILL);
     }
 }
 
@@ -153,7 +154,8 @@ fn the_pty_owns_a_foreground_group_and_resize_delivers_sigwinch() {
 
 #[test]
 fn an_interactive_shell_and_its_foreground_and_background_jobs_all_die() {
-    let _leftovers = Leftovers;
+    sweep_previous_run(BG_MARK);
+    sweep_previous_run(FG_MARK);
     let temp = TempDir::new("reap-jobs");
     let keeper = Keeper::start(&temp);
     let client = connect(keeper.socket()).expect("a handshake");
@@ -184,7 +186,7 @@ fn an_interactive_shell_and_its_foreground_and_background_jobs_all_die() {
 
 #[test]
 fn a_nohup_job_that_ignores_sighup_is_still_reaped() {
-    let _leftovers = Leftovers;
+    sweep_previous_run(HUP_MARK);
     let temp = TempDir::new("reap-nohup");
     let keeper = Keeper::start(&temp);
     let client = connect(keeper.socket()).expect("a handshake");
@@ -230,7 +232,10 @@ fn a_nohup_job_that_ignores_sighup_is_still_reaped() {
     // have been delivered, so the job must still be running here: whatever
     // ends it afterwards is the snapshot SIGKILL sweep and nothing else.
     std::thread::sleep(Duration::from_millis(300));
-    assert!(is_alive(job), "the graceful signals ended the nohup job {job}");
+    assert!(
+        is_alive(job),
+        "the graceful signals ended the nohup job {job}"
+    );
 
     assert!(
         wait_for(REAPED_WITHIN, || !is_alive(job)),
