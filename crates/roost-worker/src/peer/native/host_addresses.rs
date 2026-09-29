@@ -13,6 +13,11 @@ const IF_INET6: &str = "/proc/net/if_inet6";
 #[cfg(target_os = "macos")]
 const IFCONFIG: &str = "/sbin/ifconfig";
 /// if_inet6 flags an address must not carry: DAD failed, deprecated, tentative.
+// Linux-only, and the tests below are not — `parse_ifconfig` carries the same
+// note for the mirror-image reason. Without it, `cargo clippy --all-targets`
+// compiles this crate on macOS as a plain lib, where nothing references the
+// procfs parsers, and reports as dead three items the Linux build uses.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 const UNUSABLE_INET6_FLAGS: u32 = 0x08 | 0x20 | 0x40;
 
 /// Every usable unicast address of this host, in the kernel's order. Loopback
@@ -76,6 +81,7 @@ async fn platform_addresses() -> Vec<IpAddr> {
 
 /// The addresses the kernel's local routing table marks `/32 host LOCAL`,
 /// each named on the `|-- <address>` line just above that marker.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(super) fn parse_fib_trie(table: &str) -> Vec<IpAddr> {
     let mut last: Option<Ipv4Addr> = None;
     let mut found = Vec::new();
@@ -94,6 +100,7 @@ pub(super) fn parse_fib_trie(table: &str) -> Vec<IpAddr> {
 
 /// Global-scope IPv6 addresses whose duplicate detection has settled:
 /// `<32 hex> <index> <prefix> <scope> <flags> <name>` per line.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(super) fn parse_if_inet6(table: &str) -> Vec<IpAddr> {
     table
         .lines()
