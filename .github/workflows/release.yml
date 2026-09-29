@@ -49,6 +49,13 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: test
         run: cargo test --workspace
+      # `cargo test --workspace` never enables roost-web's `smoke` feature, so
+      # every `#![cfg(feature = "smoke")]` test file compiles to nothing and
+      # the smoke suite never runs. It was missing here while ci.yml had it,
+      # and `crates/roost-cli/tests/release_asset_names.rs` is what caught it:
+      # a release verified against a narrower gate than the merge gate.
+      - name: web smoke suite
+        run: cargo test -p roost-web --features smoke
       - name: repo invariants
         run: cargo xtask lint
       - name: vendored terminal core
