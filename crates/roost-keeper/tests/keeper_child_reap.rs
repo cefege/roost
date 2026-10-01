@@ -4,9 +4,10 @@
 //! A single signal to the session leader leaks two ways, and each test pins
 //! one: an interactive shell ignores SIGTERM, and a foreground job and a
 //! background job each live in a job-control process group of their own that a
-//! single-pid signal never reaches. A `nohup`ed job ignores the hangup too, so
-//! only the snapshot SIGKILL sweep reaps it. Real keeper, real PTYs, real
-//! `sleep` children, real `pgrep` — the liveness oracle is kill(pid, 0).
+//! single-pid signal never reaches. The `nohup` case, which only the snapshot
+//! SIGKILL sweep can end, runs alone in `keeper_child_reap_sweep.rs`. Real
+//! keeper, real PTYs, real `sleep` children, real `pgrep` — the liveness oracle
+//! is kill(pid, 0).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod support;
@@ -22,19 +23,16 @@ use support::daemon::{Keeper, TempDir};
 /// Distinctive sleep durations, so `pgrep -f` matches only this file's jobs.
 const FG_MARK: &str = "sleep 8873310";
 const BG_MARK: &str = "sleep 9982210";
-const HUP_MARK: &str = "sleep 7761100";
 
 /// Grace (2 s) plus margin, as v2 waits.
 const REAPED_WITHIN: Duration = Duration::from_secs(6);
 
 /// SIGKILL anything a previous red run left behind under ONE test's mark.
 ///
-/// Scoped to one mark because the three tests share this binary and run
-/// concurrently. A guard that swept all three marks, dropped at each test's
-/// end, ended a SIBLING's live job: `a_nohup_job_that_ignores_sighup_is_still_
-/// reaped` asserts its job is still running 300 ms after the kill, and the
-/// other two tests' cleanup SIGKILLed it in that window. The test then failed
-/// on a neighbour's cleanup rather than on the behaviour it names.
+/// Scoped to one mark because the tests share this binary and run
+/// concurrently: a guard that swept every mark at each test's end would end a
+/// SIBLING's live job, and that test would then fail on a neighbour's cleanup
+/// rather than on the behaviour it names.
 fn sweep_previous_run(mark: &str) {
     for pid in pgrep(mark) {
         signal(pid, libc::SIGKILL);
@@ -181,64 +179,5 @@ fn an_interactive_shell_and_its_foreground_and_background_jobs_all_die() {
         is_alive(shell_pid),
         pgrep(FG_MARK),
         pgrep(BG_MARK)
-    );
-}
-
-#[test]
-fn a_nohup_job_that_ignores_sighup_is_still_reaped() {
-    sweep_previous_run(HUP_MARK);
-    let temp = TempDir::new("reap-nohup");
-    let keeper = Keeper::start(&temp);
-    let client = connect(keeper.socket()).expect("a handshake");
-    let (_shell_pid, _) = shell(&client, 902);
-    // nohup sets SIGHUP to SIG_IGN and then execs, so the hangup is a no-op on
-    // it; the inherited SIG_IGN for SIGTERM makes the group SIGTERM a no-op as
-    // well (whichever group job control put it in), so only the snapshot
-    // SIGKILL sweep can end it — v2's "escalation SIGKILL path".
-    // `$!` is the subshell's pid and `exec` keeps it, so the pid this writes
-    // IS the nohuped job. A pattern match is not an identity: the three tests
-    // in this bin reap their own trees concurrently, and `pgrep -f` also
-    // counts the window between the fork and the exec.
-    let pid_file = temp.socket().with_extension("pid");
-    client
-        .write_input(
-            902,
-            format!(
-                "(trap '' TERM; exec nohup {HUP_MARK}) >/dev/null 2>&1 & echo $! > {}\n",
-                pid_file.display()
-            )
-            .as_bytes(),
-        )
-        .unwrap();
-    let started = Instant::now();
-    let job = loop {
-        let read = std::fs::read_to_string(&pid_file)
-            .ok()
-            .and_then(|text| text.trim().parse::<i32>().ok());
-        if let Some(job) = read.filter(|pid| is_alive(*pid)) {
-            break job;
-        }
-        assert!(
-            started.elapsed() < Duration::from_secs(4),
-            "the nohup job started: {}",
-            pid_file.display()
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    };
-
-    client.kill(902).unwrap();
-
-    // The kill is acknowledged only after the hangup and the group SIGTERM
-    // have been delivered, so the job must still be running here: whatever
-    // ends it afterwards is the snapshot SIGKILL sweep and nothing else.
-    std::thread::sleep(Duration::from_millis(300));
-    assert!(
-        is_alive(job),
-        "the graceful signals ended the nohup job {job}"
-    );
-
-    assert!(
-        wait_for(REAPED_WITHIN, || !is_alive(job)),
-        "the nohup job {job} survived the kill"
     );
 }
