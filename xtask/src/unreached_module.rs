@@ -48,6 +48,12 @@ struct ModuleGraph {
 struct Pending {
     file: PathBuf,
     children_dir: PathBuf,
+    /// The directory the declaring FILE sits in, which is what rustc resolves a
+    /// `#[path]` against. It is not `children_dir`: for `voice/state.rs` those
+    /// are `voice/` and `voice/state/`, and only the first is right for a path
+    /// attribute. For a crate root the two coincide, which is why a rule that
+    /// derives one from the other passes its own test and fails on real code.
+    file_dir: PathBuf,
 }
 
 pub fn run() -> crate::ratchet::CheckOutcome {
@@ -132,21 +138,29 @@ fn graph_from(src: &Path) -> Option<ModuleGraph> {
             queue.push_back(Pending {
                 file: path.clone(),
                 children_dir: src.to_path_buf(),
+                file_dir: src.to_path_buf(),
             });
         }
     }
-    while let Some(Pending { file, children_dir }) = queue.pop_front() {
+    while let Some(Pending {
+        file,
+        children_dir,
+        file_dir,
+    }) = queue.pop_front()
+    {
         let Some((_, text)) = all.iter().find(|(path, _)| path == &file) else {
             continue;
         };
-        for Declared { file, name } in declared_modules(&children_dir, text) {
+        for Declared { file, name } in declared_modules(&children_dir, &file_dir, text) {
             // The child's own children live in a directory named for the child's
             // MODULE NAME — not its file stem, which differ under #[path].
             let child_dir = children_dir.join(&name);
             if reached.insert(file.clone()) {
+                let file_dir = file.parent().unwrap_or(Path::new("")).to_path_buf();
                 queue.push_back(Pending {
                     file,
                     children_dir: child_dir,
+                    file_dir,
                 });
             }
         }
@@ -169,7 +183,15 @@ struct Declared {
 /// file's own parent directory reports every such file as unreached — which is
 /// what the first version of this rule did, and it named a healthy file on the
 /// first run it was pointed at a real tree.
-fn declared_modules(children_dir: &Path, text: &str) -> Vec<Declared> {
+///
+/// `#[path]` IS THE EXCEPTION, and the exception is not cosmetic: rustc resolves
+/// a path attribute against the DECLARING FILE'S OWN directory, so
+/// `voice/state.rs` saying `#[path = "tests/state_tests.rs"]` means
+/// `voice/tests/state_tests.rs`. Resolving it against the module-name directory
+/// instead asks for `voice/state/tests/state_tests.rs`, the `is_file` guard
+/// drops the declaration, and a test suite that compiles and passes is reported
+/// as never compiled — a gate crying wolf about working code.
+fn declared_modules(children_dir: &Path, file_dir: &Path, text: &str) -> Vec<Declared> {
     let mut declared = Vec::new();
     let mut path_override: Option<String> = None;
     for line in text.lines() {
@@ -182,7 +204,7 @@ fn declared_modules(children_dir: &Path, text: &str) -> Vec<Declared> {
             continue;
         };
         let file = match &path_override {
-            Some(custom) => children_dir.join(custom),
+            Some(custom) => file_dir.join(custom),
             None => {
                 let nested = children_dir.join(&name).join("mod.rs");
                 if nested.is_file() {
@@ -355,6 +377,36 @@ mod tests {
             Some("a.rs")
         );
         assert_eq!(path_attribute("#[derive(Clone)]"), None);
+    }
+
+    /// A `#[path]` inside a NON-`mod.rs` child resolves against the FILE's own
+    /// directory, not the module-name directory.
+    ///
+    /// The test above cannot see the difference, because its declaring file is a
+    /// crate root and the two directories coincide there. This one puts the
+    /// declaration in `voice/state.rs` with the file in `voice/tests/`, which is
+    /// the layout a module of its own test suite uses, and it is the case that
+    /// reported a compiling, passing, fully reachable test suite as "never
+    /// compiled".
+    #[test]
+    fn a_path_attribute_in_a_child_module_resolves_against_the_file() {
+        let src = scratch("path-child");
+        write(&src, "lib.rs", "pub mod voice;\n");
+        write(&src, "voice.rs", "pub mod state;\n");
+        write(
+            &src,
+            "voice/state.rs",
+            "#[cfg(test)]\n#[path = \"tests/state_tests.rs\"]\nmod tests;\n",
+        );
+        write(&src, "voice/tests/state_tests.rs", "pub fn pinned() {}\n");
+
+        let graph = graph_from(&src).expect("a graph");
+        assert!(
+            graph
+                .reached
+                .contains(&src.join("voice/tests/state_tests.rs")),
+            "a test suite rustc compiles must not be reported as unreached"
+        );
     }
 
     /// `dir/mod.rs` and `dir.rs` are both conventional for `mod dir;`, and a rule
