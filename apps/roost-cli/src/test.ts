@@ -8,15 +8,20 @@ const PROFILES = ["unit", "worker", "terminal", "upgrade", "live-api", "all"] as
 type TestProfile = (typeof PROFILES)[number];
 const PLAYWRIGHT_CLI = "node_modules/@playwright/test/cli.js";
 
-async function run(name: string, cmd: string[], env?: Record<string, string>): Promise<void> {
+/** Run one step with inherited stdio; resolves to its exit code. */
+async function runStep(name: string, cmd: string[], env?: Record<string, string>): Promise<number> {
   console.log(`>> ${name}`);
   const process = spawn({
     cmd,
     env: env ? { ...globalThis.process.env, ...env } : undefined,
     stdio: ["inherit", "inherit", "inherit"],
   });
-  const exitCode = await process.exited;
-  if (exitCode !== 0) throw new Error(`${name} failed (exit ${exitCode ?? 1})`);
+  return (await process.exited) ?? 1;
+}
+
+async function run(name: string, cmd: string[], env?: Record<string, string>): Promise<void> {
+  const exitCode = await runStep(name, cmd, env);
+  if (exitCode !== 0) throw new Error(`${name} failed (exit ${exitCode})`);
 }
 
 async function runUnit(): Promise<void> {
@@ -74,8 +79,9 @@ async function runTerminal(): Promise<void> {
       VITE_ROOST_SMOKE: "1",
     });
     await run("web embed", [process.execPath, "scripts/gen-embed.ts"]);
+    const failed: string[] = [];
     // Pass 1: correctness, fanned out (playwright.config.ts pins workers:4).
-    await run(
+    const correctnessExit = await runStep(
       "terminal",
       [
         process.execPath, PLAYWRIGHT_CLI, "test", "--config=playwright.config.ts",
@@ -83,9 +89,11 @@ async function runTerminal(): Promise<void> {
       ],
       { ROOST_TEST_BUN: process.execPath },
     );
+    if (correctnessExit !== 0) failed.push(`terminal (exit ${correctnessExit})`);
     // Pass 2: the @serial (perf/latency) cases, alone on the box. A number
-    // measured under the other three stacks' load asserts nothing.
-    await run(
+    // measured under the other three stacks' load asserts nothing. It runs even
+    // when pass 1 failed: a red correctness pass must not hide the serial tier.
+    const serialExit = await runStep(
       "terminal perf",
       [
         process.execPath, PLAYWRIGHT_CLI, "test", "--config=playwright.config.ts",
@@ -93,6 +101,8 @@ async function runTerminal(): Promise<void> {
       ],
       { ROOST_TEST_BUN: process.execPath },
     );
+    if (serialExit !== 0) failed.push(`terminal perf (exit ${serialExit})`);
+    if (failed.length > 0) throw new Error(`${failed.join(" and ")} failed`);
   } finally {
     await run("restore embed stubs", [process.execPath, "scripts/gen-embed.ts", "--stub"]);
   }
