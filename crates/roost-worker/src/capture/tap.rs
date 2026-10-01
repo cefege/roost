@@ -262,7 +262,7 @@ impl CaptureTap {
             resize.outcome = outcome;
             resize.captured_bytes = captured_bytes;
             resize.grid_epoch_after = Some(record.cell_emit.grid_epoch());
-            resize.boundary_offset = boundary_seq.map(|seq| seq.to_string());
+            resize.boundary_offset = None;
         }
     }
 }

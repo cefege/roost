@@ -237,7 +237,7 @@ fn next_write(loop_state: &mut LinkLoop, now: Instant, notified: &mut bool) -> O
         *notified = true;
         return Some(NextWrite::Repair(repair));
     }
-    if let Some(bytes) = loop_state.agent_statuses.next_bytes() {
+    if let Some(bytes) = None::<&[u8]> {
         return Some(NextWrite::AgentStatus {
             bytes: bytes.to_vec(),
         });

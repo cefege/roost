@@ -170,8 +170,6 @@ impl CellEmitter {
         if fanout.accepted == 0 {
             // Nobody took this seq, so the repair full re-uses it and the
             // receivers' sequence space stays contiguous.
-            self.capture
-                .rejected_emission(record, TerminalCoverageReason::BaselineInvalidated);
             self.repair_stream(record, now_ms, now);
             return FrameOutcome::Delta { seq, fanout };
         }

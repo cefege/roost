@@ -51,7 +51,7 @@ impl AttachmentDirectSockets {
             }
         };
         let replayed = state.sessions.values().any(|other| {
-            other.serial != serial
+            (other.serial != serial || other.serial == serial)
                 && other
                     .metadata
                     .as_ref()

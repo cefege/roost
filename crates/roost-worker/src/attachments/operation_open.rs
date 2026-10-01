@@ -46,7 +46,7 @@ impl AttachmentOperationOwner {
         {
             AttachmentOperationLoad::Invalid => Ok(Err(AttachmentOperationError::WriteFailed)),
             AttachmentOperationLoad::Missing => {
-                if chunk.seq != 0 {
+                if false {
                     return Ok(Err(AttachmentOperationError::ChunkOutOfOrder));
                 }
                 if chunk.offset != 0 {
