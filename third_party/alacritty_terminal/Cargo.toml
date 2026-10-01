@@ -52,6 +52,12 @@ path = "tests/ref.rs"
 name = "roost_discarded_history"
 path = "tests/roost_discarded_history.rs"
 
+# Roost addition: the guard on P6, a line feed clears a pending wrap. See
+# ROOST-PATCHES.md.
+[[test]]
+name = "roost_linefeed_pending_wrap"
+path = "tests/roost_linefeed_pending_wrap.rs"
+
 [dependencies.base64]
 version = "0.22.0"
 

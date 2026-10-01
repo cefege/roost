@@ -1462,6 +1462,13 @@ impl<T: EventListener> Handler for Term<T> {
     #[inline]
     fn linefeed(&mut self) {
         trace!("Linefeed");
+        // ROOST P6: LF clears a pending wrap, as xterm does and as every other
+        // cursor-positioning path in this file already does — `goto` (CUP/CUU/
+        // CUD/CHA/VPA), `carriage_return` and `backspace` all clear it here.
+        // Leaving it armed lets the NEXT printable cell wrap into the row
+        // below, so a full-width row followed by `\n` drops the following line
+        // one row too far and everything under it cascades. See ROOST-PATCHES.md.
+        self.grid.cursor.input_needs_wrap = false;
         let next = self.grid.cursor.point.line + 1;
         if next == self.scroll_region.end {
             self.scroll_up(1);

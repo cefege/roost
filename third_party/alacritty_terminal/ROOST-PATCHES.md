@@ -5,8 +5,24 @@ and wired in through `[patch.crates-io]` in the workspace `Cargo.toml`.
 
 **The upstream test suite runs unmodified and must stay green**: 132 unit
 tests and 45 reference tests. If a patch broke something those cover, the patch
-is wrong. (`tests/roost_discarded_history.rs` is the one added test target,
-registered explicitly because the vendored manifest sets `autotests = false`.)
+is wrong. (`tests/roost_discarded_history.rs` and
+`tests/roost_linefeed_pending_wrap.rs` are the added test targets, registered
+explicitly because the vendored manifest sets `autotests = false`.)
+
+## Formatting
+
+`rustfmt.toml` beside the manifest is upstream alacritty's, verbatim; the
+crates.io package ships without it. `cargo fmt` reaches this crate as a path
+dependency whatever the workspace `exclude` says, and without upstream's
+settings one bare run reformatted 24 files here (+1413/−466), burying the
+patches below in a diff nobody can read against upstream. Stable rustfmt
+ignores the nightly-only keys with a warning and applies the rest, so
+`cargo fmt --manifest-path third_party/alacritty_terminal/Cargo.toml -- --check`
+now differs from the tree only where stable rustfmt disagrees with upstream
+nightly: `src/selection.rs` (ten `assert_eq!` sites), `src/grid/resize.rs:98`,
+`src/term/mod.rs:1244` and `tests/roost_discarded_history.rs:64,89`. Those are
+left as they are — the file is a fence against the wholesale reformat, not a
+target of zero.
 
 ## P1 — a count of history lines the grid has scrolled off the top
 
@@ -215,3 +231,42 @@ newline-at-bottom), the vi-mode scrolls, the resize paths, and
 `bool` rather than two methods because the two differ in exactly one branch, and
 a second copy of this function would be a second place for the distinction to go
 missing.
+
+## P6 — LF clears a pending wrap
+
+`src/term/mod.rs`, `Handler::linefeed`, one line before the scroll decision.
+
+Upstream clears `grid.cursor.input_needs_wrap` on every cursor-positioning
+path in the file — `goto` (CUP/CUU/CUD/CHA/VPA), `carriage_return`,
+`backspace` — and not on `linefeed`. xterm clears it, and
+`docs/FAILURE-INDEX.md` "A fast in-place row rewrite duplicates rows into
+history" names this exact rule: "LF clears pending wrap at `cols - 1`". The
+core is the right place for it, because the rule is about what the core
+remembers about the cursor, not about how any client repaints.
+
+### Why the symptom is so far from the cause
+
+A pending wrap is resolved by the NEXT printable cell, not by the LF. So the
+LF is where the state is wrong and the next character is where it is spent.
+A row written to the last column arms it; the `\n` leaves it armed; the next
+character wraps into the row below; and the cursor is now one row lower than
+the program meant. A `CUU` that follows moves up one, not two, so the pair
+walks DOWNWARD and the screen scrolls once per rewrite.
+
+The oracle measures it at 270 of 300 generations landing in scrollback. That
+ratio is the signature: it is neither 0% nor 100% because it depends on
+whether a given generation's repaint happened to end on the last column.
+
+### Why the upstream suite did not catch it
+
+Nothing in the 132 unit tests or 45 reference tests writes a full-width row
+and then line-feeds. The suite exercises each sequence in isolation; the
+divergence needs a full-width row, an LF, and a printable character to line up
+in that order.
+
+`tests/roost_linefeed_pending_wrap.rs` is the guard on the core: a full-width
+row, a bare LF and one printable cell must leave the cursor on the row the LF
+moved to. Deleting the P6 line fails it with the cursor one row lower. The
+`smoke/terminal/terminal-render-main-repaint.spec.ts` case "a fast in-place
+status rewrite never duplicates rows into history" guards the symptom end to
+end: before the patch the repro retains 32 of 40 generations; after, none.
