@@ -2136,6 +2136,17 @@ skipped.
 |2026-09-30 17:35|Rust, main|`bun run test:terminal`, after direct-route link 1|not recorded|`~/.cache/rust-suite3-20260930-1735.log`|56 / 61 / 28; 53 Rust-red/Bun-green, 13 Rust-only skips, both-red 0|
 |2026-09-30 17:54|Rust, serial|`bunx playwright test --project chromium-serial --reporter=line`|not recorded|`~/.cache/rust-serial-20260930-1754.log`|4 / 10 / 4|
 |2026-10-01|Rust, serial|`bun smoke/parity/run.ts suite --stack rust --pass serial --label phase0-serial-check`|pin `1f1b6096`+dirty, `roost` `1fa72d84…`, `roost-web-dxhe0dd67381eea45f.js`|`test-results/parity/rust-phase0-serial-check.run.json`|5 / 9 / 4|
+|2026-10-01 18:11|Rust, both|`bun smoke/parity/run.ts suite --stack rust --pass both --label landed`|`pin d5bd76c752b0 roost=541e9422dbf7 keeper=86d50b2fcfff web=roost-web-dxh1341e6fcbbd04976.js,roost-web_bg-dxhe57c31864ed24bbf.wasm features=[] web-features=[smoke]`|`test-results/parity/rust-landed.run.json`|main 77 / 40 / 28 (864 s); serial 5 / 9 / 4 (460 s)|
+|2026-10-01 18:33|**Bun** (all-TS), both|`bun smoke/parity/run.ts suite --stack bun --pass both --label baseline`|source `d5bd76c7`, clean|`gate-evidence/parity/bun-d5bd76c7.run.json`|main 141 / 1 / 3 (615 s); serial 15 / 0 / 3 (1440 s) — the 1 is `terminal-frame-repair.spec.ts:151`|
+
+**The landed tree's verdict** (`run.ts verdict rust-landed.run.json
+gate-evidence/parity/bun-d5bd76c7.run.json`, keyed by file, title and project):
+gap **48**, both-red 1 (`terminal-frame-repair.spec.ts:151`, green on Bun the day
+before), rust-skip-only **26** (the 13 peer-fault cases on each of their two
+projects), both-skip 6 (exactly the six named skips), green 82, bun-only 0,
+skew 0. `ui-layout-apply.spec.ts:119` is green, and no report in either Rust
+pass mentions the browser tab fence: the `ui_state` fix held. This verdict is the
+Phase 2 worklist.
 
 **LANDING GATE — GREEN on the tree of `0814d5a0`, 2026-10-01.** The 2026-09-30
 sessions' work plus the `ui_state` fence removal and two cherry-picks, gated once
