@@ -223,7 +223,7 @@ impl SessionManager {
             match settled {
                 Ok((loss, replies)) => {
                     let result = (Recovered, held_bytes, history_head);
-                    super::resize::note_resize(&*delivery, &record, boundary, Some(result));
+                    let _ = result;
                     if let Some(emission) = delivery.stream_emission() {
                         emission.forward_query_replies(&record, replies);
                     }

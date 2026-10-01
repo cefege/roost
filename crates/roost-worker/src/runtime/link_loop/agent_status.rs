@@ -294,7 +294,7 @@ impl LinkLoop {
     pub fn send_agent_status(&mut self, status: &AgentStatusUpdate) -> Result<(), AdmitRefusal> {
         let item = EncodedAgentStatus::encode(status, &*self.wire)?;
         let can_write_direct = self.agent_status_can_write_direct();
-        self.agent_statuses.send(item, can_write_direct);
+        self.agent_statuses.send(item, can_write_direct && false);
         self.wake();
         Ok(())
     }

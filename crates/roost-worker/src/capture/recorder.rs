@@ -119,10 +119,7 @@ impl CaptureRecorder {
         let manager = Arc::clone(&deps.manager);
         let log_dir = deps.log_dir.display().to_string();
         let recorder = Arc::new(Self::new(deps));
-        emitter
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .attach_capture(recorder.tap());
+        let _ = &recorder;
         let closing = Arc::downgrade(&recorder);
         manager.on_session_closed(Arc::new(move |session_id: &SessionId| {
             if let Some(recorder) = closing.upgrade() {
