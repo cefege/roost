@@ -12,6 +12,7 @@ import {
   beginPeerSmokeInput,
   expectNoPeerFixtureAck,
   settlePeerSmokeInput,
+  skipWithoutPeerFaultControls,
   waitForPeerRouteLoss,
 } from "./terminal-peer-fault-helpers.ts";
 import {
@@ -63,6 +64,7 @@ async function stopPeerFaultScenario(
 
 /** Drops only worker→browser peer packets so two real missed probes force Sync repair. */
 export async function verifyPeerBlackholeFallback(browser: Browser, testInfo: TestInfo): Promise<void> {
+  skipWithoutPeerFaultControls();
   const stack = await startTerminalTestStack(PEER_FAULT_STACK_OPTIONS);
   let page: EnrolledPage | undefined;
   try {
@@ -121,6 +123,7 @@ export async function verifyPeerBlackholeFallback(browser: Browser, testInfo: Te
 
 /** Drops one real peer input result after its PTY write and proves fallback never resends it. */
 export async function verifyDroppedPeerResultIsAmbiguous(browser: Browser, testInfo: TestInfo): Promise<void> {
+  skipWithoutPeerFaultControls();
   const stack = await startTerminalTestStack(PEER_FAULT_STACK_OPTIONS);
   let page: EnrolledPage | undefined;
   try {
@@ -156,6 +159,7 @@ export async function verifyDroppedPeerResultIsAmbiguous(browser: Browser, testI
 
 /** Holds one authenticated peer input, then lets Sync claim ownership before releasing the stale bytes. */
 export async function verifyPeerToSyncInputFence(browser: Browser, testInfo: TestInfo): Promise<void> {
+  skipWithoutPeerFaultControls();
   const stack = await startTerminalTestStack(PEER_FAULT_STACK_OPTIONS);
   let page: EnrolledPage | undefined;
   try {
@@ -187,6 +191,7 @@ export async function verifyPeerToSyncInputFence(browser: Browser, testInfo: Tes
 
 /** Advances the worker's injected grant clock while coord is unreachable, then requires a fresh direct grant. */
 export async function verifyDirectGrantExpiry(browser: Browser, testInfo: TestInfo): Promise<void> {
+  skipWithoutPeerFaultControls();
   const stack = await startTerminalTestStack(PEER_FAULT_STACK_OPTIONS);
   let page: EnrolledPage | undefined;
   try {
@@ -215,6 +220,7 @@ export async function verifyDirectGrantExpiry(browser: Browser, testInfo: TestIn
 
 /** Drops the retirement frame intentionally, then uses grant expiry rather than pretending outage revokes a peer. */
 export async function verifyDroppedRetirementExpires(browser: Browser, testInfo: TestInfo): Promise<void> {
+  skipWithoutPeerFaultControls();
   const stack = await startTerminalTestStack(PEER_FAULT_STACK_OPTIONS);
   let page: EnrolledPage | undefined;
   try {

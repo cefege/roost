@@ -201,3 +201,34 @@ export function workerRuntimeOverrides(stack: SmokeStackExecutables): {
 	if (!stack.workerExecutable) return {};
 	return { workerExecutable: stack.workerExecutable, sourceEntrypoint: undefined };
 }
+
+/**
+ * Why this run cannot drive the terminal peer fault controls, or `null` when it
+ * can.
+ *
+ * The fault tier injects faults INTO the worker under test — a held
+ * authenticated input, a blackholed packet lane, a paused history response —
+ * through a disposable Unix socket the worker only opens when it is launched
+ * from `smoke/terminal/stack-direct-input-worker.ts`. A packaged worker has no
+ * equivalent: `roost worker` takes no fault argument, reads no fault
+ * environment variable and installs no such hook, so the thirteen fault
+ * commands have nowhere to land.
+ *
+ * That is a gap in what this run QUALIFIES, and the honest form of a gap is a
+ * named skip rather than a refusal. A stack that aborts instead turns "this
+ * run cannot prove peer faults" into a dozen identical product failures whose
+ * only log output is the refusal itself, which reads as a broken coordinator
+ * and a broken worker when neither was ever started.
+ */
+export function peerFaultControlsUnavailable(
+	workerExecutable: string | null,
+	platform: NodeJS.Platform = process.platform,
+): string | null {
+	if (workerExecutable !== null) {
+		return `terminal peer fault controls require a source worker; this run drives the packaged worker at ${workerExecutable}`;
+	}
+	if (platform === "win32") {
+		return "terminal peer fault controls are unavailable on Windows";
+	}
+	return null;
+}

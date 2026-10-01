@@ -216,19 +216,44 @@ export async function reportReplacementAgentStatus(
 ): Promise<AgentStatusView> {
   let attempt = 0;
   let matchedStatus: AgentStatusView | undefined;
+  // The `try` is NOT defensive politeness; it is the difference between this
+  // helper and `pollAgentStatus` below, which has always had it.
+  //
+  // A replacement publishes TWO frames with consecutive revisions: the old
+  // occupant going inactive and the new one going active. The coordinator
+  // removes a session's row when the inactive frame lands
+  // (`status_hub.rs`), and the worker's report is an asynchronous enqueue, so
+  // there is a window — open by construction, on every report — in which the
+  // session is open and has no status yet. `agentStatusGet` answers
+  // `not_found` for exactly that, and it is RIGHT to: v2 answers the same
+  // (`if (!status) agentStatusNotFound()`), for missing and unknown sessions
+  // alike.
+  //
+  // Playwright 1.62 evaluates the polled callback outside its own try/catch, so
+  // a throw here aborts the poll on attempt 1 instead of retrying. That is why
+  // `spawnIntegratedAgent`, `toast-target` and `workbench-shell-interactions`
+  // all tolerate this refusal and this one call did not: they go through
+  // `pollAgentStatus`, which catches.
   await expect.poll(async () => {
     attempt++;
-    await reportAgentStatus(sessionId, "working", attempt);
-    const status = (await client.agentStatusGet({ sessionId })).status;
-    if (
-      status?.source !== "integration"
-      || status.state !== "working"
-      || status.occupantId === previousOccupantId
-    ) {
+    try {
+      await reportAgentStatus(sessionId, "working", attempt);
+      const status = (await client.agentStatusGet({ sessionId })).status;
+      if (
+        !status
+        || status.source !== "integration"
+        || status.state !== "working"
+        || status.occupantId === previousOccupantId
+      ) {
+        return false;
+      }
+      matchedStatus = status;
+      return true;
+    } catch {
+      // The window above, or a coordinator that has not settled the new
+      // occupant's frame yet. Either way the next attempt re-asks.
       return false;
     }
-    matchedStatus = status;
-    return true;
   }, { timeout: 30_000 }).toBe(true);
   if (!matchedStatus) {
     throw new Error(`replacement agent status was not observed for ${sessionId}`);

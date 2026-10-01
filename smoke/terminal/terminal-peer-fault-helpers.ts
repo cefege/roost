@@ -4,11 +4,12 @@
 // Fault ownership remains in the disposable stack; this file only drives it.
 
 import type { Page } from "@playwright/test";
-import { expect } from "./fixtures.ts";
+import { expect, test } from "./fixtures.ts";
 import { encodePtyFixtureCommand } from "./pty-fixture-protocol.ts";
 import { waitForPainted } from "./terminal-multiview-helpers.ts";
 import type { RecoverySmokeApi } from "./terminal-smoke-api.ts";
 import { readPeerRoute } from "./terminal-peer-helpers.ts";
+import { peerFaultControlsUnavailable, resolveSmokeStackExecutables } from "./stack-executables.ts";
 
 const PEER_INPUT_RESULT_TIMEOUT_MS = 20_000;
 
@@ -94,4 +95,20 @@ export async function waitForPeerRouteLoss(page: Page, sessionId: string): Promi
     const route = await readPeerRoute(page, sessionId);
     return route.activeKind !== "webrtc" && route.pendingInputCount === 0;
   }, { timeout: 60_000, intervals: [100, 250, 500] }).toBe(true);
+}
+
+/**
+ * Skip a peer fault case when this run cannot drive the fault controls.
+ *
+ * The controls inject INTO the worker under test, so a packaged worker that
+ * exposes no fault surface cannot be put into the states these cases prove.
+ * That leaves the Rust worker's peer-fault behaviour unqualified on a packaged
+ * run, which is a real gap in coverage and is exactly why the skip NAMES the
+ * binary that caused it: a run report saying "the peer fault cases are skipped
+ * against target/release/roost" says something a reader can act on, and a
+ * dozen failures all reading "requires a source worker" does not.
+ */
+export function skipWithoutPeerFaultControls(): void {
+  const reason = peerFaultControlsUnavailable(resolveSmokeStackExecutables().workerExecutable);
+  test.skip(reason !== null, reason ?? "terminal peer fault controls are available");
 }

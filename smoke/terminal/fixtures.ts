@@ -308,6 +308,16 @@ async function useColdSmokePage(
 
 
 export const test = base.extend<Fixtures, WorkerFixtures>({
+  // A COLD RUST BUILD IS LEGITIMATE SETUP WORK, and it is not bounded by the
+  // per-test timeout. `ensureSmokeStackBinary` rebuilds a packaged binary
+  // whenever anything under `crates/` — or a workspace manifest, which a
+  // Dioxus build touches — is newer than it, and that takes MINUTES. Under the
+  // 120 s per-test budget it does not merely slow the first spec down: it fails
+  // EVERY test in that spec with
+  // `Fixture "stack" timeout of 120000ms exceeded during setup`, which reads as
+  // a product failure and is not one. Four tests were lost that way in a single
+  // run. The fixture gets its own budget; the per-test timeout still bounds
+  // everything AFTER setup, so a hung test is still caught.
   stack: [async ({}, use) => {
     const stack = await startTerminalTestStack();
     try {
@@ -315,7 +325,7 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
     } finally {
       await stack.stop();
     }
-  }, { scope: "worker" }],
+  }, { scope: "worker", timeout: 900_000 }],
   secondWorker: [async ({ stack }, use) => {
     await use(await stack.startSecondWorker());
   }, { scope: "worker" }],

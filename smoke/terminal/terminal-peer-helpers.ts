@@ -22,8 +22,21 @@ import { navigateToSmokeSession, spawnPtyFixtureSession, switchToSmokeSession } 
 import { expectMarkersOnce, forceVisible, waitForPainted } from "./terminal-multiview-helpers.ts";
 import type { RecoverySmokeApi } from "./terminal-smoke-api.ts";
 
-const PEER_ROUTE_TIMEOUT_MS = Number(process.env.ROOST_PEER_ROUTE_TIMEOUT_MS ?? 60_000);
-const PEER_ROUTE_INTERVALS_MS = [100, 250, 500] as const;
+// The route READING and the two waits that consume it live in their own module,
+// because "which carrier is this right now" is a different question from "how
+// does a spec set one up". They are re-exported here so a spec imports every
+// peer helper from one place, which is what every call site in this suite does.
+import {
+  PEER_ROUTE_INTERVALS_MS,
+  PEER_ROUTE_TIMEOUT_MS,
+  readPeerRoute,
+} from "./terminal-peer-route.ts";
+
+export {
+  readPeerRoute,
+  waitForDirectRoute,
+  waitForSyncRoute,
+} from "./terminal-peer-route.ts";
 
 export type TerminalPeerRouteKind = "sync" | "loopback" | "webrtc";
 export type DirectTerminalPeerRouteKind = Exclude<TerminalPeerRouteKind, "sync">;
@@ -157,80 +170,6 @@ export async function createPeerFixtureSessionInDocument(
   return sessionId;
 }
 
-/** Browser-local carrier evidence. A direct proof must match the elected route. */
-export function readPeerRoute(page: Page, sessionId: string): Promise<PeerRouteReading> {
-  return page.evaluate((id) => {
-    const smokeWindow = window as unknown as { __smoke: RecoverySmokeApi };
-    const snapshot = smokeWindow.__smoke.terminalBrowserSnapshot(id);
-    const active = snapshot.route.active;
-    const candidate = snapshot.route.candidate;
-    const proof = snapshot.replica.last_terminal_proof_generation;
-    return {
-      activeKind: active?.kind ?? null,
-      activeWorkerEpoch: active?.worker_epoch ?? null,
-      activePeerId: active?.peer_id ?? null,
-      activeProbeAgeMs: active?.probe_age_ms ?? null,
-      inputPhase: snapshot.route.input_phase ?? null,
-      activeRttMs: active?.rtt_ms ?? null,
-      activeBufferedBytes: active?.buffered_bytes ?? null,
-      activeCandidateType: active?.candidate_type ?? "none",
-      activeWorkerControlRttMs: active?.worker_control_rtt_ms ?? null,
-      candidateKind: candidate?.kind ?? null,
-      candidateWorkerEpoch: candidate?.worker_epoch ?? null,
-      candidatePeerId: candidate?.peer_id ?? null,
-      peerPhase: snapshot.route.peer_phase ?? null,
-      fallbackReason: snapshot.route.fallback_reason ?? null,
-      failureDetail: snapshot.route.failure_detail ?? null,
-      proofKind: proof?.transportKind ?? null,
-      candidateCandidateType: candidate?.candidate_type ?? "none",
-      pendingInputCount: snapshot.route.pending_input_count,
-      proofWorkerEpoch: proof?.processEpoch ?? null,
-      baselineReady: snapshot.replica.baseline_ready,
-      proofSocketId: proof?.socketId ?? null,
-      proofSocketGeneration: proof?.socketGeneration ?? null,
-      syncReady: snapshot.sync.ready,
-    } satisfies PeerRouteReading;
-  }, sessionId);
-}
-
-/** Waits until an elected direct route has committed a baseline it actually paints. */
-export async function waitForDirectRoute(
-  page: Page,
-  sessionId: string,
-  expectedKind: DirectTerminalPeerRouteKind = "webrtc",
-  options: { syncMetadata?: boolean } = {},
-): Promise<PeerRouteReading> {
-  const requiresSyncMetadata = options.syncMetadata ?? true;
-  let lastRoute: PeerRouteReading | null = null;
-  try {
-    await expect.poll(async () => {
-      const route = await readPeerRoute(page, sessionId);
-      lastRoute = route;
-      return route.activeKind === expectedKind
-        && route.proofKind === expectedKind
-        && route.baselineReady
-        && route.activeWorkerEpoch !== null
-        && route.proofWorkerEpoch === route.activeWorkerEpoch
-        && (expectedKind !== "webrtc" || route.activePeerId !== null)
-        && (!requiresSyncMetadata || route.syncReady);
-    }, { timeout: PEER_ROUTE_TIMEOUT_MS, intervals: [...PEER_ROUTE_INTERVALS_MS] }).toBe(true);
-  } catch (error) {
-    throw new Error(`direct route unavailable: ${JSON.stringify(lastRoute)}`, { cause: error });
-  }
-  return readPeerRoute(page, sessionId);
-}
-
-/** Waits for the standard Sync fallback to own and paint the current session. */
-export async function waitForSyncRoute(page: Page, sessionId: string): Promise<PeerRouteReading> {
-  await expect.poll(async () => {
-    const route = await readPeerRoute(page, sessionId);
-    return route.activeKind === "sync"
-      && route.proofKind === "sync"
-      && route.baselineReady
-      && route.syncReady;
-  }, { timeout: PEER_ROUTE_TIMEOUT_MS, intervals: [...PEER_ROUTE_INTERVALS_MS] }).toBe(true);
-  return readPeerRoute(page, sessionId);
-}
 
 /** Waits until route fencing has admitted input on the elected fallback carrier. */
 export async function waitForTerminalInputReady(page: Page, sessionId: string): Promise<void> {

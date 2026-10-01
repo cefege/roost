@@ -26,6 +26,7 @@ import {
   beginPeerSmokeInput,
   expectNoPeerFixtureAck,
   settlePeerSmokeInput,
+  skipWithoutPeerFaultControls,
   waitForPeerRouteLoss,
 } from "./terminal-peer-fault-helpers.ts";
 import {
@@ -159,7 +160,14 @@ test("worker restart retires the old peer epoch while its keeper PTY survives", 
     await sendTrustedShellMarker(page.page, sessionId, beforeMarker);
 
     await stack.restartWorker();
-    const afterRestart = await waitForDirectRoute(page.page, sessionId);
+    // The restart has to be OBSERVED before the assertions can mean anything:
+    // without `replaced` the wait succeeds on its first poll, which is the
+    // pre-restart route, and the three `not.toBe` lines below compare the old
+    // reading with itself. The assertions are unchanged; they now run against a
+    // route that has actually been replaced.
+    const afterRestart = await waitForDirectRoute(page.page, sessionId, "webrtc", {
+      replaced: beforeRestart,
+    });
     expect(afterRestart.activeWorkerEpoch).not.toBe(beforeRestart.activeWorkerEpoch);
     expect(afterRestart.activePeerId).not.toBe(beforeRestart.activePeerId);
     expect(afterRestart.proofSocketId).not.toBe(beforeRestart.proofSocketId);
@@ -187,6 +195,7 @@ test("worker restart retires the old peer epoch while its keeper PTY survives", 
 });
 
 test("worker deletion retires direct authority before a held authenticated input reaches the PTY", async ({ browser }, testInfo) => {
+  skipWithoutPeerFaultControls();
   test.setTimeout(240_000);
   const stack = await startTerminalTestStack(PEER_FAULT_STACK_OPTIONS);
   let page: EnrolledPage | undefined;
@@ -222,6 +231,7 @@ test("worker deletion retires direct authority before a held authenticated input
 });
 
 test("device revocation closes the direct peer before a held input can mutate its PTY", async ({ browser }, testInfo) => {
+  skipWithoutPeerFaultControls();
   test.setTimeout(240_000);
   const stack = await startTerminalTestStack(PEER_FAULT_STACK_OPTIONS);
   let page: EnrolledPage | undefined;
@@ -298,6 +308,7 @@ test("a healthy Sync input drains before WebRTC promotion and fresh direct input
 });
 
 test("a delayed old Sync input is fenced after peer promotion and cannot reach the PTY", async ({ browser }, testInfo) => {
+  skipWithoutPeerFaultControls();
   test.setTimeout(300_000);
   const stack = await startTerminalTestStack(PEER_FAULT_STACK_OPTIONS);
   let page: EnrolledPage | undefined;

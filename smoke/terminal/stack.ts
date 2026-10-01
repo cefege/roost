@@ -30,7 +30,7 @@ import type { DelayedWorkerLink } from "./delayed-worker-link.ts";
 import { createFixtureWorkerStarter, type PtyFixtureWorkerStartOptions } from "./stack-fixture-worker.ts";
 import { createLocalUiOrigins } from "./stack-local-ui.ts";
 import { startCoordinatorControl, type CoordinatorControl } from "./stack-coordinator.ts";
-import { resolveSmokeStackExecutables, smokeStackDescription } from "./stack-executables.ts";
+import { peerFaultControlsUnavailable, resolveSmokeStackExecutables, smokeStackDescription } from "./stack-executables.ts";
 import {
   startDirectInputHold,
   type DirectInputHold,
@@ -173,12 +173,14 @@ export async function startTerminalTestStack(
 
   try {
     if (terminalPeer?.enableFaults) {
-      if (options.workerExecutable || resolveSmokeStackExecutables().workerExecutable) {
-        throw new Error("terminal peer fault controls require a source worker");
-      }
-      if (process.platform === "win32") {
-        throw new Error("terminal peer fault controls are unavailable on Windows");
-      }
+      // The reason is resolved BEFORE anything is spawned so a spec that
+      // cannot run this tier says so as a skip, with every other stack log
+      // still attached, instead of aborting mid-start and leaving a failure
+      // whose only evidence is that refusal.
+      const faultsUnavailable = peerFaultControlsUnavailable(
+        options.workerExecutable ?? resolveSmokeStackExecutables().workerExecutable,
+      );
+      if (faultsUnavailable !== null) throw new Error(faultsUnavailable);
       peerFaultControl = await startStackPeerFaultControl(root);
       directInputHold = await startDirectInputHold(root);
       workerRuntime = {

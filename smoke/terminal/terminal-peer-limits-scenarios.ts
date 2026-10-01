@@ -12,6 +12,7 @@ import {
   beginPeerSmokeInput,
   expectNoPeerFixtureAck,
   settlePeerSmokeInput,
+  skipWithoutPeerFaultControls,
   waitForPeerRouteLoss,
 } from "./terminal-peer-fault-helpers.ts";
 import {
@@ -62,6 +63,7 @@ async function stopPeerLimitScenario(
 
 /** Removes one session from a live grant while its input and history reads wait behind the real keeper lane. */
 export async function verifyGrantShrinkFencesInputAndHistory(browser: Browser, testInfo: TestInfo): Promise<void> {
+  skipWithoutPeerFaultControls();
   const stack = await startTerminalTestStack(PEER_FAULT_STACK_OPTIONS);
   let page: EnrolledPage | undefined;
   try {
@@ -129,6 +131,7 @@ export async function verifyGrantShrinkFencesInputAndHistory(browser: Browser, t
 
 /** Holds a real keeper lane, floods valid direct input, and proves per-port admission remains bounded. */
 export async function verifyPeerInputBudgetFlood(browser: Browser, testInfo: TestInfo): Promise<void> {
+  skipWithoutPeerFaultControls();
   const stack = await startTerminalTestStack(PEER_FAULT_STACK_OPTIONS);
   let page: EnrolledPage | undefined;
   try {

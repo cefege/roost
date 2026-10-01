@@ -28,6 +28,7 @@ import { navigateToSmokeSession, spawnPtyFixtureSession } from "./terminal-helpe
 import { expectMarkersOnce, forceVisible, waitForPainted, waitForTransition } from "./terminal-multiview-helpers.ts";
 import { PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
 import { verifyLargeDirectPacketAndHistory } from "./terminal-peer-packet-scenarios.ts";
+import { skipWithoutPeerFaultControls } from "./terminal-peer-fault-helpers.ts";
 import {
   expectCompactTerminalTransportHeader,
   expectTerminalTransportIndicator,
@@ -261,6 +262,7 @@ test("disabled peer capability retains usable Sync terminal input without a blan
 });
 
 test("invalid offers, unavailable grants, expired grants, and identity mismatches fall back without recreating the PTY @serial", async ({ browser }, testInfo) => {
+  skipWithoutPeerFaultControls();
   test.setTimeout(480_000);
   const faults = ["invalid_sdp", "missing_grant", "expired_grant", "identity_mismatch"] as const;
   for (const fault of faults) {

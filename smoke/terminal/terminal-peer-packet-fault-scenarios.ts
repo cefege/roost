@@ -7,6 +7,7 @@ import type { Browser, TestInfo } from "@playwright/test";
 import { expect } from "./fixtures.ts";
 import type { EnrolledPage } from "./terminal-local-fast-path-helpers.ts";
 import { attachStackLogs } from "./terminal-local-fast-path-helpers.ts";
+import { skipWithoutPeerFaultControls } from "./terminal-peer-fault-helpers.ts";
 import {
   blockCoordinatorHistoryFallback,
   createPeerFixtureSession,
@@ -49,6 +50,7 @@ async function stopPeerPacketFaultScenario(
 
 /** Every malformed header variant retires only its one peer and leaves another worker's peer usable. */
 export async function verifyMalformedPeerPacketIsolation(browser: Browser, testInfo: TestInfo): Promise<void> {
+  skipWithoutPeerFaultControls();
   const kinds = ["offset", "total", "id"] as const;
   for (const kind of kinds) {
     const stack = await startTerminalTestStack(PEER_PACKET_FAULT_STACK_OPTIONS);
@@ -78,6 +80,7 @@ export async function verifyMalformedPeerPacketIsolation(browser: Browser, testI
 
 /** A paused history lane cannot starve direct control, and resumes only when its lane is released. */
 export async function verifyPausedHistoryDoesNotStarveControl(browser: Browser, testInfo: TestInfo): Promise<void> {
+  skipWithoutPeerFaultControls();
   const stack = await startTerminalTestStack(PEER_PACKET_FAULT_STACK_OPTIONS);
   let page: EnrolledPage | undefined;
   let unblockCoordinatorHistory: (() => Promise<void>) | undefined;
