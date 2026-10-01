@@ -42,3 +42,6 @@ mockups/
 /test-results/
 # Scratch incident-evidence dumps (multi-GB Playwright traces).
 /terminal-reader-fix-evidence/
+# The parity runner's pinned oracle artifacts (smoke/parity/pin.ts); rebuilt by
+# `bun smoke/parity/run.ts build`, never source.
+/.smoke-pin/

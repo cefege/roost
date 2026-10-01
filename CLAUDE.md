@@ -372,12 +372,14 @@ combination: each Playwright worker starts a real coordinator, worker, keeper
 and PTYs (`smoke/terminal/stack.ts`) and drives a real browser against a built
 web bundle. The stack it launches is chosen by environment, so the same
 specs are the oracle for a TS stack, a Rust worker, a Rust coordinator, and
-finally the all-Rust stack:
+finally the all-Rust stack. Drive the Rust stack through the parity runner
+(`### Commands`); these knobs are what it sets, not something to export by
+hand:
 
 ```sh
-ROOST_SMOKE_COORD_EXECUTABLE=target/release/roost   # Rust coordinator
-ROOST_SMOKE_WORKER_EXECUTABLE=target/release/roost  # Rust worker (`roost worker`)
-ROOST_SMOKE_WEB_DIST=<dx public dir>                # Rust/Dioxus bundle
+ROOST_SMOKE_COORD_EXECUTABLE=<repo>/.smoke-pin/roost   # Rust coordinator
+ROOST_SMOKE_WORKER_EXECUTABLE=<repo>/.smoke-pin/roost  # Rust worker (`roost worker`)
+ROOST_SMOKE_WEB_DIST=<repo>/.smoke-pin/web             # Rust/Dioxus bundle
 ```
 
 Unset means "use the TypeScript implementation", which is what makes the
@@ -437,6 +439,18 @@ cargo build -p roost-protocol -p roost-client-core --target wasm32-unknown-unkno
 cargo build --release -p roost-cli -p roost-keeper
 ```
 
+Oracle parity on the Rust stack. Every build and run goes through the runner:
+`build` pins `roost`, `roost-keeper` and the dx bundle in `.smoke-pin/` (outside
+`target/`, so the harness never rebuilds them) and writes `manifest.json`,
+which `spec` and `suite` print first and refuse when it is not HEAD's:
+
+```
+bun smoke/parity/run.ts build [--no-web] [--plain]
+bun smoke/parity/run.ts spec <file[:line]>… [--project <p>] [--repeat N] [--trace]
+bun smoke/parity/run.ts suite --stack rust|bun [--pass main|serial|both] [--label <l>]
+bun smoke/parity/run.ts verdict <rust.run.json> [<bun.run.json>] [--md <out.md>]
+```
+
 TypeScript gates, which keep running until Phase 7 deletes that tree:
 
 ```
@@ -456,6 +470,18 @@ tiers and `release.yml` are removed on this branch and return in Phase 7. The
 (off by default) — Windows is paused on `main` too, and v3 ships Linux and
 macOS. No gate needs a deployed coordinator, a tailnet, or a human driving a
 browser.
+
+### Per-fix loop for oracle parity
+
+1. A fix is done only when its proving spec was watched green on freshly
+   built, pinned artifacts in the same turn; gates prove compilation, not behaviour.
+2. Every build and run goes through `smoke/parity/run.ts`. Never hand-copy
+   binaries; never run a spec against `target/` paths.
+3. One proving spec per claim before anything else is dispatched; an agent's
+   count is a hypothesis.
+4. Never run a gate or the oracle in a worktree someone else is editing.
+5. Commit after every proven fix, path-restricted `git add`, subject
+   `<area>: <scope>`, body naming the spec and the observed line-reporter output.
 
 ---
 
