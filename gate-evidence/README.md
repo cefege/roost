@@ -4,6 +4,13 @@ Raw `cargo test -p roost-cli --no-fail-fast` output for each run behind a
 published figure. A figure with no run behind it is not a figure, and a
 `git worktree remove` deleting the only copy of the run is how that happens.
 
+`parity/` holds the Playwright JSON behind each parity verdict: a run record
+`<stack>-<sha>.run.json` (written by `bun smoke/parity/run.ts suite`, its
+`jsonPath`s pointing at the files beside it) and its `-main`/`-serial` reports.
+`bun smoke/parity/run.ts verdict <rust.run.json> parity/bun-<sha>.run.json`
+reads them directly. **Current Bun baseline: `bun-d5bd76c7`** — main 141 / 1 / 3,
+serial 15 / 0 / 3 (passed / failed / skipped).
+
 **Current: `a86bc6d4` — 404 passed / 0 failed / 0 ignored, twice.**
 `gate-run-A-a86bc6d4.log` and `gate-run-B-a86bc6d4.log`. The five added tests are
 `tests/join_script.rs`, which runs the real `join.sh` against fake `roost`
