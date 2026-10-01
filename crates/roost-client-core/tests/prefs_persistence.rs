@@ -12,6 +12,7 @@
 //! `read_flag`, treat an unrecognised stored value as `true` instead of falling
 //! back to `default`, and
 //! `a_corrupt_stored_preference_falls_back_instead_of_failing_the_boot` must fail.
+use std::rc::Rc;
 
 use roost_client_core::store::prefs::flags::{
     mouse_gestures_forwarded, set_copy_on_select, set_keyboard_resize, set_keyterm_biasing,
@@ -22,15 +23,15 @@ use roost_client_core::store::prefs::notify::{
 };
 use roost_client_core::store::prefs::predict::{PredictMode, set_predict_mode};
 use roost_client_core::store::prefs::terminal_font::{
-    TERM_FONT_MAX_PX, TERM_FONT_MIN_PX, TERMINAL_FONT_TV_DEFAULT_PX, reset_term_font_px,
-    set_term_font_px, step_term_font_px,
+    TERM_FONT_MAX_PX, TERM_FONT_MIN_PX, TERMINAL_FONT_DEFAULT_PX, TERMINAL_FONT_TV_DEFAULT_PX,
+    reset_term_font_px, set_term_font_px, step_term_font_px,
 };
 use roost_client_core::store::prefs::{
     COPY_ON_SELECT_KEY, KEYBOARD_RESIZE_KEY, KEYTERM_BIASING_KEY, MOUSE_FORWARD_KEY,
     NOTIFY_PREFS_KEY, PREDICT_MODE_KEY, PrefDefaults, TERM_FONT_PX_KEY, clear_account_scoped_prefs,
     load_prefs,
 };
-use roost_client_core::{ClientCore, KeyValueStore, MemoryKeyValueStore};
+use roost_client_core::{ClientCore, KeyValueStore, MemoryClock, MemoryKeyValueStore};
 
 fn client() -> ClientCore {
     ClientCore::in_memory("tab-prefs")
@@ -38,6 +39,16 @@ fn client() -> ClientCore {
 
 fn defaults() -> PrefDefaults {
     PrefDefaults::default()
+}
+
+/// A core over `storage`, so a test can boot a second one over the same bytes.
+fn core_over(storage: &Rc<MemoryKeyValueStore>, defaults: &PrefDefaults) -> ClientCore {
+    ClientCore::new(
+        Rc::new(MemoryClock::new()),
+        Rc::clone(storage) as Rc<dyn KeyValueStore>,
+        "tab-prefs",
+        defaults,
+    )
 }
 
 #[test]
@@ -315,5 +326,57 @@ fn notification_preferences_are_account_scoped_and_the_rest_are_device_scoped() 
     assert!(
         !clear_account_scoped_prefs(store, &storage),
         "already at the defaults"
+    );
+}
+
+#[test]
+fn a_new_core_over_stored_storage_starts_with_the_readers_preferences() {
+    // The round trip above proves the WRITE stores what it should. This proves
+    // the READ is on the boot path at all, which is a different thing: a host
+    // that never calls `load_prefs` writes perfectly and restores nothing, and
+    // every reader's zoom is gone by the next reload.
+    let storage = Rc::new(MemoryKeyValueStore::default());
+    let tv = PrefDefaults {
+        term_font_px: TERMINAL_FONT_TV_DEFAULT_PX,
+    };
+    let writer: &dyn KeyValueStore = &*storage;
+    let mut first = core_over(&storage, &tv);
+    // Seeded through the real writer, so the key on disk is the one a product
+    // would have written rather than a literal a test invented.
+    assert!(set_term_font_px(first.store_mut(), writer, 19));
+    assert!(set_copy_on_select(first.store_mut(), writer, true));
+
+    let booted = core_over(&storage, &tv);
+    assert_eq!(
+        booted.store().prefs.term_font_px,
+        19,
+        "a boot that finds a stored zoom keeps it, so the first pane measures at it"
+    );
+    assert!(
+        booted.store().prefs.copy_on_select,
+        "the flags are on the same boot path as the zoom, and were not either"
+    );
+}
+
+#[test]
+fn a_first_run_with_nothing_stored_takes_the_device_default() {
+    // The other half of the boot load: an absent key is not a reason to skip
+    // it, and the device the host describes is the one that decides.
+    let storage = Rc::new(MemoryKeyValueStore::default());
+    let tv = PrefDefaults {
+        term_font_px: TERMINAL_FONT_TV_DEFAULT_PX,
+    };
+    let booted = core_over(&storage, &tv);
+    assert_eq!(
+        booted.store().prefs.term_font_px,
+        TERMINAL_FONT_TV_DEFAULT_PX
+    );
+    assert!(
+        booted.store().prefs.mouse_forward,
+        "absent means on, as it always has"
+    );
+    assert_ne!(
+        TERMINAL_FONT_TV_DEFAULT_PX, TERMINAL_FONT_DEFAULT_PX,
+        "the device default only differs from the desktop one if the constant moved"
     );
 }

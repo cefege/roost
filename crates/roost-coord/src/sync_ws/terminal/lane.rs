@@ -8,6 +8,7 @@
 //! because a fresh baseline is recoverable and lost semantic state is not.
 use roost_proto::{FirehoseFrame, SyncDomain};
 
+use super::delivery::refuse_snapshot;
 use crate::sync_ws::ack_window::BackpressureReason;
 use crate::sync_ws::domain_table::{TERMINAL_LANE_MAX_DELTA_BYTES, TERMINAL_LANE_MAX_DELTA_FRAMES};
 use crate::sync_ws::frame_meta::SyncFrameMeta;
@@ -177,10 +178,10 @@ impl SyncV2Session {
         hub: &mut dyn TerminalSnapshotHub,
     ) -> bool {
         let Some(lane) = self.terminal_lane(session_id) else {
-            return false;
+            return refuse_snapshot(session_id, stream_id, "the socket holds no lane");
         };
         if lane.stream_id != stream_id {
-            return false;
+            return refuse_snapshot(session_id, stream_id, "the lane is on another stream");
         }
         if lane
             .cursor
@@ -191,13 +192,13 @@ impl SyncV2Session {
                 lane.rebaseline_pending = true;
             }
             self.mark_terminal_lane_ready(session_id);
-            return false;
+            return refuse_snapshot(session_id, stream_id, "a baseline is already part-way out");
         }
         let Some(cursor) = source.create_cursor(snapshot_id) else {
-            return false;
+            return refuse_snapshot(session_id, stream_id, "the source produced no cursor");
         };
         if cursor.part_count() == 0 {
-            return false;
+            return refuse_snapshot(session_id, stream_id, "the source produced no parts");
         }
         self.discard_unsent_materialization(session_id);
         if let Some(mut lane) = self.terminal_sessions.remove(session_id) {

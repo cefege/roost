@@ -109,19 +109,38 @@ pub struct AdmissionTicket {
     channel_id: ChannelId,
     kind: AdmissionKind,
     lane: Arc<Lane>,
-    /// Never held across an await, so the ticket stays `Send` without putting a
-    /// `tokio::sync::Mutex` in front of every keeper write.
-    held: Mutex<Option<tokio::sync::OwnedSemaphorePermit>>,
+    /// When it is this ticket's turn, taken in ADMIT order by the lane's queue,
+    /// and the flag that cancels that place if this ticket is released before it
+    /// ever enters. Never held across an await, so the ticket stays `Send`
+    /// without putting a `tokio::sync::Mutex` in front of every keeper write.
+    turn: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+    cancelled: Arc<AtomicBool>,
+    /// The lane was IDLE when this ticket was issued, so it has held the lane
+    /// from that moment. A ticket that never entered still has to hand that
+    /// hold on: there is no queue place to give up, and a hold nobody hands on
+    /// strands every later write on the channel.
+    holds: bool,
+    entered: AtomicBool,
     released: AtomicBool,
 }
 
 impl AdmissionTicket {
-    pub(super) fn new(channel_id: ChannelId, kind: AdmissionKind, lane: Arc<Lane>) -> Self {
+    pub(super) fn new(
+        channel_id: ChannelId,
+        kind: AdmissionKind,
+        lane: Arc<Lane>,
+        turn: tokio::sync::oneshot::Receiver<()>,
+        cancelled: Arc<AtomicBool>,
+        holds: bool,
+    ) -> Self {
         Self {
             channel_id,
             kind,
             lane,
-            held: Mutex::new(None),
+            turn: Mutex::new(Some(turn)),
+            cancelled,
+            holds,
+            entered: AtomicBool::new(false),
             released: AtomicBool::new(false),
         }
     }
@@ -133,6 +152,11 @@ impl AdmissionTicket {
 
     /// Wait until every earlier keeper write has been released.
     ///
+    /// The wait is on THIS TICKET'S OWN PLACE IN THE LANE'S QUEUE, not on a
+    /// semaphore. A semaphore grants in the order its waiters are POLLED, and on
+    /// a multi-threaded runtime that is not the order the writes were admitted
+    /// in — which delivered fast-typed input to the PTY transposed.
+    ///
     /// A ticket that was already released takes nothing: the caller released at
     /// its boundary before ever entering the lane, and re-entering would queue it
     /// behind the very writes it was meant to precede.
@@ -140,27 +164,29 @@ impl AdmissionTicket {
         if self.released.load(Ordering::Acquire) {
             return;
         }
-        match self.lane.gate.clone().acquire_owned().await {
-            Ok(permit) => {
-                self.lane
-                    .running
-                    .store(self.kind.report_index(), Ordering::Relaxed);
-                self.lane.running_since.store(mono_ms(), Ordering::Relaxed);
-                tracing::debug!(
-                    channel_id = ?self.channel_id,
-                    kind = self.kind.as_str(),
-                    "a keeper write holds the write-ordering lane"
-                );
-                *lock(&self.held) = Some(permit);
-            }
-            Err(_) => {
-                tracing::error!(
-                    channel_id = ?self.channel_id,
-                    kind = self.kind.as_str(),
-                    "the write-ordering lane closed before this write entered it"
-                );
-            }
+        let Some(turn) = lock(&self.turn).take() else {
+            return;
+        };
+        // A closed notification is a lane dropped under this ticket; the write
+        // must not proceed on an ordering it was never granted.
+        if turn.await.is_err() {
+            tracing::error!(
+                channel_id = ?self.channel_id,
+                kind = self.kind.as_str(),
+                "the write-ordering lane closed before this write entered it"
+            );
+            return;
         }
+        self.entered.store(true, Ordering::Release);
+        self.lane
+            .running
+            .store(self.kind.report_index(), Ordering::Relaxed);
+        self.lane.running_since.store(mono_ms(), Ordering::Relaxed);
+        tracing::debug!(
+            channel_id = ?self.channel_id,
+            kind = self.kind.as_str(),
+            "a keeper write holds the write-ordering lane"
+        );
     }
 
     /// Give the slot back.
@@ -172,10 +198,18 @@ impl AdmissionTicket {
             return;
         }
         self.lane.running.store(0, Ordering::Relaxed);
-        // Dropping the permit is what frees the next writer; the count goes down
-        // after it, so a lane is only ever considered idle once the writer ahead
-        // of it has genuinely left.
-        drop(lock(&self.held).take());
+        // A writer that never entered gives up its PLACE: handing the lane to a
+        // waiter that will never write is how every writer behind it stalls
+        // forever. A writer that never entered but HELD the lane — the idle
+        // grant — has to hand the hold on as well, or the lane is never given
+        // back at all and every later write waits for a hand-off that cannot
+        // come. That is the agent prompt whose process proof is refreshed
+        // before its grant arrives and answers that the prompt is not ours.
+        if self.entered.swap(false, Ordering::AcqRel) || self.holds {
+            lock(&self.lane.order).hand_off();
+        } else {
+            self.cancelled.store(true, Ordering::Release);
+        }
         self.lane.waiting.fetch_sub(1, Ordering::AcqRel);
         tracing::debug!(
             channel_id = ?self.channel_id,

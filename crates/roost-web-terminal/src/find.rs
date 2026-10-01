@@ -25,24 +25,8 @@ use roost_protocol::terminal_search::{
     TERMINAL_SEARCH_MAX_MATCHES, TERMINAL_SEARCH_MAX_PAGES, TERMINAL_SEARCH_MAX_ROWS,
 };
 
-/// Why a coordinator stopped scanning a page, as the client reads the wire
-/// enum. `Unspecified` is the wire's zero value: its page is read, and then the
-/// chain fails, because no reason is not a reason to continue.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SearchStop {
-    /// The coordinator named no reason.
-    Unspecified,
-    /// Every row was scanned.
-    Complete,
-    /// The row ceiling stopped the scan; older rows remain.
-    RowLimit,
-    /// The match ceiling stopped the scan; older rows were never read.
-    MatchLimit,
-    /// The page deadline stopped the scan.
-    Deadline,
-    /// The grid renumbered under the scan, so every row it read is stale.
-    EpochChanged,
-}
+/// Why a coordinator stopped scanning a page, as the client reads the wire enum.
+pub use roost_protocol::terminal_search::SearchStop;
 
 /// One page, as the coordinator answered it: the matches, the window they came
 /// from, the grid numbering, and why the scan stopped.
@@ -133,6 +117,12 @@ pub enum ChainStep {
 /// pane's live grid numbering: a chain never publishes across a renumbering, so
 /// the epoch is tested on the way INTO a request as well as on the way out of
 /// an answer.
+///
+/// A fresh chain pins NO epoch and lets the first answer name one. Pinning the
+/// pane's numbering instead asks the worker to refuse anything it has already
+/// renumbered, and it checks the epoch BEFORE it scans — so a pane a frame
+/// behind its worker comes back with nothing at all, and the reader is left
+/// staring at a zero the renumbering caused rather than at matches that exist.
 #[derive(Debug, Clone)]
 pub struct FindChain {
     session_id: String,
@@ -140,7 +130,9 @@ pub struct FindChain {
     query: String,
     case_sensitive: bool,
     regex: bool,
-    initial_epoch: String,
+    /// Whether this chain began without a cursor to prove a painted grid.
+    began_unpainted: bool,
+    /// The epoch this chain asks pages for, empty until an answer names one.
     requested_epoch: String,
     before_row: Option<u32>,
     pages: u32,
@@ -153,20 +145,22 @@ impl FindChain {
     /// `flags` is `(case_sensitive, regex)`, taken as a pair because the two are
     /// one setting the reader toggles together and never one value's meaning.
     ///
-    /// `resume` slides the window onto older rows: it carries the cursor AND the
-    /// page budget already spent, because the ceiling bounds the query rather
-    /// than one run of it.
+    /// `resume` slides the window onto older rows: it carries the cursor, the
+    /// epoch that cursor was taken on AND the page budget already spent,
+    /// because the ceiling bounds the query rather than one run of it. A
+    /// resumption keeps that epoch — an older page is a continuation of a read
+    /// the pane already proved, and a worker that has renumbered since has no
+    /// rows left at that cursor to continue into.
     pub fn new(
         session_id: &str,
         search_id: &str,
         query: &str,
         flags: (bool, bool),
-        epoch: &str,
         resume: Option<&OlderMatchPage>,
     ) -> Self {
         let (requested_epoch, before_row, pages) = match resume {
             Some(page) => (page.epoch.clone(), Some(page.before_row), page.pages_used),
-            None => (epoch.to_string(), None, 0),
+            None => (String::new(), None, 0),
         };
         Self {
             session_id: session_id.to_string(),
@@ -174,7 +168,7 @@ impl FindChain {
             query: query.to_string(),
             case_sensitive: flags.0,
             regex: flags.1,
-            initial_epoch: epoch.to_string(),
+            began_unpainted: resume.is_none(),
             requested_epoch,
             before_row,
             pages,
@@ -307,14 +301,22 @@ impl FindChain {
 
     /// Whether a pane numbering is one this chain may read and publish under.
     ///
-    /// The empty-epoch case is the FIRST page: a pane that has not painted a
-    /// frame names nothing, so the chain may adopt whatever epoch the first
-    /// answer carries. A pane that has numbered itself must match exactly.
+    /// Before an answer has been adopted the chain has pinned nothing, so any
+    /// painted grid is acceptable: refusing one here would spend the epoch
+    /// retry on a pane that may be a single frame behind its worker, and the
+    /// page that would have named the current numbering never goes out.
+    ///
+    /// After adoption the painted grid must BE the grid the answer was read
+    /// against, or the rows paint onto a numbering those matches do not
+    /// belong to. The one exception is a pane that has painted no grid at all,
+    /// which a chain that began without a cursor may still adopt under: there
+    /// is no painted row for a match to contradict, and the publish guard
+    /// re-reads the pane before it highlights anything.
     pub fn pane_accepts_epoch(&self, pane_epoch: &str) -> bool {
-        pane_epoch == self.requested_epoch
-            || (self.initial_epoch.is_empty()
-                && pane_epoch.is_empty()
-                && !self.requested_epoch.is_empty())
+        if self.requested_epoch.is_empty() {
+            return true;
+        }
+        pane_epoch == self.requested_epoch || (self.began_unpainted && pane_epoch.is_empty())
     }
 
     /// A chain that read every row it asked for, and found nothing older.

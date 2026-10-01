@@ -9,6 +9,11 @@
 //! will not replay it. Only the cumulative acknowledgement is gated to the
 //! still-current, open, accepting socket.
 //!
+//! A DIRECT carrier's frames take the other path entirely, and the whole of it
+//! is in `candidate`: a cell frame, a view-state answer and an input result are
+//! three different things to do, and the first of them may only ever touch a
+//! replica that has not been elected.
+//!
 //! Ported from `apps/web/src/client/sync/sync-flow.ts:44-65` and
 //! `apps/web/src/store/sync-inbound.ts:50-90`. Contract: `protocol/spec/sync.md`;
 //! the reasons are in `docs/phase4-client-contract.md` §7 and §11.
@@ -17,7 +22,9 @@ use crate::effect::{Effect, RpcResult, SyncCommand};
 use crate::store::root::CoordIdentity;
 
 mod apply_frame;
+mod candidate;
 mod close_failed;
+mod elected;
 mod fold_controls;
 mod fold_registry;
 mod fold_session_meta;
@@ -26,12 +33,13 @@ pub mod lifecycle;
 
 use self::apply_frame::apply_frame;
 pub(crate) use self::close_failed::close_failed_sync_link;
+// The one Sync-generation recovery. The terminal liveness watchdog escalates
+// through it rather than opening a second path to the same redial.
+pub(crate) use self::hydration::request_link_replacement;
 use crate::store::Store;
 use crate::sync::SyncFrame;
 use crate::sync::link::RetainedFrame;
-use crate::terminal::session::TerminalSession;
 use crate::terminal::token::TerminalToken;
-use crate::terminal::{Admission, PromotionCandidate};
 
 /// Whether a frame is part of the negotiation rather than the data.
 ///
@@ -109,102 +117,94 @@ pub fn handle_sync_frame(
     }
 }
 
-/// Apply a frame that arrived on a DIRECT carrier.
+/// Apply one frame that arrived on a DIRECT carrier.
 ///
-/// A cell frame goes to that carrier's STAGED replica, never to the session's
-/// canonical: a candidate with a half-built baseline must not be able to paint
-/// (`protocol/spec/direct-terminal.md:27`). Only `promote` swaps it in.
+/// The first question is WHETHER THIS SOCKET IS ELECTED, because that decides
+/// which replica the frame belongs to. A cell frame for a carrier that is only
+/// STAGED goes to the staged replica and nowhere else — a candidate with a
+/// half-built baseline must not be able to paint
+/// (`protocol/spec/direct-terminal.md:27`). A cell frame on the carrier that
+/// already IS the elected route goes to the canonical replica, which is the
+/// replica that commit installed. Dropping those instead is what a promoted
+/// route looks like from the reader's side: the baseline painted once, at the
+/// moment of the swap, and then nothing ever changed again.
+///
+/// A view-state answer is the same split by view id: the candidate's OWN view
+/// while staging, and the pane's wire view once the route is elected. And an
+/// input result is only true for a batch THIS carrier carried — a Sync batch the
+/// same worker wrote before the promotion is still outstanding there, and
+/// answering it from a direct frame would settle one lane twice.
 pub fn handle_direct_frame(
     store: &mut Store,
     token: &TerminalToken,
     frame: &SyncFrame,
     now_ms: u64,
-    _out: &mut Vec<Effect>,
+    out: &mut Vec<Effect>,
 ) {
     let Some(session_id) = frame.session_id().map(str::to_string) else {
         return;
     };
-    let Some(worker_fp) = token.worker_fp.clone() else {
-        return;
-    };
+    // The route is elected ON THIS TOKEN or it is not. Everything below reads
+    // this one fact: it is the difference between a frame that feeds the grid and
+    // a frame that feeds a replica nobody is painting from.
+    let elected = store.routes.route_matches(&session_id, token);
     match frame {
         SyncFrame::CellGrid { frame: cell, .. } => {
-            fold_into_candidate(store, &session_id, &worker_fp, token, |replica| {
-                replica.admit_frame(cell, false, token, now_ms)
-            })
+            if elected {
+                elected::fold_into_elected(store, &session_id, token, |replica| {
+                    replica.admit_frame(cell, false, token, now_ms)
+                });
+            } else {
+                candidate::fold_into_candidate(store, &session_id, token, out, |replica| {
+                    replica.admit_frame(cell, false, token, now_ms)
+                });
+            }
         }
         SyncFrame::CellGridChunk { chunk, .. } => {
-            fold_into_candidate(store, &session_id, &worker_fp, token, |replica| {
-                replica.admit_chunk(chunk, token, now_ms)
-            })
+            if elected {
+                elected::fold_into_elected(store, &session_id, token, |replica| {
+                    replica.admit_chunk(chunk, token, now_ms)
+                });
+            } else {
+                candidate::fold_into_candidate(store, &session_id, token, out, |replica| {
+                    replica.admit_chunk(chunk, token, now_ms)
+                });
+            }
+        }
+        SyncFrame::ViewState { .. } if elected => {
+            // The canonical already holds this pane's WIRE id, so the ordinary
+            // correlation finds the right record; nothing about the answer is
+            // direct-specific once the route is elected.
+            crate::handle_terminal::handle_correlated_result(store, frame, now_ms, out);
+        }
+        SyncFrame::ViewState { .. } => {
+            candidate::apply_direct_view_state(store, &session_id, token, frame, now_ms, out);
+        }
+        SyncFrame::InputResult {
+            session_id,
+            input_seq,
+            outcome,
+            ..
+        } => {
+            if store
+                .input
+                .settle_from(session_id, token, *input_seq, outcome.clone())
+            {
+                store.note_change();
+                tracing::info!(
+                    target: "terminal",
+                    session_id,
+                    input_seq,
+                    status = outcome.status_name(),
+                    "terminal input settled on the carrier that wrote it"
+                );
+            }
         }
         _ => tracing::debug!(
             target: "terminal",
             frame = frame.kind_name(),
             "direct carrier frame with no direct-carrier rule"
         ),
-    }
-}
-
-/// Fold one direct-carrier frame into the session's staged replica.
-///
-/// The attempt id is allocated ONCE per staging, not per frame: it exists so a
-/// slow fold cannot overwrite a newer one, and a fresh id per frame would make
-/// every frame a newer one.
-///
-/// The replica is folded IN PLACE. A `TerminalSession` owns a chunk assembler and
-/// cannot be cloned, so it is created once on the first frame of a staging and
-/// borrowed mutably by every frame after — which is also the only way a candidate
-/// can accumulate a baseline instead of restarting it per frame.
-fn fold_into_candidate<F>(
-    store: &mut Store,
-    session_id: &str,
-    worker_fp: &str,
-    token: &TerminalToken,
-    fold: F,
-) where
-    F: FnOnce(&mut TerminalSession) -> Admission,
-{
-    // Copied out and OWNED before the store is touched again: holding a borrow
-    // into `store.routes` across `store.next_attempt_id += 1` would be two live
-    // borrows of one struct.
-    let staged_attempt = store
-        .routes
-        .candidate(session_id)
-        .map(|candidate| candidate.attempt_id);
-    let attempt_id = staged_attempt.unwrap_or_else(|| {
-        let attempt_id = store.next_attempt_id;
-        store.next_attempt_id += 1;
-        attempt_id
-    });
-    if store.routes.staged_replica_mut(session_id).is_none() {
-        let connection_id = connection_id_for(store, token);
-        store.routes.stage(
-            PromotionCandidate {
-                session_id: session_id.to_string(),
-                connection_id,
-                token: token.clone(),
-                attempt_id,
-                baseline_ready: false,
-            },
-            TerminalSession::new(session_id, worker_fp),
-        );
-        store.note_change();
-    }
-    let (painted_before, painted_after, baseline_ready) = {
-        let Some(replica) = store.routes.staged_replica_mut(session_id) else {
-            return;
-        };
-        replica.bind_generation(token);
-        let before = replica.frame_revision();
-        let _ = fold(replica);
-        (before, replica.frame_revision(), replica.baseline_ready())
-    };
-    store
-        .routes
-        .mark_candidate_baseline(session_id, baseline_ready);
-    if painted_after != painted_before {
-        store.note_change();
     }
 }
 
@@ -270,7 +270,22 @@ pub fn handle_rpc_result(
             }
         }
         RpcResult::Failed { call_id, error } => {
-            tracing::warn!(target: "rpc", call_id = *call_id, %error, "connect call failed");
+            // A page this controller was waiting on. `in_flight` is the only
+            // thing gating the next one, so a refusal that does not release it
+            // leaves the search wedged for the life of the document: every
+            // later `load_more` refuses and nothing else clears it. Refusals
+            // belonging to no search report `false` and change nothing.
+            if store.global_search.fail_page(*call_id, error.to_string()) {
+                store.note_change();
+                tracing::warn!(
+                    target: "rpc",
+                    call_id = *call_id,
+                    %error,
+                    "a global-search page was refused; the search can be retried"
+                );
+            } else {
+                tracing::warn!(target: "rpc", call_id = *call_id, %error, "connect call failed");
+            }
         }
         other => {
             tracing::debug!(
@@ -281,17 +296,4 @@ pub fn handle_rpc_result(
             );
         }
     }
-}
-
-/// The host's connection id for a carrier token, or empty when the registry has
-/// not seen it. Empty is safe: the registry refuses a promotion whose connection
-/// it cannot find, so an unknown carrier stages and never promotes.
-fn connection_id_for(store: &Store, token: &TerminalToken) -> String {
-    let Some(worker_fp) = token.worker_fp.as_deref() else {
-        return String::new();
-    };
-    store
-        .routes
-        .route_connection_for(worker_fp, token.transport)
-        .unwrap_or_default()
 }

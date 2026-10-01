@@ -109,10 +109,10 @@ pub fn MainPane(route: Route) -> Element {
             }
             match overlay {
                 MainPaneOverlay::File => rsx! {
-                    crate::components::not_served::NotServed { path: path() }
+                    crate::components::file_viewer::FileViewer { route: route.clone() }
                 },
                 MainPaneOverlay::Search => rsx! {
-                    crate::components::not_served::NotServed { path: path() }
+                    crate::components::global_search::GlobalSearchOverlay {}
                 },
                 MainPaneOverlay::None => rsx! {},
             }

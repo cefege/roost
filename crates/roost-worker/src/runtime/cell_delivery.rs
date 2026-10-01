@@ -105,4 +105,15 @@ impl CellDelivery for TableCellDelivery {
     fn release_sync_output_hold(&mut self, channel_id: ChannelId) {
         self.with_emitter(|emitter| emitter.release_sync_output_hold(channel_id));
     }
+
+    fn channel_diagnostics(
+        &self,
+        channel_id: ChannelId,
+    ) -> crate::session::diagnostics::ChannelDiagnostics {
+        let emitter = self
+            .emitter
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        emitter.channel_diagnostics(channel_id)
+    }
 }

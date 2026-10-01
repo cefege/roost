@@ -19,6 +19,7 @@ use std::path::PathBuf;
 use release_support::{FakeAsset, FakeRelease};
 use roost_cli::deploy::DeployArgs;
 use roost_cli::deploy::invocation::validate;
+use roost_cli::deploy::release::StagedRelease;
 use roost_cli::deploy::release_fetch::fetch_release;
 use roost_cli::update::release::{
     RELEASE_BASE_URL_ENV, WEB_ASSET_NAME, keeper_release_asset_name, release_asset_name,
@@ -214,4 +215,59 @@ fn a_release_deploy_without_a_release_still_means_a_local_build() {
     let mut invocation = args("host");
     invocation.release = None;
     validate(&invocation).expect("a plain deploy is unchanged");
+}
+
+/// Fetch one tag from one origin, on its own thread, with the keeper it
+/// publishes named so the result can be told apart from another's.
+fn fetch_named(tag_marker: &str) -> StagedRelease {
+    let keeper_name = keeper_release_asset_name(HostPlatform::Linux, "x86_64").unwrap();
+    let origin = FakeRelease::start(
+        TAG,
+        vec![
+            FakeAsset::roost_program(release_asset_name(HostPlatform::Linux, "x86_64").unwrap()),
+            FakeAsset::named(&keeper_name, tag_marker),
+        ],
+    );
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("the deploy runtime is built")
+        .block_on(fetch_release(
+            &environment(&origin.base_url),
+            TAG,
+            HostPlatform::Linux,
+            "x86_64",
+        ))
+        .expect("the published release is fetched")
+}
+
+/// Two deploys of one tag, in one process, stage into two trees.
+///
+/// The property is not that the directory NAME is unique — it is that each
+/// invocation installs the bytes its own origin published. A staging tree
+/// named after the tag and the pid is invisible until two deploys of one tag
+/// run at once, and then each installs whichever fetch finished last, from a
+/// tree the other one deleted underneath it.
+#[test]
+fn two_deploys_of_one_tag_at_once_each_install_their_own_published_bytes() {
+    let (left, right) = std::thread::scope(|scope| {
+        let left = scope.spawn(|| fetch_named("keeper-left"));
+        let right = scope.spawn(|| fetch_named("keeper-right"));
+        (
+            left.join().expect("the left deploy finishes"),
+            right.join().expect("the right deploy finishes"),
+        )
+    });
+
+    assert_ne!(
+        left.local_dir, right.local_dir,
+        "two invocations of one tag must not be one staging tree"
+    );
+    for (staged, marker) in [(&left, "keeper-left"), (&right, "keeper-right")] {
+        let keeper = release_support::read(&staged.local_dir.join("roost-keeper"));
+        assert!(
+            String::from_utf8_lossy(&keeper).contains(&format!("marker: {marker}")),
+            "each deploy installs the keeper ITS origin published: {keeper:?}"
+        );
+    }
 }

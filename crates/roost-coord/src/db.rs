@@ -74,6 +74,21 @@ pub enum DbError {
     /// Rows violate a foreign key; `violations` names each `table -> parent`.
     #[error("foreign key check failed ({rows} rows): {violations}")]
     ForeignKeyCheck { rows: usize, violations: String },
+    /// The applied history names a migration this build does not embed and does
+    /// not declare retired.
+    ///
+    /// Its own variant, and not [`Self::Migration`], because the two answer
+    /// different questions. A failure to RUN a migration is a broken binary; an
+    /// unrecognised history row is a file this coordinator did not write, and
+    /// the operator's next question is "which build made this", which the
+    /// version number answers and `name: "embedded"` never could.
+    #[error(
+        "migration history names version {version}, which this build neither \
+         embeds nor declares retired; the file was written by another build, so \
+         refuse it rather than guess -- a v2 database lives in a different data \
+         directory and `roost import-v2` is how an identity crosses over"
+    )]
+    UnknownMigration { version: i64 },
 }
 
 /// How long a statement waits for a write lock before giving up.
@@ -82,6 +97,55 @@ pub enum DbError {
 /// contention". Above the write gate's own hold time, so a mutation queued behind
 /// an exclusive keeper-update drain waits rather than failing.
 pub const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Migrations that shipped and were then removed, by version.
+///
+/// A removed migration's row is TRUE — that database did apply it — so reading
+/// it as a corrupt history bricks a coordinator that was working minutes ago,
+/// which is the incident `docs/FAILURE-INDEX.md` records. v2 solved it by
+/// listing the retired NAME; `sqlx` keys its history by VERSION, so the
+/// retirement is a version here and the comparison is on the version rather
+/// than on a position in the raw history. A reused slot number therefore
+/// cannot make a survivor look out of order, because no survivor is ever
+/// compared by position.
+///
+/// EMPTY, and it stays empty for as long as the embedded set is the one squashed
+/// migration: `sqlx` checksums every applied file, so `0001_init.sql` is frozen
+/// the moment it ships anywhere and a migration cannot be edited out from under
+/// a live install. The list exists because a retirement has to be DECLARED and
+/// never inferred from a row's absence — an undeclared one keeps failing closed,
+/// which is the half of this that protects a database nothing has heard of.
+pub const RETIRED_MIGRATIONS: &[i64] = &[];
+
+/// Whether this build's history decision admits `applied`.
+///
+/// Two rules at one gate, so there is nowhere for a second opinion to hide: an
+/// applied version has to be embedded or declared retired, and a retirement
+/// must name a migration this build does NOT embed — declaring one that is still
+/// here would turn the checksum guard on a shipped file into a no-op and hide
+/// the mistake behind a name that reads as deliberate.
+///
+/// Comparison is by version, never by position in the raw history: a retired
+/// version sorts wherever it sorts, and v2's reused slot 0017 is the shape that
+/// made an ordinal comparison diverge at the position it read from.
+pub fn validate_migration_history<'a>(
+    applied: impl IntoIterator<Item = &'a i64>,
+    embedded: &HashSet<i64>,
+    retired: &[i64],
+) -> Result<(), DbError> {
+    for version in retired {
+        if embedded.contains(version) {
+            return Err(DbError::UnknownMigration { version: *version });
+        }
+    }
+    for version in applied {
+        if embedded.contains(version) || retired.contains(version) {
+            continue;
+        }
+        return Err(DbError::UnknownMigration { version: *version });
+    }
+    Ok(())
+}
 
 /// Open the coordinator's database, creating and migrating it if needed.
 ///
@@ -132,8 +196,18 @@ pub async fn open(path: &Path) -> Result<CoordDb, DbError> {
     // v2 verifies enforcement before it reads its migration history
     // (`migrate.ts:292-293`); a migration never runs on an unenforced handle.
     migration_validation::enable_and_verify_foreign_keys(&database).await?;
-    let migrator = sqlx::migrate!("./migrations");
-    let pending = pending_migrations(&database, &migrator).await?;
+    let mut migrator = sqlx::migrate!("./migrations");
+    let applied = applied_migrations(&database).await?;
+    // Before the backup and before anything runs: a history this build does not
+    // recognise is a file it must not write to, and spending one of the
+    // fourteen kept archives to discover that would be the wrong order.
+    validate_migration_history(
+        &applied,
+        &migrator.iter().map(|m| m.version).collect(),
+        RETIRED_MIGRATIONS,
+    )?;
+    migrator.set_ignore_missing(true);
+    let pending = pending_migrations(&migrator, &applied);
     if !pending.is_empty() {
         tracing::info!(path = %path.display(), pending = ?pending, "database migrations pending");
     }
@@ -170,38 +244,41 @@ pub async fn open(path: &Path) -> Result<CoordDb, DbError> {
     Ok(database)
 }
 
-/// The embedded migrations this file has not applied yet, by description.
+/// Every version `_sqlx_migrations` records, or nothing on a file that has
+/// never been migrated.
 ///
 /// Read from `_sqlx_migrations` directly rather than through `Migrate`, whose
 /// listing creates that table first -- a write the pre-migration backup must
 /// not be taken after.
-async fn pending_migrations(
-    database: &CoordDb,
-    migrator: &sqlx::migrate::Migrator,
-) -> Result<Vec<String>, DbError> {
+async fn applied_migrations(database: &CoordDb) -> Result<HashSet<i64>, DbError> {
     let (history_exists,): (bool,) = sqlx::query_as(
         "SELECT EXISTS (SELECT 1 FROM sqlite_master \
           WHERE type = 'table' AND name = '_sqlx_migrations')",
     )
     .fetch_one(database.pool())
     .await?;
-    let applied: HashSet<i64> = if history_exists {
+    if !history_exists {
+        return Ok(HashSet::new());
+    }
+    Ok(
         sqlx::query_as::<_, (i64,)>("SELECT version FROM _sqlx_migrations")
             .fetch_all(database.pool())
             .await?
             .into_iter()
             .map(|(version,)| version)
-            .collect()
-    } else {
-        HashSet::new()
-    };
-    Ok(migrator
+            .collect(),
+    )
+}
+
+/// The embedded migrations this file has not applied yet, by description.
+fn pending_migrations(migrator: &sqlx::migrate::Migrator, applied: &HashSet<i64>) -> Vec<String> {
+    migrator
         .iter()
         .filter(|migration| {
             !migration.migration_type.is_down_migration() && !applied.contains(&migration.version)
         })
         .map(|migration| format!("{:04}_{}", migration.version, migration.description))
-        .collect())
+        .collect()
 }
 
 impl CoordDb {

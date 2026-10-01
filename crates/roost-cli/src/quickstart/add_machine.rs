@@ -1,8 +1,9 @@
 //! `roost add-machine` — mint one enrollment grant and print the command that
 //! spends it, for a machine that is not this one. Called by the crate's
 //! dispatcher. Depends on `status::service_definition` for what the installed
-//! coordinator declares, on `roost-host` for every origin rule, and on
-//! `quickstart::grant` for the grant itself.
+//! coordinator declares, on `roost-host` for every origin rule, on
+//! `quickstart::grant` for the grant itself, and on `roost-platform` for the
+//! command it prints — the browser's deploy dialog prints the same one.
 //!
 //! **The coordinator URL comes from the installed coordinator definition
 //! first, and from this shell only when there is no definition to read.** Roost
@@ -29,6 +30,7 @@ use roost_host::coord_config_loader::{
     ENV_COORDINATOR_DB, ENV_COORDINATOR_PUBLIC_URL, ENV_WEB_PUBLIC_URL,
 };
 use roost_host::{EnvSource, HostPlatform, ProcessEnv, normalize_https_origin};
+use roost_platform::machine_join_command;
 use roost_worker::runtime::boot::ENV_COORDINATOR_URL;
 
 use crate::command_error::CommandFailure;
@@ -37,11 +39,6 @@ use crate::status::service_definition::{
     InstalledEnvironment, declared_value, parse_installed_environment,
 };
 use crate::wall_clock;
-
-/// The script a new machine runs, in the order its own usage text shows it. The
-/// same URL `join.sh` documents, so the command printed here and the command
-/// the script describes cannot drift apart silently.
-const JOIN_SCRIPT_URL: &str = "https://raw.githubusercontent.com/cefege/roost/v3/join.sh";
 
 /// The two dial variables the installed definition may declare, most specific
 /// first. The first is an explicit worker target, the second is the door worker
@@ -155,34 +152,7 @@ pub async fn run(args: &AddMachineArgs) -> Result<ExitCode, CommandFailure> {
 /// The only caller of the bearer in the whole crate. Everything else in this
 /// module handles a grant as an opaque value.
 pub fn enrollment_command(coordinator_url: &str, grant: &OneShotGrant, label: &str) -> String {
-    shell_enrollment_command(coordinator_url, grant.expose(), label)
-}
-
-/// The command itself, over three plain strings.
-///
-/// Split from [`enrollment_command`] so the quoting can be proved without a
-/// coordinator, a database, or a minted grant. The quoting IS the property: a
-/// grant is a credential being pasted into a shell, and a URL or a machine name
-/// carrying a quote or a `;` must not be able to turn an enrollment command
-/// into something else.
-pub fn shell_enrollment_command(coordinator_url: &str, bearer: &str, label: &str) -> String {
-    let label_setting = if label.is_empty() {
-        String::new()
-    } else {
-        format!(" ROOST_WORKER_LABEL={}", shell_single_quote(label))
-    };
-    let grant_setting = format!("ROOST_BOOTSTRAP_TOKEN={}", shell_single_quote(bearer));
-    let url_setting = format!(
-        "{ENV_COORDINATOR_URL}={}",
-        shell_single_quote(coordinator_url)
-    );
-    format!("curl -fsSL {JOIN_SCRIPT_URL} | {url_setting} {grant_setting}{label_setting} bash")
-}
-
-/// One single-quoted shell word, with an embedded quote spelled the way POSIX
-/// shells read it back.
-fn shell_single_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
+    machine_join_command(coordinator_url, grant.expose(), label)
 }
 
 /// The label recorded against the grant, which the coordinator shows while the

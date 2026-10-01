@@ -141,9 +141,16 @@ fn an_admitted_carrier_asks_for_one_baseline_per_ready_session_in_order() {
 
     let baseline = |session_id: &str| Effect::SendDirect {
         token: admission.token.clone(),
+        // EMPTY stream and epoch, and that is the request, not a stub: a first
+        // baseline for a session this tab has no replica of is "I hold nothing",
+        // and an empty position is how a resync says so. A session that HAS a
+        // stream names it, which is the case the four fields exist for.
         command: DirectCommand::Resync {
             session_id: session_id.to_string(),
             view_id: String::new(),
+            stream_id: String::new(),
+            grid_epoch: String::new(),
+            seq: 0,
         },
     };
     assert_eq!(

@@ -32,6 +32,10 @@ pub struct RendererLayer {
     pub presentation: Option<RendererPresentationSnapshot>,
     /// The latest geometry proof recorded against this mount.
     pub last_geometry_proof: Option<Value>,
+    /// The deck's `in_layout` for this pane, `None` with no mount.
+    pub in_layout: Option<bool>,
+    /// The deck's `surface_active` for this pane, `None` with no mount.
+    pub surface_active: Option<bool>,
 }
 
 /// What the page answers about the pane's surface.
@@ -56,11 +60,15 @@ pub fn terminal_browser_snapshot(
     clocks: DiagnosticClocks,
 ) -> Value {
     let mut out = terminal_stream_diagnostics(store, session_id, clocks);
-    let handler_canonical = json!({
-        "grid_epoch": out["replica"]["grid_epoch"].clone(),
-        "seq": out["replica"]["seq"].clone(),
-    });
     let probe = renderer.probe.as_ref();
+    // The RENDERER's canonical, not the store's. They are the same frame today
+    // and are not the same fact: the store is what the client folded, the probe
+    // is what the mount actually applied to a grid, and the specs that watch
+    // them diverge are watching for exactly the moment they stop agreeing.
+    let handler_canonical = probe.map_or_else(
+        || json!({ "grid_epoch": null, "seq": null }),
+        |probe| epoch_seq_json(&probe.canonical),
+    );
     let anchor = probe.and_then(|probe| probe.backfill_anchor.as_ref());
     let entries = [
         ("session_id", json!(session_id)),
@@ -107,8 +115,8 @@ pub fn terminal_browser_snapshot(
             json!({
                 "registered": renderer.registered,
                 "connected": renderer.registered && page.connected,
-                "in_layout": null,
-                "surface_active": null,
+                "in_layout": renderer.in_layout,
+                "surface_active": renderer.surface_active,
                 "css_visible": if renderer.registered { page.css_visible } else { None },
             }),
         ),

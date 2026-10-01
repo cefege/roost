@@ -46,6 +46,20 @@ pub(super) fn apply_frame(
             // fresh `routableChunks` map per `subscribed` (`sync-inbound.ts:107-112`).
             store.routable_assembly.clear();
             store.note_change();
+            // The hold is PER LINK, not a one-shot latch. A new socket
+            // announces fresh domain generations with none of them ready, so
+            // the snapshot this client is about to receive is not in yet, and
+            // `SessionPlane::apply_snapshot` is the only path that prunes.
+            // Leaving the latch set past the first socket is what lets a
+            // re-hydration answer land on top of rows already folded off the
+            // live feed and delete a terminal that is still painting.
+            //
+            // Only when the terminal domain is SUBSCRIBED: a socket that
+            // announces it unsubscribed will never publish a snapshot, and a
+            // hold nothing can close would strand every application frame.
+            store.hydrated = !domains
+                .iter()
+                .any(|(domain, _, subscribed)| *domain == SyncDomain::Terminal && *subscribed);
             tracing::info!(target: "sync", generation, "sync subscribed");
             // Hydrate exactly the domains the coordinator announced as
             // subscribed; a lazy domain waits for the surface that needs it
@@ -75,6 +89,15 @@ pub(super) fn apply_frame(
             // `routableChunks` (`sync-inbound.ts:140-143`).
             if *domain == SyncDomain::Workers {
                 store.routable_assembly.clear();
+            }
+            // A terminal reset drops the snapshot the client is holding live
+            // rows against, so the hold reopens for the same reason a new
+            // socket's does: the next snapshot is a full replacement, and a
+            // fold that lands first must be queued behind it, not pruned by it.
+            // …and only while this client is still subscribed to it, which is
+            // the same condition that decides whether a re-hydration follows.
+            if *domain == SyncDomain::Terminal && *subscribed {
+                store.hydrated = false;
             }
             store.note_change();
             tracing::info!(

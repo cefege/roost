@@ -8,11 +8,21 @@
 
 #[cfg(target_arch = "wasm32")]
 mod dom;
+pub mod terminal_menu;
 
 use dioxus::prelude::*;
 
 #[cfg(target_arch = "wasm32")]
 pub use dom::{anchored_menu_position, focus_menu_edge, run_menu_key};
+
+/// Focus a menu edge where there is no document to focus in.
+///
+/// A native build has no rendered menu, so the roving-focus step has nothing to
+/// do. It is a real answer rather than a refusal: every caller asks the same
+/// question on both targets, and gating the CALL instead would put a
+/// `#[cfg]` block in every menu that opens on a key.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn focus_menu_edge(_menu_id: &str, _edge: MenuFocusEdge) {}
 
 /// The terminal menu's stacking level; the sidebar-row menu passes 100 to sit
 /// above its click-away scrim.

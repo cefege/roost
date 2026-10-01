@@ -18,6 +18,7 @@ use crate::client::carriers::faults::{
 };
 use crate::client::carriers::grant::{GrantInput, GrantLifecycle, GrantSweep};
 use crate::client::carriers::loopback::LoopbackProbe;
+use crate::client::carriers::signaling_snapshot::PeerTelemetry;
 use crate::client::carriers::{
     CarrierEffect, CarrierEnvironment, CarrierFault, PeerAnswer, PeerAttempt, PeerPhase,
     ReadyTuple, SignallingInput,
@@ -36,6 +37,10 @@ pub struct Signalling {
     pub(crate) faults: FaultState,
     pub(crate) phase: PeerPhase,
     pub(crate) attempt: Option<PeerAttempt>,
+    /// What the transport last measured. Cleared when the attempt it belongs
+    /// to ends, so a reader never sees a dead peer's round trip on a route
+    /// that has fallen back to Sync.
+    pub(crate) telemetry: PeerTelemetry,
     pub(crate) attempt_started_ms: u64,
     /// The authenticated peer held for this worker. Always a PEER: a loopback
     /// carrier is the loopback slice's own connection.
@@ -63,8 +68,19 @@ impl Signalling {
             peer_held: false,
             now_ms,
             next_attempt_id: 0,
+            telemetry: PeerTelemetry::default(),
             retired: false,
         }
+    }
+
+    /// The credential a host would spend to open this worker's carrier now.
+    ///
+    /// Deliberately NOT reachable from [`PeerAttempt`], which is traced and
+    /// `Debug`-printed on every transition: the secret belongs to the moment a
+    /// carrier authenticates, not to the description of an attempt that is
+    /// still being negotiated.
+    pub(crate) fn live_grant(&self, now_ms: u64) -> Option<&crate::client::carriers::DirectGrant> {
+        self.grant.live_grant(now_ms)
     }
 
     /// Fold one observation in, and return what the host should do about it.
@@ -138,7 +154,7 @@ impl Signalling {
             // owns the carrier. The grace is NOT the fault retry: a grant that
             // arrives, or a door that answers, must be acted on at once.
             //
-            self.set_phase(PeerPhase::Idle, None);
+            self.park_keeping_terminal_reason(PeerPhase::Idle);
             return match self.loopback.recheck_after_ms() {
                 Some(wait) => vec![CarrierEffect::RetryAt {
                     at_ms: now_ms.saturating_add(wait),
@@ -157,7 +173,7 @@ impl Signalling {
         if self.grant.live_grant(now_ms).is_none() {
             // Parking here is not a stall: the grant lifecycle armed its own
             // retry the moment it last refused.
-            self.set_phase(PeerPhase::AwaitingGrant, None);
+            self.park_keeping_terminal_reason(PeerPhase::AwaitingGrant);
             return Vec::new();
         }
         if self.faults.hold_down_until_ms > now_ms {
@@ -175,7 +191,7 @@ impl Signalling {
     /// Mint a peer attempt from the live grant and ask the host to open it.
     fn open_peer(&mut self, now_ms: u64) -> Vec<CarrierEffect> {
         let Some(grant) = self.grant.live_grant(now_ms).cloned() else {
-            self.set_phase(PeerPhase::AwaitingGrant, None);
+            self.park_keeping_terminal_reason(PeerPhase::AwaitingGrant);
             return Vec::new();
         };
         if !grant.admits(TerminalTransport::Peer) {

@@ -1,8 +1,8 @@
 //! The core-trap half of the stream contract: an unprovable keeper boundary
-//! latches the core fail-closed and hands back its emission gate, no later
-//! generation escapes the latch without a re-proof, and the next desire
-//! re-proves the core from the keeper's ordered history. Ports
-//! `apps/worker/tests/terminal/terminal-stream-core-trap.test.ts`.
+//! latches the core fail-closed and hands back both its capture and its
+//! emission gate, no later generation escapes the latch without a re-proof,
+//! and the next desire re-proves the core from the keeper's ordered history.
+//! Ports `apps/worker/tests/terminal/terminal-stream-core-trap.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod terminal_stream_support;
@@ -11,6 +11,7 @@ use roost_keeper::history::HistoryRecord;
 use roost_protocol::wire::coord_worker::TerminalStreamFailureKind as Failure;
 use roost_term::AlacrittyCore;
 use roost_worker::session::keeper_channels::SurvivorHistory;
+use roost_worker::session::resize::ResizeOutcome;
 use roost_worker::session::terminal_state::WorkerStreamResult;
 use terminal_stream_support::{
     Answer, COLS, Harness, ROWS, STREAM_A, STREAM_B, STREAM_C, channel, held, session_id,
@@ -29,8 +30,12 @@ async fn trap(harness: &Harness) -> WorkerStreamResult {
     harness.enable(STREAM_A, COLS + 4, ROWS).await
 }
 
+/// The emission gate ITSELF and the row that attributes it. The gate is what
+/// withholds a channel's frames, and a stranded one outlives every event that
+/// could lift it; a stranded row keeps blaming a capture that is already gone.
 fn gate_released(harness: &Harness) -> bool {
-    held(&harness.emitter).gate_suppression(channel()).is_none()
+    let emitter = held(&harness.emitter);
+    !emitter.gate_held(channel()) && emitter.gate_suppression(channel()).is_none()
 }
 
 #[tokio::test]
@@ -54,6 +59,23 @@ async fn a_trapped_resize_reports_a_reprovable_core_and_releases_its_gate() {
     assert_eq!(
         harness.with_record(|record| (record.terminal_core.cols(), record.terminal_core.rows())),
         (COLS, ROWS)
+    );
+
+    // The capture itself is gone, not just its gate: one that outlived the
+    // failure would refuse every later boundary on this channel, so the second
+    // resize is admitted and reaches the keeper.
+    let later = harness
+        .manager
+        .resize_channel(channel(), COLS + 4, ROWS)
+        .expect("the session is held");
+    assert!(
+        matches!(later, ResizeOutcome::Applied { .. }),
+        "a stranded capture refused a later boundary: {later:?}"
+    );
+    assert_eq!(
+        held(&harness.keeper.resized).len(),
+        2,
+        "the trap's boundary and the one after it are the only writes"
     );
 }
 
@@ -125,6 +147,11 @@ async fn a_generation_minted_after_a_trap_that_cannot_be_reproved_stays_closed()
         .pop()
         .expect("a baseline after the re-proof");
     assert_eq!(last.stream_id, STREAM_B);
+    assert_eq!(
+        held(&harness.sink.frames).len(),
+        frames + 1,
+        "the re-proof owes this generation one full and nothing was held back"
+    );
 }
 
 #[tokio::test]

@@ -71,6 +71,21 @@ pub fn replace_location(href: &str) {
     }
 }
 
+/// Reload the current document, staying on the same address.
+///
+/// The one reload that is not a navigation: the address does not change, so the
+/// re-mounted document re-reads the same tab-scoped records and resumes whatever
+/// it was following. v2 reaches for it in exactly one place — an approver whose
+/// code the client can no longer track (`PairApprovalProvider.tsx:360`) — and
+/// the address-preserving part is the whole point: replacing to `/` would throw
+/// the reader out of the page they were on to fix.
+#[cfg(target_arch = "wasm32")]
+pub fn reload_document() {
+    if web_sys::window().is_none_or(|window| window.location().reload().is_err()) {
+        tracing::warn!(target: "router", "the browser refused the document reload");
+    }
+}
+
 /// A native build has no address bar, so every path reads as the root.
 ///
 /// This is a stub and not a second grammar: `routes::Route` still parses
@@ -88,3 +103,7 @@ pub fn navigate(_href: &str) {}
 /// A native build has no document to reload.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn replace_location(_href: &str) {}
+
+/// A native build has no document to reload, and paints nothing to reload.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn reload_document() {}

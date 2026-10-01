@@ -146,11 +146,17 @@ pub fn files_list_dir_entries(reply: &Value) -> Result<Vec<FilesListDirEntry>, C
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_owned(),
-            is_dir: entry
-                .get("isDir")
-                .or_else(|| entry.get("is_dir"))
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
+            // ONE spelling, the one the contract uses. This read `isDir` and
+            // fell back to `is_dir` for a producer that had misspelled it, and
+            // the tolerance is worse than the bug it hides: a misspelling makes
+            // a proto bool default to FALSE, so every subdirectory arrives as a
+            // FILE — and on an all-Rust run the fallback quietly reads the
+            // misspelling and the defect is invisible. Only the cross-stack run
+            // (a TypeScript coordinator reading a Rust worker) surfaced it, with
+            // three specs reporting an empty directory listing while the
+            // surrounding chrome stayed correct. A field name is not a
+            // compatibility surface.
+            is_dir: entry.get("isDir").and_then(Value::as_bool).unwrap_or(false),
             // v2 `:83`: `mtime_ms ? BigInt(mtime_ms) : 0n` — a falsy ZERO is a
             // real zero, so this is an unwrap of the option, not of the value.
             mtime_ms: mtime,

@@ -23,6 +23,9 @@ use roost_protocol::wire::session::{PullRequestChecks, PullRequestState};
 use roost_worker::host::git_branch::{GitReader, github_owner_repo};
 use roost_worker::host::ports::{parse_reachable_listen_ports, parse_ss_listen_ports, ports_eq};
 use roost_worker::host::pr_status::{PrReader, RollupEntry, pull_request_state, rollup_checks};
+// The procfs samplers only exist on Linux, and so does the case that drives
+// them; an unconditional import is an unused one everywhere else.
+#[cfg(target_os = "linux")]
 use roost_worker::host::samples::{sample_disk, sample_linux_memory};
 use roost_worker::host::sampling::{FolderFactsSink, FolderReading, HostWatchers};
 use scratch::Scratch;

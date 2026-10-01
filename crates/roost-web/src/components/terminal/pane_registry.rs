@@ -6,7 +6,7 @@
 //! `apps/web/src/renderer/terminalPreview.ts` (`registerRenderer`,
 //! `rendererRegistryEntry`).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::rc::Rc;
@@ -65,6 +65,11 @@ struct RegistryState {
 struct MountedPane {
     mount_id: u64,
     surface: Rc<dyn PaneSurface>,
+    /// The deck's last word about this pane. The browser snapshot reads it
+    /// from here rather than parsing display CSS: "is this pane in the
+    /// layout" and "is its surface the active one" are DECK facts, and a
+    /// computed style is a report about the renderer, not the authority.
+    flags: Cell<super::pane_state::PaneFlags>,
 }
 
 impl PartialEq for PaneRegistry {
@@ -93,10 +98,38 @@ impl PaneRegistry {
         let mount_id = state.next_mount_id;
         let replaced = state
             .panes
-            .insert(session_id.to_owned(), MountedPane { mount_id, surface })
+            .insert(
+                session_id.to_owned(),
+                MountedPane {
+                    mount_id,
+                    surface,
+                    flags: Cell::new(super::pane_state::PaneFlags::default()),
+                },
+            )
             .is_some();
         tracing::debug!(target: "terminal", session_id, mount_id, replaced, "pane registered");
         mount_id
+    }
+
+    /// Record the deck's current flags for this pane.
+    ///
+    /// Written from `PaneMount::set_flags`, which is the ONE place the deck's
+    /// decision arrives: a mount that is not registered yet has no reader, and
+    /// the first `set_flags` after registration seeds it.
+    pub fn set_pane_flags(&self, session_id: &str, flags: super::pane_state::PaneFlags) {
+        if let Some(pane) = self.inner.borrow_mut().panes.get_mut(session_id) {
+            pane.flags.set(flags);
+        }
+    }
+
+    /// The deck's last recorded flags for this pane, or `None` with no mount.
+    #[must_use]
+    pub fn pane_flags(&self, session_id: &str) -> Option<super::pane_state::PaneFlags> {
+        self.inner
+            .borrow()
+            .panes
+            .get(session_id)
+            .map(|pane| pane.flags.get())
     }
 
     /// Unregister one mount. A stale mount (already replaced) removes nothing,

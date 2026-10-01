@@ -7,6 +7,7 @@
 
 use std::rc::Rc;
 
+use roost_client_core::store::prefs::PrefDefaults;
 use roost_client_core::terminal::input::outcome_feed::ViewAdmission;
 use roost_client_core::{
     ClientCore, ClientEvent, InputOutcome, InputPhase, InputRouter, KeyValueStore, MemoryClock,
@@ -28,7 +29,12 @@ fn token() -> TerminalToken {
 #[test]
 fn a_pane_keystroke_with_no_route_is_admitted_then_reaches_its_view_rejected() {
     let storage: Rc<dyn KeyValueStore> = Rc::new(MemoryKeyValueStore::new());
-    let mut core = ClientCore::new(Rc::new(MemoryClock::new()), storage, "tab-feed");
+    let mut core = ClientCore::new(
+        Rc::new(MemoryClock::new()),
+        storage,
+        "tab-feed",
+        &PrefDefaults::default(),
+    );
     let _ = core.handle(ClientEvent::TerminalInput {
         session_id: "s1".to_owned(),
         view_id: Some("view-a".to_owned()),

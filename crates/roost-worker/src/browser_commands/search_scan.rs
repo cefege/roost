@@ -28,6 +28,14 @@
 //! underneath the scan is an error rather than a row to skip, because the page
 //! reports a half-open range and a skipped row is a hole in it the caller
 //! cannot see.
+//!
+//! THE ROW AND MATCH CAPS ARE THE CALLER'S EXACT BOUND, never an advisory one.
+//! A coordinator narrows a worker's page against the limits it funded, and a
+//! page that reports a wider scanned range, or more matches, than it was asked
+//! for is a page it rejects WHOLE — so over-reading does not merely over-answer,
+//! it discards every match the scan did find and leaves the caller with no
+//! cursor to continue from. A slice therefore reads what is LEFT of the budget,
+//! and stops at the row that filled the match cap.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -192,7 +200,6 @@ impl GridScanner {
         let mut page = Page::new(&grid, scanned_end);
 
         if !grid_epoch.is_empty() && grid_epoch != live_epoch {
-            page.epoch.clone_from(&live_epoch);
             return Ok(page.into_value("epoch_changed", None, Vec::new()));
         }
         if request.query().is_empty() {
@@ -204,6 +211,7 @@ impl GridScanner {
 
         let deadline = Instant::now() + bounds.budget;
         let mut matches: Vec<Value> = Vec::new();
+        let mut rows_scanned: u32 = 0;
         let mut suppressed = false;
         let mut next_row = page.scanned_end_row;
         let mut stop: Option<&'static str> = None;
@@ -216,20 +224,46 @@ impl GridScanner {
                 stop = Some("deadline");
                 break;
             }
+            // THE ROW BUDGET IS THE PAGE'S, NOT THE SLICE'S. A slice reads
+            // what is LEFT of it, so a page stopped by the row cap has scanned
+            // exactly `max_rows` rows and named the boundary it stopped at.
+            // The coordinator narrows a worker's answer against the limit it
+            // asked for, and a page that reports a wider range than that — or
+            // that stopped for the row cap somewhere else — is a page it
+            // discards WHOLE, taking every match it scanned with it.
+            let unfunded = bounds.max_rows.saturating_sub(rows_scanned);
+            if unfunded == 0 {
+                stop = Some("row_limit");
+                break;
+            }
             let start = next_row
-                .saturating_sub(bounds.max_rows.min(SEARCH_SLICE_ROWS))
+                .saturating_sub(unfunded.min(SEARCH_SLICE_ROWS))
                 .max(grid.retained_floor);
-            for (row, scanned) in self.read_slice(session_id, &matcher, start, next_row)? {
-                if matches.len() as u32 >= bounds.max_matches {
-                    // One row past the cap is what tells a full page from a
-                    // short one: without it a scan that reached the floor with
-                    // exactly `max_matches` hits would claim to be truncated
-                    // while holding everything there was.
-                    suppressed = true;
-                    break;
-                }
-                let preview = preview_of(&scanned.text);
+            let slice = self.read_slice(session_id, &matcher, start, next_row)?;
+            rows_scanned += u32::try_from(slice.len()).unwrap_or(u32::MAX);
+            // A page that hit the match cap stops AT the row that filled it:
+            // resuming below the slice would step over rows whose matches were
+            // dropped, and no later page would ever reach them.
+            let mut resume_at = start;
+            for (row, scanned) in slice {
+                // The preview is derived from a row ONCE, and only when the row
+                // holds a hit worth describing: a page reads thousands of rows
+                // and most of them hold none.
+                let mut preview: Option<String> = None;
                 for hit in scanned.hits {
+                    // The cap is checked per OCCURRENCE, not per row: one row
+                    // can hold several, and a page that reported more matches
+                    // than it was funded for is one the coordinator drops whole.
+                    if matches.len() as u32 >= bounds.max_matches {
+                        // One occurrence past the cap is what tells a full page
+                        // from a short one: without it a scan that reached the
+                        // floor with exactly `max_matches` hits would claim to
+                        // be truncated while holding everything there was.
+                        suppressed = true;
+                        resume_at = row;
+                        break;
+                    }
+                    let preview = preview.get_or_insert_with(|| preview_of(&scanned.text));
                     matches.push(json!({
                         "row": row,
                         "col": hit.col,
@@ -238,19 +272,22 @@ impl GridScanner {
                     }));
                 }
                 page.scanned_start_row = row;
+                if suppressed {
+                    break;
+                }
             }
             if matches.len() as u32 >= bounds.max_matches
-                && (!suppressed || start > grid.retained_floor)
+                && (!suppressed || resume_at > grid.retained_floor)
             {
                 stop = Some("match_limit");
                 break;
             }
-            next_row = start;
+            next_row = resume_at;
             if next_row <= grid.retained_floor {
                 stop = Some("complete");
                 break;
             }
-            if page.scanned_end_row.saturating_sub(page.scanned_start_row) >= bounds.max_rows {
+            if rows_scanned >= bounds.max_rows {
                 stop = Some("row_limit");
                 break;
             }

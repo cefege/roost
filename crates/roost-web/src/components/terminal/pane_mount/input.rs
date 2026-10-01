@@ -320,7 +320,7 @@ fn on_document_key_down(shared: &PaneShared, event: &Event) {
 
 fn run_reserved_chord(shared: &PaneShared, chord: ReservedChord) {
     match chord {
-        ReservedChord::OpenFind => set_if_changed(shared.ui.find_open, true),
+        ReservedChord::OpenFind => super::find_io::open(shared),
         ReservedChord::Copy => copy_selection(),
         ReservedChord::Paste => paste_from_clipboard(shared),
     }

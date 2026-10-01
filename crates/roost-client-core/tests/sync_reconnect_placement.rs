@@ -24,7 +24,7 @@ use roost_client_core::client::sync::{
 };
 use roost_client_core::effect::Effect;
 use roost_client_core::event::ClientEvent;
-use roost_client_core::{ClientCore, SyncFrame};
+use roost_client_core::{ClientCore, SyncDomain, SyncFrame};
 use roost_protocol::wire::SessionId;
 use support::sync_reconnect::{
     SESSION, TAB, acks, cursor_on_next_dial, enqueue, open_ready_link, session_event,
@@ -107,7 +107,10 @@ fn a_frame_queued_across_a_reconnect_is_still_placeable() {
     assert_eq!(frame.delivery_seq(), 7);
     assert_eq!(frame.socket_id(), "sock-one");
     assert!(frame.is_placeable());
-    assert_eq!(frame.lane().domain, None);
+    // A session event is TERMINAL-domain traffic: the lane names the domain
+    // whose readiness gates the frame, and the session plane is what the
+    // terminal domain's snapshot seeds.
+    assert_eq!(frame.lane().domain, Some(SyncDomain::Terminal));
     assert!(frame.lane().session_id.is_none());
 
     // And it applies. Dispatch is not generation gated: reconnecting cannot revoke

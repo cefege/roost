@@ -7,6 +7,7 @@
 
 use std::rc::Rc;
 
+use roost_client_core::store::prefs::PrefDefaults;
 use roost_client_core::store::sidebar::SidebarIntent;
 use roost_client_core::store::sidebar::memory::{RECENT_KEY, RECENT_MAX};
 use roost_client_core::store::ui::{SIDEBAR_VIEW_KEY, SidebarView};
@@ -17,6 +18,7 @@ fn core_over(storage: &Rc<MemoryKeyValueStore>) -> ClientCore {
         Rc::new(MemoryClock::new()),
         Rc::clone(storage) as Rc<dyn KeyValueStore>,
         "tab-sidebar",
+        &PrefDefaults::default(),
     )
 }
 

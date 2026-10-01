@@ -18,7 +18,8 @@
 //! timeout somewhere else.
 //! Ports v2 `apps/worker/src/browser-commands/browser-command-diag.ts`, `apps/worker/src/session/session-diag-snapshot.ts`.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use roost_observability::{EventClock, SystemClock};
@@ -114,6 +115,13 @@ pub struct Snapshot {
     /// The one monotonic reading every age in this report is measured against.
     pub mono_now: Instant,
     pub channels: HashMap<u16, ChannelDiag>,
+    /// One entry per live session, keyed by session id.
+    ///
+    /// RENDERED HERE AND NOT DOWNSTREAM because the per-session entry needs the
+    /// record and the emitter read together, under this report's one monotonic
+    /// reading; a renderer that took a second reading would stamp the two
+    /// halves of the same fact from different instants.
+    pub sessions: BTreeMap<String, serde_json::Value>,
 }
 
 impl Snapshot {
@@ -124,6 +132,7 @@ impl Snapshot {
             captured_at,
             mono_now,
             channels: HashMap::new(),
+            sessions: BTreeMap::new(),
         }
     }
 
@@ -137,6 +146,7 @@ impl Snapshot {
             captured_at,
             mono_now,
             channels,
+            sessions: BTreeMap::new(),
         }
     }
     /// The report as the WORKER's own live sessions make it.
@@ -146,7 +156,16 @@ impl Snapshot {
     /// caller's: it is taken ONCE, in this function, and every age in the
     /// report is measured against it. A caller that stamped each channel from
     /// its own reading would satisfy the signature and break the property.
-    pub fn of_live_channels(table: &SessionTable) -> Self {
+    ///
+    /// The per-session entries are folded in the SAME pass and off the SAME
+    /// record borrow as the channel report, because a session that closed
+    /// between two loops would then appear in one half of the report and not
+    /// the other.
+    pub fn of_live_sessions(
+        table: &SessionTable,
+        worker_fp: &str,
+        cells: &Mutex<dyn crate::session::binding::CellDelivery>,
+    ) -> Self {
         let captured_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or(Duration::ZERO);
@@ -155,18 +174,45 @@ impl Snapshot {
         // process monotonic clock, the same clock the emit path samples with.
         let mono_ms = SystemClock.mono_ns() / 1_000_000;
         let mut channels: HashMap<u16, ChannelDiag> = HashMap::new();
+        let mut sessions: BTreeMap<String, serde_json::Value> = BTreeMap::new();
         for (session_id, _) in table.live() {
             // `with_record_mut` nests: `None` is "no such session", so the
             // capability's own `Option` is the inner layer, and a session that
             // closed between the two reads is simply absent from the report.
             // Mutable because sampling advances the unhandled log's mark.
-            if let Some(Some(channel)) =
-                table.with_record_mut(&session_id, |record| channel_diag(record, mono_ms))
-            {
+            let Some(entry) = table.with_record_mut(&session_id, |record| {
+                let channel = channel_diag(record, mono_ms)?;
+                let emitter = match cells.lock() {
+                    Ok(guard) => guard.channel_diagnostics(record.channel_id()),
+                    Err(poisoned) => poisoned
+                        .into_inner()
+                        .channel_diagnostics(record.channel_id()),
+                };
+                let value = crate::session::diagnostics::session_value(
+                    record,
+                    worker_fp,
+                    &emitter,
+                    channel
+                        .unhandled_sequences
+                        .as_ref()
+                        .map(crate::browser_commands::diagnostics::unhandled_json),
+                    mono_ms,
+                );
+                Some((channel, value))
+            }) else {
+                continue;
+            };
+            if let Some((channel, value)) = entry {
                 channels.insert(channel.channel_id, channel);
+                sessions.insert(session_id.as_str().to_owned(), value);
             }
         }
-        Self::with_channels(captured_at, mono_now, channels)
+        Self {
+            captured_at,
+            mono_now,
+            channels,
+            sessions,
+        }
     }
 
     /// One channel's recorded state, if the report carries it.
@@ -313,6 +359,7 @@ impl GateTracker {
             captured_at,
             mono_now,
             channels,
+            sessions: BTreeMap::new(),
         }
     }
 }

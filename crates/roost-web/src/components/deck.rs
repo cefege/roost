@@ -12,6 +12,7 @@ pub mod inline_style;
 pub mod mobile_deck_bar;
 pub mod pane_divider;
 pub mod pane_strip;
+pub mod pane_strip_double_press;
 pub mod pane_strip_drag;
 pub mod pane_strip_gesture;
 pub mod pane_tab;

@@ -30,8 +30,10 @@ impl TerminalFind {
         }
     }
 
-    /// Absorb a page request for `search_id` that failed. A pane that moved
-    /// under the failed request is epoch-changed; only that is retried.
+    /// Absorb a page request for `search_id` that failed. A pane that has
+    /// renumbered away from the epoch a page was PINNED to is epoch-changed,
+    /// and only that is retried; a first page pinned to nothing is a plain
+    /// failure, because re-issuing it asks the identical question.
     pub fn on_search_error(
         &mut self,
         search_id: &str,
@@ -67,16 +69,17 @@ impl TerminalFind {
         }
         self.searches_minted += 1;
         let search_id = format!("{}-{}", self.search_id_seed, self.searches_minted);
-        // A resumed chain keeps its cursor's epoch; a fresh one pins the pane's.
-        let epoch = resume
-            .as_ref()
-            .map_or_else(|| host.pane_epoch(), |page| page.epoch.clone());
+        // A fresh chain pins NO epoch and lets its first answer name one: the
+        // worker refuses a request addressed to a grid it has already
+        // renumbered BEFORE it scans, so seeding the pane's numbering spends
+        // the whole epoch retry on a pane a frame behind and returns no page
+        // at all. A resumed chain keeps the epoch its cursor was taken on,
+        // because that page continues a read the pane already proved.
         let chain = FindChain::new(
             &self.session_id,
             &search_id,
             &self.query,
             (self.case_sensitive, self.regex),
-            &epoch,
             resume.as_ref(),
         );
         let first = chain.next_request(&host.pane_epoch(), !self.disposed);
@@ -131,7 +134,7 @@ impl TerminalFind {
         let (matches, truncated, failed, older) = match outcome {
             ChainOutcome::Abandoned => return Vec::new(),
             ChainOutcome::EpochChanged => {
-                tracing::info!(target: "find", session_id = %self.session_id, search_id = %active.search_id, "find search saw the grid renumber");
+                tracing::info!(target: "find", session_id = %self.session_id, search_id = %active.search_id, pane_epoch = %host.pane_epoch(), "find search saw the grid renumber");
                 return self.invalidate(active.epoch_retry_budget, host);
             }
             ChainOutcome::Matches {
@@ -148,6 +151,10 @@ impl TerminalFind {
         list.extend(matches);
         // A failure that found nothing is a plain failure, not a truncated result.
         let partial = truncated || (failed && !list.is_empty());
+        // Read before the conclusion is logged: the epoch the matches publish
+        // under is what says whether they belong to the painted grid.
+        let pane_epoch = host.pane_epoch();
+
         tracing::info!(
             target: "find",
             session_id = %self.session_id,
@@ -156,9 +163,9 @@ impl TerminalFind {
             truncated = partial,
             failed,
             older = older.is_some(),
+            pane_epoch = %pane_epoch,
             "find search concluded"
         );
-        let pane_epoch = host.pane_epoch();
         let budget = active.epoch_retry_budget;
         match self
             .publication

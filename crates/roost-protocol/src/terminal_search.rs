@@ -31,12 +31,36 @@ pub const GLOBAL_TERMINAL_SEARCH_MAX_SESSIONS: usize = 32;
 /// The rows scanned per selected session, so one large session cannot starve
 /// the rest of the fleet out of the page budget.
 pub const GLOBAL_TERMINAL_SEARCH_ROWS_PER_SESSION: u32 = 2_048;
+
 pub const GLOBAL_TERMINAL_SEARCH_MAX_MATCHES: u32 = 256;
 pub const GLOBAL_TERMINAL_SEARCH_PAGE_DEADLINE_MS: u32 = 5_000;
 pub const GLOBAL_TERMINAL_SEARCH_WORK_DEADLINE_MS: u32 = 4_500;
 pub const GLOBAL_TERMINAL_SEARCH_CURSOR_TTL_MS: u32 = 60_000;
 pub const GLOBAL_TERMINAL_SEARCH_MAX_CURSORS_PER_DEVICE: u32 = 4;
 pub const TERMINAL_SEARCH_RPC_DEADLINE_MS: u32 = 8_000;
+
+/// Why a coordinator stopped scanning a page, as the client reads the wire enum.
+///
+/// Lives here rather than beside the reader that branches on it because the wire
+/// decode is in `roost-client-core` and the page chain that judges the stop is in
+/// `roost-web-terminal`, and the crate both of those depend on is the only place
+/// one definition can be. `Unspecified` is the wire's zero value: its page is
+/// read, and then the chain fails, because no reason is not a reason to continue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchStop {
+    /// The coordinator named no reason.
+    Unspecified,
+    /// Every row was scanned.
+    Complete,
+    /// The row ceiling stopped the scan; older rows remain.
+    RowLimit,
+    /// The match ceiling stopped the scan; older rows were never read.
+    MatchLimit,
+    /// The page deadline stopped the scan.
+    Deadline,
+    /// The grid renumbered under the scan, so every row it read is stale.
+    EpochChanged,
+}
 
 /// Which history floor a short page hit, so the caller can stop paging and name
 /// the cause instead of retrying forever.

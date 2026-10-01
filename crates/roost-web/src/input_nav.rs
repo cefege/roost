@@ -20,6 +20,7 @@ pub mod pad_folders;
 pub mod pad_hints;
 pub mod pad_mapper;
 pub mod pad_router;
+pub mod pad_shell;
 pub mod pad_surfaces;
 pub mod spatial;
 
@@ -34,7 +35,7 @@ pub mod spatial_dom;
 
 #[cfg(target_arch = "wasm32")]
 pub use gamepad_source::{GamepadSourceGuard, install_gamepad_source};
-pub use modality::{ModeChoice, NavModality};
+pub use modality::{ModeChoice, NavModality, device_tv_mode_active};
 #[cfg(target_arch = "wasm32")]
 pub use modality_dom::{
     apply_nav_modality, load_nav_modality, set_pad_mode_choice, set_tv_mode_choice,

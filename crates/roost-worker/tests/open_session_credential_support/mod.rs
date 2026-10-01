@@ -18,10 +18,16 @@ use std::sync::{Arc, Mutex};
 
 use connectrpc::{ConnectError, RequestContext, Response, Router, Server, handler::handler_fn};
 use roost_proto::{
-    COORDINATOR_SERVICE_SERVICE_NAME, Session, SessionsListRequest, SessionsListResponse,
+    COORDINATOR_SERVICE_SERVICE_NAME, Session, SessionRecoveryMetadata, SessionsListRequest,
+    SessionsListResponse,
 };
 
 use roost_worker::runtime::credential::{CredentialError, CredentialSource};
+
+/// The one open row this fixture publishes, and the recovery row that pairs
+/// with it. A session id is a uuid at the protocol boundary, so a test value
+/// that is not one is refused before the pairing is ever examined.
+pub const SESSION_UNDER_TEST: &str = "00000000-0000-4000-8000-000000000001";
 
 /// The bearer the last accepted call carried, or `None` when none did.
 #[derive(Default)]
@@ -45,8 +51,19 @@ impl Coordinator {
             ));
         };
         *self.seen.lock().expect("held") = Some(bearer);
+        // One open row AND the recovery row that pairs with it. The read
+        // refuses a set that does not pair (`assert_exact_recovery_metadata`),
+        // so a fixture answering with a bare session fails admission for a
+        // reason no assertion here is about.
         Ok(SessionsListResponse {
-            sessions: vec![Session::default()],
+            sessions: vec![Session {
+                id: SESSION_UNDER_TEST.to_owned(),
+                ..Default::default()
+            }],
+            recovery_metadata: vec![SessionRecoveryMetadata {
+                session_id: SESSION_UNDER_TEST.to_owned(),
+                ..Default::default()
+            }],
             ..Default::default()
         })
     }

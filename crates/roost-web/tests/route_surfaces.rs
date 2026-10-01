@@ -21,6 +21,11 @@ fn not_served_path(path: &str) -> Option<String> {
     }
 }
 
+/// Replace the deleted not-served case: the panel is still mounted above the
+/// deck for a route whose overlay this build has not drawn, so the helper stays,
+/// and the property worth pinning is now that a grammar route never reaches it.
+/// A reader who follows a bookmark must get the surface or the not-found page,
+/// never a panel admitting the product is half-finished.
 fn not_found_path(path: &str) -> Option<String> {
     match surface_for(&Route::parse(path)) {
         Surface::NotFound { path: named } => Some(named),
@@ -29,9 +34,12 @@ fn not_found_path(path: &str) -> Option<String> {
 }
 
 #[test]
-fn the_root_the_gallery_and_every_main_pane_route_are_served_and_the_rest_are_not() {
-    // v2 `App.tsx` mounts `MainPane` for every terminal, file and search route;
-    // settings, pairing, help and browse belong to later slices.
+fn every_grammar_route_the_specs_navigate_to_is_served() {
+    // v2 `App.tsx` mounts `MainPane` for every terminal, file and search route,
+    // and gives settings, pairing, help and browse a surface each. A route the
+    // grammar knows and this build does not serve is a bookmark that dead-ends,
+    // which is the failure `Surface::NotServed` exists to name — so the set of
+    // served paths and the set of grammar paths are the same set.
     for path in [
         "/",
         "/design",
@@ -41,10 +49,6 @@ fn the_root_the_gallery_and_every_main_pane_route_are_served_and_the_rest_are_no
         "/w/ws-1/t/ch-1",
         "/file/a1b2c3d4e5f60718/etc/hosts",
         "/search",
-    ] {
-        assert!(served(path), "{path} must be served");
-    }
-    for path in [
         "/settings",
         "/settings/machines",
         "/pair",
@@ -52,7 +56,39 @@ fn the_root_the_gallery_and_every_main_pane_route_are_served_and_the_rest_are_no
         "/browse",
         "/browse/a1b2c3d4e5f60718",
     ] {
-        assert!(!served(path), "{path} must not be served yet");
+        assert!(served(path), "{path} must be served");
+    }
+}
+
+#[test]
+fn pairing_and_the_gallery_are_the_only_surfaces_outside_the_shell() {
+    // v2 nests everything but `/pair` and `/design` under the shell route: a
+    // reader who is not authorized has no workbench to put them inside.
+    for path in ["/pair", "/design"] {
+        let route = Route::parse(path);
+        let Surface::Served(served) = surface_for(&route) else {
+            panic!("{path} must be served");
+        };
+        assert!(
+            !served.in_shell(),
+            "{path} renders outside the workbench shell"
+        );
+    }
+    for path in [
+        "/",
+        "/settings/machines",
+        "/help",
+        "/browse",
+        "/s/8f2b1c40-0000-4000-8000-000000000000",
+    ] {
+        let route = Route::parse(path);
+        let Surface::Served(served) = surface_for(&route) else {
+            panic!("{path} must be served");
+        };
+        assert!(
+            served.in_shell(),
+            "{path} renders inside the workbench shell"
+        );
     }
 }
 
@@ -84,17 +120,32 @@ fn every_grammar_route_the_specs_navigate_to_is_recognised() {
 }
 
 #[test]
-fn the_not_served_panel_names_the_path_the_spec_navigated_to() {
-    // The panel is shown to a reader who followed a bookmark, so it has to carry
-    // the URL they followed rather than a canonical form of it.
-    assert_eq!(
-        not_served_path("/browse/a1b2c3d4e5f60718").as_deref(),
-        Some("/browse/a1b2c3d4e5f60718")
-    );
-    assert_eq!(
-        not_served_path("/settings/machines").as_deref(),
-        Some("/settings/machines")
-    );
+fn no_grammar_route_reaches_the_not_served_panel() {
+    // The panel names the URL a reader followed, so it is only ever shown to
+    // someone who followed a bookmark. Every grammar route has a surface now,
+    // which means the panel is reachable only from an overlay this build has
+    // not drawn — and a bookmark must never land there.
+    for path in [
+        "/",
+        "/design",
+        "/s/8f2b1c40-0000-4000-8000-000000000000",
+        "/t/a1b2c3d4e5f60718/src",
+        "/w/ws-1",
+        "/w/ws-1/t/ch-1",
+        "/file/a1b2c3d4e5f60718/etc/hosts",
+        "/search",
+        "/settings",
+        "/settings/machines",
+        "/pair",
+        "/help",
+        "/browse",
+        "/browse/a1b2c3d4e5f60718",
+    ] {
+        assert!(
+            not_served_path(path).is_none(),
+            "{path} has a surface, so it must not resolve to the not-served panel"
+        );
+    }
 }
 
 #[test]

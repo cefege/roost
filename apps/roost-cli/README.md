@@ -19,7 +19,7 @@ One row per current owned source or test directory.
 | Directory | Owns | Must not own |
 | --- | --- | --- |
 | `apps/roost-cli/src/` | Command dispatch, coordinator/worker/keeper server modes, install/quickstart/join, deploy/push/release/update, service control, status/doctor/logs, headless API, UI-state CLI adapters, reset/cutover, machine transaction, and local test/dev loops. | Protocol schema definitions, coordinator/worker runtime internals, or browser UI state. |
-| `apps/roost-cli/src/windows/` | Paused Windows update broker/runtime/journal/rollback/assets, Windows service definitions/S/security/manager/SCM, path/identity safety, and release manifest. | POSIX service policy, worker PTY implementation, or a claim that Windows is currently supported. |
+| (dropped) | The Windows update broker/runtime/journal/rollback/assets, Windows service definitions/S/security/manager/SCM, path/identity safety, and release manifest went with the paused Windows tier in `4101ca9b`; nothing owns them here. | POSIX service policy, worker PTY implementation, or a claim that Windows is currently supported. |
 | `apps/roost-cli/tests/` | Bun suites and fixtures for command dispatch, API output, deploy/push/admission, installation, status, and Windows adapter seams. | Production operator state or coordinator/worker process implementation. |
 
 ## Command ownership

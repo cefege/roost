@@ -15,6 +15,8 @@ use crate::store::browse_machine::{
 };
 use crate::store::browse_paths::{BROWSE_HOME, BrowsePathOps};
 
+pub mod intent;
+
 /// Every machine's browse view, keyed by machine fingerprint.
 ///
 /// One container rather than a map a host owns, for the reason
@@ -140,6 +142,18 @@ impl BrowseState {
     pub fn set_filter_open(&mut self, worker_fp: &WorkerFp, open: bool) {
         if let Some(machine) = self.get_mut(worker_fp) {
             machine.filter_open = open;
+        }
+    }
+
+    /// Hide one machine's filter box and clear its text.
+    ///
+    /// One call rather than the pair, because a hidden filter that still hides
+    /// entries is the "where did my folders go" report and a caller that writes
+    /// the two separately has a paint in between.
+    pub fn close_filter(&mut self, worker_fp: &WorkerFp) {
+        if let Some(machine) = self.get_mut(worker_fp) {
+            machine.filter_open = false;
+            machine.filter.clear();
         }
     }
 

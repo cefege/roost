@@ -99,6 +99,39 @@ impl Page {
     pub fn row_count(&self) -> u32 {
         self.end_row.saturating_sub(self.start_row)
     }
+
+    /// This window with its start raised to the grid's retained floor.
+    ///
+    /// A window whose start is BELOW the floor names rows the core no longer
+    /// holds, and every one of them reads as absent. Serving that window
+    /// produces a page with a hole at its front, which a client cannot tell
+    /// from silent loss — so the floor is part of the arithmetic, here, rather
+    /// than at each of the two call sites that own a transport.
+    pub fn clamped_to_floor(self, retained_floor: u32) -> Self {
+        if self.start_row >= retained_floor {
+            return self;
+        }
+        Self {
+            start_row: retained_floor,
+            has_more: retained_floor > 0,
+            ..self
+        }
+    }
+
+    /// This window with its end moved to the last row actually served.
+    ///
+    /// A read that stops early shortens its OWN answer rather than reporting a
+    /// window it did not fill: `end_row` is what a client pages from next, and
+    /// a client handed rows that do not reach `end_row` cannot tell which of
+    /// them it lost.
+    pub fn with_end(self, end_row: u32) -> Self {
+        let end_row = end_row.clamp(self.start_row, self.end_row);
+        Self {
+            end_row,
+            has_more: self.start_row > 0,
+            ..self
+        }
+    }
 }
 
 /// A read, asked for and bounded.

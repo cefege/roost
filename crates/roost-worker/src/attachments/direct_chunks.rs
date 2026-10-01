@@ -225,11 +225,13 @@ impl DirectState {
         session.terminal = true;
         let port = std::sync::Arc::clone(&session.port);
         send_attachment_closed(port.as_ref(), COMPLETE_REASON);
-        self.close_after_terminal_frame(&ticket.socket_id, ticket.serial, COMPLETE_REASON);
-        tracing::info!(
-            carrier = port.kind().as_str(),
-            "attachment upload completed"
-        );
+        // v2's own line is `log.info("attachment-transfer", "upload_completed",
+        // { carrier })` — the event NAME is the message, and the facade renders
+        // `msg` before the caller's fields. That adjacency is what the oracle
+        // greps for, and it is v2's real output rather than a quirk of it, so
+        // the name belongs in the message where it was. The line renders
+        // `"msg":"upload_completed","carrier":"loopback"`.
+        tracing::info!(carrier = port.kind().as_str(), "upload_completed");
     }
 
     fn send_ack(

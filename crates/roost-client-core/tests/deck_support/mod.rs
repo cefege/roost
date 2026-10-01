@@ -6,6 +6,7 @@ use std::rc::Rc;
 
 use roost_client_core::deck::{DeckFolder, DeckIntent};
 use roost_client_core::store::layout::{PaneLayout, PaneLeaf, PaneNode, PaneSplit};
+use roost_client_core::store::prefs::PrefDefaults;
 use roost_client_core::store::{
     ChannelId, Session, SessionId, SessionKind, SessionMap, SessionStatus, WorkerFp,
 };
@@ -93,6 +94,7 @@ pub fn core_over(storage: &Rc<MemoryKeyValueStore>) -> ClientCore {
         Rc::new(MemoryClock::starting_at(1_000)),
         storage.clone(),
         "tab-deck",
+        &PrefDefaults::default(),
     )
 }
 

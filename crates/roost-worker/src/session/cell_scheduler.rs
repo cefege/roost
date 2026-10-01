@@ -208,7 +208,17 @@ impl CellEmitter {
             return;
         }
         self.emit_cell_frame_at(record, false, now_ms, now);
-        self.arm_trailing_cooldown(channel_id, &schedule.stream_id, now);
+        // The next window is one after the deadline that just came due, not
+        // one after the pass that ran it: a deadline derived from the pass's
+        // own start carries the runtime's timer overshoot into the period, so
+        // the stream runs below the rate its window claims (17.1 ms measured
+        // per 16 ms window on the real driver).
+        self.arm_trailing_cooldown(
+            channel_id,
+            &schedule.stream_id,
+            now,
+            schedule.cooldown_until,
+        );
     }
 
     /// The channel's session is gone: nothing queued for it may run.
@@ -283,16 +293,26 @@ impl CellEmitter {
         self.sync_output_permits_rearm(channel_id)
     }
 
-    /// v2 `armTrailingCooldown`.
-    fn arm_trailing_cooldown(&mut self, channel_id: ChannelId, stream_id: &str, now: Instant) {
+    /// v2 `armTrailingCooldown`. `fired` is the deadline this pass ran, if it
+    /// ran a trailing one: the window grid continues from the deadline that
+    /// came due rather than from the pass that ran it, so the runtime's timer
+    /// overshoot is paid once instead of every frame.
+    fn arm_trailing_cooldown(
+        &mut self,
+        channel_id: ChannelId,
+        stream_id: &str,
+        now: Instant,
+        fired: Option<Instant>,
+    ) {
         if self.schedules.contains_key(&channel_id) || !self.may_rearm(channel_id, stream_id) {
             return;
         }
+        let grid = fired.unwrap_or(now);
         self.schedules.insert(
             channel_id,
             CellEmissionSchedule {
                 stream_id: stream_id.to_owned(),
-                cooldown_until: Some(now + CELL_EMIT_COALESCE),
+                cooldown_until: Some(grid + CELL_EMIT_COALESCE),
             },
         );
     }

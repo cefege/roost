@@ -232,16 +232,13 @@ impl TerminalViewHub {
             .relay
             .track(socket_id, &session_id, &frame.view_id, member);
         socket.sink.set_watching(socket_id, &session_id, watching);
-        // Only the decision that ATTACHES a socket may seed it: a lease
-        // heartbeat re-declares the same view every few seconds, and seeding on
-        // those would push a duplicate full on every beat.
-        let seeded = attached && socket.sink.seed_socket(socket_id, &session_id);
-        if attached && !seeded && previously_expected.as_deref() == Some(frame.stream_id.as_str()) {
-            socket.sink.invalidate(
-                &session_id,
-                "owner view attached without a replica baseline",
-            );
-        }
+        // The view-state goes in BEFORE the baseline, and that order is the
+        // contract rather than a convenience. A browser folds a cell only
+        // against the stream its last view-state named, so a seed that reached
+        // the socket first is a baseline the replica will refuse as stale and
+        // never ask for again. This bites exactly the SECOND viewer: the first
+        // view's seed finds no resident cache, so its baseline comes later with
+        // the worker's own full and the order happens to hold.
         socket.sink.enqueue_terminal_state(
             socket_id,
             roost_protocol::terminal_view::view_state_frame(
@@ -272,6 +269,16 @@ impl TerminalViewHub {
             ),
             &frame.session_id,
         );
+        // Only the decision that ATTACHES a socket may seed it: a lease
+        // heartbeat re-declares the same view every few seconds, and seeding on
+        // those would push a duplicate full on every beat.
+        let seeded = attached && socket.sink.seed_socket(socket_id, &session_id);
+        if attached && !seeded && previously_expected.as_deref() == Some(frame.stream_id.as_str()) {
+            socket.sink.invalidate(
+                &session_id,
+                "owner view attached without a replica baseline",
+            );
+        }
     }
 
     /// One published membership from the session's owner.

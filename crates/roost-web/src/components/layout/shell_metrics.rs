@@ -262,6 +262,10 @@ impl CoordinatorState {
 /// watching.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CoordinatorHealth {
+    /// Whether the browser itself has a route to the network. A browser that
+    /// says it is offline is not waiting on a coordinator, whatever the link
+    /// last said.
+    pub offline: bool,
     /// Whether the last attempt failed outright.
     pub last_attempt_failed: bool,
     /// When the last attempt succeeded, or `None` when none has.
@@ -272,8 +276,42 @@ pub struct CoordinatorHealth {
     pub now_ms: i64,
 }
 
+/// The status bar's health, read off the live Sync link.
+///
+/// v2 polls `misc.health` every five seconds and publishes the answer on
+/// `window`; this build runs no poller and needs none, because the link carries
+/// the same evidence and carries it continuously. A link that is open says the
+/// coordinator is answering, and how long ago it last said so is exactly the
+/// staleness the window is about. A second timer re-asking a socket the store
+/// already watches would be a second source of truth about one link.
+///
+/// `link_idle_ms` is the Sync link's own answer — `Some` exactly while a socket
+/// is open — so there is no second notion of "is the coordinator up" to keep in
+/// step with it.
+#[must_use]
+pub fn coordinator_health_from_link(
+    link_idle_ms: Option<u64>,
+    now_ms: u64,
+    offline: bool,
+    page_visible: bool,
+) -> CoordinatorHealth {
+    CoordinatorHealth {
+        offline,
+        last_attempt_failed: link_idle_ms.is_none(),
+        last_success_ms: link_idle_ms.map(|idle| now_ms.saturating_sub(idle) as i64),
+        page_visible,
+        now_ms: now_ms as i64,
+    }
+}
+
 /// Decide what the status bar says about the coordinator.
 pub fn coordinator_state(identity_known: bool, health: CoordinatorHealth) -> CoordinatorState {
+    // The browser's own verdict comes first: a machine with no route to the
+    // network is not waiting on a coordinator, and naming the coordinator
+    // would send an operator to restart the one thing that is working.
+    if health.offline {
+        return CoordinatorState::Offline;
+    }
     if !health.page_visible {
         // A hidden tab is neither proven nor disproven. Reporting `Synced` from
         // the last known answer is the honest reading; reporting `Unreachable`

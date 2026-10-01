@@ -256,11 +256,25 @@ impl AgentStatusHub {
         let previous = {
             let mut tables = self.state.lock(&self.state.tables);
             if tables.tombstones.contains_key(&session_id) {
+                tracing::info!(
+                    target: "agents.status",
+                    session_id = %session_id,
+                    revision = update.common.revision,
+                    "a status report was refused: the session was released"
+                );
                 return AgentStatusAcceptance::Stale;
             }
             let previous = tables.active.get(&session_id).cloned();
             let order = tables.order.entry(session_id.clone()).or_default();
             if !order.accepts(previous.as_ref(), &update) {
+                tracing::info!(
+                    target: "agents.status",
+                    session_id = %session_id,
+                    revision = update.common.revision,
+                    held_revision = previous.as_ref().map(|held| held.common.revision),
+                    state = ?update.common.state,
+                    "a status report was refused: it did not advance the retained order"
+                );
                 return AgentStatusAcceptance::Stale;
             }
             order.record(&update);
@@ -279,6 +293,14 @@ impl AgentStatusHub {
         };
         self.state.waits.evaluate(self.state.as_ref(), &session_id);
         buses.agent_status_bus.publish(update.clone());
+        tracing::info!(
+            target: "agents.status",
+            session_id = %session_id,
+            revision = update.common.revision,
+            state = ?update.common.state,
+            active = update.active,
+            "an agent status report was accepted"
+        );
         roost_observability::log::debug(
             "agents.status",
             "status_accepted",

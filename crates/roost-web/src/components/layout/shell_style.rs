@@ -10,9 +10,13 @@
 //! duplicates rows into history. `keyboard_resize` is the explicit opt-in.
 
 /// What the composer is doing, when a composer is mounted.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct ComposerGeometry {
     /// Whether the composer is open and taking input.
+    ///
+    /// `Default` is "no composer": the shell that owns the reactive signal is
+    /// created before any dock has mounted, and an inactive composer reserving
+    /// a measured height would be a reserve for a composer that is not there.
     pub active: bool,
     /// Its measured height in pixels.
     pub height_px: f64,
@@ -51,7 +55,7 @@ pub fn editor_style(
     keyboard_resize: bool,
     composer: ComposerGeometry,
 ) -> String {
-    let base = "--term-chat-growth: 0;";
+    let base = "--term-chat-growth: 0px;";
     if !terminal_route || keyboard_resize {
         return base.to_owned();
     }
@@ -73,10 +77,20 @@ pub fn editor_style(
     )
 }
 
-/// `data-keyboard-shift`: set on a terminal route unless the composer is
-/// active or the reader opted into keyboard resizing.
-pub fn keyboard_shift(terminal_route: bool, composer_active: bool, keyboard_resize: bool) -> bool {
-    terminal_route && !composer_active && !keyboard_resize
+/// `data-keyboard-shift`: set on a terminal route unless the reader opted into
+/// keyboard resizing.
+///
+/// The soft keyboard TRANSLATES the editor region and never resizes it, and
+/// that has to hold while the composer is active — the active composer is the
+/// reason the keyboard is open. Gating this on the composer's state took the
+/// translation away the moment the soft keyboard appeared, so the terminal
+/// dropped back down under the raised dock while the dock's own offset still
+/// counted the inset. The reserve and the shift are ONE decision: both belong
+/// to this predicate, and the composer dock's viewport anchoring in
+/// `workbench-shell.css` keys off the same attribute for the same reason.
+#[must_use]
+pub fn keyboard_shift(terminal_route: bool, keyboard_resize: bool) -> bool {
+    terminal_route && !keyboard_resize
 }
 
 /// `--roost-main-left`: where the editor starts, for fixed overlays that align

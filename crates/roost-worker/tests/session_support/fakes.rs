@@ -204,6 +204,12 @@ impl CellDelivery for CountingCells {
     fn release_sync_output_hold(&mut self, channel_id: ChannelId) {
         self.note("release_sync_output_hold", channel_id);
     }
+    fn channel_diagnostics(
+        &self,
+        _channel_id: ChannelId,
+    ) -> roost_worker::session::diagnostics::ChannelDiagnostics {
+        roost_worker::session::diagnostics::ChannelDiagnostics::default()
+    }
 }
 
 /// A spawner that never runs: these tests are about the paths around a spawn.

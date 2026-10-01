@@ -119,17 +119,19 @@ fn redeem_failure_is_authoritative(error: &CallError) -> bool {
     )
 }
 
-/// The coordinator is the page's own origin (v2 `connect.ts:73-107` without the
-/// local-bootstrap override, which the loopback slice adds).
+/// The coordinator this document dials, as `connect.ts:69-93` resolves it.
+///
+/// The serving-origin answer was primed before the graph loaded, so a page a
+/// WORKER served dials the coordinator that worker advertised instead of itself.
+/// The decision and its storage keys live in `client::local`; this only names
+/// the host inputs.
+#[cfg(target_arch = "wasm32")]
 fn coordinator_origin() -> String {
-    #[cfg(target_arch = "wasm32")]
-    {
-        web_sys::window()
-            .and_then(|window| window.location().origin().ok())
-            .unwrap_or_default()
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        String::new()
-    }
+    crate::platform::door_probe::coordinator_base_url_for_page()
+}
+
+/// A build with no document has no origin and no coordinator to dial.
+#[cfg(not(target_arch = "wasm32"))]
+fn coordinator_origin() -> String {
+    String::new()
 }

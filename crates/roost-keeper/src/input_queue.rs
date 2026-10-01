@@ -321,32 +321,52 @@ fn settle_batch(lane: &LaneShared, writer: &mut Box<dyn Write + Send>, batch: &B
     }
 }
 
-/// Write one batch, reporting exactly how much reached the PTY. A short write is
-/// `Partial` rather than completed here, because the bytes that did land are
-/// indistinguishable from the ones still queued.
+/// Write one batch, reporting exactly how much reached the PTY.
+///
+/// A descriptor is allowed to accept fewer bytes than it was offered, and on a
+/// PTY that is the pipe draining rather than a batch ending: the remainder is
+/// written next, in order, until the whole slice is at the child. Stopping at
+/// the first short write is what made a large paste lose its tail, and on the
+/// legacy `PtyIn` lane the loss was reported to nobody at all.
+///
+/// A `Partial` therefore means bytes landed and the descriptor then refused —
+/// the one outcome a client must not retry. A refusal that would block is not
+/// retried either: spinning on a full PTY would stall the channel instead of
+/// completing it.
 fn write_batch(writer: &mut Box<dyn Write + Send>, bytes: &[u8]) -> WriteOutcome {
     if bytes.is_empty() {
         return WriteOutcome::Complete { written: 0 };
     }
-    match writer.write(bytes) {
-        // A buffered writer that accepted bytes is not proof they reached the
-        // child, so the flush is checked and its failure reported.
-        Ok(written) if written == bytes.len() => match writer.flush() {
-            Ok(()) => WriteOutcome::Complete {
-                written: written as u32,
-            },
-            Err(_) => WriteOutcome::Partial {
-                written: written as u32,
-                reason: PtyInRejectReason::PartialWrite,
-            },
+    let mut written = 0usize;
+    while written < bytes.len() {
+        match writer.write(&bytes[written..]) {
+            Ok(0) => return stalled(written),
+            Ok(accepted) => written += accepted,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return stalled(written),
+        }
+    }
+    // A buffered writer that accepted bytes is not proof they reached the
+    // child, so the flush is checked and its failure reported.
+    match writer.flush() {
+        Ok(()) => WriteOutcome::Complete {
+            written: written as u32,
         },
-        Ok(written) => WriteOutcome::Partial {
+        Err(_) => stalled(written),
+    }
+}
+
+/// The outcome for a write that stopped with `written` bytes already at the PTY.
+fn stalled(written: usize) -> WriteOutcome {
+    if written == 0 {
+        WriteOutcome::Rejected {
+            reason: PtyInRejectReason::NoReader,
+        }
+    } else {
+        WriteOutcome::Partial {
             written: written as u32,
             reason: PtyInRejectReason::PartialWrite,
-        },
-        Err(_) => WriteOutcome::Rejected {
-            reason: PtyInRejectReason::NoReader,
-        },
+        }
     }
 }
 

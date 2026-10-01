@@ -79,7 +79,7 @@ pub const SMOKE_METHODS: [(&str, Answer); 53] = [
 
 /// The members whose surface belongs to a slice this build does not have yet,
 /// and the refusal each one answers with — never a silent no-op.
-pub const UNPORTED_METHODS: [(&str, &str); 8] = [
+pub const UNPORTED_METHODS: [(&str, &str); 6] = [
     (
         "probeTerminalTransport",
         "U-2 STREAM LIFECYCLE: the worker control probe (store/transport/sync-terminal-control-probe.ts) not ported",
@@ -87,14 +87,6 @@ pub const UNPORTED_METHODS: [(&str, &str); 8] = [
     (
         "phaseTimeline",
         "U-2 BROWSER platform: phase marks (browser/diag.ts phaseTimeline) not ported",
-    ),
-    (
-        "forceVisible",
-        "U-2 BROWSER platform: the visibility pin (browser/pageVisible.ts) not ported",
-    ),
-    (
-        "forceHidden",
-        "U-2 BROWSER platform: the visibility pin (browser/pageVisible.ts) not ported",
     ),
     (
         "directHistoryResponseCount",
@@ -163,6 +155,11 @@ pub enum SmokeCall {
     /// A member taking no arguments.
     Bare {
         method: &'static str,
+    },
+    /// A member taking one boolean flag.
+    Flag {
+        method: &'static str,
+        on: bool,
     },
     /// A member taking only a session id.
     Session {
@@ -261,6 +258,10 @@ pub fn parse_call(name: &str, args: &[Value]) -> Result<SmokeCall, String> {
         | "resumeSyncTransport"
         | "syncWsGeneration"
         | "cleanupCreated" => SmokeCall::Bare { method },
+        "forceVisible" | "forceHidden" => SmokeCall::Flag {
+            method,
+            on: arg.flag(0)?,
+        },
         "input" => SmokeCall::Input {
             session_id: arg.string(0)?,
             text: arg.string(1)?,

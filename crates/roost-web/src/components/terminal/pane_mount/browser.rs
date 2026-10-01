@@ -50,23 +50,14 @@ pub(super) fn now_ms() -> u64 {
 }
 
 /// The document is visible.
+///
+/// Through the platform owner rather than read here, because a direct
+/// `visibilityState` read is the one thing the automation pin exists to defeat:
+/// a pane that asked the document would keep claiming geometry for a tab the
+/// oracle has pinned hidden, and the claim is a PTY resize the reader never
+/// chose.
 pub(super) fn page_visible() -> bool {
-    web_sys::window()
-        .and_then(|window| window.document())
-        .is_none_or(|document| document.visibility_state() == web_sys::VisibilityState::Visible)
-}
-
-/// A fresh view id: `crypto.randomUUID()`, as v2 `terminal-stream-view.ts`.
-/// The authority refuses any view id that is not a UUID (v2
-/// `validateTerminalViewCommand`: "invalid terminal view id"), so there is no
-/// other format to fall back to. `crypto.randomUUID` exists only in a secure
-/// context and calling it elsewhere throws, so an insecure origin mints nothing
-/// and the pane cannot publish a view, as v2 cannot.
-pub(super) fn mint_view_id() -> Option<String> {
-    web_sys::window()
-        .filter(web_sys::Window::is_secure_context)
-        .and_then(|window| window.crypto().ok())
-        .map(|crypto| crypto.random_uuid())
+    crate::platform::visibility::page_visible()
 }
 
 /// The deck measures zero: every pane leaves layout for one tick.
@@ -276,16 +267,24 @@ fn on_timer(shared: &PaneShared) {
 pub(super) fn schedule_viewport(shared: &PaneShared) {
     let now = now_ms();
     with_state(shared, |state, _| {
-        if state.flags.view_active() && state.page_visible {
+        if state.flags.view_active() && page_visible() {
             state.viewport.schedule(now);
         }
     });
 }
 
+/// A settled face changes what one cell measures, so the cached box goes
+/// whether or not anyone is watching — a hidden pane that kept its fallback
+/// advance would paint its last column past the clipped content box for the
+/// rest of its life. The PUBLISH does not: a claim measured against a layout
+/// the reader cannot see is a PTY resize against geometry they never chose,
+/// and the pane re-claims the moment it is revealed.
 fn on_fonts_settled(shared: &PaneShared) {
     shared.cell.set(None);
     shared.renderer.borrow_mut().invalidate_row_height();
-    actions::publish_viewport_now(shared);
+    if actions::viewport_publishable(shared) {
+        actions::publish_viewport_now(shared);
+    }
 }
 
 fn on_lifecycle(shared: &PaneShared, event: &Event) {

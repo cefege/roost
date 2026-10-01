@@ -49,6 +49,10 @@ pub fn Sheet(
     headline: String,
     #[props(default)] side: SheetSide,
     class: Option<String>,
+    /// The dialog's `data-testid`. The sheet is the overlay a spec drives, and
+    /// an overlay it cannot name is an overlay it can only find by class.
+    #[props(default)]
+    test_id: Option<String>,
     children: Element,
     on_open_auto_focus: Option<EventHandler<AutoFocusRequest>>,
     #[props(default = true)] show_close_button: bool,
@@ -59,6 +63,7 @@ pub fn Sheet(
             on_close,
             headline,
             class: sheet_class(side, class.as_deref()),
+            test_id,
             show_close_button,
             on_open_auto_focus,
             {children}

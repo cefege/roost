@@ -6,9 +6,11 @@
 
 pub mod card_swipe;
 pub mod cell_terminal;
+pub mod cell_terminal_dictation;
 pub mod document_lifecycle;
 pub mod dom;
 pub mod dom_repair;
+pub mod floating_mount;
 pub mod frame_feed;
 pub mod offline_watch;
 pub mod pane_echo_feedback;
@@ -24,6 +26,8 @@ pub mod pane_status;
 pub mod pane_surface;
 pub mod startup_overlay_state;
 pub mod terminal_card;
+pub mod terminal_find_bar;
+pub mod terminal_nav_pad;
 pub mod terminal_offline_notice;
 pub mod terminal_paste_guard;
 pub mod terminal_startup_overlay;

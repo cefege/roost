@@ -12,23 +12,34 @@
 //! mutation counter before and after `handle` and writes the `Signal<u64>` only
 //! when it moved. Components read that signal during render (`use_store`), which
 //! is the only way a Dioxus render learns the `RefCell` behind it changed.
+//! `Pump::write_store` is the same discipline for a write no event carries.
 
 mod boot;
 #[cfg(target_arch = "wasm32")]
 mod browser;
+#[cfg(target_arch = "wasm32")]
+mod carrier_dial;
+mod carriers;
 mod effects;
+#[cfg(target_arch = "wasm32")]
+mod peer_lane;
 mod socket;
+mod sweep;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use dioxus::prelude::*;
-use roost_client_core::{ClientCore, ClientEvent};
+use roost_client_core::{ClientCore, ClientEvent, Store, SyncCommand};
 
 use crate::platform::connect::CoordRpc;
 
 pub use boot::start_pump;
+use roost_web_terminal::find::intent::{
+    FindIntentRegistry, FindIntentSink, TerminalFindIntentOptions,
+};
 use socket::LiveSocket;
+use sweep::SweepListeners;
 
 /// The pump, cheap to clone: every clone is the same pump.
 #[derive(Clone)]
@@ -44,10 +55,32 @@ struct PumpInner {
     /// Set while `dispatch` runs, so a re-entrant call is queued, not nested.
     dispatching: Cell<bool>,
     queued: RefCell<Vec<ClientEvent>>,
+    /// The shell bridges that read this pump's clock.
+    sweeps: SweepListeners,
     /// Browser callbacks that must live as long as the pump (timers,
     /// lifecycle listeners), held type-erased; only a browser installs them.
     #[cfg(target_arch = "wasm32")]
     listeners: RefCell<Vec<Box<dyn std::any::Any>>>,
+    /// The direct carriers this document holds. Held here rather than in a
+    /// component because a carrier outlives the effect that opened it.
+    carriers: RefCell<carriers::Carriers>,
+    /// The browser's WebRTC stack, one adapter for the whole document. Held
+    /// here because a peer outlives the effect that opened it and because the
+    /// document-wide peer cap counts what this holds.
+    #[cfg(target_arch = "wasm32")]
+    peer: RefCell<crate::platform::peer::BrowserPeer>,
+
+    /// One record per open peer attempt: its lanes, its clocks, and the carrier
+    /// its `Ready` earned. Per attempt and not per document, because a document
+    /// holds several at once and one worker's failure must never retire
+    /// another's carrier.
+    #[cfg(target_arch = "wasm32")]
+    peer_attempts: RefCell<crate::platform::carriers::PeerCarriers>,
+    /// The one-shot handoffs from fleet-wide search to a pane's own find, by
+    /// session. The pump owns them because they outlive the surface that asked:
+    /// a reader clicks a result, the search page unmounts, and the pane that
+    /// answers still has to be told what to look for.
+    find_intents: RefCell<FindIntentRegistry>,
 }
 
 impl std::fmt::Debug for Pump {
@@ -67,19 +100,66 @@ impl PartialEq for Pump {
 
 impl Pump {
     /// A pump over `core`, bumping `revision`, calling the coordinator at `rpc`.
+    ///
+    /// The document's carrier capability is DECLARED here, before the pump is
+    /// returned and therefore before any view can demand a session. That
+    /// ordering is the whole point: `Signalling::start` reads
+    /// `env.peer_transport_available` on its fourth gate, and a lane whose
+    /// host has not spoken yet answers `false` — which parks every machine as
+    /// `Unsupported` and keeps the session on Sync for the life of the
+    /// document. Re-declaring after a peer closes (see `pump::peer_lane`)
+    /// keeps the document-wide peer count honest; it is the AVAILABILITY half
+    /// that is fixed for the document's life and belongs here.
     pub fn new(core: Rc<RefCell<ClientCore>>, revision: Signal<u64>, rpc: Rc<CoordRpc>) -> Self {
-        Self {
+        let pump = Self {
             inner: Rc::new(PumpInner {
                 core,
                 revision,
                 rpc,
                 socket: RefCell::new(None),
+                carriers: RefCell::new(carriers::Carriers::default()),
+                #[cfg(target_arch = "wasm32")]
+                peer: RefCell::new(crate::platform::peer::BrowserPeer::new()),
+                #[cfg(target_arch = "wasm32")]
+                peer_attempts: RefCell::new(crate::platform::carriers::PeerCarriers::new()),
                 dispatching: Cell::new(false),
                 queued: RefCell::new(Vec::new()),
                 #[cfg(target_arch = "wasm32")]
                 listeners: RefCell::new(Vec::new()),
+                find_intents: RefCell::new(FindIntentRegistry::new()),
+                sweeps: SweepListeners::new(),
             }),
-        }
+        };
+        pump.declare_carrier_environment();
+        #[cfg(target_arch = "wasm32")]
+        peer_lane::install_tick(&pump);
+        pump
+    }
+
+    /// Re-declare what this document can currently do to the carrier lane.
+    ///
+    /// Both halves move while the document lives: availability is a property of
+    /// the document (a secure context, a constructor) and the peer count moves
+    /// as attempts open and close. Read from the platform rather than assumed,
+    /// so a document that cannot peer is told so instead of being talked into
+    /// a transport it has no stack for.
+    pub(super) fn declare_carrier_environment(&self) {
+        self.inner.core.borrow_mut().set_carrier_environment(
+            crate::platform::peer::is_available(),
+            self.held_peer_count(),
+        );
+    }
+
+    /// How many WebRTC peers this document is holding, for the lane's cap.
+    #[cfg(target_arch = "wasm32")]
+    fn held_peer_count(&self) -> u32 {
+        self.inner.peer.borrow().open_count() as u32
+    }
+
+    /// No browser peer stack off the web target, so nothing can be held.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn held_peer_count(&self) -> u32 {
+        0
     }
 
     /// Hand one event to the core, then perform what it asked for.
@@ -92,6 +172,7 @@ impl Pump {
         if self.inner.dispatching.replace(true) {
             return;
         }
+        let mut swept = false;
         loop {
             let next = {
                 let mut queued = self.inner.queued.borrow_mut();
@@ -103,6 +184,7 @@ impl Pump {
             };
             let Some(event) = next else { break };
             let kind = event.kind_name();
+            swept |= matches!(event, ClientEvent::Sweep { .. });
             let (effects, before, after) = {
                 let mut core = self.inner.core.borrow_mut();
                 let before = core.store().revision();
@@ -121,6 +203,76 @@ impl Pump {
             }
         }
         self.inner.dispatching.set(false);
+        if swept {
+            self.notify_sweep_listeners();
+        }
+    }
+
+    /// Call every registered sweep listener with the core's own clock.
+    ///
+    /// AFTER the queue drains and `dispatching` is clear, so a listener may
+    /// dispatch, write the store and follow a route without re-entering the
+    /// core.
+    fn notify_sweep_listeners(&self) {
+        let now_ms = {
+            let core = self.inner.core.borrow();
+            roost_client_core::Clock::now_ms(core.clock())
+        };
+        self.inner.sweeps.notify(now_ms);
+    }
+
+    /// Run `listener` after every sweep this pump dispatches. The returned
+    /// token is what `remove_sweep_listener` takes.
+    ///
+    /// The listener receives the core's monotonic reading, never a wall clock:
+    /// every deadline the sweep evaluates was armed on that timeline.
+    pub fn on_sweep(&self, listener: Rc<dyn Fn(u64)>) -> u64 {
+        self.inner.sweeps.register(listener)
+    }
+
+    /// Stop calling the listener `token` names.
+    pub fn remove_sweep_listener(&self, token: u64) {
+        self.inner.sweeps.remove(token);
+    }
+
+    /// Whether a Sync command would reach the socket right now.
+    ///
+    /// Read WITHOUT the core, so a host that holds the store can still ask: an
+    /// acknowledged apply commits into the store and answers inside one
+    /// synchronous pass, and a second borrow of the same `RefCell` is a panic
+    /// rather than an answer.
+    pub fn sync_socket_is_open(&self) -> bool {
+        self.inner.socket.borrow().is_some()
+    }
+
+    /// Write one Sync command on the live socket, stamped with its socket id.
+    ///
+    /// The same write `Effect::SendSync` performs, so an acknowledgement and
+    /// every other client command travel by one path. A document holding no
+    /// socket has the refusal logged by `pump::socket` rather than dropped
+    /// here.
+    pub fn send_sync_command(&self, command: SyncCommand) {
+        socket::send(self, &command);
+    }
+
+    /// Tell the component tree the store moved, for a host write whose API
+    /// carries no mutation counter.
+    ///
+    /// `write_store` repaints by comparing the store's own `revision`, and the
+    /// core only increments that from `handle_*`. A host write through
+    /// `LayoutRecords` — which is what an acknowledged layout apply is — lands
+    /// without one, so the arrangement a coordinator applied would be COMMITTED
+    /// and never painted, and the only evidence would be a deck still showing
+    /// the tiling it was told to replace. Writing the counter's own value back
+    /// is the whole mechanism: the tree subscribes to the signal, not to the
+    /// number, and a write repaints its subscribers whatever it wrote.
+    pub fn repaint(&self) {
+        let now = {
+            let core = self.inner.core.borrow();
+            core.store().revision()
+        };
+        let mut revision = self.inner.revision;
+        revision.set(now);
     }
 
     /// The client core, for a read during render or a smoke probe.
@@ -133,6 +285,30 @@ impl Pump {
         self.inner.revision
     }
 
+    /// Run a host-side write against the store and repaint whatever subscribed.
+    ///
+    /// The store's own `revision()` counter and the pump's `Signal<u64>` are two
+    /// different numbers: a write moves the first, and only the second is read
+    /// during render, so only this can tell a subscriber. The discipline is the
+    /// one `dispatch` uses — compare the store counter across the write and set
+    /// the signal only when it moved, so a write that changes nothing costs no
+    /// repaint. The borrow is released before the signal is written, so a
+    /// repaint that observes this write cannot re-enter a held `RefCell`.
+    pub fn write_store<R>(&self, write: impl FnOnce(&mut Store) -> R) -> R {
+        let core = self.inner.core.clone();
+        let (result, before, after) = {
+            let mut borrowed = core.borrow_mut();
+            let before = borrowed.store().revision();
+            let result = write(borrowed.store_mut());
+            (result, before, borrowed.store().revision())
+        };
+        if after != before {
+            let mut revision = self.inner.revision;
+            revision.set(after);
+        }
+        result
+    }
+
     /// The coordinator client.
     pub fn rpc(&self) -> Rc<CoordRpc> {
         Rc::clone(&self.inner.rpc)
@@ -141,6 +317,44 @@ impl Pump {
     /// How many Sync sockets this document has dialled (v2 `syncWsGeneration`).
     pub fn sync_dial_count(&self) -> u64 {
         self.inner.core.borrow().store().sync.dial_count()
+    }
+
+    /// Ask a session's pane to find `literal` in its own retained history.
+    ///
+    /// The pane may not be mounted yet — a result on another tab is opened by
+    /// navigating to it, and the deck mounts the pane after this returns — so
+    /// the intent is held until that pane registers.
+    pub fn request_terminal_find(
+        &self,
+        session_id: &str,
+        literal: &str,
+        options: TerminalFindIntentOptions,
+    ) {
+        self.inner
+            .find_intents
+            .borrow_mut()
+            .request(session_id, literal, options);
+    }
+
+    /// Mount a pane as the find sink for `session_id`, consuming an intent that
+    /// was already waiting for it.
+    ///
+    /// Returns the registration to pass back to `unregister_terminal_find`. A
+    /// disposer names the registration it was ISSUED for, so a pane that
+    /// unmounts late cannot silence the pane that replaced it.
+    pub fn register_terminal_find(&self, session_id: &str, sink: Box<dyn FindIntentSink>) -> u64 {
+        self.inner
+            .find_intents
+            .borrow_mut()
+            .register(session_id, sink)
+    }
+
+    /// Unmount the pane holding `registration`, and only that one.
+    pub fn unregister_terminal_find(&self, session_id: &str, registration: u64) {
+        self.inner
+            .find_intents
+            .borrow_mut()
+            .unregister(session_id, registration);
     }
 }
 

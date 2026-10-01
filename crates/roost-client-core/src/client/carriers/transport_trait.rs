@@ -19,7 +19,7 @@ use roost_protocol::versioning::{
 /// Ordered and negotiated in band, so the control lane's ordering is the
 /// framing guarantee the packet assembler relies on; the history lane exists
 /// because a multi-megabyte baseline must not sit in front of a keystroke.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PeerLane {
     /// Views, input, probes, readiness, and closure.
     Control,
@@ -50,6 +50,33 @@ impl PeerLane {
             Self::Control => 0,
             Self::Data => 1,
             Self::History => 2,
+        }
+    }
+
+    /// The `roost_protocol` lane this carrier lane is.
+    ///
+    /// A conversion rather than a re-numbering: the channel stream ids are this
+    /// enum's and the packet lane names are `roost_protocol`'s, and two
+    /// hand-maintained orderings of three values is how one lane's byte cap ends
+    /// up applied to another lane's fragments.
+    #[must_use]
+    pub fn packet_lane(self) -> roost_protocol::terminal_peer::peer::TerminalPeerPacketLane {
+        match self {
+            Self::Control => roost_protocol::terminal_peer::peer::TerminalPeerPacketLane::Control,
+            Self::Data => roost_protocol::terminal_peer::peer::TerminalPeerPacketLane::Terminal,
+            Self::History => roost_protocol::terminal_peer::peer::TerminalPeerPacketLane::History,
+        }
+    }
+
+    /// The reverse conversion, for a table `roost_protocol` indexed.
+    #[must_use]
+    pub fn of_packet_lane(
+        lane: roost_protocol::terminal_peer::peer::TerminalPeerPacketLane,
+    ) -> Self {
+        match lane {
+            roost_protocol::terminal_peer::peer::TerminalPeerPacketLane::Control => Self::Control,
+            roost_protocol::terminal_peer::peer::TerminalPeerPacketLane::Terminal => Self::Data,
+            roost_protocol::terminal_peer::peer::TerminalPeerPacketLane::History => Self::History,
         }
     }
 }

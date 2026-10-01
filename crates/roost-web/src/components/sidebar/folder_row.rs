@@ -27,9 +27,12 @@ use crate::components::layout::window_size::use_is_compact;
 use crate::components::machines::machine_identity_mark::MachineIdentityMark;
 use crate::components::md::list_row::is_in_app_navigation_click;
 use crate::components::md::{IconButton, IconButtonSize, StatusDot};
+use crate::components::notifications::notify_target::{
+    folder_ring_attribute, open_tab_session_ids, use_notify_target,
+};
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::use_store;
-use crate::router_state::use_navigate;
+use crate::router_state::{use_location, use_navigate};
 use crate::session_naming::rel_time_since;
 
 /// A folder row.
@@ -38,6 +41,8 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
     let pump = use_store();
     let navigate = use_navigate();
     let compact = use_is_compact();
+    let path = use_location();
+    let notify_target = use_notify_target();
     let now_ms = use_rel_time_now();
     let (worker, target_id) = {
         let core = pump.core();
@@ -58,6 +63,24 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
             remembered.unwrap_or_else(|| group.lead_id.clone()),
         )
     };
+    // A hovered toast names a SESSION, and this row is the surface that answers
+    // for it when no pane tab shows that session. Resolving it here rather than
+    // where the ring is written keeps one decision in one place: the row knows
+    // its own folder key, and the store knows which folder's tab strip is on
+    // screen.
+    let ringing = notify_target.as_ref().and_then(|target| {
+        let hold = target.hold();
+        let core = pump.core();
+        let core = core.borrow();
+        let store = core.store();
+        folder_ring_attribute(
+            &hold,
+            store,
+            &BrowserWorkerPaths,
+            &open_tab_session_ids(store, &BrowserWorkerPaths, &path.read()),
+            &group.key,
+        )
+    });
     let href = format!("/s/{target_id}");
     let pane_count = group.session_ids.len();
     let panes_title = format!(
@@ -86,7 +109,7 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
             "data-density": "flat",
             "data-testid": "folder-row-{group.key}",
             "data-selected": if selected { "focused" } else { "" },
-            "data-cursor": cursor.then_some("on"),
+            "data-notify-target": ringing,
             style: "--avatar-bg: {avatar_background(&group.key)}",
             oncontextmenu: move |event: MouseEvent| {
                 event.prevent_default();

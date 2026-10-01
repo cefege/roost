@@ -7,6 +7,7 @@
 use roost_client_core::Store;
 use roost_client_core::sync::SyncDomain;
 use roost_client_core::terminal::input::InputPhase;
+use roost_client_core::terminal::liveness::ForegroundLiveness;
 use roost_client_core::terminal::{
     TerminalSession, TerminalToken, TerminalTransport, TerminalView, ViewIntent,
 };
@@ -158,9 +159,15 @@ pub fn view_status(view: &TerminalView) -> Option<&'static str> {
     }
 }
 
-/// The replica watermarks. The proof-challenge ladder is authority-side in
-/// v3 (`roost_client_core::terminal::repair`), so its client members report
-/// no challenge and no attempts.
+/// The replica watermarks, the proof-challenge ladder, and the last frame this
+/// replica accepted. The challenge members are the client's own
+/// (`roost_client_core::terminal::liveness`), reported as they stand rather
+/// than as `none`: a reader asking whether a pane was ever challenged cannot
+/// tell a replica that was never watched from one whose answer was lost.
+///
+/// `last_terminal_proof_*` is NOT the challenge: it is the last frame this
+/// replica accepted, which is the generation that last fed it — the whole
+/// question it answers, with no second counter to drift.
 fn replica_json(
     store: &Store,
     replica: Option<&TerminalSession>,
@@ -170,22 +177,30 @@ fn replica_json(
     let latch = replica
         .map(TerminalSession::latch)
         .filter(|latch| latch.is_latched());
+    let liveness = replica.map(TerminalSession::liveness);
     json!({
         "expected_stream_id": replica.and_then(TerminalSession::expected_stream_id),
         "grid_epoch": canonical.map(|frame| frame.grid_epoch.clone()),
         "seq": canonical.map(|frame| frame.seq),
         "baseline_ready": replica.is_some_and(TerminalSession::baseline_ready),
         "resync_latched": replica.is_some_and(TerminalSession::repair_latched),
-        "last_terminal_proof_age_ms": null,
-        "last_terminal_proof_generation": null,
-        "challenge_age_ms": null,
-        "challenge_generation": null,
-        "challenge_stream_id": null,
-        "challenge_seq": null,
+        "last_terminal_proof_age_ms": liveness
+            .and_then(ForegroundLiveness::last_accepted_at_ms)
+            .map(|accepted_at| age_ms(clocks, accepted_at)),
+        "last_terminal_proof_generation": generation_json(store, replica.and_then(TerminalSession::generation)),
+        "challenge_age_ms": liveness
+            .and_then(ForegroundLiveness::challenged_at_ms)
+            .map(|challenged_at| age_ms(clocks, challenged_at)),
+        "challenge_generation": generation_json(
+            store,
+            liveness.and_then(ForegroundLiveness::challenge_generation),
+        ),
+        "challenge_stream_id": liveness.and_then(ForegroundLiveness::challenge_stream_id),
+        "challenge_seq": liveness.and_then(ForegroundLiveness::challenge_seq),
         "resync_latch_age_ms": latch.map(|latch| age_ms(clocks, latch.latched_at_ms())),
         "resync_latch_generation": generation_json(store, latch.and_then(|latch| latch.token())),
-        "repair_attempts": 0,
-        "repair_outcome": "none",
+        "repair_attempts": liveness.map_or(0, ForegroundLiveness::repair_attempts),
+        "repair_outcome": liveness.map_or("none", |liveness| liveness.outcome().as_str()),
     })
 }
 
@@ -204,20 +219,50 @@ fn sync_json(store: &Store) -> Value {
     })
 }
 
-/// One `TerminalRouteDiagnosticEntry`. No carrier publishes worker-control
-/// telemetry in this client, so the timing members are `null`.
-fn route_entry(transport: TerminalTransport, phase: &str) -> Value {
-    json!({
+/// One `TerminalRouteDiagnosticEntry`, with the signalling lane's view of the
+/// attempt beside it.
+///
+/// `worker_epoch` is the token's `process_epoch` — the coordinator's identity
+/// for the worker PROCESS, which a restart changes and which is therefore the
+/// field a reader compares across a restart.
+///
+/// The five telemetry fields come from `super::stream_route_lane`, which reads
+/// the one place that produces them. They stay `null` and `candidate_type`
+/// stays `"none"` on a loopback or Sync route, and that is the product's actual
+/// knowledge rather than a missing measurement: a loopback carrier has no ICE
+/// candidate and a Sync route has no carrier at all, so a round trip on either
+/// would be a number a reader could not tell from a real one.
+fn route_entry(
+    store: &Store,
+    transport: TerminalTransport,
+    token: Option<&TerminalToken>,
+) -> Value {
+    let mut entry = json!({
         "kind": transport_kind(transport),
-        "worker_epoch": null,
+        "worker_epoch": token.map(|token| token.process_epoch.clone()),
         "peer_id": null,
-        "phase": phase,
+        "phase": if transport == TerminalTransport::Sync { "active" } else { "staged" },
         "candidate_type": "none",
         "probe_age_ms": null,
         "rtt_ms": null,
         "worker_control_rtt_ms": null,
         "buffered_bytes": null,
-    })
+    });
+    let is_peer = token.is_some_and(|token| token.transport == TerminalTransport::Peer);
+    let worker_fp = token
+        .and_then(|token| token.worker_fp.clone())
+        .unwrap_or_default();
+    // The entry is built by `json!` from a literal, so it is an object; the
+    // `if let` is there so a future edit that makes it something else fails to
+    // compile rather than silently dropping the lane's half.
+    if let Some(object) = entry.as_object_mut() {
+        for (field, value) in
+            super::stream_route_lane::telemetry_fields(&store.direct, &worker_fp, is_peer)
+        {
+            object.insert(field, value);
+        }
+    }
+    entry
 }
 
 fn route_json(store: &Store, session_id: &str, replica: Option<&TerminalSession>) -> Value {
@@ -229,9 +274,9 @@ fn route_json(store: &Store, session_id: &str, replica: Option<&TerminalSession>
         .route(session_id)
         .filter(|route| owned_by_worker(&route.token));
     let active = match (active_direct, replica.and_then(TerminalSession::generation)) {
-        (Some(route), _) => route_entry(route.token.transport, "active"),
+        (Some(route), _) => route_entry(store, route.token.transport, Some(&route.token)),
         (None, Some(token)) if token.transport == TerminalTransport::Sync => {
-            route_entry(TerminalTransport::Sync, "active")
+            route_entry(store, TerminalTransport::Sync, Some(&token))
         }
         _ => Value::Null,
     };
@@ -240,15 +285,21 @@ fn route_json(store: &Store, session_id: &str, replica: Option<&TerminalSession>
         .candidate(session_id)
         .filter(|candidate| owned_by_worker(&candidate.token))
         .map_or(Value::Null, |candidate| {
-            route_entry(candidate.token.transport, "candidate")
+            route_entry(store, candidate.token.transport, Some(&candidate.token))
         });
     let lane = store.input.lane(session_id);
+    // The lane's two answers are reported whether or not a route is elected.
+    // "No route, no attempt, and no reason" is the state that reads as healthy
+    // in a snapshot and is not: it is what a machine with no credential, or one
+    // waiting out a fault's cooldown, both look like from the route fields.
+    let signalling =
+        super::stream_route_lane::lane_fields(&store.direct, worker_fp.unwrap_or_default());
     json!({
         "active": active,
         "candidate": candidate,
-        "peer_phase": null,
-        "fallback_reason": null,
-        "failure_detail": null,
+        "peer_phase": signalling.peer_phase,
+        "fallback_reason": signalling.fallback_reason,
+        "failure_detail": signalling.failure_detail,
         "input_phase": lane.map(|lane| input_phase(lane.phase)),
         "pending_input_count": store.input.outstanding(session_id).len(),
     })

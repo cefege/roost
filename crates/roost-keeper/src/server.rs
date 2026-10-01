@@ -7,27 +7,34 @@
 //! after: a listener that exists for a moment with default permissions is a
 //! window, and a window on a PTY control socket is a shell.
 
-use std::io::Read;
+use crate::keeper::Keeper;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use crate::codec::{CodecError, FrameDecoder, MuxFrame, StreamEvent};
-use crate::input_queue::ConnectionWriter;
-use crate::keeper::Keeper;
+mod connection;
 
-/// The longest a single read waits before the loop re-checks its stop flag.
+/// How often the server drains PTY output, AND the longest a single read waits
+/// before the loop comes back round to do it.
 ///
-/// A long block would make shutdown take this long. Short enough that a stop
-/// is prompt, long enough that an idle keeper is not spinning.
-const READ_POLL: std::time::Duration = std::time::Duration::from_millis(100);
-
-/// How often the server drains PTY output even when no frame arrived.
+/// ONE constant, because they are the same number. They used to be two:
+/// `READ_POLL` at 100 ms and `OUTPUT_TICK` at 16 ms, and the loop blocked in
+/// `read()` for the first and THEN slept the second — so a program writing
+/// continuously had its output drained once per 116 ms, not once per 16 ms,
+/// while the comment above it claimed the tick was "what makes the terminal
+/// live". Measured against a real keeper over a real socket, a shell printing
+/// 40 lines ten milliseconds apart arrived four lines per 120 ms.
 ///
-/// Output does not arrive as a request: a program writes to its PTY whenever it
-/// likes, so a purely request-driven server would show nothing until the user
-/// typed. The tick is what makes the terminal live.
+/// The two were coupled by accident: `READ_POLL` existed so a stop flag is
+/// re-checked promptly, and 16 ms checks it more promptly than 100 ms did.
+/// Reading for the tick also removes the sleep, because the timeout is already
+/// the pacing.
+///
+/// It is not only latency. A cell frame is built per PTY chunk, so the chunk
+/// rate is the frame rate, and `DRAIN_LIMIT_BYTES` is 16 KiB per tick: at
+/// 116 ms a four-megabyte flood took half a minute to land, during which the
+/// pane could time out. `crates/roost-worker/src/keeper_pool/dispatch.rs`
+/// documented "the keeper's own output tick is 16ms" — false until now.
 const OUTPUT_TICK: std::time::Duration = std::time::Duration::from_millis(16);
 
 /// The largest single read. A worker sending a burst of frames is bounded by
@@ -262,124 +269,6 @@ impl Server {
     /// instead of racing the daemon's accept loop.
     pub fn accept_one(&mut self) -> Option<UnixStream> {
         self.listener.accept().ok().map(|(stream, _)| stream)
-    }
-
-    /// A payload the keeper cannot frame: logged with its cause, and reported
-    /// as the end of a connection that can no longer carry correct output.
-    fn unframeable(err: CodecError) -> ConnectionEnd {
-        tracing::error!("keeper: a payload could not be framed: {err}");
-        ConnectionEnd::UnframeablePayload
-    }
-
-    /// Serve a single connection to completion, reporting why it ended. Its one writer is
-    /// shared with every input lane; detaching drops what the departed connection left unstarted.
-    pub fn serve_one(&mut self, stream: UnixStream) -> ConnectionEnd {
-        let _ = stream.set_read_timeout(Some(READ_POLL));
-        let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(5)));
-        let Ok(writer) = ConnectionWriter::for_stream(&stream).map(Arc::new) else {
-            return ConnectionEnd::WorkerUnreachable;
-        };
-        let sink: Arc<ConnectionWriter> = Arc::clone(&writer);
-        self.keeper.attach_input_results(sink);
-        let end = self.serve_frames(stream, &writer);
-        self.keeper.detach_input_results();
-        end
-    }
-
-    fn serve_frames(&mut self, mut stream: UnixStream, writer: &ConnectionWriter) -> ConnectionEnd {
-        let mut decoder = FrameDecoder::new();
-        let mut buffer = vec![0u8; READ_BUFFER_BYTES];
-        let mut stopping = false;
-
-        loop {
-            // The tick first, so output flows even while nothing is arriving.
-            // A request-driven loop would show nothing until the user typed.
-            let output = match self.keeper.drain_output(DRAIN_LIMIT_BYTES) {
-                Ok(output) => output,
-                Err(err) => return Self::unframeable(err),
-            };
-            if writer.write_frames(&output).is_err() {
-                return ConnectionEnd::WorkerUnreachable;
-            }
-            for exit in match self.keeper.reap_exited() {
-                Ok(exits) => exits,
-                Err(err) => return Self::unframeable(err),
-            } {
-                if writer.write_frames(&[exit]).is_err() {
-                    return ConnectionEnd::WorkerUnreachable;
-                }
-            }
-
-            let read = match stream.read(&mut buffer) {
-                Ok(0) => return ConnectionEnd::ClientDisconnected,
-                Ok(read) => read,
-                Err(err)
-                    if matches!(
-                        err.kind(),
-                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                    ) =>
-                {
-                    std::thread::sleep(OUTPUT_TICK);
-                    continue;
-                }
-                Err(_) => return ConnectionEnd::ClientDisconnected,
-            };
-
-            for event in decoder.push(&buffer[..read]) {
-                match event {
-                    StreamEvent::Frame {
-                        frame_type,
-                        channel_id,
-                        payload,
-                        ..
-                    } => {
-                        let Some(frame_type) = frame_type else {
-                            // A tag this build predates. The length was already
-                            // read, so skipping it is safe, and skipping is
-                            // better than dropping a connection over a frame the
-                            // client will simply not send again.
-                            continue;
-                        };
-                        let frame = MuxFrame {
-                            frame_type,
-                            channel_id,
-                            payload,
-                        };
-                        let replies = self.keeper.handle(&frame);
-                        if writer.write_frames(&replies).is_err() {
-                            return ConnectionEnd::WorkerUnreachable;
-                        }
-                        match frame.frame_type {
-                            crate::codec::MuxFrameType::Shutdown => {
-                                stopping = true;
-                            }
-                            crate::codec::MuxFrameType::ShutdownIfEmpty => {
-                                // The answer is what decides, not the request:
-                                // a refusal means the keeper stays up, and
-                                // acting on the request instead would retire a
-                                // keeper that is holding live PTYs.
-                                let refused = replies.iter().any(|reply| {
-                                    reply.frame_type
-                                        == crate::codec::MuxFrameType::ShutdownIfEmptyReject
-                                });
-                                return if refused {
-                                    ConnectionEnd::ShutdownIfEmptyRefused
-                                } else {
-                                    ConnectionEnd::ShutdownIfEmptyAccepted
-                                };
-                            }
-                            _ => {}
-                        }
-                    }
-                    // The stream violated the protocol. There is no safe
-                    // resynchronisation point, so the connection ends.
-                    StreamEvent::Failed(_) => return ConnectionEnd::ProtocolViolation,
-                }
-            }
-            if stopping {
-                return ConnectionEnd::ShutdownRequestedWithChannels;
-            }
-        }
     }
 }
 

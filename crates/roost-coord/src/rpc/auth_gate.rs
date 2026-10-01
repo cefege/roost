@@ -23,6 +23,7 @@ use connectrpc::interceptor::{
 };
 use connectrpc::{ConnectError, ErrorCode, RequestContext};
 
+use crate::auth::principal::{AUTH_LAYER_DEVICE, AUTH_LAYER_HEADER};
 use crate::coord_core::{Caller, CoordCore, ListenerTrust};
 use crate::rpc::method_route::{AuthRequirement, auth_requirement};
 use crate::rpc::service::{permission_denied_for, principal_satisfies};
@@ -112,10 +113,7 @@ impl AuthGate {
             if matches!(requirement, AuthRequirement::Public) {
                 return Ok(());
             }
-            return Err(ConnectError::new(
-                ErrorCode::Unauthenticated,
-                format!("{method} requires a credential"),
-            ));
+            return Err(credential_refusal(method, requirement));
         };
 
         if !principal_satisfies(Some(&authenticated.principal), requirement) {
@@ -141,6 +139,34 @@ impl AuthGate {
         context.extensions_mut().insert(caller);
         Ok(())
     }
+}
+
+/// The refusal for a method whose requirement no credential on this request
+/// satisfied.
+///
+/// `Unauthenticated` is v2's code and the marker is what makes it actionable:
+/// a browser that reads `device` on a method it needs a device key for shows
+/// the pairing page, and one that reads an unmarked `Unauthenticated` has
+/// nothing to act on but a retry. The bootstrap probe that decides which of
+/// the two a cold page is looking at classifies on the marker and nothing
+/// else (`roost-client-core/src/client/rpc/auth_failure.rs:70`), so an
+/// unmarked answer here left every unpaired browser on its checking screen
+/// for as long as the coordinator ran.
+fn credential_refusal(method: &str, requirement: AuthRequirement) -> ConnectError {
+    let mut error = ConnectError::new(
+        ErrorCode::Unauthenticated,
+        format!("{method} requires a credential"),
+    );
+    if requirement.admits_browser_key() {
+        // `axum::http` is the same `http` 1.x connectrpc's `HeaderMap` is
+        // built on, so naming the types costs no second type universe -- the
+        // note `permission_denied_for` already carries.
+        error.response_headers_mut().insert(
+            axum::http::HeaderName::from_static(AUTH_LAYER_HEADER),
+            axum::http::HeaderValue::from_static(AUTH_LAYER_DEVICE),
+        );
+    }
+    error
 }
 
 /// The operator-facing reason for a refusal.

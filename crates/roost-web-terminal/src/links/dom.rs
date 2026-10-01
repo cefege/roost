@@ -12,7 +12,9 @@ use std::rc::{Rc, Weak};
 use js_sys::{Array, Function};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
-use web_sys::{Document, Element, Event, KeyboardEvent, MouseEvent, MutationObserver};
+use web_sys::{
+    Document, Element, Event, EventTarget, KeyboardEvent, MouseEvent, MutationObserver, Window,
+};
 
 use super::TerminalLinkOptions;
 use super::activation::LinkActivationGesture;
@@ -57,7 +59,9 @@ impl LinkCallbacks {
             .collect();
         let frame = |callback: FrameCallback| -> Closure<dyn FnMut(f64)> {
             let links = links.clone();
-            Closure::new(move |_: f64| with_links(&links, |links| links.frame_fired(callback)))
+            Closure::new(move |_: f64| {
+                with_links(&links, |links| links.frame_fired(callback));
+            })
         };
         let idle_links = links.clone();
         let mutation_links = links.clone();
@@ -67,7 +71,7 @@ impl LinkCallbacks {
             scan_frame: frame(FrameCallback::Scan),
             activation_frame: frame(FrameCallback::ActivationScan),
             idle_scan: Closure::new(move || {
-                with_links(&idle_links, TerminalLinks::idle_scan_fired)
+                with_links(&idle_links, TerminalLinks::idle_scan_fired);
             }),
             mutations: Closure::new(move |records: Array, _: MutationObserver| {
                 with_links(&mutation_links, |links| {
@@ -88,10 +92,53 @@ impl LinkCallbacks {
     }
 }
 
+/// What one attachment installed on the browser, and the only way back out.
+///
+/// It is held OUTSIDE `SharedLinks` on purpose. A re-entrant link callback holds
+/// that borrow, and a teardown that lost it would leave registrations pointing
+/// at closures `SharedLinks` is about to free.
+struct BrowserRegistrations {
+    callbacks: Rc<LinkCallbacks>,
+    observer: Option<MutationObserver>,
+    window: Window,
+    container: Element,
+    document: Document,
+}
+
+impl BrowserRegistrations {
+    /// Remove every registration this attachment made, and need no state
+    /// borrow to do it: the targets come from the listener itself, and
+    /// removing a callback that was never added is a no-op the browser
+    /// already defines. Unconditional by construction, not by state.
+    fn unregister(&self) {
+        for listener in LinkListener::ALL {
+            let Some(callback) = self.callbacks.listener(listener) else {
+                continue;
+            };
+            let target: &EventTarget = if listener.on_window() {
+                self.window.as_ref()
+            } else {
+                self.container.as_ref()
+            };
+            let _ = target.remove_event_listener_with_callback(listener.event_type(), callback);
+        }
+        if let Some(observer) = &self.observer {
+            observer.disconnect();
+        }
+        let _ = self.document.remove_event_listener_with_callback(
+            "visibilitychange",
+            self.callbacks.visibility.as_ref().unchecked_ref(),
+        );
+    }
+}
+
 /// One pane's terminal-link attachment in the browser: v2 `attachTerminalLinks`.
 /// Dropping it disposes it, which releases every listener it installed.
 pub struct TerminalLinkAttachment {
     links: Rc<SharedLinks>,
+    /// Taken by the first teardown, so a second one is a no-op by
+    /// construction rather than by a borrow it might lose.
+    live: Option<BrowserRegistrations>,
 }
 
 impl std::fmt::Debug for TerminalLinkAttachment {
@@ -111,21 +158,29 @@ impl TerminalLinkAttachment {
             return None;
         };
         inject_link_stylesheet_once(&document);
+        let mut live = None;
         let links = Rc::new_cyclic(|weak: &Weak<SharedLinks>| {
-            let callbacks = LinkCallbacks::new(weak);
+            let callbacks = Rc::new(LinkCallbacks::new(weak));
             let observer = MutationObserver::new(callbacks.mutations.as_ref().unchecked_ref()).ok();
             let host = WebLinkHost {
                 container: container.clone(),
-                window,
-                document,
-                callbacks,
-                observer,
+                window: window.clone(),
+                document: document.clone(),
+                callbacks: Rc::clone(&callbacks),
+                observer: observer.clone(),
                 hint: RefCell::new(None),
             };
+            live = Some(BrowserRegistrations {
+                callbacks,
+                observer,
+                window,
+                container: container.clone(),
+                document,
+            });
             RefCell::new(TerminalLinks::attach(host, options))
         });
         tracing::info!(target: "terminal_links", "terminal links attached");
-        Some(Self { links })
+        Some(Self { links, live })
     }
 
     /// Foreground (`true`) or withdraw (`false`) the pane's link work.
@@ -154,12 +209,34 @@ impl TerminalLinkAttachment {
     }
 
     /// Tear down for good: listeners, observer, queued scans and the hint.
-    pub fn dispose(&self) {
-        self.with_links(TerminalLinks::dispose);
+    ///
+    /// Taking `live` is what makes a second call a no-op BY CONSTRUCTION
+    /// rather than by a borrow it might lose. The listener, observer and
+    /// visibility removals run first because none of them needs the state
+    /// borrow: a teardown that lost that borrow to a re-entrant callback must
+    /// still not leave registrations pointing at closures about to be freed.
+    /// The state machine runs last because it is what cancels the scanner's
+    /// queued frames, and a frame the browser still holds cannot be cancelled
+    /// from out here — so when that borrow is unavailable the callbacks are
+    /// leaked instead. Every one of them upgrades a `Weak<SharedLinks>` that
+    /// is by then gone, so a leaked closure does nothing where a freed one is
+    /// a trap.
+    pub fn dispose(&mut self) {
+        let Some(live) = self.live.take() else {
+            return;
+        };
+        live.unregister();
+        if self.with_links(TerminalLinks::dispose) {
+            return;
+        }
+        tracing::warn!(target: "terminal_links",
+            "a re-entrant teardown could not cancel the link scanner's queued frames; \
+             its callbacks are leaked rather than freed under them");
+        std::mem::forget(live);
     }
 
-    fn with_links(&self, act: impl FnOnce(&mut TerminalLinks<WebLinkHost>)) {
-        with_links(&Rc::downgrade(&self.links), act);
+    fn with_links(&self, act: impl FnOnce(&mut TerminalLinks<WebLinkHost>)) -> bool {
+        with_links(&Rc::downgrade(&self.links), act)
     }
 }
 
@@ -172,15 +249,20 @@ impl Drop for TerminalLinkAttachment {
 /// Run `act` on the attachment unless it is gone or already running: a
 /// callback that fires while another holds it (an `on_open_file` that
 /// synchronously re-enters) is dropped with a warning rather than aliased.
-fn with_links(links: &Weak<SharedLinks>, act: impl FnOnce(&mut TerminalLinks<WebLinkHost>)) {
+/// False when it could not run, which is the one thing `dispose` acts on.
+fn with_links(
+    links: &Weak<SharedLinks>,
+    act: impl FnOnce(&mut TerminalLinks<WebLinkHost>),
+) -> bool {
     let Some(links) = links.upgrade() else {
-        return;
+        return false;
     };
     let Ok(mut links) = links.try_borrow_mut() else {
         tracing::warn!(target: "terminal_links", "a re-entrant terminal link callback was dropped");
-        return;
+        return false;
     };
     act(&mut links);
+    true
 }
 
 /// Read one DOM event: its key, its button and modifier LEVELS (all false for

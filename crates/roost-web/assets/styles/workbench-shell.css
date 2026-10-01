@@ -186,7 +186,9 @@
      place, and one repainting in place duplicates rows into history — so a soft
      keyboard moves the region and never changes the terminal's row count. The
      explicit opt-in to resizing instead is the keyboard-resize preference, and
-     that reader has no `data-keyboard-shift` at all. */
+     that reader has no `data-keyboard-shift` at all. The attribute is the
+     predicate for the whole behaviour: it does NOT drop while the composer is
+     active, because an active composer is what opened the keyboard. */
   transform: translateY(calc(var(--kb-offset) * -1));
   transition: transform var(--md-sys-motion-duration-medium1) var(--md-sys-motion-easing-emphasized);
 }
@@ -195,8 +197,36 @@
    composer is mounted right now, because a row that appears and disappears with
    the composer is a row the terminal's height changes with. */
 .workbench-shell[data-compact="true"] .workbench-editor-region[data-keyboard-shift="true"] {
-  --term-chat-growth: 0;
+  --term-chat-growth: 0px;
   padding-bottom: calc(var(--term-chat-rest-height) + var(--term-chat-dock-rest-offset));
+}
+
+/* A transformed ancestor is the containing block for every `position: fixed`
+   descendant, and this dock has two of them above it: the deck's growth
+   translate and the keyboard shift. Its own offsets would then resolve against
+   the DECK — whose bottom edge is already one reserved row above the
+   viewport's — so the dock would rest a whole row too low, the terminal's
+   bottom edge would never meet the composer's top, and the notification dock's
+   lift (measured from the viewport) would clear a composer that is not there.
+   v2 escaped this with a <Portal> to <body>; cancelling both translations
+   restores that anchoring from where the dock is rendered. The reserve is the
+   same expression the region pads with, and the two translations are the ones
+   it applies. */
+.workbench-editor-region[data-keyboard-shift="true"]
+  .term-chat__dock[data-placement="viewport"] {
+  translate: 0 calc(
+    var(--term-chat-rest-height)
+    + var(--term-chat-dock-rest-offset)
+    + var(--kb-offset, 0px)
+    + var(--term-chat-growth, 0px)
+  );
+}
+
+/* The keyboard-resize opt-out reserves no row and translates nothing, so the
+   only offset left to cancel is the keyboard inset the shell's own height has
+   already absorbed. */
+.term-chat__dock[data-placement="viewport"] {
+  translate: 0 var(--kb-offset, 0px);
 }
 
 .workbench-editor-slot {

@@ -299,10 +299,14 @@ impl<Q: TerminalPeerPacketQuota> TerminalPeerPacketAssembler<Q> {
         if self.last_completed_message_id == u32::MAX {
             return Err(TerminalPeerPacketError::MessageIdWrap);
         }
-        if packet.header.message_id != self.last_completed_message_id + 1
-            || packet.header.offset_bytes != 0
-        {
+        if packet.header.message_id != self.last_completed_message_id + 1 {
             return Err(TerminalPeerPacketError::MessageId);
+        }
+        // A first fragment that arrives partway into a message it never began
+        // is a lost sequence on an ordered lane, not a wrong message id, and
+        // the two retire a peer differently.
+        if packet.header.offset_bytes != 0 {
+            return Err(TerminalPeerPacketError::FragmentOrder);
         }
         let total_bytes = packet.header.total_bytes as usize;
         if packet.payload.len() == total_bytes {

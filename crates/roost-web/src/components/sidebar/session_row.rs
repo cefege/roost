@@ -21,6 +21,7 @@ use super::session_row_context_menu::SessionRowContextMenu;
 use super::session_row_flat::{SessionRowFacts, SessionRowFlat};
 use crate::components::md::list_row::is_in_app_navigation_click;
 use crate::components::md::{IconButton, IconButtonSize};
+use crate::components::notifications::notify_target::{ring_attribute, use_notify_target};
 use crate::platform::BrowserWorkerPaths;
 use crate::platform::worker_paths::short_worker_path;
 use crate::pump::{Pump, use_store};
@@ -51,6 +52,10 @@ pub fn session_row_is_active(path: &str, session_id: &str, channel: u32) -> bool
 pub fn SessionRow(session_id: String, cursor: bool) -> Element {
     let pump = use_store();
     let path = use_location();
+    let notify_target = use_notify_target();
+    let ringing = notify_target
+        .as_ref()
+        .and_then(|target| ring_attribute(target, &session_id));
     let navigate = use_navigate();
     let now_ms = use_rel_time_now();
     let mut swipe = use_signal(RowSwipe::default);
@@ -155,6 +160,7 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
                 "data-cursor": cursor.then_some("on"),
                 "data-density": "flat",
                 "data-swiping": tracking.then_some("1"),
+                "data-notify-target": ringing,
                 style: "padding-left: var(--md-space-3); --avatar-bg: {facts.avatar}; \
                         transform: translateX({offset}px); transition: {transition};",
                 title: "{facts.title} — {facts.flat.cwd} — right-click for actions",

@@ -266,6 +266,21 @@ impl PairingSession {
         Ok(())
     }
 
+    /// Record that the coordinator already has this request.
+    ///
+    /// The one create answer this method is not for: a ceremony restored from
+    /// this tab's record whose re-create comes back `FailedPrecondition`,
+    /// because the coordinator is refusing to create a row that already exists.
+    /// The refusal IS the acknowledgement, and without this a restored
+    /// ceremony after a reload could never poll itself out of `Created`
+    /// (`onboarding-pairing-ceremony.ts:221-226`).
+    pub fn mark_acknowledged(&mut self) {
+        if self.stage == PairStage::Created {
+            self.stage = PairStage::Acknowledged;
+            tracing::info!(target: "auth", "auth.pair_create_recovered");
+        }
+    }
+
     /// The `PairPoll` body, or `None` before the coordinator has the request.
     pub fn poll_request(&self) -> Option<PairPollRequest> {
         if !matches!(

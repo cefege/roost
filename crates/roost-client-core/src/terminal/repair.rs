@@ -10,12 +10,13 @@
 //! and `sendLatchedTerminalResync`; the reasons are in
 //! `docs/phase4-client-contract.md` §6.5.
 //!
-//! The escalation past a re-request is deliberately NOT here. v2's proof
-//! challenge ladder and the coordinator's two-attempt `requestFreshStream`
-//! escalation are authority-side (`docs/FAILURE-INDEX.md:1085` is explicit that
-//! the coordinator is the only party that knows which stream it expects). A
-//! client-side escalation would give the client an opinion about a stream it did
-//! not mint.
+//! The escalation past a re-request is not here. It is `liveness`: the proof
+//! challenge and the deadline that escalates it belong to the client, because
+//! the question they answer is "did the lane answer me", and the coordinator's
+//! two-attempt `requestFreshStream` escalation stays authority-side
+//! (`docs/FAILURE-INDEX.md:1085` is explicit that the coordinator is the only
+//! party that knows which stream it expects). A client-side opinion about a
+//! stream it did not mint is what that escalation would be.
 
 use roost_protocol::viewport::TERMINAL_VIEW_HEARTBEAT_MS;
 

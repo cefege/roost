@@ -48,6 +48,15 @@ pub enum TransferState {
     Dedup,
     /// Failed, with the reason. Stays until the user closes it.
     Failed,
+    /// The bytes left the browser and nothing settled them: the write MAY have
+    /// been committed, and the client cannot tell.
+    ///
+    /// The one state v2 has no name for, and the one a card must never paper
+    /// over with `Failed`. A rejected write left nothing behind, so re-sending
+    /// it is free; an ambiguous write may already be on the worker, so
+    /// re-sending it is a doubled upload. Only the user can resolve which one
+    /// this was, which is why the state is terminal AND does not self-dismiss.
+    Ambiguous,
 }
 
 impl TransferState {
@@ -61,13 +70,17 @@ impl TransferState {
             Self::Done => "ok",
             Self::Dedup => "dedup",
             Self::Failed => "err",
+            Self::Ambiguous => "ambiguous",
         }
     }
 
     /// Whether the card is settled: neither a progress tick nor a later
     /// transition applies to it. Only a fresh card for the same id replaces it.
     pub const fn is_terminal(self) -> bool {
-        matches!(self, Self::Done | Self::Dedup | Self::Failed)
+        matches!(
+            self,
+            Self::Done | Self::Dedup | Self::Failed | Self::Ambiguous
+        )
     }
 
     /// Whether `next` may follow this state.
@@ -86,21 +99,21 @@ impl TransferState {
                     | Self::Done
                     | Self::Dedup
                     | Self::Failed
+                    | Self::Ambiguous
             ),
-            Self::Hashing => {
-                matches!(
-                    next,
-                    Self::Running | Self::Dedup | Self::Done | Self::Failed
-                )
-            }
-            Self::Running => {
-                matches!(
-                    next,
-                    Self::Stalled | Self::Done | Self::Dedup | Self::Failed
-                )
-            }
-            Self::Stalled => matches!(next, Self::Running | Self::Done | Self::Failed),
-            Self::Done | Self::Dedup | Self::Failed => false,
+            Self::Hashing => matches!(
+                next,
+                Self::Running | Self::Dedup | Self::Done | Self::Failed | Self::Ambiguous
+            ),
+            Self::Running => matches!(
+                next,
+                Self::Stalled | Self::Done | Self::Dedup | Self::Failed | Self::Ambiguous
+            ),
+            Self::Stalled => matches!(
+                next,
+                Self::Running | Self::Done | Self::Failed | Self::Ambiguous
+            ),
+            Self::Done | Self::Dedup | Self::Failed | Self::Ambiguous => false,
         }
     }
 
@@ -111,7 +124,9 @@ impl TransferState {
     /// claims. v2 draws the line the same way (`transfers.ts:89-98`): a
     /// successful or deduplicated card dismisses itself, and an ERROR card
     /// stays until the user closes it, because the failure text is the thing the
-    /// user needs to read.
+    /// user needs to read. An AMBIGUOUS card stays for the same reason and one
+    /// more: the decision it asks for is the user's, and a card that removed
+    /// itself would take that decision away.
     pub const fn self_dismisses(self) -> bool {
         matches!(self, Self::Done | Self::Dedup)
     }

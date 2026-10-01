@@ -22,8 +22,8 @@ use roost_client_core::client::local::grants::GrantOwner;
 use roost_client_core::client::local::outbound::{SyncTerminalState, destination_for_session};
 use roost_client_core::client::local::{GrantRefresh, GrantSessionFact};
 use roost_client_core::{
-    DirectCarrier, PromotionCandidate, RouteRegistry, TerminalSession, TerminalToken,
-    TerminalTransport,
+    DirectCarrier, PromotionCandidate, ProspectiveView, RouteRegistry, TerminalSession,
+    TerminalToken, TerminalTransport, ViewIntent,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -50,7 +50,7 @@ fn registry_with_a_loopback_route() -> (RouteRegistry, TerminalToken) {
         token: token.clone(),
         granted_sessions: BTreeSet::from(["session-a".to_string()]),
     };
-    assert!(registry.register(carrier));
+    assert!(registry.register(carrier).accepted);
     let mut replica = TerminalSession::new("session-a", "worker-a");
     replica.bind_generation(&token);
     let candidate = PromotionCandidate {
@@ -59,6 +59,17 @@ fn registry_with_a_loopback_route() -> (RouteRegistry, TerminalToken) {
         token: token.clone(),
         attempt_id: 1,
         baseline_ready: true,
+        prospective_views: BTreeMap::from([(
+            "view-1".to_string(),
+            ProspectiveView {
+                wire_view_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
+                source_intent: ViewIntent::Publish { cols: 80, rows: 24 },
+                source_revision: 1,
+                candidate_revision: 2,
+                acknowledged: true,
+            },
+        )]),
+        staged_at_ms: 0,
     };
     assert!(registry.stage(candidate, replica));
     assert!(registry.promote("session-a", 1, &token).is_ok());

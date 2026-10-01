@@ -283,11 +283,15 @@ impl ScreenHub {
                     stream_id,
                     source,
                 } => {
-                    if self.still_watching(&watcher, &session_id) {
+                    if !self.still_watching(&watcher, &session_id) {
+                        tracing::warn!(session_id = %session_id, stream_id, socket_id = %watcher.socket_id, "terminal.screen_seed_skipped: the socket stopped watching mid fan-out");
+                        continue;
+                    }
+                    let served =
                         watcher
                             .sink
                             .replace_terminal_snapshot(&session_id, &stream_id, source);
-                    }
+                    tracing::info!(session_id = %session_id, stream_id, socket_id = %watcher.socket_id, served, "terminal.screen_seed");
                 }
                 ScreenEffect::Delta {
                     watcher,

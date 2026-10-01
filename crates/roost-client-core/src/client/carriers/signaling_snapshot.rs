@@ -7,11 +7,73 @@
 
 use std::collections::BTreeSet;
 
+use crate::client::carriers::faults::FallbackReason;
+use crate::client::carriers::grant::GrantPhase;
 use crate::client::carriers::loopback::LoopbackProbe;
 use crate::client::carriers::signaling::Signalling;
 use crate::client::carriers::transport_trait::PeerSignalling;
-use crate::client::carriers::{CarrierEffect, PeerPhase, SignallingInput, SignallingSnapshot};
+use crate::client::carriers::{CarrierEffect, CarrierEnvironment, PeerPhase, SignallingInput};
 use crate::terminal::token::TerminalTransport;
+
+/// Which kind of ICE candidate a live peer is paired on, as the route
+/// diagnostic spells it.
+///
+/// `None` is a real value rather than an absence: a loopback route has no
+/// candidate and a Sync route has no carrier at all, and a reader that cannot
+/// tell those two apart from a peer whose candidate has not been read yet is
+/// reading a number that means three things.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CandidateType {
+    /// No peer, so no candidate.
+    #[default]
+    None,
+    /// A host address, the LAN case.
+    Host,
+    /// A server-reflexive address, discovered through STUN.
+    Srflx,
+    /// A peer-reflexive address, which only a successful pairing produces.
+    Prflx,
+}
+
+impl CandidateType {
+    /// The spelling v2's route entry uses, and the one a reader compares.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Host => "host",
+            Self::Srflx => "srflx",
+            Self::Prflx => "prflx",
+        }
+    }
+}
+
+/// What the transport measured about the live peer behind a route.
+///
+/// Every field is an `Option` or a `None` variant because a MEASUREMENT is not a
+/// constant: a peer that has not authenticated has no round trip, a browser
+/// that exposes no stats has no buffer count, and a zero in either place would
+/// be a number a reader could not tell from a real one.
+///
+/// The transport writes it and nothing else does, and it is a projection
+/// rather than state the machine steps on — a measurement that could move a
+/// phase would be a second input the machine's ordering would have to know
+/// about.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PeerTelemetry {
+    /// The browser-allocated id of the live negotiation, when there is one.
+    pub peer_id: Option<String>,
+    /// Which kind of candidate the selected pair is.
+    pub candidate_type: CandidateType,
+    /// How long since the last probe was answered, when probes are running.
+    pub probe_age_ms: Option<u64>,
+    /// The peer's current round trip.
+    pub rtt_ms: Option<u64>,
+    /// The round trip on the worker's CONTROL lane specifically, which is not
+    /// the data lane's and is the number a keystroke's latency is made of.
+    pub worker_control_rtt_ms: Option<u64>,
+    /// What the transport is holding for this peer and cannot write yet.
+    pub buffered_bytes: Option<u64>,
+}
 
 impl Signalling {
     /// The gate that decides whether a peer is needed, and this machine's one
@@ -29,8 +91,23 @@ impl Signalling {
     pub fn phase(&self) -> PeerPhase {
         self.phase
     }
-}
 
+    /// Replace the environment every gate in `start` reads.
+    ///
+    /// A setter rather than a constructor argument because both halves of it
+    /// move while the machine lives: the document's WebRTC availability is
+    /// fixed, but the peer count is not, and a machine that read the count once
+    /// would enforce a cap frozen at the moment it was built.
+    pub fn set_environment(&mut self, env: CarrierEnvironment) {
+        self.env = env;
+    }
+
+    /// Record what the transport measured. Never moves a phase — see
+    /// `PeerTelemetry`.
+    pub fn set_telemetry(&mut self, telemetry: PeerTelemetry) {
+        self.telemetry = telemetry;
+    }
+}
 impl PeerSignalling for Signalling {
     fn worker_fp(&self) -> &str {
         &self.worker_fp
@@ -48,7 +125,16 @@ impl PeerSignalling for Signalling {
             peers_allocated: self.env.peers_allocated,
             grant_phase: self.grant.phase(),
             sync_generation: self.env.sync_generation,
-            last_failure_detail: self.faults.last_detail.clone(),
+            // The grant's own refusal is a reason the carrier never opened, and
+            // the most common one there is; a reader shown only the fault's
+            // detail sees `None` on a session that is waiting out a
+            // thirty-second retry, and calls it healthy.
+            last_failure_detail: self
+                .faults
+                .last_detail
+                .clone()
+                .or_else(|| self.grant.last_detail().map(str::to_string)),
+            telemetry: self.telemetry.clone(),
         }
     }
 
@@ -58,5 +144,56 @@ impl PeerSignalling for Signalling {
 
     fn step(&mut self, input: SignallingInput) -> Vec<CarrierEffect> {
         Signalling::step(self, input)
+    }
+}
+
+/// What a host can see about one worker's direct-carrier attempt.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SignallingSnapshot {
+    /// Which worker.
+    pub worker_fp: String,
+    /// Where the attempt is.
+    pub phase: PeerPhase,
+    /// The coarse recorded reason, cleared on every successful transition.
+    pub fallback_reason: Option<FallbackReason>,
+    /// How many live views want a session on this worker.
+    pub active_views: u64,
+    /// Which sessions they want.
+    pub demanded_sessions: BTreeSet<String>,
+    /// Whether an authenticated carrier is held for this worker.
+    pub has_carrier: bool,
+    /// Which kind of carrier it is.
+    pub transport_held: Option<TerminalTransport>,
+    /// How many WebRTC peers this document holds, across every worker.
+    pub peers_allocated: u32,
+    /// Where the grant is.
+    pub grant_phase: GrantPhase,
+    /// The Sync generation this worker's sessions are fenced to. Reported and
+    /// never written: nothing here can move it, and nothing emits its teardown.
+    pub sync_generation: u64,
+    /// The host's own last failure detail, never a value that failed to match.
+    pub last_failure_detail: Option<String>,
+    /// What the transport measured about the live peer. A default on a machine
+    /// with no peer, which is a value and not a placeholder.
+    pub telemetry: PeerTelemetry,
+}
+
+impl SignallingSnapshot {
+    /// A snapshot of a worker that has attempted nothing.
+    pub fn idle(worker_fp: String) -> Self {
+        Self {
+            worker_fp,
+            phase: PeerPhase::Idle,
+            fallback_reason: None,
+            active_views: 0,
+            demanded_sessions: BTreeSet::new(),
+            has_carrier: false,
+            transport_held: None,
+            peers_allocated: 0,
+            grant_phase: GrantPhase::Absent,
+            sync_generation: 0,
+            last_failure_detail: None,
+            telemetry: PeerTelemetry::default(),
+        }
     }
 }

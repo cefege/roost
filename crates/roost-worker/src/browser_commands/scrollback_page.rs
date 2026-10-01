@@ -90,12 +90,42 @@ pub async fn execute(command: &Command, deps: &Deps) -> Result<Answered, Refusal
         ));
     };
     let description = grid.describe(session_id.clone()).await?;
+    // The window is CLAMPED, not validated, and the clamp is what the protocol
+    // promises. A reader that walks backwards from the end of the scrollback
+    // asks for `Number.MAX_SAFE_INTEGER` because it does not know the total
+    // yet — the smoke harness's retained-marker scan does exactly that — and the
+    // answer is the last page the grid holds. Narrowing to `u32` BEFORE the
+    // clamp refused that sentinel, so every "scan the whole retained
+    // scrollback" reader failed with `end_row does not fit` and never reached
+    // `page_for`, whose whole job is to answer it.
+    //
+    // So the narrowing happens against the grid's own range, where it cannot
+    // fail. A NEGATIVE index is still refused: no clamp has a meaning for it.
+    let total = description.total;
+    let end_row = match *end_row {
+        row if row < 0 => {
+            return Err(Refusal::failed(
+                "get-scrollback-cells",
+                "end_row is negative",
+            ));
+        }
+        row => u32::try_from(row.min(i64::from(total))).unwrap_or(total),
+    };
+    let max_rows = match *max_rows {
+        rows if rows < 0 => {
+            return Err(Refusal::failed(
+                "get-scrollback-cells",
+                "max_rows is negative",
+            ));
+        }
+        // Zero is NOT refused here: `page_for` owns that refusal, with its own
+        // reason, and two answers to one empty request is one too many.
+        rows => u32::try_from(rows).unwrap_or(u32::MAX),
+    };
     let request = scrollback_read::Request {
         grid_epoch: grid_epoch.clone(),
-        end_row: u32::try_from(*end_row)
-            .map_err(|_| Refusal::failed("get-scrollback-cells", "end_row does not fit"))?,
-        max_rows: u32::try_from(*max_rows)
-            .map_err(|_| Refusal::failed("get-scrollback-cells", "max_rows does not fit"))?,
+        end_row,
+        max_rows,
     };
     let page = scrollback_read::page_for(
         &request,
@@ -105,24 +135,49 @@ pub async fn execute(command: &Command, deps: &Deps) -> Result<Answered, Refusal
     )
     .map_err(|refusal| Refusal::failed("get-scrollback-cells", text(&refusal)))?;
 
-    // The window the caller ASKED for, before the ceiling and the retained
-    // floor clamped it. Comparing against this rather than against the page is
-    // what distinguishes "served everything" from "stopped at the edge".
-    let wanted_start = page.end_row.saturating_sub(request.max_rows);
+    // The window the caller ASKED for, before the retained floor clamped it, and
+    // before the PAGE CEILING — which is the half that was wrong.
+    //
+    // `page_for` clamps `max_rows` to `SCROLLBACK_MAX_ROWS_PER_PAGE` (2 000) and
+    // derives `page.start_row` from the clamped value. Re-deriving the wanted
+    // start from the RAW request asked for a window thousands of rows lower
+    // than the one about to be served, so a page that served everything and
+    // never reached the retained edge could still report `history_floor:
+    // Evicted` — which is exactly what the floor's own contract forbids, and
+    // what tells a client to stop paging at a floor it never hit. The direct
+    // reader (`local_terminal/scrollback.rs`) has always taken the window's real
+    // start row; this path now does the same.
+    //
+    // Comparing against the window rather than against the page is also what
+    // distinguishes "served everything" from "stopped at the edge".
+    let wanted_start = page.start_row;
     let history_floor = history_floor_for(&description, wanted_start);
+    let window = page.clamped_to_floor(description.retained_floor);
 
-    // The walk is synchronous against a description taken once, so a reframe
-    // cannot interleave inside it: there is no await between reading the grid
-    // and finishing the page. The epoch on the answer is what a client uses to
-    // notice a reframe that happened after this point.
-    let walk = scrollback_read::walk_page(&page, |_| true, || true);
-    let mut rows = Vec::with_capacity(page.row_count() as usize);
+    // A page's rows ARE `[start_row, end_row)`, and the walk is synchronous
+    // against a description taken once, so the two cannot disagree here. They
+    // CAN disagree about the grid: the ring keeps evicting while a saturated
+    // session is fed, so a row this window named can be gone by the time it is
+    // read. A row that reads absent STOPS the page — it is never skipped,
+    // because a skipped row is a hole the client splices over and cannot see.
+    let walk = scrollback_read::walk_page(&window, |_| true, || true);
+    let mut rows = Vec::with_capacity(window.row_count() as usize);
+    let mut served_end = window.start_row;
     for offset in walk.taken() {
-        let absolute = page.start_row + offset;
-        if let Some(row) = grid.row(session_id.clone(), absolute).await {
-            rows.push(row);
-        }
+        let absolute = window.start_row + offset;
+        let Some(row) = grid.row(session_id.clone(), absolute).await else {
+            tracing::debug!(
+                session_id = %session_id,
+                start_row = window.start_row,
+                lost_row = absolute,
+                "a scrollback page stopped at a row the grid no longer holds"
+            );
+            break;
+        };
+        rows.push(row);
+        served_end = absolute + 1;
     }
+    let page = window.with_end(served_end);
     tracing::debug!(
         session_id = %session_id,
         start_row = page.start_row,

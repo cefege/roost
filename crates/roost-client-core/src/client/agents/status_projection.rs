@@ -15,6 +15,10 @@
 //! Ported from `apps/web/src/store/agent-status.ts`. Depends on
 //! `roost_protocol::wire` and `seen`.
 
+#[path = "status_declined.rs"]
+mod status_declined;
+
+use self::status_declined::declined;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use roost_protocol::wire::agent_status::order::AgentStatusOrder;
@@ -177,12 +181,12 @@ impl AgentStatusProjection {
         update: &AgentStatusUpdate,
         seen: &AgentSeenLedger,
     ) -> Option<AgentStatusChange> {
-        if update.common.check().is_err() {
-            return None;
-        }
         let session_id = update.common.session_id.clone();
+        if update.common.check().is_err() {
+            return declined(session_id.as_str(), "the wire type refused the shape");
+        }
         if self.closed.contains(&session_id) {
-            return None;
+            return declined(session_id.as_str(), "the session is closed on this profile");
         }
         let current = self.statuses.get(&session_id).cloned();
         let order = self
@@ -190,7 +194,7 @@ impl AgentStatusProjection {
             .entry(session_id.clone())
             .or_insert_with(|| AgentStatusOrder::seeded_from(current.as_ref()));
         if !order.accepts(current.as_ref(), update) {
-            return None;
+            return declined(session_id.as_str(), "it did not advance the retained order");
         }
         order.record(update);
 

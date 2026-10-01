@@ -200,6 +200,39 @@ mod tests {
         );
     }
 
+    /// THE ORDER IS PART OF THE LINE, not a detail of how it was serialised.
+    ///
+    /// v2 wrote `JSON.stringify({ ts, level, target, msg, ...fields })` — a JS
+    /// object literal, so the keys came out in the order they were written and
+    /// `msg` sat immediately before the caller's first field. The Playwright
+    /// oracle asserts on that adjacency (`"upload_completed","carrier":"loopback"`),
+    /// and it is asserting what v2 actually printed.
+    ///
+    /// Every other test here parses the line back into a `Value` and compares,
+    /// which is order-blind by construction, so without this one the order could
+    /// be lost again the moment `serde_json`'s `preserve_order` feature is
+    /// switched off — and nothing would go red, because the keys would still all
+    /// be there in a different sequence.
+    #[test]
+    fn the_line_renders_its_keys_in_the_order_it_was_written() {
+        let clock = FixedClock::new(1_700_000_000_123, 7);
+        let line = render_line(
+            &clock,
+            tracing::Level::INFO,
+            "roost_observability::log",
+            record(
+                Some("attachment-transfer"),
+                Some("upload_completed"),
+                Some(json!({ "carrier": "loopback", "session_id": "abc" })),
+            ),
+        );
+        assert!(
+            line.contains(r#""msg":"upload_completed","carrier":"loopback""#),
+            "the message and the caller's first field are adjacent in v2's shape, \
+             and this line rendered as: {line}"
+        );
+    }
+
     #[test]
     fn a_caller_field_wins_over_the_fixed_key_it_collides_with() {
         let clock = FixedClock::new(1_700_000_000_000, 0);

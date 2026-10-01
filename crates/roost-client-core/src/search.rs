@@ -20,6 +20,8 @@ use roost_protocol::terminal_search::TERMINAL_SEARCH_MAX_ROWS;
 /// in `client::global_search`, because judging is behaviour and holding is data.
 pub mod global;
 
+pub use roost_protocol::terminal_search::SearchStop;
+
 /// One match, fenced to the grid epoch that owns its row.
 ///
 /// The epoch travels WITH the row rather than being read from the replica at

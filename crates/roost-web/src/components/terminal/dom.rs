@@ -19,15 +19,13 @@ pub fn now_ms() -> u64 {
 /// Whether the document is visible.
 #[cfg(target_arch = "wasm32")]
 pub fn page_visible() -> bool {
-    web_sys::window()
-        .and_then(|window| window.document())
-        .is_none_or(|document| !document.hidden())
+    crate::platform::visibility::page_visible()
 }
 
 /// Whether the document is visible.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn page_visible() -> bool {
-    true
+    crate::platform::visibility::page_visible()
 }
 
 /// Resolve after `delay_ms`.

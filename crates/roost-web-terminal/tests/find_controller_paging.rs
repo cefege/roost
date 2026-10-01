@@ -303,7 +303,8 @@ fn regex_and_case_flags_survive_the_paged_request_cutover() {
     assert_eq!(h.requests.len(), 1);
     let request = &h.requests[0];
     assert_eq!(request.session_id, SESSION);
-    assert_eq!(request.grid_epoch, EPOCH_A);
+    // A fresh chain pins no epoch; what this test judges is the flag cutover.
+    assert_eq!(request.grid_epoch, "");
     assert_eq!(request.query, "a.*b");
     assert!(request.case_sensitive);
     assert!(request.regex);

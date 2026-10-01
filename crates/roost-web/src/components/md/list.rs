@@ -17,13 +17,18 @@ pub enum ListLayout {
     Grid,
 }
 
+/// The class `ListLayout::Grid` paints, exported so a caller that has to FIND
+/// a live grid in the document — the browse picker's column count — reads the
+/// one name the primitive emits rather than repeating the string.
+pub const GRID_CLASS: &str = "md-list--grid";
+
 /// The list's class attribute.
 pub fn list_class(contained: bool, layout: ListLayout, class: Option<&str>) -> String {
     class_list([
         "md-list",
         if contained { "md-list--container" } else { "" },
         if layout == ListLayout::Grid {
-            "md-list--grid"
+            GRID_CLASS
         } else {
             ""
         },

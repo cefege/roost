@@ -11,6 +11,8 @@
 //! editing target only through the Selection-wide clear, and can dispatch a
 //! reveal scroll after animation callbacks. Nothing here may be reordered.
 
+use std::cell::RefCell;
+
 use web_sys::{Document, Element};
 
 use crate::cell_renderer::CellGridRenderer;
@@ -169,7 +171,7 @@ impl PaneSelection {
     /// Transition to live: drop reader holds and any pane-owned selection.
     pub fn prepare_live_interaction(
         &mut self,
-        renderer: &mut CellGridRenderer,
+        renderer: &RefCell<CellGridRenderer>,
     ) -> LiveInteractionResult {
         self.end_reader_intervals(renderer, "live_interaction")
     }
@@ -179,16 +181,24 @@ impl PaneSelection {
     /// present that stale grid on its next reveal.
     pub fn release_paint_holds(
         &mut self,
-        renderer: &mut CellGridRenderer,
+        renderer: &RefCell<CellGridRenderer>,
     ) -> LiveInteractionResult {
         self.end_reader_intervals(renderer, "release_paint_holds")
     }
 
     /// The caller still owes `release_interaction` on the link attachment and,
     /// when `anchor_changed`, the backfill pager's `on_full_frame`.
+    ///
+    /// The renderer arrives as its owning cell rather than as a `&mut` for one
+    /// reason: the Selection-wide clear at the end is a DOM write the browser
+    /// can answer with a scroll on the display, and the pane's scroll handler
+    /// takes this same borrow. The borrow is therefore opened and closed here,
+    /// around the renderer half alone, so no caller can hold it across the
+    /// write — which turns a reveal under a held selection into a borrow
+    /// panic instead of a release.
     fn end_reader_intervals(
         &mut self,
-        renderer: &mut CellGridRenderer,
+        renderer: &RefCell<CellGridRenderer>,
         cause: &'static str,
     ) -> LiveInteractionResult {
         self.guard.prepare_live_interaction();
@@ -196,12 +206,18 @@ impl PaneSelection {
         // Ownership is read BEFORE the renderer reconciles, which can detach
         // the row the selection sits in.
         let owned = self.reader.read().pane_owns_endpoint();
-        let result = renderer.prepare_live_interaction();
-        // The renderer's intent, both composed holds, the canonical frame and
-        // the bottom anchor have moved as one transition; the reveal scroll the
-        // clear triggers is bracketed until it arrives.
+        let result = {
+            let mut renderer = renderer.borrow_mut();
+            let result = renderer.prepare_live_interaction();
+            // The renderer's intent, both composed holds, the canonical frame
+            // and the bottom anchor have moved as one transition; the reveal
+            // scroll the clear triggers is bracketed until it arrives.
+            if owned {
+                renderer.begin_live_selection_release();
+            }
+            result
+        };
         if owned {
-            renderer.begin_live_selection_release();
             self.reader.clear_ranges();
         }
         tracing::debug!(target: "selection", cause, owned, "terminal selection released");

@@ -56,7 +56,9 @@ pub enum Route {
     File {
         /// The worker whose filesystem this is.
         worker_fp: String,
-        /// The path inside that filesystem.
+        /// The file's ROUTE splat, still route-encoded (no leading slash; a
+        /// Windows root is tagged `~drive/`/`~unc/`). Decode it with
+        /// `terminal_href::file_target`, which knows the worker's platform.
         path: String,
     },
     /// `/browse` or `/browse/:workerFp` — the machine and folder browser.
@@ -109,8 +111,10 @@ impl Route {
     /// Read a path, with or without its query and fragment.
     ///
     /// A trailing slash is not significant — `/help` and `/help/` are the same
-    /// page — and neither is percent-encoding, because every captured segment is
-    /// decoded before it is handed on.
+    /// page — and neither is percent-encoding, because every captured segment
+    /// is decoded before it is handed on. A route SPLAT is the exception: it is
+    /// handed on as the route wrote it, because the route codec owns its
+    /// encoding and un-encoding it here would decode it twice.
     pub fn parse(path: &str) -> Route {
         let path = path.split(['?', '#']).next().unwrap_or(path);
         let path = path.trim_end_matches('/');
@@ -152,7 +156,7 @@ impl Route {
             Some("file") => match decoded.get(1) {
                 Some(worker_fp) if decoded.len() > 2 => Route::File {
                     worker_fp: worker_fp.clone(),
-                    path: decoded[2..].join("/"),
+                    path: segments[2..].join("/"),
                 },
                 _ => Route::Unknown {
                     path: path.to_string(),
@@ -248,7 +252,12 @@ fn decode(segment: &str) -> String {
     decoded
 }
 
-fn percent_decode(value: &str) -> Option<String> {
+/// Percent-decode one value, leaving a malformed escape as it was.
+///
+/// `None` for an escape that is not two hex digits, which is the same answer
+/// [`decode`] gives a path segment: the raw text is more useful than a value
+/// that silently lost characters.
+pub fn percent_decode(value: &str) -> Option<String> {
     let bytes = value.as_bytes();
     let mut decoded = Vec::with_capacity(bytes.len());
     let mut index = 0;
@@ -262,4 +271,27 @@ fn percent_decode(value: &str) -> Option<String> {
         }
     }
     String::from_utf8(decoded).ok()
+}
+
+/// Percent-encode one query-string value, keeping it inside the grammar.
+///
+/// The inverse of [`percent_decode`], and the reason a query belongs to this
+/// module: `/search?q=a%26b` has to read back as the text `a&b`, and a value
+/// written raw would split into two parameters. Only the characters that would
+/// change a parameter's meaning are escaped, so an ordinary title stays
+/// legible in the address bar.
+pub fn percent_encode(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.as_bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(char::from(*byte));
+            }
+            other => {
+                use std::fmt::Write as _;
+                let _ = write!(encoded, "%{other:02X}");
+            }
+        }
+    }
+    encoded
 }

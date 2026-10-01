@@ -17,6 +17,7 @@ use crate::event::ClientEvent;
 use crate::handle_event::handle_event;
 use crate::platform::{Clock, KeyValueStore, MemoryClock, MemoryKeyValueStore};
 use crate::store::Store;
+use crate::store::prefs::PrefDefaults;
 use crate::sync::SyncState;
 
 /// The client, as a host holds it.
@@ -61,7 +62,16 @@ impl ClientCore {
     /// threads would mean a lock — which is a second source of truth for state
     /// that has exactly one writer, the host's event loop. A host that runs the
     /// core on a runtime task confines it to that task and sends results outward.
-    pub fn new(clock: Rc<dyn Clock>, storage: Rc<dyn KeyValueStore>, tab_id: &str) -> Self {
+    ///
+    /// `defaults` is what the DEVICE wants before the reader has chosen
+    /// anything — a television three metres away, a phone in a hand. The store
+    /// records it; the host decides it.
+    pub fn new(
+        clock: Rc<dyn Clock>,
+        storage: Rc<dyn KeyValueStore>,
+        tab_id: &str,
+        defaults: &PrefDefaults,
+    ) -> Self {
         let sync = SyncState::new(storage.as_ref());
         let mut store = Store::new(sync, tab_id);
         // Loaded here for the same reason the recovery cursor is: a ledger this
@@ -72,6 +82,12 @@ impl ClientCore {
         store.sidebar = crate::store::sidebar::SidebarState::load(storage.as_ref());
         store.deck = crate::deck::DeckState::restore(storage.as_ref(), clock.now_ms());
         crate::store::ui::load_ui(&mut store, storage.as_ref());
+        crate::store::terminal_nav_pad::load_terminal_nav_pad(&mut store, storage.as_ref());
+        // Preferences are a WRITE-ONLY path without this. `set_term_font_px`
+        // and the flag setters persist through `storage`, so a tab that never
+        // read them back starts every boot at the device defaults and a
+        // reader's zoom is gone by the next reload.
+        crate::store::prefs::load_prefs(&mut store, storage.as_ref(), defaults);
         Self {
             store,
             clock,
@@ -91,6 +107,7 @@ impl ClientCore {
             Rc::new(MemoryClock::new()),
             Rc::new(MemoryKeyValueStore::new()),
             tab_id,
+            &PrefDefaults::default(),
         )
     }
 
@@ -123,6 +140,29 @@ impl ClientCore {
     /// The host's clock, so a host can read the same instant `handle` did.
     pub fn clock(&self) -> &dyn Clock {
         self.clock.as_ref()
+    }
+
+    /// What this document's direct carriers can do, as the host sees it.
+    ///
+    /// The host owns both answers and the core owns neither: whether a
+    /// document can construct a peer is a fact about the browser, and how many
+    /// peers it currently holds is a fact about live objects the host owns. The
+    /// Sync generation is read from the store rather than passed, because it is
+    /// the one input here the core already knows and a second copy of it is a
+    /// number that could disagree.
+    ///
+    /// Safe to call whenever either changes; it refreshes every machine's
+    /// environment, and a machine with no demand is unaffected.
+    pub fn set_carrier_environment(
+        &mut self,
+        peer_transport_available: bool,
+        peers_allocated: u32,
+    ) {
+        let sync_generation = self.store.sync.link_generation().unwrap_or(0);
+        self.store
+            .direct
+            .set_environment(peer_transport_available, sync_generation);
+        self.store.direct.note_peers_allocated(peers_allocated);
     }
 
     /// The host's storage, so a host can perform a `PersistWatermark` effect.

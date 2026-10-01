@@ -24,9 +24,9 @@ use crate::handle_sync::{
     close_failed_sync_link, handle_direct_frame, handle_rpc_result, handle_sync_frame,
 };
 use crate::handle_terminal::{
-    ViewOpen, handle_carrier_lost, handle_carrier_ready, handle_search_page, handle_view_closed,
-    handle_view_hidden, handle_view_opened, handle_view_resized, handle_view_state,
-    handle_worker_retired,
+    MintedViewId, ViewOpen, handle_carrier_authenticated, handle_carrier_lost, handle_search_page,
+    handle_view_closed, handle_view_hidden, handle_view_id_minted, handle_view_opened,
+    handle_view_resized, handle_view_state, handle_worker_retired,
 };
 use crate::platform::{Clock, KeyValueStore};
 use crate::store::Store;
@@ -150,17 +150,35 @@ pub fn handle_event(
             session_id,
             view_id,
         } => {
-            handle_view_hidden(store, session_id, view_id, out);
+            handle_view_hidden(store, session_id, view_id, host_now_ms, out);
         }
         ClientEvent::ViewClosed {
             session_id,
             view_id,
         } => {
-            handle_view_closed(store, session_id, view_id, out);
+            handle_view_closed(store, session_id, view_id, host_now_ms, out);
         }
         ClientEvent::ViewStateReceived { state, .. } => {
             handle_view_state(store, state, host_now_ms, out);
         }
+        ClientEvent::TerminalViewIdMinted {
+            session_id,
+            attempt_id,
+            logical_view_id,
+            target,
+            wire_view_id,
+        } => handle_view_id_minted(
+            store,
+            MintedViewId {
+                session_id,
+                attempt_id: *attempt_id,
+                logical_view_id,
+                target: *target,
+                wire_view_id: wire_view_id.as_deref(),
+            },
+            host_now_ms,
+            out,
+        ),
 
         // ---- terminal input ---------------------------------------------------
         ClientEvent::TerminalInput {
@@ -183,11 +201,37 @@ pub fn handle_event(
         } => crate::handle_input::handle_input_result(store, session_id, *input_seq, outcome),
 
         // ---- carriers ---------------------------------------------------------
-        ClientEvent::CarrierReady(carrier) => handle_carrier_ready(store, carrier),
+        ClientEvent::CarrierReady(carrier) => {
+            handle_carrier_authenticated(store, carrier, host_now_ms, out);
+        }
         ClientEvent::CarrierLost { connection_id } => {
             handle_carrier_lost(store, connection_id, out);
         }
         ClientEvent::WorkerRetired { worker_fp } => handle_worker_retired(store, worker_fp, out),
+        ClientEvent::LocalDoorAnswered {
+            worker_fp,
+            serving_worker_fp,
+        } => {
+            store
+                .direct
+                .local_door_answered(worker_fp, serving_worker_fp, out);
+        }
+        ClientEvent::DirectGrantMinted { grant } => {
+            store.direct.grant_minted(grant.clone(), out);
+        }
+        ClientEvent::DirectGrantRefused { worker_fp, reason } => {
+            store
+                .direct
+                .grant_refused(worker_fp, host_now_ms, reason, out);
+        }
+        ClientEvent::CarrierTransportObserved {
+            worker_fp,
+            observation,
+        } => {
+            store
+                .direct
+                .transport_observed(worker_fp, observation.clone(), out);
+        }
 
         // ---- find paging ------------------------------------------------------
         ClientEvent::SearchPageReceived {

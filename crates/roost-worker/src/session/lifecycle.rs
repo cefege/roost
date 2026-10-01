@@ -179,7 +179,6 @@ impl SessionManager {
     ) -> &Arc<crate::terminal_core_capacity::TerminalCoreCapacity> {
         &self.core_capacity
     }
-
     /// Register an owner to be told when a session this worker held ends.
     pub fn on_session_closed(&self, hook: super::closed_hooks::SessionClosedHook) {
         self.closed_hooks.register(hook);

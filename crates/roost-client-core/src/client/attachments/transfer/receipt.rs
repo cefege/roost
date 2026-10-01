@@ -19,6 +19,28 @@ pub struct AttachmentTransferStatus {
     pub error: String,
 }
 
+impl AttachmentTransferStatus {
+    /// The wire status this receipt reads, field for field.
+    ///
+    /// Both spellings exist because the receipt is a client-side judgement and
+    /// the wire message is a coordinator contract; folding here keeps every
+    /// caller of `settle_from_receipt` free of a proto dependency, and gives
+    /// one place where a field added to one and not the other becomes a
+    /// compile error instead of a silently-defaulted field.
+    #[must_use]
+    pub fn from_proto(status: roost_proto::AttachmentTransferStatus) -> Self {
+        Self {
+            upload_id: status.upload_id,
+            next_seq: status.next_seq,
+            bytes_received: status.bytes_received,
+            last_chunk_sha256: status.last_chunk_sha256,
+            committed: status.committed,
+            abs_path: status.abs_path,
+            error: status.error,
+        }
+    }
+}
+
 /// Which route a receipt came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReceiptSource {

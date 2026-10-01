@@ -36,8 +36,11 @@ pub mod session_naming;
 #[cfg(feature = "smoke")]
 pub mod smoke;
 pub mod syntax_lite;
+pub mod terminal_file_link;
 pub mod terminal_href;
 pub mod theme;
+pub mod ui_bridge;
+pub mod voice;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -72,8 +75,25 @@ pub fn install_tracing() {
         }
     }
 
+    // This crate names an explicit target on every event — `carriers`, `door`,
+    // `auth`, `terminal`, 34 of them — and an `EnvFilter` directive matches a
+    // target by prefix. `roost_web=info` therefore enabled info for the crate
+    // ROOT and nothing else, and every named target fell to the bare `warn`
+    // default and was dropped: the browser emitted no carrier, door or sync
+    // line at all, which is what made a page-side stop unnameable.
+    //
+    // A smoke build is the diagnostic build — the same feature that installs
+    // the `__smoke` backdoor, and one a release build does not enable — so it
+    // gets the permissive default. A release build keeps `warn`, because there
+    // the only reader is an operator reading a console. `RUST_LOG` overrides
+    // both, which is how a developer narrows this back down.
+    let default = if cfg!(feature = "smoke") {
+        "info"
+    } else {
+        "warn"
+    };
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("roost_web=info,warn"));
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(default));
     // `without_time`: the default timer reads `SystemTime::now()`, which panics
     // on wasm32-unknown-unknown, so the first event that passed the filter
     // aborted the tab (`RuntimeError: unreachable`). The console stamps lines.
@@ -136,9 +156,21 @@ pub fn App() -> Element {
 /// No tab id yet: the pump claims one per document (`platform::tab_id`) before
 /// its first transport, so a duplicated tab cannot share its sibling's.
 fn build_core() -> ClientCore {
+    let storage = platform::LocalStorageKeyValueStore::new();
+    // A television three metres from the sofa cannot read a 14 px cell, and
+    // the size has to be decided HERE: the core is built before the app root
+    // exists, and the first pane measures against the store it hands over.
+    let defaults = roost_client_core::store::prefs::PrefDefaults {
+        term_font_px: if crate::input_nav::device_tv_mode_active(&storage) {
+            roost_client_core::store::prefs::terminal_font::TERMINAL_FONT_TV_DEFAULT_PX
+        } else {
+            roost_client_core::store::prefs::terminal_font::TERMINAL_FONT_DEFAULT_PX
+        },
+    };
     ClientCore::new(
         Rc::new(platform::BrowserClock::new()),
-        Rc::new(platform::LocalStorageKeyValueStore::new()),
+        Rc::new(storage),
         "",
+        &defaults,
     )
 }

@@ -37,6 +37,10 @@ pub const SESSION: &str = "11111111-1111-4111-8111-111111111111";
 pub const CHANNEL: u32 = 7;
 pub const START_MS: u64 = 1_000;
 
+/// The worker's own words for a refused stream request, so a test can tell
+/// the verdict the worker published from one it invented.
+pub const INVALID_REQUEST_REASON: &str = "this worker refused the stream request";
+
 pub fn device() -> String {
     "a".repeat(64)
 }
@@ -87,8 +91,11 @@ pub enum Outcome {
     /// The resize boundary trapped: the stream is installed but its core is
     /// not provable, as v2's fake keeper `trapResizeSeqs` produces.
     CoreFailed,
+    /// The stream transaction refused the request itself. Nothing this worker
+    /// asks for can produce it, so it is the verdict a protocol violation
+    /// earns: fail-closed, and repairable by nothing but a new participant.
+    InvalidRequest,
 }
-
 /// The stream the session layer last installed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Installed {
@@ -97,13 +104,15 @@ pub struct Installed {
     pub rows: u32,
     pub core_valid: bool,
 }
-
 #[derive(Default)]
 struct FakeInner {
     installed: Option<Installed>,
     script: VecDeque<Outcome>,
     sinks: BTreeMap<String, Arc<dyn CellSink>>,
     snapshots: Vec<String>,
+    /// Every stream generation the owner asked the session layer for, in
+    /// order: the count is what distinguishes one desire from a retry loop.
+    applies: Vec<String>,
 }
 
 /// The session layer, scripted: an apply installs the stream and ships its
@@ -139,6 +148,13 @@ impl FakeSessions {
         held(&self.inner).sinks.contains_key(sink_id)
     }
 
+    /// Every stream the owner drove, in order. A redrive is one more entry, so
+    /// "this event redrove nothing" is an assertion about this list and not
+    /// about what the scripted answer was.
+    pub fn applies(&self) -> Vec<String> {
+        held(&self.inner).applies.clone()
+    }
+
     pub fn snapshots(&self) -> Vec<String> {
         held(&self.inner).snapshots.clone()
     }
@@ -163,12 +179,15 @@ impl ViewSessionPort for FakeSessions {
             .pop_front()
             .unwrap_or(Outcome::Commit);
         let core_valid = matches!(outcome, Outcome::Commit);
-        held(&self.inner).installed = Some(Installed {
+        let mut inner = held(&self.inner);
+        inner.applies.push(intent.stream_id.clone());
+        inner.installed = Some(Installed {
             stream_id: intent.stream_id.clone(),
             cols: intent.cols,
             rows: intent.rows,
             core_valid,
         });
+        drop(inner);
         let result = match outcome {
             Outcome::Commit => {
                 self.ship_full(&intent.stream_id);
@@ -190,6 +209,16 @@ impl ViewSessionPort for FakeSessions {
                 failure: TerminalStreamFailureKind::CoreFailed,
                 reason: "the resize boundary could not be proven".to_owned(),
                 phase: TerminalWritePhase::Written,
+            },
+            Outcome::InvalidRequest => WorkerStreamResult::Rejected {
+                stream_id: intent.stream_id,
+                enabled: intent.enabled,
+                cols: intent.cols,
+                rows: intent.rows,
+                channel_resize_seq: 0,
+                failure: TerminalStreamFailureKind::InvalidRequest,
+                reason: INVALID_REQUEST_REASON.to_owned(),
+                phase: TerminalWritePhase::PreWrite,
             },
         };
         Box::pin(async move { result })
@@ -220,140 +249,8 @@ impl ViewSessionPort for FakeSessions {
     }
 }
 
-/// Everything one local socket observed, in the order the owner produced it,
-/// so "state before cells" is checked as an order and not as two counters.
-#[derive(Debug, Default)]
-pub struct RecordedSocket {
-    pub states: Mutex<Vec<TerminalViewStateFrame>>,
-    pub order: Mutex<Vec<String>>,
-    pub overflows: AtomicU64,
-    pub expiries: AtomicU64,
-}
-
-impl RecordedSocket {
-    pub fn states(&self) -> Vec<TerminalViewStateFrame> {
-        held(&self.states).clone()
-    }
-
-    pub fn order(&self) -> Vec<String> {
-        held(&self.order).clone()
-    }
-
-    /// Every stream generation the owner told this socket about, in order.
-    pub fn accepted_stream_ids(&self) -> Vec<String> {
-        self.states()
-            .into_iter()
-            .filter(|frame| frame.status.as_known() == Some(TerminalViewStatus::Accepted))
-            .map(|frame| frame.stream_id)
-            .collect()
-    }
-}
-
-impl LocalViewTransport for RecordedSocket {
-    fn send_view_state(&self, frame: TerminalViewStateFrame) {
-        let status = frame.status.as_known();
-        held(&self.order).push(format!("state:{}:{status:?}", frame.stream_id));
-        held(&self.states).push(frame);
-    }
-
-    fn send_cell_frame(
-        &self,
-        _channel_id: ChannelId,
-        frame: &CellGridFrame,
-        _timings: FrameTimings,
-    ) -> CellSinkResult {
-        held(&self.order).push(format!("cell:{}", frame.stream_id));
-        CellSinkResult::Sent
-    }
-
-    fn send_snapshot_part(
-        &self,
-        _channel_id: ChannelId,
-        _part: &CellGridSnapshotPart,
-        _timings: FrameTimings,
-    ) -> CellSinkResult {
-        held(&self.order).push("chunk".to_owned());
-        CellSinkResult::Sent
-    }
-
-    fn on_overflow(&self) {
-        self.overflows.fetch_add(1, Ordering::SeqCst);
-    }
-
-    fn on_view_expired(&self) {
-        self.expiries.fetch_add(1, Ordering::SeqCst);
-    }
-}
-
-/// One owner over the scripted session layer and a real uplink.
-pub struct Fixture {
-    pub owner: Arc<TerminalViewOwner>,
-    pub sessions: Arc<FakeSessions>,
-    clock: Arc<ManualClock>,
-    upstream: UplinkReceiver,
-    pub relayed: Vec<(String, TerminalViewStateFrame)>,
-    pub projections: Vec<WTerminalViewProjection>,
-}
-
-impl Fixture {
-    pub fn new(outcomes: &[Outcome]) -> Self {
-        let (uplink, upstream) = channel();
-        let sessions = Arc::new(FakeSessions::scripted(outcomes));
-        let clock = Arc::new(ManualClock(AtomicU64::new(START_MS)));
-        let owner = TerminalViewOwner::new(TerminalViewOwnerDeps {
-            sessions: Arc::clone(&sessions) as Arc<dyn ViewSessionPort>,
-            uplink,
-            clock: Arc::clone(&clock) as Arc<dyn EventClock>,
-            runtime: tokio::runtime::Handle::current(),
-        });
-        Self {
-            owner,
-            sessions,
-            clock,
-            upstream,
-            relayed: Vec::new(),
-            projections: Vec::new(),
-        }
-    }
-
-    pub fn advance(&self, ms: u64) {
-        self.clock.0.fetch_add(ms, Ordering::SeqCst);
-    }
-
-    /// Let every spawned apply completion and projection flush run, then
-    /// collect what reached the link.
-    pub async fn settle(&mut self) {
-        for _ in 0..64 {
-            tokio::task::yield_now().await;
-        }
-        while let Some(frame) = self.upstream.try_recv() {
-            match frame {
-                CoordWorkerUpstream::TerminalViewState(state) => {
-                    let frame = state.frame.as_option().cloned().unwrap_or_default();
-                    self.relayed.push((state.socket_id, frame));
-                }
-                CoordWorkerUpstream::TerminalViewProjection(projection) => {
-                    self.projections.push(projection)
-                }
-                other => panic!("unexpected upstream frame {}", other.kind()),
-            }
-        }
-    }
-
-    pub fn local_socket(&self, socket_id: &str, tab_id: &str) -> Arc<RecordedSocket> {
-        let recorded = Arc::new(RecordedSocket::default());
-        self.owner.register_local(LocalViewRegistration {
-            socket_id: socket_id.to_owned(),
-            device_fingerprint: device(),
-            tab_id: tab_id.to_owned(),
-            allows_session: Arc::new(|session_id| session_id == SESSION),
-            transport: Arc::clone(&recorded) as Arc<dyn LocalViewTransport>,
-        });
-        recorded
-    }
-}
-
-fn full_frame(stream_id: &str) -> CellGridFrame {
+/// The complete full the scripted session layer installs, as a keeper would emit it.
+pub fn full_frame(stream_id: &str) -> CellGridFrame {
     CellGridFrame {
         stream_id: stream_id.to_owned(),
         grid_epoch: "epoch-1".to_owned(),
@@ -378,3 +275,7 @@ fn full_frame(stream_id: &str) -> CellGridFrame {
         seq: 1,
     }
 }
+
+mod socket;
+
+pub use socket::Fixture;

@@ -27,7 +27,7 @@
 //! connection that is about to be gone.
 //! Ports v2 `apps/worker/src/transport/coord-link-keeper-update.ts`, `apps/worker/src/session/session-channel-creation-gate.ts`, `apps/worker/src/session/session-control-lanes.ts`, `apps/worker/src/session/session-terminal-txn.ts`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
@@ -161,12 +161,18 @@ impl ControlLanes {
         }
         let lane = self.lane(channel_id, &self.admission);
         lane.waiting.fetch_add(1, Ordering::AcqRel);
+        // THE ORDER IS TAKEN HERE, WHERE IT IS STILL KNOWN. `admit` runs in
+        // receive order on the task reading the socket, so this is the only
+        // moment the order of the writes is observable at all.
+        let (turn, cancelled, holds) = lock(&lane.order).enqueue();
         tracing::debug!(
             channel_id = ?channel_id,
             kind = kind.as_str(),
             "a keeper write asked for the write-ordering lane"
         );
-        Admission::Granted(AdmissionTicket::new(channel_id, kind, lane))
+        Admission::Granted(AdmissionTicket::new(
+            channel_id, kind, lane, turn, cancelled, holds,
+        ))
     }
 
     /// Record that a keeper replacement is prepared, or that it is not.
@@ -269,6 +275,10 @@ pub(super) struct Lane {
     /// The report index of the writer holding it, zero when idle.
     pub(super) running: AtomicU32,
     pub(super) running_since: AtomicU64,
+    /// The write-ordering queue, in ADMIT order. The semaphore above serves the
+    /// CONTROL lane, which is mutual exclusion and does not care who runs next;
+    /// the admission lane needs the order itself, so it has its own.
+    pub(super) order: Mutex<AdmissionOrder>,
 }
 
 impl Default for Lane {
@@ -278,6 +288,82 @@ impl Default for Lane {
             waiting: AtomicU32::new(0),
             running: AtomicU32::new(0),
             running_since: AtomicU64::new(0),
+            order: Mutex::new(AdmissionOrder::default()),
+        }
+    }
+}
+
+/// One channel's write-ordering queue, in the order the writes were ADMITTED.
+///
+/// THIS EXISTS BECAUSE A SEMAPHORE CANNOT EXPRESS RECEIVE ORDER. The permit is
+/// FIFO in the order the awaiting tasks are POLLED, and on a multi-threaded
+/// runtime that is the scheduler's order, not the order the frames arrived in.
+/// Fast typing therefore handed the lane to groups of two to four adjacent
+/// keystrokes BACKWARDS, and every byte of each group reached the PTY in the
+/// wrong order — a transposition, which is not a loss, so it is invisible to
+/// any check that only counts what arrived.
+///
+/// So the order is kept HERE, where `admit` is, and the permit is handed to the
+/// head of this queue rather than dropped for whoever is polled next.
+#[derive(Debug, Default)]
+pub(super) struct AdmissionOrder {
+    /// Whether a writer holds the lane. An IDLE grant is a hold from the moment
+    /// it is issued, so a writer that never entered still has to hand it on.
+    held: bool,
+    /// Admitted but not yet entered, oldest first.
+    waiters: VecDeque<Waiter>,
+}
+
+/// One queued writer: the notification that is its turn, and the flag its
+/// ticket shares so a writer released BEFORE it entered is skipped rather than
+/// handed a lane it will never release — which would stall every writer behind
+/// it for good.
+#[derive(Debug)]
+struct Waiter {
+    sender: tokio::sync::oneshot::Sender<()>,
+    cancelled: Arc<AtomicBool>,
+}
+
+impl AdmissionOrder {
+    /// Take this writer's place, its notification, the flag its ticket uses to
+    /// cancel that place, and whether the lane was idle.
+    ///
+    /// An IDLE lane grants at once, so the uncontended case costs one channel
+    /// send and never a wake-up — and that grant is a HOLD, which a ticket
+    /// released before it entered still has to hand on.
+    fn enqueue(&mut self) -> (tokio::sync::oneshot::Receiver<()>, Arc<AtomicBool>, bool) {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        if !self.held {
+            self.held = true;
+            let _granted_at_once = sender.send(());
+            return (receiver, cancelled, true);
+        }
+        self.waiters.push_back(Waiter {
+            sender,
+            cancelled: Arc::clone(&cancelled),
+        });
+        (receiver, cancelled, false)
+    }
+
+    /// Mark the lane idle and wake the next writer IN QUEUE ORDER.
+    ///
+    /// A waiter whose ticket was released before it entered is SKIPPED rather
+    /// than granted: it will never write, and a grant it never releases is a
+    /// lane nobody behind it can pass.
+    pub(super) fn hand_off(&mut self) {
+        self.held = false;
+        while let Some(waiter) = self.waiters.pop_front() {
+            if waiter.cancelled.load(Ordering::Acquire) {
+                continue;
+            }
+            self.held = true;
+            // A closed channel is a dropped ticket: same answer, same reason.
+            if waiter.sender.send(()).is_err() {
+                self.held = false;
+                continue;
+            }
+            return;
         }
     }
 }

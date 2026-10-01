@@ -53,7 +53,7 @@ Windows worker adds a module here rather than changing a message.
 | `apps/worker/src/host/listening-ports.ts` | `filterWindowsListenPorts` and the `win32` branch of the port resolver | `host::ports` resolves the POSIX listeners only |
 | `apps/worker/src/agents/peer-process-id.ts` | `openWindowsQuery`, the native/WMI process-id query behind an agent's peer pid | `agents::process_tree` reads `/proc`; an agent with no readable pid reports none |
 | `apps/worker/src/agents/report-server.ts` | the named-pipe endpoint (`:73-74` refuses a UDS on Windows) | the report endpoint is a UDS under the worker data dir (first deviation above) |
-| `apps/worker/src/shell-spec.ts`, `apps/worker/src/host/histfile.ts` | the win32/PowerShell launch contract and its history file | `shell_spec::resolve`, `host::shell_spec_resolver` and `host::shell_bootstrap` are POSIX |
+| `apps/worker/src/shell-spec.ts`, `apps/worker/src/keeper/histfile.ts` | the win32/PowerShell launch contract and its history file | `shell_spec::resolve`, `host::shell_spec_resolver` and `host::shell_bootstrap` are POSIX |
 | `apps/worker/src/util/path.ts` | the Windows path forms of `canonicalSessionCwd` | `session::spawn::canonical_session_cwd` and `session::stream_scan::parse_osc7_worker_path` are POSIX |
 | `apps/worker/src/terminal/terminal-stream-scan.ts` | the Windows OSC 7 cwd forms | `session::stream_scan` reads the POSIX forms |
 | `apps/worker/src/host/config.ts`, `host-identity.ts`, `service-definition-env.ts` | the Windows service DACL and service definition | `host::identity`, `host::install` and `runtime::boot` resolve the POSIX service |

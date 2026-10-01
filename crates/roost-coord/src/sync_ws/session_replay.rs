@@ -27,7 +27,7 @@ pub const RECOVERY_HOLD_MAX_EVENTS: usize = 512;
 pub const RECOVERY_HOLD_MAX_BYTES: usize = 4 * 1024 * 1024;
 
 /// What to do with one live session event.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum LiveVerdict {
     /// Deliver it now.
     Emit,
@@ -36,13 +36,23 @@ pub enum LiveVerdict {
     Duplicate,
     /// A v2 recovery is running; the event waits for the durable interval.
     Held,
-    /// The v2 recovery gave up. The terminal domain is reset with `reason`, and
-    /// `emit` says whether this event still goes out live.
+    /// A v2 recovery gave up. The terminal domain is reset with `reason`, `emit`
+    /// says whether the event that caused the abort still goes out live, and
+    /// `held` are the live events the recovery was holding when it gave up.
+    ///
+    /// `held` exists because those events were LIVE: the client has not seen
+    /// them, and a durable log the recovery never finished reading is not
+    /// evidence that it has. Discarding them leaves a browser whose "opened" row
+    /// never arrives while its terminal replica — admitted off the same feed,
+    /// independently — keeps painting: a client showing an empty session list
+    /// beside a live terminal, with no way for the reader to tell them apart.
     Abort {
         /// The `domain_reset` reason v2 sends.
         reason: &'static str,
         /// Whether the event that caused the abort is delivered anyway.
         emit: bool,
+        /// The live events the abandoned recovery was holding, in id order.
+        held: Vec<SessionBusMessage>,
     },
 }
 
@@ -82,10 +92,11 @@ impl SessionReplay {
             return self.live_now(message.event_id.unwrap_or(0));
         }
         let Some(event_id) = message.event_id.filter(|id| *id > 0) else {
-            self.abort();
+            let held = self.abort();
             return LiveVerdict::Abort {
                 reason: "unstamped_session_event",
                 emit: false,
+                held,
             };
         };
         let estimated = estimated_bytes(message);
@@ -93,11 +104,12 @@ impl SessionReplay {
         let next_bytes = self.held_bytes - previous.unwrap_or(0) + estimated;
         let full = previous.is_none() && self.held.len() >= RECOVERY_HOLD_MAX_EVENTS;
         if full || next_bytes > RECOVERY_HOLD_MAX_BYTES {
-            self.abort();
+            let held = self.abort();
             let emit = self.live_now(event_id) == LiveVerdict::Emit;
             return LiveVerdict::Abort {
                 reason: "recovery_live_overflow",
                 emit,
+                held,
             };
         }
         self.held.insert(event_id, (message.clone(), estimated));
@@ -123,13 +135,28 @@ impl SessionReplay {
         self.aborted
     }
 
-    /// Stop recovering and drop what was held, for a recovery that failed or a
-    /// live event that overflowed it.
-    pub fn abort(&mut self) {
+    /// Stop recovering and HAND BACK what was held, for a recovery that failed
+    /// or a live event that overflowed it.
+    ///
+    /// The events are live traffic this client has not seen, so the caller
+    /// emits them. Returning rather than clearing is the whole fix: a client
+    /// that connects mid-recovery and then loses it would otherwise never learn
+    /// that its session opened, while its terminal — admitted off the same feed —
+    /// keeps painting. What the durable log already covers stays dropped, because
+    /// `finish_recovery` and `live_now` are what decide that, and neither runs
+    /// here.
+    pub fn abort(&mut self) -> Vec<SessionBusMessage> {
+        let held = std::mem::take(&mut self.held);
+        tracing::warn!(
+            event = "sync-ws",
+            action = "probe_held_released",
+            held = held.len(),
+            "an abandoned recovery released the live events it was holding"
+        );
         self.aborted = true;
         self.recovering = false;
-        self.held.clear();
         self.held_bytes = 0;
+        held.into_values().map(|(message, _)| message).collect()
     }
 
     /// The v2 recovery reached `cutoff`: hand back the held events above it,
@@ -158,6 +185,14 @@ impl SessionReplay {
     fn live_now(&mut self, event_id: u64) -> LiveVerdict {
         if event_id > 0 {
             if event_id <= self.cutoff || self.boundary.contains(&event_id) {
+                tracing::warn!(
+                    event = "sync-ws",
+                    action = "probe_live_duplicate",
+                    event_id,
+                    cutoff = self.cutoff,
+                    boundary = self.boundary.contains(&event_id),
+                    "live event dropped as duplicate: the client already has it"
+                );
                 return LiveVerdict::Duplicate;
             }
             if self.collecting_boundary {

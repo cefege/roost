@@ -114,6 +114,25 @@ impl TerminalToken {
         )
     }
 
+    /// The generation a view-state result for this token will be stamped with,
+    /// and therefore the one a published view must be awaited on.
+    ///
+    /// Two transports stamp it differently and the difference is load-bearing. A
+    /// Sync frame carries the DOMAIN generation, because that is the fence the
+    /// Sync socket has and a redial that does not bump the domain must not
+    /// invalidate every outstanding lease. A direct carrier's drain stamps the
+    /// SOCKET generation, because that is the only fence the drain knows and the
+    /// authority it is talking to is the worker rather than the coordinator.
+    /// Awaiting a direct view on the domain generation would make every answer
+    /// read as stale and the lease would expire against a worker holding it
+    /// perfectly well.
+    pub fn view_answer_generation(&self) -> u64 {
+        match self.transport {
+            TerminalTransport::Sync => self.domain_generation,
+            TerminalTransport::Loopback | TerminalTransport::Peer => self.socket_generation,
+        }
+    }
+
     /// True when this token is still the one a session is fenced to.
     pub fn matches(&self, current: Option<&TerminalToken>) -> bool {
         current.is_some_and(|other| other == self)

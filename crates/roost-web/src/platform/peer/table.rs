@@ -42,6 +42,17 @@ impl<P> PeerTable<P> {
         self.peers.get(&attempt_id)
     }
 
+    /// The live peer for an attempt, mutably, for the host recording what the
+    /// browser has since reported about it.
+    pub fn get_mut(&mut self, attempt_id: u64) -> Option<&mut P> {
+        self.peers.get_mut(&attempt_id)
+    }
+
+    /// Every open attempt id, in id order.
+    pub fn attempt_ids(&self) -> Vec<u64> {
+        self.peers.keys().copied().collect()
+    }
+
     /// Forget an attempt's peer and hand it back for teardown. `None` means it
     /// was already gone, which a fault path and a page teardown both reach.
     pub fn close(&mut self, attempt_id: u64) -> Option<P> {

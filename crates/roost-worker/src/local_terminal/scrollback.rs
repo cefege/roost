@@ -100,12 +100,7 @@ async fn read_page(
     )
     .map_err(|refusal| refusal_text(refusal).to_owned())?;
     let floor = history_floor_for(&description, window.start_row);
-    // v2 clamps the start to the retained floor, so a short page names the
-    // surviving suffix and its first absolute row.
-    let window = Page {
-        start_row: window.start_row.max(description.retained_floor),
-        ..window
-    };
+    let window = window.clamped_to_floor(description.retained_floor);
     let mut rows = Vec::new();
     let mut encoded_bytes = 0usize;
     let mut evicted = false;

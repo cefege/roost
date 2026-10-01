@@ -12,6 +12,7 @@ use roost_client_core::store::WorkerPaths;
 use roost_platform::{
     HostPlatform, decode_native_path_route, encode_native_path_route, native_path_basename,
     native_path_crumbs, native_path_dirname, native_path_identity_key, native_path_join,
+    normalize_native_path,
 };
 
 /// The path codec every browser surface hands the client core.
@@ -96,6 +97,50 @@ pub fn join_worker_path(worker_os: Option<&str>, base: &str, parts: &[&str]) -> 
     native_path_join(platform, &path_for_codec(platform, base), &borrowed).ok()
 }
 
+/// Resolve a path a process printed against the folder its terminal is sitting
+/// in (v2 `resolveWorkerPath`). `None` when the path names no file on that
+/// machine: an empty folder, a Windows drive-relative path (it depends on
+/// hidden per-drive shell state) or a spelling the codec refuses.
+///
+/// The folder is a parameter rather than a store read because the answer
+/// changes with every `cd`, and the caller that owns a terminal knows its
+/// live folder.
+pub fn resolve_worker_path(worker_os: Option<&str>, cwd: &str, raw_path: &str) -> Option<String> {
+    if cwd.is_empty() || raw_path.is_empty() {
+        return None;
+    }
+    let platform = worker_path_platform(worker_os, cwd)?;
+    let raw = path_for_codec(platform, raw_path);
+    if platform == HostPlatform::Windows {
+        if is_windows_drive_relative(&raw) {
+            return None;
+        }
+        if is_windows_drive_absolute(&raw) || is_windows_unc(&raw) {
+            return normalize_native_path(platform, &raw).ok();
+        }
+        // A rooted path without a drive is rooted on the folder's own drive.
+        if raw.starts_with('/') {
+            let drive = windows_drive_of(cwd)?;
+            return normalize_native_path(platform, &format!("{drive}{raw}")).ok();
+        }
+    } else if raw.starts_with('/') {
+        return normalize_native_path(platform, &raw).ok();
+    }
+    if raw == "~" || raw.starts_with("~/") {
+        let home = home_directory(worker_os, cwd)?;
+        return match raw.strip_prefix("~/") {
+            None => Some(home),
+            Some(relative) => native_path_join(platform, &home, &[relative]).ok(),
+        };
+    }
+    native_path_join(
+        platform,
+        &path_for_codec(platform, cwd),
+        &[raw.strip_prefix("./").unwrap_or(&raw)],
+    )
+    .ok()
+}
+
 /// The breadcrumb trail, root first; empty when the codec refuses the path.
 pub fn worker_path_crumbs(worker_os: Option<&str>, path: &str) -> Vec<WorkerPathCrumb> {
     let Some(platform) = worker_path_platform(worker_os, path) else {
@@ -171,6 +216,42 @@ fn path_for_codec(platform: HostPlatform, path: &str) -> String {
     } else {
         path.to_owned()
     }
+}
+
+/// `^[A-Za-z]:(?![\\/])`: a drive letter with no separator, whose meaning is
+/// whatever directory that drive happened to be sitting in.
+fn is_windows_drive_relative(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.len() >= 2
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && !matches!(bytes.get(2), Some(b'/' | b'\\'))
+}
+
+/// `^([A-Za-z]:)[\\/]`: the drive a Windows folder is rooted on, `None` when
+/// the folder names none and a rooted path therefore has no root to land on.
+fn windows_drive_of(cwd: &str) -> Option<String> {
+    let bytes = cwd.as_bytes();
+    let rooted = bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'/' | b'\\');
+    rooted.then(|| format!("{}:", char::from(bytes[0])))
+}
+
+/// The user home a folder's breadcrumb trail names, `None` when it names none.
+///
+/// `~` is expanded against the machine that printed it — read off its own
+/// breadcrumb trail — never against the browser's idea of a home directory.
+fn home_directory(worker_os: Option<&str>, cwd: &str) -> Option<String> {
+    let crumbs = worker_path_crumbs(worker_os, cwd);
+    let user_root = crumbs.iter().position(|crumb| {
+        let label = crumb.label.to_lowercase();
+        label == "users" || label == "home"
+    });
+    user_root
+        .and_then(|index| crumbs.get(index + 1))
+        .map(|crumb| crumb.path.clone())
 }
 
 /// `^~(?:drive|unc)(?:/|$)`.

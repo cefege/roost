@@ -210,6 +210,22 @@ impl Default for FakeGrid {
     }
 }
 
+impl FakeGrid {
+    /// A grid that has evicted `retained_floor` rows off the top and holds
+    /// `total` in all, so a reader asking below the floor can be told so.
+    ///
+    /// Separate from `default` because the eviction is the case worth
+    /// constructing deliberately: with a floor of zero every page is above it
+    /// and the floor cannot be wrong.
+    pub fn evicting(total: u32, retained_floor: u32) -> Self {
+        Self {
+            total,
+            retained_floor,
+            resize_replay_floor: 0,
+        }
+    }
+}
+
 impl RetainedGrid for FakeGrid {
     fn describe(
         &self,

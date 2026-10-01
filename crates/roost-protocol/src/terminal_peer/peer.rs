@@ -114,6 +114,11 @@ pub const TERMINAL_PEER_SCTP_MAX_CHUNKS_ON_QUEUE: usize = 2_048;
 
 // The per-lane `(high, low)` byte watermarks: the retained count that suspends
 // a backpressured lane, and the much lower one it resumes at.
+//
+// They descend by lane priority — control, terminal, history — because the
+// sender drains in that order: the lane that saturates first is the cheapest
+// lane to hold back, so a keystroke is never queued behind live output and a
+// baseline is never queued behind either.
 pub const TERMINAL_PEER_CHANNEL_WATERMARKS: TerminalPeerChannelWatermarks =
     TerminalPeerChannelWatermarks;
 
@@ -123,10 +128,43 @@ pub struct TerminalPeerChannelWatermarks;
 impl TerminalPeerChannelWatermarks {
     pub const CONTROL: (usize, usize) = (32 * 1024, 8 * 1024);
     pub const TERMINAL: (usize, usize) = (64 * 1024, 16 * 1024);
-    pub const HISTORY: (usize, usize) = (16 * 1024, 4 * 1024);
+    pub const HISTORY: (usize, usize) = (128 * 1024, 32 * 1024);
 
     pub fn for_lane(lane: TerminalPeerPacketLane) -> (usize, usize) {
         [Self::CONTROL, Self::TERMINAL, Self::HISTORY][lane as usize]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        TERMINAL_PEER_LANE_PRIORITY, TerminalPeerChannelWatermarks, TerminalPeerPacketLane,
+    };
+
+    /// Both marks descend by priority and each lane resumes below where it
+    /// suspends. The worker and the browser both read this one table, so marks
+    /// that did not descend would make the same peer backpressure differently
+    /// depending on which end noticed.
+    #[test]
+    fn the_watermarks_descend_by_the_order_the_sender_drains() {
+        for pair in TERMINAL_PEER_LANE_PRIORITY.windows(2) {
+            let (first_high, first_low) = TerminalPeerChannelWatermarks::for_lane(pair[0]);
+            let (second_high, second_low) = TerminalPeerChannelWatermarks::for_lane(pair[1]);
+            assert!(
+                first_high < second_high && first_low < second_low,
+                "{:?} must saturate below {:?}",
+                pair[0],
+                pair[1]
+            );
+        }
+        for lane in [
+            TerminalPeerPacketLane::Control,
+            TerminalPeerPacketLane::Terminal,
+            TerminalPeerPacketLane::History,
+        ] {
+            let (high, low) = TerminalPeerChannelWatermarks::for_lane(lane);
+            assert!(low < high, "{lane:?} must resume below where it suspends");
+        }
     }
 }
 

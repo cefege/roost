@@ -351,6 +351,12 @@ pub fn loopback_ready_effects(admission: &LoopbackAdmission) -> Vec<Effect> {
             command: DirectCommand::Resync {
                 session_id: session_id.clone(),
                 view_id: String::new(),
+                // The FIRST baseline of a session that has no canonical yet: an
+                // empty position is what asks for a full one, and it is the same
+                // request the Sync path makes before it holds any sequence.
+                stream_id: String::new(),
+                grid_epoch: String::new(),
+                seq: 0,
             },
         })
         .collect()

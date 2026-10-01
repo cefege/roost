@@ -62,7 +62,14 @@ pub async fn run_coord(args: &CoordArgs) -> Result<ExitCode, CommandFailure> {
 
 pub async fn run_worker(args: &WorkerArgs) -> Result<ExitCode, CommandFailure> {
     let boot = worker_boot::resolve(args)?;
-    roost_worker::serve(boot)?;
+    // NOT `roost_worker::serve`: that entry point builds and owns a runtime
+    // because it is the one a test or an embedder calls from outside one. This
+    // subcommand is already inside the CLI's, so the blocking form refuses with
+    // "serve owns its runtime" and the worker never boots — which a supervisor
+    // sees as a worker that starts, prints one line and exits. `roost_coord::serve`
+    // above is async for exactly the same reason.
+    let stop = roost_worker::runtime::stop::stop_requests_from_signals()?;
+    roost_worker::serve_until(boot, stop).await?;
     Ok(ExitCode::SUCCESS)
 }
 

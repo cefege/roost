@@ -33,13 +33,29 @@ pub struct LocalStorageKeyValueStore {
 impl LocalStorageKeyValueStore {
     /// A store over this window's `localStorage`.
     pub fn new() -> Self {
-        Self::for_window(web_sys::window())
+        Self::for_window(host_window())
     }
 
     /// A store over a named window's `localStorage`, or the stand-in.
     pub fn for_window(window: Option<Window>) -> Self {
         let storage = window
             .and_then(|window| window.local_storage().ok())
+            .flatten();
+        Self {
+            storage,
+            volatile: RefCell::new(Vec::new()),
+        }
+    }
+
+    /// A store over a named window's `sessionStorage`, or the stand-in.
+    ///
+    /// Its own constructor rather than a flag on `for_window`, because the two
+    /// are a security boundary and not a preference: the pairing credential in
+    /// `sessionStorage` has to die with the tab, and a session store pointed at
+    /// the local one would outlive it.
+    pub fn for_session_window(window: Option<Window>) -> Self {
+        let storage = window
+            .and_then(|window| window.session_storage().ok())
             .flatten();
         Self {
             storage,
@@ -57,6 +73,24 @@ impl LocalStorageKeyValueStore {
     }
 }
 
+/// The window whose storage this is.
+///
+/// `web_sys::window` PANICS off the browser rather than answering `None`, so a
+/// native host has to be told there is no window — otherwise every component
+/// that reads a stored draft takes the whole render with it, and no product
+/// component that reads one can be mounted in a test at all.
+#[cfg(target_arch = "wasm32")]
+fn host_window() -> Option<Window> {
+    web_sys::window()
+}
+
+/// A native host has no document, so it gets the same stand-in a browser that
+/// refused the property does.
+#[cfg(not(target_arch = "wasm32"))]
+fn host_window() -> Option<Window> {
+    None
+}
+
 /// `sessionStorage`, on the same terms as `LocalStorageKeyValueStore`.
 ///
 /// A separate type rather than a flag on the local one because the difference is
@@ -72,14 +106,8 @@ pub struct SessionStorageKeyValueStore {
 impl SessionStorageKeyValueStore {
     /// A store over this window's `sessionStorage`.
     pub fn new() -> Self {
-        let storage = web_sys::window()
-            .and_then(|window| window.session_storage().ok())
-            .flatten();
         Self {
-            inner: LocalStorageKeyValueStore {
-                storage,
-                volatile: RefCell::new(Vec::new()),
-            },
+            inner: LocalStorageKeyValueStore::for_session_window(host_window()),
         }
     }
 

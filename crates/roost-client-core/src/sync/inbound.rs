@@ -254,7 +254,9 @@ impl SyncFrame {
     /// `SyncState::may_apply` still consults the domain table for it. The
     /// assignment is v2's (`apps/coord/src/sync/sync-feed-frames.ts:130-165`):
     /// session-keyed metadata is terminal, registry deltas are their own
-    /// domain, and every control is `None`.
+    /// domain, and every control is `None`. The session PLANE — its snapshot
+    /// and its events — belongs to the terminal domain too, because the
+    /// terminal domain's `SessionsList` is what seeds it.
     pub const fn domain(&self) -> Option<SyncDomain> {
         match self {
             Self::DomainReset { domain, .. } => Some(*domain),
@@ -272,10 +274,17 @@ impl SyncFrame {
             Self::McpMessage { .. } => Some(SyncDomain::Mcp),
             Self::PairRequestDelta { .. } => Some(SyncDomain::Pair),
             Self::AuditRow { .. } => Some(SyncDomain::Audit),
-            Self::Subscribed { .. }
-            | Self::SessionEvent { .. }
+            // The session plane IS the terminal domain's snapshot and its live
+            // deltas. Answering `None` for them put them on the "any ready
+            // domain" arm of `may_apply`, so a session event could be folded
+            // while the terminal domain was still waiting for the very snapshot
+            // that seeds the plane — and that snapshot then replaced the plane
+            // and deleted it. Naming the domain puts them back under the gate
+            // that already exists for exactly this.
+            Self::SessionEvent { .. }
             | Self::SessionEventRejected { .. }
-            | Self::SessionsSnapshot { .. }
+            | Self::SessionsSnapshot { .. } => Some(SyncDomain::Terminal),
+            Self::Subscribed { .. }
             | Self::ViewState { .. }
             | Self::InputResult { .. }
             | Self::UiState

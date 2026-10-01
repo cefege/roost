@@ -25,12 +25,26 @@ pub struct PaneMountRequest {
     pub ui: PaneUi,
     pub pump: Pump,
     pub panes: PaneRegistry,
+    /// The router's handler, for the links this pane's terminal paints.
+    pub navigate: EventHandler<String>,
 }
 
 /// The mounted pane, if any. Cheap to clone; every clone is the same handle.
 #[derive(Clone, Default)]
 pub struct PaneHandle {
     mount: Rc<RefCell<Option<PaneMount>>>,
+}
+
+impl PartialEq for PaneHandle {
+    /// Two handles are the same handle when they share one mount cell, which is
+    /// what `Rc::ptr_eq` asks. A component's props are diffed on this, and the
+    /// only question the diff can answer about a handle is whether the pane
+    /// behind it is the same pane: there is no value to compare and no
+    /// generation, so two distinct cells are two panes however alike they
+    /// print.
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.mount, &other.mount)
+    }
 }
 
 impl std::fmt::Debug for PaneHandle {
@@ -62,6 +76,7 @@ impl PaneHandle {
                 ui: request.ui,
                 pump: request.pump,
                 panes: request.panes,
+                navigate: request.navigate,
             },
         );
         let previous = self.mount.replace(mounted);
@@ -126,6 +141,36 @@ impl PaneHandle {
     pub fn publish_viewport_now(&self) {
         self.with_mount(|mount| mount.publish_viewport_now());
     }
+
+    /// Show the find bar for this pane.
+    pub fn open_find(&self) {
+        self.with_mount(|mount| mount.open_find());
+    }
+
+    /// Hide the find bar and hand the keyboard back to the PTY.
+    pub fn close_find(&self) {
+        self.with_mount(|mount| mount.close_find());
+    }
+
+    /// Replace the find query.
+    pub fn set_find_query(&self, query: &str) {
+        self.with_mount(|mount| mount.set_find_query(query));
+    }
+
+    /// Move the active match, wrapping at both ends.
+    pub fn step_find(&self, delta: i64) {
+        self.with_mount(|mount| mount.step_find(delta));
+    }
+
+    /// Flip case sensitivity and re-search.
+    pub fn toggle_find_case(&self) {
+        self.with_mount(|mount| mount.toggle_find_case());
+    }
+
+    /// Flip regex mode and re-search.
+    pub fn toggle_find_regex(&self) {
+        self.with_mount(|mount| mount.toggle_find_regex());
+    }
 }
 
 /// Natively there is no document, so no pane is ever mounted: the type is
@@ -158,6 +203,24 @@ impl PaneMount {
         match *self {}
     }
     fn publish_viewport_now(&self) {
+        match *self {}
+    }
+    fn open_find(&self) {
+        match *self {}
+    }
+    fn close_find(&self) {
+        match *self {}
+    }
+    fn set_find_query(&self, _query: &str) {
+        match *self {}
+    }
+    fn step_find(&self, _delta: i64) {
+        match *self {}
+    }
+    fn toggle_find_case(&self) {
+        match *self {}
+    }
+    fn toggle_find_regex(&self) {
         match *self {}
     }
 }

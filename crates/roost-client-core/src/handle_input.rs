@@ -6,6 +6,11 @@
 //! easy to break by accident: once a batch has been handed to a transport, its
 //! fate is whatever the transport says, and NOTHING here ever re-sends it.
 //!
+//! The view a batch names is the PANE, and the id it puts on the wire is the one
+//! that pane's authority holds. After a promotion those differ, and a keystroke
+//! stamped with the pane's own id would be written against a handle no worker is
+//! watching — so the resolution happens here, once, on the way out.
+//!
 //! Ported from `apps/web/src/store/transport/terminal-input-router.ts`. Incident:
 //! `docs/FAILURE-INDEX.md:1503`.
 
@@ -47,27 +52,40 @@ pub fn handle_terminal_input(
         }
     };
     store.note_change();
-    // The route is the generation the session's replica is fenced to. That is the
-    // generation whose grid the keystroke belongs to, so it is the one whose
-    // authority has to accept the write.
+    // The destination is the session's ELECTED ROUTE, and failing that the Sync
+    // socket this tab is dialled on — with NO pane required.
+    //
+    // A replica only exists once a pane has opened a view over the session, so
+    // demanding one here refused every keystroke aimed at a session nobody was
+    // looking at. v2 has no such gate: `terminalInputDestinationForSession`
+    // takes the active direct route if there is one and otherwise the current
+    // Sync v2 terminal state, which is the socket's, and resolves the worker's
+    // epoch from the sessions projection beside it. Same two answers, same order.
     let Some(token) = store
         .terminal(session_id)
         .and_then(|replica| replica.generation().cloned())
+        .or_else(|| store.sync_terminal_token())
     else {
         settle_as_unsent(
             store,
             session_id,
             admitted.input_seq,
-            "terminal transport is not connected",
+            "no terminal transport is connected for this session",
         );
         return;
     };
+    let wire_view_id = view_id.and_then(|view_id| {
+        store
+            .terminal(session_id)
+            .and_then(|replica| replica.wire_view_id(view_id))
+            .map(str::to_string)
+    });
     let input_route_epoch = store.input.route_epoch_for(session_id, &token);
     store.input.mark_started(admitted.input_seq, &token);
     if token.transport == TerminalTransport::Sync {
         out.push(Effect::SendSync(SyncCommand::TerminalInput {
             session_id: session_id.to_string(),
-            view_id: view_id.map(str::to_string),
+            view_id: wire_view_id,
             input_seq: admitted.input_seq,
             bytes: admitted.bytes,
             input_route_epoch,
@@ -78,9 +96,10 @@ pub fn handle_terminal_input(
             token,
             command: DirectCommand::Input {
                 session_id: session_id.to_string(),
-                view_id: view_id.map(str::to_string),
+                view_id: wire_view_id,
                 input_seq: admitted.input_seq,
                 bytes: admitted.bytes,
+                input_route_epoch,
             },
         });
     }
@@ -170,24 +189,36 @@ pub fn retire_route(
         );
     }
 
-    // The replica repairs from Sync when there is a Sync route at all. With
-    // painted rows still up, a session with no carrier shows what it last had
-    // rather than blanking. A replica expecting no stream sends nothing: there is
-    // no stream to ask a baseline of.
-    if let Some(replica) = store.terminal(session_id) {
-        let view_id = replica.repair_view().map(|view| view.view_id.clone());
-        if let Some(view_id) = view_id
-            && let Some(position) = replica.resync_position()
-            && let Some(sync_token) = store.sync_terminal_token()
-        {
-            out.push(Effect::SendSync(SyncCommand::TerminalResync {
-                session_id: session_id.to_string(),
-                view_id,
-                stream_id: position.stream_id,
-                grid_epoch: position.grid_epoch,
-                seq: position.seq,
-                token: sync_token,
-            }));
+    match token.transport {
+        // A direct route's ids belong to the worker it died on, and the
+        // coordinator has never heard of them. What the session needs first is a
+        // set of ids the coordinator WILL accept, so the painted rows stay up and
+        // the heartbeat stops publishing a dead handle; the baseline that follows
+        // the fresh view acceptance is what repairs the stream.
+        TerminalTransport::Loopback | TerminalTransport::Peer => {
+            crate::handle_terminal::begin_sync_view_rotation(store, session_id, token, out);
+        }
+        // A Sync socket that redialled keeps its ids — the coordinator is the same
+        // authority — so the pane asks for a fresh baseline immediately rather
+        // than waiting for a heartbeat to re-establish the generation.
+        TerminalTransport::Sync => {
+            if let Some(replica) = store.terminal(session_id) {
+                let view_id = replica.repair_view().map(|view| view.wire_view_id.clone());
+                if let (Some(view_id), Some(position), Some(sync_token)) = (
+                    view_id,
+                    replica.resync_position(),
+                    store.sync_terminal_token(),
+                ) {
+                    out.push(Effect::SendSync(SyncCommand::TerminalResync {
+                        session_id: session_id.to_string(),
+                        view_id,
+                        stream_id: position.stream_id,
+                        grid_epoch: position.grid_epoch,
+                        seq: position.seq,
+                        token: sync_token,
+                    }));
+                }
+            }
         }
     }
 }

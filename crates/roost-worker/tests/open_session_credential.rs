@@ -22,7 +22,7 @@ mod support;
 
 use connectrpc::client::{ClientConfig, HttpClient};
 use roost_proto::CoordinatorServiceClient;
-use support::{Credential, Fixture};
+use support::{Credential, Fixture, SESSION_UNDER_TEST};
 
 /// A client over the fixture, exactly as the boot builds its own.
 fn client(fixture: &Fixture) -> CoordinatorServiceClient<HttpClient> {
@@ -53,6 +53,16 @@ async fn the_open_session_read_presents_this_machines_credential() {
         1,
         "the fixture publishes exactly one open row, so a read that invented or \
          dropped rows cannot pass"
+    );
+    assert_eq!(
+        open.rows[0].id, SESSION_UNDER_TEST,
+        "the fixture's row arrived, so the reference beside it is the reference for \
+         THIS row rather than for an unrelated one"
+    );
+    assert!(
+        open.references.contains_key(SESSION_UNDER_TEST),
+        "the coordinator's recovery metadata paired with the open session it belongs \
+         to; a set that does not pair is refused by the read rather than adopted"
     );
     assert_eq!(
         fixture.seen_bearer(),

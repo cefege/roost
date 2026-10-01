@@ -4,7 +4,10 @@
 //! `CoordRpc::call`. v2 call site: `apps/web/src/smoke/smokeFileTransferProbes.ts:24-33`
 //! (`coordClient.attachmentProbe`).
 
-use roost_proto::{AttachmentProbeRequest, AttachmentProbeResponse};
+use roost_proto::{
+    AttachFileChunkRequest, AttachFileChunkResponse, AttachmentProbeRequest,
+    AttachmentProbeResponse,
+};
 
 use crate::client::rpc::codec::{RpcCodecError, decode_message, encode_message};
 use crate::client::rpc::unary::UnaryMethod;
@@ -57,5 +60,54 @@ impl UnaryMethod for ProbeAttachment {
             hit: response.hit,
             abs_path: response.abs_path,
         })
+    }
+}
+
+/// `AttachFileChunk`: one chunk of an upload the coordinator relays.
+///
+/// The fallback carrier, and the only one whose bytes cross this RPC. There is
+/// no `offset` field to fill: the coordinator derives the write position from
+/// the sequence number, so a relayed chunk always appends after the bytes it
+/// has already accepted and a resumed relay can never overwrite its own head.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WriteAttachmentChunk {
+    /// The client-minted upload id, which IS the worker-side request id.
+    pub upload_id: String,
+    /// Sent on every chunk, so the coordinator resolves the worker per call.
+    pub session_id: String,
+    /// Read by the worker when it opens the temp file; later chunks ignore it.
+    pub filename: String,
+    pub short_path: bool,
+    pub data: Vec<u8>,
+    /// The final chunk, which the worker renames and answers a path for.
+    pub last: bool,
+    /// Zero-based. The worker refuses anything but the next expected one.
+    pub seq: u32,
+}
+
+impl UnaryMethod for WriteAttachmentChunk {
+    const METHOD: &'static str = "AttachFileChunk";
+    /// The committed path, and only on the final chunk; empty before that.
+    type Response = String;
+
+    fn encode_request(&self) -> Result<Vec<u8>, RpcCodecError> {
+        encode_message(
+            Self::METHOD,
+            &AttachFileChunkRequest {
+                upload_id: self.upload_id.clone(),
+                session_id: self.session_id.clone(),
+                filename: self.filename.clone(),
+                short_path: self.short_path,
+                data: self.data.clone(),
+                last: self.last,
+                seq: self.seq,
+                ..Default::default()
+            },
+        )
+    }
+
+    fn decode_response(body: &[u8]) -> Result<String, RpcCodecError> {
+        let response: AttachFileChunkResponse = decode_message(Self::METHOD, body)?;
+        Ok(response.abs_path)
     }
 }

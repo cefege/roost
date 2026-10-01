@@ -209,7 +209,11 @@ impl SyncV2Session {
         hub: &mut dyn TerminalSnapshotHub,
     ) -> CursorPump {
         match self.plan_cursor(session_id) {
-            None | Some(CursorPlan::Drained) => {
+            None => {
+                self.release_drained_cursor(session_id);
+                CursorPump::Empty
+            }
+            Some(CursorPlan::Drained) => {
                 self.release_drained_cursor(session_id);
                 CursorPump::Empty
             }

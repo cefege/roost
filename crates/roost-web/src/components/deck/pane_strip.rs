@@ -9,8 +9,10 @@ use std::collections::BTreeSet;
 use std::rc::Rc;
 
 use dioxus::prelude::*;
+use dioxus::web::WebEventExt as _;
 
 use super::deck_dom::{self, ClientBox, SizeWatch, Timeout};
+use super::pane_strip_double_press::DoublePress;
 use super::pane_strip_gesture::{StripDragOutlets, StripGesture};
 use super::pane_tab::PaneTab;
 use super::pane_tab_hover_card::PaneTabHoverCard;
@@ -48,6 +50,7 @@ pub fn PaneStrip(
     let mut hover = use_signal(|| None::<(String, ClientBox)>);
     let overflowing = use_signal(|| false);
     let mut overflow_button = use_signal(|| None::<Rc<MountedData>>);
+    let mut filler_press = use_signal(DoublePress::default);
     let timers: Rc<RefCell<Vec<Timeout>>> = use_hook(Rc::default);
     let hover_timer: Rc<RefCell<Option<Timeout>>> = use_hook(Rc::default);
     let rail_watch = use_rail_scroll(gesture, pane_id.clone(), overflowing);
@@ -195,7 +198,19 @@ pub fn PaneStrip(
                 class: "df-tab-filler workbench-pane-tab-strip__filler",
                 "data-testid": "tab-filler",
                 title: "Double-click to open a new terminal in this folder",
-                ondoubleclick: move |_| on_new_tab.call(()),
+                onpointerdown: move |event: PointerEvent| {
+                    let Some(native) = event.try_as_web_event() else {
+                        return;
+                    };
+                    if native.button() != 0 {
+                        return;
+                    }
+                    let paired = filler_press
+                        .with_mut(|press| press.press(native.time_stamp()));
+                    if paired {
+                        on_new_tab.call(());
+                    }
+                },
             }
             TerminalTransportIndicator { session_id: selected_tab.clone() }
             div { class: "workbench-pane-tab-strip__actions", role: "toolbar", "aria-label": "Terminal actions",

@@ -94,10 +94,13 @@ fn focus_search_input_next_frame() {
 }
 
 /// Whether the document is in the foreground; the age ticker pauses while not.
+///
+/// Through the platform owner rather than read here, because a raw
+/// `document.hidden` read bypasses the automation pin: the ticker would keep
+/// ticking ages on a tab the oracle has pinned hidden, and a sidebar that
+/// refreshes behind a reader who cannot see it is work nobody asked for.
 pub fn page_visible() -> bool {
-    web_sys::window()
-        .and_then(|window| window.document())
-        .is_none_or(|document| !document.hidden())
+    crate::platform::visibility::page_visible()
 }
 
 /// Resolve after `delay_ms`, for the filter debounce and the age ticker.

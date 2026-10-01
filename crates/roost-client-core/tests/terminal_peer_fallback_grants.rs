@@ -14,11 +14,12 @@
 mod terminal_peer_fallback_support;
 use roost_client_core::Effect;
 use roost_client_core::client::carriers::{
-    CarrierEffect, CarrierFault, GrantPhase, PeerSignalling, SignallingInput,
+    CarrierEffect, CarrierFault, FallbackReason, GrantInput, GrantPhase, PeerSignalling,
+    SignallingInput,
 };
 use terminal_peer_fallback_support::{
-    GRANT_TTL_MS, NOW, assert_fell_back_without_reopening_the_session, authenticating, faults,
-    peer_open, ready_with, unreadable_sdp,
+    GRANT_TTL_MS, NOW, assert_fell_back_without_reopening_the_session, authenticating, demand,
+    faults, grant, machine, peer_open, ready_with, unreadable_sdp,
 };
 
 #[test]
@@ -125,5 +126,43 @@ fn an_identity_mismatch_closes_the_attempt_and_keeps_the_grant() {
     assert!(
         !peer.snapshot().has_carrier,
         "a refused tuple stages nothing"
+    );
+}
+
+/// A worker that will not offer the carrier keeps SAYING so, across the gates.
+///
+/// `start` runs on every tick, and two of its branches only hold the attempt
+/// while something else decides: the loopback probe, and the grant lifecycle.
+/// Both used to park with no reason, so the one fact an operator can act on —
+/// this worker does not do peer carriers at all — was true for a tick and gone
+/// by the time anybody looked at it.
+#[test]
+fn a_worker_without_the_peer_capability_keeps_saying_disabled_across_the_gates() {
+    let mut peer = machine();
+    peer.step(demand());
+    peer.step(SignallingInput::LocalDoorAnswered {
+        worker_fp: String::new(),
+    });
+    let mut without_peers = grant();
+    without_peers.peer_supported = false;
+    peer.step(SignallingInput::Grant(GrantInput::Minted(without_peers)));
+    assert_eq!(
+        faults(&peer.step(demand())),
+        vec![CarrierFault::Disabled],
+        "a grant that cannot open a peer is the worker's own refusal"
+    );
+    assert_eq!(
+        peer.snapshot().fallback_reason,
+        Some(FallbackReason::Disabled)
+    );
+
+    peer.step(SignallingInput::Grant(GrantInput::Refused {
+        now_ms: NOW,
+        reason: "peer_unavailable".to_string(),
+    }));
+    assert_eq!(
+        peer.snapshot().fallback_reason,
+        Some(FallbackReason::Disabled),
+        "waiting for the next grant is not a reason to forget this one"
     );
 }

@@ -14,7 +14,20 @@ workspace = true
 # No internal crate depends on this one, so the facade builds for every target
 # (native and wasm32) without dragging an I/O stack along.
 serde = { workspace = true }
-serde_json = { workspace = true }
+# `preserve_order` is what makes a log line read the way it was written.
+# `render_line` inserts `ts`, `level`, `target`, `msg` and then the caller's
+# fields IN THAT ORDER, which is the shape v2's `JSON.stringify` of an object
+# literal produced; without the feature `serde_json::Map` is a `BTreeMap` and
+# re-sorts every key alphabetically, so the order the line was authored in is
+# thrown away at serialisation. The Playwright oracle asserts on that order
+# (`"upload_completed","carrier":"loopback"`), and it is asserting v2's real
+# output, not a quirk of it.
+#
+# Cargo unifies features across the graph, so this also makes every OTHER
+# `serde_json::Map` in the product insertion-ordered — which is the property
+# `session::retained_grid::CellRowJson` documents needing and cannot get from a
+# `BTreeMap`. It is a property of the one serialiser, not a per-crate setting.
+serde_json = { workspace = true, features = ["preserve_order"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

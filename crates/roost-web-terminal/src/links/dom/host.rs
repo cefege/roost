@@ -7,6 +7,7 @@
 mod rows;
 
 use std::cell::RefCell;
+use std::rc::Rc;
 
 use js_sys::Set;
 use wasm_bindgen::{JsCast, JsValue};
@@ -30,7 +31,9 @@ pub(super) struct WebLinkHost {
     pub(super) container: Element,
     pub(super) window: Window,
     pub(super) document: Document,
-    pub(super) callbacks: LinkCallbacks,
+    /// Shared with the attachment that owns the teardown, so unregistering a
+    /// callback never needs the state borrow a re-entrant callback holds.
+    pub(super) callbacks: Rc<LinkCallbacks>,
     pub(super) observer: Option<MutationObserver>,
     pub(super) hint: RefCell<Option<Element>>,
 }

@@ -161,6 +161,24 @@ impl CellEmitter {
         self.sync.holds.contains_key(&channel_id)
     }
 
+    /// One channel's open synchronized-output hold, for the diagnostic
+    /// snapshot. `None` is the answer for a channel with no hold, and the
+    /// snapshot reports it as "no synchronized frame is open" rather than as
+    /// a missing field.
+    pub(crate) fn sync_output_diagnostics(
+        &self,
+        channel_id: ChannelId,
+    ) -> Option<super::diagnostics::SyncOutputDiagnostics> {
+        self.sync
+            .holds
+            .get(&channel_id)
+            .map(|hold| super::diagnostics::SyncOutputDiagnostics {
+                generation: hold.generation,
+                sb_total_at_open: hold.sb_total_at_open,
+                tripped: hold.tripped,
+            })
+    }
+
     /// Whether the channel's hold has tripped a ceiling.
     pub fn sync_output_tripped(&self, channel_id: ChannelId) -> Option<bool> {
         self.sync.holds.get(&channel_id).map(|hold| hold.tripped)

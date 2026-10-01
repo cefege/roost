@@ -4,6 +4,13 @@
 //! grant never authenticates, and a request that RETURNS without a worker's
 //! acknowledgement is a REFUSAL rather than a pending state. Ported from
 //! `apps/web/src/store/transport/local-terminal-grants.ts`.
+//!
+//! The credential the lifecycle hands out, and the rule that says whether it
+//! still admits a carrier, is `grant::credential`.
+
+mod credential;
+
+pub use credential::DirectGrant;
 
 use std::collections::BTreeSet;
 
@@ -18,61 +25,6 @@ pub const GRANT_RETRY_MS: u64 = 30_000;
 
 /// How long a live grant is asked to be renewed before it expires.
 pub const GRANT_RENEW_MS: u64 = 60 * 60_000;
-
-/// One coordinator-authorized, memory-only, worker-acknowledged credential.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DirectGrant {
-    /// The coordinator's id for this grant.
-    pub grant_id: String,
-    /// The secret. It exists only in this document's memory, which is why it is
-    /// never written, never logged, and never part of a connection id.
-    pub secret: String,
-    /// The worker whose loopback door or peer this grant opens.
-    pub worker_fp: String,
-    /// The worker PROCESS the grant was minted against. Empty means the worker
-    /// reported none, and a grant without one cannot open a peer, because the
-    /// offer is bound to a process epoch.
-    pub worker_epoch: String,
-    /// The tab the grant names.
-    pub tab_id: String,
-    /// The device the grant names.
-    pub device_fingerprint: String,
-    /// The exact sessions the grant admits. Never widened after admission.
-    pub session_ids: BTreeSet<String>,
-    /// Whether the worker offers the WebRTC peer carrier at all.
-    pub peer_supported: bool,
-    /// Whether the worker implements `terminal-input-route-v1`.
-    pub input_route_supported: bool,
-    /// Opportunistic address discovery only. Empty disables it, and it is never
-    /// a relay guarantee.
-    pub stun_urls: Vec<String>,
-    /// The host's clock value at which this grant is dead. Zero is refused: an
-    /// unbounded credential is not a time-bounded one.
-    pub expires_at_ms: u64,
-}
-
-impl DirectGrant {
-    /// Whether the grant's own deadline has passed.
-    pub fn is_expired(&self, now_ms: u64) -> bool {
-        self.expires_at_ms != 0 && now_ms >= self.expires_at_ms
-    }
-
-    /// Whether this grant can open a carrier for `transport`.
-    ///
-    /// The peer path additionally requires a worker process epoch, because the
-    /// coordinator binds the offer to one
-    /// (`protocol/spec/direct-terminal.md:25`).
-    pub fn admits(&self, transport: TerminalTransport) -> bool {
-        if self.grant_id.is_empty() || self.secret.is_empty() || self.worker_fp.is_empty() {
-            return false;
-        }
-        match transport {
-            TerminalTransport::Loopback => true,
-            TerminalTransport::Peer => self.peer_supported && !self.worker_epoch.is_empty(),
-            TerminalTransport::Sync => false,
-        }
-    }
-}
 
 /// Where one worker's grant is in its lifecycle.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

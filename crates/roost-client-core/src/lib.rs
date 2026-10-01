@@ -38,7 +38,7 @@ pub mod sync;
 pub mod terminal;
 
 pub use core::ClientCore;
-pub use effect::{DirectCommand, Effect, RpcCall, RpcResult, SyncCommand};
+pub use effect::{DirectCommand, Effect, RpcCall, RpcResult, SyncCommand, ViewIdTarget};
 pub use event::ClientEvent;
 pub use handle_sync::lifecycle::TransportControl;
 pub use platform::{Clock, KeyValueStore, MemoryClock, MemoryKeyValueStore};
@@ -50,8 +50,8 @@ pub use sync::{
     SYNC_GENERATION_RETIRED_CLOSE_CODE, SyncDial, SyncDomain, SyncFrame, SyncState,
 };
 pub use terminal::{
-    Admission, DirectCarrier, FoldTarget, FrameFoldFailure, FrameFoldOutcome, HistoryRange,
-    InputOutcome, InputPhase, InputRouter, PromotionCandidate, PromotionRefusal, RouteRegistry,
-    TerminalSession, TerminalToken, TerminalTransport, TerminalView, ViewIntent,
-    ViewStateAdmission, ViewStateResult,
+    Admission, CancelledCandidate, DirectCarrier, FoldTarget, FrameFoldFailure, FrameFoldOutcome,
+    HistoryRange, InputOutcome, InputPhase, InputRouter, PromotionCandidate, PromotionRefusal,
+    ProspectiveView, RouteRegistry, TerminalSession, TerminalToken, TerminalTransport,
+    TerminalView, ViewIntent, ViewStateAdmission, ViewStateResult,
 };

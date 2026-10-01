@@ -334,7 +334,11 @@ impl DiagnosticReports for CaptureRecorder {
     /// The state report is the snapshot module's fold, not this recorder's: a
     /// second implementation here would be a second answer to it.
     fn snapshot(&self) -> Result<Snapshot, Refusal> {
-        Ok(Snapshot::of_live_channels(&self.sources.table))
+        Ok(Snapshot::of_live_sessions(
+            &self.sources.table,
+            self.sources.manager.worker_fingerprint(),
+            self.sources.manager.cells(),
+        ))
     }
 
     fn start_recording(&self, command: CaptureCommand) -> TerminalCaptureWorkerAck {

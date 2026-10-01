@@ -89,6 +89,21 @@ impl SyncV2Session {
                     pending_session_announcements,
                     ack_seq,
                 ) {
+                    tracing::info!(
+                        session_id = ?item.meta.session_id,
+                        lane = ?item.meta.lane,
+                        domain = ?domain.domain,
+                        cell_material = item.frame.is_cell_material(),
+                        view_state = item.frame.is_view_state(),
+                        announced = announced_sessions.contains(
+                            item.meta.session_id.as_deref().unwrap_or_default()
+                        ),
+                        pending_at = pending_session_announcements
+                            .get(item.meta.session_id.as_deref().unwrap_or_default())
+                            .copied(),
+                        ack_seq,
+                        "a queued sync frame is not eligible to send yet"
+                    );
                     continue;
                 }
                 heads.push((Candidate { slot, index }, item.meta.lane, item.queued_at_ms));
@@ -298,10 +313,16 @@ pub(in crate::sync_ws) fn terminal_priority_insert_index(
 /// Whether a retained frame supersedes an already-buffered one.
 ///
 /// Agent status is a current-value projection, so its retained sample IS the
-/// cutover for that session: a live status frame already buffered can never be
-/// newer than the retained one and is dropped. Every other lane keeps strict
-/// FIFO, because there the buffered frame is genuinely earlier
-/// (`sync-feed-frames.ts:368-374`).
+/// cutover for that session — but only when it is at least as NEW. Coalescing
+/// on the session alone made the FIRST report for a session the only one a
+/// hydrating client ever saw: an agent that reports continuously can put a
+/// newer status on the live link while the seed is being assembled, and that
+/// frame was dropped as "already covered by the retained one", leaving the
+/// browser showing `working` after the agent had already reported `blocked`.
+/// The agent reported a real state change and the client was never told.
+///
+/// Every other lane keeps strict FIFO, because there the buffered frame is
+/// genuinely earlier (`sync-feed-frames.ts:368-374`).
 pub(in crate::sync_ws) fn retained_supersedes_buffered(
     retained: &crate::sync_ws::retained_frame::OwnedFrame,
     buffered: &crate::sync_ws::retained_frame::OwnedFrame,
@@ -310,7 +331,25 @@ pub(in crate::sync_ws) fn retained_supersedes_buffered(
         retained.agent_status_session(),
         buffered.agent_status_session(),
     ) {
-        (Some(retained_session), Some(buffered_session)) => retained_session == buffered_session,
+        (Some(retained_session), Some(buffered_session))
+            if retained_session == buffered_session =>
+        {
+            match (
+                retained.agent_status_revision(),
+                buffered.agent_status_revision(),
+            ) {
+                // Both frames name a revision, so the comparison is total. A
+                // frame without one is not agent status and must not coalesce.
+                (Some(retained_revision), Some(buffered_revision)) => {
+                    retained_revision >= buffered_revision
+                }
+                _ => false,
+            }
+        }
         _ => false,
     }
 }
+
+#[cfg(test)]
+#[path = "send_queue_tests.rs"]
+mod tests;

@@ -13,12 +13,24 @@ use roost_client_core::store::Session;
 use roost_client_core::store::selectors::{newest_open_session_in_folder, session_folder_key};
 use roost_web_terminal::terminal_presentation::TerminalPresentationState;
 
+use super::floating_mount::{ctrl_arm_takes_focus, mounts_nav_pad, mounts_viewport_composer};
 use super::pane_handle::{PaneHandle, PaneMountRequest};
 use super::pane_registry::use_pane_registry;
 use super::pane_state::{PaneFlags, PaneUi};
+use super::terminal_find_bar::TerminalFindBar;
+use super::terminal_nav_pad::TerminalNavPad;
 use super::terminal_offline_notice::TerminalOfflineNotice;
 use super::terminal_paste_guard::TerminalPasteGuard;
 use super::terminal_startup_overlay::TerminalStartupOverlay;
+use crate::components::deck::deck_dom;
+use crate::components::layout::window_size::use_is_compact;
+use crate::components::terminal_chrome::attachment_picker::ChosenFile;
+use crate::components::terminal_chrome::composer::{ComposerPlacement, TerminalComposer};
+use crate::components::terminal_chrome::pane_geometry_dom::PaneDockHandle;
+use crate::components::terminal_chrome::short_paths::short_path_preference;
+use crate::components::terminal_chrome::upload::{UploadContext, enqueue_attachments};
+use crate::components::terminal_chrome::upload_host::DirectEnvironmentFacts;
+use crate::input_nav::modality::NavModality;
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::use_pump;
 use crate::router_state::use_navigate;
@@ -27,11 +39,17 @@ use crate::session_naming::session_title;
 
 /// What the pane reads off the store, memoised so an unrelated revision does
 /// not re-render it.
+///
+/// The drawer is a field for the same reason the title is. A read taken OUTSIDE
+/// the memo is a snapshot of whatever the last render happened to see, and a
+/// pane that does not re-render for the drawer cannot take back the fixed
+/// surfaces the drawer just covered.
 #[derive(Debug, Clone, PartialEq)]
 struct PaneStoreView {
     pending: bool,
     title: String,
     offline_sibling: Option<String>,
+    drawer_open: bool,
 }
 
 /// The pane. Props are v2's `CellTerminalProps`, snake-cased.
@@ -50,6 +68,12 @@ pub fn CellTerminal(
     let ui = PaneUi::use_pane_ui();
     let handle = use_hook(PaneHandle::default);
     let session_id = session.id.as_str().to_owned();
+    // A TV remote and a gamepad both drive DOM focus, and neither of them can
+    // put focus on a box that is not focusable — which is the whole "I can't
+    // scroll" report. Read through the context signal so a modality that
+    // switches mid-session repaints the attribute.
+    let modality = try_use_context::<Signal<NavModality>>();
+    let directional = modality.map(|modality| modality());
 
     let revision = pump.revision();
     let memo_session = session.clone();
@@ -71,6 +95,7 @@ pub fn CellTerminal(
                 Some(session.id.as_str()),
             )
             .map(|sibling| sibling.id.as_str().to_owned()),
+            drawer_open: store.ui.sidebar_open,
         }
     }));
     let view = store_view();
@@ -110,7 +135,8 @@ pub fn CellTerminal(
         flags,
         ui,
         pump: pump.clone(),
-        panes,
+        panes: panes.clone(),
+        navigate,
     };
     let on_display_mounted = move |event: MountedEvent| {
         let mut request = mount_request.clone();
@@ -129,12 +155,89 @@ pub fn CellTerminal(
     } else {
         "pan-y"
     };
-    let display_style =
-        format!("flex: 1; min-width: 0; min-height: 0; touch-action: {touch_action};");
+    // A dock that grew above its resting row pushes the terminal UP rather
+    // than shrinking it. Every PTY height change makes an inline agent TUI
+    // repaint, and one repainting in place duplicates the rows the shrink
+    // pushed into history — so this is a transform and never a height.
+    let dock = use_hook(PaneDockHandle::new);
+    let mut growth_px = use_signal(|| 0_u32);
+    let display_style = if growth_px() == 0 {
+        format!("flex: 1; min-width: 0; min-height: 0; touch-action: {touch_action};")
+    } else {
+        format!(
+            "flex: 1; min-width: 0; min-height: 0; touch-action: {touch_action}; \
+             transform: translateY(calc(var(--term-chat-pane-growth, 0px) * -1));"
+        )
+    };
+    let compact = use_is_compact();
+    let drawer_open = view.drawer_open;
+    let show_viewport_composer = mounts_viewport_composer(
+        in_layout == Some(true),
+        focused == Some(true),
+        compact,
+        drawer_open,
+        surface_visible,
+    );
+    let show_nav_pad = mounts_nav_pad(
+        in_layout == Some(true),
+        focused == Some(true),
+        compact,
+        directional.is_some_and(|modality| modality.directional_input_active()),
+        drawer_open,
+        surface_visible,
+    );
+    // The sheet REPORTS a latch change and this pane decides what it means: on
+    // a device with no pointer and no directional modality, arming a Ctrl that
+    // nothing can spend is worthless unless the terminal takes the focus back.
+    let arm_handle = handle.clone();
+    let mut arm_ctrl = ui.ctrl_armed;
+    let on_ctrl_armed = move |armed: bool| {
+        if ctrl_arm_takes_focus(
+            armed,
+            deck_dom::is_touch_device(),
+            modality.is_some_and(|modality| modality().directional_input_active()),
+        ) {
+            arm_handle.force_focus();
+        }
+        arm_ctrl.set(armed);
+    };
+    let mut arm_link = ui.link_armed;
+    let on_link_armed = move |armed: bool| arm_link.set(armed);
+    // The attach button uploads and then types the committed path into this
+    // pane's own PTY, which is the one sink a composer has: a file the user
+    // picked for THIS terminal belongs in THIS terminal.
+    let attach_handle = handle.clone();
+    let attach_pump = pump.clone();
+    let attach_session = session_id.clone();
+    let attach_worker = session.worker_fp.as_str().to_owned();
+    let on_attach = move |chosen: Vec<ChosenFile>| {
+        if chosen.is_empty() {
+            return;
+        }
+        let tab_id = {
+            let core = attach_pump.core();
+            let borrowed = core.borrow();
+            borrowed.store().tab_id.clone()
+        };
+        let device_fingerprint = attach_pump
+            .rpc()
+            .device_key()
+            .map(|key| key.fingerprint().to_owned())
+            .unwrap_or_default();
+        let context = upload_context(&attach_session, &attach_worker, tab_id, device_fingerprint);
+        let sink_handle = attach_handle.clone();
+        // A trailing space, so the next thing the user types is a new word and
+        // not an extension of the path.
+        let sink: Rc<dyn Fn(&str)> = Rc::new(move |quoted: &str| {
+            sink_handle.send_text(&format!("{quoted} "), false);
+        });
+        enqueue_attachments(&attach_pump, &context, chosen, sink);
+    };
     let retry_handle = handle.clone();
     let paste_handle = handle.clone();
     let sibling_id = view.offline_sibling.clone();
     let has_sibling = sibling_id.is_some();
+    let find_handle = handle.clone();
 
     rsx! {
         div {
@@ -151,10 +254,77 @@ pub fn CellTerminal(
                     "aria-hidden": "true",
                 }
             }
+            // ABOVE the display and INSIDE the pane, so it genuinely consumes
+            // rows: the pane's ResizeObserver re-claims the smaller viewport
+            // and the shell reflows to match. A painting pane must have truthful
+            // geometry, so compensating the height is not an option.
+            if let Some(find) = (ui.find_bar)() {
+                TerminalFindBar {
+                    state: find,
+                    on_query: {
+                        let handle = find_handle.clone();
+                        move |text: String| handle.set_find_query(&text)
+                    },
+                    on_step: {
+                        let handle = find_handle.clone();
+                        move |delta: i64| handle.step_find(delta)
+                    },
+                    on_toggle_case: {
+                        let handle = find_handle.clone();
+                        move |_| handle.toggle_find_case()
+                    },
+                    on_toggle_regex: {
+                        let handle = find_handle.clone();
+                        move |_| handle.toggle_find_regex()
+                    },
+                    on_dismiss: {
+                        let handle = find_handle.clone();
+                        move |_| handle.close_find()
+                    },
+                }
+            }
             div {
                 "data-testid": "terminal-display",
-                style: display_style,
+                tabindex: directional
+                    .is_some_and(|modality| modality.directional_input_active())
+                    .then_some("0"),
+                style: "{display_style}",
                 onmounted: on_display_mounted,
+            }
+            if show_viewport_composer {
+                TerminalComposer {
+                    session_id: session_id.clone(),
+                    handle: handle.clone(),
+                    active: surface_active,
+                    placement: ComposerPlacement::Viewport,
+                    on_attach: on_attach.clone(),
+                    read_context: Some(crate::components::terminal::cell_terminal_dictation::dictation_context(panes.clone(), session_id.as_str())),
+                }
+            }
+            if !compact {
+                // Parked desktop composers stay mounted so the display keeps
+                // the height it had: unmounting one would make the pane reflow,
+                // and a reflow here is a PTY resize.
+                TerminalComposer {
+                    session_id: session_id.clone(),
+                    handle: handle.clone(),
+                    active: in_layout == Some(true) && surface_active,
+                    placement: ComposerPlacement::Pane,
+                    growth_px: growth_px(),
+                    on_attach: on_attach.clone(),
+                    read_context: Some(crate::components::terminal::cell_terminal_dictation::dictation_context(panes.clone(), session_id.as_str())),
+                    on_measured: move |measured: u32| growth_px.set(measured),
+                    dock_handle: dock,
+                }
+            }
+            if show_nav_pad {
+                TerminalNavPad {
+                    handle: handle.clone(),
+                    ui,
+                    pump: pump.clone(),
+                    on_ctrl_armed: EventHandler::new(on_ctrl_armed),
+                    on_link_armed: EventHandler::new(on_link_armed),
+                }
             }
             if let Some(text) = (ui.pending_paste)() {
                 TerminalPasteGuard {
@@ -183,5 +353,31 @@ pub fn CellTerminal(
                 }
             }
         }
+    }
+}
+
+/// The upload context this pane's attach button drives.
+///
+/// `carrier_available` is false until a direct carrier driver reports one, so
+/// the driver falls back to the coordinator relay rather than electing a
+/// route it cannot open. The tab and device are read here, not per upload, so
+/// every file of one gesture is bound to the same identity.
+fn upload_context(
+    session_id: &str,
+    worker_fp: &str,
+    tab_id: String,
+    device_fingerprint: String,
+) -> UploadContext {
+    UploadContext {
+        session_id: session_id.to_owned(),
+        worker_fp: Some(worker_fp.to_owned()),
+        short_path: short_path_preference(),
+        environment: DirectEnvironmentFacts {
+            tab_id,
+            device_fingerprint,
+            local_door: None,
+            carrier_available: false,
+            pending_grant: Default::default(),
+        },
     }
 }

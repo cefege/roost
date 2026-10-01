@@ -4,10 +4,14 @@
 //! `RootShell` switch, and from the `.access-checking` rules in
 //! `assets/styles/workbench-shell.css`.
 //!
-//! THE GATE IS NOT THE PAIRING FLOW. Pairing is a surface with its own route
-//! and its own ceremony; this module is what a reader sees while the client has
-//! not yet been told whether this device key is trusted, and what they see when
-//! the answer is no. Both are states, not steps.
+//! THE REFUSAL IS NOT THE PAIRING PAGE. `components::pairing::PairSurface` is:
+//! the gate mounts it, so an unpaired reader at `/`, at `/settings/devices` or
+//! at `/search` finds the same working requester panel v2 shows there
+//! (`Onboarding.tsx:109-111`). What this file still owns is the checking screen
+//! and the one-line diagnosis, which the panel's own notices do not replace —
+//! they say what went wrong with a request, not why this device key was refused
+//! in the first place, and a reader whose key was REVOKED needs to hear that
+//! rather than infer it from a failed pairing.
 //!
 //! The checking screen is a spinner and a word, deliberately. A reader who
 //! arrives with a stale credential sees "Checking…" for as long as the round trip
@@ -37,10 +41,10 @@ pub fn CheckingScreen() -> Element {
 
 /// What the refusal says, and where it sends the reader.
 ///
-/// A device key this coordinator does not trust cannot be repaired from a
-/// protected page — the page is exactly what the key is not trusted to read. So
-/// the only honest action is the pairing route, and the copy says the key was
-/// refused rather than that something went wrong.
+/// The only honest action from a protected page is the pairing route, and the
+/// copy says the KEY was refused rather than that something went wrong. A
+/// device key this coordinator does not trust cannot be repaired from a page —
+/// the page is exactly what the key is not trusted to read.
 #[component]
 pub fn UnauthorizedScreen(on_navigate: EventHandler<String>) -> Element {
     let pair_path = crate::routes::Route::Pair.to_path();

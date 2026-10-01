@@ -279,6 +279,41 @@ fn closing_the_viewed_tab_lands_where_the_layout_will_paint_and_undo_restores_th
     );
 }
 
+/// THE REGRESSION, and the shape the BROWSER hits: one pane holding a rail of
+/// tabs, where a close drops a tab from the middle rather than emptying a
+/// split. `undo_one` alone un-hides the row but never consumes the deck's
+/// recorded arrangement, and `reconcile` then re-appends the session as an
+/// ORPHAN at the end of the focused pane — so the tab comes back, in the wrong
+/// place, and a reader who closed the last tab of a rail cannot find it. The
+/// undo the card raises has to restore the recorded tiling, not re-derive one.
+#[test]
+fn undoing_a_middle_tab_of_a_single_rail_puts_it_back_where_it_was() {
+    let mut core = core();
+    open_sessions(&mut core, &[1, 2, 3, 4]);
+    deck(&mut core, observed(&[1, 2, 3, 4], Some(1), false));
+    let before = stored_layout(&core);
+    assert_eq!(all_leaves(&before.root).len(), 1, "one rail, not a split");
+
+    close(&mut core, &[1, 2, 3, 4], 3, Some(1));
+    assert!(is_pending_close(core.store(), &sid(3)));
+    assert_eq!(
+        all_leaves(&stored_layout(&core).root)[0].tabs,
+        vec![sid(1), sid(2), sid(4)],
+        "the closed tab leaves the rail immediately"
+    );
+
+    deck(&mut core, DeckIntent::UndoClose { session_id: sid(3) });
+
+    assert!(!is_pending_close(core.store(), &sid(3)));
+    assert_eq!(
+        all_leaves(&stored_layout(&core).root)[0].tabs,
+        vec![sid(1), sid(2), sid(3), sid(4)],
+        "the tab returns BETWEEN its neighbours, not appended at the end of \
+         the rail — a re-derived arrangement is a tab the reader cannot find"
+    );
+    assert_eq!(stored_layout(&core), before, "the exact pre-close tiling");
+}
+
 #[test]
 fn closing_an_unviewed_tab_does_not_move_the_route_and_the_last_tab_goes_home() {
     let mut core = core();

@@ -44,6 +44,22 @@ pub const READ_FILE_CHUNK_MAX_BYTES: u64 = 2 * 1024 * 1024;
 /// The most entries one directory listing may return.
 pub const LIST_DIR_MAX_ENTRIES: usize = 200;
 
+/// One row of a listing, in the shape the coordinator decodes.
+///
+/// `isDir` is camelCase between two snake_case neighbours because that is
+/// what this link has always published for it (v2 `file-rpcs.ts:112`) and
+/// what the coordinator reads back (`handlers-attachments.ts:91`). The
+/// mismatch is invisible in one direction only: a proto `bool` whose key
+/// never arrived defaults to FALSE, so publishing `is_dir` turns every
+/// directory into a file and empties the browse page's folder grid.
+#[derive(serde::Serialize)]
+struct ListEntry {
+    name: String,
+    #[serde(rename = "isDir")]
+    is_dir: bool,
+    mtime_ms: u64,
+}
+
 /// What a file command answers with.
 pub type FileOutcome = Result<serde_json::Value, Refusal>;
 
@@ -222,7 +238,7 @@ impl Shell {
         let mut reader = tokio::fs::read_dir(&resolved)
             .await
             .map_err(|error| Refusal::failed(LIST_DIR, describe(&resolved, &error)))?;
-        let mut entries: Vec<serde_json::Value> = Vec::new();
+        let mut entries: Vec<ListEntry> = Vec::new();
         while let Some(entry) = reader
             .next_entry()
             .await
@@ -244,18 +260,17 @@ impl Shell {
                 .and_then(|meta| meta.modified().ok())
                 .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
                 .map_or(0, |since| since.as_millis() as u64);
-            entries.push(serde_json::json!({
-                "name": name,
-                "is_dir": is_dir,
-                "mtime_ms": mtime_ms,
-            }));
+            entries.push(ListEntry {
+                name,
+                is_dir,
+                mtime_ms,
+            });
         }
         entries.sort_by(|left, right| {
-            let left_dir = left["is_dir"].as_bool().unwrap_or(false);
-            let right_dir = right["is_dir"].as_bool().unwrap_or(false);
-            right_dir
-                .cmp(&left_dir)
-                .then_with(|| left["name"].as_str().cmp(&right["name"].as_str()))
+            right
+                .is_dir
+                .cmp(&left.is_dir)
+                .then_with(|| left.name.cmp(&right.name))
         });
         entries.truncate(LIST_DIR_MAX_ENTRIES);
         Ok(serde_json::json!({ "entries": entries, "resolved_path": resolved }))

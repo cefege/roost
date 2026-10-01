@@ -26,8 +26,10 @@
 //!
 //! Ported from `apps/web/src/store/transfers.ts`; the deviations are the
 //! `running` restart, a `stalled` state for a card that stopped advancing where
-//! v2 had none, `Option` in place of v2's `-1`/`0` sentinels, and deadlines as
-//! data because this crate has no timer.
+//! v2 had none, an `Ambiguous` state for a write whose acknowledgement was
+//! lost — a card v2 showed as a plain error, and which this crate must not let
+//! a reader mistake for one — `Option` in place of v2's `-1`/`0` sentinels, and
+//! deadlines as data because this crate has no timer.
 
 use crate::store::Store;
 

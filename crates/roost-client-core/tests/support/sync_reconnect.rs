@@ -48,6 +48,21 @@ pub fn open_ready_link(core: &mut ClientCore, socket_id: &str) -> u64 {
 /// [`open_ready_link`], also returning what the core emitted as the domains
 /// turned ready — where a view opened before the link is republished.
 pub fn open_ready_link_with_effects(core: &mut ClientCore, socket_id: &str) -> (u64, Vec<Effect>) {
+    let (generation, effects) = open_link_awaiting_hydration(core, socket_id);
+    let produced = super::hydration::answer_hydrations(core, &effects);
+    assert!(core.store().sync.domain_is_ready(SyncDomain::Workers));
+    assert!(core.store().sync.domain_is_ready(SyncDomain::Terminal));
+    assert!(core.store().sync.accepts(generation));
+    (generation, produced)
+}
+
+/// Dial, complete the handshake and announce the terminal and workers domains,
+/// answering NOTHING.
+///
+/// The link a caller wants when the thing under test is what happens BEFORE a
+/// domain's snapshot publishes — the store is holding application frames, and
+/// the snapshot that seeds the session plane has not landed yet.
+pub fn open_link_awaiting_hydration(core: &mut ClientCore, socket_id: &str) -> (u64, Vec<Effect>) {
     let effects = core.handle(ClientEvent::DialRequested);
     let generation = match effects.as_slice() {
         [Effect::DialSync { generation, .. }] => *generation,
@@ -75,11 +90,7 @@ pub fn open_ready_link_with_effects(core: &mut ClientCore, socket_id: &str) -> (
             ],
         },
     });
-    let produced = super::hydration::answer_hydrations(core, &effects);
-    assert!(core.store().sync.domain_is_ready(SyncDomain::Workers));
-    assert!(core.store().sync.domain_is_ready(SyncDomain::Terminal));
-    assert!(core.store().sync.accepts(generation));
-    (generation, produced)
+    (generation, effects)
 }
 
 /// The recovery cursor, read the way a reconnect reads it: as the `since` the

@@ -210,3 +210,15 @@ impl SyncV2Session {
         }
     }
 }
+
+/// A snapshot the lane cannot take, said out loud.
+///
+/// Every refusal is a `false` the caller cannot tell from success, and the one
+/// that matters is the pane that never gets its baseline: the socket and the
+/// replica both look healthy and nothing says the bytes were dropped. It lives
+/// here rather than in `lane`, which is what decides the refusal, because this
+/// is the delivery that failed to happen.
+pub(super) fn refuse_snapshot(session_id: &str, stream_id: &str, why: &str) -> bool {
+    tracing::warn!(session_id, stream_id, "terminal.snapshot_refused: {why}");
+    false
+}

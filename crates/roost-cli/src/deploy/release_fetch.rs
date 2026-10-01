@@ -17,7 +17,8 @@
 //! `roost-keeper`. Conflating them is a deploy that fetched two files and then
 //! reported that the release ships no keeper.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use roost_host::{EnvSource, HostPlatform};
 use tracing::info;
@@ -47,21 +48,21 @@ pub async fn fetch_release(
     platform: HostPlatform,
     arch: &str,
 ) -> Result<StagedRelease, CommandFailure> {
-    let staging = std::env::temp_dir().join(format!("roost-release-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&staging);
+    let staging = claim_staging(tag)?;
     let bin_dir = staging.join(RELEASE_BIN_DIR);
-    std::fs::create_dir_all(&bin_dir).map_err(|error| {
-        codes::refuse(
+    if let Err(error) = std::fs::create_dir(&bin_dir) {
+        abandon(&staging);
+        return Err(codes::refuse(
             codes::BUILD_FAILED,
             format!(
                 "cannot create the release tree at {}: {error}",
-                staging.display()
+                bin_dir.display()
             ),
-        )
-    })?;
+        ));
+    }
     let staged = fetch_into(env, tag, platform, arch, &bin_dir).await;
     if let Err(failure) = staged {
-        let _ = std::fs::remove_dir_all(&staging);
+        abandon(&staging);
         return Err(failure);
     }
     let keeper_contract = read_keeper_contract(&bin_dir.join(ROOST_PROGRAM))?;
@@ -74,6 +75,61 @@ pub async fn fetch_release(
         web: web.is_dir().then_some(web),
     };
     Ok(result)
+}
+
+/// How many names one invocation will try before it gives up on a free one.
+const STAGING_CLAIM_ATTEMPTS: u64 = 64;
+
+/// Distinguishes two invocations inside one process, which share a pid: six
+/// concurrent deploys of one tag from one coordinator are six tests in one
+/// test binary and six `roost deploy` forks under one supervisor.
+static STAGING_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+/// Claim a staging directory that no other invocation can be inside.
+///
+/// The name is only a guess — a tag, a pid and a sequence — and the
+/// `create_dir` that refuses an existing name is what decides the guess was
+/// free. Deleting the guess instead would let a second invocation remove the
+/// tree the first is still filling, which is the whole failure: two deploys
+/// of one tag each published their own bytes and then installed whichever
+/// finished last.
+fn claim_staging(tag: &str) -> Result<PathBuf, CommandFailure> {
+    let parent = std::env::temp_dir();
+    for _ in 0..STAGING_CLAIM_ATTEMPTS {
+        let sequence = STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let candidate = parent.join(format!(
+            "roost-release-{tag}-{}-{sequence}",
+            std::process::id()
+        ));
+        match std::fs::create_dir(&candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => {
+                return Err(codes::refuse(
+                    codes::BUILD_FAILED,
+                    format!(
+                        "cannot create the release tree at {}: {error}",
+                        candidate.display()
+                    ),
+                ));
+            }
+        }
+    }
+    Err(codes::refuse(
+        codes::BUILD_FAILED,
+        format!(
+            "no free release staging directory under {} after {STAGING_CLAIM_ATTEMPTS} attempts",
+            parent.display()
+        ),
+    ))
+}
+
+/// Drop this invocation's staging tree, and only its own.
+///
+/// A fetch that failed has published nothing worth reading, and the tree it
+/// leaves behind is bytes under a name the next fetch will guess differently.
+fn abandon(staging: &Path) {
+    let _ = std::fs::remove_dir_all(staging);
 }
 
 /// Fetch both programs, and the bundle when the release published one.

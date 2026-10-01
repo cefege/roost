@@ -13,6 +13,17 @@ fn epochs(h: &FindHarness) -> Vec<String> {
     h.requests.iter().map(|r| r.grid_epoch.clone()).collect()
 }
 
+/// A page that stops on the match cap and hands back a cursor, so the chain has
+/// an older page to PIN its next request to.
+fn capped_page() -> Shape {
+    Shape {
+        stop: SearchStop::MatchLimit,
+        start: 1744,
+        end: 2000,
+        next: Some(1744),
+    }
+}
+
 #[test]
 fn f1_a_same_epoch_hit_pulls_its_row_in_and_reveals_it() {
     let mut h = FindHarness::new();
@@ -20,7 +31,8 @@ fn f1_a_same_epoch_hit_pulls_its_row_in_and_reveals_it() {
     h.set_query("boom");
     h.fire_debounce();
     assert_eq!(h.requests.len(), 1);
-    assert_eq!(h.requests[0].grid_epoch, EPOCH_A);
+    // A fresh chain pins nothing: the first answer names the grid it read.
+    assert_eq!(h.requests[0].grid_epoch, "");
     assert_eq!(h.rows_with_epoch(), vec![(120, EPOCH_A.to_string())]);
     assert_eq!(h.index(), 1);
     assert_eq!(h.pulled, vec![120]);
@@ -57,7 +69,9 @@ fn f2_a_retired_epoch_set_is_discarded_and_re_searched_before_reveal() {
     h.host.anchor.total = 1500;
     h.set_rpc(|_, _| RpcAnswer::Reply(reply(&[80], EPOCH_B, Shape::default())));
     h.step(1);
-    assert_eq!(epochs(&h), vec![EPOCH_A, EPOCH_B]);
+    // A reveal that finds the pane renumbered discards the set and starts a
+    // FRESH chain, which pins no epoch either.
+    assert_eq!(epochs(&h), vec![String::new(), String::new()]);
     assert!(!h.host.jumps().contains(&1200));
     assert_eq!(h.rows_with_epoch(), vec![(80, EPOCH_B.to_string())]);
     assert_eq!(h.host.jumps(), vec![80]);
@@ -89,8 +103,15 @@ fn f2b_a_stale_set_stays_discarded_when_the_retry_finds_nothing() {
 #[test]
 fn f3_a_refused_moved_epoch_re_asks_once_against_the_displayed_grid() {
     let mut h = FindHarness::new();
-    h.set_rpc(|request, host| {
+    let mut call = 0;
+    h.set_rpc(move |request, host| {
+        call += 1;
+        if call == 1 {
+            return RpcAnswer::Reply(reply(&[1900], EPOCH_A, capped_page()));
+        }
         if request.grid_epoch == EPOCH_A {
+            // The pane moved under a page PINNED to the epoch the cursor was
+            // taken on, which is the one refusal an epoch change explains.
             host.anchor.grid_epoch = EPOCH_B.to_string();
             return RpcAnswer::Error;
         }
@@ -98,24 +119,37 @@ fn f3_a_refused_moved_epoch_re_asks_once_against_the_displayed_grid() {
     });
     h.set_query("boom");
     h.fire_debounce();
-    assert_eq!(epochs(&h), vec![EPOCH_A, EPOCH_B]);
+    h.host.clear_jumps();
+    h.step(-1);
+    assert_eq!(
+        epochs(&h),
+        vec![String::new(), EPOCH_A.to_string(), String::new()]
+    );
     assert!(!h.find.publication().has_failed());
-    assert_eq!(h.rows(), vec![700]);
+    assert_eq!(h.rows_with_epoch(), vec![(700, EPOCH_B.to_string())]);
     assert_eq!(h.host.jumps(), vec![700]);
 }
 
 #[test]
 fn f4_a_repeatedly_moving_epoch_spends_only_one_retry() {
     let mut h = FindHarness::new();
-    let mut flip = 0;
+    let mut call = 0;
     h.set_rpc(move |_, host| {
-        flip += 1;
-        host.anchor.grid_epoch = format!("grid-{flip}:0");
+        call += 1;
+        if call == 1 {
+            return RpcAnswer::Reply(reply(&[1900], EPOCH_A, capped_page()));
+        }
+        // The pane is a grid behind on every page, so the refusal and the
+        // restart both find it moved.
+        host.anchor.grid_epoch = format!("grid-{call}:0");
         RpcAnswer::Error
     });
     h.set_query("boom");
     h.fire_debounce();
-    assert_eq!(h.requests.len(), 2);
+    h.step(-1);
+    // The pinned page spends the one retry; the restart it buys is unpinned, so
+    // its own failure has no dead epoch to re-ask.
+    assert_eq!(h.requests.len(), 3);
     assert!(h.find.publication().has_failed());
     assert!(h.find.publication().matches().is_empty());
 }
@@ -166,7 +200,12 @@ fn later_page_epoch_change_discards_the_chain_and_retries_from_newest() {
     });
     h.set_query("moving");
     h.fire_debounce();
-    assert_eq!(epochs(&h), vec![EPOCH_A, EPOCH_A, EPOCH_B]);
+    // Fresh, then the chain's own continuation pinned to the epoch it adopted,
+    // then the restart the epoch change buys — which pins nothing again.
+    assert_eq!(
+        epochs(&h),
+        vec![String::new(), EPOCH_A.to_string(), String::new()]
+    );
     let before: Vec<Option<u32>> = h.requests.iter().map(|r| r.before_row).collect();
     assert_eq!(before, vec![None, Some(1000), None]);
     assert_eq!(h.rows_with_epoch(), vec![(80, EPOCH_B.to_string())]);

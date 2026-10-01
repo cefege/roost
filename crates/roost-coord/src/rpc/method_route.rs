@@ -81,6 +81,35 @@ pub enum AuthRequirement {
     Unwired,
 }
 
+impl AuthRequirement {
+    /// Whether a browser key satisfies this requirement, and so whether a
+    /// caller who presented none should be told to present one.
+    ///
+    /// NOT the same question `service::permission_denied_for` asks, and the
+    /// difference is the whole of it. There the principal is KNOWN and did not
+    /// qualify, so the marker names the layer that refused. Here nothing
+    /// resolved, so the marker names the credential that would have worked --
+    /// and for `DeviceOrOwnWorkerRecovery` a browser key is one of the two, so
+    /// it is a true answer, while `Worker` is excluded because telling a
+    /// machine to present a device key names a credential it may not hold.
+    ///
+    /// v2 asked exactly this, in the handler: `handlers-sessions.ts:79-95`
+    /// takes its device branch whenever the principal is absent, so a browser
+    /// that had never been paired and a worker whose key the coordinator does
+    /// not know both received `x-roost-auth-layer: device`
+    /// (`auth-interceptor.ts:256-262`).
+    #[must_use]
+    pub const fn admits_browser_key(self) -> bool {
+        matches!(
+            self,
+            Self::Device
+                | Self::DeviceOnHost
+                | Self::DeviceOrOwnWorkerRecovery
+                | Self::DevicePlusFence
+        )
+    }
+}
+
 /// What this crate does with a method today.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PortStatus {

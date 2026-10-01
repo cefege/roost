@@ -21,22 +21,9 @@ use roost_proto as proto;
 use roost_proto::__buffa::oneof::ui_command::Command;
 use roost_proto::buffa::MessageField;
 use ui_state_fixture::{
-    FOREIGN_SESSION_ID, SESSION_ID, UiStateFixture, browser_fingerprint, collect_ui_bus,
-    layout_document, report_request,
+    FOREIGN_SESSION_ID, SESSION_ID, UiStateFixture, apply_request, browser_fingerprint,
+    collect_ui_bus, layout_document, report_request,
 };
-
-fn apply_request(
-    target_fingerprint: &str,
-    target_tab_id: &str,
-    session_id: &str,
-) -> proto::UiApplyLayoutRequest {
-    proto::UiApplyLayoutRequest {
-        target_tab_id: target_tab_id.to_owned(),
-        target_fingerprint: target_fingerprint.to_owned(),
-        document: MessageField::some(layout_document(session_id)),
-        ..Default::default()
-    }
-}
 
 #[tokio::test]
 async fn an_apply_reserves_the_named_socket_and_resolves_with_its_acknowledgement() {

@@ -201,6 +201,28 @@ pub(super) fn state_flags(state: &PaneState) -> (PaneFlags, bool, bool) {
     (state.flags, state.page_visible, state.view_opened)
 }
 
+/// Whether this pane may claim a viewport right now — the same question
+/// `ViewportHost::should_publish_active` answers, readable without a host so a
+/// caller can ask BEFORE it builds one.
+///
+/// The DOCUMENT answers the visibility half. `PaneState::page_visible` is a
+/// cache that only a `visibilitychange` delivery refreshes, and a publish gate
+/// that reads a cache lets a pane whose tab is hidden claim geometry for as
+/// long as nothing tells it otherwise.
+pub(super) fn viewport_publishable(shared: &PaneShared) -> bool {
+    // Read directly rather than through `with_state`, whose step is a unit
+    // closure: this is a PREDICATE, and asking a teardown-and-perform helper to
+    // answer it would take a write borrow to read.
+    let (flags, _, _) = state_flags(&shared.state.borrow());
+    publish_gate(&flags, shared.disposed.get(), browser::page_visible())
+}
+
+/// The one rule a viewport claim passes: a pane the reader can see, whose
+/// layout is settled, on a view that is mounted.
+fn publish_gate(flags: &PaneFlags, disposed: bool, page_visible: bool) -> bool {
+    !disposed && !flags.pending && page_visible && flags.view_active()
+}
+
 /// Every REAL withdraw is readable from the flags; what is left is `in_layout`
 /// alone, and its transient form is a deck box that measures zero for a tick.
 fn withdraw_is_transient_layout_gap(
@@ -219,20 +241,18 @@ fn withdraw_is_transient_layout_gap(
 pub(super) struct ViewportCtx<'a> {
     shared: &'a PaneShared,
     flags: PaneFlags,
-    page_visible: bool,
     actions: &'a mut Vec<PaneAction>,
 }
 
 impl<'a> ViewportCtx<'a> {
     pub(super) fn new(
         shared: &'a PaneShared,
-        (flags, page_visible, _opened): (PaneFlags, bool, bool),
+        (flags, _page_visible, _opened): (PaneFlags, bool, bool),
         actions: &'a mut Vec<PaneAction>,
     ) -> Self {
         Self {
             shared,
             flags,
-            page_visible,
             actions,
         }
     }
@@ -252,10 +272,11 @@ impl ViewportHost for ViewportCtx<'_> {
         Some((geometry.cols, geometry.rows))
     }
     fn should_publish_active(&self) -> bool {
-        !self.shared.disposed.get()
-            && !self.flags.pending
-            && self.page_visible
-            && self.flags.view_active()
+        publish_gate(
+            &self.flags,
+            self.shared.disposed.get(),
+            browser::page_visible(),
+        )
     }
     fn has_view(&self) -> bool {
         !self.shared.disposed.get()

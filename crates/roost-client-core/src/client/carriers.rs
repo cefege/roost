@@ -5,13 +5,19 @@
 //! being the default carrier, and `faults` the four rules
 //! `smoke/terminal/terminal-peer.spec.ts:263` names.
 
+pub mod deliver;
 pub mod faults;
 pub mod grant;
+pub mod grant_rpc;
+pub mod inbound;
+pub mod lane;
 pub mod loopback;
 pub mod signaling;
 pub mod signaling_snapshot;
 pub mod transport_trait;
+pub mod wire;
 
+pub use deliver::{CarrierPresence, Delivery, SendFault, deliver_direct_command, session_of};
 pub use faults::{
     CarrierFault, FallbackReason, FaultFallback, FaultState, PEER_HOLD_DOWN_MS, answer_fault,
     classify_worker_reason, fallback_effects, ready_fault, retry_delay_ms, sdp_is_usable,
@@ -19,10 +25,16 @@ pub use faults::{
 pub use grant::{
     DirectGrant, GRANT_RENEW_MS, GRANT_RETRY_MS, GrantInput, GrantLifecycle, GrantPhase, GrantSweep,
 };
+pub use lane::CarrierLane;
 pub use loopback::{LOOPBACK_GRACE_MS, LocalWorkerDoor, LoopbackAnswer, LoopbackProbe};
 pub use signaling::Signalling;
+pub use signaling_snapshot::{CandidateType, PeerTelemetry, SignallingSnapshot};
 pub use transport_trait::{
     PeerLane, PeerSignalling, PeerTransport, ScriptedPeerSignalling, TransportError,
+};
+pub use wire::{
+    DirectInbound, WireError, decode_server_frame, encode_direct_command, encode_hello,
+    peer_ready_tuple,
 };
 
 use std::collections::BTreeSet;
@@ -79,53 +91,6 @@ pub struct CarrierEnvironment {
     /// The Sync generation this worker's sessions are fenced to, carried to the
     /// snapshot so "Sync metadata stayed live" is readable rather than assumed.
     pub sync_generation: u64,
-}
-
-/// What a host can see about one worker's direct-carrier attempt.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SignallingSnapshot {
-    /// Which worker.
-    pub worker_fp: String,
-    /// Where the attempt is.
-    pub phase: PeerPhase,
-    /// The coarse recorded reason, cleared on every successful transition.
-    pub fallback_reason: Option<FallbackReason>,
-    /// How many live views want a session on this worker.
-    pub active_views: u64,
-    /// Which sessions they want.
-    pub demanded_sessions: BTreeSet<String>,
-    /// Whether an authenticated carrier is held for this worker.
-    pub has_carrier: bool,
-    /// Which kind of carrier it is.
-    pub transport_held: Option<TerminalTransport>,
-    /// How many WebRTC peers this document holds, across every worker.
-    pub peers_allocated: u32,
-    /// Where the grant is.
-    pub grant_phase: GrantPhase,
-    /// The Sync generation this worker's sessions are fenced to. Reported and
-    /// never written: nothing here can move it, and nothing emits its teardown.
-    pub sync_generation: u64,
-    /// The host's own last failure detail, never a value that failed to match.
-    pub last_failure_detail: Option<String>,
-}
-
-impl SignallingSnapshot {
-    /// A snapshot of a worker that has attempted nothing.
-    pub fn idle(worker_fp: String) -> Self {
-        Self {
-            worker_fp,
-            phase: PeerPhase::Idle,
-            fallback_reason: None,
-            active_views: 0,
-            demanded_sessions: BTreeSet::new(),
-            has_carrier: false,
-            transport_held: None,
-            peers_allocated: 0,
-            grant_phase: GrantPhase::Absent,
-            sync_generation: 0,
-            last_failure_detail: None,
-        }
-    }
 }
 
 /// One attempt at a direct carrier for one worker. An attempt is IDENTIFIED by

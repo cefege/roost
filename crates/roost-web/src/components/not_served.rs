@@ -61,7 +61,7 @@ pub fn NotFound(path: String, on_navigate: EventHandler<String>) -> Element {
 
 #[cfg(test)]
 mod tests {
-    use crate::app::{Surface, surface_for};
+    use crate::app::{ServedSurface, Surface, surface_for};
     use crate::routes::Route;
 
     #[test]
@@ -69,7 +69,7 @@ mod tests {
         // The two facts a reader has about their address bar, kept apart.
         assert!(matches!(
             surface_for(&Route::parse("/settings/machines")),
-            Surface::NotServed { .. }
+            Surface::Served(ServedSurface::Settings)
         ));
         assert!(matches!(
             surface_for(&Route::parse("/setttings")),
@@ -78,7 +78,7 @@ mod tests {
     }
 
     #[test]
-    fn a_typo_in_a_known_prefix_is_a_not_found_and_not_a_not_served() {
+    fn a_typo_in_a_known_prefix_is_a_not_found_and_not_a_served_surface() {
         // `/setttings` starts with the right letters. Treating it as a settings
         // surface with a typo would send a reader to a pane they did not open.
         assert!(matches!(

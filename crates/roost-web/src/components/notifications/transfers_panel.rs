@@ -1,0 +1,59 @@
+//! The one surface that aggregates every upload and download. It is a dock
+//! child, so the jobs survive pane switches without claiming a corner of their
+//! own; the cards are `roost_client_core::store::transfers::TransferStack` and
+//! each row reads its own card.
+//! Ports `apps/web/src/components/notifications/TransferCard.tsx`.
+
+use dioxus::prelude::*;
+
+use super::transfer_row::TransferRow;
+use crate::components::md::{List, Surface, SurfaceElement, SurfaceRadius};
+use crate::pump::use_store;
+
+/// The popup, or nothing when no transfer is live.
+#[component]
+pub fn TransfersPanel() -> Element {
+    let pump = use_store();
+    let cards = {
+        let core = pump.core();
+        let core = core.borrow();
+        core.store()
+            .transfers
+            .transfers()
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    if cards.is_empty() {
+        return rsx! {};
+    }
+    let count = cards.len();
+    rsx! {
+        Surface {
+            element: SurfaceElement::Section,
+            test_id: Some("transfer-card".to_owned()),
+            aria_labelledby: Some("transfer-popup-title".to_owned()),
+            level: 2,
+            elevation: 3,
+            radius: SurfaceRadius::Md,
+            border: true,
+            style: "display: flex; flex-direction: column; gap: var(--md-space-2); width: 100%;".to_owned(),
+            div {
+                style: "display: flex; align-items: center; gap: var(--md-space-2);",
+                span {
+                    id: "transfer-popup-title",
+                    style: "flex: 1; font-size: var(--md-title-s-size); font-weight: var(--md-title-s-weight);",
+                    "Transfers"
+                }
+                span {
+                    style: "color: var(--text-lo); font-size: var(--md-label-m-size);",
+                    "{count}"
+                }
+            }
+            List {
+                for card in cards {
+                    TransferRow { transfer: card }
+                }
+            }
+        }
+    }
+}

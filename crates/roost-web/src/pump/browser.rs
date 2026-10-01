@@ -9,9 +9,9 @@
 use roost_client_core::ClientEvent;
 use wasm_bindgen::JsCast as _;
 use wasm_bindgen::closure::Closure;
-use web_sys::VisibilityState;
 
 use super::Pump;
+use crate::platform::visibility::page_visible;
 
 /// How often the core's deadlines are evaluated. Every deadline is a pure
 /// function of the reading the sweep carries, so this bounds lateness only.
@@ -51,9 +51,8 @@ pub(super) fn install(pump: &Pump) {
 
     let visibility = {
         let pump = pump.clone();
-        let document = document.clone();
         Closure::<dyn FnMut()>::new(move || {
-            let visible = document.visibility_state() == VisibilityState::Visible;
+            let visible = page_visible();
             pump.dispatch(ClientEvent::PageVisibilityChanged { visible });
         })
     };
@@ -85,7 +84,7 @@ pub(super) fn install(pump: &Pump) {
     listen(&window, "focus", &visible_wake);
     listen(&window, "online", &online_wake);
 
-    let visible = document.visibility_state() == VisibilityState::Visible;
+    let visible = page_visible();
     pump.dispatch(ClientEvent::PageVisibilityChanged { visible });
     tracing::info!(target: "pump", visible, "browser timers and lifecycle listeners installed");
 

@@ -139,6 +139,7 @@ fn a_stale_success_while_the_tab_is_visible_reads_as_unreachable() {
     let state = coordinator_state(
         true,
         CoordinatorHealth {
+            offline: false,
             last_attempt_failed: false,
             last_success_ms: Some(1_000),
             page_visible: true,
@@ -156,6 +157,7 @@ fn a_hidden_tab_is_not_judged_stale() {
     let state = coordinator_state(
         true,
         CoordinatorHealth {
+            offline: false,
             last_attempt_failed: false,
             last_success_ms: Some(1_000),
             page_visible: false,
@@ -170,6 +172,7 @@ fn no_success_yet_reads_as_syncing_even_with_an_identity() {
     let state = coordinator_state(
         true,
         CoordinatorHealth {
+            offline: false,
             last_attempt_failed: false,
             last_success_ms: None,
             page_visible: true,
@@ -184,6 +187,7 @@ fn an_identity_without_a_health_snapshot_reads_as_syncing() {
     let state = coordinator_state(
         false,
         CoordinatorHealth {
+            offline: false,
             last_attempt_failed: false,
             last_success_ms: None,
             page_visible: true,
@@ -198,6 +202,7 @@ fn a_failed_attempt_reads_as_unreachable_however_old_the_last_success() {
     let state = coordinator_state(
         true,
         CoordinatorHealth {
+            offline: false,
             last_attempt_failed: true,
             last_success_ms: Some(9_999),
             page_visible: true,
@@ -205,6 +210,66 @@ fn a_failed_attempt_reads_as_unreachable_however_old_the_last_success() {
         },
     );
     assert_eq!(state, CoordinatorState::Unreachable);
+}
+
+#[test]
+fn a_live_link_that_just_spoke_reads_as_synced() {
+    // The whole status item hangs off this: an open link, a recent frame and a
+    // known identity is the one combination that may print `Synced`.
+    let health = coordinator_health_from_link(Some(120), 10_000, false, true);
+    assert_eq!(health.last_success_ms, Some(9_880));
+    assert!(!health.last_attempt_failed);
+    assert_eq!(coordinator_state(true, health), CoordinatorState::Synced);
+}
+
+#[test]
+fn a_closed_link_reads_as_unreachable_however_recent_the_last_frame_was() {
+    // `idle_ms` is `Some` exactly while a socket is open, so its absence IS the
+    // outage — and there is no last frame left to soften it.
+    let health = coordinator_health_from_link(None, 10_000, false, true);
+    assert!(health.last_attempt_failed);
+    assert_eq!(health.last_success_ms, None);
+    assert_eq!(
+        coordinator_state(true, health),
+        CoordinatorState::Unreachable
+    );
+}
+
+#[test]
+fn an_open_link_with_no_identity_yet_reads_as_syncing() {
+    let health = coordinator_health_from_link(Some(0), 10_000, false, true);
+    assert_eq!(coordinator_state(false, health), CoordinatorState::Syncing);
+}
+
+#[test]
+fn a_browser_with_no_route_names_itself_not_the_coordinator() {
+    // The link may be perfectly open while the machine has no network, and
+    // telling an operator to restart the coordinator would send them at the one
+    // thing that is working.
+    let health = coordinator_health_from_link(Some(0), 10_000, true, true);
+    assert_eq!(coordinator_state(true, health), CoordinatorState::Offline);
+    assert_eq!(CoordinatorState::Offline.label(), "Offline");
+}
+
+#[test]
+fn a_silent_link_stale_enough_reads_as_unreachable_while_the_tab_is_watching() {
+    // `now_ms` must be LATER than the idle it claims: `last_success_ms` is
+    // `now - idle`, so an idle of 10 001 ms measured at 10 000 puts the last
+    // success before the clock starts and the saturating subtraction clamps the
+    // difference to 0 — which reads as perfectly fresh rather than stale.
+    let health =
+        coordinator_health_from_link(Some(COORD_STALE_MS as u64 + 1), 100_000, false, true);
+    assert_eq!(
+        coordinator_state(true, health),
+        CoordinatorState::Unreachable
+    );
+}
+
+#[test]
+fn the_same_silent_link_is_believed_while_the_tab_is_hidden() {
+    let health =
+        coordinator_health_from_link(Some(COORD_STALE_MS as u64 * 100), 10_000, false, false);
+    assert_eq!(coordinator_state(true, health), CoordinatorState::Synced);
 }
 
 #[test]

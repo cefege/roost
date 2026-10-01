@@ -24,9 +24,15 @@
 // costs one comparison is cheaper than the incident it prevents. It is NOT
 // testable through `CoordDb::open`, and `tests/self_hosted_tenant.rs` says so
 // where a reader would otherwise waste an hour trying.
+//
+// ONE MORE BRANCH IS A SETTING'S SCOPE, and it is the only one that is a live
+// path. `app_settings` holds one coordinator-global key at the NULL scope and
+// every other key at a dashboard's, and no SQL constraint can say which is
+// which — so `require_valid_setting_scopes` says it, and `roost import-v2` is
+// how a row the previous product wrote arrives carrying the wrong one.
 
 use roost_protocol::{ProtocolError, ProtocolResult};
-use sqlx::{Sqlite, Transaction};
+use sqlx::{QueryBuilder, Sqlite, Transaction};
 
 use crate::db::CoordDb;
 
@@ -232,12 +238,100 @@ async fn inspect_or_create(
     }
     require_owner_membership(transaction, &organization_id, &account_id).await?;
     require_admin_membership(transaction, &dashboard_id, &account_id).await?;
-
+    require_valid_setting_scopes(transaction, &dashboard_id).await?;
     Ok(SelfHostedTenant {
         account_id,
         organization_id,
         dashboard_id,
     })
+}
+
+/// The `app_settings` keys that belong to the COORDINATOR rather than to a
+/// dashboard, and so live at the `dashboard_id IS NULL` scope.
+///
+/// One list, and a second global key is one line here. Every other key in the
+/// table is read at one dashboard's scope (`agents::config`,
+/// `diagnostics::transcription`), so a key missing from this list is a
+/// dashboard-scoped key, and an unscoped row for one of those is drift no
+/// reader can see.
+const GLOBAL_SETTING_KEYS: &[&str] = &[crate::push::vapid::VAPID_SETTING_KEY];
+
+/// Every `app_settings` row has to sit at the scope its reader uses.
+///
+/// A coordinator-global key stored at a dashboard scope is the shape that
+/// breaks push silently: `push::vapid` reads and writes the NULL scope and
+/// nowhere else, so the scoped copy is unreachable from every code path that
+/// exists, the NULL-scoped read finds nothing, and the next `PushGetConfig`
+/// MINTS A SECOND IDENTITY. Every subscription already in `push_subscriptions`
+/// was signed by the first one, so an install that was being notified stops
+/// being notified and reports no reason. The reverse shape is quieter still: a
+/// key read at a dashboard scope and stored unscoped reads as unset, and the
+/// operator's agent config or transcription key is gone with no error.
+///
+/// v2 refused both at boot and that refusal is the fail-safe; without it a
+/// mis-scoped row is admitted and the next occurrence is a support ticket.
+/// `roost import-v2` is how one reaches a v3 database, because it carries
+/// `app_settings` across verbatim.
+///
+/// "outside this dashboard" is defence-in-depth and not a live path, for the
+/// reason the module header gives for the organization check: `db::open`
+/// enforces foreign keys and the at-most-one-dashboard rule has already run, so
+/// a row can only name a dashboard that does not exist through a connection with
+/// the pragma off. It is kept because a check that costs one comparison is
+/// cheaper than the incident it prevents.
+async fn require_valid_setting_scopes(
+    transaction: &mut Transaction<'_, Sqlite>,
+    dashboard_id: &str,
+) -> ProtocolResult<()> {
+    let mut scoped_global = QueryBuilder::<Sqlite>::new(
+        "SELECT key, dashboard_id FROM app_settings \
+          WHERE dashboard_id IS NOT NULL AND key IN (",
+    );
+    push_global_keys(&mut scoped_global);
+    scoped_global.push(") LIMIT 1");
+    if let Some((key, scope)) = scoped_global
+        .build_query_as::<(String, String)>()
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|error| refuse(&format!("app_settings scopes: {error}")))?
+    {
+        return Err(refuse(&format!(
+            "app_settings key {key} is coordinator-global and is stored scoped to \
+             dashboard {scope}; every code path that reads it requires the NULL \
+             scope, so the value is unreachable and the identity will be minted \
+             again on first use"
+        )));
+    }
+
+    let mut dashboard_scoped = QueryBuilder::<Sqlite>::new(
+        "SELECT key, dashboard_id FROM app_settings WHERE key NOT IN (",
+    );
+    push_global_keys(&mut dashboard_scoped);
+    dashboard_scoped.push(") AND (dashboard_id IS NULL OR dashboard_id <> ");
+    dashboard_scoped.push_bind(dashboard_id);
+    dashboard_scoped.push(") LIMIT 1");
+    if let Some((key, scope)) = dashboard_scoped
+        .build_query_as::<(String, Option<String>)>()
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|error| refuse(&format!("app_settings scopes: {error}")))?
+    {
+        let described = scope.as_deref().unwrap_or("no dashboard");
+        return Err(refuse(&format!(
+            "app_settings key {key} is a dashboard-scoped key and is scoped to \
+             {described}; it is read at one dashboard's scope, so the row is \
+             unreachable"
+        )));
+    }
+    Ok(())
+}
+
+/// Bind every coordinator-global key into an `IN (...)` that is still open.
+fn push_global_keys(statement: &mut QueryBuilder<Sqlite>) {
+    let mut keys = statement.separated(", ");
+    for key in GLOBAL_SETTING_KEYS {
+        keys.push_bind(*key);
+    }
 }
 
 /// Enforce the invariant, and hand back the ids the process is scoped to.

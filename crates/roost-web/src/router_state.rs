@@ -24,12 +24,17 @@ use crate::platform::location::{current_location, navigate};
 /// The path the shell renders, seeded from the address bar and kept in step
 /// with it.
 ///
-/// The listener is installed once per shell, not once per render: a listener
-/// re-registered on every render would fire N times per Back press.
+/// The listener is installed once per scope, not once per render: a listener
+/// re-registered on every render would fire N times per Back press. Its
+/// registration is held by the same scope, so a scope that ends takes the
+/// listener with it and the next mount installs one rather than stacking.
 pub fn use_path_signal() -> Signal<String> {
     let path = use_hook(|| Signal::new(current_location()));
+    // A hook slot is `Clone`-bound, and nothing here may share the registration
+    // — the one owner has to be the scope, or the release would follow the last
+    // clone instead of the scope's end. The `Rc` is a carrier, not a share.
     #[cfg(target_arch = "wasm32")]
-    use_hook(move || install_popstate_listener(path));
+    use_hook(move || std::rc::Rc::new(install_popstate_listener(path)));
     path
 }
 
@@ -81,20 +86,57 @@ pub fn use_location() -> Signal<String> {
     use_context::<RouterContext>().path
 }
 
+/// A listener on the document that is taken back off when the value holding it
+/// goes.
+///
+/// The undo is a closure rather than the `Closure` itself so ONE rule covers
+/// every platform: install once, keep the value, drop the value. A forgotten
+/// closure has no owner, and an owner nobody can drop is not an owner.
+pub struct PopstateListener {
+    undo: Option<Box<dyn FnOnce()>>,
+}
+
+impl std::fmt::Debug for PopstateListener {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PopstateListener")
+            .field("registered", &self.undo.is_some())
+            .finish()
+    }
+}
+
+impl PopstateListener {
+    /// Take `undo` as the work that removes this listener from `window`.
+    pub fn new(undo: impl FnOnce() + 'static) -> Self {
+        Self {
+            undo: Some(Box::new(undo)),
+        }
+    }
+}
+
+impl Drop for PopstateListener {
+    fn drop(&mut self) {
+        if let Some(undo) = self.undo.take() {
+            undo();
+        }
+    }
+}
+
 /// Listen for the reader's own Back and Forward, and repaint from them.
 ///
-/// `Closure::forget` is deliberate: the listener must outlive the component
-/// that registered it, and a shell is mounted once for the life of the
-/// document. Dropping the handle would leave `popstate` firing into freed
-/// memory the first time the shell unmounted.
+/// The registration is a value the calling scope keeps, not a forgotten
+/// closure. A path signal is scope state and scope state dies with the scope,
+/// so a listener that outlived its signal was not merely wasted: the next Back
+/// press wrote into a signal with no scope left to repaint from. The access
+/// gate remounts — pair, unpair, authorized, unauthorized — so "a shell is
+/// mounted once for the life of the document" was a convention nothing
+/// enforced, and every remount left another one behind.
 #[cfg(target_arch = "wasm32")]
-fn install_popstate_listener(mut path: Signal<String>) {
+fn install_popstate_listener(mut path: Signal<String>) -> Option<PopstateListener> {
     use wasm_bindgen::JsCast as _;
     use wasm_bindgen::closure::Closure;
 
-    let Some(window) = web_sys::window() else {
-        return;
-    };
+    let window = web_sys::window()?;
     let listener = Closure::<dyn FnMut(web_sys::PopStateEvent)>::new(move |_event| {
         path.set(current_location());
     });
@@ -104,5 +146,12 @@ fn install_popstate_listener(mut path: Signal<String>) {
     {
         tracing::warn!(target: "router", "the browser refused the popstate listener");
     }
-    listener.forget();
+    // The listener is still ALIVE when the undo runs — the closure borrows it
+    // and is dropped only after `remove_event_listener_with_callback` has had
+    // it — so the removal never hands `window` a freed callback, which is the
+    // failure the `forget` above was written to avoid.
+    Some(PopstateListener::new(move || {
+        let _ = window
+            .remove_event_listener_with_callback("popstate", listener.as_ref().unchecked_ref());
+    }))
 }

@@ -18,6 +18,7 @@ pub mod retained_scan;
 pub mod state_snapshot;
 pub mod stream_diagnostics;
 pub mod stream_probe;
+pub mod stream_route_lane;
 pub mod timing;
 
 #[cfg(target_arch = "wasm32")]

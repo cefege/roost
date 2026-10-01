@@ -9,6 +9,7 @@ use dioxus::prelude::*;
 use roost_web_terminal::terminal_presentation::TerminalPresentationState;
 
 use super::pane_status::TerminalStartupNotice;
+use super::terminal_find_bar::FindBarState;
 
 /// The props the mount gates every transition on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -52,6 +53,8 @@ pub struct PaneUi {
     pub pending_paste: Signal<Option<String>>,
     /// The find bar is open.
     pub find_open: Signal<bool>,
+    /// What the find bar renders, `None` while it is closed.
+    pub find_bar: Signal<Option<FindBarState>>,
     /// The on-screen Ctrl latch.
     pub ctrl_armed: Signal<bool>,
     /// The on-screen Alt link-activation latch.
@@ -71,6 +74,7 @@ impl PaneUi {
             gestures_forwarded: use_signal(|| false),
             pending_paste: use_signal(|| None),
             find_open: use_signal(|| false),
+            find_bar: use_signal(|| None),
             ctrl_armed: use_signal(|| false),
             link_armed: use_signal(|| false),
             transport: use_signal(|| None),

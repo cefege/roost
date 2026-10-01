@@ -189,6 +189,63 @@ pub enum ClientEvent {
         /// The host's identity for the connection.
         connection_id: String,
     },
+    /// A host answered a `MintTerminalViewId`: the pane's new authority-facing
+    /// id, or `None` when the host has no entropy to mint one with.
+    ///
+    /// `None` is a real answer, not a missing one. A document outside a secure
+    /// context cannot call `crypto.randomUUID`, and the worker refuses any view
+    /// id that is not a UUID, so there is no fabricated fallback to invent — the
+    /// attempt is abandoned and the canonical route keeps the session.
+    TerminalViewIdMinted {
+        /// The session the pane belongs to.
+        session_id: String,
+        /// The attempt the request named, so a slow answer cannot attach itself
+        /// to a newer one.
+        attempt_id: u64,
+        /// The pane's own identity, which never changes.
+        logical_view_id: String,
+        /// Which attempt asked.
+        target: crate::effect::ViewIdTarget,
+        /// The minted id, or `None` when the host could not mint one.
+        wire_view_id: Option<String>,
+    },
+    /// The loopback probe learned which worker serves this page's own machine,
+    /// or learned that this page is not on a worker's machine at all.
+    ///
+    /// The ANSWER, not the door: which worker shares this box is something a
+    /// page knows from its own origin, and it is the fact that decides whether
+    /// a WebRTC peer may be allocated behind a fast path that might have been
+    /// available all along.
+    LocalDoorAnswered {
+        /// The machine this lane is asking about.
+        worker_fp: String,
+        /// The worker serving this page's machine, or empty for "none does".
+        serving_worker_fp: String,
+    },
+    /// The coordinator minted a direct credential and the worker acknowledged
+    /// it. Only the acknowledgement reveals the secret, so this is the whole
+    /// answer to the request that produced it.
+    DirectGrantMinted {
+        /// The credential, already refused if it is not one.
+        grant: crate::client::carriers::DirectGrant,
+    },
+    /// The grant request returned without a worker's acknowledgement. A
+    /// REFUSAL, not a pending state: there is no path forward from a request
+    /// that has returned.
+    DirectGrantRefused {
+        /// The machine the request named.
+        worker_fp: String,
+        /// The host's own detail, never the value that failed to match.
+        reason: String,
+    },
+    /// The transport reported something about one attempt.
+    CarrierTransportObserved {
+        /// The machine the attempt reaches.
+        worker_fp: String,
+        /// What the transport saw: an offer, an answer, a proved tuple, an ICE
+        /// failure, an unanswered probe, or a retry coming due.
+        observation: crate::client::carriers::SignallingInput,
+    },
     /// A worker is gone: its routes, its demand, and its candidates all go.
     WorkerRetired {
         /// The worker fingerprint.
@@ -274,6 +331,10 @@ impl ClientEvent {
             Self::InputResultReceived { .. } => "input_result_received",
             Self::CarrierReady(_) => "carrier_ready",
             Self::CarrierLost { .. } => "carrier_lost",
+            Self::LocalDoorAnswered { .. } => "local_door_answered",
+            Self::DirectGrantMinted { .. } => "direct_grant_minted",
+            Self::DirectGrantRefused { .. } => "direct_grant_refused",
+            Self::CarrierTransportObserved { .. } => "carrier_transport_observed",
             Self::WorkerRetired { .. } => "worker_retired",
             Self::SearchPageReceived { .. } => "search_page_received",
             Self::AgentStatusSeen { .. } => "agent_status_seen",
@@ -282,6 +343,7 @@ impl ClientEvent {
             Self::Shell(_) => "shell",
             Self::Deck(_) => "deck",
             Self::Sweep { .. } => "sweep",
+            Self::TerminalViewIdMinted { .. } => "terminal_view_id_minted",
         }
     }
 }

@@ -15,22 +15,33 @@
 //! WebRTC carriers' own slices. `fragment_credential` runs before the router
 //! mounts, because a bearer left in the address bar reaches every request the
 //! document makes afterwards as a `Referer`. `tab_id` claims the document's
-//! tab id before the pump's first transport.
+//! tab id before the pump's first transport. `secrets` is the strict half of
+//! `tab_id`'s randomness: a document with no `crypto.getRandomValues` refuses a
+//! ceremony that needs a secret rather than filling one from `Math.random`,
+//! which is guessable from four earlier draws.
 
 pub mod browser_platform;
 pub mod carrier;
+pub mod carriers;
 pub mod clock;
 pub mod connect;
 pub mod device_key;
+pub mod door_probe;
 pub mod fragment_credential;
 pub mod location;
+#[cfg(target_arch = "wasm32")]
+pub mod loopback;
+pub mod network;
 pub mod peer;
 pub mod rpc;
+pub mod secrets;
 pub mod self_label;
 pub mod storage;
 pub mod sync_socket;
 #[cfg(target_arch = "wasm32")]
 pub mod tab_id;
+pub mod terminal_view_id;
+pub mod visibility;
 pub mod worker_paths;
 
 pub use carrier::{CarrierIdentity, mint_connection_id};

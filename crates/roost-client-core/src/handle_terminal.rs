@@ -6,18 +6,28 @@
 //! in `handle_input` — because input is the one path where getting it wrong writes
 //! to somebody's shell twice.
 //!
+//! Three rules live here, read for three different reasons: a pane attaching is
+//! in this file, an acknowledgement arriving is in `views`, and the attempt that
+//! moves a pane from one transport to another is in `staging`.
+//!
 //! Ported from `apps/web/src/store/terminal-stream-view.ts` (leases) and
 //! `apps/web/src/store/terminal-stream-transport.ts` (carriers).
 
+mod carriers;
+mod staging;
+mod views;
+
 use crate::effect::Effect;
-use crate::handle_sweep::{publish_view, request_repair_if_due, send_intent};
+use crate::handle_sweep::{publish_view, send_intent, send_intent_for_wire};
 use crate::search::RawMatch;
 use crate::store::Store;
-use crate::sync::SyncFrame;
-use crate::terminal::ViewStateAdmission;
-use crate::terminal::routes::DirectCarrier;
-use crate::terminal::view::{ViewIntent, ViewStateResult};
-use roost_protocol::viewport::{TerminalGeometry, is_terminal_geometry, is_terminal_uuid};
+use crate::terminal::view::ViewIntent;
+pub use carriers::{handle_carrier_authenticated, handle_carrier_lost, handle_worker_retired};
+pub use staging::{
+    MintedViewId, begin_sync_view_rotation, cancel_staged_candidate,
+    cancel_staged_candidate_and_restart, handle_view_id_minted, sweep_candidate_deadlines,
+};
+pub use views::{handle_correlated_result, handle_view_state};
 
 /// A pane asking to attach, as the front end stated it.
 ///
@@ -69,6 +79,17 @@ pub fn handle_view_opened(
             "terminal view opened"
         );
     }
+    // The election is told about the view, not just the route table. Without
+    // this the machine's `active_views` stays zero, `start` returns on its
+    // first gate, and no grant is ever requested — a session that stays on
+    // Sync for the whole life of the document with nothing wrong to find.
+    store
+        .direct
+        .demand(session_id, worker_fp, view_id, true, out);
+    // A pane that appeared while a candidate was staging invalidates that
+    // attempt's snapshot of this session: the candidate is preparing a view set
+    // that is no longer the set this document wants.
+    cancel_staged_candidate_and_restart(store, session_id, now_ms, out);
     publish_view(store, session_id, view_id, now_ms, out);
 }
 
@@ -98,6 +119,10 @@ pub fn handle_view_resized(
         rows,
         "terminal view resized; a new stream is expected"
     );
+    // The attempt snapshotted this pane's intent and revision before the
+    // resize, so publishing under either of them now would be a command the
+    // authority reads as a different intent than the one the pane holds.
+    cancel_staged_candidate_and_restart(store, session_id, now_ms, out);
     publish_view(store, session_id, view_id, now_ms, out);
 }
 
@@ -106,20 +131,30 @@ pub fn handle_view_hidden(
     store: &mut Store,
     session_id: &str,
     view_id: &str,
+    now_ms: u64,
     out: &mut Vec<Effect>,
 ) {
+    let worker_fp = worker_of(store, session_id);
+    // Park the view FIRST, so the revision read below is the one the Park
+    // publishes under. Reading it without parking leaves the intent as
+    // `Publish`, so hiding a view reads as no change at all and the revision
+    // never moves — the idempotence rule applied to a view that was never
+    // hidden.
     if let Some(replica) = store.terminal_mut_if_present(session_id) {
         replica.hide_view(view_id);
     }
-    let worker_fp = worker_of(store, session_id);
     store
         .routes
         .set_view_demand(&worker_fp, session_id, view_id, false);
+    store
+        .direct
+        .demand(session_id, &worker_fp, view_id, false, out);
     store.note_change();
     let revision = store
         .terminal(session_id)
         .and_then(|replica| replica.view(view_id))
         .map(|view| view.revision);
+    cancel_staged_candidate_and_restart(store, session_id, now_ms, out);
     if let Some(revision) = revision {
         send_intent(store, session_id, view_id, ViewIntent::Park, revision, out);
     }
@@ -131,8 +166,16 @@ pub fn handle_view_closed(
     store: &mut Store,
     session_id: &str,
     view_id: &str,
+    now_ms: u64,
     out: &mut Vec<Effect>,
 ) {
+    // The wire id is captured BEFORE the record goes: after a promotion it is not
+    // the pane's own id, and the removal the authority has to act on is the one
+    // it actually holds a lease for.
+    let wire_view_id = store
+        .terminal(session_id)
+        .and_then(|replica| replica.wire_view_id(view_id))
+        .map(str::to_string);
     let revision = store
         .terminal_mut_if_present(session_id)
         .and_then(|replica| replica.close_view(view_id));
@@ -141,159 +184,17 @@ pub fn handle_view_closed(
     store
         .routes
         .set_view_demand(&worker_fp, session_id, view_id, false);
-    if let Some(revision) = revision {
-        send_intent(
+    store
+        .direct
+        .demand(session_id, &worker_fp, view_id, false, out);
+    cancel_staged_candidate_and_restart(store, session_id, now_ms, out);
+    if let (Some(wire_view_id), Some(revision)) = (wire_view_id, revision) {
+        send_intent_for_wire(
             store,
             session_id,
-            view_id,
+            &wire_view_id,
             ViewIntent::Unpublish,
             revision,
-            out,
-        );
-    }
-}
-
-/// A generation-matched view-state result. An accepted answer carrying a stream id
-/// installs the new expectation, which drops the baseline and clears the latch.
-pub fn handle_view_state(
-    store: &mut Store,
-    state: &ViewStateResult,
-    now_ms: u64,
-    out: &mut Vec<Effect>,
-) {
-    let Some(replica) = store.terminal_mut_if_present(&state.session_id) else {
-        return;
-    };
-    match replica.apply_view_state(state, now_ms) {
-        ViewStateAdmission::Stale => tracing::debug!(
-            target: "terminal",
-            session_id = %state.session_id,
-            view_id = %state.view_id,
-            "stale view-state result"
-        ),
-        ViewStateAdmission::Refused => tracing::warn!(
-            target: "terminal",
-            session_id = %state.session_id,
-            view_id = %state.view_id,
-            "the authority refused this view"
-        ),
-        ViewStateAdmission::Accepted {
-            stream_id: Some(stream_id),
-        } => {
-            // v2 `terminal-stream-view-commands.ts`: the stream is installed at
-            // the AUTHORITY's effective geometry, and an answer without a valid
-            // one installs nothing.
-            let geometry = TerminalGeometry {
-                cols: state.effective_cols,
-                rows: state.effective_rows,
-            };
-            if !is_terminal_uuid(&stream_id) || !is_terminal_geometry(&geometry) {
-                tracing::warn!(target: "terminal", session_id = %state.session_id,
-                    "accepted view state without a valid stream or geometry");
-                return;
-            }
-            let (cols, rows) = (geometry.cols, geometry.rows);
-            let changed = store
-                .terminal_mut_if_present(&state.session_id)
-                .is_some_and(|replica| replica.install_expected_stream(&stream_id, cols, rows));
-            if changed {
-                store.note_change();
-                tracing::info!(
-                    target: "terminal",
-                    session_id = %state.session_id,
-                    stream_id = %stream_id,
-                    "expecting a fresh baseline"
-                );
-            }
-            request_repair_if_due(store, &state.session_id, now_ms, out);
-        }
-        ViewStateAdmission::Accepted { stream_id: None } => {}
-    }
-}
-
-/// Apply a view-state or input result that arrived inside a Sync frame.
-pub fn handle_correlated_result(
-    store: &mut Store,
-    frame: &SyncFrame,
-    now_ms: u64,
-    out: &mut Vec<Effect>,
-) {
-    match frame {
-        SyncFrame::ViewState {
-            session_id,
-            view_id,
-            generation,
-            accepted,
-            stream_id,
-            effective_cols,
-            effective_rows,
-        } => handle_view_state(
-            store,
-            &ViewStateResult {
-                session_id: session_id.clone(),
-                view_id: view_id.clone(),
-                generation: *generation,
-                accepted: *accepted,
-                stream_id: (!stream_id.is_empty()).then(|| stream_id.clone()),
-                effective_cols: *effective_cols,
-                effective_rows: *effective_rows,
-            },
-            now_ms,
-            out,
-        ),
-        SyncFrame::InputResult {
-            session_id,
-            input_seq,
-            outcome,
-            ..
-        } => crate::handle_input::handle_input_result(store, session_id, *input_seq, outcome),
-        _ => {}
-    }
-}
-
-/// A direct carrier authenticated.
-pub fn handle_carrier_ready(store: &mut Store, carrier: &DirectCarrier) {
-    if store.routes.register(carrier.clone()) {
-        store.note_change();
-        tracing::info!(
-            target: "terminal",
-            connection_id = %carrier.connection_id,
-            worker_fp = %carrier.worker_fp,
-            transport = carrier.transport.as_str(),
-            "direct carrier registered"
-        );
-    } else {
-        tracing::warn!(
-            target: "terminal",
-            connection_id = %carrier.connection_id,
-            worker_fp = %carrier.worker_fp,
-            "direct carrier refused"
-        );
-    }
-}
-
-/// A direct carrier closed or was displaced: retire exactly its routes, settle
-/// exactly its batches, and never replay either.
-pub fn handle_carrier_lost(store: &mut Store, connection_id: &str, out: &mut Vec<Effect>) {
-    for lost in store.routes.unregister(connection_id) {
-        crate::handle_input::retire_route(
-            store,
-            &lost.session_id,
-            &lost.token,
-            "direct carrier lost",
-            out,
-        );
-    }
-}
-
-/// A worker is gone: its connections, routes, demand, and candidates all go.
-pub fn handle_worker_retired(store: &mut Store, worker_fp: &str, out: &mut Vec<Effect>) {
-    for lost in store.routes.retire_worker(worker_fp) {
-        crate::handle_input::retire_route(
-            store,
-            &lost.session_id,
-            &lost.token,
-            "worker retired",
             out,
         );
     }
@@ -333,7 +234,7 @@ pub fn handle_search_page(
 }
 
 /// The worker a session's replica belongs to, or empty when it has no replica.
-fn worker_of(store: &Store, session_id: &str) -> String {
+pub(super) fn worker_of(store: &Store, session_id: &str) -> String {
     store
         .terminal(session_id)
         .map(|replica| replica.worker_fp.clone())

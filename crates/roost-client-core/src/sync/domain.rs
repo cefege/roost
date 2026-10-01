@@ -184,10 +184,21 @@ impl SyncState {
                     .get(&domain)
                     .is_some_and(|entry| entry.subscribed && entry.ready)
             }),
-            _ => self
-                .domains
-                .values()
-                .any(|entry| entry.subscribed && entry.ready),
+            // A frame that names a domain is gated on THAT domain, and only a
+            // frame that names none falls back to "some domain is ready". The
+            // session plane's frames name the terminal domain, so a session
+            // event is no longer admissible while the terminal snapshot that
+            // seeds the plane is still in flight.
+            _ => match frame.domain() {
+                Some(domain) => self
+                    .domains
+                    .get(&domain)
+                    .is_some_and(|entry| entry.subscribed && entry.ready),
+                None => self
+                    .domains
+                    .values()
+                    .any(|entry| entry.subscribed && entry.ready),
+            },
         }
     }
 }

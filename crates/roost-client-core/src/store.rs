@@ -34,6 +34,7 @@ pub mod terminal_transport;
 pub mod toasts;
 pub mod transfers;
 pub mod ui;
+pub mod view_rotation;
 
 pub use mutations::{PairRequest, delete_pair_request, delete_worker, replace_workers};
 pub use navigation::{
@@ -49,6 +50,7 @@ pub use root::{BrowserAccessState, captured_generation_is_current};
 pub use spotlight::Spotlight;
 pub use toasts::{Toast, ToastId, ToastKind, ToastSource};
 pub use transfers::{Transfer, TransferDirection, TransferState};
+pub use view_rotation::{RotationView, SyncViewRotation};
 
 /// The wire vocabulary a host needs to CALL these selectors and build the rows
 /// the projections take.
@@ -100,8 +102,22 @@ pub struct Store {
     pub account_id: Option<String>,
     /// One replica per session that has a terminal pane.
     pub terminal: BTreeMap<String, TerminalSession>,
+    /// One peer-negotiation machine per worker this document has wanted a
+    /// direct carrier for. Fed by `handle_terminal` and by the host's own
+    /// observations; the elected routes themselves stay in `routes`, because a
+    /// route is a value and a machine is a negotiation.
+    pub direct: crate::client::carriers::CarrierLane,
     /// Direct carriers, elected routes, and staged candidates.
     pub routes: RouteRegistry,
+    /// Sessions re-registering their views on Sync because an elected direct
+    /// route was lost, and the ids they minted for the move have not all come
+    /// back yet.
+    ///
+    /// While an entry exists, every Sync publication for that session is
+    /// suppressed: the id the record holds belonged to a carrier that is gone, and
+    /// publishing it to the coordinator would put a lease on an id the direct
+    /// worker is still holding in its own table.
+    pub pending_sync_view_rotation: BTreeMap<String, SyncViewRotation>,
     /// Admitted input batches and their outcomes.
     pub input: InputRouter,
     /// Fenced find results by session. Retained rather than streamed: a result
@@ -251,6 +267,7 @@ impl Store {
             workers: BTreeMap::new(),
             auth_generation: 0,
             browser_access_state: BrowserAccessState::Checking,
+            direct: crate::client::carriers::CarrierLane::new(),
             input: InputRouter::new(),
             find_results: BTreeMap::new(),
             next_call_id: 1,
@@ -270,6 +287,7 @@ impl Store {
             ui: UiState::new(),
             terminal_nav_pad: crate::store::terminal_nav_pad::TerminalNavPad::new(),
             sidebar: crate::store::sidebar::SidebarState::default(),
+            pending_sync_view_rotation: BTreeMap::new(),
             shell_dialogs: crate::store::shell_dialogs::ShellDialogs::default(),
             deck: crate::deck::DeckState::new(0),
             coord_identity: None,

@@ -169,6 +169,17 @@ impl SyncV2Session {
         self.apply_delivered_lifecycle(&delivered, delivery_seq);
         self.on_terminal_frame_delivered(&meta);
         self.pump_next_ready_lane(now_ms, hub);
+        if meta.lane != crate::sync_ws::frame_meta::FeedLane::Cell {
+            tracing::info!(
+                socket_id = %self.socket_id,
+                delivery_seq,
+                kind,
+                lane = ?meta.lane,
+                session_id = ?meta.session_id,
+                encoded_bytes = encoded_len,
+                "a non-cell sync v2 frame left the coordinator"
+            );
+        }
         tracing::debug!(
             socket_id = %self.socket_id,
             delivery_seq,

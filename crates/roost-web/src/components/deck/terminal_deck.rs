@@ -34,7 +34,7 @@ use crate::components::layout::window_size::use_is_compact;
 use crate::components::terminal::cell_terminal::CellTerminal;
 use crate::motion::resize_drag::use_resize_drag;
 use crate::platform::worker_paths::BrowserWorkerPaths;
-use crate::pump::use_pump;
+use crate::pump::use_store;
 use crate::router_state::use_navigate;
 
 /// One mounted terminal: its session row and where it paints.
@@ -48,7 +48,7 @@ struct MountedTerminal {
 /// The deck. Props are v2's `TerminalDeckProps`, snake-cased.
 #[component]
 pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) -> Element {
-    let pump = use_pump();
+    let pump = use_store();
     let navigate = use_navigate();
     let compact = use_is_compact();
     let resize = use_resize_drag();

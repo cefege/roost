@@ -22,11 +22,14 @@ impl SmokeBackdoor {
     /// `terminalBrowserSnapshot(sessionId)`.
     pub(super) fn terminal_browser_snapshot(&self, session_id: &str) -> Value {
         let mount_id = self.panes.mount_id(session_id);
+        let flags = self.panes.pane_flags(session_id);
         let renderer = RendererLayer {
             registered: mount_id.is_some(),
             probe: self.panes.render_probe(session_id),
             presentation: self.panes.presentation_snapshot(session_id),
             last_geometry_proof: self.geometry_proofs.borrow().latest(session_id, mount_id),
+            in_layout: flags.map(|flags| flags.in_layout),
+            surface_active: flags.map(|flags| flags.surface_active),
         };
         let clocks = DiagnosticClocks {
             monotonic_ms: BrowserClock::new().now_ms(),

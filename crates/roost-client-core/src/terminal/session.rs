@@ -12,52 +12,17 @@
 
 use std::collections::BTreeMap;
 
-use roost_proto::{PbCellGridChunk, PbCellGridFrame};
-use roost_protocol::cell::{CellGridChunkAssembler, CellGridChunkAssembly, CellGridFrame};
-
 use crate::terminal::frame_fold::{
     FoldTarget, FrameFoldOutcome, decode_chunk_part, decode_wire_frame, fold,
 };
+use crate::terminal::liveness::ForegroundLiveness;
 use crate::terminal::repair::RepairLatch;
 use crate::terminal::token::TerminalToken;
 use crate::terminal::view::TerminalView;
+use roost_proto::{PbCellGridChunk, PbCellGridFrame};
+use roost_protocol::cell::{CellGridChunkAssembler, CellGridChunkAssembly, CellGridFrame};
 
-/// What admitting one frame did, for the host that renders it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Admission {
-    /// Nothing changed. `latched` says whether this call is the one that latched
-    /// the repair; the replica is untouched either way.
-    Refused {
-        /// The contract reason, or the diagnosis when there is no contract code.
-        reason: String,
-        /// True when this call is the one that latched.
-        latched: bool,
-    },
-    /// A complete baseline replaced the replica. The host may repaint from
-    /// `canonical()`; renderers keep their last complete DOM until then.
-    BaselineReplaced,
-    /// A delta extended the replica. The host may apply the row changes to the
-    /// rows it already painted.
-    DeltaApplied,
-    /// A chunk is still assembling; nothing to paint yet.
-    ChunkPending,
-}
-
-/// What a view-state result did.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ViewStateAdmission {
-    /// The result belongs to a view that is not awaiting this generation. It is
-    /// the answer to a command from a socket that has been replaced, and it
-    /// changes nothing.
-    Stale,
-    /// The authority does not hold the view.
-    Refused,
-    /// The authority holds the view, and is minting this stream.
-    Accepted {
-        /// The stream the authority is now on, when it named one.
-        stream_id: Option<String>,
-    },
-}
+pub use crate::terminal::admission::{Admission, ViewStateAdmission};
 
 /// One session's canonical replica and everything fenced to it.
 #[derive(Debug)]
@@ -95,6 +60,9 @@ pub struct TerminalSession {
     /// assembling, and a dropped stalled partial all change the replica's
     /// bookkeeping and none of them change a cell.
     frame_revision: u64,
+    /// The foreground liveness watchdog's state for this replica, owned by
+    /// `session_liveness` and fired by the sweep.
+    pub(crate) liveness: ForegroundLiveness,
 }
 
 impl TerminalSession {
@@ -106,6 +74,7 @@ impl TerminalSession {
             target: FoldTarget::default(),
             assembler: CellGridChunkAssembler::new(),
             latch: RepairLatch::new(),
+            liveness: ForegroundLiveness::new(),
             generation: None,
             views: BTreeMap::new(),
             wire_stream_id: None,
@@ -215,7 +184,15 @@ impl TerminalSession {
         now_ms: u64,
     ) -> Admission {
         if self.generation.as_ref() != Some(token) {
-            return stale(token);
+            return Admission::unbound(
+                &self.session_id,
+                "generation",
+                self.generation
+                    .as_ref()
+                    .map_or("", |bound| bound.process_epoch.as_str()),
+                &frame.stream_id,
+                token,
+            );
         }
         if frame.session_id != self.session_id {
             return self.refuse("terminal frame session mismatch", token, now_ms);
@@ -224,7 +201,18 @@ impl TerminalSession {
             // Not this replica's frame. Latching a repair for it would ask the
             // authority for a baseline it already sent and this client ignored,
             // which is how one stale frame turns into a request storm.
-            return stale(token);
+            //
+            // It still gets a line, though. This fence is also what a PERMANENTLY
+            // dropped baseline looks like — the authority sent the frame, this
+            // client ignored it, and with neither a line nor a latch `roost
+            // doctor` and the watchdog both read it as a pane nobody is painting.
+            return Admission::unbound(
+                &self.session_id,
+                "stream",
+                self.target.expected_stream_id.as_deref().unwrap_or(""),
+                &frame.stream_id,
+                token,
+            );
         }
         self.note_wire(&frame.stream_id, &frame.grid_epoch, frame.seq);
         match decode_wire_frame(frame, assembled) {
@@ -253,6 +241,7 @@ impl TerminalSession {
                 self.assembler.reset();
                 self.target.canonical_chunk_in_flight = false;
                 self.frame_revision += 1;
+                self.note_accepted_frame(token, now_ms);
                 tracing::info!(
                     target: "terminal",
                     session_id = %self.session_id,
@@ -263,6 +252,7 @@ impl TerminalSession {
             }
             FrameFoldOutcome::Delta { .. } => {
                 self.frame_revision += 1;
+                self.note_accepted_frame(token, now_ms);
                 Admission::DeltaApplied
             }
         }
@@ -282,7 +272,15 @@ impl TerminalSession {
         now_ms: u64,
     ) -> Admission {
         if self.generation.as_ref() != Some(token) {
-            return stale(token);
+            return Admission::unbound(
+                &self.session_id,
+                "generation",
+                self.generation
+                    .as_ref()
+                    .map_or("", |bound| bound.process_epoch.as_str()),
+                "",
+                token,
+            );
         }
         let Some(part) = decode_chunk_part(chunk) else {
             return self.refuse("missing-part", token, now_ms);
@@ -291,8 +289,15 @@ impl TerminalSession {
             return self.refuse("terminal frame session mismatch", token, now_ms);
         }
         if Some(part.stream_id.as_str()) != self.target.expected_stream_id.as_deref() {
-            return stale(token);
+            return Admission::unbound(
+                &self.session_id,
+                "stream",
+                self.target.expected_stream_id.as_deref().unwrap_or(""),
+                &part.stream_id,
+                token,
+            );
         }
+        self.note_chunk_progress(token, &part.stream_id, part.seq);
         self.note_wire(&part.stream_id, &part.grid_epoch, part.seq);
         match self.assembler.push(chunk, now_ms) {
             Ok(CellGridChunkAssembly::Pending { .. }) => {
@@ -380,14 +385,5 @@ impl TerminalSession {
             self.target.canonical_chunk_in_flight = false;
         }
         Admission::Refused { reason, latched }
-    }
-}
-
-/// A frame from a generation this replica is not bound to. Never latches: the
-/// replica is not damaged, it is simply not the frame's destination.
-fn stale(token: &TerminalToken) -> Admission {
-    Admission::Refused {
-        reason: format!("generation {} is not current", token.socket_generation),
-        latched: false,
     }
 }

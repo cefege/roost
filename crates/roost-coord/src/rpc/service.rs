@@ -197,6 +197,14 @@ pub fn permission_denied_for(requirement: AuthRequirement) -> ConnectError {
     // requirement it would tell the browser the wrong thing about which
     // credential to present.
     //
+    // A NARROWER set than `AuthRequirement::admits_browser_key`, and the
+    // difference is not an oversight to be unified away: the principal here is
+    // KNOWN and was not the layer this method needs, whereas
+    // `auth_gate::credential_refusal` has resolved nothing and names the
+    // credential that would have worked. Merging the two would either tell a
+    // machine to present a device key or stop a browser hearing that it must
+    // re-pair.
+    //
     // `axum::http` is the same `http` 1.x connectrpc's `HeaderMap` is built
     // on, so naming the types costs no extra dependency and no second type
     // universe.

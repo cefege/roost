@@ -67,6 +67,14 @@ pub trait CellDelivery: Send + Sync {
     /// v2 `_releaseSyncOutputHold`: the core the hold is expressed in froze or
     /// was replaced.
     fn release_sync_output_hold(&mut self, channel_id: ChannelId);
+    /// One channel's emitter-owned diagnostic facts. A READ, and a read only:
+    /// the diagnostic snapshot must never move a delivery cursor or clear a
+    /// dirty mark, because an operator asking what the stream is doing is not
+    /// a reason for the stream to do something else.
+    fn channel_diagnostics(
+        &self,
+        channel_id: ChannelId,
+    ) -> crate::session::diagnostics::ChannelDiagnostics;
 }
 
 /// What a frozen core's capture held.

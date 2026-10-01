@@ -94,7 +94,8 @@ fn an_unstamped_live_event_abandons_a_v2_recovery() {
         replay.admit_live(&unstamped),
         LiveVerdict::Abort {
             reason: "unstamped_session_event",
-            emit: false
+            emit: false,
+            held: Vec::new()
         }
     );
     assert!(replay.is_aborted());
@@ -116,11 +117,17 @@ fn an_overflowing_hold_abandons_the_recovery_and_sends_the_event_live() {
         LiveVerdict::Held,
         "a repeat replaces its held copy instead of counting twice"
     );
+    // The hold is RELEASED, not dropped: every event the abandoned recovery was
+    // holding goes out, because a client that connected mid-recovery would
+    // otherwise never learn that its session opened.
+    let mut expected_released: Vec<SessionBusMessage> = (first..first + limit).map(live).collect();
+    expected_released.sort_by_key(|message| message.event_id.unwrap_or(0));
     assert_eq!(
         replay.admit_live(&live(first + limit)),
         LiveVerdict::Abort {
             reason: "recovery_live_overflow",
-            emit: true
+            emit: true,
+            held: expected_released
         }
     );
     assert!(replay.is_aborted());
@@ -135,11 +142,14 @@ fn an_overflowing_hold_abandons_the_recovery_and_sends_the_event_live() {
         },
         6,
     );
+    // Nothing was held in this one — the oversized event overflowed the hold
+    // before it was stored — so the release is empty and the event goes out.
     assert!(matches!(
         bytes.admit_live(&huge),
         LiveVerdict::Abort {
             reason: "recovery_live_overflow",
-            emit: true
+            emit: true,
+            held: _
         }
     ));
 }

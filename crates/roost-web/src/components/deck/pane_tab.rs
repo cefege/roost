@@ -54,6 +54,15 @@ pub fn PaneTab(
     };
     let direct = direct_transport_label(kind);
     let mut element = use_signal(|| None::<std::rc::Rc<MountedData>>);
+    // The ring a hovered toast names this tab for. Read through the context the
+    // root provides, not from the dock: a toast and a pane tab are siblings,
+    // and the tab is the surface the operator can actually see the ring on.
+    let notify_target =
+        use_context::<crate::components::notifications::notify_target::NotifyTarget>();
+    let ringing = crate::components::notifications::notify_target::ring_attribute(
+        &notify_target,
+        &session_id,
+    );
     // The hover card and the OS tooltip would stack on a plain desktop; the
     // tooltip is the fallback where no hover card is shown.
     let native_tooltip = (!hover_card_available).then(|| match direct {
@@ -68,6 +77,7 @@ pub fn PaneTab(
             "data-dragging": if dragging { "true" } else { "false" },
             "data-closing": if closing { "true" } else { "false" },
             "data-terminal-transport": kind.map(transport_attribute),
+            "data-notify-target": ringing,
             style,
             onmounted: move |event: MountedEvent| element.set(Some(event.data())),
             onmouseenter: move |_| {

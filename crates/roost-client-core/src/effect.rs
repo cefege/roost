@@ -73,6 +73,68 @@ pub enum Effect {
         /// The worker whose loopback door or peer the grant opens.
         worker_fp: String,
     },
+    /// A worker is gone: close every live direct connection it held.
+    ///
+    /// The core can retire a route because a route is a value in the store, but
+    /// a socket is not — it belongs to the host. Without this the browser keeps
+    /// a live carrier to a machine an operator deleted, and PTY input keeps
+    /// being accepted until the grant's own TTL expires
+    /// (`docs/FAILURE-INDEX.md` "A deleted worker's direct terminal still
+    /// accepts input").
+    CloseDirectCarriers {
+        /// The worker whose connections go.
+        worker_fp: String,
+    },
+    /// Perform one peer-lifecycle action the direct-carrier state machine
+    /// decided on: open a transport, hand it the coordinator's answer, stage
+    /// the candidate it authenticated, close the attempt, or come back later.
+    ///
+    /// `Box` because `CarrierEffect::Core` carries an `Effect`, and the two
+    /// referencing each other directly is an infinitely sized type. `Core` is
+    /// unwrapped by `client::carriers::lane`, so what a host sees here is only
+    /// the arms that have no `Effect` spelling of their own.
+    Carrier(Box<crate::client::carriers::CarrierEffect>),
+    /// Ask the host to mint a view id with ITS OWN entropy, for a pane whose
+    /// authority-facing id has to differ from the one it already holds.
+    ///
+    /// The core has no RNG and no JS: it names a session, an attempt and a pane,
+    /// and the host answers with `ClientEvent::TerminalViewIdMinted`. Every
+    /// reason the id must be a fresh UUID lives in the worker's admission (v2
+    /// `validateTerminalViewCommand`), which is why the host mints it and the
+    /// core refuses whatever comes back that is not one.
+    MintTerminalViewId {
+        /// The session the pane belongs to.
+        session_id: String,
+        /// The staging attempt this id is for, so an answer that arrives after
+        /// the attempt moved on is recognisable as stale.
+        attempt_id: u64,
+        /// The pane's own identity, which never changes.
+        logical_view_id: String,
+        /// Which attempt is asking: a staged candidate's own view, or a
+        /// re-registration on Sync after an elected direct route was lost.
+        target: ViewIdTarget,
+    },
+}
+
+/// Which attempt is asking the host for a view id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewIdTarget {
+    /// A staged direct candidate, which is preparing its own view per pane so
+    /// the worker never holds two live sockets on one id.
+    Candidate,
+    /// The Sync fallback rotation, which is replacing ids that belonged to a
+    /// direct carrier that is gone.
+    SyncFallback,
+}
+
+impl ViewIdTarget {
+    /// A short name for the incident log.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Candidate => "candidate",
+            Self::SyncFallback => "sync_fallback",
+        }
+    }
 }
 
 /// One typed frame for the Sync socket.
@@ -175,6 +237,13 @@ pub enum SyncCommand {
 }
 
 /// One typed command for a direct carrier.
+///
+/// Each command carries the values the wire messages require, not a subset the
+/// host can recover. A host that reconstructed them from the store at send time
+/// would put on the wire whatever the store said AFTER the event that produced
+/// this effect — a second answer to "what was this command", from a different
+/// copy, arriving later. That is the drift the Sync fences exist to prevent,
+/// moved one layer out; so the effect states them and the host sends them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DirectCommand {
     /// Publish, park, or remove a view over the direct link.
@@ -185,6 +254,9 @@ pub enum DirectCommand {
         view_id: String,
         /// What the view wants.
         intent: ViewIntent,
+        /// The view's geometry revision — what makes a replay of the same
+        /// revision and payload idempotent across a Sync redial.
+        revision: u64,
     },
     /// Request a fresh complete baseline over the direct link.
     Resync {
@@ -192,6 +264,13 @@ pub enum DirectCommand {
         session_id: String,
         /// The view whose geometry the baseline must match.
         view_id: String,
+        /// The stream the client believes it is reading.
+        stream_id: String,
+        /// The grid epoch that stream is on.
+        grid_epoch: String,
+        /// The canonical sequence the client holds, which is what the repair is
+        /// measured against.
+        seq: u64,
     },
     /// Write one admitted input batch over the direct link.
     Input {
@@ -203,6 +282,9 @@ pub enum DirectCommand {
         input_seq: u64,
         /// The bytes.
         bytes: Vec<u8>,
+        /// The route the client believes owns this channel's input, so a grant
+        /// that moved fences the batch instead of writing it.
+        input_route_epoch: String,
     },
 }
 

@@ -199,13 +199,20 @@ fn route_session(state: &mut LinkState, message: &SessionBusMessage) -> Option<F
     match state.replay.admit_live(message) {
         LiveVerdict::Emit => emit_session_frame(state, message),
         LiveVerdict::Duplicate | LiveVerdict::Held => None,
-        LiveVerdict::Abort { reason, emit } => {
+        LiveVerdict::Abort { reason, emit, held } => {
             reset_terminal_for_recovery(state, reason);
-            if emit {
-                emit_session_frame(state, message)
-            } else {
-                None
+            // The events the abandoned recovery was holding, in id order and
+            // BEFORE the one that ended it, because they are older and the
+            // client folds in arrival order. This is the difference between a
+            // browser whose session opened and one that never hears about it.
+            let mut last = None;
+            for released in held {
+                last = emit_session_frame(state, &released).or(last);
             }
+            if emit {
+                last = emit_session_frame(state, message).or(last);
+            }
+            last
         }
     }
 }

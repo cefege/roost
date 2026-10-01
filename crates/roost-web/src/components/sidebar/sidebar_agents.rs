@@ -15,6 +15,7 @@ use roost_client_core::store::sidebar::folder_groups::build_folder_groups;
 
 use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
 use crate::components::md::{EmptyState, List, ListRow, StatusDot};
+use crate::components::notifications::notify_target::{ring_attribute, use_notify_target};
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::use_store;
 use crate::route_session::active_session_for_path;
@@ -26,6 +27,7 @@ pub fn SidebarAgents(query: String) -> Element {
     let pump = use_store();
     let path = use_location();
     let navigate = use_navigate();
+    let notify_target = use_notify_target();
     let (groups, active_session_id) = {
         let core = pump.core();
         let core = core.borrow();
@@ -69,6 +71,9 @@ pub fn SidebarAgents(query: String) -> Element {
                             div {
                                 key: "{row.document.session_id}",
                                 class: "workbench-sidebar-agents__row",
+                                "data-notify-target": notify_target.as_ref().and_then(|target| {
+                                    ring_attribute(target, &row.document.session_id)
+                                }),
                                 onclick: {
                                     let pump = pump.clone();
                                     let session_id = row.document.session_id.clone();

@@ -4,9 +4,13 @@
 //! `apps/web/src/components/sidebar/SessionRowContextMenu.tsx` and
 //! `FolderRowContextMenu.tsx`; the surface and keys are `context_menu`'s.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use dioxus::prelude::*;
 
 use crate::components::context_menu::ctx_menu_surface_style;
+use crate::components::md;
 
 /// Above the scrim (99) that dismisses it.
 const MENU_Z_INDEX: u32 = 100;
@@ -23,6 +27,18 @@ pub fn ContextMenuFrame(
     on_close: EventHandler<()>,
     children: Element,
 ) -> Element {
+    // The row that opened this menu had focus, and a menu that takes it and
+    // never gives it back strands the operator on `body`: the arrow keys stop
+    // moving and Escape has nothing to hand focus to. Captured BEFORE the first
+    // edge is focused, because that focus move is what would otherwise become
+    // the remembered opener.
+    let opener: Rc<RefCell<Option<md::dom::FocusOpener>>> =
+        use_hook(|| Rc::new(RefCell::new(md::dom::focused_element())));
+    use_drop(move || {
+        if let Some(opener) = opener.borrow().as_ref() {
+            md::dom::restore_focus(opener);
+        }
+    });
     #[cfg(target_arch = "wasm32")]
     {
         let menu_id = menu_id.clone();

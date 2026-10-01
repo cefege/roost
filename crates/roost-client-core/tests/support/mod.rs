@@ -10,6 +10,7 @@ pub mod auth;
 pub mod hydration;
 pub mod sync_reconnect;
 
+use roost_client_core::store::prefs::PrefDefaults;
 use roost_client_core::{
     ClientCore, MemoryClock, MemoryKeyValueStore, TerminalSession, TerminalToken,
 };
@@ -124,6 +125,7 @@ pub fn client_with_clock() -> (ClientCore, std::rc::Rc<MemoryClock>) {
         clock.clone(),
         std::rc::Rc::new(MemoryKeyValueStore::new()),
         "tab-1",
+        &PrefDefaults::default(),
     );
     (core, clock)
 }

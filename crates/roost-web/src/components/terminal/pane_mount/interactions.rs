@@ -23,7 +23,7 @@ use wasm_bindgen::JsCast as _;
 use wasm_bindgen::closure::Closure;
 use web_sys::{Event, EventTarget, MouseEvent};
 
-use super::{PaneShared, input, paint};
+use super::{PaneShared, input, link_targets, paint};
 use crate::platform::browser_platform::{BrowserPlatform, browser_platform};
 
 type Listener = Closure<dyn FnMut(Event)>;
@@ -57,6 +57,8 @@ pub(super) fn attach(shared: &Rc<PaneShared>) {
         *shared.interactions.selection.borrow_mut() = Some(selection);
     }
     let mut options = TerminalLinkOptions::new(modifier);
+    options.resolve_file = Some(link_targets::file_resolver(shared.weak_self()));
+    options.on_open_file = Some(link_targets::file_opener(shared.weak_self()));
     let (remote, armed, hover) = (shared.weak_self(), shared.weak_self(), shared.weak_self());
     options.github_owner_repo = Some(Box::new(move || {
         let shared = remote.upgrade()?;
@@ -92,7 +94,7 @@ pub(super) fn attach(shared: &Rc<PaneShared>) {
 /// Tear every interaction down.
 pub(super) fn detach(shared: &PaneShared) {
     detach_foreground(shared);
-    if let Some(links) = shared.interactions.links.borrow_mut().take() {
+    if let Some(mut links) = shared.interactions.links.borrow_mut().take() {
         links.dispose();
     }
     if let Some(mouse) = shared.interactions.mouse.borrow_mut().take() {
@@ -251,15 +253,13 @@ fn copy_on_select(shared: &PaneShared) {
 
 /// Before live input: end reader holds and drop a pane-owned selection.
 pub(super) fn prepare_live_interaction(shared: &PaneShared) {
-    let result = {
-        let mut renderer = shared.renderer.borrow_mut();
-        match shared.interactions.selection.try_borrow_mut() {
-            Ok(mut selection) => match selection.as_mut() {
-                Some(selection) => selection.prepare_live_interaction(&mut renderer),
-                None => renderer.prepare_live_interaction(),
-            },
-            Err(_) => renderer.prepare_live_interaction(),
-        }
+    let renderer = &shared.renderer;
+    let result = match shared.interactions.selection.try_borrow_mut() {
+        Ok(mut selection) => match selection.as_mut() {
+            Some(selection) => selection.prepare_live_interaction(renderer),
+            None => renderer.borrow_mut().prepare_live_interaction(),
+        },
+        Err(_) => renderer.borrow_mut().prepare_live_interaction(),
     };
     release_links(shared);
     after_hold_change(shared, result);
@@ -267,20 +267,18 @@ pub(super) fn prepare_live_interaction(shared: &PaneShared) {
 
 /// Leaving the visible surface ends every reader interval and the link hold.
 pub(super) fn release_paint_holds(shared: &PaneShared) {
-    let result = {
-        let mut renderer = shared.renderer.borrow_mut();
-        let released = match shared.interactions.selection.try_borrow_mut() {
-            Ok(mut selection) => selection
-                .as_mut()
-                .map(|selection| selection.release_paint_holds(&mut renderer)),
-            Err(_) => None,
-        };
-        let released = released.unwrap_or_else(|| renderer.set_selection_hold(false));
-        let armed = renderer.set_armed_hold(false);
-        LiveInteractionResult {
-            reconciled: released.reconciled || armed.reconciled,
-            anchor_changed: released.anchor_changed || armed.anchor_changed,
-        }
+    let renderer = &shared.renderer;
+    let released = match shared.interactions.selection.try_borrow_mut() {
+        Ok(mut selection) => match selection.as_mut() {
+            Some(selection) => selection.release_paint_holds(renderer),
+            None => renderer.borrow_mut().set_selection_hold(false),
+        },
+        Err(_) => renderer.borrow_mut().set_selection_hold(false),
+    };
+    let armed = renderer.borrow_mut().set_armed_hold(false);
+    let result = LiveInteractionResult {
+        reconciled: released.reconciled || armed.reconciled,
+        anchor_changed: released.anchor_changed || armed.anchor_changed,
     };
     release_links(shared);
     after_hold_change(shared, result);

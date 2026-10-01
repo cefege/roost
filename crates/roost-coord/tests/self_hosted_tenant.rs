@@ -196,3 +196,135 @@ async fn a_missing_membership_is_a_partial_topology_and_is_refused() {
         "the refusal must name the rule, got: {refusal}"
     );
 }
+
+/// The refusal that has no loud failure behind it. `push.vapid` is read and
+/// written at the NULL scope and nowhere else, so a dashboard-scoped copy is
+/// unreachable from every code path that exists: the next `PushGetConfig` mints
+/// a SECOND identity, and every subscription already in `push_subscriptions` was
+/// signed by the first one. An install that was being notified stops being
+/// notified and reports no reason, which is why this is a boot refusal.
+#[tokio::test]
+async fn a_coordinator_global_setting_stored_in_a_dashboard_scope_is_refused() {
+    let fixture = TenantFixture::new("scoped-vapid").await;
+    let tenant = ensure_self_hosted_tenant(&fixture.database, 1_000)
+        .await
+        .expect("the first run creates the topology");
+    fixture
+        .exec(&format!(
+            "INSERT INTO app_settings (dashboard_id, key, value, updated_at_ms) \
+              VALUES ('{}', 'push.vapid', '{{\"publicKey\":\"a\"}}', 1)",
+            tenant.dashboard_id
+        ))
+        .await;
+
+    let refusal = ensure_self_hosted_tenant(&fixture.database, 2_000)
+        .await
+        .expect_err("an unreachable push identity is not a deployment");
+
+    let reason = refusal.to_string();
+    assert!(
+        reason.contains("push.vapid") && reason.contains("coordinator-global"),
+        "the refusal must name the key and the rule, or the operator has no \
+         idea which row to look at, got: {reason}"
+    );
+}
+
+/// The control for the rule above, and the half that is reachable without a
+/// previous product: the correctly-scoped shapes are both admitted. A guard
+/// that refused a NULL-scoped `push.vapid` would brick every install the first
+/// time push was configured.
+#[tokio::test]
+async fn both_correctly_scoped_settings_are_admitted() {
+    let fixture = TenantFixture::new("scoped-ok").await;
+    let tenant = ensure_self_hosted_tenant(&fixture.database, 1_000)
+        .await
+        .expect("the first run creates the topology");
+    // The identity at the NULL scope, which is where `push::vapid` reads it.
+    fixture
+        .exec(
+            "INSERT INTO app_settings (dashboard_id, key, value, updated_at_ms) \
+               VALUES (NULL, 'push.vapid', '{\"publicKey\":\"a\"}', 1)",
+        )
+        .await;
+    // An ordinary key at the dashboard's scope, which is where
+    // `agents::config` reads it.
+    fixture
+        .exec(&format!(
+            "INSERT INTO app_settings (dashboard_id, key, value, updated_at_ms) \
+              VALUES ('{}', 'agent.selected', 'claude', 1)",
+            tenant.dashboard_id
+        ))
+        .await;
+
+    ensure_self_hosted_tenant(&fixture.database, 2_000)
+        .await
+        .expect(
+            "a coordinator-global key at the NULL scope and a dashboard key \
+                 at its dashboard are the two shapes that work",
+        );
+}
+
+/// The quieter half of the same drift. A key every reader looks up at a
+/// dashboard's scope, stored with no dashboard, reads as unset — so the
+/// operator's agent config or transcription key is simply gone, with no error
+/// anywhere. Refusing it at boot is the only place it can be noticed.
+#[tokio::test]
+async fn a_dashboard_scoped_setting_stored_with_no_dashboard_is_refused() {
+    let fixture = TenantFixture::new("unscoped-setting").await;
+    ensure_self_hosted_tenant(&fixture.database, 1_000)
+        .await
+        .expect("the first run creates the topology");
+    fixture
+        .exec(
+            "INSERT INTO app_settings (dashboard_id, key, value, updated_at_ms) \
+               VALUES (NULL, 'agent.selected', 'claude', 1)",
+        )
+        .await;
+
+    let refusal = ensure_self_hosted_tenant(&fixture.database, 2_000)
+        .await
+        .expect_err("a setting no reader can reach is not a deployment");
+
+    let reason = refusal.to_string();
+    assert!(
+        reason.contains("agent.selected") && reason.contains("no dashboard"),
+        "the refusal must name the key and where it should have been, got: \
+         {reason}"
+    );
+}
+
+/// The check is a WHERE clause, so a setting written after admission is caught
+/// on the NEXT boot rather than the one that is running. A self-hosted install
+/// runs this at every start, which is the whole point of putting it here.
+#[tokio::test]
+async fn a_setting_written_after_the_first_boot_is_caught_by_the_next_one() {
+    let fixture = TenantFixture::new("late-scope").await;
+    let tenant = ensure_self_hosted_tenant(&fixture.database, 1_000)
+        .await
+        .expect("the first run creates the topology");
+    fixture
+        .exec(&format!(
+            "INSERT INTO app_settings (dashboard_id, key, value, updated_at_ms) \
+              VALUES ('{}', 'transcription.deepgram_api_key', 'k', 1)",
+            tenant.dashboard_id
+        ))
+        .await;
+
+    ensure_self_hosted_tenant(&fixture.database, 2_000)
+        .await
+        .expect("a well-scoped setting is admitted");
+
+    fixture
+        .exec(
+            "UPDATE app_settings SET dashboard_id = NULL \
+              WHERE key = 'transcription.deepgram_api_key'",
+        )
+        .await;
+
+    assert!(
+        ensure_self_hosted_tenant(&fixture.database, 3_000)
+            .await
+            .is_err(),
+        "a row that lost its scope between boots is the drift this exists for"
+    );
+}

@@ -41,12 +41,36 @@ fn done() -> Reply {
 }
 
 impl SmokeBackdoor {
+    /// Set or release the document-visibility pin.
+    ///
+    /// v2's signature is `forceVisible(on)` / `forceHidden(on)`, and `false`
+    /// RELEASES the pin rather than pinning the other way
+    /// (`setVisibilityOverride(on ? true : null)`) — so there is no separate
+    /// release member, and the 53-member smoke shape stays the one the
+    /// spec-side type declares.
+    ///
+    /// The pin, not a document write. v2 applies the override in ONE place and
+    /// requires every consumer to read visibility through `pageVisible()`; a
+    /// component that read the document directly would be right in a browser
+    /// and wrong under the oracle, which is the divergence that fails only in
+    /// the run meant to check it. `platform::visibility` applies the override
+    /// inside that one function, so every existing call site gets it unchanged.
+    fn answer_flag(self: &Rc<Self>, method: &'static str, on: bool) -> Reply {
+        crate::platform::visibility::pin_visible(match (method, on) {
+            ("forceVisible", true) => Some(true),
+            ("forceHidden", true) => Some(false),
+            _ => None,
+        });
+        Reply::Now(Ok(None))
+    }
+
     /// Answer one call.
     pub(super) fn answer(self: &Rc<Self>, call: SmokeCall) -> Reply {
         let this = Rc::clone(self);
         match call {
             SmokeCall::Unported { refusal } => Reply::Now(Err(refusal.to_owned())),
             SmokeCall::Bare { method } => self.answer_bare(method),
+            SmokeCall::Flag { method, on } => self.answer_flag(method, on),
             SmokeCall::Session { method, session_id } => self.answer_session(method, session_id),
             SmokeCall::Input { session_id, text } => Reply::Later(Box::pin(async move {
                 this.input(&session_id, &text).await.map(|()| None)

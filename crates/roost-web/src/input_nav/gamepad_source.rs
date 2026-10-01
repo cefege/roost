@@ -8,6 +8,7 @@
 //! `modality`, `modality_dom`. Ported from `apps/web/src/browser/gamepadSource.ts`.
 
 use crate::input_nav::modality::ModeChoice;
+use crate::input_nav::pad_mapper::PadSnapshot;
 
 /// What the poll loop does after a refresh.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,6 +68,46 @@ impl PadPollGate {
     }
 }
 
+/// One `navigator.getGamepads()` entry as plain data, plus the rule for
+/// whether the poll may read it.
+///
+/// The entry is read through [`js_sys::Reflect`] rather than cast to
+/// `web_sys::Gamepad`: that cast brand-checks against the browser's
+/// `Gamepad` constructor, so any object merely SHAPED like a pad — a stand-in
+/// under test, a polyfill, a wrapper from another realm — is dropped with no
+/// error anywhere and the controller silently does nothing.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PadReading {
+    connected: bool,
+    standard: bool,
+    snapshot: PadSnapshot,
+}
+
+impl PadReading {
+    /// Read one entry's fields. `mapping` is the raw `GamepadMappingType`
+    /// string; anything but `standard` leaves the pad unpolled.
+    pub fn from_parts(connected: bool, mapping: &str, buttons: Vec<bool>, axes: Vec<f64>) -> Self {
+        Self {
+            connected,
+            standard: mapping == STANDARD_MAPPING,
+            snapshot: PadSnapshot { buttons, axes },
+        }
+    }
+
+    /// Whether the poll loop may read this pad.
+    pub fn is_pollable(&self) -> bool {
+        self.connected && self.standard
+    }
+
+    /// The state one poll turns into intents.
+    pub fn snapshot(&self) -> &PadSnapshot {
+        &self.snapshot
+    }
+}
+
+/// The only `GamepadMappingType` whose buttons this port is bound for.
+pub const STANDARD_MAPPING: &str = "standard";
+
 #[cfg(target_arch = "wasm32")]
 pub use browser::{GamepadSourceGuard, install_gamepad_source};
 
@@ -77,15 +118,15 @@ mod browser {
 
     use dioxus::prelude::{ReadableExt as _, Signal, WritableExt as _};
     use wasm_bindgen::JsCast as _;
+    use wasm_bindgen::JsValue;
     use wasm_bindgen::closure::Closure;
-    use web_sys::{Gamepad, GamepadButton, GamepadMappingType};
 
-    use super::{PadPollGate, PollTransition};
+    use super::{PadPollGate, PadReading, PollTransition};
     use crate::input_nav::dom_read;
     use crate::input_nav::modality::NavModality;
     use crate::input_nav::modality_dom::note_pad_activity;
     use crate::input_nav::pad_bindings::PadAction;
-    use crate::input_nav::pad_mapper::{HeldPublisher, PadHeld, PadHoldState, PadSnapshot};
+    use crate::input_nav::pad_mapper::{HeldPublisher, PadHeld, PadHoldState};
 
     const CONNECTION_EVENTS: [&str; 2] = ["gamepadconnected", "gamepaddisconnected"];
 
@@ -232,12 +273,12 @@ mod browser {
 
     fn poll_once(source: &Rc<Source>) {
         request_frame(source);
-        let snapshot = standard_pads().first().map(snapshot_of);
+        let readings = standard_pads();
+        let snapshot = readings.first().map(PadReading::snapshot);
         let (published, actions) = {
             let mut state = source.state.borrow_mut();
-            let published = state.publisher.publish(snapshot.as_ref());
+            let published = state.publisher.publish(snapshot);
             let actions = snapshot
-                .as_ref()
                 .map(|snapshot| state.holds.actions_to_fire(snapshot, dom_read::now_ms()))
                 .unwrap_or_default();
             (published, actions)
@@ -259,34 +300,60 @@ mod browser {
         }
     }
 
-    fn standard_pads() -> Vec<Gamepad> {
+    fn standard_pads() -> Vec<PadReading> {
         // No Gamepad API at all (older Safari) is a refused call, not a panic.
         let Some(Ok(pads)) = web_sys::window().map(|window| window.navigator().get_gamepads())
         else {
             return Vec::new();
         };
-        pads.iter()
-            .filter_map(|pad| pad.dyn_into::<Gamepad>().ok())
-            .filter(|pad| pad.connected() && pad.mapping() == GamepadMappingType::Standard)
-            .collect()
+        let entries = pads.length() as usize;
+        let pollable: Vec<PadReading> = pads
+            .iter()
+            .map(|pad| reading_of(&pad))
+            .filter(PadReading::is_pollable)
+            .collect();
+        if pollable.is_empty() {
+            tracing::debug!(target: "input_nav", entries, "no connected standard pad among the reported entries");
+        }
+        pollable
     }
 
-    fn snapshot_of(pad: &Gamepad) -> PadSnapshot {
-        PadSnapshot {
-            buttons: pad
-                .buttons()
+    fn reading_of(pad: &JsValue) -> PadReading {
+        let buttons = array_property(pad, "buttons");
+        let axes = array_property(pad, "axes");
+        PadReading::from_parts(
+            bool_property(pad, "connected").unwrap_or(false),
+            string_property(pad, "mapping")
+                .as_deref()
+                .unwrap_or_default(),
+            buttons
                 .iter()
-                .map(|button| {
-                    button
-                        .dyn_into::<GamepadButton>()
-                        .is_ok_and(|button| button.pressed())
-                })
+                .map(|button| bool_property(&button, "pressed").unwrap_or(false))
                 .collect(),
-            axes: pad
-                .axes()
-                .iter()
+            axes.iter()
                 .map(|axis| axis.as_f64().unwrap_or(0.0))
                 .collect(),
+        )
+    }
+
+    /// `Reflect::get` walks the prototype chain, so a real `Gamepad`'s
+    /// prototype getters read exactly as a stand-in's own properties do.
+    fn property(value: &JsValue, key: &str) -> Option<JsValue> {
+        js_sys::Reflect::get(value, &JsValue::from_str(key)).ok()
+    }
+
+    fn bool_property(value: &JsValue, key: &str) -> Option<bool> {
+        property(value, key)?.as_bool()
+    }
+
+    fn string_property(value: &JsValue, key: &str) -> Option<String> {
+        property(value, key)?.as_string()
+    }
+
+    fn array_property(value: &JsValue, key: &str) -> js_sys::Array {
+        match property(value, key) {
+            Some(array) if array.is_array() => js_sys::Array::from(&array),
+            _ => js_sys::Array::new(),
         }
     }
 }

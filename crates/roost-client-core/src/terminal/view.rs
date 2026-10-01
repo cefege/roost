@@ -68,9 +68,19 @@ pub struct ViewAnswer {
 /// One pane's view record.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalView {
-    /// The view's identity. Stable for the life of the pane, which is what lets
-    /// a renderer keep its DOM across a transport change.
+    /// The pane's own identity, stable for the life of the pane, which is what
+    /// lets a renderer keep its DOM across a transport change. This is the key
+    /// every local structure uses: `TerminalSession::views`, the route demand,
+    /// and the input outcome feed all speak it.
     pub view_id: String,
+    /// The id the AUTHORITY holds this view under.
+    ///
+    /// Equal to `view_id` until a promotion adopts a minted direct id, because
+    /// the authority has one lease per id and refuses a second live socket on
+    /// one. Every outbound command and every inbound view-state correlation
+    /// names this one, which is why a pane can keep addressing its own view
+    /// across a transport change without either side sharing an id.
+    pub wire_view_id: String,
     /// The columns the pane last published.
     pub cols: u32,
     /// The rows the pane last published.
@@ -98,18 +108,69 @@ impl TerminalView {
     /// A newly opened view at a size. It has published nothing yet, so
     /// `published_at_ms` is zero and the first heartbeat is due immediately.
     pub fn opened(view_id: impl Into<String>, cols: u32, rows: u32, _now_ms: u64) -> Self {
+        let view_id = view_id.into();
+        // A pane's view has published nothing, so its heartbeat clock starts at
+        // zero and the first heartbeat is due immediately.
+        Self::published_as(
+            view_id.clone(),
+            view_id,
+            ViewIntent::Publish { cols, rows },
+            1,
+            0,
+        )
+    }
+
+    /// A view published under a DIFFERENT wire id, carrying a caller-chosen
+    /// intent and revision.
+    ///
+    /// A staged candidate needs all three: its own id, so the worker holds a
+    /// second lease instead of refusing a duplicate, and a revision past the
+    /// canonical's, so the authority reads the new id as a new intent rather
+    /// than the same one repeated.
+    pub fn published_as(
+        view_id: impl Into<String>,
+        wire_view_id: impl Into<String>,
+        intent: ViewIntent,
+        revision: u64,
+        now_ms: u64,
+    ) -> Self {
+        let (cols, rows) = match intent {
+            ViewIntent::Publish { cols, rows } => (cols, rows),
+            // A parked view constrains nothing, so the candidate has no geometry
+            // of its own to state. Only a `Publish` ever puts these on the wire.
+            ViewIntent::Park | ViewIntent::Unpublish => (0, 0),
+        };
         Self {
             view_id: view_id.into(),
+            wire_view_id: wire_view_id.into(),
             cols,
             rows,
-            intent: ViewIntent::Publish { cols, rows },
-            revision: 1,
+            intent,
+            revision,
             unacknowledged: None,
-            published_at_ms: 0,
+            published_at_ms: now_ms,
             acknowledged_at_ms: 0,
             counted: false,
             answer: None,
         }
+    }
+
+    /// Adopt a new wire id, and forget every answer the old one carried.
+    ///
+    /// Used by the Sync fallback rotation, where the id changes because the
+    /// previous one belonged to a carrier that is gone: the new authority has
+    /// acknowledged nothing, so the lease must be earned again from zero rather
+    /// than inherited from a view the new id never saw.
+    pub fn adopt_wire_view_id(&mut self, wire_view_id: String) {
+        if self.wire_view_id == wire_view_id {
+            return;
+        }
+        self.wire_view_id = wire_view_id;
+        self.unacknowledged = None;
+        self.answer = None;
+        self.counted = false;
+        self.published_at_ms = 0;
+        self.acknowledged_at_ms = 0;
     }
 
     /// Record a new effective size.

@@ -35,7 +35,7 @@ impl Page {
             scanned_end_row,
             scrollback_total: description.total,
             cols: u32::from(description.cols),
-            epoch: String::new(),
+            epoch: description.binding.current().to_owned(),
             description: description.clone(),
         }
     }

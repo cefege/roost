@@ -28,18 +28,24 @@ use super::status_bar::StatusBar;
 use super::title_bar::TitleBar;
 use super::window_size::use_is_compact;
 use crate::components::sidebar::sidebar_root::SidebarRoot;
+use crate::components::terminal_chrome::composer_geometry::published_geometry;
 use crate::platform::worker_paths::{BrowserWorkerPaths, worker_path_basename};
 use crate::pump::use_store;
 use crate::route_session::active_session_for_path;
 use crate::router_state::use_location;
 use crate::terminal_href::worker_os;
 
-/// The composer's resting geometry. The composer (COMPOSER slice) is not
-/// mounted in this build, so the shell always reserves its resting row.
-const COMPOSER_RESTING: ComposerGeometry = ComposerGeometry {
-    active: false,
-    height_px: 0.0,
-};
+/// What the composer is doing, read from the slot the portaled dock owns.
+///
+/// NOT a constant, and that is the whole point. A compact terminal route
+/// reserves the composer's RESTING row whether or not the composer is mounted
+/// right now — it unmounts under the drawer — so the resting reservation is
+/// unconditional, and only the measured growth rides on the live value.
+/// `docs/FAILURE-INDEX.md`, "Transient chrome resizes the PTY", is the
+/// authority: nothing here may change a PTY's row count.
+fn composer_geometry() -> ComposerGeometry {
+    published_geometry()
+}
 
 /// What the chrome shows about the session a path addresses: the OSC title
 /// the worker observed, and the basename of the session's live folder.
@@ -86,6 +92,9 @@ pub fn AppShell(children: Element) -> Element {
     let path = location();
     let compact = use_is_compact();
     let reading = read_shell(pump.core().borrow().store(), &path);
+    // Re-read every render, because the dock publishes on a ResizeObserver and
+    // a composer that grew does not otherwise bump the store.
+    let composer = composer_geometry();
     let terminal_route = is_terminal_path(&path);
     let title = reading
         .chrome
@@ -116,7 +125,7 @@ pub fn AppShell(children: Element) -> Element {
         div {
             class: "workbench-shell",
             "data-compact": if compact { "true" } else { "false" },
-            style: shell_style(reading.keyboard_resize, COMPOSER_RESTING.active, reading.sidebar_width, reading.collapsed),
+            style: shell_style(reading.keyboard_resize, composer.active, reading.sidebar_width, reading.collapsed),
             if !compact {
                 TitleBar { path: path.clone(), session_title: title.clone(), session_folder: folder.clone() }
                 ActivityBar { on_toggle_sidebar }
@@ -124,8 +133,8 @@ pub fn AppShell(children: Element) -> Element {
             }
             main {
                 class: "workbench-editor-region",
-                "data-keyboard-shift": keyboard_shift(terminal_route, COMPOSER_RESTING.active, reading.keyboard_resize).then_some("true"),
-                style: editor_style(terminal_route, compact, reading.keyboard_resize, COMPOSER_RESTING),
+                "data-keyboard-shift": keyboard_shift(terminal_route, reading.keyboard_resize).then_some("true"),
+                style: editor_style(terminal_route, compact, reading.keyboard_resize, composer),
                 if shows_mobile_top_bar(compact, &path, terminal_route) {
                     MobileTopBar { path: path.clone(), session_title: title, session_folder: folder }
                 }

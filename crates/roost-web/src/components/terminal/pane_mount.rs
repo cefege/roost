@@ -11,18 +11,22 @@ mod backfill_io;
 mod browser;
 mod cursor_report;
 mod echo;
+mod find_io;
 mod input;
 mod interactions;
+mod link_targets;
 mod paint;
 mod scroll;
 
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
+use dioxus::prelude::EventHandler;
 use roost_client_core::ClientEvent;
 use roost_web_terminal::CellGridRenderer;
 use roost_web_terminal::backfill::ScrollbackBackfill;
 use roost_web_terminal::cell_geometry::TerminalCellBox;
+use roost_web_terminal::find::hits::FindQueryOptions;
 use roost_web_terminal::terminal_presentation::TerminalPresentationController;
 use wasm_bindgen::JsCast as _;
 use web_sys::HtmlElement;
@@ -46,6 +50,10 @@ pub struct PaneMountInit {
     pub ui: PaneUi,
     pub pump: Pump,
     pub panes: PaneRegistry,
+    /// The router's handler. The pane is imperative and mounted from an event
+    /// handler, where no Dioxus context is readable, and a terminal file link
+    /// opens a route — so the handle travels in rather than being looked up.
+    pub navigate: EventHandler<String>,
 }
 
 impl std::fmt::Debug for PaneMountInit {
@@ -78,6 +86,7 @@ pub(super) struct PaneState {
     pub dom_repair: DomRepair,
     pub offline: OfflineWatch,
     pub backfill: ScrollbackBackfill,
+    pub find: find_io::PaneFind,
     pub view_opened: bool,
     pub published: Option<(u32, u32)>,
     pub has_reconciled_frame: bool,
@@ -96,10 +105,16 @@ pub(super) struct PaneShared {
     pub title: RefCell<String>,
     pub pump: Pump,
     pub panes: PaneRegistry,
+    /// The router's handler, for the links this pane's terminal paints.
+    pub navigate: EventHandler<String>,
     pub ui: PaneUi,
     pub display: HtmlElement,
     pub renderer: Rc<RefCell<CellGridRenderer>>,
     pub mount_id: Cell<u64>,
+    /// This pane's slot in the pump's find-intent registry, so a global-search
+    /// result clicked for this session reaches THIS pane and a pane that has
+    /// unmounted is not called into.
+    pub find_registration: Cell<u64>,
     pub cell: Cell<Option<TerminalCellBox>>,
     pub modes: Cell<FrameModes>,
     /// Set by the renderer's reconcile hooks, which run inside a paint and so
@@ -167,7 +182,7 @@ impl PaneMount {
                 return None;
             }
         };
-        let Some(view_id) = browser::mint_view_id() else {
+        let Some(view_id) = crate::platform::terminal_view_id::mint_view_id() else {
             tracing::error!(target: "terminal", session_id = %init.session_id,
                 "no crypto.randomUUID: a terminal view cannot be minted");
             return None;
@@ -181,6 +196,7 @@ impl PaneMount {
             pump: init.pump,
             panes: init.panes,
             ui: init.ui,
+            navigate: init.navigate,
             display,
             renderer: Rc::clone(&renderer),
             mount_id: Cell::new(0),
@@ -199,6 +215,10 @@ impl PaneMount {
                 dom_repair: DomRepair::new(),
                 offline: OfflineWatch::new(),
                 backfill: ScrollbackBackfill::new(&init.session_id),
+                find: find_io::PaneFind::new(
+                    &init.session_id,
+                    &crate::platform::terminal_view_id::mint_view_id().unwrap_or_default(),
+                ),
                 view_opened: false,
                 published: None,
                 has_reconciled_frame: false,
@@ -214,6 +234,7 @@ impl PaneMount {
             echo: RefCell::new(None),
             disposed: Cell::new(false),
             me: me.clone(),
+            find_registration: Cell::new(0),
         });
         let surface: Rc<dyn super::pane_surface::PaneSurface> = renderer;
         shared
@@ -223,6 +244,12 @@ impl PaneMount {
         input::attach(&shared);
         interactions::attach(&shared);
         echo::attach(&shared);
+        shared
+            .find_registration
+            .set(shared.pump.register_terminal_find(
+                &shared.session_id,
+                Box::new(find_io::PaneFindSink::new(&shared)),
+            ));
         let poll_due = shared
             .state
             .borrow_mut()
@@ -244,6 +271,7 @@ impl PaneMount {
             let mut state = shared.state.borrow_mut();
             std::mem::replace(&mut state.flags, flags)
         };
+        shared.panes.set_pane_flags(&shared.session_id, flags);
         actions::flags_changed(shared, previous, flags);
     }
 
@@ -298,6 +326,36 @@ impl PaneMount {
     pub fn publish_viewport_now(&self) {
         actions::publish_viewport_now(&self.shared);
     }
+
+    /// Show the find bar for this pane.
+    pub fn open_find(&self) {
+        find_io::open(&self.shared);
+    }
+
+    /// Hide the find bar and hand the keyboard back to the PTY.
+    pub fn close_find(&self) {
+        find_io::close(&self.shared);
+    }
+
+    /// Replace the find query, as a literal.
+    pub fn set_find_query(&self, query: &str) {
+        find_io::set_query(&self.shared, query, FindQueryOptions::default());
+    }
+
+    /// Move the active match, wrapping at both ends.
+    pub fn step_find(&self, delta: i64) {
+        find_io::step(&self.shared, delta);
+    }
+
+    /// Flip case sensitivity and re-search.
+    pub fn toggle_find_case(&self) {
+        find_io::toggle_case_sensitive(&self.shared);
+    }
+
+    /// Flip regex mode and re-search.
+    pub fn toggle_find_regex(&self) {
+        find_io::toggle_regex(&self.shared);
+    }
 }
 
 impl Drop for PaneMount {
@@ -308,6 +366,7 @@ impl Drop for PaneMount {
         interactions::detach(shared);
         input::detach(shared);
         browser::detach(shared);
+        find_io::dispose(shared);
         let backfill_actions = shared.state.borrow_mut().backfill.dispose();
         drop(backfill_actions);
         {
@@ -321,6 +380,9 @@ impl Drop for PaneMount {
         shared
             .panes
             .unregister(&shared.session_id, shared.mount_id.get());
+        shared
+            .pump
+            .unregister_terminal_find(&shared.session_id, shared.find_registration.get());
         shared.pump.dispatch(ClientEvent::ViewClosed {
             session_id: shared.session_id.clone(),
             view_id: shared.view_id.clone(),

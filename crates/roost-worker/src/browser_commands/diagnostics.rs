@@ -193,13 +193,14 @@ fn snapshot_json(report: &Snapshot) -> Value {
         "channels": channels,
         "over_budget": report.over_budget().len(),
         "evicting": report.evicting(),
+        "sessions": report.sessions,
     })
 }
 
 /// One core's dropped escape sequences, under v2's keys. A final byte, a
 /// private marker and numeric parameters identify a SEQUENCE, not text the
 /// terminal printed, so this stays inside the no-terminal-text property.
-fn unhandled_json(snapshot: &UnhandledSequenceSnapshot) -> Value {
+pub(crate) fn unhandled_json(snapshot: &UnhandledSequenceSnapshot) -> Value {
     let entries: Vec<Value> = snapshot
         .entries
         .iter()

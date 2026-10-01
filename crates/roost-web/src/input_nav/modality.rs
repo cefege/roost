@@ -132,6 +132,33 @@ pub fn pointerless_tv_viewport(pointer_none: bool, inner_width_px: f64) -> bool 
     pointer_none && inner_width_px >= TV_MIN_POINTERLESS_WIDTH_PX
 }
 
+/// Whether this DEVICE boots into the ten-foot UI, from the stored choice and
+/// the user agent.
+///
+/// The address bar is deliberately not a source here. `?tv=1` is a bootstrap
+/// that persists itself, and the host asks this question BEFORE the app root
+/// exists — to pick the first-run cell size, which has to be right before the
+/// first pane measures. Reading the query would mean parsing it twice, from two
+/// places, for a value a real television already reports in its user agent.
+pub fn device_tv_mode_active(storage: &dyn KeyValueStore) -> bool {
+    let modality = NavModality::load(None, None, storage, matches_tv_user_agent(&user_agent()));
+    modality.tv_mode_active()
+}
+
+/// The browser's user agent, or nothing at all where there is no browser.
+#[cfg(target_arch = "wasm32")]
+fn user_agent() -> String {
+    web_sys::window()
+        .and_then(|window| window.navigator().user_agent().ok())
+        .unwrap_or_default()
+}
+
+/// A native build has no user agent, so no device is a television.
+#[cfg(not(target_arch = "wasm32"))]
+fn user_agent() -> String {
+    String::new()
+}
+
 /// The directional-input modality of this tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct NavModality {

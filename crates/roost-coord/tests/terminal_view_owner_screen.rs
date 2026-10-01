@@ -30,19 +30,36 @@ const STREAM_A: &str = "5a000000-0000-4000-8000-000000000001";
 const STREAM_B: &str = "5a000000-0000-4000-8000-000000000002";
 
 /// A browser socket as both hubs reach it.
+///
+/// `order` records what the socket was told, IN THE ORDER IT WAS TOLD, because
+/// the replica folds a cell only against the stream its last view-state named:
+/// a baseline that overtakes its own state is refused as stale and, per
+/// `admit_frame`, never latches a repair.
+#[derive(Default)]
 struct OwnerSocket {
     screens: Arc<ScreenHub>,
+    order: std::sync::Mutex<Vec<&'static str>>,
 }
 
 impl TerminalViewSink for OwnerSocket {
-    fn enqueue_terminal_state(&self, _: &str, _: FirehoseFrame, _: &str) {}
+    fn enqueue_terminal_state(&self, _: &str, _: FirehoseFrame, _: &str) {
+        self.order
+            .lock()
+            .expect("the order log is never poisoned")
+            .push("state");
+    }
 
     fn set_watching(&self, socket_id: &str, session_id: &SessionId, watching: bool) {
         self.screens.set_watching(socket_id, session_id, watching);
     }
 
     fn seed_socket(&self, socket_id: &str, session_id: &SessionId) -> bool {
-        self.screens.seed_socket(socket_id, session_id)
+        let seeded = self.screens.seed_socket(socket_id, session_id);
+        self.order
+            .lock()
+            .expect("the order log is never poisoned")
+            .push("seed");
+        seeded
     }
 
     fn resync_socket(&self, socket_id: &str, session_id: &SessionId, grid_epoch: &str, seq: u64) {
@@ -93,6 +110,11 @@ impl Owned {
 
     /// Register `socket_id` with both hubs; the returned sink records cells.
     fn socket(&self, socket_id: &str) -> Arc<TestSink> {
+        self.registered_socket(socket_id).0
+    }
+
+    /// The same registration, with the socket whose wire order it is.
+    fn registered_socket(&self, socket_id: &str) -> (Arc<TestSink>, Arc<OwnerSocket>) {
         let cells = TestSink::queuing();
         self.screens.register_socket(
             socket_id,
@@ -100,6 +122,7 @@ impl Owned {
         );
         let socket = Arc::new(OwnerSocket {
             screens: Arc::clone(&self.screens),
+            ..OwnerSocket::default()
         });
         self.views.hub.register_socket(
             &SocketRegistration {
@@ -107,11 +130,11 @@ impl Owned {
                 viewer_key: Some(format!("{FINGERPRINT}:{socket_id}")),
                 caller_fingerprint: FINGERPRINT.to_owned(),
                 session_ids: [SESSION.to_owned()].into_iter().collect(),
-                sink: socket,
+                sink: Arc::clone(&socket) as Arc<dyn TerminalViewSink>,
             },
             0,
         );
-        cells
+        (cells, socket)
     }
 
     /// The owner's decision for one view on `socket_id`.
@@ -122,6 +145,32 @@ impl Owned {
         self.views
             .hub
             .apply_owner_view_state(&self.views.worker, socket_id, &frame);
+    }
+
+    /// The owner's decision for one view at an explicit effective geometry,
+    /// which is what a second viewer narrowing the grid actually changes.
+    fn decide_sized(
+        &self,
+        socket_id: &str,
+        view_id: &str,
+        revision: u64,
+        stream_id: &str,
+        cols: u32,
+        rows: u32,
+    ) {
+        let active = !stream_id.is_empty();
+        let (cols, rows) = if active { (cols, rows) } else { (0, 0) };
+        let frame = owner_state(view_id, SESSION, revision, active, stream_id, cols, rows);
+        self.views
+            .hub
+            .apply_owner_view_state(&self.views.worker, socket_id, &frame);
+    }
+
+    /// A worker baseline at an explicit stream and geometry.
+    fn baseline_sized(&self, stream_id: &str, seq: u64, cols: u32, rows: u32) {
+        let mut frame = full_frame(stream_id, seq, cols, rows, &[]);
+        self.screens
+            .publish_frame(&self.views.session, &mut frame, 0);
     }
 
     fn baseline(&self, seq: u64) {
@@ -251,5 +300,84 @@ fn a_new_stream_id_asks_the_owner_for_no_source_full() {
             .expected_stream_id(&owned.views.session)
             .as_deref(),
         Some(STREAM_B)
+    );
+}
+
+// THE ORDER. A browser folds a cell only against the stream its LAST view-state
+// named, so an attach that seeds must put the state on the wire FIRST. Seeded
+// first, the baseline reaches a replica that has been told nothing, is refused
+// by `admit_frame` as stale against a token it never expected, and — per that
+// function's own comment — deliberately latches no repair, so the pane stays
+// blank forever with no `screen_resync` to notice. The first viewer escapes it
+// by luck: its `seed_socket` finds no resident cache, so nothing is seeded and
+// the baseline arrives later with the worker's own full.
+#[test]
+fn an_attach_that_seeds_sends_the_view_state_before_the_baseline() {
+    let owned = Owned::new();
+    owned.socket("socket-a");
+    owned.decide("socket-a", VIEW, 1, STREAM_A);
+    owned.baseline(1);
+    let (_, second) = owned.registered_socket("socket-b");
+
+    owned.decide("socket-b", OTHER_VIEW, 1, STREAM_A);
+
+    let order = second
+        .order
+        .lock()
+        .expect("the order log is never poisoned")
+        .clone();
+    assert_eq!(
+        order,
+        ["state", "seed"],
+        "a seeded attach must reach the socket state-first; a baseline ahead of \
+         its own view-state is refused as stale and never latches a repair, so \
+         the second viewer paints nothing forever"
+    );
+}
+
+// A SECOND VIEWER NARROWING THE GRID. The incumbent's view never re-attaches:
+// it holds the same view id, on the same socket, while the owner mints a NEW
+// stream because the effective per-axis minimum dropped. The incumbent's
+// replica is therefore dropped by `expect_stream` and it owes itself a
+// baseline on the new stream, but nothing in its own path re-attaches it — so
+// if the seed fan-out does not reach it, the pane keeps painting the old grid
+// forever and no liveness signal ever fires, because the lane is healthy.
+#[test]
+fn a_second_viewer_narrowing_the_grid_seeds_the_incumbent_on_the_new_stream() {
+    let owned = Owned::new();
+    let (incumbent_cells, _) = owned.registered_socket("socket-a");
+
+    // The incumbent alone, at its own 62x46.
+    owned.decide_sized("socket-a", VIEW, 1, STREAM_A, 62, 46);
+    owned.baseline_sized(STREAM_A, 1, 62, 46);
+    assert_eq!(
+        served(&incumbent_cells),
+        [(SESSION.to_owned(), STREAM_A.to_owned())]
+    );
+
+    // A second viewer joins at a shorter geometry, the effective per-axis
+    // minimum narrows to 62x27, and the owner mints a second stream.
+    let (joiner_cells, _) = owned.registered_socket("socket-b");
+    owned.decide_sized("socket-a", VIEW, 2, STREAM_B, 62, 27);
+    owned.decide_sized("socket-b", OTHER_VIEW, 1, STREAM_B, 62, 27);
+    owned.baseline_sized(STREAM_B, 2, 62, 27);
+
+    assert_eq!(
+        incumbent_cells.begins().last(),
+        Some(&(SESSION.to_owned(), STREAM_B.to_owned())),
+        "the incumbent's lane must be restarted onto the new stream"
+    );
+    assert_eq!(
+        served(&incumbent_cells).last(),
+        Some(&(SESSION.to_owned(), STREAM_B.to_owned())),
+        "the stream change dropped this replica, so only the new stream's \
+         baseline can repaint it; leaving the old grid up shows the pane a \
+         size no viewer asked for, and no repair is owed because the lane is \
+         healthy"
+    );
+    assert_eq!(
+        served(&joiner_cells).last(),
+        Some(&(SESSION.to_owned(), STREAM_B.to_owned())),
+        "the joiner is served the same baseline as the incumbent"
     );
 }

@@ -55,6 +55,10 @@ unicode-normalization.workspace = true
 connectrpc = { workspace = true, features = ["client", "server"] }
 tokio = { workspace = true, features = ["net", "rt", "rt-multi-thread", "macros", "time", "test-util"] }
 tokio-tungstenite = { workspace = true, features = ["handshake"] }
+# The cgroup throttle trail is only observable as log events, so the test that
+# pins it needs a recorder. `roost-observability` keeps its own inside
+# `#[cfg(test)]`; a worker's tests cannot reach it.
+tracing-subscriber.workspace = true
 
 [[bin]]
 name = "roost-worker"

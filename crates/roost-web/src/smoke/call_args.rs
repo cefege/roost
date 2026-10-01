@@ -34,6 +34,22 @@ impl Args<'_> {
             .ok_or_else(|| self.wrong(index, "a string"))
     }
 
+    /// A boolean flag, defaulting to `true` when the caller passed nothing.
+    ///
+    /// The default is what the two visibility pins need: both are
+    /// `forceVisible(on)` / `forceHidden(on)` in v2, and a spec that calls
+    /// `forceVisible()` plainly means "pin me visible". Reading the argument is
+    /// what makes `forceVisible(false)` mean "release the pin", which is the
+    /// only way a spec turns it off.
+    pub(super) fn flag(&self, index: usize) -> Result<bool, String> {
+        match self.at(index) {
+            Value::Null => Ok(true),
+            value => value
+                .as_bool()
+                .ok_or_else(|| self.wrong(index, "a boolean")),
+        }
+    }
+
     pub(super) fn optional_string(&self, index: usize) -> Result<Option<String>, String> {
         match self.at(index) {
             Value::Null => Ok(None),

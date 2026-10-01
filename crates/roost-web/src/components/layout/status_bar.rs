@@ -30,8 +30,12 @@ use roost_client_core::client::agents::{
 use roost_client_core::store::navigation::worker_online;
 use roost_protocol::wire::SessionStatus;
 
-use super::shell_metrics::{CoordinatorState, session_context, workbench_title};
+use super::shell_metrics::{
+    CoordinatorState, coordinator_health_from_link, coordinator_state, session_context,
+    workbench_title,
+};
 use crate::components::md::StatusDot;
+use crate::platform::visibility::page_visible;
 
 /// One dot-and-word reading.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,17 +50,16 @@ pub struct Reading {
 /// two different moments of the store.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatusReadings {
-    /// What the bar says about the coordinator, or `None` when this build has
-    /// no health source and therefore no honest word to print.
+    /// What the bar says about the coordinator.
     ///
-    /// ABSENT IS THE HONEST STATE. v2 reads a health snapshot the sync socket
-    /// publishes on `window`; this port has no such publisher, and the previous
-    /// shape hard-coded `last_attempt_failed: false` with no `last_success_ms`,
-    /// which can only ever read `Syncing` — a status bar permanently grey and
-    /// permanently mid-sync is a claim about the system that is not true. An
-    /// operator seeing no status can tell it apart from a healthy one; an
-    /// operator seeing `Syncing` forever cannot.
-    pub coordinator: Option<CoordinatorState>,
+    /// ALWAYS DRAWN. v2 reads a health snapshot a five-second `misc.health`
+    /// poller publishes on `window`; this port has no poller, and does not need
+    /// one — the live Sync link carries the same evidence continuously (see
+    /// `coordinator_health_from_link`). Gating the item on having a source is
+    /// what left the previous port with no `workbench-status-sync` element at
+    /// all: an item that vanishes is indistinguishable from a healthy one, and
+    /// `Syncing` forever is not a claim anyone can act on.
+    pub coordinator: CoordinatorState,
     /// The active session's machine, when the route names a session.
     pub machine: Option<Reading>,
     /// The active session's agent, when it has a status worth showing.
@@ -109,15 +112,13 @@ pub fn StatusBar() -> Element {
             "data-testid": "workbench-status-bar",
             "aria-label": "Workbench status",
             div { class: "workbench-status-bar__left",
-                if let Some(coordinator) = coordinator {
-                    span {
-                        class: "workbench-status-item",
-                        "data-testid": "workbench-status-sync",
-                        "data-status": coordinator.status(),
-                        StatusDot { status: coordinator.status().to_string() }
-                        span { {coordinator.label()} }
-                    }
-                }
+            span {
+                class: "workbench-status-item",
+                "data-testid": "workbench-status-sync",
+                "data-status": coordinator.status(),
+                StatusDot { status: coordinator.status().to_string() }
+                span { {coordinator.label()} }
+            }
                 if let Some(reading) = machine {
                     span {
                         class: "workbench-status-item workbench-status-item--optional",
@@ -170,7 +171,17 @@ pub fn StatusBar() -> Element {
 fn read_status(path: &str, core: &Rc<RefCell<ClientCore>>, now_ms: i64) -> StatusReadings {
     let borrowed = core.borrow();
     let store = borrowed.store();
-    let _ = (store.account_id.as_deref(), page_visible(), now_ms);
+    let _ = store.account_id.as_deref();
+    let clock_ms = now_ms.max(0) as u64;
+    let coordinator = coordinator_state(
+        store.coord_identity.is_some(),
+        coordinator_health_from_link(
+            store.sync.idle_ms(clock_ms),
+            clock_ms,
+            !crate::platform::network::browser_online(),
+            page_visible(),
+        ),
+    );
     let open_sessions = store
         .sessions
         .sessions()
@@ -229,7 +240,7 @@ fn read_status(path: &str, core: &Rc<RefCell<ClientCore>>, now_ms: i64) -> Statu
         })
     });
     StatusReadings {
-        coordinator: None,
+        coordinator,
         machine,
         agent,
         context,
@@ -257,24 +268,6 @@ fn agent_dot_status(dot: roost_client_core::client::agents::AgentDotStatus) -> &
     }
 }
 
-/// Whether the document is in the foreground.
-///
-/// A backgrounded tab is not judged stale, so this is read at paint time rather
-/// than tracked: a `visibilitychange` subscription with no coordinator health
-/// snapshot to feed it would be a listener that never changes an answer.
-#[cfg(target_arch = "wasm32")]
-fn page_visible() -> bool {
-    web_sys::window().is_some_and(|window| match window.document() {
-        Some(document) => !document.hidden(),
-        None => true,
-    })
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn page_visible() -> bool {
-    true
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,7 +275,7 @@ mod tests {
 
     fn bar(open: usize, online: usize, total: usize) -> StatusReadings {
         StatusReadings {
-            coordinator: None,
+            coordinator: CoordinatorState::Synced,
             machine: None,
             agent: None,
             context: None,
@@ -331,14 +324,15 @@ mod tests {
     }
 
     #[test]
-    fn the_coordinator_item_is_absent_rather_than_permanently_syncing() {
-        // THE WHOLE POINT. With no health source the only words available are
-        // `Syncing` forever or a fabricated model, and both are claims the
-        // client cannot support. An absent item is distinguishable from a
-        // healthy one; a permanent `Syncing` is not.
+    fn a_booted_client_with_no_link_reads_as_unreachable_rather_than_nothing() {
+        // A boot has no link yet and no identity, and the item is still drawn.
+        // An item that VANISHES is indistinguishable from a healthy one, which
+        // is the failure this replaces: the bar used to have no coordinator
+        // reading at all, so the element the smoke looks for was never in the
+        // page.
         let core = ClientCore::in_memory("tab-test");
         let readings = read_status("/", &Rc::new(RefCell::new(core)), 1_000);
-        assert_eq!(readings.coordinator, None);
+        assert_eq!(readings.coordinator, CoordinatorState::Unreachable);
     }
 
     #[test]

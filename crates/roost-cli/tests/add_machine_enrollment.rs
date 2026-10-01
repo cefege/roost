@@ -11,9 +11,7 @@
 
 use std::path::PathBuf;
 
-use roost_cli::quickstart::add_machine::{
-    EnrollmentPlatform, dial_url, installed_coordinator, shell_enrollment_command,
-};
+use roost_cli::quickstart::add_machine::{EnrollmentPlatform, dial_url, installed_coordinator};
 use roost_cli::services::definition_text::render_definition;
 use roost_cli::services::service_spec::{ServiceRole, ServiceSpec};
 use roost_cli::status::service_definition::InstalledEnvironment;
@@ -21,6 +19,7 @@ use roost_host::coord_config_loader::{
     ENV_COORDINATOR_DB, ENV_COORDINATOR_PUBLIC_URL, ENV_WEB_PUBLIC_URL,
 };
 use roost_host::{HostPlatform, MapEnv};
+use roost_platform::machine_join_command;
 
 /// A throwaway tree holding one account's worth of install paths.
 struct TempTree {
@@ -162,7 +161,7 @@ fn windows_is_refused_at_the_argument_and_the_refusal_explains_why() {
 
 #[test]
 fn the_printed_command_quotes_every_value_it_hands_the_shell() {
-    let command = shell_enrollment_command(
+    let command = machine_join_command(
         "https://roost.example.com",
         "roost_bt_deadbeef",
         "build box",
@@ -187,7 +186,7 @@ fn the_printed_command_quotes_every_value_it_hands_the_shell() {
 fn a_hostile_url_or_label_cannot_escape_its_quotes_into_the_shell() {
     let url = "https://a.example'; rm -rf ~; echo '";
     let label = "box'; touch /tmp/pwned; '";
-    let command = shell_enrollment_command(url, "roost_bt_x", label);
+    let command = machine_join_command(url, "roost_bt_x", label);
 
     // The property is what a POSIX shell would DO with the line, so the words
     // are read the way a shell reads them. A whitespace split cannot answer
@@ -257,10 +256,12 @@ fn a_hostile_url_or_label_cannot_escape_its_quotes_into_the_shell() {
 /// The words of a POSIX shell command line as a shell would expand them,
 /// paired with the exact text of each word.
 ///
-/// Single quotes are literal, a backslash outside quotes escapes the next
-/// character, and whitespace outside quotes separates. This is the `'\''`
-/// reading: the close-quote, the escaped quote and the open-quote are three
-/// separate things, and a reader that treats the four characters as a token
+/// Single quotes are literal; double quotes are literal except a backslash
+/// before a quote or another backslash; a backslash outside quotes escapes the
+/// next character; and whitespace outside quotes separates. This is the
+/// `'"'"'` reading the product's one quoter emits — a double-quoted single
+/// quote is one word, so `'it'"'"'s'` is `it's` rather than two quoted runs with
+/// a `"` between them — and a reader that treats the five characters as a token
 /// inside one quoted run puts the quote in the wrong place.
 ///
 /// Not a general parser: it is a reader for one generated line, and it refuses
@@ -279,11 +280,11 @@ fn shell_words(line: &str) -> Vec<(String, String)> {
                 }
                 index += 1;
             }
-            '\'' => {
+            '\'' | '"' => {
                 let opened = index;
                 index += 1;
                 let start = index;
-                while index < characters.len() && characters[index] != '\'' {
+                while index < characters.len() && characters[index] != characters[opened] {
                     index += 1;
                 }
                 assert!(
@@ -319,7 +320,7 @@ fn shell_words(line: &str) -> Vec<(String, String)> {
 
 #[test]
 fn an_unnamed_machine_gets_a_command_with_no_label_to_guess_at() {
-    let command = shell_enrollment_command("https://roost.example.com", "roost_bt_x", "");
+    let command = machine_join_command("https://roost.example.com", "roost_bt_x", "");
     assert!(!command.contains("ROOST_WORKER_LABEL"), "{command}");
     assert!(command.contains("ROOST_COORDINATOR_URL="), "{command}");
 }

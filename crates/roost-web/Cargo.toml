@@ -18,9 +18,7 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 # The Playwright oracle's backdoor. Installed by the U-3 slice and by nothing
-# else: a release build without this feature contains no `__smoke` string, which
-# is the Phase 5 gate `grep -c __smoke dist/…` reads.
-smoke = ["dep:serde", "dep:serde_json"]
+smoke = []
 
 [dependencies]
 roost-client-core = { workspace = true }
@@ -31,9 +29,12 @@ unicode-segmentation = { workspace = true }
 js-sys = { workspace = true }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
-# The smoke backdoor's argument and answer JSON; absent from a release build.
-serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
+# NOT optional: the settings panes persist product state in the coordinator's own
+# saved form (the `roost.coords` address list, an MCP relay's `config_json`), so
+# the derives and the codec are product code. Gating either behind `smoke` made
+# every non-smoke build fail to compile, which is the inverse of the gate's job.
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -51,7 +52,13 @@ features = [
   "AbortSignal",
   "AddEventListenerOptions",
   "AnalyserNode",
+  "AudioBuffer",
   "AudioContext",
+  "AudioContextState",
+  "AudioDestinationNode",
+  "AudioProcessingEvent",
+  "AudioWorklet",
+  "AudioWorkletNode",
   "BinaryType",
   "Blob",
   "BlobEvent",
@@ -189,6 +196,7 @@ features = [
   "ScrollIntoViewOptions",
   "ScrollLogicalPosition",
   "ScrollToOptions",
+  "ScriptProcessorNode",
   "Selection",
   "ServiceWorkerContainer",
   "ServiceWorkerRegistration",

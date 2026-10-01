@@ -6,7 +6,7 @@ use dioxus::web::WebEventExt as _;
 use wasm_bindgen::JsCast as _;
 use wasm_bindgen::closure::Closure;
 
-use super::{ClientBox, DeckPointerTarget};
+use super::{ClientBox, DeckPointerTarget, clips_rail};
 use crate::components::deck::pane_strip_drag::TabRect;
 
 pub(super) fn element(mounted: &MountedData) -> Option<web_sys::Element> {
@@ -15,13 +15,17 @@ pub(super) fn element(mounted: &MountedData) -> Option<web_sys::Element> {
 
 /// The element's bounding box.
 pub fn client_box(mounted: &MountedData) -> Option<ClientBox> {
-    let rect = element(mounted)?.get_bounding_client_rect();
-    Some(ClientBox {
+    let element = element(mounted)?;
+    Some(box_of(element.get_bounding_client_rect()))
+}
+
+fn box_of(rect: web_sys::DomRect) -> ClientBox {
+    ClientBox {
         left: rect.left(),
         top: rect.top(),
         width: rect.width(),
         height: rect.height(),
-    })
+    }
 }
 
 /// The element's content box (`clientWidth`, `clientHeight`).
@@ -62,9 +66,20 @@ pub fn tab_rects(rail: &MountedData) -> Vec<TabRect> {
         .collect()
 }
 
-/// Whether the rail's content exceeds its box.
+/// Whether a tab is clipped by the rail's own box.
 pub fn rail_overflowing(rail: &MountedData) -> bool {
-    element(rail).is_some_and(|rail| rail.scroll_width() > rail.client_width() + 1)
+    let Some(element) = element(rail) else {
+        return false;
+    };
+    let bounds = box_of(element.get_bounding_client_rect());
+    let Ok(tabs) = element.query_selector_all(".df-tab") else {
+        return false;
+    };
+    (0..tabs.length()).any(|index| {
+        tabs.item(index)
+            .and_then(|tab| tab.dyn_into::<web_sys::Element>().ok())
+            .is_some_and(|tab| clips_rail(bounds, box_of(tab.get_bounding_client_rect())))
+    })
 }
 
 /// Scroll the active tab into the rail's view.

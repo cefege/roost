@@ -69,6 +69,20 @@ pub fn report_request(
     }
 }
 
+/// An apply aimed at one tab's fingerprint and tab id, binding `session_id`.
+pub fn apply_request(
+    target_fingerprint: &str,
+    target_tab_id: &str,
+    session_id: &str,
+) -> proto::UiApplyLayoutRequest {
+    proto::UiApplyLayoutRequest {
+        target_tab_id: target_tab_id.to_owned(),
+        target_fingerprint: target_fingerprint.to_owned(),
+        document: MessageField::some(layout_document(session_id)),
+        ..Default::default()
+    }
+}
+
 /// A legacy `selectTab` command naming one session.
 pub fn select_tab_command(session_id: &str) -> proto::UiCommand {
     proto::UiCommand {
@@ -76,6 +90,26 @@ pub fn select_tab_command(session_id: &str) -> proto::UiCommand {
             session_id: session_id.to_owned(),
             ..Default::default()
         }))),
+        ..Default::default()
+    }
+}
+
+/// The command the RPC publishes for a reserved apply.
+pub fn apply_layout_command(session_id: &str) -> proto::UiCommand {
+    proto::UiCommand {
+        command: Some(Command::ApplyLayout(Box::new(proto::UiApplyLayout {
+            document: MessageField::some(layout_document(session_id)),
+            ..Default::default()
+        }))),
+        ..Default::default()
+    }
+}
+
+/// The acknowledgement a live generation sends for its own correlation.
+pub fn applied(correlation_id: &str) -> proto::UiApplyLayoutResult {
+    proto::UiApplyLayoutResult {
+        correlation_id: correlation_id.to_owned(),
+        outcome: proto::UiApplyLayoutOutcome::Applied.into(),
         ..Default::default()
     }
 }
