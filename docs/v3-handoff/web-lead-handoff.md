@@ -13,7 +13,7 @@ commits this session, all gated:
 
 1. `f17b305c` — the preserved WIP finished: the TERMINAL DIAG half of U-2. It is
    byte-identical to `origin/v3-web-snap-resume2` (`dabfd789`) except three fixes
-   the snapshot needed to compile and to stop lying: `smoke/stream_probe.rs`
+   the snapshot needed to compile and to stop lying: `crates/roost-web/src/smoke/stream_probe.rs`
    called a `string_member` that did not exist;
    `harness_host.rs`'s `FlowHost::terminal_stream_probe` answered
    `unported_refusal("terminalStreamProbe")`, which for a now-ported member is

@@ -69,6 +69,105 @@ before/after diff taken off a Solid store.
 **Guard** — `apps/web/tests/agent-status.test.ts` —
 `"publishes a previous snapshot detached from the store node"`; `smoke/terminal/agent-status.spec.ts`.
 
+### A component that renders store state through `use_pump` never repaints
+
+**Symptom** — "clicking a tab does not make it active" / "the tab wrapper keeps
+`data-active="false"` after the click" / "the compact badge still counts 1 after
+a second terminal is open"
+
+**Wrong** — `use_pump()` in a component whose render body reads
+`pump.core().borrow().store()`. `use_pump` hands back the same
+`Rc<RefCell<ClientCore>>` as `use_store` and differs by ONE thing: it does not
+read `pump.revision()`. A `RefCell` behind a pointer tells a render nothing
+about when its contents changed, so the component keeps the frame it first
+derived and sits one store mutation behind until some unrelated prop or signal
+moves. Nothing errors and every child is correct — the parent simply never
+re-runs, which is why the child cannot recompute the active tab or the badge
+for itself.
+
+**Right** — `use_store()` for any component that RENDERS store state. It is the
+same pump with `revision().read()` added, and that read is the only thing that
+subscribes the scope to a mutation. Keep `use_pump()` for the components that
+only need a handle: an event handler that dispatches, a provider that feeds an
+effect, or a rig an async flow drives.
+
+**Guard** — `crates/roost-web/tests/deck_store_subscription.rs` —
+`a_deck_tab_click_reaches_the_deck_without_a_prop_changing` mounts the real
+`TerminalDeck` over a real pump and asserts a `DeckIntent::SelectTab` reaches
+the route the deck asks for although no prop changed, and
+`only_the_subscribed_reader_repaints_when_the_store_moves` pins that a
+`use_store` reader repaints on a mutation while a `use_pump` reader beside it
+does not.
+
+### The notification dock's bottom edge lands BELOW the compact composer's top edge
+
+**Symptom** — "a toast covers the phone's chat input" / "the notification dock sits on top of the composer
+instead of above it" / `getByTestId('notification-dock')`'s `bottom` is greater than
+`getBoundingClientRect().top` of `.term-chat__dock[data-placement="viewport"]`, while the dock's own `width` is
+correctly `390 - 24` and the composer is 96px tall. `--roost-notify-dock-lift` reads
+`var(--term-chat-dock-offset)` — the INACTIVE compact branch — and the editor region still carries
+`data-keyboard-shift`, both of which say the same thing: the shell believes no composer is mounted. Nothing
+errors and every rect is an exact integer (12 / 96 / 832); the two surfaces are not fighting, they are both
+reporting one shared value that is wrong.
+
+**Wrong** — reconcile the two rects, or add slack to `notification_dock_lift`. The dock's `bottom` and the
+shell's reserve are both computed from ONE published `ComposerGeometry`, so they cannot disagree with each
+other; they can only both be wrong together, and slack in the lift hides it until the dock grows. Equally
+wrong: hunting the CSS. `notification_dock_lift.rs`'s inactive branch is correct — it is what the shell should
+be reserving when no composer is mounted.
+
+**Right** — **a value whose `Drop` means "the dock unmounted" cannot be held by value in `use_hook`.** Dioxus
+hands every render its own COPY of the hook it stores, and that copy dies when the render body returns, so
+`Drop for ComposerClaim` fired on the render's copy rather than on the unmount: the slot went straight back to
+`{active: false, height_px: 0}` while a 96px viewport composer was on screen. The release belongs on a
+REFERENCE (`Rc<ClaimRelease>`, released when the last handle goes), and the hold belongs on the dock's
+VISIBILITY rather than its mount — `ComposerSlot::set_on_screen` — because the drawer covers a dock without
+unmounting it. This is NOT the entry above, "a component that renders store state through `use_pump` never
+repaints": that one is a reader that never subscribes, and the fix is to add a revision read. This one had a
+subscription and still lost its value, because the value itself was released under it. Do not merge them.
+
+**Guard** — `crates/roost-web/tests/composer_slot_claim.rs` —
+`a_dock_kept_in_a_hook_holds_the_slot` mounts a component that claims from `use_hook` and stays mounted, then
+asserts `published_geometry().active`; `a_dock_that_unmounts_releases_the_slot` and
+`a_dock_that_leaves_and_comes_back_keeps_its_hold` keep the fix from being "never release". The three fail
+together against the by-value release. Browser:
+`smoke/terminal/workbench-shell-compact.spec.ts`, `"notification dock rides above the compact composer"`.
+
+### The mobile chat input is still mounted with the drawer open
+
+**Symptom** — "the keyboard opens over the sidebar" / "I tap the folder drawer and the chat input is still
+there" / `getByTestId('mobile-chat-input')` has count 1 while
+`getByTestId('sidebar-drawer')` has `data-open="true"`. Nothing is stale on screen — the drawer really is open
+and the composer really is mounted underneath it — so a page snapshot looks correct and only the count is
+wrong. Any body-portaled surface with a drawer or overlay exclusion shows this at once.
+
+**Wrong** — re-check the mount predicate. `mounts_viewport_composer` is correct, and so is the port of v2's
+condition (`apps/web/src/components/terminal/CellTerminal.tsx:297-303`): `inLayout && focused && isCompact()
+&& !uiStore.sidebarOpen && surfaceVisible` is spelled the same in both trees. The defect is not the predicate,
+it is the value fed to it. In v2 the flag is read inside Solid's `<Show>`, so it re-evaluates when the drawer
+opens and the subtree tears down. `CellTerminal` reads `core.borrow().store().ui.sidebar_open` through
+`pump.core()` with NO subscription, and its only subscription is a `use_memo` over `PaneStoreView { pending,
+title, offline_sibling }` — three fields the drawer does not move. The memo therefore produces a
+`PartialEq`-equal value, Dioxus correctly does not notify, the pane never re-renders, and `drawer_open` stays
+captured as the `false` it was when the composer mounted.
+
+**Right** — **the scope of the subscription is the size of the value it renders, not the size of the
+component.** `use_store()` (or a memo over `revision().read()`) for anything that renders store state,
+because a `RefCell` behind a pointer tells a render nothing about when its contents changed. A body-portaled
+surface has the sharper obligation: the decision that covers it lives in a store its host does not
+re-render for, so the surface asks for itself on the revision — `composer_gate::use_drawer_open`, with the
+same answer driving whether the dock renders and whether the shell reserves for it. This is the SAME invariant
+as the `use_pump` entry above and it is NOT the same bug: that one is a MISSING read, this one is a read
+taken through a memo whose value does not change, so the subscription exists and fires and resolves to
+"nothing moved". Same lesson, different mechanism, different guard; do not merge them.
+
+**Guard** — `crates/roost-web/tests/pane_drawer_mount.rs` mounts the real `CellTerminal` over a real
+`Pump`/`ClientCore` and asserts the pane's dock is gone with the drawer open.
+`crates/roost-web/tests/composer_slot_claim.rs` —
+`the_drawer_covers_the_portaled_dock_and_not_the_pane_dock` pins the placement predicate natively. Browser:
+`smoke/terminal/composer-mobile-input.spec.ts`, `"mobile composer keeps an unsent draft per session, across
+panes and reloads"`.
+
 ---
 
 ## Sidebar, theming and design tokens
@@ -173,16 +272,24 @@ trailing button, the active tab is sliced at the button's left edge, and a dragg
 **Wrong** — parking the trailing control inside the scrolling rail as `position: sticky;
 inset-inline-end: 0; z-index: 1` over an opaque background, and reserving its width with
 `padding-inline-end` on the scroll content. Its z-index loses to any item that raises its own (a drag
-lifts the grabbed tab), and the reserved padding inflates `scrollWidth`, which is the overflow signal
-the chevron reads.
+lifts the grabbed tab), and the reserved padding inflates `scrollWidth`, a signal the chevron must
+never read: a rail wide enough for every tab still reports a scroll extent past its own client width
+once a lifted tab or the reorder spring translates one, so the chevron parks on a strip where nothing
+is out of reach.
 
-**Right** — make the control a flex SIBLING after the scroller. The scroller clips its content at its
-own edge, so no scroll position, drag, or close animation can reach the control, and `scrollWidth`
-stays honest.
+**Right** — make the control a flex SIBLING after the scroller, and read the chevron's overflow off
+CLIPPED TABS: a tab's own box against the rail's box (`clips_rail`,
+`crates/roost-web/src/components/deck/deck_dom.rs`). The scroller clips its content at its own edge,
+so no scroll position, drag, or close animation can reach the control, and only a tab's box answers
+the question the chevron exists for — whether a tab is out of view.
 
-**Guard** — `smoke/terminal/workbench-shell-tab-strip.ts`: `newTabFollowsRail`,
-`newTabClearOfRail`, and `newTabIntersectsTabAt{Start,End}` at both scroll extremes, asserted in the
-fit helper and again in `expectWorkbenchTabStripAtFloor`.
+**Guard** — `crates/roost-web/src/components/deck/deck_dom.rs`: `clips_rail` tests
+`six_tabs_at_the_floor_are_clipped_exactly_where_the_row_leaves_the_rail` (the 800px packed strip)
+and `six_tabs_that_fit_are_not_clipped_on_a_rail_whose_scroll_extent_overruns` (the 1024px strip).
+`smoke/terminal/workbench-shell-tab-strip.ts`: `newTabFollowsRail`, `newTabClearOfRail`, and
+`newTabIntersectsTabAt{Start,End}` at both scroll extremes, asserted in the fit helper and again in
+`expectWorkbenchTabStripAtFloor`; `smoke/terminal/workbench-shell.spec.ts` mounts and unmounts the
+chevron across those two widths.
 
 ---
 
@@ -1130,6 +1237,45 @@ transfer in flight at the deadline left to the chunk stall timer. Rust:
 `a_reminted_stream_deadline_replaces_the_superseded_one`,
 `a_baseline_mid_transfer_is_left_to_the_chunk_stall_deadline`.
 
+### A seeded attach sends its baseline before its view-state, so the second viewer paints nothing forever
+
+**Symptom** — "a second browser page opens a session that is already streaming and the pane stays blank
+forever". `__smoke.terminalBrowserSnapshot` reads `view.status: "accepted"` with a populated `stream_id` and
+`replica.expected_stream_id` set, but `wire_received` all-null, `cellFrameCount: 0`, and the pane sitting on
+"View accepted at WxH; waiting for its full baseline". No `screen_resync` is ever emitted, so nothing in the
+logs says a repair was needed. The smoking gun is on the wire: a `cell_grid` at `delivery_seq=4` followed by
+`terminal_view_state` at `delivery_seq=5` on the cold socket, while the warm socket emits them the other way
+round (view_state 2, cell_grid 3).
+
+**Wrong** — `TerminalViewHub::apply_owner_view_state` calling
+`socket.sink.seed_socket(...)` BEFORE `socket.sink.enqueue_terminal_state(...)`. A browser folds a cell only
+against the stream its LAST view-state named, so a baseline that overtakes its own state arrives at a replica
+that has been told nothing and is refused by `admit_frame` as `stale(token)`
+(`crates/roost-client-core/src/terminal/session.rs:223`) — and per that function's own comment a stale frame
+deliberately does NOT latch a repair, because a stale delta is not evidence of loss. The socket is now stuck
+forever: refused frames, no resync, no timeout. The first viewer escapes it by luck rather than by design — its
+`seed_socket` finds no resident cache (`has_cache=false`, `seeded=false`), so nothing is seeded and its
+baseline arrives later with the worker's own full, which happens to restore the order. Only an attach that
+actually seeds — the second viewer joining a live stream — is affected, which is why it reads as "the other
+page is broken" rather than "terminals are broken". The lane already enforces this order for its own frames
+(`ready_ring.rs:145-150` sends `pending_states` ahead of any cursor part; `send_queue.rs:281-296`
+`terminal_priority_insert_index` inserts a state ahead of cells), so the violation was at the caller: it seeded
+before the state existed, and nothing downstream could reorder them.
+
+**Right** — put the view-state on the wire before the seed, so the stream the baseline belongs to is the one
+the replica has already been told to expect. This is NOT the entry above, "a newly minted terminal stream
+whose baseline never arrives": that one is a worker that installs NO baseline and sends no frame, which the
+first-byte deadline and repair ladder exist to catch. This one SENT the baseline, correctly, and the client
+refused it — so the ladder is not merely slow, it is never entered, and a watchdog that only watched for
+silence would have passed this bug. Different cause, different fix, different guard; do not merge them.
+
+**Guard** — `smoke/terminal/terminal-delivery.spec.ts`, `"cold document holds the access gate until an
+existing terminal paints"` (paired-page `coldSmokePage`), which is the only place a genuinely COLD attach to
+an already-streaming session is exercised. Rust:
+`crates/roost-coord/tests/terminal_view_owner_screen.rs` —
+`an_attach_that_seeds_sends_the_view_state_before_the_baseline` records the sink's calls in order and asserts
+`["state", "seed"]` for a socket seeded from a resident replica.
+
 ### A refused view-command write leaves an actively-viewed pane unscheduled
 
 **Symptom** — "the terminal stopped about fifteen seconds after a network blip and never came back on its
@@ -1179,14 +1325,61 @@ published challenge AND `clearTerminalSessionLiveness`, because a flag surviving
 first rearm of the next episode, which is the only one that reports. The rearm keeps its own cooldown scope
 so it cannot coalesce away the resync or redial that follows it.
 
-**Guard** — `apps/web/tests/terminalStream.test.ts` —
-`"re-arms the idle probe when a liveness challenge cannot be published"`,
-`"arms a proof deadline for a latch whose delta cleared its latch timestamp"`, alongside
-`"coalesces same-generation repairs across concurrent view renewals"`;
-`apps/web/tests/terminalStreamProbeEpisode.test.ts` —
-`"reports a rearm episode again after liveness retirement"`, which drives `Date.now()` explicitly so the
-two episodes straddle `SIGNAL_COOLDOWN_MS`: a report the cooldown suppressed would green the case with the
-retirement reset removed.
+**Guard** — `crates/roost-client-core/tests/terminal_liveness_retirement.rs` —
+`an_unpublishable_challenge_re_arms_from_the_current_instant_and_never_spins`
+(two further sweeps at the SAME `now_ms` must leave the re-armed deadline
+identical, which is what a stale-anchor spin fails),
+`a_second_request_for_one_gap_re_anchors_its_proof_and_publishes_no_second_challenge`
+for the coalescer, `park_rotation_stream_generation_and_page_hide_each_retire_both_deadlines`
+for the five transitions that must retire both deadlines, and
+`the_rearm_episode_reports_once_and_reopens_after_both_of_its_ends` for the two
+ends that must clear the episode edge — a published challenge AND a hidden-page
+retirement — so a report suppressed by a surviving flag fails on the second
+episode rather than on the first;
+`crates/roost-client-core/tests/terminal_foreground_liveness.rs` —
+`a_quiet_foreground_pane_challenges_and_the_painted_full_proves_it` and
+`an_unanswered_proof_invokes_the_existing_sync_generation_recovery` for the
+challenge → proof → escalation ladder itself. The state machine is
+`crates/roost-client-core/src/terminal/liveness.rs` and the sweep that fires it is
+`crates/roost-client-core/src/handle_sweep/liveness.rs`.
+
+### A baseline that never arrives leaves the pane expecting a stream with nothing behind it
+
+**Symptom** — "the second viewer joined and my pane went blank", or it kept the
+old grid while the pane beside it re-based. The console shows one line,
+`expecting a fresh baseline`, and then nothing for as long as the operator
+watches: no `replica gap latched`, no refused frame, no `cell.foreground_stall`,
+and `repair_attempts: 0` with `repair_outcome: "none"`. Measured at a two-viewer
+transition — the coordinator seeded the incumbent's socket twice on the new
+stream and `replace_terminal_snapshot` returned `true` both times, so the baseline
+part was queued and then dropped on the browser side.
+
+**Wrong** — arming the foreground idle probe only when a baseline is already
+installed (`if (session.baselineReady) armTerminalForegroundIdleProbe(session)`).
+The pane that needs the probe is precisely the one whose baseline never arrived:
+nothing was refused, so `requestTerminalResync` never fired, the repair latch
+never latched, and a second viewer narrowing the session — which mints a new
+stream for everyone — leaves the incumbent replica expecting the new stream while
+it still paints the old one. v2 does not read as missing this rule because a
+SECOND timer covers the shape: the view lease's `requestTerminalLivenessChallenge`
+at `terminal-stream-view-commands.ts:383`. Moving the watchdog to a sweep, where
+one owner runs every deadline, loses that timer unless the arm condition moves
+with it.
+
+**Right** — arm the probe on the EXPECTATION and the foreground view, never on a
+baseline: an expected stream and an active view is the whole condition, and the
+anchor is the sweep that first noticed rather than a frame that never came. The
+challenge is the same scoped resync every other repair uses, and it carries an
+empty `grid_epoch` with `seq: 0` — a pane with nothing painted has no checkpoint
+to name, which the authority already reads as "send me anything" and answers from
+its resident cache.
+
+**Guard** — `crates/roost-client-core/tests/terminal_foreground_liveness.rs` —
+`a_pane_whose_baseline_never_arrived_is_challenged_without_a_frame_ever_landing`,
+which never admits a frame at all and asserts the challenge names
+`(stream, "", 0)`. The control that the widened arm does not challenge a pane
+that IS painting is
+`a_foreground_view_that_keeps_painting_is_never_challenged`.
 
 ### The pane's re-claim net only protects a pane that never painted
 
@@ -1238,6 +1431,39 @@ swallowed.
 `"a suspension whose restore never runs stops holding paint once its range is gone"`, with the still-live
 suspension case as the refusal control that keeps the composer contract, and both pre-existing
 level-derived cases untouched.
+
+### A selection reveal re-enters wasm and the panel paints the error instead of the frame
+
+**Symptom** — "Error: closure invoked recursively or after being dropped" in the console, **exactly once per
+selection reveal, and never otherwise**. It appears only while a selection is being HELD — dragged out, or
+captured and parked across a patch — and disappears the moment the hold lapses. Nothing about the terminal's
+content, size or liveness changes; the grid simply stops painting on that surface and the error is the only
+evidence. The distinguishing read is the multiplicity: a re-entrancy fires per reveal, a freed registration
+fires per delivery of whatever event it registered for.
+
+**Wrong** — holding a `RefCell<CellGridRenderer>` borrow across `Selection.removeAllRanges()`. Chromium is
+free to turn that call into a scroll, and the scroll dispatches into wasm while the renderer's `RefCell` is
+still mutably borrowed; wasm-bindgen reports the re-entrant call with the same string it uses for a dropped
+closure, which sends you looking for a lifetime bug that is not there. Equally wrong, and the tempting fix:
+clear the reading hold on a timer, or release the selection earlier. **A held selection is SUPPOSED to withhold
+a repaint** — that is what the hold is for, and clearing it to quiet a re-entrancy error trades a deliberate
+no-paint for a visible wrong-paint. Do not "fix" this by suppressing the hold.
+
+**Right** — **ownership and borrow scope, not the hold.** The renderer is not something a caller should hold a
+mutable borrow of across a DOM call that can dispatch; give the reveal the work it needs without keeping the
+`RefCell` borrowed over `removeAllRanges()`, and let the hold stand for exactly as long as its own rule says.
+This is the other half of the wasm-bindgen error string documented under "Browser platform reality" in "a
+`Closure` handed to the DOM as a raw function reference is freed while it can still be called", which is the
+DROPPED half and a different defect with a different fix; both surface as the same console line, and the stack
+and the multiplicity are what tell them apart. It is also not the "a composer suspension holds paint forever
+when its restore never runs" entry: that is a hold that outlives its reason and must lapse, while this is a
+hold doing its job and a borrow scoped too wide around it.
+
+**Guard** — **browser only; a native guard is not possible here.** `PaneSelection` needs a real
+`web_sys::Document` to hold a real `Selection`, so nothing about this re-entrancy can be constructed off a
+browser target, and any test claiming otherwise would be testing a mock. Browser:
+`smoke/terminal/terminal-frame-repair-selection.spec.ts`, which drives a held selection and asserts the panel
+paints the repaired frame rather than erroring.
 
 ### A trapped resize capture suppresses a channel's emission for good
 
@@ -1544,6 +1770,30 @@ throw retires the peer.
 
 **Guard** — `apps/worker/tests/terminal/peer/terminal-peer-packet-port.test.ts` —
 `"commits a native false return once without retrying its accepted fragment"`.
+
+### Every refused microphone reports "did not respond in time"
+
+**Symptom** — "the mic says it did not respond" / "the voice input times out on every attempt" / a refusal —
+a permission refusal, a missing device, a policy block — is reported with the DEADLINE's wording rather than
+with its own cause. The refusal is therefore indistinguishable from a device that was granted and never
+answered, and every refused microphone costs the full deadline before the operator is told anything at all.
+The tell is that the timeout fires even where no device could plausibly have answered.
+
+**Wrong** — attaching only a success handler to the handshake promise. A promise settles by rejection as well
+as by fulfilment, so with nothing on the reject arm the race is never settled by the refusal; the deadline
+wins by default and its timeout becomes the answer to every failure. Raising the deadline does not help — it
+lengthens the wait for the cases that already work and still mislabels the ones that do not.
+
+**Right** — **every exit from a promise must settle the race, and a rejection carries the reason the operator
+needs.** Attach both arms, and let the reject arm publish the refusal's own cause so the timeout wording is
+reserved for the case that genuinely means "nothing came back". This is not the diagnostic-sink entry in "Browser
+platform reality": a throwing sink corrupts the observation of a path that works, whereas this is a path that
+never reaches its own handler at all, so no observer of the failure can see the real reason.
+
+**Guard** — `crates/roost-web/src/voice/handshake/tests.rs` asserts that a rejected handshake settles the race
+with the refusal's own cause rather than the deadline's; browser:
+`smoke/terminal/voice-mic-failure.spec.ts`, which refuses the microphone and asserts the reported reason is the
+refusal and not the timeout.
 
 ---
 
@@ -2177,6 +2427,40 @@ property assignment became an expando and `getAttribute("capture")` stayed `null
 
 **Guard** — `apps/web/tests/attachmentsPicker.dom.test.ts`.
 
+### A Dioxus `on<event>` attribute whose rsx name is not the browser event name is dead code
+
+**Symptom** — an affordance wired straight to the DOM ("double-click the rail to reset the
+sidebar") that never once fires in a browser, with no warning anywhere. The element is present, the handler is
+registered, `pointerdown`/`keydown` on the SAME element work, and the only visible evidence is that the state
+the handler would have written never changes.
+
+**Wrong** — look for an event-ORDERING problem, a later gesture overwriting the write, or a stale captured
+width. All three were ruled out in the measured case: the whole run carried exactly three
+`shell intent set_sidebar_width` events, so nothing overwrote anything and the handler simply never ran.
+Equally wrong: reach for the deprecated `ondblclick` alias, which happens to work and leaves the next reader
+with an attribute that looks like a typo.
+
+**Right** — **the matcher compares the rsx attribute's own tail against `event.type_()`, so an `on…` name
+that is not byte-identical to the browser's event name registers a handler that can never be invoked.**
+`dioxus-html-0.7.10/src/events/generated.rs:246` maps `ondoubleclick => dblclick` (and `:243-244` the
+deprecated `ondblclick => dblclick`); `dioxus-web-0.7.10/src/dom.rs:91` supplies the browser's `dblclick`;
+`dioxus-core-0.7.10/src/runtime.rs:435` (bubbling) and `:494` (non-bubbling) match with
+`attr.name.get(2..) == Some(name)`. `"ondoubleclick".get(2..)` is `"doubleclick"`, which is not `"dblclick"` —
+so the two spellings differ by exactly the character the matcher is sensitive to, and the deprecated alias
+matches only by accident. A handler that cannot be called has no stack trace and no type error, so the tripwire
+is the DECISION, not the attribute: decide a multi-press gesture from the pointer stream
+(`sidebar_resizer.rs`'s `PressTracker` pairs two primary presses inside a window and returns a pure
+`PressOutcome`), which is testable natively and does not depend on a name mapping at all. When an attribute
+must stay, verify its tail against the browser name before trusting it.
+
+**Guard** — `crates/roost-web/src/components/layout/sidebar_resizer.rs` —
+`the_second_press_resets_to_the_default_and_retires_the_drag` pins the two-press → reset decision and the
+retirement of the in-flight drag, which is the behaviour the dead attribute stood for; the wiring itself is
+`smoke/terminal/workbench-shell.spec.ts` "desktop workbench keeps measured geometry, status truth, and
+navigation" (`aria-valuenow` back to `SIDEBAR_WIDTH_DEFAULT` after the second press). The smell to grep for is
+any `on…` attribute whose rsx spelling is not the browser event name — `grep -oE 'on[a-z]+' … | sort -u`
+against the `dioxus-html` table.
+
 ### An unbounded await in the device-open path parks forever
 
 **Symptom** — "mobile mic records once then never again / stop leaves the UI animating / phone recording indicator stays lit until reload"
@@ -2198,8 +2482,39 @@ because completing a send resets the end-intent to null and null ALSO means "a r
 a stopped recording's grant opened a socket onto the shared connection and killed the NEXT recording. Finalizing
 has a watchdog and stays tappable.
 
-**Guard** — `apps/web/tests/voice/deepgramDictation.test.ts`; `apps/web/tests/voice/audioPcmCapture.test.ts`;
-`smoke/terminal/` — `"a second recording works exactly like the first"`.
+**Guard** — `crates/roost-web/src/voice/state.rs::RunFence` — a continuation carrying a retired run token is
+refused, and one recording spends exactly one settle (`begin_recording`/`current`/`admits`/`claim_settle`),
+which is the pair of properties the old run token and the duplicated finalise both broke;
+`crates/roost-web/tests/voice_draft_settle.rs` — three consecutive recordings settle to exactly what the first
+two committed, the finalize deadline cannot settle twice, and an unmounted composer leaves the draft it
+started from; `smoke/terminal/voice-recording.spec.ts` `"a second recording works exactly like the first"`
+(was `apps/web/tests/voice/deepgramDictation.test.ts` and
+`apps/web/tests/voice/audioPcmCapture.test.ts`).
+
+### An unproven hypothesis is persisted and comes back as ordinary text
+
+**Symptom** — a dictated draft returns carrying the words the recogniser only GUESSED
+(`"hello from the mic hello from the mic still recording"`), after a pane switch, a drawer opening, or a
+reload — while the live field shows exactly the right thing the whole time.
+
+**Wrong** — fix it in the dictation engine, or in the draft-restore path. The paint is correct and must stay
+correct: the operator watches an interim and revises it mid-utterance, which is the entire affordance. Equally
+wrong, and tempting because it is one line: stop writing the interim into the draft at all — that removes the
+feature. The defect is that PERSISTENCE treated a hypothesis as a decision.
+
+**Right** — **the interim and the operator's own words are two different things, and only the second is worth
+storing.** `DictationBinding::show` paints a composed value whose tail is provisional, so the composer's save
+effect — which persists on every re-render — captured the guess. `voice/transcript.rs::PaintedDraft::persisted`
+is the boundary: it keeps the confirmed HEAD and drops the tail, and a mark that is stale or not aligned to a
+character boundary is ignored rather than obeyed, so a malformed interim can never truncate real text.
+`composer.rs` calls it from the save effect. This is the same shape as the "a client overlay never blocks
+reconciliation" rule: what the operator SEES and what the system BELIEVES are different questions, and a
+rendering decision must not be persisted as a decision.
+
+**Guard** — `crates/roost-web/src/voice/transcript.rs` — an ordinary draft is stored byte-identical, only the
+unspoken tail is dropped, a stale or misaligned mark is ignored rather than obeyed, and the FIELD still shows
+the whole hypothesis; `crates/roost-web/tests/voice_draft_settle.rs` — an unmounted composer leaves the draft
+it started from, stored and displayed.
 
 ### A diagnostic sink throws into the path it was observing
 
@@ -2249,6 +2564,44 @@ surface's own top edge clear.
 **Guard** — `smoke/terminal/tv-dpad.spec.ts` reads the tokens off the computed root and asserts both portaled
 surfaces sit inside the safe rect on the right, bottom AND top edges; removing the `tv.css` override fails it at
 `16px` against the `48px` inline overscan.
+
+### A `Closure` handed to the DOM as a raw function reference is freed while it can still be called
+
+**Symptom** — "Error: closure invoked recursively or after being dropped" in the browser console, once per
+event rather than once per failure, from a stack that starts at a DOM delivery rather than at your own code:
+`ResizeObserver.u -> wasm-function -> __wbindgen_throw`. The feature it was supposed to track updates exactly
+ONCE — at the moment the registration was installed — and never again, with no Rust panic and no test failure
+anywhere. In this tree the compact composer dock published its measured height at mount and lost every later
+resize, so the shell's reserve froze at the height the dock had when it first appeared. The same string is also
+raised for the RE-ENTRANT case (a callback called again while it is already running), so read the stack before
+assuming which half you have.
+
+**Wrong** — `Closure::wrap(...)` written inline as an argument:
+`ResizeObserver::new(Closure::wrap(Box::new(f) as Box<dyn FnMut()>).as_ref().unchecked_ref())`. The `Closure`
+is a temporary: bound to nothing, destroyed at the end of that statement, while the registration it was handed
+to outlives the function. `std::mem::forget(observer)` then keeps the observer for the life of the page with
+nothing left on the other end of the call. Equally wrong, and the tempting "fix": leak the callback too. That
+is memory-safe, and it is how this bug shipped the second time — a callback nobody owns next to an observer
+everybody does, growing by one registration per mount, with nothing saying which of the two is meant to end
+the relationship.
+
+**Right** — **a `Closure` handed to the DOM as a raw function reference needs a NAMED owner that outlives the
+registration and unregisters before it dies.** Store the observer and its callback together in the thing that
+owns the registration — `ComposerSlot { observer: RefCell<Option<(ResizeObserver, Closure<dyn FnMut()>)>> }`,
+the shape `pane_mount/browser.rs` already uses for `browser.resize_observer` — and `disconnect()` before the
+pair is released, both when a registration is replaced and in `Drop` for the owner, since fields drop after
+`Drop::drop` returns. Releasing a `ResizeObserver` handle on its own does NOT stop it: the observed node can
+still deliver into a freed callback. This is not the "lib.dom types are the spec surface" entry's class of bug
+and has nothing to do with the DOM's view of ownership; it is ordinary Rust lifetime, which wasm-bindgen can
+only express by making the callee outlive the caller. The "a defaulted injectable host function loses its
+receiver" entry in this section is a receiver that arrived too late; this is a callee that leaves too early.
+
+**Guard** — **none native, and that is a real limit rather than an omission.** A freed wasm-bindgen thunk is a
+JavaScript exception inside the browser; `cargo test` compiles the same ownership chain on a target with no DOM
+and cannot observe it, so the only evidence is the live run. Browser:
+`smoke/terminal/workbench-shell-compact.spec.ts`, `"notification dock rides above the compact composer"`. The
+ordering discipline itself is reviewable rather than testable: any `Closure::wrap` whose result is not bound to
+a named owner is the smell to grep for.
 
 ---
 
@@ -2506,11 +2859,12 @@ grant mint; none of those live in the worker projection.
 worker-scoped direct candidate and elected route, emits `worker_retired` so peer retries dispose,
 then removes the worker record. Sessions and workspaces remain as offline history.
 
-**Guard** — `apps/web/tests/terminalDirectRegistry.test.ts` "retires every route and candidate for
-only the removed worker", `apps/web/tests/localTerminalGrants.test.ts` "removal clears a worker
-grant and fences its in-flight mint", `apps/web/tests/machines-delete.dom.test.ts`, and
-`smoke/terminal/terminal-peer-failover.spec.ts` "worker deletion retires direct authority before a
-held authenticated input reaches the PTY".
+**Guard** — `crates/roost-client-core/tests/direct_carrier_retirement.rs` "retiring a worker asks
+the host to close its carriers" and "a retirement leaves another worker's carrier alone";
+`crates/roost-web/src/platform/carriers/route.rs` `a_worker_retirement_takes_every_connection_it_held`;
+and `smoke/terminal/terminal-peer-failover.spec.ts` "worker deletion retires direct authority before
+a held authenticated input reaches the PTY", which stays the peer-tier oracle until the WebRTC
+carrier exists in Rust.
 
 ---
 
@@ -2698,3 +3052,469 @@ skipping: `terminal-local-fast-path.spec.ts` (1 failed → 1 passed) and `termin
 assertion for this: the enrollment IS the check, and a new one would pass for the wrong reason.
 When one of these reds, read the response in the trace (`0-trace.network`, the snapshot for the
 navigation) before blaming the machine — the status and `content-type` name the layer that failed.
+
+### A hand-built JSON reply spells a proto field the way Rust does, not the way the contract does
+
+**Symptom** — "the folder picker is empty / browse shows no rows / a directory
+lists zero entries while every piece of chrome around it renders correctly".
+
+**Wrong** — reading it as "the listing did not arrive", and then chasing the
+coordinator relay, the Sync domain, or the browser's own fetch. Also wrong:
+making the READER tolerate both spellings, which converts a loud wire defect
+into a silent one on every all-Rust run.
+
+**Right** — a proto field absent from a JSON object is its DEFAULT, so a
+misspelled key does not error and does not skip: it produces the zero value. A
+`bool` that means "is this a directory" arrives as `false`, every subdirectory
+is classified as a file, and a listing that is nothing but folders renders as
+an empty directory. The symptom points at the CONSUMER and the defect is in the
+PRODUCER's reply. `browser_commands/file_commands.rs` published
+`{"name": …, "is_dir": …, "mtime_ms": …}`; the contract spells it `isDir`
+(`apps/worker/src/file-rpcs.ts:112`), and the TypeScript coordinator reads
+only `isDir` with no fallback, so the flag was false for every entry.
+
+The fix is one typed struct whose field carries `#[serde(rename = "isDir")]`,
+so the emit and the sort read the same key and cannot drift again — a
+hand-written `serde_json::json!` reply has no type to disagree with itself.
+Check the OTHER fields of the same reply while you are there: `mtime_ms` and
+`resolved_path` are legitimately snake_case, which is why a sibling reply in
+the same file was correct and this one was not.
+
+**Why the tolerance must go, not stay** — `crates/roost-coord/src/attachments/files.rs`
+read `isDir` and fell back to `is_dir`. That fallback is why an all-Rust run
+never saw this defect: the coordinator quietly read the misspelling. Only the
+cross-stack run — TypeScript coordinator, Rust worker — surfaced it, and it
+surfaced as three specs reporting an empty listing. A field name is not a
+compatibility surface.
+
+**Guard** — `crates/roost-worker/tests/list_dir_wire_contract.rs`, which
+decodes the reply the way the CONSUMER does rather than reading the worker's own
+keys back: a seeded subdirectory must arrive as a directory, a seeded file must
+not, and the two snake_case fields the coordinator also reads must be unmoved.
+`smoke/terminal/browse-picker.spec.ts` (both cases) and
+`smoke/terminal/terminal-delivery.spec.ts` —
+`"new-terminal server switch resets browse path before listing and spawning"`
+are the browser-side guards.
+
+### Only the FIRST agent status for a session ever reaches a hydrating client
+
+**Symptom** — an agent reports `working`, then reports `blocked`, and the browser stays on
+`working` forever. The first report is what the tab badge, the sidebar row, the folder row and
+the title prefix all read, so everything downstream is self-consistent and simply stale. The
+agent's own log shows both reports accepted, and the coordinator answers
+`agentStatusGet` with the blocked state — the loss is on the way to the SOCKET.
+
+**Wrong** — look at the client fold, the revision rule, or the occupant identity. All three were
+exonerated by measurement: the fold ACCEPTS the second report (proved by decoding the captured
+wire bytes with the real `decode_firehose`), and a lower-or-equal revision being refused is
+correct. Equally wrong: re-sending on a timer, or making the fold lenient about revisions — the
+frame was never offered to it.
+
+**Right** — **a retained feed sample supersedes a buffered one only when it is at least as NEW.**
+`retained_supersedes_buffered` (`sync_ws/send_queue.rs`) compared agent-status frames by SESSION
+ALONE, on the premise in its own doc that "a live status frame already buffered can never be newer
+than the retained one". That premise is false: an agent reports continuously, so a newer status
+lands on the live link WHILE the retained seed is still being assembled, and `coalesce_buffered`
+then dropped it as already covered. The retained seed held revision 1 and the client received
+revision 1 forever. Compare `OwnedFrame::agent_status_revision()` as well as the session, and treat
+a frame with no revision as non-coalescing. The same reasoning applies to every
+current-value projection: coalescing is only sound when the retained sample is provably at least
+as new as what it replaces.
+
+**Guard** — `crates/roost-coord/src/sync_ws/send_queue_tests.rs` —
+`a_retained_status_older_than_the_buffered_one_does_not_supersede_it` is the case that was
+silently dropped, plus supersedes-at-equal-revision, never-supersedes-another-session, and
+never-supersedes-a-non-status-frame.
+`smoke/terminal/agent-status.spec.ts` — the second `report(...)` moving `data-level` to `blocked`
+— and `smoke/terminal/toast-target.spec.ts`, whose blocked toast is downstream of the same frame.
+
+### Every terminal stays on the Sync route and `route.active` reads `null`
+
+**Symptom** — a real stack paints the terminal and takes trusted input, so nothing looks
+broken; `terminalBrowserSnapshot(sessionId).route.active` is `null`, `peer_phase` is `null`,
+and `smoke/terminal/terminal-peer.spec.ts` and `terminal-peer-failover.spec.ts` time out in
+`waitForDirectRoute` with `direct route unavailable: {"activeKind":null,…}`. The same session
+on the TypeScript coordinator and worker elects a carrier and paints it.
+
+**Wrong** — reading it as a worker that will not peer, a coordinator that refuses the grant,
+or a discovery probe that found no door. None of those is what a refusal looks like: each of
+them leaves a fault, a `fallback_reason`, or an absent door somewhere in the same snapshot, and
+this state has all three empty. A `Signalling` machine's own unit tests all pass in this state,
+which is the tell: a state machine that is never CONSTRUCTED cannot mint a credential, cannot
+learn which worker shares the page's machine, and cannot open a transport, so every symptom
+downstream is a session quietly living on Sync.
+
+**Right** — `CarrierLane` (`crates/roost-client-core/src/client/carriers/lane.rs`) is the one
+thing that constructs a `Signalling`, and `Store::direct` is where it lives. Four feeds, and
+the symptom is any one of them missing:
+
+1. `handle_view_opened` / `handle_view_hidden` / `handle_view_closed` call
+   `store.direct.demand(…)`. Without the `active_views` count, `Signalling::start` returns on
+   its first gate and never asks.
+2. `pump::carriers::request_grant` reports the mint back as `ClientEvent::DirectGrantMinted`
+   — built ONCE and handed to both the dial and the election, so the loopback carrier and the
+   peer machine cannot disagree about one reply's deadline, scope and epoch. A refusal is
+   reported too, or the grant lifecycle stays `Requested`, which is the one phase with no path
+   forward.
+3. `pump::carrier_dial::open` dispatches `ClientEvent::LocalDoorAnswered` the moment discovery
+   settles, INCLUDING the negative answer. `LoopbackProbe::permits_peer` refuses a peer until
+   this arrives, so silence behinds a loopback carrier that was available all along — and a
+   machine that finished looking and found nothing must not read as one that has not looked.
+4. `handle_carrier_authenticated` and `handle_carrier_lost` report loopback presence; the
+   machine's whole view of a loopback carrier is "one is staged", and a faulted peer's fallback
+   decision reads that flag rather than the route registry.
+5. `pump::peer_lane::perform` acts on EVERY `CarrierEffect` the machine emits —
+   `OpenTransport`, the bounded filtered `local_offer`, `NegotiateOffer`,
+   `ApplyAnswer`, `StageCarrier` and `Core(effect)` handed to the ordinary effect
+   executor — and a refused arm is dispatched back as a `ClientEvent`, never
+   dropped. The match is EXHAUSTIVE with no catch-all, so a new core arm is a
+   compile error rather than a `tracing::warn!` nobody reads. A host half that
+   declines the five peer-lifecycle arms produces exactly this symptom and
+   nothing else: every `Signalling` unit test passes, the machine reaches
+   `Gathering`, and no carrier is ever staged.
+
+**Guard** — `crates/roost-client-core/tests/direct_carrier_lane.rs`, all six: "a view on a
+worker asks for a direct grant" (the failing-before is an empty effect vector with the demand
+line removed), "a page served by the worker never allocates a peer", "a page elsewhere releases
+one peer for the worker", "closing the view stops the asking and the machine is forgotten",
+"a retired worker makes its machine ask nothing further", "a refused mint arms the retry the
+election is waiting on"; plus
+`crates/roost-web/src/smoke/stream_route_lane.rs` for the projection, and
+`crates/roost-web/tests/peer_carrier_attempts.rs` for the host half's own fences
+(a `Ready` that does not match the grant is refused; a lane fragment round trip;
+a frame from a retired attempt reaching nothing while the other worker's carrier
+survives; a promotion token that cannot be reused across attempts), and
+`smoke/terminal/terminal-peer.spec.ts` "loopback wins before a WebRTC peer is allocated and
+keeps Sync metadata live" as the real-flow oracle for the loopback fast path, and
+`smoke/terminal/terminal-peer.spec.ts` "host-candidate WebRTC multiplexes each
+worker and preserves crossed browser geometry" as the real-flow oracle for the
+election the host half makes possible.
+
+
+### An unpaired browser's page sits on "Checking access…" and the pairing panel never renders
+
+**Symptom** — a browser with no paired device key shows `Checking access…` forever. The
+Playwright error-context snapshot is one line, `- status: Checking access…`, and the
+expectation that timed out is `onboarding-pair-start-btn`; the coordinator's own answer to the
+browser's probe is `{"code":"unauthenticated","message":"SessionsList requires a credential"}`
+with **no** `x-roost-auth-layer` response header. The Sync socket never opens either — the
+upgrade is refused at the handshake, so there is no `4001` close code to classify.
+
+**Wrong** — reading it as a web gate bug and going to `roost-web/src/app.rs` (the
+`Checking` → `PairSurface` switch is right) or to `pump/boot.rs` (the probe does fire; the
+trace shows it going out, with a bearer, and being refused). Also wrong: opening the gate on a
+timer, or having the client treat a bare `Unauthenticated` as a device rejection — a client
+that guesses cannot tell a rejected device from a trusted proxy asserting the caller, which is
+the entire reason the header exists.
+
+**Right** — `classify_auth_failure` (`roost-client-core/src/client/rpc/auth_failure.rs:70`)
+requires three things, and the one the coordinator controls is the marker. The marker is
+stamped on a refusal a handler builds, and v2 stamped it for every "authentication required"
+(`auth-interceptor.ts:256-262`, `protocol/spec/auth-and-pairing.md` "Errors"). The v3 gate
+refuses BEFORE a handler runs, and its refusal named the method and nothing else — so the
+contract was met at the handler and broken at the gate, which is why every handler-level test
+passed. Fix it where the refusal is built: `rpc/auth_gate.rs::credential_refusal` stamps
+`x-roost-auth-layer: device` whenever `AuthRequirement::admits_browser_key`, which is the
+credential that WOULD have worked. That predicate is deliberately not
+`permission_denied_for`'s: there the principal is known and the marker names the layer that
+refused; here nothing resolved, and `DeviceOrOwnWorkerRecovery` (which is what `SessionsList`
+records) still has a browser key among the credentials that satisfy it, while a `Worker`
+requirement gets no marker at all.
+
+The same answer is what a REVOKED key gets, so a browser that was paired and then revoked
+reaches the pairing panel on the same path instead of spinning on a probe it can never pass.
+
+**Guard** — `crates/roost-coord/tests/device_refusal_through_gate.rs`, driven through the
+production router: "an unresolvable credential on a device method is answered with the device
+marker" (the failing-before is `left: None, right: Some("device")`, which is byte for byte the
+recorded response), "a worker-only requirement carries no device marker", and "a paired
+browser's probe is answered and names no auth layer". The real-flow oracle is
+`smoke/terminal/pair-gate.spec.ts` "unpaired browser sees only the pairing gate at every size"
+and `smoke/terminal/tv-dpad.spec.ts` "unpaired TV shows only the pairing gate and requests
+approval by D-pad".
+ 
+---
+
+### A page a worker served aims every coordinator RPC at the worker
+
+**Symptom** — a page opened on a worker's own loopback origin
+(`http://127.0.0.1:<port>`, the SPA the worker serves for a browser on the PTY's machine)
+never sees a worker, a session or a workspace: `window.__smoke.state().workers` stays empty and a
+spec waiting on it times out in its FIXTURE, before any of its own assertions. The same specs
+pass on the coordinator's origin, which is what makes it read as a carrier fault rather than a
+routing fault.
+
+**Wrong** — building the Connect client from `window.location.origin` unconditionally
+(`pump/boot.rs::coordinator_origin`). A page a worker served has the WORKER as its own origin, and
+the worker's door answers the SPA, `/api/local-bootstrap` and the two socket upgrades and refuses
+everything else — so every RPC is aimed at a server that never had a coordinator on it, and the
+failure is silent because the door's own 404 is an ordinary HTTP answer. v2 does not have this
+shape: `connect.ts:69-93` resolves `coordBase()` through `readLocalBootstrap()` first. The Rust
+core even carries the rule — `client::local::coordinator_base` prefers a worker-served bootstrap
+outright and its doc names this exact hazard — but nothing called it, so the whole override was
+dead code with tests passing.
+
+**Right** — prime the serving origin's answer BEFORE the application graph loads, then resolve the
+base synchronously from it (`platform/door_probe::prime_serving_bootstrap` +
+`coordinator_base_url_for_page`, called from `main.rs` ahead of `dioxus::launch`). The probe is
+bounded by `DOOR_PROBE_TIMEOUT_MS` and fail-closed: the coordinator's 404 on
+`/api/local-bootstrap` is the ordinary "a coordinator served me" answer, and the page then keeps
+its own origin.
+
+**Guard** — `smoke/terminal/terminal-peer.spec.ts:62` "loopback wins before a WebRTC peer is
+allocated and keeps Sync metadata live" is the only oracle that pins it, because it is the only
+spec whose page is served by a WORKER origin rather than the coordinator's; its `stack` fixture
+(`page.waitForFunction(workerFp => !!window.__smoke?.state().workers[workerFp])`) is the thing that
+times out without the fix. The decision rule itself is pinned natively by
+`crates/roost-client-core/tests/local_discovery.rs`; there is no native test of the host wiring,
+because the wiring is `window.location` and `localStorage`.
+
+### A named `tracing` target that does not start with the crate name is silently dropped
+
+**Symptom** — a defect on the page side cannot be localised because the browser console carries
+no carrier, door, sync or auth line at all. The code is instrumented, the statements are there,
+and a Playwright trace contains zero console events, so a stop has to be guessed at from the
+snapshot instead of read from the log.
+
+**Wrong** — an `EnvFilter` directive of `roost_web=info,warn` (`install_tracing`). `EnvFilter`
+matches a target by PREFIX, and this crate names an explicit target on every event — `carriers`,
+`door`, `auth`, `terminal`, 34 of them — none of which starts with `roost_web`. Every one of them
+therefore fell through to the bare `warn` default and every `info!` was discarded. The directive
+reads as "info for our crate" and is not.
+
+**Right** — decide by BUILD, not by target spelling. A `--features smoke` build is the diagnostic
+build — the same feature that installs the `__smoke` backdoor, and one a release build does not
+enable — so it gets `info`; a release build keeps `warn`, where the only reader is an operator
+reading a console. `RUST_LOG` overrides both.
+
+**Guard** — no behavioural test: a filter is a diagnostic surface, and the observable is "the
+trace has console events". `install_tracing`'s filter expression is the thing to re-read after
+adding a target, and the check that catches it is running one spec and counting console events in
+its `trace.zip`.
+
+---
+
+### A direct carrier can never become the elected route, because staging waits for the frame it earns
+
+**Symptom** — a carrier authenticates, the browser logs `loopback carrier admitted` and
+`direct carrier registered`, and then nothing ever happens: no inbound frame, no baseline, and
+`snapshot.route.active` reads `"sync"` until the spec's 60-second `waitForDirectRoute` gives up.
+`peerPhase` stays `idle`. The terminal is healthy on Sync the whole time, which is why the
+symptom reads as "the direct path is slow" rather than "the direct path cannot start".
+
+**Wrong** — staging a `PromotionCandidate` only when the first direct FRAME arrives
+(`handle_sync.rs::fold_into_candidate`, the only caller of `RouteRegistry::stage`). That makes the
+whole election one cycle with no entry point:
+
+- a worker streams to a socket only once it has been told that socket is watching the session,
+  and the only thing that tells it is a `TerminalViewCommand`;
+- a `TerminalViewCommand` for a direct link needs a direct token, and the only source of one for
+  an unelected session is a staged candidate's token;
+- `publish_view` refuses to send on any token `routes.route_matches` does not confirm — correct
+  for every other command, and fatal for this one, because it demands the route exist first;
+- `promote` refuses until the candidate holds a COMPLETE validated baseline, which needs frames.
+
+So: the frame waits for the command, the command waits for the token, the token waits for the
+staging, and the staging waits for the frame. Nothing is ever slow; nothing ever runs.
+
+**Right** — break the cycle where it is closed, on carrier admission rather than on the first
+frame. `handle_carrier_authenticated` now calls `stage_viewed_sessions`, which stages a candidate
+for every session the carrier's grant admits AND this document is viewing, and publishes that
+view onto the candidate's token through `handle_sweep::publish_view_on_candidate`. The worker
+streams, the candidate earns a baseline, and `promote` elects it — through its own fence, which
+still refuses an incomplete baseline. The grant's scope bounds the command, so a carrier names
+only the sessions it holds a credential for.
+
+**Guard** — `crates/roost-client-core/tests/direct_carrier_staging.rs`, driven through
+`ClientCore`: `an_admitted_carrier_asks_the_host_for_a_view_id_and_publishes_nothing_yet` (fails
+`got []` without the fix — the request is the effect now, not a publish),
+`a_carrier_asks_for_ids_only_for_the_sessions_its_grant_admits` (the control: a grant is
+scope-bound, so an over-broad staging that named every session is caught too), and
+`publishing_a_candidate_does_not_elect_it` (the fence is intact — staging is not electing). The
+real-flow oracle is `smoke/terminal/terminal-peer.spec.ts:62` "loopback wins before a WebRTC peer
+is allocated and keeps Sync metadata live".
+
+**This is NOT the entry on the unimplemented WebRTC negotiation.** Loopback needs no offer, no
+answer and no peer: it dials the worker's own door and authenticates with a grant. This cycle is
+entirely below the transport, and it is why an admitted LOOPBACK carrier was already dead before
+any negotiation code was reached.
+
+### One view published on two live carriers is refused as owned by another socket
+
+**Symptom** — a direct carrier admits, the browser publishes its view onto it, the worker
+receives the command and answers with nothing but a reply: the candidate never gains a baseline,
+`snapshot.route.active` stays `"sync"`, and the direct route never wins. In the worker log the
+view command is present and the outcome is zero calls and zero changes; on the browser there is
+no fault at all, because nothing failed on the way out.
+
+**Wrong** — publishing a view onto a newly staged candidate under the SAME `view_id` it already
+holds on Sync. The authority keys a view by `${viewer_key}:${view_id}`, and the viewer key is
+`${deviceFingerprint}:${tabId}` — identical on every transport this document owns. So the local
+socket's command lands on a key the COORDINATOR socket still holds live, and
+`terminal_view::commands::reclaim` refuses with "view is owned by another live socket".
+Reclaim is by design for a record whose socket is GONE; it is not a takeover, and the comment on
+it says so.
+
+v2 does not have this shape because its candidate never reuses an id: `TerminalPromotionCandidate`
+mints a FRESH `crypto.randomUUID()` per view and publishes those PROSPECTIVE ids on the direct
+connection, so the canonical's records and the candidate's records are different keys and cannot
+contend. `rotateViewTransport` — which releases the old key on the route being left, with an
+INACTIVE `TerminalViewCommand` at `cols/rows = 0` and a bumped revision — is a DIFFERENT mechanism
+for a later moment, and its own comment names the failure this entry is about: "Two live carriers
+sharing one viewer key would otherwise contend for the same worker view record."
+
+**Right** — give the CANDIDATE its own view ids, and leave the canonical's alone. v2 mints a fresh
+`crypto.randomUUID()` per view inside `TerminalPromotionCandidate`
+(`terminal-stream-promotion-candidate.ts:94`) and publishes THOSE on the direct connection
+(`start()`, `:114-123`). The canonical's ids stay live on Sync and are never touched, so there is
+no rollback to get wrong: the pane keeps painting on Sync until the candidate commits, and
+`applyCanonical` hands the prospective ids to the canonical at the same moment the replica swaps.
+
+**Do NOT use `rotateViewTransport` here.** It looks like the same fix and is not: that function
+releases the old identity on the route being left (`terminal-stream-retarget.ts:172-207`) and runs
+only when a direct route is ALREADY active. Using it at candidate time would park the view on Sync
+before anything had proved the direct path, so a candidate that never earns a baseline leaves the
+pane with no live view at all — strictly worse than the "stuck on Sync" this is meant to fix.
+
+**The remaining cost was the identity source, not the mechanism.** `roost-client-core` has no
+`uuid`/`rand` dependency and `is_terminal_uuid` is a pure FORMAT check, so the core must NOT
+fabricate one: these ids go on the wire and into the worker's view records, and a deterministic
+UUID-shaped name would later be mistaken for a random token. The id is minted by the HOST —
+`Effect::MintTerminalViewId` asks, `ClientEvent::TerminalViewIdMinted` answers, and
+`roost_web::platform::terminal_view_id::mint_view_id` is the one `crypto.randomUUID()` call the
+document has. The core refuses whatever comes back that is not a v4 UUID, because the worker's own
+`is_v2_uuid` admits versions 1-5 and a nil or time-based id is one this client never asked for.
+
+**Guard** — `crates/roost-client-core/tests/direct_carrier_staging.rs`:
+`the_minted_id_is_what_the_candidate_publishes_and_sync_keeps_its_own` (the candidate publishes the
+HOST's id, and staging releases nothing on Sync), `a_minted_id_the_worker_would_refuse_abandons_the_attempt`
+(a v1 is never published), `a_mint_that_collides_with_a_live_view_abandons_the_attempt` (two panes
+may not end up on one handle), and `a_stale_or_repeated_mint_is_ignored` (a slow answer cannot
+attach itself to a newer attempt, and a pane that has an id does not get a second). The real-flow
+oracle is `smoke/terminal/terminal-peer.spec.ts:62` "loopback wins before a WebRTC peer is allocated
+and keeps Sync metadata live".
+
+**This is NOT the entry on the unimplemented WebRTC negotiation**, and it is not the entry on the
+missing candidate staging. Those are two earlier links in the same chain and each has its own
+entry; this one is reached only once a candidate is staged and a view actually arrives.
+
+### The client's direct-carrier data plane folds cell frames and nothing else
+
+**This is the umbrella entry for the whole direct-carrier chain, and it is the parent of the
+three entries around it.** It is worth reading before spending time on any one of them.
+
+**Symptom** — anything that needs a direct route to become a real route fails, on loopback and on
+WebRTC alike, and never with a fault: the carrier admits, a candidate is staged, the pane keeps
+painting from Sync, and the direct route never wins. The specific symptom depends on which link
+is missing, which is why this looked like several unrelated bugs.
+
+**Wrong** — treating `handle_direct_frame` as a cell-frame-only path
+(`roost-client-core/src/handle_sync.rs:132-148`). It matches `SyncFrame::CellGrid` and
+`SyncFrame::CellGridChunk` and sends EVERYTHING ELSE to a `_ =>` arm that logs "direct carrier
+frame with no direct-carrier rule" at `debug`. And the frame really does arrive: the worker
+answered the staged view command (`replies: 1` on a worker-side probe), the pump decoded it
+(`DirectInbound::ViewState`), converted it (`inbound.rs:49` → `SyncFrame::ViewState`), and
+dispatched it as `ClientEvent::DirectFrameReceived` — where it was then dropped.
+
+So a direct carrier has no path for:
+- **view state**, which is the acknowledgement that installs a view's stream and tells the replica
+  its baseline is coming. Without it the candidate can never be told its view was accepted;
+- **resync**, the repair a candidate asks for when its baseline does not arrive;
+- **input results**, which is what fences a keystroke the direct link accepted.
+
+**The three links under it, each with its own entry, in dependency order:**
+1. the missing candidate STAGING (`RouteRegistry::stage` reachable only from
+   `fold_into_candidate`) — FIXED, guard `crates/roost-client-core/tests/direct_carrier_staging.rs`;
+2. view IDENTITY contention — v2 gives the candidate PROSPECTIVE view ids
+   (`terminal-stream-promotion-candidate.ts:94` mints a fresh `crypto.randomUUID()` per view) so
+   the candidate's records cannot collide with the Sync socket's; the ids are host-minted, so the
+   core asks for one — FIXED;
+3. this entry: the candidate had no view records and never received their acknowledgement.
+
+**A claim in an earlier revision of this entry was wrong, and the wrongness is the useful part.**
+It said the candidate "has no view records and never receives their acknowledgement, so
+`baseline_ready` cannot be reached". `baseline_ready` is FRAME-driven and always was: folding a
+complete, validated full is what sets it. What was true is one link earlier in the chain —
+`frame_fold::valid_full` EXPLICITLY refuses a frame with no expected stream
+(`crates/roost-client-core/src/terminal/frame_fold.rs`: an absent `expected_stream_id` returns false
+before anything else is read, because admitting it would let any stream's baseline become the
+canonical one). The expected stream is installed ONLY by an accepted view-state. So with the
+direct `ViewState` dropped, every frame the candidate received was refused as a delta wearing a
+full's flag, the baseline never completed, and `promote` never fired. The missing link is the
+ACKNOWLEDGEMENT, not the readiness flag — which is why grepping for `baseline_ready` sends you to
+the fold instead of to the view path.
+
+**There was a SECOND, independent defect in the same function, and it is the reason this entry was
+worth reading twice.** `fold_into_candidate` matched `promote`'s result as `Ok(_)`, which compiles,
+logs "a direct candidate earned its baseline and is now the elected route", and DISCARDS the
+`TerminalSession` the registry handed back. The route was elected and the replica was thrown away:
+the canonical kept the old generation and the old grid, so `snapshot.route.active` said loopback
+while the pane painted from a socket nobody was reading. Any fix that only taught the fold to
+reach `baseline_ready` would still have left a route that is elected and unusable.
+
+**Right** — port the candidate as a first-class thing rather than a bare replica: give it its own
+prospective view records, fold `SyncFrame::ViewState` into the CANDIDATE by the id the candidate
+minted, install the stream that answer names, and CONSUME the promoted replica — adopting its
+prospective ids and releasing the old ones on the old transport in the same step (the shape
+`terminal-stream-promotion-commit.ts` already has in v2). Order is the whole safety argument: new
+ids published, old ids released only after the replica is swapped in.
+
+**Guard** — `crates/roost-client-core/tests/direct_carrier_staging.rs`:
+`a_view_answer_then_a_full_elects_the_route_and_retires_the_sync_view_afterwards` (the ordering,
+end to end, including that a full arriving BEFORE the answer elects nothing),
+`a_view_state_for_an_unpublished_id_changes_nothing` (the answer is correlated by the candidate's
+own wire id, not the pane's), `the_same_pane_addresses_its_worker_by_the_minted_id_after_the_promotion`
+(the pane's identity never changes; the wire id follows it), and
+`a_frame_on_another_generation_does_not_elect`. The real-flow oracle is
+`smoke/terminal/terminal-peer.spec.ts:62` "loopback wins before a WebRTC peer is allocated and
+keeps Sync metadata live".
+
+**This is NOT the entry on the unimplemented WebRTC negotiation.** That one is above the transport
+(browser ⇄ coordinator ⇄ worker offer/answer); this one is below it, in what the CLIENT does with
+what arrives. Both are required, and neither substitutes for the other.
+### A dialog's body re-declaring the shell's `data-testid` makes every by-id assertion ambiguous
+
+**Symptom** — a spec that names an overlay by test id fails on the COUNT rather than on what it is
+asserting: `strict mode violation: getByTestId('command-palette') resolved to 2 elements`, or a
+`toHaveCount(0)` after close that would also have failed for an overlay that never opened. The two
+answers are listed side by side in the error, and they look like two overlays.
+
+**Wrong** — the `Sheet`/`Dialog` carries `data-testid` for the surface AND the body inside it repeats
+the same literal. v2 tagged the BODY (`CommandPaletteBody.tsx:124`), which was the only node then;
+the Rust port moved the id onto the dialog and left the body tag in place, so both answer.
+
+**Right** — ONE node answers to the id, and it is the dialog: it is the thing a spec asserts exists
+when the surface is open and gone when it closes, and the `role="dialog"` + `aria-modal="true"`
+node is what every accessibility query means by the overlay. A body inside it is selected by a
+CHILD id (`command-palette-input`, `task-editor`), never by the surface's own name.
+
+**Guard** — `crates/roost-web/tests/palette_overlay_lifecycle.rs`: `an_open_palette_is_exactly_one_node`
+(one node, not two) and `closing_the_palette_removes_the_dialog_that_answered_to_its_test_id` (a
+removal MUTATION for that element, not a rule that hides it — a node left in the tree is still in the
+accessibility tree and still holds the focus-trap sentinels). The real-flow oracle is
+`smoke/terminal/gamepad-nav.spec.ts:156` and `smoke/terminal/workbench-shell.spec.ts:178`.
+
+---
+
+### An intent that reduces into the store is not a surface, and the reader gets no error for it
+
+**Symptom** — a catalog row closes the overlay it was pressed in and nothing else happens: no form,
+no editor, no card, no console line. The action looks broken and every layer that can be asked
+reports success — the keypress ran, the intent dispatched, the store revision moved, the RPC was
+never attempted. The only thing missing is a COMPONENT that reads the state the intent wrote.
+
+**Wrong** — porting `ShellIntent::OpenQueueTaskDialog` and its `store().shell_dialogs.queue_task`
+half, which is what the catalog row needs to be testable, and stopping there. v2's
+`QueueTaskDialog` was a sibling line in `App.tsx`'s overlay group, so nothing in the store's shape
+implies it exists: `open_queue_task` is a perfectly ordinary setter on a perfectly ordinary struct.
+
+**Right** — every `ShellIntent` variant that WRITES shell dialog state has a host mounted beside
+`CommandPalette` in `app::AuthorizedOverlays`, and the host renders nothing while the flag is false.
+The intent is the door; the host is the surface; a port that ships one without the other is half a
+feature, not a half-working one.
+
+**Guard** — `crates/roost-web/tests/queue_task_dialog_mount.rs`: `the_queue_task_row_opens_the_editor_on_the_page`
+(dispatching the palette's own intent puts ONE `task-editor` node and its working-directory field on
+the page) and `closing_the_editor_takes_it_off_the_page`. The real-flow oracle is
+`smoke/terminal/command-palette.spec.ts:81`, which presses the row by keyboard and reads the
+prefill back.

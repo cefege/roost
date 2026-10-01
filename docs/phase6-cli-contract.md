@@ -186,13 +186,16 @@ in this command's output.
     <mark> <label> — last seen <N>s ago[ (STALE)] · <short-sha> · <update label>
 ```
 
-The update label is one of exactly five, and the five wordings are pinned in
-**three** places, all of which must change together:
+The update label is one of exactly five. Two of the three places that pin the
+wordings are in this tree, and both must change together:
 
-1. `crates/roost-cli/src/status/update_state.rs` — the table itself.
+1. `crates/roost-protocol/src/fleet_update.rs` — the table itself
+   (`worker_update_label`, `worker_update_state`), which `status/render.rs` prints.
 2. `apps/roost-cli/tests/status-output.test.ts` (v2) /
    `crates/roost-cli/tests/status_output_shape.rs` (v3) — the executable spec.
-3. `apps/site/src/content/docs/fleet.md:100-102` — the user-facing site.
+
+The third was the user-facing fleet page on the separate documentation site,
+which is not in this repository; its copy is changed with these two.
 
 | State | Wording |
 | --- | --- |

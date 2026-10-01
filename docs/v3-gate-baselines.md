@@ -640,9 +640,14 @@ apart at exactly the rate the tree moves.
   of the error is the lesson: **a trigger is a claim about what a gate
   exercises, so it has to be read off the specs the gate runs** and not off
   which wave happens to be finishing.
-- **Phase 4** is not Playwright — it is
-  `crates/roost-client-core/tests/headless_client.rs`, an in-process Rust
-  coord + worker that must paint a `MARKER` into a replica viewport.
+- **Phase 4** is not Playwright. What is green on this branch is the client
+  core's own gate from `docs/phase4-client-contract.md` §1 — the `wasm32`
+  build with no `web-sys` in the tree, plus
+  `crates/roost-client-core/tests/core_without_a_browser.rs` and the native
+  suite. The in-process coord + worker that paints a `MARKER` into a replica
+  viewport without a browser was planned and is NOT built here; until it is,
+  the marker round-trip is proven by `smoke/terminal/terminal-delivery.spec.ts`
+  against a real stack.
 - **Phase 5** (all-Rust): the full 157 on Chromium and Firefox, plus a
   production build with the `smoke` feature off containing zero occurrences
   of `__smoke` in the bundle.
@@ -2112,6 +2117,40 @@ the first time it has been checked on a merged tree.
    variables. **The "both" run is the stack production will run in Stage 4.**
 3. **Phase 6 install** — the scratch `roost3gate` user, browser pairing, the
    keeper PID across a deploy, and the import check.
+
+### All-Rust oracle runs, watched
+
+Every row is a run someone watched, with its artifacts named. From 2026-10-01
+every run goes through `bun smoke/parity/run.ts` (CLAUDE.md `### Commands`),
+whose pin manifest is the artifact identity; the earlier rows are the hand-run
+measurements of the three 2026-09-30 sessions. Counts are passed / failed /
+skipped.
+
+|when|stack and pass|command|artifacts|log|result|
+|---|---|---|---|---|---|
+|2026-09-30 14:53|Rust, `terminal-peer.spec.ts` (chromium-desktop)|`playwright test` on the pin|not recorded|—|5 failed: `:62` died in its fixture (`waitForFunction(workers[fp])`, 89 s); `:97`/`:300` `direct route unavailable … "failureDetail":"negotiation deadline"`|
+|2026-09-30 14:55|Rust, main|`bun run test:terminal`, three `ROOST_SMOKE_*` knobs|not recorded|`~/.cache/rust-suite-20260930-1455.log`|57 / 60 / 28 (serial never ran: the profile stopped on the red main pass)|
+|2026-09-30 15:33|Rust, main|same, after the second session's fixes|`roost` `02981d31…`|`~/.cache/rust-suite2-20260930-1533.log`|56 / 61 / 28|
+|2026-09-30 15:53|**Bun** (all-TS), both|`bun run test:terminal`, knobs unset|`v3` @ `1f1b6096` + uncommitted|`~/.cache/bun-suite-20260930-1553.log`|main 142 / 0 / 3; serial 14 / 1 / 3 — the 1 is `terminal-peer-perf.spec.ts:7`|
+|2026-09-30 ~16:00|Rust, `terminal-peer.spec.ts:62`|`playwright test`|`roost` `02981d31…`, `roost-web-dxha0a3e2d6a08ed146.js`|—|fixture passes after local-bootstrap priming; fails one layer down at `waitForDirectRoute(…,"loopback")`: `activeKind` sync, `peerPhase` idle|
+|2026-09-30 17:35|Rust, main|`bun run test:terminal`, after direct-route link 1|not recorded|`~/.cache/rust-suite3-20260930-1735.log`|56 / 61 / 28; 53 Rust-red/Bun-green, 13 Rust-only skips, both-red 0|
+|2026-09-30 17:54|Rust, serial|`bunx playwright test --project chromium-serial --reporter=line`|not recorded|`~/.cache/rust-serial-20260930-1754.log`|4 / 10 / 4|
+|2026-10-01|Rust, serial|`bun smoke/parity/run.ts suite --stack rust --pass serial --label phase0-serial-check`|pin `1f1b6096`+dirty, `roost` `1fa72d84…`, `roost-web-dxhe0dd67381eea45f.js`|`test-results/parity/rust-phase0-serial-check.run.json`|5 / 9 / 4|
+
+**LANDING GATE — GREEN on the tree of `0814d5a0`, 2026-10-01.** The 2026-09-30
+sessions' work plus the `ui_state` fence removal and two cherry-picks, gated once
+as a whole with nothing else running, `CARGO_BUILD_JOBS=8`, target `target/`:
+
+|criterion|result|
+|---|---|
+|`cargo xtask fmt`|exit 0|
+|`ROOST_REPO_ROOT=$PWD cargo xtask lint`|**0 violations, 6110 inputs**|
+|`cargo clippy --workspace --all-targets -- -D warnings`|exit 0|
+|`cargo test --workspace --no-fail-fast`, two runs|769 binaries, **5273 passed / 0 failed**, both runs|
+|`cargo test -p roost-web --features smoke`|69 binaries, **816 passed / 0 failed**|
+|CI wasm32 build (`ci.yml` step "wasm32 build")|exit 0, 0 warnings|
+|`dx build --release -p roost-web --platform web --features smoke`|built|
+|vendored terminal core suite|132 + 45 + 8 + 1 passed|
 
 ### Where tonight's numbers live, since this file is long
 

@@ -207,7 +207,7 @@ Nothing after Stage 0 is merged into it yet.
 - One implementation per concept: the layout-document adapter and the
   terminal-view registry live in `roost-protocol`; capture types will too.
 - Design lint skips `tests/` (as v2 skips `*.test.ts`); one colour-parser
-  line in `smoke/paint_proof.rs` is baselined (port of v2
+  line in `crates/roost-web/src/smoke/paint_proof.rs` is baselined (port of v2
   `smokeHarness.ts:231-232`).
 - `SmokeApi` has 53 members.
 - Windows (update broker, win32 host sampling, Windows CI tier) is PAUSED

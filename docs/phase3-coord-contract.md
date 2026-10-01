@@ -803,7 +803,8 @@ port**. That is the intended failure: a mis-scoped database is not repaired by
 serving traffic against it.
 
 The message prefix is load-bearing — tests assert it and assert the whole
-message is under 160 characters (`apps/coord/tests/self-hosted-tenant.test.ts:152-156`).
+message is under 160 characters (`apps/coord/tests/auth/self-hosted-tenant.test.ts:153` and
+`:279-282`).
 
 Enforced at three points, all ordered **after** the authorized-keys import so
 rule 11 sees fresh keys: the `0024` migration hook

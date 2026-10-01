@@ -237,7 +237,7 @@
 ## D. window.__smoke CONTRACT
 
 **Install**
-- `App.tsx:73-76`: only if `import.meta.env.VITE_ROOST_SMOKE==="1"` (build-time fold) AND `localStorage.roostSmoke==="1"`. Dynamic `import("./smoke/smoke.ts")` → `maybeInstallSmokeBackdoor()` (`smoke/smoke.ts:35-120`) → `window.__smoke=api` (`:118`).
+- `App.tsx:73-76`: only if `import.meta.env.VITE_ROOST_SMOKE==="1"` (build-time fold) AND `localStorage.roostSmoke==="1"`. Dynamic `import("./smoke/smoke.ts")` → `maybeInstallSmokeBackdoor()` (`smoke.ts:35-120`) → `window.__smoke=api` (`:118`). The Rust install site is `crates/roost-web/src/smoke/backdoor.rs`.
 - The Rust equivalent must be behind feature `smoke` (`crates/roost-web/Cargo.toml:19-23`).
 - The spec-side type is `smoke/terminal/terminal-smoke-api.ts:29-33` (`Window.__smoke: SmokeApi`).
 
