@@ -98,8 +98,8 @@ async fn the_three_push_arms_refuse_when_no_caller_is_on_the_request() {
 }
 
 /// The caller an arm resolves is the one the handler decides on: the same arm
-/// serves a fenced device and refuses a machine, and the refusal it gives a
-/// machine is the domain's, not the arm's.
+/// serves a device and refuses a machine, and the refusal it gives a machine is
+/// the domain's, not the arm's.
 ///
 /// Both halves matter. An arm that invented a device caller would answer the
 /// worker with a served list, and an arm that dropped the caller would refuse
@@ -111,11 +111,11 @@ async fn a_ui_arm_hands_the_caller_it_resolved_to_the_handler_that_decides() {
     service_request!(list_for_device, roost_proto::UiListStatesRequest);
     let listed = fixture
         .service
-        .ui_list_states(context_with(fixture.tab_device_caller()), list_for_device)
+        .ui_list_states(context_with(fixture.device_caller()), list_for_device)
         .await;
     assert!(
         listed.is_ok(),
-        "a fenced device reaches the handler and is served; the arm's own answer is a refusal"
+        "a device reaches the handler and is served; the arm's own answer is a refusal"
     );
 
     service_request!(list_for_worker, roost_proto::UiListStatesRequest);

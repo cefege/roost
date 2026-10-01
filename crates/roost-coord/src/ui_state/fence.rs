@@ -1,13 +1,12 @@
-//! The two facts every UI method requires before it touches state: a browser
-//! tab the request is fenced to, and a persisted row for every session it
-//! names.
+//! The validation every UI method shares before it touches state: bounded
+//! caller text, a persisted row for every session it names, and the operator
+//! label of each reporting key.
 //!
-//! All four `ui_state` methods are `DevicePlusFence`
-//! (`rpc::method_route::ROWS_UI_STATE`), and each half is load-bearing. A
-//! request without a tab id has no tab to answer to, so a layout apply aimed at
-//! a tab could not be attributed to the socket that proved it; a request naming
-//! a session with no `sessions` row would put a command on the bus for a pane
-//! the fleet has never heard of.
+//! None of the four `ui_state` methods is fenced to the caller's tab: v2's
+//! `handlers-ui.ts` calls only `requireAccountDevice`, and the tab a method acts
+//! on is the one the request BODY names. A request naming a session with no
+//! `sessions` row would put a command on the bus for a pane the fleet has never
+//! heard of, so that half is refused here.
 
 use std::collections::HashMap;
 
@@ -15,25 +14,6 @@ use connectrpc::{ConnectError, ErrorCode};
 use roost_protocol::validate::max_utf8_bytes;
 use sqlx::Row;
 use sqlx::sqlite::SqlitePool;
-
-use crate::coord_core::Caller;
-
-/// The tab this request is fenced to, or the refusal that names the fence.
-pub fn require_tab_fence<'caller>(
-    caller: &'caller Caller,
-    method: &str,
-) -> Result<&'caller str, ConnectError> {
-    match caller.tab_id.as_deref() {
-        Some(tab_id) if !tab_id.is_empty() => Ok(tab_id),
-        _ => Err(ConnectError::new(
-            ErrorCode::FailedPrecondition,
-            format!(
-                "{method} requires the browser tab fence: this request carried no tab id \
-                 (x-roost-tab-id), so it cannot be attributed to one live tab socket"
-            ),
-        )),
-    }
-}
 
 /// A bounded UI text field, optionally required to be non-blank.
 pub fn require_bounded_ui_text(

@@ -246,20 +246,20 @@ pub const ROWS_RPC: &[MethodRoute] = &[
     route("DiagSnapshot", "rpc", AuthRequirement::Device, PortStatus::Implemented),
 ];
 
-/// ui-cc typed state and layout application, both fenced to one socket generation.
+/// ui-cc typed state and layout application.
 ///
-/// ALL FOUR CARRY THE FENCE, not only the apply: `UiReportState`, `UiListStates`
-/// and `UiDispatch` each call `require_tab_fence` before they read or write the
-/// retained state (`apps/coord/src/ui-state/handlers-ui.ts`), and an apply
-/// reserved against a socket that is not the one the caller holds is applied by
-/// a tab that no longer owns it. The column records the requirement the
-/// handler enforces, not the one that would have been convenient.
+/// ALL FOUR TAKE THE DEVICE PRINCIPAL ONLY. v2 fences none of them:
+/// `apps/coord/src/ui-state/handlers-ui.ts:91,148,173,214` call only
+/// `requireAccountDevice`, and the tab a method acts on is the request body's
+/// `tabId`/`targetTabId`, never the caller's own tab header. The apply's
+/// socket-generation fence is the live reservation it takes on the TARGET tab,
+/// not a requirement on the caller.
 #[rustfmt::skip]
 pub const ROWS_UI_STATE: &[MethodRoute] = &[
-    route("UiReportState", "ui_state", AuthRequirement::DevicePlusFence, PortStatus::Implemented),
-    route("UiListStates", "ui_state", AuthRequirement::DevicePlusFence, PortStatus::Implemented),
-    route("UiDispatch", "ui_state", AuthRequirement::DevicePlusFence, PortStatus::Implemented),
-    route("UiApplyLayout", "ui_state", AuthRequirement::DevicePlusFence, PortStatus::Implemented),
+    route("UiReportState", "ui_state", AuthRequirement::Device, PortStatus::Implemented),
+    route("UiListStates", "ui_state", AuthRequirement::Device, PortStatus::Implemented),
+    route("UiDispatch", "ui_state", AuthRequirement::Device, PortStatus::Implemented),
+    route("UiApplyLayout", "ui_state", AuthRequirement::Device, PortStatus::Implemented),
 ];
 
 /// web push subscriptions, per authenticated browser fingerprint.

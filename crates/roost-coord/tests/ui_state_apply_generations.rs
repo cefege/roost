@@ -1,12 +1,11 @@
-//! The tab fence on the layout-apply path: which live browser generation an
-//! apply may reach, which requests may ask, and what a generation that has
-//! died is answered instead of being left on the bus.
+//! Which live browser generation a layout apply may reach, and what a
+//! generation that has died is answered instead of being left on the bus.
 //!
 //! These are the coordinator's half of `smoke/terminal/ui-layout-apply.spec.ts`
 //! ("acknowledged layout apply targets one live browser generation"). The spec
-//! proves the same three answers against two real browser tabs; this file pins
-//! them where a regression would be a one-line change away -- including the
-//! refusal a fix for that spec's first poll must not quietly remove.
+//! proves the same answers against two real browser tabs; this file pins them
+//! where a regression would be a one-line change away. The generation an apply
+//! reaches is the TARGET's live socket reservation; the caller carries no tab.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -14,7 +13,6 @@ mod ui_state_fixture;
 
 use std::sync::{Arc, Mutex};
 
-use connectrpc::ErrorCode;
 use roost_coord::coord_core::CoordCore;
 use roost_coord::events::bus_messages::UiBusMsg;
 use roost_coord::sync_ws::feed::ui::{UiViewer, ui_bus_frame};
@@ -22,15 +20,13 @@ use roost_coord::ui_state::layout_apply::{
     LayoutApplyOwnerStats, LayoutApplyRequest, UI_LAYOUT_TARGET_GONE_REASON,
     UiLayoutApplyPublication, UiLayoutApplyTarget,
 };
-use roost_coord::ui_state::rpc::{
-    handle_ui_apply_layout, handle_ui_list_states, handle_ui_report_state,
-};
+use roost_coord::ui_state::rpc::handle_ui_apply_layout;
 use roost_proto as proto;
 use roost_proto::__buffa::oneof::ui_command::Command;
 
 use ui_state_fixture::{
     SESSION_ID, UiStateFixture, applied, apply_layout_command, apply_request, browser_fingerprint,
-    collect_ui_bus, layout_document, report_request,
+    collect_ui_bus,
 };
 
 /// Publish one reserved apply on the live UI bus, as the RPC's publish step does.
@@ -44,8 +40,8 @@ fn publish_reserved_apply(core: &CoordCore, publication: &UiLayoutApplyPublicati
 }
 
 #[tokio::test]
-async fn a_fenced_apply_reaches_exactly_the_named_live_browser_generation() {
-    let fixture = UiStateFixture::new("tab-fence-one-generation").await;
+async fn an_apply_reaches_exactly_the_named_live_browser_generation() {
+    let fixture = UiStateFixture::new("apply-one-generation").await;
     let named = UiLayoutApplyTarget {
         fingerprint: browser_fingerprint('a'),
         tab_id: "tab-1".to_owned(),
@@ -105,11 +101,11 @@ async fn a_fenced_apply_reaches_exactly_the_named_live_browser_generation() {
 
     let response = handle_ui_apply_layout(
         &fixture.core,
-        &fixture.caller('a'),
+        &fixture.caller_without_tab('a'),
         apply_request(&named.fingerprint, &named.tab_id, SESSION_ID),
     )
     .await
-    .expect("a fenced apply against a live generation is admitted");
+    .expect("a headless apply against a live generation is admitted");
     drop(subscription);
 
     assert_eq!(response.body.outcome, proto::UiApplyLayoutOutcome::Applied);
@@ -176,68 +172,8 @@ async fn a_fenced_apply_reaches_exactly_the_named_live_browser_generation() {
 }
 
 #[tokio::test]
-async fn an_unfenced_ui_list_states_is_refused_rather_than_answered() {
-    let fixture = UiStateFixture::new("tab-fence-list").await;
-    let fenced = fixture.caller('a');
-    handle_ui_report_state(
-        &fixture.core,
-        &fenced,
-        report_request("tab-1", "/s/one", Some(layout_document(SESSION_ID))),
-    )
-    .await
-    .expect("a fenced report is retained");
-
-    let refused = handle_ui_list_states(
-        &fixture.core,
-        &fixture.caller_without_tab('a'),
-        proto::UiListStatesRequest::default(),
-    )
-    .await
-    .expect_err("a request that carried no tab id is refused before the table is read");
-    assert_eq!(refused.code, ErrorCode::FailedPrecondition);
-    let reason = refused.message.as_deref().unwrap_or_default();
-    assert!(
-        reason.contains("tab fence"),
-        "the refusal names the fence it is missing: {reason}"
-    );
-    assert!(
-        reason.contains("x-roost-tab-id"),
-        "the refusal names the header that carries it: {reason}"
-    );
-
-    // The fence is the only difference between the two calls, so the same device
-    // WITH a tab id reads the very row the refusal withheld.
-    let listed = handle_ui_list_states(
-        &fixture.core,
-        &fenced,
-        proto::UiListStatesRequest::default(),
-    )
-    .await
-    .expect("a fenced caller is answered");
-    let tabs: Vec<&str> = listed
-        .body
-        .tabs
-        .iter()
-        .map(|tab| tab.tab_id.as_str())
-        .collect();
-    assert_eq!(
-        tabs,
-        vec!["tab-1"],
-        "the table is not empty, so the refusal above was about the fence"
-    );
-    assert!(
-        listed.body.tabs[0]
-            .state
-            .as_option()
-            .and_then(|state| state.layout_document.as_option())
-            .is_some(),
-        "the retained report carries the document a layout apply is aimed at"
-    );
-}
-
-#[tokio::test]
 async fn an_apply_naming_a_dead_generation_is_settled_and_never_broadcast() {
-    let fixture = UiStateFixture::new("tab-fence-dead-generation").await;
+    let fixture = UiStateFixture::new("apply-dead-generation").await;
     let first = UiLayoutApplyTarget {
         fingerprint: browser_fingerprint('a'),
         tab_id: "tab-1".to_owned(),

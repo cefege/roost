@@ -127,9 +127,9 @@ fn an_unchanged_tab_reports_on_the_heartbeat_and_not_before_it() {
     );
 }
 
-/// THE FENCE. A document that has claimed no tab id must not report at all:
-/// `ui_state::fence::require_tab_fence` refuses the request, and a report sent
-/// anyway is a request the coordinator cannot attribute to a live tab socket.
+/// A document that has claimed no tab id must not report at all: the report's
+/// body names its tab, the coordinator refuses one that names none, and a
+/// report sent anyway could not be attributed to any tab.
 #[test]
 fn a_tab_with_no_claimed_id_never_sends_a_report() {
     let bridge = mounted_bridge_claiming("");

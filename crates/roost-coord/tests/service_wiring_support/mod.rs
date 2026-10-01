@@ -82,14 +82,6 @@ impl ServiceFixture {
             label: "test worker".to_owned(),
         })
     }
-
-    /// A device that also carries the tab fence every UI method requires.
-    pub fn tab_device_caller(&self) -> Caller {
-        Caller {
-            tab_id: Some("tab-1".to_owned()),
-            ..self.device_caller()
-        }
-    }
 }
 
 impl Drop for ServiceFixture {

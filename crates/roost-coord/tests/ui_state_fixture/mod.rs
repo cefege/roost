@@ -122,7 +122,7 @@ pub fn browser_fingerprint(seed: char) -> String {
     std::iter::repeat_n(seed, 64).collect()
 }
 
-/// A caller that passed the device gate, with or without a tab fence.
+/// A caller that passed the device gate, with or without a browser tab id.
 pub fn browser_caller(fingerprint: &str, account_id: &str, tab_id: Option<&str>) -> Caller {
     Caller {
         principal: Principal::AccountDevice {

@@ -104,11 +104,12 @@ impl UiStateReporter {
             return false;
         }
         if store.tab_id.is_empty() {
-            // `ui_state::fence::require_tab_fence` refuses a report with no tab
-            // id, and `pump::boot` claims that id before this document opens a
-            // socket, so a report here could not be attributed to a live tab.
-            // Dropping the due send is deliberate: the heartbeat is still
-            // armed, so the first sweep after the claim reports normally.
+            // The coordinator refuses a report whose body names no tab id
+            // (`tab_id` is a required field, as in v2's `handlers-ui.ts`), and
+            // `pump::boot` claims that id before this document opens a socket,
+            // so a report here could not name its tab. Dropping the due send is
+            // deliberate: the heartbeat is still armed, so the first sweep after
+            // the claim reports normally.
             tracing::warn!(target: "ui_cc", "this document has claimed no tab id; the ui state report is not sent");
             return false;
         }

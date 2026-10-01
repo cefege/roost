@@ -1,9 +1,11 @@
 //! The four browser UI Connect methods: report, list, dispatch, apply.
 //!
 //! Ported from `apps/coord/src/ui-state/handlers-ui.ts`. Every method requires
-//! the tab fence and validates the caller's own text before it reaches the
-//! database, the retained state or the UI bus; the apply additionally reserves
-//! the target's exact live socket and waits for that tab's acknowledgement.
+//! the account device principal and validates the caller's own text before it
+//! reaches the database, the retained state or the UI bus; the apply
+//! additionally reserves the target's exact live socket and waits for that
+//! tab's acknowledgement. The tab a method acts on is the body's tab id, never
+//! the caller's own tab header, exactly as v2 reads it.
 //!
 //! THE RETAINED STATE IS REACHED THROUGH THE CORE, NOT PASSED IN. Each handler
 //! takes `(core, caller, request)` -- the shape every Connect method in this
@@ -26,7 +28,7 @@ use crate::coord_core::{Caller, CoordCore};
 use crate::events::bus_messages::UiBusMsg;
 use crate::rpc::service::ok_response;
 use crate::ui_state::fence::{
-    labels_for_fingerprints, require_bounded_ui_text, require_persisted_sessions, require_tab_fence,
+    labels_for_fingerprints, require_bounded_ui_text, require_persisted_sessions,
 };
 use crate::ui_state::layout_apply::LayoutApplyRequest;
 use crate::ui_state::legacy_command::{canonical_legacy_ui_command, legacy_ui_command_session_ids};
@@ -43,7 +45,6 @@ pub async fn handle_ui_report_state(
     request: proto::UiReportStateRequest,
 ) -> ServiceResult<proto::UiReportStateResponse> {
     require_account_device(caller)?;
-    require_tab_fence(caller, "UiReportState")?;
     require_bounded_ui_text(
         &request.tab_id,
         UI_TAB_ID_MAX_UTF8_BYTES,
@@ -107,7 +108,6 @@ pub async fn handle_ui_list_states(
     _request: proto::UiListStatesRequest,
 ) -> ServiceResult<proto::UiListStatesResponse> {
     require_account_device(caller)?;
-    require_tab_fence(caller, "UiListStates")?;
     let entries = core.services.ui_state.states().list();
     let fingerprints: Vec<String> = entries
         .iter()
@@ -138,7 +138,6 @@ pub async fn handle_ui_dispatch(
     request: proto::UiDispatchRequest,
 ) -> ServiceResult<proto::UiDispatchResponse> {
     require_account_device(caller)?;
-    require_tab_fence(caller, "UiDispatch")?;
     require_bounded_ui_text(
         &request.target_tab_id,
         UI_TAB_ID_MAX_UTF8_BYTES,
@@ -193,7 +192,6 @@ pub async fn handle_ui_apply_layout(
     request: proto::UiApplyLayoutRequest,
 ) -> ServiceResult<proto::UiApplyLayoutResponse> {
     require_account_device(caller)?;
-    require_tab_fence(caller, "UiApplyLayout")?;
     require_bounded_ui_text(
         &request.target_tab_id,
         UI_TAB_ID_MAX_UTF8_BYTES,

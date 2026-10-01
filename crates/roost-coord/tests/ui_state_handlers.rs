@@ -1,11 +1,12 @@
-//! The report, list and dispatch methods over a real migrated database: the
-//! tab fence, the persisted-session fence, and the bus messages each publishes.
+//! The report, list and dispatch methods over a real migrated database: who
+//! they admit, the persisted-session fence, and the bus messages each publishes.
 //!
-//! `DevicePlusFence` has two halves and each is load-bearing on its own. A
-//! request with no tab id cannot be attributed to one live socket, and a request
-//! naming a session with no `sessions` row would put a command on the bus for a
-//! pane the fleet has never heard of -- so both are asserted here per method,
-//! because "all four" is exactly the property a per-method port drops.
+//! None of them is fenced to the caller's own tab. v2 calls only
+//! `requireAccountDevice` on all four (`apps/coord/src/ui-state/handlers-ui.ts`),
+//! and the headless callers -- `roost ui`, the smoke oracle -- carry no tab. A
+//! request naming a session with no `sessions` row would put a command on the
+//! bus for a pane the fleet has never heard of, so that refusal is asserted per
+//! method, because "all four" is exactly the property a per-method port drops.
 
 // A test that cannot say what it expected is not a test. `expect` is denied
 // outside `#[cfg(test)]`, and an integration test is its own crate, so the
@@ -28,45 +29,37 @@ use ui_state_fixture::{
 };
 
 #[tokio::test]
-async fn report_list_and_dispatch_refuse_a_request_that_carried_no_tab_id() {
+async fn report_list_and_dispatch_admit_a_device_whose_request_carried_no_tab_id() {
     let fixture = UiStateFixture::new("no-tab").await;
     let caller = fixture.caller_without_tab('a');
 
-    let report = handle_ui_report_state(
+    handle_ui_report_state(
         &fixture.core,
         &caller,
         report_request("tab-1", "/s/one", None),
     )
     .await
-    .expect_err("a report with no tab id is refused");
-    assert_eq!(report.code, ErrorCode::FailedPrecondition);
-    assert!(
-        report
-            .message
-            .as_deref()
-            .unwrap_or_default()
-            .contains("tab fence"),
-        "the refusal must name the fence it is missing: {}",
-        report.message.as_deref().unwrap_or_default()
-    );
+    .expect("a report names its tab in the body, not in the caller's header");
 
-    let list = handle_ui_list_states(
+    let listed = handle_ui_list_states(
         &fixture.core,
         &caller,
         proto::UiListStatesRequest::default(),
     )
     .await
-    .expect_err("a list with no tab id is refused");
-    assert!(
-        list.message
-            .as_deref()
-            .unwrap_or_default()
-            .contains("tab fence"),
-        "UiListStates must refuse the same way: {}",
-        list.message.as_deref().unwrap_or_default()
+    .expect("a headless caller lists every live tab");
+    assert_eq!(
+        listed
+            .body
+            .tabs
+            .iter()
+            .map(|tab| tab.tab_id.as_str())
+            .collect::<Vec<_>>(),
+        ["tab-1"],
+        "the list is every reporting tab's, whoever asks"
     );
 
-    let dispatch = handle_ui_dispatch(
+    handle_ui_dispatch(
         &fixture.core,
         &caller,
         proto::UiDispatchRequest {
@@ -76,22 +69,7 @@ async fn report_list_and_dispatch_refuse_a_request_that_carried_no_tab_id() {
         },
     )
     .await
-    .expect_err("a dispatch with no tab id is refused");
-    assert!(
-        dispatch
-            .message
-            .as_deref()
-            .unwrap_or_default()
-            .contains("tab fence"),
-        "UiDispatch must refuse the same way: {}",
-        dispatch.message.as_deref().unwrap_or_default()
-    );
-
-    assert_eq!(
-        fixture.runtime.states().retained_count(),
-        0,
-        "a refused request retained nothing"
-    );
+    .expect("a dispatch names its target in the body");
 }
 
 #[tokio::test]
@@ -198,7 +176,7 @@ async fn a_report_naming_a_session_with_no_row_is_refused_and_retains_nothing() 
 }
 
 #[tokio::test]
-async fn a_report_cannot_impersonate_another_browser_by_naming_its_tab() {
+async fn a_report_naming_another_browsers_tab_never_overwrites_its_report() {
     let fixture = UiStateFixture::new("impersonate").await;
     handle_ui_report_state(
         &fixture.core,
@@ -208,20 +186,25 @@ async fn a_report_cannot_impersonate_another_browser_by_naming_its_tab() {
     .await
     .expect("the first report is admitted");
 
-    // The attacker's request is otherwise well formed; only the fence is wrong.
-    let attacker =
+    // Another device names the same tab, carrying no tab of its own.
+    let other =
         ui_state_fixture::browser_caller(&browser_fingerprint('b'), &fixture.account_id, None);
-    let refused = handle_ui_report_state(
+    handle_ui_report_state(
         &fixture.core,
-        &attacker,
+        &other,
         report_request("tab-1", "/s/hijacked", None),
     )
     .await
-    .expect_err("a report with no tab fence is refused whatever it names");
-    assert_eq!(refused.code, ErrorCode::FailedPrecondition);
+    .expect("the report is admitted under its sender's own key");
+
+    let entries = fixture.runtime.states().list();
+    let first = entries
+        .iter()
+        .find(|entry| entry.fingerprint == browser_fingerprint('a'))
+        .expect("the first browser's report is still listed");
     assert_eq!(
-        fixture.runtime.states().list()[0].state.active_path,
-        "/s/one"
+        first.state.active_path, "/s/one",
+        "a report lands under its sender's fingerprint, never over another browser's"
     );
 }
 

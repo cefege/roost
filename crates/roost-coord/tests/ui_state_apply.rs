@@ -1,6 +1,6 @@
 //! The acknowledged layout apply over a real database and the live UI bus:
-//! the socket reservation, the target-gone answer, and the two fences that must
-//! refuse before anything is reserved.
+//! the socket reservation, the target-gone answer, and the refusals that must
+//! land before anything is reserved.
 //!
 //! The distinction this file guards is the one in the Sync contract: an
 //! applyLayout RESULT settles the layout-apply owner, and the apply itself is
@@ -210,41 +210,4 @@ async fn an_apply_without_a_target_fingerprint_or_document_is_refused() {
             .expect_err("a semantically required field is missing");
         assert_eq!(refused.code, ErrorCode::InvalidArgument);
     }
-}
-
-#[tokio::test]
-async fn an_apply_refuses_a_request_that_carried_no_tab_id() {
-    let fixture = UiStateFixture::new("apply-no-tab").await;
-    let target = UiLayoutApplyTarget {
-        fingerprint: browser_fingerprint('a'),
-        tab_id: "tab-1".to_owned(),
-        socket_id: "socket-1".to_owned(),
-    };
-    let _guard = fixture
-        .runtime
-        .layout_applies()
-        .register_target(target.clone())
-        .expect("the target socket registers");
-
-    let refused = handle_ui_apply_layout(
-        &fixture.core,
-        &fixture.caller_without_tab('a'),
-        apply_request(&target.fingerprint, &target.tab_id, SESSION_ID),
-    )
-    .await
-    .expect_err("an apply from a request with no tab id is refused");
-    assert_eq!(refused.code, ErrorCode::FailedPrecondition);
-    assert!(
-        refused
-            .message
-            .as_deref()
-            .unwrap_or_default()
-            .contains("tab fence"),
-        "the refusal must name the fence it is missing"
-    );
-    assert_eq!(
-        fixture.runtime.layout_applies().stats().pending,
-        0,
-        "a refused apply reserved nothing"
-    );
 }
