@@ -26,7 +26,7 @@ pub use faults::{
 pub use grant::{
     DirectGrant, GRANT_RENEW_MS, GRANT_RETRY_MS, GrantInput, GrantLifecycle, GrantPhase, GrantSweep,
 };
-pub use inbound::DirectInbound;
+pub use inbound::{DirectInbound, DirectScrollback};
 pub use lane::CarrierLane;
 pub use loopback::{LOOPBACK_GRACE_MS, LocalWorkerDoor, LoopbackAnswer, LoopbackProbe};
 pub use probe_state::{ProbeReading, TransportProbeState};

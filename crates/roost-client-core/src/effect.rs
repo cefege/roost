@@ -314,6 +314,21 @@ pub enum DirectCommand {
         /// The carrier's socket generation, the direct domain generation.
         domain_generation: u64,
     },
+    /// Read one page of the session's history from the worker on the other end.
+    /// A host's pager sends it, not the fold: the answer is a page for the pager
+    /// to splice, never a frame for the replica.
+    Scrollback {
+        /// The session.
+        session_id: String,
+        /// The id the answer is matched on: the carrier has no RPC framing.
+        request_id: String,
+        /// The row after the last one wanted.
+        end_row: u64,
+        /// At most this many rows.
+        max_rows: u32,
+        /// The grid numbering the pager's rows belong to.
+        grid_epoch: String,
+    },
 }
 
 mod rpc_call;

@@ -248,6 +248,9 @@ fn deliver(
         DirectInbound::TransportProbeResult(result) => {
             liveness::probe_answered(pump, attempt_id, &result, now_ms);
         }
+        DirectInbound::Scrollback(answer) => {
+            super::super::direct_history::answered(pump, answer);
+        }
         frame => {
             let token = pump
                 .inner

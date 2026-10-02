@@ -145,7 +145,8 @@ pub fn session_of(command: &DirectCommand) -> &str {
         DirectCommand::View { session_id, .. }
         | DirectCommand::Resync { session_id, .. }
         | DirectCommand::Input { session_id, .. }
-        | DirectCommand::RouteClaim { session_id, .. } => session_id,
+        | DirectCommand::RouteClaim { session_id, .. }
+        | DirectCommand::Scrollback { session_id, .. } => session_id,
     }
 }
 

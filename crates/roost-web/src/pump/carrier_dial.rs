@@ -291,7 +291,8 @@ fn admit(pump: &Pump, connection_id: &str, pending: Pending, ready: LoopbackRead
     pump.dispatch(ClientEvent::CarrierReady(carrier));
 }
 
-/// One frame on a carrier that has authenticated: a fold, or a close.
+/// One frame on a carrier that has authenticated: a fold, a history page, or a
+/// close.
 fn deliver(pump: &Pump, connection_id: &str, bytes: &[u8]) {
     let Some(token) = pump
         .inner
@@ -315,6 +316,13 @@ fn deliver(pump: &Pump, connection_id: &str, bytes: &[u8]) {
             );
             return;
         }
+    };
+    let inbound = match inbound {
+        DirectInbound::Scrollback(answer) => {
+            super::direct_history::answered(pump, answer);
+            return;
+        }
+        other => other,
     };
     if let DirectInbound::Closed { reason } = &inbound {
         tracing::info!(

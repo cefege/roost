@@ -17,8 +17,8 @@ use roost_proto::__buffa::oneof::local_terminal_client_frame::Frame as ClientFra
 use roost_proto::__buffa::oneof::local_terminal_server_frame::Frame as ServerFrame;
 use roost_proto::buffa::Message;
 use roost_proto::{
-    InputAccepted, InputAmbiguous, InputRejected, LocalTerminalClientFrame, LocalTerminalReady,
-    LocalTerminalServerFrame,
+    InputAccepted, InputAmbiguous, InputRejected, LocalScrollbackResponse,
+    LocalTerminalClientFrame, LocalTerminalReady, LocalTerminalServerFrame,
 };
 
 fn ready_frame() -> LocalTerminalReady {
@@ -202,4 +202,67 @@ fn a_ready_decodes_into_the_loopback_admissions_shape() {
     assert_eq!(ready.worker_fingerprint, "worker-a");
     assert_eq!(ready.socket_generation, 7);
     assert!(ready.session_ids.contains("session-a"));
+}
+
+#[test]
+fn a_history_answer_is_a_page_for_its_request_and_a_refusal_stays_the_workers() {
+    let served = LocalScrollbackResponse {
+        request_id: "history-1".into(),
+        cols: 80,
+        scrollback_total: 900,
+        start_row: 100,
+        end_row: 100,
+        grid_epoch: "epoch-7".into(),
+        ..Default::default()
+    };
+    let DirectInbound::Scrollback(answer) = decode_server_frame(
+        &encode_server(ServerFrame::Scrollback(Box::new(served))),
+        true,
+    )
+    .unwrap() else {
+        panic!("a scrollback answer decodes as one");
+    };
+    assert_eq!(answer.request_id, "history-1");
+    let page = answer.page.expect("an answer with no error is a page");
+    assert_eq!(
+        (page.scrollback_total, page.grid_epoch.as_str()),
+        (900, "epoch-7")
+    );
+
+    let refused = LocalScrollbackResponse {
+        request_id: "history-2".into(),
+        error: "scrollback response exceeds direct transport limit".into(),
+        ..Default::default()
+    };
+    let DirectInbound::Scrollback(answer) = decode_server_frame(
+        &encode_server(ServerFrame::Scrollback(Box::new(refused))),
+        true,
+    )
+    .unwrap() else {
+        panic!("a refused read still answers its request");
+    };
+    assert_eq!(
+        answer.page,
+        Err("scrollback response exceeds direct transport limit".to_owned()),
+        "the worker's own reason reaches the pager, which falls back on it"
+    );
+}
+
+#[test]
+fn a_history_read_names_its_request_and_the_epoch_it_pages() {
+    let bytes = encode_direct_command(&DirectCommand::Scrollback {
+        session_id: "session-a".into(),
+        request_id: "history-1".into(),
+        end_row: 400,
+        max_rows: 200,
+        grid_epoch: "epoch-7".into(),
+    });
+    let decoded = LocalTerminalClientFrame::decode_from_slice(&bytes).unwrap();
+    let Some(ClientFrame::Scrollback(read)) = decoded.frame else {
+        panic!("a history read is a scrollback frame");
+    };
+    assert_eq!(read.request_id, "history-1");
+    assert_eq!(read.session_id, "session-a");
+    assert_eq!((read.end_row, read.max_rows), (400, 200));
+    assert_eq!(read.grid_epoch, "epoch-7");
 }
