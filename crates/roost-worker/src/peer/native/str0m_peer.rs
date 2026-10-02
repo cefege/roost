@@ -51,6 +51,9 @@ pub(super) struct PeerIo {
     pub(super) channels: Vec<ChannelSlot>,
     pub(super) answered: bool,
     pub(super) closed: bool,
+    /// Closed by its owner while connected: the driver's next turn sends what
+    /// is queued (the channels' stream resets), then disconnects.
+    pub(super) closing: bool,
     pub(super) remote_fingerprint: Option<NativeFingerprint>,
 }
 
@@ -104,6 +107,7 @@ impl PeerShared {
                 channels,
                 answered: false,
                 closed: false,
+                closing: false,
                 remote_fingerprint: None,
             }),
             wake: Notify::new(),
@@ -155,6 +159,11 @@ impl PeerShared {
         }
         while self.poll_until_timeout(&mut io, &mut step) && self.flush_pending(&mut io) {}
         self.report_low_water(&mut io);
+        if io.closing && !io.closed {
+            io.closed = true;
+            io.rtc.disconnect();
+            tracing::debug!(peer = %self.config.name, transmits = step.transmits.len(), "a closing native peer sent its last datagrams");
+        }
         if !io.closed && !io.rtc.is_alive() {
             io.closed = true;
             tracing::info!(peer = %self.config.name, "a native peer closed underneath its owner");

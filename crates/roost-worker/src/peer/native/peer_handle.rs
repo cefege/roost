@@ -78,7 +78,7 @@ impl NativePeer for Str0mPeer {
             return Err(NativePeerError::MessageTooLarge(bytes.len()));
         }
         let mut io = self.shared.lock();
-        if io.closed {
+        if io.closed || io.closing {
             return Err(NativePeerError::Closed);
         }
         let PeerIo { rtc, channels, .. } = &mut *io;
@@ -125,6 +125,7 @@ impl NativePeer for Str0mPeer {
     fn is_open(&self, channel: usize) -> bool {
         let io = self.shared.lock();
         !io.closed
+            && !io.closing
             && io
                 .channels
                 .get(channel)
@@ -146,11 +147,19 @@ impl NativePeer for Str0mPeer {
 
     fn close(&self) {
         let mut io = self.shared.lock();
-        if io.closed {
+        if io.closed || io.closing {
             return;
         }
-        io.closed = true;
-        io.rtc.disconnect();
+        // A connected peer's driver gets one more turn to send the stream
+        // resets its closed channels queued: str0m's disconnect sends nothing,
+        // and without them the browser learns of the close only when its
+        // heartbeat misses, long after the worker stopped serving it.
+        if io.rtc.is_connected() {
+            io.closing = true;
+        } else {
+            io.closed = true;
+            io.rtc.disconnect();
+        }
         drop(io);
         tracing::debug!(peer = %self.shared.config.name, "a native peer was closed by its owner");
         self.shared.wake.notify_one();
