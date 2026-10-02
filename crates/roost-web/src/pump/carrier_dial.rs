@@ -50,13 +50,21 @@ use crate::platform::carriers::{CarrierFault, LoopbackConnection};
 use crate::platform::door_probe;
 use crate::platform::loopback::{LoopbackMessage, open_loopback_socket};
 
+mod grant_refresh;
+
 /// Spend one minted grant on a loopback carrier, or say why it was not spent.
 ///
 /// Takes the grant rather than the coordinator's answer: the election is
 /// handed the same object from `pump::carriers::request_grant`, and two
 /// constructions of one reply is a second copy of the deadline, the scope and
 /// the worker epoch that could disagree with the one the election acted on.
+///
+/// One loopback connection per worker: `grant_refresh` decides whether this
+/// grant needs a socket at all.
 pub(super) fn dial(pump: &Pump, grant: LocalTerminalGrant) {
+    if !grant_refresh::spends_new_socket(pump, &grant) {
+        return;
+    }
     let worker_fp = grant.worker_fp.clone();
     let session_ids = grant.session_ids.clone();
     let sessions = session_ids.iter().cloned().collect::<Vec<_>>().join(",");
