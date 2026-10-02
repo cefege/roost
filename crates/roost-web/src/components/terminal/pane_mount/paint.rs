@@ -99,9 +99,10 @@ fn paint_owed(shared: &PaneShared, now: u64) {
     }
     #[cfg(feature = "smoke")]
     {
-        if shared.panes.dom_held(&shared.session_id) {
-            return;
-        }
+        // A held pane still folds every frame into the renderer's canonical;
+        // only its DOM stays put, which is the stall the repair watchdog sees.
+        let held = shared.panes.dom_held(&shared.session_id);
+        shared.renderer.borrow_mut().set_dom_frozen(held);
         if shared.panes.take_frame_drop(&shared.session_id) {
             shared.state.borrow_mut().feed.skip();
             return;

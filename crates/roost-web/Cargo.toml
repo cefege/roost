@@ -18,7 +18,7 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 # The Playwright oracle's backdoor. Installed by the U-3 slice and by nothing
-smoke = []
+smoke = ["roost-web-terminal/smoke"]
 
 [dependencies]
 roost-client-core = { workspace = true }
