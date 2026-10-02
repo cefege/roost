@@ -42,6 +42,8 @@ export const PinManifestSchema = z.object({
 	features: z.array(z.string()),
 	// Cargo features of the dx bundle; `smoke` installs `window.__smoke`.
 	webFeatures: z.array(z.string()),
+	// `smoke` is release optimisation without whole-program LTO, for the per-fix loop only.
+	profile: z.enum(["release", "smoke"]).default("release"),
 	builtAt: z.string(),
 });
 export type PinManifest = z.infer<typeof PinManifestSchema>;
@@ -51,6 +53,8 @@ export interface PinBuildOptions {
 	readonly buildWeb: boolean;
 	/** The production shape: no smoke feature on any artifact. */
 	readonly plain: boolean;
+	/** Build with the `smoke` cargo profile: a one-crate change re-links instead of re-running LTO. */
+	readonly fast: boolean;
 }
 
 /** A refusal the caller should report as a usage error (exit 2), not a failed run. */
@@ -102,6 +106,7 @@ export function formatPinManifest(manifest: PinManifest): string {
 		`web=${manifest.webBundleFiles.join(",")}`,
 		`features=[${manifest.features.join(",")}]`,
 		`web-features=[${manifest.webFeatures.join(",")}]`,
+		`profile=${manifest.profile}`,
 		`built=${manifest.builtAt}`,
 	].join(" ");
 }
@@ -126,8 +131,9 @@ export function buildAndPinArtifacts(options: PinBuildOptions): PinManifest {
 
 	const cliDeclaresSmoke = CLI_SMOKE_FEATURE_LINE.test(readFileSync(CLI_CARGO_MANIFEST, "utf8"));
 	const features = !options.plain && cliDeclaresSmoke ? [SMOKE_FEATURE] : [];
+	const profile = options.fast ? "smoke" : "release";
 	runBuildStep("cargo", [
-		"build", "--release", "-p", "roost-cli", "-p", "roost-keeper",
+		"build", "--profile", profile, "-p", "roost-cli", "-p", "roost-keeper",
 		...(features.length > 0 ? ["--features", "roost-cli/smoke"] : []),
 	]);
 
@@ -138,8 +144,10 @@ export function buildAndPinArtifacts(options: PinBuildOptions): PinManifest {
 		// dx never prunes old hashed bundles from public/, and a pinned directory holding three
 		// generations of roost-web_bg-*.wasm cannot say which one the page will load.
 		rmSync(publicDirectory, { recursive: true, force: true });
+		// `--profile release` makes dx declare `release` with `inherits = "release"`, which cargo
+		// rejects ("`inherits` must not be specified in root profile"): only `smoke` is named.
 		runBuildStep("dx", [
-			"build", "--release", "-p", "roost-web", "--platform", "web",
+			"build", "--release", ...(options.fast ? ["--profile", profile] : []), "-p", "roost-web", "--platform", "web",
 			...(webFeatures.length > 0 ? ["--features", SMOKE_FEATURE] : []),
 		]);
 		if (!existsSync(join(publicDirectory, "index.html"))) {
@@ -153,11 +161,12 @@ export function buildAndPinArtifacts(options: PinBuildOptions): PinManifest {
 	const manifest: PinManifest = {
 		gitSha,
 		dirty,
-		roostSha256: pinExecutable(join(targetDirectory, "release/roost"), "roost"),
-		keeperSha256: pinExecutable(join(targetDirectory, "release/roost-keeper"), "roost-keeper"),
+		roostSha256: pinExecutable(join(targetDirectory, profile, "roost"), "roost"),
+		keeperSha256: pinExecutable(join(targetDirectory, profile, "roost-keeper"), "roost-keeper"),
 		webBundleFiles: webBundleFiles(),
 		features,
 		webFeatures,
+		profile,
 		builtAt: new Date().toISOString(),
 	};
 	writeFileSync(PIN_MANIFEST_PATH, `${JSON.stringify(manifest, null, 2)}\n`);

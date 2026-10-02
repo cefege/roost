@@ -156,6 +156,17 @@ codegen-units = 1
 strip = true
 opt-level = "s"
 
+# The oracle's per-fix build, `smoke/parity/run.ts build --fast`: release
+# optimisation without whole-program LTO and with parallel codegen. Under
+# `release` any one-crate change re-optimises the whole `roost` binary at link
+# time (measured: a touched roost-worker cost 386 s); here it re-links. Shipped
+# artifacts, integrator merges and the parity gate stay on `release`, and the
+# runner's `suite` refuses a pin built with this profile.
+[profile.smoke]
+inherits = "release"
+lto = false
+codegen-units = 16
+
 # A full debug profile produced 58 GB of artifacts for 14 crates, which filled
 # the disk mid-gate. Line tables keep panic backtraces naming a file and a line
 # while dropping the bulk of the debug info that nothing here reads.

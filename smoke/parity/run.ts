@@ -9,7 +9,7 @@ import { PARITY_PROJECTS, runSpecs, runSuite } from "./playwright.ts";
 import { compareRuns, summarizeRun, type ParityPass } from "./verdict.ts";
 
 const USAGE = `usage: bun smoke/parity/run.ts <command>
-  build [--no-web] [--plain]
+  build [--no-web] [--plain] [--fast]
   spec <path[:line]>... [--project <name>]... [--repeat <n>] [--trace] [--allow-stale]
   suite --stack rust|bun [--pass main|serial|both] [--label <text>] [--allow-stale]
   verdict <rust.run.json> [<bun.run.json> [--md <out.md>]]`;
@@ -21,9 +21,13 @@ function dispatchCommand(argv: string[]): number {
 			const { values } = parseArgs({
 				args: rest,
 				strict: true,
-				options: { "no-web": { type: "boolean" }, plain: { type: "boolean" } },
+				options: { "no-web": { type: "boolean" }, plain: { type: "boolean" }, fast: { type: "boolean" } },
 			});
-			const manifest = buildAndPinArtifacts({ buildWeb: values["no-web"] !== true, plain: values.plain === true });
+			const manifest = buildAndPinArtifacts({
+				buildWeb: values["no-web"] !== true,
+				plain: values.plain === true,
+				fast: values.fast === true,
+			});
 			console.log(JSON.stringify(manifest, null, 2));
 			console.log(formatPinManifest(manifest));
 			return 0;

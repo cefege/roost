@@ -30,12 +30,19 @@ fn main() {
     for file in &proto_files {
         println!("cargo:rerun-if-changed={}", file.display());
     }
+    // connectrpc-build's own directives name the descriptor set, which this
+    // script writes on every run: cargo then sees a fresh input on every build,
+    // re-runs the script, and recompiles every crate above roost-proto. The
+    // `.proto` files are the real inputs; the buffa memory-limit variable is
+    // the one other input those directives carried.
+    println!("cargo:rerun-if-env-changed=BUFFA_ELEMENT_MEMORY_LIMIT");
 
     let descriptor_path = compile_descriptors(&proto_files, &proto_root);
     connectrpc_build::Config::new()
         .descriptor_set(&descriptor_path)
         .files(&proto_relative_names(&proto_files, &proto_root))
         .include_file(GENERATED_INCLUDE_FILE)
+        .emit_rerun_directives(false)
         .compile()
         .unwrap_or_else(|error| panic!("connectrpc codegen failed: {error:?}"));
 }
