@@ -227,9 +227,10 @@ pub fn CellTerminal(
         let context = upload_context(&attach_session, &attach_worker, tab_id, device_fingerprint);
         let sink_handle = attach_handle.clone();
         // A trailing space, so the next thing the user types is a new word and
-        // not an extension of the path.
+        // not an extension of the path. Typed raw, not bracketed: the path is a
+        // word of the command line being composed, not pasted content.
         let sink: Rc<dyn Fn(&str)> = Rc::new(move |quoted: &str| {
-            sink_handle.send_text(&format!("{quoted} "), false);
+            sink_handle.send_raw_text(&format!("{quoted} "));
         });
         enqueue_attachments(&attach_pump, &context, chosen, sink);
     };
