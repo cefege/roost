@@ -154,14 +154,13 @@ pub fn GatedApp() -> Element {
         }
     }
     let access = core.borrow().store().browser_access_state;
-    match Gate::for_state(access) {
+    let gated = match Gate::for_state(access) {
         Gate::Checking => rsx! { access_gate::CheckingScreen {} },
-        // v2 mounts the SAME onboarding component at `/pair` and in the
-        // unauthorized branch (`App.tsx:149-151`), so an unpaired reader at `/`,
-        // `/settings/devices` or `/search` gets the working requester card. A
-        // separate refusal screen carrying a link to it was a dead end: the link
-        // led to the ceremony the reader has to run anyway.
-        Gate::Unauthorized => rsx! { crate::components::pairing::PairSurface {} },
+        // The unauthorized branch draws nothing of its own: the pairing
+        // surface below draws the requester panel at every path, so an unpaired
+        // reader at `/`, `/settings/devices` or `/search` gets the working
+        // requester card (v2 `App.tsx:149-151`).
+        Gate::Unauthorized => rsx! {},
         Gate::Authorized => rsx! {
             // The UI bridge is a SIBLING of the shell, not a child of it: its
             // report cadence and its command drain have to outlive every
@@ -171,6 +170,15 @@ pub fn GatedApp() -> Element {
             AuthorizedShell { path }
             AuthorizedOverlays {}
         },
+    };
+    // The pairing surface sits OUTSIDE the gate, at a fixed place in this
+    // template, so `checking → unauthorized → authorized` never remounts it:
+    // the requester's recovery poll that finishes a ceremony after the gate
+    // flipped, and the approver's code dialog, both live in its scope (v2
+    // mounts both providers above the gate, `App.tsx:138-141`).
+    rsx! {
+        {gated}
+        crate::components::pairing::PairSurface {}
     }
 }
 
@@ -316,7 +324,9 @@ fn RouteContent(surface: Surface, route: Route) -> Element {
         Surface::Served(ServedSurface::Settings) => {
             rsx! { crate::components::settings::SettingsSurface { route } }
         }
-        Surface::Served(ServedSurface::Pair) => rsx! { crate::components::pairing::PairSurface {} },
+        // `GatedApp` mounts the pairing surface once for the document; it draws
+        // this page itself, so the route has nothing to add.
+        Surface::Served(ServedSurface::Pair) => rsx! {},
         Surface::Served(ServedSurface::Browse) => {
             rsx! { crate::components::browse::BrowseSurface { route } }
         }

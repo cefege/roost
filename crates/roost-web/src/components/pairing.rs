@@ -59,7 +59,9 @@ use crate::pump::use_store;
 /// stranger. Owning both here means this component has to decide for itself
 /// whether it draws anything:
 ///
-/// - not `Authorized` → the gate panel, at whatever path the reader is on,
+/// - `Checking` → no page: the checking screen owns the document until the
+///   coordinator answers;
+/// - `Unauthorized` → the gate panel, at whatever path the reader is on,
 ///   because an unpaired reader has no other surface to reach;
 /// - `Authorized` and on `/pair` → the approver list;
 /// - `Authorized` anywhere else → no page, but the code dialog still stands.
@@ -111,8 +113,13 @@ pub fn PairSurface() -> Element {
 /// else entirely, and an authorized reader who opened the ceremony with any
 /// query on the URL then got the code dialog and no ceremony at all.
 pub fn draws_pairing_page(access: BrowserAccessState, path: &str) -> bool {
-    access != BrowserAccessState::Authorized
-        || crate::routes::Route::parse(path) == crate::routes::Route::Pair
+    match access {
+        BrowserAccessState::Checking => false,
+        BrowserAccessState::Unauthorized => true,
+        BrowserAccessState::Authorized => {
+            crate::routes::Route::parse(path) == crate::routes::Route::Pair
+        }
+    }
 }
 
 /// The untrusted half: the one primary request action, the poll status, the

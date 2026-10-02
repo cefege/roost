@@ -1,8 +1,9 @@
 //! Pins which half of the pairing surface draws, and at which paths. The
-//! surface is mounted twice — the access gate's unauthorized branch and the
-//! `/pair` route — and it decides for itself what to draw, so the decision is
-//! one pure rule that has to agree with the router's own URL grammar. Symptom
-//! this pins: an authorized reader opens `/pair` and gets an empty page.
+//! surface is mounted once, above the access gate, and it decides for itself
+//! what to draw, so the decision is one pure rule that has to agree with the
+//! router's own URL grammar. Symptoms this pins: an authorized reader opens
+//! `/pair` and gets an empty page; the onboarding page paints over the
+//! checking screen.
 //! Ports the `/pair` branch of `apps/web/src/App.tsx:149-151` and the branch
 //! in `Onboarding.tsx:109-154`.
 
@@ -39,6 +40,16 @@ fn an_authorized_reader_elsewhere_draws_no_page() {
         assert!(
             !draws_pairing_page(BrowserAccessState::Authorized, path),
             "nothing but the code dialog may draw at {path}"
+        );
+    }
+}
+
+#[test]
+fn a_browser_still_checking_draws_no_page_anywhere() {
+    for path in ["/", "/pair", "/settings/devices"] {
+        assert!(
+            !draws_pairing_page(BrowserAccessState::Checking, path),
+            "the checking screen owns {path}"
         );
     }
 }
