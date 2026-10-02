@@ -54,14 +54,6 @@ pub(super) fn read_deadlines(pump: &Pump, now_ms: u64) {
                 );
                 fault_attempt(pump, attempt_id, "identity_mismatch");
             }
-            PeerDeadline::ProbeMissed => {
-                tracing::warn!(
-                    target: "carriers",
-                    attempt_id,
-                    "the browser reported no live path inside one probe deadline"
-                );
-                fault_attempt(pump, attempt_id, "ice_failed");
-            }
         }
     }
     retire_stalled_lanes(pump, now_ms);

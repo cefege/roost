@@ -205,13 +205,18 @@ impl RouteRegistry {
     /// The one copy of a carrier's scope: the host's send path asks here rather
     /// than keeping its own, which a widened grant would leave behind.
     pub fn granted_sessions_for(&self, token: &TerminalToken) -> Option<&BTreeSet<String>> {
+        self.carrier_presenting(token)
+            .map(|carrier| &carrier.granted_sessions)
+    }
+
+    /// The registered connection presenting exactly `token`.
+    pub fn carrier_presenting(&self, token: &TerminalToken) -> Option<&DirectCarrier> {
         let slots = self.connections.get(token.worker_fp.as_deref()?)?;
         slots
             .active
             .iter()
             .chain(slots.candidate.iter())
             .find(|carrier| carrier.token == *token)
-            .map(|carrier| &carrier.granted_sessions)
     }
 
     /// Record that a view wants a session on a worker. Returns true when the

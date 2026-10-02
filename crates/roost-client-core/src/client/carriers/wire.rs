@@ -25,11 +25,12 @@ use roost_proto::__buffa::oneof::local_terminal_server_frame::Frame as ServerFra
 use roost_proto::buffa::Message;
 use roost_proto::{
     InputCommand, LocalScrollbackRequest, LocalTerminalClientFrame, LocalTerminalClosed,
-    LocalTerminalHello, LocalTerminalReady, LocalTerminalServerFrame, PbCellGridChunk,
-    PbCellGridFrame, TerminalInputRouteClaim, TerminalResyncCommand, TerminalViewCommand,
+    LocalTerminalHello, LocalTerminalReady, LocalTerminalServerFrame, TerminalInputRouteClaim,
+    TerminalResyncCommand, TerminalTransportProbe, TerminalViewCommand,
 };
 
 use crate::client::carriers::ReadyTuple;
+use crate::client::carriers::inbound::DirectInbound;
 use crate::client::local::door::LoopbackReady;
 use crate::effect::DirectCommand;
 use crate::terminal::input::InputOutcome;
@@ -157,72 +158,27 @@ pub fn encode_scrollback(
     })))
 }
 
+/// The `TerminalTransportProbe` bytes for one content-free control probe.
+///
+/// Addressed to one worker by fingerprint, because the worker answers only a
+/// probe that names it and the answer's epoch is what proves which process is
+/// behind the carrier (`local_terminal.proto:72`).
+pub fn encode_transport_probe(request_id: &str, worker_fp: &str) -> Vec<u8> {
+    wrap(ClientFrame::TransportProbe(Box::new(
+        TerminalTransportProbe {
+            request_id: request_id.to_owned(),
+            worker_fp: worker_fp.to_owned(),
+            ..Default::default()
+        },
+    )))
+}
+
 fn wrap(frame: ClientFrame) -> Vec<u8> {
     LocalTerminalClientFrame {
         frame: Some(frame),
         ..Default::default()
     }
     .encode_to_vec()
-}
-
-/// One decoded server frame, in the client's own vocabulary.
-///
-/// A `Ready` is separate from every other arm because it is the ONLY frame a
-/// carrier may receive before it has authenticated; a host that has not admitted
-/// one yet and reads a cell frame is looking at a worker that skipped the
-/// handshake, and [`DirectInbound::PreHelloFrame`] says so instead of letting it
-/// fold a grid nothing authorised.
-#[derive(Debug, Clone, PartialEq)]
-pub enum DirectInbound {
-    /// The worker revalidated the tuple. Only ever legal as the FIRST frame.
-    Ready(LoopbackReady),
-    /// A view's acknowledgement.
-    ViewState {
-        /// The session.
-        session_id: String,
-        /// The view.
-        view_id: String,
-        /// The revision answered, which is the fence the result is matched on.
-        revision: u64,
-        /// Whether the authority accepted it.
-        accepted: bool,
-        /// The stream it now mints, empty when it minted none.
-        stream_id: String,
-        /// The authority's effective columns.
-        effective_cols: u32,
-        /// The authority's effective rows.
-        effective_rows: u32,
-    },
-    /// A cell grid for one session.
-    CellGrid {
-        /// The session.
-        session_id: String,
-        /// The frame, still protobuf: the shared assembler speaks that type.
-        frame: PbCellGridFrame,
-    },
-    /// One part of a chunked baseline.
-    CellGridChunk {
-        /// The session.
-        session_id: String,
-        /// The part.
-        chunk: PbCellGridChunk,
-    },
-    /// A truthful result for one admitted input batch.
-    InputResult {
-        /// The session.
-        session_id: String,
-        /// What became of the batch.
-        outcome: InputOutcome,
-    },
-    /// The worker closed the carrier, and why.
-    Closed {
-        /// Its reason string, or a host-supplied one when it sent none.
-        reason: String,
-    },
-    /// The answer to a route claim this carrier sent.
-    InputRouteResult(crate::sync::inbound::InputRouteResult),
-    /// A frame that arrived BEFORE the carrier authenticated.
-    PreHelloFrame,
 }
 
 /// Why a server frame could not be read at all.
@@ -310,6 +266,9 @@ pub fn decode_server_frame(bytes: &[u8], authenticated: bool) -> Result<DirectIn
         ServerFrame::InputRouteResult(result) => {
             DirectInbound::InputRouteResult(crate::sync::decode::input_route_result_of(*result))
         }
+        ServerFrame::TransportProbeResult(result) => DirectInbound::TransportProbeResult(
+            crate::sync::decode::transport_probe_result_of(*result),
+        ),
         // `cell_grid` IS the grid frame, so its own `session_id` is the
         // session; `cell_grid_chunk` is a wrapper whose session lives in the
         // part it carries, which is what `sync::decode::cell_grid_chunk` reads.

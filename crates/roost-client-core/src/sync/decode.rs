@@ -27,7 +27,7 @@ use roost_proto::FirehoseFrame;
 use roost_proto::buffa::Message;
 
 pub use self::arms::{ArmLane, FIREHOSE_ARMS, FirehoseArm, arm_of};
-pub(crate) use self::control_arms::input_route_result_of;
+pub(crate) use self::control_arms::{input_route_result_of, transport_probe_result_of};
 use crate::event::ClientEvent;
 use crate::sync::inbound::SyncFrame;
 use crate::sync::link::SyncDomain;

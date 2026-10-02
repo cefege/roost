@@ -17,9 +17,11 @@
 //! by native tests, and the browser supplies only the fragments.
 
 mod attempt;
+mod heartbeat;
 mod life;
 
 pub use attempt::{PeerCarrier, PeerCarriers};
+pub use heartbeat::{HeartbeatMiss, PeerHeartbeat};
 pub use life::{PeerDeadline, PeerLife};
 
 use std::collections::BTreeMap;

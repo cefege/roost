@@ -141,11 +141,19 @@ pub(crate) fn input_route_result_of(value: TerminalInputRouteResult) -> InputRou
 /// The answer to a transport probe.
 pub(super) fn transport_probe_result(value: TerminalTransportProbeResult) -> SyncFrame {
     SyncFrame::TransportProbeResult {
-        result: TransportProbeResult {
-            request_id: value.request_id,
-            worker_fp: value.worker_fp,
-            worker_epoch: value.worker_epoch,
-        },
+        result: transport_probe_result_of(value),
+    }
+}
+
+/// The answer to a transport probe, in the client's vocabulary. Shared with the
+/// direct carrier, whose worker answers a probe in the same message.
+pub(crate) fn transport_probe_result_of(
+    value: TerminalTransportProbeResult,
+) -> TransportProbeResult {
+    TransportProbeResult {
+        request_id: value.request_id,
+        worker_fp: value.worker_fp,
+        worker_epoch: value.worker_epoch,
     }
 }
 

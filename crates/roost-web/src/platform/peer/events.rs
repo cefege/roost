@@ -17,24 +17,15 @@ use std::rc::Rc;
 
 use roost_client_core::client::carriers::{CandidateType, PeerLane};
 
-/// What the browser's own stats report measured about one peer's selected pair.
-///
-/// Every field is an `Option` or the `None` variant because a MEASUREMENT is not
-/// a constant: a peer that has not paired has no candidate and no round trip,
-/// and a browser that exposes no stats has neither. A zero in either place
-/// would be a number a reader could not tell from a real one.
+/// What the browser's own stats report says about one peer's selected pair: the
+/// kind of address it reached the far end at, which only the browser knows.
+/// Liveness and round trip are the transport probe's (`pump::peer_lane::liveness`):
+/// a selected pair outlives the worker process behind it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PeerMeasurement {
-    /// Which kind of address the selected pair reached the far end at.
+    /// Which kind of address the selected pair reached the far end at, `None`
+    /// when no pair is selected.
     pub candidate_type: CandidateType,
-    /// The pair's current round trip, when the browser reports one.
-    pub round_trip_ms: Option<u64>,
-    /// Whether the browser named a selected candidate pair at all.
-    ///
-    /// Separate from the candidate KIND because a pair reached through a relay
-    /// is paired and is not one of the three kinds this protocol spells, and a
-    /// liveness rule that read the kind would call a connected peer dead.
-    pub paired: bool,
 }
 
 /// How many events one document may hold unread.

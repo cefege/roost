@@ -1,5 +1,5 @@
-//! Fresh terminal identities — view ids and peer ids — minted by the host with
-//! the browser's own entropy.
+//! Fresh terminal identities — view ids, peer ids and probe request ids —
+//! minted by the host with the browser's own entropy.
 //!
 //! One rule for every caller — the pane that opens a view, the pump that answers
 //! a `MintTerminalViewId` effect, and the peer lane that opens a transport —
@@ -28,6 +28,12 @@ pub fn mint_view_id() -> Option<String> {
 /// ("terminal peer peer_id is invalid"); v2 mints it the same way
 /// (`createTerminalDirectRequestId`).
 pub fn mint_peer_id() -> Option<String> {
+    random_uuid()
+}
+
+/// A fresh request id for one transport probe, or `None` when this document
+/// cannot mint one. v2 mints it the same way (`createTerminalDirectRequestId`).
+pub fn mint_probe_request_id() -> Option<String> {
     random_uuid()
 }
 

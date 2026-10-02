@@ -24,6 +24,7 @@ use roost_client_core::TerminalToken;
 use roost_client_core::client::carriers::{PeerAttempt, PeerLane, ReadyTuple};
 use roost_client_core::terminal::routes::DirectCarrier;
 
+use super::heartbeat::PeerHeartbeat;
 use super::life::PeerLife;
 use super::{LaneFault, PeerLanes, drain_order};
 use crate::platform::carriers::route::ConnectionKey;
@@ -38,6 +39,9 @@ pub struct PeerCarrier {
     /// authenticated presents nothing, so there is no generation to register and
     /// no route that could name it.
     carrier: Option<DirectCarrier>,
+    /// Born with the carrier, because a probe answer is checked against the
+    /// process epoch the worker's `Ready` proved.
+    heartbeat: Option<PeerHeartbeat>,
 }
 
 impl PeerCarrier {
@@ -50,6 +54,7 @@ impl PeerCarrier {
             lanes,
             life,
             carrier: None,
+            heartbeat: None,
         }
     }
 
@@ -71,6 +76,16 @@ impl PeerCarrier {
     /// This attempt's clock, for the tick to advance.
     pub fn life_mut(&mut self) -> &mut PeerLife {
         &mut self.life
+    }
+
+    /// The heartbeat, once the worker has proved its tuple.
+    pub fn heartbeat(&self) -> Option<&PeerHeartbeat> {
+        self.heartbeat.as_ref()
+    }
+
+    /// The heartbeat, for the tick to advance.
+    pub fn heartbeat_mut(&mut self) -> Option<&mut PeerHeartbeat> {
+        self.heartbeat.as_mut()
     }
 
     /// The worker this carrier reaches.
@@ -103,6 +118,10 @@ impl PeerCarrier {
         }
         let carrier = ready.carrier(&self.attempt, connection_id);
         self.life.authenticated();
+        self.heartbeat = Some(PeerHeartbeat::new(
+            &self.attempt.worker_fp,
+            &self.attempt.worker_epoch,
+        ));
         self.carrier = Some(carrier.clone());
         Some(carrier)
     }

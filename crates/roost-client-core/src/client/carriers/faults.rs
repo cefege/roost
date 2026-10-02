@@ -191,6 +191,33 @@ pub fn classify_worker_reason(reason: &str) -> Option<CarrierFault> {
     }
 }
 
+/// The coordinator's denial of an offer spent on a grant it no longer holds —
+/// a restarted worker's new epoch revokes every grant minted for the old one.
+const COORDINATOR_GRANT_UNAVAILABLE: &str = "terminal peer grant is unavailable";
+
+/// The fault a coordinator's refusal of an offer names. Only its grant denial,
+/// for the credential this worker STILL holds, drops that credential so the
+/// next attempt mints one the coordinator honours (v2 `terminal-peer.ts`
+/// `negotiate`'s catch, `state.grant === grant`); a denial of a grant already
+/// replaced says nothing about its successor, and every other refusal is the
+/// coordinator's own failure.
+pub fn classify_coordinator_refusal(
+    reason: &str,
+    attempt: Option<&PeerAttempt>,
+    held: Option<&DirectGrant>,
+) -> CarrierFault {
+    let spent_held = attempt.zip(held).is_some_and(|(open, held)| {
+        open.grant_id == held.grant_id
+            && open.worker_epoch == held.worker_epoch
+            && open.session_ids == held.session_ids
+    });
+    if spent_held && reason.contains(COORDINATOR_GRANT_UNAVAILABLE) {
+        CarrierFault::GrantUnavailable
+    } else {
+        CarrierFault::CoordinatorUnavailable
+    }
+}
+
 /// Whether an offer or answer is readable AND carries somewhere to connect. v2
 /// checks this before it puts an offer on the wire or applies an answer
 /// (`terminal-peer-connection.ts:142,147`). The inspection is `roost_protocol`'s;

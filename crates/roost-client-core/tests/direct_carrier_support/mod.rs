@@ -56,6 +56,7 @@ pub fn carrier(sessions: &[&str]) -> DirectCarrier {
         worker_fp: WORKER.to_owned(),
         transport: TerminalTransport::Loopback,
         token: direct_token(),
+        socket_id: "loopback-a-socket".to_owned(),
         granted_sessions: sessions.iter().map(|id| (*id).to_owned()).collect(),
     }
 }
