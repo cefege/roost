@@ -192,8 +192,15 @@ pub fn build_router(state: Arc<ListenerState>) -> MountedListener {
         state.service.config.jwt_max_age_secs,
         trust,
     ));
+    // connectrpc's default is 4 MiB, which a full 4 MiB relay chunk plus its
+    // envelope exceeds; the whole body and the one message share the cap.
+    let limits = connectrpc::service::Limits::default()
+        .with_max_request_body_size(MAX_REQUEST_BODY_BYTES)
+        .with_max_message_size(MAX_REQUEST_BODY_BYTES);
     let connect = axum::Router::new().fallback_service(
-        connectrpc::service::ConnectRpcService::new(server).with_interceptor_arc(gate),
+        connectrpc::service::ConnectRpcService::new(server)
+            .with_limits(limits)
+            .with_interceptor_arc(gate),
     );
 
     let admission = Arc::new(AdmissionLayer::from_config(&state.service.config));
