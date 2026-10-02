@@ -1,6 +1,5 @@
-//! What the browser's own `getStats` report says about one open peer: whether a
-//! candidate pair is selected, which kind of address it reached the far end at,
-//! and how long a round trip on it currently takes.
+//! What the browser's own `getStats` report says about one open peer: which
+//! kind of address its selected candidate pair reached the far end at.
 //!
 //! Owned by `platform::peer`, called by `BrowserPeer::measure_attempt`. `getStats`
 //! is a PROMISE, so the read is started from the pump's tick and its answer is
@@ -9,10 +8,9 @@
 //! network-shaped wait, and a callback that reached for the store would re-enter a
 //! `RefCell` on a single-threaded loop.
 //!
-//! Nothing here invents a value. A report with no selected pair answers
-//! `paired: false`, no candidate and no round trip, and those three are what the
-//! diagnostic publishes for a peer that has not connected — a reader can tell "not
-//! measured" from "measured as zero", which a fabricated zero could not.
+//! Nothing here invents a value. A report with no selected pair answers no
+//! candidate, and that is what the diagnostic publishes for a peer that has not
+//! connected — a reader can tell "not measured" from a guessed kind.
 //!
 //! `RTCStatsReport` is map-like, not a plain object: its entries are reached
 //! through `forEach` and `get` and NOT through property reads, so a host that read
@@ -90,7 +88,7 @@ pub(super) fn buffered_bytes(channels: &BTreeMap<u16, JsValue>) -> u64 {
         .sum()
 }
 
-/// The candidate kind and round trip of the pair the browser selected.
+/// The candidate kind of the pair the browser selected.
 #[cfg(target_arch = "wasm32")]
 fn selected_pair(report: &JsValue) -> PeerMeasurement {
     let entries = report_entries(report);
@@ -109,8 +107,6 @@ fn selected_pair(report: &JsValue) -> PeerMeasurement {
     };
     PeerMeasurement {
         candidate_type: remote_candidate_type(report, &pair),
-        round_trip_ms: number_field(&pair, "currentRoundTripTime"),
-        paired: true,
     }
 }
 
@@ -180,19 +176,6 @@ fn method(object: &JsValue, name: &str) -> Option<Function> {
 #[cfg(target_arch = "wasm32")]
 fn invoke(object: &JsValue, name: &str, arguments: &Array) -> Option<JsValue> {
     method(object, name)?.apply(object, arguments).ok()
-}
-
-/// A report field that is a number, absent when the browser has none.
-///
-/// `as_f64` and not a cast: a field the browser has not measured is `undefined`,
-/// and rounding one to zero is the fabricated measurement this file exists not
-/// to produce.
-#[cfg(target_arch = "wasm32")]
-fn number_field(record: &JsValue, name: &str) -> Option<u64> {
-    let number = Reflect::get(record, &JsValue::from_str(name))
-        .ok()?
-        .as_f64()?;
-    (number.is_finite() && number >= 0.0).then_some(number as u64)
 }
 
 /// A report field that is a string.

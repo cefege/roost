@@ -32,6 +32,7 @@ fn peer_carrier() -> DirectCarrier {
         worker_fp: WORKER.to_owned(),
         transport: TerminalTransport::Peer,
         token: peer_token(),
+        socket_id: "peer-a-socket".to_owned(),
         granted_sessions: [SESSION.to_owned()].into_iter().collect(),
     }
 }

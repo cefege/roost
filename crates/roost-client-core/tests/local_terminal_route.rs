@@ -48,6 +48,7 @@ fn registry_with_a_loopback_route() -> (RouteRegistry, TerminalToken) {
         worker_fp: "worker-a".into(),
         transport: TerminalTransport::Loopback,
         token: token.clone(),
+        socket_id: "socket-a".into(),
         granted_sessions: BTreeSet::from(["session-a".to_string()]),
     };
     assert!(registry.register(carrier).accepted);

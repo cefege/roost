@@ -8,9 +8,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use roost_client_core::client::carriers::wire::{
-    DirectInbound, decode_server_frame, encode_direct_command,
-};
+use roost_client_core::client::carriers::DirectInbound;
+use roost_client_core::client::carriers::wire::{decode_server_frame, encode_direct_command};
 use roost_client_core::effect::DirectCommand;
 use roost_client_core::terminal::input::InputOutcome;
 use roost_client_core::terminal::view::ViewIntent;

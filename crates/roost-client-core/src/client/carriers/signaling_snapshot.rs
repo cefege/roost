@@ -64,8 +64,14 @@ pub struct PeerTelemetry {
     pub peer_id: Option<String>,
     /// Which kind of candidate the selected pair is.
     pub candidate_type: CandidateType,
-    /// How long since the last probe was answered, when probes are running.
-    pub probe_age_ms: Option<u64>,
+    /// When the newest transport probe was answered, on the host's clock. An
+    /// instant rather than an age, because an age is wrong the moment after it
+    /// is recorded and a reader compares against its own clock.
+    pub last_probe_at_ms: Option<u64>,
+    /// Whether the peer answered its newest probe inside the qualification
+    /// window. The host re-records it when the window passes, so a reader
+    /// without a clock still sees a peer that stopped answering as unqualified.
+    pub liveness_qualified: bool,
     /// The peer's current round trip.
     pub rtt_ms: Option<u64>,
     /// The round trip on the worker's CONTROL lane specifically, which is not
