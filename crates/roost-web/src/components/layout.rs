@@ -17,6 +17,7 @@ pub mod drawer_gesture;
 pub mod mobile_bar;
 pub mod mobile_sidebar_drawer;
 pub mod notification_dock_lift;
+pub mod portal;
 pub mod shell_metrics;
 pub mod shell_style;
 pub mod sidebar_region;
