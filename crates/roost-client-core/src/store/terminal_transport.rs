@@ -2,9 +2,11 @@
 //! header shows it. A route is shown only after its elected canonical replica
 //! owns a baseline, so a candidate that merely registered never leaks into UI.
 //!
-//! Read by roost-web's `components::terminal::terminal_transport_indicator` and
-//! the pane's `data-terminal-transport` attribute. Ports
+//! Read by roost-web's `components::terminal::terminal_transport_indicator`, the
+//! pane's `data-terminal-transport` attribute, and the connection banner. Ports
 //! `apps/web/src/store/local-transport-indicator.ts`.
+
+use roost_protocol::terminal_peer::peer::TERMINAL_PEER_PROBE_QUALIFICATION_MS;
 
 use crate::store::Store;
 use crate::terminal::token::{TerminalToken, TerminalTransport};
@@ -109,4 +111,38 @@ pub const fn presentation_for(kind: Option<TerminalTransport>) -> TransportPrese
         Some(TerminalTransport::Loopback) => LOOPBACK,
         Some(TerminalTransport::Peer) => WEBRTC,
     }
+}
+
+/// Whether any elected direct route still holds a current terminal proof: the
+/// replica's own generation is direct, owns a baseline, has accepted a frame on
+/// that generation, and is exactly the route elected for the session. A peer
+/// counts only while its last answered probe is inside the qualification window
+/// — a peer that stopped answering is not a terminal the reader still has.
+///
+/// The coordinator-outage banner reads this: a live direct terminal makes an
+/// outage a partial degradation rather than "sessions paused". Ports v2
+/// `hasLivenessQualifiedDirectTerminal`.
+pub fn has_liveness_qualified_direct_terminal(store: &Store) -> bool {
+    store.terminal.iter().any(|(session_id, replica)| {
+        let Some(token) = replica.generation() else {
+            return false;
+        };
+        token.transport != TerminalTransport::Sync
+            && replica.baseline_ready()
+            && replica.liveness().last_accepted_at_ms().is_some()
+            && store.routes.route(session_id).map(|route| &route.token) == Some(token)
+            && (token.transport != TerminalTransport::Peer || peer_is_qualified(store, token))
+    })
+}
+
+/// A peer's last answered probe is recent enough to call it live.
+fn peer_is_qualified(store: &Store, token: &TerminalToken) -> bool {
+    token.worker_fp.as_deref().is_some_and(|worker_fp| {
+        store
+            .direct
+            .snapshot(worker_fp)
+            .telemetry
+            .probe_age_ms
+            .is_some_and(|age_ms| age_ms <= TERMINAL_PEER_PROBE_QUALIFICATION_MS)
+    })
 }

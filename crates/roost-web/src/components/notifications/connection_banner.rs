@@ -9,6 +9,7 @@
 
 use dioxus::prelude::Signal;
 use dioxus::prelude::*;
+use roost_client_core::store::terminal_transport::has_liveness_qualified_direct_terminal;
 
 use crate::components::md::{Button, ButtonSize, ButtonVariant, StatusDot, Surface, SurfaceRadius};
 use crate::components::terminal::dom::{now_ms, page_visible, sleep_ms};
@@ -30,6 +31,10 @@ pub enum BannerReason {
     Offline,
     /// The Sync link is not open, or has gone quiet past its stale bound.
     CoordUnreachable,
+    /// The same outage while a direct terminal still holds a current proof: a
+    /// partial degradation, because that terminal continues without the
+    /// coordinator while fleet controls cannot.
+    CoordUnreachableDirectLive,
     /// The coordinator rejected this browser's credential; no redial fixes it.
     AuthRevoked,
 }
@@ -40,6 +45,7 @@ impl BannerReason {
         match self {
             Self::Offline => "offline",
             Self::CoordUnreachable => "coord-unreachable",
+            Self::CoordUnreachableDirectLive => "coord-unreachable-direct-live",
             Self::AuthRevoked => "coord-auth-revoked",
         }
     }
@@ -49,6 +55,9 @@ impl BannerReason {
         match self {
             Self::Offline => "Offline — check your network connection",
             Self::CoordUnreachable => "Coordinator unreachable — sessions paused",
+            Self::CoordUnreachableDirectLive => {
+                "Coordinator unreachable — direct terminals may remain available; fleet controls unavailable"
+            }
             Self::AuthRevoked => "This browser's access was revoked — sign in again",
         }
     }
@@ -56,7 +65,27 @@ impl BannerReason {
     /// Whether a Reconnect button would do anything. A revoked credential is
     /// not a stale socket; offering the button would be offering a no-op.
     pub const fn offers_reconnect(self) -> bool {
-        matches!(self, Self::CoordUnreachable)
+        matches!(
+            self,
+            Self::CoordUnreachable | Self::CoordUnreachableDirectLive
+        )
+    }
+
+    /// The status the banner's dot and rule carry: a warning while a direct
+    /// terminal survives the outage, an error otherwise.
+    const fn status(self) -> &'static str {
+        match self {
+            Self::CoordUnreachableDirectLive => "warn",
+            _ => "error",
+        }
+    }
+
+    /// The colour role of the banner's bottom rule, paired with [`Self::status`].
+    const fn rule_color(self) -> &'static str {
+        match self {
+            Self::CoordUnreachableDirectLive => "var(--status-warn)",
+            _ => "var(--md-sys-color-error)",
+        }
     }
 }
 
@@ -92,8 +121,8 @@ pub fn ConnectionBanner() -> Element {
                 level: 2,
                 elevation: 2,
                 radius: SurfaceRadius::Xs,
-                style: "display: flex; align-items: center; justify-content: center; gap: var(--md-space-3); padding: var(--md-space-2) var(--md-space-4); border-bottom: var(--workbench-border-width) solid var(--md-sys-color-error); color: var(--md-sys-color-on-surface); font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);".to_owned(),
-                StatusDot { status: "error".to_owned() }
+                style: format!("display: flex; align-items: center; justify-content: center; gap: var(--md-space-3); padding: var(--md-space-2) var(--md-space-4); border-bottom: var(--workbench-border-width) solid {}; color: var(--md-sys-color-on-surface); font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);", verdict.rule_color()),
+                StatusDot { status: verdict.status().to_owned() }
                 span { "{verdict.message()}" }
                 if verdict.offers_reconnect() {
                     Button {
@@ -129,13 +158,14 @@ fn evaluate(
 /// turns an open-but-quiet link into a stale one exactly once.
 fn observe(pump: &Pump, mut quiet_since: Signal<Option<u64>>) -> Option<BannerReason> {
     let now = now_ms();
-    let (revoked, linked) = {
+    let (revoked, linked, direct_live) = {
         let core = pump.core();
         let core = core.borrow();
         let store = core.store();
         (
             store.sync.auth_revoked,
             store.sync.link_generation().is_some(),
+            has_liveness_qualified_direct_terminal(store),
         )
     };
     if revoked {
@@ -144,13 +174,17 @@ fn observe(pump: &Pump, mut quiet_since: Signal<Option<u64>>) -> Option<BannerRe
     if !crate::platform::network::browser_online() {
         return Some(BannerReason::Offline);
     }
+    let unreachable = if direct_live {
+        BannerReason::CoordUnreachableDirectLive
+    } else {
+        BannerReason::CoordUnreachable
+    };
     if !linked {
         quiet_since.set(None);
-        return Some(BannerReason::CoordUnreachable);
+        return Some(unreachable);
     }
     let since = quiet_since().unwrap_or(now);
-    let verdict =
-        (now.saturating_sub(since) > STALE_AFTER_MS).then_some(BannerReason::CoordUnreachable);
+    let verdict = (now.saturating_sub(since) > STALE_AFTER_MS).then_some(unreachable);
     quiet_since.set(Some(if verdict.is_some() { since } else { now }));
     verdict
 }
