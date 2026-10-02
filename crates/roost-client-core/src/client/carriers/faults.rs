@@ -73,9 +73,9 @@ pub enum FaultFallback {
 }
 
 /// The coarse reason a host records. Deliberately coarser than `CarrierFault`:
-/// v2 emits exactly one reason, `network_failed`, for every negotiation failure
-/// (`terminal-peer.ts:114`), so the discriminating value is the `CarrierFault`
-/// recorded beside it in the same line.
+/// v2 records `network_failed` for every failure before the peer is active and
+/// `ice_failed` after it (`terminal-peer.ts:114,227`), so the discriminating
+/// value is the `CarrierFault` recorded beside it in the same line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FallbackReason {
     /// The document cannot do WebRTC.
@@ -84,12 +84,9 @@ pub enum FallbackReason {
     Disabled,
     /// The document or the worker is at capacity.
     Cap,
-    /// The negotiation failed: the offer, the answer, the grant, or the tuple.
+    /// The negotiation failed: the offer, the answer, the grant, the tuple, or
+    /// the coordinator carrying them.
     NetworkFailed,
-    /// The coordinator was not reachable.
-    CoordinatorUnavailable,
-    /// The far end's answer did not parse.
-    InvalidResponse,
     /// ICE failed after the exchange completed.
     IceFailed,
 }
@@ -103,8 +100,6 @@ impl FallbackReason {
             Self::Disabled => "disabled",
             Self::Cap => "cap",
             Self::NetworkFailed => "network_failed",
-            Self::CoordinatorUnavailable => "coordinator_unavailable",
-            Self::InvalidResponse => "invalid_response",
             Self::IceFailed => "ice_failed",
         }
     }
@@ -131,10 +126,10 @@ impl CarrierFault {
             Self::Unsupported => FallbackReason::Unsupported,
             Self::Disabled => FallbackReason::Disabled,
             Self::DocumentCap => FallbackReason::Cap,
-            Self::CoordinatorUnavailable => FallbackReason::CoordinatorUnavailable,
-            Self::InvalidAnswer => FallbackReason::InvalidResponse,
             Self::IceFailed => FallbackReason::IceFailed,
-            Self::InvalidOffer
+            Self::CoordinatorUnavailable
+            | Self::InvalidAnswer
+            | Self::InvalidOffer
             | Self::GrantUnavailable
             | Self::GrantExpired
             | Self::IdentityMismatch

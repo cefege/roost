@@ -177,19 +177,24 @@ export async function startTerminalTestStack(
       // cannot run this tier says so as a skip, with every other stack log
       // still attached, instead of aborting mid-start and leaving a failure
       // whose only evidence is that refusal.
-      const faultsUnavailable = peerFaultControlsUnavailable(
-        options.workerExecutable ?? resolveSmokeStackExecutables().workerExecutable,
-      );
+      const faultWorkerExecutable =
+        options.workerExecutable ?? resolveSmokeStackExecutables().workerExecutable;
+      const faultsUnavailable = peerFaultControlsUnavailable(faultWorkerExecutable);
       if (faultsUnavailable !== null) throw new Error(faultsUnavailable);
       peerFaultControl = await startStackPeerFaultControl(root);
       directInputHold = await startDirectInputHold(root);
-      workerRuntime = {
-        sourceEntrypoint: join(REPOSITORY_ROOT, "smoke", "terminal", "stack-direct-input-worker.ts"),
-        sourceEntrypointArgs: [
-          `--direct-input-hold-socket=${directInputHold.socketPath}`,
-          `--terminal-peer-fault-socket=${peerFaultControl.socketPath}`,
-        ],
-      };
+      const faultArgs = [
+        `--direct-input-hold-socket=${directInputHold.socketPath}`,
+        `--terminal-peer-fault-socket=${peerFaultControl.socketPath}`,
+      ];
+      // A packaged worker reaching here was built with the `smoke` feature,
+      // whose `roost worker` takes the same two flags the source entrypoint does.
+      workerRuntime = faultWorkerExecutable
+        ? { workerExecutable: faultWorkerExecutable, workerExecutableArgs: faultArgs }
+        : {
+          sourceEntrypoint: join(REPOSITORY_ROOT, "smoke", "terminal", "stack-direct-input-worker.ts"),
+          sourceEntrypointArgs: faultArgs,
+        };
     }
     // Every local UI port is reserved before the coordinator launches: product
     // code pre-allowlists only the 4104 default, so the coordinator has to be

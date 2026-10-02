@@ -60,6 +60,13 @@ tokio-tungstenite = { workspace = true, features = ["handshake"] }
 # `#[cfg(test)]`; a worker's tests cannot reach it.
 tracing-subscriber.workspace = true
 
+[features]
+# The disposable peer fault controls (`src/smoke_faults/`): `roost worker`
+# accepts the two fault socket flags only in a build with this feature, which
+# the parity runner asks for through `roost-cli/smoke`. A release build has
+# neither the flags nor the hooks.
+smoke = []
+
 [[bin]]
 name = "roost-worker"
 path = "src/bin/roost-worker.rs"

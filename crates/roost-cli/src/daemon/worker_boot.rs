@@ -32,5 +32,40 @@ pub fn resolve_from(
         roost_worker::runtime::boot::ENV_COORDINATOR_URL,
         args.coordinator_url.as_deref(),
     );
-    Ok(roost_worker::WorkerBoot::resolve(&overlaid, platform)?)
+    let boot = roost_worker::WorkerBoot::resolve(&overlaid, platform)?;
+    #[cfg(feature = "smoke")]
+    let boot = with_fault_sockets(boot, args, env)?;
+    Ok(boot)
+}
+
+/// The smoke harness's fault sockets, when both flags were given. The harness
+/// addresses each worker by `ROOST_WORKER_LABEL`, so a worker without one
+/// could never be reached and is refused before it boots.
+#[cfg(feature = "smoke")]
+fn with_fault_sockets(
+    mut boot: roost_worker::WorkerBoot,
+    args: &WorkerArgs,
+    env: &dyn EnvSource,
+) -> Result<roost_worker::WorkerBoot, CommandFailure> {
+    let (Some(peer_fault_socket), Some(input_hold_socket)) = (
+        args.terminal_peer_fault_socket.clone(),
+        args.direct_input_hold_socket.clone(),
+    ) else {
+        return Ok(boot);
+    };
+    let label_env = roost_worker::runtime::bootstrap_redeem::ENV_WORKER_LABEL;
+    let worker_label = env
+        .get(label_env)
+        .filter(|label| !label.is_empty())
+        .ok_or_else(|| {
+            CommandFailure::usage(format!(
+                "terminal peer fault worker has no label: {label_env} is unset"
+            ))
+        })?;
+    boot.fault_sockets = Some(roost_worker::smoke_faults::FaultSockets {
+        peer_fault_socket,
+        input_hold_socket,
+        worker_label,
+    });
+    Ok(boot)
 }
