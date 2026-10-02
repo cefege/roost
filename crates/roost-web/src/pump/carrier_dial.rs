@@ -396,4 +396,5 @@ fn lose(pump: &Pump, connection_id: &str, code: u16, reason: &str) {
     pump.dispatch(ClientEvent::CarrierLost {
         connection_id: connection_id.to_owned(),
     });
+    super::direct_history::lose_reads_off_route(pump, reason);
 }
