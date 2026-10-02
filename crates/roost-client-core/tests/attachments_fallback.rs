@@ -11,8 +11,8 @@ mod attachment_support;
 
 use attachment_support::*;
 use roost_client_core::client::attachments::direct::{
-    AttachmentDirectUploadRequest, DirectAttempt, DirectRoute, DirectUnavailableReason, RouteOpen,
-    upload_attachment_direct,
+    AttachmentDirectUploadRequest, DirectAttempt, DirectRoute, DirectUnavailableReason,
+    RouteOutcome, upload_attachment_direct,
 };
 use roost_client_core::client::attachments::grant::{
     AttachmentDirectGrantRequest, AttachmentDirectGrantResponse,
@@ -30,20 +30,20 @@ fn request() -> AttachmentDirectUploadRequest {
     }
 }
 
-/// The route an `Opened` attempt chose.
-fn opened_route(attempt: &DirectAttempt) -> DirectRoute {
+/// The route a `Carried` attempt ran on.
+fn carried_route(attempt: &DirectAttempt) -> DirectRoute {
     match attempt {
-        DirectAttempt::Opened { route, .. } => *route,
-        other => panic!("expected an opened carrier, got {other:?}"),
+        DirectAttempt::Carried { route, .. } => *route,
+        other => panic!("expected a carried upload, got {other:?}"),
     }
 }
 
 #[test]
 fn uses_a_matching_loopback_worker_door_before_webrtc() {
     let mut environment = FakeEnvironment::with_door("worker-a");
-    let attempt = upload_attachment_direct(&request(), &mut environment);
+    let attempt = block_on(upload_attachment_direct(&request(), &mut environment));
 
-    assert_eq!(opened_route(&attempt), DirectRoute::Loopback);
+    assert_eq!(carried_route(&attempt), DirectRoute::Loopback);
     assert_eq!(
         environment.calls,
         vec!["mint", "loopback"],
@@ -67,8 +67,8 @@ fn uses_a_matching_loopback_worker_door_before_webrtc() {
 fn fences_a_mismatched_door_and_advances_a_pre_send_loopback_failure_to_webrtc() {
     // A door for another worker is fenced off, so the peer is the only route.
     let mut fenced = FakeEnvironment::with_door("other-worker");
-    let attempt = upload_attachment_direct(&request(), &mut fenced);
-    assert_eq!(opened_route(&attempt), DirectRoute::Peer);
+    let attempt = block_on(upload_attachment_direct(&request(), &mut fenced));
+    assert_eq!(carried_route(&attempt), DirectRoute::Peer);
     assert_eq!(
         fenced.calls,
         vec!["mint", "peer-id", "peer"],
@@ -82,8 +82,8 @@ fn fences_a_mismatched_door_and_advances_a_pre_send_loopback_failure_to_webrtc()
     // the peer follows it.
     let mut refused = FakeEnvironment::with_door("worker-a");
     refused.loopback = FakeEnvironment::refused("loopback unavailable", false);
-    let attempt = upload_attachment_direct(&request(), &mut refused);
-    assert_eq!(opened_route(&attempt), DirectRoute::Peer);
+    let attempt = block_on(upload_attachment_direct(&request(), &mut refused));
+    assert_eq!(carried_route(&attempt), DirectRoute::Peer);
     assert_eq!(
         refused.calls,
         vec!["mint", "loopback", "peer-id", "peer"],
@@ -96,7 +96,7 @@ fn never_switches_to_webrtc_after_a_loopback_chunk_was_sent() {
     let mut environment = FakeEnvironment::with_door("worker-a");
     environment.loopback = FakeEnvironment::refused("loopback failed after send", true);
 
-    let attempt = upload_attachment_direct(&request(), &mut environment);
+    let attempt = block_on(upload_attachment_direct(&request(), &mut environment));
 
     let DirectAttempt::FailedWithBytes(failure) = attempt else {
         panic!("bytes left the browser, so this is not an unavailable route");
@@ -116,7 +116,7 @@ fn does_not_mint_a_direct_grant_when_neither_local_carrier_is_possible() {
         peer_available: false,
         ..FakeEnvironment::new()
     };
-    let attempt = upload_attachment_direct(&request(), &mut environment);
+    let attempt = block_on(upload_attachment_direct(&request(), &mut environment));
 
     assert_eq!(
         attempt,
@@ -137,7 +137,7 @@ fn a_session_with_no_worker_names_no_worker_fingerprint() {
     upload.worker_fp = None;
 
     assert_eq!(
-        upload_attachment_direct(&upload, &mut environment),
+        block_on(upload_attachment_direct(&upload, &mut environment)),
         DirectAttempt::Unavailable(DirectUnavailableReason::NoWorkerFingerprint)
     );
     assert!(environment.minted.is_empty());
@@ -151,7 +151,7 @@ fn a_size_no_peer_could_read_exactly_names_an_unrepresentable_file_size() {
     upload.file_bytes = MAX_SAFE_TOTAL_BYTES + 1;
 
     assert_eq!(
-        upload_attachment_direct(&upload, &mut environment),
+        block_on(upload_attachment_direct(&upload, &mut environment)),
         DirectAttempt::Unavailable(DirectUnavailableReason::UnrepresentableFileSize)
     );
     assert!(environment.minted.is_empty());
@@ -163,7 +163,7 @@ fn a_refused_or_unreachable_coordinator_names_a_refused_grant() {
     environment.mint = None;
 
     assert_eq!(
-        upload_attachment_direct(&request(), &mut environment),
+        block_on(upload_attachment_direct(&request(), &mut environment)),
         DirectAttempt::Unavailable(DirectUnavailableReason::GrantRefused)
     );
     assert_eq!(
@@ -179,7 +179,7 @@ fn a_grant_with_no_tab_or_device_names_a_grant_mismatch() {
     environment.tab_id = String::new();
 
     assert_eq!(
-        upload_attachment_direct(&request(), &mut environment),
+        block_on(upload_attachment_direct(&request(), &mut environment)),
         DirectAttempt::Unavailable(DirectUnavailableReason::GrantMismatch),
         "a grant bound to no tab authorises nothing"
     );
@@ -199,7 +199,7 @@ fn a_worker_without_the_peer_route_names_an_unsupported_peer() {
     });
 
     assert_eq!(
-        upload_attachment_direct(&request(), &mut environment),
+        block_on(upload_attachment_direct(&request(), &mut environment)),
         DirectAttempt::Unavailable(DirectUnavailableReason::PeerUnsupported)
     );
     assert_eq!(environment.calls, vec!["mint", "loopback"]);
@@ -212,7 +212,7 @@ fn an_unmintable_peer_id_names_an_unavailable_peer_id() {
     environment.peer_id = None;
 
     assert_eq!(
-        upload_attachment_direct(&request(), &mut environment),
+        block_on(upload_attachment_direct(&request(), &mut environment)),
         DirectAttempt::Unavailable(DirectUnavailableReason::PeerIdUnavailable)
     );
     assert_eq!(environment.calls, vec!["mint", "loopback", "peer-id"]);
@@ -225,7 +225,7 @@ fn two_refused_routes_name_a_refused_peer() {
     environment.peer = FakeEnvironment::refused("peer negotiation failed", false);
 
     assert_eq!(
-        upload_attachment_direct(&request(), &mut environment),
+        block_on(upload_attachment_direct(&request(), &mut environment)),
         DirectAttempt::Unavailable(DirectUnavailableReason::PeerRefused),
         "neither route put a byte anywhere, so the relay is still an untouched carrier"
     );
@@ -238,10 +238,10 @@ fn two_refused_routes_name_a_refused_peer() {
 #[test]
 fn a_fatal_route_failure_is_not_a_fallback_signal() {
     let mut environment = FakeEnvironment::with_door("worker-a");
-    environment.loopback = RouteOpen::Fatal("WebSocket is unavailable".to_owned());
+    environment.loopback = RouteOutcome::Fatal("WebSocket is unavailable".to_owned());
 
     assert_eq!(
-        upload_attachment_direct(&request(), &mut environment),
+        block_on(upload_attachment_direct(&request(), &mut environment)),
         DirectAttempt::Failed {
             route: DirectRoute::Loopback,
             reason: "WebSocket is unavailable".to_owned(),

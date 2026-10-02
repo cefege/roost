@@ -14,6 +14,7 @@
 //! is the only way a Dioxus render learns the `RefCell` behind it changed.
 //! `Pump::write_store` is the same discipline for a write no event carries.
 
+mod attachment_door;
 mod boot;
 #[cfg(target_arch = "wasm32")]
 mod browser;

@@ -198,13 +198,21 @@ impl AttachmentConversation {
     }
 
     /// End the generation, reporting the reason and whether bytes left.
+    ///
+    /// A close that strands a sent chunk's acknowledgement is AMBIGUOUS: the
+    /// worker may have committed the chunk before the carrier died, so only a
+    /// receipt may settle it. v2 `finish` rejects the ack waiter with
+    /// `ambiguous = sentChunk` for the same reason.
     pub fn close(&mut self, reason: &str) -> AttachmentTransferCarrierError {
         if self.closed {
             return AttachmentTransferCarrierError::refused(reason, self.sent_chunk);
         }
         self.closed = true;
-        self.ack_seq = None;
+        let stranded_ack = self.ack_seq.take().is_some();
         self.status_upload_id = None;
+        if stranded_ack && self.sent_chunk {
+            return AttachmentTransferCarrierError::ambiguous(reason);
+        }
         AttachmentTransferCarrierError::refused(reason, self.sent_chunk)
     }
 

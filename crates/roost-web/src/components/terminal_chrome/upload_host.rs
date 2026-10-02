@@ -1,23 +1,23 @@
-//! The browser half of the upload driver: the coordinator-relay chunk loop, the
-//! serial queue that preserves pick order, and the direct-carrier environment
-//! that reports what this build can actually open.
+//! The browser half of the upload driver: the direct-carrier environment the
+//! route chooser runs against, the coordinator calls an upload makes, and the
+//! coordinator-relay chunk loop.
 //!
-//! The loopback socket and the attachment WebRTC transport are the direct
-//! carrier drivers, which live in the carrier slice; this file asks them
-//! whether a carrier is available and drives whichever one answers. Until one
-//! does, the environment reports no route and the relay carries the upload —
-//! never a pretended-open carrier.
-//! Ports the host half of `apps/web/src/lib/attachments.ts`.
+//! The route ORDER is `client::attachments::direct`'s; this file answers what
+//! the tab can reach (the discovered door, whether WebRTC exists) and performs
+//! the acts the chooser asks for, on the carriers in `platform::attachments`.
+//! Ports the host half of `apps/web/src/lib/attachments.ts` and the default
+//! dependencies of `apps/web/src/client/attachments/attachmentDirect.ts`.
 
 use roost_client_core::client::attachments::direct::relay::{RelayChunk, RelayUpload};
 use roost_client_core::client::attachments::direct::{
-    AttachmentDirectEnvironment, AttachmentDirectUploadRequest, LocalWorkerDoor, RouteOpen,
+    AttachmentDirectEnvironment, AttachmentDirectUploadRequest, RouteOutcome,
 };
 use roost_client_core::client::attachments::grant::{
     AttachmentDirectGrant, AttachmentDirectGrantRequest, AttachmentDirectGrantResponse,
 };
 use roost_client_core::client::attachments::transfer::AttachmentTransferResult;
 use roost_client_core::client::attachments::transfer::receipt::AttachmentTransferStatus;
+use roost_client_core::client::local::discovery::LocalWorkerDoor;
 use roost_client_core::client::rpc::calls::attachment_direct::{
     GrantAttachmentDirect, ReadAttachmentDirectStatus,
 };
@@ -26,103 +26,135 @@ use roost_client_core::client::rpc::calls::attachments::{ProbeAttachment, WriteA
 use super::upload_plan::UploadPlan;
 use crate::pump::Pump;
 
-/// The exact authority one upload would run under, when one was minted.
+/// The identity a direct grant is bound to, read once per gesture so every
+/// file of one pick is bound to the same tab and device.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct PendingGrant {
-    /// The tuple the grant must name, so a grant for a different upload is
-    /// refused here rather than admitted by a carrier that would reject it.
-    pub request: Option<AttachmentDirectGrantRequest>,
-    /// What the coordinator answered, when it answered.
-    pub response: Option<AttachmentDirectGrantResponse>,
-}
-
-impl PendingGrant {
-    /// Record a grant the driver already asked for, keyed by its tuple.
-    pub fn record(
-        &mut self,
-        request: AttachmentDirectGrantRequest,
-        response: AttachmentDirectGrantResponse,
-    ) {
-        self.request = Some(request);
-        self.response = Some(response);
-    }
-
-    /// The response for exactly this request, or nothing. A grant minted for
-    /// a different upload is not this one's, whatever its shape.
-    fn take_for(
-        &self,
-        request: &AttachmentDirectGrantRequest,
-    ) -> Option<AttachmentDirectGrantResponse> {
-        if self.request.as_ref()? != request {
-            return None;
-        }
-        self.response.clone()
-    }
-}
-
-/// What a direct-carrier attempt needs from the tab: the identity the grant is
-/// bound to, the door a loopback socket would open against, and whether this
-/// build can open a direct carrier at all.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct DirectEnvironmentFacts {
+pub struct DirectIdentity {
     /// This document's tab id, as the coordinator knows it.
     pub tab_id: String,
     /// The device fingerprint the grant is bound to.
     pub device_fingerprint: String,
-    /// A local worker door discovered this session, when one was.
-    pub local_door: Option<LocalWorkerDoor>,
-    /// Whether this build can open a direct carrier at all. False until the
-    /// carrier driver reports one, which is what leaves the relay as the
-    /// carrier rather than a pretended-open one.
-    pub carrier_available: bool,
-    /// The grant the driver minted ahead of the decision, because minting it
-    /// is a network call and route selection is synchronous.
-    pub pending_grant: PendingGrant,
 }
 
-impl AttachmentDirectEnvironment for DirectEnvironmentFacts {
+/// What one upload's direct attempt runs against: the tab's reach, read at
+/// upload time as v2 reads it, and the bytes a carrier would send.
+pub struct BrowserDirectEnvironment<'upload> {
+    pub pump: &'upload Pump,
+    pub identity: &'upload DirectIdentity,
+    pub request: &'upload AttachmentDirectUploadRequest,
+    pub bytes: &'upload [u8],
+    pub on_progress: &'upload dyn Fn(u64),
+}
+
+impl std::fmt::Debug for BrowserDirectEnvironment<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("BrowserDirectEnvironment")
+            .field("request", self.request)
+            .field("bytes", &self.bytes.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl AttachmentDirectEnvironment for BrowserDirectEnvironment<'_> {
     fn read_local_worker_door(&self) -> Option<LocalWorkerDoor> {
-        self.local_door.clone()
+        self.pump.local_worker_door()
     }
 
+    /// v2: `isSecureContext && typeof RTCPeerConnection !== "undefined"`.
     fn peer_available(&self) -> bool {
-        self.carrier_available
+        let secure = web_sys::window().is_some_and(|window| window.is_secure_context());
+        secure && crate::platform::peer::is_available()
     }
 
     fn tab_id(&self) -> String {
-        self.tab_id.clone()
+        self.identity.tab_id.clone()
     }
 
     fn device_fingerprint(&self) -> String {
-        self.device_fingerprint.clone()
+        self.identity.device_fingerprint.clone()
     }
 
-    /// Minting a grant is a network call, which this synchronous decision
-    /// cannot make, so the driver asks first and records the answer against the
-    /// tuple it asked for. The loader's own fold still decides whether that
-    /// answer is a grant: no grant id, no secret, or no worker epoch each leave
-    /// nothing a carrier could authenticate with.
-    fn mint_grant(
+    async fn mint_grant(
         &mut self,
         request: &AttachmentDirectGrantRequest,
     ) -> Option<AttachmentDirectGrantResponse> {
-        self.pending_grant.take_for(request)
+        mint_direct_grant(self.pump, request, &self.identity.tab_id).await
     }
 
+    /// A fresh `crypto.randomUUID()` per attempt: the coordinator refuses any
+    /// other peer id shape.
     fn create_peer_id(&mut self) -> Option<String> {
-        None
+        super::upload_id::mint_upload_id()
     }
 
-    fn open_loopback_route(
+    async fn carry_on_loopback(
         &mut self,
-        _door: &LocalWorkerDoor,
-        _grant: &AttachmentDirectGrant,
-    ) -> RouteOpen {
-        RouteOpen::Fatal("no attachment loopback carrier is open in this build".to_owned())
+        door: &LocalWorkerDoor,
+        grant: &AttachmentDirectGrant,
+    ) -> RouteOutcome {
+        #[cfg(target_arch = "wasm32")]
+        {
+            use crate::platform::attachments::loopback::AttachmentLoopbackCarrier;
+            match AttachmentLoopbackCarrier::open(door, grant).await {
+                Ok(mut carrier) => self.send_on(&mut carrier).await,
+                Err(refusal) => RouteOutcome::Refused(refusal),
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = (door, grant);
+            RouteOutcome::Fatal("this build has no browser socket".to_owned())
+        }
     }
 
-    fn open_peer_route(&mut self, _grant: &AttachmentDirectGrant, _peer_id: &str) -> RouteOpen {
-        RouteOpen::Fatal("no attachment peer carrier is open in this build".to_owned())
+    async fn carry_on_peer(
+        &mut self,
+        grant: &AttachmentDirectGrant,
+        peer_id: &str,
+    ) -> RouteOutcome {
+        #[cfg(target_arch = "wasm32")]
+        {
+            use crate::platform::attachments::peer::AttachmentPeerCarrier;
+            let pump = self.pump;
+            let negotiate = async |request| negotiate_attachment_peer(pump, request).await;
+            match AttachmentPeerCarrier::open(grant, peer_id, negotiate).await {
+                Ok(mut carrier) => self.send_on(&mut carrier).await,
+                Err(refusal) => RouteOutcome::Refused(refusal),
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = (grant, peer_id);
+            RouteOutcome::Fatal("this build has no browser peer".to_owned())
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl BrowserDirectEnvironment<'_> {
+    /// Run the chunk loop on an opened carrier and report how the route ended.
+    async fn send_on<C: crate::platform::attachments::AttachmentCarrier>(
+        &self,
+        carrier: &mut C,
+    ) -> RouteOutcome {
+        use crate::platform::attachments::send_file::send_attachment_file;
+        let pump = self.pump;
+        let session_id = self.request.session_id.as_str();
+        let coordinator_status =
+            async |upload_id: &str| read_direct_status(pump, session_id, upload_id).await;
+        match send_attachment_file(
+            carrier,
+            &self.request.upload_id,
+            self.bytes,
+            self.on_progress,
+            coordinator_status,
+        )
+        .await
+        {
+            Ok(result) => RouteOutcome::Carried(result),
+            Err(error) => RouteOutcome::Refused(error),
+        }
     }
 }
 
@@ -130,19 +162,19 @@ impl AttachmentDirectEnvironment for DirectEnvironmentFacts {
 ///
 /// The coordinator installs the grant on the worker before it answers, so an
 /// error here is an upload that never touched a wire.
-pub async fn mint_direct_grant(
+async fn mint_direct_grant(
     pump: &Pump,
-    request: &AttachmentDirectUploadRequest,
+    request: &AttachmentDirectGrantRequest,
     tab_id: &str,
-) -> Option<roost_client_core::client::attachments::grant::AttachmentDirectGrantResponse> {
+) -> Option<AttachmentDirectGrantResponse> {
     let call = GrantAttachmentDirect {
         session_id: request.session_id.clone(),
-        worker_fp: request.worker_fp.clone().unwrap_or_default(),
+        worker_fp: request.worker_fp.clone(),
         tab_id: tab_id.to_owned(),
         upload_id: request.upload_id.clone(),
-        filename: request.file_name.clone(),
+        filename: request.filename.clone(),
         short_path: request.short_path,
-        total_bytes: request.file_bytes,
+        total_bytes: request.total_bytes,
     };
     match pump.rpc().call(&call).await {
         Ok(response) => Some(response),
@@ -156,6 +188,23 @@ pub async fn mint_direct_grant(
             None
         }
     }
+}
+
+/// Put one attachment peer's offer to the coordinator, which relays it to the
+/// worker and returns the worker's answer unchecked; the signaling machine
+/// checks it.
+#[cfg(target_arch = "wasm32")]
+async fn negotiate_attachment_peer(
+    pump: &Pump,
+    request: roost_client_core::client::attachments::signaling::AttachmentPeerNegotiationRequest,
+) -> Result<
+    roost_client_core::client::attachments::signaling::AttachmentPeerNegotiationResponse,
+    String,
+> {
+    pump.rpc()
+        .call(&request)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 /// The worker's durable view of one direct upload, for a receipt that a lost

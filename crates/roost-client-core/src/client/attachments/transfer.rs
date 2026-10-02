@@ -299,7 +299,7 @@ impl DirectUpload {
     /// worker after the bytes crossed.
     pub fn begin_chunk(
         &mut self,
-        data: Vec<u8>,
+        data: &[u8],
         chunk_sha256: &str,
     ) -> Result<(), ChunkFramingRefusal> {
         let request = self.next_slice().ok_or({

@@ -29,7 +29,7 @@ use crate::components::terminal_chrome::composer::{ComposerPlacement, TerminalCo
 use crate::components::terminal_chrome::pane_geometry_dom::PaneDockHandle;
 use crate::components::terminal_chrome::short_paths::short_path_preference;
 use crate::components::terminal_chrome::upload::{UploadContext, enqueue_attachments};
-use crate::components::terminal_chrome::upload_host::DirectEnvironmentFacts;
+use crate::components::terminal_chrome::upload_host::DirectIdentity;
 use crate::input_nav::modality::NavModality;
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::use_pump;
@@ -359,10 +359,9 @@ pub fn CellTerminal(
 
 /// The upload context this pane's attach button drives.
 ///
-/// `carrier_available` is false until a direct carrier driver reports one, so
-/// the driver falls back to the coordinator relay rather than electing a
-/// route it cannot open. The tab and device are read here, not per upload, so
-/// every file of one gesture is bound to the same identity.
+/// The tab and device are read here, not per upload, so every file of one
+/// gesture is bound to the same identity. What the tab can reach — the door,
+/// WebRTC — is read per upload, when the route is chosen.
 fn upload_context(
     session_id: &str,
     worker_fp: &str,
@@ -373,12 +372,9 @@ fn upload_context(
         session_id: session_id.to_owned(),
         worker_fp: Some(worker_fp.to_owned()),
         short_path: short_path_preference(),
-        environment: DirectEnvironmentFacts {
+        identity: DirectIdentity {
             tab_id,
             device_fingerprint,
-            local_door: None,
-            carrier_available: false,
-            pending_grant: Default::default(),
         },
     }
 }

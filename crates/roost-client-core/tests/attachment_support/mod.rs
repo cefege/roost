@@ -16,8 +16,8 @@
 //! different reason a user sees a different thing happen.
 //!
 //! The mutation experiment for this file, in the slice report: in
-//! `upload_attachment_direct`, delete the `RouteOpen::Refused` arm that lets the
-//! peer route follow a refused loopback, and
+//! `upload_attachment_direct`, delete the `RouteOutcome::Refused` arm that lets
+//! the peer route follow a refused loopback, and
 //! `fences_a_mismatched_door_and_advances_a_pre_send_loopback_failure_to_webrtc`
 //! must fail.
 
@@ -26,13 +26,28 @@
 // sharing, not a fault in the fixture.
 #![allow(dead_code)]
 
-use roost_client_core::client::attachments::direct::{
-    AttachmentDirectEnvironment, LocalWorkerDoor, RouteOpen,
-};
+use std::task::{Context, Poll, Waker};
+
+use roost_client_core::client::attachments::direct::{AttachmentDirectEnvironment, RouteOutcome};
 use roost_client_core::client::attachments::grant::{
     AttachmentDirectGrant, AttachmentDirectGrantRequest, AttachmentDirectGrantResponse,
 };
-use roost_client_core::client::attachments::transfer::AttachmentTransferCarrierError;
+use roost_client_core::client::attachments::transfer::{
+    AttachmentTransferCarrierError, AttachmentTransferResult,
+};
+use roost_client_core::client::local::discovery::LocalWorkerDoor;
+
+/// Drive a future the fake environment answers synchronously. Every await in
+/// the loader resolves on its first poll here, so a pending poll is a fixture
+/// that started waiting on something real.
+pub fn block_on<F: Future>(future: F) -> F::Output {
+    let mut future = std::pin::pin!(future);
+    let mut context = Context::from_waker(Waker::noop());
+    match future.as_mut().poll(&mut context) {
+        Poll::Ready(output) => output,
+        Poll::Pending => panic!("the fake environment answers every act on its first poll"),
+    }
+}
 
 /// What a fake environment answers, and what it recorded.
 pub struct FakeEnvironment {
@@ -42,8 +57,8 @@ pub struct FakeEnvironment {
     pub device_fingerprint: String,
     pub mint: Option<AttachmentDirectGrantResponse>,
     pub peer_id: Option<String>,
-    pub loopback: RouteOpen,
-    pub peer: RouteOpen,
+    pub loopback: RouteOutcome,
+    pub peer: RouteOutcome,
     /// The order the routes were asked in, so "peer was never tried" is a fact
     /// rather than an inference.
     pub calls: Vec<String>,
@@ -65,8 +80,8 @@ impl FakeEnvironment {
                 stun_urls: Vec::new(),
             }),
             peer_id: Some("peer-a".to_owned()),
-            loopback: RouteOpen::Opened,
-            peer: RouteOpen::Opened,
+            loopback: Self::carried(),
+            peer: Self::carried(),
             calls: Vec::new(),
             minted: Vec::new(),
         }
@@ -82,8 +97,14 @@ impl FakeEnvironment {
         }
     }
 
-    pub fn refused(reason: &str, sent_chunk: bool) -> RouteOpen {
-        RouteOpen::Refused(AttachmentTransferCarrierError::refused(reason, sent_chunk))
+    pub fn refused(reason: &str, sent_chunk: bool) -> RouteOutcome {
+        RouteOutcome::Refused(AttachmentTransferCarrierError::refused(reason, sent_chunk))
+    }
+
+    pub fn carried() -> RouteOutcome {
+        RouteOutcome::Carried(AttachmentTransferResult {
+            abs_path: "/attachments/direct.bin".to_owned(),
+        })
     }
 }
 
@@ -104,7 +125,7 @@ impl AttachmentDirectEnvironment for FakeEnvironment {
         self.device_fingerprint.clone()
     }
 
-    fn mint_grant(
+    async fn mint_grant(
         &mut self,
         request: &AttachmentDirectGrantRequest,
     ) -> Option<AttachmentDirectGrantResponse> {
@@ -118,16 +139,20 @@ impl AttachmentDirectEnvironment for FakeEnvironment {
         self.peer_id.clone()
     }
 
-    fn open_loopback_route(
+    async fn carry_on_loopback(
         &mut self,
         _door: &LocalWorkerDoor,
         _grant: &AttachmentDirectGrant,
-    ) -> RouteOpen {
+    ) -> RouteOutcome {
         self.calls.push("loopback".to_owned());
         self.loopback.clone()
     }
 
-    fn open_peer_route(&mut self, _grant: &AttachmentDirectGrant, _peer_id: &str) -> RouteOpen {
+    async fn carry_on_peer(
+        &mut self,
+        _grant: &AttachmentDirectGrant,
+        _peer_id: &str,
+    ) -> RouteOutcome {
         self.calls.push("peer".to_owned());
         self.peer.clone()
     }

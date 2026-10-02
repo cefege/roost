@@ -15,17 +15,17 @@
 mod attachment_carriers_support;
 
 use attachment_carriers_support::{
-    DIGEST, WORKER_PATH, ack_frame, grant, ready_frame_bytes, server_frame_bytes,
+    DIGEST, WORKER_PATH, ack_frame, first_chunk, grant, ready_frame_bytes, server_frame_bytes,
 };
 use roost_client_core::client::attachments::conversation::ConversationOutcome;
-use roost_client_core::client::attachments::direct::LocalWorkerDoor;
 use roost_client_core::client::attachments::direct::loopback::{
-    LOOPBACK_PATH, LOOPBACK_SUBPROTOCOL, LoopbackTransfer,
+    LOOPBACK_PATH, LOOPBACK_SUBPROTOCOL, LoopbackTransfer, attachment_loopback_url,
 };
 use roost_client_core::client::attachments::transfer::receipt::AttachmentTransferStatus;
 use roost_client_core::client::attachments::transfer::{
     AttachmentTransferAck, DIRECT_CHUNK_BYTES, DirectUpload,
 };
+use roost_client_core::client::local::discovery::LocalWorkerDoor;
 use roost_proto::__buffa::oneof::attachment_transfer_client_frame::Frame as ClientFrame;
 use roost_proto::__buffa::oneof::attachment_transfer_server_frame::Frame as ServerFrame;
 use roost_proto::buffa::Message;
@@ -41,7 +41,7 @@ fn authenticates_then_sends_direct_bytes_in_order_and_advances_progress_from_ack
     let mut carrier = LoopbackTransfer::new(&door.worker_fingerprint, grant(total));
 
     assert_eq!(
-        door.loopback_url(),
+        attachment_loopback_url(&door.origin),
         format!("ws://127.0.0.1:4104{LOOPBACK_PATH}")
     );
     assert_eq!(carrier.subprotocol(), LOOPBACK_SUBPROTOCOL);
@@ -87,7 +87,7 @@ fn authenticates_then_sends_direct_bytes_in_order_and_advances_progress_from_ack
     while let Some(slice) = upload.next_slice() {
         let data = file[slice.offset as usize..slice.offset as usize + slice.bytes].to_vec();
         upload
-            .begin_chunk(data.clone(), DIGEST)
+            .begin_chunk(&data, DIGEST)
             .expect("the slice is the one that was asked for");
         let in_flight = upload.in_flight().expect("a chunk is in flight").clone();
         let frame_bytes = carrier
@@ -225,7 +225,7 @@ fn a_failed_chunk_does_not_clear_bytes_an_earlier_chunk_already_sent() {
     let first = upload.next_slice().expect("a first slice");
     let first_data = file[first.offset as usize..first.offset as usize + first.bytes].to_vec();
     upload
-        .begin_chunk(first_data.clone(), DIGEST)
+        .begin_chunk(&first_data, DIGEST)
         .expect("the first slice is the one that was asked for");
     let in_flight = upload.in_flight().expect("a chunk is in flight").clone();
     carrier
@@ -254,7 +254,7 @@ fn a_failed_chunk_does_not_clear_bytes_an_earlier_chunk_already_sent() {
     let second = upload.next_slice().expect("a second slice");
     let second_data = file[second.offset as usize..second.offset as usize + second.bytes].to_vec();
     upload
-        .begin_chunk(second_data.clone(), DIGEST)
+        .begin_chunk(&second_data, DIGEST)
         .expect("the second slice is the one that was asked for");
     let in_flight = upload.in_flight().expect("a chunk is in flight").clone();
     carrier
@@ -268,4 +268,45 @@ fn a_failed_chunk_does_not_clear_bytes_an_earlier_chunk_already_sent() {
          the wire, and clearing the flag here would open the carrier fallback \
          on a duplicate upload"
     );
+}
+
+/// A socket that dies with a sent chunk unacknowledged leaves the worker's view
+/// unknown: it may have committed the chunk. The error must be AMBIGUOUS so the
+/// chunk loop asks for a receipt instead of reporting a plain refusal, which
+/// v2's `finish` does by rejecting the ack waiter with `ambiguous = sentChunk`.
+#[test]
+fn a_close_with_a_sent_chunk_unacknowledged_is_ambiguous() {
+    let total = 2;
+    let mut carrier = LoopbackTransfer::new("worker-a", grant(total));
+    carrier.socket_opened().expect("the socket authenticates");
+    assert_eq!(
+        carrier.frame_received(&ready_frame_bytes()),
+        Ok(ConversationOutcome::Ready)
+    );
+    let (_upload, in_flight) = first_chunk(total);
+    carrier
+        .send_chunk(&in_flight, vec![2, 2])
+        .expect("a ready carrier sends the chunk");
+
+    let failure = carrier.close("attachment loopback closed");
+
+    assert!(failure.sent_chunk);
+    assert!(
+        failure.ambiguous,
+        "only a receipt can settle a stranded chunk"
+    );
+    assert!(carrier.is_closed());
+}
+
+/// A close before any chunk is a clean refusal: nothing left, so the route
+/// chooser may still try the next carrier.
+#[test]
+fn a_close_before_any_chunk_is_a_clean_refusal() {
+    let mut carrier = LoopbackTransfer::new("worker-a", grant(2));
+    carrier.socket_opened().expect("the socket authenticates");
+
+    let failure = carrier.close("attachment loopback closed");
+
+    assert!(!failure.sent_chunk);
+    assert!(!failure.ambiguous);
 }

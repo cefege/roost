@@ -102,10 +102,10 @@ impl UploadPlan {
 /// only "direct" would hide which one lost the bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CarrierChoice {
-    /// A direct carrier is open and the chunk loop runs on it.
+    /// A direct carrier carried the upload and the worker committed it.
     Direct {
         route: DirectRoute,
-        upload: Box<roost_client_core::client::attachments::transfer::DirectUpload>,
+        result: AttachmentTransferResult,
     },
     /// No direct route carried this upload, and the named reason is why. The
     /// coordinator relay is the carrier.
@@ -126,7 +126,7 @@ impl CarrierChoice {
     #[must_use]
     pub fn from_attempt(attempt: DirectAttempt) -> Self {
         match attempt {
-            DirectAttempt::Opened { route, upload } => Self::Direct { route, upload },
+            DirectAttempt::Carried { route, result } => Self::Direct { route, result },
             DirectAttempt::Unavailable(reason) => Self::Relay { reason },
             DirectAttempt::FailedWithBytes(error) => Self::FailedWithBytes {
                 reason: error.to_string(),
