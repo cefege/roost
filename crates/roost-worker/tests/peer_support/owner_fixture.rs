@@ -11,7 +11,7 @@ use roost_proto::DLocalTerminalPeerOffer;
 use roost_worker::local_terminal::{ExpectedPeer, PeerGrantAuthorization};
 use roost_worker::peer::native::NativeLoader;
 use roost_worker::peer::{
-    OfferFaultSlot, PeerTransportConfig, TerminalPeerOfferFailure, TerminalPeerOwner,
+    PeerTestFaults, PeerTransportConfig, TerminalPeerOfferFailure, TerminalPeerOwner,
     TerminalPeerOwnerDeps, TerminalPeerPacketBudget, TerminalPeerPacketIngress,
     TerminalPeerPacketPort,
 };
@@ -63,7 +63,7 @@ pub fn owner_with(
     fake: &Arc<FakeNative>,
     loader: NativeLoader,
     enabled: bool,
-    faults: Option<Arc<OfferFaultSlot>>,
+    faults: Option<Arc<PeerTestFaults>>,
     seen: &Arc<Seen>,
 ) -> Arc<TerminalPeerOwner> {
     let (tuples, expired, grants) = (Arc::clone(seen), Arc::clone(seen), Arc::clone(seen));
@@ -95,7 +95,7 @@ pub fn owner_with(
         ),
         native_loader: loader,
         packet_budget: TerminalPeerPacketBudget::new(),
-        offer_faults: faults,
+        test_faults: faults,
         expire_grant: Arc::new(move |grant_id: &str| {
             lock(&expired.expired).push(grant_id.to_owned())
         }),

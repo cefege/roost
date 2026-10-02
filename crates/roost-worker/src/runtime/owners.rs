@@ -184,11 +184,11 @@ impl WorkerOwners {
             transport,
             native_loader: native_loader.clone(),
             #[cfg(feature = "smoke")]
-            offer_faults: fault_controls
+            test_faults: fault_controls
                 .as_ref()
-                .map(crate::smoke_faults::FaultControls::offer_slot),
+                .map(crate::smoke_faults::FaultControls::peer_faults),
             #[cfg(not(feature = "smoke"))]
-            offer_faults: None,
+            test_faults: None,
             runtime: tokio::runtime::Handle::current(),
         });
         let attachments = AttachmentOwners::start(AttachmentOwnersDeps {
@@ -277,8 +277,8 @@ impl WorkerOwners {
         );
         // Last, so every owner a fault command reaches already exists.
         #[cfg(feature = "smoke")]
-        if let Some(controls) = &fault_controls {
-            controls.serve_commands(&tokio::runtime::Handle::current());
+        if let Some(controls) = fault_controls {
+            controls.serve_commands(&tokio::runtime::Handle::current(), Arc::clone(&direct));
         }
         Ok(Self {
             stack,

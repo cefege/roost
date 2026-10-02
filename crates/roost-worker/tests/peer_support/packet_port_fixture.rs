@@ -13,7 +13,8 @@ use roost_protocol::terminal_peer::packets::{
 use roost_protocol::terminal_peer::peer::TerminalPeerChannelWatermarks;
 use roost_worker::peer::native::NativePeerEvent;
 use roost_worker::peer::{
-    PacketPortDeps, TerminalPeerPacketBudget, TerminalPeerPacketIngress, TerminalPeerPacketPort,
+    PacketPortDeps, PeerTestFaults, TerminalPeerPacketBudget, TerminalPeerPacketIngress,
+    TerminalPeerPacketPort,
 };
 
 use crate::fake_native::FakePeer;
@@ -75,6 +76,18 @@ impl Fixture {
 }
 
 pub fn fixture_with(budget: TerminalPeerPacketBudget) -> Fixture {
+    fixture_built(budget, None)
+}
+
+/// A port that reads the smoke harness's peer faults.
+pub fn fixture_with_faults(faults: Arc<PeerTestFaults>) -> Fixture {
+    fixture_built(TerminalPeerPacketBudget::new(), Some(faults))
+}
+
+fn fixture_built(
+    budget: TerminalPeerPacketBudget,
+    test_faults: Option<Arc<PeerTestFaults>>,
+) -> Fixture {
     let native = FakePeer::standalone(3);
     let recorded = Arc::new(Recorded::default());
     let closes = Arc::clone(&recorded);
@@ -87,6 +100,7 @@ pub fn fixture_with(budget: TerminalPeerPacketBudget) -> Fixture {
             lock(&closes.close_reasons).push(reason.to_owned())
         })),
         on_fatal: None,
+        test_faults,
         runtime: tokio::runtime::Handle::current(),
     });
     assert!(port.attach_ingress(Arc::new(RecordingIngress(Arc::clone(&recorded)))));

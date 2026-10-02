@@ -12,13 +12,14 @@ mod input_hold;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tokio::runtime::Handle;
 
 pub use input_hold::DirectInputHold;
 
 use crate::local_terminal::LocalTerminalDoor;
-use crate::peer::OfferFaultSlot;
+use crate::peer::{DirectTerminal, PeerTestFaults};
 use crate::runtime::WorkerBoot;
 
 /// Where the harness listens, and the label this worker says hello as.
@@ -33,17 +34,45 @@ pub struct FaultSockets {
     pub worker_label: String,
 }
 
+/// The faults `crate::local_terminal` reads on the direct path (v2
+/// `LocalTerminalSocketTestFaults`).
+#[derive(Debug)]
+pub struct DirectPathFaults {
+    /// Asked before an authenticated peer's input is admitted.
+    pub input_hold: DirectInputHold,
+    drop_next_input_result: AtomicBool,
+}
+
+impl DirectPathFaults {
+    /// v2 `dropNextPeerInputResult`.
+    fn arm_input_result_drop(&self) {
+        self.drop_next_input_result.store(true, Ordering::SeqCst);
+        tracing::info!("the next peer input result will be withheld");
+    }
+
+    /// v2 `consumeDroppedInputResult`: whether to withhold this one accepted
+    /// result. One-shot.
+    pub fn consume_input_result_drop(&self) -> bool {
+        self.drop_next_input_result.swap(false, Ordering::SeqCst)
+    }
+}
+
 /// The fault state every command mutates and every hook reads (v2
-/// `TerminalPeerTestFaultState`).
-#[derive(Debug, Default)]
+/// `TerminalPeerTestFaultState`), with the owner commands reach it through.
+#[derive(Debug)]
 pub struct PeerFaultState {
-    offer: Arc<OfferFaultSlot>,
+    peer: Arc<PeerTestFaults>,
+    direct_path: Arc<DirectPathFaults>,
+    direct: Arc<DirectTerminal>,
 }
 
 impl PeerFaultState {
     /// v2 `dispose`: the harness went away, so nothing it armed may outlive it.
     fn dispose(&self) {
-        self.offer.consume();
+        self.peer.clear();
+        self.direct_path
+            .drop_next_input_result
+            .store(false, Ordering::SeqCst);
         tracing::info!("the terminal peer fault state was cleared");
     }
 }
@@ -52,7 +81,8 @@ impl PeerFaultState {
 #[derive(Debug)]
 pub struct FaultControls {
     sockets: FaultSockets,
-    state: Arc<PeerFaultState>,
+    peer: Arc<PeerTestFaults>,
+    direct_path: Arc<DirectPathFaults>,
 }
 
 impl FaultControls {
@@ -60,26 +90,35 @@ impl FaultControls {
     /// the direct path; `None` for a worker given no fault sockets.
     pub fn attach(boot: &WorkerBoot, door: &LocalTerminalDoor) -> Option<Self> {
         let sockets = boot.fault_sockets.clone()?;
-        door.sockets()
-            .attach_test_faults(DirectInputHold::new(sockets.input_hold_socket.clone()));
+        let direct_path = Arc::new(DirectPathFaults {
+            input_hold: DirectInputHold::new(sockets.input_hold_socket.clone()),
+            drop_next_input_result: AtomicBool::new(false),
+        });
+        door.sockets().attach_test_faults(Arc::clone(&direct_path));
         Some(Self {
             sockets,
-            state: Arc::new(PeerFaultState::default()),
+            peer: Arc::new(PeerTestFaults::default()),
+            direct_path,
         })
     }
 
-    /// The one-shot offer fault the peer owner consumes at `offer()`.
-    pub fn offer_slot(&self) -> Arc<OfferFaultSlot> {
-        Arc::clone(&self.state.offer)
+    /// The faults the peer owner, its connections and ports read.
+    pub fn peer_faults(&self) -> Arc<PeerTestFaults> {
+        Arc::clone(&self.peer)
     }
 
     /// Connect to the harness's command socket and serve it until it closes.
     /// Called once every owner a command reaches is built.
-    pub fn serve_commands(&self, runtime: &Handle) {
+    pub fn serve_commands(self, runtime: &Handle, direct: Arc<DirectTerminal>) {
+        let state = PeerFaultState {
+            peer: self.peer,
+            direct_path: self.direct_path,
+            direct,
+        };
         runtime.spawn(control_socket::serve_fault_commands(
-            self.sockets.peer_fault_socket.clone(),
-            self.sockets.worker_label.clone(),
-            Arc::clone(&self.state),
+            self.sockets.peer_fault_socket,
+            self.sockets.worker_label,
+            Arc::new(state),
         ));
     }
 }

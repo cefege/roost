@@ -1,15 +1,93 @@
-//! The one-shot offer faults a disposable smoke worker arms, consumed at their
-//! real owner boundary inside `peer::owner_offer`. The ordinary worker neither
-//! creates nor receives this state: `runtime::owners` passes no slot. Ports the
-//! offer half of v2 `apps/worker/src/terminal/peer/terminal-peer-test-faults.ts`.
+//! The faults a disposable smoke worker arms on its peer path: the one-shot
+//! offer fault `peer::owner_offer` consumes, the outgoing packet blackhole the
+//! port flush reads, and the malformed control packets injected through
+//! `peer::packet_test_faults`. The ordinary worker neither creates nor
+//! receives this state: `runtime::owners` passes `None` unless built with the
+//! `smoke` feature and given fault sockets. Ports the peer half of v2
+//! `apps/worker/src/terminal/peer/terminal-peer-test-faults.ts`.
 //!
 //! The fault surface is here rather than behind a hidden environment variable
 //! because a fault that can be armed from outside the process is not a test
 //! fixture, it is a production switch nobody will remember to turn off.
 
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use roost_protocol::terminal_peer::peer::TERMINAL_PEER_PACKET_MAGIC;
 
 use super::packet_budget::lock;
+
+/// Every fault a disposable smoke worker arms on its peer path: one per
+/// worker, shared by the owner, its connections and their ports (the peer
+/// half of v2 `TerminalPeerTestFaultState`).
+#[derive(Debug, Default)]
+pub struct PeerTestFaults {
+    offer: OfferFaultSlot,
+    blackhole: AtomicBool,
+}
+
+impl PeerTestFaults {
+    /// The one-shot offer fault `offer()` consumes.
+    pub fn offer(&self) -> &OfferFaultSlot {
+        &self.offer
+    }
+
+    /// v2 `setPacketBlackhole`: every authenticated port stops sending while
+    /// set, and still receives.
+    pub fn set_packet_blackhole(&self, blackholed: bool) {
+        self.blackhole.store(blackholed, Ordering::SeqCst);
+        tracing::info!(blackholed, "the terminal peer packet blackhole was set");
+    }
+
+    /// Whether an authenticated port drops what it would send.
+    pub fn blackholes_outgoing(&self) -> bool {
+        self.blackhole.load(Ordering::SeqCst)
+    }
+
+    /// v2 `dispose`: nothing armed outlives the harness that armed it.
+    pub fn clear(&self) {
+        self.offer.consume();
+        self.blackhole.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Which header field of an injected control packet is malformed (v2
+/// `TerminalPeerMalformedPacketKind`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MalformedPacket {
+    /// A first fragment that claims a non-zero offset.
+    Offset,
+    /// A message that claims zero total bytes.
+    Total,
+    /// A message id of zero.
+    Id,
+}
+
+impl MalformedPacket {
+    /// The kind a command names, or `None` for any other name.
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "offset" => Some(Self::Offset),
+            "total" => Some(Self::Total),
+            "id" => Some(Self::Id),
+            _ => None,
+        }
+    }
+
+    /// The 17 bytes v2 `malformedTerminalPeerControlPacket` builds: the magic,
+    /// then id, total and offset as little-endian u32, then one payload byte.
+    pub fn control_packet(self) -> Vec<u8> {
+        let id = u32::from(self != Self::Id);
+        let total = u32::from(self != Self::Total);
+        let offset = u32::from(self == Self::Offset);
+        let mut packet = Vec::with_capacity(17);
+        for field in [TERMINAL_PEER_PACKET_MAGIC, id, total, offset] {
+            packet.extend_from_slice(&field.to_le_bytes());
+        }
+        packet.push(1);
+        packet
+    }
+}
 
 /// How the next peer offer this worker handles is made to fail.
 ///

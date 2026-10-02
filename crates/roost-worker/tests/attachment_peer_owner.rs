@@ -77,7 +77,7 @@ async fn attachment_peer_failure_leaves_the_terminal_peer_established() {
         }),
         native_loader: fake.loader(),
         packet_budget: Default::default(),
-        offer_faults: None,
+        test_faults: None,
         expire_grant: Arc::new(|_: &str| {}),
         runtime: tokio::runtime::Handle::current(),
     });

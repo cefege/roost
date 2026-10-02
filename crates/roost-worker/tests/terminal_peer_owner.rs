@@ -264,7 +264,7 @@ async fn retires_one_peer_for_an_injected_port_close_or_native_callback() {
             ),
             native_loader: fake.loader(),
             packet_budget: TerminalPeerPacketBudget::new(),
-            offer_faults: None,
+            test_faults: None,
             expire_grant: Arc::new(|_: &str| {}),
             runtime: tokio::runtime::Handle::current(),
         })

@@ -83,7 +83,7 @@ impl TerminalPeerPacketPort {
         result
     }
 
-    fn receive(&self, core: &mut PortCore, channel: usize, binary: bool, data: Vec<u8>) {
+    pub(super) fn receive(&self, core: &mut PortCore, channel: usize, binary: bool, data: Vec<u8>) {
         let Some(ingress) = core.ingress.clone() else {
             self.fail_in_turn(core, "unexpected_client_data");
             return;
@@ -157,9 +157,13 @@ impl TerminalPeerPacketPort {
             let mut progressed = false;
             for lane in TERMINAL_PEER_LANE_PRIORITY {
                 let index = lane as usize;
+                if lane == TerminalPeerPacketLane::History && core.history_paused {
+                    continue;
+                }
                 if self.is_flow_controlled(lane) || !self.native.is_open(index) {
                     continue;
                 }
+                let blackholed = self.blackholes_outgoing(core);
                 let fragment = match core.queues[index].next_fragment() {
                     Ok(Some(fragment)) => fragment,
                     Ok(None) => continue,
@@ -174,16 +178,20 @@ impl TerminalPeerPacketPort {
                     should_yield = true;
                     break;
                 }
-                // Ok(false) is buffered acceptance, never a refusal: the
-                // fragment is the transport's now.
-                let sent = self.native.send(index, fragment.bytes());
-                let Ok(sent_now) = sent else {
-                    core.flushing = false;
-                    self.fail_in_turn(core, "native_send_failed");
-                    return;
-                };
+                // A blackholed fragment is spent exactly as a sent one, so the
+                // lane drains and the peer simply never hears it.
+                if !blackholed {
+                    // Ok(false) is buffered acceptance, never a refusal: the
+                    // fragment is the transport's now.
+                    let sent = self.native.send(index, fragment.bytes());
+                    let Ok(sent_now) = sent else {
+                        core.flushing = false;
+                        self.fail_in_turn(core, "native_send_failed");
+                        return;
+                    };
+                    core.backpressured[index] = !sent_now;
+                }
                 fragment.commit();
-                core.backpressured[index] = !sent_now;
                 resolve_drain_waiters(core, index);
                 sent_bytes += length;
                 progressed = true;
@@ -225,6 +233,15 @@ impl TerminalPeerPacketPort {
     fn is_flow_controlled(&self, lane: TerminalPeerPacketLane) -> bool {
         let (high_bytes, _) = TerminalPeerChannelWatermarks::for_lane(lane);
         self.native.buffered_amount(lane as usize) >= high_bytes
+    }
+
+    /// v2 `shouldBlackholeOutgoing`, asked only once the peer authenticated.
+    fn blackholes_outgoing(&self, core: &PortCore) -> bool {
+        core.authenticated
+            && self
+                .test_faults
+                .as_ref()
+                .is_some_and(|faults| faults.blackholes_outgoing())
     }
 }
 

@@ -18,7 +18,7 @@ use tokio::runtime::Handle;
 use super::config::PeerTransportConfig;
 use super::connection::OpenTerminalPeerPort;
 use super::coordinator_generation::CoordinatorGeneration;
-use super::faults::OfferFaultSlot;
+use super::faults::PeerTestFaults;
 use super::native::NativeLoader;
 use super::owner::{TerminalPeerOfferFailure, TerminalPeerOwner, TerminalPeerOwnerDeps};
 use super::packet_budget::{TerminalPeerPacketBudget, lock};
@@ -56,7 +56,7 @@ pub struct DirectTerminalDeps {
     pub transport: PeerTransportConfig,
     pub native_loader: NativeLoader,
     /// Smoke-only; `None` for every ordinary worker.
-    pub offer_faults: Option<Arc<OfferFaultSlot>>,
+    pub test_faults: Option<Arc<PeerTestFaults>>,
     pub runtime: Handle,
 }
 
@@ -112,7 +112,7 @@ impl DirectTerminal {
             open_peer_port,
             native_loader: deps.native_loader,
             packet_budget: TerminalPeerPacketBudget::new(),
-            offer_faults: deps.offer_faults,
+            test_faults: deps.test_faults,
             expire_grant: Arc::new(move |grant_id: &str| {
                 expiring.remove(grant_id, GrantRemovalReason::Expired);
             }),
