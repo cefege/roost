@@ -9,6 +9,7 @@
 //! with no browser owner in this build is the native Selection guard around the
 //! terminal's own text.
 
+use std::cell::Cell;
 use std::rc::Rc;
 
 use dioxus::html::ModifiersInteraction as _;
@@ -126,15 +127,25 @@ pub fn TerminalComposer(
     // the untrusted tail begins. The field carries the tail so the mirror can
     // cover it exactly, which is why what is STORED is asked for separately.
     let dictation = use_dictation(draft);
+    // Set by a submission for the one write that clears the draft: the field
+    // keeps its grown height through the gesture that sent it, and shrinks once
+    // the submission is behind it, as v2's `sendLine` re-grows only after its
+    // admission settles. A click that repaints the terminal must see the
+    // composer at the geometry the reader clicked at.
+    let hold_height = use_hook(|| Rc::new(Cell::new(false)));
 
     // A controlled textarea is `rows="1"`, so without a re-measure after every
     // write — a keystroke, a restored draft, a dictated tail — the field stays
     // one line tall and the dock never overflows its resting row. Reading both
     // signals is the subscription: the field handle arrives after the first
     // effect pass, and a draft that has not changed still has to be measured.
+    let held = hold_height.clone();
     use_effect(move || {
         let _text = draft();
         let _mounted = field();
+        if held.get() {
+            return;
+        }
         if let Some(field) = field.peek().as_ref() {
             dom::auto_grow(field);
             dom::scroll_to_end(field);
@@ -187,6 +198,7 @@ pub fn TerminalComposer(
     // only in which event carried it.
     let mut send = {
         let handle = handle.clone();
+        let hold_height = hold_height.clone();
         move || {
             if !active || pending {
                 return;
@@ -196,8 +208,20 @@ pub fn TerminalComposer(
                 return;
             }
             handle.send_text(&text, true);
+            hold_height.set(true);
             draft.set(String::new());
             status.set(SubmissionStatus::default());
+            let release = hold_height.clone();
+            spawn(async move {
+                // A timer, not a microtask: a microtask runs between two
+                // listeners of the same click.
+                crate::components::terminal::dom::sleep_ms(0).await;
+                release.set(false);
+                if let Some(field) = field.peek().as_ref() {
+                    dom::auto_grow(field);
+                    dom::scroll_to_end(field);
+                }
+            });
             tracing::debug!(
                 target: "terminal",
                 bytes = text.len(),
