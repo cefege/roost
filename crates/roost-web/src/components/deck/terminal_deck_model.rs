@@ -54,7 +54,7 @@ pub struct DeckFrame {
     pub layout: Option<PaneLayout>,
     /// The painted panes and dividers.
     pub view: DeckView,
-    /// Every open session, in store order.
+    /// Every open session, oldest first: the order the slots are mounted in.
     pub open_session_ids: Vec<String>,
     /// The floated pane's id.
     pub spotlight_pane_id: Option<String>,
@@ -123,13 +123,7 @@ pub fn deck_frame(store: &Store, paths: &dyn WorkerPaths, inputs: &DeckInputs<'_
         inputs.desktop_strip_height
     };
     DeckFrame {
-        open_session_ids: store
-            .sessions
-            .sessions()
-            .values()
-            .filter(|session| session.status == SessionStatus::Open)
-            .map(|session| session.id.as_str().to_owned())
-            .collect(),
+        open_session_ids: open_sessions_oldest_first(store),
         spotlight_pane_id: spotlit.map(|pane| pane.pane_id.clone()),
         spotlight_rect: card,
         park_sizes: park_size_by_session(&view, strip_height),
@@ -142,4 +136,25 @@ pub fn deck_frame(store: &Store, paths: &dyn WorkerPaths, inputs: &DeckInputs<'_
         new_terminal_folder,
         strip_height,
     }
+}
+
+/// The open sessions in the order v2's deck mounted them. v2 walked the session
+/// record in insertion order, where a session lands after every one that
+/// existed when it was created; the store here is keyed by id, so its own order
+/// would put a split's new terminal before or after its sibling by UUID. Slot
+/// DOM order is the keyboard Tab order and what a reader walking the panes
+/// sees, so it must follow creation, with the id only breaking a tie.
+fn open_sessions_oldest_first(store: &Store) -> Vec<String> {
+    let mut open: Vec<&Session> = store
+        .sessions
+        .sessions()
+        .values()
+        .filter(|session| session.status == SessionStatus::Open)
+        .collect();
+    open.sort_by(|left, right| {
+        (left.created_at, left.id.as_str()).cmp(&(right.created_at, right.id.as_str()))
+    });
+    open.into_iter()
+        .map(|session| session.id.as_str().to_owned())
+        .collect()
 }
