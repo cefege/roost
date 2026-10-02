@@ -39,11 +39,19 @@ pub enum DirectHistoryAnswer {
 
 type Reply = Box<dyn FnOnce(DirectHistoryAnswer)>;
 
+/// One read in flight, with the route it went out on.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+struct PendingRead {
+    session_id: String,
+    sent_on: TerminalToken,
+    reply: Reply,
+}
+
 /// The reads sent and not yet answered, by request id.
 #[derive(Default)]
 pub(super) struct DirectHistoryReads {
     next_request: u64,
-    pending: BTreeMap<String, Reply>,
+    pending: BTreeMap<String, PendingRead>,
 }
 
 impl Pump {
@@ -74,7 +82,12 @@ impl Pump {
             let mut reads = self.inner.direct_history.borrow_mut();
             reads.next_request += 1;
             let request_id = format!("history-{}", reads.next_request);
-            reads.pending.insert(request_id.clone(), Box::new(reply));
+            let pending = PendingRead {
+                session_id: call.session_id.clone(),
+                sent_on: token.clone(),
+                reply: Box::new(reply),
+            };
+            reads.pending.insert(request_id.clone(), pending);
             request_id
         };
         let command = DirectCommand::Scrollback {
@@ -97,6 +110,39 @@ impl Pump {
     }
 }
 
+/// A carrier closed: every read whose route is no longer the session's elected
+/// one is lost now rather than at its deadline, so its pager sees the route
+/// change instead of a timeout that may still find the old route elected (v2
+/// `TerminalPeerConnection.close` rejecting its scrollback waiters).
+///
+/// Checked on a later turn: a close performed inside a dispatch only queues its
+/// `CarrierLost`, and the route has not moved until that event is handled.
+#[cfg(target_arch = "wasm32")]
+pub(super) fn lose_reads_off_route(pump: &Pump, reason: &str) {
+    let pump = pump.clone();
+    let reason = reason.to_owned();
+    wasm_bindgen_futures::spawn_local(async move {
+        let stranded: Vec<String> = pump
+            .inner
+            .direct_history
+            .borrow()
+            .pending
+            .iter()
+            .filter(|(_, read)| {
+                pump.elected_direct_history_route(&read.session_id).as_ref() != Some(&read.sent_on)
+            })
+            .map(|(request_id, _)| request_id.clone())
+            .collect();
+        for request_id in stranded {
+            settle(
+                &pump,
+                &request_id,
+                DirectHistoryAnswer::Lost(reason.clone()),
+            );
+        }
+    });
+}
+
 /// A carrier's answer to a read this document sent.
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 pub(super) fn answered(pump: &Pump, answer: DirectScrollback) {
@@ -111,14 +157,14 @@ pub(super) fn answered(pump: &Pump, answer: DirectScrollback) {
 /// Hand `outcome` to the read's pager, outside every pump borrow: the pager's
 /// next step may send another read.
 fn settle(pump: &Pump, request_id: &str, outcome: DirectHistoryAnswer) {
-    let reply = pump
+    let read = pump
         .inner
         .direct_history
         .borrow_mut()
         .pending
         .remove(request_id);
-    match reply {
-        Some(reply) => reply(outcome),
+    match read {
+        Some(read) => (read.reply)(outcome),
         None => tracing::debug!(
             target: "scrollback",
             request_id,
