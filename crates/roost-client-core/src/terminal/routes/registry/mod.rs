@@ -134,13 +134,14 @@ impl RouteRegistry {
         };
         let lost = self.take_routes_for_connection(connection_id);
         self.promote_candidate_if_possible(&worker_fp);
+        // The views' demand outlives the connection: it is what lets the carrier
+        // that replaces this one be promoted. Only `retire_worker` drops it.
         if self
             .connections
             .get(&worker_fp)
             .is_some_and(|slots| slots.active.is_none() && slots.candidate.is_none())
         {
             self.connections.remove(&worker_fp);
-            self.demands.remove(&worker_fp);
         }
         lost
     }

@@ -127,3 +127,50 @@ fn an_elected_direct_route_wins_and_a_dead_grant_refuses_rather_than_falling_bac
          than moved to Sync, which would hide the route loss from the client"
     );
 }
+
+/// A worker whose last carrier died still has panes wanting its sessions, so the
+/// carrier that replaces it can be promoted. The demand belongs to the views,
+/// not to a connection (v2 `#unregister` keeps `#demands`; only `retireWorker`
+/// drops them).
+#[test]
+fn a_replacement_carrier_is_promotable_after_the_last_one_dies() {
+    let (mut registry, _) = registry_with_a_loopback_route();
+    let lost = registry.unregister(CONNECTION);
+    assert_eq!(lost.len(), 1, "the dead carrier's route is reported lost");
+
+    let token = TerminalToken::direct(8, TerminalTransport::Loopback, "worker-a", "epoch-b", 7);
+    let replacement = DirectCarrier {
+        connection_id: "replacement".into(),
+        worker_fp: "worker-a".into(),
+        transport: TerminalTransport::Loopback,
+        token: token.clone(),
+        socket_id: "socket-b".into(),
+        granted_sessions: BTreeSet::from(["session-a".to_string()]),
+    };
+    assert!(registry.register(replacement).accepted);
+    let mut replica = TerminalSession::new("session-a", "worker-a");
+    replica.bind_generation(&token);
+    let candidate = PromotionCandidate {
+        session_id: "session-a".into(),
+        connection_id: "replacement".into(),
+        token: token.clone(),
+        attempt_id: 2,
+        baseline_ready: true,
+        prospective_views: BTreeMap::from([(
+            "view-1".to_string(),
+            ProspectiveView {
+                wire_view_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
+                source_intent: ViewIntent::Publish { cols: 80, rows: 24 },
+                source_revision: 3,
+                candidate_revision: 4,
+                acknowledged: true,
+            },
+        )]),
+        staged_at_ms: 0,
+    };
+    assert!(registry.stage(candidate, replica));
+    assert!(
+        registry.promote("session-a", 2, &token).is_ok(),
+        "the pane never stopped wanting the session, so the new carrier is elected"
+    );
+}
