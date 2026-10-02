@@ -7,7 +7,7 @@
 use std::rc::Rc;
 
 use js_sys::Promise;
-use serde_json::Value;
+use serde_json::{Value, json};
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast as _, JsValue};
 use wasm_bindgen_futures::JsFuture;
@@ -20,6 +20,7 @@ use super::paint_proof::{
     CursorProof, MarkerProof, RectSnapshot, cursor_aligned, dataset_coordinate,
 };
 use super::timing::{timing_result, unknown_timing};
+use crate::platform::browser::phase_marks::{PhaseName, mark_phase};
 
 /// Resolve on the next animation frame.
 pub(super) async fn next_frame() {
@@ -148,6 +149,18 @@ pub(super) async fn wait_for_painted_marker(
                     frames: 2,
                 };
                 tracing::info!(target: "smoke", session_id, "marker presented");
+                mark_phase(
+                    PhaseName::MarkerPresented,
+                    &[
+                        ("sessionId", json!(session_id)),
+                        (
+                            "marker",
+                            json!(marker.chars().take(160).collect::<String>()),
+                        ),
+                        ("markerWidth", json!(proof.marker_rect.width)),
+                        ("markerHeight", json!(proof.marker_rect.height)),
+                    ],
+                );
                 let proof = serde_json::to_value(proof).map_err(|error| error.to_string())?;
                 backdoor.record_geometry_proof(session_id, &proof);
                 return Ok((proof, monotonic_ms));
@@ -248,6 +261,16 @@ pub(super) async fn wait_for_painted_cursor(
                     visual_viewport: confirmed.viewport,
                     frames: 2,
                 };
+                mark_phase(
+                    PhaseName::CursorPresented,
+                    &[
+                        ("sessionId", json!(session_id)),
+                        ("row", json!(proof.row)),
+                        ("column", json!(proof.column)),
+                        ("cursorWidth", json!(proof.rect.width)),
+                        ("cursorHeight", json!(proof.rect.height)),
+                    ],
+                );
                 return serde_json::to_value(proof).map_err(|error| error.to_string());
             }
         }

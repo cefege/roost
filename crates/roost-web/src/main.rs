@@ -14,10 +14,14 @@
 //! binary target: a wasm-bindgen start hook is only found in a library, and a
 //! `cdylib`-only crate has no `main` for the native build of the same tree.
 
+use roost_web::platform::browser::phase_marks::{PhaseName, mark_phase};
 use roost_web::platform::{FragmentCredential, capture_and_scrub};
 
 fn main() {
     roost_web::install_tracing();
+    mark_phase(PhaseName::ModuleStart, &[]);
+    #[cfg(target_arch = "wasm32")]
+    roost_web::platform::browser::perf_counters::install_long_task_watch();
     // A wasm panic surfaces as `RuntimeError: unreachable` with no message; the
     // hook puts the message and location in the console, where the Playwright
     // oracle's page log and a user's bug report both read it.
