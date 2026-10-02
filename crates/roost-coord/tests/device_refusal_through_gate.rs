@@ -109,12 +109,17 @@ impl GatedListener {
     /// place it can be: a browser cannot act on a header the wire did not
     /// carry, however the refusal was built.
     async fn call(&self, method: &str, bearer: Option<&str>, body: Value) -> Answer {
+        self.call_raw(method, bearer, body.to_string()).await
+    }
+
+    /// `call` with the request body as bytes, for a body no `Value` describes.
+    async fn call_raw(&self, method: &str, bearer: Option<&str>, body: String) -> Answer {
         let url = format!("http://{}{CONNECT_PATH_PREFIX}{method}", self.address);
         let mut request = reqwest::Client::new()
             .post(url)
             .header("content-type", "application/json")
             .header("connect-protocol-version", "1")
-            .body(body.to_string());
+            .body(body);
         if let Some(token) = bearer {
             request = request.header("authorization", format!("Bearer {token}"));
         }
@@ -278,11 +283,19 @@ async fn a_full_relay_chunk_reaches_the_gate_and_an_oversized_body_does_not() {
     assert_eq!(answer.body["code"], "unauthenticated");
 
     let answer = listener
-        .call(
-            "AttachFileChunk",
-            None,
-            relay_chunk_body(MAX_REQUEST_BODY_BYTES),
-        )
+        .call_raw("AttachFileChunk", None, one_byte_over_the_cap())
         .await;
     assert_eq!(answer.body["code"], "resource_exhausted", "{}", answer.body);
+}
+
+/// A JSON body exactly one byte over the cap. The server reads one byte past
+/// the cap before it refuses, so this body is consumed in full first; a longer
+/// one is still being written when the refusal closes the connection, and the
+/// client then reports a broken pipe instead of the answer.
+fn one_byte_over_the_cap() -> String {
+    let envelope = r#"{"data":""}"#.len();
+    format!(
+        r#"{{"data":"{}"}}"#,
+        "a".repeat(MAX_REQUEST_BODY_BYTES + 1 - envelope)
+    )
 }
