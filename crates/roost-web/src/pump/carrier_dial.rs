@@ -45,7 +45,7 @@ use roost_client_core::client::local::door::LoopbackReady;
 
 use super::Pump;
 use super::carriers::{Pending, report_mint_refusal};
-use crate::platform::carriers::dial::{self, DialPlan};
+use crate::platform::carriers::dial::{self, DialFault, DialPlan};
 use crate::platform::carriers::{CarrierFault, LoopbackConnection};
 use crate::platform::door_probe;
 use crate::platform::loopback::{LoopbackMessage, open_loopback_socket};
@@ -69,22 +69,7 @@ pub(super) fn dial(pump: &Pump, grant: LocalTerminalGrant) {
 
 /// Resolve the door, then open the socket on the grant.
 async fn open(pump: &Pump, grant: &LocalTerminalGrant, worker_fp: &str, sessions: &str) {
-    let Some(door) = resolve_door(pump).await else {
-        // The absence IS the answer, and reporting it is what lets a page
-        // elsewhere go on to a peer: a machine that has finished looking and
-        // found no door must not read as one that has not looked yet.
-        pump.dispatch(ClientEvent::LocalDoorAnswered {
-            worker_fp: worker_fp.to_owned(),
-            serving_worker_fp: String::new(),
-        });
-        let fault = dial::plan(grant, None).err();
-        let detail = fault.map_or_else(
-            || "this page adopted no worker door".to_owned(),
-            |fault| fault.to_string(),
-        );
-        report_mint_refusal(pump, worker_fp, sessions, &detail);
-        return;
-    };
+    let door = resolve_door(pump).await;
     // The ANSWER, reported the moment discovery settles and not the socket:
     // `LoopbackProbe::permits_peer` refuses a peer until this arrives, so a
     // document that discovers its own worker and never says so allocates a
@@ -93,16 +78,34 @@ async fn open(pump: &Pump, grant: &LocalTerminalGrant, worker_fp: &str, sessions
     // what releases a peer rather than what blocks one.
     pump.dispatch(ClientEvent::LocalDoorAnswered {
         worker_fp: worker_fp.to_owned(),
-        serving_worker_fp: door.worker_fingerprint.clone(),
+        serving_worker_fp: door
+            .as_ref()
+            .map(|door| door.worker_fingerprint.clone())
+            .unwrap_or_default(),
     });
-    let Ok(DialPlan { origin, url, hello }) = dial::plan(grant, Some(&door)) else {
-        report_mint_refusal(
-            pump,
-            worker_fp,
-            sessions,
-            "the adopted door refused the grant the coordinator minted",
-        );
-        return;
+    let (origin, url, hello, door_worker_fp) = match dial::plan(grant, door.as_ref()) {
+        Ok(DialPlan { origin, url, hello }) => {
+            let door_worker_fp = door.map(|door| door.worker_fingerprint).unwrap_or_default();
+            (origin, url, hello, door_worker_fp)
+        }
+        // No door for THIS worker is not a refusal of the grant: the same
+        // credential is what a WebRTC peer authenticates on, and v2 never builds
+        // a loopback controller without a matching door, so its grant survives
+        // to the peer. Refusing it here drops the grant the peer is about to
+        // spend its Hello on.
+        Err(fault @ (DialFault::NoDoor { .. } | DialFault::ForeignDoor { .. })) => {
+            tracing::info!(
+                target: "carriers",
+                worker_fp,
+                detail = %fault,
+                "no loopback carrier for this worker; the grant is left to a peer"
+            );
+            return;
+        }
+        Err(fault) => {
+            report_mint_refusal(pump, worker_fp, sessions, &fault.to_string());
+            return;
+        }
     };
     let connection_id =
         crate::platform::carrier::CarrierIdentity::mint(worker_fp, TerminalTransport::Loopback)
@@ -114,7 +117,6 @@ async fn open(pump: &Pump, grant: &LocalTerminalGrant, worker_fp: &str, sessions
     };
     match open_loopback_socket(connection_id.clone(), &origin, &hello, notify) {
         Ok(handle) => {
-            let door_worker_fp = door.worker_fingerprint.clone();
             let mut held = pump.inner.carriers.borrow_mut();
             held.expect_ready(connection_id, handle, grant.clone(), door_worker_fp);
             drop(held);
