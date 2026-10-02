@@ -1,12 +1,12 @@
 //! The pair, audit and control-lane folds: pair requests and the paired-browser
 //! notice, live audit rows, UI commands for the bridge, a relocation notice,
-//! and the answers to route claims and transport probes.
+//! and the answers to transport probes.
 //!
 //! Called by `apply_frame` only. Ported from `apps/web/src/store/sync-frame.ts`
 //! (`pairRequestDelta` 285-350, `auditRow` 161-176, `uiCommand` 334-340),
 //! `apps/web/src/lib/pairedBrowserNotice.ts`, and the `_dispatchSyncV2Control`
-//! consumers in `apps/web/src/store/transport/sync-outbound.ts:213-226` and
-//! `sync-terminal-control-probe.ts:99-119`.
+//! consumer in `sync-terminal-control-probe.ts:99-119`. Route-claim answers are
+//! `handle_sync::promotion`'s.
 
 use std::collections::BTreeSet;
 
@@ -20,8 +20,7 @@ use crate::store::sync_feeds::{
 use crate::store::toasts::{ToastId, ToastKind, ToastOptions, ToastSource, raise_toast};
 use crate::sync::SyncDomain;
 use crate::sync::inbound::{
-    AuditEntry, CoordinatorRelocation, InputRouteResult, PairRequestChange, PairedBrowser,
-    TransportProbeResult,
+    AuditEntry, CoordinatorRelocation, PairRequestChange, PairedBrowser, TransportProbeResult,
 };
 
 use super::close_failed::close_failed_sync_link;
@@ -167,26 +166,6 @@ pub(super) fn fold_coordinator_relocation(
             relocation.handoff_id, relocation.target_url
         ),
         out,
-    );
-}
-
-/// Hold the newest route-claim answer per session for the claim waiter, which
-/// matches it by `request_id` (v2 `syncClaimWaiters`, `sync-outbound.ts:213-224`).
-pub(super) fn fold_input_route_result(store: &mut Store, result: &InputRouteResult) {
-    if store.input_route_results.get(&result.session_id) == Some(result) {
-        return;
-    }
-    store
-        .input_route_results
-        .insert(result.session_id.clone(), result.clone());
-    store.note_change();
-    tracing::info!(
-        target: "sync",
-        session_id = %result.session_id,
-        request_id = %result.request_id,
-        accepted = result.accepted,
-        revision = result.revision,
-        "input route claim answered"
     );
 }
 

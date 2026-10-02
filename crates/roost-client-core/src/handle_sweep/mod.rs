@@ -94,6 +94,9 @@ pub fn handle_sweep(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
     }
 
     crate::handle_terminal::sweep_candidate_deadlines(store, now_ms, out);
+    // After the baseline deadline, so a promotion whose candidate it just
+    // cancelled releases its held input on this same pass.
+    crate::handle_sync::sweep_route_claims(store, now_ms, out);
 
     // Held input. A batch that waited out its admission is REFUSED, not sent:
     // nothing left the client, so refusing it cannot lose a keystroke.

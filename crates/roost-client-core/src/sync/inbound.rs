@@ -96,6 +96,10 @@ pub enum SyncFrame {
         view_id: String,
         /// The generation the acknowledgement belongs to.
         generation: u64,
+        /// The view revision the authority answered. A state the authority
+        /// broadcast after a re-mint answers no command, and this is what
+        /// matches it to the view's current intent.
+        revision: u64,
         /// Whether the authority holds the view.
         accepted: bool,
         /// The stream the authority now mints, empty when it minted none.

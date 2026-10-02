@@ -42,6 +42,9 @@ pub struct ViewStateResult {
     /// The generation the acknowledgement belongs to. A result for any other
     /// generation is stale and changes nothing.
     pub generation: u64,
+    /// The view revision the authority answered: an awaited command's, or the
+    /// current intent's when the authority broadcast a re-minted stream.
+    pub revision: u64,
     /// Whether the authority holds the view.
     pub accepted: bool,
     /// The stream id the authority is now minting, when it accepted.

@@ -148,6 +148,8 @@ pub fn accepted_view_state() -> SyncFrame {
         session_id: SESSION.to_owned(),
         view_id: WIRE.to_owned(),
         generation: SOCKET_GENERATION,
+        // One past the pane's first intent: the revision a candidate publishes.
+        revision: 2,
         accepted: true,
         stream_id: STREAM.to_owned(),
         effective_cols: COLS,

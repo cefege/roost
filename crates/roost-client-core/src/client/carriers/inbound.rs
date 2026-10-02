@@ -33,15 +33,7 @@ impl DirectInbound {
             Self::ViewState {
                 session_id,
                 view_id,
-                // The revision the authority answered is still not carried across,
-                // and deliberately: the direct path correlates on the WIRE view id
-                // plus the socket generation this call stamps, because the record
-                // that has to acknowledge the answer is the CANDIDATE's own
-                // prospective view — found by the id the candidate published, not
-                // by the revision it published under. The revision that id was
-                // published under is already on the candidate
-                // (`handle_sync::candidate::apply_direct_view_state`).
-                revision: _,
+                revision,
                 accepted,
                 stream_id,
                 effective_cols,
@@ -50,6 +42,7 @@ impl DirectInbound {
                 session_id,
                 view_id,
                 generation,
+                revision,
                 accepted,
                 stream_id,
                 effective_cols,
@@ -71,6 +64,7 @@ impl DirectInbound {
                     generation,
                 })
             }
+            Self::InputRouteResult(result) => Some(SyncFrame::InputRouteResult { result }),
             // A close is a socket ending, and a handshake is the transport's own
             // state. Neither is a frame the fold should ever see.
             Self::Closed { .. } | Self::Ready(_) | Self::PreHelloFrame => None,

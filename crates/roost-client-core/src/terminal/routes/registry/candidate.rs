@@ -153,8 +153,7 @@ impl RouteRegistry {
             })
     }
 
-    /// Promote a staged candidate to the session's route, and hand back the
-    /// replica that becomes canonical.
+    /// Whether a staged candidate may be promoted now, without promoting it.
     ///
     /// Refused unless ALL of the following hold, and every one of them is a way
     /// a promotion has gone wrong:
@@ -170,12 +169,15 @@ impl RouteRegistry {
     /// - a live view still wants this session on that worker;
     /// - if another connection already holds the active slot, this one is
     ///   loopback — the preference order made enforceable rather than hoped for.
-    pub fn promote(
-        &mut self,
+    ///
+    /// Asked before the input route is claimed as well as at the commit: a
+    /// candidate that could never be promoted must not move the worker's route.
+    pub fn promotable(
+        &self,
         session_id: &str,
         attempt_id: u64,
         token: &TerminalToken,
-    ) -> Result<TerminalSession, PromotionRefusal> {
+    ) -> Result<String, PromotionRefusal> {
         let candidate = self
             .candidates
             .get(session_id)
@@ -196,10 +198,10 @@ impl RouteRegistry {
         if &candidate.token != token {
             return Err(PromotionRefusal::TokenChanged);
         }
-        let Some(worker_fp) = token.worker_fp.clone() else {
+        let Some(worker_fp) = token.worker_fp.as_deref() else {
             return Err(PromotionRefusal::TokenChanged);
         };
-        let Some(slots) = self.connections.get(&worker_fp) else {
+        let Some(slots) = self.connections.get(worker_fp) else {
             return Err(PromotionRefusal::ConnectionGone);
         };
         let Some(carrier) = slots.candidate.as_ref().or(slots.active.as_ref()) else {
@@ -211,7 +213,7 @@ impl RouteRegistry {
         if !carrier.allows_session(session_id) {
             return Err(PromotionRefusal::GrantDoesNotAdmit);
         }
-        if !self.has_view_demand(&worker_fp, session_id) {
+        if !self.has_view_demand(worker_fp, session_id) {
             return Err(PromotionRefusal::NoViewDemand);
         }
         let displaces_active = slots
@@ -221,6 +223,22 @@ impl RouteRegistry {
         if displaces_active && carrier.transport != TerminalTransport::Loopback {
             return Err(PromotionRefusal::LoopbackPreferred);
         }
+        Ok(carrier.connection_id.clone())
+    }
+
+    /// Promote a staged candidate to the session's route, and hand back the
+    /// replica that becomes canonical. Refused for every reason `promotable`
+    /// names.
+    pub fn promote(
+        &mut self,
+        session_id: &str,
+        attempt_id: u64,
+        token: &TerminalToken,
+    ) -> Result<TerminalSession, PromotionRefusal> {
+        let connection_id = self.promotable(session_id, attempt_id, token)?;
+        let Some(worker_fp) = token.worker_fp.clone() else {
+            return Err(PromotionRefusal::TokenChanged);
+        };
         self.candidates.remove(session_id);
         let promoted = self
             .staged
@@ -229,7 +247,7 @@ impl RouteRegistry {
         self.routes.insert(
             session_id.to_string(),
             SessionRoute {
-                connection_id: carrier.connection_id.clone(),
+                connection_id,
                 token: token.clone(),
             },
         );
@@ -293,10 +311,22 @@ impl RouteRegistry {
             .collect()
     }
 
-    /// Every staged attempt, with the instant it began, for the deadline sweep.
-    pub fn staged_attempts(&self) -> Vec<(String, u64, u64)> {
+    /// Every staged attempt still short of a promotable baseline, with the
+    /// instant it began, for the baseline deadline sweep.
+    ///
+    /// One that has its baseline and every view answered is past that deadline's
+    /// question: it is draining and claiming the input route, which has its own
+    /// deadlines, and cancelling it there would strand the claim mid-flight.
+    pub fn attempts_awaiting_baseline(&self) -> Vec<(String, u64, u64)> {
         self.candidates
             .iter()
+            .filter(|(_, candidate)| {
+                !candidate.baseline_ready
+                    || candidate
+                        .prospective_views
+                        .values()
+                        .any(|view| !view.acknowledged)
+            })
             .map(|(session_id, candidate)| {
                 (
                     session_id.clone(),

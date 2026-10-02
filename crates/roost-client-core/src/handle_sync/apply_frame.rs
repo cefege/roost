@@ -10,10 +10,11 @@ use crate::effect::Effect;
 use crate::store::Store;
 use crate::sync::{SyncDomain, SyncFrame};
 use crate::terminal::smoke_faults::FaultedFrameKind;
+use crate::terminal::token::TerminalTransport;
 
 use super::fold_controls::{
-    fold_audit_row, fold_coordinator_relocation, fold_input_route_result, fold_pair_request,
-    fold_transport_probe_result, fold_ui_command,
+    fold_audit_row, fold_coordinator_relocation, fold_pair_request, fold_transport_probe_result,
+    fold_ui_command,
 };
 use super::fold_registry::{
     fold_mcp_message, fold_task_delta, fold_worker_presence, fold_worker_routable,
@@ -129,6 +130,9 @@ pub(super) fn apply_frame(
             let Some(token) = store.sync.terminal_token() else {
                 return;
             };
+            if elected_direct_owns(store, session_id) {
+                return;
+            }
             let (full, seq) = (cell.full, Some(cell.seq));
             if store.terminal_smoke_faults.consume(
                 session_id,
@@ -157,6 +161,9 @@ pub(super) fn apply_frame(
             let Some(token) = store.sync.terminal_token() else {
                 return;
             };
+            if elected_direct_owns(store, session_id) {
+                return;
+            }
             let full = chunk.part.as_option().map(|part| part.full);
             if let Some(full) = full
                 && store.terminal_smoke_faults.consume(
@@ -236,7 +243,13 @@ pub(super) fn apply_frame(
         SyncFrame::CoordinatorRelocation { relocation } => {
             fold_coordinator_relocation(store, generation, relocation, out);
         }
-        SyncFrame::InputRouteResult { result } => fold_input_route_result(store, result),
+        SyncFrame::InputRouteResult { result } => {
+            // Settled against the Sync generation it arrived on: a claim sent
+            // on a socket that has since redialled is answered for nobody.
+            if let Some(token) = store.sync_terminal_token() {
+                super::promotion::settle_route_result(store, &token, result, now_ms, out);
+            }
+        }
         SyncFrame::TransportProbeResult { result } => {
             fold_transport_probe_result(store, generation, result, now_ms);
         }
@@ -249,4 +262,21 @@ pub(super) fn apply_frame(
             tracing::trace!(target: "sync", frame = frame.kind_name(), "frame applied");
         }
     }
+}
+
+/// Whether an elected direct carrier owns this session's replica, which makes a
+/// Sync cell frame for it a straggler.
+///
+/// The coordinator keeps forwarding the session's Sync stream for a while after
+/// a promotion. Admitting those frames would rebind the replica to Sync, and the
+/// next keystroke would leave on Sync without the route epoch the promotion
+/// claimed, which the worker refuses as a changed input route. v2 drops every
+/// frame whose owner is not the session's generation, and only a publication
+/// moves that generation (`terminal-stream-replica.ts`); the Sync rotation after
+/// a lost direct route is the publication that rebinds this replica to Sync.
+fn elected_direct_owns(store: &Store, session_id: &str) -> bool {
+    store
+        .terminal(session_id)
+        .and_then(|replica| replica.generation())
+        .is_some_and(|token| token.transport != TerminalTransport::Sync)
 }

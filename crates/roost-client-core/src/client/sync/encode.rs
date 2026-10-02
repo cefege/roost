@@ -10,7 +10,7 @@ use roost_proto::__buffa::oneof::sync_client_frame::Command;
 use roost_proto::buffa::{EnumValue, Message};
 use roost_proto::{
     InputCommand, SyncClientFrame, SyncDomainReadyCommand, SyncDomainSubscriptionCommand,
-    TerminalResyncCommand, TerminalViewCommand,
+    TerminalInputRouteClaim, TerminalResyncCommand, TerminalViewCommand,
 };
 
 use crate::client::ui_state::LayoutApplyOutcome;
@@ -118,6 +118,25 @@ pub fn encode_sync_command(command: &SyncCommand, socket_id: &str) -> Vec<u8> {
                 input_route_epoch: input_route_epoch.clone(),
                 ..Default::default()
             }))),
+        ),
+        SyncCommand::TerminalInputRouteClaim {
+            session_id,
+            request_id,
+            revision,
+            worker_epoch,
+            token,
+        } => (
+            None,
+            Some(Command::InputRouteClaim(Box::new(
+                TerminalInputRouteClaim {
+                    request_id: request_id.clone(),
+                    session_id: session_id.clone(),
+                    revision: *revision,
+                    domain_generation: token.domain_generation,
+                    worker_epoch: worker_epoch.clone(),
+                    ..Default::default()
+                },
+            ))),
         ),
         SyncCommand::UiApplyLayoutResult(result) => (
             None,

@@ -143,6 +143,7 @@ pub(super) fn view_state(value: TerminalViewStateFrame, domain_generation: u64) 
         session_id: value.session_id,
         view_id: value.view_id,
         generation: domain_generation,
+        revision: value.revision,
         stream_id: value.stream_id,
         effective_cols: value.effective_cols,
         effective_rows: value.effective_rows,
