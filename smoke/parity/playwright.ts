@@ -8,6 +8,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import {
 	PIN_DIRECTORY,
+	ParityRefusal,
 	REPOSITORY_ROOT,
 	currentGitSha,
 	formatPinManifest,
@@ -84,6 +85,11 @@ export function runSuite(options: SuiteRunOptions): number {
 	if (options.stack === "rust") {
 		manifest = requireCurrentPin(options.allowStale);
 		console.log(formatPinManifest(manifest));
+		// A suite is a gate or a baseline, and both describe what ships: a `--fast` pin is
+		// linked without LTO, so its timings are not the release binary's.
+		if (manifest.profile !== "release") {
+			throw new ParityRefusal(`a suite runs release artifacts; this pin is profile=${manifest.profile} (rebuild without --fast)`);
+		}
 		stackEnvironment = rustStackEnvironment(manifest);
 	} else {
 		manifest = { gitSha: currentGitSha(), dirty: workingTreeDirty(), ranAt: startedAt.toISOString() };

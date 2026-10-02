@@ -442,10 +442,14 @@ cargo build --release -p roost-cli -p roost-keeper
 Oracle parity on the Rust stack. Every build and run goes through the runner:
 `build` pins `roost`, `roost-keeper` and the dx bundle in `.smoke-pin/` (outside
 `target/`, so the harness never rebuilds them) and writes `manifest.json`,
-which `spec` and `suite` print first and refuse when it is not HEAD's:
+which `spec` and `suite` print first and refuse when it is not HEAD's.
+`--fast` builds with the `smoke` cargo profile (release without LTO): a
+one-crate change re-links instead of re-optimising the whole binary, so it is
+the per-fix build. `suite` refuses a `--fast` pin, because a suite is a gate or
+a baseline and both describe the release artifacts:
 
 ```
-bun smoke/parity/run.ts build [--no-web] [--plain]
+bun smoke/parity/run.ts build [--no-web] [--plain] [--fast]
 bun smoke/parity/run.ts spec <file[:line]>… [--project <p>] [--repeat N] [--trace]
 bun smoke/parity/run.ts suite --stack rust|bun [--pass main|serial|both] [--label <l>]
 bun smoke/parity/run.ts verdict <rust.run.json> [<bun.run.json>] [--md <out.md>]
@@ -474,7 +478,8 @@ browser.
 ### Per-fix loop for oracle parity
 
 1. A fix is done only when its proving spec was watched green on freshly
-   built, pinned artifacts in the same turn; gates prove compilation, not behaviour.
+   built, pinned artifacts in the same turn (`--fast` is fine for the loop; a
+   merge re-proves on a release pin); gates prove compilation, not behaviour.
 2. Every build and run goes through `smoke/parity/run.ts`. Never hand-copy
    binaries; never run a spec against `target/` paths.
 3. One proving spec per claim before anything else is dispatched; an agent's
