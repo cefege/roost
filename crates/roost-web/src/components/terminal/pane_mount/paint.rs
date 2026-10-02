@@ -7,6 +7,7 @@
 
 use roost_client_core::store::terminal_transport::session_terminal_transport_kind;
 use roost_client_core::store::terminal_transport::transport_attribute;
+use roost_protocol::cell::CellGridFrame;
 use roost_web_terminal::terminal_presentation::{
     PresentationFrameMark, PresentationInputs, PresentationPane, TerminalPresentationState,
 };
@@ -26,6 +27,13 @@ pub(super) struct StoreRead {
     pub(super) status: Option<PaneViewStatus>,
     transport: Option<&'static str>,
     gestures_forwarded_pref: bool,
+}
+
+/// How a paint reached the renderer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PaintedAs {
+    Deltas,
+    Full,
 }
 
 pub(super) fn read_store(shared: &PaneShared) -> StoreRead {
@@ -50,11 +58,14 @@ pub(super) fn sync_store(shared: &PaneShared) {
         return;
     }
     let read = read_store(shared);
-    let advanced = shared
-        .state
-        .borrow_mut()
-        .feed
-        .observe_revision(read.frame_revision);
+    let advanced = {
+        let mut state = shared.state.borrow_mut();
+        let advanced = state.feed.observe_revision(read.frame_revision);
+        if advanced && !(state.flags.view_active() && state.page_visible) {
+            state.feed.park();
+        }
+        advanced
+    };
     set_if_changed(shared.ui.transport, read.transport);
     set_if_changed(
         shared.ui.gestures_forwarded,
@@ -99,33 +110,41 @@ fn paint_owed(shared: &PaneShared, now: u64) {
     }
     #[cfg(feature = "smoke")]
     {
-        if shared.panes.dom_held(&shared.session_id) {
-            return;
-        }
+        // A held pane still folds every frame into the renderer's canonical;
+        // only its DOM stays put, which is the stall the repair watchdog sees.
+        let held = shared.panes.dom_held(&shared.session_id);
+        shared.renderer.borrow_mut().set_dom_frozen(held);
         if shared.panes.take_frame_drop(&shared.session_id) {
             shared.state.borrow_mut().feed.skip();
             return;
         }
     }
-    let canonical = {
+    let delta_base = shared.state.borrow().feed.delta_base();
+    let read = {
         let core = shared.pump.core();
         let core = core.borrow();
         core.store()
             .terminal
             .get(&shared.session_id)
-            .and_then(|replica| replica.canonical().cloned())
+            .and_then(|replica| {
+                let canonical = replica.canonical()?.clone();
+                let deltas = delta_base
+                    .and_then(|base| replica.deltas_since(base))
+                    .filter(|deltas| !deltas.is_empty())
+                    .map(<[CellGridFrame]>::to_vec);
+                Some((replica.frame_revision(), canonical, deltas))
+            })
     };
-    let Some(canonical) = canonical else {
+    let Some((revision, canonical, deltas)) = read else {
         shared.state.borrow_mut().feed.skip();
         return;
     };
-    let applied = shared.renderer.borrow_mut().apply_full_frame(&canonical);
-    if !applied {
+    let Some(painted_as) = apply_owed_frames(shared, &canonical, deltas.as_deref()) else {
         tracing::warn!(target: "terminal", session_id = %shared.session_id, seq = canonical.seq,
             "render paint refused; repainting on the next revision");
         shared.state.borrow_mut().feed.owe_paint();
         return;
-    }
+    };
     shared.modes.set(FrameModes {
         cursor_keys_app: canonical.cursor_keys_app,
         bracketed_paste: canonical.bracketed_paste,
@@ -134,16 +153,22 @@ fn paint_owed(shared: &PaneShared, now: u64) {
         mouse_tracking: canonical.mouse_tracking,
     });
     set_if_changed(shared.ui.alt_screen, canonical.alt_screen);
-    let delivery = shared.state.borrow_mut().feed.painted(&canonical);
+    let delivery = shared.state.borrow_mut().feed.painted(&canonical, revision);
     super::echo::on_frame(shared, &canonical, delivery.scrollback_appended);
+    // The view's real status: without it the controller reads the pane as
+    // unready, and an unready refresh forgets the activity this frame just
+    // recorded, so the pane never reads `receiving`.
+    let status = read_store(shared).status;
     let work = {
         let mut state = shared.state.borrow_mut();
         state.cursor = Some((canonical.cursor_col, canonical.cursor_row));
         let mut renderer = shared.renderer.borrow_mut();
         let work = state.backfill.on_full_frame(&mut *renderer);
-        let inputs = presentation_inputs(&state, None, &renderer, now);
+        let inputs = presentation_inputs(&state, status, &renderer, now);
+        // Only a delta batch is output; a full is an attach or a repair, as
+        // v2's renderer delivery marks it.
         let mark = PresentationFrameMark {
-            full: delivery.baseline,
+            full: painted_as == PaintedAs::Full,
             grid_epoch: &canonical.grid_epoch,
             seq: canonical.seq,
         };
@@ -152,6 +177,30 @@ fn paint_owed(shared: &PaneShared, now: u64) {
     };
     perform(shared, vec![PaneAction::Backfill(work)]);
     after_renderer_write(shared, now);
+}
+
+/// Fold the deltas the renderer has not seen, so the history they appended is
+/// painted; the canonical full when there are none or the renderer refuses the
+/// chain (a skipped delivery, a different grid). v2's scheduler makes the same
+/// fallback (`terminal-render-scheduler.ts` `fallback_full`). `None` when the
+/// renderer refused the full too.
+fn apply_owed_frames(
+    shared: &PaneShared,
+    canonical: &CellGridFrame,
+    deltas: Option<&[CellGridFrame]>,
+) -> Option<PaintedAs> {
+    let mut renderer = shared.renderer.borrow_mut();
+    if let Some(deltas) = deltas {
+        if renderer.apply_delta_frames(deltas) {
+            return Some(PaintedAs::Deltas);
+        }
+        tracing::debug!(target: "terminal", session_id = %shared.session_id,
+            deltas = deltas.len(), seq = canonical.seq,
+            "delta batch refused; painting the canonical full");
+    }
+    renderer
+        .apply_full_frame(canonical)
+        .then_some(PaintedAs::Full)
 }
 
 /// Run what the renderer's hooks flagged during a write: the first reconcile,

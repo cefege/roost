@@ -127,6 +127,10 @@ pub struct CellGridRenderer<E = web_sys::Element> {
     /// Installed only by an armed terminal incident recorder. `None` in
     /// production, and an unarmed recorder allocates nothing.
     incident_observer: Option<Box<dyn RendererIncidentObserver>>,
+    /// The oracle's DOM hold: frames keep becoming canonical while no DOM
+    /// write or reconcile watermark follows them. Absent from a release build.
+    #[cfg(feature = "smoke")]
+    dom_frozen: bool,
 }
 
 impl<E> fmt::Debug for CellGridRenderer<E> {
@@ -208,6 +212,8 @@ impl<E: RenderElement> CellGridRenderer<E> {
             on_reconcile,
             request_follow_band_settle,
             incident_observer: None,
+            #[cfg(feature = "smoke")]
+            dom_frozen: false,
         })
     }
 
@@ -245,6 +251,22 @@ impl<E: RenderElement> CellGridRenderer<E> {
     /// renderer's boundaries are then free.
     pub fn set_incident_observer(&mut self, observer: Option<Box<dyn RendererIncidentObserver>>) {
         self.incident_observer = observer;
+    }
+
+    /// Freeze or release the DOM while frames keep applying to the canonical,
+    /// as v2's `smokeTerminalDomFault.ts` stubs the renderer's DOM methods.
+    #[cfg(feature = "smoke")]
+    pub fn set_dom_frozen(&mut self, frozen: bool) {
+        self.dom_frozen = frozen;
+    }
+
+    /// Whether DOM writes are frozen; never without the smoke feature.
+    pub(crate) const fn dom_frozen(&self) -> bool {
+        #[cfg(feature = "smoke")]
+        let frozen = self.dom_frozen;
+        #[cfg(not(feature = "smoke"))]
+        let frozen = false;
+        frozen
     }
 
     /// Enable or disable the focused-pane cursor blink presentation policy.

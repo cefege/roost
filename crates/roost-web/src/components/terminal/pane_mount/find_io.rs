@@ -96,22 +96,11 @@ impl PaneFind {
     /// harmless — but a reader who typed three characters would have queued three
     /// wakes, and the browser would keep them.
     fn cancel_debounce(&mut self) {
-        if let Some(timer) = self.debounce.take() {
-            if let Some(window) = web_sys::window() {
-                window.clear_timeout_with_handle(timer.handle);
-            }
+        if let Some(timer) = self.debounce.take()
+            && let Some(window) = web_sys::window()
+        {
+            window.clear_timeout_with_handle(timer.handle);
         }
-    }
-
-    /// Fire an armed debounce whose time has come.
-    fn fire_debounce(&mut self, shared: &PaneShared) {
-        self.debounce = None;
-        let commands = {
-            let mut renderer = shared.renderer.borrow_mut();
-            self.controller.on_debounce(now_ms(), &mut *renderer)
-        };
-        publish(shared);
-        perform(shared, commands);
     }
 
     /// Retire the controller: nothing it armed may fire afterwards.
@@ -222,10 +211,9 @@ fn arm_debounce(shared: &PaneShared, at_ms: u64) {
     let delay = i32::try_from(at_ms.saturating_sub(now_ms())).unwrap_or(i32::MAX);
     let weak = shared.weak_self();
     let closure = Closure::once(move || {
-        let Some(shared) = weak.upgrade().filter(|shared| !shared.disposed.get()) else {
-            return;
-        };
-        shared.state.borrow_mut().find.fire_debounce(&shared);
+        if let Some(shared) = weak.upgrade().filter(|shared| !shared.disposed.get()) {
+            fire_debounce(&shared);
+        }
     });
     let handle = window
         .set_timeout_with_callback_and_timeout_and_arguments_0(
@@ -237,6 +225,22 @@ fn arm_debounce(shared: &PaneShared, at_ms: u64) {
         handle,
         _closure: closure,
     });
+}
+
+/// An armed debounce's time came: run the search it was holding back.
+///
+/// The state borrow ends before `publish` and `perform`, which borrow it again:
+/// a debounce fired from inside the borrow panicked on its own publication, and
+/// the bar never left `0/0`.
+fn fire_debounce(shared: &PaneShared) {
+    let commands = {
+        let mut state = shared.state.borrow_mut();
+        state.find.debounce = None;
+        let mut renderer = shared.renderer.borrow_mut();
+        state.find.controller.on_debounce(now_ms(), &mut *renderer)
+    };
+    publish(shared);
+    perform(shared, commands);
 }
 
 /// Issue one page of the bounded search chain.
@@ -349,12 +353,14 @@ fn reply_of(page: &SearchScrollbackPage) -> SearchReply {
     }
 }
 
-/// Write the controller's publication into the bar's signal.
+/// Write the controller's publication into the bar's signal: `None` once the
+/// controller closed, which is what unmounts the bar, as v2 shows it only while
+/// `find.open()`.
 fn publish(shared: &PaneShared) {
     let alt_screen = (shared.ui.alt_screen)();
     let state = shared.state.borrow().find.bar_state(alt_screen);
     set_if_changed(shared.ui.find_open, state.open);
-    set_if_changed(shared.ui.find_bar, Some(state));
+    set_if_changed(shared.ui.find_bar, state.open.then_some(state));
 }
 
 /// The pane's find, reached by a global-search result through the pump's

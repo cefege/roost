@@ -10,7 +10,7 @@
 //! identity every rule is scoped to; `view` and `session_views` are the leases;
 //! `routes` and `registry` are the carrier election; `input` and `router` are
 //! the write path; `history` is the absolute scrollback arithmetic a pager
-//! needs.
+//! needs; `renderer_deliveries` is what a renderer folds between paints.
 //!
 //! Contract: `protocol/spec/terminal-stream.md` and
 //! `protocol/spec/direct-terminal.md`. Every rule and its source is in
@@ -23,6 +23,7 @@ pub mod history;
 pub mod history_backfill;
 pub mod input;
 pub mod liveness;
+pub mod renderer_deliveries;
 pub mod repair;
 pub mod resync_position;
 pub mod routes;
