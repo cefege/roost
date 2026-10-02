@@ -72,10 +72,14 @@ impl PaintedDraft {
         }
     }
 
-    /// Whether the ghost mirror should be in the DOM at all.
+    /// Whether the ghost mirror should be in the DOM at all: only while there
+    /// is a provisional tail to paint. A mounted mirror with nothing
+    /// provisional would paint the settled text a second time under the field.
     #[must_use]
     pub fn has_ghost(&self) -> bool {
-        self.provisional_from.is_some()
+        self.provisional_from
+            .and_then(|from| self.text.get(from..))
+            .is_some_and(|tail| !tail.is_empty())
     }
 }
 
@@ -175,6 +179,15 @@ mod tests {
             provisional_from: None,
         };
         assert_eq!(painted.settled_head(), "draft");
+    }
+
+    #[test]
+    fn a_boundary_with_no_words_after_it_paints_no_ghost() {
+        let painted = PaintedDraft {
+            text: "draft".to_owned(),
+            provisional_from: Some("draft".len()),
+        };
+        assert!(!painted.has_ghost());
     }
 
     #[test]
