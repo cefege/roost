@@ -13,8 +13,7 @@ use crate::terminal::smoke_faults::FaultedFrameKind;
 use crate::terminal::token::TerminalTransport;
 
 use super::fold_controls::{
-    fold_audit_row, fold_coordinator_relocation, fold_pair_request, fold_transport_probe_result,
-    fold_ui_command,
+    fold_audit_row, fold_coordinator_relocation, fold_pair_request, fold_ui_command,
 };
 use super::fold_registry::{
     fold_mcp_message, fold_task_delta, fold_worker_presence, fold_worker_routable,
@@ -24,6 +23,8 @@ use super::fold_session_meta::{
     fold_last_activity, fold_session_presence, fold_session_viewers, fold_terminal_title,
 };
 use super::hydration::trigger_hydration;
+use super::transport_probe::fold_transport_probe_result;
+use crate::store::sync_feeds::ProbeRoute;
 
 /// Apply one already-admitted frame, without acknowledging it.
 ///
@@ -251,7 +252,10 @@ pub(super) fn apply_frame(
             }
         }
         SyncFrame::TransportProbeResult { result } => {
-            fold_transport_probe_result(store, generation, result, now_ms);
+            let route = ProbeRoute::Sync {
+                socket_generation: generation,
+            };
+            fold_transport_probe_result(store, &route, result, now_ms);
         }
         SyncFrame::UiState => {
             // Browser tabs deliberately do not project peer UI state: routing

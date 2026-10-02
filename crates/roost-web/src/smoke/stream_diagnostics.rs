@@ -5,6 +5,7 @@
 //! `apps/web/src/store/terminal-stream-diagnostics.ts:77-190,269-338`.
 
 use roost_client_core::Store;
+use roost_client_core::store::sync_feeds::{ProbeRoute, ProbeTelemetry};
 use roost_client_core::sync::SyncDomain;
 use roost_client_core::terminal::input::InputPhase;
 use roost_client_core::terminal::liveness::ForegroundLiveness;
@@ -237,16 +238,17 @@ fn sync_json(store: &Store) -> Value {
 /// for the worker PROCESS, which a restart changes and which is therefore the
 /// field a reader compares across a restart.
 ///
-/// The five telemetry fields come from `super::stream_route_lane`, which reads
-/// the one place that produces them. They stay `null` and `candidate_type`
-/// stays `"none"` on a loopback or Sync route, and that is the product's actual
-/// knowledge rather than a missing measurement: a loopback carrier has no ICE
-/// candidate and a Sync route has no carrier at all, so a round trip on either
-/// would be a number a reader could not tell from a real one.
+/// A peer's five telemetry fields come from `super::stream_route_lane`, which
+/// reads its heartbeat. A loopback or Sync route has no ICE candidate and no
+/// carrier round trip of its own, so `candidate_type` stays `"none"` and only
+/// the worker control probe answered on that exact connection
+/// (`Store::transport_probes`) fills `probe_age_ms` and
+/// `worker_control_rtt_ms`.
 fn route_entry(
     store: &Store,
     transport: TerminalTransport,
     token: Option<&TerminalToken>,
+    worker_fp: &str,
     now_ms: u64,
 ) -> Value {
     let mut entry = json!({
@@ -261,20 +263,45 @@ fn route_entry(
         "buffered_bytes": null,
     });
     let is_peer = token.is_some_and(|token| token.transport == TerminalTransport::Peer);
-    let worker_fp = token
-        .and_then(|token| token.worker_fp.clone())
-        .unwrap_or_default();
     // The entry is built by `json!` from a literal, so it is an object; the
     // `if let` is there so a future edit that makes it something else fails to
     // compile rather than silently dropping the lane's half.
     if let Some(object) = entry.as_object_mut() {
         for (field, value) in
-            super::stream_route_lane::telemetry_fields(&store.direct, &worker_fp, is_peer, now_ms)
+            super::stream_route_lane::telemetry_fields(&store.direct, worker_fp, is_peer, now_ms)
         {
             object.insert(field, value);
         }
+        if let Some(sample) = token
+            .filter(|_| !is_peer)
+            .and_then(|token| control_probe_on(store, token, worker_fp))
+        {
+            object.insert(
+                "probe_age_ms".into(),
+                now_ms.saturating_sub(sample.received_at_ms).into(),
+            );
+            object.insert("worker_control_rtt_ms".into(), sample.control_rtt_ms.into());
+        }
     }
     entry
+}
+
+/// The worker's newest control probe sample, when the connection `token`
+/// names is the one that carried it.
+fn control_probe_on<'store>(
+    store: &'store Store,
+    token: &TerminalToken,
+    worker_fp: &str,
+) -> Option<&'store ProbeTelemetry> {
+    let sample = store.transport_probes.get(worker_fp)?;
+    let carried = match &sample.route {
+        ProbeRoute::Sync { socket_generation } => {
+            token.transport == TerminalTransport::Sync
+                && token.socket_generation == *socket_generation
+        }
+        ProbeRoute::Direct(direct) => direct == token,
+    };
+    carried.then_some(sample)
 }
 
 fn route_json(
@@ -290,10 +317,17 @@ fn route_json(
         .routes
         .route(session_id)
         .filter(|route| owned_by_worker(&route.token));
+    let serving = worker_fp.unwrap_or_default();
     let active = match (active_direct, replica.and_then(TerminalSession::generation)) {
-        (Some(route), _) => route_entry(store, route.token.transport, Some(&route.token), now_ms),
+        (Some(route), _) => route_entry(
+            store,
+            route.token.transport,
+            Some(&route.token),
+            serving,
+            now_ms,
+        ),
         (None, Some(token)) if token.transport == TerminalTransport::Sync => {
-            route_entry(store, TerminalTransport::Sync, Some(token), now_ms)
+            route_entry(store, TerminalTransport::Sync, Some(token), serving, now_ms)
         }
         _ => Value::Null,
     };
@@ -306,6 +340,7 @@ fn route_json(
                 store,
                 candidate.token.transport,
                 Some(&candidate.token),
+                serving,
                 now_ms,
             )
         });

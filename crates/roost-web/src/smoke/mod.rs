@@ -41,6 +41,8 @@ mod rpc_calls;
 #[cfg(target_arch = "wasm32")]
 mod stream_probe_host;
 #[cfg(target_arch = "wasm32")]
+mod transport_probe_host;
+#[cfg(target_arch = "wasm32")]
 mod upload_attachment;
 
 #[cfg(target_arch = "wasm32")]

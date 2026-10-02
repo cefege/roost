@@ -9,10 +9,10 @@
 
 mod sync_decode_support;
 
-use roost_client_core::SyncDomain;
-use roost_client_core::store::sync_feeds::UI_COMMAND_QUEUE_MAX;
+use roost_client_core::store::sync_feeds::{ProbeRoute, UI_COMMAND_QUEUE_MAX};
 use roost_client_core::sync::decode::DecodeRefusal;
 use roost_client_core::sync::inbound::PairedBrowser;
+use roost_client_core::{ClientEvent, Effect, SyncCommand, SyncDomain};
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
 use roost_proto::__buffa::oneof::pair_request_delta_proto::Kind as PairKind;
 use roost_proto::{
@@ -303,17 +303,48 @@ fn an_unsolicited_route_answer_installs_no_epoch_and_a_probe_answer_is_held() {
             ..TerminalTransportProbeResult::default()
         }))
     };
-    // An empty epoch is the coordinator's refusal and never becomes telemetry.
-    let effects = deliver(&mut core, generation, &control(probe("")));
+    // An answer to a probe this document never sent describes nothing it asked.
+    let effects = deliver(&mut core, generation, &control(probe("worker-epoch")));
     assert!(
         acked(&effects).is_empty(),
         "a control is never acknowledged"
     );
     assert!(core.store().transport_probes.is_empty());
+
+    core.handle(ClientEvent::ViewOpened {
+        session_id: SESSION.to_owned(),
+        worker_fp: WORKER_FP.to_owned(),
+        view_id: "11111111-1111-4111-8111-111111111111".to_owned(),
+        cols: 80,
+        rows: 24,
+    });
+    let sent = core.handle(ClientEvent::TransportProbeRequested {
+        session_id: SESSION.to_owned(),
+        request_id: "probe-1".to_owned(),
+    });
+    assert!(
+        sent.iter().any(|effect| matches!(
+            effect,
+            Effect::SendSync(SyncCommand::TerminalTransportProbe { request_id, worker_fp })
+                if request_id == "probe-1" && worker_fp == WORKER_FP
+        )),
+        "a session with no direct route is probed through the coordinator; got {sent:?}"
+    );
+    // An empty epoch is the coordinator's refusal and never becomes telemetry.
+    deliver(&mut core, generation, &control(probe("")));
+    assert!(core.store().transport_probes.is_empty());
     deliver(&mut core, generation, &control(probe("worker-epoch")));
     let sample = &core.store().transport_probes[WORKER_FP];
+    assert_eq!(sample.worker_epoch, "worker-epoch");
     assert_eq!(
-        (sample.worker_epoch.as_str(), sample.socket_generation),
-        ("worker-epoch", generation)
+        sample.route,
+        ProbeRoute::Sync {
+            socket_generation: generation
+        },
+        "the sample is fenced to the socket that carried it"
+    );
+    assert!(
+        core.store().pending_transport_probes.is_empty(),
+        "an answered probe is no longer waited on"
     );
 }

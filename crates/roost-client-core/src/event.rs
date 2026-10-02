@@ -262,6 +262,14 @@ pub enum ClientEvent {
         /// The row the reader's previous page ended at, when this continues one.
         before_row: Option<u32>,
     },
+    /// Measure the worker control path of one session's route with a
+    /// content-free probe; the answer lands in `Store::transport_probes`.
+    TransportProbeRequested {
+        /// The session whose route is measured.
+        session_id: String,
+        /// The host-minted id the answer is matched on.
+        request_id: String,
+    },
 
     /// This profile has looked at one session's agent row.
     ///
@@ -324,6 +332,7 @@ impl ClientEvent {
             Self::DirectFrameReceived { .. } => "direct_frame_received",
             Self::ViewOpened { .. } => "view_opened",
             Self::ViewResized { .. } => "view_resized",
+            Self::TransportProbeRequested { .. } => "transport_probe_requested",
             Self::ViewHidden { .. } => "view_hidden",
             Self::ViewClosed { .. } => "view_closed",
             Self::ViewStateReceived { .. } => "view_state_received",

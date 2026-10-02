@@ -31,6 +31,7 @@ mod fold_session_meta;
 mod hydration;
 pub mod lifecycle;
 mod promotion;
+mod transport_probe;
 
 use self::apply_frame::apply_frame;
 pub(crate) use self::close_failed::close_failed_sync_link;
@@ -38,6 +39,7 @@ pub(crate) use self::close_failed::close_failed_sync_link;
 // through it rather than opening a second path to the same redial.
 pub(crate) use self::hydration::request_link_replacement;
 pub(crate) use self::promotion::sweep_route_claims;
+pub(crate) use self::transport_probe::request_transport_probe;
 use crate::store::Store;
 use crate::sync::SyncFrame;
 use crate::sync::link::RetainedFrame;
@@ -143,6 +145,13 @@ pub fn handle_direct_frame(
     now_ms: u64,
     out: &mut Vec<Effect>,
 ) {
+    // A probe answer names a worker, not a session: it settles the probe this
+    // exact carrier sent, whatever sessions it carries.
+    if let SyncFrame::TransportProbeResult { result } = frame {
+        let route = crate::store::sync_feeds::ProbeRoute::Direct(token.clone());
+        transport_probe::fold_transport_probe_result(store, &route, result, now_ms);
+        return;
+    }
     let Some(session_id) = frame.session_id().map(str::to_string) else {
         return;
     };

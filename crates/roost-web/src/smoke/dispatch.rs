@@ -310,6 +310,14 @@ impl SmokeBackdoor {
             "scrollbackBackfillRequestCount" => now(self.panes.counters(sid).backfill_requests),
             "directHistoryResponseCount" => now(self.panes.counters(sid).direct_history_responses),
             "terminalBrowserSnapshot" => Reply::Now(Ok(Some(self.terminal_browser_snapshot(sid)))),
+            "probeTerminalTransport" => {
+                let this = Rc::clone(self);
+                Reply::Later(Box::pin(async move {
+                    this.probe_terminal_transport_call(&session_id)
+                        .await
+                        .map(Some)
+                }))
+            }
             "terminalStreamProbe" => {
                 let this = Rc::clone(self);
                 Reply::Later(Box::pin(async move {

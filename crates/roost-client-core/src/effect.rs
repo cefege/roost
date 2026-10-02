@@ -247,6 +247,13 @@ pub enum SyncCommand {
         /// The generation the claim belongs to.
         token: TerminalToken,
     },
+    /// A content-free control probe the coordinator relays to one worker.
+    TerminalTransportProbe {
+        /// The id the answer is matched on.
+        request_id: String,
+        /// The worker the probe names.
+        worker_fp: String,
+    },
     /// Answer an acknowledged layout apply on the exact socket it named.
     UiApplyLayoutResult(crate::client::ui_state::LayoutApplyResult),
 }
@@ -328,6 +335,17 @@ pub enum DirectCommand {
         max_rows: u32,
         /// The grid numbering the pager's rows belong to.
         grid_epoch: String,
+    },
+    /// A content-free control probe to the worker behind this carrier. Scoped
+    /// to the session whose route it measures, so a carrier that may not carry
+    /// that session never sends it.
+    TransportProbe {
+        /// The session whose route is measured.
+        session_id: String,
+        /// The id the answer is matched on.
+        request_id: String,
+        /// The worker the probe names; the worker answers only its own.
+        worker_fp: String,
     },
 }
 

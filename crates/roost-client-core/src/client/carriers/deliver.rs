@@ -146,7 +146,8 @@ pub fn session_of(command: &DirectCommand) -> &str {
         | DirectCommand::Resync { session_id, .. }
         | DirectCommand::Input { session_id, .. }
         | DirectCommand::RouteClaim { session_id, .. }
-        | DirectCommand::Scrollback { session_id, .. } => session_id,
+        | DirectCommand::Scrollback { session_id, .. }
+        | DirectCommand::TransportProbe { session_id, .. } => session_id,
     }
 }
 

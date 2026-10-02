@@ -10,6 +10,7 @@
 use std::collections::BTreeSet;
 
 use crate::sync::inbound::RoutableChunk;
+use crate::terminal::token::TerminalToken;
 
 /// The newest live audit rows kept for the audit pane: 100, the pane's own
 /// page (`AuditLogPane.tsx:27` `PAGE_LIMIT`). The pane loads a page by RPC and
@@ -34,6 +35,14 @@ pub const PRESENCE_NOTICE_QUEUE_MAX: usize = 128;
 /// (`sync-terminal-control-probe.ts:20`).
 pub const PROBE_TELEMETRY_WORKERS_MAX: usize = 64;
 
+/// Control probes waiting on an answer at once
+/// (`sync-terminal-control-probe.ts:22` `MAX_PENDING_CONTROL_PROBES`).
+pub const PENDING_TRANSPORT_PROBES_MAX: usize = 32;
+
+/// How long a control probe is waited on
+/// (`sync-terminal-control-probe.ts:21` `CONTROL_PROBE_TIMEOUT_MS`).
+pub const TRANSPORT_PROBE_TIMEOUT_MS: u64 = 3_000;
+
 /// Pairings remembered as already announced, oldest forgotten first
 /// (`pairedBrowserNotice.ts:20` `ANNOUNCED_ID_LIMIT`).
 pub const ANNOUNCED_PAIRINGS_MAX: usize = 32;
@@ -50,21 +59,45 @@ pub struct PresenceNotice {
     pub payload: serde_json::Value,
 }
 
-/// The newest successful transport probe answer for one worker.
+/// The newest answered control probe for one worker.
 ///
-/// Fenced to the socket generation it arrived on: v2 keys samples by
-/// connection, and a sample from a replaced socket does not describe the
-/// replacement.
+/// Fenced to the connection that carried it: v2 keys samples by connection,
+/// and a sample from a replaced socket does not describe the replacement.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProbeTelemetry {
     /// The probe this answered.
     pub request_id: String,
     /// The worker process epoch that answered. Never empty.
     pub worker_epoch: String,
-    /// The Sync socket generation that carried the answer.
-    pub socket_generation: u64,
+    /// The connection that carried the probe and its answer.
+    pub route: ProbeRoute,
     /// When the answer arrived, on the host's clock.
     pub received_at_ms: u64,
+    /// How long the worker took to answer, measured from the send.
+    pub control_rtt_ms: u64,
+}
+
+/// The connection a control probe went out on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProbeRoute {
+    /// The Sync socket of this generation, relayed by the coordinator.
+    Sync {
+        /// The socket generation.
+        socket_generation: u64,
+    },
+    /// The direct carrier presenting exactly this token.
+    Direct(TerminalToken),
+}
+
+/// One control probe sent and not yet answered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingTransportProbe {
+    /// The worker the probe names; an answer from another worker is not its.
+    pub worker_fp: String,
+    /// The connection it went out on, which must also carry the answer.
+    pub route: ProbeRoute,
+    /// When it went out, on the host's clock.
+    pub started_at_ms: u64,
 }
 
 /// What one routable chunk did to the seed it belongs to.
