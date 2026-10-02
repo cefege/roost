@@ -124,6 +124,11 @@ pub fn encode_direct_command(command: &DirectCommand) -> Vec<u8> {
             grid_epoch: grid_epoch.clone(),
             ..Default::default()
         })),
+        DirectCommand::TransportProbe {
+            request_id,
+            worker_fp,
+            ..
+        } => transport_probe_frame(request_id, worker_fp),
     };
     wrap(frame)
 }
@@ -158,13 +163,15 @@ pub fn encode_hello(
 /// probe that names it and the answer's epoch is what proves which process is
 /// behind the carrier (`local_terminal.proto:72`).
 pub fn encode_transport_probe(request_id: &str, worker_fp: &str) -> Vec<u8> {
-    wrap(ClientFrame::TransportProbe(Box::new(
-        TerminalTransportProbe {
-            request_id: request_id.to_owned(),
-            worker_fp: worker_fp.to_owned(),
-            ..Default::default()
-        },
-    )))
+    wrap(transport_probe_frame(request_id, worker_fp))
+}
+
+fn transport_probe_frame(request_id: &str, worker_fp: &str) -> ClientFrame {
+    ClientFrame::TransportProbe(Box::new(TerminalTransportProbe {
+        request_id: request_id.to_owned(),
+        worker_fp: worker_fp.to_owned(),
+        ..Default::default()
+    }))
 }
 
 fn wrap(frame: ClientFrame) -> Vec<u8> {

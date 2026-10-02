@@ -204,6 +204,16 @@ pub fn handle_event(
         ClientEvent::CarrierReady(carrier) => {
             handle_carrier_authenticated(store, carrier, host_now_ms, out);
         }
+        ClientEvent::TransportProbeRequested {
+            session_id,
+            request_id,
+        } => crate::handle_sync::request_transport_probe(
+            store,
+            session_id,
+            request_id,
+            host_now_ms,
+            out,
+        ),
         ClientEvent::CarrierLost { connection_id } => {
             handle_carrier_lost(store, connection_id, out);
         }

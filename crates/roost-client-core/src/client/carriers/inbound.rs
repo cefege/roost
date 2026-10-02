@@ -131,15 +131,15 @@ impl DirectInbound {
                 })
             }
             Self::InputRouteResult(result) => Some(SyncFrame::InputRouteResult { result }),
+            // A probe answer settles the control probe this carrier carried; a
+            // peer's drain settles its heartbeat's before it gets here.
+            Self::TransportProbeResult(result) => Some(SyncFrame::TransportProbeResult { result }),
             // A close is a socket ending, a handshake is the transport's own
-            // state, a probe answer settles the carrier that sent the probe, and
-            // a history page belongs to the pager that asked. None of them is a
-            // frame the fold should ever see.
-            Self::Closed { .. }
-            | Self::Ready(_)
-            | Self::TransportProbeResult(_)
-            | Self::Scrollback(_)
-            | Self::PreHelloFrame => None,
+            // state, and a history page belongs to the pager that asked. None of
+            // them is a frame the fold should ever see.
+            Self::Closed { .. } | Self::Ready(_) | Self::Scrollback(_) | Self::PreHelloFrame => {
+                None
+            }
         }
     }
 }

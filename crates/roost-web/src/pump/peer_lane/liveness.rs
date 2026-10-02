@@ -10,11 +10,11 @@
 //! is the browser's report, and nothing here defaults a zero a reader could not
 //! tell from a real one.
 
-use roost_client_core::ClientEvent;
 use roost_client_core::client::carriers::{
     PeerPhase, PeerTelemetry, SignallingInput, encode_transport_probe,
 };
 use roost_client_core::sync::inbound::TransportProbeResult;
+use roost_client_core::{ClientEvent, TerminalToken};
 
 use super::Pump;
 use super::write::write_control;
@@ -60,6 +60,27 @@ pub(super) fn start_due_probes(pump: &Pump, now_ms: u64) {
         // A read the browser cannot start is simply not measured: the candidate
         // kind keeps its last value and the next interval asks again.
         let _ = pump.inner.peer.borrow().measure_attempt(attempt_id);
+    }
+}
+
+impl Pump {
+    /// Send one heartbeat probe now on the peer presenting `token`, outside the
+    /// heartbeat's schedule, for a reader that wants a fresh measurement (v2
+    /// `TerminalPeerConnection.probe`). `false` when no attempt presents it.
+    pub fn probe_peer_route(&self, token: &TerminalToken, now_ms: u64) -> bool {
+        let target = {
+            let held = self.inner.peer_attempts.borrow();
+            held.attempt_ids().into_iter().find_map(|attempt_id| {
+                let carrier = held.attempt(attempt_id)?;
+                (carrier.token() == Some(token))
+                    .then(|| (attempt_id, carrier.worker_fp().to_owned()))
+            })
+        };
+        let Some((attempt_id, worker_fp)) = target else {
+            return false;
+        };
+        send_probe(self, attempt_id, &worker_fp, now_ms);
+        true
     }
 }
 

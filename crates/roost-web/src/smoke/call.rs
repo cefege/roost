@@ -79,10 +79,7 @@ pub const SMOKE_METHODS: [(&str, Answer); 53] = [
 
 /// The members whose surface belongs to a slice this build does not have yet,
 /// and the refusal each one answers with — never a silent no-op.
-pub const UNPORTED_METHODS: [(&str, &str); 1] = [(
-    "probeTerminalTransport",
-    "U-2 STREAM LIFECYCLE: the worker control probe (store/transport/sync-terminal-control-probe.ts) not ported",
-)];
+pub const UNPORTED_METHODS: [(&str, &str); 0] = [];
 
 /// The refusal of a member whose surface is not in this build.
 pub fn unported_refusal(name: &str) -> Option<&'static str> {
