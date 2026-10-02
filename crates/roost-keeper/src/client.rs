@@ -16,6 +16,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
+use crate::client_arrival::ArrivalBell;
 use crate::client_error::ClientError;
 use crate::client_io::{PendingSpawn, Shared};
 use crate::codec::{MuxFrame, MuxFrameType};
@@ -58,6 +59,9 @@ pub struct KeeperClient {
     /// which is exactly the case where nothing else is going to happen.
     stop: Arc<std::sync::atomic::AtomicBool>,
     reader: Option<std::thread::JoinHandle<()>>,
+    /// Rung by the reader after every frame it puts on `events`, and when it
+    /// stops, so the worker can wait for output instead of polling for it.
+    arrival: Arc<ArrivalBell>,
 }
 
 impl KeeperClient {
@@ -73,6 +77,7 @@ impl KeeperClient {
         events: Receiver<MuxFrame>,
         stop: Arc<std::sync::atomic::AtomicBool>,
         reader: std::thread::JoinHandle<()>,
+        arrival: Arc<ArrivalBell>,
     ) -> Self {
         Self {
             path,
@@ -82,7 +87,15 @@ impl KeeperClient {
             deferred: Mutex::new(VecDeque::new()),
             stop,
             reader: Some(reader),
+            arrival,
         }
+    }
+
+    /// The bell this connection's reader rings when a frame reaches the event
+    /// stream. Shared rather than borrowed so a waiter can block on it without
+    /// holding whatever lock guards the client.
+    pub fn arrival_bell(&self) -> Arc<ArrivalBell> {
+        Arc::clone(&self.arrival)
     }
 }
 

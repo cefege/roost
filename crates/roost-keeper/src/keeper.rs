@@ -18,6 +18,7 @@ use crate::codec::{CodecError, MuxFrame, MuxFrameType, write_sequence};
 use crate::frames::ExitFrame;
 use crate::history::HistoryRecords;
 use crate::input_queue::{InputResultSink, InputRoute};
+use crate::output_ring::OutputSignal;
 use crate::payloads::{
     KEEPER_PROTOCOL_VERSION, KeeperContractV1, KeeperFeature, PtyInRejectReason, PtyInResult,
 };
@@ -75,6 +76,9 @@ pub struct Keeper {
     pub(crate) input_route: Arc<InputRoute>,
     /// This process's epoch, reported in every Hello.
     pub(crate) process_epoch: Option<String>,
+    /// Raised by every channel's reader; the serving connection waits on it
+    /// so output is forwarded as it arrives.
+    pub(crate) output_signal: Arc<OutputSignal>,
 }
 
 /// One channel: its PTY and its retained history (ring, head, resize markers).
@@ -139,6 +143,7 @@ impl Keeper {
             contract: self::contract(),
             input_route: Arc::new(InputRoute::default()),
             process_epoch: crate::process_epoch::mint_process_epoch(),
+            output_signal: Arc::new(OutputSignal::default()),
         }
     }
 
@@ -254,9 +259,10 @@ impl Keeper {
     /// into the channel's history BEFORE it is framed, so a history answer on
     /// this connection is an exact boundary (v2 `releaseOutput`).
     ///
-    /// Called by the socket loop on a tick. Returns nothing for a channel with
-    /// nothing to say, which is the common case and must stay cheap: a keeper
-    /// that allocates per idle channel is a keeper that burns a core.
+    /// Called by the socket loop whenever a reader signals, and at least once
+    /// a tick. Returns nothing for a channel with nothing to say, which is the
+    /// common case and must stay cheap: a keeper that allocates per idle
+    /// channel is a keeper that burns a core.
     ///
     /// Fallsible because a `PtyOut` payload is the one frame this keeper does
     /// not size itself: it is whatever the PTY had ready, so the frame bound is
@@ -271,6 +277,13 @@ impl Keeper {
             frames.push(MuxFrame::new(MuxFrameType::PtyOut, *channel_id, bytes)?);
         }
         Ok(frames)
+    }
+
+    /// Whether the last drain left a channel's output behind its `limit`.
+    pub fn output_backlogged(&mut self) -> bool {
+        self.channels
+            .values_mut()
+            .any(|channel| channel.pty.output_backlogged())
     }
 
     /// Channels whose child has exited and whose output is fully drained.

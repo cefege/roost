@@ -5,10 +5,14 @@
 //! keeper's own loop would wedge every other channel behind the slowest one,
 //! so each channel reads on its own thread and hands chunks over a bounded
 //! queue. The bound is what stops a chatty program from growing the keeper's
-//! memory with output that is never delivered.
+//! memory with output that is never delivered. Every hand-over raises the
+//! keeper's [`OutputSignal`], which wakes the serving connection so the chunk
+//! is forwarded as it arrives rather than at the loop's next drain tick.
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 /// How many unread output chunks a channel may hold before its reader blocks.
 pub const OUTPUT_QUEUE_DEPTH: usize = 256;
@@ -19,6 +23,61 @@ pub const READ_CHUNK_BYTES: usize = 16 * 1024;
 
 pub(crate) struct OutputChunk {
     pub(crate) bytes: Vec<u8>,
+}
+
+/// What a reader thread tells the serving connection: "a channel has output".
+///
+/// One per keeper, shared by every channel's reader. A raise is coalesced —
+/// only the first one after the loop's [`OutputSignal::take`] calls the
+/// connection's waker — so a flooding program costs the loop one wake per
+/// drain, not one per chunk. Between connections there is no waker and a raise
+/// only sets the flag; the next connection drains on its first turn anyway.
+#[derive(Default)]
+pub struct OutputSignal {
+    raised: AtomicBool,
+    waker: Mutex<Option<Box<dyn Fn() + Send>>>,
+}
+
+impl OutputSignal {
+    /// A reader handed over a chunk, or its child let go of the PTY.
+    pub(crate) fn raise(&self) {
+        if self.raised.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        if let Some(wake) = self
+            .waker
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+        {
+            wake();
+        }
+    }
+
+    /// Clear the flag before a drain, so a chunk that lands after it raises
+    /// again. Returns whether anything had been raised.
+    pub fn take(&self) -> bool {
+        self.raised.swap(false, Ordering::AcqRel)
+    }
+
+    /// Route raises to the connection now being served. The waker must not
+    /// block: it runs on a reader thread, holding this signal's lock.
+    pub fn attach(&self, waker: Box<dyn Fn() + Send>) {
+        *self.waker.lock().unwrap_or_else(PoisonError::into_inner) = Some(waker);
+    }
+
+    /// The connection ended; raises only set the flag until the next attach.
+    pub fn detach(&self) {
+        *self.waker.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    }
+}
+
+impl std::fmt::Debug for OutputSignal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OutputSignal")
+            .field("raised", &self.raised.load(Ordering::Acquire))
+            .finish_non_exhaustive()
+    }
 }
 
 /// The receiving end of a channel's output ring.
@@ -76,10 +135,23 @@ impl OutputRing {
         }
     }
 
-    /// Whether anything is buffered. For diagnostics only: it does not
-    /// distinguish "nothing yet" from "the child is gone".
-    pub fn is_drained(&self) -> bool {
-        self.pending.is_empty()
+    /// Whether nothing is left after the last [`OutputRing::take`]: neither a
+    /// remainder its limit deferred nor a chunk still queued. Both were
+    /// raised before the drain that left them, so no reader will raise for
+    /// them again. A queued chunk is moved into `pending` to be seen, in
+    /// order, as [`OutputRing::is_eof`] does. It does not distinguish
+    /// "nothing yet" from "the child is gone".
+    pub fn is_drained(&mut self) -> bool {
+        if !self.pending.is_empty() {
+            return false;
+        }
+        match self.chunks.try_recv() {
+            Ok(chunk) => {
+                self.pending.extend(chunk.bytes);
+                false
+            }
+            Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => true,
+        }
     }
 }
 
@@ -98,7 +170,11 @@ impl std::fmt::Debug for OutputRing {
 /// The read blocks by design — that is what a pty read does — and the queue is
 /// bounded, so a program that outruns the keeper applies back pressure rather
 /// than growing the keeper's memory.
-fn pump_pty_output(mut reader: Box<dyn std::io::Read + Send>, sender: SyncSender<OutputChunk>) {
+fn pump_pty_output(
+    mut reader: Box<dyn std::io::Read + Send>,
+    sender: SyncSender<OutputChunk>,
+    signal: &OutputSignal,
+) {
     loop {
         let mut buffer = vec![0u8; READ_CHUNK_BYTES];
         match reader.read(&mut buffer) {
@@ -110,6 +186,7 @@ fn pump_pty_output(mut reader: Box<dyn std::io::Read + Send>, sender: SyncSender
                 if sender.send(OutputChunk { bytes: buffer }).is_err() {
                     return;
                 }
+                signal.raise();
             }
             Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
             // A real read error on a pty is terminal: the master is gone, and
@@ -119,14 +196,21 @@ fn pump_pty_output(mut reader: Box<dyn std::io::Read + Send>, sender: SyncSender
     }
 }
 
-/// Start a channel's reader thread and hand back its ring.
+/// Start a channel's reader thread and hand back its ring. Every chunk it
+/// hands over, and its EOF, raises `signal`.
 pub fn spawn_reader(
     channel_id: u16,
     reader: Box<dyn std::io::Read + Send>,
+    signal: Arc<OutputSignal>,
 ) -> Result<(OutputRing, std::thread::JoinHandle<()>), std::io::Error> {
     let (sender, receiver) = std::sync::mpsc::sync_channel(OUTPUT_QUEUE_DEPTH);
     let handle = std::thread::Builder::new()
         .name(format!("roost-keeper-pty-{channel_id}"))
-        .spawn(move || pump_pty_output(reader, sender))?;
+        .spawn(move || {
+            pump_pty_output(reader, sender, &signal);
+            // After the sender is dropped, so the woken loop already sees EOF
+            // and reports the exit without waiting for its tick.
+            signal.raise();
+        })?;
     Ok((OutputRing::new(receiver), handle))
 }
