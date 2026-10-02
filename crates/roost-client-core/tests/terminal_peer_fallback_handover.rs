@@ -63,10 +63,20 @@ fn invalid_offers_unavailable_grants_expired_grants_and_identity_mismatches_fall
     assert_eq!(faults(&from_ready), vec![CarrierFault::IdentityMismatch]);
     assert_fell_back_without_reopening_the_session(&from_ready);
 
+    // The coordinator relaying a worker's refusal names no attempt: it is the
+    // coordinator's failure, and v2 still records it as `network_failed`.
+    let (mut relayed, _) = authenticating();
+    let from_coordinator = relayed.step(SignallingInput::AttemptRefused {
+        attempt_id: None,
+        reason: "Unavailable: terminal peer worker rejected negotiation: invalid_offer".to_string(),
+    });
+    assert_eq!(faults(&from_coordinator), vec![CarrierFault::CoordinatorUnavailable]);
+    assert_fell_back_without_reopening_the_session(&from_coordinator);
+
     // The smoke spec waits on ONE coarse reason for all four, because v2 reports
     // one; the machine reports that coarse reason AND the rule that fired, which
     // is what makes the four separately testable in terminal_peer_fallback_grants.
-    for peer in [invalid, missing, expired, mismatch] {
+    for peer in [invalid, missing, expired, mismatch, relayed] {
         assert_eq!(
             peer.snapshot().fallback_reason,
             Some(FallbackReason::NetworkFailed),
