@@ -174,12 +174,20 @@ impl WorkerOwners {
             process_epoch: process_epoch.to_owned(),
             runtime: tokio::runtime::Handle::current(),
         });
+        #[cfg(feature = "smoke")]
+        let fault_controls =
+            crate::smoke_faults::FaultControls::attach(&reconcile.boot, &local_terminal);
         let native_loader = crate::peer::native::str0m_loader();
         let direct = DirectTerminal::new(DirectTerminalDeps {
             door: Arc::clone(&local_terminal),
             process_epoch: process_epoch.to_owned(),
             transport,
             native_loader: native_loader.clone(),
+            #[cfg(feature = "smoke")]
+            offer_faults: fault_controls
+                .as_ref()
+                .map(crate::smoke_faults::FaultControls::offer_slot),
+            #[cfg(not(feature = "smoke"))]
             offer_faults: None,
             runtime: tokio::runtime::Handle::current(),
         });
@@ -267,6 +275,11 @@ impl WorkerOwners {
         tracing::info!(
             "the downstream owners are built: input, stream, pipeline, view and the cell cadence"
         );
+        // Last, so every owner a fault command reaches already exists.
+        #[cfg(feature = "smoke")]
+        if let Some(controls) = &fault_controls {
+            controls.serve_commands(&tokio::runtime::Handle::current());
+        }
         Ok(Self {
             stack,
             downstream,

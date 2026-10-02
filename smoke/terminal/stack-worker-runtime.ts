@@ -33,6 +33,8 @@ export type TerminalWorkerPeerPortRange = {
 export interface TerminalWorkerRuntime {
   /** Exact compiled `roost` binary. It receives the ordinary `worker` subcommand. */
   workerExecutable?: string;
+  /** Arguments after `worker`: the fault socket flags a `smoke`-featured build accepts. */
+  workerExecutableArgs?: readonly string[];
   /** Smoke-only source entrypoint that calls the ordinary worker runtime with injected deps. */
   sourceEntrypoint?: string;
   sourceEntrypointArgs?: readonly string[];
@@ -80,7 +82,7 @@ export function createTerminalWorkerStarter(
   ensureSmokeStackBinary(selected.workerExecutable, sourceRoot);
   const command = selected.workerExecutable ?? bunExecutable;
   const args = selected.workerExecutable
-    ? ["worker"]
+    ? ["worker", ...(selected.workerExecutableArgs ?? [])]
     : [
       selected.sourceEntrypoint ?? "apps/worker/src/main.ts",
       ...(selected.sourceEntrypointArgs ?? []),

@@ -155,6 +155,10 @@ pub struct WorkerBoot {
     /// v2 `terminalPeer{Enabled,BindAddress,PortRange}`, shared by both peer
     /// owners.
     pub terminal_peer: crate::peer::PeerTransportConfig,
+    /// The smoke harness's two fault sockets, set only by `roost worker`'s
+    /// fault flags; an environment never resolves them.
+    #[cfg(feature = "smoke")]
+    pub fault_sockets: Option<crate::smoke_faults::FaultSockets>,
 }
 
 impl WorkerBoot {
@@ -196,6 +200,8 @@ impl WorkerBoot {
             agent_conversation_restore: resolve_agent_conversation_restore(env, platform)?,
             terminal_peer: crate::peer::PeerTransportConfig::resolve(env, platform)
                 .map_err(|error| BootConfigError::TerminalPeer(error.0))?,
+            #[cfg(feature = "smoke")]
+            fault_sockets: None,
         })
     }
 

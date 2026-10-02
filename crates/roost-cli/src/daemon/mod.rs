@@ -43,6 +43,15 @@ pub struct WorkerArgs {
     /// environment when absent.
     #[arg(long, value_name = "URL")]
     pub coordinator_url: Option<String>,
+    /// The smoke harness's terminal peer fault command socket. Exists only in
+    /// a `smoke` build, so a production worker refuses the flag outright.
+    #[cfg(feature = "smoke")]
+    #[arg(long, value_name = "PATH", requires = "direct_input_hold_socket")]
+    pub terminal_peer_fault_socket: Option<std::path::PathBuf>,
+    /// The smoke harness's direct-input hold socket; given with the other.
+    #[cfg(feature = "smoke")]
+    #[arg(long, value_name = "PATH", requires = "terminal_peer_fault_socket")]
+    pub direct_input_hold_socket: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Args)]
