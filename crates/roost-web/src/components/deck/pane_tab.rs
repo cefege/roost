@@ -69,6 +69,12 @@ pub fn PaneTab(
         Some(carrier) => format!("{title} — {carrier}"),
         None => title.clone(),
     });
+    // A resting tab REMOVES its style attribute rather than writing an empty
+    // one: dioxus-web's `style` setter re-applies every inline property the new
+    // value does not name, so `style=""` after a drag kept the dragged tab's
+    // `translateX`, clipping it out of the rail and parking the overflow
+    // chevron on a strip whose tabs all fit.
+    let style = (!style.is_empty()).then_some(style);
     rsx! {
         div {
             class: "df-tab workbench-pane-tab",
