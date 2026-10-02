@@ -272,6 +272,9 @@ mod tests {
 
     #[test]
     fn a_sink_that_panics_costs_one_signal_not_the_callers_path() {
+        // The panic is reported through `log::warn`, the facade a capture test
+        // watches; see `log::facade_callsites_exclusive`.
+        let _facade = crate::log::facade_callsites_exclusive();
         struct Panicking;
         impl RecordSink for Panicking {
             fn emit(&self, _record: &LogFields) {
