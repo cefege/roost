@@ -67,9 +67,9 @@ impl TerminalPeerOwner {
     ) -> Result<Admitted, TerminalPeerOfferFailure> {
         let fault = self
             .deps
-            .offer_faults
+            .test_faults
             .as_ref()
-            .and_then(|faults| faults.consume());
+            .and_then(|faults| faults.offer().consume());
         if let Some(fault) = fault {
             tracing::info!(fault = fault.as_str(), "terminal peer offer fault applied");
             match fault {
@@ -215,6 +215,7 @@ impl TerminalPeerOwner {
                 }
             }),
             socket_id,
+            test_faults: self.deps.test_faults.clone(),
             runtime: self.deps.runtime.clone(),
         })?;
         *connection_slot = Some(Arc::clone(&connection));

@@ -21,9 +21,11 @@ use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 use tokio::task::AbortHandle;
 
+use super::faults::PeerTestFaults;
 use super::history_reservation::{HistoryQueueQuota, HistoryReservations};
 use super::native::NativePeer;
 use super::packet_budget::{HistoryPressure, PacketDirection, TerminalPeerPacketBudget, lock};
+use super::packet_port_history::PortHistoryReservation;
 use super::peer_budget::{TerminalPeerPacketPeerBudget, TerminalPeerQuota};
 use crate::local_terminal::{
     HistoryReadReservation, PacketSendResult, PeerIngress, PeerTerminalPacketPort,
@@ -62,6 +64,8 @@ pub struct PacketPortDeps {
     pub on_closed: Option<PortHook>,
     /// The port failed, before it closes (v2 `onFatal`).
     pub on_fatal: Option<PortHook>,
+    /// Smoke-only; `None` for every ordinary worker.
+    pub test_faults: Option<Arc<PeerTestFaults>>,
     pub runtime: Handle,
 }
 
@@ -108,6 +112,8 @@ pub(super) struct PortCore {
     pub(super) closed: bool,
     pub(super) flushing: bool,
     pub(super) flush_scheduled: bool,
+    /// Smoke-only: the history lane is skipped by the flush while set.
+    pub(super) history_paused: bool,
     pub(super) backpressured: [bool; 3],
     pub(super) drain_waiters: [Vec<oneshot::Sender<()>>; 3],
     pub(super) setup_timer: Option<AbortHandle>,
@@ -122,6 +128,7 @@ pub struct TerminalPeerPacketPort {
     pub(super) peer_budget: TerminalPeerPacketPeerBudget,
     pub(super) on_closed: Option<PortHook>,
     pub(super) on_fatal: Option<PortHook>,
+    pub(super) test_faults: Option<Arc<PeerTestFaults>>,
     pub(super) runtime: Handle,
     pub(super) origin: Instant,
     pub(super) this: Weak<TerminalPeerPacketPort>,
@@ -167,6 +174,7 @@ impl TerminalPeerPacketPort {
             peer_budget: deps.peer_budget.clone(),
             on_closed: deps.on_closed,
             on_fatal: deps.on_fatal,
+            test_faults: deps.test_faults,
             runtime: deps.runtime,
             origin: Instant::now(),
             this: this.clone(),
@@ -180,6 +188,7 @@ impl TerminalPeerPacketPort {
                 closed: false,
                 flushing: false,
                 flush_scheduled: false,
+                history_paused: false,
                 backpressured: [false; 3],
                 drain_waiters: [Vec::new(), Vec::new(), Vec::new()],
                 setup_timer: None,
@@ -357,43 +366,5 @@ impl PeerTerminalPacketPort for TerminalPeerPacketPort {
         Box::pin(async move {
             let _ = drained.await;
         })
-    }
-}
-
-impl HistoryPressure for TerminalPeerPacketPort {
-    /// v2 `relieveHistoryPressure`: a port holding application bytes retires.
-    /// Runs inside another port's turn, never this port's.
-    fn relieve_history_pressure(&self) -> bool {
-        let mut core = self.lock_core();
-        let held = core.history.cancel_for_pressure()
-            || core.queues[TerminalPeerPacketLane::Terminal as usize].message_count() > 0
-            || core.queues[TerminalPeerPacketLane::History as usize].message_count() > 0;
-        if !held {
-            return false;
-        }
-        self.fail_in_turn(&mut core, "application_pressure");
-        true
-    }
-}
-
-/// One read's pre-read reservation (v2 `TerminalPeerHistoryReadReservation`).
-struct PortHistoryReservation {
-    port: Arc<TerminalPeerPacketPort>,
-    reservation_id: u64,
-}
-
-impl HistoryReadReservation for PortHistoryReservation {
-    fn transfer(&mut self) {
-        let _turn = self.port.budget.turn();
-        let history = self.port.lock_core().history.clone();
-        history.transfer(self.reservation_id);
-    }
-}
-
-impl Drop for PortHistoryReservation {
-    fn drop(&mut self) {
-        let _turn = self.port.budget.turn();
-        let history = self.port.lock_core().history.clone();
-        history.release(self.reservation_id);
     }
 }
