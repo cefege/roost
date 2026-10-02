@@ -16,6 +16,7 @@ use roost_protocol::cell::frame_chunks::CellGridSnapshotPart;
 use roost_protocol::cell::proto::cell_frame_to_proto;
 use roost_protocol::wire::brand::ChannelId;
 use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
+use tokio::sync::Notify;
 
 use crate::outbox::{Lane, Outbox, PENDING_BYTES_CAP, PENDING_CAP};
 use crate::runtime::link_wire::LinkWire;
@@ -57,6 +58,11 @@ pub struct CoordinatorCellSink {
     /// v2 `writableNotificationPending`: a frame was refused, so the session
     /// layer is owed an `on_writable` once the link has room again.
     writable_owed: AtomicBool,
+    /// The link's wake, installed with this sink. A queued frame that waited
+    /// for the drain's tick instead reached the browser up to a tick late,
+    /// behind the input acknowledgements that are written at once — which is
+    /// what made predictive echo contradict its own correct guesses.
+    link_wake: Mutex<Option<Arc<Notify>>>,
 }
 
 impl std::fmt::Debug for CoordinatorCellSink {
@@ -79,6 +85,15 @@ impl CoordinatorCellSink {
             queue: Mutex::new(Outbox::new(PENDING_CAP, PENDING_BYTES_CAP)),
             attached: AtomicBool::new(false),
             writable_owed: AtomicBool::new(false),
+            link_wake: Mutex::new(None),
+        }
+    }
+
+    /// Wake `link` whenever a frame is queued for it (v2 `sendCellGrid`
+    /// writes through at once).
+    pub fn wake_link_with(&self, link: Arc<Notify>) {
+        if let Ok(mut held) = self.link_wake.lock() {
+            *held = Some(link);
         }
     }
 
@@ -184,7 +199,15 @@ impl CoordinatorCellSink {
             return self.refuse();
         };
         match held.admit(Lane::Terminal, bytes, label, Instant::now()) {
-            Ok(_) => CellSinkResult::Sent,
+            Ok(_) => {
+                drop(held);
+                if let Ok(link) = self.link_wake.lock()
+                    && let Some(link) = link.as_ref()
+                {
+                    link.notify_one();
+                }
+                CellSinkResult::Sent
+            }
             Err(error) => {
                 tracing::debug!(channel = %channel, %error, "the coordinator cell queue refused a frame");
                 drop(held);
@@ -270,6 +293,7 @@ impl LinkLoop {
     /// Install the coordinator's cell sink. The SAME `Arc` is registered with
     /// the emitter by `runtime::cell_cadence::CellCadence::spawn`.
     pub fn attach_cell_sink(&mut self, sink: Arc<CoordinatorCellSink>) {
+        sink.wake_link_with(Arc::clone(&self.wake));
         self.cell_sink = Some(sink);
     }
 
@@ -284,5 +308,86 @@ impl LinkLoop {
             return 0;
         };
         sink.drain_into(&mut self.outbox, Instant::now())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use std::sync::Arc;
+
+    use futures_util::FutureExt as _;
+    use roost_protocol::cell::types::{CellGridFrame, CellRow, MouseTracking};
+    use roost_protocol::wire::brand::ChannelId;
+    use tokio::sync::Notify;
+
+    use super::CoordinatorCellSink;
+    use crate::runtime::link_wire::ProtoLinkWire;
+    use crate::session::cell_sink::{CellSink, CellSinkResult, FrameTimings};
+
+    fn full_frame() -> CellGridFrame {
+        CellGridFrame {
+            stream_id: "00000000-0000-4000-8000-0000000000a1".to_owned(),
+            grid_epoch: "epoch-1".to_owned(),
+            cols: 80,
+            rows: 2,
+            cursor_row: 0,
+            cursor_col: 0,
+            cursor_visible: true,
+            alt_screen: false,
+            cursor_keys_app: false,
+            bracketed_paste: false,
+            mouse_tracking: MouseTracking::None,
+            mouse_sgr: false,
+            focus_events: false,
+            full: true,
+            viewport_rows: (0..2)
+                .map(|index| CellRow {
+                    index,
+                    spans: Arc::from(Vec::new()),
+                })
+                .collect(),
+            scrollback_rows: Vec::new(),
+            scrollback_append: Vec::new(),
+            scrollback_total: 0,
+            sb_base: 0,
+            base_seq: 0,
+            seq: 1,
+        }
+    }
+
+    /// The drain's tick is a backstop, not the cadence: a keystroke's echo
+    /// frame that waited for it reached the browser behind later input
+    /// acknowledgements.
+    #[test]
+    fn a_queued_cell_frame_wakes_its_link_and_a_refused_one_does_not() {
+        let sink = CoordinatorCellSink::new(Arc::new(ProtoLinkWire));
+        let link = Arc::new(Notify::new());
+        sink.wake_link_with(Arc::clone(&link));
+        let channel = ChannelId::try_from(4_i64).unwrap();
+        let timings = FrameTimings {
+            pty_out_ms: 1,
+            worker_emit_ms: 2,
+        };
+
+        assert_eq!(
+            sink.send_frame(channel, &full_frame(), timings),
+            CellSinkResult::Dropped
+        );
+        assert!(
+            link.notified().now_or_never().is_none(),
+            "a refused frame has nothing for the link to drain"
+        );
+
+        sink.set_attached(true);
+        assert_eq!(
+            sink.send_frame(channel, &full_frame(), timings),
+            CellSinkResult::Sent
+        );
+        assert!(
+            link.notified().now_or_never().is_some(),
+            "a queued frame wakes the link at once"
+        );
     }
 }

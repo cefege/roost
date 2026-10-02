@@ -168,6 +168,12 @@ async fn serve_until_stopped(
     routes: axum::Router,
     mut stopped: watch::Receiver<bool>,
 ) {
+    // Nagle would hold every small terminal write for the browser's delayed ACK.
+    let listener = axum::serve::ListenerExt::tap_io(listener, |tcp| {
+        if let Err(error) = tcp.set_nodelay(true) {
+            tracing::warn!(%error, "an accepted local door socket refused TCP_NODELAY");
+        }
+    });
     let served = axum::serve(listener, routes)
         .with_graceful_shutdown(async move { door_stopped(&mut stopped).await })
         .await;

@@ -248,7 +248,10 @@ pub async fn dial(
     // upgrade rather than silently downgrading, which is the safe direction to
     // fail in: a worker that quietly loses TLS to a coordinator that thinks it
     // is encrypted is worse than one that refuses to connect.
-    let attempt = tokio_tungstenite::connect_async_with_config(request, None, false);
+    //
+    // Nagle off: a keystroke's write acknowledgement and its echo frame are
+    // small writes, and Nagle would hold each for the coordinator's delayed ACK.
+    let attempt = tokio_tungstenite::connect_async_with_config(request, None, true);
     match tokio::time::timeout(timeout, attempt).await {
         Ok(Ok((socket, response))) => {
             let negotiated = response
