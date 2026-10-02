@@ -117,6 +117,9 @@ fn drain_queue() {
     };
     wasm_bindgen_futures::spawn_local(async move {
         run_one(job).await;
+        // Released before the next turn is taken: a flag still held here is a
+        // queue that runs its first file and strands every later one.
+        RUNNING.set(false);
         drain_queue();
     });
 }
