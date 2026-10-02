@@ -239,10 +239,22 @@ impl Carriers {
 /// any of the three is reported with the generation it happened on, because a
 /// fault with no generation in it cannot be traced to a route.
 pub(super) fn send(pump: &Pump, token: &TerminalToken, command: &DirectCommand) {
+    if let Err(fault) = try_send(pump, token, command) {
+        report_fault(pump, token, &fault);
+    }
+}
+
+/// Write one command on the carrier presenting `token`, or say why it did not
+/// go out. For a caller whose own request waits on the answer: a refusal is
+/// that caller's to settle, not only a line in the log.
+pub(super) fn try_send(
+    pump: &Pump,
+    token: &TerminalToken,
+    command: &DirectCommand,
+) -> Result<(), SendFault> {
     #[cfg(target_arch = "wasm32")]
     if token.transport == TerminalTransport::Peer {
-        send_on_peer(pump, token, command);
-        return;
+        return send_on_peer(pump, token, command);
     }
     // The scope is read from the core and the lookup and the write happen under
     // ONE borrow of the table, released before anything is reported: a report
@@ -250,32 +262,24 @@ pub(super) fn send(pump: &Pump, token: &TerminalToken, command: &DirectCommand) 
     // borrow of one struct.
     #[cfg(target_arch = "wasm32")]
     let granted = granted_scope(pump, token);
-    let outcome = {
-        let carriers = pump.inner.carriers.borrow_mut();
-        #[cfg(target_arch = "wasm32")]
-        {
-            match delivery(token, command, granted.as_ref()) {
-                Delivery::Encoded(bytes) => {
-                    let handle = carriers.handle_for(token);
-                    match handle {
-                        Some(handle) if handle.send(&bytes) => None,
-                        // A carrier that decoded the command and could not write
-                        // it is the same fact to the route as one that was never
-                        // there, and the same repair.
-                        _ => Some(no_live_carrier(token)),
-                    }
-                }
-                Delivery::Refused(fault) => Some(fault),
-            }
+    let carriers = pump.inner.carriers.borrow_mut();
+    #[cfg(target_arch = "wasm32")]
+    {
+        match delivery(token, command, granted.as_ref()) {
+            Delivery::Encoded(bytes) => match carriers.handle_for(token) {
+                Some(handle) if handle.send(&bytes) => Ok(()),
+                // A carrier that decoded the command and could not write it is
+                // the same fact to the route as one that was never there, and
+                // the same repair.
+                _ => Err(no_live_carrier(token)),
+            },
+            Delivery::Refused(fault) => Err(fault),
         }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let _ = (token, command, &carriers);
-            Some(no_live_carrier(token))
-        }
-    };
-    if let Some(fault) = outcome {
-        report_fault(pump, token, &fault);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (command, &carriers);
+        Err(no_live_carrier(token))
     }
 }
 
@@ -284,19 +288,18 @@ pub(super) fn send(pump: &Pump, token: &TerminalToken, command: &DirectCommand) 
 /// What differs from the loopback socket is the last step: a peer routes the
 /// bytes through its attempt's lane framing and the browser's channels.
 #[cfg(target_arch = "wasm32")]
-fn send_on_peer(pump: &Pump, token: &TerminalToken, command: &DirectCommand) {
+fn send_on_peer(
+    pump: &Pump,
+    token: &TerminalToken,
+    command: &DirectCommand,
+) -> Result<(), SendFault> {
     let granted = granted_scope(pump, token);
-    let outcome = match delivery(token, command, granted.as_ref()) {
-        Delivery::Encoded(bytes) => match super::peer_lane::write_direct(pump, token, bytes) {
-            Ok(()) => None,
+    match delivery(token, command, granted.as_ref()) {
+        Delivery::Encoded(bytes) => super::peer_lane::write_direct(pump, token, bytes)
             // A carrier that framed the command and could not write it is the
             // same fact to the route as one that was never there.
-            Err(_) => Some(no_live_carrier(token)),
-        },
-        Delivery::Refused(fault) => Some(fault),
-    };
-    if let Some(fault) = outcome {
-        report_fault(pump, token, &fault);
+            .map_err(|_| no_live_carrier(token)),
+        Delivery::Refused(fault) => Err(fault),
     }
 }
 

@@ -1,5 +1,6 @@
 //! The coordinator methods one terminal pane calls directly: a history page for
-//! its scrollback pager, and the cursor position its peers' ghosts follow.
+//! its scrollback pager, and the cursor position its peers' ghosts follow. The
+//! same history page read off a direct carrier decodes here too, by one row rule.
 //!
 //! Called by roost-web's `components::terminal` pane mount through
 //! `CoordRpc::call`. v2 call sites: `apps/web/src/lib/scrollbackDirectHistory.ts:30`
@@ -7,8 +8,9 @@
 //! `apps/web/src/components/terminal/cell-terminal-renderer.ts:338` (`sessionsCursorPos`).
 
 use roost_proto::{
-    ScrollbackHistoryFloor as PbHistoryFloor, SessionsCursorPosRequest, SessionsCursorPosResponse,
-    SessionsGetScrollbackCellsRequest, SessionsGetScrollbackCellsResponse,
+    LocalScrollbackResponse, ScrollbackHistoryFloor as PbHistoryFloor, SessionsCursorPosRequest,
+    SessionsCursorPosResponse, SessionsGetScrollbackCellsRequest,
+    SessionsGetScrollbackCellsResponse,
 };
 use roost_protocol::cell::CellRow;
 use roost_protocol::cell::proto::cell_row_from_proto;
@@ -91,6 +93,31 @@ impl UnaryMethod for ScrollbackCells {
             history_floor: history_floor(response.history_floor.as_known()),
         })
     }
+}
+
+/// The page a direct carrier's `LocalScrollbackResponse` carries — the same
+/// page the RPC answers, read by the same row rule — or the worker's refusal.
+pub fn direct_scrollback_page(
+    response: LocalScrollbackResponse,
+) -> Result<ScrollbackCellsPage, String> {
+    if !response.error.is_empty() {
+        return Err(response.error);
+    }
+    let rows = response
+        .rows
+        .iter()
+        .map(cell_row_from_proto)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("a direct history row was malformed: {error}"))?;
+    Ok(ScrollbackCellsPage {
+        rows,
+        cols: response.cols,
+        scrollback_total: response.scrollback_total,
+        start_row: response.start_row,
+        end_row: response.end_row,
+        grid_epoch: response.grid_epoch,
+        history_floor: history_floor(response.history_floor.as_known()),
+    })
 }
 
 /// An unknown floor reads as "no floor claimed": the pager then keeps paging

@@ -30,8 +30,9 @@ use roost_proto::{
 };
 
 use crate::client::carriers::ReadyTuple;
-use crate::client::carriers::inbound::DirectInbound;
+use crate::client::carriers::inbound::{DirectInbound, DirectScrollback};
 use crate::client::local::door::LoopbackReady;
+use crate::client::rpc::calls::terminal_pane::direct_scrollback_page;
 use crate::effect::DirectCommand;
 use crate::terminal::input::InputOutcome;
 use crate::terminal::view::ViewIntent;
@@ -109,6 +110,20 @@ pub fn encode_direct_command(command: &DirectCommand) -> Vec<u8> {
             worker_epoch: worker_epoch.clone(),
             ..Default::default()
         })),
+        DirectCommand::Scrollback {
+            session_id,
+            request_id,
+            end_row,
+            max_rows,
+            grid_epoch,
+        } => ClientFrame::Scrollback(Box::new(LocalScrollbackRequest {
+            request_id: request_id.clone(),
+            session_id: session_id.clone(),
+            end_row: *end_row,
+            max_rows: *max_rows,
+            grid_epoch: grid_epoch.clone(),
+            ..Default::default()
+        })),
     };
     wrap(frame)
 }
@@ -133,27 +148,6 @@ pub fn encode_hello(
         device_fingerprint: device_fingerprint.to_owned(),
         peer_id: peer_id.to_owned(),
         worker_epoch: worker_epoch.to_owned(),
-        ..Default::default()
-    })))
-}
-
-/// The `LocalScrollbackRequest` bytes for one direct history read.
-///
-/// The request id is the CLIENT's, because the carrier has no RPC framing to
-/// correlate a reply with (`local_terminal.proto:43`).
-pub fn encode_scrollback(
-    request_id: &str,
-    session_id: &str,
-    end_row: u64,
-    max_rows: u32,
-    grid_epoch: &str,
-) -> Vec<u8> {
-    wrap(ClientFrame::Scrollback(Box::new(LocalScrollbackRequest {
-        request_id: request_id.to_owned(),
-        session_id: session_id.to_owned(),
-        end_row,
-        max_rows,
-        grid_epoch: grid_epoch.to_owned(),
         ..Default::default()
     })))
 }
@@ -284,32 +278,13 @@ pub fn decode_server_frame(bytes: &[u8], authenticated: bool) -> Result<DirectIn
                 .unwrap_or_default(),
             chunk: *chunk,
         },
-        other => {
-            return Err(WireError {
-                detail: format!(
-                    "the {} arm has no client-side rule on this carrier",
-                    arm_name(&other)
-                ),
-            });
-        }
+        ServerFrame::Scrollback(response) => DirectInbound::Scrollback(DirectScrollback {
+            request_id: response.request_id.clone(),
+            page: direct_scrollback_page(*response),
+        }),
     })
 }
 
-fn arm_name(frame: &ServerFrame) -> &'static str {
-    match frame {
-        ServerFrame::Ready(_) => "ready",
-        ServerFrame::TerminalViewState(_) => "terminal_view_state",
-        ServerFrame::CellGrid(_) => "cell_grid",
-        ServerFrame::CellGridChunk(_) => "cell_grid_chunk",
-        ServerFrame::InputAccepted(_) => "input_accepted",
-        ServerFrame::InputRejected(_) => "input_rejected",
-        ServerFrame::InputAmbiguous(_) => "input_ambiguous",
-        ServerFrame::Scrollback(_) => "scrollback",
-        ServerFrame::Closed(_) => "closed",
-        ServerFrame::InputRouteResult(_) => "input_route_result",
-        ServerFrame::TransportProbeResult(_) => "transport_probe_result",
-    }
-}
 fn ready_of(ready: &LocalTerminalReady) -> LoopbackReady {
     LoopbackReady {
         worker_fingerprint: ready.worker_fingerprint.clone(),
