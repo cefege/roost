@@ -13,18 +13,17 @@
 //! and the `setTimeout` the debounce is — over the controller
 //! `roost-web-terminal::find` already owns.
 
+mod search_rpc;
+
 use std::collections::BTreeMap;
 
-use roost_client_core::client::rpc::calls::find::{
-    CancelScrollbackSearch, SearchScrollback, SearchScrollbackPage,
-};
-use roost_web_terminal::find::FindRequest;
+use roost_web_terminal::find::FindCommand;
 use roost_web_terminal::find::hits::FindQueryOptions;
 use roost_web_terminal::find::intent::FindIntentSink;
-use roost_web_terminal::find::{FindCommand, SearchReply};
 use wasm_bindgen::JsCast as _;
 use wasm_bindgen::closure::Closure;
 
+use self::search_rpc::{cancel, search};
 use super::PaneShared;
 use crate::components::terminal::dom::now_ms;
 use crate::components::terminal::pane_state::set_if_changed;
@@ -243,65 +242,6 @@ fn fire_debounce(shared: &PaneShared) {
     perform(shared, commands);
 }
 
-/// Issue one page of the bounded search chain.
-fn search(shared: &PaneShared, request: FindRequest) {
-    let call = SearchScrollback {
-        session_id: request.session_id.clone(),
-        search_id: request.search_id.clone(),
-        grid_epoch: request.grid_epoch.clone(),
-        query: request.query.clone(),
-        case_sensitive: request.case_sensitive,
-        regex: request.regex,
-        max_matches: request.max_matches,
-        max_rows: request.max_rows,
-        before_row: request.before_row.map(u64::from),
-    };
-    let search_id = request.search_id.clone();
-    let rpc = shared.pump.rpc();
-    let weak = shared.weak_self();
-    wasm_bindgen_futures::spawn_local(async move {
-        let answer = rpc.call(&call).await;
-        let Some(shared) = weak.upgrade().filter(|shared| !shared.disposed.get()) else {
-            return;
-        };
-        let commands = {
-            let mut state = shared.state.borrow_mut();
-            let mut renderer = shared.renderer.borrow_mut();
-            let find = &mut state.find.controller;
-            match answer {
-                Ok(page) => find.on_page(&search_id, &reply_of(&page), &mut *renderer),
-                Err(error) => {
-                    tracing::warn!(target: "find", session_id = %shared.session_id, %error,
-                        "scrollback search page failed");
-                    find.on_search_error(&search_id, &mut *renderer)
-                }
-            }
-        };
-        publish(&shared);
-        perform(&shared, commands);
-    });
-}
-
-/// Ask the coordinator to stop a search that is still running.
-///
-/// The cancel is what bounds the coordinator's work: its ledger keeps a scan
-/// running for the rest of the cursor's lifetime otherwise, and nobody is
-/// reading the rows it would produce.
-fn cancel(shared: &PaneShared, search_id: String) {
-    let call = CancelScrollbackSearch {
-        session_id: shared.session_id.clone(),
-        search_id: search_id.clone(),
-    };
-    tracing::info!(target: "find", session_id = %shared.session_id, %search_id,
-        "scrollback search cancelled");
-    let rpc = shared.pump.rpc();
-    wasm_bindgen_futures::spawn_local(async move {
-        if let Err(error) = rpc.call::<CancelScrollbackSearch>(&call).await {
-            tracing::warn!(target: "find", %search_id, %error, "scrollback search cancel failed");
-        }
-    });
-}
-
 /// Make one history row painted, then settle the reveal waiting on it.
 fn pull_row(shared: &PaneShared, row: u32, reveal: u64) {
     // Armed BEFORE the pull, because the pull can settle synchronously: a row
@@ -341,16 +281,6 @@ pub(super) fn on_row_settled(shared: &PaneShared, row: u32, painted: bool) {
     };
     publish(shared);
     perform(shared, commands);
-}
-
-/// The coordinator's answer, in the shape the chain judges.
-fn reply_of(page: &SearchScrollbackPage) -> SearchReply {
-    SearchReply {
-        matches: page.matches.clone(),
-        page: page.page,
-        grid_epoch: page.grid_epoch.clone(),
-        stop: page.stop,
-    }
 }
 
 /// Write the controller's publication into the bar's signal: `None` once the

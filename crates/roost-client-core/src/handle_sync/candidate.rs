@@ -285,7 +285,7 @@ fn logical_view_for_wire(store: &Store, session_id: &str, wire_view_id: &str) ->
 fn commit_promotion(
     store: &mut Store,
     session_id: &str,
-    promoted: TerminalSession,
+    mut promoted: TerminalSession,
     token: &TerminalToken,
     out: &mut Vec<Effect>,
 ) {
@@ -302,6 +302,7 @@ fn commit_promotion(
                 .collect::<Vec<_>>(),
         )
     });
+    promoted.inherit_wire_record(store.terminal(session_id));
     store.terminal.insert(session_id.to_string(), promoted);
     store.note_change();
     tracing::info!(
