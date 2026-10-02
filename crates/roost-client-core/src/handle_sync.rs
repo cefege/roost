@@ -30,12 +30,14 @@ mod fold_registry;
 mod fold_session_meta;
 mod hydration;
 pub mod lifecycle;
+mod promotion;
 
 use self::apply_frame::apply_frame;
 pub(crate) use self::close_failed::close_failed_sync_link;
 // The one Sync-generation recovery. The terminal liveness watchdog escalates
 // through it rather than opening a second path to the same redial.
 pub(crate) use self::hydration::request_link_replacement;
+pub(crate) use self::promotion::sweep_route_claims;
 use crate::store::Store;
 use crate::sync::SyncFrame;
 use crate::sync::link::RetainedFrame;
@@ -155,7 +157,7 @@ pub fn handle_direct_frame(
                     replica.admit_frame(cell, false, token, now_ms)
                 });
             } else {
-                candidate::fold_into_candidate(store, &session_id, token, out, |replica| {
+                candidate::fold_into_candidate(store, &session_id, token, now_ms, out, |replica| {
                     replica.admit_frame(cell, false, token, now_ms)
                 });
             }
@@ -166,7 +168,7 @@ pub fn handle_direct_frame(
                     replica.admit_chunk(chunk, token, now_ms)
                 });
             } else {
-                candidate::fold_into_candidate(store, &session_id, token, out, |replica| {
+                candidate::fold_into_candidate(store, &session_id, token, now_ms, out, |replica| {
                     replica.admit_chunk(chunk, token, now_ms)
                 });
             }
@@ -199,6 +201,9 @@ pub fn handle_direct_frame(
                     "terminal input settled on the carrier that wrote it"
                 );
             }
+        }
+        SyncFrame::InputRouteResult { result } => {
+            promotion::settle_route_result(store, token, result, now_ms, out);
         }
         _ => tracing::debug!(
             target: "terminal",

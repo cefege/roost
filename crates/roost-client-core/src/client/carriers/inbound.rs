@@ -71,6 +71,7 @@ impl DirectInbound {
                     generation,
                 })
             }
+            Self::InputRouteResult(result) => Some(SyncFrame::InputRouteResult { result }),
             // A close is a socket ending, and a handshake is the transport's own
             // state. Neither is a frame the fold should ever see.
             Self::Closed { .. } | Self::Ready(_) | Self::PreHelloFrame => None,

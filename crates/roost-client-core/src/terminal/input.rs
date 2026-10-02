@@ -198,4 +198,6 @@ pub struct InputLane {
     pub route_epoch_token: Option<TerminalToken>,
     /// Batches whose fate the client cannot report, so a drain cannot complete.
     pub ambiguous: Vec<u64>,
+    /// The route claim: whether one is required, in flight, or holding input.
+    pub claims: router::RouteClaimState,
 }

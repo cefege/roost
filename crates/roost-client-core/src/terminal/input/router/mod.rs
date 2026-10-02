@@ -16,8 +16,13 @@ use crate::terminal::input::{
 };
 use crate::terminal::token::TerminalToken;
 
+mod claim;
 mod settlement;
 
+pub use claim::{
+    ClaimSettlement, FallbackRecovery, INPUT_HANDOFF_DRAIN_MS, PromotionHold,
+    ROUTE_CLAIM_TIMEOUT_MS, RouteClaim, RouteClaimState,
+};
 use settlement::settle_in;
 
 /// The whole document's input routing.
@@ -25,6 +30,8 @@ use settlement::settle_in;
 pub struct InputRouter {
     lanes: BTreeMap<String, InputLane>,
     next_input_seq: u64,
+    /// How many route claims this document has minted, for their request ids.
+    next_claim_id: u64,
     /// The smoke backdoor's observer; `None` unless a smoke build armed it.
     pub smoke_observer: Option<crate::terminal::input::smoke_observer::SmokeInputObserver>,
     /// Per-view admission answers and outcomes, drained by the terminal pane.
@@ -60,6 +67,7 @@ impl InputRouter {
                 route_revision: 0,
                 route_epoch_token: None,
                 ambiguous: Vec::new(),
+                claims: RouteClaimState::default(),
             })
     }
 

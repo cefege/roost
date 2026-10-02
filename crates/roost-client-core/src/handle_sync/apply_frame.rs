@@ -12,8 +12,8 @@ use crate::sync::{SyncDomain, SyncFrame};
 use crate::terminal::smoke_faults::FaultedFrameKind;
 
 use super::fold_controls::{
-    fold_audit_row, fold_coordinator_relocation, fold_input_route_result, fold_pair_request,
-    fold_transport_probe_result, fold_ui_command,
+    fold_audit_row, fold_coordinator_relocation, fold_pair_request, fold_transport_probe_result,
+    fold_ui_command,
 };
 use super::fold_registry::{
     fold_mcp_message, fold_task_delta, fold_worker_presence, fold_worker_routable,
@@ -236,7 +236,13 @@ pub(super) fn apply_frame(
         SyncFrame::CoordinatorRelocation { relocation } => {
             fold_coordinator_relocation(store, generation, relocation, out);
         }
-        SyncFrame::InputRouteResult { result } => fold_input_route_result(store, result),
+        SyncFrame::InputRouteResult { result } => {
+            // Settled against the Sync generation it arrived on: a claim sent
+            // on a socket that has since redialled is answered for nobody.
+            if let Some(token) = store.sync_terminal_token() {
+                super::promotion::settle_route_result(store, &token, result, now_ms, out);
+            }
+        }
         SyncFrame::TransportProbeResult { result } => {
             fold_transport_probe_result(store, generation, result, now_ms);
         }

@@ -26,7 +26,7 @@ use roost_proto::buffa::Message;
 use roost_proto::{
     InputCommand, LocalScrollbackRequest, LocalTerminalClientFrame, LocalTerminalClosed,
     LocalTerminalHello, LocalTerminalReady, LocalTerminalServerFrame, PbCellGridChunk,
-    PbCellGridFrame, TerminalResyncCommand, TerminalViewCommand,
+    PbCellGridFrame, TerminalInputRouteClaim, TerminalResyncCommand, TerminalViewCommand,
 };
 
 use crate::client::carriers::ReadyTuple;
@@ -92,6 +92,20 @@ pub fn encode_direct_command(command: &DirectCommand) -> Vec<u8> {
             data: bytes.clone(),
             view_id: view_id.clone(),
             input_route_epoch: input_route_epoch.clone(),
+            ..Default::default()
+        })),
+        DirectCommand::RouteClaim {
+            session_id,
+            request_id,
+            revision,
+            worker_epoch,
+            domain_generation,
+        } => ClientFrame::InputRouteClaim(Box::new(TerminalInputRouteClaim {
+            request_id: request_id.clone(),
+            session_id: session_id.clone(),
+            revision: *revision,
+            domain_generation: *domain_generation,
+            worker_epoch: worker_epoch.clone(),
             ..Default::default()
         })),
     };
@@ -205,6 +219,8 @@ pub enum DirectInbound {
         /// Its reason string, or a host-supplied one when it sent none.
         reason: String,
     },
+    /// The answer to a route claim this carrier sent.
+    InputRouteResult(crate::sync::inbound::InputRouteResult),
     /// A frame that arrived BEFORE the carrier authenticated.
     PreHelloFrame,
 }
@@ -291,6 +307,9 @@ pub fn decode_server_frame(bytes: &[u8], authenticated: bool) -> Result<DirectIn
         ServerFrame::Closed(closed) => DirectInbound::Closed {
             reason: closed.reason,
         },
+        ServerFrame::InputRouteResult(result) => {
+            DirectInbound::InputRouteResult(crate::sync::decode::input_route_result_of(*result))
+        }
         // `cell_grid` IS the grid frame, so its own `session_id` is the
         // session; `cell_grid_chunk` is a wrapper whose session lives in the
         // part it carries, which is what `sync::decode::cell_grid_chunk` reads.

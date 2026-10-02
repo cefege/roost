@@ -16,8 +16,7 @@
 
 use crate::effect::{DirectCommand, Effect, SyncCommand};
 use crate::store::Store;
-use crate::terminal::InputPhase;
-use crate::terminal::input::InputOutcome;
+use crate::terminal::input::{InputOutcome, PendingInput};
 use crate::terminal::token::{TerminalToken, TerminalTransport};
 
 /// Keystrokes from a pane. The core decides the route; the host only writes.
@@ -52,6 +51,19 @@ pub fn handle_terminal_input(
         }
     };
     store.note_change();
+    // A promotion or a Sync fallback is asking a worker for the route epoch.
+    // The batch waits unsent for that answer (v2 `admit` in `holding` or
+    // `claiming`): sent now it would carry no epoch, and a worker that has
+    // already moved the route refuses it as `terminal input route changed`.
+    if store.input.is_holding(session_id) {
+        tracing::debug!(
+            target: "terminal",
+            session_id,
+            input_seq = admitted.input_seq,
+            "terminal input held while the route is claimed"
+        );
+        return;
+    }
     // The destination is the session's ELECTED ROUTE, and failing that the Sync
     // socket this tab is dialled on — with NO pane required.
     //
@@ -74,31 +86,44 @@ pub fn handle_terminal_input(
         );
         return;
     };
-    let wire_view_id = view_id.and_then(|view_id| {
+    dispatch_batch(store, &admitted, &token, out);
+}
+
+/// Hand one admitted batch to `token`'s transport, stamped with the route epoch
+/// acknowledged for exactly that generation. Used for a fresh batch and for one
+/// a claim held, so both go out the same way.
+pub(crate) fn dispatch_batch(
+    store: &mut Store,
+    admitted: &PendingInput,
+    token: &TerminalToken,
+    out: &mut Vec<Effect>,
+) {
+    let session_id = admitted.session_id.as_str();
+    let wire_view_id = admitted.view_id.as_deref().and_then(|view_id| {
         store
             .terminal(session_id)
             .and_then(|replica| replica.wire_view_id(view_id))
             .map(str::to_string)
     });
-    let input_route_epoch = store.input.route_epoch_for(session_id, &token);
-    store.input.mark_started(admitted.input_seq, &token);
+    let input_route_epoch = store.input.route_epoch_for(session_id, token);
+    store.input.mark_started(admitted.input_seq, token);
     if token.transport == TerminalTransport::Sync {
         out.push(Effect::SendSync(SyncCommand::TerminalInput {
             session_id: session_id.to_string(),
             view_id: wire_view_id,
             input_seq: admitted.input_seq,
-            bytes: admitted.bytes,
+            bytes: admitted.bytes.clone(),
             input_route_epoch,
-            token,
+            token: token.clone(),
         }));
     } else {
         out.push(Effect::SendDirect {
-            token,
+            token: token.clone(),
             command: DirectCommand::Input {
                 session_id: session_id.to_string(),
                 view_id: wire_view_id,
                 input_seq: admitted.input_seq,
-                bytes: admitted.bytes,
+                bytes: admitted.bytes.clone(),
                 input_route_epoch,
             },
         });
@@ -176,26 +201,25 @@ pub fn retire_route(
         );
     }
 
-    // The lane HOLDS rather than refuses. A new route may arrive before the reader
-    // types again, and refusing would lose the keystroke for a gap nobody can see.
-    // The hold has its own admission timeout, so a route that never comes back
-    // cannot hold a batch forever.
-    for outcome in store.input.set_phase(session_id, InputPhase::Holding) {
-        tracing::info!(
-            target: "terminal",
-            session_id,
-            input_seq = outcome.input_seq(),
-            "unsent terminal input refused on route loss"
-        );
-    }
-
     match token.transport {
         // A direct route's ids belong to the worker it died on, and the
         // coordinator has never heard of them. What the session needs first is a
         // set of ids the coordinator WILL accept, so the painted rows stay up and
         // the heartbeat stops publishing a dead handle; the baseline that follows
         // the fresh view acceptance is what repairs the stream.
+        //
+        // Its input route is the worker's too, and that worker still names the
+        // dead carrier: Sync input without an epoch is refused until Sync claims
+        // the route back. The lane HOLDS while it does (v2
+        // `TerminalPeerFallbackClaims`), so a keystroke typed into the gap waits
+        // for the claim instead of being refused; the hold has its own admission
+        // timeout, so a claim that never lands cannot hold a batch forever.
         TerminalTransport::Loopback | TerminalTransport::Peer => {
+            if let Some(worker_fp) = token.worker_fp.as_deref() {
+                store
+                    .input
+                    .begin_fallback(session_id, worker_fp, &token.process_epoch, 0);
+            }
             crate::handle_terminal::begin_sync_view_rotation(store, session_id, token, out);
         }
         // A Sync socket that redialled keeps its ids — the coordinator is the same

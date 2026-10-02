@@ -20,6 +20,7 @@
 use std::collections::BTreeSet;
 
 use roost_client_core::DirectCarrier;
+use roost_client_core::client::carriers::session_of;
 use roost_client_core::client::carriers::wire::{
     DirectInbound, decode_server_frame, encode_direct_command, encode_hello,
 };
@@ -119,12 +120,7 @@ impl LoopbackConnection {
     /// session this grant does not name is a request the worker would refuse
     /// after it had already cost a round trip.
     pub fn encode(&self, command: &DirectCommand) -> Option<Vec<u8>> {
-        let session_id = match command {
-            DirectCommand::View { session_id, .. }
-            | DirectCommand::Resync { session_id, .. }
-            | DirectCommand::Input { session_id, .. } => session_id,
-        };
-        self.allows_session(session_id)
+        self.allows_session(session_of(command))
             .then(|| encode_direct_command(command))
     }
 
