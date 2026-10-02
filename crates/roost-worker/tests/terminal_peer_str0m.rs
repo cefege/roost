@@ -79,7 +79,7 @@ async fn an_in_process_str0m_pair_carries_a_terminal_frame_both_ways() {
         ),
         native_loader: str0m_loader(),
         packet_budget: TerminalPeerPacketBudget::new(),
-        offer_faults: None,
+        test_faults: None,
         expire_grant: Arc::new(|_: &str| {}),
         runtime: tokio::runtime::Handle::current(),
     });

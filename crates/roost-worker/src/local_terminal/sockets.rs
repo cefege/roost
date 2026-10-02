@@ -83,7 +83,7 @@ pub struct LocalTerminalSockets {
     subscription: Mutex<Option<u64>>,
     /// The smoke harness's hooks, attached once at boot when it drives faults.
     #[cfg(feature = "smoke")]
-    pub(super) test_faults: std::sync::OnceLock<super::smoke_hooks::LocalTerminalTestFaults>,
+    pub(super) test_faults: std::sync::OnceLock<Arc<crate::smoke_faults::DirectPathFaults>>,
 }
 
 impl LocalTerminalSockets {

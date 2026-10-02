@@ -76,6 +76,10 @@ impl LocalTerminalSockets {
         self.runtime.spawn(async move {
             let result = written.await;
             if let Some(sockets) = sockets.upgrade() {
+                #[cfg(feature = "smoke")]
+                if sockets.withholds_input_result(&session, &result) {
+                    return;
+                }
                 sockets.send_input_result(&session, &command, &result);
             }
             drop(reservation);

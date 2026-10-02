@@ -7,7 +7,7 @@
 use serde_json::Value;
 
 use super::PeerFaultState;
-use crate::peer::OfferFault;
+use crate::peer::{MalformedPacket, OfferFault};
 
 /// Every action the harness may send (v2 `PeerFaultCommandAction`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,7 +115,36 @@ pub(super) async fn apply_command(
     );
     match command.action {
         FaultAction::ArmOfferFault => {
-            state.offer.arm(offer_fault_payload(&command.payload)?);
+            state
+                .peer
+                .offer()
+                .arm(offer_fault_payload(&command.payload)?);
+            Ok(Value::Null)
+        }
+        FaultAction::SetPacketBlackhole => {
+            state
+                .peer
+                .set_packet_blackhole(boolean_payload(&command.payload)?);
+            Ok(Value::Null)
+        }
+        FaultAction::DropNextInputResult => {
+            state.direct_path.arm_input_result_drop();
+            Ok(Value::Null)
+        }
+        FaultAction::InjectMalformedPacket => {
+            let packet = malformed_packet_payload(&command.payload)?;
+            if state.direct.peer_owner().inject_malformed_packet(packet) {
+                Ok(Value::Null)
+            } else {
+                Err(
+                    "no authenticated terminal peer is available for malformed packet injection"
+                        .to_owned(),
+                )
+            }
+        }
+        FaultAction::SetHistoryPaused => {
+            let paused = boolean_payload(&command.payload)?;
+            state.direct.peer_owner().set_history_paused(paused);
             Ok(Value::Null)
         }
         other => Err(format!(
@@ -125,9 +154,22 @@ pub(super) async fn apply_command(
     }
 }
 
+fn boolean_payload(payload: &Value) -> Result<bool, String> {
+    payload
+        .as_bool()
+        .ok_or_else(|| "terminal peer fault requires a boolean payload".to_owned())
+}
+
 fn offer_fault_payload(payload: &Value) -> Result<OfferFault, String> {
     payload
         .as_str()
         .and_then(OfferFault::parse)
         .ok_or_else(|| "terminal peer fault offer kind is invalid".to_owned())
+}
+
+fn malformed_packet_payload(payload: &Value) -> Result<MalformedPacket, String> {
+    payload
+        .as_str()
+        .and_then(MalformedPacket::parse)
+        .ok_or_else(|| "terminal peer malformed packet kind is invalid".to_owned())
 }

@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use fake_native::FakeNative;
 use owner_fixture::{Seen, WORKER_EPOCH, lock, offer, owner_with, peer_offer};
-use roost_worker::peer::{OfferFault, OfferFaultSlot, TerminalPeerOfferFailure};
+use roost_worker::peer::{OfferFault, PeerTestFaults, TerminalPeerOfferFailure};
 
 /// Each armed fault is consumed by exactly the next offer, at its real owner
 /// boundary, and leaves the offer after it untouched.
@@ -21,10 +21,10 @@ use roost_worker::peer::{OfferFault, OfferFaultSlot, TerminalPeerOfferFailure};
 async fn every_offer_fault_fires_once_at_its_owner_boundary() {
     let fake = FakeNative::new();
     let seen = Arc::new(Seen::default());
-    let faults = Arc::new(OfferFaultSlot::default());
+    let faults = Arc::new(PeerTestFaults::default());
     let owner = owner_with(&fake, fake.loader(), true, Some(Arc::clone(&faults)), &seen);
 
-    faults.arm(OfferFault::InvalidSdp);
+    faults.offer().arm(OfferFault::InvalidSdp);
     assert_eq!(
         offer(&owner, peer_offer(1)).await,
         Err(TerminalPeerOfferFailure::InvalidOffer)
@@ -34,23 +34,23 @@ async fn every_offer_fault_fires_once_at_its_owner_boundary() {
         "one-shot: the next offer is untouched"
     );
 
-    faults.arm(OfferFault::MissingGrant);
+    faults.offer().arm(OfferFault::MissingGrant);
     assert_eq!(
         offer(&owner, peer_offer(3)).await,
         Err(TerminalPeerOfferFailure::GrantUnavailable)
     );
 
-    faults.arm(OfferFault::ExpiredGrant);
+    faults.offer().arm(OfferFault::ExpiredGrant);
     assert_eq!(
         offer(&owner, peer_offer(4)).await,
         Err(TerminalPeerOfferFailure::Expired)
     );
     assert_eq!(*lock(&seen.expired), vec!["grant-4".to_owned()]);
 
-    faults.arm(OfferFault::IdentityMismatch);
+    faults.offer().arm(OfferFault::IdentityMismatch);
     offer(&owner, peer_offer(5)).await.unwrap();
     let tuple = lock(&seen.tuples).last().cloned().unwrap();
     assert_eq!(tuple.worker_epoch, format!("{WORKER_EPOCH}-smoke-mismatch"));
-    assert_eq!(faults.consume(), None);
+    assert_eq!(faults.offer().consume(), None);
     owner.dispose();
 }

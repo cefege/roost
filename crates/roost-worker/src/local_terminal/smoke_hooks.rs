@@ -1,9 +1,9 @@
 //! The smoke harness's hooks on the direct terminal path: the per-input hold
-//! an authenticated peer's input waits on before admission. Attached by
-//! `runtime::owners` when `roost worker` was given its fault sockets; read by
-//! `input`. Compiled only with the `smoke` feature. Ports the
-//! `onAuthenticatedPeerInput` half of v2 `LocalTerminalSocketTestFaults`
-//! (`apps/worker/src/local-door/local-terminal-socket-input.ts:45-56`).
+//! an authenticated peer's input waits on before admission, and the one
+//! accepted input result it may withhold. Attached by `runtime::owners` when
+//! `roost worker` was given its fault sockets; read by `input`. Compiled only
+//! with the `smoke` feature. Ports v2 `LocalTerminalSocketTestFaults`
+//! (`apps/worker/src/local-door/local-terminal-socket-input.ts:45-56,91-95`).
 
 use std::sync::Arc;
 
@@ -11,25 +11,36 @@ use roost_proto::InputCommand;
 
 use super::authority::PortSession;
 use super::sockets::LocalTerminalSockets;
-use crate::smoke_faults::DirectInputHold;
-
-/// What the harness reaches the direct path through.
-#[derive(Debug)]
-pub(super) struct LocalTerminalTestFaults {
-    input_hold: DirectInputHold,
-}
+use crate::session::input_write::WorkerInputResult;
+use crate::smoke_faults::DirectPathFaults;
 
 impl LocalTerminalSockets {
-    /// Route every authenticated peer input through the harness's hold.
-    pub fn attach_test_faults(&self, input_hold: DirectInputHold) {
-        let attached = self
-            .test_faults
-            .set(LocalTerminalTestFaults { input_hold })
-            .is_ok();
+    /// Route every authenticated peer input through the harness's faults.
+    pub fn attach_test_faults(&self, faults: Arc<DirectPathFaults>) {
+        let attached = self.test_faults.set(faults).is_ok();
         tracing::info!(
             attached,
             "the direct terminal path's smoke fault hooks were attached"
         );
+    }
+
+    /// v2 `shouldSendPeerInputResult`: a peer's ACCEPTED result is withheld
+    /// once when the harness armed it, after the PTY write already happened.
+    pub(super) fn withholds_input_result(
+        &self,
+        session: &PortSession,
+        result: &WorkerInputResult,
+    ) -> bool {
+        let withheld = session.expected_peer().is_some()
+            && matches!(result, WorkerInputResult::Accepted { .. })
+            && self
+                .test_faults
+                .get()
+                .is_some_and(|faults| faults.consume_input_result_drop());
+        if withheld {
+            tracing::info!("a peer input result was withheld by the smoke harness");
+        }
+        withheld
     }
 
     /// v2 `onAuthenticatedPeerInput`, asked FIRST — before authorization, size,

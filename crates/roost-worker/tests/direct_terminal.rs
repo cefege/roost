@@ -38,7 +38,7 @@ fn direct(fixture: &Fixture, fake: &Arc<FakeNative>) -> Arc<DirectTerminal> {
             port_range: None,
         },
         native_loader: fake.loader(),
-        offer_faults: None,
+        test_faults: None,
         runtime: tokio::runtime::Handle::current(),
     })
 }

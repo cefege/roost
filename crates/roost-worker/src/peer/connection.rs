@@ -17,6 +17,7 @@ use roost_protocol::terminal_peer::sdp::inspect_terminal_peer_sdp;
 use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 
+use super::faults::PeerTestFaults;
 use super::native::{
     NativeChannelSpec, NativePeer, NativePeerConfig, NativePeerEvent, NativePeerEvents,
     NativePeerFactory, remote_fingerprint_matches,
@@ -70,6 +71,8 @@ pub struct TerminalPeerConnectionDeps {
     pub open_peer_port: OpenTerminalPeerPort,
     pub on_closed: Arc<dyn Fn(ConnectionFailure) + Send + Sync>,
     pub socket_id: String,
+    /// Smoke-only; `None` for every ordinary worker.
+    pub test_faults: Option<Arc<PeerTestFaults>>,
     pub runtime: Handle,
 }
 
@@ -158,6 +161,7 @@ impl TerminalPeerConnection {
                             connection.close(ConnectionFailure::IceFailed);
                         }
                     })),
+                    test_faults: deps.test_faults,
                     runtime: deps.runtime.clone(),
                 }),
                 native,
