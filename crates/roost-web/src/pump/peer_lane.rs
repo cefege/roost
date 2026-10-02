@@ -146,6 +146,7 @@ pub(super) fn close(pump: &Pump, attempt_id: u64, reason: &str) {
     declare_environment(pump);
     if let Some(connection_id) = announced {
         pump.dispatch(ClientEvent::CarrierLost { connection_id });
+        super::direct_history::lose_reads_off_route(pump, reason);
     }
 }
 
