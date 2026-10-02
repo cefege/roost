@@ -273,7 +273,7 @@ fn a_relocation_notice_closes_the_link_as_an_unknown_v2_control() {
 }
 
 #[test]
-fn route_and_probe_answers_are_held_for_their_waiters() {
+fn an_unsolicited_route_answer_installs_no_epoch_and_a_probe_answer_is_held() {
     let (mut core, generation) = ready_core();
     let route = Frame::InputRouteResult(Box::new(TerminalInputRouteResult {
         request_id: "claim-1".to_owned(),
@@ -285,8 +285,15 @@ fn route_and_probe_answers_are_held_for_their_waiters() {
         ..TerminalInputRouteResult::default()
     }));
     deliver(&mut core, generation, &control(route));
-    let held = &core.store().input_route_results[SESSION];
-    assert_eq!((held.request_id.as_str(), held.accepted), ("claim-1", true));
+    // An answer to a claim this document never sent is somebody else's route:
+    // installing its epoch would stamp this tab's input with it.
+    assert!(
+        core.store()
+            .input
+            .lane(SESSION)
+            .is_none_or(|lane| lane.route_epoch.is_empty()),
+        "an unsolicited route answer installed an epoch"
+    );
 
     let probe = |worker_epoch: &str| {
         Frame::TerminalTransportProbeResult(Box::new(TerminalTransportProbeResult {

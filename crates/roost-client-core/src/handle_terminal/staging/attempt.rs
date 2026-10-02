@@ -131,7 +131,7 @@ pub fn cancel_staged_candidate_and_restart(
 pub fn sweep_candidate_deadlines(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
     let expired: Vec<String> = store
         .routes
-        .staged_attempts()
+        .attempts_awaiting_baseline()
         .into_iter()
         .filter(|(_, _, staged_at_ms)| {
             now_ms.saturating_sub(*staged_at_ms) >= CANDIDATE_BASELINE_DEADLINE_MS

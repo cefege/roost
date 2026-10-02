@@ -40,6 +40,7 @@ pub(super) fn fold_into_candidate<F>(
     store: &mut Store,
     session_id: &str,
     token: &TerminalToken,
+    now_ms: u64,
     out: &mut Vec<Effect>,
     fold: F,
 ) where
@@ -67,24 +68,15 @@ pub(super) fn fold_into_candidate<F>(
         return;
     }
     // PROMOTE, which is what makes a candidate the elected route. Without this
-    // line a carrier can authenticate, stage a replica and paint a baseline,
+    // step a carrier can authenticate, stage a replica and paint a baseline,
     // and `snapshot.route.active` still reads `sync` forever — the terminal
     // stays on the fallback while a working direct path sits beside it
-    // unelected. `promote` is the fence: it refuses a candidate whose attempt
-    // moved on, whose baseline is incomplete, whose views are unanswered, whose
-    // token changed, or whose connection is gone, and every one of those refusals
-    // is a reason NOT to switch.
-    match store.routes.promote(session_id, attempt_id, &attempt_token) {
-        Ok(promoted) => commit_promotion(store, session_id, promoted, token, out),
-        Err(refusal) => {
-            tracing::debug!(
-                target: "route",
-                session_id,
-                ?refusal,
-                "the candidate is not promotable, so the fallback keeps the terminal"
-            );
-        }
-    }
+    // unelected. The promotion first claims the worker's input route for the
+    // candidate, and `promote` is the fence at the commit: it refuses a
+    // candidate whose attempt moved on, whose baseline is incomplete, whose
+    // views are unanswered, whose token changed, or whose connection is gone,
+    // and every one of those refusals is a reason NOT to switch.
+    super::promotion::advance_promotion(store, session_id, attempt_id, &attempt_token, now_ms, out);
 }
 
 /// Apply a view-state answer that arrived on a direct carrier.
@@ -103,6 +95,7 @@ pub(super) fn apply_direct_view_state(
     let SyncFrame::ViewState {
         view_id,
         generation,
+        revision,
         accepted,
         stream_id,
         effective_cols,
@@ -128,6 +121,7 @@ pub(super) fn apply_direct_view_state(
         session_id: session_id.to_string(),
         view_id: logical_view_id.clone(),
         generation: *generation,
+        revision: *revision,
         accepted: *accepted,
         stream_id: (!stream_id.is_empty()).then(|| stream_id.clone()),
         effective_cols: *effective_cols,
@@ -282,7 +276,7 @@ fn logical_view_for_wire(store: &Store, session_id: &str, wire_view_id: &str) ->
 /// the old transport. Reversed, a worker that dropped the old lease between the
 /// two would have no view at all — and the reader would be left with painted rows
 /// and a stream nothing is feeding.
-fn commit_promotion(
+pub(super) fn commit_promotion(
     store: &mut Store,
     session_id: &str,
     mut promoted: TerminalSession,

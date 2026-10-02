@@ -10,6 +10,7 @@
 //! `protocol/spec/terminal-stream.md:24-26`.
 
 use crate::terminal::session::{TerminalSession, ViewStateAdmission};
+use crate::terminal::token::TerminalToken;
 use crate::terminal::view::{TerminalView, ViewAnswer, ViewIntent, ViewStateResult};
 
 impl TerminalSession {
@@ -132,10 +133,18 @@ impl TerminalSession {
 
     /// Apply a generation-matched view-state result.
     ///
-    /// A result for a generation this view is not awaiting is `Stale`: it is the
-    /// answer to a command from a socket that has since been replaced, and
-    /// letting it satisfy the current lease would keep a view alive on the
-    /// authority's memory of a socket that no longer exists.
+    /// Two kinds are admitted. The answer to an awaited command, matched on the
+    /// generation the command went out on; and a state the authority broadcast
+    /// to every live view when another viewer re-minted the stream, which
+    /// answers no command and is matched instead on the view's CURRENT revision
+    /// over this replica's own generation (v2 `dispatchTerminalViewState`: the
+    /// frame's revision against `desired.revision`). Refusing the broadcast
+    /// leaves the replica expecting the old stream and refusing every frame of
+    /// the new one until the next heartbeat asks again.
+    ///
+    /// Anything else is `Stale`: the answer to a command from a socket that has
+    /// since been replaced, and letting it satisfy the current lease would keep
+    /// a view alive on the authority's memory of a socket that no longer exists.
     pub fn apply_view_state(
         &mut self,
         result: &ViewStateResult,
@@ -144,10 +153,15 @@ impl TerminalSession {
         if result.session_id != self.session_id {
             return ViewStateAdmission::Stale;
         }
+        let own_generation = self.generation().map(TerminalToken::view_answer_generation);
         let Some(view) = self.views.get_mut(&result.view_id) else {
             return ViewStateAdmission::Stale;
         };
-        if !view.acknowledge(result.generation, now_ms) {
+        let awaited = view.acknowledge(result.generation, now_ms);
+        let broadcast = !awaited
+            && result.revision == view.revision
+            && own_generation == Some(result.generation);
+        if !awaited && !broadcast {
             return ViewStateAdmission::Stale;
         }
         view.answer = Some(ViewAnswer {

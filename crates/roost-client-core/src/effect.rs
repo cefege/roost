@@ -234,6 +234,19 @@ pub enum SyncCommand {
         /// The generation the write belongs to.
         token: TerminalToken,
     },
+    /// Ask the session's worker, through the coordinator, for the input route.
+    TerminalInputRouteClaim {
+        /// The session.
+        session_id: String,
+        /// The id the answer is matched on.
+        request_id: String,
+        /// The revision claimed.
+        revision: u64,
+        /// The worker process the claim names.
+        worker_epoch: String,
+        /// The generation the claim belongs to.
+        token: TerminalToken,
+    },
     /// Answer an acknowledged layout apply on the exact socket it named.
     UiApplyLayoutResult(crate::client::ui_state::LayoutApplyResult),
 }
@@ -287,6 +300,19 @@ pub enum DirectCommand {
         /// The route the client believes owns this channel's input, so a grant
         /// that moved fences the batch instead of writing it.
         input_route_epoch: String,
+    },
+    /// Ask the worker on the other end for the session's input route.
+    RouteClaim {
+        /// The session.
+        session_id: String,
+        /// The id the answer is matched on.
+        request_id: String,
+        /// The revision claimed.
+        revision: u64,
+        /// The worker process the claim names.
+        worker_epoch: String,
+        /// The carrier's socket generation, the direct domain generation.
+        domain_generation: u64,
     },
 }
 

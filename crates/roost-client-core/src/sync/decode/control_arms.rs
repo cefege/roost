@@ -119,16 +119,22 @@ pub(super) fn input_ambiguous(value: InputAmbiguous) -> SyncFrame {
 /// The answer to a route claim.
 pub(super) fn input_route_result(value: TerminalInputRouteResult) -> SyncFrame {
     SyncFrame::InputRouteResult {
-        result: InputRouteResult {
-            request_id: value.request_id,
-            session_id: value.session_id,
-            revision: value.revision,
-            accepted: value.accepted,
-            latest_revision: value.latest_revision,
-            input_route_epoch: value.input_route_epoch,
-            worker_epoch: value.worker_epoch,
-            reason: value.reason,
-        },
+        result: input_route_result_of(value),
+    }
+}
+
+/// The answer to a route claim, in the client's vocabulary. Shared with the
+/// direct carrier, whose worker answers a claim in the same message.
+pub(crate) fn input_route_result_of(value: TerminalInputRouteResult) -> InputRouteResult {
+    InputRouteResult {
+        request_id: value.request_id,
+        session_id: value.session_id,
+        revision: value.revision,
+        accepted: value.accepted,
+        latest_revision: value.latest_revision,
+        input_route_epoch: value.input_route_epoch,
+        worker_epoch: value.worker_epoch,
+        reason: value.reason,
     }
 }
 

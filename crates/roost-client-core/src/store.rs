@@ -79,7 +79,7 @@ use crate::store::toasts::ToastStack;
 use crate::store::transfers::TransferStack;
 use crate::store::ui::UiState;
 use crate::sync::SyncState;
-use crate::sync::inbound::{AuditEntry, InputRouteResult, SessionViewer};
+use crate::sync::inbound::{AuditEntry, SessionViewer};
 use crate::terminal::session::TerminalSession;
 use crate::terminal::token::TerminalToken;
 use crate::terminal::{InputPhase, InputRouter, RouteRegistry};
@@ -220,8 +220,6 @@ pub struct Store {
     pub audit_rows: VecDeque<AuditEntry>,
     /// UI commands for the UI bridge, oldest first.
     pub ui_commands: VecDeque<roost_proto::UiCommandFrame>,
-    /// The newest input-route answer per session, for the claim waiter.
-    pub input_route_results: BTreeMap<String, InputRouteResult>,
     /// The newest successful transport-probe answer per worker.
     pub transport_probes: BTreeMap<String, ProbeTelemetry>,
     /// Pairings already announced, oldest first, so one pairing toasts once.
@@ -306,7 +304,6 @@ impl Store {
             presence_notices: VecDeque::new(),
             audit_rows: VecDeque::new(),
             ui_commands: VecDeque::new(),
-            input_route_results: BTreeMap::new(),
             transport_probes: BTreeMap::new(),
             announced_pairings: VecDeque::new(),
             terminal_smoke_faults: crate::terminal::smoke_faults::TerminalSmokeFaults::default(),
