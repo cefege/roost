@@ -22,7 +22,7 @@ use roost_client_core::client::attachments::insertion::safe_attachment_insertion
 use super::attachment_picker::ChosenFile;
 use super::short_paths::short_path_preference;
 use super::upload_card::{self, UploadPreview};
-use super::upload_host::{self, DirectEnvironmentFacts};
+use super::upload_host::{self, BrowserDirectEnvironment, DirectIdentity};
 use super::upload_id::{content_digest, mint_upload_id};
 use super::upload_plan::{CarrierChoice, PlanRefusal, UploadOutcome, UploadPlan};
 use crate::components::notifications::store_write::write_store;
@@ -52,7 +52,7 @@ struct QueuedUpload {
     worker_fp: Option<String>,
     file: ChosenFile,
     short_path: bool,
-    environment: DirectEnvironmentFacts,
+    identity: DirectIdentity,
     sink: InsertionSink,
 }
 
@@ -66,9 +66,8 @@ pub struct UploadContext {
     pub worker_fp: Option<String>,
     /// Whether the worker stores attachments under a short path.
     pub short_path: bool,
-    /// The tab and device a direct grant is bound to, and what this build can
-    /// open as a carrier.
-    pub environment: DirectEnvironmentFacts,
+    /// The tab and device a direct grant is bound to.
+    pub identity: DirectIdentity,
 }
 
 /// Upload `files` into `context`, in pick order, and hand each committed path
@@ -94,7 +93,7 @@ pub fn enqueue_attachments(
                 worker_fp: context.worker_fp.clone(),
                 file,
                 short_path: context.short_path,
-                environment: context.environment.clone(),
+                identity: context.identity.clone(),
                 sink: sink.clone(),
             });
         }
@@ -279,25 +278,23 @@ async fn deduplicated_path(job: &QueuedUpload, plan: &UploadPlan) -> Option<Stri
 
 /// Choose a carrier and run the upload on it.
 async fn upload_on_a_carrier(job: &QueuedUpload, plan: &UploadPlan) -> UploadOutcome {
-    let mut environment = job.environment.clone();
-    // The grant is a network call and route selection is synchronous, so it is
-    // asked for first and recorded against the exact tuple it was asked for.
-    if environment.carrier_available
-        && let Some(worker_fp) = plan.direct_request.worker_fp.clone()
-    {
-        let grant_request = plan.direct_request.grant_request(&worker_fp);
-        if let Some(response) =
-            upload_host::mint_direct_grant(&job.pump, &plan.direct_request, &environment.tab_id)
-                .await
-        {
-            environment.pending_grant.record(grant_request, response);
-        }
-    }
-
-    let choice = CarrierChoice::from_attempt(upload_attachment_direct(
-        &plan.direct_request,
-        &mut environment,
-    ));
+    let pump = job.pump.clone();
+    let upload_id = plan.upload_id.clone();
+    let on_progress = |settled: u64| {
+        write_store(&pump, |store| {
+            upload_card::record_progress(store, &upload_id, settled);
+        });
+    };
+    let mut environment = BrowserDirectEnvironment {
+        pump: &job.pump,
+        identity: &job.identity,
+        request: &plan.direct_request,
+        bytes: &job.file.bytes,
+        on_progress: &on_progress,
+    };
+    let choice = CarrierChoice::from_attempt(
+        upload_attachment_direct(&plan.direct_request, &mut environment).await,
+    );
     tracing::info!(
         target: "attachments",
         session = %plan.direct_request.session_id,
@@ -317,18 +314,7 @@ async fn upload_on_a_carrier(job: &QueuedUpload, plan: &UploadPlan) -> UploadOut
             );
             relay(job, plan).await
         }
-        // A direct carrier was elected but this build has no carrier driver to
-        // run its chunk loop, so NO byte may go on it. Reported as a relay
-        // upload rather than attempted: half an open carrier is a stuck upload.
-        CarrierChoice::Direct { .. } => {
-            tracing::warn!(
-                target: "attachments",
-                session = %plan.direct_request.session_id,
-                upload = %plan.upload_id,
-                "a direct route was elected but no carrier driver is open; the coordinator relays this upload"
-            );
-            relay(job, plan).await
-        }
+        CarrierChoice::Direct { result, .. } => UploadOutcome::Accepted(result),
         CarrierChoice::FailedWithBytes { reason } => UploadOutcome::Ambiguous { reason },
         CarrierChoice::Failed { route, reason } => UploadOutcome::Rejected {
             reason: format!("the {} carrier failed: {reason}", route.as_str()),

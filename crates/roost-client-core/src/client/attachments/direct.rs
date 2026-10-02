@@ -1,8 +1,9 @@
 //! Which direct carrier one upload may use: a matching local door, then the
 //! peer, then coordinator relay. Called by the upload driver; it decides the
-//! route and names the reason there is none, and never sends anything. Ported
-//! from `attachmentDirect.ts`. Depends on `grant`, `transfer` and `loopback`.
-//! The refusals it returns are the whole direct-then-peer fallback.
+//! route order and names the reason there is none, and the host performs every
+//! open and send it asks for. Ported from `attachmentDirect.ts`. Depends on
+//! `grant`, `transfer` and `loopback`. The refusals it returns are the whole
+//! direct-then-peer fallback.
 
 pub mod loopback;
 pub mod relay;
@@ -10,36 +11,10 @@ pub mod relay;
 use super::grant::{
     AttachmentDirectGrant, AttachmentDirectGrantRequest, AttachmentDirectGrantResponse,
 };
-use super::transfer::{AttachmentTransferCarrierError, DirectUpload, MAX_SAFE_TOTAL_BYTES};
-
-/// A local worker door: the origin its loopback socket is opened against, and
-/// the worker it belongs to.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalWorkerDoor {
-    pub origin: String,
-    pub worker_fingerprint: String,
-}
-
-impl LocalWorkerDoor {
-    /// The `ws:`/`wss:` URL this door's loopback socket is opened against.
-    ///
-    /// An `https` door becomes `wss`, because a door served over TLS is not
-    /// reachable over a plaintext socket, and the bytes on it are the user's
-    /// file.
-    #[must_use]
-    pub fn loopback_url(&self) -> String {
-        let (scheme, rest) = self
-            .origin
-            .split_once("://")
-            .unwrap_or(("http", self.origin.as_str()));
-        let socket_scheme = match scheme {
-            "https" | "wss" => "wss",
-            _ => "ws",
-        };
-        let path = loopback::LOOPBACK_PATH;
-        format!("{socket_scheme}://{rest}{path}")
-    }
-}
+use super::transfer::{
+    AttachmentTransferCarrierError, AttachmentTransferResult, MAX_SAFE_TOTAL_BYTES,
+};
+use crate::client::local::discovery::LocalWorkerDoor;
 
 /// One browser file, and the session it is going to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,13 +65,15 @@ impl DirectRoute {
     }
 }
 
-/// How a route open ended.
+/// How one route's attempt ended. A route is tried by opening it AND sending
+/// the whole file on it, because v2's fallback boundary is the first chunk
+/// leaving, not the carrier opening (`attachmentDirect.ts:100-120`).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RouteOpen {
-    /// The carrier is open and the upload may begin on it.
-    Opened,
-    /// The route was not usable and no upload bytes left, so the next route
-    /// may be tried.
+pub enum RouteOutcome {
+    /// The route carried every chunk and the worker committed the file.
+    Carried(AttachmentTransferResult),
+    /// The route failed. `sent_chunk` on the error says whether any upload
+    /// byte left on it, which is what decides whether another route may run.
     Refused(AttachmentTransferCarrierError),
     /// The route failed in a way that is not a carrier refusal — a thrown
     /// error, a socket constructor that does not exist. Not a fallback signal:
@@ -134,10 +111,10 @@ pub enum DirectUnavailableReason {
 pub enum DirectAttempt {
     /// No direct route carried this upload: fall back to coordinator relay.
     Unavailable(DirectUnavailableReason),
-    /// A carrier is open. `upload` is the chunk loop that settles on it.
-    Opened {
+    /// A direct route carried the upload and the worker committed it.
+    Carried {
         route: DirectRoute,
-        upload: Box<DirectUpload>,
+        result: AttachmentTransferResult,
     },
     /// The route failed with upload bytes on the wire. Only that route's own
     /// status control may settle it; another route would write the bytes twice.
@@ -149,9 +126,9 @@ pub enum DirectAttempt {
 
 /// Everything the loader needs from a host, and nothing it can decide itself.
 ///
-/// The two `open` methods return a [`RouteOpen`] rather than a carrier object:
-/// the loader's only question is whether a route opened, and the host keeps
-/// whatever socket or peer connection it just opened.
+/// The network acts are futures because a browser answers every one of them
+/// on a later task; the loader awaits each before it decides the next step, so
+/// the route ORDER stays here and only the acts live in the host.
 pub trait AttachmentDirectEnvironment {
     /// The local worker door, when one has been discovered this session.
     fn read_local_worker_door(&self) -> Option<LocalWorkerDoor>;
@@ -173,26 +150,33 @@ pub trait AttachmentDirectEnvironment {
     fn mint_grant(
         &mut self,
         request: &AttachmentDirectGrantRequest,
-    ) -> Option<AttachmentDirectGrantResponse>;
+    ) -> impl Future<Output = Option<AttachmentDirectGrantResponse>>;
 
     /// Mint the peer id this attempt will be known by.
     fn create_peer_id(&mut self) -> Option<String>;
 
-    /// Open the loopback carrier for this door and grant.
-    fn open_loopback_route(
+    /// Open the loopback carrier for this door and grant, send the file on it,
+    /// and close it.
+    fn carry_on_loopback(
         &mut self,
         door: &LocalWorkerDoor,
         grant: &AttachmentDirectGrant,
-    ) -> RouteOpen;
+    ) -> impl Future<Output = RouteOutcome>;
 
-    /// Open the peer carrier for this grant and peer id.
-    fn open_peer_route(&mut self, grant: &AttachmentDirectGrant, peer_id: &str) -> RouteOpen;
+    /// Open the peer carrier for this grant and peer id, send the file on it,
+    /// and close it.
+    fn carry_on_peer(
+        &mut self,
+        grant: &AttachmentDirectGrant,
+        peer_id: &str,
+    ) -> impl Future<Output = RouteOutcome>;
 }
 
-/// Choose the carrier for one upload, or name the reason there is none.
-pub fn upload_attachment_direct(
+/// Choose the carrier for one upload and run it, or name the reason there is
+/// none.
+pub async fn upload_attachment_direct<E: AttachmentDirectEnvironment>(
     request: &AttachmentDirectUploadRequest,
-    environment: &mut dyn AttachmentDirectEnvironment,
+    environment: &mut E,
 ) -> DirectAttempt {
     let Some(worker_fp) = request.worker_fp.clone() else {
         return DirectAttempt::Unavailable(DirectUnavailableReason::NoWorkerFingerprint);
@@ -209,18 +193,32 @@ pub fn upload_attachment_direct(
     let grant_request = request.grant_request(&worker_fp);
     let tab_id = environment.tab_id();
     let fingerprint = environment.device_fingerprint();
-    let Some(grant) = environment.mint_grant(&grant_request).and_then(|response| {
-        AttachmentDirectGrant::from_response(grant_request.clone(), &tab_id, &fingerprint, response)
-    }) else {
+    let Some(grant) = environment
+        .mint_grant(&grant_request)
+        .await
+        .and_then(|response| {
+            AttachmentDirectGrant::from_response(
+                grant_request.clone(),
+                &tab_id,
+                &fingerprint,
+                response,
+            )
+        })
+    else {
         return DirectAttempt::Unavailable(DirectUnavailableReason::GrantRefused);
     };
     if !grant.admits(&grant_request) {
         return DirectAttempt::Unavailable(DirectUnavailableReason::GrantMismatch);
     }
     if let Some(door) = matching_door {
-        match environment.open_loopback_route(&door, &grant) {
-            RouteOpen::Opened => return opened_attempt(DirectRoute::Loopback, request),
-            RouteOpen::Fatal(reason) => {
+        match environment.carry_on_loopback(&door, &grant).await {
+            RouteOutcome::Carried(result) => {
+                return DirectAttempt::Carried {
+                    route: DirectRoute::Loopback,
+                    result,
+                };
+            }
+            RouteOutcome::Fatal(reason) => {
                 return DirectAttempt::Failed {
                     route: DirectRoute::Loopback,
                     reason,
@@ -228,16 +226,14 @@ pub fn upload_attachment_direct(
             }
             // A refusal that CROSSED the boundary is not a clean fallback: this
             // route put bytes on the wire, and only its own status control may
-            // settle them. Falling through to the peer would write them twice,
-            // which is what `DirectAttempt::FailedWithBytes` exists to prevent —
-            // and its doc says so. v2's gate is the same check
-            // (`attachmentDirect.ts:117`: `!error.sentChunk &&
-            // !connection?.sentChunk`).
-            RouteOpen::Refused(error) if error.sent_chunk => {
+            // settle them. Falling through to the peer would write them twice.
+            // v2's gate is the same check (`attachmentDirect.ts:117`:
+            // `!error.sentChunk && !connection?.sentChunk`).
+            RouteOutcome::Refused(error) if error.sent_chunk => {
                 return DirectAttempt::FailedWithBytes(error);
             }
             // Nothing left, so the peer route is still an untouched carrier.
-            RouteOpen::Refused(_) => {}
+            RouteOutcome::Refused(_) => {}
         }
     }
     if !grant.peer_supported || !peer_available {
@@ -246,26 +242,21 @@ pub fn upload_attachment_direct(
     let Some(peer_id) = environment.create_peer_id() else {
         return DirectAttempt::Unavailable(DirectUnavailableReason::PeerIdUnavailable);
     };
-    match environment.open_peer_route(&grant, &peer_id) {
-        RouteOpen::Opened => opened_attempt(DirectRoute::Peer, request),
-        RouteOpen::Fatal(reason) => DirectAttempt::Failed {
+    match environment.carry_on_peer(&grant, &peer_id).await {
+        RouteOutcome::Carried(result) => DirectAttempt::Carried {
+            route: DirectRoute::Peer,
+            result,
+        },
+        RouteOutcome::Fatal(reason) => DirectAttempt::Failed {
             route: DirectRoute::Peer,
             reason,
         },
-        // A refusal that crossed the boundary is not an untouched carrier, and
-        // the relay is not a fallback for it: the bytes are already on a wire
-        // only this route's status control can settle. `FailedWithBytes` says
-        // exactly that, and v2's gate is the same check.
-        RouteOpen::Refused(error) if error.sent_chunk => DirectAttempt::FailedWithBytes(error),
+        // The bytes are already on a wire only this route's status control can
+        // settle, so the relay is not a fallback for them.
+        RouteOutcome::Refused(error) if error.sent_chunk => DirectAttempt::FailedWithBytes(error),
         // Nothing left on either route, so the relay is still untouched.
-        RouteOpen::Refused(_) => DirectAttempt::Unavailable(DirectUnavailableReason::PeerRefused),
-    }
-}
-
-/// The one outcome that means a carrier is open: a fresh chunk loop for it.
-fn opened_attempt(route: DirectRoute, request: &AttachmentDirectUploadRequest) -> DirectAttempt {
-    DirectAttempt::Opened {
-        route,
-        upload: Box::new(DirectUpload::new(&request.upload_id, request.file_bytes)),
+        RouteOutcome::Refused(_) => {
+            DirectAttempt::Unavailable(DirectUnavailableReason::PeerRefused)
+        }
     }
 }

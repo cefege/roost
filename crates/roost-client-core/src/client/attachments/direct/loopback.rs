@@ -25,6 +25,22 @@ pub const LOOPBACK_PATH: &str = "/ws/local-attachment-transfer";
 /// mistaken for the other.
 pub const LOOPBACK_SUBPROTOCOL: &str = "roost-local-attachment-transfer-v1";
 
+/// The `ws:`/`wss:` URL a door's attachment socket is opened against.
+///
+/// An `https` door becomes `wss`, because a door served over TLS is not
+/// reachable over a plaintext socket, and the bytes on it are the user's file.
+#[must_use]
+pub fn attachment_loopback_url(door_origin: &str) -> String {
+    let (scheme, rest) = door_origin
+        .split_once("://")
+        .unwrap_or(("http", door_origin));
+    let socket_scheme = match scheme {
+        "https" | "wss" => "wss",
+        _ => "ws",
+    };
+    format!("{socket_scheme}://{rest}{LOOPBACK_PATH}")
+}
+
 /// How long the worker has to answer the hello before the socket is retired.
 pub const SETUP_DEADLINE_MS: u64 = 3_000;
 
@@ -79,6 +95,13 @@ impl LoopbackTransfer {
     #[must_use]
     pub fn sent_chunk(&self) -> bool {
         self.conversation.sent_chunk()
+    }
+
+    /// Whether this carrier has ended. A refused chunk leaves it open for a
+    /// receipt; an invalid frame or a close does not.
+    #[must_use]
+    pub fn is_closed(&self) -> bool {
+        self.closed || self.conversation.is_closed()
     }
 
     /// The socket opened: authenticate, and arm the setup deadline for it.

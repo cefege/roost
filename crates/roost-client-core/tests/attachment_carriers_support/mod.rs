@@ -55,7 +55,7 @@ pub fn first_chunk(total_bytes: u64) -> (DirectUpload, InFlightChunk) {
     let mut upload = DirectUpload::new("upload-a", total_bytes);
     let request = upload.next_slice().expect("an upload has a first slice");
     upload
-        .begin_chunk(vec![request.bytes as u8; request.bytes], DIGEST)
+        .begin_chunk(&vec![request.bytes as u8; request.bytes], DIGEST)
         .expect("the first slice is frameable");
     let in_flight = upload.in_flight().expect("a chunk is in flight").clone();
     (upload, in_flight)
