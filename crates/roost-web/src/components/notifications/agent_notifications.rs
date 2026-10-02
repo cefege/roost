@@ -1,15 +1,15 @@
-//! The browser-profile half of coding-agent notification: which ordered
-//! transition is worth a card, and what each delivery acknowledges. Detection
-//! itself is `roost_client_core::client::agents` — the status projection, the
-//! completion policy and the per-profile acknowledgement ledger all live there.
-//! This component only classifies the transitions the worker reports and raises
-//! the cards. Ports `apps/web/src/components/notifications/AgentNotificationBridge.tsx`,
-//! minus the one surface this build has no browser owner for: the service
-//! worker's `roost-navigate` message. The title badge and the acknowledgement
-//! live beside this in `agent_attention`, so this module holds one job.
+//! The browser-profile half of coding-agent notification: watch every status
+//! the store holds, hand each observed CHANGE to the transition scheduler, and
+//! raise the card a due delivery still earns. Detection itself is
+//! `roost_client_core::client::agents`; the transition rules are `scheduler`.
+//! Ports `apps/web/src/components/notifications/AgentNotificationBridge.tsx`,
+//! minus the surfaces this build has no browser owner for: the service worker's
+//! `roost-navigate` message, the cross-tab delivery claim, and the sound cue.
+//! The title badge and the acknowledgement live beside this in `agent_attention`.
 
 pub mod agent_attention;
 pub mod attention_count;
+pub mod scheduler;
 
 pub use agent_attention::AgentAttention;
 
@@ -18,31 +18,23 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use dioxus::prelude::*;
-use roost_client_core::client::agents::AgentStatusRevisionToken;
-use roost_client_core::client::agents::status_policy::{
-    AgentStatusLevel, agent_status_completion_unseen, agent_status_revision_token,
-    derive_agent_status_level,
-};
+use roost_client_core::Store;
+use roost_client_core::store::prefs::notify::NotifyPref;
 use roost_client_core::store::selectors::session_by_id;
 use roost_client_core::store::toasts::{ToastId, ToastKind, ToastOptions, ToastSource, add_toast};
-use roost_protocol::wire::AgentStatus;
+use roost_protocol::wire::{AgentStatus, SessionId};
 
+use self::scheduler::{
+    AGENT_NOTIFICATION_DELAY_MS, AgentNotificationDelivery, AgentNotificationKind,
+    AgentNotificationScheduler, ArmedNotification, matches_agent_notification,
+};
 use super::store_write::write_store;
-use crate::components::terminal::dom::{now_ms, page_visible};
+use crate::components::terminal::dom::{now_ms, sleep_ms};
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::{Pump, use_store};
 use crate::route_session::active_session_for_path;
 use crate::router_state::use_location;
 use crate::session_naming::session_title;
-
-/// What a delivery is about.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AgentNotificationKind {
-    /// The agent is waiting for a human.
-    Blocked,
-    /// The agent finished.
-    Done,
-}
 
 impl AgentNotificationKind {
     /// The card's kind: a blocked agent is something to look at, a finished one
@@ -79,149 +71,137 @@ impl AgentNotificationKind {
     }
 }
 
-/// What this profile last saw for a session, so the NEXT report reads as a
-/// transition rather than as a level. Held here rather than in the store
-/// because it is this profile's observation, not client state: a second tab
-/// watching the same session has its own baseline and its own acknowledgements.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Baseline {
-    level: AgentStatusLevel,
-    token: AgentStatusRevisionToken,
+/// What this profile last observed per session, and the deliveries waiting on
+/// a timer. Held here rather than in the store because it is this profile's
+/// observation, not client state: a second tab has its own.
+#[derive(Debug, Default)]
+struct NotificationWatch {
+    observed: BTreeMap<SessionId, AgentStatus>,
+    scheduler: AgentNotificationScheduler,
 }
 
 /// Renders nothing itself. It exists for its effect, which is the one place a
-/// delivery becomes a card.
+/// status change becomes a pending card, and its timers, the one place a
+/// pending card is raised.
 #[component]
 pub fn AgentNotifications() -> Element {
     let pump = use_store();
-    // The RENDERED path, not a second one of its own. A `use_path_signal` here
-    // was a fresh signal seeded from the address bar and a second `popstate`
-    // listener that only `navigate_path`'s counterpart below the root could
-    // move, so the dock decided which session this tab was looking at from a
-    // path that froze at mount and drifted one navigation behind. The root
-    // already provides the path both halves move together.
+    // The RENDERED path, so the session this tab is looking at moves with the
+    // same navigation that moves the page.
     let path = use_location();
-    let baselines: Rc<RefCell<BTreeMap<String, Baseline>>> =
-        use_hook(|| Rc::new(RefCell::new(BTreeMap::new())));
+    let watch = use_hook(|| Rc::new(RefCell::new(NotificationWatch::default())));
 
-    // One read of the store per revision, and at most one card per transition
-    // that survives every gate. Reading the revision here is what makes the
-    // effect re-run when a status lands.
+    // Reading the revision is what re-runs this on every store write, including
+    // the card this component raises; only a status that CHANGED since the last
+    // run reaches the scheduler, so that write raises nothing further.
     use_effect(move || {
         let revision = pump.revision();
         let _ = revision.read();
-        deliver(&pump, &path(), &mut baselines.borrow_mut());
+        let armed = observe_changes(&pump, &path(), &mut watch.borrow_mut());
+        for armed in armed {
+            let pump = pump.clone();
+            let watch = Rc::clone(&watch);
+            spawn(async move {
+                sleep_ms(AGENT_NOTIFICATION_DELAY_MS).await;
+                let due = watch.borrow_mut().scheduler.take_due(&armed);
+                if let Some(delivery) = due {
+                    deliver(&pump, &path.peek(), &delivery);
+                }
+            });
+        }
     });
 
     rsx! {}
 }
 
-/// One report, already read against this profile's ledger.
-struct Observed {
-    session_id: String,
-    level: AgentStatusLevel,
-    token: AgentStatusRevisionToken,
-    kind: Option<AgentNotificationKind>,
-    message: Option<String>,
-    title: String,
-}
-
-/// Compare every reported status against this profile's baseline and raise the
-/// cards the transitions deserve.
-fn deliver(pump: &Pump, path: &str, baselines: &mut BTreeMap<String, Baseline>) {
-    for observed in observe(pump, path) {
-        let previous = baselines.insert(
-            observed.session_id.clone(),
-            Baseline {
-                level: observed.level,
-                token: observed.token.clone(),
-            },
-        );
-        // A baseline from a DIFFERENT OCCUPANT says nothing about this report:
-        // a replacement agent numbers its own revisions from one, so the
-        // previous agent's first report would look like a transition here. The
-        // same occupant at a NEW REVISION is the case this exists for — that
-        // is the one that has to raise the card, and comparing whole revision
-        // tokens skipped it, so a blocked agent never blocked the toast.
-        if previous
-            .is_some_and(|previous| previous.token.identity_key() != observed.token.identity_key())
-        {
-            continue;
-        }
-        if let Some(kind) = observed.kind {
-            raise(
-                pump,
-                &observed.session_id,
-                kind,
-                &observed.title,
-                observed.message.as_deref(),
-            );
-        }
-    }
-}
-
-/// Every status the store holds, read against the ledger and the path.
-fn observe(pump: &Pump, path: &str) -> Vec<Observed> {
+/// Hand every status that changed since the last observation to the
+/// scheduler, and return the timers it armed.
+fn observe_changes(
+    pump: &Pump,
+    path: &str,
+    watch: &mut NotificationWatch,
+) -> Vec<ArmedNotification> {
     let core = pump.core();
     let core = core.borrow();
     let store = core.store();
-    let paths = BrowserWorkerPaths;
-    let viewing = viewing_session_id(store, &paths, path);
-    store
-        .agent_status
-        .statuses()
-        .values()
-        .map(|status| {
-            let session_id = status.common.session_id.as_str();
-            let acknowledged = store.agent_seen.acknowledged_revision(status);
-            let level = derive_agent_status_level(Some(status), Some(acknowledged));
-            Observed {
-                session_id: session_id.to_owned(),
-                level,
-                token: agent_status_revision_token(status),
-                kind: classify(status, level, acknowledged, viewing.as_deref()),
-                message: status.common.message.clone(),
-                title: session_by_id(store, session_id)
-                    .map(|session| session_title(store, session))
-                    .unwrap_or_else(|| "Terminal".to_owned()),
-            }
-        })
-        .collect()
+    let statuses = store.agent_status.statuses();
+    let viewing = viewing_session_id(store, path);
+    let NotificationWatch {
+        observed,
+        scheduler,
+    } = watch;
+
+    observed.retain(|session_id, _| {
+        let present = statuses.contains_key(session_id);
+        if !present {
+            scheduler.cancel(session_id.as_str());
+        }
+        present
+    });
+    let mut armed = Vec::new();
+    for (session_id, status) in statuses {
+        let previous = observed.insert(session_id.clone(), status.clone());
+        if previous.as_ref() == Some(status) {
+            continue;
+        }
+        let viewed = viewing.as_deref() == Some(session_id.as_str());
+        armed.extend(scheduler.observe(
+            session_id.as_str(),
+            previous.as_ref(),
+            Some(status),
+            viewed,
+        ));
+    }
+    // A session the reader just opened owes no card for what it is showing;
+    // `agent_attention` spends its acknowledgement.
+    if let Some(viewed) = viewing {
+        scheduler.cancel(&viewed);
+    }
+    armed
 }
 
-/// Which card, if any, this report earns.
-fn classify(
-    status: &AgentStatus,
-    level: AgentStatusLevel,
-    acknowledged: i64,
-    viewing: Option<&str>,
-) -> Option<AgentNotificationKind> {
-    // A session on screen, in a tab that owns focus, is not a notification — it
-    // is the thing the operator is looking at.
-    if viewing == Some(status.common.session_id.as_str()) {
+/// Raise the card a due delivery earns, when it still earns one.
+fn deliver(pump: &Pump, path: &str, delivery: &AgentNotificationDelivery) {
+    let card = {
+        let core = pump.core();
+        let core = core.borrow();
+        card_for(core.store(), path, delivery)
+    };
+    if let Some((title, message)) = card {
+        raise(pump, delivery, &title, message.as_deref());
+    }
+}
+
+/// The card's title and details, or `None` when the agent moved on, the reader
+/// is looking at the session, this profile already acknowledged the revision,
+/// or in-app cards are off.
+fn card_for(
+    store: &Store,
+    path: &str,
+    delivery: &AgentNotificationDelivery,
+) -> Option<(String, Option<String>)> {
+    let status = store.agent_status.status(&delivery.token.session_id);
+    if !matches_agent_notification(status, delivery) {
         return None;
     }
-    match level {
-        AgentStatusLevel::Blocked => Some(AgentNotificationKind::Blocked),
-        // A completion this profile has not acknowledged: the same predicate the
-        // unseen badge on a projected row is built from, so the card and the row
-        // can never disagree about whether a completion was seen.
-        _ if agent_status_completion_unseen(status, Some(acknowledged)) => {
-            Some(AgentNotificationKind::Done)
-        }
-        _ => None,
+    let status = status?;
+    if viewing_session_id(store, path).as_deref() == Some(delivery.session_id.as_str())
+        || store.agent_seen.acknowledged_revision(status) >= delivery.token.revision
+        || !store.prefs.notify.get(NotifyPref::InApp)
+    {
+        return None;
     }
+    let title = session_by_id(store, &delivery.session_id)
+        .map(|session| session_title(store, session))
+        .unwrap_or_else(|| "Terminal".to_owned());
+    Some((title, status.common.message.clone()))
 }
 
 /// Raise the card, with the action that reveals the session and the window its
 /// kind earns.
-fn raise(
-    pump: &Pump,
-    session_id: &str,
-    kind: AgentNotificationKind,
-    title: &str,
-    message: Option<&str>,
-) {
+fn raise(pump: &Pump, delivery: &AgentNotificationDelivery, title: &str, message: Option<&str>) {
+    let session_id = delivery.session_id.as_str();
+    let kind = delivery.kind;
     let id = ToastId::new(ToastSource::Host { name: "agent" }, session_id);
     let text = format!("{title} {}", kind.verb());
     let mut options = ToastOptions::with_ttl(kind.ttl_ms()).with_action("View", session_id);
@@ -243,15 +223,12 @@ fn raise(
 }
 
 /// The session this tab is actually looking at, and only while the tab is
-/// visible AND focused: a Roost tab parked on a second monitor must keep its
-/// blocked and done rows instead of silently marking them seen.
-fn viewing_session_id(
-    store: &roost_client_core::Store,
-    paths: &BrowserWorkerPaths,
-    path: &str,
-) -> Option<String> {
-    if !page_visible() {
+/// visible AND its window owns focus: a Roost tab parked on a second monitor
+/// still gets the card.
+fn viewing_session_id(store: &Store, path: &str) -> Option<String> {
+    if !agent_attention::attended_now() {
         return None;
     }
-    active_session_for_path(store, paths, path).map(|session| session.id.as_str().to_owned())
+    active_session_for_path(store, &BrowserWorkerPaths, path)
+        .map(|session| session.id.as_str().to_owned())
 }
