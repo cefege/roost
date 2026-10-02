@@ -38,7 +38,7 @@ pub(crate) use self::close_failed::close_failed_sync_link;
 // The one Sync-generation recovery. The terminal liveness watchdog escalates
 // through it rather than opening a second path to the same redial.
 pub(crate) use self::hydration::request_link_replacement;
-pub(crate) use self::promotion::sweep_route_claims;
+pub(crate) use self::promotion::{reject_sync_claims, sweep_route_claims};
 pub(crate) use self::transport_probe::request_transport_probe;
 use crate::store::Store;
 use crate::sync::SyncFrame;

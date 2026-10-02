@@ -340,3 +340,47 @@ fn a_straggling_sync_frame_after_the_promotion_leaves_input_on_the_peer() {
     );
     assert!(sync_inputs(&typed_after).is_empty());
 }
+
+/// The request ids of every route claim sent on Sync.
+fn sync_claim_ids(effects: &[Effect]) -> Vec<String> {
+    effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::SendSync(SyncCommand::TerminalInputRouteClaim { request_id, .. }) => {
+                Some(request_id.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_closed_sync_socket_ends_its_fallback_claim_so_the_next_socket_claims_at_once() {
+    let (mut core, effects) = promotable_peer();
+    let (request_id, revision, _) = peer_claims(&effects)[0].clone();
+    let _ = core.handle(on_peer(answer(&request_id, revision, true, "")));
+    let _ = core.handle(ClientEvent::CarrierLost {
+        connection_id: "peer-a".to_owned(),
+    });
+    let first = sync_claim_ids(&core.handle(ClientEvent::Sweep { now_ms: 1 }));
+    assert_eq!(first.len(), 1, "Sync claims the route back");
+
+    let generation = core
+        .store()
+        .sync_terminal_token()
+        .unwrap()
+        .socket_generation;
+    let _ = core.handle(ClientEvent::SyncLinkClosed {
+        generation,
+        close_code: Some(1006),
+        close_reason: String::new(),
+    });
+    open_ready_link(&mut core, "socket-b");
+    let retried = sync_claim_ids(&core.handle(ClientEvent::Sweep { now_ms: 300 }));
+    assert_eq!(
+        retried.len(),
+        1,
+        "the claim the closed socket carried ended with it, so the new socket claims well before the 8 s answer deadline"
+    );
+    assert_ne!(retried[0], first[0], "a fresh claim, not the dead one");
+}
