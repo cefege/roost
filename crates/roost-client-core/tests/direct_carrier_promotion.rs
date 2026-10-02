@@ -200,6 +200,7 @@ fn a_view_state_for_an_unpublished_id_changes_nothing() {
         session_id: SESSION.to_owned(),
         view_id: VIEW.to_owned(),
         generation: SOCKET_GENERATION,
+        revision: 2,
         accepted: true,
         stream_id: STREAM.to_owned(),
         effective_cols: COLS,

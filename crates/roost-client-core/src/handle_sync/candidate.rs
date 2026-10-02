@@ -95,6 +95,7 @@ pub(super) fn apply_direct_view_state(
     let SyncFrame::ViewState {
         view_id,
         generation,
+        revision,
         accepted,
         stream_id,
         effective_cols,
@@ -120,6 +121,7 @@ pub(super) fn apply_direct_view_state(
         session_id: session_id.to_string(),
         view_id: logical_view_id.clone(),
         generation: *generation,
+        revision: *revision,
         accepted: *accepted,
         stream_id: (!stream_id.is_empty()).then(|| stream_id.clone()),
         effective_cols: *effective_cols,

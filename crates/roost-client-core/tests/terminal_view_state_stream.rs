@@ -34,6 +34,10 @@ fn core_with_open_view() -> (ClientCore, u64) {
 }
 
 fn accepted(stream_id: &str, cols: u32, rows: u32) -> Frame {
+    accepted_at_revision(stream_id, cols, rows, 0)
+}
+
+fn accepted_at_revision(stream_id: &str, cols: u32, rows: u32, revision: u64) -> Frame {
     Frame::TerminalViewState(Box::new(TerminalViewStateFrame {
         view_id: VIEW.to_owned(),
         session_id: SESSION.to_owned(),
@@ -41,6 +45,7 @@ fn accepted(stream_id: &str, cols: u32, rows: u32) -> Frame {
         stream_id: stream_id.to_owned(),
         effective_cols: cols,
         effective_rows: rows,
+        revision,
         ..TerminalViewStateFrame::default()
     }))
 }
@@ -79,4 +84,41 @@ fn an_accepted_view_state_without_a_valid_stream_or_geometry_installs_nothing() 
             "{stream_id:?} at {cols}×{rows} must install no stream"
         );
     }
+}
+
+/// Another viewer joining re-mints the session's stream, and the authority
+/// broadcasts that to every live view at its CURRENT revision. Nothing here
+/// awaited it; refusing it would leave this pane expecting the old stream and
+/// dropping every frame of the new one until its next heartbeat.
+#[test]
+fn a_broadcast_for_the_current_revision_installs_the_reminted_stream() {
+    const REMINTED: &str = "00000000-0000-4000-8000-0000000000d2";
+    let (mut core, generation) = core_with_open_view();
+    let answered = application(SyncDomain::Terminal, 1, accepted(STREAM, 80, 24));
+    deliver(&mut core, generation, &answered);
+    assert_eq!(expectation(&core).0.as_deref(), Some(STREAM));
+
+    let superseded = application(
+        SyncDomain::Terminal,
+        2,
+        accepted_at_revision(REMINTED, 50, 20, 0),
+    );
+    deliver(&mut core, generation, &superseded);
+    assert_eq!(
+        expectation(&core).0.as_deref(),
+        Some(STREAM),
+        "a broadcast naming an older intent is not this view's answer"
+    );
+
+    let broadcast = application(
+        SyncDomain::Terminal,
+        3,
+        accepted_at_revision(REMINTED, 50, 20, 1),
+    );
+    deliver(&mut core, generation, &broadcast);
+    assert_eq!(
+        expectation(&core),
+        (Some(REMINTED.to_owned()), (50, 20)),
+        "the re-minted stream is expected at the authority's new geometry"
+    );
 }
