@@ -55,6 +55,25 @@ pub fn error(target: &str, message: &str, fields: LogFields) {
     emit!(tracing::Level::ERROR, target, message, fields.to_json());
 }
 
+/// One test at a time that can reach the facade's four callsites.
+///
+/// `tracing` decides once per callsite whether any subscriber is interested,
+/// at the callsite's first hit, against the dispatchers live at that moment —
+/// and adds the callsite to the list a later rebuild walks only AFTER writing
+/// that answer. A `diag`/`signal` test that first hits `warn` with no
+/// subscriber, while a capturing test installs its own and rebuilds, can
+/// therefore leave `warn` cached as un-interesting after the rebuild, and the
+/// capture sees three events instead of four (seen once in a workspace run).
+/// Every test that emits through the facade holds this, so no registration is
+/// in flight while a capture rebuilds.
+#[cfg(test)]
+pub(crate) fn facade_callsites_exclusive() -> std::sync::MutexGuard<'static, ()> {
+    static FACADE_CALLSITES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    FACADE_CALLSITES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
@@ -97,6 +116,7 @@ mod tests {
     }
 
     fn captured_by(capture: &Capture, emit_events: impl FnOnce()) -> Vec<Captured> {
+        let _facade = super::facade_callsites_exclusive();
         let subscriber = tracing_subscriber::registry()
             .with(tracing_subscriber::filter::LevelFilter::TRACE)
             .with(capture.clone());

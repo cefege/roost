@@ -187,6 +187,9 @@ mod tests {
 
     #[test]
     fn a_sink_that_panics_costs_one_event_not_the_callers_path() {
+        // The panic is reported through `log::warn`, the facade a capture test
+        // watches; see `log::facade_callsites_exclusive`.
+        let _facade = crate::log::facade_callsites_exclusive();
         // The gate passed and the sink blew up; the call still returns.
         emit_record(
             &process(true),

@@ -33,15 +33,34 @@ use serde_json::json;
 const NOW: i64 = 1_781_900_000_000;
 const EPOCH: &str = "6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
 
+/// ONE PROGRAM-WRITING OR CHILD-SPAWNING TEST AT A TIME IN THIS BINARY.
+///
+/// Every case writes an executable and then runs it. A sibling test that forks
+/// while that file is still open for writing hands its child a copy of the
+/// write descriptor, and the exec of the fresh program then fails with
+/// `ETXTBSY` ("Text file busy"), which the probe reports, correctly, as a
+/// `ProbeFailed`. Seen once in a workspace run on
+/// `a_candidate_contract_of_the_wrong_shape_is_refused`.
+static SPAWNS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn exclusive() -> std::sync::MutexGuard<'static, ()> {
+    SPAWNS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// A directory holding a copy of this crate's binary under both of the names a
 /// release ships, so the candidate's contract probe finds a keeper beside it.
+/// Holds the spawn lock for its whole life: written, probed, and removed.
 struct Release {
     root: PathBuf,
     candidate: PathBuf,
+    _spawns: std::sync::MutexGuard<'static, ()>,
 }
 
 impl Release {
     fn new(case: &str) -> Self {
+        let spawns = exclusive();
         let root = std::env::temp_dir().join(format!(
             "roost-keeper-gate-{}-{case}-{}",
             std::process::id(),
@@ -60,7 +79,11 @@ impl Release {
             std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755))
                 .expect("the program is made executable");
         }
-        Self { root, candidate }
+        Self {
+            root,
+            candidate,
+            _spawns: spawns,
+        }
     }
 }
 
@@ -265,6 +288,7 @@ fn a_keeper_the_coordinator_cannot_prove_stops_the_update() {
 /// do so silently.
 #[test]
 fn a_candidate_that_cannot_be_asked_is_refused_rather_than_assumed() {
+    let _spawns = exclusive();
     let failure = probe_candidate_contract(Path::new("/nonexistent/roost"))
         .expect_err("a path that is not a program cannot answer");
 
