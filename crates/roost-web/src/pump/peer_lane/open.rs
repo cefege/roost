@@ -5,13 +5,12 @@
 //! this opens the browser's peer, starts its gathering, and hands the offer the
 //! coordinator will relay to a worker.
 //!
-//! THE OFFER IS READ TWICE AT MOST, AND BOTH READS ARE FILTERED. `local_offer`
-//! drops the browser's host and mDNS candidates before the bytes exist here,
-//! because the coordinator relays the offer to a worker on another machine and a
-//! host candidate is an address disclosure (`protocol/spec/direct-terminal.md`).
-//! The second read is the protocol's gathering bound: a browser that gathers
-//! forever must still produce an offer, and the core's own rule on an offer with
-//! no usable candidate is what refuses it.
+//! THE OFFER IS READ ONCE, AND FILTERED. `local_offer` drops the browser's
+//! ICE-TCP candidates before the bytes exist here, so the offer the coordinator
+//! relays to the worker is UDP-only (`protocol/spec/direct-terminal.md`). The
+//! read happens on whichever comes first — the browser reporting gathering
+//! complete, or the protocol's gathering bound — and the core's own rule on an
+//! offer with no usable candidate is what refuses an empty one.
 
 use roost_client_core::ClientEvent;
 use roost_client_core::client::carriers::{
@@ -22,10 +21,30 @@ use super::Pump;
 use crate::platform::carriers::PeerCarrier;
 
 /// Open the transport the core named, and record what it opened.
-pub(super) fn open_transport(pump: &Pump, attempt: PeerAttempt) {
+///
+/// The peer id is minted HERE: the core holds no entropy, and the id is the
+/// transport's own name for this negotiation (v2 mints it as it constructs the
+/// connection). The core adopts it from the offer report.
+pub(super) fn open_transport(pump: &Pump, mut attempt: PeerAttempt) {
     let attempt_id = attempt.attempt_id;
     let worker_fp = attempt.worker_fp.clone();
     let now_ms = pump.inner.core.borrow().clock().now_ms();
+    let Some(peer_id) = crate::platform::terminal_view_id::mint_peer_id() else {
+        tracing::warn!(
+            target: "carriers",
+            attempt_id,
+            worker_fp,
+            "this document cannot mint a peer id, so it cannot open a peer"
+        );
+        refuse_attempt(
+            pump,
+            &worker_fp,
+            Some(attempt_id),
+            "native_unavailable".to_owned(),
+        );
+        return;
+    };
+    attempt.peer_id = peer_id;
     if let Err(error) = pump.inner.peer.borrow_mut().open(&attempt) {
         tracing::warn!(
             target: "carriers",
@@ -78,20 +97,26 @@ pub(super) fn offer_ready(pump: &Pump, attempt_id: u64) {
         return;
     };
     let worker_fp = attempt.worker_fp.clone();
+    let owed = pump
+        .inner
+        .peer_attempts
+        .borrow_mut()
+        .attempt_mut(attempt_id)
+        .is_some_and(|carrier| {
+            let owed = carrier.life().gathering_pending();
+            carrier.life_mut().gathering_settled();
+            owed
+        });
+    if !owed {
+        return;
+    }
     match pump.inner.peer.borrow().local_offer(attempt_id) {
         Ok(offer_sdp) => {
-            if let Some(carrier) = pump
-                .inner
-                .peer_attempts
-                .borrow_mut()
-                .attempt_mut(attempt_id)
-            {
-                carrier.life_mut().gathering_settled();
-            }
             pump.dispatch(ClientEvent::CarrierTransportObserved {
                 worker_fp,
                 observation: SignallingInput::OfferReady {
                     attempt_id,
+                    peer_id: attempt.peer_id,
                     offer_sdp,
                 },
             });

@@ -108,7 +108,9 @@ pub struct PeerAttempt {
     /// Loopback or WebRTC.
     pub transport: TerminalTransport,
     /// Opaque, browser-allocated, and the third half of the tuple a `Ready` has
-    /// to match. Names THIS negotiation and nothing else.
+    /// to match. Names THIS negotiation and nothing else. The host mints it as
+    /// it opens the transport and reports it with the offer, so it is empty
+    /// until `OfferReady`; nothing reads it before then.
     pub peer_id: String,
     /// The grant this attempt authenticates with.
     pub grant_id: String,
@@ -235,6 +237,8 @@ pub enum SignallingInput {
     OfferReady {
         /// Which attempt.
         attempt_id: u64,
+        /// The peer id the host minted for this attempt's transport.
+        peer_id: String,
         /// The local description.
         offer_sdp: String,
     },

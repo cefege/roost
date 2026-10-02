@@ -107,8 +107,9 @@ impl Signalling {
             }
             SignallingInput::OfferReady {
                 attempt_id,
+                peer_id,
                 offer_sdp,
-            } => out.extend(self.offer(attempt_id, offer_sdp)),
+            } => out.extend(self.offer(attempt_id, peer_id, offer_sdp)),
             SignallingInput::AnswerReceived { attempt_id, answer } => {
                 out.extend(self.answer(attempt_id, answer))
             }
@@ -205,9 +206,10 @@ impl Signalling {
             worker_fp: self.worker_fp.clone(),
             worker_epoch: grant.worker_epoch.clone(),
             transport: TerminalTransport::Peer,
-            // Opaque, browser-allocated, exactly as v2 mints it: it names THIS
-            // negotiation, and is the third half of the tuple a `Ready` matches.
-            peer_id: format!("peer-{}", self.next_attempt_id),
+            // Minted by the host as it opens the transport (`crypto.randomUUID`,
+            // v2 `createTerminalDirectRequestId`) and adopted from the offer: this
+            // crate holds no entropy, and the coordinator refuses a non-UUID.
+            peer_id: String::new(),
             grant_id: grant.grant_id.clone(),
             tab_id: grant.tab_id.clone(),
             device_fingerprint: grant.device_fingerprint.clone(),
@@ -220,11 +222,16 @@ impl Signalling {
         vec![CarrierEffect::OpenTransport { attempt }]
     }
 
-    /// The transport produced a local offer.
-    fn offer(&mut self, attempt_id: u64, offer_sdp: String) -> Vec<CarrierEffect> {
-        if self.attempt_id() != Some(attempt_id) {
+    /// The transport produced a local offer, under the peer id it minted.
+    fn offer(&mut self, attempt_id: u64, peer_id: String, offer_sdp: String) -> Vec<CarrierEffect> {
+        let Some(open) = self
+            .attempt
+            .as_mut()
+            .filter(|open| open.attempt_id == attempt_id)
+        else {
             return Vec::new();
-        }
+        };
+        open.peer_id = peer_id;
         if !sdp_is_usable(&offer_sdp) {
             let detail = "terminal peer offer has no usable candidates";
             return self.fault(attempt_id, CarrierFault::InvalidOffer, detail);
