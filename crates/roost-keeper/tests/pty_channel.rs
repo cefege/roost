@@ -6,14 +6,27 @@
 //! test that hangs is indistinguishable from a keeper that does.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use roost_keeper::frames::ShellSpec;
 use roost_keeper::input_queue::InputReply;
+use roost_keeper::output_ring::OutputSignal;
 use roost_keeper::payloads::PtyInRejectReason;
 use roost_keeper::pty_channel::{PtyChannel, SpawnError};
 
 const DEADLINE: Duration = Duration::from_secs(10);
+
+/// Open a channel whose output signal nobody waits on: these tests poll.
+fn open(channel_id: u16, spec: &ShellSpec, cols: u16, rows: u16) -> Result<PtyChannel, SpawnError> {
+    PtyChannel::spawn(
+        channel_id,
+        spec,
+        cols,
+        rows,
+        Arc::new(OutputSignal::default()),
+    )
+}
 
 fn shell(script: &str) -> ShellSpec {
     ShellSpec {
@@ -61,7 +74,7 @@ fn read_until(channel: &mut PtyChannel, needle: &[u8]) -> Vec<u8> {
 /// byte. This is the one property the whole keeper exists to preserve.
 #[test]
 fn a_spawned_process_echoes_its_input_back() {
-    let mut channel = PtyChannel::spawn(1, &shell("cat"), 80, 24).expect("spawn");
+    let mut channel = open(1, &shell("cat"), 80, 24).expect("spawn");
     assert_eq!(channel.channel_id(), 1);
     assert!(channel.pid().is_some(), "a spawned PTY has a process");
 
@@ -77,7 +90,7 @@ fn a_spawned_process_echoes_its_input_back() {
 /// for that would make this test pass for the wrong reason.
 #[test]
 fn the_round_trip_survives_the_tty_line_discipline() {
-    let mut channel = PtyChannel::spawn(1, &shell("cat"), 80, 24).expect("spawn");
+    let mut channel = open(1, &shell("cat"), 80, 24).expect("spawn");
     channel
         .enqueue_input(b"x".to_vec(), InputReply::Unacknowledged)
         .expect("a live PTY queues a small write");
@@ -93,7 +106,7 @@ fn the_round_trip_survives_the_tty_line_discipline() {
 /// what it actually applied — which is the whole point of `GetTerminalState`.
 #[test]
 fn a_resize_reaches_the_kernel_and_is_reported_back() {
-    let mut channel = PtyChannel::spawn(1, &sleep(), 80, 24).expect("spawn");
+    let mut channel = open(1, &sleep(), 80, 24).expect("spawn");
     assert_eq!(channel.terminal_state().cols, 80);
     assert_eq!(
         channel.terminal_state().applied_seq,
@@ -118,7 +131,7 @@ fn a_resize_reaches_the_kernel_and_is_reported_back() {
 /// timeout is behaving correctly.
 #[test]
 fn a_replayed_resize_sequence_does_not_move_the_terminal_backwards() {
-    let mut channel = PtyChannel::spawn(1, &sleep(), 80, 24).expect("spawn");
+    let mut channel = open(1, &sleep(), 80, 24).expect("spawn");
     channel.apply_resize(5, 100, 30).expect("first");
 
     assert_eq!(
@@ -144,11 +157,11 @@ fn a_replayed_resize_sequence_does_not_move_the_terminal_backwards() {
 #[test]
 fn a_zero_geometry_is_refused_rather_than_clamped() {
     assert!(matches!(
-        PtyChannel::spawn(1, &sleep(), 0, 24),
+        open(1, &sleep(), 0, 24),
         Err(SpawnError::BadDimension { .. })
     ));
     assert!(matches!(
-        PtyChannel::spawn(1, &sleep(), 80, 0),
+        open(1, &sleep(), 80, 0),
         Err(SpawnError::BadDimension { .. })
     ));
 }
@@ -158,7 +171,7 @@ fn a_zero_geometry_is_refused_rather_than_clamped() {
 #[test]
 fn the_control_lane_is_not_a_channel() {
     assert!(matches!(
-        PtyChannel::spawn(0, &sleep(), 80, 24),
+        open(0, &sleep(), 80, 24),
         Err(SpawnError::BadChannelId(0))
     ));
 }
@@ -168,7 +181,7 @@ fn the_control_lane_is_not_a_channel() {
 /// exactly the failure acknowledged input exists to prevent.
 #[test]
 fn a_dead_child_is_observable_and_refuses_input() {
-    let mut channel = PtyChannel::spawn(1, &shell("exit 7"), 80, 24).expect("spawn");
+    let mut channel = open(1, &shell("exit 7"), 80, 24).expect("spawn");
 
     let start = Instant::now();
     while channel.exited().is_none() {
@@ -203,7 +216,7 @@ fn an_unusable_working_directory_fails_before_spawning() {
         cwd: Some("/nonexistent/roost/pty/test".into()),
     };
     assert!(matches!(
-        PtyChannel::spawn(1, &spec, 80, 24),
+        open(1, &spec, 80, 24),
         Err(SpawnError::BadCwd { .. })
     ));
 }
@@ -217,18 +230,15 @@ fn a_missing_program_is_reported_rather_than_hanging() {
         env: Vec::new(),
         cwd: None,
     };
-    assert!(matches!(
-        PtyChannel::spawn(1, &spec, 80, 24),
-        Err(SpawnError::Pty(_))
-    ));
+    assert!(matches!(open(1, &spec, 80, 24), Err(SpawnError::Pty(_))));
 }
 
 /// Two channels are independent PTYs, because that is what lets one socket
 /// carry many terminals.
 #[test]
 fn two_channels_are_independent_processes() {
-    let mut first = PtyChannel::spawn(1, &shell("cat"), 80, 24).expect("spawn first");
-    let mut second = PtyChannel::spawn(2, &shell("cat"), 80, 24).expect("spawn second");
+    let mut first = open(1, &shell("cat"), 80, 24).expect("spawn first");
+    let mut second = open(2, &shell("cat"), 80, 24).expect("spawn second");
 
     assert_ne!(first.pid(), second.pid(), "each channel is its own process");
     first
@@ -268,7 +278,7 @@ fn a_pty_inherits_nothing_from_the_keeper_but_gets_the_whole_spec() {
         env: vec![("ROOST_ENV_PROOF".into(), "present".into())],
         cwd: None,
     };
-    let mut channel = PtyChannel::spawn(1, &spec, 80, 24).expect("the pty opens");
+    let mut channel = open(1, &spec, 80, 24).expect("the pty opens");
     let seen = read_until(&mut channel, b"ROOST_ENV_PROOF");
     let text = String::from_utf8_lossy(&seen).into_owned();
 

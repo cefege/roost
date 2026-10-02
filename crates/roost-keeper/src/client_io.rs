@@ -13,6 +13,7 @@ use std::os::unix::net::UnixStream;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
+use crate::client_arrival::ArrivalBell;
 use crate::client_error::ClientError;
 use crate::codec::{FrameDecoder, MuxFrame, MuxFrameType, StreamEvent};
 use crate::frames::SpawnAck;
@@ -38,12 +39,14 @@ pub(crate) struct PendingSpawn {
 }
 
 /// Read frames until the keeper stops, routing answers to whoever is waiting
-/// and everything else to the worker's event stream.
+/// and everything else to the worker's event stream, ringing `arrival` once
+/// per read that put anything there.
 pub(crate) fn read_frames(
     mut stream: UnixStream,
     shared: Arc<Mutex<Shared>>,
     events: Sender<MuxFrame>,
     stop: Arc<std::sync::atomic::AtomicBool>,
+    arrival: &ArrivalBell,
 ) {
     let mut decoder = FrameDecoder::new();
     let mut buffer = vec![0u8; 64 * 1024];
@@ -51,6 +54,7 @@ pub(crate) fn read_frames(
         match stream.read(&mut buffer) {
             Ok(0) => break,
             Ok(read) => {
+                let mut delivered = false;
                 for event in decoder.push(&buffer[..read]) {
                     match event {
                         StreamEvent::Frame {
@@ -73,6 +77,7 @@ pub(crate) fn read_frames(
                                 if events.send(frame).is_err() {
                                     return;
                                 }
+                                delivered = true;
                             }
                         }
                         // An unknown tag is skipped rather than fatal: it is
@@ -81,6 +86,9 @@ pub(crate) fn read_frames(
                         StreamEvent::Frame { .. } => {}
                         StreamEvent::Failed(_) => return,
                     }
+                }
+                if delivered {
+                    arrival.ring();
                 }
             }
             // The read timeout is how the thread notices it should check for

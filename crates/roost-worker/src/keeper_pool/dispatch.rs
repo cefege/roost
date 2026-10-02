@@ -25,28 +25,34 @@
 use std::sync::{PoisonError, Weak};
 use std::time::Duration;
 
+use roost_keeper::client::KeeperClient;
 use roost_keeper::codec::{MuxFrame, MuxFrameType};
 use roost_keeper::frames::ExitFrame;
 
 use super::pool::KeeperPool;
 
-/// How long the dispatch loop sleeps when the keeper said nothing.
+/// The longest the dispatch loop waits for the keeper's reader to ring when
+/// the keeper said nothing.
 ///
-/// The keeper's own output tick is 16ms, so this is the shortest sleep that
-/// cannot outrun the producer. A tighter loop would burn a core per worker
-/// doing nothing, which is what this number is for.
+/// The wait ends the moment a frame arrives, so this bounds only how long an
+/// idle loop goes without re-checking the pool and the connection — not how
+/// long output or an input acknowledgement sits undelivered. An echo that
+/// waited out a poll would land after the predictive overlay's next guess.
 pub const DISPATCH_IDLE: Duration = Duration::from_millis(16);
 
 /// Deliver until the pool is gone.
 pub(super) fn dispatch_loop(pool: &Weak<KeeperPool>) {
     while let Some(pool) = pool.upgrade() {
         let delivered = pool.dispatch_ready();
-        // The strong reference is dropped before the sleep: a pool nobody holds
-        // must be able to end, and sleeping with it alive is what would keep a
+        // Taken under the handle, waited on outside it: a wait that held the
+        // handle would put every keystroke behind the keeper's silence.
+        let arrival = (delivered == 0).then(|| pool.keeper.with(KeeperClient::arrival_bell));
+        // The strong reference is dropped before the wait: a pool nobody holds
+        // must be able to end, and waiting with it alive is what would keep a
         // retired worker from ever stopping this thread.
         drop(pool);
-        if delivered == 0 {
-            std::thread::sleep(DISPATCH_IDLE);
+        if let Some(arrival) = arrival {
+            arrival.wait(DISPATCH_IDLE);
         }
     }
     tracing::debug!("the keeper dispatch loop stopped");

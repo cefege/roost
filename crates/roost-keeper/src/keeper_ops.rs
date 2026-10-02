@@ -94,6 +94,7 @@ impl Keeper {
             &request.shell_spec,
             request.cols,
             request.rows,
+            std::sync::Arc::clone(&self.output_signal),
         ) {
             Ok(pty) => {
                 let pid = pty.pid().unwrap_or(0);

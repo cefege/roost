@@ -8,11 +8,13 @@
 //! module needs no raw descriptors of its own; the whole-tree reap on kill is
 //! `process_reap`'s.
 
+use std::sync::Arc;
+
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize};
 
 use crate::frames::ShellSpec;
 use crate::input_queue::{InputLane, InputReply};
-use crate::output_ring::{OutputRing, spawn_reader};
+use crate::output_ring::{OutputRing, OutputSignal, spawn_reader};
 use crate::payloads::{PtyInRejectReason, TerminalState};
 
 /// Why a PTY could not be opened. Each variant is something the worker can act
@@ -69,7 +71,8 @@ pub struct PtyChannel {
 }
 
 impl PtyChannel {
-    /// Open a PTY running `spec` at this geometry.
+    /// Open a PTY running `spec` at this geometry, raising `output_signal`
+    /// whenever its reader hands output over.
     ///
     /// Channel 0 is the control lane on the wire and is never a PTY, so it is
     /// rejected here rather than being a channel the socket cannot address.
@@ -78,6 +81,7 @@ impl PtyChannel {
         spec: &ShellSpec,
         cols: u16,
         rows: u16,
+        output_signal: Arc<OutputSignal>,
     ) -> Result<Self, SpawnError> {
         if channel_id == 0 {
             return Err(SpawnError::BadChannelId(channel_id));
@@ -167,8 +171,8 @@ impl PtyChannel {
             .map_err(|err| SpawnError::Pty(err.to_string()))?;
         let input =
             InputLane::start(channel_id, writer).map_err(|err| SpawnError::Pty(err.to_string()))?;
-        let (output, reader_thread) =
-            spawn_reader(channel_id, reader).map_err(|err| SpawnError::Pty(err.to_string()))?;
+        let (output, reader_thread) = spawn_reader(channel_id, reader, output_signal)
+            .map_err(|err| SpawnError::Pty(err.to_string()))?;
 
         Ok(Self {
             channel_id,
@@ -283,6 +287,12 @@ impl PtyChannel {
         self.output.take(limit)
     }
 
+    /// Whether the last [`PtyChannel::read_output`] left output behind its
+    /// limit — held or still queued — which no reader will signal again.
+    pub fn output_backlogged(&mut self) -> bool {
+        !self.output.is_drained()
+    }
+
     /// True once the child closed the slave end and everything it wrote has
     /// been handed over. This is the keeper's EOF signal, not a read returning
     /// zero bytes.
@@ -331,7 +341,7 @@ impl std::fmt::Debug for PtyChannel {
             .field("applied_seq", &self.applied_seq)
             .field("cols", &self.cols)
             .field("rows", &self.rows)
-            .field("output_drained", &self.output.is_drained())
+            .field("output", &self.output)
             .finish()
     }
 }

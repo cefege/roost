@@ -1,6 +1,6 @@
-//! The keeper's socket server: the listener, the per-connection read loop, and
-//! the output tick. Everything protocol-shaped lives in [`crate::keeper`], so
-//! this file is transport and nothing else.
+//! The keeper's socket server: the listener, the per-connection event loop,
+//! and its backstop tick. Everything protocol-shaped lives in
+//! [`crate::keeper`], so this file is transport and nothing else.
 //!
 //! A keeper socket is a remote shell to every PTY the machine has open, so the
 //! endpoint is secured before the first connection is accepted rather than
@@ -14,34 +14,21 @@ use std::path::{Path, PathBuf};
 
 mod connection;
 
-/// How often the server drains PTY output, AND the longest a single read waits
-/// before the loop comes back round to do it.
+/// The longest a connection loop waits with nothing arriving before it drains
+/// and checks for exits anyway.
 ///
-/// ONE constant, because they are the same number. They used to be two:
-/// `READ_POLL` at 100 ms and `OUTPUT_TICK` at 16 ms, and the loop blocked in
-/// `read()` for the first and THEN slept the second — so a program writing
-/// continuously had its output drained once per 116 ms, not once per 16 ms,
-/// while the comment above it claimed the tick was "what makes the terminal
-/// live". Measured against a real keeper over a real socket, a shell printing
-/// 40 lines ten milliseconds apart arrived four lines per 120 ms.
-///
-/// The two were coupled by accident: `READ_POLL` existed so a stop flag is
-/// re-checked promptly, and 16 ms checks it more promptly than 100 ms did.
-/// Reading for the tick also removes the sleep, because the timeout is already
-/// the pacing.
-///
-/// It is not only latency. A cell frame is built per PTY chunk, so the chunk
-/// rate is the frame rate, and `DRAIN_LIMIT_BYTES` is 16 KiB per tick: at
-/// 116 ms a four-megabyte flood took half a minute to land, during which the
-/// pane could time out. `crates/roost-worker/src/keeper_pool/dispatch.rs`
-/// documented "the keeper's own output tick is 16ms" — false until now.
+/// A BACKSTOP, NOT THE PACE. Output is forwarded the moment a channel's
+/// reader hands it over (`connection.rs`), because a keystroke's echo that
+/// waits for a tick is a predictive-echo overlay that outlives its prediction.
+/// The tick only bounds how long a signal lost to a race could leave output
+/// unread, and how promptly an idle connection notices a channel's exit.
 const OUTPUT_TICK: std::time::Duration = std::time::Duration::from_millis(16);
 
 /// The largest single read. A worker sending a burst of frames is bounded by
 /// this, so one client cannot make the keeper allocate without limit.
 const READ_BUFFER_BYTES: usize = 64 * 1024;
 
-/// The most output bytes drained from one channel per tick. Bounded so one
+/// The most output bytes drained from one channel per turn. Bounded so one
 /// chatty program cannot starve the others or blow past the frame maximum.
 const DRAIN_LIMIT_BYTES: usize = 16 * 1024;
 

@@ -16,21 +16,16 @@
 //! the bytes it carries is a frame the reader watched arrive late.
 //!
 //! WHY THE CADENCES BELOW ARE THE TWO INTERESTING ONES, AND WHAT THEY MEASURE.
-//! `crates/roost-keeper/src/server/connection.rs` drains a PTY once per turn and
-//! claims `OUTPUT_TICK` (16 ms) for that turn, so 16 ms is the chunk group a
-//! real keeper is asked for. A 32 ms group is the same loop paying its read
-//! timeout in full AND a sleep of the same length after it. Both are driven
-//! here so the rate law is pinned on each side of the window rather than at one
-//! point of it, because the rate a reader sees is the PRODUCER'S, not the
-//! emitter's.
+//! The keeper forwards a PTY's output as its reader hands it over
+//! (`crates/roost-keeper/src/server/connection.rs`), so the chunk cadence the
+//! worker sees is the PRODUCER'S. A producer at the coalesce window (16 ms) and
+//! one at twice it (32 ms) are both driven here so the rate law is pinned on
+//! each side of the window rather than at one point of it, because the rate a
+//! reader sees is the producer's, not the emitter's.
 //!
-//! Measured on this tree, a real keeper draining a shell that prints a line
-//! every 10 ms: 37 `PtyOut` frames for 120 lines, median gap 36 ms. With the
-//! sleep in that loop's timeout branch removed: 62 frames, median gap 20 ms.
-//! The same arithmetic read off the wire of a failed oracle run — the frames
-//! carry the worker's own arrival and emit stamps — is a 32.5 ms median emit
-//! gap with `pty_out_ms == worker_emit_ms` on every frame, which is what the
-//! latency assertion below exists to keep true.
+//! The latency half is read off the frames' own stamps: a frame whose emit
+//! stamp has moved past the arrival stamp of the bytes it carries
+//! (`pty_out_ms != worker_emit_ms`) is a frame the reader watched arrive late.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -211,24 +206,24 @@ fn assert_rate_law(interval: Duration, chunks: u64, what: &str) -> Run {
 #[test]
 fn a_producer_slower_than_the_window_ships_one_frame_per_chunk_group() {
     let interval = Duration::from_millis(32);
-    let run = assert_rate_law(interval, 120, "a producer at the tick plus a blocking read");
+    let run = assert_rate_law(interval, 120, "a producer at twice the window");
     let rate = run.taken.len().saturating_sub(1) as f64 / run.elapsed.as_secs_f64();
     assert!(
         (30.0..=32.0).contains(&rate),
-        "a {interval:?} producer sustained {rate:.1} frames/s; the drain cadence is the rate"
+        "a {interval:?} producer sustained {rate:.1} frames/s; the producer's cadence is the rate"
     );
 }
 
-/// The tick a keeper's drain actually claims: the same stream at 16 ms earns
-/// twice the frames, which is the whole of the difference between a rate set by
-/// the producer and one set by the window.
+/// A producer at the coalesce window: the same stream at 16 ms earns twice the
+/// frames, which is the whole of the difference between a rate set by the
+/// producer and one set by the window.
 #[test]
-fn the_drain_tick_itself_earns_one_frame_per_chunk_group() {
+fn a_producer_at_the_window_earns_one_frame_per_chunk_group() {
     let interval = Duration::from_millis(CELL_EMIT_COALESCE_MS as u64);
-    let run = assert_rate_law(interval, 120, "a producer at the drain tick");
+    let run = assert_rate_law(interval, 120, "a producer at the coalesce window");
     let rate = run.taken.len().saturating_sub(1) as f64 / run.elapsed.as_secs_f64();
     assert!(
         (60.0..=63.0).contains(&rate),
-        "a {interval:?} producer sustained {rate:.1} frames/s; the tick is the rate"
+        "a {interval:?} producer sustained {rate:.1} frames/s; the producer's cadence is the rate"
     );
 }
