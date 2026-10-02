@@ -86,7 +86,7 @@ pub fn handle_terminal_input(
         );
         return;
     };
-    dispatch_batch(store, &admitted, &token, out);
+    dispatch_batch(store, &admitted, &token, now_ms, out);
 }
 
 /// Hand one admitted batch to `token`'s transport, stamped with the route epoch
@@ -96,6 +96,7 @@ pub(crate) fn dispatch_batch(
     store: &mut Store,
     admitted: &PendingInput,
     token: &TerminalToken,
+    now_ms: u64,
     out: &mut Vec<Effect>,
 ) {
     let session_id = admitted.session_id.as_str();
@@ -106,7 +107,7 @@ pub(crate) fn dispatch_batch(
             .map(str::to_string)
     });
     let input_route_epoch = store.input.route_epoch_for(session_id, token);
-    store.input.mark_started(admitted.input_seq, token);
+    store.input.mark_started(admitted.input_seq, token, now_ms);
     if token.transport == TerminalTransport::Sync {
         out.push(Effect::SendSync(SyncCommand::TerminalInput {
             session_id: session_id.to_string(),

@@ -11,7 +11,7 @@ use crate::sync::inbound::InputRouteResult;
 use crate::terminal::input::{
     InputOutcome, InputPhase, MAX_TERMINAL_INPUT_ROUTE_REVISION, PendingInput,
 };
-use crate::terminal::token::TerminalToken;
+use crate::terminal::token::{TerminalToken, TerminalTransport};
 
 use super::InputRouter;
 
@@ -278,17 +278,28 @@ impl InputRouter {
 
     /// Take every claim whose answer is overdue (v2: "was not confirmed").
     pub fn expire_route_claims(&mut self, now_ms: u64) -> Vec<RouteClaim> {
-        let mut expired = Vec::new();
+        self.take_claims(|claim| now_ms.saturating_sub(claim.sent_at_ms) >= ROUTE_CLAIM_TIMEOUT_MS)
+    }
+
+    /// Take every claim sent on the Sync socket `socket_generation`, which
+    /// closed: its answer can no longer arrive (v2 `rejectSyncClaims`).
+    pub fn reject_sync_claims(&mut self, socket_generation: u64) -> Vec<RouteClaim> {
+        self.take_claims(|claim| {
+            claim.token.transport == TerminalTransport::Sync
+                && claim.token.socket_generation == socket_generation
+        })
+    }
+
+    fn take_claims(&mut self, mut ended: impl FnMut(&RouteClaim) -> bool) -> Vec<RouteClaim> {
+        let mut taken = Vec::new();
         for lane in self.lanes.values_mut() {
-            let overdue = lane.claims.in_flight.as_ref().is_some_and(|claim| {
-                now_ms.saturating_sub(claim.sent_at_ms) >= ROUTE_CLAIM_TIMEOUT_MS
-            });
-            if overdue && let Some(claim) = lane.claims.in_flight.take() {
+            let ends = lane.claims.in_flight.as_ref().is_some_and(&mut ended);
+            if ends && let Some(claim) = lane.claims.in_flight.take() {
                 lane.phase = InputPhase::Holding;
-                expired.push(claim);
+                taken.push(claim);
             }
         }
-        expired
+        taken
     }
 
     /// End whatever holds the lane, and hand back the batches it held for the

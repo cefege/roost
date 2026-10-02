@@ -9,10 +9,13 @@
 //! `apps/web/src/store/transport/terminal-peer-promotions.ts` and
 //! `terminal-peer-fallback.ts`.
 
+mod deadlines;
+
+pub(crate) use self::deadlines::{reject_sync_claims, sweep_route_claims};
+
 use crate::effect::{DirectCommand, Effect, SyncCommand};
 use crate::handle_input::dispatch_batch;
 use crate::store::Store;
-use crate::sync::SyncDomain;
 use crate::sync::inbound::InputRouteResult;
 use crate::terminal::input::router::{ClaimSettlement, INPUT_HANDOFF_DRAIN_MS, RouteClaim};
 use crate::terminal::token::{TerminalToken, TerminalTransport};
@@ -146,9 +149,9 @@ pub(crate) fn settle_route_result(
                         return;
                     }
                     commit_candidate(store, session_id, attempt_id, &claim.token, out);
-                    release_held_onto(store, session_id, &claim.token, out);
+                    release_held_onto(store, session_id, &claim.token, now_ms, out);
                 }
-                None => release_held_onto(store, session_id, &claim.token, out),
+                None => release_held_onto(store, session_id, &claim.token, now_ms, out),
             }
         }
         ClaimSettlement::Retry(claim) => send_claim(&claim, out),
@@ -164,65 +167,6 @@ pub(crate) fn settle_route_result(
                 Some(_) => abandon_promotion(store, session_id, &reason, now_ms, out),
                 None => defer_or_block_fallback(store, session_id, &reason, now_ms),
             }
-        }
-    }
-}
-
-/// The claim deadlines: an unanswered claim, a promotion whose candidate is
-/// gone or whose drain is still pending, and every Sync fallback due a retry.
-pub(crate) fn sweep_route_claims(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
-    for claim in store.input.expire_route_claims(now_ms) {
-        let reason = "terminal input route claim was not confirmed";
-        tracing::warn!(target: "route", session_id = %claim.session_id, reason, "route claim expired");
-        match claim.attempt_id {
-            Some(_) => abandon_promotion(store, &claim.session_id, reason, now_ms, out),
-            None => defer_or_block_fallback(store, &claim.session_id, reason, now_ms),
-        }
-    }
-    for (session_id, promotion) in store.input.held_promotions() {
-        let staged = store
-            .routes
-            .candidate(&session_id)
-            .is_some_and(|candidate| candidate.attempt_id == promotion.attempt_id);
-        if !staged {
-            abandon_promotion(store, &session_id, "candidate was cancelled", now_ms, out);
-        } else if !promotion.claim_sent {
-            advance_promotion(
-                store,
-                &session_id,
-                promotion.attempt_id,
-                &promotion.token,
-                now_ms,
-                out,
-            );
-        }
-    }
-    for (session_id, fallback) in store.input.due_fallbacks(now_ms) {
-        // A ready Sync generation only (v2 `readySyncTerminalInputDestination`):
-        // a claim on a socket still subscribing would be refused by a
-        // coordinator that has not admitted this tab's terminal domain.
-        let sync = store
-            .sync
-            .domain_is_ready(SyncDomain::Terminal)
-            .then(|| store.sync_terminal_token())
-            .flatten();
-        let worker_epoch = store
-            .direct
-            .live_grant(&fallback.worker_fp, now_ms)
-            .map(|grant| grant.worker_epoch.clone())
-            .filter(|epoch| !epoch.is_empty())
-            .unwrap_or(fallback.worker_epoch);
-        let Some(sync) = sync.filter(|_| !worker_epoch.is_empty()) else {
-            let reason = "terminal Sync fallback input route was unavailable";
-            defer_or_block_fallback(store, &session_id, reason, now_ms);
-            continue;
-        };
-        match store
-            .input
-            .begin_route_claim(&session_id, &sync, &worker_epoch, None, now_ms)
-        {
-            Ok(claim) => send_claim(&claim, out),
-            Err(reason) => block_lane(store, &session_id, reason),
         }
     }
 }
@@ -334,7 +278,7 @@ fn abandon_promotion(
         .and_then(|replica| replica.generation().cloned())
         .or_else(|| store.sync_terminal_token());
     match current {
-        Some(current) => release_held_onto(store, session_id, &current, out),
+        Some(current) => release_held_onto(store, session_id, &current, now_ms, out),
         None => block_lane(store, session_id, "terminal transport is not connected"),
     }
 }
@@ -346,6 +290,7 @@ fn release_held_onto(
     store: &mut Store,
     session_id: &str,
     route: &TerminalToken,
+    now_ms: u64,
     out: &mut Vec<Effect>,
 ) {
     let required = store
@@ -365,7 +310,7 @@ fn release_held_onto(
         "held terminal input released onto the claimed route"
     );
     for pending in held {
-        dispatch_batch(store, &pending, route, out);
+        dispatch_batch(store, &pending, route, now_ms, out);
     }
 }
 

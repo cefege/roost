@@ -45,7 +45,7 @@ fn uses_a_fresh_browser_namespace_only_for_a_complete_old_ready_tuple() {
     let pending = router
         .admit("session-a", Some("view-1".into()), b"ls\n".to_vec(), 0)
         .expect("an open lane admits one batch");
-    assert!(router.mark_started(pending.input_seq, &admission.token));
+    assert!(router.mark_started(pending.input_seq, &admission.token, 0));
     let settled = router.retire_token(&admission.token, "local terminal closed");
     assert_eq!(
         settled.len(),

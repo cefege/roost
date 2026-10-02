@@ -100,17 +100,27 @@ pub fn handle_sweep(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
 
     // Held input. A batch that waited out its admission is REFUSED, not sent:
     // nothing left the client, so refusing it cannot lose a keystroke.
-    let mut refused_any = false;
+    let mut settled_any = false;
     for outcome in store.input.sweep_held(now_ms) {
-        refused_any = true;
+        settled_any = true;
         tracing::info!(
             target: "terminal",
             input_seq = outcome.input_seq(),
             "held terminal input refused at its admission timeout"
         );
     }
+    // Started input whose result never came settles AMBIGUOUS and is never
+    // re-sent: the bytes left, and the worker may have written them.
+    for outcome in store.input.sweep_unanswered(now_ms) {
+        settled_any = true;
+        tracing::warn!(
+            target: "terminal",
+            input_seq = outcome.input_seq(),
+            "terminal input result timed out; the batch settles ambiguous"
+        );
+    }
 
-    if refused_any {
+    if settled_any {
         store.note_change();
     }
 

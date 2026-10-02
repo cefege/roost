@@ -182,7 +182,7 @@ fn a_closed_sync_link_settles_the_input_it_was_carrying() {
         .outcome_feed
         .note_admission(Some("view-1"), &admission);
     let sent = admission.unwrap();
-    assert!(input.mark_started(sent.input_seq, &token));
+    assert!(input.mark_started(sent.input_seq, &token, 0));
 
     core.handle(ClientEvent::SyncLinkClosed {
         generation,

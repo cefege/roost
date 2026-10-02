@@ -84,7 +84,7 @@ fn a_refused_admission_carries_the_routers_reason_and_captures_nothing() {
 fn route_retirement_and_unstarted_refusal_report_their_outcomes() {
     let mut router = armed_router();
     let started = admit(&mut router, "s1", b"a").unwrap();
-    assert!(router.mark_started(started.input_seq, &token()));
+    assert!(router.mark_started(started.input_seq, &token(), 0));
     let unstarted = admit(&mut router, "s2", b"b").unwrap();
     // Two refusals against one ambiguity: equal counts could not tell a
     // rejection counted as ambiguous from the right tally.
