@@ -72,8 +72,6 @@ struct OpenPeer {
     /// browser's references to every callback the peer reports through.
     _handlers: dom::Handlers,
     attempt: PeerAttempt,
-    /// Whether the coordinator's answer has been handed to the connection.
-    answered: bool,
     /// Which lanes the browser has reported open, by stream id.
     open_lanes: [bool; 3],
 }
@@ -86,7 +84,6 @@ struct OpenPeer {
 #[derive(Debug)]
 struct OpenPeer {
     attempt: PeerAttempt,
-    answered: bool,
     open_lanes: [bool; 3],
 }
 
@@ -154,12 +151,6 @@ impl BrowserPeer {
         }
     }
 
-    /// Whether the coordinator's answer has been handed to this peer, which is
-    /// what makes spending the credential on the control lane legitimate.
-    pub fn has_answer(&self, attempt_id: u64) -> bool {
-        self.peers.get(attempt_id).is_some_and(|peer| peer.answered)
-    }
-
     /// The attempts this adapter holds, for the tick that drives them.
     pub fn attempt_ids(&self) -> Vec<u64> {
         self.peers.attempt_ids()
@@ -209,8 +200,10 @@ impl PeerTransport for BrowserPeer {
     fn open(&mut self, attempt: &PeerAttempt) -> Result<(), TransportError> {
         let connection = dom::construct(&attempt.stun_urls)?;
         let channels = dom::open_lanes(&connection, &LANES)?;
-        dom::begin_gathering(&connection)?;
 
+        // Installed BEFORE the offer is created: a host-only gatherer can finish
+        // inside the offer's own task, and a transition with no handler yet is
+        // an offer nobody reads until the deadline.
         let mut handlers =
             dom::install_connection_handlers(&connection, attempt.attempt_id, &self.events);
         for (lane, _label) in LANES {
@@ -230,6 +223,7 @@ impl PeerTransport for BrowserPeer {
                 &self.events,
             ));
         }
+        dom::begin_gathering(&connection, attempt.attempt_id, &self.events)?;
 
         let opened = OpenPeer {
             browser: dom::BrowserPeer {
@@ -238,7 +232,6 @@ impl PeerTransport for BrowserPeer {
             },
             _handlers: handlers,
             attempt: attempt.clone(),
-            answered: false,
             open_lanes: [false; 3],
         };
         // An attempt id is never reused by the core; if one were, the peer it
@@ -258,34 +251,25 @@ impl PeerTransport for BrowserPeer {
         Ok(())
     }
 
-    /// Read the local description, with the browser's own candidates filtered
-    /// down to the ones a worker may be told about.
-    ///
-    /// The filter is not an optimization: a host or mDNS candidate is an address
-    /// disclosure, and the coordinator relays the offer to a worker on another
-    /// machine (`protocol/spec/direct-terminal.md:26`).
+    /// Read the local description, with the browser's ICE-TCP candidates
+    /// removed: the offer is UDP-only before it crosses to the coordinator,
+    /// exactly as v2's `filterBrowserTerminalPeerUdpCandidates` leaves it.
     fn local_offer(&self, attempt_id: u64) -> Result<String, TransportError> {
         let peer = self.peers.get(attempt_id).ok_or_else(interop::closed)?;
         let sdp = dom::gathered_sdp(&peer.browser.connection)?;
         Ok(roost_protocol::terminal_peer::sdp::filter_browser_terminal_peer_udp_candidates(&sdp))
     }
 
-    /// Hand the coordinator's answer to the open transport.
+    /// Hand the coordinator's answer to the open transport. The browser settles
+    /// it on a task; a rejection arrives through the sink as the attempt's end.
     fn accept_answer(&mut self, attempt_id: u64, answer_sdp: &str) -> Result<(), TransportError> {
-        use js_sys::Array;
         let peer = self.peers.get(attempt_id).ok_or_else(interop::closed)?;
-        interop::call_method(
+        dom::apply_remote_answer(
             &peer.browser.connection,
-            "setRemoteDescription",
-            &Array::of1(&interop::description_object("answer", answer_sdp)),
+            answer_sdp,
+            attempt_id,
+            &self.events,
         )
-        .map(|_| ())?;
-        // Recorded only once the browser took it: an answer the connection
-        // refused is not an answer this peer may spend a credential on.
-        if let Some(open) = self.peers.get_mut(attempt_id) {
-            open.answered = true;
-        }
-        Ok(())
     }
 
     /// Write one already-framed packet on one lane. The framing is the CALLER's:

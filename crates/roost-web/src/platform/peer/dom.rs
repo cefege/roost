@@ -16,9 +16,11 @@
 use std::collections::BTreeMap;
 
 #[cfg(target_arch = "wasm32")]
-use js_sys::{Array, Function, Object, Reflect, Uint8Array};
+use js_sys::{Array, Function, Object, Promise, Reflect, Uint8Array};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::{JsCast as _, JsValue, closure::Closure};
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_futures::JsFuture;
 
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::carriers::PeerLane;
@@ -120,21 +122,83 @@ pub(super) fn open_lanes(
 }
 
 /// Create the local offer and hand it to the connection, which starts ICE.
+///
+/// Both calls are PROMISES (v2: `await setLocalDescription(await createOffer())`),
+/// so they settle on a task and report through the sink. A browser that refuses
+/// either has no offer to give, and that is reported as the attempt's end rather
+/// than read later as an empty description.
 #[cfg(target_arch = "wasm32")]
-pub(super) fn begin_gathering(connection: &JsValue) -> Result<(), TransportError> {
-    use super::interop::refused;
+pub(super) fn begin_gathering(
+    connection: &JsValue,
+    attempt_id: u64,
+    sink: &PeerEventSink,
+) -> Result<(), TransportError> {
+    let offer = as_promise(call_method(connection, "createOffer", &Array::new())?)?;
+    let connection = connection.clone();
+    let sink = sink.clone();
+    wasm_bindgen_futures::spawn_local(async move {
+        if let Err(reason) = describe_locally(&connection, offer).await {
+            sink.record(PeerEvent::IceFailed { attempt_id, reason });
+            return;
+        }
+        // A host-only gatherer can finish before this task resumes; the state
+        // handler saw that transition too, and the offer is read once either way.
+        if gathering_complete(&connection) {
+            sink.record(PeerEvent::Gathered { attempt_id });
+        }
+    });
+    Ok(())
+}
 
-    let offer = call_method(connection, "createOffer", &Array::new())?;
-    let sdp = Reflect::get(&offer, &JsValue::from_str("sdp"))
-        .ok()
-        .and_then(|value| value.as_string())
-        .ok_or_else(|| refused("the browser produced no local description"))?;
-    call_method(
+/// Hand the coordinator's answer to the connection, and report a refusal.
+///
+/// v2 awaits `setRemoteDescription` and closes the peer when it rejects; the
+/// rejection is reported here as the attempt's end for the same reason.
+#[cfg(target_arch = "wasm32")]
+pub(super) fn apply_remote_answer(
+    connection: &JsValue,
+    answer_sdp: &str,
+    attempt_id: u64,
+    sink: &PeerEventSink,
+) -> Result<(), TransportError> {
+    let applied = as_promise(call_method(
         connection,
-        "setLocalDescription",
-        &Array::of1(&description_object("offer", &sdp)),
-    )
-    .map(|_| ())
+        "setRemoteDescription",
+        &Array::of1(&description_object("answer", answer_sdp)),
+    )?)?;
+    let sink = sink.clone();
+    wasm_bindgen_futures::spawn_local(async move {
+        if JsFuture::from(applied).await.is_err() {
+            sink.record(PeerEvent::IceFailed {
+                attempt_id,
+                reason: "terminal peer setRemoteDescription failed".to_owned(),
+            });
+        }
+    });
+    Ok(())
+}
+
+/// `createOffer` resolved, then `setLocalDescription` accepted what it produced.
+#[cfg(target_arch = "wasm32")]
+async fn describe_locally(connection: &JsValue, offer: Promise) -> Result<(), String> {
+    let description = JsFuture::from(offer)
+        .await
+        .map_err(|_| "terminal peer createOffer failed".to_owned())?;
+    let applied = call_method(connection, "setLocalDescription", &Array::of1(&description))
+        .and_then(as_promise)
+        .map_err(|error| error.to_string())?;
+    JsFuture::from(applied)
+        .await
+        .map(|_| ())
+        .map_err(|_| "terminal peer setLocalDescription failed".to_owned())
+}
+
+/// A browser method's return value, checked to be the promise it is specified as.
+#[cfg(target_arch = "wasm32")]
+fn as_promise(value: JsValue) -> Result<Promise, TransportError> {
+    value
+        .dyn_into::<Promise>()
+        .map_err(|_| super::interop::refused("the browser returned no promise"))
 }
 
 /// The SDP the browser has gathered so far, unfiltered.
@@ -267,11 +331,11 @@ pub(super) fn install_message_handler(
     sink: &PeerEventSink,
 ) -> Handlers {
     let sink = sink.clone();
-    let handler = Closure::<dyn FnMut(js_sys::Array)>::new(move |event: js_sys::Array| {
-        let Ok(first) = event.get(0).dyn_into::<js_sys::Object>() else {
-            return;
-        };
-        let Ok(data) = Reflect::get(&first, &JsValue::from_str("data")) else {
+    // The browser calls `onmessage` with ONE argument, the `MessageEvent`
+    // itself; reading it as an argument list finds no element 0 and drops every
+    // message, which is a worker whose `Ready` never arrives.
+    let handler = Closure::<dyn FnMut(JsValue)>::new(move |event: JsValue| {
+        let Ok(data) = Reflect::get(&event, &JsValue::from_str("data")) else {
             return;
         };
         // `binaryType` was set to `arraybuffer` when the channel opened, so
