@@ -68,25 +68,23 @@ pub(super) fn perform(shared: &PaneShared, actions: Vec<PaneAction>) {
 }
 
 fn publish_view(shared: &PaneShared, cols: u32, rows: u32) {
-    let (opened, previous) = {
+    let previous = {
         let mut state = shared.state.borrow_mut();
-        let opened = std::mem::replace(&mut state.view_opened, true);
-        (opened, state.published.replace((cols, rows)))
+        state.view_opened = true;
+        state.published.replace((cols, rows))
     };
-    let event = if opened {
-        if previous == Some((cols, rows)) {
-            // A same-size claim after a withdraw re-opens the lease.
-            open_event(shared, cols, rows)
-        } else {
-            ClientEvent::ViewResized {
-                session_id: shared.session_id.clone(),
-                view_id: shared.view_id.clone(),
-                cols,
-                rows,
-            }
-        }
-    } else {
-        open_event(shared, cols, rows)
+    // Only a live claim changing size is a resize. A first claim, a same-size
+    // renewal and the first claim after a withdraw all (re)open the lease: the
+    // view is parked at the authority, and a parked view the client resizes to
+    // the size it already had is no new intent, so it would never stream again.
+    let event = match previous {
+        Some(previous) if previous != (cols, rows) => ClientEvent::ViewResized {
+            session_id: shared.session_id.clone(),
+            view_id: shared.view_id.clone(),
+            cols,
+            rows,
+        },
+        _ => open_event(shared, cols, rows),
     };
     shared.pump.dispatch(event);
     let mut state = shared.state.borrow_mut();
