@@ -109,6 +109,37 @@ fn the_elected_route_keeps_folding_frames_after_the_commit() {
     );
 }
 
+/// The wire record reports what reached the CANONICAL replica. A direct route
+/// that won before any fallback frame arrived has received nothing there yet, so
+/// `wire_received` must not name the candidate's staging stream — the reader
+/// asking "did the coordinator ever reach this pane?" would otherwise read yes.
+#[test]
+fn a_promotion_keeps_the_canonical_wire_record_and_the_elected_route_extends_it() {
+    let mut core = core_with_a_pane();
+    let _ = core.handle(ClientEvent::CarrierReady(carrier(&[SESSION])));
+    let _ = minted(&mut core, 1, Some(WIRE));
+    let _ = core.handle(direct_frame(accepted_view_state()));
+    let _ = core.handle(direct_frame(baseline()));
+    let wire = |core: &ClientCore| {
+        core.store()
+            .terminal(SESSION)
+            .and_then(|replica| replica.wire_stream_id.clone())
+    };
+    assert_eq!(
+        wire(&core),
+        None,
+        "the candidate's staging frames are not canonical wire"
+    );
+
+    let _ = core.handle(direct_frame(continuation()));
+
+    assert_eq!(
+        wire(&core).as_deref(),
+        Some(STREAM),
+        "a frame the elected route delivers is canonical wire"
+    );
+}
+
 #[test]
 fn the_same_pane_addresses_its_worker_by_the_minted_id_after_the_promotion() {
     let mut core = core_with_a_pane();

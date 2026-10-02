@@ -358,6 +358,17 @@ impl TerminalSession {
         self.wire_seq = Some(seq);
     }
 
+    /// Take over the wire record of the replica a promotion replaces.
+    ///
+    /// The record is what the CANONICAL path received (v2's `noteWireFrame` runs
+    /// only in canonical dispatch); a candidate's staging frames are not part of
+    /// it, so a route that won before any fallback frame arrived reads none.
+    pub(crate) fn inherit_wire_record(&mut self, replaced: Option<&TerminalSession>) {
+        self.wire_stream_id = replaced.and_then(|replica| replica.wire_stream_id.clone());
+        self.wire_grid_epoch = replaced.and_then(|replica| replica.wire_grid_epoch.clone());
+        self.wire_seq = replaced.and_then(|replica| replica.wire_seq);
+    }
+
     /// Refuse with a contract reason string, which is `&'static` because the
     /// assembler's error codes and the fold's own vocabulary both are.
     fn refuse(&mut self, reason: &'static str, token: &TerminalToken, now_ms: u64) -> Admission {
