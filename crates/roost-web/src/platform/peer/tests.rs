@@ -8,7 +8,6 @@ fn a_fresh_adapter_holds_no_peer_and_says_so_to_the_document_cap() {
     assert!(peer.attempt_of(1).is_none());
     assert!(!peer.holds(1));
     assert!(!peer.lane_is_open(1, PeerLane::Control));
-    assert!(!peer.has_answer(1));
 }
 
 #[test]

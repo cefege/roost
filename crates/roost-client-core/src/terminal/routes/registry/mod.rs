@@ -165,6 +165,55 @@ impl RouteRegistry {
             .map(|carrier| carrier.connection_id.clone())
     }
 
+    /// Widen every connection to `worker_fp` on `process_epoch` to a fresh
+    /// grant's scope, and report what each one newly admits.
+    ///
+    /// A grant may only ADD (v2 `TerminalPeerConnection.updateGrant`): a
+    /// connection whose admitted sessions the grant does not all name keeps its
+    /// scope, because the worker is still carrying those PTYs over it.
+    pub fn widen_grant(
+        &mut self,
+        worker_fp: &str,
+        process_epoch: &str,
+        sessions: &BTreeSet<String>,
+    ) -> Vec<(DirectCarrier, Vec<String>)> {
+        let Some(slots) = self.connections.get_mut(worker_fp) else {
+            return Vec::new();
+        };
+        let mut widened = Vec::new();
+        for carrier in slots.active.iter_mut().chain(slots.candidate.iter_mut()) {
+            let other_epoch =
+                !process_epoch.is_empty() && carrier.token.process_epoch != process_epoch;
+            if other_epoch || !carrier.granted_sessions.is_subset(sessions) {
+                continue;
+            }
+            let added: Vec<String> = sessions
+                .difference(&carrier.granted_sessions)
+                .cloned()
+                .collect();
+            if added.is_empty() {
+                continue;
+            }
+            carrier.granted_sessions.extend(added.iter().cloned());
+            widened.push((carrier.clone(), added));
+        }
+        widened
+    }
+
+    /// The exact sessions the connection presenting `token` may carry.
+    ///
+    /// The one copy of a carrier's scope: the host's send path asks here rather
+    /// than keeping its own, which a widened grant would leave behind.
+    pub fn granted_sessions_for(&self, token: &TerminalToken) -> Option<&BTreeSet<String>> {
+        let slots = self.connections.get(token.worker_fp.as_deref()?)?;
+        slots
+            .active
+            .iter()
+            .chain(slots.candidate.iter())
+            .find(|carrier| carrier.token == *token)
+            .map(|carrier| &carrier.granted_sessions)
+    }
+
     /// Record that a view wants a session on a worker. Returns true when the
     /// demand actually changed, so a host can skip a no-op republish.
     pub fn set_view_demand(

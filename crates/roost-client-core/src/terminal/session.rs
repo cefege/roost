@@ -352,21 +352,12 @@ impl TerminalSession {
         self.latch.record_sent(token, now_ms);
     }
 
-    fn note_wire(&mut self, stream_id: &str, grid_epoch: &str, seq: u64) {
-        self.wire_stream_id = Some(stream_id.to_string());
-        self.wire_grid_epoch = Some(grid_epoch.to_string());
-        self.wire_seq = Some(seq);
-    }
-
-    /// Take over the wire record of the replica a promotion replaces.
+    /// Unbind the replica from its carrier generation, returning the one it had.
     ///
-    /// The record is what the CANONICAL path received (v2's `noteWireFrame` runs
-    /// only in canonical dispatch); a candidate's staging frames are not part of
-    /// it, so a route that won before any fallback frame arrived reads none.
-    pub(crate) fn inherit_wire_record(&mut self, replaced: Option<&TerminalSession>) {
-        self.wire_stream_id = replaced.and_then(|replica| replica.wire_stream_id.clone());
-        self.wire_grid_epoch = replaced.and_then(|replica| replica.wire_grid_epoch.clone());
-        self.wire_seq = replaced.and_then(|replica| replica.wire_seq);
+    /// The grid stays: what the reader sees does not change, only the claim
+    /// about which carrier is delivering it. The next publication binds again.
+    pub(crate) fn release_generation(&mut self) -> Option<TerminalToken> {
+        self.generation.take()
     }
 
     /// Refuse with a contract reason string, which is `&'static` because the

@@ -76,6 +76,7 @@ fn accepts_a_bounded_ready_for_the_full_256_session_grant() {
     peer.step(elsewhere());
     let offer = peer.step(SignallingInput::OfferReady {
         attempt_id: 1,
+        peer_id: FIRST_PEER_ID.to_string(),
         offer_sdp: usable_sdp(),
     });
     assert!(

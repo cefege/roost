@@ -21,7 +21,7 @@ pub const EPOCH: &str = "epoch-a";
 pub const SYNC_GENERATION: u64 = 7;
 pub const NOW: u64 = 1_000;
 pub const GRANT_TTL_MS: u64 = 60 * 60_000;
-pub const FIRST_PEER_ID: &str = "peer-1";
+pub const FIRST_PEER_ID: &str = "6f9d2c1a-3b4e-4c5d-8e7f-0a1b2c3d4e5f";
 
 pub fn usable_sdp() -> String {
     let fingerprint = vec!["AA"; 32].join(":");
@@ -119,6 +119,7 @@ pub fn peer_open() -> (Signalling, u64) {
     let attempt_id = match peer
         .step(SignallingInput::OfferReady {
             attempt_id: 1,
+            peer_id: FIRST_PEER_ID.to_string(),
             offer_sdp: usable_sdp(),
         })
         .as_slice()

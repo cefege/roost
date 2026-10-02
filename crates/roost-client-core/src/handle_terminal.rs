@@ -22,7 +22,9 @@ use crate::handle_sweep::{publish_view, send_intent, send_intent_for_wire};
 use crate::search::RawMatch;
 use crate::store::Store;
 use crate::terminal::view::ViewIntent;
-pub use carriers::{handle_carrier_authenticated, handle_carrier_lost, handle_worker_retired};
+pub use carriers::{
+    handle_carrier_authenticated, handle_carrier_lost, handle_grant_minted, handle_worker_retired,
+};
 pub use staging::{
     MintedViewId, begin_sync_view_rotation, cancel_staged_candidate,
     cancel_staged_candidate_and_restart, handle_view_id_minted, sweep_candidate_deadlines,

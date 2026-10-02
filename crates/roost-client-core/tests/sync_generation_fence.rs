@@ -11,13 +11,16 @@
 
 mod support;
 
-use roost_client_core::ClientCore;
 use roost_client_core::client::sync::{
     AbortReason, InstalledLink, can_accept_sync_link, can_open_sync_link,
 };
 use roost_client_core::effect::Effect;
 use roost_client_core::event::ClientEvent;
+use roost_client_core::store::terminal_transport::session_terminal_transport_kind;
+use roost_client_core::terminal::token::TerminalTransport;
+use roost_client_core::{ClientCore, SyncFrame};
 use support::sync_reconnect::{TAB, open_ready_link};
+use support::{SESSION, STREAM, full};
 
 #[test]
 fn state_from_a_previous_generation_is_refused_after_a_new_one_opens() {
@@ -112,5 +115,51 @@ fn a_revoked_credential_stops_the_dial_loop() {
             .iter()
             .any(|effect| matches!(effect, Effect::DialSync { .. })),
         "a revoked credential must not be presented again"
+    );
+}
+
+/// A replica fenced to a Sync socket that closed confirms no carrier until the
+/// next link binds it, and keeps its grid: v2 retargets every session to the
+/// current Sync state, and with the socket gone that token is null — the header
+/// reads Waiting rather than claiming a coordinator that is not there.
+#[test]
+fn a_closed_sync_link_leaves_its_replicas_confirming_no_carrier() {
+    let mut core = ClientCore::in_memory(TAB);
+    let generation = open_ready_link(&mut core, "sock-one");
+    let token = core
+        .store()
+        .sync_terminal_token()
+        .expect("an open link has a token");
+    let replica = core.store_mut().terminal_mut(SESSION, "fp-1");
+    replica.bind_generation(&token);
+    replica.install_expected_stream(STREAM, 8, 4);
+    replica.open_view("view-1", 8, 4, 0);
+    core.handle(ClientEvent::SyncFrameReceived {
+        generation,
+        delivery_seq: 1,
+        frame: SyncFrame::CellGrid {
+            session_id: SESSION.to_owned(),
+            frame: full(4),
+        },
+    });
+    assert_eq!(
+        session_terminal_transport_kind(core.store(), SESSION),
+        Some(TerminalTransport::Sync)
+    );
+
+    core.handle(ClientEvent::SyncLinkClosed {
+        generation,
+        close_code: Some(1006),
+        close_reason: String::new(),
+    });
+
+    assert_eq!(session_terminal_transport_kind(core.store(), SESSION), None);
+    assert!(
+        core.store()
+            .terminal(SESSION)
+            .unwrap()
+            .canonical()
+            .is_some(),
+        "the painted grid stays; only the carrier claim goes"
     );
 }

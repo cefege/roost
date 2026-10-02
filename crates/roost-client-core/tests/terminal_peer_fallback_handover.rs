@@ -19,7 +19,7 @@ use roost_client_core::client::carriers::{
     SignallingInput,
 };
 use terminal_peer_fallback_support::{
-    EPOCH, GRANT_TTL_MS, NOW, assert_fell_back_without_reopening_the_session,
+    EPOCH, FIRST_PEER_ID, GRANT_TTL_MS, NOW, assert_fell_back_without_reopening_the_session,
     assert_no_session_teardown, authenticating, demand, faults, handovers, peer_open, ready_with,
     unreadable_sdp,
 };
@@ -31,6 +31,7 @@ fn invalid_offers_unavailable_grants_expired_grants_and_identity_mismatches_fall
     let (mut invalid, attempt_id) = peer_open();
     let from_offer = invalid.step(SignallingInput::OfferReady {
         attempt_id,
+        peer_id: FIRST_PEER_ID.to_string(),
         offer_sdp: unreadable_sdp(),
     });
     assert_eq!(faults(&from_offer), vec![CarrierFault::InvalidOffer]);

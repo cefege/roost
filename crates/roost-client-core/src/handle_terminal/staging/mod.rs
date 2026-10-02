@@ -25,8 +25,8 @@ use attempt::adopt_candidate_view_id;
 use rotation::adopt_sync_view_id;
 
 pub use attempt::{
-    cancel_staged_candidate, cancel_staged_candidate_and_restart, stage_viewed_sessions,
-    sweep_candidate_deadlines,
+    cancel_staged_candidate, cancel_staged_candidate_and_restart, stage_admitted_sessions,
+    stage_viewed_sessions, sweep_candidate_deadlines,
 };
 pub use rotation::begin_sync_view_rotation;
 

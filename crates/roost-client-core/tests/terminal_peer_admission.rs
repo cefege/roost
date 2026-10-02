@@ -15,8 +15,8 @@ use roost_client_core::client::carriers::{
     PeerSignalling, SignallingInput,
 };
 use terminal_peer_support::{
-    NOW, SESSION, WORKER, demand, elsewhere, faults, grant_for, machine, opened_a_transport,
-    usable_sdp,
+    FIRST_PEER_ID, NOW, SESSION, WORKER, demand, elsewhere, faults, grant_for, machine,
+    opened_a_transport, usable_sdp,
 };
 
 #[test]
@@ -26,6 +26,7 @@ fn a_carrier_with_no_live_grant_never_authenticates() {
     peer.step(elsewhere());
     let effects = peer.step(SignallingInput::OfferReady {
         attempt_id: 1,
+        peer_id: FIRST_PEER_ID.to_string(),
         offer_sdp: usable_sdp(),
     });
     assert!(
@@ -41,7 +42,7 @@ fn a_carrier_with_no_live_grant_never_authenticates() {
 fn retries_a_transient_initial_grant_failure_at_the_bounded_retry_deadline() {
     let mut peer = machine(0);
     let exact = CarrierEffect::Core(Effect::RequestDirectGrant {
-        session_id: SESSION.to_string(),
+        session_ids: vec![SESSION.to_string()],
         worker_fp: WORKER.to_string(),
     });
     let requested = peer.step(demand(SESSION));
@@ -99,6 +100,7 @@ fn refuses_a_ninth_simultaneously_demanded_browser_peer() {
         let mut effects = peer.step(elsewhere());
         effects.extend(peer.step(SignallingInput::OfferReady {
             attempt_id: 1,
+            peer_id: FIRST_PEER_ID.to_string(),
             offer_sdp: usable_sdp(),
         }));
         opened.push(opened_a_transport(&effects));

@@ -24,9 +24,9 @@ use crate::handle_sync::{
     close_failed_sync_link, handle_direct_frame, handle_rpc_result, handle_sync_frame,
 };
 use crate::handle_terminal::{
-    MintedViewId, ViewOpen, handle_carrier_authenticated, handle_carrier_lost, handle_search_page,
-    handle_view_closed, handle_view_hidden, handle_view_id_minted, handle_view_opened,
-    handle_view_resized, handle_view_state, handle_worker_retired,
+    MintedViewId, ViewOpen, handle_carrier_authenticated, handle_carrier_lost, handle_grant_minted,
+    handle_search_page, handle_view_closed, handle_view_hidden, handle_view_id_minted,
+    handle_view_opened, handle_view_resized, handle_view_state, handle_worker_retired,
 };
 use crate::platform::{Clock, KeyValueStore};
 use crate::store::Store;
@@ -217,7 +217,7 @@ pub fn handle_event(
                 .local_door_answered(worker_fp, serving_worker_fp, out);
         }
         ClientEvent::DirectGrantMinted { grant } => {
-            store.direct.grant_minted(grant.clone(), out);
+            handle_grant_minted(store, grant, host_now_ms, out);
         }
         ClientEvent::DirectGrantRefused { worker_fp, reason } => {
             store

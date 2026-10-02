@@ -28,8 +28,16 @@ use crate::platform::carrier::CarrierIdentity;
 /// carried, because the id names ONE connection: a retirement that named an id a
 /// reconnect re-minted would take down the connection that replaced it.
 pub(super) fn stage_carrier(pump: &Pump, attempt_id: u64, ready: &ReadyTuple) {
-    let held = pump.inner.peer_attempts.borrow();
-    let Some(attempt) = held.attempt(attempt_id) else {
+    // Read and released before `authenticate` borrows the same table mutably:
+    // a shared borrow alive across that call is a wasm panic that leaves the
+    // table borrowed for every later tick.
+    let worker_fp = pump
+        .inner
+        .peer_attempts
+        .borrow()
+        .attempt(attempt_id)
+        .map(|attempt| attempt.worker_fp().to_owned());
+    let Some(worker_fp) = worker_fp else {
         tracing::warn!(
             target: "carriers",
             attempt_id,
@@ -37,7 +45,6 @@ pub(super) fn stage_carrier(pump: &Pump, attempt_id: u64, ready: &ReadyTuple) {
         );
         return;
     };
-    let worker_fp = attempt.worker_fp().to_owned();
     let connection_id =
         CarrierIdentity::mint(worker_fp.clone(), TerminalTransport::Peer).connection_id;
     let admitted =
