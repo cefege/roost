@@ -13,7 +13,7 @@
 
 #[path = "attachment_support/mod.rs"]
 mod attachment_support;
-use attachment_support::FakeEnvironment;
+use attachment_support::{FakeEnvironment, block_on};
 use roost_client_core::client::attachments::direct::relay::{RELAY_CHUNK_BYTES, RelayUpload};
 use roost_client_core::client::attachments::direct::{
     AttachmentDirectUploadRequest, DirectAttempt, DirectUnavailableReason, upload_attachment_direct,
@@ -41,7 +41,7 @@ fn retains_existing_relay_chunk_fields_and_ordered_progress_when_direct_is_unava
         short_path: false,
     };
     assert_eq!(
-        upload_attachment_direct(&upload_request, &mut environment),
+        block_on(upload_attachment_direct(&upload_request, &mut environment)),
         DirectAttempt::Unavailable(DirectUnavailableReason::NoLocalCarrier)
     );
 

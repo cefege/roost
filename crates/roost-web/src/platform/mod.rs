@@ -20,6 +20,8 @@
 //! ceremony that needs a secret rather than filling one from `Math.random`,
 //! which is guessable from four earlier draws.
 
+#[cfg(target_arch = "wasm32")]
+pub mod attachments;
 pub mod browser;
 pub mod browser_platform;
 pub mod carrier;

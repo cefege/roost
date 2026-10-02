@@ -1,19 +1,25 @@
-//! The two coordinator calls a direct attachment upload needs beside its
-//! carrier: the grant that authorises it, and the durable status that settles a
-//! chunk whose acknowledgement was lost.
+//! The three coordinator calls a direct attachment upload needs beside its
+//! carrier bytes: the grant that authorises it, the attachment peer's SDP
+//! exchange, and the durable status that settles a chunk whose acknowledgement
+//! was lost.
 //!
 //! Called by roost-web's upload driver through `CoordRpc::call`. v2 call sites:
 //! `apps/web/src/client/attachments/attachmentDirectGrant.ts`
-//! (`attachmentsGrantDirect`) and `attachmentDirect.ts`
+//! (`attachmentsGrantDirect`), `attachmentPeerSignaling.ts`
+//! (`sessionsNegotiateAttachmentPeer`) and `attachmentDirect.ts`
 //! (`attachmentsDirectStatus`). The byte-carrying call stays out of this file:
 //! a direct upload's bytes cross a carrier, not this RPC.
 
 use roost_proto::{
     AttachmentsDirectStatusRequest, AttachmentsDirectStatusResponse, AttachmentsGrantDirectRequest,
-    AttachmentsGrantDirectResponse,
+    AttachmentsGrantDirectResponse, SessionsNegotiateAttachmentPeerRequest,
+    SessionsNegotiateAttachmentPeerResponse,
 };
 
 use crate::client::attachments::grant::AttachmentDirectGrantResponse;
+use crate::client::attachments::signaling::{
+    AttachmentPeerNegotiationRequest, AttachmentPeerNegotiationResponse,
+};
 use crate::client::attachments::transfer::receipt::AttachmentTransferStatus;
 use crate::client::rpc::codec::{RpcCodecError, decode_message, encode_message};
 use crate::client::rpc::unary::UnaryMethod;
@@ -96,5 +102,36 @@ impl UnaryMethod for ReadAttachmentDirectStatus {
     fn decode_response(body: &[u8]) -> Result<Self::Response, RpcCodecError> {
         let response: AttachmentsDirectStatusResponse = decode_message(Self::METHOD, body)?;
         Ok(response.status.map(AttachmentTransferStatus::from_proto))
+    }
+}
+
+/// The signaling machine's request IS the call: one shape, so the fields the
+/// answer is checked against cannot drift from the fields that were sent.
+impl UnaryMethod for AttachmentPeerNegotiationRequest {
+    const METHOD: &'static str = "SessionsNegotiateAttachmentPeer";
+    type Response = AttachmentPeerNegotiationResponse;
+
+    fn encode_request(&self) -> Result<Vec<u8>, RpcCodecError> {
+        encode_message(
+            Self::METHOD,
+            &SessionsNegotiateAttachmentPeerRequest {
+                worker_fp: self.worker_fp.clone(),
+                grant_id: self.grant_id.clone(),
+                tab_id: self.tab_id.clone(),
+                peer_id: self.peer_id.clone(),
+                offer_sdp: self.offer_sdp.clone(),
+                worker_epoch: self.worker_epoch.clone(),
+                ..Default::default()
+            },
+        )
+    }
+
+    fn decode_response(body: &[u8]) -> Result<Self::Response, RpcCodecError> {
+        let response: SessionsNegotiateAttachmentPeerResponse = decode_message(Self::METHOD, body)?;
+        Ok(AttachmentPeerNegotiationResponse {
+            peer_id: response.peer_id,
+            answer_sdp: response.answer_sdp,
+            worker_epoch: response.worker_epoch,
+        })
     }
 }

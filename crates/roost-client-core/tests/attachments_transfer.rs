@@ -85,7 +85,7 @@ fn sends_ordered_512_kib_byte_slices_and_advances_only_from_matching_acks() {
     while let Some(request) = upload.next_slice() {
         let data = file.slice(&request);
         upload
-            .begin_chunk(data.clone(), FIRST_DIGEST)
+            .begin_chunk(&data, FIRST_DIGEST)
             .expect("the slice is the one that was asked for");
         let in_flight = upload.in_flight().expect("a chunk is in flight").clone();
         assert_eq!(in_flight.seq, request.seq);
@@ -143,7 +143,7 @@ fn preserves_a_zero_byte_file_as_one_final_direct_chunk() {
         "a file with no chunks is a file that was never created"
     );
     upload
-        .begin_chunk(Vec::new(), FIRST_DIGEST)
+        .begin_chunk(&[], FIRST_DIGEST)
         .expect("an empty final slice is frameable");
     let in_flight = upload.in_flight().expect("a chunk is in flight").clone();
     let settled = upload
@@ -168,7 +168,7 @@ fn settles_a_lost_final_ack_from_its_authenticated_direct_receipt() {
     // receipt answers for it, so the chunk is NOT sent a second time.
     let mut upload = DirectUpload::new("upload-a", 2);
     upload
-        .begin_chunk(vec![7, 8], FIRST_DIGEST)
+        .begin_chunk(&[7, 8], FIRST_DIGEST)
         .expect("the only slice is frameable");
     let in_flight = upload.in_flight().expect("a chunk is in flight").clone();
     assert!(upload.sent_chunk(), "bytes are on the wire");
@@ -202,7 +202,7 @@ fn uses_coordinator_status_only_to_settle_a_lost_final_receipt_after_the_carrier
     // coordinator's durable receipt can.
     let mut upload = DirectUpload::new("upload-a", 1);
     upload
-        .begin_chunk(vec![1], FIRST_DIGEST)
+        .begin_chunk(&[1], FIRST_DIGEST)
         .expect("the only slice is frameable");
     let in_flight = upload.in_flight().expect("a chunk is in flight").clone();
 
@@ -246,7 +246,7 @@ fn does_not_resume_a_nonfinal_direct_upload_through_coordinator_status() {
     while let Some(request) = upload.next_slice() {
         let data = vec![request.bytes as u8; request.bytes];
         upload
-            .begin_chunk(data, FIRST_DIGEST)
+            .begin_chunk(&data, FIRST_DIGEST)
             .expect("the slice is the one that was asked for");
         let in_flight = upload.in_flight().expect("a chunk is in flight").clone();
         sent_sequences.push(in_flight.seq);
@@ -291,7 +291,7 @@ fn a_completed_transfer_verifies_its_digest_before_the_path_is_recorded() {
     begin_upload_card(core.store_mut(), "upload-a", "received.bin", 2, 0);
     let mut upload = DirectUpload::new("upload-a", 2);
     upload
-        .begin_chunk(vec![1, 2], FIRST_DIGEST)
+        .begin_chunk(&[1, 2], FIRST_DIGEST)
         .expect("the only slice is frameable");
     let in_flight = upload.in_flight().expect("a chunk is in flight").clone();
 
