@@ -12,6 +12,7 @@ use roost_web_terminal::terminal_presentation::{
     PresentationFrameMark, PresentationInputs, PresentationPane, TerminalPresentationState,
 };
 use roost_web_terminal::{BOTTOM_FOLLOW_SETTLE_MS, CellGridRenderer};
+use serde_json::json;
 
 use super::actions::{DomRepairCtx, PaneAction, perform, with_state};
 use super::browser::{self, now_ms, request_frame};
@@ -20,6 +21,8 @@ use crate::components::terminal::pane_state::set_if_changed;
 use crate::components::terminal::pane_status::{
     LoadingGate, PaneViewStatus, loading_notice, view_handle_status,
 };
+use crate::platform::browser::perf_counters::with_perf_counters;
+use crate::platform::browser::phase_marks::{PhaseName, mark_phase_once};
 
 /// What one store read found for this pane.
 pub(super) struct StoreRead {
@@ -155,6 +158,7 @@ fn paint_owed(shared: &PaneShared, now: u64) {
     set_if_changed(shared.ui.alt_screen, canonical.alt_screen);
     let delivery = shared.state.borrow_mut().feed.painted(&canonical, revision);
     super::echo::on_frame(shared, &canonical, delivery.scrollback_appended);
+    mark_painted_frame(shared, &canonical, painted_as == PaintedAs::Full);
     // The view's real status: without it the controller reads the pane as
     // unready, and an unready refresh forgets the activity this frame just
     // recorded, so the pane never reads `receiving`.
@@ -177,6 +181,22 @@ fn paint_owed(shared: &PaneShared, now: u64) {
     };
     perform(shared, vec![PaneAction::Backfill(work)]);
     after_renderer_write(shared, now);
+}
+
+/// A painted frame closes the pane's input round trip, and the first one is
+/// the session's first applied cell.
+fn mark_painted_frame(shared: &PaneShared, canonical: &CellGridFrame, full: bool) {
+    let now = now_ms() as f64;
+    with_perf_counters(|counters| counters.note_frame_painted(&shared.session_id, now));
+    mark_phase_once(
+        PhaseName::FirstCellApply,
+        &shared.session_id,
+        &[
+            ("sessionId", json!(shared.session_id)),
+            ("sequence", json!(canonical.seq)),
+            ("full", json!(full)),
+        ],
+    );
 }
 
 /// Fold the deltas the renderer has not seen, so the history they appended is

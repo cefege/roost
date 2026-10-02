@@ -79,26 +79,14 @@ pub const SMOKE_METHODS: [(&str, Answer); 53] = [
 
 /// The members whose surface belongs to a slice this build does not have yet,
 /// and the refusal each one answers with — never a silent no-op.
-pub const UNPORTED_METHODS: [(&str, &str); 5] = [
+pub const UNPORTED_METHODS: [(&str, &str); 2] = [
     (
         "probeTerminalTransport",
         "U-2 STREAM LIFECYCLE: the worker control probe (store/transport/sync-terminal-control-probe.ts) not ported",
     ),
     (
-        "phaseTimeline",
-        "U-2 BROWSER platform: phase marks (browser/diag.ts phaseTimeline) not ported",
-    ),
-    (
         "directHistoryResponseCount",
         "U-2 CARRIER/LOCAL: direct-carrier history reads (lib/scrollbackDirectHistory.ts) not ported",
-    ),
-    (
-        "perfProbe",
-        "U-2 BROWSER platform: the leak watcher (browser/leakWatch.ts) not ported",
-    ),
-    (
-        "resetPerfCounters",
-        "U-2 BROWSER platform: the leak watcher (browser/leakWatch.ts) not ported",
     ),
 ];
 
@@ -262,6 +250,8 @@ pub fn parse_call(name: &str, args: &[Value]) -> Result<SmokeCall, String> {
         | "pauseSyncTransport"
         | "resumeSyncTransport"
         | "syncWsGeneration"
+        | "phaseTimeline"
+        | "resetPerfCounters"
         | "cleanupCreated" => SmokeCall::Bare { method },
         "forceVisible" | "forceHidden" => SmokeCall::Flag {
             method,

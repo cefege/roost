@@ -13,6 +13,7 @@ pub mod file_transfer;
 pub mod harness;
 pub mod marker_scan;
 pub mod paint_proof;
+pub mod predict_debug;
 pub mod probes;
 pub mod retained_scan;
 pub mod state_snapshot;
@@ -28,9 +29,13 @@ mod dispatch;
 #[cfg(target_arch = "wasm32")]
 mod dom;
 #[cfg(target_arch = "wasm32")]
+mod dom_hold_host;
+#[cfg(target_arch = "wasm32")]
 mod harness_host;
 #[cfg(target_arch = "wasm32")]
 mod paint_wait;
+#[cfg(target_arch = "wasm32")]
+mod perf_probe;
 #[cfg(target_arch = "wasm32")]
 mod rpc_calls;
 #[cfg(target_arch = "wasm32")]

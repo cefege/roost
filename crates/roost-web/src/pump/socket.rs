@@ -109,6 +109,7 @@ fn drain(pump: &Pump) {
 fn deliver(pump: &Pump, generation: u64, bytes: &[u8]) {
     match decode_firehose(bytes, SyncFrameMeta { generation }) {
         Ok(event) => {
+            crate::platform::browser::sync_marks::mark_sync_delivery(generation, &event);
             if let ClientEvent::SyncFrameReceived {
                 frame:
                     SyncFrame::Subscribed {
