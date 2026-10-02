@@ -30,6 +30,7 @@ pub mod routes;
 pub mod session;
 pub mod session_liveness;
 pub mod session_views;
+pub mod session_wire;
 pub mod smoke_faults;
 pub mod token;
 pub mod view;
