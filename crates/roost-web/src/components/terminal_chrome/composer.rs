@@ -26,6 +26,7 @@ use super::pane_geometry_dom::PaneDockHandle;
 use crate::components::deck::deck_dom;
 use crate::voice::keyterms::ContextReader;
 
+use crate::components::layout::portal::Portal;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::md::{ButtonVariant, IconButton, IconButtonSize};
 use crate::components::terminal::pane_handle::PaneHandle;
@@ -283,7 +284,7 @@ pub fn TerminalComposer(
         return rsx! {};
     }
 
-    rsx! {
+    let dock = rsx! {
         div {
             class: "term-chat__dock",
             "data-testid": "mobile-chat-input",
@@ -380,5 +381,15 @@ pub fn TerminalComposer(
                 }
             }
         }
+    };
+    // The viewport dock is portaled out of the deck, as v2's is to `<body>`: the
+    // deck is transformed and clips its overflow, so a fixed dock inside it is
+    // placed by the deck — and scrolled with it whenever the focused field asks
+    // its scroll ancestors to reveal the caret.
+    match placement {
+        ComposerPlacement::Viewport => rsx! {
+            Portal { {dock} }
+        },
+        ComposerPlacement::Pane => dock,
     }
 }

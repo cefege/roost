@@ -86,8 +86,7 @@ pub fn editor_style(
 /// translation away the moment the soft keyboard appeared, so the terminal
 /// dropped back down under the raised dock while the dock's own offset still
 /// counted the inset. The reserve and the shift are ONE decision: both belong
-/// to this predicate, and the composer dock's viewport anchoring in
-/// `workbench-shell.css` keys off the same attribute for the same reason.
+/// to this predicate.
 #[must_use]
 pub fn keyboard_shift(terminal_route: bool, keyboard_resize: bool) -> bool {
     terminal_route && !keyboard_resize
