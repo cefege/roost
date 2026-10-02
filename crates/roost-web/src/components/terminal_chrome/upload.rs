@@ -20,6 +20,7 @@ use roost_client_core::client::attachments::direct::upload_attachment_direct;
 use roost_client_core::client::attachments::insertion::safe_attachment_insertion;
 
 use super::attachment_picker::ChosenFile;
+use super::short_paths::short_path_preference;
 use super::upload_card::{self, UploadPreview};
 use super::upload_host::{self, DirectEnvironmentFacts};
 use super::upload_id::{content_digest, mint_upload_id};
@@ -101,6 +102,35 @@ pub fn enqueue_attachments(
     drain_queue();
 }
 
+/// Upload one file's bytes, with no card and no insertion, and answer the path
+/// the worker committed them under.
+///
+/// No worker is named, so no direct route can match and the coordinator relay
+/// carries the bytes — the route v2's `uploadAttachment` takes for a session
+/// given only by id. It does not join the picker's queue: its caller awaits
+/// the path, and no typed insertion orders against it.
+pub async fn upload_attachment(
+    pump: &Pump,
+    session_id: &str,
+    file_name: String,
+    bytes: Vec<u8>,
+) -> Result<String, String> {
+    let upload_id =
+        mint_upload_id().ok_or_else(|| "this document cannot mint an upload id".to_owned())?;
+    let plan = UploadPlan::for_file(
+        session_id,
+        None,
+        upload_id,
+        file_name,
+        bytes.len() as u64,
+        short_path_preference(),
+    )
+    .map_err(|refusal| refusal.message().to_owned())?;
+    upload_host::relay_upload(pump, &plan, &bytes, |_| {})
+        .await
+        .map(|outcome| outcome.abs_path)
+}
+
 /// Run queued uploads until the queue is empty.
 fn drain_queue() {
     if RUNNING.get() {
@@ -117,6 +147,9 @@ fn drain_queue() {
     };
     wasm_bindgen_futures::spawn_local(async move {
         run_one(job).await;
+        // Released before the next turn is taken: a flag still held here is a
+        // queue that runs its first file and strands every later one.
+        RUNNING.set(false);
         drain_queue();
     });
 }

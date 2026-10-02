@@ -186,6 +186,7 @@ impl SmokeBackdoor {
                         .map(Some)
                 }))
             }
+            SmokeCall::UploadAttachment(request) => self.upload_attachment_call(request),
         }
     }
 

@@ -299,7 +299,6 @@ pub fn TerminalComposer(
                 div {
                     class: "term-chat__field",
                     "data-testid": "chat-field",
-                    GhostMirror { ghost: ghost.clone() }
                     textarea {
                         class: "term-chat__input",
                         "data-testid": "chat-input",
@@ -318,6 +317,9 @@ pub fn TerminalComposer(
                             status.set(SubmissionStatus::default());
                         },
                         onkeydown: on_key_down,
+                    }
+                    if ghost.has_ghost() {
+                        GhostMirror { ghost: ghost.clone() }
                     }
                 }
                 if mic_visible {

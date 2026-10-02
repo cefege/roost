@@ -197,17 +197,14 @@ pub fn revoke_preview(url: &str) {
 }
 
 /// Read a `File` into memory, for the chunker the direct carrier feeds.
+///
+/// `Blob.arrayBuffer()` resolves with the bytes themselves. A `FileReader`'s
+/// `load` callback resolves with its ProgressEvent, which is not a buffer.
 #[cfg(target_arch = "wasm32")]
 pub async fn read_bytes(file: &web_sys::File) -> Option<Vec<u8>> {
     use wasm_bindgen_futures::JsFuture;
 
-    let reader = web_sys::FileReader::new().ok()?;
-    let promise = js_sys::Promise::new(&mut |resolve, reject| {
-        let _ = reader.read_as_array_buffer(file);
-        let _ = reader.set_onload(Some(&resolve));
-        let _ = reader.set_onerror(Some(&reject));
-    });
-    let buffer = JsFuture::from(promise).await.ok()?;
+    let buffer = JsFuture::from(file.array_buffer()).await.ok()?;
     buffer
         .dyn_into::<js_sys::ArrayBuffer>()
         .ok()

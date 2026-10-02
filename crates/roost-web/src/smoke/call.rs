@@ -79,7 +79,7 @@ pub const SMOKE_METHODS: [(&str, Answer); 53] = [
 
 /// The members whose surface belongs to a slice this build does not have yet,
 /// and the refusal each one answers with — never a silent no-op.
-pub const UNPORTED_METHODS: [(&str, &str); 6] = [
+pub const UNPORTED_METHODS: [(&str, &str); 5] = [
     (
         "probeTerminalTransport",
         "U-2 STREAM LIFECYCLE: the worker control probe (store/transport/sync-terminal-control-probe.ts) not ported",
@@ -91,10 +91,6 @@ pub const UNPORTED_METHODS: [(&str, &str); 6] = [
     (
         "directHistoryResponseCount",
         "U-2 CARRIER/LOCAL: direct-carrier history reads (lib/scrollbackDirectHistory.ts) not ported",
-    ),
-    (
-        "uploadAttachment",
-        "U-2 ATTACH: the chunked uploadAttachment path (lib/attachments.ts) not ported",
     ),
     (
         "perfProbe",
@@ -233,6 +229,15 @@ pub enum SmokeCall {
         worker_fp: String,
         path: String,
     },
+    UploadAttachment(UploadAttachmentRequest),
+}
+
+/// `uploadAttachment(sessionId, sizeBytes, filename?)`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UploadAttachmentRequest {
+    pub session_id: String,
+    pub size_bytes: u64,
+    pub filename: String,
 }
 
 /// The default paint-proof deadline, as v2's `timeoutMs = 30_000`.
@@ -337,6 +342,16 @@ pub fn parse_call(name: &str, args: &[Value]) -> Result<SmokeCall, String> {
             worker_fp: arg.string(0)?,
             path: arg.string(1)?,
         },
+        "uploadAttachment" => {
+            let size_bytes = arg.count(1)?;
+            SmokeCall::UploadAttachment(UploadAttachmentRequest {
+                session_id: arg.string(0)?,
+                size_bytes,
+                filename: arg
+                    .optional_string(2)?
+                    .unwrap_or_else(|| format!("smoke-{size_bytes}.bin")),
+            })
+        }
         _ => SmokeCall::Session {
             method,
             session_id: arg.string(0)?,

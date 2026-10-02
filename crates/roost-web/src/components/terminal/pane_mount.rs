@@ -305,6 +305,11 @@ impl PaneMount {
         input::send_text(&self.shared, text, submit);
     }
 
+    /// Send text as typed bytes, never framed as a paste.
+    pub fn send_raw_text(&self, text: &str) {
+        input::send_bytes(&self.shared, text.as_bytes().to_vec(), false);
+    }
+
     /// Paste text through the multiline guard.
     pub fn paste_text(&self, text: &str) {
         input::paste_text(&self.shared, text);
