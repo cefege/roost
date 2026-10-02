@@ -6,7 +6,7 @@
 //! put those bytes back on a wire.
 
 use crate::terminal::input::{HELD_INPUT_ADMISSION_TIMEOUT_MS, InputLane, InputOutcome};
-use crate::terminal::token::TerminalToken;
+use crate::terminal::token::{TerminalToken, TerminalTransport};
 
 use super::InputRouter;
 
@@ -107,6 +107,32 @@ impl InputRouter {
     /// them. A batch that had NOT started settles `rejected`, with a reason that
     /// says so, because it provably never left.
     pub fn retire_token(&mut self, token: &TerminalToken, reason: &str) -> Vec<InputOutcome> {
+        self.retire_fenced(|fenced| fenced == token, reason)
+    }
+
+    /// Settle everything dispatched on the Sync socket of `socket_generation`
+    /// when that socket closes, under any domain generation it carried (v2
+    /// `handleGeneration` → `retireTerminalInputConnection(observedSyncToken)`).
+    /// The socket that carried a batch is the only one that could answer it.
+    pub fn retire_sync_generation(
+        &mut self,
+        socket_generation: u64,
+        reason: &str,
+    ) -> Vec<InputOutcome> {
+        self.retire_fenced(
+            |fenced| {
+                fenced.transport == TerminalTransport::Sync
+                    && fenced.socket_generation == socket_generation
+            },
+            reason,
+        )
+    }
+
+    fn retire_fenced(
+        &mut self,
+        retired: impl Fn(&TerminalToken) -> bool,
+        reason: &str,
+    ) -> Vec<InputOutcome> {
         let mut outcomes = Vec::new();
         for lane in self.lanes.values_mut() {
             let matching: Vec<(u64, bool)> = lane
@@ -116,7 +142,7 @@ impl InputRouter {
                     pending
                         .fence
                         .as_ref()
-                        .is_some_and(|fence| &fence.token == token)
+                        .is_some_and(|fence| retired(&fence.token))
                 })
                 .map(|pending| (pending.input_seq, pending.started))
                 .collect();

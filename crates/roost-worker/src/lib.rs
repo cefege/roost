@@ -27,6 +27,8 @@ pub mod local_terminal;
 pub mod outbox;
 pub mod peer;
 pub mod runtime;
+#[cfg(feature = "smoke")]
+pub mod smoke_faults;
 
 // The crate-root contract a host depends on: `serve` blocks until the worker is
 // asked to stop, and `WorkerBoot` is the already-resolved configuration it

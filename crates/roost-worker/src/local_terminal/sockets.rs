@@ -81,6 +81,9 @@ pub struct LocalTerminalSockets {
     pub(super) generations: AtomicU64,
     disposed: AtomicBool,
     subscription: Mutex<Option<u64>>,
+    /// The smoke harness's hooks, attached once at boot when it drives faults.
+    #[cfg(feature = "smoke")]
+    pub(super) test_faults: std::sync::OnceLock<super::smoke_hooks::LocalTerminalTestFaults>,
 }
 
 impl LocalTerminalSockets {
@@ -116,6 +119,8 @@ impl LocalTerminalSockets {
                 generations: AtomicU64::new(0),
                 disposed: AtomicBool::new(false),
                 subscription: Mutex::new(None),
+                #[cfg(feature = "smoke")]
+                test_faults: std::sync::OnceLock::new(),
             }
         });
         let listener = Arc::downgrade(&owner);

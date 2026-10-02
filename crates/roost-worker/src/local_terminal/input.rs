@@ -19,10 +19,22 @@ use crate::terminal_input::InputWorkOrigin;
 
 const SESSION_UNAVAILABLE: &str = "terminal session is unavailable";
 const OVERSIZED: &str = "input exceeds 64 KiB";
+#[cfg(feature = "smoke")]
+const TEST_HOOK_REJECTED: &str = "terminal input test hook rejected";
 
 impl LocalTerminalSockets {
     /// Run one decoded input frame from an authenticated port.
-    pub(super) fn start_input(&self, session: &Arc<PortSession>, mut command: InputCommand) {
+    pub(super) fn start_input(&self, session: &Arc<PortSession>, command: InputCommand) {
+        #[cfg(feature = "smoke")]
+        let Some(command) = self.hold_peer_input(session, command) else {
+            return;
+        };
+        self.admit_input(session, command);
+    }
+
+    /// Check, reserve and write one input; everything up to keeper admission
+    /// runs on the caller.
+    pub(super) fn admit_input(&self, session: &Arc<PortSession>, mut command: InputCommand) {
         if !self.is_session_authorized(session, &command.session_id) {
             self.send_input_result(session, &command, &rejected(SESSION_UNAVAILABLE));
             return;
@@ -80,6 +92,14 @@ impl LocalTerminalSockets {
             session,
             input_result_frame(session.generation(), command, result),
         );
+    }
+}
+
+#[cfg(feature = "smoke")]
+impl LocalTerminalSockets {
+    /// A held input the harness dropped: answered, never written.
+    pub(super) fn reject_held_input(&self, session: &Arc<PortSession>, command: &InputCommand) {
+        self.send_input_result(session, command, &rejected(TEST_HOOK_REJECTED));
     }
 }
 
