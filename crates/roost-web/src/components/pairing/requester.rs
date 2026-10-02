@@ -2,12 +2,12 @@
 //! pairing surface, whether that surface is the unauthorized gate or `/pair`.
 //!
 //! Ported from `apps/web/src/components/pairing/PairingRequesterProvider.tsx`
-//! and the controller it creates. v2 put the controller in a context ABOVE the
-//! access gate so a `checking → unauthorized → authorized` transition never
-//! disposed it; this reads the same tab-scoped record on every mount instead,
-//! which is the record v2's controller also reloads from after a document load.
-//! The behaviour a reader sees is unchanged — a ceremony in flight survives
-//! both a reload and a gate switch — without a provider the app root would own.
+//! and the controller it creates. Its owner, `PairSurface`, is mounted by
+//! `app::GatedApp` above the access gate, as v2 mounts the provider, so a
+//! `checking → unauthorized → authorized` transition never drops the loop: the
+//! recovery poll that answers a lost confirmation finishes the ceremony (clears
+//! the tab-scoped record, opens home) after the gate has already flipped. A
+//! reload restores the ceremony from that record on mount.
 
 mod driver;
 
