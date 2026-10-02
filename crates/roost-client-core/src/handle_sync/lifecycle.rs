@@ -97,14 +97,29 @@ pub(crate) fn on_link_closed(
     );
 }
 
-/// Unbind every replica fenced to the Sync socket that just closed.
+/// Unbind every replica fenced to the Sync socket that just closed, and settle
+/// every batch that socket was carrying.
 ///
 /// v2 retargets each session to the current Sync state when the socket goes,
 /// and with no state that token is null: the grid stays painted but no carrier
 /// is confirmed for it, so the header reads Waiting until the next link binds it
 /// (`terminal-stream-retarget.ts` `retargetSession`). A replica on a direct
-/// route holds the direct token and is untouched.
+/// route holds the direct token and is untouched. A batch the closed socket
+/// carried can never be answered on another one, so it settles now
+/// (`sync-outbound.ts` `handleGeneration`, "Sync closed").
 fn release_sync_generation(store: &mut Store, generation: u64) {
+    for outcome in store
+        .input
+        .retire_sync_generation(generation, "Sync closed")
+    {
+        tracing::warn!(
+            target: "terminal",
+            generation,
+            input_seq = outcome.input_seq(),
+            status = outcome.status_name(),
+            "terminal input settled by Sync close"
+        );
+    }
     let mut released = 0_usize;
     for replica in store.terminal.values_mut() {
         let fenced_here = replica.generation().is_some_and(|token| {
