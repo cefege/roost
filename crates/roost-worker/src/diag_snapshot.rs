@@ -122,6 +122,18 @@ pub struct Snapshot {
     /// reading; a renderer that took a second reading would stamp the two
     /// halves of the same fact from different instants.
     pub sessions: BTreeMap<String, serde_json::Value>,
+    pub build: SnapshotBuild,
+}
+
+/// The build this worker runs, as the report names it.
+///
+/// `None` renders as `null`, never as an absent key: a reader asks "which
+/// build answered?" of every report, and a missing member is a different
+/// answer from "this build did not say".
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SnapshotBuild {
+    pub git_sha: Option<String>,
+    pub artifact_version: Option<String>,
 }
 
 impl Snapshot {
@@ -133,6 +145,7 @@ impl Snapshot {
             mono_now,
             channels: HashMap::new(),
             sessions: BTreeMap::new(),
+            build: SnapshotBuild::default(),
         }
     }
 
@@ -147,8 +160,15 @@ impl Snapshot {
             mono_now,
             channels,
             sessions: BTreeMap::new(),
+            build: SnapshotBuild::default(),
         }
     }
+
+    /// The same report, naming the build that made it.
+    pub fn with_build(self, build: SnapshotBuild) -> Self {
+        Self { build, ..self }
+    }
+
     /// The report as the WORKER's own live sessions make it.
     ///
     /// The fold lives here rather than in the caller that owns a session table
@@ -212,6 +232,7 @@ impl Snapshot {
             mono_now,
             channels,
             sessions,
+            build: SnapshotBuild::default(),
         }
     }
 
@@ -355,11 +376,6 @@ impl GateTracker {
                 })
                 .suppression = Some(suppression);
         }
-        Snapshot {
-            captured_at,
-            mono_now,
-            channels,
-            sessions: BTreeMap::new(),
-        }
+        Snapshot::with_channels(captured_at, mono_now, channels)
     }
 }

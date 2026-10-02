@@ -190,6 +190,10 @@ fn snapshot_json(report: &Snapshot) -> Value {
     channels.sort_by_key(|channel| channel["channel_id"].as_u64().unwrap_or_default());
     serde_json::json!({
         "captured_at_ms": report.captured_at.as_millis() as u64,
+        "build": {
+            "git_sha": report.build.git_sha,
+            "artifact_version": report.build.artifact_version,
+        },
         "channels": channels,
         "over_budget": report.over_budget().len(),
         "evicting": report.evicting(),

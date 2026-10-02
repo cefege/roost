@@ -17,6 +17,21 @@ async fn a_snapshot_answers_with_the_state_report_and_no_terminal_text() {
     assert!(data["captured_at_ms"].is_number());
 }
 
+/// A SNAPSHOT NAMES THE BUILD THAT ANSWERED, under v2's keys, and a half the
+/// build does not know is a `null` member rather than a missing one.
+#[tokio::test]
+async fn a_snapshot_names_its_build_with_every_key_present() {
+    let harness = harness();
+    let reply = only(dispatch(&command(frame_of("diag-snapshot")), &harness.deps).await);
+    let data = reply.data().expect("a snapshot answers with data");
+    assert_eq!(
+        data["build"],
+        json!({ "git_sha": "0123456789ab", "artifact_version": null })
+    );
+    let build = data["build"].as_object().expect("build is an object");
+    assert!(build.contains_key("artifact_version"));
+}
+
 /// EVERY CAPTURE STEP IS ANSWERED, AND A FAILURE IS A FIXED CODE. A parser
 /// message from a grid walk quotes the cells it failed on, and this answer
 /// becomes an operator-visible download.
