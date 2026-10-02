@@ -276,7 +276,7 @@ fn route_json(store: &Store, session_id: &str, replica: Option<&TerminalSession>
     let active = match (active_direct, replica.and_then(TerminalSession::generation)) {
         (Some(route), _) => route_entry(store, route.token.transport, Some(&route.token)),
         (None, Some(token)) if token.transport == TerminalTransport::Sync => {
-            route_entry(store, TerminalTransport::Sync, Some(&token))
+            route_entry(store, TerminalTransport::Sync, Some(token))
         }
         _ => Value::Null,
     };

@@ -18,6 +18,7 @@ use roost_client_core::client::carriers::{CarrierLane, GrantPhase, PeerPhase, Pe
 /// and a struct of `Option<&str>` would have to be unwrapped field by field at
 /// the one call site — which is how a `null` and a `""` end up meaning the same
 /// thing.
+#[derive(Debug)]
 pub struct LaneFields {
     /// Where the attempt is, or `null` for a worker with no machine.
     pub peer_phase: Value,
