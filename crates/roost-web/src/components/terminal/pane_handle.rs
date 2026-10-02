@@ -127,6 +127,11 @@ impl PaneHandle {
         self.with_mount(|mount| mount.send_text(text, submit));
     }
 
+    /// Text typed as-is, never framed as a paste.
+    pub fn send_raw_text(&self, text: &str) {
+        self.with_mount(|mount| mount.send_raw_text(text));
+    }
+
     /// Give the keyboard to the pane.
     pub fn force_focus(&self) {
         self.with_mount(|mount| mount.force_focus());
@@ -194,6 +199,9 @@ impl PaneMount {
         match *self {}
     }
     fn send_text(&self, _text: &str, _submit: bool) {
+        match *self {}
+    }
+    fn send_raw_text(&self, _text: &str) {
         match *self {}
     }
     fn force_focus(&self) {

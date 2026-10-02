@@ -12,6 +12,7 @@
 //! driven here over HTTP.
 //!
 //! `protocol/spec/auth-and-pairing.md` ("Errors") is the contract these assert.
+//! The Connect body cap sits in front of the gate, so it is driven here too.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -28,7 +29,9 @@ use serde_json::{Value, json};
 use auth_device_support::{Scratch, mint_host_grant};
 use roost_coord::auth::bootstrap_tokens::BootstrapTokenKind;
 use roost_coord::coord_core::CoordCore;
-use roost_coord::http::listener::{CONNECT_PATH_PREFIX, ListenerState, build_router};
+use roost_coord::http::listener::{
+    CONNECT_PATH_PREFIX, ListenerState, MAX_REQUEST_BODY_BYTES, build_router,
+};
 use roost_coord::http::spa::SpaMount;
 use roost_coord::rpc::service::CoordinatorServiceImpl;
 use ws_credential_support::{mint_coordinator_jwt, now_secs};
@@ -245,4 +248,41 @@ async fn a_paired_browsers_probe_is_answered_and_names_no_auth_layer() {
         answer.body
     );
     assert_eq!(answer.auth_layer, None, "an answer is not a refusal");
+}
+
+/// An `AttachFileChunk` carrying `data_bytes`, with no credential at all.
+fn relay_chunk_body(data_bytes: usize) -> Value {
+    json!({
+        "uploadId": "upload-1",
+        "sessionId": "session-1",
+        "filename": "chunk.bin",
+        "data": STANDARD_NO_PAD.encode(vec![7u8; data_bytes]),
+        "last": true,
+        "seq": 0,
+    })
+}
+
+/// A full 4 MiB relay chunk (`apps/web/src/lib/attachments.ts:19`) plus its
+/// envelope must reach the gate rather than be refused for its size; v2 caps
+/// the body at 16 MiB (`bun-coordinator-listeners.ts:48,313`). connectrpc's
+/// own default is 4 MiB, which refuses every full chunk before any handler.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_full_relay_chunk_reaches_the_gate_and_an_oversized_body_does_not() {
+    let scratch = Scratch::new("gate-body-cap").await;
+    let listener = GatedListener::start(&scratch).await;
+
+    let answer = listener
+        .call("AttachFileChunk", None, relay_chunk_body(4 * 1024 * 1024))
+        .await;
+    assert_eq!(answer.status, 401, "{}", answer.body);
+    assert_eq!(answer.body["code"], "unauthenticated");
+
+    let answer = listener
+        .call(
+            "AttachFileChunk",
+            None,
+            relay_chunk_body(MAX_REQUEST_BODY_BYTES),
+        )
+        .await;
+    assert_eq!(answer.body["code"], "resource_exhausted", "{}", answer.body);
 }

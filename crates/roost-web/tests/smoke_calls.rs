@@ -10,7 +10,8 @@ use std::collections::BTreeSet;
 use roost_client_core::ClientCore;
 use roost_client_core::store::{PairRequest, Worker, WorkerFp, WorkerOs};
 use roost_web::smoke::call::{
-    Answer, SMOKE_METHODS, SmokeCall, TimingKind, UNPORTED_METHODS, parse_call,
+    Answer, SMOKE_METHODS, SmokeCall, TimingKind, UNPORTED_METHODS, UploadAttachmentRequest,
+    parse_call,
 };
 use roost_web::smoke::state_snapshot::state_json;
 use serde_json::{Value, json};
@@ -116,6 +117,25 @@ fn arguments_parse_into_typed_calls_with_v2s_defaults() {
             size: 12,
             filename: "probe.bin".into()
         })
+    );
+    assert_eq!(
+        call("uploadAttachment", &[json!("s-1"), json!(4097)]),
+        Ok(SmokeCall::UploadAttachment(UploadAttachmentRequest {
+            session_id: "s-1".into(),
+            size_bytes: 4097,
+            filename: "smoke-4097.bin".into()
+        }))
+    );
+    assert_eq!(
+        call(
+            "uploadAttachment",
+            &[json!("s-1"), json!(0), json!("a.bin")]
+        ),
+        Ok(SmokeCall::UploadAttachment(UploadAttachmentRequest {
+            session_id: "s-1".into(),
+            size_bytes: 0,
+            filename: "a.bin".into()
+        }))
     );
     assert_eq!(
         call("cellFrameCount", &[json!("s-1")]),
