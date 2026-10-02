@@ -146,21 +146,40 @@ fn replica_revisions_coalesce_into_one_paint_and_only_a_new_grid_is_a_baseline()
     assert!(!feed.observe_revision(3));
     assert!(feed.observe_revision(4));
     assert!(feed.paint_owed());
-    assert!(feed.painted(&frame("s1", "e1", 4)).baseline);
+    assert!(feed.painted(&frame("s1", "e1", 4), 4).baseline);
     assert!(!feed.paint_owed());
     assert!(feed.observe_revision(5));
     assert!(
-        !feed.painted(&frame("s1", "e1", 5)).baseline,
+        !feed.painted(&frame("s1", "e1", 5), 5).baseline,
         "a continuation is output"
     );
     assert!(feed.observe_revision(6));
     assert!(
-        feed.painted(&frame("s2", "e1", 6)).baseline,
+        feed.painted(&frame("s2", "e1", 6), 6).baseline,
         "a new stream re-baselines"
     );
     feed.owe_paint();
     feed.skip();
     assert!(!feed.paint_owed());
+}
+
+#[test]
+fn a_pane_folds_deltas_from_what_it_painted_and_a_skip_or_park_owes_the_full() {
+    let mut feed = FrameFeed::new();
+    assert_eq!(feed.delta_base(), None, "a fresh mount paints the full");
+    feed.observe_revision(3);
+    feed.painted(&frame("s1", "e1", 3), 3);
+    assert_eq!(feed.delta_base(), Some(3));
+    feed.observe_revision(4);
+    feed.skip();
+    assert_eq!(
+        feed.delta_base(),
+        None,
+        "the renderer never saw the skipped frame"
+    );
+    feed.painted(&frame("s1", "e1", 5), 5);
+    feed.park();
+    assert_eq!(feed.delta_base(), None, "a background pane takes the full");
 }
 
 #[test]
@@ -171,16 +190,16 @@ fn only_history_growth_on_the_same_grid_signals_a_scroll_to_the_echo() {
     };
     let mut feed = FrameFeed::new();
     assert!(
-        !feed.painted(&with_history(1, 5)).scrollback_appended,
+        !feed.painted(&with_history(1, 5), 1).scrollback_appended,
         "a baseline is not a scroll"
     );
     assert!(
-        !feed.painted(&with_history(2, 5)).scrollback_appended,
+        !feed.painted(&with_history(2, 5), 2).scrollback_appended,
         "unchanged history"
     );
     assert!(
-        feed.painted(&with_history(3, 7)).scrollback_appended,
+        feed.painted(&with_history(3, 7), 3).scrollback_appended,
         "coalesced rows scrolled off"
     );
-    assert!(!feed.painted(&with_history(4, 7)).scrollback_appended);
+    assert!(!feed.painted(&with_history(4, 7), 4).scrollback_appended);
 }

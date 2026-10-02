@@ -2603,6 +2603,33 @@ and cannot observe it, so the only evidence is the live run. Browser:
 ordering discipline itself is reviewable rather than testable: any `Closure::wrap` whose result is not bound to
 a named owner is the smell to grep for.
 
+### A Dioxus `style` string keeps every property the previous render set
+
+**Symptom** — "revealed terminal ignores the wheel / clicks / selection", "pane stays rounded or clipped after
+the spotlight closes", "a slot or bar stays translated off-screen after a swipe"; in a trace DOM snapshot the
+element's inline style carries a property its current state never sets (a revealed deck slot read
+`visibility: inherit; z-index: 2; pointer-events: none;`).
+
+**Wrong** — computing a `style` string per state and letting each branch declare only what it needs, the way a
+Solid style OBJECT may: Solid removes keys the new object lacks, but Dioxus 0.7 does not. Its setter
+(`dioxus-interpreter-js-0.7.10` `src/ts/set_attribute.ts:67-84`) snapshots the old inline properties, writes
+the new string, then puts back every old property the new string did not set. A parked slot's
+`pointer-events: none` therefore survived the reveal, the wheel fell through the visible pane, and the reader
+could never scroll into history. An EMPTY string does not reset anything either: it restores them all.
+
+**Right** — every branch of a style function declares every property any sibling branch declares (reset values
+like `pointer-events: auto`, `overflow: visible`, `border-radius: 0`), built through one struct with a field per
+property so a branch cannot omit one (`crates/roost-web/src/components/deck/terminal_deck_geometry.rs`
+`SlotStyle`); or the attribute is REMOVED (`style: None`) when the state has no style at all
+(`crates/roost-web/src/components/deck/pane_tab.rs`). Inline style written imperatively onto a Dioxus-styled
+node survives re-renders for the same reason, and two sites rely on that (`--term-chat-pane-rest`,
+`--cell-cols`).
+
+**Guard** — `crates/roost-web/tests/deck_geometry.rs`
+`every_slot_placement_declares_the_same_properties_so_no_state_outlives_itself` (the parked, plain and spotlit
+placements declare one property set). Browser: `smoke/terminal/terminal-render-deck.spec.ts`
+`"deck reveal preserves painted history and lands at the live bottom instantly"`.
+
 ---
 
 ## Product boundaries and process

@@ -49,7 +49,7 @@ impl PaneRegistry {
         )
     }
 
-    /// Whether the session's pane must not paint.
+    /// Whether the session's pane must keep its DOM frozen.
     pub fn dom_held(&self, session_id: &str) -> bool {
         self.with_faults(|faults, _| faults.dom_held.contains(session_id), session_id)
     }

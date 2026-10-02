@@ -16,6 +16,11 @@ pub const MOBILE_TERMINAL_STRIP_HEIGHT: f64 = 48.0;
 /// A parked renderer stays LAID OUT at its future viewport size, off-screen and
 /// hidden, so its scroll maximum cannot move while frames keep arriving; a
 /// `display: none` park would measure zero and repaint at a lying size.
+///
+/// Every branch states every property any branch sets. Dioxus 0.7 MERGES a new
+/// `style` string into the element's old inline style, keeping each property
+/// the new string omits, so a property only one branch states outlives the
+/// state that set it: a revealed slot kept the park's `pointer-events: none`.
 pub fn terminal_session_style(
     slot: Option<&TerminalSessionSlot>,
     park: Option<DeckSize>,
@@ -32,34 +37,74 @@ pub fn terminal_session_style(
             },
             |park| park.h,
         );
-        return InlineStyle::new()
-            .with("position", "absolute")
-            .with("left", "-99999px")
-            .with("top", "0")
-            .with("width", px(width))
-            .with("height", px(height))
-            .with("visibility", "hidden")
-            .with("pointer-events", "none");
+        return SlotStyle {
+            left: "-99999px".to_owned(),
+            top: "0".to_owned(),
+            width: px(width),
+            height: px(height),
+            visibility: "hidden",
+            pointer_events: "none",
+            z_index: "auto",
+            overflow: "visible",
+            border_radius: "0",
+        }
+        .into_inline();
     };
     let rect = slot.rect;
     if slot.spotlit {
-        return InlineStyle::new()
-            .with("position", "absolute")
-            .with("left", px(rect.x))
-            .with("top", px(rect.y))
-            .with("width", px(rect.w))
-            .with("height", px(rect.h))
-            .with("visibility", "inherit")
-            .with("z-index", "9")
-            .with("overflow", "hidden")
-            .with("border-radius", "var(--md-shape-md)");
+        return SlotStyle {
+            left: px(rect.x),
+            top: px(rect.y),
+            width: px(rect.w),
+            height: px(rect.h),
+            visibility: "inherit",
+            pointer_events: "auto",
+            z_index: "9",
+            overflow: "hidden",
+            border_radius: "var(--md-shape-md)",
+        }
+        .into_inline();
     }
-    InlineStyle::new()
-        .with("position", "absolute")
-        .with("left", px(rect.x))
-        .with("top", px(rect.y + strip_height))
-        .with("width", px(rect.w))
-        .with("height", px((rect.h - strip_height).max(0.0)))
-        .with("visibility", "inherit")
-        .with("z-index", if slot.focused { "2" } else { "1" })
+    SlotStyle {
+        left: px(rect.x),
+        top: px(rect.y + strip_height),
+        width: px(rect.w),
+        height: px((rect.h - strip_height).max(0.0)),
+        visibility: "inherit",
+        pointer_events: "auto",
+        z_index: if slot.focused { "2" } else { "1" },
+        overflow: "visible",
+        border_radius: "0",
+    }
+    .into_inline()
+}
+
+/// One slot placement with every property a placement may set, so no branch
+/// can leave one out.
+struct SlotStyle {
+    left: String,
+    top: String,
+    width: String,
+    height: String,
+    visibility: &'static str,
+    pointer_events: &'static str,
+    z_index: &'static str,
+    overflow: &'static str,
+    border_radius: &'static str,
+}
+
+impl SlotStyle {
+    fn into_inline(self) -> InlineStyle {
+        InlineStyle::new()
+            .with("position", "absolute")
+            .with("left", self.left)
+            .with("top", self.top)
+            .with("width", self.width)
+            .with("height", self.height)
+            .with("visibility", self.visibility)
+            .with("pointer-events", self.pointer_events)
+            .with("z-index", self.z_index)
+            .with("overflow", self.overflow)
+            .with("border-radius", self.border_radius)
+    }
 }

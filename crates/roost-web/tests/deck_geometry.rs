@@ -85,3 +85,43 @@ fn the_floated_card_covers_its_whole_rect_above_the_scrim() {
     assert_eq!(floated.get("z-index"), Some("9"));
     assert_eq!(floated.get("border-radius"), Some("var(--md-shape-md)"));
 }
+
+/// The property names a style declares, as the browser reads its `style` text.
+fn declared_properties(style: &str) -> Vec<String> {
+    let mut names: Vec<String> = style
+        .split(';')
+        .filter_map(|declaration| declaration.split_once(':'))
+        .map(|(name, _)| name.trim().to_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+/// Dioxus 0.7 keeps every old inline property a new `style` string omits, so a
+/// slot moving between placements keeps whatever only the old one declared —
+/// a revealed pane kept the park's `pointer-events: none` and ignored the
+/// wheel. Every placement therefore declares the same property set.
+#[test]
+fn every_slot_placement_declares_the_same_properties_so_no_state_outlives_itself() {
+    let park = DeckSize { w: 597.0, h: 765.0 };
+    let placements = [
+        terminal_session_style(None, Some(park), DECK, 35.0),
+        terminal_session_style(Some(&slot(true, false)), None, DECK, 35.0),
+        terminal_session_style(Some(&slot(false, false)), None, DECK, 35.0),
+        terminal_session_style(Some(&slot(true, true)), None, DECK, 35.0),
+    ];
+    let parked = declared_properties(&placements[0].css());
+    for placement in &placements[1..] {
+        assert_eq!(declared_properties(&placement.css()), parked);
+    }
+    assert_eq!(placements[0].get("pointer-events"), Some("none"));
+    for revealed in &placements[1..] {
+        assert_eq!(
+            revealed.get("pointer-events"),
+            Some("auto"),
+            "a revealed slot takes the wheel and the pointer"
+        );
+    }
+    assert_eq!(placements[1].get("overflow"), Some("visible"));
+    assert_eq!(placements[1].get("border-radius"), Some("0"));
+}

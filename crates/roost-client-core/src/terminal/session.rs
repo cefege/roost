@@ -16,6 +16,7 @@ use crate::terminal::frame_fold::{
     FoldTarget, FrameFoldOutcome, decode_chunk_part, decode_wire_frame, fold,
 };
 use crate::terminal::liveness::ForegroundLiveness;
+use crate::terminal::renderer_deliveries::RendererDeliveries;
 use crate::terminal::repair::RepairLatch;
 use crate::terminal::token::TerminalToken;
 use crate::terminal::view::TerminalView;
@@ -46,20 +47,9 @@ pub struct TerminalSession {
     pub wire_seq: Option<u64>,
     /// Decoded wire frames by kind (v2 `noteWireFrame`), for the smoke counters.
     pub frame_counts: crate::terminal::frame_counts::FrameCounts,
-    /// How many frames have been APPLIED to this replica.
-    ///
-    /// A renderer repaints when this moved, and it is per session rather than
-    /// one store-wide counter because the coordinator delivers a frame per pane
-    /// per tick: on a four-pane board a store-wide counter repaints all four for
-    /// each of the four. This is the "repaint generation" v2 froze into history
-    /// when it inferred scrolled-off rows from scrollback growth — the reason
-    /// that class of bug exists is that the inference had no counter to consult.
-    ///
-    /// It moves only where the CANONICAL grid moves: a full that replaced the
-    /// replica, and a delta that extended it. A refused frame, a chunk still
-    /// assembling, and a dropped stalled partial all change the replica's
-    /// bookkeeping and none of them change a cell.
-    frame_revision: u64,
+    /// The revision every renderer repaints on, and the deltas since the last
+    /// full a renderer folds so their appended history is painted.
+    deliveries: RendererDeliveries,
     /// The foreground liveness watchdog's state for this replica, owned by
     /// `session_liveness` and fired by the sweep.
     pub(crate) liveness: ForegroundLiveness,
@@ -81,7 +71,7 @@ impl TerminalSession {
             wire_grid_epoch: None,
             wire_seq: None,
             frame_counts: crate::terminal::frame_counts::FrameCounts::default(),
-            frame_revision: 0,
+            deliveries: RendererDeliveries::default(),
         }
     }
 
@@ -102,7 +92,13 @@ impl TerminalSession {
     }
     /// How many frames have been applied to this replica.
     pub fn frame_revision(&self) -> u64 {
-        self.frame_revision
+        self.deliveries.revision()
+    }
+
+    /// Every accepted delta after `painted_revision`, or `None` when a
+    /// renderer that far behind must paint the canonical full instead.
+    pub fn deltas_since(&self, painted_revision: u64) -> Option<&[CellGridFrame]> {
+        self.deliveries.deltas_since(painted_revision)
     }
 
     /// The pane geometry the replica is fenced to.
@@ -240,7 +236,7 @@ impl TerminalSession {
                 self.latch.clear();
                 self.assembler.reset();
                 self.target.canonical_chunk_in_flight = false;
-                self.frame_revision += 1;
+                self.deliveries.note_full();
                 self.note_accepted_frame(token, now_ms);
                 tracing::info!(
                     target: "terminal",
@@ -250,8 +246,8 @@ impl TerminalSession {
                 );
                 Admission::BaselineReplaced
             }
-            FrameFoldOutcome::Delta { .. } => {
-                self.frame_revision += 1;
+            FrameFoldOutcome::Delta { delta } => {
+                self.deliveries.note_delta(delta);
                 self.note_accepted_frame(token, now_ms);
                 Admission::DeltaApplied
             }

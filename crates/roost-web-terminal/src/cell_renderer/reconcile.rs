@@ -61,6 +61,9 @@ impl<E: RenderElement> CellGridRenderer<E> {
     /// never dips under a reader's `scrollTop` and dumps them into stale space
     /// on the way to the live bottom.
     pub(crate) fn render_full(&mut self, follow_tail: bool, should_pin: bool) -> DomResult<()> {
+        if self.dom_frozen() {
+            return Ok(());
+        }
         let Some(frame) = self.frame.clone() else {
             return Ok(());
         };
@@ -100,6 +103,9 @@ impl<E: RenderElement> CellGridRenderer<E> {
     /// describes differently. Marking any of them reconciled would tell a stall
     /// watchdog there is nothing to repair while the grid is frozen.
     pub(crate) fn mark_reconciled_if_current(&mut self) {
+        if self.dom_frozen() {
+            return;
+        }
         let Some(frame) = self.frame.as_ref() else {
             return;
         };
