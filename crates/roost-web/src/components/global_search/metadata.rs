@@ -11,6 +11,9 @@
 //! Ports `apps/web/src/components/search/GlobalSearchPage.tsx:195-307`.
 
 use dioxus::prelude::*;
+use roost_client_core::client::agents::status_policy::{
+    AgentStatusLevel, agent_status_presentation,
+};
 use roost_client_core::store::navigation::query::{
     attention_navigation_documents, filter_navigation_search_documents,
 };
@@ -210,13 +213,14 @@ fn empty_supporting(scope: SearchScope, query: &str) -> &'static str {
     }
 }
 
-/// The word a row shows for what its agent wants.
+/// The word a row shows for what its agent wants: the shared presentation
+/// table's label, so the row says what the status badge says ("Needs input").
 fn attention_label(attention: Option<NavigationSearchAttention>) -> Option<&'static str> {
-    match attention {
-        Some(NavigationSearchAttention::Blocked) => Some("Blocked"),
-        Some(NavigationSearchAttention::Done) => Some("Done"),
-        None => None,
-    }
+    let level = match attention? {
+        NavigationSearchAttention::Blocked => AgentStatusLevel::Blocked,
+        NavigationSearchAttention::Done => AgentStatusLevel::Done,
+    };
+    Some(agent_status_presentation(level).label)
 }
 
 #[cfg(test)]
