@@ -78,12 +78,21 @@ pub fn TerminalNavPad(
         core.store().terminal_nav_pad.disarm_count()
     };
     {
-        let seen = use_hook(|| std::cell::Cell::new(disarm_count));
+        let seen = use_hook(|| std::rc::Rc::new(std::cell::Cell::new(disarm_count)));
+        let latch_pump = pump.clone();
+        // The effect reads the revision itself: a count captured from the render
+        // that created it is never the count a later close wrote.
         use_effect(move || {
-            if seen.get() == disarm_count {
+            let _ = revision.read();
+            let current = {
+                let core = latch_pump.core();
+                let core = core.borrow();
+                core.store().terminal_nav_pad.disarm_count()
+            };
+            if seen.get() == current {
                 return;
             }
-            seen.set(disarm_count);
+            seen.set(current);
             let mut ctrl_armed = ctrl_armed;
             let mut link_armed = link_armed;
             ctrl_armed.set(false);

@@ -21,7 +21,7 @@ use roost_worker::browser_commands::presence::PresenceReports;
 use roost_worker::browser_commands::scrollback_page::{GridDescription, RetainedGrid};
 use roost_worker::browser_commands::search::{BatchSearch, ScrollbackSearch, SingleSearch};
 use roost_worker::browser_commands::session_lifecycle::{SessionLifecycle, SessionOutcome};
-use roost_worker::diag_snapshot::Snapshot;
+use roost_worker::diag_snapshot::{Snapshot, SnapshotBuild};
 use roost_worker::scrollback_read::EpochBinding;
 use roost_worker::session::retained_grid::CellRowJson;
 use serde_json::{Value, json};
@@ -147,11 +147,17 @@ pub struct FakeDiagnostics {
 }
 
 impl DiagnosticReports for FakeDiagnostics {
+    /// A build that names its commit and not its version, so a test sees both
+    /// halves of the stamp: a value and a `null`.
     fn snapshot(&self) -> Result<Snapshot, Refusal> {
         Ok(Snapshot::begin(
             std::time::Duration::from_millis(5),
             std::time::Instant::now(),
-        ))
+        )
+        .with_build(SnapshotBuild {
+            git_sha: Some("0123456789ab".to_owned()),
+            artifact_version: None,
+        }))
     }
 
     fn start_recording(&self, command: CaptureCommand) -> TerminalCaptureWorkerAck {

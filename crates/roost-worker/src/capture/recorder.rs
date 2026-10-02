@@ -33,7 +33,7 @@ use super::worker_section::WorkerProcessIdentity;
 use super::write::{CaptureSources, capture_terminal_incident};
 use crate::browser_commands::diagnostics::{CaptureCommand, DiagnosticReports};
 use crate::browser_commands::{Boxed, Refusal};
-use crate::diag_snapshot::Snapshot;
+use crate::diag_snapshot::{Snapshot, SnapshotBuild};
 use crate::session::emit::CellEmitter;
 use crate::session::lifecycle::{SessionManager, SessionTable};
 
@@ -334,11 +334,16 @@ impl DiagnosticReports for CaptureRecorder {
     /// The state report is the snapshot module's fold, not this recorder's: a
     /// second implementation here would be a second answer to it.
     fn snapshot(&self) -> Result<Snapshot, Refusal> {
+        let process = &self.shared.process;
         Ok(Snapshot::of_live_sessions(
             &self.sources.table,
             self.sources.manager.worker_fingerprint(),
             self.sources.manager.cells(),
-        ))
+        )
+        .with_build(SnapshotBuild {
+            git_sha: Some(process.git_sha.clone()),
+            artifact_version: Some(process.artifact_version.clone()),
+        }))
     }
 
     fn start_recording(&self, command: CaptureCommand) -> TerminalCaptureWorkerAck {
