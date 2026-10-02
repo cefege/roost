@@ -16,10 +16,73 @@
 //! translation is total, and `handle_direct_frame` is the one place that decides
 //! what a direct frame may touch.
 
-use crate::sync::inbound::SyncFrame;
+use roost_proto::{PbCellGridChunk, PbCellGridFrame};
+
+use crate::client::local::door::LoopbackReady;
+use crate::sync::inbound::{InputRouteResult, SyncFrame, TransportProbeResult};
 use crate::terminal::input::InputOutcome;
 
-use super::wire::DirectInbound;
+/// One decoded server frame, in the client's own vocabulary.
+///
+/// A `Ready` is separate from every other arm because it is the ONLY frame a
+/// carrier may receive before it has authenticated; a host that has not admitted
+/// one yet and reads a cell frame is looking at a worker that skipped the
+/// handshake, and [`DirectInbound::PreHelloFrame`] says so instead of letting it
+/// fold a grid nothing authorised.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DirectInbound {
+    /// The worker revalidated the tuple. Only ever legal as the FIRST frame.
+    Ready(LoopbackReady),
+    /// A view's acknowledgement.
+    ViewState {
+        /// The session.
+        session_id: String,
+        /// The view.
+        view_id: String,
+        /// The revision answered, which is the fence the result is matched on.
+        revision: u64,
+        /// Whether the authority accepted it.
+        accepted: bool,
+        /// The stream it now mints, empty when it minted none.
+        stream_id: String,
+        /// The authority's effective columns.
+        effective_cols: u32,
+        /// The authority's effective rows.
+        effective_rows: u32,
+    },
+    /// A cell grid for one session.
+    CellGrid {
+        /// The session.
+        session_id: String,
+        /// The frame, still protobuf: the shared assembler speaks that type.
+        frame: PbCellGridFrame,
+    },
+    /// One part of a chunked baseline.
+    CellGridChunk {
+        /// The session.
+        session_id: String,
+        /// The part.
+        chunk: PbCellGridChunk,
+    },
+    /// A truthful result for one admitted input batch.
+    InputResult {
+        /// The session.
+        session_id: String,
+        /// What became of the batch.
+        outcome: InputOutcome,
+    },
+    /// The worker closed the carrier, and why.
+    Closed {
+        /// Its reason string, or a host-supplied one when it sent none.
+        reason: String,
+    },
+    /// The answer to a route claim this carrier sent.
+    InputRouteResult(InputRouteResult),
+    /// The answer to a transport probe this carrier sent.
+    TransportProbeResult(TransportProbeResult),
+    /// A frame that arrived BEFORE the carrier authenticated.
+    PreHelloFrame,
+}
 
 impl DirectInbound {
     /// This frame as a `SyncFrame` for the generation it arrived on, or `None`
@@ -65,9 +128,13 @@ impl DirectInbound {
                 })
             }
             Self::InputRouteResult(result) => Some(SyncFrame::InputRouteResult { result }),
-            // A close is a socket ending, and a handshake is the transport's own
-            // state. Neither is a frame the fold should ever see.
-            Self::Closed { .. } | Self::Ready(_) | Self::PreHelloFrame => None,
+            // A close is a socket ending, a handshake is the transport's own
+            // state, and a probe answer settles the carrier that sent the
+            // probe. None of them is a frame the fold should ever see.
+            Self::Closed { .. }
+            | Self::Ready(_)
+            | Self::TransportProbeResult(_)
+            | Self::PreHelloFrame => None,
         }
     }
 }

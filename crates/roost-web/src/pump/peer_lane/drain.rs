@@ -19,8 +19,8 @@ use wasm_bindgen::JsCast as _;
 use wasm_bindgen::closure::Closure;
 
 use roost_client_core::ClientEvent;
-use roost_client_core::client::carriers::wire::{DirectInbound, decode_server_frame};
-use roost_client_core::client::carriers::{PeerLane, ReadyTuple, SignallingInput};
+use roost_client_core::client::carriers::wire::decode_server_frame;
+use roost_client_core::client::carriers::{DirectInbound, PeerLane, ReadyTuple, SignallingInput};
 use roost_client_core::client::local::door::LoopbackReady;
 
 use super::deadlines;
@@ -52,13 +52,14 @@ pub(in crate::pump) fn install_tick(pump: &Pump) {
     pump.inner.listeners.borrow_mut().push(Box::new(tick));
 }
 
-/// One pass over every open peer: measure, drain, and read the deadlines.
+/// One pass over every open peer: probe, drain, and read the deadlines.
 pub(super) fn tick(pump: &Pump) {
     let now_ms = pump.inner.core.borrow().clock().now_ms();
-    liveness::start_due_reads(pump, now_ms);
+    liveness::start_due_probes(pump, now_ms);
     drain_events(pump, now_ms);
     deadlines::retire_overflowed(pump);
     deadlines::read_deadlines(pump, now_ms);
+    liveness::read_heartbeat_deadlines(pump, now_ms);
 }
 
 /// Everything the browser reported since the last tick, in arrival order.
@@ -163,11 +164,25 @@ fn settle_bytes(pump: &Pump, attempt_id: u64, lane: PeerLane, bytes: &[u8], now_
     let Some(message) = message else {
         return;
     };
-    deliver(pump, attempt_id, &worker_fp, authenticated, &message);
+    deliver(
+        pump,
+        attempt_id,
+        &worker_fp,
+        authenticated,
+        &message,
+        now_ms,
+    );
 }
 
 /// One complete logical message off a lane, translated by the core's own rules.
-fn deliver(pump: &Pump, attempt_id: u64, worker_fp: &str, authenticated: bool, message: &[u8]) {
+fn deliver(
+    pump: &Pump,
+    attempt_id: u64,
+    worker_fp: &str,
+    authenticated: bool,
+    message: &[u8],
+    now_ms: u64,
+) {
     let inbound = match decode_server_frame(message, authenticated) {
         Ok(inbound) => inbound,
         Err(error) => {
@@ -229,6 +244,9 @@ fn deliver(pump: &Pump, attempt_id: u64, worker_fp: &str, authenticated: bool, m
                 "the worker closed the peer carrier"
             );
             fault_attempt(pump, attempt_id, "ice_failed");
+        }
+        DirectInbound::TransportProbeResult(result) => {
+            liveness::probe_answered(pump, attempt_id, &result, now_ms);
         }
         frame => {
             let token = pump

@@ -6,8 +6,6 @@
 //! pane's `data-terminal-transport` attribute, and the connection banner. Ports
 //! `apps/web/src/store/local-transport-indicator.ts`.
 
-use roost_protocol::terminal_peer::peer::TERMINAL_PEER_PROBE_QUALIFICATION_MS;
-
 use crate::store::Store;
 use crate::terminal::token::{TerminalToken, TerminalTransport};
 
@@ -135,14 +133,13 @@ pub fn has_liveness_qualified_direct_terminal(store: &Store) -> bool {
     })
 }
 
-/// A peer's last answered probe is recent enough to call it live.
+/// A peer answered its newest probe inside the qualification window.
 fn peer_is_qualified(store: &Store, token: &TerminalToken) -> bool {
     token.worker_fp.as_deref().is_some_and(|worker_fp| {
         store
             .direct
             .snapshot(worker_fp)
             .telemetry
-            .probe_age_ms
-            .is_some_and(|age_ms| age_ms <= TERMINAL_PEER_PROBE_QUALIFICATION_MS)
+            .liveness_qualified
     })
 }

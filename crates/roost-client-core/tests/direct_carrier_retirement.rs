@@ -26,6 +26,7 @@ fn carrier(worker: &str, connection_id: &str, session_id: &str) -> DirectCarrier
         worker_fp: worker.to_owned(),
         transport: TerminalTransport::Loopback,
         token: TerminalToken::direct(7, TerminalTransport::Loopback, worker, "epoch-a", 7),
+        socket_id: format!("{connection_id}-socket"),
         granted_sessions: BTreeSet::from([session_id.to_owned()]),
     }
 }

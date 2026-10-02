@@ -20,10 +20,10 @@
 use std::collections::BTreeSet;
 
 use roost_client_core::DirectCarrier;
-use roost_client_core::client::carriers::session_of;
 use roost_client_core::client::carriers::wire::{
-    DirectInbound, decode_server_frame, encode_direct_command, encode_hello,
+    decode_server_frame, encode_direct_command, encode_hello,
 };
+use roost_client_core::client::carriers::{DirectInbound, session_of};
 use roost_client_core::client::local::door::{LoopbackAdmission, LoopbackReady, admit_ready};
 use roost_client_core::client::local::{GrantSecret, LocalTerminalGrant};
 use roost_client_core::effect::DirectCommand;
@@ -160,11 +160,19 @@ impl LoopbackConnection {
                     detail: error.reason().to_owned(),
                 }
             })?;
+        // A rolling worker names no socket, and v2 `local-terminal.ts` lets the
+        // connection id stand in for it, as the token namespace already does.
+        let socket_id = if ready.socket_id.is_empty() {
+            connection_id
+        } else {
+            &ready.socket_id
+        };
         let carrier = DirectCarrier {
             connection_id: connection_id.to_owned(),
             worker_fp: admission.token.worker_fp.clone().unwrap_or_default(),
             transport: admission.token.transport,
             token: admission.token.clone(),
+            socket_id: socket_id.to_owned(),
             granted_sessions: admission.ready_sessions.clone(),
         };
         Ok(Self { carrier, admission })

@@ -153,13 +153,37 @@ pub fn encode_sync_command(command: &SyncCommand, socket_id: &str) -> Vec<u8> {
             ))),
         ),
     };
-    SyncClientFrame {
+    // The coordinator's canonical order is FIELD-NUMBER order, and buffa writes
+    // declaration order: `socket_id` (10) is declared after the oneof, so a
+    // command numbered above it is written after it, as two concatenated parts
+    // of one message. Without this every route claim closed the socket `1008`.
+    let follows_socket_id = matches!(
+        command,
+        Some(Command::InputRouteClaim(_) | Command::TerminalTransportProbe(_))
+    );
+    if !follows_socket_id {
+        return SyncClientFrame {
+            ack_delivery_seq,
+            socket_id: socket_id.to_string(),
+            command,
+            ..Default::default()
+        }
+        .encode_to_vec();
+    }
+    let mut bytes = SyncClientFrame {
         ack_delivery_seq,
         socket_id: socket_id.to_string(),
-        command,
         ..Default::default()
     }
-    .encode_to_vec()
+    .encode_to_vec();
+    bytes.extend(
+        SyncClientFrame {
+            command,
+            ..Default::default()
+        }
+        .encode_to_vec(),
+    );
+    bytes
 }
 
 fn subscription(domain: SyncDomain, generation: u64) -> SyncDomainSubscriptionCommand {
@@ -172,4 +196,76 @@ fn subscription(domain: SyncDomain, generation: u64) -> SyncDomainSubscriptionCo
 
 fn wire_domain(domain: SyncDomain) -> EnumValue<roost_proto::SyncDomain> {
     EnumValue::from(domain.wire_value())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::terminal::token::TerminalToken;
+
+    /// Every top-level field number in `bytes`, in the order written.
+    fn field_numbers(mut bytes: &[u8]) -> Vec<u64> {
+        fn varint(bytes: &mut &[u8]) -> u64 {
+            let mut value = 0;
+            for (idx, byte) in bytes.iter().enumerate() {
+                value |= u64::from(byte & 0x7f) << (7 * idx);
+                if byte & 0x80 == 0 {
+                    *bytes = &bytes[idx + 1..];
+                    return value;
+                }
+            }
+            panic!("truncated varint");
+        }
+        let mut numbers = Vec::new();
+        while !bytes.is_empty() {
+            let key = varint(&mut bytes);
+            numbers.push(key >> 3);
+            match key & 7 {
+                0 => {
+                    varint(&mut bytes);
+                }
+                2 => {
+                    let len = usize::try_from(varint(&mut bytes)).unwrap();
+                    bytes = &bytes[len..];
+                }
+                other => panic!("unexpected wire type {other}"),
+            }
+        }
+        numbers
+    }
+
+    #[test]
+    fn every_command_is_written_in_field_number_order() {
+        let token = TerminalToken::sync(3, "socket-a", "epoch-a", 7);
+        let claim = SyncCommand::TerminalInputRouteClaim {
+            session_id: "session-a".to_owned(),
+            request_id: "claim-1".to_owned(),
+            revision: 2,
+            worker_epoch: "epoch-a".to_owned(),
+            token: token.clone(),
+        };
+        assert_eq!(
+            field_numbers(&encode_sync_command(&claim, "socket-a")),
+            [10, 11]
+        );
+        let resync = SyncCommand::TerminalResync {
+            session_id: "session-a".to_owned(),
+            view_id: "view-a".to_owned(),
+            stream_id: "stream-a".to_owned(),
+            grid_epoch: "epoch-1".to_owned(),
+            seq: 4,
+            token,
+        };
+        assert_eq!(
+            field_numbers(&encode_sync_command(&resync, "socket-a")),
+            [8, 10]
+        );
+        let ack = SyncCommand::Ack {
+            ack_delivery_seq: 9,
+        };
+        assert_eq!(
+            field_numbers(&encode_sync_command(&ack, "socket-a")),
+            [1, 10]
+        );
+    }
 }

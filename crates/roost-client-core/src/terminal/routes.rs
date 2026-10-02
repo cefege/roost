@@ -30,6 +30,10 @@ pub struct DirectCarrier {
     pub transport: TerminalTransport,
     /// The generation it presents.
     pub token: TerminalToken,
+    /// The far end's own id for this connection, from its `Ready`: the socket a
+    /// proof on `token` names (v2's token `socketId`). Not part of `token`,
+    /// whose equality is the fence and must not change with a diagnostic.
+    pub socket_id: String,
     /// The sessions its grant admits, exact. A grant is scope-bound
     /// (`protocol/spec/direct-terminal.md:23`), so this is never "all".
     pub granted_sessions: BTreeSet<String>,

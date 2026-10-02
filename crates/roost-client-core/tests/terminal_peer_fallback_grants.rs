@@ -71,6 +71,36 @@ fn an_unavailable_grant_is_dropped_and_a_new_one_is_requested() {
     assert_fell_back_without_reopening_the_session(&effects);
 }
 
+/// The coordinator refuses an offer spent on a grant a restarted worker's new
+/// epoch revoked. Keeping that credential would spend it on every retry and
+/// never reach the new process; any other coordinator failure says nothing
+/// about the credential.
+#[test]
+fn a_coordinator_grant_denial_drops_the_held_grant_and_other_refusals_keep_it() {
+    let (mut denied, _) = authenticating();
+    let effects = denied.step(SignallingInput::AttemptRefused {
+        attempt_id: None,
+        reason: "PermissionDenied: terminal peer grant is unavailable".to_string(),
+    });
+    assert_eq!(faults(&effects), vec![CarrierFault::GrantUnavailable]);
+    assert_eq!(denied.snapshot().grant_phase, GrantPhase::Requested);
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            CarrierEffect::Core(Effect::RequestDirectGrant { .. })
+        )),
+        "a credential the coordinator denies is re-minted; got {effects:?}"
+    );
+
+    let (mut unreachable, _) = authenticating();
+    let effects = unreachable.step(SignallingInput::AttemptRefused {
+        attempt_id: None,
+        reason: "Unavailable: coordinator is restarting".to_string(),
+    });
+    assert_eq!(faults(&effects), vec![CarrierFault::CoordinatorUnavailable]);
+    assert_eq!(unreachable.snapshot().grant_phase, GrantPhase::Granted);
+}
+
 #[test]
 fn an_expired_grant_is_dropped_on_the_clients_own_clock() {
     let (mut peer, _) = authenticating();

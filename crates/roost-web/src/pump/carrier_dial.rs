@@ -33,7 +33,7 @@ use std::rc::Rc;
 
 use roost_client_core::ClientEvent;
 use roost_client_core::TerminalTransport;
-use roost_client_core::client::carriers::wire::DirectInbound;
+use roost_client_core::client::carriers::DirectInbound;
 use roost_client_core::client::local::LocalTerminalGrant;
 use roost_client_core::client::local::bootstrap::{
     BootstrapOutcome, LOCAL_BOOTSTRAP_PATH, LocalBootstrap, read_serving_origin,

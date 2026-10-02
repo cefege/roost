@@ -55,7 +55,10 @@ pub fn terminal_stream_diagnostics(
         }),
     );
     out.insert("sync".into(), sync_json(store));
-    out.insert("route".into(), route_json(store, session_id, replica));
+    out.insert(
+        "route".into(),
+        route_json(store, session_id, replica, clocks.monotonic_ms),
+    );
     out
 }
 
@@ -68,16 +71,24 @@ pub fn transport_kind(transport: TerminalTransport) -> &'static str {
     }
 }
 
-/// `TerminalGenerationDiagnosticToken`. The socket id is the live link's
-/// when the token names the live socket; a token for an older socket has no
-/// recorded id, which is `null` rather than a guessed one.
+/// `TerminalGenerationDiagnosticToken`. A Sync token's socket id is the live
+/// link's when the token names the live socket; a direct token's is the one its
+/// carrier's `Ready` named, as v2's peer token carries it, so the proof keeps
+/// its identity while the coordinator link drops and redials. A token nothing
+/// presents any more has no recorded id, which is `null` rather than a guess.
 pub fn generation_json(store: &Store, token: Option<&TerminalToken>) -> Value {
     let Some(token) = token else {
         return Value::Null;
     };
-    let socket_id = (store.sync.link_generation() == Some(token.socket_generation))
-        .then(|| store.sync.socket_id())
-        .flatten();
+    let socket_id = match token.transport {
+        TerminalTransport::Sync => (store.sync.link_generation() == Some(token.socket_generation))
+            .then(|| store.sync.socket_id())
+            .flatten(),
+        TerminalTransport::Loopback | TerminalTransport::Peer => store
+            .routes
+            .carrier_presenting(token)
+            .map(|carrier| carrier.socket_id.as_str()),
+    };
     json!({
         "socketGeneration": token.socket_generation,
         "socketId": socket_id,
@@ -236,6 +247,7 @@ fn route_entry(
     store: &Store,
     transport: TerminalTransport,
     token: Option<&TerminalToken>,
+    now_ms: u64,
 ) -> Value {
     let mut entry = json!({
         "kind": transport_kind(transport),
@@ -257,7 +269,7 @@ fn route_entry(
     // compile rather than silently dropping the lane's half.
     if let Some(object) = entry.as_object_mut() {
         for (field, value) in
-            super::stream_route_lane::telemetry_fields(&store.direct, &worker_fp, is_peer)
+            super::stream_route_lane::telemetry_fields(&store.direct, &worker_fp, is_peer, now_ms)
         {
             object.insert(field, value);
         }
@@ -265,7 +277,12 @@ fn route_entry(
     entry
 }
 
-fn route_json(store: &Store, session_id: &str, replica: Option<&TerminalSession>) -> Value {
+fn route_json(
+    store: &Store,
+    session_id: &str,
+    replica: Option<&TerminalSession>,
+    now_ms: u64,
+) -> Value {
     let worker_fp = replica.map(|replica| replica.worker_fp.as_str());
     let owned_by_worker =
         |token: &TerminalToken| worker_fp.is_some() && token.worker_fp.as_deref() == worker_fp;
@@ -274,9 +291,9 @@ fn route_json(store: &Store, session_id: &str, replica: Option<&TerminalSession>
         .route(session_id)
         .filter(|route| owned_by_worker(&route.token));
     let active = match (active_direct, replica.and_then(TerminalSession::generation)) {
-        (Some(route), _) => route_entry(store, route.token.transport, Some(&route.token)),
+        (Some(route), _) => route_entry(store, route.token.transport, Some(&route.token), now_ms),
         (None, Some(token)) if token.transport == TerminalTransport::Sync => {
-            route_entry(store, TerminalTransport::Sync, Some(token))
+            route_entry(store, TerminalTransport::Sync, Some(token), now_ms)
         }
         _ => Value::Null,
     };
@@ -285,7 +302,12 @@ fn route_json(store: &Store, session_id: &str, replica: Option<&TerminalSession>
         .candidate(session_id)
         .filter(|candidate| owned_by_worker(&candidate.token))
         .map_or(Value::Null, |candidate| {
-            route_entry(store, candidate.token.transport, Some(&candidate.token))
+            route_entry(
+                store,
+                candidate.token.transport,
+                Some(&candidate.token),
+                now_ms,
+            )
         });
     let lane = store.input.lane(session_id);
     // The lane's two answers are reported whether or not a route is elected.

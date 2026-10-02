@@ -41,19 +41,23 @@ pub fn telemetry_fields(
     lane: &CarrierLane,
     worker_fp: &str,
     is_peer: bool,
+    now_ms: u64,
 ) -> Vec<(String, Value)> {
     let telemetry = if is_peer {
         lane.snapshot(worker_fp).telemetry
     } else {
         PeerTelemetry::default()
     };
+    let probe_age_ms = telemetry
+        .last_probe_at_ms
+        .map(|answered_ms| now_ms.saturating_sub(answered_ms));
     vec![
         ("peer_id".to_owned(), telemetry.peer_id.into()),
         (
             "candidate_type".to_owned(),
             telemetry.candidate_type.as_str().into(),
         ),
-        ("probe_age_ms".to_owned(), telemetry.probe_age_ms.into()),
+        ("probe_age_ms".to_owned(), probe_age_ms.into()),
         ("rtt_ms".to_owned(), telemetry.rtt_ms.into()),
         (
             "worker_control_rtt_ms".to_owned(),
@@ -117,7 +121,7 @@ mod tests {
     use super::*;
 
     fn fields_of(lane: &CarrierLane, is_peer: bool) -> BTreeMap<String, Value> {
-        telemetry_fields(lane, "worker-a", is_peer)
+        telemetry_fields(lane, "worker-a", is_peer, 1_000)
             .into_iter()
             .collect()
     }
@@ -150,7 +154,8 @@ mod tests {
             PeerTelemetry {
                 peer_id: Some("peer-1".to_owned()),
                 candidate_type: CandidateType::Host,
-                probe_age_ms: Some(120),
+                last_probe_at_ms: Some(880),
+                liveness_qualified: true,
                 rtt_ms: Some(7),
                 worker_control_rtt_ms: Some(9),
                 buffered_bytes: Some(0),

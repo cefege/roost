@@ -12,6 +12,7 @@ pub mod grant_rpc;
 pub mod inbound;
 pub mod lane;
 pub mod loopback;
+pub mod probe_state;
 pub mod signaling;
 pub mod signaling_snapshot;
 pub mod transport_trait;
@@ -25,15 +26,17 @@ pub use faults::{
 pub use grant::{
     DirectGrant, GRANT_RENEW_MS, GRANT_RETRY_MS, GrantInput, GrantLifecycle, GrantPhase, GrantSweep,
 };
+pub use inbound::DirectInbound;
 pub use lane::CarrierLane;
 pub use loopback::{LOOPBACK_GRACE_MS, LocalWorkerDoor, LoopbackAnswer, LoopbackProbe};
+pub use probe_state::{ProbeReading, TransportProbeState};
 pub use signaling::Signalling;
 pub use signaling_snapshot::{CandidateType, PeerTelemetry, SignallingSnapshot};
 pub use transport_trait::{
     PeerLane, PeerSignalling, PeerTransport, ScriptedPeerSignalling, TransportError,
 };
 pub use wire::{
-    DirectInbound, WireError, decode_server_frame, encode_direct_command, encode_hello,
+    WireError, decode_server_frame, encode_direct_command, encode_hello, encode_transport_probe,
     peer_ready_tuple,
 };
 
@@ -174,6 +177,7 @@ impl ReadyTuple {
                 self.worker_epoch.clone(),
                 self.socket_generation,
             ),
+            socket_id: self.socket_id.clone(),
             granted_sessions: self.session_ids.clone(),
         }
     }

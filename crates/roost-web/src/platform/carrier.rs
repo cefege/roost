@@ -44,7 +44,8 @@ impl CarrierIdentity {
     }
 
     /// The carrier this identity becomes once the authority has granted it a
-    /// token and named the sessions the grant admits.
+    /// token, the far end has named its socket, and the grant has named the
+    /// sessions it admits.
     ///
     /// `granted_sessions` is exact and never widened to "all": a grant is
     /// scope-bound, and a carrier that admitted everything would let a pane keep
@@ -52,6 +53,7 @@ impl CarrierIdentity {
     pub fn into_carrier(
         self,
         token: TerminalToken,
+        socket_id: String,
         granted_sessions: impl IntoIterator<Item = String>,
     ) -> DirectCarrier {
         DirectCarrier {
@@ -59,6 +61,7 @@ impl CarrierIdentity {
             worker_fp: self.worker_fp,
             transport: self.transport,
             token,
+            socket_id,
             granted_sessions: granted_sessions.into_iter().collect::<BTreeSet<String>>(),
         }
     }
