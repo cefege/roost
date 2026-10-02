@@ -101,7 +101,7 @@ fn a_refused_admission_is_answered_with_the_routers_reason() {
 fn route_loss_reaches_the_view_as_ambiguous_and_unstarted_refusal_as_rejected() {
     let mut router = InputRouter::new();
     let started = admit(&mut router, "view-a", b"a");
-    assert!(router.mark_started(started, &token()));
+    assert!(router.mark_started(started, &token(), 0));
     let _ = router.retire_token(&token(), "route lost");
     let unstarted = admit(&mut router, "view-a", b"b");
     let _ = router.set_phase("s1", InputPhase::Blocked);
@@ -110,6 +110,29 @@ fn route_loss_reaches_the_view_as_ambiguous_and_unstarted_refusal_as_rejected() 
     assert!(outcomes[0].is_ambiguous() && outcomes[0].input_seq() == started);
     assert!(
         matches!(outcomes[1], InputOutcome::Rejected { input_seq, .. } if input_seq == unstarted)
+    );
+}
+
+#[test]
+fn a_started_batch_whose_result_never_comes_settles_ambiguous_at_the_result_timeout() {
+    let mut router = InputRouter::new();
+    let started = admit(&mut router, "view-a", b"a");
+    assert!(router.mark_started(started, &token(), 1_000));
+    let held = admit(&mut router, "view-a", b"b");
+
+    assert!(
+        router.sweep_unanswered(10_999).is_empty(),
+        "the worker has until the full result timeout to answer"
+    );
+    let settled = router.sweep_unanswered(11_000);
+    assert_eq!(settled.len(), 1, "only the batch that left settles");
+    assert!(settled[0].is_ambiguous() && settled[0].input_seq() == started);
+    let outcomes = router.outcome_feed.take_outcomes("view-a");
+    assert_eq!(outcomes.len(), 1);
+    assert!(outcomes[0].is_ambiguous() && outcomes[0].input_seq() == started);
+    assert!(
+        router.sweep_unanswered(30_000).is_empty(),
+        "an unsent batch {held} is the hold's to settle, never this timer's"
     );
 }
 

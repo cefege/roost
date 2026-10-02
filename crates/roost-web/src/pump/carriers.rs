@@ -199,6 +199,16 @@ impl Carriers {
             .map(|pending| pending.handle)
     }
 
+    /// The sockets dialled for `worker_fp` that have not authenticated yet.
+    #[cfg(target_arch = "wasm32")]
+    pub(super) fn pending_for(&self, worker_fp: &str) -> Vec<String> {
+        self.pending
+            .iter()
+            .filter(|(_, pending)| pending.grant.worker_fp == worker_fp)
+            .map(|(connection_id, _)| connection_id.clone())
+            .collect()
+    }
+
     /// Drop an admitted carrier, and hand back its socket and the token it was
     /// presenting.
     #[cfg(target_arch = "wasm32")]
