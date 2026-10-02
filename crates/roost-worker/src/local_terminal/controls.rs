@@ -171,13 +171,39 @@ impl LocalTerminalSockets {
         mut read: HistoryRead,
     ) {
         let allows = |session_id: &str| self.is_session_authorized(session, session_id);
-        let mut response = read_local_scrollback(
+        let response = read_local_scrollback(
             &self.manager,
             &self.authorization.sessions,
             request,
             &allows,
         )
         .await;
+        #[cfg(feature = "smoke")]
+        let released = self
+            .peer_history_released(session, &request.session_id)
+            .await;
+        #[cfg(not(feature = "smoke"))]
+        let released = true;
+        if released {
+            self.deliver_scrollback(session, request, response, &mut read)
+                .await;
+        }
+        drop(read.reservation.take());
+        let mut state = self.controls.lock();
+        if read.loopback_reserved {
+            state.loopback_history_reserved -= TerminalPeerLaneByteCaps::HISTORY;
+        }
+        state.history_reads.remove(session.socket_id());
+    }
+
+    /// Re-authorize, send, and wait for the peer's history lane to drain.
+    async fn deliver_scrollback(
+        &self,
+        session: &Arc<PortSession>,
+        request: &LocalScrollbackRequest,
+        mut response: LocalScrollbackResponse,
+        read: &mut HistoryRead,
+    ) {
         if !self.is_session_authorized(session, &request.session_id) {
             response = history_error(request, "terminal session is unavailable");
         }
@@ -195,12 +221,6 @@ impl LocalTerminalSockets {
         {
             self.drain_history(read.peer.as_ref()).await;
         }
-        drop(read.reservation.take());
-        let mut state = self.controls.lock();
-        if read.loopback_reserved {
-            state.loopback_history_reserved -= TerminalPeerLaneByteCaps::HISTORY;
-        }
-        state.history_reads.remove(session.socket_id());
     }
 
     async fn drain_history(&self, peer: Option<&Arc<dyn PeerTerminalPacketPort>>) {

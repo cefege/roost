@@ -1,9 +1,10 @@
 //! The faults a disposable smoke worker arms on its peer path: the one-shot
 //! offer fault `peer::owner_offer` consumes, the outgoing packet blackhole the
-//! port flush reads, and the malformed control packets injected through
-//! `peer::packet_test_faults`. The ordinary worker neither creates nor
-//! receives this state: `runtime::owners` passes `None` unless built with the
-//! `smoke` feature and given fault sockets. Ports the peer half of v2
+//! port flush reads, the one direct retirement `peer::direct` ignores, and the
+//! malformed control packets injected through `peer::packet_test_faults`. The
+//! ordinary worker neither creates nor receives this state: `runtime::owners`
+//! passes `None` unless built with the `smoke` feature and given fault
+//! sockets. Ports the peer half of v2
 //! `apps/worker/src/terminal/peer/terminal-peer-test-faults.ts`.
 //!
 //! The fault surface is here rather than behind a hidden environment variable
@@ -24,6 +25,7 @@ use super::packet_budget::lock;
 pub struct PeerTestFaults {
     offer: OfferFaultSlot,
     blackhole: AtomicBool,
+    drop_next_direct_retire: AtomicBool,
 }
 
 impl PeerTestFaults {
@@ -44,10 +46,24 @@ impl PeerTestFaults {
         self.blackhole.load(Ordering::SeqCst)
     }
 
+    /// v2 `armDirectRetireDrop`: the next retirement frame that passes its
+    /// epoch and reason guard is ignored, so direct authority lasts until its
+    /// grant expires.
+    pub fn arm_direct_retire_drop(&self) {
+        self.drop_next_direct_retire.store(true, Ordering::SeqCst);
+        tracing::info!("the next direct retirement will be ignored");
+    }
+
+    /// v2 `consumeDirectRetireDrop`. One-shot.
+    pub fn consume_direct_retire_drop(&self) -> bool {
+        self.drop_next_direct_retire.swap(false, Ordering::SeqCst)
+    }
+
     /// v2 `dispose`: nothing armed outlives the harness that armed it.
     pub fn clear(&self) {
         self.offer.consume();
         self.blackhole.store(false, Ordering::SeqCst);
+        self.drop_next_direct_retire.store(false, Ordering::SeqCst);
     }
 }
 

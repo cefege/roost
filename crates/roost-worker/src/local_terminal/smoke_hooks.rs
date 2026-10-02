@@ -1,9 +1,11 @@
 //! The smoke harness's hooks on the direct terminal path: the per-input hold
-//! an authenticated peer's input waits on before admission, and the one
-//! accepted input result it may withhold. Attached by `runtime::owners` when
-//! `roost worker` was given its fault sockets; read by `input`. Compiled only
-//! with the `smoke` feature. Ports v2 `LocalTerminalSocketTestFaults`
-//! (`apps/worker/src/local-door/local-terminal-socket-input.ts:45-56,91-95`).
+//! an authenticated peer's input waits on before admission, the one accepted
+//! input result it may withhold, and the one history response it may hold.
+//! Attached by `runtime::owners` when `roost worker` was given its fault
+//! sockets; read by `input` and `controls`. Compiled only with the `smoke`
+//! feature. Ports v2 `LocalTerminalSocketTestFaults`
+//! (`apps/worker/src/local-door/local-terminal-socket-input.ts:45-56,91-95`,
+//! `local-terminal-socket-controls.ts:134-141`).
 
 use std::sync::Arc;
 
@@ -41,6 +43,22 @@ impl LocalTerminalSockets {
             tracing::info!("a peer input result was withheld by the smoke harness");
         }
         withheld
+    }
+
+    /// v2 `onPeerHistoryResponse`, asked for a peer carrier's scrollback read
+    /// after the read and before re-authorization: `false` sends nothing.
+    pub(super) async fn peer_history_released(
+        &self,
+        session: &PortSession,
+        session_id: &str,
+    ) -> bool {
+        let Some(faults) = self.test_faults.get() else {
+            return true;
+        };
+        if session.expected_peer().is_none() {
+            return true;
+        }
+        faults.history.delivers(session_id).await
     }
 
     /// v2 `onAuthenticatedPeerInput`, asked FIRST — before authorization, size,
