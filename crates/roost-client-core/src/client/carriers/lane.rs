@@ -36,6 +36,10 @@ use crate::effect::Effect;
 pub struct CarrierLane {
     machines: BTreeMap<String, Signalling>,
     environment: CarrierEnvironment,
+    /// The last attempt id any machine minted. Ids are DOCUMENT-unique, not
+    /// per worker: the host keys every open peer by its attempt id, so a second
+    /// worker's attempt 1 would displace — and close — the first worker's.
+    last_attempt_id: u64,
 }
 
 impl Default for CarrierLane {
@@ -59,6 +63,7 @@ impl CarrierLane {
                 peer_transport_available: false,
                 sync_generation: 0,
             },
+            last_attempt_id: 0,
         }
     }
 
@@ -261,7 +266,9 @@ impl CarrierLane {
             .entry(worker_fp.to_owned())
             .or_insert_with(|| Signalling::new(worker_fp, environment.clone(), 0));
         machine.set_environment(environment);
+        machine.next_attempt_id = machine.next_attempt_id.max(self.last_attempt_id);
         let effects = machine.step(input);
+        self.last_attempt_id = machine.next_attempt_id;
         emit(effects, out);
     }
 
@@ -308,7 +315,7 @@ mod tests {
         assert_eq!(
             out.first(),
             Some(&Effect::RequestDirectGrant {
-                session_id: "session-a".to_owned(),
+                session_ids: vec!["session-a".to_owned()],
                 worker_fp: "worker-a".to_owned(),
             }),
             "a demanded session must reach the coordinator; got {out:?}"

@@ -39,10 +39,11 @@ use crate::platform::clock::WallClock;
 ///   credential to `pump::carrier_dial`, which spends it or reports that it
 ///   could not.
 #[cfg(target_arch = "wasm32")]
-pub(in crate::pump) fn request_grant(pump: &Pump, session_id: &str, worker_fp: &str) {
+pub(in crate::pump) fn request_grant(pump: &Pump, session_ids: Vec<String>, worker_fp: &str) {
+    let sessions = session_ids.join(",");
     let request = GrantMintRequest {
         worker_fp: worker_fp.to_owned(),
-        session_ids: vec![session_id.to_owned()],
+        session_ids: session_ids.clone(),
         tab_id: pump.inner.core.borrow().store().tab_id.clone(),
     };
     let rpc = pump.rpc();
@@ -50,7 +51,7 @@ pub(in crate::pump) fn request_grant(pump: &Pump, session_id: &str, worker_fp: &
     // the core is reached by dispatch, never by a task holding the store.
     let reply_to = pump.clone();
     let worker = worker_fp.to_owned();
-    let session = session_id.to_owned();
+    let session = sessions;
     wasm_bindgen_futures::spawn_local(async move {
         let answer = match rpc.call(&MintLocalTerminalGrant { request }).await {
             Ok(answer) => answer,
@@ -59,7 +60,7 @@ pub(in crate::pump) fn request_grant(pump: &Pump, session_id: &str, worker_fp: &
                 return;
             }
         };
-        let Some(grant) = local_grant(&reply_to, &worker, &session, answer) else {
+        let Some(grant) = local_grant(&reply_to, &worker, session_ids, answer) else {
             report_mint_refusal(
                 &reply_to,
                 &worker,
@@ -97,7 +98,7 @@ pub(in crate::pump) fn request_grant(pump: &Pump, session_id: &str, worker_fp: &
 fn local_grant(
     pump: &Pump,
     worker_fp: &str,
-    session_id: &str,
+    session_ids: Vec<String>,
     answer: GrantMintAnswer,
 ) -> Option<LocalTerminalGrant> {
     let (tab_id, device_fp) = {
@@ -113,7 +114,7 @@ fn local_grant(
     LocalTerminalGrant::from_answer(
         answer,
         worker_fp,
-        BTreeSet::from_iter([session_id.to_owned()]),
+        session_ids.into_iter().collect::<BTreeSet<_>>(),
         tab_id,
         device_fp,
         WallClock.now_ms(),
@@ -123,11 +124,11 @@ fn local_grant(
 /// Perform one `Effect::RequestDirectGrant` on a build with no coordinator
 /// transport to ask.
 #[cfg(not(target_arch = "wasm32"))]
-pub(in crate::pump) fn request_grant(pump: &Pump, session_id: &str, worker_fp: &str) {
+pub(in crate::pump) fn request_grant(pump: &Pump, session_ids: Vec<String>, worker_fp: &str) {
     report_mint_refusal(
         pump,
         worker_fp,
-        session_id,
+        &session_ids.join(","),
         "this build has no coordinator transport",
     );
 }
@@ -141,13 +142,13 @@ pub(in crate::pump) fn request_grant(pump: &Pump, session_id: &str, worker_fp: &
 pub(in crate::pump) fn report_mint_refusal(
     pump: &Pump,
     worker_fp: &str,
-    session_id: &str,
+    sessions: &str,
     detail: &str,
 ) {
     tracing::warn!(
         target: "carriers",
         worker_fp,
-        session_id,
+        sessions,
         detail,
         "direct grant refused; the session stays on the Sync route"
     );

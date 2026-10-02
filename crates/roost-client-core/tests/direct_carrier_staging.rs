@@ -14,7 +14,10 @@
 
 mod direct_carrier_support;
 
+use std::collections::BTreeSet;
+
 use direct_carrier_support::*;
+use roost_client_core::client::carriers::DirectGrant;
 
 #[test]
 fn an_admitted_carrier_asks_the_host_for_a_view_id_and_publishes_nothing_yet() {
@@ -229,5 +232,54 @@ fn a_stale_or_repeated_mint_is_ignored() {
         published,
         Vec::new(),
         "and the candidate is still folding the first id it published"
+    );
+}
+
+/// A second session on a worker joins the carrier the first one opened.
+///
+/// The carrier authenticated on a grant naming one session; the refreshed grant
+/// names both. v2 hands it to the live connection (`updateGrant`) and stages the
+/// demanded sessions on it — without that, the second session waits on a
+/// negotiation that never runs again, because the worker already has its peer.
+#[test]
+fn a_refreshed_grant_widens_the_live_carrier_and_stages_only_what_it_added() {
+    let mut core = core_with_a_pane();
+    let _ = core.handle(viewing(OTHER_SESSION, OTHER_VIEW, COLS, ROWS));
+    let _ = core.handle(ClientEvent::CarrierReady(carrier(&[SESSION])));
+
+    let effects = core.handle(ClientEvent::DirectGrantMinted {
+        grant: DirectGrant {
+            grant_id: "grant-a".to_owned(),
+            secret: "secret-a".to_owned(),
+            worker_fp: WORKER.to_owned(),
+            worker_epoch: PROCESS_EPOCH.to_owned(),
+            tab_id: "tab-a".to_owned(),
+            device_fingerprint: "device-a".to_owned(),
+            session_ids: BTreeSet::from([SESSION.to_owned(), OTHER_SESSION.to_owned()]),
+            peer_supported: true,
+            input_route_supported: true,
+            stun_urls: Vec::new(),
+            expires_at_ms: u64::MAX,
+        },
+    });
+
+    let asked: Vec<String> = effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::MintTerminalViewId { session_id, .. } => Some(session_id.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        asked,
+        vec![OTHER_SESSION.to_owned()],
+        "the widened carrier stages the session the grant added, and only it; got {effects:?}"
+    );
+    assert!(
+        core.store()
+            .routes
+            .granted_sessions_for(&direct_token())
+            .is_some_and(|granted| granted.contains(OTHER_SESSION)),
+        "the send path reads the widened scope, so the new session's commands are not refused"
     );
 }

@@ -313,27 +313,23 @@ impl GrantLifecycle {
         self.request()
     }
 
-    /// Move to `Requested` and ask for every demanded session.
+    /// Move to `Requested` and ask for every demanded session in one mint.
     ///
-    /// One request per session, in the core's own vocabulary. The coordinator
-    /// unions a tab's requests into one grant scope
-    /// (`protocol/spec/direct-terminal.md:23`), so the client does not invent a
-    /// batch form `Effect::RequestDirectGrant` does not have.
+    /// ONE request naming the whole set, as v2's `refresh` mints `eligible`
+    /// (`local-terminal-grants.ts`): the coordinator installs exactly the set a
+    /// mint names under the tab's one grant id, so a per-session request would
+    /// re-install the grant narrowed to that one session and strip every other
+    /// session from a carrier that is already serving it.
     fn request(&mut self) -> Vec<CarrierEffect> {
         if self.demanded.is_empty() {
             return Vec::new();
         }
         self.phase = GrantPhase::Requested;
         self.retry_at_ms = 0;
-        self.demanded
-            .iter()
-            .map(|session_id| {
-                CarrierEffect::Core(Effect::RequestDirectGrant {
-                    session_id: session_id.clone(),
-                    worker_fp: self.worker_fp.clone(),
-                })
-            })
-            .collect()
+        vec![CarrierEffect::Core(Effect::RequestDirectGrant {
+            session_ids: self.demanded.iter().cloned().collect(),
+            worker_fp: self.worker_fp.clone(),
+        })]
     }
 
     /// Arm the retry. The core owns no timer, so this reports the INSTANT rather

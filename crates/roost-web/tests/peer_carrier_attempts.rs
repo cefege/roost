@@ -144,10 +144,9 @@ fn a_matching_ready_admits_a_carrier_carrying_exactly_its_own_scope() {
         TerminalToken::direct(7, TerminalTransport::Peer, "worker-a", "epoch-a", 7),
         "the generation is the Ready's, so a worker restart fences the route"
     );
-    let carrier = carriers.attempt(1).expect("the attempt is held");
-    assert!(carrier.allows_session("session-a"));
+    assert!(admitted.allows_session("session-a"));
     assert!(
-        !carrier.allows_session("session-b"),
+        !admitted.allows_session("session-b"),
         "a scope the Ready did not prove is not carried, however open the peer is"
     );
 }

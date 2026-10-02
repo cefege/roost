@@ -8,12 +8,13 @@
 //! `apps/web/src/store/transport/local-terminal.ts`. Contract:
 //! `protocol/spec/direct-terminal.md`.
 
+use crate::client::carriers::DirectGrant;
 use crate::effect::Effect;
 use crate::store::Store;
 use crate::terminal::routes::DirectCarrier;
 use crate::terminal::token::TerminalTransport;
 
-use super::staging::{release_cancelled, stage_viewed_sessions};
+use super::staging::{release_cancelled, stage_admitted_sessions, stage_viewed_sessions};
 
 /// A direct carrier authenticated, and the election is told.
 ///
@@ -32,6 +33,38 @@ pub fn handle_carrier_authenticated(
     stage_viewed_sessions(store, carrier, now_ms, out);
     if carrier.transport == TerminalTransport::Loopback {
         store.direct.loopback_staged(&carrier.worker_fp, true, out);
+    }
+}
+
+/// A fresh grant arrived: the election learns it, and every live carrier to that
+/// worker is widened to it and stages the sessions it newly admits.
+///
+/// v2 hands each new grant to the live connection (`presentGrant` →
+/// `updateGrant`) and stages every demanded session on it, which is how a
+/// second session on a worker joins the peer the first one already opened
+/// instead of waiting on a connection that will never be negotiated again.
+pub fn handle_grant_minted(
+    store: &mut Store,
+    grant: &DirectGrant,
+    now_ms: u64,
+    out: &mut Vec<Effect>,
+) {
+    store.direct.grant_minted(grant.clone(), out);
+    let widened =
+        store
+            .routes
+            .widen_grant(&grant.worker_fp, &grant.worker_epoch, &grant.session_ids);
+    for (carrier, added) in widened {
+        store.note_change();
+        tracing::info!(
+            target: "route",
+            connection_id = %carrier.connection_id,
+            worker_fp = %carrier.worker_fp,
+            added = added.len(),
+            granted = carrier.granted_sessions.len(),
+            "a refreshed grant widened a live direct carrier"
+        );
+        stage_admitted_sessions(store, &carrier, &added, now_ms, out);
     }
 }
 

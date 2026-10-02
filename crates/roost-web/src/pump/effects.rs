@@ -33,7 +33,7 @@ pub(super) fn perform(pump: &Pump, effect: Effect) {
         Effect::PersistAgentSeen { encoded } => persist_agent_seen(pump, &encoded),
         Effect::SendDirect { token, command } => carriers::send(pump, &token, &command),
         Effect::RequestDirectGrant {
-            session_id,
+            session_ids,
             worker_fp,
         } => {
             // A request that is only logged leaves the core's grant lifecycle in
@@ -43,7 +43,7 @@ pub(super) fn perform(pump: &Pump, effect: Effect) {
             // to say why. The grant is therefore minted here and the answer is
             // reported back either way — a mint that returns is a REFUSAL, not a
             // pending state (`client::carriers::grant::GrantInput::Refused`).
-            carriers::request_grant(pump, &session_id, &worker_fp);
+            carriers::request_grant(pump, session_ids, &worker_fp);
         }
         Effect::CloseDirectCarriers { worker_fp } => close_worker_carriers(pump, &worker_fp),
         Effect::MintTerminalViewId {
