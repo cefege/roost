@@ -29,6 +29,13 @@ pub(super) struct StoreRead {
     gestures_forwarded_pref: bool,
 }
 
+/// How a paint reached the renderer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PaintedAs {
+    Deltas,
+    Full,
+}
+
 pub(super) fn read_store(shared: &PaneShared) -> StoreRead {
     let core = shared.pump.core();
     let core = core.borrow();
@@ -132,13 +139,12 @@ fn paint_owed(shared: &PaneShared, now: u64) {
         shared.state.borrow_mut().feed.skip();
         return;
     };
-    let applied = apply_owed_frames(shared, &canonical, deltas.as_deref());
-    if !applied {
+    let Some(painted_as) = apply_owed_frames(shared, &canonical, deltas.as_deref()) else {
         tracing::warn!(target: "terminal", session_id = %shared.session_id, seq = canonical.seq,
             "render paint refused; repainting on the next revision");
         shared.state.borrow_mut().feed.owe_paint();
         return;
-    }
+    };
     shared.modes.set(FrameModes {
         cursor_keys_app: canonical.cursor_keys_app,
         bracketed_paste: canonical.bracketed_paste,
@@ -149,14 +155,20 @@ fn paint_owed(shared: &PaneShared, now: u64) {
     set_if_changed(shared.ui.alt_screen, canonical.alt_screen);
     let delivery = shared.state.borrow_mut().feed.painted(&canonical, revision);
     super::echo::on_frame(shared, &canonical, delivery.scrollback_appended);
+    // The view's real status: without it the controller reads the pane as
+    // unready, and an unready refresh forgets the activity this frame just
+    // recorded, so the pane never reads `receiving`.
+    let status = read_store(shared).status;
     let work = {
         let mut state = shared.state.borrow_mut();
         state.cursor = Some((canonical.cursor_col, canonical.cursor_row));
         let mut renderer = shared.renderer.borrow_mut();
         let work = state.backfill.on_full_frame(&mut *renderer);
-        let inputs = presentation_inputs(&state, None, &renderer, now);
+        let inputs = presentation_inputs(&state, status, &renderer, now);
+        // Only a delta batch is output; a full is an attach or a repair, as
+        // v2's renderer delivery marks it.
         let mark = PresentationFrameMark {
-            full: delivery.baseline,
+            full: painted_as == PaintedAs::Full,
             grid_epoch: &canonical.grid_epoch,
             seq: canonical.seq,
         };
@@ -170,22 +182,25 @@ fn paint_owed(shared: &PaneShared, now: u64) {
 /// Fold the deltas the renderer has not seen, so the history they appended is
 /// painted; the canonical full when there are none or the renderer refuses the
 /// chain (a skipped delivery, a different grid). v2's scheduler makes the same
-/// fallback (`terminal-render-scheduler.ts` `fallback_full`).
+/// fallback (`terminal-render-scheduler.ts` `fallback_full`). `None` when the
+/// renderer refused the full too.
 fn apply_owed_frames(
     shared: &PaneShared,
     canonical: &CellGridFrame,
     deltas: Option<&[CellGridFrame]>,
-) -> bool {
+) -> Option<PaintedAs> {
     let mut renderer = shared.renderer.borrow_mut();
     if let Some(deltas) = deltas {
         if renderer.apply_delta_frames(deltas) {
-            return true;
+            return Some(PaintedAs::Deltas);
         }
         tracing::debug!(target: "terminal", session_id = %shared.session_id,
             deltas = deltas.len(), seq = canonical.seq,
             "delta batch refused; painting the canonical full");
     }
-    renderer.apply_full_frame(canonical)
+    renderer
+        .apply_full_frame(canonical)
+        .then_some(PaintedAs::Full)
 }
 
 /// Run what the renderer's hooks flagged during a write: the first reconcile,
