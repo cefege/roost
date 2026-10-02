@@ -115,6 +115,14 @@ pub struct GrantLifecycle {
     /// from. The grant's own deadline is the authority on when it DIES; this is
     /// only when to ask for the next one.
     pub(crate) refresh_at_ms: Option<u64>,
+    /// A mint this lifecycle asked for has not answered yet. Every request is
+    /// answered by exactly one `Minted` or `Refused`, so this never strands.
+    in_flight: bool,
+    /// A mint was owed while one was in flight. v2 coalesces concurrent mints
+    /// (`local-terminal-grants.ts` `refreshAgain`): two racing requests let the
+    /// narrower answer land LAST, so the client holds a scope the worker has
+    /// already replaced and every `Ready` it gets names sessions outside it.
+    refresh_again: bool,
     last_detail: Option<String>,
 }
 
@@ -128,6 +136,8 @@ impl GrantLifecycle {
             grant: None,
             retry_at_ms: 0,
             refresh_at_ms: None,
+            in_flight: false,
+            refresh_again: false,
             last_detail: None,
         }
     }
@@ -206,7 +216,10 @@ impl GrantLifecycle {
                 // A request that RETURNS is a refusal, not a pending state. No
                 // credential is cleared: there was never one to clear, and a
                 // refusal says the worker did not acknowledge — not that a live
-                // secret stopped working.
+                // secret stopped working. A coalesced re-ask waits for the
+                // retry like any other, as v2's `retryAtMs` gate makes it.
+                self.in_flight = false;
+                self.refresh_again = false;
                 self.phase = GrantPhase::Unavailable;
                 self.last_detail = Some(reason);
                 self.arm_retry(now_ms)
@@ -235,6 +248,8 @@ impl GrantLifecycle {
                 self.grant = None;
                 self.demanded.clear();
                 self.retry_at_ms = 0;
+                self.in_flight = false;
+                self.refresh_again = false;
                 self.last_detail = Some("worker retired".to_string());
                 Vec::new()
             }
@@ -250,12 +265,7 @@ impl GrantLifecycle {
         if !self.demanded.insert(session_id) {
             return Vec::new();
         }
-        let covered = self.grant.as_ref().is_some_and(|grant| {
-            self.demanded
-                .iter()
-                .all(|id| grant.session_ids.contains(id))
-        });
-        if covered {
+        if self.covers_demand() {
             return Vec::new();
         }
         if self.phase == GrantPhase::Unavailable || self.phase == GrantPhase::Expired {
@@ -268,6 +278,10 @@ impl GrantLifecycle {
         self.request()
     }
 
+    /// The answer to the one mint in flight. A demand that grew while it was
+    /// out is asked for NOW, in one more mint, before the narrower scope can
+    /// open anything: v2's `refresh` re-runs on `refreshAgain` and mints only
+    /// when the answer does not cover what is wanted.
     fn minted(&mut self, minted: DirectGrant) -> Vec<CarrierEffect> {
         if self.phase == GrantPhase::Retired {
             return Vec::new();
@@ -276,11 +290,24 @@ impl GrantLifecycle {
             self.last_detail = Some("a grant for another worker arrived here".to_string());
             return Vec::new();
         }
+        self.in_flight = false;
         self.retry_at_ms = 0;
         self.last_detail = None;
         self.phase = GrantPhase::Granted;
         self.grant = Some(minted);
+        if std::mem::take(&mut self.refresh_again) && !self.covers_demand() {
+            return self.request();
+        }
         Vec::new()
+    }
+
+    /// Whether the held credential names every session a view wants here.
+    fn covers_demand(&self) -> bool {
+        self.grant.as_ref().is_some_and(|grant| {
+            self.demanded
+                .iter()
+                .all(|id| grant.session_ids.contains(id))
+        })
     }
 
     /// A fault named the credential itself: drop it and ask for a fresh mint
@@ -326,6 +353,11 @@ impl GrantLifecycle {
         }
         self.phase = GrantPhase::Requested;
         self.retry_at_ms = 0;
+        if self.in_flight {
+            self.refresh_again = true;
+            return Vec::new();
+        }
+        self.in_flight = true;
         vec![CarrierEffect::Core(Effect::RequestDirectGrant {
             session_ids: self.demanded.iter().cloned().collect(),
             worker_fp: self.worker_fp.clone(),

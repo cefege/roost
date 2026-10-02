@@ -17,7 +17,9 @@ use roost_protocol::terminal_peer::sdp::inspect_terminal_peer_sdp;
 use crate::client::carriers::grant::GrantInput;
 use crate::client::carriers::signaling::Signalling;
 use crate::client::carriers::signaling_snapshot::PeerTelemetry;
-use crate::client::carriers::{CarrierEffect, PeerAnswer, PeerAttempt, PeerPhase, ReadyTuple};
+use crate::client::carriers::{
+    CarrierEffect, DirectGrant, PeerAnswer, PeerAttempt, PeerPhase, ReadyTuple,
+};
 use crate::terminal::token::{TerminalToken, TerminalTransport};
 
 /// Why a direct attempt is over.
@@ -249,6 +251,33 @@ impl Signalling {
                 reason: reason.to_string(),
             }]
         })
+    }
+
+    /// A fresh mint arrived while an attempt that has not proved its tuple is
+    /// open on the previous one. The worker now holds the NEW scope, so the
+    /// `Ready` this attempt will get names sessions outside the one it
+    /// presented: v2's `updateGrant` refuses exactly that, and `presentGrant`
+    /// closes the connection for `maybeStart` to renegotiate on the new grant.
+    /// An authenticated peer is widened by the route registry instead.
+    pub(crate) fn retire_outgrown_attempt(&mut self, minted: &DirectGrant) -> Vec<CarrierEffect> {
+        if minted.worker_fp != self.worker_fp || self.peer_held {
+            return Vec::new();
+        }
+        let Some(open) = self.attempt.as_ref() else {
+            return Vec::new();
+        };
+        let still_admitted = minted.admits(TerminalTransport::Peer)
+            && minted.worker_epoch == open.worker_epoch
+            && minted.session_ids.is_subset(&open.session_ids);
+        if still_admitted {
+            return Vec::new();
+        }
+        let attempt_id = open.attempt_id;
+        self.fault(
+            attempt_id,
+            CarrierFault::IdentityMismatch,
+            "terminal peer grant changed",
+        )
     }
 
     /// Record a phase and its reason together, because a phase paired with one

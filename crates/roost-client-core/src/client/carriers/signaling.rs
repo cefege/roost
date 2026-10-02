@@ -214,7 +214,10 @@ impl Signalling {
             tab_id: grant.tab_id.clone(),
             device_fingerprint: grant.device_fingerprint.clone(),
             stun_urls: grant.stun_urls.clone(),
-            session_ids: self.demand.clone(),
+            // The GRANT's scope, as v2 checks a `Ready` against
+            // `options.grant.sessionIds`: the worker proves the scope it was
+            // told to install, which is the mint's and not this page's demand.
+            session_ids: grant.session_ids.clone(),
         };
         self.attempt = Some(attempt.clone());
         self.attempt_started_ms = now_ms;
@@ -319,8 +322,12 @@ impl Signalling {
     }
 
     fn grant_step(&mut self, grant: GrantInput) -> Vec<CarrierEffect> {
+        let mut out = match &grant {
+            GrantInput::Minted(minted) => self.retire_outgrown_attempt(minted),
+            _ => Vec::new(),
+        };
         let minted = matches!(&grant, GrantInput::Minted(_));
-        let mut out = self.grant.step(grant);
+        out.extend(self.grant.step(grant));
         if minted {
             self.grant.refresh_at_ms = Some(self.now_ms);
         }
@@ -355,7 +362,12 @@ impl Signalling {
 
     /// The attempt is over. Everything after is the four fault rules and the
     /// fallback, and nothing here touches the session's Sync authority.
-    fn fault(&mut self, attempt_id: u64, fault: CarrierFault, detail: &str) -> Vec<CarrierEffect> {
+    pub(crate) fn fault(
+        &mut self,
+        attempt_id: u64,
+        fault: CarrierFault,
+        detail: &str,
+    ) -> Vec<CarrierEffect> {
         if self.attempt_id() != Some(attempt_id) {
             return Vec::new();
         }
