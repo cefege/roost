@@ -353,12 +353,14 @@ fn reply_of(page: &SearchScrollbackPage) -> SearchReply {
     }
 }
 
-/// Write the controller's publication into the bar's signal.
+/// Write the controller's publication into the bar's signal: `None` once the
+/// controller closed, which is what unmounts the bar, as v2 shows it only while
+/// `find.open()`.
 fn publish(shared: &PaneShared) {
     let alt_screen = (shared.ui.alt_screen)();
     let state = shared.state.borrow().find.bar_state(alt_screen);
     set_if_changed(shared.ui.find_open, state.open);
-    set_if_changed(shared.ui.find_bar, Some(state));
+    set_if_changed(shared.ui.find_bar, state.open.then_some(state));
 }
 
 /// The pane's find, reached by a global-search result through the pump's
