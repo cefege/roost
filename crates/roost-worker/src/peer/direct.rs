@@ -78,6 +78,8 @@ pub struct DirectTerminal {
     carriers: Mutex<Vec<Arc<dyn DirectCarrier>>>,
     process_epoch: String,
     disposed: AtomicBool,
+    /// Smoke-only; `None` for every ordinary worker.
+    test_faults: Option<Arc<PeerTestFaults>>,
 }
 
 impl DirectTerminal {
@@ -112,7 +114,7 @@ impl DirectTerminal {
             open_peer_port,
             native_loader: deps.native_loader,
             packet_budget: TerminalPeerPacketBudget::new(),
-            test_faults: deps.test_faults,
+            test_faults: deps.test_faults.clone(),
             expire_grant: Arc::new(move |grant_id: &str| {
                 expiring.remove(grant_id, GrantRemovalReason::Expired);
             }),
@@ -125,6 +127,7 @@ impl DirectTerminal {
             carriers: Mutex::new(Vec::new()),
             process_epoch: deps.process_epoch,
             disposed: AtomicBool::new(false),
+            test_faults: deps.test_faults,
         })
     }
 
@@ -215,6 +218,14 @@ impl DirectTerminalPort for DirectTerminal {
         if request.worker_epoch != self.process_epoch
             || !RETIRE_REASONS.contains(&request.reason.as_str())
         {
+            return;
+        }
+        if self
+            .test_faults
+            .as_ref()
+            .is_some_and(|faults| faults.consume_direct_retire_drop())
+        {
+            tracing::info!(reason = %request.reason, "a direct retirement was ignored by the smoke harness");
             return;
         }
         tracing::info!(reason = %request.reason, "the direct terminal path was retired");

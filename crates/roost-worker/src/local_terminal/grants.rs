@@ -18,8 +18,12 @@ use super::grant_scope::{
     PeerGrantAuthorization, capability_matches, sha256_hex,
 };
 use super::grant_state::{
-    GrantState, StoredGrant, current_locked, remove_locked, sweep_locked, validated_session_ids,
+    GrantClock, GrantState, StoredGrant, current_locked, remove_locked, sweep_locked,
+    validated_session_ids,
 };
+
+#[cfg(feature = "smoke")]
+mod test_seams;
 
 /// A subscriber. Called with no store lock held, possibly from inside another
 /// owner's lock (a lazy expiry during a predicate), so it only fences and
@@ -31,6 +35,8 @@ struct GrantShared {
     worker_epoch: String,
     runtime: Handle,
     state: Mutex<GrantState>,
+    /// The clock every expiry decision reads.
+    clock: GrantClock,
 }
 
 /// v2 `LocalTerminalGrantStore`. Cheap to clone; clones share one registry.
@@ -57,6 +63,7 @@ impl LocalTerminalGrantStore {
             worker_epoch: worker_epoch.into(),
             runtime,
             state: Mutex::default(),
+            clock: GrantClock::default(),
         };
         Self {
             shared: Arc::new(shared),
@@ -99,7 +106,8 @@ impl LocalTerminalGrantStore {
     /// keeper boundary rather than retaining an old allow-list.
     pub fn current(&self, grant_id: &str) -> Option<Arc<LocalTerminalGrant>> {
         let mut changes = Vec::new();
-        let current = current_locked(&mut self.lock(), grant_id, &mut changes);
+        let now = self.shared.clock.now();
+        let current = current_locked(&mut self.lock(), grant_id, now, &mut changes);
         self.notify(&changes);
         current
     }
@@ -112,7 +120,12 @@ impl LocalTerminalGrantStore {
         let mut changes = Vec::new();
         let verdict = {
             let mut state = self.lock();
-            match current_locked(&mut state, credential.grant_id, &mut changes) {
+            match current_locked(
+                &mut state,
+                credential.grant_id,
+                self.shared.clock.now(),
+                &mut changes,
+            ) {
                 None if state
                     .expired_grant_ids
                     .iter()
@@ -162,7 +175,7 @@ impl LocalTerminalGrantStore {
                     PeerGrantAuthorization::Expired
                 }
                 None => PeerGrantAuthorization::GrantUnavailable,
-                Some(stored) if stored.public.expires_at <= Instant::now() => {
+                Some(stored) if stored.public.expires_at <= self.shared.clock.now() => {
                     remove_locked(
                         &mut state,
                         grant_id,
@@ -269,7 +282,7 @@ impl LocalTerminalGrantStore {
             return Err("local terminal grant store is disposed".to_owned());
         }
         let session_ids = validated_session_ids(frame, &self.shared.worker_epoch)?;
-        sweep_locked(&mut state, changes);
+        sweep_locked(&mut state, self.shared.clock.now(), changes);
         let prior = state
             .grants
             .get(&frame.grant_id)
@@ -277,13 +290,14 @@ impl LocalTerminalGrantStore {
         if prior.is_none() && state.grants.len() >= MAX_GRANTS {
             return Err("local terminal grant capacity is full".to_owned());
         }
+        let ttl = Duration::from_millis(u64::from(frame.ttl_ms));
         let public = Arc::new(LocalTerminalGrant {
             grant_id: frame.grant_id.clone(),
             session_ids,
             device_fingerprint: frame.device_fingerprint.clone(),
             tab_id: frame.tab_id.clone(),
             worker_epoch: frame.worker_epoch.clone(),
-            expires_at: Instant::now() + Duration::from_millis(u64::from(frame.ttl_ms)),
+            expires_at: self.shared.clock.now() + ttl,
         });
         if let Some(timer) = state.expiry_timers.remove(&frame.grant_id) {
             timer.abort();
@@ -297,7 +311,9 @@ impl LocalTerminalGrantStore {
         };
         state.grants.insert(frame.grant_id.clone(), stored);
         state.expired_grant_ids.retain(|id| *id != frame.grant_id);
-        let timer = self.arm_expiry(frame.grant_id.clone(), install, public.expires_at);
+        // The timer sleeps on real time; a harness-advanced clock is swept
+        // by the advance itself.
+        let timer = self.arm_expiry(frame.grant_id.clone(), install, Instant::now() + ttl);
         state.expiry_timers.insert(frame.grant_id.clone(), timer);
         changes.push(match prior {
             Some(previous) => GrantChange::Renewed {

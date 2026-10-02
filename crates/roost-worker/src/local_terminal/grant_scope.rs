@@ -46,6 +46,8 @@ pub struct GrantCredential<'a> {
 pub enum GrantRemovalReason {
     Expired,
     Revoked,
+    /// Taken out of scope without expiring, e.g. its last session removed.
+    Cleared,
     Disposed,
 }
 
@@ -54,6 +56,7 @@ impl GrantRemovalReason {
         match self {
             Self::Expired => "expired",
             Self::Revoked => "revoked",
+            Self::Cleared => "cleared",
             Self::Disposed => "disposed",
         }
     }

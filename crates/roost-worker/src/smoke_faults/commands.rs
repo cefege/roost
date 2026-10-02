@@ -133,7 +133,12 @@ pub(super) async fn apply_command(
         }
         FaultAction::InjectMalformedPacket => {
             let packet = malformed_packet_payload(&command.payload)?;
-            if state.direct.peer_owner().inject_malformed_packet(packet) {
+            if state
+                .targets
+                .direct
+                .peer_owner()
+                .inject_malformed_packet(packet)
+            {
                 Ok(Value::Null)
             } else {
                 Err(
@@ -144,14 +149,57 @@ pub(super) async fn apply_command(
         }
         FaultAction::SetHistoryPaused => {
             let paused = boolean_payload(&command.payload)?;
-            state.direct.peer_owner().set_history_paused(paused);
+            state.targets.direct.peer_owner().set_history_paused(paused);
             Ok(Value::Null)
         }
-        other => Err(format!(
-            "terminal peer fault {} is not available in this worker",
-            other.as_str()
-        )),
+        FaultAction::AdvanceGrantClock => {
+            let milliseconds = positive_integer_payload(&command.payload)?;
+            state.targets.grants.advance_clock(milliseconds)?;
+            Ok(Value::Null)
+        }
+        FaultAction::ShrinkGrantSession => {
+            let session_id = bounded_string_payload(&command.payload)?;
+            Ok(Value::from(state.targets.grants.shrink_session(session_id)))
+        }
+        FaultAction::HoldHistoryResponse => {
+            let session_id = bounded_string_payload(&command.payload)?;
+            Ok(Value::from(state.direct_path.history.arm(session_id)?))
+        }
+        FaultAction::ReleaseHistoryResponse | FaultAction::DropHistoryResponse => {
+            let hold_id = bounded_string_payload(&command.payload)?;
+            let deliver = command.action == FaultAction::ReleaseHistoryResponse;
+            state.direct_path.history.decide(hold_id, deliver);
+            Ok(Value::Null)
+        }
+        FaultAction::HoldKeeperAdmission => {
+            let session_id = bounded_string_payload(&command.payload)?;
+            Ok(Value::from(state.targets.admission.hold(session_id).await?))
+        }
+        FaultAction::ReleaseKeeperAdmission => {
+            let hold_id = bounded_string_payload(&command.payload)?;
+            state.targets.admission.release(hold_id);
+            Ok(Value::Null)
+        }
+        FaultAction::DropNextDirectRetire => {
+            state.peer.arm_direct_retire_drop();
+            Ok(Value::Null)
+        }
     }
+}
+
+fn positive_integer_payload(payload: &Value) -> Result<u64, String> {
+    const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
+    payload
+        .as_u64()
+        .filter(|value| (1..=MAX_SAFE_INTEGER).contains(value))
+        .ok_or_else(|| "terminal peer fault requires a positive safe integer payload".to_owned())
+}
+
+fn bounded_string_payload(payload: &Value) -> Result<&str, String> {
+    payload
+        .as_str()
+        .filter(|value| !value.is_empty() && value.chars().count() <= 128)
+        .ok_or_else(|| "terminal peer fault requires a bounded string payload".to_owned())
 }
 
 fn boolean_payload(payload: &Value) -> Result<bool, String> {

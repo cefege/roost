@@ -1,8 +1,8 @@
 //! The grant store's locked state and the pure steps over it: install-frame
-//! validation, lazy expiry, removal with its expired-id memory, and the sweep.
-//! Called only by `super::grants::LocalTerminalGrantStore` with its lock held.
-//! Ports the private helpers of
-//! `apps/worker/src/local-door/local-terminal-grants.ts`.
+//! validation, lazy expiry, removal with its expired-id memory, the sweep,
+//! and the clock they read. Called only by
+//! `super::grants::LocalTerminalGrantStore` with its lock held. Ports the
+//! private helpers of `apps/worker/src/local-door/local-terminal-grants.ts`.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -22,6 +22,55 @@ pub(super) struct StoredGrant {
     pub(super) secret_sha256: String,
     /// Which install this is, so a stale expiry timer cannot remove a renewal.
     pub(super) install: u64,
+}
+
+/// The clock every expiry decision reads: monotonic time, plus how far a smoke
+/// harness has advanced it (v2 `TerminalPeerTestFaultState.now()`).
+#[derive(Debug, Default)]
+pub(super) struct GrantClock {
+    #[cfg(feature = "smoke")]
+    offset_ms: std::sync::atomic::AtomicU64,
+}
+
+impl GrantClock {
+    pub(super) fn now(&self) -> Instant {
+        let now = Instant::now();
+        #[cfg(feature = "smoke")]
+        let now = now
+            .checked_add(std::time::Duration::from_millis(
+                self.offset_ms.load(std::sync::atomic::Ordering::SeqCst),
+            ))
+            .unwrap_or(now);
+        now
+    }
+
+    /// v2 `advanceGrantClock`'s bookkeeping; the error is the harness's reply.
+    /// The offset stays a JavaScript safe integer, and far enough below the
+    /// platform's `Instant` limit that the longest TTL still fits on top.
+    #[cfg(feature = "smoke")]
+    pub(super) fn advance(&self, milliseconds: u64) -> Result<(), &'static str> {
+        const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
+        if milliseconds == 0 || milliseconds > MAX_SAFE_INTEGER {
+            return Err("grant clock advance must be a positive safe integer");
+        }
+        let fits = |total: u64| {
+            total <= MAX_SAFE_INTEGER
+                && Instant::now()
+                    .checked_add(std::time::Duration::from_millis(
+                        total + u64::from(MAX_TTL_MS),
+                    ))
+                    .is_some()
+        };
+        let ordering = std::sync::atomic::Ordering::SeqCst;
+        self.offset_ms
+            .fetch_update(ordering, ordering, |offset| {
+                offset
+                    .checked_add(milliseconds)
+                    .filter(|total| fits(*total))
+            })
+            .map(|_| ())
+            .map_err(|_| "grant clock advance exceeds the supported range")
+    }
 }
 
 #[derive(Default)]
@@ -75,10 +124,11 @@ pub(super) fn validated_session_ids(
 pub(super) fn current_locked(
     state: &mut GrantState,
     grant_id: &str,
+    now: Instant,
     changes: &mut Vec<GrantChange>,
 ) -> Option<Arc<LocalTerminalGrant>> {
     let stored = state.grants.get(grant_id)?;
-    if stored.public.expires_at > Instant::now() {
+    if stored.public.expires_at > now {
         return Some(Arc::clone(&stored.public));
     }
     remove_locked(state, grant_id, GrantRemovalReason::Expired, changes);
@@ -116,8 +166,7 @@ pub(super) fn remove_locked(
     });
 }
 
-pub(super) fn sweep_locked(state: &mut GrantState, changes: &mut Vec<GrantChange>) {
-    let now = Instant::now();
+pub(super) fn sweep_locked(state: &mut GrantState, now: Instant, changes: &mut Vec<GrantChange>) {
     let expired: Vec<String> = state
         .grants
         .values()

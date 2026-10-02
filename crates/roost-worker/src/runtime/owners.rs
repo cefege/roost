@@ -278,7 +278,15 @@ impl WorkerOwners {
         // Last, so every owner a fault command reaches already exists.
         #[cfg(feature = "smoke")]
         if let Some(controls) = fault_controls {
-            controls.serve_commands(&tokio::runtime::Handle::current(), Arc::clone(&direct));
+            let targets = crate::smoke_faults::FaultTargets {
+                direct: Arc::clone(&direct),
+                grants: local_terminal.grants(),
+                admission: crate::smoke_faults::AdmissionHolds::new(
+                    Arc::clone(&stack.table),
+                    Arc::clone(stack.manager.control_lanes()),
+                ),
+            };
+            controls.serve_commands(&tokio::runtime::Handle::current(), targets);
         }
         Ok(Self {
             stack,
