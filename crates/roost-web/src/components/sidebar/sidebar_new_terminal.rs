@@ -92,9 +92,22 @@ pub fn SidebarNewTerminal() -> Element {
     if online.len() < 2 && *menu_open.peek() {
         menu_open.set(false);
     }
+    // An outside click or Escape hands focus back to the trigger, as an item
+    // pick does: the reader dismissed a menu they opened from that button, and
+    // focus left on `<body>` strands a keyboard reader at the top of the page.
+    // Guarded on the menu being open because the listener lives as long as the
+    // bar does, and every other click on the page reaches it too.
+    let dismiss = move |()| {
+        if !*menu_open.peek() {
+            return;
+        }
+        menu_open.set(false);
+        #[cfg(target_arch = "wasm32")]
+        super::dom::focus_by_id(MACHINE_TRIGGER_ID);
+    };
     use_floating_menu_dismiss(
-        EventHandler::new(move |()| menu_open.set(false)),
-        Some(EventHandler::new(move |()| menu_open.set(false))),
+        EventHandler::new(dismiss),
+        Some(EventHandler::new(dismiss)),
         vec![MACHINE_TRIGGER_ID.to_owned(), MACHINE_MENU_ID.to_owned()],
     );
     let mut open_menu = move |edge: crate::components::context_menu::MenuFocusEdge| {

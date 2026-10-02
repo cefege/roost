@@ -5,13 +5,13 @@
 //! `assets/styles/workbench-shell.css`.
 //!
 //! THE REFUSAL IS NOT THE PAIRING PAGE. `components::pairing::PairSurface` is:
-//! the gate mounts it, so an unpaired reader at `/`, at `/settings/devices` or
-//! at `/search` finds the same working requester panel v2 shows there
-//! (`Onboarding.tsx:109-111`). What this file still owns is the checking screen
-//! and the one-line diagnosis, which the panel's own notices do not replace —
-//! they say what went wrong with a request, not why this device key was refused
-//! in the first place, and a reader whose key was REVOKED needs to hear that
-//! rather than infer it from a failed pairing.
+//! the root mounts it above the gate, so an unpaired reader at `/`, at
+//! `/settings/devices` or at `/search` finds the same working requester panel
+//! v2 shows there (`Onboarding.tsx:109-111`). What this file still owns is the
+//! checking screen and the one-line diagnosis, which the panel's own notices
+//! do not replace — they say what went wrong with a request, not why this
+//! device key was refused in the first place, and a reader whose key was
+//! REVOKED needs to hear that rather than infer it from a failed pairing.
 //!
 //! The checking screen is a spinner and a word, deliberately. A reader who
 //! arrives with a stale credential sees "Checking…" for as long as the round trip

@@ -323,18 +323,18 @@ linter can't.
 ## Health check
 
 ```
-roost status                 # services, network, fleet: Tailscale state,
-                             # listeners, cert, worker reachability
+roost status                 # services, coordinator listener, declared
+                             # front door, worker roster
 roost doctor --since 24h     # anomaly digest from local logs + audit_log
 ```
 
-`roost status` is the current-state gate; `roost doctor --since <window>`
-summarizes a time window and is the right tool for "what broke overnight".
-Both read v3 JSON logs and the `audit_log` table, and both are documented
-with example output in [`GETTING_STARTED.md`](GETTING_STARTED.md). Their
-Rust implementations land in the `roost-cli` crate in Phase 6; until then the
-commands run from the v2 tree at `apps/roost-cli/src/status.ts` and
-`apps/roost-cli/src/doctor.ts`.
+`roost status` is the current-state gate: the two service-manager probes, the
+coordinator's identity RPC and listener, the operator-declared front door, and
+the worker roster read from the coordinator database. `roost doctor --since
+<window>` summarizes the v3 JSON logs and the `audit_log` table over a time
+window and is the right tool for "what broke overnight". Both are Rust, in
+`crates/roost-cli/src/status/` and `crates/roost-cli/src/doctor/`, and both
+are documented in [`GETTING_STARTED.md`](GETTING_STARTED.md).
 
 Coord down → workers redial and browsers lose state and terminal fan-out, but
 keeper subprocesses preserve the PTYs until the coordinator returns. Worker

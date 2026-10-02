@@ -64,15 +64,16 @@ pub fn BrowsePicker(worker_fp: String) -> Element {
     let crumb_anchor = use_signal(|| None::<CrumbMenuPos>);
     let new_folder = use_signal(NewFolderForm::default);
 
-    let start_dir = newest_session_cwd(&pump, &worker_fp);
-    // Reactive on the machine, not once per component: a `browse-server` switch
-    // to a machine this picker has never browsed leaves that machine's browser
-    // closed, and the region then sits pending at `~` forever. `use_hook` ran
-    // only for the machine the picker first mounted with.
-    let open_pump = pump.clone();
-    use_effect(use_reactive((&worker_fp,), move |(machine,)| {
-        open_machine_browser(&open_pump, machine.as_str(), &start_dir);
-    }));
+    // Opened during render, not in an effect: an effect runs after the first
+    // paint, which would paint and list the `~` placeholder before the real
+    // directory. Opening is idempotent per machine, and checking on every
+    // render is what follows a `browse-server` switch to a machine this picker
+    // has never browsed.
+    ensure_machine_browser(&pump, &worker_fp);
+    // The store writes the picker makes (open, intents, a landed listing) go
+    // around the core's revision counter; reading the ticket is what repaints
+    // on them.
+    let _ = ticket();
     let reading = browse_reading(&pump, &worker_fp);
 
     // The listing is asked for whenever the directory, the machine's presence or
@@ -180,15 +181,23 @@ pub fn browse_reading(pump: &Pump, worker_fp: &str) -> PickerReading {
     read_picker(store, worker_fp, &start, now_ms)
 }
 
-/// Open `worker_fp`'s browser on `home`, once, before the first paint.
-fn open_machine_browser(pump: &Pump, worker_fp: &str, home: &str) {
+/// Open `worker_fp`'s browser on its newest session directory unless it is
+/// already open; an open machine keeps the directory the reader left it in.
+fn ensure_machine_browser(pump: &Pump, worker_fp: &str) {
+    let Ok(fingerprint) = WorkerFp::try_from(worker_fp) else {
+        return;
+    };
     let core = pump.core();
+    if core.borrow().store().browse.get(&fingerprint).is_some() {
+        return;
+    }
+    let home = newest_session_cwd(pump, worker_fp);
     let mut core = core.borrow_mut();
     let _ = apply_browse_intent(
         core.store_mut(),
         &BrowseIntent::Open {
             worker_fp: worker_fp.to_owned(),
-            home: Some(home.to_owned()),
+            home: Some(home),
         },
     );
 }
