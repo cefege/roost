@@ -231,6 +231,13 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
         pair_stopped,
     );
 
+    // Nagle holds a small write for the peer's delayed ACK (~40 ms), clumping a
+    // keystroke's echo frame behind later acknowledgements on every socket.
+    let listener = axum::serve::ListenerExt::tap_io(listener, |tcp| {
+        if let Err(error) = tcp.set_nodelay(true) {
+            tracing::warn!(%error, "an accepted coordinator socket refused TCP_NODELAY");
+        }
+    });
     let served = axum::serve(
         listener,
         mounted
