@@ -13,15 +13,10 @@ use std::collections::BTreeSet;
 use crate::effect::Effect;
 use crate::store::Store;
 use crate::store::mutations::delete_pair_request;
-use crate::store::sync_feeds::{
-    ANNOUNCED_PAIRINGS_MAX, AUDIT_ROW_RING_MAX, PROBE_TELEMETRY_WORKERS_MAX, ProbeTelemetry,
-    UI_COMMAND_QUEUE_MAX,
-};
+use crate::store::sync_feeds::{ANNOUNCED_PAIRINGS_MAX, AUDIT_ROW_RING_MAX, UI_COMMAND_QUEUE_MAX};
 use crate::store::toasts::{ToastId, ToastKind, ToastOptions, ToastSource, raise_toast};
 use crate::sync::SyncDomain;
-use crate::sync::inbound::{
-    AuditEntry, CoordinatorRelocation, PairRequestChange, PairedBrowser, TransportProbeResult,
-};
+use crate::sync::inbound::{AuditEntry, CoordinatorRelocation, PairRequestChange, PairedBrowser};
 
 use super::close_failed::close_failed_sync_link;
 
@@ -167,41 +162,4 @@ pub(super) fn fold_coordinator_relocation(
         ),
         out,
     );
-}
-
-/// Retain a successful probe answer per worker. An empty epoch is the
-/// coordinator's refusal and never becomes telemetry (`resolveControlProbe`).
-pub(super) fn fold_transport_probe_result(
-    store: &mut Store,
-    generation: u64,
-    result: &TransportProbeResult,
-    now_ms: u64,
-) {
-    if result.worker_epoch.is_empty() {
-        tracing::debug!(target: "sync", worker_fp = %result.worker_fp, "transport probe refused");
-        return;
-    }
-    if !store.transport_probes.contains_key(&result.worker_fp)
-        && store.transport_probes.len() >= PROBE_TELEMETRY_WORKERS_MAX
-    {
-        let oldest = store
-            .transport_probes
-            .iter()
-            .min_by_key(|(_, sample)| sample.received_at_ms)
-            .map(|(worker_fp, _)| worker_fp.clone());
-        if let Some(oldest) = oldest {
-            store.transport_probes.remove(&oldest);
-        }
-    }
-    store.transport_probes.insert(
-        result.worker_fp.clone(),
-        ProbeTelemetry {
-            request_id: result.request_id.clone(),
-            worker_epoch: result.worker_epoch.clone(),
-            socket_generation: generation,
-            received_at_ms: now_ms,
-        },
-    );
-    store.note_change();
-    tracing::debug!(target: "sync", worker_fp = %result.worker_fp, "transport probe answered");
 }

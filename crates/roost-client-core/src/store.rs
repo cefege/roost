@@ -74,7 +74,9 @@ use crate::sessions::SessionPlane;
 use crate::store::optimistic_spawn::SpawnLedger;
 use crate::store::pending_close::PendingCloses;
 use crate::store::prefs::Prefs;
-use crate::store::sync_feeds::{PresenceNotice, ProbeTelemetry, RoutableAssembly};
+use crate::store::sync_feeds::{
+    PendingTransportProbe, PresenceNotice, ProbeTelemetry, RoutableAssembly,
+};
 use crate::store::toasts::ToastStack;
 use crate::store::transfers::TransferStack;
 use crate::store::ui::UiState;
@@ -220,8 +222,10 @@ pub struct Store {
     pub audit_rows: VecDeque<AuditEntry>,
     /// UI commands for the UI bridge, oldest first.
     pub ui_commands: VecDeque<roost_proto::UiCommandFrame>,
-    /// The newest successful transport-probe answer per worker.
+    /// The newest answered control probe per worker.
     pub transport_probes: BTreeMap<String, ProbeTelemetry>,
+    /// Control probes sent and not yet answered, by request id.
+    pub pending_transport_probes: BTreeMap<String, PendingTransportProbe>,
     /// Pairings already announced, oldest first, so one pairing toasts once.
     pub announced_pairings: VecDeque<String>,
     /// Smoke-armed frame faults; empty unless a smoke build armed one.
@@ -305,6 +309,7 @@ impl Store {
             audit_rows: VecDeque::new(),
             ui_commands: VecDeque::new(),
             transport_probes: BTreeMap::new(),
+            pending_transport_probes: BTreeMap::new(),
             announced_pairings: VecDeque::new(),
             terminal_smoke_faults: crate::terminal::smoke_faults::TerminalSmokeFaults::default(),
         }
