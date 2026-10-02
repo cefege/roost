@@ -144,8 +144,10 @@ export function buildAndPinArtifacts(options: PinBuildOptions): PinManifest {
 		// dx never prunes old hashed bundles from public/, and a pinned directory holding three
 		// generations of roost-web_bg-*.wasm cannot say which one the page will load.
 		rmSync(publicDirectory, { recursive: true, force: true });
+		// `--profile release` makes dx declare `release` with `inherits = "release"`, which cargo
+		// rejects ("`inherits` must not be specified in root profile"): only `smoke` is named.
 		runBuildStep("dx", [
-			"build", "--release", "--profile", profile, "-p", "roost-web", "--platform", "web",
+			"build", "--release", ...(options.fast ? ["--profile", profile] : []), "-p", "roost-web", "--platform", "web",
 			...(webFeatures.length > 0 ? ["--features", SMOKE_FEATURE] : []),
 		]);
 		if (!existsSync(join(publicDirectory, "index.html"))) {
