@@ -283,3 +283,77 @@ fn a_refreshed_grant_widens_the_live_carrier_and_stages_only_what_it_added() {
         "the send path reads the widened scope, so the new session's commands are not refused"
     );
 }
+
+/// The ids of the sessions these effects ask the host to mint a candidate id for.
+fn candidate_mints(effects: &[Effect]) -> Vec<String> {
+    effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::MintTerminalViewId {
+                session_id,
+                target: ViewIdTarget::Candidate,
+                ..
+            } => Some(session_id.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A pane opening for a session the live carrier already admits stages it there.
+///
+/// The carrier's grant named the session while its pane was away (a navigation
+/// to the other session), so when a layout splits it back in no refreshed grant
+/// adds it and nothing widens. v2 stages demand that turns active on the
+/// worker's current connection; without that the session stays on Sync for the
+/// life of the document.
+#[test]
+fn a_pane_opening_for_an_admitted_session_stages_it_on_the_live_carrier() {
+    let mut core = core_with_a_pane();
+    let carried = core.handle(ClientEvent::CarrierReady(carrier(&[
+        SESSION,
+        OTHER_SESSION,
+    ])));
+    assert_eq!(
+        candidate_mints(&carried),
+        vec![SESSION.to_owned()],
+        "only the viewed session stages when the carrier arrives; got {carried:?}"
+    );
+
+    let effects = core.handle(viewing(OTHER_SESSION, OTHER_VIEW, COLS, ROWS));
+
+    assert_eq!(
+        candidate_mints(&effects),
+        vec![OTHER_SESSION.to_owned()],
+        "the opened pane's session stages on the carrier that admits it; got {effects:?}"
+    );
+}
+
+/// A second pane of a session the carrier already serves rides the elected route.
+#[test]
+fn a_second_pane_of_an_elected_session_does_not_stage_it_again() {
+    let mut core = core_with_a_pane();
+    let _ = core.handle(ClientEvent::CarrierReady(carrier(&[SESSION])));
+    let _ = minted(&mut core, 1, Some(WIRE));
+    let _ = core.handle(direct_frame(accepted_view_state()));
+    let _ = core.handle(direct_frame(baseline()));
+    assert!(
+        core.store().routes.route(SESSION).is_some(),
+        "the carrier is elected"
+    );
+
+    let effects = core.handle(viewing(SESSION, OTHER_VIEW, COLS, ROWS));
+
+    assert_eq!(
+        candidate_mints(&effects),
+        Vec::<String>::new(),
+        "an elected session is not staged onto the carrier serving it; got {effects:?}"
+    );
+    assert_eq!(
+        core.store()
+            .routes
+            .route(SESSION)
+            .map(|route| route.token.clone()),
+        Some(direct_token()),
+        "the elected route keeps the session"
+    );
+}

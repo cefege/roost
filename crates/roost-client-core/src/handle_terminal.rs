@@ -92,6 +92,7 @@ pub fn handle_view_opened(
     // attempt's snapshot of this session: the candidate is preparing a view set
     // that is no longer the set this document wants.
     cancel_staged_candidate_and_restart(store, session_id, now_ms, out);
+    carriers::stage_opened_session(store, session_id, now_ms, out);
     publish_view(store, session_id, view_id, now_ms, out);
 }
 

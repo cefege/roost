@@ -68,6 +68,35 @@ pub fn handle_grant_minted(
     }
 }
 
+/// A pane opened: stage its session on the live carrier whose grant already
+/// admits it, unless that carrier already holds the session's route.
+///
+/// v2 `TerminalPeerOwner.handleDemand` → `stageCurrentConnection`. The grant
+/// names every session the document has demanded, so a session whose pane left
+/// and came back — a navigation, then a layout that splits it in again — is
+/// already admitted: the refreshed grant adds nothing, no carrier widens, and
+/// without this the session stays on Sync beside a carrier that could serve it.
+/// A loopback route is never traded for a peer, as in v2.
+pub fn stage_opened_session(
+    store: &mut Store,
+    session_id: &str,
+    now_ms: u64,
+    out: &mut Vec<Effect>,
+) {
+    let Some(carrier) = store.routes.admitted_carrier(session_id) else {
+        return;
+    };
+    let keeps_its_route = store.routes.route(session_id).is_some_and(|route| {
+        route.connection_id == carrier.connection_id
+            || (route.token.transport == TerminalTransport::Loopback
+                && carrier.transport == TerminalTransport::Peer)
+    });
+    if keeps_its_route {
+        return;
+    }
+    stage_admitted_sessions(store, &carrier, &[session_id.to_string()], now_ms, out);
+}
+
 /// A direct carrier authenticated. Returns whether it was admitted.
 fn register_carrier(store: &mut Store, carrier: &DirectCarrier, out: &mut Vec<Effect>) -> bool {
     let registration = store.routes.register(carrier.clone());
