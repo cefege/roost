@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::client::KeeperClient;
+use crate::client_arrival::ArrivalBell;
 use crate::client_error::ClientError;
 use crate::client_io::{Shared, read_frames};
 
@@ -54,6 +55,7 @@ fn connect_once(path: &Path) -> Result<KeeperClient, ClientError> {
     let (events_tx, events_rx) = std::sync::mpsc::channel();
     let shared = Arc::new(Mutex::new(Shared::default()));
     let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let arrival = Arc::new(ArrivalBell::default());
     let client = KeeperClient::establish(
         path.to_path_buf(),
         stream,
@@ -64,9 +66,16 @@ fn connect_once(path: &Path) -> Result<KeeperClient, ClientError> {
             .name("roost-keeper-client".into())
             .spawn({
                 let shared = Arc::clone(&shared);
-                move || read_frames(read_half, shared, events_tx, Arc::clone(&stop))
+                let arrival = Arc::clone(&arrival);
+                move || {
+                    read_frames(read_half, shared, events_tx, Arc::clone(&stop), &arrival);
+                    // After `events_tx` is dropped, so the woken worker
+                    // already sees the stream closed.
+                    arrival.ring();
+                }
             })
             .map_err(|err| ClientError::Io(err.to_string()))?,
+        arrival,
     );
 
     client.hello()?;

@@ -165,7 +165,13 @@ async fn a_restarted_worker_adopts_its_survivor_from_the_keepers_history() {
 /// v2 `session-respawn.ts:169-175`: respawning a session this worker still
 /// holds opens a new channel under the SAME session id and, once the
 /// `respawned` is durable, kills the PTY it replaced — no orphan survives it.
-#[tokio::test]
+///
+/// MULTI-THREADED because the replaced channel's exit reaches the session
+/// layer as soon as the keeper reports it, and the close that follows is a
+/// task holding the pool. On a current-thread runtime nothing runs that task
+/// once the body stops awaiting, so the pool's connection stays open and the
+/// fixture's drop waits forever for the in-process keeper to finish serving it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn respawning_a_held_session_kills_the_pty_it_replaces() {
     let fixture = KeeperFixture::start();
     let _serialised = exclusive().await;

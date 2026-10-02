@@ -1,26 +1,19 @@
-//! PROOF for the drain cadence: PTY output must reach the worker at the tick
-//! the tick claims, not at the sum of two unrelated waits.
-//!
-//! `server.rs` used to block in `read()` for `READ_POLL` (100 ms) and THEN
-//! sleep `OUTPUT_TICK` (16 ms), so a program writing continuously had its
-//! output drained once per 116 ms while the comment above the tick said the
-//! tick was "what makes the terminal live". `crates/roost-worker/src/keeper_pool/
-//! dispatch.rs` documented the same false 16 ms. Two constants that should have
-//! been one number, coupled by accident: the read timeout was sized for prompt
-//! shutdown and the sleep was sized for output, and the loop paid both.
+//! PROOF for the drain cadence: a program writing continuously must have its
+//! output reach the worker at least as often as the keeper's backstop tick,
+//! and never at the pace of a blocking read plus a sleep.
 //!
 //! WHY IT NEEDS A REAL DAEMON. The quantity under test is the interval between
 //! two `PtyOut` frames as a worker observes them, which is a property of the
 //! SERVER LOOP and not of any function a unit test can call. A fake keeper that
 //! answers on demand is paced by the test, so it agrees with whatever the test
-//! does — which is how a 116 ms cadence can sit in the tree under a suite full
-//! of fakes. The shell here prints continuously and the client sends nothing
-//! after `Spawn`, so the ONLY thing pacing the frames is the tick.
+//! does. The shell here prints continuously and the client sends nothing after
+//! `Spawn`, so the frames are paced by the shell's writes and the server loop
+//! alone.
 //!
-//! The bound is generous on purpose. The property is "the cadence is the tick and
-//! not the tick plus a blocking read", and forty lines ten milliseconds apart is
-//! ~400 ms of writing: the measured cadence before the fix was ~120 ms, so a
-//! 60 ms bound separates the two without being a benchmark of this machine.
+//! The bound is generous on purpose. Forty lines ten milliseconds apart is
+//! ~400 ms of writing; a loop that read for 100 ms and then slept its tick
+//! measured a ~120 ms cadence, so a 60 ms bound separates the two without
+//! being a benchmark of this machine.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -77,8 +70,8 @@ fn continuous_output_is_drained_at_the_tick_and_not_at_the_tick_plus_a_read() {
         .spawn(1, printing_shell(), 80, 24)
         .expect("the shell spawns");
 
-    // The only thing that can pace these frames is the drain tick: the client
-    // sends nothing more, so the server loop is read-timeout driven.
+    // Nothing but the shell's writes and the server loop paces these frames:
+    // the client sends nothing more.
     let deadline = Instant::now() + BURST_BUDGET;
     let mut lines = 0_u32;
     let mut frames = 0_u32;
