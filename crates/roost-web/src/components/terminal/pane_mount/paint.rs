@@ -7,6 +7,7 @@
 
 use roost_client_core::store::terminal_transport::session_terminal_transport_kind;
 use roost_client_core::store::terminal_transport::transport_attribute;
+use roost_protocol::cell::CellGridFrame;
 use roost_web_terminal::terminal_presentation::{
     PresentationFrameMark, PresentationInputs, PresentationPane, TerminalPresentationState,
 };
@@ -50,11 +51,14 @@ pub(super) fn sync_store(shared: &PaneShared) {
         return;
     }
     let read = read_store(shared);
-    let advanced = shared
-        .state
-        .borrow_mut()
-        .feed
-        .observe_revision(read.frame_revision);
+    let advanced = {
+        let mut state = shared.state.borrow_mut();
+        let advanced = state.feed.observe_revision(read.frame_revision);
+        if advanced && !(state.flags.view_active() && state.page_visible) {
+            state.feed.park();
+        }
+        advanced
+    };
     set_if_changed(shared.ui.transport, read.transport);
     set_if_changed(
         shared.ui.gestures_forwarded,
@@ -108,19 +112,27 @@ fn paint_owed(shared: &PaneShared, now: u64) {
             return;
         }
     }
-    let canonical = {
+    let delta_base = shared.state.borrow().feed.delta_base();
+    let read = {
         let core = shared.pump.core();
         let core = core.borrow();
         core.store()
             .terminal
             .get(&shared.session_id)
-            .and_then(|replica| replica.canonical().cloned())
+            .and_then(|replica| {
+                let canonical = replica.canonical()?.clone();
+                let deltas = delta_base
+                    .and_then(|base| replica.deltas_since(base))
+                    .filter(|deltas| !deltas.is_empty())
+                    .map(<[CellGridFrame]>::to_vec);
+                Some((replica.frame_revision(), canonical, deltas))
+            })
     };
-    let Some(canonical) = canonical else {
+    let Some((revision, canonical, deltas)) = read else {
         shared.state.borrow_mut().feed.skip();
         return;
     };
-    let applied = shared.renderer.borrow_mut().apply_full_frame(&canonical);
+    let applied = apply_owed_frames(shared, &canonical, deltas.as_deref());
     if !applied {
         tracing::warn!(target: "terminal", session_id = %shared.session_id, seq = canonical.seq,
             "render paint refused; repainting on the next revision");
@@ -135,7 +147,7 @@ fn paint_owed(shared: &PaneShared, now: u64) {
         mouse_tracking: canonical.mouse_tracking,
     });
     set_if_changed(shared.ui.alt_screen, canonical.alt_screen);
-    let delivery = shared.state.borrow_mut().feed.painted(&canonical);
+    let delivery = shared.state.borrow_mut().feed.painted(&canonical, revision);
     super::echo::on_frame(shared, &canonical, delivery.scrollback_appended);
     let work = {
         let mut state = shared.state.borrow_mut();
@@ -153,6 +165,27 @@ fn paint_owed(shared: &PaneShared, now: u64) {
     };
     perform(shared, vec![PaneAction::Backfill(work)]);
     after_renderer_write(shared, now);
+}
+
+/// Fold the deltas the renderer has not seen, so the history they appended is
+/// painted; the canonical full when there are none or the renderer refuses the
+/// chain (a skipped delivery, a different grid). v2's scheduler makes the same
+/// fallback (`terminal-render-scheduler.ts` `fallback_full`).
+fn apply_owed_frames(
+    shared: &PaneShared,
+    canonical: &CellGridFrame,
+    deltas: Option<&[CellGridFrame]>,
+) -> bool {
+    let mut renderer = shared.renderer.borrow_mut();
+    if let Some(deltas) = deltas {
+        if renderer.apply_delta_frames(deltas) {
+            return true;
+        }
+        tracing::debug!(target: "terminal", session_id = %shared.session_id,
+            deltas = deltas.len(), seq = canonical.seq,
+            "delta batch refused; painting the canonical full");
+    }
+    renderer.apply_full_frame(canonical)
 }
 
 /// Run what the renderer's hooks flagged during a write: the first reconcile,

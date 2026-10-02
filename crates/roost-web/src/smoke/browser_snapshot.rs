@@ -61,13 +61,12 @@ pub fn terminal_browser_snapshot(
 ) -> Value {
     let mut out = terminal_stream_diagnostics(store, session_id, clocks);
     let probe = renderer.probe.as_ref();
-    // The RENDERER's canonical, not the store's. They are the same frame today
-    // and are not the same fact: the store is what the client folded, the probe
-    // is what the mount actually applied to a grid, and the specs that watch
-    // them diverge are watching for exactly the moment they stop agreeing.
-    let handler_canonical = probe.map_or_else(
+    // The REPLICA's watermark under v2's retained renderer-era name: the specs
+    // that drop or hold a renderer delivery prove the loss by watching this
+    // advance while `dom_reconciled` stays behind it.
+    let handler_canonical = out.get("replica").map_or_else(
         || json!({ "grid_epoch": null, "seq": null }),
-        |probe| epoch_seq_json(&probe.canonical),
+        |replica| json!({ "grid_epoch": replica["grid_epoch"], "seq": replica["seq"] }),
     );
     let anchor = probe.and_then(|probe| probe.backfill_anchor.as_ref());
     let entries = [

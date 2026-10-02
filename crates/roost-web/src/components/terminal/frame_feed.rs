@@ -1,8 +1,9 @@
 //! The replica→renderer delivery for one pane. The store holds the session's
-//! canonical frame and a per-session `frame_revision`; the pane paints that
-//! canonical on the browser frame after the revision moved, so every arrival
-//! inside one browser frame costs one paint. Target-independent; driven by the
-//! wasm pane mount. Replaces the subscriber half of v2's
+//! canonical frame, a per-session `frame_revision` and the deltas since its
+//! last full; the pane paints on the browser frame after the revision moved,
+//! folding the deltas it has not painted — so their appended history reaches
+//! the DOM — or the canonical full when it cannot. Target-independent; driven
+//! by the wasm pane mount. Replaces the subscriber half of v2's
 //! `apps/web/src/components/terminal/cell-terminal-renderer.ts`
 //! (`view.subscribeRenderer`) and the coalescing of
 //! `apps/web/src/renderer/terminal-render-scheduler.ts`.
@@ -49,6 +50,9 @@ pub struct Delivery {
 pub struct FrameFeed {
     seen_revision: Option<u64>,
     paint_owed: bool,
+    /// The replica revision the renderer was last handed, which the next
+    /// paint folds deltas onto; `None` owes the canonical full instead.
+    delta_base: Option<u64>,
     painted: Option<GridKey>,
     painted_scrollback_total: u64,
 }
@@ -85,9 +89,23 @@ impl FrameFeed {
         self.paint_owed = true;
     }
 
-    /// The canonical was painted.
-    pub fn painted(&mut self, canonical: &CellGridFrame) -> Delivery {
+    /// The replica moved while the pane could not paint: the deltas it missed
+    /// are not folded later, the next paint takes the canonical full, as v2's
+    /// scheduler parks a background renderer's queued deltas into one.
+    pub fn park(&mut self) {
+        self.delta_base = None;
+    }
+
+    /// The revision the next paint may fold deltas from, `None` when it must
+    /// paint the canonical full.
+    pub fn delta_base(&self) -> Option<u64> {
+        self.delta_base
+    }
+
+    /// The canonical at `revision` was painted.
+    pub fn painted(&mut self, canonical: &CellGridFrame, revision: u64) -> Delivery {
         self.paint_owed = false;
+        self.delta_base = Some(revision);
         let key = GridKey::of(canonical);
         let baseline = self.painted.as_ref() != Some(&key);
         if baseline {
@@ -104,9 +122,11 @@ impl FrameFeed {
         }
     }
 
-    /// Skip the owed delivery without painting it; the next revision paints
-    /// the newer canonical, which is what a dropped delta repairs to.
+    /// Skip the owed delivery without painting it. The renderer never saw what
+    /// it skipped, so the next revision paints the newer canonical full, which
+    /// is what a dropped delivery repairs to.
     pub fn skip(&mut self) {
         self.paint_owed = false;
+        self.delta_base = None;
     }
 }
