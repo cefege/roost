@@ -5,7 +5,9 @@
 //! file is about what has ALREADY LEFT this client, and nothing in it may ever
 //! put those bytes back on a wire.
 
-use crate::terminal::input::{HELD_INPUT_ADMISSION_TIMEOUT_MS, InputLane, InputOutcome};
+use crate::terminal::input::{
+    HELD_INPUT_ADMISSION_TIMEOUT_MS, INPUT_RESULT_TIMEOUT_MS, InputLane, InputOutcome,
+};
 use crate::terminal::token::TerminalToken;
 
 use super::InputRouter;
@@ -92,6 +94,36 @@ impl InputRouter {
                 let outcome = InputOutcome::Rejected {
                     input_seq,
                     reason: "terminal input route is reconnecting".to_string(),
+                };
+                self.settle(input_seq, outcome.clone());
+                outcome
+            })
+            .collect()
+    }
+
+    /// Settle every started batch whose result is overdue (v2 `markStarted`'s
+    /// timer).
+    ///
+    /// `ambiguous`, never `rejected` and never re-sent: the bytes left, and the
+    /// worker may have written them before its answer was lost.
+    pub fn sweep_unanswered(&mut self, now_ms: u64) -> Vec<InputOutcome> {
+        let overdue: Vec<u64> = self
+            .lanes
+            .values()
+            .flat_map(|lane| lane.pending.iter())
+            .filter(|pending| {
+                pending.started
+                    && now_ms.saturating_sub(pending.started_at_ms) >= INPUT_RESULT_TIMEOUT_MS
+            })
+            .map(|pending| pending.input_seq)
+            .collect();
+        overdue
+            .into_iter()
+            .map(|input_seq| {
+                let outcome = InputOutcome::Ambiguous {
+                    input_seq,
+                    written_bytes: 0,
+                    reason: "input result timed out; the batch will not be retried".to_string(),
                 };
                 self.settle(input_seq, outcome.clone());
                 outcome

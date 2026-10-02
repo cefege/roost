@@ -44,6 +44,12 @@ pub const MAX_PENDING_INPUT_BYTES_PER_SESSION: usize = 256 * 1024;
 /// hold: nothing was sent, so refusing it cannot lose a keystroke.
 pub const HELD_INPUT_ADMISSION_TIMEOUT_MS: u64 = 10_000;
 
+/// How long a started batch waits for the worker's result before it settles
+/// `ambiguous` (v2 `INPUT_RESULT_TIMEOUT_MS`). A result that never comes — a
+/// dropped answer, a worker that wrote and then died — must still end the
+/// batch, and it is never retried: the bytes may already be in the PTY.
+pub const INPUT_RESULT_TIMEOUT_MS: u64 = 10_000;
+
 /// The highest route revision the wire's signed 64-bit field can carry. The
 /// client refuses to issue a claim past it rather than wrapping a revision the
 /// worker would read as an older one
@@ -159,6 +165,9 @@ pub struct PendingInput {
     pub started: bool,
     /// When the batch was admitted, for the hold timeout.
     pub admitted_at_ms: u64,
+    /// When the batch was handed to a transport, for the result timeout.
+    /// Meaningful only once `started`.
+    pub started_at_ms: u64,
 }
 
 /// Where a session's input is in its route lifecycle.

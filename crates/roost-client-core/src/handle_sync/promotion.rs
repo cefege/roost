@@ -149,9 +149,9 @@ pub(crate) fn settle_route_result(
                         return;
                     }
                     commit_candidate(store, session_id, attempt_id, &claim.token, out);
-                    release_held_onto(store, session_id, &claim.token, out);
+                    release_held_onto(store, session_id, &claim.token, now_ms, out);
                 }
-                None => release_held_onto(store, session_id, &claim.token, out),
+                None => release_held_onto(store, session_id, &claim.token, now_ms, out),
             }
         }
         ClaimSettlement::Retry(claim) => send_claim(&claim, out),
@@ -278,7 +278,7 @@ fn abandon_promotion(
         .and_then(|replica| replica.generation().cloned())
         .or_else(|| store.sync_terminal_token());
     match current {
-        Some(current) => release_held_onto(store, session_id, &current, out),
+        Some(current) => release_held_onto(store, session_id, &current, now_ms, out),
         None => block_lane(store, session_id, "terminal transport is not connected"),
     }
 }
@@ -290,6 +290,7 @@ fn release_held_onto(
     store: &mut Store,
     session_id: &str,
     route: &TerminalToken,
+    now_ms: u64,
     out: &mut Vec<Effect>,
 ) {
     let required = store
@@ -309,7 +310,7 @@ fn release_held_onto(
         "held terminal input released onto the claimed route"
     );
     for pending in held {
-        dispatch_batch(store, &pending, route, out);
+        dispatch_batch(store, &pending, route, now_ms, out);
     }
 }
 

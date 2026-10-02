@@ -125,6 +125,7 @@ impl InputRouter {
             fence: None,
             started: false,
             admitted_at_ms: now_ms,
+            started_at_ms: 0,
         };
         let byte_length = pending.bytes.len();
         let lane = self.lane_mut(session_id);
@@ -208,7 +209,7 @@ impl InputRouter {
     ///
     /// From here the outcome can be `ambiguous`, which is why nothing about a
     /// started batch is ever replayed.
-    pub fn mark_started(&mut self, input_seq: u64, token: &TerminalToken) -> bool {
+    pub fn mark_started(&mut self, input_seq: u64, token: &TerminalToken, now_ms: u64) -> bool {
         let Some(lane) = self.lanes.values_mut().find(|lane| {
             lane.pending
                 .iter()
@@ -223,6 +224,11 @@ impl InputRouter {
         else {
             return false;
         };
+        // The result timer is armed once, at the first hand-off (v2
+        // `markStarted` returns early for a started batch).
+        if !pending.started {
+            pending.started_at_ms = now_ms;
+        }
         pending.started = true;
         pending.fence = Some(crate::terminal::input::TerminalFence::new(token.clone()));
         true
