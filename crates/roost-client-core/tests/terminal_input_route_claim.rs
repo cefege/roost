@@ -306,3 +306,36 @@ fn a_lost_peer_route_reclaims_sync_before_released_input_is_written() {
         "the held batch goes out on Sync under the epoch Sync claimed"
     );
 }
+
+#[test]
+fn a_straggling_sync_frame_after_the_promotion_leaves_input_on_the_peer() {
+    let (mut core, effects) = promotable_peer();
+    let (request_id, revision, _) = peer_claims(&effects)[0].clone();
+    let _ = core.handle(on_peer(answer(&request_id, revision, true, "")));
+
+    let generation = core
+        .store()
+        .sync_terminal_token()
+        .unwrap()
+        .socket_generation;
+    let _ = core.handle(ClientEvent::SyncFrameReceived {
+        generation,
+        delivery_seq: 0,
+        frame: continuation(),
+    });
+    assert_eq!(
+        core.store()
+            .terminal(SESSION)
+            .and_then(|replica| replica.generation()),
+        Some(&peer_token()),
+        "the coordinator's late Sync frame does not take the replica back"
+    );
+
+    let typed_after = typed(&mut core, b"ls\r");
+    assert_eq!(
+        peer_inputs(&typed_after),
+        vec![(b"ls\r".to_vec(), ROUTE_EPOCH.to_owned())],
+        "the next keystroke still leaves on the claimed peer route; got {typed_after:?}"
+    );
+    assert!(sync_inputs(&typed_after).is_empty());
+}
