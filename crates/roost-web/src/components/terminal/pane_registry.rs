@@ -24,6 +24,8 @@ pub use super::pane_surface::{PaintedLine, PaintedMarkerHit, PaneSurface, find_m
 pub struct PaneCounters {
     /// Epoch-addressed history reads the session's scrollback pagers issued.
     pub backfill_requests: u64,
+    /// History pages an elected direct carrier served to those pagers.
+    pub direct_history_responses: u64,
 }
 
 /// One render probe: watermarks and reader state of the mounted renderer.
@@ -247,6 +249,16 @@ impl PaneRegistry {
             .entry(session_id.to_owned())
             .or_default()
             .backfill_requests += 1;
+    }
+
+    /// One history page served by the session's elected direct carrier.
+    pub fn note_direct_history_response(&self, session_id: &str) {
+        self.inner
+            .borrow_mut()
+            .counters
+            .entry(session_id.to_owned())
+            .or_default()
+            .direct_history_responses += 1;
     }
 
     /// The surface, cloned out so the registry is not borrowed while it runs:

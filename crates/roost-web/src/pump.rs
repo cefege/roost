@@ -20,6 +20,7 @@ mod browser;
 #[cfg(target_arch = "wasm32")]
 mod carrier_dial;
 mod carriers;
+mod direct_history;
 mod effects;
 #[cfg(target_arch = "wasm32")]
 mod peer_lane;
@@ -35,6 +36,7 @@ use roost_client_core::{ClientCore, ClientEvent, Store, SyncCommand};
 use crate::platform::connect::CoordRpc;
 
 pub use boot::start_pump;
+pub use direct_history::DirectHistoryAnswer;
 use roost_web_terminal::find::intent::{
     FindIntentRegistry, FindIntentSink, TerminalFindIntentOptions,
 };
@@ -81,6 +83,9 @@ struct PumpInner {
     /// a reader clicks a result, the search page unmounts, and the pane that
     /// answers still has to be told what to look for.
     find_intents: RefCell<FindIntentRegistry>,
+    /// The history reads sent on a direct carrier and not yet answered, by
+    /// request id: the carrier has no RPC framing to carry the reply.
+    direct_history: RefCell<direct_history::DirectHistoryReads>,
 }
 
 impl std::fmt::Debug for Pump {
@@ -127,6 +132,7 @@ impl Pump {
                 #[cfg(target_arch = "wasm32")]
                 listeners: RefCell::new(Vec::new()),
                 find_intents: RefCell::new(FindIntentRegistry::new()),
+                direct_history: RefCell::new(direct_history::DirectHistoryReads::default()),
                 sweeps: SweepListeners::new(),
             }),
         };

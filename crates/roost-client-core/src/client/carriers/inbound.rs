@@ -19,6 +19,7 @@
 use roost_proto::{PbCellGridChunk, PbCellGridFrame};
 
 use crate::client::local::door::LoopbackReady;
+use crate::client::rpc::calls::terminal_pane::ScrollbackCellsPage;
 use crate::sync::inbound::{InputRouteResult, SyncFrame, TransportProbeResult};
 use crate::terminal::input::InputOutcome;
 
@@ -80,6 +81,8 @@ pub enum DirectInbound {
     InputRouteResult(InputRouteResult),
     /// The answer to a transport probe this carrier sent.
     TransportProbeResult(TransportProbeResult),
+    /// The answer to a history read this carrier sent.
+    Scrollback(DirectScrollback),
     /// A frame that arrived BEFORE the carrier authenticated.
     PreHelloFrame,
 }
@@ -129,14 +132,26 @@ impl DirectInbound {
             }
             Self::InputRouteResult(result) => Some(SyncFrame::InputRouteResult { result }),
             // A close is a socket ending, a handshake is the transport's own
-            // state, and a probe answer settles the carrier that sent the
-            // probe. None of them is a frame the fold should ever see.
+            // state, a probe answer settles the carrier that sent the probe, and
+            // a history page belongs to the pager that asked. None of them is a
+            // frame the fold should ever see.
             Self::Closed { .. }
             | Self::Ready(_)
             | Self::TransportProbeResult(_)
+            | Self::Scrollback(_)
             | Self::PreHelloFrame => None,
         }
     }
+}
+
+/// One direct history read's answer, matched to its request by id because the
+/// carrier has no RPC framing (`local_terminal.proto:43`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirectScrollback {
+    /// The id the read was sent under.
+    pub request_id: String,
+    /// The page, or the worker's own refusal.
+    pub page: Result<ScrollbackCellsPage, String>,
 }
 
 /// The batch sequence one input outcome belongs to, which every arm carries.

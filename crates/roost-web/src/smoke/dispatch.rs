@@ -308,6 +308,7 @@ impl SmokeBackdoor {
                 now(perf_probe_json(frames.0, frames.1))
             }
             "scrollbackBackfillRequestCount" => now(self.panes.counters(sid).backfill_requests),
+            "directHistoryResponseCount" => now(self.panes.counters(sid).direct_history_responses),
             "terminalBrowserSnapshot" => Reply::Now(Ok(Some(self.terminal_browser_snapshot(sid)))),
             "terminalStreamProbe" => {
                 let this = Rc::clone(self);
