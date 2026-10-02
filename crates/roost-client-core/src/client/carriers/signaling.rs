@@ -14,7 +14,8 @@ use roost_protocol::terminal_peer::peer::{
 };
 
 use crate::client::carriers::faults::{
-    FaultState, answer_fault, classify_worker_reason, ready_fault, sdp_is_usable,
+    FaultState, answer_fault, classify_coordinator_refusal, classify_worker_reason, ready_fault,
+    sdp_is_usable,
 };
 use crate::client::carriers::grant::{GrantInput, GrantLifecycle, GrantSweep};
 use crate::client::carriers::loopback::LoopbackProbe;
@@ -283,7 +284,10 @@ impl Signalling {
         // fixes are claimed as such.
         let fault = match attempt_id {
             Some(_) => classify_worker_reason(reason).unwrap_or(CarrierFault::InvalidAnswer),
-            None => CarrierFault::CoordinatorUnavailable,
+            None => {
+                let held = self.grant.live_grant(self.now_ms);
+                classify_coordinator_refusal(reason, self.attempt.as_ref(), held)
+            }
         };
         self.fault(live, fault, reason)
     }
