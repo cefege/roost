@@ -18,7 +18,7 @@
 //! control lane carries the `Hello` and a carrier that had no lanes until it had
 //! already authenticated could not say anything at all.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use roost_client_core::TerminalToken;
 use roost_client_core::client::carriers::{PeerAttempt, PeerLane, ReadyTuple};
@@ -117,21 +117,6 @@ impl PeerCarrier {
         self.carrier
             .as_ref()
             .map(|carrier| carrier.connection_id.as_str())
-    }
-
-    /// Whether this carrier's grant admits a session, which is the one fact the
-    /// send path must answer rather than assume.
-    pub fn allows_session(&self, session_id: &str) -> bool {
-        self.carrier
-            .as_ref()
-            .is_some_and(|carrier| carrier.allows_session(session_id))
-    }
-
-    /// The exact sessions this carrier may carry, empty before it authenticated.
-    pub fn granted_sessions(&self) -> Option<&BTreeSet<String>> {
-        self.carrier
-            .as_ref()
-            .map(|carrier| &carrier.granted_sessions)
     }
 
     /// Queue one logical message on a lane. `Ok(false)` is backpressure, and the

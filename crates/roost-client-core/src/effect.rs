@@ -68,8 +68,10 @@ pub enum Effect {
     /// Only a worker's acknowledgement reveals the secret, so a request that
     /// returns without one is a refusal, not a pending state.
     RequestDirectGrant {
-        /// The session the grant is for.
-        session_id: String,
+        /// Every session this document wants on the worker, in ONE request: the
+        /// coordinator installs exactly the set a mint names, so a request for
+        /// one session narrows a grant a live carrier is already serving.
+        session_ids: Vec<String>,
         /// The worker whose loopback door or peer the grant opens.
         worker_fp: String,
     },

@@ -76,6 +76,12 @@ impl PeerLife {
         self.gathering_due_ms = None;
     }
 
+    /// Whether the offer is still owed: neither gathering nor its deadline has
+    /// produced it. Both can fire for one attempt, and the offer is read once.
+    pub fn gathering_pending(&self) -> bool {
+        self.gathering_due_ms.is_some()
+    }
+
     /// The control lane opened and the `Hello` went out on it.
     ///
     /// `false` when a `Hello` already went out for this attempt: the handshake is

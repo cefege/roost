@@ -48,12 +48,31 @@ pub fn stage_viewed_sessions(
     now_ms: u64,
     out: &mut Vec<Effect>,
 ) {
-    let watched: Vec<String> = store
-        .terminal
+    let granted: Vec<String> = carrier.granted_sessions.iter().cloned().collect();
+    stage_admitted_sessions(store, carrier, &granted, now_ms, out);
+}
+
+/// Begin an attempt on `carrier` for each of `sessions` this document is
+/// viewing and the carrier's grant admits.
+///
+/// The subset form is what a widened grant stages: the sessions it ADDED, and
+/// not the ones the carrier already serves, whose routes are elected.
+pub fn stage_admitted_sessions(
+    store: &mut Store,
+    carrier: &DirectCarrier,
+    sessions: &[String],
+    now_ms: u64,
+    out: &mut Vec<Effect>,
+) {
+    let watched: Vec<String> = sessions
         .iter()
-        .filter(|(session_id, _)| carrier.allows_session(session_id.as_str()))
-        .filter(|(_, replica)| publishable_views(replica).next().is_some())
-        .map(|(session_id, _)| session_id.clone())
+        .filter(|session_id| carrier.allows_session(session_id))
+        .filter(|session_id| {
+            store
+                .terminal(session_id)
+                .is_some_and(|replica| publishable_views(replica).next().is_some())
+        })
+        .cloned()
         .collect();
     for session_id in watched {
         stage_one(store, &session_id, carrier, now_ms, out);

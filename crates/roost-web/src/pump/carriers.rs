@@ -35,9 +35,6 @@ mod mint;
 pub(super) use mint::report_mint_refusal;
 pub(super) use mint::request_grant;
 
-#[cfg(target_arch = "wasm32")]
-use std::collections::BTreeSet;
-
 use roost_client_core::TerminalToken;
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::TerminalTransport;
@@ -84,18 +81,15 @@ pub(super) struct Carriers {
     doors: DoorDiscovery,
 }
 
-/// An admitted carrier: the socket, and exactly the sessions its grant named.
+/// An admitted carrier: the socket.
 ///
-/// The scope travels WITH the connection because the send path has to answer
-/// `CarrierPresence::live(admits_session)` truthfully. A host that passed
-/// `live(true)` because a socket existed would encode a command for a session
-/// the grant does not name, and the worker would refuse it after the round trip
-/// the client core spent to learn so.
+/// Its granted scope is NOT copied here. The send path asks the core's
+/// `RouteRegistry::granted_sessions_for`, the one copy a refreshed grant widens;
+/// a second copy here would keep refusing the sessions the widened grant added.
 #[cfg(target_arch = "wasm32")]
 #[derive(Debug)]
 pub(super) struct LiveCarrier {
     handle: LoopbackHandle,
-    granted: BTreeSet<String>,
 }
 
 /// A socket awaiting its `Ready`, and the grant it is spending.
@@ -116,12 +110,6 @@ impl Carriers {
     #[cfg(target_arch = "wasm32")]
     pub(super) fn doors(&mut self) -> &mut DoorDiscovery {
         &mut self.doors
-    }
-
-    /// The granted scope of the connection presenting this generation.
-    #[cfg(target_arch = "wasm32")]
-    pub(super) fn granted_for(&self, token: &TerminalToken) -> Option<&BTreeSet<String>> {
-        self.table.get(token).map(|live| &live.granted)
     }
 
     /// The socket presenting this generation.
@@ -147,10 +135,6 @@ impl Carriers {
     /// The displaced connection is closed BEFORE the new one is announced,
     /// because a worker has one authority: leaving the old socket registered
     /// beside the new one is how two connections end up writing to one PTY.
-    ///
-    /// The granted scope travels WITH the connection rather than being read back
-    /// from the grant at send time, so the scope that gates a write is the one
-    /// the worker's `Ready` earned.
     #[cfg(target_arch = "wasm32")]
     pub(super) fn admit(
         &mut self,
@@ -162,10 +146,7 @@ impl Carriers {
             key,
             handle.connection_id().to_owned(),
             connection.carrier().token.clone(),
-            LiveCarrier {
-                handle,
-                granted: connection.admission().ready_sessions.clone(),
-            },
+            LiveCarrier { handle },
         );
         self.close_displaced(displaced)
     }
@@ -263,14 +244,17 @@ pub(super) fn send(pump: &Pump, token: &TerminalToken, command: &DirectCommand) 
         send_on_peer(pump, token, command);
         return;
     }
-    // The lookup and the write happen under ONE borrow, and the borrow is
-    // released before anything is reported: a report that re-entered the pump
-    // while the table was borrowed would be a second borrow of one struct.
+    // The scope is read from the core and the lookup and the write happen under
+    // ONE borrow of the table, released before anything is reported: a report
+    // that re-entered the pump while the table was borrowed would be a second
+    // borrow of one struct.
+    #[cfg(target_arch = "wasm32")]
+    let granted = granted_scope(pump, token);
     let outcome = {
         let carriers = pump.inner.carriers.borrow_mut();
         #[cfg(target_arch = "wasm32")]
         {
-            match delivery(token, command, carriers.granted_for(token)) {
+            match delivery(token, command, granted.as_ref()) {
                 Delivery::Encoded(bytes) => {
                     let handle = carriers.handle_for(token);
                     match handle {
@@ -297,19 +281,11 @@ pub(super) fn send(pump: &Pump, token: &TerminalToken, command: &DirectCommand) 
 
 /// Write one command on the peer carrier presenting `token`.
 ///
-/// The DECISION is the core's and is the same one the loopback socket asks, so a
-/// grant that does not name the session refuses the command on either transport.
-/// What differs is the last step: a peer routes the bytes through its attempt's
-/// lane framing and the browser's channels, and the granted scope is read from
-/// the ATTEMPT rather than from the loopback table.
+/// What differs from the loopback socket is the last step: a peer routes the
+/// bytes through its attempt's lane framing and the browser's channels.
 #[cfg(target_arch = "wasm32")]
 fn send_on_peer(pump: &Pump, token: &TerminalToken, command: &DirectCommand) {
-    let granted = pump
-        .inner
-        .peer_attempts
-        .borrow()
-        .for_token(token)
-        .and_then(|carrier| carrier.granted_sessions().cloned());
+    let granted = granted_scope(pump, token);
     let outcome = match delivery(token, command, granted.as_ref()) {
         Delivery::Encoded(bytes) => match super::peer_lane::write_direct(pump, token, bytes) {
             Ok(()) => None,
@@ -322,6 +298,18 @@ fn send_on_peer(pump: &Pump, token: &TerminalToken, command: &DirectCommand) {
     if let Some(fault) = outcome {
         report_fault(pump, token, &fault);
     }
+}
+
+/// The exact sessions the carrier presenting `token` may carry, from the core.
+#[cfg(target_arch = "wasm32")]
+fn granted_scope(pump: &Pump, token: &TerminalToken) -> Option<std::collections::BTreeSet<String>> {
+    pump.inner
+        .core
+        .borrow()
+        .store()
+        .routes
+        .granted_sessions_for(token)
+        .cloned()
 }
 
 /// The fault a generation nothing is presenting becomes.

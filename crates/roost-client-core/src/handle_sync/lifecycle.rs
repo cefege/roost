@@ -16,6 +16,8 @@ use crate::sync::SYNC_AUTH_REVOKED_CLOSE_CODE;
 use crate::sync::redial::{
     SYNC_STALE_TIMEOUT_MS, SyncLinkLiveness, should_close_stale_link_on_resume,
 };
+use crate::terminal::liveness::RepairOutcome;
+use crate::terminal::token::TerminalTransport;
 
 use super::hydration::{request_link_replacement, start_bootstrap_probe, sweep_hydrations};
 
@@ -68,6 +70,7 @@ pub(crate) fn on_link_closed(
     }
     store.note_change();
     store.sync.hydrations.clear_for_new_socket();
+    release_sync_generation(store, generation);
     if store.sync.auth_revoked {
         tracing::error!(target: "sync", generation, "sync credential revoked; not redialing");
         mark_browser_device_rejected(store, "sync_4001");
@@ -92,6 +95,35 @@ pub(crate) fn on_link_closed(
         parked = status.hidden_parked,
         "sync link closed; redial scheduled"
     );
+}
+
+/// Unbind every replica fenced to the Sync socket that just closed.
+///
+/// v2 retargets each session to the current Sync state when the socket goes,
+/// and with no state that token is null: the grid stays painted but no carrier
+/// is confirmed for it, so the header reads Waiting until the next link binds it
+/// (`terminal-stream-retarget.ts` `retargetSession`). A replica on a direct
+/// route holds the direct token and is untouched.
+fn release_sync_generation(store: &mut Store, generation: u64) {
+    let mut released = 0_usize;
+    for replica in store.terminal.values_mut() {
+        let fenced_here = replica.generation().is_some_and(|token| {
+            token.transport == TerminalTransport::Sync && token.socket_generation == generation
+        });
+        if fenced_here {
+            let _ = replica.release_generation();
+            replica.retire_liveness(RepairOutcome::GenerationReset);
+            released += 1;
+        }
+    }
+    if released > 0 {
+        tracing::info!(
+            target: "terminal",
+            generation,
+            released,
+            "sync link closed; the replicas fenced to it confirm no carrier"
+        );
+    }
 }
 
 /// The per-sweep Sync duties: the due redial, the stale watchdog, hydration

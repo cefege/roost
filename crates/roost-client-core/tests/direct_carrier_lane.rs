@@ -55,7 +55,7 @@ fn a_view_on_a_worker_asks_for_a_direct_grant() {
     let effects = core.handle(opened());
     assert!(
         effects.contains(&Effect::RequestDirectGrant {
-            session_id: SESSION.to_owned(),
+            session_ids: vec![SESSION.to_owned()],
             worker_fp: WORKER.to_owned(),
         }),
         "a demanded session must reach the coordinator; got {effects:?}"
@@ -111,6 +111,56 @@ fn a_page_elsewhere_releases_one_peer_for_the_worker() {
         "a live credential for a peer-capable worker opens exactly one attempt; got {effects:?}"
     );
     assert_eq!(core.store().direct.phase(WORKER), PeerPhase::Gathering);
+}
+
+/// Two workers' peers are two attempts, never one id twice.
+///
+/// The host keys every open peer by its attempt id, so a second worker's first
+/// attempt reusing the first worker's id displaces — and closes — a peer that is
+/// serving routes. The ids are the document's, not each worker's.
+#[test]
+fn peers_to_two_workers_open_under_distinct_attempt_ids() {
+    const OTHER_WORKER: &str = "worker-b";
+    let mut core = core();
+    core.set_carrier_environment(true, 0);
+    let mut effects = Vec::new();
+    for (worker, session, view) in [
+        (WORKER, SESSION, VIEW),
+        (OTHER_WORKER, "session-b", "view-2"),
+    ] {
+        effects.extend(core.handle(ClientEvent::ViewOpened {
+            session_id: session.to_owned(),
+            worker_fp: worker.to_owned(),
+            view_id: view.to_owned(),
+            cols: 80,
+            rows: 24,
+        }));
+        effects.extend(core.handle(ClientEvent::LocalDoorAnswered {
+            worker_fp: worker.to_owned(),
+            serving_worker_fp: String::new(),
+        }));
+        let mut minted = grant();
+        minted.worker_fp = worker.to_owned();
+        minted.session_ids = std::collections::BTreeSet::from([session.to_owned()]);
+        effects.extend(core.handle(ClientEvent::DirectGrantMinted { grant: minted }));
+    }
+    let opened: Vec<(String, u64)> = effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Carrier(inner) => match &**inner {
+                CarrierEffect::OpenTransport { attempt } => {
+                    Some((attempt.worker_fp.clone(), attempt.attempt_id))
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert_eq!(opened.len(), 2, "one peer per worker; got {effects:?}");
+    assert_ne!(
+        opened[0].1, opened[1].1,
+        "two workers' attempts must not share an id; got {opened:?}"
+    );
 }
 
 /// Closing the last view is what stops the asking. A machine that keeps

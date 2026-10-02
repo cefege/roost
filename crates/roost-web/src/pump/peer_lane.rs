@@ -193,22 +193,20 @@ where
     };
     let now_ms = pump.inner.core.borrow().clock().now_ms();
     let delay = i32::try_from(at_ms.saturating_sub(now_ms)).unwrap_or(i32::MAX);
-    // One shared handle and one `Closure::once` per worker: `Closure::once` takes
-    // its capture by value, so a single closure moved through the loop would
-    // fire for whichever worker the loop reached last.
+    // One shared handle and one self-freeing closure per worker. A
+    // `Closure::once` dropped at the end of this loop is freed before the timer
+    // fires, and the browser then throws "closure invoked after being dropped"
+    // instead of delivering the retry — so every fault's cooldown never ended.
     let deliver = Rc::new(deliver);
     for worker_fp in workers {
         let reported = worker_fp.clone();
-        let timer = Closure::once({
+        let timer = Closure::once_into_js({
             let pump = pump.clone();
             let deliver = Rc::clone(&deliver);
             move || deliver(&pump, reported)
         });
         if window
-            .set_timeout_with_callback_and_timeout_and_arguments_0(
-                timer.as_ref().unchecked_ref(),
-                delay,
-            )
+            .set_timeout_with_callback_and_timeout_and_arguments_0(timer.unchecked_ref(), delay)
             .is_err()
         {
             tracing::warn!(

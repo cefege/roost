@@ -18,8 +18,8 @@ use roost_client_core::client::carriers::{
     SignallingInput,
 };
 use terminal_peer_fallback_support::{
-    GRANT_TTL_MS, NOW, assert_fell_back_without_reopening_the_session, authenticating, demand,
-    faults, grant, machine, peer_open, ready_with, unreadable_sdp,
+    FIRST_PEER_ID, GRANT_TTL_MS, NOW, assert_fell_back_without_reopening_the_session,
+    authenticating, demand, faults, grant, machine, peer_open, ready_with, unreadable_sdp,
 };
 
 #[test]
@@ -27,6 +27,7 @@ fn an_invalid_offer_keeps_the_grant_and_falls_back_to_sync() {
     let (mut peer, attempt_id) = peer_open();
     let effects = peer.step(SignallingInput::OfferReady {
         attempt_id,
+        peer_id: FIRST_PEER_ID.to_string(),
         offer_sdp: unreadable_sdp(),
     });
     assert_eq!(faults(&effects), vec![CarrierFault::InvalidOffer]);
