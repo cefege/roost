@@ -179,6 +179,9 @@ pub fn GatedApp() -> Element {
     rsx! {
         {gated}
         crate::components::pairing::PairSurface {}
+        // Last, so a portaled fixed box stacks above every surface rendered
+        // before it at the same z-index, as v2's `<body>` children do.
+        crate::components::layout::portal::PortalRoot {}
     }
 }
 

@@ -15,6 +15,7 @@ use roost_client_core::store::terminal_nav_pad::terminal_nav_pad_open;
 
 use super::pane_handle::PaneHandle;
 use super::pane_state::PaneUi;
+use crate::components::layout::portal::Portal;
 use crate::components::md::{Button, ButtonSize, ButtonVariant, Icon, IconButton, IconButtonSize};
 use crate::pump::Pump;
 
@@ -106,28 +107,30 @@ pub fn TerminalNavPad(
     };
 
     rsx! {
-        if open {
-            div {
-                class: "term-nav",
-                "data-testid": "terminal-nav-buttons",
+        Portal {
+            if open {
                 div {
-                    class: "term-nav__grid",
-                    for cell in cells {
-                        {key_cell(cell)}
+                    class: "term-nav",
+                    "data-testid": "terminal-nav-buttons",
+                    div {
+                        class: "term-nav__grid",
+                        for cell in cells {
+                            {key_cell(cell)}
+                        }
                     }
                 }
             }
-        }
-        IconButton {
-            icon: toggle_icon(open),
-            label: toggle_label(open),
-            variant: ButtonVariant::Ghost,
-            size: IconButtonSize::IconLg,
-            class: Some("term-nav-toggle".to_owned()),
-            "data-testid": "terminal-nav-toggle",
-            "data-open": if open { "true" } else { "false" },
-            onmousedown: keep_focus,
-            onclick: toggle,
+            IconButton {
+                icon: toggle_icon(open),
+                label: toggle_label(open),
+                variant: ButtonVariant::Ghost,
+                size: IconButtonSize::IconLg,
+                class: Some("term-nav-toggle".to_owned()),
+                "data-testid": "terminal-nav-toggle",
+                "data-open": if open { "true" } else { "false" },
+                onmousedown: keep_focus,
+                onclick: toggle,
+            }
         }
     }
 }
