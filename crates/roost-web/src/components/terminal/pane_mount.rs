@@ -37,6 +37,7 @@ use super::offline_watch::OfflineWatch;
 use super::pane_registry::PaneRegistry;
 use super::pane_state::{PaneFlags, PaneUi};
 use super::viewport_publication::ViewportPublication;
+use crate::platform::browser::phase_marks::{PhaseName, mark_session_phase};
 use crate::pump::Pump;
 
 pub use actions::PaneAction;
@@ -258,6 +259,7 @@ impl PaneMount {
         tracing::debug!(target: "terminal", session_id = %shared.session_id, ?poll_due, "cursor poll registered");
         tracing::info!(target: "terminal", session_id = %shared.session_id,
             view_id = %shared.view_id, "terminal_mount");
+        mark_session_phase(PhaseName::TerminalMount, &shared.session_id);
         let mount = Self { shared };
         mount.set_flags(init.flags);
         mount.sync_store();

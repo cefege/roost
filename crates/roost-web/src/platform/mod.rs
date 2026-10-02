@@ -20,6 +20,7 @@
 //! ceremony that needs a secret rather than filling one from `Math.random`,
 //! which is guessable from four earlier draws.
 
+pub mod browser;
 pub mod browser_platform;
 pub mod carrier;
 pub mod carriers;

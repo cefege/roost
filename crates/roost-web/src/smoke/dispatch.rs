@@ -10,8 +10,7 @@ use std::rc::Rc;
 
 use roost_client_core::ClientEvent;
 use roost_client_core::store::sync_smoke::{
-    TransportControl, arm_terminal_blackhole, arm_terminal_wire_delta_drop,
-    ready_terminal_generation, sync_redial_report,
+    TransportControl, arm_terminal_blackhole, arm_terminal_wire_delta_drop, sync_redial_report,
 };
 use roost_web_terminal::MAX_HELD_SCROLLBACK_ROWS;
 use serde_json::{Value, json};
@@ -22,11 +21,14 @@ use super::dom;
 use super::harness::{run_flow, run_render_stress};
 use super::marker_scan::scan_painted_rows;
 use super::paint_wait::{
-    begin_timing, finish_timing, next_frame, wait_for_painted_cursor, wait_for_painted_marker,
+    begin_timing, finish_timing, wait_for_painted_cursor, wait_for_painted_marker,
 };
+use super::perf_probe::perf_probe_json;
 use super::state_snapshot::{
     paint_presentation_json, painted_rows_json, redial_status_json, state_json,
 };
+use crate::platform::browser::perf_counters::{PerfCounters, with_perf_counters};
+use crate::platform::browser::phase_marks::phase_timeline;
 
 fn now<T: serde::Serialize>(value: T) -> Reply {
     Reply::Now(
@@ -243,6 +245,11 @@ impl SmokeBackdoor {
                 self.pump.core().borrow().store(),
             ))),
             "syncWsGeneration" => now(self.pump.sync_dial_count()),
+            "phaseTimeline" => now(phase_timeline()),
+            "resetPerfCounters" => {
+                with_perf_counters(PerfCounters::reset);
+                done()
+            }
             "cleanupCreated" => {
                 let this = Rc::clone(self);
                 Reply::Later(Box::pin(async move {
@@ -285,6 +292,21 @@ impl SmokeBackdoor {
                 json!(-1),
             ),
             "cellGridEpoch" => counts(|counts| counts.grid_epoch().into(), json!("")),
+            "perfProbe" => {
+                let frames =
+                    self.pump
+                        .core()
+                        .borrow()
+                        .store()
+                        .terminal(sid)
+                        .map_or((0, 0), |replica| {
+                            (
+                                replica.frame_counts.frames(),
+                                replica.frame_counts.full_frames(),
+                            )
+                        });
+                now(perf_probe_json(frames.0, frames.1))
+            }
             "scrollbackBackfillRequestCount" => now(self.panes.counters(sid).backfill_requests),
             "terminalBrowserSnapshot" => Reply::Now(Ok(Some(self.terminal_browser_snapshot(sid)))),
             "terminalStreamProbe" => {
@@ -333,52 +355,6 @@ impl SmokeBackdoor {
             }
             other => Reply::Now(Err(format!("__smoke.{other} is not a session member"))),
         }
-    }
-
-    /// `holdTerminalDomForCurrentGeneration`: freeze the pane, then check every
-    /// frame whether its renderer or generation retired the hold.
-    fn hold_terminal_dom(self: &Rc<Self>, session_id: &str) -> Result<(), String> {
-        let generation = ready_terminal_generation(self.pump.core().borrow().store());
-        let mount_id = self.panes.mount_id(session_id);
-        if self
-            .holds
-            .borrow_mut()
-            .release_if_stale(session_id, mount_id, generation.as_ref())
-        {
-            self.panes.set_dom_hold(session_id, false);
-        }
-        let hold = self
-            .holds
-            .borrow_mut()
-            .arm(session_id, generation, mount_id)?;
-        if !self.panes.set_dom_hold(session_id, true) {
-            self.holds.borrow_mut().release(session_id);
-            return Err(format!(
-                "terminal renderer DOM methods are unavailable: {session_id}"
-            ));
-        }
-        let this = Rc::clone(self);
-        let session = session_id.to_owned();
-        wasm_bindgen_futures::spawn_local(async move {
-            loop {
-                next_frame().await;
-                if !this.holds.borrow().holds(&session, &hold) {
-                    return;
-                }
-                let mount_id = this.panes.mount_id(&session);
-                let generation = ready_terminal_generation(this.pump.core().borrow().store());
-                let stale = this.holds.borrow_mut().release_if_stale(
-                    &session,
-                    mount_id,
-                    generation.as_ref(),
-                );
-                if stale {
-                    this.panes.set_dom_hold(&session, false);
-                    return;
-                }
-            }
-        });
-        Ok(())
     }
 }
 
