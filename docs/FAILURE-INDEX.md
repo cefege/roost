@@ -3545,3 +3545,28 @@ feature, not a half-working one.
 the page) and `closing_the_editor_takes_it_off_the_page`. The real-flow oracle is
 `smoke/terminal/command-palette.spec.ts:81`, which presses the row by keyboard and reads the
 prefill back.
+
+---
+
+### A reopened pane stays on Sync beside a live loopback carrier that already admits its session
+
+**Symptom** — after a layout apply or a navigation takes a pane away and gives it back, its session
+reads `activeKind: "sync"`, `peerPhase: "idle"`, `candidateKind: null` for as long as anyone waits,
+while the same worker's loopback carrier is live and its grant still names that session. Nothing
+logs an error: no grant is minted, no carrier dials, nothing is staged. `terminal-peer-perf.spec.ts:7`
+fails intermittently in its loopback scenario with "direct route unavailable".
+
+**Wrong** — waiting for a grant refresh to restage it. The refresh never comes: the grant already
+covers the session (`covers_demand`), so no mint is requested and no carrier widens, and
+`handle_view_opened` only restaged a session that still had a staging candidate — the one the
+navigation abandoned when it took the pane away.
+
+**Right** — when a pane opens, stage its session on the live carrier that already admits it unless
+that carrier already holds the session's route (`stage_opened_session` in
+`crates/roost-client-core/src/handle_terminal/carriers.rs`; v2 `terminal-peer.ts` handleDemand →
+stageCurrentConnection). A loopback route is never traded for a peer.
+
+**Guard** — `crates/roost-client-core/tests/direct_carrier_staging.rs`:
+`a_pane_opening_for_an_admitted_session_stages_it_on_the_live_carrier` (failed before the fix) and
+`a_second_pane_of_an_elected_session_does_not_stage_it_again`. The real-flow oracle is
+`smoke/terminal/terminal-peer-perf.spec.ts:7` (chromium-serial).
