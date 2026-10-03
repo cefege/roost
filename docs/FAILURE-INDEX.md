@@ -3710,3 +3710,23 @@ only glibc's own libraries, and the one build starts on AlmaLinux 9 (glibc 2.34)
 lack". It refuses a Linux binary with a NEEDED entry outside glibc and the gcc runtime, or a `GLIBC_`
 version above its row's floor. It refuses a macOS binary that links anything outside `/usr/lib` and
 `/System/Library`.
+
+### Every `roost` command on a Mac fails with "unsupported host platform: macos"
+
+**Symptom** — on macOS, `roost quickstart`, `roost worker`, `roost add-machine` and the rest print
+`{"cmd":"…","error":"host.platform: unsupported host platform: unsupported host platform: macos"}` and stop.
+Linux is unaffected. In CI: `worker_subcommand_boot.rs`
+`the_worker_subcommand_boots_instead_of_refusing_to_share_a_runtime` fails on the macOS leg only.
+
+**Wrong** — resolving the running host by parsing `std::env::consts::OS` with `HostPlatform::parse`. `parse`
+reads the WIRE names, which follow Node's `process.platform`: `darwin`, `linux`, `win32`. Rust's std spells
+macOS `macos`. The two vocabularies agree only on `linux`, so the parse worked on every Linux test host and
+refused every Mac.
+
+**Right** — `roost_host::supported_host_platform` takes the build target from `HostPlatform::current()`
+(`cfg!(target_os)`), which cannot disagree with the binary it runs in. `HostPlatform::parse` stays the
+reader for a name that arrives as data: a registry column, a deploy manifest, a wire field.
+
+**Guard** — `crates/roost-cli/tests/worker_subcommand_boot.rs` on ci.yml's `macos-latest` leg. The real
+flow is the `aarch64-apple-darwin` release binary: `roost quickstart --dry-run` on a Mac must print a plan,
+not this refusal.

@@ -89,18 +89,17 @@ impl EnvSource for MapEnv {
 
 /// The host this process is running on, or a refusal with a reason.
 ///
-/// This is the one entry point from a raw `os` string to a [`HostPlatform`],
-/// and it composes two questions the product answers separately:
-/// `HostPlatform::parse` owns "is this a platform we have a name for", and
-/// this adds "is it a platform v3 runs on". Windows has a name and is still
-/// refused: v3 ships Linux and macOS only, so a Windows host must fail at boot
-/// with a clear reason instead of writing into a layout no v3 release installs.
+/// The platform is the build target's ([`HostPlatform::current`]), never a parse
+/// of `std::env::consts::OS`: Rust names macOS `macos` where the wire name
+/// [`HostPlatform::parse`] reads is `darwin`, and that parse refused every Mac
+/// at boot. Windows is a target the product names and still refuses: v3 ships
+/// Linux and macOS only, so a Windows host must fail at boot with a clear
+/// reason instead of writing into a layout no v3 release installs.
 pub fn supported_host_platform() -> ProtocolResult<HostPlatform> {
-    let os = std::env::consts::OS;
-    let platform = HostPlatform::parse(os).map_err(|error| {
+    let platform = HostPlatform::current().ok_or_else(|| {
         ProtocolError::new(
             "host.platform",
-            format!("unsupported host platform: {error}"),
+            format!("unsupported host platform: {}", std::env::consts::OS),
         )
     })?;
     if platform == HostPlatform::Windows {
