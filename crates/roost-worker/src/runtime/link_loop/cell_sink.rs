@@ -302,8 +302,14 @@ impl LinkLoop {
         self.cell_sink.as_ref()
     }
 
-    /// Move the cell sink's held frames onto this link's terminal lane.
+    /// Move the cell sink's held frames onto this link's terminal lane, once
+    /// every frame already waiting in the uplink is admitted: the biased select
+    /// serves the cell wake first, and a baseline written ahead of the view
+    /// decision announcing its stream is one the coordinator drops.
     pub fn move_cell_frames_into(&mut self) -> usize {
+        while let Some(frame) = self.uplink.try_recv() {
+            crate::runtime::link_drain::admit_uplink(self, frame);
+        }
         let Some(sink) = self.cell_sink.clone() else {
             return 0;
         };

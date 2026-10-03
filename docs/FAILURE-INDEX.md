@@ -3655,3 +3655,32 @@ the watch, so either cause stops the keeper, which reaps its channels as every s
 `a_deleted_socket_stops_a_keeper_waiting_for_a_worker` and
 `a_deleted_socket_ends_the_connection_being_served`. Real flow: no `roost-keeper` naming a test root
 outlives a spec run; `stopKeeper` stops each one, and the 30 s check is the backstop.
+
+---
+
+### A worker link writes a reopened view's baseline ahead of the view-state that announces it
+
+**Symptom** — a terminal reopened at the size it already had (back from a file preview, a re-reveal)
+keeps its old screen until something prints. The browser logs `expecting a fresh baseline` and nothing
+after it, the coordinator's `terminal_screen` is absent from `__smoke.terminalStreamProbe`, and the first
+output afterwards logs `terminal.screen_resync` with "terminal delta arrived before a complete
+baseline". In the oracle: `composer-mobile-keyboard.spec.ts:9` failing about 3 runs in 20 with
+"terminal stream probe omitted a current worker/coordinator sequence".
+
+**Wrong** — letting the link drain move the cell sink's frames onto the Terminal lane without first
+admitting what the uplink already holds. The worker's view owner hands the uplink its view decision
+(`TerminalViewState`) BEFORE it installs the new stream's baseline, but `link_serve`'s select is
+`biased` with the cell wake ahead of `uplink.recv()`, so a drain the baseline woke wrote the cells while
+the decision still sat in the channel. The coordinator's replica folds a full only against the stream it
+was told to expect (`replica_admission.rs::accept_full` returns on a mismatch without a word), so the
+baseline was dropped and the replica waited for its 10 s first-byte deadline or a delta's repair. A
+geometry change hid it: the keeper resize took long enough for the select to serve the uplink first.
+
+**Right** — cells enter the outbox only after every frame the uplink already holds:
+`LinkLoop::move_cell_frames_into` admits `uplink.try_recv()` through `admit_uplink` before it moves
+the cells, and the Control lane drains ahead of Terminal, so the wire order is the producer's order. v2
+wrote both through at once, in call order.
+
+**Guard** — `crates/roost-worker/src/runtime/link_loop/durable/tests.rs`:
+`a_view_decision_queued_before_its_baseline_leaves_ahead_of_it`. Real flow:
+`composer-mobile-keyboard.spec.ts:9 --repeat 20`.

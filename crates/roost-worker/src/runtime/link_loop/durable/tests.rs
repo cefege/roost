@@ -1,9 +1,9 @@
-//! The two link-level rules the store cannot enforce for itself: that a
-//! session's `opened` is offered to the coordinator before that session's
-//! first cells, and that an un-acknowledged row is still waiting after the
-//! link that wrote it is gone.
-//! Both need the barrier and the authorisation slot, and neither is
-//! reachable from outside the crate.
+//! The link-level ordering rules the store and the lanes cannot enforce for
+//! themselves: that a session's `opened` is offered to the coordinator before
+//! that session's first cells, that a view decision leaves ahead of the
+//! baseline it announces, and that an un-acknowledged row is still waiting
+//! after the link that wrote it is gone. All three need the barrier, the
+//! authorisation slot or the lanes, and none is reachable from outside the crate.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::*;
@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use roost_protocol::cell::types::{CellGridFrame, CellRow, MouseTracking};
 use roost_protocol::wire::brand::{ChannelId, SessionId, WorkerFp};
+use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 use roost_protocol::wire::event::SessionEvent;
 use roost_protocol::wire::session::SessionKind;
 
@@ -88,6 +89,10 @@ impl CredentialSource for FixedCredential {
 }
 
 fn link_for_test() -> LinkLoop {
+    link_over(crate::uplink::channel().1)
+}
+
+fn link_over(uplink: crate::uplink::UplinkReceiver) -> LinkLoop {
     let endpoint =
         CoordinatorEndpoint::new("http://127.0.0.1:1", FINGERPRINT).expect("a usable endpoint");
     LinkLoop::new(
@@ -101,7 +106,7 @@ fn link_for_test() -> LinkLoop {
         std::sync::Arc::new(FixedSnapshot),
         std::sync::Arc::new(FixedCredential),
         BrowserLink::detached(),
-        crate::uplink::channel().1,
+        uplink,
     )
 }
 
@@ -271,6 +276,46 @@ async fn an_opened_event_is_offered_before_that_sessions_first_cells() {
     assert!(
         matches!(link.authorised, Some(Authorised::Snapshot(_))),
         "the snapshot did not take the slot the durable write had"
+    );
+}
+
+/// A view decision handed to the uplink before the baseline it announces is
+/// queued leaves ahead of that baseline. The link's biased select serves the
+/// cell wake before the uplink, so the drain the baseline woke must admit the
+/// decision itself: the coordinator drops a baseline for a stream it has not
+/// yet been told to expect, and serves nothing until a later delta.
+#[test]
+fn a_view_decision_queued_before_its_baseline_leaves_ahead_of_it() {
+    let (uplink, receiver) = crate::uplink::channel();
+    let mut link = link_over(receiver);
+    let sink = std::sync::Arc::new(CoordinatorCellSink::new(std::sync::Arc::new(ProtoLinkWire)));
+    sink.set_attached(true);
+    link.attach_cell_sink(std::sync::Arc::clone(&sink));
+
+    assert!(uplink.send(CoordWorkerUpstream::TerminalViewState(
+        roost_proto::WTerminalViewState {
+            socket_id: "coordinator-socket".to_owned(),
+            ..Default::default()
+        }
+    )));
+    assert_eq!(
+        sink.send_frame(
+            ChannelId::try_from(1_i64).unwrap(),
+            &full_frame(),
+            timings()
+        ),
+        CellSinkResult::Sent
+    );
+
+    assert_eq!(link.move_cell_frames_into(), 1);
+    let now = std::time::Instant::now();
+    let written: Vec<Lane> = std::iter::from_fn(|| link.outbox.drain_one(now))
+        .map(|frame| frame.lane)
+        .collect();
+    assert_eq!(
+        written,
+        vec![Lane::Control, Lane::Terminal],
+        "the baseline left ahead of the view decision that announces its stream"
     );
 }
 
