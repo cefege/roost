@@ -165,7 +165,7 @@ test("unavailable direct carriers fall back before sequence zero", async ({ brow
     await chooseAttachment(page, sessionId, { name: filename, mimeType: "application/octet-stream", buffer: bytes });
     await expectStoredBytes(stack, sessionId, filename, bytes);
     expect(requests.grant).toBe(0);
-    expect(requests.relay).toBeGreaterThan(0);
+    await expect.poll(() => requests.relay).toBeGreaterThan(0);
   } finally {
     await stopStack(stack, enrolled, testInfo);
   }
