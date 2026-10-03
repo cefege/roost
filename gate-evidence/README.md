@@ -9,7 +9,10 @@ published figure. A figure with no run behind it is not a figure, and a
 `jsonPath`s pointing at the files beside it) and its `-main`/`-serial` reports.
 `bun smoke/parity/run.ts verdict <rust.run.json> parity/bun-<sha>.run.json`
 reads them directly. **Current Bun baseline: `bun-d5bd76c7`** — main 141 / 1 / 3,
-serial 15 / 0 / 3 (passed / failed / skipped).
+serial 15 / 0 / 3 (passed / failed / skipped). **Current Rust final gate:
+`rust-c1310f27`** — main 142 / 0 / 3, serial 15 / 0 / 3; against `bun-d5bd76c7`, gap 0,
+rust-skip-only 0, both-skip 6. The flakes it does not settle are recorded in
+`docs/v3-gate-baselines.md` under "All-Rust oracle runs, watched".
 
 **Current: `a86bc6d4` — 404 passed / 0 failed / 0 ignored, twice.**
 `gate-run-A-a86bc6d4.log` and `gate-run-B-a86bc6d4.log`. The five added tests are

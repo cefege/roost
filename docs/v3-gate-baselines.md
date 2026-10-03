@@ -2138,6 +2138,19 @@ skipped.
 |2026-10-01|Rust, serial|`bun smoke/parity/run.ts suite --stack rust --pass serial --label phase0-serial-check`|pin `1f1b6096`+dirty, `roost` `1fa72d84…`, `roost-web-dxhe0dd67381eea45f.js`|`test-results/parity/rust-phase0-serial-check.run.json`|5 / 9 / 4|
 |2026-10-01 18:11|Rust, both|`bun smoke/parity/run.ts suite --stack rust --pass both --label landed`|`pin d5bd76c752b0 roost=541e9422dbf7 keeper=86d50b2fcfff web=roost-web-dxh1341e6fcbbd04976.js,roost-web_bg-dxhe57c31864ed24bbf.wasm features=[] web-features=[smoke]`|`test-results/parity/rust-landed.run.json`|main 77 / 40 / 28 (864 s); serial 5 / 9 / 4 (460 s)|
 |2026-10-01 18:33|**Bun** (all-TS), both|`bun smoke/parity/run.ts suite --stack bun --pass both --label baseline`|source `d5bd76c7`, clean|`gate-evidence/parity/bun-d5bd76c7.run.json`|main 141 / 1 / 3 (615 s); serial 15 / 0 / 3 (1440 s) — the 1 is `terminal-frame-repair.spec.ts:151`|
+|2026-10-02 03:58|Rust, main|`bun smoke/parity/run.ts suite --stack rust --pass main --label mid1 --allow-stale`|`pin 581c1b41 roost=f04a3b68828c keeper=86d50b2fcfff web=roost-web-dxh20fe6c4eb777d945.js,roost-web_bg-dxhccec88e997eba05d.wasm features=[] web-features=[smoke]`|`test-results/parity/rust-mid1.run.json`|main 100 / 17 / 28 (647 s); verdict gap 17, both-red 0, rust-skip-only 25, both-skip 3, green 100|
+|2026-10-02 07:02|Rust, main|`bun smoke/parity/run.ts suite --stack rust --pass main --label mid2`|`pin 89d9a730 roost=4240676b41ec keeper=86d50b2fcfff web=roost-web-dxh3a94f2b69a34745d.js,roost-web_bg-dxhe166ff5825931da2.wasm features=[] web-features=[smoke]`|`test-results/parity/rust-mid2.run.json`|main 103 / 14 / 28 (654 s); verdict gap 14, both-red 0, rust-skip-only 25, both-skip 3, green 103|
+|2026-10-02 07:18|Rust, serial|`bun smoke/parity/run.ts suite --stack rust --pass serial --label mid2s`|`pin 89d9a730 roost=4240676b41ec keeper=86d50b2fcfff web=roost-web-dxh3a94f2b69a34745d.js,roost-web_bg-dxhe166ff5825931da2.wasm features=[] web-features=[smoke]`|`test-results/parity/rust-mid2s.run.json`|serial 10 / 4 / 4 (255 s)|
+|2026-10-02 10:09|Rust, main|`bun smoke/parity/run.ts suite --stack rust --pass main --label mid3`|`pin de0372bf roost=509b0ffe373a keeper=11c5d0cd57c0 web=roost-web-dxh3beae81f5f66bfe1.js,roost-web_bg-dxhd94b34d2233a26bc.wasm features=[] web-features=[smoke]`|`test-results/parity/rust-mid3.run.json`|main 110 / 7 / 28 (620 s); verdict gap 7, both-red 0, rust-skip-only 25, both-skip 3, green 110|
+|2026-10-02 10:26|Rust, serial|`bun smoke/parity/run.ts suite --stack rust --pass serial --label mid3s`|`pin de0372bf roost=509b0ffe373a keeper=11c5d0cd57c0 web=roost-web-dxh3beae81f5f66bfe1.js,roost-web_bg-dxhd94b34d2233a26bc.wasm features=[] web-features=[smoke]`|`test-results/parity/rust-mid3s.run.json`|serial 11 / 3 / 4 (218 s) — `perf.spec.ts:298` chromium-serial, `perf.spec.ts:302` chromium-serial, `terminal-peer-perf.spec.ts:7` chromium-serial|
+|2026-10-02 15:29|Rust, both|`roost-box exclusive bun smoke/parity/run.ts suite --stack rust --pass both --label mid4`|`pin f9abaa7c roost=4611dfb093bd keeper=11c5d0cd57c0 web=roost-web-dxhad804e96c61a47.js,roost-web_bg-dxhdfee8d40584dea.wasm features=[smoke] web-features=[smoke] profile=release`|`test-results/parity/rust-mid4.run.json`|main 141 / 1 / 3 (959 s) — `terminal-peer-failover.spec.ts:377` firefox-peer; serial 15 / 0 / 3 (1669 s); verdict gap 1, both-red 0, rust-skip-only 0, both-skip 6, green 156|
+|2026-10-02 16:57|Rust, both|`roost-box exclusive bun smoke/parity/run.ts suite --stack rust --pass both --label final`|`pin e03378e5 roost=2807354fd57a keeper=11c5d0cd57c0 web=roost-web-dxhd79426d9bcff20ad.js,roost-web_bg-dxh84b943565f9daa8a.wasm features=[smoke] web-features=[smoke] profile=release`|`test-results/parity/rust-final-e03378e5.run.json`|main 142 / 0 / 3 (926 s); serial 14 / 1 / 3 (995 s) — `terminal-peer-perf.spec.ts:7` chromium-serial; verdict gap 1, both-red 0, rust-skip-only 0, both-skip 6, green 156|
+|2026-10-02 19:40|Rust, both|`bun smoke/parity/run.ts suite --stack rust --pass both --label final`|`pin 8024b50e roost=2807354fd57a keeper=11c5d0cd57c0 web=roost-web-dxhfc61a8adacb99c64.js,roost-web_bg-dxh913888b286ca7656.wasm features=[smoke] web-features=[smoke] profile=release`|`test-results/parity/rust-final-8024b50e.run.json`|main 141 / 1 / 3 (987 s) — `terminal-delivery.spec.ts:130` chromium-desktop; serial 15 / 0 / 3 (1650 s); verdict gap 1, both-red 0, rust-skip-only 0, both-skip 6, green 156|
+|2026-10-02 21:34|Rust, both|`roost-box exclusive bun smoke/parity/run.ts suite --stack rust --pass both --label final`|`pin d0548f47 roost=2807354fd57a keeper=11c5d0cd57c0 web=roost-web-dxhfbeb43de13f46d51.js,roost-web_bg-dxh367b338c8ab49711.wasm features=[smoke] web-features=[smoke] profile=release`|`test-results/parity/rust-final-d0548f47.run.json`|main 140 / 2 / 3 (848 s) — `terminal-frame-repair.spec.ts:151` chromium-desktop, `terminal-peer.spec.ts:97` firefox-peer; serial 15 / 0 / 3 (1543 s); verdict gap 1, both-red 1, rust-skip-only 0, both-skip 6, green 155|
+|2026-10-02 23:08|Rust, both|`roost-box exclusive bun smoke/parity/run.ts suite --stack rust --pass both --label final`|`pin c1310f27 roost=2807354fd57a keeper=11c5d0cd57c0 web=roost-web-dxh3e76822d50a37990.js,roost-web_bg-dxh3d4d50ae4326443.wasm features=[smoke] web-features=[smoke] profile=release`|`test-results/parity/rust-final-c1310f27-run1.run.json`|main 141 / 1 / 3 (824 s) — `composer-mobile-keyboard.spec.ts:9` chromium-desktop; serial 15 / 0 / 3 (1412 s); verdict gap 1, both-red 0, rust-skip-only 0, both-skip 6, green 156|
+|2026-10-03 00:05|Rust, both|`roost-box exclusive bun smoke/parity/run.ts suite --stack rust --pass both --label final`|`pin c1310f27 roost=2807354fd57a keeper=11c5d0cd57c0 web=roost-web-dxh3e76822d50a37990.js,roost-web_bg-dxh3d4d50ae4326443.wasm features=[smoke] web-features=[smoke] profile=release`|`test-results/parity/rust-final-c1310f27-run2.run.json`|main 141 / 1 / 3 (845 s) — `attachment-direct.spec.ts:149` chromium-desktop; serial 15 / 0 / 3 (1464 s); verdict gap 1, both-red 0, rust-skip-only 0, both-skip 6, green 156|
+|2026-10-03 00:49|Rust, both, production-shape `roost`|`roost-box exclusive bun smoke/parity/run.ts suite --stack rust --pass both --label plain`, after `run.ts build --plain --no-web`|`pin c1310f27 roost=a970046c2bba keeper=11c5d0cd57c0 web=roost-web-dxh3e76822d50a37990.js,roost-web_bg-dxh3d4d50ae4326443.wasm features=[] web-features=[smoke] profile=release`|`test-results/parity/rust-plain.run.json`|main 116 / 1 / 28 (461 s) — `composer-mobile-keyboard.spec.ts:9` chromium-desktop; serial 14 / 0 / 4 (1462 s) — every extra skip carries the packaged-worker fault-controls reason|
+|2026-10-03 01:34|Rust, both|`roost-box exclusive bun smoke/parity/run.ts suite --stack rust --pass both --label final`|`pin c1310f27 roost=2807354fd57a keeper=11c5d0cd57c0 web=roost-web-dxh3e76822d50a37990.js,roost-web_bg-dxh3d4d50ae4326443.wasm features=[smoke] web-features=[smoke] profile=release`|`test-results/parity/rust-final-c1310f27-run3.run.json`, archived as `gate-evidence/parity/rust-c1310f27.run.json`|main 142 / 0 / 3 (842 s); serial 15 / 0 / 3 (1526 s); verdict gap 0, both-red 0, rust-skip-only 0, both-skip 6, green 157|
 
 **The landed tree's verdict** (`run.ts verdict rust-landed.run.json
 gate-evidence/parity/bun-d5bd76c7.run.json`, keyed by file, title and project):
@@ -2162,6 +2175,63 @@ as a whole with nothing else running, `CARGO_BUILD_JOBS=8`, target `target/`:
 |CI wasm32 build (`ci.yml` step "wasm32 build")|exit 0, 0 warnings|
 |`dx build --release -p roost-web --platform web --features smoke`|built|
 |vendored terminal core suite|132 + 45 + 8 + 1 passed|
+
+**The final verdict** (`run.ts verdict gate-evidence/parity/rust-c1310f27.run.json
+gate-evidence/parity/bun-d5bd76c7.run.json`): gap **0**, both-red 0, rust-skip-only **0**,
+both-skip 6 (exactly the six named skips), green 157, bun-only 0, skew 0. Green is 157 rather
+than Bun's 156 because `terminal-frame-repair.spec.ts:151`, red in the Bun baseline, is green
+here. The thirteen peer-fault cases run on Rust on both of their projects.
+
+**FINAL GATE — GREEN on `c1310f27`, 2026-10-03.** The tree `v3` carries once every parity
+track had merged. Release pin `roost=2807354fd57a keeper=11c5d0cd57c0
+web=roost-web-dxh3e76822d50a37990.js features=[smoke] profile=release`. The suite ran with the box
+held (`roost-box exclusive`); the cargo gates ran as one script with `CARGO_BUILD_JOBS=4`, target
+`target/`:
+
+|criterion|result|
+|---|---|
+|all-Rust oracle, both passes|main 142 / 0 / 3 (842 s), serial 15 / 0 / 3 (1526 s), the verdict above|
+|`cargo xtask fmt`|exit 0|
+|`ROOST_REPO_ROOT=$PWD cargo xtask lint`|**0 violations, 6242 inputs**|
+|`cargo clippy --workspace --all-targets -- -D warnings`|exit 0|
+|the same clippy over `roost-web`, `roost-worker` and `roost-cli` with their `smoke` features|exit 0|
+|`cargo test --workspace --no-fail-fast`, two runs|781 binaries, **5338 passed / 0 failed / 16 ignored**, both runs|
+|`cargo test -p roost-web --features smoke`|74 binaries, **842 passed / 0 failed**|
+|`cargo test -p roost-worker -p roost-cli --features roost-worker/smoke,roost-cli/smoke`|239 binaries, **1469 passed / 0 failed**|
+|vendored terminal core suite|187 passed|
+|wasm32: `roost-protocol` + `roost-client-core`, then `roost-web`|exit 0, 0 warnings|
+|`cargo build --release -p roost-cli -p roost-keeper`|exit 0|
+|`bun x tsgo -p tsconfig.base.json --noEmit`; `bun run lint`|exit 0; 0 violations|
+
+**Production shape, same tree.** `run.ts build --plain --no-web` pinned a `roost` built without
+the `smoke` feature (`roost=a970046c2bba`) beside the smoke bundle, and the suite ran both passes on
+it (row `plain` above). Every extra skip — 25 in main, 1 in serial, the thirteen fault cases on
+their two projects — carries the packaged-worker reason "terminal peer fault controls require a
+source worker", and the one red is the first flake below. The two fault-socket flags occur 0 times
+in that binary and once in the smoke pin's. `run.ts build --plain` (no `smoke` anywhere) produced
+`roost-web-dxheda24428c317892.js` with **0** `__smoke` occurrences across the uncompressed bundle,
+against 13 in the smoke bundle.
+
+**Two flakes, one red each in the three full runs on this tree; neither is Rust-only
+behaviour.** Runs 1 and 2 above each had exactly one red; run 3 had none.
+
+- `composer-mobile-keyboard.spec.ts:9`, at `terminal-probe-helpers.ts:95` (the grid epoch moved
+  under a held selection). Coming back from the file preview, the pane publishes twice on BOTH
+  stacks: Rust always 25 then 28 rows; Bun 32 then 28, or 28 then 28, in two of three sampled runs.
+  The spec's "before" probe can land between the two baselines; in the red trace the second baseline
+  arrives at +97 ms and the probe reads at +68 ms. Isolated `--repeat 20`: Rust 1 red on `c1310f27`,
+  0 on `d0548f47`; Bun 0, though Bun failed the same assertion once with an in-page probe attached.
+  It is also the plain run's one red.
+- `attachment-direct.spec.ts:149`, at `:168` (`requests.relay` 0). Playwright's server runs in the
+  test process, so the spec's synchronous 700 KB `toEqual` (1.6–1.8 s) holds every browser event
+  until it ends. The `AttachFileChunk` POST's `request` event normally arrives 115–170 ms after the
+  POST starts. Rust lists the stored file on the first poll and reached the comparison 117 ms after
+  the POST in the red run (209 ms in a green one; Bun 285 ms), so the event landed behind the
+  comparison and the trace records it 1.9 s after its browser-side start. Isolated `--repeat 30`:
+  Rust 1 red, Bun 0.
+
+Neither is fixed here. The first is v2's own reveal behaviour, reached sooner; the second is timing
+inside the oracle, which the parity rule does not let this branch edit.
 
 ### Where tonight's numbers live, since this file is long
 
