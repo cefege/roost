@@ -17,6 +17,8 @@
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
+use sha2::Digest;
+
 /// The script this crate ships and the enrolment command points at. It is one
 /// file outside `src/`, so its path is derived rather than restated.
 fn join_script() -> PathBuf {
@@ -84,6 +86,41 @@ impl Sandbox {
     fn log(&self) -> PathBuf {
         self.root.join("execed.log")
     }
+
+    /// A release the script fetches over `file://`: the release list naming one
+    /// v3 tag, and every published asset name as a v3 stand-in with its digest
+    /// beside it, so the fetch path runs for real without a network. Returns
+    /// the release-list URL and the download origin.
+    fn publish_fake_release(&self) -> (String, String) {
+        let release = self.root.join("release");
+        let assets = release.join("download/v3.9.9");
+        for name in [
+            "roost",
+            "roost-linux-x64",
+            "roost-linux-arm64",
+            "roost-darwin-x64",
+        ] {
+            write_fake_roost(&assets.join(name), true);
+            let keeper = assets.join(format!("roost-keeper{}", name.trim_start_matches("roost")));
+            std::fs::write(&keeper, b"#!/bin/sh\nexit 0\n").expect("the keeper stand-in");
+            for asset in [assets.join(name), keeper] {
+                let bytes = std::fs::read(&asset).expect("the asset is readable");
+                let digest = hex::encode(sha2::Sha256::digest(&bytes));
+                let file_name = asset.file_name().expect("a name").to_string_lossy();
+                std::fs::write(
+                    assets.join(format!("{file_name}.sha256")),
+                    format!("{digest}  {file_name}\n"),
+                )
+                .expect("the sidecar is written");
+            }
+        }
+        let list = release.join("releases.json");
+        std::fs::write(&list, br#"[{"tag_name": "v3.9.9"}]"#).expect("the release list");
+        (
+            format!("file://{}", list.display()),
+            format!("file://{}", release.join("download").display()),
+        )
+    }
 }
 
 impl Drop for Sandbox {
@@ -95,6 +132,18 @@ impl Drop for Sandbox {
 /// Run the script with the environment a pasted one-liner gives it, and return
 /// what it wrote, both streams and the exit status.
 fn run_script(sandbox: &Sandbox, path_dir: &Path) -> (bool, String, String) {
+    let api = sandbox.root.join("no-such-api").display().to_string();
+    let origin = sandbox.root.join("no-such-origin").display().to_string();
+    run_script_against(sandbox, path_dir, &api, &origin)
+}
+
+/// The same run, against a named release list and download origin.
+fn run_script_against(
+    sandbox: &Sandbox,
+    path_dir: &Path,
+    release_api: &str,
+    release_origin: &str,
+) -> (bool, String, String) {
     let mut command = std::process::Command::new("bash");
     command
         .arg(join_script())
@@ -103,14 +152,8 @@ fn run_script(sandbox: &Sandbox, path_dir: &Path) -> (bool, String, String) {
         .env("ROOST_COORDINATOR_URL", "https://coordinator.example")
         .env("ROOST_BOOTSTRAP_TOKEN", "roost_bt_test")
         .env("ROOST_TEST_JOIN_LOG", sandbox.log())
-        .env(
-            "ROOST_RELEASE_BASE_URL",
-            sandbox.root.join("no-such-origin").display().to_string(),
-        )
-        .env(
-            "ROOST_RELEASE_API_URL",
-            sandbox.root.join("no-such-api").display().to_string(),
-        )
+        .env("ROOST_RELEASE_BASE_URL", release_origin)
+        .env("ROOST_RELEASE_API_URL", release_api)
         .stdin(std::process::Stdio::null());
     let output = command.output().expect("bash runs the script");
     (
@@ -170,6 +213,47 @@ fn a_v3_binary_at_the_self_link_location_is_the_one_that_joins() {
         "and the older binary earlier on PATH must never be the one that joins: {execed}"
     );
     assert!(ok, "a v3 binary at the self-link location joins cleanly");
+}
+
+/// A machine still running the previous generation keeps its `roost`. The
+/// fetched release is staged in a directory the join owns and removes, and is
+/// never written over the v2 binary at the self-link location, which on a v2
+/// Mac is v2's own CLI: the script used to install there and replaced it.
+#[test]
+fn a_join_that_fetches_leaves_a_v2_binary_at_the_self_link_location_alone() {
+    let sandbox = Sandbox::new("v2-kept");
+    let v2 = sandbox.home().join(".local/bin/roost");
+    write_fake_roost(&v2, false);
+    let v2_bytes = std::fs::read(&v2).expect("the v2 stand-in is readable");
+    let (api, origin) = sandbox.publish_fake_release();
+    let empty_path = sandbox.root.join("empty-bin");
+    std::fs::create_dir_all(&empty_path).expect("an empty PATH entry");
+
+    let (ok, _stdout, stderr) = run_script_against(&sandbox, &empty_path, &api, &origin);
+
+    assert!(ok, "a fetched release joins: {stderr}");
+    assert_eq!(
+        std::fs::read(&v2).expect("the v2 binary is still there"),
+        v2_bytes,
+        "the v2 binary at the self-link location is untouched"
+    );
+    assert!(
+        !sandbox.home().join(".local/bin/roost-keeper").exists(),
+        "and nothing is installed beside it"
+    );
+    let execed = std::fs::read_to_string(sandbox.log()).unwrap_or_default();
+    let staged = execed
+        .split_whitespace()
+        .nth(1)
+        .expect("the staged roost was run");
+    assert!(
+        !staged.contains(".local/bin"),
+        "the staged copy joined, not the self-link: {execed}"
+    );
+    assert!(
+        !Path::new(staged).exists(),
+        "the staged pair is removed once the join returns: {staged}"
+    );
 }
 
 #[test]

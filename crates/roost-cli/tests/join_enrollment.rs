@@ -12,7 +12,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use roost_cli::deploy::codes;
-use roost_cli::quickstart::join::{JoinCredentials, joined_build_sha, read_credentials};
+use roost_cli::quickstart::join::{
+    JoinCredentials, join_identity, joined_build_sha, read_credentials,
+};
 use roost_cli::quickstart::plan;
 use roost_host::{HostPlatform, MapEnv};
 
@@ -173,6 +175,33 @@ async fn a_clean_checkout_is_accepted_and_its_commit_is_the_identity() {
         "{stamp}"
     );
     assert!(!stamp.ends_with("-dirty"), "{stamp}");
+}
+
+/// A release fetched by `join.sh` runs from a staging directory that is no
+/// checkout, and the working directory it was started from may be some other
+/// checkout entirely. It enrols as the commit compiled into it, which is the
+/// stamp its worker reports, without asking git anything: before this, every
+/// release join stopped at "resolve the source commit: fatal: not a git
+/// repository".
+#[tokio::test]
+async fn a_compiled_binary_enrols_as_its_own_commit_outside_any_checkout() {
+    let Some(compiled) =
+        roost_host::COMPILED_ROOST_BUILD_SHA.filter(|sha| *sha != roost_host::DEV_BUILD_STAMP)
+    else {
+        eprintln!("skipping: this test binary was built with no commit of its own");
+        return;
+    };
+    let nowhere =
+        std::env::temp_dir().join(format!("roost-join-no-checkout-{}", std::process::id()));
+    std::fs::create_dir_all(&nowhere).expect("a directory that is no checkout");
+    let env = environment(&[("ROOST_SOURCE_ROOT", &nowhere.display().to_string())]);
+
+    let identity = join_identity(&env)
+        .await
+        .expect("a compiled binary needs no checkout");
+
+    assert_eq!(identity, compiled);
+    let _ = std::fs::remove_dir_all(&nowhere);
 }
 
 /// The one place in this slice that could put a credential somewhere an

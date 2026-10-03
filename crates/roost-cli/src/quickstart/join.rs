@@ -11,13 +11,13 @@
 //! because the operator reading that message is holding a one-liner on another
 //! machine and needs to know which half of it did not arrive.
 //!
-//! **A joined worker is refused on a dirty tree, and the refusal names the way
-//! out.** The build identity a worker stamps into its heartbeat is what the
-//! coordinator's fleet roster compares, and a worker that reports a build it is
-//! not running can never earn keeper-update admission — so a fleet becomes
-//! quietly unupdatable rather than visibly broken. Unlike a deploy, a join does
-//! not accept the dirty stamp: enrollment is the moment a machine's identity is
-//! first asserted, and there is no earlier moment to have got it wrong.
+//! **A joined worker enrols as the build it is.** A binary carrying a compiled
+//! commit (every release, and every build made inside a checkout) enrols as
+//! that commit, because it is the stamp the installed worker reports in every
+//! heartbeat and the fleet roster compares. Only a binary stamped `dev` has no
+//! identity of its own; it proves a checkout instead, and that proof refuses a
+//! dirty tree even where a deploy would accept the dirty stamp, because
+//! enrollment is the moment a machine's identity is first asserted.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -41,10 +41,10 @@ use crate::services::install::release_bin_dir;
 use crate::services::service_environment::{ENV_BOOTSTRAP_TOKEN, ENV_WORKER_LABEL};
 use crate::services::service_spec::{ServiceRole, ServiceSpec};
 
-/// The checkout a join proves its build identity against, when the operator
-/// names one. A compiled binary has no checkout of its own, and the variable is
-/// how a machine that installed from a tarball says which tree it is enrolling
-/// as. Unset, the working directory is the tree.
+/// The checkout a `dev`-stamped binary proves its build identity against. A
+/// binary with a compiled commit enrols as that commit and never reads this;
+/// for a build with no commit of its own, it names the tree the build came
+/// from. Unset, the working directory is the tree.
 pub const SOURCE_ROOT_ENV: &str = "ROOST_SOURCE_ROOT";
 
 /// What the coordinator this machine is joining is told, in the terms the
@@ -139,6 +139,20 @@ pub fn source_root(env: &dyn EnvSource) -> Result<PathBuf, CommandFailure> {
     })
 }
 
+/// The build this machine enrols as: the commit compiled into this binary, or,
+/// for a `dev`-stamped binary, its checkout's commit through [`joined_build_sha`].
+///
+/// The compiled commit wins because it is what the installed worker reports. A
+/// release fetched by `join.sh` runs from a staging directory that is no
+/// checkout at all, and reading whatever checkout happens to be the working
+/// directory would enrol the machine as some other build.
+pub async fn join_identity(env: &dyn EnvSource) -> Result<String, CommandFailure> {
+    match roost_host::COMPILED_ROOST_BUILD_SHA.filter(|sha| *sha != roost_host::DEV_BUILD_STAMP) {
+        Some(compiled) => Ok(compiled.to_string()),
+        None => joined_build_sha(&source_root(env)?).await,
+    }
+}
+
 /// The build this machine's worker will be stamped with, refusing a dirty
 /// checkout even when the operator allowed one elsewhere.
 ///
@@ -187,8 +201,7 @@ pub fn worker_spec(
 pub async fn run(env: &dyn EnvSource) -> Result<ExitCode, CommandFailure> {
     let platform = roost_host::supported_host_platform()?;
     let credentials = read_credentials(env)?;
-    let root = source_root(env)?;
-    let build_sha = joined_build_sha(&root).await?;
+    let build_sha = join_identity(env).await?;
 
     let service_dir = service_dir(env, platform)?;
     let programs = LocalPrograms::of_this_process(env)?;

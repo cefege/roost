@@ -97,16 +97,18 @@ sha256_of() {
   fi
 }
 
-# Install the release's `roost` for this machine and print where it went.
+# Fetch the release's `roost` and `roost-keeper` for this machine into a
+# directory this run creates, and print the staged `roost`. NEVER into
+# ~/.local/bin: a join that installed there replaced whatever `roost` the
+# machine already had, and on a v2 machine that is v2's own CLI. `roost join`
+# copies both programs into the v3 release directory, so the staged pair is
+# removed once the join returns.
 fetch_roost() {
-  local tag asset keeper dest base dest_dir tmp got want
+  local tag asset keeper base tmp got want
   tag="$(newest_v3_tag)"
   [ -n "$tag" ] || return 0
   asset="$(asset_name)"
   base="${RELEASE_DOWNLOADS}/${tag}"
-  dest_dir="${HOME}/.local/bin"
-  dest="${dest_dir}/roost"
-  mkdir -p "$dest_dir"
   tmp="$(mktemp -d)" || return 0
 
   say "fetching ${asset} from ${tag}" >&2
@@ -133,20 +135,16 @@ fetch_roost() {
         "Nothing was installed. Fetch it by hand and compare before trusting it:" \
         "  ${base}/${asset}"
   fi
-  # NOTHING is moved into place until BOTH assets have been fetched and both
-  # digests have matched. The single-asset shape matched its digest then installed, and
-  # splitting the fetch across two install points broke that: a keeper digest
-  # mismatch used to `die` with a bare `roost` already at `$dest`, so the next
-  # run's `is_v3` would accept it, skip this function entirely, and never fetch
-  # a keeper. The machine would hold a v3 binary and no keeper forever, which is
-  # the defect this whole change exists to remove.
+  # The staged path is printed only after BOTH assets have been fetched and
+  # both digests have matched. A `roost` handed to `roost join` without its
+  # keeper enrols a worker that serves no terminal.
 
   # The keeper is a SEPARATE PROGRAM and it must come from the SAME TAG as the
   # roost beside it. A keeper from a different release is a keeper contract the
   # worker was never built against, which is the mismatch
   # `ops/keeper_contract.rs` and keeper-update admission exist to refuse -- so
-  # this runs inside fetch_roost, from `$tag`, into `$dest_dir`, and never for
-  # a binary this function did not fetch.
+  # this runs inside fetch_roost, from `$tag`, into the same staging directory,
+  # and never for a binary this function did not fetch.
   #
   # It is FATAL where the roost fetch is optional. `roost join` looks for
   # `roost-keeper` BESIDE `current_exe()` and FILTERS a missing one out rather
@@ -187,17 +185,12 @@ fetch_roost() {
         "Nothing was installed. Fetch it by hand and compare before trusting it:" \
         "  ${base}/${keeper}"
   fi
-  # BOTH digests have now matched and nothing has been installed, so the two
-  # moves below are the first writes to `$dest_dir`. Through a name this account
-  # owns: a system-wide roost belongs to the system, not to a join.
-  mv "${tmp}/roost" "${dest}.incoming" && chmod 0755 "${dest}.incoming" && mv "${dest}.incoming" "$dest"
-  mv "${tmp}/roost-keeper" "${dest_dir}/.roost-keeper.incoming" \
-    && chmod 0755 "${dest_dir}/.roost-keeper.incoming" \
-    && mv "${dest_dir}/.roost-keeper.incoming" "${dest_dir}/roost-keeper"
-  rm -rf "$tmp"
-  say "installed ${tag} (${asset} and ${keeper}) to ${dest_dir}" >&2
+  # Both digests have matched, and the staged pair is the only copy this run
+  # made: nothing outside `$tmp` was written.
+  chmod 0755 "${tmp}/roost" "${tmp}/roost-keeper"
+  say "fetched ${tag} (${asset} and ${keeper}) into ${tmp}" >&2
   say "both match the digests published beside them" >&2
-  printf '%s' "$dest"
+  printf '%s' "${tmp}/roost"
 }
 
 # 0. macOS (launchd) or Linux (systemd --user). Nothing else has a service
@@ -253,8 +246,10 @@ if [ -n "$ROOST_BIN" ] && ! is_v3 "$ROOST_BIN"; then
   ROOST_BIN=""
 fi
 
+STAGED=""
 if [ -z "$ROOST_BIN" ]; then
   ROOST_BIN="$(fetch_roost)"
+  if [ -n "$ROOST_BIN" ]; then STAGED="$(dirname "$ROOST_BIN")"; fi
 fi
 [ -n "$ROOST_BIN" ] || die "No v3 \`roost\` is available on this machine." \
                             "If a message above named a specific asset, that is why:" \
@@ -279,4 +274,12 @@ fi
 #    `join` is the command that installs and registers the worker; every message
 #    from it goes to this terminal, which is the operator watching.
 say "roost join ($ROOST_BIN)"
-exec "$ROOST_BIN" join
+if [ -z "$STAGED" ]; then
+  exec "$ROOST_BIN" join
+fi
+# Not exec'd: the staged pair is this run's to remove once `roost join` has
+# copied it into the v3 release directory.
+status=0
+"$ROOST_BIN" join || status=$?
+rm -rf "$STAGED"
+exit "$status"
