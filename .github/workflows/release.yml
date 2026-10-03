@@ -109,6 +109,12 @@ jobs:
   build:
     name: ${{ matrix.roost_asset }}
     runs-on: ${{ matrix.runner }}
+    env:
+      # The tag, stamped into both programs by roost-host's build.rs. A joined
+      # machine fetches the page published under it, and each release installs
+      # into a directory named for it, so two releases sit side by side. Unset,
+      # every release reported `dev` and installed over the last.
+      ROOST_BUILD_VERSION: ${{ inputs.tag || github.ref_name }}
     strategy:
       fail-fast: false
       matrix:
