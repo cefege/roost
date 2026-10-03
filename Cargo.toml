@@ -57,6 +57,11 @@ tower-http = { version = "0.6.9", default-features = false, features = ["cors", 
 reqwest = { version = "0.13.5", default-features = false }
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 web-push = "0.11.0"
+# web-push reaches OpenSSL through `ece` and through isahc's curl. `vendored`
+# compiles it into the binary: a release linked against the build host's
+# libssl starts only where that soname exists, which excludes Debian 11's
+# OpenSSL 1.1 and any Mac without the Homebrew prefix the macOS runner linked.
+openssl = { version = "0.10.81", features = ["vendored"] }
 # Streaming gzip for the backup writer. `flate2` is the simpler choice and
 # this is the boring one, but the backup reads a database file that can be
 # gigabytes and the whole point of the streaming shape is that a backup never

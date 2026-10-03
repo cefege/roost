@@ -467,10 +467,14 @@ bun x tsgo -p tsconfig.base.json --noEmit   # gate — exactly what CI typecheck
 bun run test:live-api   # optional monitor — deployed coord (ROOST_COORD_URL)
 ```
 
-CI (`.github/workflows/ci.yml`) runs the Rust `workspace` job and the
+CI (`.github/workflows/ci.yml`) runs the Rust `rust` job and the
 TypeScript `invariants` job on ubuntu-latest AND macos-latest, then the
 `terminal` job as its own matrix job on both. The `upgrade` and `wterm-wasm`
-tiers and `release.yml` are removed on this branch and return in Phase 7. The
+tiers are removed on this branch and return in Phase 7.
+`.github/workflows/release.yml` publishes a `v3.*` tag: it re-runs the `rust`
+job's commands, drives the terminal oracle with release binaries, and builds
+four triples, linking the Linux pair through zig against glibc 2.28, so a
+binary starts on every distribution the fleet runs. The
 `windows-2022` tier stays behind the `ROOST_WINDOWS_GATE` repository variable
 (off by default) — Windows is paused on `main` too, and v3 ships Linux and
 macOS. No gate needs a deployed coordinator, a tailnet, or a human driving a
@@ -493,7 +497,7 @@ browser.
 
 ## Failure index
 
-[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index: 130
+[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index: 131
 entries, one `###` heading each, with `**Symptom**` (the grep string),
 `**Wrong**`, `**Right**`, and `**Guard**` (the lint rule or test that pins
 it). It is the only actively maintained institutional memory in this repo and

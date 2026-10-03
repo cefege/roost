@@ -12,6 +12,10 @@ description = "The coordinator service: SQLite state, auth, Connect RPC handlers
 # streams a database file through gzip. Both were workspace pins no member
 # declared, so neither resolved until here.
 web-push.workspace = true
+# Never called: declared so feature unification turns on `vendored` for the
+# OpenSSL web-push links. Removing it ships a binary that needs the build
+# host's libssl. See the pin's comment in the root manifest.
+openssl.workspace = true
 async-compression.workspace = true
 # The `Interceptor` trait is declared with `#[async_trait]`, so an impl of it must
 # carry the same attribute or the rewritten lifetimes disagree (E0195).

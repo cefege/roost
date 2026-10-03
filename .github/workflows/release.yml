@@ -109,12 +109,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Both Linux rows link through zig against the glibc they name, which
+          # is the oldest glibc the binary starts on. The runner's own linker
+          # records the runner's glibc instead: ubuntu-24.04's 2.39 fails to
+          # start on AlmaLinux 9 and Debian 11 with "version `GLIBC_2.38' not
+          # found". The arm64 row cross-links from the same x86_64 runner.
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
+            glibc: '2.28'
             roost_asset: roost-linux-x64
             keeper_asset: roost-keeper-linux-x64
-          - runner: ubuntu-24.04-arm
+          - runner: ubuntu-24.04
             target: aarch64-unknown-linux-gnu
+            glibc: '2.28'
             roost_asset: roost-linux-arm64
             keeper_asset: roost-keeper-linux-arm64
           - runner: macos-15
@@ -133,8 +140,51 @@ jobs:
           ref: ${{ inputs.tag || github.ref_name }}
       - name: install the target
         run: rustup target add ${{ matrix.target }}
+      - uses: mlugg/setup-zig@v2
+        if: matrix.glibc
+        with:
+          version: 0.16.0
+      - uses: taiki-e/install-action@v2
+        if: matrix.glibc
+        with:
+          tool: cargo-zigbuild@0.23.4
       - name: build
+        if: ${{ !matrix.glibc }}
         run: cargo build --release -p roost-cli -p roost-keeper --target ${{ matrix.target }}
+      - name: build against the row's glibc
+        if: matrix.glibc
+        run: cargo zigbuild --release -p roost-cli -p roost-keeper --target ${{ matrix.target }}.${{ matrix.glibc }}
+      - name: the binaries load nothing a fleet machine may lack
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="target/${{ matrix.target }}/release"
+          for bin in roost roost-keeper; do
+            if [ "${{ runner.os }}" = Linux ]; then
+              # glibc's own libraries and the gcc runtime ship on every
+              # distribution. Any other NEEDED entry is the runner's copy of a
+              # library, at a soname a fleet machine may not have.
+              extra="$(readelf -d "$out/$bin" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' \
+                | grep -vE '^(libc|libm|libpthread|libdl|librt|libutil|libgcc_s)\.so\.[0-9]+$|^ld-linux-[a-z0-9_-]+\.so\.[0-9]+$' || true)"
+              newest="$(readelf -V "$out/$bin" | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1)"
+              floor="GLIBC_${{ matrix.glibc }}"
+              if [ "$(printf '%s\n%s\n' "$newest" "$floor" | sort -V | tail -1)" != "$floor" ]; then
+                echo "::error::$bin needs $newest, newer than the $floor it was linked for"
+                exit 1
+              fi
+            else
+              # /usr/lib and /System ship with macOS. Anything else is the
+              # runner's, such as Homebrew's OpenSSL, and a Mac without it
+              # cannot start the binary.
+              extra="$(otool -L "$out/$bin" | tail -n +2 | awk '{print $1}' \
+                | grep -vE '^(/usr/lib/|/System/Library/)' || true)"
+            fi
+            if [ -n "$extra" ]; then
+              echo "::error::$bin links libraries a fleet machine may not have: $extra"
+              exit 1
+            fi
+            echo "$bin links only libraries every machine of its platform ships"
+          done
       - name: stage under the published names, with a digest beside each
         shell: bash
         run: |

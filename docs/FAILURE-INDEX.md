@@ -3684,3 +3684,29 @@ wrote both through at once, in call order.
 **Guard** — `crates/roost-worker/src/runtime/link_loop/durable/tests.rs`:
 `a_view_decision_queued_before_its_baseline_leaves_ahead_of_it`. Real flow:
 `composer-mobile-keyboard.spec.ts:9 --repeat 20`.
+
+### A release binary will not start on a fleet machine: "version `GLIBC_2.38' not found"
+
+**Symptom** — a fleet machine runs the downloaded `roost` or `roost-keeper` and it exits before `main`:
+`/lib64/libc.so.6: version 'GLIBC_2.38' not found (required by ./roost)` (or `GLIBC_2.39`; the keeper fails
+too), `error while loading shared libraries: libssl.so.3`, or, on macOS, `Library not loaded:
+/opt/homebrew/opt/openssl@3/lib/libssl.3.dylib`. join.sh reports a fetched, digest-verified asset and then
+the join fails. Observed on AlmaLinux 9 (glibc 2.34) running a binary linked on a glibc 2.39 host.
+
+**Wrong** — building release binaries with the runner's own toolchain. The linker records, for each glibc
+symbol, the newest version the runner's glibc offers: Rust's std alone references
+`pidfd_spawnp@GLIBC_2.39`, and C dependencies compiled against glibc 2.38+ headers call
+`__isoc23_strtol@GLIBC_2.38`. So the binary starts only on that glibc or newer. And web-push reaches
+OpenSSL through `ece` and isahc's curl, which `openssl-sys` links dynamically from wherever the runner has
+it: `libssl.so.3` on Linux (Debian 11 ships 1.1), Homebrew's prefix on macOS.
+
+**Right** — the Linux release rows link through `cargo zigbuild --target <triple>.2.28`, which records
+glibc 2.28's symbol versions whatever the runner has. The root manifest pins `openssl` with `vendored`, and
+roost-coord declares it so feature unification compiles OpenSSL into the binary. A Linux binary then needs
+only glibc's own libraries, and the one build starts on AlmaLinux 9 (glibc 2.34) and Debian 11 aarch64
+(2.31).
+
+**Guard** — `.github/workflows/release.yml`, build job, step "the binaries load nothing a fleet machine may
+lack". It refuses a Linux binary with a NEEDED entry outside glibc and the gcc runtime, or a `GLIBC_`
+version above its row's floor. It refuses a macOS binary that links anything outside `/usr/lib` and
+`/System/Library`.
