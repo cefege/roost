@@ -2151,6 +2151,7 @@ skipped.
 |2026-10-03 00:05|Rust, both|`roost-box exclusive bun smoke/parity/run.ts suite --stack rust --pass both --label final`|`pin c1310f27 roost=2807354fd57a keeper=11c5d0cd57c0 web=roost-web-dxh3e76822d50a37990.js,roost-web_bg-dxh3d4d50ae4326443.wasm features=[smoke] web-features=[smoke] profile=release`|`test-results/parity/rust-final-c1310f27-run2.run.json`|main 141 / 1 / 3 (845 s) — `attachment-direct.spec.ts:149` chromium-desktop; serial 15 / 0 / 3 (1464 s); verdict gap 1, both-red 0, rust-skip-only 0, both-skip 6, green 156|
 |2026-10-03 00:49|Rust, both, production-shape `roost`|`roost-box exclusive bun smoke/parity/run.ts suite --stack rust --pass both --label plain`, after `run.ts build --plain --no-web`|`pin c1310f27 roost=a970046c2bba keeper=11c5d0cd57c0 web=roost-web-dxh3e76822d50a37990.js,roost-web_bg-dxh3d4d50ae4326443.wasm features=[] web-features=[smoke] profile=release`|`test-results/parity/rust-plain.run.json`|main 116 / 1 / 28 (461 s) — `composer-mobile-keyboard.spec.ts:9` chromium-desktop; serial 14 / 0 / 4 (1462 s) — every extra skip carries the packaged-worker fault-controls reason|
 |2026-10-03 01:34|Rust, both|`roost-box exclusive bun smoke/parity/run.ts suite --stack rust --pass both --label final`|`pin c1310f27 roost=2807354fd57a keeper=11c5d0cd57c0 web=roost-web-dxh3e76822d50a37990.js,roost-web_bg-dxh3d4d50ae4326443.wasm features=[smoke] web-features=[smoke] profile=release`|`test-results/parity/rust-final-c1310f27-run3.run.json`, archived as `gate-evidence/parity/rust-c1310f27.run.json`|main 142 / 0 / 3 (842 s); serial 15 / 0 / 3 (1526 s); verdict gap 0, both-red 0, rust-skip-only 0, both-skip 6, green 157|
+|2026-10-03 04:00|Rust, both|`roost-box exclusive bun smoke/parity/run.ts suite --stack rust --pass both --label keeper`|`pin f2e0a386 roost=2807354fd57a keeper=63d404562b88 web=roost-web-dxh3e76822d50a37990.js,roost-web_bg-dxh3d4d50ae4326443.wasm features=[smoke] web-features=[smoke] profile=release`|`test-results/parity/rust-keeper.run.json`|main 142 / 0 / 3 (782 s); serial 15 / 0 / 3 (1463 s); verdict gap 0, both-red 0, rust-skip-only 0, both-skip 6, green 157; 0 test keepers alive 35 s after|
 
 **The landed tree's verdict** (`run.ts verdict rust-landed.run.json
 gate-evidence/parity/bun-d5bd76c7.run.json`, keyed by file, title and project):
@@ -2232,6 +2233,19 @@ behaviour.** Runs 1 and 2 above each had exactly one red; run 3 had none.
 
 Neither is fixed here. The first is v2's own reveal behaviour, reached sooner; the second is timing
 inside the oracle, which the parity rule does not let this branch edit.
+
+**Keeper lifecycle, re-gated on `f2e0a386`.** Cleaning up after the runs above found 1155
+`roost-keeper` processes still alive (3.1 GB RSS), every one on a deleted test socket, where the
+Bun stack leaves none: the Rust keeper ignored SIGTERM and never noticed its socket go, and the
+oracle's teardown cannot authenticate to it (FAILURE-INDEX "A keeper outlives its deleted socket and
+ignores SIGTERM"). The same batch on each side (`run.ts spec terminal-delivery.spec.ts
+terminal-peer.spec.ts --project chromium-desktop`, 9 passed both times) left 16 test keepers alive 35 s
+later on the `c1310f27` pin and 0 on the `f2e0a386` pin, whose `roost` is byte-identical — only
+`roost-keeper` changed. The tree was then re-gated: the suite (row `keeper` above, gap 0, 157 green,
+no test keeper alive 35 s after it), and the workspace gates — fmt, clippy with and without the
+`smoke` features, `xtask lint` 0 violations / 6246 inputs, `cargo test --workspace` **5342 passed /
+0 failed / 16 ignored** twice (782 binaries), `roost-web` smoke 842, worker + CLI smoke 1469,
+vendored 187, wasm32 0 warnings, the release build, and `bun run lint` 0 violations.
 
 ### Where tonight's numbers live, since this file is long
 
