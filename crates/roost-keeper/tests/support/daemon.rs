@@ -50,7 +50,10 @@ impl TempDir {
             std::thread::current().id()
         )
         .replace(['(', ')', ' '], "");
-        let dir = std::env::temp_dir().join(unique);
+        // `/tmp`, not `std::env::temp_dir()`: a Unix socket path must fit
+        // `sun_path` (104 bytes on macOS), and macOS's per-user `$TMPDIR`
+        // spends about half of that before this directory is named.
+        let dir = Path::new("/tmp").join(unique);
         std::fs::create_dir_all(&dir).expect("a temp dir");
         Self { dir }
     }
