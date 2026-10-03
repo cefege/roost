@@ -105,7 +105,9 @@ impl Server {
     /// handed over output, the worker sent bytes, or a tick passed with
     /// neither. So a keystroke's echo leaves the keeper as soon as the PTY
     /// produces it, as v2's data callback did, and the tick only bounds how
-    /// long an idle connection goes without a drain and an exit check.
+    /// long an idle connection goes without a drain and an exit check — the
+    /// watch's signal flag and socket check included, so a keeper serving a
+    /// worker still stops on SIGTERM or a deleted socket.
     ///
     /// The signal is taken BEFORE the drain: a chunk handed over after the take
     /// raises again and wakes the next turn, and one handed over before it is
@@ -123,6 +125,9 @@ impl Server {
     ) -> ConnectionEnd {
         let mut decoder = FrameDecoder::new();
         loop {
+            if let Some(cause) = self.poll_exit() {
+                return cause.into();
+            }
             self.keeper.output_signal.take();
             let output = match self.keeper.drain_output(DRAIN_LIMIT_BYTES) {
                 Ok(output) => output,

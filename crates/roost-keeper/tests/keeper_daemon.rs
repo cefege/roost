@@ -11,14 +11,14 @@
 
 mod support;
 
-use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use roost_keeper::codec::{FrameDecoder, MuxFrame, MuxFrameType, StreamEvent};
+use roost_keeper::codec::MuxFrameType;
 
+use support::daemon::Client;
 use support::{empty_frame, spawn_frame};
 
 const DEADLINE: Duration = Duration::from_secs(15);
@@ -110,66 +110,6 @@ impl Drop for Keeper {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
-    }
-}
-
-struct Client {
-    stream: UnixStream,
-    decoder: FrameDecoder,
-}
-
-impl Client {
-    fn connect(path: &Path) -> Self {
-        let stream = UnixStream::connect(path).expect("the keeper is listening");
-        Self {
-            stream,
-            decoder: FrameDecoder::new(),
-        }
-    }
-
-    fn send(&mut self, frame: &MuxFrame) {
-        self.stream
-            .write_all(&frame.encode())
-            .expect("a write to a live socket");
-    }
-
-    fn read_until(
-        &mut self,
-        what: &str,
-        mut predicate: impl FnMut(&[MuxFrame]) -> bool,
-    ) -> Vec<MuxFrame> {
-        let start = Instant::now();
-        let mut seen: Vec<MuxFrame> = Vec::new();
-        let mut chunk = vec![0u8; 4096];
-        while start.elapsed() < DEADLINE {
-            if let Ok(read) = self.stream.read(&mut chunk) {
-                if read == 0 {
-                    break;
-                }
-                for event in self.decoder.push(&chunk[..read]) {
-                    if let StreamEvent::Frame {
-                        frame_type: Some(frame_type),
-                        channel_id,
-                        payload,
-                        ..
-                    } = event
-                    {
-                        seen.push(MuxFrame {
-                            frame_type,
-                            channel_id,
-                            payload,
-                        });
-                    }
-                }
-            }
-            if predicate(&seen) {
-                return seen;
-            }
-        }
-        panic!(
-            "never saw {what} within {DEADLINE:?}; saw {:?}",
-            seen.iter().map(|f| f.frame_type).collect::<Vec<_>>()
-        );
     }
 }
 

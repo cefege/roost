@@ -11,10 +11,13 @@
 // only consumer is `support/mod.rs`, whose own consumers declare it at their
 // roots. A declaration here would be a second one to keep in step.
 
+use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
+
+use roost_keeper::codec::{FrameDecoder, MuxFrame, StreamEvent};
 
 /// How long a daemon has to start listening.
 pub const STARTUP: Duration = Duration::from_secs(10);
@@ -106,6 +109,85 @@ impl Drop for Keeper {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+}
+
+/// A worker's side of a daemon connection: frames out, frames back, every read
+/// bounded by `DEADLINE`.
+pub struct Client {
+    stream: UnixStream,
+    decoder: FrameDecoder,
+}
+
+impl Client {
+    pub fn connect(path: &Path) -> Self {
+        let stream = UnixStream::connect(path).expect("the keeper is listening");
+        Self {
+            stream,
+            decoder: FrameDecoder::new(),
+        }
+    }
+
+    pub fn send(&mut self, frame: &MuxFrame) {
+        self.stream
+            .write_all(&frame.encode())
+            .expect("a write to a live socket");
+    }
+
+    /// Read frames until `predicate` holds over everything seen, failing at the
+    /// deadline with `what` and the frame types that did arrive.
+    pub fn read_until(
+        &mut self,
+        what: &str,
+        mut predicate: impl FnMut(&[MuxFrame]) -> bool,
+    ) -> Vec<MuxFrame> {
+        let start = Instant::now();
+        let mut seen: Vec<MuxFrame> = Vec::new();
+        let mut chunk = vec![0u8; 4096];
+        while start.elapsed() < DEADLINE {
+            if let Ok(read) = self.stream.read(&mut chunk) {
+                if read == 0 {
+                    break;
+                }
+                for event in self.decoder.push(&chunk[..read]) {
+                    if let StreamEvent::Frame {
+                        frame_type: Some(frame_type),
+                        channel_id,
+                        payload,
+                        ..
+                    } = event
+                    {
+                        seen.push(MuxFrame {
+                            frame_type,
+                            channel_id,
+                            payload,
+                        });
+                    }
+                }
+            }
+            if predicate(&seen) {
+                return seen;
+            }
+        }
+        panic!(
+            "never saw {what} within {DEADLINE:?}; saw {:?}",
+            seen.iter().map(|f| f.frame_type).collect::<Vec<_>>()
+        );
+    }
+
+    /// Whether the daemon closed this connection within the deadline: a read
+    /// returns end-of-file, or fails because the peer is gone.
+    pub fn closed_by_peer(&mut self) -> bool {
+        let _ = self.stream.set_read_timeout(Some(DEADLINE));
+        let mut chunk = vec![0u8; 4096];
+        let start = Instant::now();
+        while start.elapsed() < DEADLINE {
+            match self.stream.read(&mut chunk) {
+                Ok(0) | Err(_) => return true,
+                Ok(_) => continue,
+            }
+        }
+        false
     }
 }
 

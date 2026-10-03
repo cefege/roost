@@ -5,17 +5,21 @@
 //! The exit decision is the part worth reading. A worker that merely
 //! disconnected must NOT take the keeper down with it — the whole point of the
 //! keeper is that it outlives the worker, so a worker restart costs a reconnect
-//! and not a terminal. Only an explicit shutdown stops the process, and a
-//! conditional one is obeyed only when the keeper is actually empty.
+//! and not a terminal. An explicit shutdown stops the process (a conditional
+//! one only when the keeper is actually empty), and so do the two things no
+//! worker sends: a termination signal, and the socket file being deleted.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use roost_keeper::server::{ConnectionEnd, Endpoint, Server};
+use roost_keeper::server::{
+    Accepted, ConnectionEnd, Endpoint, ExitCause, ExitWatch, SOCKET_CHECK_INTERVAL, Server,
+};
 
-/// Set by the signal handler. `AtomicBool` rather than a channel because a
-/// handler may only touch async-signal-safe state, and a blocked accept loop
-/// cannot be woken any other way without a self-pipe.
+/// Set by the signal handler, which may only touch async-signal-safe state.
+/// The server's exit watch reads it on every connection turn and at least every
+/// quarter second while waiting for a worker, so a signal is never parked
+/// behind a blocked `accept`.
 static STOP_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn on_terminate(_signal: std::ffi::c_int) {
@@ -37,7 +41,7 @@ OPTIONS:
 The keeper owns every PTY it opens and outlives the worker that spawned it, so
 a worker restart or a coordinator deploy costs a reconnect and not a terminal.
 It stops when a worker sends Shutdown, when a worker sends ShutdownIfEmpty and
-no channel is live, or when it is signalled.
+no channel is live, when it is signalled, or when its socket file is deleted.
 ";
 
 /// The parsed command line.
@@ -116,10 +120,10 @@ enum Decision {
 
 /// The exit decision, as a function so it is testable without a process.
 fn decide(end: ConnectionEnd, live_channels: usize) -> Decision {
-    // `live_channels` is reported for diagnostics even though only a signal
-    // stops an otherwise-idle keeper; a keeper with nothing live and no worker
-    // is still worth keeping, because the worker that owned those PTYs is
-    // coming back.
+    // `live_channels` is reported for diagnostics even though only a signal or
+    // a deleted socket stops an otherwise-idle keeper; a keeper with nothing
+    // live and no worker is still worth keeping, because the worker that owned
+    // those PTYs is coming back.
     let _ = live_channels;
     match end {
         ConnectionEnd::ShutdownRequested => Decision::Stop("shutdown requested"),
@@ -139,6 +143,8 @@ fn decide(end: ConnectionEnd, live_channels: usize) -> Decision {
         ConnectionEnd::ProtocolViolation => Decision::KeepServing,
         ConnectionEnd::UnframeablePayload => Decision::KeepServing,
         ConnectionEnd::WorkerUnreachable => Decision::KeepServing,
+        ConnectionEnd::Signalled => Decision::Stop(ExitCause::Signalled.reason()),
+        ConnectionEnd::SocketRemoved => Decision::Stop(ExitCause::SocketRemoved.reason()),
     }
 }
 
@@ -199,12 +205,16 @@ fn main() -> std::process::ExitCode {
     };
 
     tracing::info!(socket = ?server.endpoint().path(), "keeper listening");
+    let socket = server.endpoint().path().to_path_buf();
+    server.watch_exits(ExitWatch::new(
+        &STOP_REQUESTED,
+        socket,
+        SOCKET_CHECK_INTERVAL,
+    ));
     let reason = loop {
-        if STOP_REQUESTED.load(Ordering::SeqCst) {
-            break "signalled";
-        }
-        let Some(stream) = server.accept_one() else {
-            continue;
+        let stream = match server.accept_or_exit() {
+            Accepted::Connection(stream) => stream,
+            Accepted::Exit(cause) => break cause.reason(),
         };
         let end = server.serve_one(stream);
         let live = server.keeper().channel_count();

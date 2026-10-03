@@ -3622,3 +3622,35 @@ v2 `terminal-peer-connection.ts` handled each `onmessage`. The tick keeps the de
 **Guard** — `crates/roost-web/src/platform/peer/events.rs`:
 `the_host_is_rung_after_the_event_it_must_drain_is_queued`. The real-flow oracle is
 `smoke/terminal/terminal-peer.spec.ts:97` (firefox-peer).
+
+---
+
+### A keeper outlives its deleted socket and ignores SIGTERM
+
+**Symptom** — `roost-keeper` processes pile up long after their worker and data directory are gone:
+one oracle session left 1155 of them (3.1 GB RSS, every one on a deleted
+`/tmp/roost-terminal-system-*` socket) and the shells they held, where the Bun stack leaves none.
+`kill -TERM` changes nothing: an idle keeper, or one serving a worker, is still alive seconds later,
+so the worker's `keeper.restart_degraded`, which SIGTERMs the keeper it started, never gets the
+clean keeper it asks for. The oracle's own teardown (`stopKeeper`, an authenticated v2 `Shutdown`)
+cannot reach a Rust keeper either — its Hello is a different shape — so on the Rust stack nothing
+else retires a test keeper.
+
+**Wrong** — SIGKILLing keepers from the harness or the worker, or treating a worker disconnect as a
+shutdown: the keeper exists to outlive its worker. Also wrong: trusting `keeper_daemon_crash.rs`'s
+`a_signal_stops_the_daemon` — its listening probe connects first, so its SIGTERM usually lands while
+the keeper is still serving that probe and is noticed on the way back to `accept`.
+
+**Right** — v2 `multiplexed-main.ts` shut down on `SIGTERM`, and when a 30 s `existsSync` found its
+socket gone. The Rust handler only set a flag the daemon read between connections, while `accept`
+blocked for good (std retries `EINTR`) and the connection loop never looked. `server::ExitWatch`
+(`crates/roost-keeper/src/server/exit_watch.rs`) now carries the flag and the socket check;
+`Server::accept_or_exit` waits in `poll` for at most 250 ms at a time and every connection turn polls
+the watch, so either cause stops the keeper, which reaps its channels as every stop does.
+
+**Guard** — `crates/roost-keeper/tests/keeper_daemon_exit.rs`:
+`sigterm_stops_a_keeper_waiting_for_a_worker`,
+`sigterm_stops_a_keeper_serving_a_worker_and_reaps_its_shells`,
+`a_deleted_socket_stops_a_keeper_waiting_for_a_worker` and
+`a_deleted_socket_ends_the_connection_being_served`. Real flow: no `roost-keeper` naming a test root
+outlives a spec run by more than the 30 s check.

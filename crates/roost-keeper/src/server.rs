@@ -1,5 +1,6 @@
-//! The keeper's socket server: the listener, the per-connection event loop,
-//! and its backstop tick. Everything protocol-shaped lives in
+//! The keeper's socket server: the listener, the per-connection event loop and
+//! its backstop tick, and the wait that hands over either the next worker or a
+//! reason to stop (`exit_watch`). Everything protocol-shaped lives in
 //! [`crate::keeper`], so this file is transport and nothing else.
 //!
 //! A keeper socket is a remote shell to every PTY the machine has open, so the
@@ -13,6 +14,9 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 
 mod connection;
+mod exit_watch;
+
+pub use exit_watch::{ExitCause, ExitWatch, SOCKET_CHECK_INTERVAL};
 
 /// The longest a connection loop waits with nothing arriving before it drains
 /// and checks for exits anyway.
@@ -175,6 +179,28 @@ pub enum ConnectionEnd {
     UnframeablePayload,
     /// A write to the worker failed, which is the same thing from here.
     WorkerUnreachable,
+    /// A termination signal arrived while the connection was served.
+    Signalled,
+    /// The keeper's socket file disappeared while the connection was served.
+    SocketRemoved,
+}
+
+impl From<ExitCause> for ConnectionEnd {
+    fn from(cause: ExitCause) -> Self {
+        match cause {
+            ExitCause::Signalled => ConnectionEnd::Signalled,
+            ExitCause::SocketRemoved => ConnectionEnd::SocketRemoved,
+        }
+    }
+}
+
+/// What the daemon's wait between connections produced.
+#[derive(Debug)]
+pub enum Accepted {
+    /// A worker connected.
+    Connection(UnixStream),
+    /// The keeper should stop before any worker does.
+    Exit(ExitCause),
 }
 
 /// A running keeper, once it is listening.
@@ -182,6 +208,7 @@ pub struct Server {
     endpoint: Endpoint,
     listener: UnixListener,
     keeper: Keeper,
+    exit_watch: Option<ExitWatch>,
 }
 
 // The listener is left out: it is the endpoint that identifies this server in
@@ -201,6 +228,7 @@ impl Server {
             endpoint,
             listener,
             keeper: Keeper::new(),
+            exit_watch: None,
         }
     }
 
@@ -256,6 +284,39 @@ impl Server {
     /// instead of racing the daemon's accept loop.
     pub fn accept_one(&mut self) -> Option<UnixStream> {
         self.listener.accept().ok().map(|(stream, _)| stream)
+    }
+
+    /// Install the stop conditions the daemon answers to: the accept wait and
+    /// every connection turn poll `watch`.
+    pub fn watch_exits(&mut self, watch: ExitWatch) {
+        self.exit_watch = Some(watch);
+    }
+
+    /// Wait for the next worker, or for a reason to stop without one. With no
+    /// watch installed this is a plain blocking accept.
+    pub fn accept_or_exit(&mut self) -> Accepted {
+        loop {
+            if let Some(cause) = self.poll_exit() {
+                return Accepted::Exit(cause);
+            }
+            let waiting = match &self.exit_watch {
+                Some(watch) => exit_watch::wait_for_connection(&self.listener, watch.wait_budget()),
+                None => true,
+            };
+            if !waiting {
+                continue;
+            }
+            // The wait saw a connection queued, so this returns at once; one
+            // whose worker already hung up is still accepted and reads EOF.
+            if let Ok((stream, _)) = self.listener.accept() {
+                return Accepted::Connection(stream);
+            }
+        }
+    }
+
+    /// Why the keeper should stop now, if its watch says it should.
+    fn poll_exit(&mut self) -> Option<ExitCause> {
+        self.exit_watch.as_mut().and_then(ExitWatch::poll)
     }
 }
 
