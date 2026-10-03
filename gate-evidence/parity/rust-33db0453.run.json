@@ -1,0 +1,42 @@
+{
+  "stack": "rust",
+  "label": "final",
+  "manifest": {
+    "gitSha": "33db0453c998abade0d470bdf05a1263a46f5df0",
+    "dirty": false,
+    "roostSha256": "006570f5e19f504e862434b26bc71b04280d2476501db47cfa43a5b6a025f6e9",
+    "keeperSha256": "3908338b45e00b94ad5f17f47c027934c430c3e297989d8a6dbaf12dffd6268a",
+    "webBundleFiles": [
+      "roost-web-dxh304afda2ad10308f.js",
+      "roost-web_bg-dxhb02179b03d1ad6c4.wasm"
+    ],
+    "features": [
+      "smoke"
+    ],
+    "webFeatures": [
+      "smoke"
+    ],
+    "profile": "release",
+    "builtAt": "2026-10-03T18:05:03.034Z"
+  },
+  "passes": [
+    {
+      "pass": "main",
+      "jsonPath": "rust-33db0453-main.json",
+      "exit": 0,
+      "passed": 142,
+      "failed": 0,
+      "skipped": 3,
+      "wall": 673.359519281
+    },
+    {
+      "pass": "serial",
+      "jsonPath": "rust-33db0453-serial.json",
+      "exit": 0,
+      "passed": 15,
+      "failed": 0,
+      "skipped": 3,
+      "wall": 1356.2818130919998
+    }
+  ]
+}

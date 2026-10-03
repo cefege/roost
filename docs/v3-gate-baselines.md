@@ -2152,6 +2152,9 @@ skipped.
 |2026-10-03 00:49|Rust, both, production-shape `roost`|`roost-box exclusive bun smoke/parity/run.ts suite --stack rust --pass both --label plain`, after `run.ts build --plain --no-web`|`pin c1310f27 roost=a970046c2bba keeper=11c5d0cd57c0 web=roost-web-dxh3e76822d50a37990.js,roost-web_bg-dxh3d4d50ae4326443.wasm features=[] web-features=[smoke] profile=release`|`test-results/parity/rust-plain.run.json`|main 116 / 1 / 28 (461 s) — `composer-mobile-keyboard.spec.ts:9` chromium-desktop; serial 14 / 0 / 4 (1462 s) — every extra skip carries the packaged-worker fault-controls reason|
 |2026-10-03 01:34|Rust, both|`roost-box exclusive bun smoke/parity/run.ts suite --stack rust --pass both --label final`|`pin c1310f27 roost=2807354fd57a keeper=11c5d0cd57c0 web=roost-web-dxh3e76822d50a37990.js,roost-web_bg-dxh3d4d50ae4326443.wasm features=[smoke] web-features=[smoke] profile=release`|`test-results/parity/rust-final-c1310f27-run3.run.json`, archived as `gate-evidence/parity/rust-c1310f27.run.json`|main 142 / 0 / 3 (842 s); serial 15 / 0 / 3 (1526 s); verdict gap 0, both-red 0, rust-skip-only 0, both-skip 6, green 157|
 |2026-10-03 04:00|Rust, both|`roost-box exclusive bun smoke/parity/run.ts suite --stack rust --pass both --label keeper`|`pin f2e0a386 roost=2807354fd57a keeper=63d404562b88 web=roost-web-dxh3e76822d50a37990.js,roost-web_bg-dxh3d4d50ae4326443.wasm features=[smoke] web-features=[smoke] profile=release`|`test-results/parity/rust-keeper.run.json`|main 142 / 0 / 3 (782 s); serial 15 / 0 / 3 (1463 s); verdict gap 0, both-red 0, rust-skip-only 0, both-skip 6, green 157; 0 test keepers alive 35 s after|
+|2026-10-03 14:05|Rust, both|`roost-box exclusive bun smoke/parity/run.ts suite --stack rust --pass both --label final`|`pin 33db0453c998 roost=006570f5e19f keeper=3908338b45e0 web=roost-web-dxh304afda2ad10308f.js,roost-web_bg-dxhb02179b03d1ad6c4.wasm features=[smoke] web-features=[smoke] profile=release`|`test-results/parity/rust-final.run.json`, archived as `gate-evidence/parity/rust-33db0453.run.json`|main 142 / 0 / 3 (673 s); serial 15 / 0 / 3 (1356 s); verdict gap 0, both-red 0, rust-skip-only 0, both-skip 6, green 157|
+|2026-10-03 14:40|Rust, both|`roost-box exclusive bun smoke/parity/run.ts suite --stack rust --pass both --label final-2`|`pin 33db0453c998`, the same artifacts|`test-results/parity/rust-final-2.run.json`|main 141 / 1 / 3 (691 s) — `terminal-predictive-echo.spec.ts:51` chromium-desktop; serial 15 / 0 / 3 (1408 s); 0 test keepers alive right after|
+|2026-10-03 15:20|Rust, main|`roost-box exclusive bun smoke/parity/run.ts suite --stack rust --pass main --label final-3`|`pin 33db0453c998`, the same artifacts|`test-results/parity/rust-final-3.run.json`|main 142 / 0 / 3 (669 s); 0 test keepers alive right after|
 
 **The landed tree's verdict** (`run.ts verdict rust-landed.run.json
 gate-evidence/parity/bun-d5bd76c7.run.json`, keyed by file, title and project):
@@ -2231,8 +2234,9 @@ behaviour.** Runs 1 and 2 above each had exactly one red; run 3 had none.
   comparison and the trace records it 1.9 s after its browser-side start. Isolated `--repeat 30`:
   Rust 1 red, Bun 0.
 
-Neither is fixed here. The first is v2's own reveal behaviour, reached sooner; the second is timing
-inside the oracle, which the parity rule does not let this branch edit.
+Neither was fixed on `c1310f27`. The first was v2's own reveal behaviour, reached sooner; the second
+was timing inside the oracle. Both are fixed on `33db0453`, below, the second with an oracle edit
+that `main` carries too.
 
 **Keeper lifecycle, re-gated on `f2e0a386`.** Cleaning up after the runs above found 1155
 `roost-keeper` processes still alive (3.1 GB RSS), every one on a deleted test socket, where the
@@ -2246,6 +2250,51 @@ no test keeper alive 35 s after it), and the workspace gates — fmt, clippy wit
 `smoke` features, `xtask lint` 0 violations / 6246 inputs, `cargo test --workspace` **5342 passed /
 0 failed / 16 ignored** twice (782 binaries), `roost-web` smoke 842, worker + CLI smoke 1469,
 vendored 187, wasm32 0 warnings, the release build, and `bun run lint` 0 violations.
+
+**FINAL GATE — GREEN on `33db0453`, 2026-10-03: the keeper authenticates, and both flakes are
+fixed.** Four commits on `655f5938` — `5bb37805` (keeper), `de5907d1` (worker), `b6afc643` (web),
+`8ba13223` (smoke) — and a merge of `main`'s copy of the last (`48f6fa2f`), which changes no file.
+
+- *Keeper teardown.* v2's own client (`resolveLocalEndpoint` + `connectKeeperAuthenticated` +
+  `shutdownKeeperAuthenticated`) against the pre-change release keeper: `authenticated=false
+  compatible=false`, `shutdown=false`, the keeper still running. Against `keeper=db646ec2c0d3`
+  (pin `47ab5976`): `authenticated=true compatible=true pid=<keeper pid>`, `shutdown=true`, the
+  keeper gone 23 ms later; one started with a different capability file refuses and stays up. The
+  batch above (`terminal-delivery.spec.ts terminal-peer.spec.ts`, chromium-desktop) passed 9 and left
+  0 test keepers alive right after, where `c1310f27` left 16 alive 35 s later; runs `final-2` and
+  `final-3` left 0 right after the suite.
+- *Mobile reveal.* The reveal published 25 then 28 rows — `terminal view opened` rows 25, then
+  `terminal view resized` 28 at +68 ms, the slot's inline height 455 px then 503 px. The compact
+  slot now takes its box from the deck's (`height: auto; bottom: 0px`), so the reveal publishes
+  once, at 28 rows. Removing that resize exposed a second cause, the worker link writing a reopened
+  stream's baseline ahead of the view-state that announces it: 3 of 20 traced runs then failed
+  "terminal stream probe omitted a current worker/coordinator sequence" (FAILURE-INDEX "A worker
+  link writes a reopened view's baseline ahead of the view-state that announces it"). With both
+  fixes, `--repeat 20` passed 20 twice, and a traced `--repeat 20` showed one `terminal view
+  opened` at 28 rows and no resize within 500 ms in every run.
+- *Attachment fallback.* `:168` polls `requests.relay`; `--repeat 30` passed 30.
+
+Run `final-2` had one red, `terminal-predictive-echo.spec.ts:51` "no prediction was painted — the
+case proves nothing": about 0.9 s after the view opened, a snapshot request from the browser side
+re-seeded the pane mid-burst (pty-fixture worker "a snapshot request re-baselined every sink",
+coordinator `terminal.screen_seed`, no coordinator-side resync logged). Its trace was lost to the
+serial pass's output cleanup, so the trigger is not identified. Isolated on the same pin,
+`--repeat 30 --trace` with four workers passed 30, and `final-3`'s main pass was green.
+
+|criterion|result|
+|---|---|
+|all-Rust oracle, both passes|main 142 / 0 / 3 (673 s), serial 15 / 0 / 3 (1356 s); verdict gap 0, both-red 0, rust-skip-only 0, both-skip 6, green 157, bun-only 0, skew 0|
+|`cargo xtask fmt`|exit 0|
+|`ROOST_REPO_ROOT=$PWD cargo xtask lint`|**0 violations, 6253 inputs**|
+|`cargo clippy --workspace --all-targets -- -D warnings`|exit 0|
+|the same clippy over `roost-web`, `roost-worker` and `roost-cli` with their `smoke` features|exit 0|
+|`cargo test --workspace --no-fail-fast`, two runs|783 binaries, **5354 passed / 0 failed / 16 ignored**, both runs|
+|`cargo test -p roost-web --features smoke`|74 binaries, **843 passed / 0 failed**|
+|`cargo test -p roost-worker -p roost-cli --features roost-worker/smoke,roost-cli/smoke`|239 binaries, **1470 passed / 0 failed**|
+|vendored terminal core suite|187 passed|
+|wasm32: `roost-protocol` + `roost-client-core`, then `roost-web`|exit 0, 0 warnings|
+|`cargo build --release -p roost-cli -p roost-keeper`|exit 0|
+|`bun x tsgo -p tsconfig.base.json --noEmit`; `bun run lint`|exit 0; 0 violations|
 
 ### Where tonight's numbers live, since this file is long
 
