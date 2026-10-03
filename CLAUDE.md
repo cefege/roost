@@ -492,7 +492,7 @@ browser.
 
 ## Failure index
 
-[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index: 128
+[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index: 129
 entries, one `###` heading each, with `**Symptom**` (the grep string),
 `**Wrong**`, `**Right**`, and `**Guard**` (the lint rule or test that pins
 it). It is the only actively maintained institutional memory in this repo and
