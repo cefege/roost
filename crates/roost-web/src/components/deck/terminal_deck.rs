@@ -150,6 +150,7 @@ pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) ->
                 frame.park_sizes.get(id).copied(),
                 size,
                 frame.strip_height,
+                compact,
             )
             .merged(&swipe_style_for(swipe_now.as_ref(), id, size.w))
             .css();

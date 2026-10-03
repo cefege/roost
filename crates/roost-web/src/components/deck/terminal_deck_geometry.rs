@@ -17,6 +17,12 @@ pub const MOBILE_TERMINAL_STRIP_HEIGHT: f64 = 48.0;
 /// hidden, so its scroll maximum cannot move while frames keep arriving; a
 /// `display: none` park would measure zero and repaint at a lying size.
 ///
+/// A `compact` slot spans the deck below its bar, so its bottom edge is the
+/// deck's and CSS resolves it from the deck's CURRENT box. A px height there
+/// is the deck's last measured height, which trails a route change that
+/// resizes the deck by one observer delivery: a pane revealed in that gap
+/// published the stale size, and the next delivery revised it at once.
+///
 /// Every branch states every property any branch sets. Dioxus 0.7 MERGES a new
 /// `style` string into the element's old inline style, keeping each property
 /// the new string omits, so a property only one branch states outlives the
@@ -26,6 +32,7 @@ pub fn terminal_session_style(
     park: Option<DeckSize>,
     deck: DeckSize,
     strip_height: f64,
+    compact: bool,
 ) -> InlineStyle {
     let Some(slot) = slot else {
         let width = park.map_or(if deck.w > 0.0 { deck.w } else { 800.0 }, |park| park.w);
@@ -42,6 +49,7 @@ pub fn terminal_session_style(
             top: "0".to_owned(),
             width: px(width),
             height: px(height),
+            bottom: "auto",
             visibility: "hidden",
             pointer_events: "none",
             z_index: "auto",
@@ -57,6 +65,7 @@ pub fn terminal_session_style(
             top: px(rect.y),
             width: px(rect.w),
             height: px(rect.h),
+            bottom: "auto",
             visibility: "inherit",
             pointer_events: "auto",
             z_index: "9",
@@ -65,11 +74,17 @@ pub fn terminal_session_style(
         }
         .into_inline();
     }
+    let (height, bottom) = if compact {
+        ("auto".to_owned(), "0px")
+    } else {
+        (px((rect.h - strip_height).max(0.0)), "auto")
+    };
     SlotStyle {
         left: px(rect.x),
         top: px(rect.y + strip_height),
         width: px(rect.w),
-        height: px((rect.h - strip_height).max(0.0)),
+        height,
+        bottom,
         visibility: "inherit",
         pointer_events: "auto",
         z_index: if slot.focused { "2" } else { "1" },
@@ -86,6 +101,7 @@ struct SlotStyle {
     top: String,
     width: String,
     height: String,
+    bottom: &'static str,
     visibility: &'static str,
     pointer_events: &'static str,
     z_index: &'static str,
@@ -101,6 +117,7 @@ impl SlotStyle {
             .with("top", self.top)
             .with("width", self.width)
             .with("height", self.height)
+            .with("bottom", self.bottom)
             .with("visibility", self.visibility)
             .with("pointer-events", self.pointer_events)
             .with("z-index", self.z_index)
