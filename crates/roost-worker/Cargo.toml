@@ -13,10 +13,13 @@ async-compression.workspace = true
 base64.workspace = true
 futures-util.workspace = true
 # The enrollment calls are the only place this crate speaks Connect, and
-# `CallOptions`/`ClientTransport` live behind the `client` feature. The
-# transport itself is the composition root's: a worker dials its coordinator
-# over `http://` and `https://`, and pinning one here would pin it for both.
-connectrpc = { workspace = true, features = ["client"] }
+# `CallOptions`/`ClientTransport` live behind the `client` feature. A worker
+# dials its coordinator over `http://` and `https://`, so `client-tls` is
+# compiled in beside the plaintext transport; `coordinator_tls` builds the one
+# TLS configuration the Connect client and the link share.
+connectrpc = { workspace = true, features = ["client", "client-tls"] }
+rustls.workspace = true
+webpki-roots.workspace = true
 roost-host.workspace = true
 roost-keeper.workspace = true
 roost-observability.workspace = true
@@ -31,7 +34,7 @@ thiserror.workspace = true
 tokio = { workspace = true, features = [
     "fs", "macros", "net", "process", "rt", "rt-multi-thread", "signal", "sync", "time",
 ] }
-tokio-tungstenite = { workspace = true, features = ["connect", "handshake"] }
+tokio-tungstenite = { workspace = true, features = ["connect", "handshake", "rustls-tls-webpki-roots"] }
 
 # The six W-1 slices reach for these, and each was a workspace pin that no
 # member declared, so none of them resolved until this wave. `roost-term` is

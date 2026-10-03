@@ -19,6 +19,8 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
+use crate::coordinator_tls::coordinator_tls_config;
+
 /// The subprotocol that carries the worker's credential.
 ///
 /// A CREDENTIAL, never URL material. A JWT in a path lands in proxy access
@@ -244,14 +246,20 @@ pub async fn dial(
     timeout: Duration,
 ) -> Result<Link, DialError> {
     let request = dial_request(endpoint, credential)?;
-    // No TLS connector is configured. A `wss` endpoint therefore fails the
-    // upgrade rather than silently downgrading, which is the safe direction to
-    // fail in: a worker that quietly loses TLS to a coordinator that thinks it
-    // is encrypted is worse than one that refuses to connect.
-    //
+    // A `wss` endpoint is dialled over the same TLS as the Connect client, and
+    // never downgraded: the connector is only consulted for `wss`, and a `ws`
+    // endpoint dials in the clear exactly as it always has.
+    let tls = coordinator_tls_config().map_err(|err| DialError::NotAccepted {
+        reason: format!("the TLS client configuration could not be built: {err}"),
+    })?;
     // Nagle off: a keystroke's write acknowledgement and its echo frame are
     // small writes, and Nagle would hold each for the coordinator's delayed ACK.
-    let attempt = tokio_tungstenite::connect_async_with_config(request, None, true);
+    let attempt = tokio_tungstenite::connect_async_tls_with_config(
+        request,
+        None,
+        true,
+        Some(tokio_tungstenite::Connector::Rustls(tls)),
+    );
     match tokio::time::timeout(timeout, attempt).await {
         Ok(Ok((socket, response))) => {
             let negotiated = response

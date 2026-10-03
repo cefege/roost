@@ -15,6 +15,7 @@ pub mod boot_keeper;
 pub mod browser_commands;
 pub mod capture;
 pub mod channel_fsm;
+pub mod coordinator_tls;
 pub mod diag_snapshot;
 pub mod door;
 pub mod event_store;

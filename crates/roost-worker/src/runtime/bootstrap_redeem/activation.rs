@@ -15,11 +15,11 @@
 //! held across a reconnect loop is a credential with a longer life than the
 //! grant it authorises.
 //!
-//! TLS IS NOT CONFIGURED, AND A CLEARTEXT FALLBACK IS NOT ITS REPAIR. This
-//! worker configures no TLS connector anywhere — `link_dial` says so of the
-//! `wss` dial in the same terms — so an `https` coordinator is refused by name
-//! rather than dialled in the clear. An operator who needs TLS needs it on the
-//! link too, and half of it is not half of a fix.
+//! AN `https` COORDINATOR IS DIALLED OVER TLS, NEVER IN THE CLEAR. Both legs —
+//! this Connect client and the `wss` link in `link_dial` — take their TLS from
+//! [`crate::coordinator_tls`], so the two trust the same roots. v2's workers
+//! dial `https://` front doors, and a worker that could not would join nothing
+//! but a coordinator on its own machine.
 //! Ports v2 `apps/worker/src/host/install.ts`.
 
 use anyhow::Context as _;
@@ -28,6 +28,7 @@ use roost_host::{EnvSource, ProcessEnv, supported_host_platform};
 use roost_proto::CoordinatorServiceClient;
 
 use super::{Enrollment, enroll};
+use crate::coordinator_tls::coordinator_tls_config;
 use crate::host::install::BOOTSTRAP_TOKEN_ENV;
 use crate::runtime::boot::WorkerBoot;
 use crate::runtime::credential::WorkerKeyCredential;
@@ -79,8 +80,8 @@ fn token_offered(env: &dyn EnvSource) -> bool {
 /// `pub(crate)` because boot makes a THIRD call on the same connection — the
 /// open-session read in [`crate::runtime::reconcile`] — and a second client
 /// constructor would be a second answer to "how does this worker reach its
-/// coordinator", including the same refusal to dial `https` in the clear. The
-/// TLS refusal above is the reason this is one function rather than two.
+/// coordinator", including what TLS an `https` coordinator is dialled with.
+/// One answer to that is the reason this is one function rather than two.
 pub(crate) fn coordinator_client(
     base: &str,
 ) -> anyhow::Result<CoordinatorServiceClient<HttpClient>> {
@@ -92,11 +93,30 @@ pub(crate) fn coordinator_client(
             HttpClient::plaintext(),
             ClientConfig::new(uri),
         )),
-        Some("https") => anyhow::bail!(
-            "this worker configures no TLS connector, so {base} cannot be enrolled against; \
-             configure TLS for the coordinator link as well, or point the worker at an \
-             http coordinator"
-        ),
+        Some("https") => {
+            let tls = coordinator_tls_config()
+                .context("the TLS client configuration for the coordinator could not be built")?;
+            Ok(CoordinatorServiceClient::new(
+                HttpClient::with_tls(tls),
+                ClientConfig::new(uri),
+            ))
+        }
         other => anyhow::bail!("{base} is not a coordinator URL: the scheme is {other:?}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::coordinator_client;
+
+    /// v2's workers dial `https://` front doors, and `roost add-machine` only
+    /// hands out HTTPS origins, so an `https` base must build a TLS client. It
+    /// used to be refused by name, which left every remote join looping on
+    /// "is not a coordinator this worker can dial".
+    #[tokio::test]
+    async fn an_https_coordinator_gets_a_tls_client_rather_than_a_refusal() {
+        assert!(coordinator_client("https://coordinator.example").is_ok());
+        assert!(coordinator_client("http://127.0.0.1:4113").is_ok());
+        assert!(coordinator_client("ftp://coordinator.example").is_err());
     }
 }

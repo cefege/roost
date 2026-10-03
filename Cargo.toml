@@ -56,6 +56,9 @@ tokio-tungstenite = { version = "0.30.0", default-features = false }
 tower-http = { version = "0.6.9", default-features = false, features = ["cors", "set-header"] }
 reqwest = { version = "0.13.5", default-features = false }
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+# The roots a worker trusts when it dials an `https` coordinator, compiled in
+# so a Mac, any Linux and a service manager with no CA bundle all agree.
+webpki-roots = "1.0.9"
 web-push = "0.11.0"
 # web-push reaches OpenSSL through `ece` and through isahc's curl. `vendored`
 # compiles it into the binary: a release linked against the build host's
