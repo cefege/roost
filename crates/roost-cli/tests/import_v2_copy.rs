@@ -311,6 +311,32 @@ async fn a_dry_run_does_not_migrate_a_target_that_is_already_there() {
     );
 }
 
+/// The cutover imports BEFORE `roost quickstart` creates anything, so on a host
+/// that has never had v3 the directory the database belongs in does not exist.
+/// SQLite creates a missing file but not a missing directory, and the import
+/// refused with "unable to open database file" on exactly that host.
+#[tokio::test]
+async fn a_first_import_on_a_host_without_v3_creates_the_data_directory() {
+    let fixture = Fixture::new("fresh-host").await;
+    let target = fixture
+        .root
+        .join("RoostCoordinatorV3")
+        .join("coordinator_v3.db");
+
+    let applied = roost_cli::import_v2::apply(&fixture.v2, &target, 1_700_000_000_000)
+        .await
+        .expect("an import into a data directory nothing has created yet");
+
+    assert_eq!(applied.mode, ImportMode::FirstRun);
+    assert_eq!(
+        fixture
+            .count(&target, "SELECT count(*) FROM accounts")
+            .await,
+        1,
+        "the account landed in the database the coordinator will open"
+    );
+}
+
 /// The source is the live v2 coordinator's file on the same host during the
 /// cutover, so it is attached read-only rather than trusted.
 #[tokio::test]

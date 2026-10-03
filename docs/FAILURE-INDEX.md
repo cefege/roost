@@ -3730,3 +3730,23 @@ reader for a name that arrives as data: a registry column, a deploy manifest, a 
 **Guard** — `crates/roost-cli/tests/worker_subcommand_boot.rs` on ci.yml's `macos-latest` leg. The real
 flow is the `aarch64-apple-darwin` release binary: `roost quickstart --dry-run` on a Mac must print a plan,
 not this refusal.
+
+### `roost import-v2` on a fresh host: "could not be opened: … (code: 14) unable to open database file"
+
+**Symptom** — the cutover's first write, `roost import-v2 --from …coordinator_v2.db`, run before `roost
+quickstart` on a host that has never had v3, fails with `the v3 database
+…/RoostCoordinatorV3/coordinator_v3.db could not be opened: sqlite: error returned from database: (code: 14)
+unable to open database file`. The `--dry-run` just before it succeeds, so the failure reads as a different
+problem.
+
+**Wrong** — relying on SQLite's `create_if_missing` to create the target. It creates a missing FILE, not a
+missing directory. On a fresh host nothing has created `RoostCoordinatorV3/` yet, because quickstart, which
+does (`ensure_service_directories`), runs AFTER the import by design: the import has to land before
+anything creates an account (`ensure_self_hosted_tenant`).
+
+**Right** — `import_v2::apply` creates the target's directory with the same `create_dir_all`
+quickstart's install uses, before the coordinator's own `db::open`.
+
+**Guard** — `crates/roost-cli/tests/import_v2_copy.rs`:
+`a_first_import_on_a_host_without_v3_creates_the_data_directory` drives the real `apply` into a directory
+that does not exist. Without the fix it fails with the code-14 error above.

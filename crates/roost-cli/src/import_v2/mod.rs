@@ -205,7 +205,17 @@ pub async fn apply(source: &Path, target: &Path, now_ms: i64) -> Result<Applied,
     // The coordinator's own open, so v3's migrations run and the file is
     // exactly the one the coordinator will use. A target that does not exist
     // yet is created here and only here: an import that skipped this would
-    // write rows into a schema nothing has migrated.
+    // write rows into a schema nothing has migrated. Its directory too: the
+    // import runs BEFORE quickstart, so on a host that has never had v3 nothing
+    // has created the data directory, and SQLite creates a file, not a path.
+    if let Some(directory) = target.parent() {
+        std::fs::create_dir_all(directory).map_err(|error| {
+            CommandFailure::generic(format!(
+                "the v3 data directory {} could not be created: {error}",
+                directory.display()
+            ))
+        })?;
+    }
     let database = roost_coord::db::open(target).await.map_err(|error| {
         CommandFailure::generic(format!(
             "the v3 database {} could not be opened: {error}",
