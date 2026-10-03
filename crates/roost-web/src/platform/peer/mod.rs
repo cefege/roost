@@ -21,6 +21,8 @@
 //! browser callback here records a fact and returns; it never reaches for the
 //! store, because a data channel can fire while the pump is already borrowed.
 
+use std::rc::Rc;
+
 use roost_client_core::client::carriers::{PeerAttempt, PeerLane, PeerTransport, TransportError};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -118,6 +120,12 @@ impl BrowserPeer {
     /// fact that they were.
     pub fn take_overflowed(&self) -> Overflowed {
         self.events.take_overflowed()
+    }
+
+    /// Ring `notify` whenever the browser reports anything about any peer, so
+    /// the host drains on the next task rather than on its tick.
+    pub fn notify_on_event(&self, notify: Rc<dyn Fn()>) {
+        self.events.notify_on_record(notify);
     }
 
     /// The attempt one open peer was opened for.

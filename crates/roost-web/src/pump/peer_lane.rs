@@ -40,12 +40,13 @@ pub(super) use drain::install_tick;
 
 use super::Pump;
 
-/// How often the peer tick drains the browser's event sink and reads the
-/// protocol's own deadlines.
+/// How often the peer tick reads the protocol's own deadlines, starts due
+/// probes, and drains anything the sink's notify has not already drained.
 ///
 /// The sweep's cadence rather than a faster one of its own: nothing here can end
 /// an attempt sooner than the slowest window the protocol fixes, and a second
-/// interval at a different rate is a second number to keep honest.
+/// interval at a different rate is a second number to keep honest. Arrived
+/// bytes never wait for it — `drain::install_tick` drains them on the next task.
 pub(super) const PEER_TICK_INTERVAL_MS: i32 = 250;
 
 /// Queue and write one already-decided command on the peer carrier presenting

@@ -6,13 +6,16 @@
 //! the fact somewhere: it may fire while the pump is already borrowed, and a
 //! callback that reached for the store from inside one would be a re-entrant
 //! borrow on a single-threaded event loop. So every callback here pushes a
-//! [`PeerEvent`], and the host drains the sink on its own tick.
+//! [`PeerEvent`] and rings the host's notify, and the host drains the sink on
+//! the next task — v2 handled each data-channel message as it arrived, and a
+//! frame left for the host's slow tick reaches the screen up to a tick late.
 //!
 //! Target-independent on purpose: the queue, its bound and the settle order are
 //! decided by native tests, and only the JS closures that push into it are
 //! `wasm32`.
 
 use std::cell::RefCell;
+use std::fmt;
 use std::rc::Rc;
 
 use roost_client_core::client::carriers::{CandidateType, PeerLane};
@@ -107,11 +110,37 @@ pub struct Overflowed {
     pub attempt_ids: Vec<u64>,
 }
 
+/// What the host asked to be rung with after each recorded event.
+type SinkNotify = Rc<dyn Fn()>;
+
 /// Where the browser's callbacks put what they saw.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct PeerEventSink {
     queue: Rc<RefCell<Vec<PeerEvent>>>,
     dropped: Rc<RefCell<Vec<u64>>>,
+    /// Shared by every clone, so a callback installed before the host set it
+    /// still rings.
+    notify: Rc<RefCell<Option<SinkNotify>>>,
+}
+
+impl fmt::Debug for PeerEventSink {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PeerEventSink")
+            .field(
+                "queued",
+                &self.queue.try_borrow().map(|queue| queue.len()).ok(),
+            )
+            .field(
+                "dropped",
+                &self.dropped.try_borrow().map(|ids| ids.len()).ok(),
+            )
+            .field(
+                "notifies",
+                &self.notify.try_borrow().map(|notify| notify.is_some()).ok(),
+            )
+            .finish()
+    }
 }
 
 impl PeerEventSink {
@@ -121,9 +150,25 @@ impl PeerEventSink {
         Self::default()
     }
 
-    /// Record one fact. Never allocates after the bound: a full queue drops the
-    /// event and remembers which attempt it belonged to.
+    /// Ring `notify` after every recorded event, dropped ones included, so the
+    /// host drains — and retires an overflowed attempt — without waiting for
+    /// its tick.
+    pub fn notify_on_record(&self, notify: SinkNotify) {
+        *self.notify.borrow_mut() = Some(notify);
+    }
+
+    /// Record one fact, then ring the host. Never allocates after the bound: a
+    /// full queue drops the event and remembers which attempt it belonged to.
     pub fn record(&self, event: PeerEvent) {
+        self.enqueue(event);
+        // Cloned out first: the host's notify may read this sink.
+        let notify = self.notify.borrow().clone();
+        if let Some(notify) = notify {
+            notify();
+        }
+    }
+
+    fn enqueue(&self, event: PeerEvent) {
         let attempt_id = event.attempt_id();
         let mut queue = self.queue.borrow_mut();
         if queue.len() >= PEER_EVENT_BACKLOG {
@@ -169,8 +214,59 @@ impl PeerEvent {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
     use super::{PEER_EVENT_BACKLOG, PeerEvent, PeerEventSink};
     use roost_client_core::client::carriers::PeerLane;
+
+    #[test]
+    fn the_host_is_rung_after_the_event_it_must_drain_is_queued() {
+        let sink = PeerEventSink::new();
+        let handler_copy = sink.clone();
+        let drained = Rc::new(RefCell::new(Vec::new()));
+        let overflowed = Rc::new(RefCell::new(Vec::new()));
+        let notify: Rc<dyn Fn()> = {
+            let sink = sink.clone();
+            let drained = Rc::clone(&drained);
+            let overflowed = Rc::clone(&overflowed);
+            Rc::new(move || {
+                drained.borrow_mut().extend(sink.drain());
+                overflowed
+                    .borrow_mut()
+                    .extend(sink.take_overflowed().attempt_ids);
+            })
+        };
+        sink.notify_on_record(notify);
+
+        handler_copy.record(PeerEvent::Bytes {
+            attempt_id: 4,
+            lane: PeerLane::Data,
+            bytes: vec![7],
+        });
+        assert_eq!(
+            *drained.borrow(),
+            vec![PeerEvent::Bytes {
+                attempt_id: 4,
+                lane: PeerLane::Data,
+                bytes: vec![7],
+            }],
+            "a clone made before the notify was set rings it, and the ring finds its own event"
+        );
+
+        for _ in 0..PEER_EVENT_BACKLOG {
+            sink.enqueue(PeerEvent::Gathered { attempt_id: 5 });
+        }
+        handler_copy.record(PeerEvent::IceFailed {
+            attempt_id: 6,
+            reason: "gone".to_owned(),
+        });
+        assert_eq!(
+            *overflowed.borrow(),
+            vec![6],
+            "an event the full queue dropped still rings, so its attempt is retired at once"
+        );
+    }
 
     #[test]
     fn events_are_drained_in_arrival_order_and_then_the_queue_is_empty() {
