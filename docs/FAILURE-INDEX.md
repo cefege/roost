@@ -3570,3 +3570,29 @@ stageCurrentConnection). A loopback route is never traded for a peer.
 `a_pane_opening_for_an_admitted_session_stages_it_on_the_live_carrier` (failed before the fix) and
 `a_second_pane_of_an_elected_session_does_not_stage_it_again`. The real-flow oracle is
 `smoke/terminal/terminal-peer-perf.spec.ts:7` (chromium-serial).
+
+---
+
+### A key pressed right after the key that opened a menu lands on the wrong item
+
+**Symptom** — ArrowDown on the sidebar machine trigger, then End at once: focus ends on the FIRST
+machine, not the last, and End did nothing. It only shows under load, and only on the second key:
+`terminal-delivery.spec.ts:130` at `expect(page.locator(":focus")).toContainText(secondWorker.label)`
+receives the first item's text. Nothing logs.
+
+**Wrong** — making the first focus attempt on an animation frame (or any later tick) because the
+menu "has to mount first". Every key that arrives before that frame reaches the trigger, which has
+no use for it, and the frame then focuses the edge the OPENING key asked for — the reader's next key
+is lost. Waiting longer in the spec only hides it.
+
+**Right** — v2 `contextMenuPrimitives.tsx` focusMenuEdge: attempt in a microtask, retry by frame
+only when the menu was not yet in the document, and let the menu cancel a pending request on close
+and on its next request (`cancelPendingFocus`). In Rust that is `focus_menu_edge` returning a
+`MenuFocusRequest` (`crates/roost-web/src/components/context_menu{.rs,/dom.rs}`); the machine menu
+also attempts from its `onmounted`, and Home/End that still beat the focus to the trigger retarget
+the request (`machine_trigger_key_action` in `sidebar_new_terminal.rs`) instead of being dropped.
+
+**Guard** — `crates/roost-web/tests/sidebar_logic.rs`:
+`home_and_end_that_beat_the_menu_focus_to_the_trigger_still_pick_their_edge`. The real-flow oracle
+is `smoke/terminal/terminal-delivery.spec.ts:130` (chromium-desktop); before the fix a 30-round
+ArrowDown-then-End loop on a release pin missed 5 times.

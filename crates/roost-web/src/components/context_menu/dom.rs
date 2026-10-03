@@ -1,7 +1,8 @@
 //! The browser half of the floating-menu primitives: measuring a trigger,
 //! focusing a menu edge after it mounts, running a menu key, and the document
 //! listeners behind outside-click/Escape dismissal. wasm32 only; the decisions
-//! are `super::{anchored_menu_pos, menu_key_action}`. Ports the DOM half of
+//! are `super::{anchored_menu_pos, menu_key_action}` and the focus request is
+//! `super::MenuFocusRequest`. Ports the DOM half of
 //! `apps/web/src/components/contextMenuPrimitives.tsx`.
 
 use std::cell::RefCell;
@@ -12,7 +13,10 @@ use wasm_bindgen::JsCast as _;
 use wasm_bindgen::closure::Closure;
 use web_sys::{Element, HtmlElement, KeyboardEvent};
 
-use super::{AnchoredMenuPos, MenuFocusEdge, MenuKeyAction, anchored_menu_pos, menu_key_action};
+use super::{
+    AnchoredMenuPos, MenuFocusEdge, MenuFocusRequest, MenuKeyAction, anchored_menu_pos,
+    menu_key_action,
+};
 
 const ENABLED_ITEMS: &str = "[role=\"menuitem\"]:not(:disabled)";
 const FOCUS_ATTEMPTS: u32 = 4;
@@ -44,51 +48,68 @@ fn active_index(items: &[HtmlElement]) -> Option<usize> {
     })
 }
 
-/// The self-replacing frame step: a closure the cell keeps so each retry can
+/// The self-replacing attempt: a closure the cell keeps so each retry can
 /// hand the browser its own successor.
 type StepCell = Rc<RefCell<Option<Closure<dyn FnMut()>>>>;
 
-/// Focus the menu `menu_id`'s first or last enabled item once it has mounted,
-/// retrying by frame because a portal can miss the first attempt.
-pub fn focus_menu_edge(menu_id: &str, edge: MenuFocusEdge) {
-    let menu_id = menu_id.to_owned();
-    let attempts = Rc::new(RefCell::new(0_u32));
+/// Focus the menu `menu_id`'s first or last enabled item once it has mounted.
+///
+/// The first attempt is a microtask, as in v2: the opening key's render runs
+/// in an earlier microtask of the same task, so the item is focused before
+/// the next key arrives and that key reaches the menu, not the trigger. A
+/// portal that misses it is retried by frame.
+pub fn focus_menu_edge(menu_id: &str, edge: MenuFocusEdge) -> MenuFocusRequest {
+    let request = MenuFocusRequest::new(menu_id, edge);
+    let Some(window) = web_sys::window() else {
+        return request;
+    };
+    let pending = request.clone();
+    let mut attempts = 0_u32;
     let step: StepCell = Rc::new(RefCell::new(None));
     let next = Rc::clone(&step);
     *step.borrow_mut() = Some(Closure::new(move || {
-        let Some(window) = web_sys::window() else {
-            return;
-        };
-        let menu = window
-            .document()
-            .and_then(|document| document.get_element_by_id(&menu_id));
-        let items = menu
-            .filter(|menu| menu.is_connected())
-            .map(|menu| enabled_items(&menu))
-            .unwrap_or_default();
-        let target = match edge {
-            MenuFocusEdge::First => items.first(),
-            MenuFocusEdge::Last => items.last(),
-        };
-        if let Some(target) = target {
-            let _ = target.focus();
-            if active_index(&items).is_some() {
-                next.borrow_mut().take();
-                return;
-            }
-        }
-        let mut count = attempts.borrow_mut();
-        *count += 1;
-        if *count >= FOCUS_ATTEMPTS {
+        attempt_menu_focus(&pending);
+        attempts += 1;
+        if !pending.is_pending() || attempts >= FOCUS_ATTEMPTS {
+            pending.cancel();
             next.borrow_mut().take();
             return;
         }
-        if let Some(callback) = next.borrow().as_ref() {
+        if let (Some(window), Some(callback)) = (web_sys::window(), next.borrow().as_ref()) {
             let _ = window.request_animation_frame(callback.as_ref().unchecked_ref());
         }
     }));
-    if let (Some(window), Some(callback)) = (web_sys::window(), step.borrow().as_ref()) {
-        let _ = window.request_animation_frame(callback.as_ref().unchecked_ref());
+    if let Some(callback) = step.borrow().as_ref() {
+        window.queue_microtask(callback.as_ref().unchecked_ref());
+    }
+    request
+}
+
+/// Attempt `request` now: focus its edge item when the request is pending and
+/// the menu is in the document, settling the request once focus is there. A
+/// menu's `onmounted` calls this so focus lands in the render that inserted it.
+pub fn attempt_menu_focus(request: &MenuFocusRequest) {
+    if !request.is_pending() {
+        return;
+    }
+    let Some(menu) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.get_element_by_id(request.menu_id()))
+        .filter(|menu| menu.is_connected())
+    else {
+        return;
+    };
+    let items = enabled_items(&menu);
+    let index = match request.edge() {
+        MenuFocusEdge::First => 0,
+        MenuFocusEdge::Last => items.len().saturating_sub(1),
+    };
+    let Some(target) = items.get(index) else {
+        return;
+    };
+    let _ = target.focus();
+    if active_index(&items) == Some(index) {
+        request.cancel();
     }
 }
 

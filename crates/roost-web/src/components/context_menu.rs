@@ -10,10 +10,13 @@
 mod dom;
 pub mod terminal_menu;
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use dioxus::prelude::*;
 
 #[cfg(target_arch = "wasm32")]
-pub use dom::{anchored_menu_position, focus_menu_edge, run_menu_key};
+pub use dom::{anchored_menu_position, attempt_menu_focus, focus_menu_edge, run_menu_key};
 
 /// Focus a menu edge where there is no document to focus in.
 ///
@@ -22,7 +25,59 @@ pub use dom::{anchored_menu_position, focus_menu_edge, run_menu_key};
 /// question on both targets, and gating the CALL instead would put a
 /// `#[cfg]` block in every menu that opens on a key.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn focus_menu_edge(_menu_id: &str, _edge: MenuFocusEdge) {}
+pub fn focus_menu_edge(menu_id: &str, edge: MenuFocusEdge) -> MenuFocusRequest {
+    MenuFocusRequest::new(menu_id, edge)
+}
+
+/// Attempt a focus request where there is no document; see `focus_menu_edge`.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn attempt_menu_focus(_request: &MenuFocusRequest) {}
+
+/// One request to focus a menu's edge once the menu mounts, as
+/// `focus_menu_edge` returns it. Clones share the request.
+///
+/// Dropping a handle does not cancel it, so a caller that never keeps one
+/// still gets every retry. A menu that keeps it cancels it on close and on its
+/// next request, as v2's `cancelPendingFocus` did: a stale retry would pull
+/// focus off the item the reader's next key already moved to.
+#[derive(Debug, Clone)]
+pub struct MenuFocusRequest {
+    menu_id: Rc<str>,
+    edge: MenuFocusEdge,
+    pending: Rc<Cell<bool>>,
+}
+
+impl MenuFocusRequest {
+    /// A pending request for menu `menu_id`'s `edge`.
+    pub fn new(menu_id: &str, edge: MenuFocusEdge) -> Self {
+        Self {
+            menu_id: Rc::from(menu_id),
+            edge,
+            pending: Rc::new(Cell::new(true)),
+        }
+    }
+
+    /// The menu element's id.
+    pub fn menu_id(&self) -> &str {
+        &self.menu_id
+    }
+
+    /// The item the request focuses.
+    pub fn edge(&self) -> MenuFocusEdge {
+        self.edge
+    }
+
+    /// Whether a later attempt may still move focus.
+    pub fn is_pending(&self) -> bool {
+        self.pending.get()
+    }
+
+    /// Stop every later attempt. A request whose focus landed, or whose
+    /// retries ran out, cancels itself.
+    pub fn cancel(&self) {
+        self.pending.set(false);
+    }
+}
 
 /// The terminal menu's stacking level; the sidebar-row menu passes 100 to sit
 /// above its click-away scrim.

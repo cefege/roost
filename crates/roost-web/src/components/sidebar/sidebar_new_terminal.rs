@@ -7,8 +7,8 @@
 use dioxus::prelude::*;
 
 use crate::components::context_menu::{
-    AnchoredMenuPos, CtxMenuItem, anchored_menu_pos, anchored_menu_surface_style,
-    use_floating_menu_dismiss,
+    AnchoredMenuPos, CtxMenuItem, MenuFocusEdge, MenuFocusRequest, anchored_menu_pos,
+    anchored_menu_surface_style, attempt_menu_focus, focus_menu_edge, use_floating_menu_dismiss,
 };
 use crate::components::md::{Button, ButtonSize, ButtonVariant, Icon, IconSize, StatusDot};
 use crate::new_terminal_target::{
@@ -50,6 +50,35 @@ pub fn machine_menu_anchor(
     }
 }
 
+/// What a key pressed on the machine trigger does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineTriggerKeyAction {
+    /// Open the menu with this edge focused; the event is consumed.
+    Open(MenuFocusEdge),
+    /// The menu is open but focus is still on the trigger: focus this edge;
+    /// the event is consumed.
+    FocusEdge(MenuFocusEdge),
+    /// Close the menu, focus staying on the trigger; the event is consumed.
+    Close,
+    /// Not the trigger's key.
+    Ignore,
+}
+
+/// The trigger's keys. Home/End only reach the trigger while the menu is open
+/// when they beat the menu's first focus there, and they still pick their
+/// edge, as they would have from inside the menu: the reader pressed them
+/// after opening it, so dropping them on the render's timing loses a key.
+pub fn machine_trigger_key_action(key: &str, menu_open: bool) -> MachineTriggerKeyAction {
+    match (key, menu_open) {
+        ("ArrowDown", _) => MachineTriggerKeyAction::Open(MenuFocusEdge::First),
+        ("ArrowUp", _) => MachineTriggerKeyAction::Open(MenuFocusEdge::Last),
+        ("Home", true) => MachineTriggerKeyAction::FocusEdge(MenuFocusEdge::First),
+        ("End", true) => MachineTriggerKeyAction::FocusEdge(MenuFocusEdge::Last),
+        ("Escape", true) => MachineTriggerKeyAction::Close,
+        _ => MachineTriggerKeyAction::Ignore,
+    }
+}
+
 /// The action bar.
 #[component]
 pub fn SidebarNewTerminal() -> Element {
@@ -59,6 +88,7 @@ pub fn SidebarNewTerminal() -> Element {
     let mut selected_fp = use_signal(|| None::<String>);
     let mut menu_open = use_signal(|| false);
     let mut menu_anchor = use_signal(|| None::<MachineMenuAnchor>);
+    let mut pending_focus = use_signal(|| None::<MenuFocusRequest>);
     let (online, target_fp) = {
         let core = pump.core();
         let core = core.borrow();
@@ -89,8 +119,16 @@ pub fn SidebarNewTerminal() -> Element {
     if selected_gone {
         selected_fp.set(None);
     }
-    if online.len() < 2 && *menu_open.peek() {
+    // v2 `closeMachineMenu`: a focus request dies with its menu, so a late
+    // retry never lands in a menu the reader already left.
+    let mut close_menu = move || {
+        if let Some(request) = pending_focus.peek().clone() {
+            request.cancel();
+        }
         menu_open.set(false);
+    };
+    if online.len() < 2 && *menu_open.peek() {
+        close_menu();
     }
     // An outside click or Escape hands focus back to the trigger, as an item
     // pick does: the reader dismissed a menu they opened from that button, and
@@ -101,7 +139,7 @@ pub fn SidebarNewTerminal() -> Element {
         if !*menu_open.peek() {
             return;
         }
-        menu_open.set(false);
+        close_menu();
         #[cfg(target_arch = "wasm32")]
         super::dom::focus_by_id(MACHINE_TRIGGER_ID);
     };
@@ -110,12 +148,19 @@ pub fn SidebarNewTerminal() -> Element {
         Some(EventHandler::new(dismiss)),
         vec![MACHINE_TRIGGER_ID.to_owned(), MACHINE_MENU_ID.to_owned()],
     );
-    let mut open_menu = move |edge: crate::components::context_menu::MenuFocusEdge| {
+    // v2 `cancelPendingFocus`: the newest request is the only one in flight.
+    let mut request_focus = move |edge: MenuFocusEdge| {
+        if let Some(previous) = pending_focus.peek().clone() {
+            previous.cancel();
+        }
+        pending_focus.set(Some(focus_menu_edge(MACHINE_MENU_ID, edge)));
+    };
+    let mut open_menu = move |edge: MenuFocusEdge| {
         #[cfg(target_arch = "wasm32")]
         {
             menu_anchor.set(super::dom::machine_trigger_anchor(MACHINE_TRIGGER_ID));
             menu_open.set(true);
-            crate::components::context_menu::focus_menu_edge(MACHINE_MENU_ID, edge);
+            request_focus(edge);
         }
         #[cfg(not(target_arch = "wasm32"))]
         let _ = (edge, &mut menu_anchor);
@@ -151,26 +196,23 @@ pub fn SidebarNewTerminal() -> Element {
                     "aria-expanded": if menu_open() { "true" } else { "false" },
                     onclick: move |_| {
                         if *menu_open.peek() {
-                            menu_open.set(false);
+                            close_menu();
                         } else {
-                            open_menu(crate::components::context_menu::MenuFocusEdge::First);
+                            open_menu(MenuFocusEdge::First);
                         }
                     },
                     onkeydown: move |event: KeyboardEvent| {
-                        use crate::components::context_menu::MenuFocusEdge;
-                        match event.key() {
-                            Key::ArrowDown | Key::ArrowUp => {
-                                event.prevent_default();
-                                event.stop_propagation();
-                                let edge = if event.key() == Key::ArrowDown { MenuFocusEdge::First } else { MenuFocusEdge::Last };
-                                open_menu(edge);
-                            }
-                            Key::Escape if *menu_open.peek() => {
-                                event.prevent_default();
-                                event.stop_propagation();
-                                menu_open.set(false);
-                            }
-                            _ => {}
+                        let action = machine_trigger_key_action(&event.key().to_string(), *menu_open.peek());
+                        if action == MachineTriggerKeyAction::Ignore {
+                            return;
+                        }
+                        event.prevent_default();
+                        event.stop_propagation();
+                        match action {
+                            MachineTriggerKeyAction::Open(edge) => open_menu(edge),
+                            MachineTriggerKeyAction::FocusEdge(edge) => request_focus(edge),
+                            MachineTriggerKeyAction::Close => close_menu(),
+                            MachineTriggerKeyAction::Ignore => {}
                         }
                     },
                     StatusDot { status: "ok" }
@@ -191,10 +233,17 @@ pub fn SidebarNewTerminal() -> Element {
                         None,
                         &format!("top: auto; bottom: {}px;", anchor.bottom),
                     ),
+                    // The first focus lands in the render that inserted the
+                    // menu, before the reader's next key can reach the trigger.
+                    onmounted: move |_| {
+                        if let Some(request) = pending_focus.peek().clone() {
+                            attempt_menu_focus(&request);
+                        }
+                    },
                     onkeydown: move |event: KeyboardEvent| {
                         #[cfg(target_arch = "wasm32")]
                         super::dom::run_menu_key_by_id(&event, MACHINE_MENU_ID, move || {
-                            menu_open.set(false);
+                            close_menu();
                             super::dom::focus_by_id(MACHINE_TRIGGER_ID);
                         });
                         #[cfg(not(target_arch = "wasm32"))]
@@ -213,7 +262,7 @@ pub fn SidebarNewTerminal() -> Element {
                                 move |_| {
                                     tracing::info!(target: "sidebar", from = ?from, to = %fp, "new terminal target changed");
                                     selected_fp.set(Some(fp.clone()));
-                                    menu_open.set(false);
+                                    close_menu();
                                     #[cfg(target_arch = "wasm32")]
                                     super::dom::focus_by_id(MACHINE_TRIGGER_ID);
                                 }
