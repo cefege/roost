@@ -9,11 +9,12 @@ of the filesystem.
 
 **This is the `v3` branch: a complete Rust rewrite of Roost.** `main` holds
 v2 (Bun + TypeScript + SolidJS) and stays in production, receiving only small
-fixes. Both live in the same repository — `~/repos/roost` is `main`,
-`~/repos/roost-v3` is the `v3` worktree. The v2 TypeScript tree (`apps/`,
-`packages/`) is still present here while the port runs and is deleted in
-Phase 7, so a mixed stack is expected and the Playwright oracle in `smoke/`
-is deliberately stack-agnostic.
+fixes. Both live in one repository, checked out at `~/repos/roost-v3` on `v3`.
+`main` has no checkout here: a `main` fix is committed through a temporary
+`git worktree add <dir> main`, removed once the commit lands. The v2
+TypeScript tree (`apps/`, `packages/`) is still present here while the port
+runs and is deleted in Phase 7, so a mixed stack is expected and the
+Playwright oracle in `smoke/` is deliberately stack-agnostic.
 
 ---
 
