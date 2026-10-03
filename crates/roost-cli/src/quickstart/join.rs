@@ -1,7 +1,7 @@
 //! `roost join` — install and register this machine's worker from a one-shot
-//! grant. Called by the crate's dispatcher. Depends on the deploy group's
-//! identity proof for what a joined worker is allowed to be built from, and on
-//! the services group's install for everything that puts a definition on disk.
+//! grant. Called by the crate's dispatcher. Depends on `join_identity` for which
+//! build the machine enrols as, and on the services group's install for
+//! everything that puts a definition on disk.
 //!
 //! **The grant is a credential and is read from the environment, once.** It is
 //! never printed, never logged, and never written anywhere except the
@@ -10,42 +10,27 @@
 //! one-shot. The two variables are named in the refusal when one is missing,
 //! because the operator reading that message is holding a one-liner on another
 //! machine and needs to know which half of it did not arrive.
-//!
-//! **A joined worker enrols as the build it is.** A binary carrying a compiled
-//! commit (every release, and every build made inside a checkout) enrols as
-//! that commit, because it is the stamp the installed worker reports in every
-//! heartbeat and the fleet roster compares. Only a binary stamped `dev` has no
-//! identity of its own; it proves a checkout instead, and that proof refuses a
-//! dirty tree even where a deploy would accept the dirty stamp, because
-//! enrollment is the moment a machine's identity is first asserted.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use roost_host::coord_config_loader::ENV_WEB_DIST_PATH;
-use roost_host::{EnvSource, HostPlatform};
+use roost_host::{EnvSource, HostPlatform, MapEnv};
 use roost_worker::runtime::boot::ENV_COORDINATOR_URL;
 use tracing::info;
 
 use crate::command_error::CommandFailure;
 use crate::deploy::apply_release::{ROOST_PROGRAM, install_environment};
-use crate::deploy::codes;
-use crate::deploy::identity::{ALLOW_DIRTY_ENV, DIRTY_SUFFIX, local_git_sha_or_die};
 use crate::quickstart::install::{
     LocalPrograms, deploy_local_definition, install_programs, prepare_service_directories,
     report_change, report_rotation, service_dir,
 };
+use crate::quickstart::join_identity::join_identity;
 use crate::quickstart::web_source::install_web_bundle;
 use crate::services::install::release_bin_dir;
 use crate::services::service_environment::{ENV_BOOTSTRAP_TOKEN, ENV_WORKER_LABEL};
 use crate::services::service_spec::{ServiceRole, ServiceSpec};
-
-/// The checkout a `dev`-stamped binary proves its build identity against. A
-/// binary with a compiled commit enrols as that commit and never reads this;
-/// for a build with no commit of its own, it names the tree the build came
-/// from. Unset, the working directory is the tree.
-pub const SOURCE_ROOT_ENV: &str = "ROOST_SOURCE_ROOT";
 
 /// What the coordinator this machine is joining is told, in the terms the
 /// worker's own boot reads.
@@ -120,62 +105,10 @@ fn missing_variable(name: &str) -> CommandFailure {
 /// the shape an unset variable takes in a shell that exported it anyway, and a
 /// worker installed against an empty coordinator URL dials nothing while
 /// reporting itself as joined.
-fn declared(env: &dyn EnvSource, name: &str) -> Option<String> {
+pub(crate) fn declared(env: &dyn EnvSource, name: &str) -> Option<String> {
     env.get(name)
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-}
-
-/// The checkout a join builds its identity from.
-pub fn source_root(env: &dyn EnvSource) -> Result<PathBuf, CommandFailure> {
-    if let Some(declared_root) = declared(env, SOURCE_ROOT_ENV) {
-        return Ok(PathBuf::from(declared_root));
-    }
-    std::env::current_dir().map_err(|error| {
-        CommandFailure::generic(format!(
-            "the working directory could not be read, so there is no source tree to prove this \
-             machine's build from; set {SOURCE_ROOT_ENV} to the checkout instead: {error}"
-        ))
-    })
-}
-
-/// The build this machine enrols as: the commit compiled into this binary, or,
-/// for a `dev`-stamped binary, its checkout's commit through [`joined_build_sha`].
-///
-/// The compiled commit wins because it is what the installed worker reports. A
-/// release fetched by `join.sh` runs from a staging directory that is no
-/// checkout at all, and reading whatever checkout happens to be the working
-/// directory would enrol the machine as some other build.
-pub async fn join_identity(env: &dyn EnvSource) -> Result<String, CommandFailure> {
-    match roost_host::COMPILED_ROOST_BUILD_SHA.filter(|sha| *sha != roost_host::DEV_BUILD_STAMP) {
-        Some(compiled) => Ok(compiled.to_string()),
-        None => joined_build_sha(&source_root(env)?).await,
-    }
-}
-
-/// The build this machine's worker will be stamped with, refusing a dirty
-/// checkout even when the operator allowed one elsewhere.
-///
-/// `ROOST_ALLOW_DIRTY=1` makes a deploy stamp `<sha>-dirty` and carry on. A
-/// join may not: the stamp is the identity the fleet roster compares, and a
-/// machine whose first assertion of identity is already wrong is a machine
-/// whose drift badge is permanently wrong with no way to tell which build it
-/// was.
-pub async fn joined_build_sha(source_root: &Path) -> Result<String, CommandFailure> {
-    let stamp = local_git_sha_or_die(source_root).await?;
-    if stamp.ends_with(DIRTY_SUFFIX) {
-        return Err(CommandFailure::new(
-            codes::IDENTITY_UNPROVED,
-            format!(
-                "a joined worker requires a clean committed source snapshot, and {} has \
-                 uncommitted changes. Commit them first. If you understand that the fleet will \
-                 record this machine as {stamp} and can never afterwards tell which build it is \
-                 running, set {ALLOW_DIRTY_ENV}=1 for this command alone.",
-                source_root.display()
-            ),
-        ));
-    }
-    Ok(stamp)
 }
 
 /// The worker definition this machine will be enrolled with, resolved from the
@@ -197,26 +130,59 @@ pub fn worker_spec(
     Ok(resolved.with_decided_one_shots(&decided))
 }
 
+/// Where a join installs, and the environment those places were resolved from.
+#[derive(Debug)]
+pub struct InstallLocations {
+    /// The environment the worker definition is resolved from: this home, a
+    /// service search path, and the join's own decided settings. Nothing else.
+    pub environment: MapEnv,
+    /// Where the definition swap keeps its journal.
+    pub service_dir: PathBuf,
+    /// Where this release's programs are installed.
+    pub bin_dir: PathBuf,
+}
+
+/// Resolve every place a join writes from the environment its definition is
+/// resolved from, never from this shell. A join pasted into a terminal that an
+/// older install opened inherits that install's `ROOST_WORKER_DATA_DIR`, and
+/// reading it put a v3 release into v2's data directory while the definition
+/// named v3's.
+pub fn install_locations(
+    env: &dyn EnvSource,
+    credentials: &JoinCredentials,
+    platform: HostPlatform,
+) -> Result<InstallLocations, CommandFailure> {
+    let environment = install_environment(env, &credentials.decided_settings());
+    Ok(InstallLocations {
+        service_dir: service_dir(&environment, platform)?,
+        bin_dir: release_bin_dir(&environment, platform)?,
+        environment,
+    })
+}
+
 /// Install and register this machine's worker from a one-shot grant.
 pub async fn run(env: &dyn EnvSource) -> Result<ExitCode, CommandFailure> {
     let platform = roost_host::supported_host_platform()?;
     let credentials = read_credentials(env)?;
     let build_sha = join_identity(env).await?;
+    let locations = install_locations(env, &credentials, platform)?;
 
-    let service_dir = service_dir(env, platform)?;
     let programs = LocalPrograms::of_this_process(env)?;
-    let bin_dir = release_bin_dir(env, platform)?;
-    install_programs(&programs, &bin_dir)?;
+    install_programs(&programs, &locations.bin_dir)?;
 
-    let web_dir = install_web_bundle(env, &bin_dir).await?;
-    let spec = worker_spec(env, platform, &bin_dir, &credentials, web_dir.as_deref())?;
+    let web_dir = install_web_bundle(env, &locations.bin_dir).await?;
+    let spec = worker_spec(
+        &locations.environment,
+        platform,
+        &locations.bin_dir,
+        &credentials,
+        web_dir.as_deref(),
+    )?;
     prepare_service_directories(&spec)?;
-    let outcome = deploy_local_definition(&spec, platform, &service_dir).await?;
+    let outcome = deploy_local_definition(&spec, platform, &locations.service_dir).await?;
     report_change(&outcome, "joiner installed the worker definition");
 
-    report_rotation(ServiceRole::Worker, env, platform);
-
-    report_rotation(ServiceRole::Worker, env, platform);
+    report_rotation(ServiceRole::Worker, &locations.environment, platform);
 
     info!(build_sha = %build_sha, label = %spec.label, "join settled");
     println!("Joined {}.", spec.label);

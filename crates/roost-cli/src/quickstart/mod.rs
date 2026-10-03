@@ -28,6 +28,7 @@ pub mod endpoint;
 pub mod grant;
 pub mod install;
 pub mod join;
+pub mod join_identity;
 pub mod plan;
 pub mod self_link;
 pub mod specs;

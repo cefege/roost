@@ -13,8 +13,9 @@ use std::process::Command;
 
 use roost_cli::deploy::codes;
 use roost_cli::quickstart::join::{
-    JoinCredentials, join_identity, joined_build_sha, read_credentials,
+    JoinCredentials, install_locations, read_credentials, worker_spec,
 };
+use roost_cli::quickstart::join_identity::{join_identity, joined_build_sha};
 use roost_cli::quickstart::plan;
 use roost_host::{HostPlatform, MapEnv};
 
@@ -266,7 +267,50 @@ fn a_named_source_root_is_the_tree_the_identity_is_proved_against() {
     let named = Path::new("/srv/roost-checkout");
     let env = environment(&[("ROOST_SOURCE_ROOT", &named.display().to_string())]);
     assert_eq!(
-        roost_cli::quickstart::join::source_root(&env).expect("a named root resolves"),
+        roost_cli::quickstart::join_identity::source_root(&env).expect("a named root resolves"),
         named
+    );
+}
+
+/// A join pasted into a terminal that v2 opened inherits v2's
+/// `ROOST_WORKER_DATA_DIR`. Every place the join writes comes from the
+/// definition's own environment instead, so the release lands under the data
+/// directory the definition names and nowhere near v2's: reading the inherited
+/// variable installed a v3 release into `RoostWorkerV2` on desktop-pc.
+#[test]
+fn a_join_from_a_v2_terminal_installs_where_its_definition_points_and_not_into_v2() {
+    let v2_data = "/home/operator/.local/share/RoostWorkerV2";
+    let env = environment(&[
+        ("HOME", "/home/operator"),
+        ("ROOST_WORKER_DATA_DIR", v2_data),
+        ("ROOST_COORDINATOR_URL", "https://coordinator.example"),
+        ("ROOST_BOOTSTRAP_TOKEN", "roost_bt_test"),
+    ]);
+    let credentials = read_credentials(&env).expect("both variables are set");
+
+    let locations =
+        install_locations(&env, &credentials, HostPlatform::Linux).expect("the locations resolve");
+
+    for place in [&locations.bin_dir, &locations.service_dir] {
+        assert!(
+            !place.starts_with(v2_data),
+            "{} is inside v2's data directory",
+            place.display()
+        );
+    }
+    let spec = worker_spec(
+        &locations.environment,
+        HostPlatform::Linux,
+        &locations.bin_dir,
+        &credentials,
+        None,
+    )
+    .expect("the definition resolves");
+    assert!(
+        locations.bin_dir.starts_with(&spec.data_dir),
+        "the release is installed under the data directory its definition names: {} is not \
+         under {}",
+        locations.bin_dir.display(),
+        spec.data_dir.display()
     );
 }
