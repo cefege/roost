@@ -3750,3 +3750,61 @@ quickstart's install uses, before the coordinator's own `db::open`.
 **Guard** — `crates/roost-cli/tests/import_v2_copy.rs`:
 `a_first_import_on_a_host_without_v3_creates_the_data_directory` drives the real `apply` into a directory
 that does not exist. Without the fix it fails with the code-14 error above.
+
+### A joined machine never appears: "https://… is not a coordinator this worker can dial"
+
+**Symptom** — `roost join` reports "Joined", but the machine never shows up in the coordinator's roster.
+Its worker restarts in a loop, and every attempt logs `{"cmd":"worker","error":"https://<host> is not a
+coordinator this worker can dial"}`. Only a coordinator on the same machine (`http://127.0.0.1:4113`)
+works.
+
+**Wrong** — a worker that refuses `https`. `roost add-machine` only hands out an HTTPS origin
+(`worker_dialable_origin`), and v2's workers dial `https://` front doors. But the boot-time Connect client
+bailed on `https` ("configures no TLS connector"), and the link's `tokio-tungstenite` was built with no
+TLS feature. So no machine could join over the internet, and every single-host test still passed.
+
+**Right** — `crate::coordinator_tls` builds one rustls configuration: the ring provider, named rather
+than taken from the process default, and Mozilla's roots compiled in. The Connect client takes it through
+`HttpClient::with_tls`, and the link takes it through `Connector::Rustls` for `wss`. The configuration
+sets no ALPN, so the WebSocket upgrade stays on HTTP/1.1.
+
+**Guard** — `roost_worker::runtime::bootstrap_redeem::activation` test
+`an_https_coordinator_gets_a_tls_client_rather_than_a_refusal`, and `coordinator_tls`'s ALPN test. The
+real flow: a remote `roost join` appears in `roost status`'s worker list.
+
+### A join replaced v2's `roost` CLI, or installed a v3 release into `RoostWorkerV2`
+
+**Symptom** — after `join.sh` on a machine that runs v2, `roost` on that machine is suddenly v3's (v2's
+CLI is gone from `~/.local/bin/roost`). Or the join prints `program:
+…/.local/share/RoostWorkerV2/versions/<v>/bin/roost`, which is a v3 release inside v2's data directory.
+
+**Wrong** — two writes to places the join does not own. join.sh installed the fetched pair into
+`~/.local/bin` over whatever was there. That breaks the rule `self_link.rs` keeps: a regular file there
+is refused. And `roost join` resolved its install directories from the ambient environment, while the
+worker definition was resolved from a cleaned one. A join pasted into a terminal that v2 opened inherits
+v2's `ROOST_WORKER_DATA_DIR`.
+
+**Right** — join.sh keeps the pair in the temporary directory where it checked both digests, hands that
+copy to `roost join`, and removes it once the join returns. `join::install_locations` resolves the
+service and bin directories from `install_environment`, the same environment the definition comes from.
+
+**Guard** — `crates/roost-cli/tests/join_script.rs`:
+`a_join_that_fetches_leaves_a_v2_binary_at_the_self_link_location_alone` serves a fake release over
+`file://`. `crates/roost-cli/tests/join_enrollment.rs`:
+`a_join_from_a_v2_terminal_installs_where_its_definition_points_and_not_into_v2`.
+
+### `roost join` from a release: "resolve the source commit: fatal: not a git repository"
+
+**Symptom** — every join through `join.sh` stops right after the digests match, with
+`{"cmd":"join","error":"resolve the source commit: fatal: not a git repository …"}`. Run from inside a
+dirty checkout, it refuses with "uncommitted changes in working tree" instead.
+
+**Wrong** — proving the joining build from the working directory's checkout. A release binary runs from
+a staging directory, and the worker it installs reports the commit COMPILED into it. Any checkout that
+happens to be the working directory names some other build.
+
+**Right** — `join_identity::join_identity` enrols a binary as its compiled commit, and proves a checkout
+(still refusing a dirty one) only for a `dev`-stamped build.
+
+**Guard** — `crates/roost-cli/tests/join_enrollment.rs`:
+`a_compiled_binary_enrols_as_its_own_commit_outside_any_checkout`.

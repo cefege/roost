@@ -217,10 +217,10 @@ Nothing after Stage 0 is merged into it yet.
 
 - Production `https://mike.roosttt.com` runs **v2** on the old host
   (`almalinux`, Cloudflare tunnel → Caddy → systemd socket bridge →
-  `127.0.0.1:4103`). Stage 3.3 (install gate as a scratch user), 3.4 (rc
-  tag + `roost update`) and Stage 4 (import v2 DB, `v3.mike.roosttt.com`,
-  flip) are runbooks for **that** host — follow the plan's Stage 4 exactly,
-  there.
+  `127.0.0.1:4103`). Since 2026-10-03 v3 runs beside it at
+  `mike-v3.roosttt.com` (the plan's Stage 4 steps 1–5, on `v3.0.0-rc.2`);
+  the user joins machines and flips `mike.roosttt.com` by hand (steps 6–9).
+  Follow the plan's Stage 4 exactly, there.
 - On the old host: never kill the v2 keeper (it holds live PTYs), never
   stop v2 services before plan step 4.7/4.8, never touch
   `/home/almalinux/repos/roost` (the user's uncommitted edits; it serves
