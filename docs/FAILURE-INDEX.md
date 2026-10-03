@@ -3596,3 +3596,29 @@ the request (`machine_trigger_key_action` in `sidebar_new_terminal.rs`) instead 
 `home_and_end_that_beat_the_menu_focus_to_the_trigger_still_pick_their_edge`. The real-flow oracle
 is `smoke/terminal/terminal-delivery.spec.ts:130` (chromium-desktop); before the fix a 30-round
 ArrowDown-then-End loop on a release pin missed 5 times.
+
+---
+
+### Two browsers on one WebRTC session paint the same output up to a quarter second apart
+
+**Symptom** — `terminal-peer.spec.ts:97` (firefox-peer) fails about one run in ten at
+`expectMarkersOnce` (`terminal-multiview-helpers.ts:336`, called from `:153`): the typing browser
+painted the trusted key's `ACK:` and the second browser on the same session, read ~20 ms later,
+has not. Nothing logs. Timed in-page, the second viewer's paint sits anywhere within ±250 ms of the
+first's and holds the same offset for a whole run; `__smoke.input` on a peer route takes 150–280 ms
+where loopback and Sync answer at once.
+
+**Wrong** — reading it as Firefox load or as worker fan-out order. The worker hands one frame to
+every peer sink in the same pass, and the native peer driver is woken on every send. Also wrong:
+polling the second browser in the spec, which hides a latency v2 never had.
+
+**Right** — the browser half drained the peer event sink only on the 250 ms peer tick
+(`PEER_TICK_INTERVAL_MS`), so every arrived byte waited for that tick and each document's tick ran
+at its own phase. `PeerEventSink::notify_on_record` (`crates/roost-web/src/platform/peer/events.rs`)
+now rings the host after each recorded event and `pump::peer_lane::drain::install_tick` drains on
+the next task, as `pump/socket.rs` (Sync) and `pump/carrier_dial.rs` (loopback) already did and as
+v2 `terminal-peer-connection.ts` handled each `onmessage`. The tick keeps the deadlines and probes.
+
+**Guard** — `crates/roost-web/src/platform/peer/events.rs`:
+`the_host_is_rung_after_the_event_it_must_drain_is_queued`. The real-flow oracle is
+`smoke/terminal/terminal-peer.spec.ts:97` (firefox-peer).

@@ -1,10 +1,10 @@
-//! The scheduled tick every open peer runs on: the bounded event sink is
-//! drained here, the protocol's deadlines are read here, and one arrived byte at
-//! a time becomes a `ClientEvent`.
+//! How every open peer's events reach the core: the bounded event sink is
+//! drained on the next task after it rings, the protocol's deadlines are read on
+//! the scheduled tick, and one arrived byte at a time becomes a `ClientEvent`.
 //!
-//! Owned by `pump::peer_lane`. It is a SCHEDULED TICK and not a handler inside
-//! an effect, because a browser callback may fire while the pump is already
-//! borrowed: every fact the browser produced is pushed into a bounded sink by
+//! Owned by `pump::peer_lane`. The drain is never a handler inside a browser
+//! callback, because a callback may fire while the pump is already borrowed:
+//! every fact the browser produced is pushed into a bounded sink by
 //! `platform::peer`, and this is where the sink is emptied, in arrival order,
 //! with nothing held across a write.
 //!
@@ -14,6 +14,8 @@
 //! took that id's place — paints a retired generation's grid into a live
 //! replica. The attempt id is never reused by the core, so "no attempt" is a
 //! fact about a dead negotiation and never about a replacement.
+
+use std::rc::Rc;
 
 use wasm_bindgen::JsCast as _;
 use wasm_bindgen::closure::Closure;
@@ -30,8 +32,17 @@ use super::stage::lane_opened;
 use super::{PEER_TICK_INTERVAL_MS, Pump};
 use crate::platform::peer::PeerEvent;
 
-/// Install the tick the browser drives this document's peers on.
+/// Install the tick the browser drives this document's peers on, and the
+/// notify that drains what the browser reports as soon as it reports it.
 pub(in crate::pump) fn install_tick(pump: &Pump) {
+    // Left to the tick, a frame waits up to a whole tick and two viewers of one
+    // session paint it a tick apart. Sync and loopback drain on the next task
+    // for the same reason, as v2 handled every data-channel message on arrival.
+    let notify: Rc<dyn Fn()> = {
+        let pump = pump.clone();
+        Rc::new(move || schedule_drain(&pump))
+    };
+    pump.inner.peer.borrow().notify_on_event(notify);
     let Some(window) = web_sys::window() else {
         tracing::warn!(target: "carriers", "no browser window; the peer tick was not installed");
         return;
@@ -52,6 +63,16 @@ pub(in crate::pump) fn install_tick(pump: &Pump) {
     pump.inner.listeners.borrow_mut().push(Box::new(tick));
 }
 
+/// Drain on the next task, never inside the callback that recorded the event.
+fn schedule_drain(pump: &Pump) {
+    let pump = pump.clone();
+    wasm_bindgen_futures::spawn_local(async move {
+        let now_ms = pump.inner.core.borrow().clock().now_ms();
+        drain_events(&pump, now_ms);
+        deadlines::retire_overflowed(&pump);
+    });
+}
+
 /// One pass over every open peer: probe, drain, and read the deadlines.
 pub(super) fn tick(pump: &Pump) {
     let now_ms = pump.inner.core.borrow().clock().now_ms();
@@ -62,7 +83,7 @@ pub(super) fn tick(pump: &Pump) {
     liveness::read_heartbeat_deadlines(pump, now_ms);
 }
 
-/// Everything the browser reported since the last tick, in arrival order.
+/// Everything the browser reported since the last drain, in arrival order.
 fn drain_events(pump: &Pump, now_ms: u64) {
     let events = pump.inner.peer.borrow().drain_events();
     for event in events {
