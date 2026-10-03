@@ -15,9 +15,9 @@
 //! keeper in this implementation cannot be mid-spawn while it answers.
 //! Ports v2 `apps/worker/src/boot/boot-keeper.ts`, `apps/worker/src/keeper/keeper-probe.ts`.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use roost_keeper::client::{KeeperClient, connect as connect_keeper};
+use roost_keeper::client::{KeeperClient, KeeperEndpoint, connect as connect_keeper};
 use roost_keeper::payloads::{KEEPER_PROTOCOL_VERSION, KeeperFeature};
 
 use crate::boot_keeper::{self, ChannelBinding, ProbeResult};
@@ -28,8 +28,11 @@ use crate::runtime::keeper_boot::KeeperProbe;
 /// The deadline is the identity deadline, not the connection retry: a keeper
 /// that accepts and then says nothing is a keeper serving another worker, and
 /// retrying past the deadline would turn "busy" into "not there".
-pub async fn probe(socket: &Path, target_digest: &str) -> (KeeperProbe, Option<KeeperClient>) {
-    if !endpoint_is_published(socket).await {
+pub async fn probe(
+    endpoint: &KeeperEndpoint,
+    target_digest: &str,
+) -> (KeeperProbe, Option<KeeperClient>) {
+    if !endpoint_is_published(&endpoint.socket).await {
         // Nothing has published the endpoint, so nothing is listening on it.
         // Decided from the filesystem rather than from a refused connect,
         // because a refused connect cannot be told apart from a keeper that
@@ -37,9 +40,9 @@ pub async fn probe(socket: &Path, target_digest: &str) -> (KeeperProbe, Option<K
         // with different next steps for the operator.
         return (KeeperProbe::Probed(empty_probe()), None);
     }
-    let socket = socket.to_path_buf();
+    let endpoint = endpoint.clone();
     let digest = target_digest.to_string();
-    let attempt = tokio::task::spawn_blocking(move || probe_once(socket, digest));
+    let attempt = tokio::task::spawn_blocking(move || probe_once(&endpoint, digest));
     match tokio::time::timeout(boot_keeper::IDENTITY_DEADLINE, attempt).await {
         Ok(Ok(Ok((probe, client)))) => (KeeperProbe::Probed(probe), Some(client)),
         Ok(Ok(Err(error))) => {
@@ -83,26 +86,26 @@ fn empty_probe() -> ProbeResult {
 }
 
 fn probe_once(
-    socket: PathBuf,
+    endpoint: &KeeperEndpoint,
     target_digest: String,
 ) -> Result<(ProbeResult, KeeperClient), roost_keeper::client_error::ClientError> {
-    let client = connect_keeper(&socket)?;
+    let client = connect_keeper(endpoint)?;
     let features = client.hello()?;
-    let observation = client.observation();
+    let response = client.hello_response();
     let listed = client.list_channels()?;
-    let protocol_compatible = observation.as_ref().is_some_and(|observation| {
-        observation.contract.protocol_version == KEEPER_PROTOCOL_VERSION
+    let protocol_compatible = response.as_ref().is_some_and(|response| {
+        response.contract.protocol_version == KEEPER_PROTOCOL_VERSION
             && KeeperFeature::REQUIRED
                 .iter()
                 .all(|required| features.contains(required))
     });
-    let exact_target = observation.as_ref().is_some_and(|observation| {
+    let exact_target = response.as_ref().is_some_and(|response| {
         // `Option`, not `String`: an ABSENT digest is a keeper that cannot
         // prove what it is, which matches no target. Treating absent as empty
         // and comparing strings would let an unprovable keeper match a target
         // whose digest is also unavailable.
-        observation.contract.implementation_digest.is_some()
-            && observation.contract.implementation_digest.as_deref() == Some(target_digest.as_str())
+        response.contract.implementation_digest.is_some()
+            && response.contract.implementation_digest.as_deref() == Some(target_digest.as_str())
     });
     let bindings = listed
         .channels
@@ -115,7 +118,7 @@ fn probe_once(
     // so this is a fact about the protocol rather than an absence of looking.
     let probe = ProbeResult {
         reachable: true,
-        authenticated: observation.is_some(),
+        authenticated: response.is_some(),
         protocol_compatible,
         exact_target,
         bindings: Some(bindings),

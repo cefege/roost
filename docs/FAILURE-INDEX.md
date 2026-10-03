@@ -3633,13 +3633,14 @@ one oracle session left 1155 of them (3.1 GB RSS, every one on a deleted
 `kill -TERM` changes nothing: an idle keeper, or one serving a worker, is still alive seconds later,
 so the worker's `keeper.restart_degraded`, which SIGTERMs the keeper it started, never gets the
 clean keeper it asks for. The oracle's own teardown (`stopKeeper`, an authenticated v2 `Shutdown`)
-cannot reach a Rust keeper either — its Hello is a different shape — so on the Rust stack nothing
-else retires a test keeper.
+now stops a Rust keeper at once — the keeper speaks v2's capability-bearing Hello
+(`protocol/spec/keeper.md` § Hello) — and the socket check is the backstop for a keeper nobody shuts
+down.
 
 **Wrong** — SIGKILLing keepers from the harness or the worker, or treating a worker disconnect as a
-shutdown: the keeper exists to outlive its worker. Also wrong: trusting `keeper_daemon_crash.rs`'s
-`a_signal_stops_the_daemon` — its listening probe connects first, so its SIGTERM usually lands while
-the keeper is still serving that probe and is noticed on the way back to `accept`.
+shutdown: the keeper exists to outlive its worker. Also wrong: proving the SIGTERM handler with a
+signal sent right after a listening probe connected — the signal usually lands while the keeper is
+still serving that probe and is noticed on the way back to `accept`, so the test passes by luck.
 
 **Right** — v2 `multiplexed-main.ts` shut down on `SIGTERM`, and when a 30 s `existsSync` found its
 socket gone. The Rust handler only set a flag the daemon read between connections, while `accept`
@@ -3653,4 +3654,4 @@ the watch, so either cause stops the keeper, which reaps its channels as every s
 `sigterm_stops_a_keeper_serving_a_worker_and_reaps_its_shells`,
 `a_deleted_socket_stops_a_keeper_waiting_for_a_worker` and
 `a_deleted_socket_ends_the_connection_being_served`. Real flow: no `roost-keeper` naming a test root
-outlives a spec run by more than the 30 s check.
+outlives a spec run; `stopKeeper` stops each one, and the 30 s check is the backstop.

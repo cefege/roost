@@ -39,7 +39,7 @@ const ECHO_DEADLINE: Duration = Duration::from_secs(2);
 fn a_keystroke_echo_reaches_a_bell_waiting_worker_without_a_tick() {
     let temp = TempDir::new("echo-latency");
     let keeper = Keeper::start(&temp);
-    let client = connect(keeper.socket()).expect("a real daemon completes the handshake");
+    let client = connect(&keeper.endpoint()).expect("a real daemon completes the handshake");
     let cat = ShellSpec {
         program: "/bin/cat".to_owned(),
         args: Vec::new(),

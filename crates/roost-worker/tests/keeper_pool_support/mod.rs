@@ -20,6 +20,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use roost_keeper::capability::KeeperCapability;
+use roost_keeper::client::KeeperEndpoint;
 use roost_keeper::server::{Endpoint, Server};
 use roost_protocol::wire::brand::ChannelId;
 use roost_worker::keeper_pool::{KeeperPool, PoolError};
@@ -161,7 +163,7 @@ pub fn session(name: &'static str) -> (Session, Arc<Recording>) {
 
 /// A real keeper on a real socket, in a directory of its own.
 pub struct KeeperFixture {
-    socket: std::path::PathBuf,
+    endpoint: KeeperEndpoint,
     root: std::path::PathBuf,
     stop: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
@@ -176,8 +178,11 @@ impl KeeperFixture {
         let root = std::env::temp_dir().join(format!("roost-keeper-pool-{unique}"));
         std::fs::create_dir_all(&root).expect("the fixture can make its own directory");
         let socket = root.join("keeper.sock");
-        let endpoint = Endpoint::new(&socket).expect("the endpoint is a socket path");
-        let mut server = Server::bind(endpoint).expect("the fixture can bind a keeper socket");
+        let capability = KeeperCapability::load_or_create(&root.join("mux-keeper.cap"))
+            .expect("the fixture can mint a keeper capability");
+        let bound = Endpoint::new(&socket).expect("the endpoint is a socket path");
+        let mut server =
+            Server::bind(bound, capability.clone()).expect("the fixture can bind a keeper socket");
         let stop = Arc::new(AtomicBool::new(false));
         let stopping = Arc::clone(&stop);
         let thread = std::thread::spawn(move || {
@@ -191,22 +196,22 @@ impl KeeperFixture {
             }
         });
         Self {
-            socket,
+            endpoint: KeeperEndpoint { socket, capability },
             root,
             stop,
             thread: Some(thread),
         }
     }
 
-    /// The socket this keeper listens on.
-    pub fn socket(&self) -> &std::path::Path {
-        &self.socket
+    /// The socket and capability this keeper answers on.
+    pub fn endpoint(&self) -> KeeperEndpoint {
+        self.endpoint.clone()
     }
 
     /// A pool driving this keeper, with its dispatch loop running.
     pub fn pool(&self) -> Arc<KeeperPool> {
         let client =
-            roost_keeper::client::connect(&self.socket).expect("the fixture keeper answers");
+            roost_keeper::client::connect(&self.endpoint).expect("the fixture keeper answers");
         KeeperPool::new(KeeperHandle::new(client))
     }
 }
@@ -214,9 +219,12 @@ impl KeeperFixture {
 impl Drop for KeeperFixture {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
-        // The keeper thread is parked in accept; connecting is what wakes it,
-        // and the throwaway connection then ends on EOF so the loop sees the stop.
-        let _ = std::os::unix::net::UnixStream::connect(&self.socket);
+        // The keeper thread is parked in accept; connecting is what wakes it.
+        // The throwaway connection is dropped at once, so the keeper reads EOF
+        // before it authenticates rather than sitting out its Hello deadline.
+        drop(std::os::unix::net::UnixStream::connect(
+            &self.endpoint.socket,
+        ));
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }

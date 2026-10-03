@@ -11,27 +11,25 @@
 //! and a keeper that is busy serving another worker.
 
 use std::os::unix::net::UnixStream;
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::client::KeeperClient;
+use crate::client::{KeeperClient, KeeperEndpoint};
 use crate::client_arrival::ArrivalBell;
 use crate::client_error::ClientError;
 use crate::client_io::{Shared, read_frames};
 
-/// Connect to a keeper and complete the `Hello` handshake.
+/// Connect to a keeper and complete the capability-bearing `Hello` handshake.
 ///
 /// Retries BOTH the connection and the handshake until
 /// `CONNECT_RETRY_TIMEOUT`. A worker frequently starts before the keeper it
 /// is meant to own, and a keeper serving another worker accepts the socket
 /// and then waits — neither is an error, and both look identical to a
 /// single attempt.
-pub fn connect(path: impl Into<PathBuf>) -> Result<KeeperClient, ClientError> {
-    let path = path.into();
+pub fn connect(endpoint: &KeeperEndpoint) -> Result<KeeperClient, ClientError> {
     let deadline = Instant::now() + CONNECT_RETRY_TIMEOUT;
     loop {
-        let last = match connect_once(&path) {
+        let last = match connect_once(endpoint) {
             Ok(client) => return Ok(client),
             Err(err) => err,
         };
@@ -42,9 +40,9 @@ pub fn connect(path: impl Into<PathBuf>) -> Result<KeeperClient, ClientError> {
     }
 }
 
-fn connect_once(path: &Path) -> Result<KeeperClient, ClientError> {
-    let stream =
-        UnixStream::connect(path).map_err(|_| ClientError::NotListening(path.to_path_buf()))?;
+fn connect_once(endpoint: &KeeperEndpoint) -> Result<KeeperClient, ClientError> {
+    let stream = UnixStream::connect(&endpoint.socket)
+        .map_err(|_| ClientError::NotListening(endpoint.socket.clone()))?;
     let read_half = stream
         .try_clone()
         .map_err(|err| ClientError::Io(err.to_string()))?;
@@ -57,7 +55,7 @@ fn connect_once(path: &Path) -> Result<KeeperClient, ClientError> {
     let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let arrival = Arc::new(ArrivalBell::default());
     let client = KeeperClient::establish(
-        path.to_path_buf(),
+        endpoint,
         stream,
         Arc::clone(&shared),
         events_rx,

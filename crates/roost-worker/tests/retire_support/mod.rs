@@ -25,11 +25,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use roost_host::{HostPlatform, supported_host_platform};
+use roost_keeper::capability::KeeperCapability;
 use roost_keeper::codec::{CodecError, FrameDecoder, MuxFrame, MuxFrameType, StreamEvent};
 use roost_keeper::frames::{ChannelBinding, ListChannelsResp};
 use roost_keeper::payloads::{
     KEEPER_PROTOCOL_VERSION, KeeperContractV1, KeeperFeature, KeeperHelloResponse,
-    KeeperObservation,
 };
 use roost_worker::runtime::boot::WorkerBoot;
 use roost_worker::runtime::serve_until;
@@ -114,6 +114,10 @@ impl FakeKeeper {
         // fails when the worker's side is wrong.
         let digest = roost_keeper::keeper::implementation_digest_of(&boot.keeper_executable)
             .expect("a running test binary is readable");
+        // The worker reads the capability before it dials; this fake never
+        // checks it, but the file must be where the boot says it is.
+        KeeperCapability::load_or_create(&boot.keeper_capability_file)
+            .expect("the fixture can mint the keeper capability the boot names");
         let socket = boot.keeper_socket.clone();
         let listener = std::os::unix::net::UnixListener::bind(&socket)
             .expect("the fixture can bind the keeper socket the boot names");
@@ -197,7 +201,7 @@ fn serve(
                 return;
             };
             let reply = match frame_type {
-                Some(MuxFrameType::Hello) => hello(&contract, held.len()),
+                Some(MuxFrameType::Hello) => hello(&contract, &held),
                 Some(MuxFrameType::ListChannels) => MuxFrame::json(
                     MuxFrameType::ListChannelsResp,
                     0,
@@ -216,21 +220,21 @@ fn serve(
     }
 }
 
-fn hello(contract: &KeeperContractV1, live: usize) -> Result<MuxFrame, CodecError> {
+fn hello(contract: &KeeperContractV1, held: &[ChannelBinding]) -> Result<MuxFrame, CodecError> {
     MuxFrame::json(
         MuxFrameType::HelloResp,
         0,
         &KeeperHelloResponse {
-            contract: contract.clone(),
-            observation: KeeperObservation {
-                contract: contract.clone(),
-                live_channel_count: live as u32,
-                keeper_pid: None,
-                process_epoch: None,
-            },
+            version: KEEPER_PROTOCOL_VERSION,
+            authenticated: true,
             // Every feature this build requires, which is what the client's own
             // hello refuses a keeper for lacking.
             features: KeeperFeature::REQUIRED.to_vec(),
+            contract: contract.clone(),
+            pid: std::process::id(),
+            process_epoch: None,
+            bindings: held.to_vec(),
+            spawning_channels: Vec::new(),
         },
     )
 }

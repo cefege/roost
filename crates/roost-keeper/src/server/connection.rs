@@ -1,6 +1,6 @@
-//! One worker connection, served to completion: the event loop that forwards
-//! PTY output and answers frames, the framing, and the reason the connection
-//! ended.
+//! One worker connection, served to completion: the authentication every
+//! connection must pass first, the event loop that forwards PTY output and
+//! answers frames, the framing, and the reason the connection ended.
 //!
 //! Split out of `server.rs` because those are two concerns sharing one `impl`:
 //! what binds a socket and hands it here belongs to the endpoint, and what a
@@ -14,12 +14,24 @@ use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use crate::codec::{CodecError, FrameDecoder, MuxFrame, StreamEvent};
+use crate::codec::{CodecError, FrameDecoder, MuxFrame, MuxFrameType, StreamEvent};
 use crate::input_queue::ConnectionWriter;
+use crate::payloads::KeeperHelloRequest;
 
 use super::{ConnectionEnd, DRAIN_LIMIT_BYTES, OUTPUT_TICK, READ_BUFFER_BYTES, Server};
+
+/// The most a connection may send before its `Hello` verifies (v2
+/// `LOCAL_ENDPOINT_UNAUTHENTICATED_MAX_BYTES`). A real `Hello` is a few hundred
+/// bytes; anything near this is a peer filling the keeper's memory.
+pub const UNAUTHENTICATED_MAX_BYTES: usize = 64 * 1024;
+
+/// How long an accepted connection has to authenticate (v2
+/// `LOCAL_ENDPOINT_UNAUTHENTICATED_TIMEOUT_MS`). The keeper serves one
+/// connection at a time, so this is also the longest a peer that never
+/// authenticates can keep a worker waiting in the listen backlog.
+pub const UNAUTHENTICATED_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// How many wake-ups may wait for the loop. Bounded so a worker that outruns
 /// the loop is held back by the socket rather than by the keeper's memory; the
@@ -49,15 +61,13 @@ impl Server {
         ConnectionEnd::UnframeablePayload
     }
 
-    /// Serve a single connection to completion, reporting why it ended. Its one writer is
-    /// shared with every input lane; detaching drops what the departed connection left unstarted.
+    /// Serve a single connection to completion, reporting why it ended. Once it authenticates, its
+    /// one writer is shared with every input lane; detaching drops what it left unstarted.
     pub fn serve_one(&mut self, stream: UnixStream) -> ConnectionEnd {
         let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(5)));
         let Ok(writer) = ConnectionWriter::for_stream(&stream).map(Arc::new) else {
             return ConnectionEnd::WorkerUnreachable;
         };
-        let sink: Arc<ConnectionWriter> = Arc::clone(&writer);
-        self.keeper.attach_input_results(sink);
         let end = self.serve_frames(stream, &writer);
         self.keeper.detach_input_results();
         end
@@ -66,7 +76,12 @@ impl Server {
     /// Wire the socket reader and the PTY readers into one queue, serve it, and
     /// take both down again before returning, so the socket is closed when the
     /// connection is reported ended.
-    fn serve_frames(&mut self, stream: UnixStream, writer: &ConnectionWriter) -> ConnectionEnd {
+    fn serve_frames(
+        &mut self,
+        stream: UnixStream,
+        writer: &Arc<ConnectionWriter>,
+    ) -> ConnectionEnd {
+        let deadline = Instant::now() + UNAUTHENTICATED_TIMEOUT;
         let (events, inbox) = std::sync::mpsc::sync_channel(EVENT_QUEUE_DEPTH);
         let stopped = Arc::new(AtomicBool::new(false));
         let reader = stream
@@ -86,7 +101,7 @@ impl Server {
             .output_signal
             .attach(Box::new(move || drop(events.try_send(LoopEvent::Output))));
 
-        let end = self.forward_until_end(&inbox, writer);
+        let end = self.serve_authenticated(&inbox, writer, deadline);
 
         self.keeper.output_signal.detach();
         stopped.store(true, Ordering::Release);
@@ -98,6 +113,87 @@ impl Server {
             tracing::error!("keeper: the connection's reader panicked");
         }
         end
+    }
+
+    /// Authenticate, then serve. Input results reach this connection only once
+    /// it has proved the capability, and frames that arrived behind its `Hello`
+    /// in the same read are answered before the loop's first turn.
+    fn serve_authenticated(
+        &mut self,
+        inbox: &Receiver<LoopEvent>,
+        writer: &Arc<ConnectionWriter>,
+        deadline: Instant,
+    ) -> ConnectionEnd {
+        let mut decoder = FrameDecoder::new();
+        let behind_hello = match self.authenticate(inbox, writer, &mut decoder, deadline) {
+            Ok(events) => events,
+            Err(end) => return end,
+        };
+        let sink: Arc<ConnectionWriter> = Arc::clone(writer);
+        self.keeper.attach_input_results(sink);
+        if let Some(end) = self.answer_events(behind_hello, writer) {
+            return end;
+        }
+        self.forward_until_end(inbox, writer, &mut decoder)
+    }
+
+    /// THE FIRST FRAME MUST BE A `Hello` ON THE CONTROL LANE WHOSE CAPABILITY
+    /// VERIFIES, sent inside `UNAUTHENTICATED_TIMEOUT` and
+    /// `UNAUTHENTICATED_MAX_BYTES` (v2 `multiplexed-main.ts:170-264`). Until
+    /// then nothing is drained, reaped or written: PTY output only wakes this
+    /// wait and is left for the first authenticated turn, because a peer that
+    /// has not proved the capability must not read a byte of any terminal.
+    /// `Ok` holds whatever was decoded behind the `Hello`.
+    fn authenticate(
+        &mut self,
+        inbox: &Receiver<LoopEvent>,
+        writer: &ConnectionWriter,
+        decoder: &mut FrameDecoder,
+        deadline: Instant,
+    ) -> Result<Vec<StreamEvent>, ConnectionEnd> {
+        let mut received_bytes = 0_usize;
+        loop {
+            if let Some(cause) = self.poll_exit() {
+                return Err(cause.into());
+            }
+            let Some(left) = deadline
+                .checked_duration_since(Instant::now())
+                .filter(|left| !left.is_zero())
+            else {
+                return Err(refused("timeout"));
+            };
+            let received = match inbox.recv_timeout(left.min(OUTPUT_TICK)) {
+                Ok(LoopEvent::Received(received)) => received,
+                Ok(LoopEvent::Output) | Err(RecvTimeoutError::Timeout) => continue,
+                Ok(LoopEvent::Closed) | Err(RecvTimeoutError::Disconnected) => {
+                    return Err(ConnectionEnd::ClientDisconnected);
+                }
+            };
+            received_bytes = received_bytes.saturating_add(received.len());
+            if received_bytes > UNAUTHENTICATED_MAX_BYTES {
+                return Err(refused("too_many_bytes"));
+            }
+            let mut events = decoder.push(&received).into_iter();
+            let Some(first) = events.next() else {
+                continue;
+            };
+            let request = opening_hello(first)?;
+            if !self.capability.verify(&request.capability) {
+                return Err(refused("bad_capability"));
+            }
+            let response = self.keeper.hello_response(&request);
+            let answer =
+                MuxFrame::json(MuxFrameType::HelloResp, 0, &response).map_err(Self::unframeable)?;
+            if writer.write_frames(&[answer]).is_err() {
+                return Err(ConnectionEnd::WorkerUnreachable);
+            }
+            tracing::info!(
+                peer_pid = ?request.pid,
+                channels = response.bindings.len(),
+                "keeper: a connection authenticated"
+            );
+            return Ok(events.collect());
+        }
     }
 
     /// THE LOOP FORWARDS OUTPUT AS IT ARRIVES. Every turn drains every
@@ -122,8 +218,8 @@ impl Server {
         &mut self,
         inbox: &Receiver<LoopEvent>,
         writer: &ConnectionWriter,
+        decoder: &mut FrameDecoder,
     ) -> ConnectionEnd {
-        let mut decoder = FrameDecoder::new();
         loop {
             if let Some(cause) = self.poll_exit() {
                 return cause.into();
@@ -157,21 +253,20 @@ impl Server {
                     return ConnectionEnd::ClientDisconnected;
                 }
             };
-            if let Some(end) = self.answer_received(&mut decoder, &received, writer) {
+            if let Some(end) = self.answer_events(decoder.push(&received), writer) {
                 return end;
             }
         }
     }
 
-    /// Decode and answer what the worker sent; `Some` ends the connection.
-    fn answer_received(
+    /// Answer what the worker sent, in order; `Some` ends the connection.
+    fn answer_events(
         &mut self,
-        decoder: &mut FrameDecoder,
-        received: &[u8],
+        events: Vec<StreamEvent>,
         writer: &ConnectionWriter,
     ) -> Option<ConnectionEnd> {
         let mut stopping = false;
-        for event in decoder.push(received) {
+        for event in events {
             match event {
                 StreamEvent::Frame {
                     frame_type,
@@ -224,6 +319,31 @@ impl Server {
         }
         stopping.then_some(ConnectionEnd::ShutdownRequestedWithChannels)
     }
+}
+
+/// The `Hello` a connection must open with, or the refusal of a connection
+/// that opened with anything else.
+fn opening_hello(first: StreamEvent) -> Result<KeeperHelloRequest, ConnectionEnd> {
+    let StreamEvent::Frame {
+        frame_type: Some(MuxFrameType::Hello),
+        channel_id: 0,
+        payload,
+        ..
+    } = first
+    else {
+        return Err(refused("not_hello"));
+    };
+    serde_json::from_slice(&payload).map_err(|_| refused("unreadable_hello"))
+}
+
+/// A connection refused before it authenticated. The presented capability is
+/// never logged: a near miss in a log is most of the secret.
+fn refused(reason: &'static str) -> ConnectionEnd {
+    tracing::warn!(
+        reason,
+        "keeper: a connection was refused before it authenticated"
+    );
+    ConnectionEnd::NotAuthenticated
 }
 
 /// Read the worker's bytes on their own thread, so the loop can wait on the

@@ -21,7 +21,8 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::Context as _;
-use roost_keeper::client::KeeperClient;
+use roost_keeper::capability::KeeperCapability;
+use roost_keeper::client::{KeeperClient, KeeperEndpoint};
 
 use crate::boot_keeper::{self, Admission, Blocked, ProbeResult, Unproven};
 use crate::runtime::boot::WorkerBoot;
@@ -149,8 +150,9 @@ pub async fn ensure_keeper(
     log_dir: &Path,
     process: &KeeperProcess,
 ) -> anyhow::Result<KeeperBootOutcome> {
+    let endpoint = keeper_endpoint(boot)?;
     let target_digest = keeper_binary_digest(&boot.keeper_executable).await;
-    let (probe, client) = probe(&boot.keeper_socket, &target_digest).await;
+    let (probe, client) = probe(&endpoint, &target_digest).await;
     let decision = decide(&probe, coordinator_open_sessions, boot.force_live_retire);
     let survivor = retired_survivor(&probe, coordinator_open_sessions);
     tracing::info!(
@@ -164,8 +166,8 @@ pub async fn ensure_keeper(
             Some(keeper) => {
                 let live = keeper.with(|client| {
                     client
-                        .observation()
-                        .map_or(0, |observation| observation.live_channel_count)
+                        .hello_response()
+                        .map_or(0, |response| response.bindings.len())
                 });
                 tracing::info!(
                     ?channels,
@@ -184,7 +186,7 @@ pub async fn ensure_keeper(
             // keeper can bind and readiness is not read off a stale file.
             drop(keeper);
             cleanup_endpoint(&boot.keeper_socket);
-            start_fresh_keeper(boot, log_dir, process).await
+            start_fresh_keeper(boot, &endpoint, log_dir, process).await
         }
         KeeperBootDecision::ReplaceEmpty => {
             let client = probe_client(keeper, boot)?;
@@ -194,7 +196,7 @@ pub async fn ensure_keeper(
                 KEEPER_REPLACEMENT_BLOCKED_ERROR,
             )
             .await?;
-            start_fresh_keeper(boot, log_dir, process).await
+            start_fresh_keeper(boot, &endpoint, log_dir, process).await
         }
         KeeperBootDecision::AwaitingCoordinator { .. } => {
             // Dropping the connection is safe precisely because a keeper treats a
@@ -206,7 +208,7 @@ pub async fn ensure_keeper(
         KeeperBootDecision::ForceLiveRetire => {
             let client = probe_client(keeper, boot)?;
             retire_force_live(&boot.keeper_socket, client, &survivor).await?;
-            start_fresh_keeper(boot, log_dir, process).await
+            start_fresh_keeper(boot, &endpoint, log_dir, process).await
         }
         KeeperBootDecision::Blocked { reason } => {
             drop(keeper);
@@ -219,6 +221,23 @@ pub async fn ensure_keeper(
             anyhow::bail!("{} ({reason:?})", KEEPER_IDENTITY_UNPROVEN_ERROR)
         }
     }
+}
+
+/// The socket and capability every dial of this worker's keeper presents.
+///
+/// Fails closed: a worker that cannot read or mint the capability must not
+/// start a keeper that would demand a secret nobody holds, nor dial one
+/// without it.
+pub fn keeper_endpoint(boot: &WorkerBoot) -> anyhow::Result<KeeperEndpoint> {
+    let capability =
+        KeeperCapability::load_or_create(&boot.keeper_capability_file).map_err(|error| {
+            tracing::error!(%error, "the keeper capability is unusable");
+            anyhow::anyhow!("the keeper capability is unusable: {error}")
+        })?;
+    Ok(KeeperEndpoint {
+        socket: boot.keeper_socket.clone(),
+        capability,
+    })
 }
 
 /// The probe's own authenticated connection, which a retirement must use.
@@ -252,6 +271,7 @@ fn retired_survivor(probe: &KeeperProbe, coordinator_sessions: Option<usize>) ->
 /// Start a keeper and wait for it to prove it is listening.
 async fn start_fresh_keeper(
     boot: &WorkerBoot,
+    endpoint: &KeeperEndpoint,
     log_dir: &Path,
     process: &KeeperProcess,
 ) -> anyhow::Result<KeeperBootOutcome> {
@@ -266,6 +286,8 @@ async fn start_fresh_keeper(
         .arg(&boot.keeper_socket)
         .arg("--pid-file")
         .arg(&boot.keeper_pid_file)
+        .arg("--capability-file")
+        .arg(&boot.keeper_capability_file)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::from(log));
@@ -294,7 +316,7 @@ async fn start_fresh_keeper(
         "started a fresh keeper"
     );
     wait_for_endpoint(&boot.keeper_socket).await?;
-    let client = roost_keeper::client::connect(&boot.keeper_socket).with_context(|| {
+    let client = roost_keeper::client::connect(endpoint).with_context(|| {
         format!(
             "could not reach the keeper at {}",
             boot.keeper_socket.display()

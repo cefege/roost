@@ -16,12 +16,15 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
+use crate::capability::KeeperCapability;
 use crate::client_arrival::ArrivalBell;
 use crate::client_error::ClientError;
 use crate::client_io::{PendingSpawn, Shared};
 use crate::codec::{MuxFrame, MuxFrameType};
 use crate::frames::{ListChannelsResp, ShellSpec, SpawnRequest};
-use crate::payloads::{KeeperFeature, KeeperHelloRequest, KeeperObservation, PtyInRequest};
+use crate::payloads::{
+    KEEPER_PROTOCOL_VERSION, KeeperFeature, KeeperHelloRequest, KeeperHelloResponse, PtyInRequest,
+};
 
 /// How long a healthy keeper has to acknowledge a spawn.
 ///
@@ -34,9 +37,20 @@ pub const SPAWN_ACK_TIMEOUT: Duration = Duration::from_secs(8);
 /// wait policy that deadline is expressed in.
 pub use crate::client_connect::{CONNECT_RETRY_TIMEOUT, DEADLINE_TICK, HELLO_TIMEOUT, connect};
 
+/// Where a keeper listens and the capability it demands: everything a dial
+/// needs. A socket path alone is not enough to reach a keeper, so no dial
+/// takes one.
+#[derive(Debug, Clone)]
+pub struct KeeperEndpoint {
+    pub socket: PathBuf,
+    pub capability: KeeperCapability,
+}
+
 /// A connected keeper.
 pub struct KeeperClient {
     pub(crate) path: PathBuf,
+    /// Presented again by every re-`Hello` on this connection.
+    capability: KeeperCapability,
     write_half: Mutex<UnixStream>,
     shared: Arc<Mutex<Shared>>,
     /// Frames the keeper sent that were not answers to a request: PTY output,
@@ -71,7 +85,7 @@ impl KeeperClient {
     /// constructor is how it hands the result over without widening the
     /// fields' visibility to the whole crate.
     pub(crate) fn establish(
-        path: PathBuf,
+        endpoint: &KeeperEndpoint,
         stream: UnixStream,
         shared: Arc<Mutex<Shared>>,
         events: Receiver<MuxFrame>,
@@ -80,7 +94,8 @@ impl KeeperClient {
         arrival: Arc<ArrivalBell>,
     ) -> Self {
         Self {
-            path,
+            path: endpoint.socket.clone(),
+            capability: endpoint.capability.clone(),
             write_half: Mutex::new(stream),
             shared,
             events,
@@ -116,35 +131,43 @@ impl Drop for KeeperClient {
 }
 
 impl KeeperClient {
-    /// merely reached.
+    /// The capability-bearing `Hello`, which is the first frame a connection
+    /// sends and may be sent again on a connection that already authenticated.
+    /// The answer is recorded before the feature check, so a keeper that lacks
+    /// a required feature still proves who it is: authenticated and merely
+    /// reached are different facts.
     pub fn hello(&self) -> Result<Vec<KeeperFeature>, ClientError> {
         let request = KeeperHelloRequest {
-            protocol_version: crate::payloads::KEEPER_PROTOCOL_VERSION,
-            requested_features: KeeperFeature::SUPPORTED
+            version: KEEPER_PROTOCOL_VERSION,
+            capability: self.capability.as_str().to_owned(),
+            features: KeeperFeature::SUPPORTED
                 .iter()
                 .map(|feature| feature.wire_name().to_string())
                 .collect(),
+            pid: Some(std::process::id()),
+            process_epoch: None,
         };
         let reply = self.request(MuxFrameType::Hello, MuxFrameType::HelloResp, 0, &request)?;
-        let response: crate::payloads::KeeperHelloResponse = reply
+        let response: KeeperHelloResponse = reply
             .parse_json()
             .ok_or_else(|| ClientError::Io("the keeper's hello did not decode".into()))?;
-        let mut shared = lock_recovered(&self.shared, "shared");
-        shared.keeper = Some(response.observation);
+        let features = response.features.clone();
+        lock_recovered(&self.shared, "shared").keeper = Some(response);
 
         // A feature the client needs and the keeper lacks makes this keeper
         // unusable, and the reason must name the feature: "it did not work" is
         // what an operator files, and it is not diagnosable.
         for required in KeeperFeature::REQUIRED {
-            if !response.features.contains(&required) {
+            if !features.contains(&required) {
                 return Err(ClientError::Unsupported(required.wire_name()));
             }
         }
-        Ok(response.features)
+        Ok(features)
     }
 
-    /// The keeper's own observation of itself, from the `Hello` answer.
-    pub fn observation(&self) -> Option<KeeperObservation> {
+    /// The keeper's latest `Hello` answer on this connection: its contract, pid,
+    /// epoch and bindings as it reported them.
+    pub fn hello_response(&self) -> Option<KeeperHelloResponse> {
         self.shared.lock().ok()?.keeper.clone()
     }
 
@@ -287,7 +310,7 @@ impl std::fmt::Debug for KeeperClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("KeeperClient")
             .field("path", &self.path)
-            .field("keeper", &self.observation())
+            .field("keeper", &self.hello_response())
             .field(
                 "stopped",
                 &self.stop.load(std::sync::atomic::Ordering::SeqCst),

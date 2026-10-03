@@ -12,11 +12,10 @@
 //! pool therefore asks on its own connection; only a caller with no connection
 //! opens one.
 
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use roost_keeper::client::KeeperClient;
+use roost_keeper::client::{KeeperClient, KeeperEndpoint};
 use roost_keeper::client_error::ClientError;
 use roost_protocol::keeper_update::{
     KeeperBinding, KeeperContractV1, KeeperRuntimeObservationV1, keeper_binding_digest_input,
@@ -182,7 +181,7 @@ pub fn read_runtime_probe(client: &KeeperClient) -> Result<KeeperRuntimeProbe, C
         Ok(_) | Err(ClientError::Unsupported(_)) => {}
         Err(error) => return Err(error),
     }
-    let Some(observation) = client.observation() else {
+    let Some(response) = client.hello_response() else {
         return Ok(KeeperRuntimeProbe::unauthenticated());
     };
     let listed = client.list_channels()?;
@@ -197,9 +196,9 @@ pub fn read_runtime_probe(client: &KeeperClient) -> Result<KeeperRuntimeProbe, C
     Ok(KeeperRuntimeProbe {
         reachable: true,
         authenticated: true,
-        contract: Some(observation.contract),
-        keeper_pid: observation.keeper_pid,
-        process_epoch: observation.process_epoch,
+        contract: Some(response.contract),
+        keeper_pid: Some(response.pid),
+        process_epoch: response.process_epoch,
         bindings: Some(bindings),
         spawning_channels: Some(Vec::new()),
     })
@@ -236,13 +235,13 @@ impl KeeperPool {
 pub const KEEPER_PROBE_TIMEOUT: Duration = Duration::from_millis(800);
 
 /// The proof over a fresh connection, for a caller that holds none.
-pub async fn probe_endpoint(socket: &Path) -> KeeperRuntimeProbe {
-    if !endpoint_reachable(socket, KEEPER_PROBE_TIMEOUT).await {
+pub async fn probe_endpoint(endpoint: &KeeperEndpoint) -> KeeperRuntimeProbe {
+    if !endpoint_reachable(&endpoint.socket, KEEPER_PROBE_TIMEOUT).await {
         return KeeperRuntimeProbe::unreachable();
     }
-    let path = socket.to_path_buf();
+    let endpoint = endpoint.clone();
     let asked = tokio::task::spawn_blocking(move || {
-        roost_keeper::client::connect(&path).and_then(|client| read_runtime_probe(&client))
+        roost_keeper::client::connect(&endpoint).and_then(|client| read_runtime_probe(&client))
     });
     match tokio::time::timeout(KEEPER_PROBE_TIMEOUT, asked).await {
         Ok(Ok(Ok(probe))) => probe,

@@ -73,7 +73,7 @@ async fn a_preserve_admission_keeps_the_keeper_and_its_channels() {
         worker_open_channel_ids: vec![21, 22],
     };
 
-    let host = PoolKeeperHost::new(Arc::clone(&pool), fixture.socket());
+    let host = PoolKeeperHost::new(Arc::clone(&pool), fixture.endpoint());
     let result = apply_journaled_keeper_update_action(&action, &host)
         .await
         .unwrap();

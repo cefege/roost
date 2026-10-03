@@ -12,6 +12,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use roost_keeper::capability::KeeperCapability;
 use roost_keeper::server::{
     Accepted, ConnectionEnd, Endpoint, ExitCause, ExitWatch, SOCKET_CHECK_INTERVAL, Server,
 };
@@ -33,10 +34,13 @@ USAGE:
     roost-keeper [OPTIONS]
 
 OPTIONS:
-    --socket <PATH>   The Unix socket to listen on. Required.
-    --pid-file <PATH> Where to write this process's pid, mode 0600. Optional.
-    -h, --help        Print this message.
-    -V, --version     Print the version.
+    --socket <PATH>          The Unix socket to listen on. Required.
+    --capability-file <PATH> The file holding the 64-hex capability a worker
+                             must present. Required.
+    --pid-file <PATH>        Where to write this process's pid, mode 0600.
+                             Optional.
+    -h, --help               Print this message.
+    -V, --version            Print the version.
 
 The keeper owns every PTY it opens and outlives the worker that spawned it, so
 a worker restart or a coordinator deploy costs a reconnect and not a terminal.
@@ -48,11 +52,13 @@ no channel is live, when it is signalled, or when its socket file is deleted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Args {
     socket: PathBuf,
+    capability_file: PathBuf,
     pid_file: Option<PathBuf>,
 }
 
 fn parse_args(argv: &[String]) -> Result<Option<Args>, String> {
     let mut socket = None;
+    let mut capability_file = None;
     let mut pid_file = None;
     let mut index = 0;
     while index < argv.len() {
@@ -67,6 +73,13 @@ fn parse_args(argv: &[String]) -> Result<Option<Args>, String> {
                 socket = Some(PathBuf::from(value));
                 index += 2;
             }
+            "--capability-file" => {
+                let value = argv
+                    .get(index + 1)
+                    .ok_or("--capability-file needs a path")?;
+                capability_file = Some(PathBuf::from(value));
+                index += 2;
+            }
             "--pid-file" => {
                 let value = argv.get(index + 1).ok_or("--pid-file needs a path")?;
                 pid_file = Some(PathBuf::from(value));
@@ -76,7 +89,12 @@ fn parse_args(argv: &[String]) -> Result<Option<Args>, String> {
         }
     }
     let socket = socket.ok_or("--socket is required")?;
-    Ok(Some(Args { socket, pid_file }))
+    let capability_file = capability_file.ok_or("--capability-file is required")?;
+    Ok(Some(Args {
+        socket,
+        capability_file,
+        pid_file,
+    }))
 }
 
 /// Write this process's pid, owner-readable only.
@@ -141,6 +159,9 @@ fn decide(end: ConnectionEnd, live_channels: usize) -> Decision {
         // the one outcome the keeper exists to prevent.
         ConnectionEnd::ClientDisconnected => Decision::KeepServing,
         ConnectionEnd::ProtocolViolation => Decision::KeepServing,
+        // A peer that never authenticated was served nothing, and the worker
+        // that owns these PTYs is still the one coming back.
+        ConnectionEnd::NotAuthenticated => Decision::KeepServing,
         ConnectionEnd::UnframeablePayload => Decision::KeepServing,
         ConnectionEnd::WorkerUnreachable => Decision::KeepServing,
         ConnectionEnd::Signalled => Decision::Stop(ExitCause::Signalled.reason()),
@@ -174,6 +195,16 @@ fn main() -> std::process::ExitCode {
         libc::signal(libc::SIGINT, handler as libc::sighandler_t);
     }
 
+    // Read before anything is published: a keeper listening without the
+    // capability could authenticate no worker, and one that minted its own
+    // would demand a secret no worker holds.
+    let capability = match KeeperCapability::load(&args.capability_file) {
+        Ok(capability) => capability,
+        Err(err) => {
+            eprintln!("roost-keeper: {err}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
     let endpoint = match Endpoint::new(args.socket.clone()) {
         Ok(endpoint) => endpoint,
         Err(err) => {
@@ -193,7 +224,7 @@ fn main() -> std::process::ExitCode {
         eprintln!("roost-keeper: could not write the pid file {pid_file:?}: {err}");
     }
 
-    let mut server = match Server::bind(endpoint) {
+    let mut server = match Server::bind(endpoint, capability) {
         Ok(server) => server,
         Err(err) => {
             eprintln!("roost-keeper: {err}");

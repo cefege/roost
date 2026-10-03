@@ -7,49 +7,23 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
 
 use roost_keeper::server::{Endpoint, ListenError, Server};
 
 mod support;
 
-/// A socket path in a directory this test owns, removed when it goes out of
-/// scope so a failed run cannot poison the next one.
-struct TempSocket {
-    dir: PathBuf,
-    path: PathBuf,
-}
-
-impl TempSocket {
-    fn new(label: &str) -> Self {
-        let unique = format!(
-            "roost-keeper-test-{label}-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        );
-        let dir = std::env::temp_dir().join(unique.replace(['(', ')', ' '], ""));
-        std::fs::create_dir_all(&dir).expect("a temp dir for the socket");
-        let path = dir.join("keeper.sock");
-        Self { dir, path }
-    }
-}
-
-impl Drop for TempSocket {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
-    }
-}
+use support::daemon::TempDir;
 
 /// THE SECURITY PROPERTY. The socket must be 0600 from the moment it exists:
 /// a listener that is briefly world-accessible is a window onto every PTY the
 /// machine has open.
 #[test]
 fn the_socket_is_owner_only_before_anyone_connects() {
-    let temp = TempSocket::new("perms");
-    let endpoint = Endpoint::new(temp.path.clone()).expect("endpoint");
-    let _server = Server::bind(endpoint).expect("bind");
+    let temp = TempDir::new("perms");
+    let endpoint = Endpoint::new(temp.socket()).expect("endpoint");
+    let _server = Server::bind(endpoint, temp.capability()).expect("bind");
 
-    let mode = std::fs::metadata(&temp.path)
+    let mode = std::fs::metadata(temp.socket())
         .expect("the socket exists")
         .permissions()
         .mode();
@@ -65,17 +39,17 @@ fn the_socket_is_owner_only_before_anyone_connects() {
 /// whatever it actually was.
 #[test]
 fn a_path_that_is_not_a_socket_is_refused_not_removed() {
-    let temp = TempSocket::new("notasocket");
-    std::fs::write(&temp.path, b"important data").expect("a file at the path");
+    let temp = TempDir::new("notasocket");
+    std::fs::write(temp.socket(), b"important data").expect("a file at the path");
 
     // The refusal comes at CONSTRUCTION, not at bind: a path that is not a
     // socket should never be constructible as an endpoint at all.
     assert!(matches!(
-        Endpoint::new(temp.path.clone()),
+        Endpoint::new(temp.socket()),
         Err(ListenError::NotASocket(_))
     ));
     assert_eq!(
-        std::fs::read(&temp.path).expect("the file is untouched"),
+        std::fs::read(temp.socket()).expect("the file is untouched"),
         b"important data",
         "a file that is not a socket must survive"
     );
@@ -86,15 +60,15 @@ fn a_path_that_is_not_a_socket_is_refused_not_removed() {
 /// crash becomes a permanent "address in use".
 #[test]
 fn a_stale_socket_from_a_dead_keeper_is_reclaimed() {
-    let temp = TempSocket::new("stale");
+    let temp = TempDir::new("stale");
     // Binding and dropping leaves the socket file exactly as a crash does.
-    drop(std::os::unix::net::UnixListener::bind(&temp.path).expect("a raw socket"));
+    drop(std::os::unix::net::UnixListener::bind(temp.socket()).expect("a raw socket"));
     assert!(
-        temp.path.exists(),
+        temp.socket().exists(),
         "a dead listener leaves its socket file behind"
     );
 
-    let endpoint = Endpoint::new(temp.path.clone()).expect("the path is constructible");
+    let endpoint = Endpoint::new(temp.socket()).expect("the path is constructible");
     let listener = endpoint
         .bind()
         .expect("a stale socket must be reclaimed, not refused");
@@ -105,13 +79,13 @@ fn a_stale_socket_from_a_dead_keeper_is_reclaimed() {
 /// stale, and replacing it would silently steal another keeper's PTYs.
 #[test]
 fn a_socket_a_live_keeper_holds_is_not_taken_over() {
-    let temp = TempSocket::new("inuse");
-    let _live = std::os::unix::net::UnixListener::bind(&temp.path).expect("a raw socket");
+    let temp = TempDir::new("inuse");
+    let _live = std::os::unix::net::UnixListener::bind(temp.socket()).expect("a raw socket");
 
-    let endpoint = Endpoint::new(temp.path.clone()).expect("the path is constructible");
+    let endpoint = Endpoint::new(temp.socket()).expect("the path is constructible");
     assert!(
         matches!(endpoint.bind(), Err(ListenError::AlreadyRunning(_))),
         "a keeper must not take over a socket a live process is serving"
     );
-    assert!(temp.path.exists(), "and must not remove it either");
+    assert!(temp.socket().exists(), "and must not remove it either");
 }

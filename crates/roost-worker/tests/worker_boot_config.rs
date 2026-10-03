@@ -15,7 +15,8 @@ mod scratch;
 use roost_host::{HostPlatform, MapEnv, supported_host_platform};
 use roost_worker::runtime::boot::{
     BootConfigError, ENV_COORDINATOR_URL, ENV_KEEPER_EXECUTABLE, ENV_KEEPER_SOCKET,
-    KEEPER_PID_NAME, KEEPER_SOCKET_NAME, WORKER_KEY_NAME, WorkerBoot, WorkerOverrides,
+    KEEPER_CAPABILITY_NAME, KEEPER_PID_NAME, KEEPER_SOCKET_NAME, WORKER_KEY_NAME, WorkerBoot,
+    WorkerOverrides,
 };
 use scratch::Scratch;
 
@@ -93,6 +94,10 @@ fn the_keeper_and_key_paths_default_to_the_installer_layout() {
         .to_path_buf();
     assert_eq!(boot.keeper_socket, data.join(KEEPER_SOCKET_NAME));
     assert_eq!(boot.keeper_pid_file, data.join(KEEPER_PID_NAME));
+    assert_eq!(
+        boot.keeper_capability_file,
+        data.join(KEEPER_CAPABILITY_NAME)
+    );
     assert_eq!(boot.worker_key_path, data.join(WORKER_KEY_NAME));
     assert_eq!(
         boot.keeper_executable.file_name().unwrap(),

@@ -34,7 +34,7 @@ use support::{echo, idle};
 /// A connected client holding one live channel, which every query needs.
 fn client_with_channel(temp: &TempDir) -> (Keeper, KeeperClient) {
     let keeper = Keeper::start(temp);
-    let client = connect(keeper.socket()).expect("a handshake");
+    let client = connect(&keeper.endpoint()).expect("a handshake");
     let pid = client.spawn(1, echo(), 80, 24).expect("a spawn");
     assert!(pid > 0, "the channel is a real child");
     (keeper, client)
@@ -213,7 +213,7 @@ fn the_resize_status_recovers_the_applied_geometry_without_applying_anything() {
 fn killing_a_channel_ends_its_child_and_waits_for_no_reply() {
     let temp = TempDir::new("kill");
     let keeper = Keeper::start(&temp);
-    let client = connect(keeper.socket()).expect("a handshake");
+    let client = connect(&keeper.endpoint()).expect("a handshake");
     client.spawn(1, idle(), 80, 24).expect("a spawn");
 
     let start = Instant::now();
@@ -267,7 +267,7 @@ fn a_conditional_shutdown_is_refused_while_the_keeper_holds_a_channel() {
     // the keeper is still there at all is the point: a refusal that took the
     // process with it would have retired the terminals it just declined to
     // retire.
-    let reconnected = connect(keeper.socket()).expect("the keeper is still serving");
+    let reconnected = connect(&keeper.endpoint()).expect("the keeper is still serving");
     assert_eq!(
         reconnected
             .list_channels()
@@ -284,7 +284,7 @@ fn a_conditional_shutdown_is_refused_while_the_keeper_holds_a_channel() {
 fn an_empty_keeper_retires_on_a_conditional_shutdown() {
     let temp = TempDir::new("empty");
     let mut keeper = Keeper::start(&temp);
-    let client = connect(keeper.socket()).expect("a handshake");
+    let client = connect(&keeper.endpoint()).expect("a handshake");
 
     assert!(
         client.shutdown_if_empty().expect("the keeper answers"),
@@ -304,7 +304,7 @@ fn an_empty_keeper_retires_on_a_conditional_shutdown() {
 fn an_unconditional_shutdown_stops_the_keeper() {
     let temp = TempDir::new("shutdown");
     let mut keeper = Keeper::start(&temp);
-    let client = connect(keeper.socket()).expect("a handshake");
+    let client = connect(&keeper.endpoint()).expect("a handshake");
 
     client.shutdown().expect("the keeper acknowledges");
     wait_until("the daemon exits", || keeper.has_exited());

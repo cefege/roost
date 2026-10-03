@@ -5,6 +5,7 @@
 //! owns raw file descriptors and the controlling-TTY handshake, and every call
 //! site must name the invariant it protects.
 
+pub mod capability;
 pub mod channel_history;
 pub mod client;
 pub mod client_arrival;

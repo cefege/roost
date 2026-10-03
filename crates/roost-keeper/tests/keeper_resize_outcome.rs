@@ -31,7 +31,7 @@ use support::echo;
 
 fn client_with_channel(temp: &TempDir) -> (Keeper, KeeperClient) {
     let keeper = Keeper::start(temp);
-    let client = connect(keeper.socket()).expect("a handshake");
+    let client = connect(&keeper.endpoint()).expect("a handshake");
     client.spawn(1, echo(), 80, 24).expect("a spawn");
     (keeper, client)
 }
@@ -79,7 +79,7 @@ fn a_stale_resize_is_acknowledged_with_the_geometry_the_keeper_already_had() {
 fn a_refused_resize_names_the_sequence_and_the_reason() {
     let temp = TempDir::new("refused");
     let keeper = Keeper::start(&temp);
-    let client = connect(keeper.socket()).expect("a handshake");
+    let client = connect(&keeper.endpoint()).expect("a handshake");
 
     assert_eq!(
         client.resize(9_999, 42, 80, 24),

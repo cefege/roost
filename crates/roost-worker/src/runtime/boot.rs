@@ -48,6 +48,10 @@ pub const ENV_KEEPER_SOCKET: &str = "ROOST_KEEPER_SOCKET";
 /// Where the keeper records its pid, mode 0600.
 pub const ENV_KEEPER_PID_FILE: &str = "ROOST_KEEPER_PID_FILE";
 
+/// The file holding the 64-hex capability the keeper demands in its Hello,
+/// mode 0600. Created by the worker, read by the keeper.
+pub const ENV_KEEPER_CAPABILITY_FILE: &str = "ROOST_KEEPER_CAPABILITY_FILE";
+
 /// The `roost-keeper` executable, when it is not beside this binary.
 pub const ENV_KEEPER_EXECUTABLE: &str = "ROOST_KEEPER_EXECUTABLE";
 
@@ -56,6 +60,9 @@ pub const KEEPER_SOCKET_NAME: &str = "mux-keeper.sock";
 
 /// The keeper's pid filename inside the worker data directory.
 pub const KEEPER_PID_NAME: &str = "mux-keeper.pid";
+
+/// The keeper's capability filename inside the worker data directory.
+pub const KEEPER_CAPABILITY_NAME: &str = "mux-keeper.cap";
 
 /// The worker key filename inside the worker data directory.
 pub const WORKER_KEY_NAME: &str = "coordinator_ed25519.key";
@@ -111,6 +118,9 @@ pub struct WorkerBoot {
     pub keeper_socket: PathBuf,
     /// Where a started keeper records its pid.
     pub keeper_pid_file: PathBuf,
+    /// Where the capability the keeper demands lives: created by the worker,
+    /// read by the keeper, which never creates it.
+    pub keeper_capability_file: PathBuf,
     /// The `roost-keeper` to start when there is nothing to adopt.
     pub keeper_executable: PathBuf,
     /// The ed25519 key the coordinator credential is signed from.
@@ -186,6 +196,11 @@ impl WorkerBoot {
             coordinator_base,
             keeper_socket: resolve_path(env, ENV_KEEPER_SOCKET, support.join(KEEPER_SOCKET_NAME)),
             keeper_pid_file: resolve_path(env, ENV_KEEPER_PID_FILE, support.join(KEEPER_PID_NAME)),
+            keeper_capability_file: resolve_path(
+                env,
+                ENV_KEEPER_CAPABILITY_FILE,
+                support.join(KEEPER_CAPABILITY_NAME),
+            ),
             keeper_executable: resolve_keeper_executable(env)?,
             worker_key_path,
             log_dir: logs,

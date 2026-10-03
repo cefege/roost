@@ -60,11 +60,11 @@ fn saw(client: &KeeperClient, channel_id: u16, needle: &str) -> bool {
 fn the_hello_proves_one_keeper_identity_and_its_channels_across_reconnects() {
     let temp = TempDir::new("proof-identity");
     let keeper = Keeper::start(&temp);
-    let first = connect(keeper.socket()).expect("a handshake");
-    let before = first.observation().expect("an authenticated hello");
+    let first = connect(&keeper.endpoint()).expect("a handshake");
+    let before = first.hello_response().expect("an authenticated hello");
     assert_eq!(
-        before.keeper_pid,
-        Some(keeper.pid()),
+        before.pid,
+        keeper.pid(),
         "the hello names the daemon's own pid"
     );
     let epoch = before
@@ -79,9 +79,13 @@ fn the_hello_proves_one_keeper_identity_and_its_channels_across_reconnects() {
 
     // A worker restart: its connection goes, a new one arrives.
     drop(first);
-    let second = connect(keeper.socket()).expect("a second handshake");
-    let after = second.observation().expect("an authenticated hello");
-    assert_eq!(after.keeper_pid, Some(keeper.pid()));
+    let second = connect(&keeper.endpoint()).expect("a second handshake");
+    let after = second.hello_response().expect("an authenticated hello");
+    assert_eq!(after.pid, keeper.pid());
+    assert_eq!(
+        after.bindings, channels,
+        "the hello names the channels that survived the reconnect"
+    );
     assert_eq!(
         after.process_epoch,
         Some(epoch),
@@ -97,7 +101,7 @@ fn the_hello_proves_one_keeper_identity_and_its_channels_across_reconnects() {
 fn a_forced_shutdown_ends_the_keeper_and_every_pty_it_held() {
     let temp = TempDir::new("proof-forced");
     let mut keeper = Keeper::start(&temp);
-    let client = connect(keeper.socket()).expect("a handshake");
+    let client = connect(&keeper.endpoint()).expect("a handshake");
     let shell_pid = client
         .spawn(5, hangup_immune("ROOST_FORCE_LIVE_PTY"), 80, 24)
         .expect("a spawn");
@@ -113,7 +117,7 @@ fn a_forced_shutdown_ends_the_keeper_and_every_pty_it_held() {
     assert!(is_alive(shell_pid), "a refused shutdown touched nothing");
     assert!(!keeper.has_exited());
 
-    let client = connect(keeper.socket()).expect("the keeper still serves");
+    let client = connect(&keeper.endpoint()).expect("the keeper still serves");
     client
         .shutdown()
         .expect("the keeper acknowledges an unconditional shutdown");

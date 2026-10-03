@@ -2,7 +2,7 @@
 //! `Keeper` is built and reported in every `Hello`, so a worker can tell this
 //! incarnation from a later process that reused its pid. Ports the
 //! `processEpoch = randomUUID()` of v2 `apps/worker/src/keeper/multiplexed-main.ts`.
-//! Called by `keeper::Keeper::new`; read by `keeper_ops::Keeper::hello`.
+//! Called by `keeper::Keeper::new`; read by `keeper_ops::Keeper::hello_response`.
 
 use std::fs::File;
 use std::io::Read;

@@ -120,7 +120,7 @@ fn shell(client: &KeeperClient, channel_id: u16) -> (i32, String) {
 fn the_pty_owns_a_foreground_group_and_resize_delivers_sigwinch() {
     let temp = TempDir::new("reap-winch");
     let keeper = Keeper::start(&temp);
-    let client = connect(keeper.socket()).expect("a handshake");
+    let client = connect(&keeper.endpoint()).expect("a handshake");
     let (shell_pid, mut seen) = shell(&client, 900);
     client
         .write_input(
@@ -156,7 +156,7 @@ fn an_interactive_shell_and_its_foreground_and_background_jobs_all_die() {
     sweep_previous_run(FG_MARK);
     let temp = TempDir::new("reap-jobs");
     let keeper = Keeper::start(&temp);
-    let client = connect(keeper.socket()).expect("a handshake");
+    let client = connect(&keeper.endpoint()).expect("a handshake");
     let (shell_pid, _) = shell(&client, 901);
     client
         .write_input(901, format!("{BG_MARK} & {FG_MARK}\n").as_bytes())

@@ -123,11 +123,13 @@ impl KeeperUpdatePreparer {
         table: Arc<SessionTable>,
         boundary: Arc<dyn KeeperUpdateBoundary>,
         pool: Arc<super::KeeperPool>,
-        keeper_socket: &std::path::Path,
+        keeper_endpoint: roost_keeper::client::KeeperEndpoint,
     ) -> Self {
-        let host: Arc<dyn KeeperUpdateHost> =
-            Arc::new(super::update_host::PoolKeeperHost::new(pool, keeper_socket));
-        tracing::info!(socket = %keeper_socket.display(), "the keeper update preparer is bound to the pool");
+        tracing::info!(socket = %keeper_endpoint.socket.display(), "the keeper update preparer is bound to the pool");
+        let host: Arc<dyn KeeperUpdateHost> = Arc::new(super::update_host::PoolKeeperHost::new(
+            pool,
+            keeper_endpoint,
+        ));
         Self::new(
             manager,
             table,

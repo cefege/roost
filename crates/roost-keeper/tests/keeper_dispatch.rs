@@ -63,15 +63,16 @@ fn a_control_frame_on_a_channel_lane_is_ignored() {
         MuxFrameType::Hello,
         1,
         &serde_json::json!({
-            "protocol_version": 3,
-            "requested_features": []
+            "version": 3,
+            "capability": "a".repeat(64),
+            "features": []
         }),
     )
     .expect("small JSON");
     assert!(keeper.handle(&hello).is_empty());
 }
 
-/// `Hello` negotiates the intersection and reports the live channel count, so a
+/// `Hello` negotiates the intersection and reports the live bindings, so a
 /// worker can prove what it is talking to before trusting it with a PTY.
 #[test]
 fn hello_negotiates_features_and_reports_the_contract() {
@@ -82,8 +83,9 @@ fn hello_negotiates_features_and_reports_the_contract() {
         MuxFrameType::Hello,
         0,
         &serde_json::json!({
-            "protocol_version": 3,
-            "requested_features": ["ordered_history_v1", "terminal_state_v1", "from_the_future"]
+            "version": 3,
+            "capability": "a".repeat(64),
+            "features": ["ordered_history_v1", "terminal_state_v1", "from_the_future"]
         }),
     )
     .expect("small JSON");
@@ -92,8 +94,15 @@ fn hello_negotiates_features_and_reports_the_contract() {
 
     let response: roost_keeper::payloads::KeeperHelloResponse =
         replies[0].parse_json().expect("it decodes");
+    assert_eq!(response.version, 3);
+    assert!(response.authenticated);
     assert_eq!(response.contract.protocol_version, 3);
-    assert_eq!(response.observation.live_channel_count, 1);
+    assert_eq!(response.bindings.len(), 1);
+    assert_eq!(response.bindings[0].channel_id, 1);
+    assert!(
+        response.spawning_channels.is_empty(),
+        "a spawn is decided before the next frame is answered"
+    );
     assert!(
         response.features.contains(&KeeperFeature::OrderedHistory),
         "a supported feature is granted"

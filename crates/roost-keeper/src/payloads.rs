@@ -9,6 +9,7 @@ use crate::codec::{
     CodecError, KEEPER_MAX_INPUT_BYTES, MuxFrame, check_dimension, read_sequence, read_u32,
     write_sequence,
 };
+use crate::frames::ChannelBinding;
 
 /// A capability name. A feature the keeper did not negotiate must never be
 /// used, so this is a closed set rather than a free string.
@@ -84,40 +85,49 @@ pub const KEEPER_PROTOCOL_VERSION: u32 = 3;
 /// live PTY belongs to, so `build_sha` is excluded from restart admission.
 pub use roost_protocol::keeper_update::KeeperContractV1;
 
-/// The client's `Hello`.
+/// The client's `Hello`: v2 `KeeperHelloRequestSchema`
+/// (`apps/worker/src/keeper/protocol-io.ts:73-79`). It is the first frame of
+/// every connection, and a keeper serves nothing until `capability` verifies.
 ///
-/// `requested_features` is raw names, not the enum: a worker that asks for a
-/// feature this build has never heard of must still be answered with the ones
-/// it does. Typing it as the enum would fail the whole handshake on one
-/// unrecognised name, which is exactly the additive negotiation the feature
-/// list exists to support.
+/// `features` is raw names, not the enum: a worker that asks for a feature
+/// this build has never heard of must still be answered with the ones it does.
+/// Typing it as the enum would fail the whole handshake on one unrecognised
+/// name, which is exactly the additive negotiation the feature list exists to
+/// support.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeeperHelloRequest {
-    pub protocol_version: u32,
-    pub requested_features: Vec<String>,
-}
-
-/// What the keeper observed about itself, so the worker can prove a binding
-/// without trusting a pid it was handed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct KeeperObservation {
-    pub contract: KeeperContractV1,
-    pub live_channel_count: u32,
-    /// The keeper's own pid, so a worker can prove which process holds its PTYs.
-    #[serde(default)]
-    pub keeper_pid: Option<u32>,
-    /// This keeper process's incarnation (a v4 uuid minted at start); a recycled
-    /// pid carries a different epoch.
-    #[serde(default)]
+    pub version: u32,
+    pub capability: String,
+    pub features: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pid: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub process_epoch: Option<String>,
 }
 
-/// The keeper's `Hello` answer.
+/// The keeper's `Hello` answer: v2 `KeeperHelloResponseSchema`
+/// (`protocol-io.ts:87-96`), and what the keeper observed about itself, so a
+/// worker can prove a binding without trusting a pid it was handed.
+/// `authenticated` is always `true`: v2's decoder is `z.literal(true)` and an
+/// unauthenticated client never receives this frame.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeeperHelloResponse {
-    pub contract: KeeperContractV1,
-    pub observation: KeeperObservation,
+    pub version: u32,
+    pub authenticated: bool,
     pub features: Vec<KeeperFeature>,
+    pub contract: KeeperContractV1,
+    /// The keeper's own pid, so a worker can prove which process holds its PTYs.
+    pub pid: u32,
+    /// This keeper process's incarnation (a v4 uuid minted at start); a recycled
+    /// pid carries a different epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_epoch: Option<String>,
+    /// Every live channel, sorted ascending by `channel_id` and unique, which
+    /// v2's decoder refines on.
+    pub bindings: Vec<ChannelBinding>,
+    /// Channels mid-spawn. Always empty here: the keeper decides a spawn before
+    /// it answers the next frame.
+    pub spawning_channels: Vec<u16>,
 }
 
 /// Negotiate the capability set: what the client asked for that the keeper

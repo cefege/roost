@@ -222,7 +222,7 @@ impl Keeper {
             MuxFrameType::Ping => vec![MuxFrame::new(MuxFrameType::Pong, 0, Vec::new())?],
             MuxFrameType::Pong => Vec::new(),
 
-            MuxFrameType::Hello if control_only(frame) => self.hello(frame)?,
+            MuxFrameType::Hello if control_only(frame) => self.answer_hello(frame)?,
             MuxFrameType::ListChannels if control_only(frame) => self.list_channels()?,
             MuxFrameType::Shutdown if control_only(frame) => {
                 vec![MuxFrame::new(MuxFrameType::ShutdownAck, 0, Vec::new())?]

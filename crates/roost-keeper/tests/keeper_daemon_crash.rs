@@ -5,116 +5,42 @@
 //! could not.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+mod support;
 
-const STARTUP: Duration = Duration::from_secs(10);
-const DEADLINE: Duration = Duration::from_secs(15);
+use roost_keeper::codec::MuxFrameType;
+use support::daemon::{Keeper, TempDir, wait_until};
+use support::empty_frame;
 
-struct TempDir {
-    dir: PathBuf,
-}
-
-impl TempDir {
-    fn new(label: &str) -> Self {
-        let unique = format!(
-            "roost-keeper-crash-{label}-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        );
-        let dir = std::env::temp_dir().join(unique.replace(['(', ')', ' '], ""));
-        std::fs::create_dir_all(&dir).expect("a temp dir");
-        Self { dir }
-    }
-
-    fn join(&self, name: &str) -> PathBuf {
-        self.dir.join(name)
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
-    }
-}
-
-fn keeper_binary() -> PathBuf {
-    // `CARGO_BIN_EXE_<name>` is the binary cargo just built, not a guess.
-    PathBuf::from(env!("CARGO_BIN_EXE_roost-keeper"))
-}
-
-fn spawn_daemon(socket: &std::path::Path) -> Child {
-    Command::new(keeper_binary())
-        .arg("--socket")
-        .arg(socket)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("the keeper binary starts")
-}
-
-fn wait_until_listening(socket: &std::path::Path) {
-    let start = Instant::now();
-    while start.elapsed() < STARTUP {
-        if socket.exists() && UnixStream::connect(socket).is_ok() {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    panic!("the keeper never started listening on {}", socket.display());
-}
-
-/// be a permanent "address in use".
+/// A killed daemon leaves its socket file behind, because closing a listener
+/// does not unlink its path. The next daemon must take it over, or one crash
+/// would be a permanent "address in use".
 #[test]
 fn a_daemon_that_died_leaves_a_socket_the_next_one_reclaims() {
     let temp = TempDir::new("crash");
-    let socket = temp.join("keeper.sock");
     {
-        let mut child = spawn_daemon(&socket);
-        wait_until_listening(&socket);
+        let mut crashed = Keeper::start(&temp);
+        let pid = i32::try_from(crashed.pid()).expect("a child pid fits a pid_t");
         // SIGKILL leaves the socket file exactly as a crash does.
-        let pid = child.id() as i32;
         // SAFETY: `kill` with a valid pid and SIGKILL is the documented use, and
         // the child is this test's own.
         unsafe { libc::kill(pid, libc::SIGKILL) };
-        let _ = child.wait();
+        wait_until("the killed daemon to exit", || crashed.has_exited());
     }
-    assert!(socket.exists(), "a killed daemon leaves its socket file");
-
-    let mut replacement = spawn_daemon(&socket);
-    wait_until_listening(&socket);
     assert!(
-        matches!(replacement.try_wait(), Ok(None)),
+        temp.socket().exists(),
+        "a killed daemon leaves its socket file"
+    );
+
+    let mut replacement = Keeper::start(&temp);
+    assert!(
+        !replacement.has_exited(),
         "and the next daemon must take it over"
     );
-    let _ = replacement.kill();
-    let _ = replacement.wait();
-}
-
-/// A signal stops the daemon, which is how a service manager and a deploy
-/// retire it. `SIGTERM` is the one that must be graceful.
-#[test]
-fn a_signal_stops_the_daemon() {
-    let temp = TempDir::new("signal");
-    let mut child = spawn_daemon(&temp.join("keeper.sock"));
-    wait_until_listening(&temp.join("keeper.sock"));
-
-    let pid = child.id() as i32;
-    // SAFETY: `kill` with a valid pid and SIGTERM is the documented use. The
-    // child is this test's own, spawned above.
-    let sent = unsafe { libc::kill(pid, libc::SIGTERM) };
-    assert_eq!(sent, 0, "the signal was delivered");
-
-    let start = Instant::now();
-    while matches!(child.try_wait(), Ok(None)) && start.elapsed() < DEADLINE {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        !matches!(child.try_wait(), Ok(None)),
-        "SIGTERM must stop the daemon"
-    );
-    let _ = child.kill();
-    let _ = child.wait();
+    let mut worker = replacement.connect();
+    worker.send(&empty_frame(MuxFrameType::Ping, 0));
+    worker.read_until("a pong from the replacement", |frames| {
+        frames
+            .iter()
+            .any(|frame| frame.frame_type == MuxFrameType::Pong)
+    });
 }

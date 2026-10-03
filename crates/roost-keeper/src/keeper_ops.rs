@@ -14,35 +14,50 @@ use crate::input_queue::InputReply;
 use crate::keeper::{Channel, Keeper, resize_reject, result_frame};
 use crate::payloads::TerminalState;
 use crate::payloads::{
-    KeeperHelloRequest, KeeperHelloResponse, KeeperObservation, PtyInRejectReason, PtyInRequest,
-    PtyInResult, ResizeRequest, negotiate_features,
+    KEEPER_PROTOCOL_VERSION, KeeperHelloRequest, KeeperHelloResponse, PtyInRejectReason,
+    PtyInRequest, PtyInResult, ResizeRequest, negotiate_features,
 };
 use crate::pty_channel::PtyChannel;
 
 impl Keeper {
-    pub fn hello(&self, frame: &MuxFrame) -> Result<Vec<MuxFrame>, CodecError> {
+    /// The answer to a `Hello`. The server sends it once the request's
+    /// capability verified, and the dispatcher answers a re-`Hello` on a
+    /// connection that already authenticated.
+    pub fn hello_response(&self, request: &KeeperHelloRequest) -> KeeperHelloResponse {
+        KeeperHelloResponse {
+            version: KEEPER_PROTOCOL_VERSION,
+            authenticated: true,
+            features: negotiate_features(&request.features),
+            contract: self.contract.clone(),
+            pid: std::process::id(),
+            process_epoch: self.process_epoch.clone(),
+            bindings: self.live_bindings(),
+            spawning_channels: Vec::new(),
+        }
+    }
+
+    pub(crate) fn answer_hello(&self, frame: &MuxFrame) -> Result<Vec<MuxFrame>, CodecError> {
         let request: KeeperHelloRequest =
             frame.parse_json().ok_or_else(|| CodecError::BadJson {
                 name: "Hello",
                 reason: "unreadable".into(),
             })?;
-        let features = negotiate_features(&request.requested_features);
-        let response = KeeperHelloResponse {
-            contract: self.contract.clone(),
-            observation: KeeperObservation {
-                contract: self.contract.clone(),
-                live_channel_count: self.channels.len() as u32,
-                keeper_pid: Some(std::process::id()),
-                process_epoch: self.process_epoch.clone(),
-            },
-            features,
-        };
-        let hello = MuxFrame::json(MuxFrameType::HelloResp, 0, &response)?;
+        let hello = MuxFrame::json(MuxFrameType::HelloResp, 0, &self.hello_response(&request))?;
         Ok(vec![hello])
     }
 
     pub fn list_channels(&self) -> Result<Vec<MuxFrame>, CodecError> {
-        let mut channels: Vec<ChannelBinding> = self
+        let response = ListChannelsResp {
+            channels: self.live_bindings(),
+        };
+        let answer = MuxFrame::json(MuxFrameType::ListChannelsResp, 0, &response)?;
+        Ok(vec![answer])
+    }
+
+    /// Every channel with a live child, ascending by id: what both `Hello` and
+    /// `ListChannels` report, from one place so the two answers cannot differ.
+    fn live_bindings(&self) -> Vec<ChannelBinding> {
+        let mut bindings: Vec<ChannelBinding> = self
             .channels
             .values()
             .filter_map(|channel| {
@@ -53,11 +68,10 @@ impl Keeper {
             })
             .collect();
         // Sorted so two workers polling the same keeper see the same order,
-        // which a HashMap's iteration order does not promise.
-        channels.sort_by_key(|binding| binding.channel_id);
-        let response = ListChannelsResp { channels };
-        let answer = MuxFrame::json(MuxFrameType::ListChannelsResp, 0, &response)?;
-        Ok(vec![answer])
+        // which a HashMap's iteration order does not promise, and because v2's
+        // Hello decoder refuses unsorted bindings.
+        bindings.sort_by_key(|binding| binding.channel_id);
+        bindings
     }
 
     /// Answer a conditional shutdown.

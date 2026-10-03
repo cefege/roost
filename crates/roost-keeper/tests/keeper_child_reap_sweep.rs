@@ -120,7 +120,7 @@ fn a_nohup_job_that_ignores_sighup_is_still_reaped() {
     sweep_previous_run();
     let temp = TempDir::new("reap-sweep");
     let keeper = Keeper::start(&temp);
-    let client = connect(keeper.socket()).expect("a handshake");
+    let client = connect(&keeper.endpoint()).expect("a handshake");
     let _shell_pid = shell(&client, 902);
     // nohup sets SIGHUP to SIG_IGN and then execs, so the hangup is a no-op on
     // it; the inherited SIG_IGN for SIGTERM makes the group SIGTERM a no-op as

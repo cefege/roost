@@ -11,118 +11,12 @@
 
 mod support;
 
-use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use roost_keeper::codec::MuxFrameType;
 
-use support::daemon::Client;
+use support::daemon::{Keeper, TempDir, wait_until};
 use support::{empty_frame, spawn_frame};
-
-const DEADLINE: Duration = Duration::from_secs(15);
-const STARTUP: Duration = Duration::from_secs(10);
-
-struct TempDir {
-    dir: PathBuf,
-}
-
-impl TempDir {
-    fn new(label: &str) -> Self {
-        let unique = format!(
-            "roost-keeper-bin-{label}-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        );
-        let dir = std::env::temp_dir().join(unique.replace(['(', ')', ' '], ""));
-        std::fs::create_dir_all(&dir).expect("a temp dir");
-        Self { dir }
-    }
-
-    fn join(&self, name: &str) -> PathBuf {
-        self.dir.join(name)
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
-    }
-}
-
-/// The keeper binary, built by cargo as part of this test run.
-fn keeper_binary() -> PathBuf {
-    // `CARGO_BIN_EXE_<name>` is set by cargo for integration tests of a crate
-    // with binaries, so this is the binary cargo just built rather than a
-    // guess at where it landed.
-    PathBuf::from(env!("CARGO_BIN_EXE_roost-keeper"))
-}
-
-/// A running keeper, killed on drop so a failed test cannot leave one behind.
-struct Keeper {
-    child: Child,
-    socket: PathBuf,
-}
-
-impl Keeper {
-    fn start(temp: &TempDir) -> Self {
-        let socket = temp.join("keeper.sock");
-        let pid_file = temp.join("keeper.pid");
-        let child = Command::new(keeper_binary())
-            .arg("--socket")
-            .arg(&socket)
-            .arg("--pid-file")
-            .arg(&pid_file)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("the keeper binary starts");
-        let keeper = Self { child, socket };
-        keeper.wait_until_listening();
-        keeper
-    }
-
-    fn wait_until_listening(&self) {
-        let start = Instant::now();
-        while start.elapsed() < STARTUP {
-            if self.socket.exists() && UnixStream::connect(&self.socket).is_ok() {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        panic!(
-            "the keeper never started listening on {}",
-            self.socket.display()
-        );
-    }
-
-    fn connect(&self) -> Client {
-        Client::connect(&self.socket)
-    }
-
-    fn is_running(&mut self) -> bool {
-        matches!(self.child.try_wait(), Ok(None))
-    }
-}
-
-impl Drop for Keeper {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-fn wait_for(mut predicate: impl FnMut() -> bool, what: &str) {
-    let start = Instant::now();
-    while start.elapsed() < DEADLINE {
-        if predicate() {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    panic!("{what} never happened within {DEADLINE:?}");
-}
 
 /// The daemon binds its endpoint and answers a real spawn. This is the whole
 /// binary working, end to end, as a separate process.
@@ -138,7 +32,7 @@ fn the_daemon_binds_and_serves_a_real_spawn() {
             .iter()
             .any(|f| f.frame_type == MuxFrameType::SpawnAck)
     });
-    assert!(keeper.is_running());
+    assert!(!keeper.has_exited());
 }
 
 /// THE PROPERTY. A worker going away must NOT take the keeper with it: the
@@ -163,10 +57,13 @@ fn a_worker_disconnect_does_not_stop_the_keeper() {
 
     std::thread::sleep(Duration::from_millis(200));
     assert!(
-        keeper.is_running(),
+        !keeper.has_exited(),
         "a disconnect is not a shutdown; the keeper must outlive the worker"
     );
-    assert!(keeper.socket.exists(), "and its endpoint must survive too");
+    assert!(
+        keeper.socket().exists(),
+        "and its endpoint must survive too"
+    );
 }
 
 /// A second worker must find the channel the first one left, which is the
@@ -230,7 +127,7 @@ fn a_conditional_shutdown_with_a_live_channel_keeps_the_daemon_up() {
 
     std::thread::sleep(Duration::from_millis(200));
     assert!(
-        keeper.is_running(),
+        !keeper.has_exited(),
         "a refusal means the keeper holds live PTYs, so it must not retire"
     );
 }
@@ -251,7 +148,7 @@ fn a_conditional_shutdown_on_an_empty_keeper_stops_the_daemon() {
             .any(|f| f.frame_type == MuxFrameType::ShutdownIfEmptyAck)
     });
 
-    wait_for(|| !keeper.is_running(), "the daemon to stop");
+    wait_until("the daemon to stop", || keeper.has_exited());
 }
 
 /// An unconditional shutdown stops the daemon, because it is the deliberate
@@ -269,7 +166,7 @@ fn an_unconditional_shutdown_stops_the_daemon() {
             .any(|f| f.frame_type == MuxFrameType::ShutdownAck)
     });
 
-    wait_for(|| !keeper.is_running(), "the daemon to stop");
+    wait_until("the daemon to stop", || keeper.has_exited());
 }
 
 /// A real terminal works through the daemon: bytes go in, bytes come back. This
@@ -302,8 +199,8 @@ fn a_real_terminal_works_through_the_daemon() {
 fn a_spawn_ack_carries_a_real_child_pid() {
     let temp = TempDir::new("childpid");
     let mut keeper = Keeper::start(&temp);
-    let daemon_pid = keeper.child.id();
-    assert!(keeper.is_running());
+    let daemon_pid = keeper.pid();
+    assert!(!keeper.has_exited());
 
     let mut client = keeper.connect();
     client.send(&support::spawn_frame(1, 80, 24));

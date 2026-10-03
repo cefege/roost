@@ -5,184 +5,52 @@
 //! deliberately does not answer.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod support;
+
 use std::io::{Read, Write};
-use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use roost_keeper::client::connect;
 use roost_keeper::client_error::ClientError;
 use roost_keeper::codec::{MuxFrame, MuxFrameType};
-use roost_keeper::frames::ShellSpec;
-
-const DEADLINE: Duration = Duration::from_secs(15);
-const STARTUP: Duration = Duration::from_secs(10);
-
-struct TempDir {
-    dir: PathBuf,
-}
-
-impl TempDir {
-    fn new(label: &str) -> Self {
-        let unique = format!(
-            "roost-client-{label}-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        );
-        let dir = std::env::temp_dir().join(unique.replace(['(', ')', ' '], ""));
-        std::fs::create_dir_all(&dir).expect("a temp dir");
-        Self { dir }
-    }
-
-    fn socket(&self) -> PathBuf {
-        self.dir.join("keeper.sock")
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
-    }
-}
-
-fn keeper_binary() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_roost-keeper"))
-}
-
-fn cat() -> ShellSpec {
-    ShellSpec {
-        program: "/bin/cat".into(),
-        args: Vec::new(),
-        env: Vec::new(),
-        cwd: None,
-    }
-}
-
-/// A real keeper daemon, killed on drop.
-struct Keeper {
-    child: Child,
-    socket: PathBuf,
-}
-
-impl Keeper {
-    fn start(temp: &TempDir) -> Self {
-        let socket = temp.socket();
-        let child = Command::new(keeper_binary())
-            .arg("--socket")
-            .arg(&socket)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("the keeper binary starts");
-        let keeper = Self { child, socket };
-        keeper.wait_until_listening();
-        keeper
-    }
-
-    fn wait_until_listening(&self) {
-        let start = Instant::now();
-        while start.elapsed() < STARTUP {
-            if self.socket.exists() && std::os::unix::net::UnixStream::connect(&self.socket).is_ok()
-            {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        panic!(
-            "the keeper never started listening on {}",
-            self.socket.display()
-        );
-    }
-}
-
-impl Drop for Keeper {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-/// A socket that accepts a connection and then says nothing at all.
-///
-/// This is the 2026-06-22 incident as a test fixture: a degraded keeper that
-/// takes the connection and never answers. The only way to prove the client
-/// survives it is to build one.
-struct SilentKeeper {
-    socket: PathBuf,
-    _listener: UnixListener,
-}
-
-impl SilentKeeper {
-    fn start(temp: &TempDir) -> Self {
-        let socket = temp.socket();
-        let _ = std::fs::remove_file(&socket);
-        let listener = UnixListener::bind(&socket).expect("a listening socket");
-        let (sender, _accepted) = std::sync::mpsc::channel();
-        // The accept loop runs on its own thread; the listener handle stays
-        // here so the socket outlives that thread if the test ends first.
-        let accepting = listener
-            .try_clone()
-            .expect("a second handle on the listener");
-        std::thread::spawn(move || {
-            // Hold every accepted connection open and never write to it. The
-            // client must time out rather than wait forever.
-            for stream in accepting.incoming() {
-                let Ok(stream) = stream else { break };
-                if sender.send(stream).is_err() {
-                    break;
-                }
-            }
-        });
-        Self {
-            socket,
-            _listener: listener,
-        }
-    }
-}
-
-impl Drop for SilentKeeper {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.socket);
-    }
-}
+use roost_keeper::payloads::KEEPER_PROTOCOL_VERSION;
+use support::daemon::{DEADLINE, Keeper, TempDir};
+use support::echo;
+use support::silent_keeper::SilentKeeper;
 
 /// Connecting to nothing reports that, rather than hanging or panicking.
 #[test]
 fn connecting_to_no_keeper_says_so() {
     let temp = TempDir::new("absent");
-    let err = connect(temp.socket()).expect_err("nothing is listening");
+    let err = connect(&temp.endpoint()).expect_err("nothing is listening");
     assert!(
         matches!(err, ClientError::NotListening(_)),
         "the failure must name the cause, got {err:?}"
     );
 }
 
-/// The handshake completes and reports the keeper's own observation, which is
+/// The handshake completes and reports what the keeper observed of itself, which is
 /// what lets a worker tell a keeper it trusts from one it merely reached.
 #[test]
 fn the_handshake_reports_what_the_keeper_is() {
     let temp = TempDir::new("hello");
     let _keeper = Keeper::start(&temp);
 
-    let client = connect(temp.socket()).expect("a handshake");
+    let client = connect(&temp.endpoint()).expect("a handshake");
     let features = client.hello().expect("a second handshake also works");
     assert!(
         !features.is_empty(),
         "a v3 keeper negotiates at least one feature"
     );
 
-    let observation = client
-        .observation()
-        .expect("the observation from the handshake");
-    assert_eq!(
-        observation.contract.protocol_version,
-        roost_keeper::payloads::KEEPER_PROTOCOL_VERSION
-    );
-    assert_eq!(
-        observation.live_channel_count, 0,
-        "nothing has been spawned yet"
-    );
+    let response = client
+        .hello_response()
+        .expect("the answer to the handshake");
+    assert!(response.authenticated, "the keeper accepted the capability");
+    assert_eq!(response.version, KEEPER_PROTOCOL_VERSION);
+    assert_eq!(response.contract.protocol_version, KEEPER_PROTOCOL_VERSION);
+    assert!(response.bindings.is_empty(), "nothing has been spawned yet");
 }
 
 /// A spawn goes through and comes back with a real pid, which is the whole
@@ -192,9 +60,9 @@ fn a_spawn_returns_a_real_pid() {
     let temp = TempDir::new("spawn");
     let _keeper = Keeper::start(&temp);
 
-    let client = connect(temp.socket()).expect("a handshake");
+    let client = connect(&temp.endpoint()).expect("a handshake");
     let pid = client
-        .spawn(1, cat(), 80, 24)
+        .spawn(1, echo(), 80, 24)
         .expect("the spawn is acknowledged");
     assert!(pid > 0);
     assert_ne!(
@@ -214,7 +82,7 @@ fn a_keeper_that_never_answers_gives_up_within_the_retry_window() {
     let _silent = SilentKeeper::start(&temp);
 
     let start = Instant::now();
-    let result = connect(temp.socket());
+    let result = connect(&temp.endpoint());
     let waited = start.elapsed();
 
     assert!(
@@ -268,9 +136,9 @@ fn a_terminal_round_trips_through_the_client() {
     let temp = TempDir::new("terminal");
     let _keeper = Keeper::start(&temp);
 
-    let client = connect(temp.socket()).expect("a handshake");
+    let client = connect(&temp.endpoint()).expect("a handshake");
     client
-        .spawn(1, cat(), 80, 24)
+        .spawn(1, echo(), 80, 24)
         .expect("the spawn is acknowledged");
     client
         .write_input(1, b"round-trip\r")
@@ -299,14 +167,13 @@ fn a_terminal_round_trips_through_the_client() {
 fn a_write_to_a_dead_keeper_reports_rather_than_succeeding() {
     let temp = TempDir::new("deadwrite");
     let keeper = Keeper::start(&temp);
-    let client = connect(temp.socket()).expect("a handshake");
+    let client = connect(&temp.endpoint()).expect("a handshake");
     client
-        .spawn(1, cat(), 80, 24)
+        .spawn(1, echo(), 80, 24)
         .expect("the spawn is acknowledged");
 
     let mut keeper = keeper;
-    let _ = keeper.child.kill();
-    let _ = keeper.child.wait();
+    keeper.kill_and_reap();
 
     // The socket is still open on this side, so the FIRST write may be absorbed
     // by the kernel buffer. What must not happen is a write reporting success
@@ -337,9 +204,9 @@ fn a_pong_does_not_consume_a_pending_answer() {
     let temp = TempDir::new("pong");
     let _keeper = Keeper::start(&temp);
 
-    let client = connect(temp.socket()).expect("a handshake");
+    let client = connect(&temp.endpoint()).expect("a handshake");
     client
-        .spawn(1, cat(), 80, 24)
+        .spawn(1, echo(), 80, 24)
         .expect("the spawn is acknowledged");
 
     // Interleave a ping between the spawn and a sequenced write, so the pong

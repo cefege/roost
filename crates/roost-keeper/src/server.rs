@@ -8,6 +8,7 @@
 //! after: a listener that exists for a moment with default permissions is a
 //! window, and a window on a PTY control socket is a shell.
 
+use crate::capability::KeeperCapability;
 use crate::keeper::Keeper;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -16,6 +17,7 @@ use std::path::{Path, PathBuf};
 mod connection;
 mod exit_watch;
 
+pub use connection::{UNAUTHENTICATED_MAX_BYTES, UNAUTHENTICATED_TIMEOUT};
 pub use exit_watch::{ExitCause, ExitWatch, SOCKET_CHECK_INTERVAL};
 
 /// The longest a connection loop waits with nothing arriving before it drains
@@ -183,6 +185,10 @@ pub enum ConnectionEnd {
     Signalled,
     /// The keeper's socket file disappeared while the connection was served.
     SocketRemoved,
+    /// The connection never proved it holds the capability: its first frame
+    /// was not a verifying `Hello`, or it sent too much or took too long
+    /// before one. Nothing was served to it, and the keeper stays up.
+    NotAuthenticated,
 }
 
 impl From<ExitCause> for ConnectionEnd {
@@ -209,6 +215,10 @@ pub struct Server {
     listener: UnixListener,
     keeper: Keeper,
     exit_watch: Option<ExitWatch>,
+    /// What a connection's first `Hello` must present. Held by the server and
+    /// never by the keeper: authentication is the transport's gate, and the
+    /// dispatcher behind it is only ever reached by a connection that passed.
+    capability: KeeperCapability,
 }
 
 // The listener is left out: it is the endpoint that identifies this server in
@@ -223,19 +233,20 @@ impl std::fmt::Debug for Server {
 }
 
 impl Server {
-    pub fn new(endpoint: Endpoint, listener: UnixListener) -> Self {
+    pub fn new(endpoint: Endpoint, listener: UnixListener, capability: KeeperCapability) -> Self {
         Self {
             endpoint,
             listener,
             keeper: Keeper::new(),
             exit_watch: None,
+            capability,
         }
     }
 
-    /// Bind an endpoint and start serving it.
-    pub fn bind(endpoint: Endpoint) -> Result<Self, ListenError> {
+    /// Bind an endpoint and start serving it to workers holding `capability`.
+    pub fn bind(endpoint: Endpoint, capability: KeeperCapability) -> Result<Self, ListenError> {
         let listener = endpoint.bind()?;
-        Ok(Self::new(endpoint, listener))
+        Ok(Self::new(endpoint, listener, capability))
     }
 
     pub fn endpoint(&self) -> &Endpoint {

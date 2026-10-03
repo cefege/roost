@@ -64,7 +64,7 @@ fn printing_shell() -> ShellSpec {
 fn continuous_output_is_drained_at_the_tick_and_not_at_the_tick_plus_a_read() {
     let temp = TempDir::new("output-tick");
     let keeper = Keeper::start(&temp);
-    let client = connect(keeper.socket()).expect("a real daemon completes the handshake");
+    let client = connect(&keeper.endpoint()).expect("a real daemon completes the handshake");
 
     client
         .spawn(1, printing_shell(), 80, 24)

@@ -4,96 +4,14 @@
 //! whether the client can reach a keeper at all.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::path::PathBuf;
+mod support;
+
 use std::time::{Duration, Instant};
 
 use roost_keeper::client::{KeeperClient, connect};
-use roost_keeper::frames::ShellSpec;
 use roost_keeper::payloads::{PtyInRejectReason, PtyInResult};
-use std::os::unix::net::UnixStream;
-use std::process::{Child, Command, Stdio};
-
-const STARTUP: Duration = Duration::from_secs(10);
-
-/// A socket path in a directory this test owns, removed on drop.
-struct TempDir {
-    dir: PathBuf,
-}
-
-impl TempDir {
-    fn new(label: &str) -> Self {
-        let unique = format!(
-            "roost-client-proto-{label}-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        );
-        let dir = std::env::temp_dir().join(unique.replace(['(', ')', ' '], ""));
-        std::fs::create_dir_all(&dir).expect("a temp dir");
-        Self { dir }
-    }
-
-    fn socket(&self) -> PathBuf {
-        self.dir.join("keeper.sock")
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
-    }
-}
-
-/// A real keeper daemon, killed on drop.
-struct Keeper {
-    child: Child,
-    socket: PathBuf,
-}
-
-impl Keeper {
-    fn start(temp: &TempDir) -> Self {
-        let socket = temp.socket();
-        let child = Command::new(PathBuf::from(env!("CARGO_BIN_EXE_roost-keeper")))
-            .arg("--socket")
-            .arg(&socket)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("the keeper binary starts");
-        let keeper = Self { child, socket };
-        keeper.wait_until_listening();
-        keeper
-    }
-
-    fn wait_until_listening(&self) {
-        let start = Instant::now();
-        while start.elapsed() < STARTUP {
-            if self.socket.exists() && UnixStream::connect(&self.socket).is_ok() {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        panic!(
-            "the keeper never started listening on {}",
-            self.socket.display()
-        );
-    }
-}
-
-impl Drop for Keeper {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-fn cat() -> ShellSpec {
-    ShellSpec {
-        program: "/bin/cat".into(),
-        args: Vec::new(),
-        env: Vec::new(),
-        cwd: None,
-    }
-}
+use support::daemon::{DEADLINE, Keeper, TempDir};
+use support::echo;
 
 /// Send one sequenced input, then read its answer off the event stream, where
 /// the keeper's input lane writes it once the batch has settled.
@@ -101,7 +19,7 @@ fn answered(client: &KeeperClient, channel_id: u16, input_seq: u64, bytes: &[u8]
     client
         .send_input_request(channel_id, input_seq, bytes)
         .expect("the request is written");
-    let deadline = Instant::now() + STARTUP;
+    let deadline = Instant::now() + DEADLINE;
     while Instant::now() < deadline {
         if let Some(frame) = client.next_event(Duration::from_millis(50))
             && frame.channel_id == channel_id
@@ -119,9 +37,9 @@ fn a_sequenced_write_reports_what_reached_the_pty() {
     let temp = TempDir::new("sequenced");
     let _keeper = Keeper::start(&temp);
 
-    let client = connect(temp.socket()).expect("a handshake");
+    let client = connect(&temp.endpoint()).expect("a handshake");
     client
-        .spawn(1, cat(), 80, 24)
+        .spawn(1, echo(), 80, 24)
         .expect("the spawn is acknowledged");
 
     let result = answered(&client, 1, 1, b"sequenced\r");
@@ -141,7 +59,7 @@ fn a_sequenced_write_to_an_unknown_channel_is_rejected() {
     let temp = TempDir::new("nosuchchan");
     let _keeper = Keeper::start(&temp);
 
-    let client = connect(temp.socket()).expect("a handshake");
+    let client = connect(&temp.endpoint()).expect("a handshake");
     let result = answered(&client, 99, 7, b"nowhere\r");
 
     match result {
@@ -159,12 +77,12 @@ fn the_channel_list_names_the_surviving_channels() {
     let temp = TempDir::new("list");
     let _keeper = Keeper::start(&temp);
 
-    let client = connect(temp.socket()).expect("a handshake");
+    let client = connect(&temp.endpoint()).expect("a handshake");
     client
-        .spawn(3, cat(), 80, 24)
+        .spawn(3, echo(), 80, 24)
         .expect("the spawn is acknowledged");
     client
-        .spawn(9, cat(), 80, 24)
+        .spawn(9, echo(), 80, 24)
         .expect("the second spawn is acknowledged");
 
     let listed = client.list_channels().expect("the list comes back");
@@ -180,16 +98,16 @@ fn a_second_client_finds_the_channel_the_first_left() {
     let _keeper = Keeper::start(&temp);
 
     {
-        let first = connect(temp.socket()).expect("a handshake");
+        let first = connect(&temp.endpoint()).expect("a handshake");
         first
-            .spawn(4, cat(), 80, 24)
+            .spawn(4, echo(), 80, 24)
             .expect("the spawn is acknowledged");
     }
 
     // The keeper serves one connection at a time, so it needs a moment to
     // notice the first one is gone. The client's connect retry covers exactly
     // this, which is why the test does not sleep a guessed interval.
-    let second = connect(temp.socket()).expect("a handshake once the keeper is free");
+    let second = connect(&temp.endpoint()).expect("a handshake once the keeper is free");
     let listed = second.list_channels().expect("the list comes back");
     assert_eq!(listed.channels.len(), 1);
     assert_eq!(listed.channels[0].channel_id, 4);

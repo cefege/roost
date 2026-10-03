@@ -46,8 +46,8 @@ Stable, never renumber. A tag that changes meaning breaks every deployed keeper 
 | `0x36` | `ResizeStatus` | client → keeper | `[seq:u64]` — cached-status query |
 | `0xE0` | `ListChannels` | client → keeper | empty (`channel=0`) |
 | `0xE1` | `ListChannelsResp` | keeper → client | JSON `{channels: [{channel_id, pid}]}` |
-| `0xE2` | `Hello` | client → keeper | capability-bearing hello (`channel=0`) |
-| `0xE3` | `HelloResp` | keeper → client | contract + process/channel observation |
+| `0xE2` | `Hello` | client → keeper | capability-bearing hello (`channel=0`), the first frame of every connection — see [Hello](#hello) |
+| `0xE3` | `HelloResp` | keeper → client | contract + process/channel observation — see [Hello](#hello) |
 | `0xE4` | `GetHistory` | client → keeper | empty, per channel (legacy drain) |
 | `0xE5` | `GetHistoryResp` | keeper → client | `[head_seq:u64][ring bytes]` |
 | `0xE6` | `GetHistoryRecords` | client → keeper | empty, per channel |
@@ -61,6 +61,41 @@ Stable, never renumber. A tag that changes meaning breaks every deployed keeper 
 | `0xEE` | `ShutdownIfEmptyReject` | keeper → client | empty (`channel=0`) |
 | `0xF0` | `Ping` | both | empty (`channel=0`) |
 | `0xF1` | `Pong` | both | empty (`channel=0`) |
+
+## Hello
+
+Every connection opens with `Hello` on `channel=0`, and a keeper serves nothing until it verifies. The request is a JSON object with exactly these keys:
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `version` | integer | the client's `KEEPER_PROTOCOL_VERSION` |
+| `capability` | string | the 64 lowercase hex characters of the capability file |
+| `features` | string[] | the feature names the client asks for, unique |
+| `pid` | integer, optional | the client's own pid |
+| `process_epoch` | string, optional | the client's process epoch |
+
+`HelloResp` on `channel=0` answers it:
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `version` | integer | the keeper's `KEEPER_PROTOCOL_VERSION` |
+| `authenticated` | `true` | always `true`: an unauthenticated client never receives this frame |
+| `features` | string[] | the negotiated subset, unique (see [Feature negotiation](#feature-negotiation)) |
+| `contract` | `KeeperContractV1` | the keeper's process identity (`protocol/proto/roost/v1/wire.proto`, JSON field names as there) |
+| `pid` | integer | the keeper's own pid |
+| `process_epoch` | string (v4 uuid), optional | this keeper process's incarnation; absent when the keeper could not mint one |
+| `bindings` | `[{channel_id, pid}]` | every live channel, sorted ascending by `channel_id`, unique |
+| `spawning_channels` | integer[] | channels mid-spawn, sorted ascending, unique |
+
+The capability lives in `<worker data dir>/mux-keeper.cap`: 64 lowercase hex characters and a newline, mode `0600`, in a directory created `0700`. The worker creates it, exclusively, so two creators racing agree on the one that won; the keeper reads it from `--capability-file` and never creates it. The keeper compares the SHA-256 digests of the expected and presented values in constant time.
+
+Before `HelloResp` the keeper answers no frame, forwards no `PtyOut` or `Exit`, and writes nothing to the connection. It closes the connection, without a reply and without stopping, when:
+
+- the first frame is not `Hello` on `channel=0`, its JSON does not parse, or its `capability` does not verify;
+- more than `UNAUTHENTICATED_MAX_BYTES` arrive before the first frame is complete;
+- `UNAUTHENTICATED_TIMEOUT` passes after the connection was accepted.
+
+Frames the client sent behind its `Hello` are answered after `HelloResp`, in order. A `Hello` on a connection that already authenticated is answered with a fresh `HelloResp`.
 
 ## Version
 
@@ -98,5 +133,7 @@ Required is narrower than supported. `terminal_state_v1` is not required because
 | `KEEPER_MAX_INPUT_BYTES` | 64 KiB |
 | `KEEPER_MAX_TERMINAL_DIMENSION` | 65535 |
 | `KEEPER_MAX_HISTORY_RESIZE_RECORDS` | 4096 |
+| `UNAUTHENTICATED_MAX_BYTES` | 64 KiB |
+| `UNAUTHENTICATED_TIMEOUT` | 2 s |
 
 A dimension outside the maximum is rejected rather than clamped: a clamp silently produces a PTY whose geometry differs from what the client believes, and the client has no way to discover that.

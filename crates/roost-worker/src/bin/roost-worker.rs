@@ -49,8 +49,9 @@ IDENTITY
 
     Every other option has an ROOST_* environment variable, and the environment
     is what an installed service definition supplies. The remaining paths
-    default to the worker data directory: <data>/mux-keeper.sock and
-    <data>/mux-keeper.pid.
+    default to the worker data directory: <data>/mux-keeper.sock,
+    <data>/mux-keeper.pid, and <data>/mux-keeper.cap, the capability a keeper
+    demands, created at mode 0600 on first boot.
 
     The worker holds no PTYs of its own. The keeper does, and it is meant to
     outlive this process, so a coordinator outage or a worker restart costs a

@@ -6,14 +6,14 @@
 //! `waitForKeeperExit`). Called by `keeper_pool::update_admission` through
 //! `keeper_pool::update_host`, and by `runtime::keeper_boot` for a survivor.
 //!
-//! The `_on` forms act on a connection the caller already holds; the socket
+//! The `_on` forms act on a connection the caller already holds; the endpoint
 //! forms open one, which the keeper only serves once no other is open.
 
 use std::path::Path;
 use std::pin::Pin;
 use std::time::{Duration, Instant};
 
-use roost_keeper::client::KeeperClient;
+use roost_keeper::client::{KeeperClient, KeeperEndpoint};
 
 use super::runtime_proof::read_runtime_probe;
 
@@ -135,33 +135,33 @@ pub fn shutdown_forced_on(client: &KeeperClient) -> bool {
     }
 }
 
-/// [`shutdown_empty_on`] over a fresh connection to `socket`.
+/// [`shutdown_empty_on`] over a fresh connection to `endpoint`.
 pub async fn shutdown_empty_keeper_authenticated(
-    socket: &Path,
+    endpoint: &KeeperEndpoint,
     expected: &EmptyKeeperShutdownExpectation,
 ) -> bool {
     let expected = expected.clone();
-    on_fresh_connection(socket, move |client| shutdown_empty_on(client, &expected)).await
+    on_fresh_connection(endpoint, move |client| shutdown_empty_on(client, &expected)).await
 }
 
-/// [`shutdown_forced_on`] over a fresh connection to `socket`.
-pub async fn shutdown_keeper_authenticated(socket: &Path) -> bool {
-    on_fresh_connection(socket, shutdown_forced_on).await
+/// [`shutdown_forced_on`] over a fresh connection to `endpoint`.
+pub async fn shutdown_keeper_authenticated(endpoint: &KeeperEndpoint) -> bool {
+    on_fresh_connection(endpoint, shutdown_forced_on).await
 }
 
 /// Connect, authenticate, act, and drop the connection. `false` when nothing
 /// answered: the keeper cannot be shut down by a connection it never accepted.
 async fn on_fresh_connection(
-    socket: &Path,
+    endpoint: &KeeperEndpoint,
     act: impl FnOnce(&KeeperClient) -> bool + Send + 'static,
 ) -> bool {
-    if !endpoint_reachable(socket, KEEPER_EXIT_PROBE_TIMEOUT).await {
-        tracing::info!(socket = %socket.display(), "no keeper accepted a shutdown connection");
+    if !endpoint_reachable(&endpoint.socket, KEEPER_EXIT_PROBE_TIMEOUT).await {
+        tracing::info!(socket = %endpoint.socket.display(), "no keeper accepted a shutdown connection");
         return false;
     }
-    let socket = socket.to_path_buf();
+    let endpoint = endpoint.clone();
     let acted = tokio::task::spawn_blocking(move || {
-        roost_keeper::client::connect(&socket).map(|client| act(&client))
+        roost_keeper::client::connect(&endpoint).map(|client| act(&client))
     })
     .await;
     match acted {

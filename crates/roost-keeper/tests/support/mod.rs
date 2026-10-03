@@ -21,9 +21,13 @@ use roost_keeper::codec::MuxFrameType;
 use roost_keeper::frames::{ShellSpec, SpawnRequest};
 use roost_keeper::input_queue::InputResultSink;
 use roost_keeper::keeper::Keeper;
-use roost_keeper::payloads::{PtyInRequest, ResizeRequest};
+use roost_keeper::payloads::{
+    KEEPER_PROTOCOL_VERSION, KeeperFeature, KeeperHelloRequest, PtyInRequest, ResizeRequest,
+};
 
 pub mod daemon;
+pub mod in_process;
+pub mod silent_keeper;
 
 pub const DEADLINE: Duration = Duration::from_secs(10);
 
@@ -93,6 +97,22 @@ pub fn resize_frame(channel_id: u16, seq: u64, cols: u16, rows: u16) -> MuxFrame
 
 pub fn empty_frame(frame_type: MuxFrameType, channel_id: u16) -> MuxFrame {
     MuxFrame::new(frame_type, channel_id, Vec::new()).expect("an empty payload fits every frame")
+}
+
+/// The `Hello` a worker opens every connection with, presenting `capability`
+/// and asking for every feature this build supports.
+pub fn hello_frame(capability: &str) -> MuxFrame {
+    let request = KeeperHelloRequest {
+        version: KEEPER_PROTOCOL_VERSION,
+        capability: capability.to_owned(),
+        features: KeeperFeature::SUPPORTED
+            .iter()
+            .map(|feature| feature.wire_name().to_owned())
+            .collect(),
+        pid: None,
+        process_epoch: None,
+    };
+    MuxFrame::json(MuxFrameType::Hello, 0, &request).expect("a hello request is small JSON")
 }
 
 /// Drain the keeper's output until `predicate` sees what it wants, returning

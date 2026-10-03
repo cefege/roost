@@ -207,7 +207,7 @@ impl WorkerOwners {
         // output and to session close ahead of the routes and view. Built
         // before the reconcile gate, which shares its reference admission gate.
         let agents = start_agent_status(&stack, uplink)?;
-        let keeper_socket = reconcile.boot.keeper_socket.clone();
+        let keeper_endpoint = crate::runtime::keeper_boot::keeper_endpoint(&reconcile.boot)?;
         let reconcile = ReconcileGate::start(
             &stack,
             &pool,
@@ -222,7 +222,7 @@ impl WorkerOwners {
             Arc::clone(&stack.table),
             Arc::new(reconcile.clone()) as Arc<dyn KeeperUpdateBoundary>,
             Arc::clone(&pool),
-            &keeper_socket,
+            keeper_endpoint,
         );
         let keeper: Arc<dyn KeeperPipelineSource> = pool;
         let pipeline = PipelineOwner::new(

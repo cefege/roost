@@ -17,7 +17,7 @@ use crate::client_arrival::ArrivalBell;
 use crate::client_error::ClientError;
 use crate::codec::{FrameDecoder, MuxFrame, MuxFrameType, StreamEvent};
 use crate::frames::SpawnAck;
-use crate::payloads::KeeperObservation;
+use crate::payloads::KeeperHelloResponse;
 
 /// The shared state a reader thread needs to answer a pending spawn.
 ///
@@ -26,7 +26,7 @@ use crate::payloads::KeeperObservation;
 #[derive(Default)]
 pub(crate) struct Shared {
     pub(crate) pending: HashMap<u16, PendingSpawn>,
-    pub(crate) keeper: Option<KeeperObservation>,
+    pub(crate) keeper: Option<KeeperHelloResponse>,
 }
 
 /// A `Spawn` the client is waiting on.

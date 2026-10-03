@@ -8,7 +8,6 @@
 
 mod support;
 
-use std::os::unix::net::UnixStream;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -56,7 +55,7 @@ fn sigterm_stops_a_keeper_waiting_for_a_worker() {
 fn sigterm_stops_a_keeper_serving_a_worker_and_reaps_its_shells() {
     let temp = TempDir::new("exit-serving");
     let mut keeper = Keeper::start(&temp);
-    let mut worker = Client::connect(keeper.socket());
+    let mut worker = keeper.connect();
     worker.send(&spawn_with(1, idle(), 80, 24));
     let seen = worker.read_until("a spawn ack", |frames| {
         frames
@@ -90,7 +89,11 @@ fn sigterm_stops_a_keeper_serving_a_worker_and_reaps_its_shells() {
 fn a_deleted_socket_stops_a_keeper_waiting_for_a_worker() {
     let temp = TempDir::new("exit-socket-waiting");
     let socket = temp.socket();
-    let mut server = Server::bind(Endpoint::new(&socket).expect("an endpoint")).expect("a bind");
+    let mut server = Server::bind(
+        Endpoint::new(&socket).expect("an endpoint"),
+        temp.capability(),
+    )
+    .expect("a bind");
     server.watch_exits(ExitWatch::new(&NEVER_SIGNALLED, socket.clone(), CHECK));
     let (report, outcome) = mpsc::channel();
     let waiter = std::thread::spawn(move || {
@@ -119,7 +122,12 @@ fn a_deleted_socket_stops_a_keeper_waiting_for_a_worker() {
 fn a_deleted_socket_ends_the_connection_being_served() {
     let temp = TempDir::new("exit-socket-serving");
     let socket = temp.socket();
-    let mut server = Server::bind(Endpoint::new(&socket).expect("an endpoint")).expect("a bind");
+    let capability = temp.capability();
+    let mut server = Server::bind(
+        Endpoint::new(&socket).expect("an endpoint"),
+        capability.clone(),
+    )
+    .expect("a bind");
     server.watch_exits(ExitWatch::new(&NEVER_SIGNALLED, socket.clone(), CHECK));
     let (report, outcome) = mpsc::channel();
     let serving = std::thread::spawn(move || {
@@ -129,7 +137,9 @@ fn a_deleted_socket_ends_the_connection_being_served() {
         };
         report.send(end).expect("the test is listening");
     });
-    let _worker = UnixStream::connect(&socket).expect("a worker connects");
+    // Authenticated, so what the deletion ends is a SERVED connection rather
+    // than one still waiting to prove the capability.
+    let _worker = Client::connect(&socket, &capability);
 
     assert!(
         outcome.recv_timeout(CHECK * 6).is_err(),

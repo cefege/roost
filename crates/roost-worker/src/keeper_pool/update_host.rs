@@ -5,9 +5,10 @@
 //! (`probeKeeperCompatible`, `shutdown*KeeperAuthenticated`, `Bun.sleep`,
 //! `Date.now`). Built by `runtime::owners`; driven by `keeper_pool::update_admission`.
 
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use roost_keeper::client::KeeperEndpoint;
 
 use super::keeper_shutdown::{
     EmptyKeeperShutdownExpectation, ExitWatch, HostFuture, KEEPER_EXIT_PROBE_TIMEOUT,
@@ -18,19 +19,19 @@ use super::pool::KeeperPool;
 use super::runtime_proof::{KeeperRuntimeProbe, probe_endpoint};
 use super::update_admission::KeeperUpdateHost;
 
-/// This worker's keeper: its pool connection and the socket it was dialled on.
+/// This worker's keeper: its pool connection and the endpoint it was dialled on.
 #[derive(Debug)]
 pub struct PoolKeeperHost {
     pool: Arc<KeeperPool>,
-    socket: PathBuf,
+    endpoint: KeeperEndpoint,
     origin: Instant,
 }
 
 impl PoolKeeperHost {
-    pub fn new(pool: Arc<KeeperPool>, socket: &Path) -> Self {
+    pub fn new(pool: Arc<KeeperPool>, endpoint: KeeperEndpoint) -> Self {
         Self {
             pool,
-            socket: socket.to_path_buf(),
+            endpoint,
             origin: Instant::now(),
         }
     }
@@ -62,7 +63,10 @@ impl PoolKeeperHost {
 
 impl ExitWatch for PoolKeeperHost {
     fn reachable(&self) -> HostFuture<'_, bool> {
-        Box::pin(endpoint_reachable(&self.socket, KEEPER_EXIT_PROBE_TIMEOUT))
+        Box::pin(endpoint_reachable(
+            &self.endpoint.socket,
+            KEEPER_EXIT_PROBE_TIMEOUT,
+        ))
     }
 
     fn sleep(&self, duration: Duration) -> HostFuture<'_, ()> {
@@ -81,7 +85,7 @@ impl KeeperUpdateHost for PoolKeeperHost {
                 Ok(probe) => probe,
                 Err(error) => {
                     tracing::info!(%error, "the pool cannot prove its keeper; probing the endpoint afresh");
-                    probe_endpoint(&self.socket).await
+                    probe_endpoint(&self.endpoint).await
                 }
             }
         })
@@ -91,7 +95,7 @@ impl KeeperUpdateHost for PoolKeeperHost {
         Box::pin(async move {
             let on_pool = expected.clone();
             let fresh = Box::pin(async move {
-                shutdown_empty_keeper_authenticated(&self.socket, &expected).await
+                shutdown_empty_keeper_authenticated(&self.endpoint, &expected).await
             });
             self.shut_down(
                 move |client| shutdown_empty_on(client, &on_pool),
@@ -104,7 +108,7 @@ impl KeeperUpdateHost for PoolKeeperHost {
 
     fn shutdown_forced(&self) -> HostFuture<'_, bool> {
         Box::pin(async move {
-            let fresh = Box::pin(shutdown_keeper_authenticated(&self.socket));
+            let fresh = Box::pin(shutdown_keeper_authenticated(&self.endpoint));
             self.shut_down(shutdown_forced_on, fresh, "an unconditional shutdown")
                 .await
         })

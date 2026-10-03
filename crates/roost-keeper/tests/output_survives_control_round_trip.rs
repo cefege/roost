@@ -22,6 +22,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod support;
+
 use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::time::Duration;
@@ -29,11 +31,11 @@ use std::time::Duration;
 use roost_keeper::client::KeeperClient;
 use roost_keeper::client_connect::connect;
 use roost_keeper::codec::{FrameDecoder, MuxFrame, MuxFrameType, StreamEvent};
-use roost_keeper::frames::SpawnAck;
+use roost_keeper::frames::{ChannelBinding, SpawnAck};
 use roost_keeper::payloads::{
-    KEEPER_PROTOCOL_VERSION, KeeperFeature, KeeperHelloResponse, KeeperObservation,
-    negotiate_features,
+    KEEPER_PROTOCOL_VERSION, KeeperFeature, KeeperHelloResponse, negotiate_features,
 };
+use support::daemon::TempDir;
 
 /// A fake keeper that answers the handshake, then answers the resize with PTY
 /// output FIRST and the ack LAST.
@@ -77,14 +79,17 @@ fn fake_keeper(socket: &std::path::Path, output: Vec<Vec<u8>>) -> std::thread::J
                             build_sha: "f1-proof".to_string(),
                         };
                         let reply = KeeperHelloResponse {
-                            observation: KeeperObservation {
-                                contract: contract.clone(),
-                                live_channel_count: 1,
-                                keeper_pid: None,
-                                process_epoch: None,
-                            },
+                            version: KEEPER_PROTOCOL_VERSION,
+                            authenticated: true,
                             features,
                             contract,
+                            pid: std::process::id(),
+                            process_epoch: None,
+                            bindings: vec![ChannelBinding {
+                                channel_id: 7,
+                                pid: 4242,
+                            }],
+                            spawning_channels: Vec::new(),
                         };
                         send_json(&mut stream, MuxFrameType::HelloResp, 0, &reply);
                     }
@@ -150,12 +155,6 @@ fn send_raw(stream: &mut UnixStream, frame: MuxFrame) {
     stream.flush().expect("flush the frame");
 }
 
-fn proof_socket(tag: &str) -> std::path::PathBuf {
-    let path = std::env::temp_dir().join(format!("roost-f1-{tag}-{}.sock", std::process::id()));
-    let _ = std::fs::remove_file(&path);
-    path
-}
-
 /// Drain PTY output until `want` chunks have arrived.
 ///
 /// Asserts on the BODIES, not on "an event came out". A client that dropped
@@ -176,9 +175,9 @@ fn pty_output(client: &KeeperClient, want: usize) -> Vec<String> {
 
 #[test]
 fn pty_output_written_before_a_control_ack_is_not_lost() {
-    let socket = proof_socket("loss");
-    let keeper = fake_keeper(&socket, vec![b"live output".to_vec()]);
-    let client = connect(&socket).expect("the client connects and handshakes");
+    let temp = TempDir::new("f1-loss");
+    let keeper = fake_keeper(&temp.socket(), vec![b"live output".to_vec()]);
+    let client = connect(&temp.endpoint()).expect("the client connects and handshakes");
     let _ = client.resize(7, 1, 24, 30);
 
     assert_eq!(
@@ -189,7 +188,6 @@ fn pty_output_written_before_a_control_ack_is_not_lost() {
     );
     drop(client);
     let _ = keeper.join();
-    let _ = std::fs::remove_file(&socket);
 }
 
 /// The property the fix INTRODUCES: a deferred frame must be handed over
@@ -198,12 +196,12 @@ fn pty_output_written_before_a_control_ack_is_not_lost() {
 /// different offset, and a refactor of the queue would break it silently.
 #[test]
 fn output_deferred_by_a_wait_precedes_whatever_arrived_after_it() {
-    let socket = proof_socket("order");
+    let temp = TempDir::new("f1-order");
     let keeper = fake_keeper(
-        &socket,
+        &temp.socket(),
         vec![b"first".to_vec(), b"second".to_vec(), b"third".to_vec()],
     );
-    let client = connect(&socket).expect("the client connects and handshakes");
+    let client = connect(&temp.endpoint()).expect("the client connects and handshakes");
     let _ = client.resize(7, 1, 24, 30);
 
     assert_eq!(
@@ -217,5 +215,4 @@ fn output_deferred_by_a_wait_precedes_whatever_arrived_after_it() {
     );
     drop(client);
     let _ = keeper.join();
-    let _ = std::fs::remove_file(&socket);
 }
