@@ -84,6 +84,10 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
+      # The browsers ci.yml's terminal job installs on ubuntu. Without them
+      # every browser spec fails at launch and the oracle proves nothing.
+      - name: playwright install
+        run: bunx playwright install --with-deps chromium firefox
       - name: build the binaries the smoke run will drive
         run: cargo build --release -p roost-cli -p roost-keeper
       - name: build the web bundle
