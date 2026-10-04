@@ -9,129 +9,11 @@
 //! held input released early on the old route crosses the promotion fence.
 
 mod direct_carrier_support;
+mod route_claim_support;
 
 use direct_carrier_support::*;
 use roost_client_core::InputOutcome;
-use roost_client_core::sync::inbound::InputRouteResult;
-
-const ROUTE_EPOCH: &str = "route-epoch-1";
-
-fn peer_token() -> TerminalToken {
-    TerminalToken::direct(
-        SOCKET_GENERATION,
-        TerminalTransport::Peer,
-        WORKER,
-        PROCESS_EPOCH,
-        DOMAIN_GENERATION,
-    )
-}
-
-fn peer_carrier() -> DirectCarrier {
-    DirectCarrier {
-        connection_id: "peer-a".to_owned(),
-        worker_fp: WORKER.to_owned(),
-        transport: TerminalTransport::Peer,
-        token: peer_token(),
-        socket_id: "peer-a-socket".to_owned(),
-        granted_sessions: [SESSION.to_owned()].into_iter().collect(),
-    }
-}
-
-fn on_peer(frame: SyncFrame) -> ClientEvent {
-    ClientEvent::DirectFrameReceived {
-        token: peer_token(),
-        frame,
-    }
-}
-
-fn typed(core: &mut ClientCore, bytes: &[u8]) -> Vec<Effect> {
-    core.handle(ClientEvent::TerminalInput {
-        session_id: SESSION.to_owned(),
-        view_id: Some(VIEW.to_owned()),
-        bytes: bytes.to_vec(),
-    })
-}
-
-/// Every `(request_id, revision, worker_epoch)` claimed on the peer.
-fn peer_claims(effects: &[Effect]) -> Vec<(String, u64, String)> {
-    effects
-        .iter()
-        .filter_map(|effect| match effect {
-            Effect::SendDirect {
-                token,
-                command:
-                    DirectCommand::RouteClaim {
-                        request_id,
-                        revision,
-                        worker_epoch,
-                        ..
-                    },
-            } if token == &peer_token() => {
-                Some((request_id.clone(), *revision, worker_epoch.clone()))
-            }
-            _ => None,
-        })
-        .collect()
-}
-
-/// Every `(bytes, epoch)` written on the peer.
-fn peer_inputs(effects: &[Effect]) -> Vec<(Vec<u8>, String)> {
-    effects
-        .iter()
-        .filter_map(|effect| match effect {
-            Effect::SendDirect {
-                command:
-                    DirectCommand::Input {
-                        bytes,
-                        input_route_epoch,
-                        ..
-                    },
-                ..
-            } => Some((bytes.clone(), input_route_epoch.clone())),
-            _ => None,
-        })
-        .collect()
-}
-
-/// Every `(bytes, epoch)` written on Sync.
-fn sync_inputs(effects: &[Effect]) -> Vec<(Vec<u8>, String)> {
-    effects
-        .iter()
-        .filter_map(|effect| match effect {
-            Effect::SendSync(SyncCommand::TerminalInput {
-                bytes,
-                input_route_epoch,
-                ..
-            }) => Some((bytes.clone(), input_route_epoch.clone())),
-            _ => None,
-        })
-        .collect()
-}
-
-fn answer(request_id: &str, revision: u64, accepted: bool, reason: &str) -> SyncFrame {
-    SyncFrame::InputRouteResult {
-        result: InputRouteResult {
-            request_id: request_id.to_owned(),
-            session_id: SESSION.to_owned(),
-            revision,
-            accepted,
-            latest_revision: if accepted { revision } else { revision + 3 },
-            input_route_epoch: if accepted { ROUTE_EPOCH } else { "" }.to_owned(),
-            worker_epoch: PROCESS_EPOCH.to_owned(),
-            reason: reason.to_owned(),
-        },
-    }
-}
-
-/// A client whose peer candidate has its baseline, and the claim it sent.
-fn promotable_peer() -> (ClientCore, Vec<Effect>) {
-    let mut core = core_with_a_pane();
-    let staged = core.handle(ClientEvent::CarrierReady(peer_carrier()));
-    let _ = minted(&mut core, mint_attempt(&staged), Some(WIRE));
-    let _ = core.handle(on_peer(accepted_view_state()));
-    let effects = core.handle(on_peer(baseline()));
-    (core, effects)
-}
+use route_claim_support::*;
 
 #[test]
 fn a_peer_promotion_holds_input_until_the_worker_acknowledges_the_route() {
@@ -341,19 +223,6 @@ fn a_straggling_sync_frame_after_the_promotion_leaves_input_on_the_peer() {
     assert!(sync_inputs(&typed_after).is_empty());
 }
 
-/// The request ids of every route claim sent on Sync.
-fn sync_claim_ids(effects: &[Effect]) -> Vec<String> {
-    effects
-        .iter()
-        .filter_map(|effect| match effect {
-            Effect::SendSync(SyncCommand::TerminalInputRouteClaim { request_id, .. }) => {
-                Some(request_id.clone())
-            }
-            _ => None,
-        })
-        .collect()
-}
-
 #[test]
 fn a_closed_sync_socket_ends_its_fallback_claim_so_the_next_socket_claims_at_once() {
     let (mut core, effects) = promotable_peer();
@@ -362,7 +231,7 @@ fn a_closed_sync_socket_ends_its_fallback_claim_so_the_next_socket_claims_at_onc
     let _ = core.handle(ClientEvent::CarrierLost {
         connection_id: "peer-a".to_owned(),
     });
-    let first = sync_claim_ids(&core.handle(ClientEvent::Sweep { now_ms: 1 }));
+    let first = sync_claims(&core.handle(ClientEvent::Sweep { now_ms: 1 }));
     assert_eq!(first.len(), 1, "Sync claims the route back");
 
     let generation = core
@@ -376,11 +245,11 @@ fn a_closed_sync_socket_ends_its_fallback_claim_so_the_next_socket_claims_at_onc
         close_reason: String::new(),
     });
     open_ready_link(&mut core, "socket-b");
-    let retried = sync_claim_ids(&core.handle(ClientEvent::Sweep { now_ms: 300 }));
+    let retried = sync_claims(&core.handle(ClientEvent::Sweep { now_ms: 300 }));
     assert_eq!(
         retried.len(),
         1,
         "the claim the closed socket carried ended with it, so the new socket claims well before the 8 s answer deadline"
     );
-    assert_ne!(retried[0], first[0], "a fresh claim, not the dead one");
+    assert_ne!(retried[0].0, first[0].0, "a fresh claim, not the dead one");
 }

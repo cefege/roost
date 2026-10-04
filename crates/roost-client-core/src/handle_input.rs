@@ -28,6 +28,7 @@ pub fn handle_terminal_input(
     now_ms: u64,
     out: &mut Vec<Effect>,
 ) {
+    let reclaiming = reclaim_lost_route(store, session_id, now_ms);
     let admission = store.input.admit(
         session_id,
         view_id.map(str::to_string),
@@ -62,6 +63,9 @@ pub fn handle_terminal_input(
             input_seq = admitted.input_seq,
             "terminal input held while the route is claimed"
         );
+        if reclaiming {
+            crate::handle_sync::claim_due_fallbacks(store, now_ms, out);
+        }
         return;
     }
     // The destination is the session's ELECTED ROUTE, and failing that the Sync
@@ -89,9 +93,47 @@ pub fn handle_terminal_input(
     dispatch_batch(store, &admitted, &token, now_ms, out);
 }
 
+/// A lane BLOCKED because its input route was lost claims Sync back on the
+/// keystroke that finds it so, and that keystroke waits in the claim's hold
+/// rather than being refused.
+///
+/// Nothing else reclaims it. A blocked lane refuses every batch, and with no
+/// direct route left to promote, the worker goes on refusing epoch-less Sync
+/// input as `terminal input route changed`: a pane that reads Coordinator and
+/// takes no keystrokes. A session an elected direct route serves is that
+/// route's to claim.
+fn reclaim_lost_route(store: &mut Store, session_id: &str, now_ms: u64) -> bool {
+    if !store.input.is_blocked(session_id) || store.routes.route(session_id).is_some() {
+        return false;
+    }
+    let worker_fp = store
+        .terminal(session_id)
+        .map(|replica| replica.worker_fp.clone())
+        .filter(|worker_fp| !worker_fp.is_empty())
+        .or_else(|| {
+            crate::store::selectors::session_by_id(store, session_id)
+                .map(|session| session.worker_fp.as_str().to_owned())
+        });
+    let Some(worker_fp) = worker_fp else {
+        return false;
+    };
+    let worker_epoch = store.input.acknowledged_worker_epoch(session_id).to_owned();
+    store
+        .input
+        .begin_fallback(session_id, &worker_fp, &worker_epoch, now_ms);
+    store.note_change();
+    tracing::info!(
+        target: "route",
+        session_id,
+        worker_fp,
+        "a keystroke into a blocked input lane claims the Sync route back"
+    );
+    true
+}
+
 /// Hand one admitted batch to `token`'s transport, stamped with the route epoch
-/// acknowledged for exactly that generation. Used for a fresh batch and for one
-/// a claim held, so both go out the same way.
+/// acknowledged over that connection. Used for a fresh batch and for one a
+/// claim held, so both go out the same way.
 pub(crate) fn dispatch_batch(
     store: &mut Store,
     admitted: &PendingInput,
@@ -143,14 +185,36 @@ pub fn handle_input_result(
     input_seq: u64,
     outcome: &InputOutcome,
 ) {
-    if store.input.settle(input_seq, outcome.clone()) {
-        store.note_change();
-        tracing::info!(
-            target: "terminal",
+    let carried_on_sync = store
+        .input
+        .outstanding(session_id)
+        .iter()
+        .find(|pending| pending.input_seq == input_seq)
+        .and_then(|pending| pending.fence.as_ref())
+        .is_some_and(|fence| fence.token.transport == TerminalTransport::Sync);
+    if !store.input.settle(input_seq, outcome.clone()) {
+        return;
+    }
+    store.note_change();
+    tracing::info!(
+        target: "terminal",
+        session_id,
+        input_seq,
+        status = outcome.status_name(),
+        "terminal input settled"
+    );
+    // A refusal of a Sync batch while no direct route serves the session means
+    // the worker gave the route to a connection this document no longer uses —
+    // or never did, as after a reload in the same tab — and it will refuse
+    // every epoch-less batch after it too.
+    if carried_on_sync
+        && store.routes.route(session_id).is_none()
+        && store.input.block_moved_sync_route(session_id, outcome)
+    {
+        tracing::warn!(
+            target: "route",
             session_id,
-            input_seq,
-            status = outcome.status_name(),
-            "terminal input settled"
+            "another connection holds this session's input route; it is claimed back on the next keystroke"
         );
     }
 }

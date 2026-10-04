@@ -1756,6 +1756,35 @@ the PTY.
 `smoke/terminal/terminal-peer-failover.spec.ts` —
 `"a delayed old Sync input is fenced after peer promotion and cannot reach the PTY"`.
 
+### The pane reads Coordinator and every keystroke is refused as "terminal input route changed"
+
+**Symptom** — after a WebRTC route fell back to Sync, a Sync reconnect (laptop wake, network change,
+coordinator restart, a stale link replaced on tab resume) leaves the terminal reading Coordinator while
+nothing typed reaches the PTY: every batch settles `rejected: terminal input route changed`, the input
+lane reads `sending`, and it lasts until some later promotion moves the route. After a reload in the same
+tab the new document's keystrokes are refused the same way until it promotes — for the worker's whole
+60 s route tombstone when it cannot peer.
+
+**Wrong** — treating epoch-less Sync input as always admissible, and keying the route epoch by the full
+token. The worker fences a session's input to the device/tab route its last claim came over, connection
+included, and refuses every epoch-less batch while that route or its tombstone exists
+(`roost-worker` `route_owner::allows_legacy_input`). An epoch keyed by terminal-domain generation is
+forgotten by a domain reset on the same socket, one claimed over a socket that closed fences nothing on
+the next, and a lane that blocked had no path back to sending.
+
+**Right** — the epoch belongs to the CONNECTION (`TerminalToken::same_connection`, v2
+`terminalInputConnectionKey`): a domain reset keeps it and a claim answered after one still settles. A
+Sync close blocks every sending lane whose epoch it claimed (`InputRouter::block_routes_on_sync_socket`,
+v2 `retireTerminalInputRouteState`); a Sync batch the worker refuses as route-changed while no direct
+route serves the session blocks the lane too (`block_moved_sync_route`); and a keystroke into a blocked
+lane with no direct route claims Sync back and waits in that claim's hold instead of being refused
+(`handle_input::reclaim_lost_route`).
+
+**Guard** — `crates/roost-client-core/tests/terminal_input_route_loss.rs` (all three failed before the
+fix); real stack `smoke/terminal/terminal-peer.spec.ts` — `"a Sync redial after a peer fallback claims the
+input route back before the next keystroke"` and `"a reloaded tab that cannot peer claims its input route
+back from the document before it"`.
+
 ### node-datachannel `sendMessageBinary(false)` is accepted buffered delivery
 
 **Symptom** — "a direct terminal fragment duplicates after WebRTC backpressure / a false native send result

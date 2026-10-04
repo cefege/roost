@@ -88,6 +88,9 @@ pub struct RouteClaimState {
     pub promotion: Option<PromotionHold>,
     /// The Sync recovery holding the lane, if one is.
     pub fallback: Option<FallbackRecovery>,
+    /// The worker process epoch the last acknowledged claim named: what a Sync
+    /// reclaim names when no live grant says otherwise.
+    pub worker_epoch: String,
 }
 
 /// What one answer did to its claim.
@@ -231,10 +234,9 @@ impl InputRouter {
         now_ms: u64,
     ) -> Option<ClaimSettlement> {
         let lane = self.lanes.get_mut(&result.session_id)?;
-        let matches =
-            lane.claims.in_flight.as_ref().is_some_and(|claim| {
-                claim.request_id == result.request_id && &claim.token == token
-            });
+        let matches = lane.claims.in_flight.as_ref().is_some_and(|claim| {
+            claim.request_id == result.request_id && claim.token.same_connection(token)
+        });
         if !matches {
             return None;
         }
@@ -247,6 +249,7 @@ impl InputRouter {
         if result.accepted && !result.input_route_epoch.is_empty() {
             lane.route_epoch = result.input_route_epoch.clone();
             lane.route_epoch_token = Some(claim.token.clone());
+            lane.claims.worker_epoch = claim.worker_epoch.clone();
             lane.phase = InputPhase::Holding;
             return Some(ClaimSettlement::Accepted(claim));
         }

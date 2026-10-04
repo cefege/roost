@@ -189,6 +189,40 @@ export async function verifyPeerToSyncInputFence(browser: Browser, testInfo: Tes
   }
 }
 
+/**
+ * A Sync socket that redials after a peer fell back to it leaves the worker's input route on the
+ * closed socket: every epoch-less keystroke on the new one is refused as `terminal input route
+ * changed` while the pane reads Coordinator. The first keystroke after the redial has to claim
+ * the route back on the new socket and reach the PTY.
+ */
+export async function verifySyncRedialAfterPeerFallbackKeepsInput(browser: Browser, testInfo: TestInfo): Promise<void> {
+  skipWithoutPeerFaultControls();
+  const stack = await startTerminalTestStack(PEER_FAULT_STACK_OPTIONS);
+  let page: EnrolledPage | undefined;
+  try {
+    const fixtureWorker = await stack.startPtyFixtureWorker();
+    page = await openPeerSmokePage(browser, stack);
+    const sessionId = await createPeerFixtureSession(page.page, fixtureWorker);
+    await waitForDirectRoute(page.page, sessionId);
+    const peerFaults = stack.peerFaults;
+    if (!peerFaults) throw new Error("source peer fault controls were unavailable");
+
+    await peerFaults.setPeerPacketBlackhole(fixtureWorker.label, true);
+    await waitForSyncRoute(page.page, sessionId);
+    await waitForTerminalInputReady(page.page, sessionId);
+    const beforeRedial = await sendTrustedPeerKey(page.page, sessionId);
+
+    await page.page.evaluate(() => window.__smoke.pauseSyncTransport());
+    await page.page.evaluate(() => window.__smoke.resumeSyncTransport());
+    await waitForSyncRoute(page.page, sessionId);
+    const afterRedial = await sendTrustedPeerKey(page.page, sessionId);
+    await expectMarkersOnce(page.page, sessionId, [beforeRedial.marker, afterRedial.marker]);
+    expect((await readPeerRoute(page.page, sessionId)).activeKind).toBe("sync");
+  } finally {
+    await stopPeerFaultScenario(stack, page, testInfo);
+  }
+}
+
 /** Advances the worker's injected grant clock while coord is unreachable, then requires a fresh direct grant. */
 export async function verifyDirectGrantExpiry(browser: Browser, testInfo: TestInfo): Promise<void> {
   skipWithoutPeerFaultControls();

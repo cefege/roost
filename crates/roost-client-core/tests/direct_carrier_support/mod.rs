@@ -9,7 +9,7 @@
 #![allow(dead_code, clippy::unwrap_used, clippy::expect_used)]
 
 #[path = "../support/mod.rs"]
-mod support;
+pub mod support;
 
 pub use roost_client_core::{
     ClientCore, ClientEvent, DirectCarrier, DirectCommand, Effect, SyncCommand, SyncFrame,

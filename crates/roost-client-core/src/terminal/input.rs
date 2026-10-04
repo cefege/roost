@@ -56,6 +56,12 @@ pub const INPUT_RESULT_TIMEOUT_MS: u64 = 10_000;
 /// (`apps/web/src/store/transport/terminal-input-route-claim.ts:14`).
 pub const MAX_TERMINAL_INPUT_ROUTE_REVISION: u64 = i64::MAX as u64;
 
+/// The worker's refusal of a batch whose route epoch is not the live one for
+/// this tab and session (`roost-worker` `session::input_write`). Nothing was
+/// written, and it says another connection holds the session's input route —
+/// one this document no longer uses, or never did.
+pub const INPUT_ROUTE_CHANGED_REASON: &str = "terminal input route changed";
+
 /// What became of one admitted batch.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputOutcome {
@@ -201,9 +207,10 @@ pub struct InputLane {
     pub route_epoch: String,
     /// The revision the last claim used.
     pub route_revision: u64,
-    /// The generation the acknowledged epoch belongs to. A new generation has
-    /// never been acknowledged, so its epoch is empty even though the previous
-    /// generation's was not.
+    /// The connection the acknowledged epoch belongs to. Another connection has
+    /// never been acknowledged, so its epoch is empty even though this one's was
+    /// not; a terminal-domain reset on the same socket keeps it
+    /// (`TerminalToken::same_connection`).
     pub route_epoch_token: Option<TerminalToken>,
     /// Batches whose fate the client cannot report, so a drain cannot complete.
     pub ambiguous: Vec<u64>,

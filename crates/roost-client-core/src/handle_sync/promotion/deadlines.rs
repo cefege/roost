@@ -2,8 +2,9 @@
 //! socket it was sent on closing, a promotion whose candidate went, and the
 //! Sync fallback's retry clock.
 //!
-//! Called by the sweep (`handle_sync::sweep_route_claims`) and by
-//! `handle_event` when a Sync link closes. Ported from v2
+//! Called by the sweep (`handle_sync::sweep_route_claims`), by `handle_event`
+//! when a Sync link closes, and by `handle_input` for the keystroke that just
+//! began a Sync reclaim (`claim_due_fallbacks`). Ported from v2
 //! `terminal-input-route-claim.ts` `awaitRouteClaim` and `sync-outbound.ts`
 //! `rejectSyncClaims`.
 
@@ -56,6 +57,13 @@ pub(crate) fn sweep_route_claims(store: &mut Store, now_ms: u64, out: &mut Vec<E
             );
         }
     }
+    claim_due_fallbacks(store, now_ms, out);
+}
+
+/// Claim Sync back for every fallback due an attempt now. Run by the sweep, and
+/// at once by a keystroke that just started one, so the first key after a lost
+/// route waits one round trip rather than a sweep interval as well.
+pub(crate) fn claim_due_fallbacks(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
     for (session_id, fallback) in store.input.due_fallbacks(now_ms) {
         // A ready Sync generation only (v2 `readySyncTerminalInputDestination`):
         // a claim on a socket still subscribing would be refused by a

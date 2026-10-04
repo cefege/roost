@@ -17,6 +17,7 @@ use crate::terminal::input::{
 use crate::terminal::token::TerminalToken;
 
 mod claim;
+mod route_loss;
 mod settlement;
 
 pub use claim::{
@@ -146,16 +147,27 @@ impl InputRouter {
 
     /// The route epoch to put on a batch going out on `token`.
     ///
-    /// Empty unless the epoch was acknowledged FOR THIS GENERATION. Sending an
-    /// old generation's epoch is worse than sending none: the worker rechecks
+    /// Empty unless the epoch was acknowledged over THIS CONNECTION. Sending
+    /// another connection's epoch is worse than sending none: the worker rechecks
     /// live route authority after keeper admission and refuses a stale epoch, so
-    /// the batch would be lost rather than written.
+    /// the batch would be lost rather than written. A terminal-domain reset on
+    /// the same socket is the same connection, and its epoch still stands.
     pub fn route_epoch_for(&self, session_id: &str, token: &TerminalToken) -> String {
         self.lanes
             .get(session_id)
-            .filter(|lane| lane.route_epoch_token.as_ref() == Some(token))
+            .filter(|lane| {
+                lane.route_epoch_token
+                    .as_ref()
+                    .is_some_and(|acknowledged| acknowledged.same_connection(token))
+            })
             .map(|lane| lane.route_epoch.clone())
             .unwrap_or_default()
+    }
+
+    /// Whether this session's input is refused until its route is claimed back.
+    pub fn is_blocked(&self, session_id: &str) -> bool {
+        self.lane(session_id)
+            .is_some_and(|lane| lane.phase == InputPhase::Blocked)
     }
 
     /// Install an acknowledged route epoch.

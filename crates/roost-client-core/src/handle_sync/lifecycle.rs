@@ -97,8 +97,9 @@ pub(crate) fn on_link_closed(
     );
 }
 
-/// Unbind every replica fenced to the Sync socket that just closed, and settle
-/// every batch that socket was carrying.
+/// Unbind every replica fenced to the Sync socket that just closed, settle
+/// every batch that socket was carrying, and block every input lane whose route
+/// the worker acknowledged over it.
 ///
 /// v2 retargets each session to the current Sync state when the socket goes,
 /// and with no state that token is null: the grid stays painted but no carrier
@@ -106,7 +107,9 @@ pub(crate) fn on_link_closed(
 /// (`terminal-stream-retarget.ts` `retargetSession`). A replica on a direct
 /// route holds the direct token and is untouched. A batch the closed socket
 /// carried can never be answered on another one, so it settles now
-/// (`sync-outbound.ts` `handleGeneration`, "Sync closed").
+/// (`sync-outbound.ts` `handleGeneration`, "Sync closed"). A route epoch the
+/// closed socket claimed fences nothing on the next one, so its lane is blocked
+/// until Sync claims the route back (`retireTerminalInputRouteState`).
 fn release_sync_generation(store: &mut Store, generation: u64) {
     for outcome in store
         .input
@@ -118,6 +121,14 @@ fn release_sync_generation(store: &mut Store, generation: u64) {
             input_seq = outcome.input_seq(),
             status = outcome.status_name(),
             "terminal input settled by Sync close"
+        );
+    }
+    for session_id in store.input.block_routes_on_sync_socket(generation) {
+        tracing::info!(
+            target: "route",
+            session_id,
+            generation,
+            "the closed Sync socket held this session's input route; it is claimed back on the next keystroke"
         );
     }
     let mut released = 0_usize;

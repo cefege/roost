@@ -11,7 +11,7 @@
 
 mod deadlines;
 
-pub(crate) use self::deadlines::{reject_sync_claims, sweep_route_claims};
+pub(crate) use self::deadlines::{claim_due_fallbacks, reject_sync_claims, sweep_route_claims};
 
 use crate::effect::{DirectCommand, Effect, SyncCommand};
 use crate::handle_input::dispatch_batch;
@@ -151,7 +151,10 @@ pub(crate) fn settle_route_result(
                     commit_candidate(store, session_id, attempt_id, &claim.token, now_ms, out);
                     release_held_onto(store, session_id, &claim.token, now_ms, out);
                 }
-                None => release_held_onto(store, session_id, &claim.token, now_ms, out),
+                // Onto the token the answer arrived on, not the one the claim
+                // was sent under: they are the same connection, and only the
+                // arrival's terminal-domain generation is still current.
+                None => release_held_onto(store, session_id, token, now_ms, out),
             }
         }
         ClaimSettlement::Retry(claim) => send_claim(&claim, out),

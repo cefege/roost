@@ -137,6 +137,22 @@ impl TerminalToken {
     pub fn matches(&self, current: Option<&TerminalToken>) -> bool {
         current.is_some_and(|other| other == self)
     }
+
+    /// True when both tokens name the same CONNECTION, whatever terminal-domain
+    /// generation each was minted under.
+    ///
+    /// An input route epoch belongs to the connection the worker heard its claim
+    /// on, and a domain reset on a live socket is not a new connection: v2 keys
+    /// the epoch by `terminalInputConnectionKey`, which leaves the domain out for
+    /// exactly this reason (`terminal-input-router.ts:94`). A direct token's
+    /// domain generation is its socket generation, so for a direct carrier this
+    /// is plain equality.
+    pub fn same_connection(&self, other: &TerminalToken) -> bool {
+        self.socket_generation == other.socket_generation
+            && self.process_epoch == other.process_epoch
+            && self.transport == other.transport
+            && self.worker_fp == other.worker_fp
+    }
 }
 
 /// True when two tokens are the same generation, treating `None` as "no

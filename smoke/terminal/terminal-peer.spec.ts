@@ -29,6 +29,8 @@ import { expectMarkersOnce, forceVisible, waitForPainted, waitForTransition } fr
 import { PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
 import { verifyLargeDirectPacketAndHistory } from "./terminal-peer-packet-scenarios.ts";
 import { skipWithoutPeerFaultControls } from "./terminal-peer-fault-helpers.ts";
+import { verifySyncRedialAfterPeerFallbackKeepsInput } from "./terminal-peer-fault-scenarios.ts";
+import { installRtcUnavailable } from "./stack-browser-faults.ts";
 import {
   expectCompactTerminalTransportHeader,
   expectTerminalTransportIndicator,
@@ -300,4 +302,39 @@ test("invalid offers, unavailable grants, expired grants, and identity mismatche
 test("multi-megabyte direct cell delivery and direct history demand do not starve trusted control input", async ({ browser }, testInfo) => {
   test.setTimeout(360_000);
   await verifyLargeDirectPacketAndHistory(browser, testInfo);
+});
+
+test("a Sync redial after a peer fallback claims the input route back before the next keystroke", async ({ browser }, testInfo) => {
+  test.setTimeout(240_000);
+  await verifySyncRedialAfterPeerFallbackKeepsInput(browser, testInfo);
+});
+
+test("a reloaded tab that cannot peer claims its input route back from the document before it", async ({ browser }, testInfo) => {
+  test.setTimeout(240_000);
+  const stack = await startTerminalTestStack({
+    ...PEER_STACK_OPTIONS,
+    terminalPeer: { ...PEER_STACK_OPTIONS.terminalPeer, disableLoopbackProbe: true },
+  });
+  let page: EnrolledPage | undefined;
+  try {
+    const fixtureWorker = await stack.startPtyFixtureWorker();
+    page = await openPeerSmokePage(browser, stack);
+    const sessionId = await createPeerFixtureSession(page.page, fixtureWorker);
+    await waitForDirectRoute(page.page, sessionId);
+
+    // The tab keeps its id across the reload, and the worker keeps fencing its input to the peer
+    // the previous document claimed. The new document has no WebRTC, so no promotion moves it.
+    await installRtcUnavailable(page.context);
+    await page.page.reload({ waitUntil: "domcontentloaded" });
+    await page.page.waitForFunction(() => window.__smoke !== undefined);
+    await forceVisible(page.page, true);
+    await waitForSyncRoute(page.page, sessionId);
+    // Whatever the worker answers this first epoch-less batch, the keystroke after it must land.
+    await page.page.evaluate((id) => window.__smoke.input(id, " ").catch(() => undefined), sessionId);
+    const key = await sendTrustedPeerKey(page.page, sessionId);
+    await expectMarkersOnce(page.page, sessionId, [key.marker]);
+    expect((await readPeerRoute(page.page, sessionId)).activeKind).toBe("sync");
+  } finally {
+    await stopPeerStack(stack, [page], testInfo);
+  }
 });
