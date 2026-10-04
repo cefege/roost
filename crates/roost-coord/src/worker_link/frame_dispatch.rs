@@ -212,6 +212,18 @@ impl WorkerFrameDispatcher {
             return DispatchOutcome::Refused;
         }
         if !self.may_cross_barrier(&event) {
+            // Folder metadata is replaceable, and the worker replays its journal
+            // one unacknowledged row at a time before the snapshot: withholding
+            // this ACK stalled that replay forever. The next change re-sends it.
+            if crate::worker_link::dispatch::is_folder_metadata(&event) {
+                tracing::info!(
+                    worker_fp,
+                    client_seq,
+                    "pre-snapshot folder metadata dropped"
+                );
+                self.acknowledge(client_seq);
+                return DispatchOutcome::Handled;
+            }
             tracing::debug!(
                 worker_fp,
                 client_seq,

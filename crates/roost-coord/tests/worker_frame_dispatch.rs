@@ -151,6 +151,35 @@ async fn a_kind_outside_the_barrier_allow_list_is_dropped_before_any_write() {
 }
 
 #[tokio::test]
+async fn folder_metadata_before_the_snapshot_is_acknowledged_and_never_written() {
+    // The worker replays its journal one unacknowledged row at a time before
+    // it sends the snapshot, so a git row left unacknowledged here would hold
+    // that snapshot back for good and the worker would never become routable.
+    let fixture = LinkFixture::new("metadata-before-barrier").await;
+    let mut dispatcher = fixture.dispatcher();
+    let git = roost_protocol::wire::event::SessionEvent::Git {
+        session_id: session_id(),
+        branch: Some("main".to_owned()),
+        remote: None,
+        ts: 1_500,
+        trace_id: None,
+    };
+
+    let outcome = dispatcher
+        .handle_durable(WORKER_FP, event_frame(git, 1))
+        .await;
+
+    assert_eq!(outcome, DispatchOutcome::Handled);
+    assert_eq!(
+        fixture.acks(),
+        vec![1],
+        "the ACK releases the worker's replay"
+    );
+    assert_eq!(fixture.rows_for(1).await, 0, "and nothing is written");
+    assert!(!fixture.handle.is_ready());
+}
+
+#[tokio::test]
 async fn the_same_kind_is_admitted_once_the_barrier_is_crossed() {
     // The gate is a gate, not a wall: the frame dropped above is appended once
     // the socket is ready, which is what "the worker replays it after its

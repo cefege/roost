@@ -194,3 +194,16 @@ impl FrameRefusal {
 pub fn close_for_append_error(_error: &ConnectError) -> SocketClose {
     SocketClose::Default
 }
+
+/// Whether a session event is folder metadata: the latest cwd, git, pull
+/// request or listening ports of a session, which a newer event replaces.
+pub fn is_folder_metadata(event: &roost_protocol::wire::event::SessionEvent) -> bool {
+    use roost_protocol::wire::event::SessionEvent;
+    matches!(
+        event,
+        SessionEvent::Cwd { .. }
+            | SessionEvent::Git { .. }
+            | SessionEvent::Pr { .. }
+            | SessionEvent::Ports { .. }
+    )
+}
