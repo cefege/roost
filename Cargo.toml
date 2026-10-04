@@ -158,10 +158,19 @@ unimplemented = "deny"
 [patch.crates-io]
 alacritty_terminal = { path = "third_party/alacritty_terminal" }
 
+# The native binaries: `roost` and `roost-keeper` run the terminal core, the
+# worker's frame encoder and the coordinator, where speed is the axis that
+# matters. The wasm bundle is built with `wasm-release` below.
 [profile.release]
 lto = true
 codegen-units = 1
 strip = true
+opt-level = 3
+
+# The wasm bundle: download size is the cheaper axis there, and
+# `dx build --release --profile wasm-release` is how it is built.
+[profile.wasm-release]
+inherits = "release"
 opt-level = "s"
 
 # The oracle's per-fix build, `smoke/parity/run.ts build --fast`: release

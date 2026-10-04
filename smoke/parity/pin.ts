@@ -145,9 +145,11 @@ export function buildAndPinArtifacts(options: PinBuildOptions): PinManifest {
 		// generations of roost-web_bg-*.wasm cannot say which one the page will load.
 		rmSync(publicDirectory, { recursive: true, force: true });
 		// `--profile release` makes dx declare `release` with `inherits = "release"`, which cargo
-		// rejects ("`inherits` must not be specified in root profile"): only `smoke` is named.
+		// rejects ("`inherits` must not be specified in root profile"), so the wasm is always built
+		// under a named profile: `smoke` for the fast loop, `wasm-release` (opt-level "s") otherwise.
+		const webProfile = options.fast ? profile : "wasm-release";
 		runBuildStep("dx", [
-			"build", "--release", ...(options.fast ? ["--profile", profile] : []), "-p", "roost-web", "--platform", "web",
+			"build", "--release", "--profile", webProfile, "-p", "roost-web", "--platform", "web",
 			...(webFeatures.length > 0 ? ["--features", SMOKE_FEATURE] : []),
 		]);
 		if (!existsSync(join(publicDirectory, "index.html"))) {

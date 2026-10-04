@@ -189,7 +189,7 @@ pub fn render_status_report(
                 "      → every page answers 404 while the API still works; build the SPA"
                     .to_string(),
             );
-            push("        (dx build --release -p roost-web --platform web) and point ROOST_WEB_DIST_PATH at that dist".to_string());
+            push("        (dx build --release --profile wasm-release -p roost-web --platform web) and point ROOST_WEB_DIST_PATH at that dist".to_string());
         }
     }
 
