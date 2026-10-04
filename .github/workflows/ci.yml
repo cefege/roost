@@ -1,7 +1,6 @@
 name: ci
 
-# v3 branch: the Rust workspace gates, then the Playwright terminal oracle in
-# `smoke/` driving the pinned Rust binaries and dx bundle.
+# v3 branch: the Rust workspace gates.
 on:
   push:
     branches: [main, v2, v3]
@@ -36,14 +35,6 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: test
         run: cargo test --workspace
-      # `cargo test --workspace` never enables roost-web's `smoke` feature, so
-      # every `#![cfg(feature = "smoke")]` test file compiles to nothing there
-      # and the 387-test smoke suite never runs. The `__smoke` backdoor's own
-      # production code is wasm32-only, so the host test run cannot reach it
-      # either. Same failure mode as the omitted wasm32 crates above: a gate
-      # that is green because the feature is absent is not a gate.
-      - name: web smoke suite
-        run: cargo test -p roost-web --features smoke
       - name: repo invariants
         run: cargo xtask lint
       # The vendored terminal core is not a workspace member, so its own suite
@@ -60,45 +51,3 @@ jobs:
       # gate that is green because it is absent is not a gate.
       - name: wasm32 build
         run: cargo build -p roost-client-core -p roost-protocol -p roost-web -p roost-web-terminal --target wasm32-unknown-unknown
-
-  terminal:
-    name: terminal (all-Rust oracle)
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
-    # The job builds and pins release `roost`, `roost-keeper` and the dx bundle
-    # before the main and serial passes run, so it carries a release build on
-    # top of the oracle's own wall time.
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: rust-gates
-          add-job-id-key: false
-      # After the cache restore, so a cached ~/.cargo/bin/dx makes the install a no-op.
-      # The version is the `dioxus` library pin in Cargo.toml; dx and the library
-      # it bundles must match.
-      - name: wasm target and dx
-        run: |
-          rustup target add wasm32-unknown-unknown
-          cargo install dioxus-cli --version 0.7.10 --locked
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-      - run: bun install --frozen-lockfile
-      # WebKit is macOS-only. Firefox runs only the peer-correctness project.
-      - name: playwright install
-        run: bunx playwright install --with-deps chromium firefox ${{ matrix.os == 'macos-latest' && 'webkit' || '' }}
-      - name: terminal
-        run: bun run test:terminal
-      - name: terminal artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: terminal-playwright-artifacts-${{ matrix.os }}
-          path: |
-            playwright-report/
-            test-results/

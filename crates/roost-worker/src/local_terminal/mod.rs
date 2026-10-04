@@ -17,8 +17,6 @@ mod input;
 mod loopback;
 mod port;
 mod scrollback;
-#[cfg(feature = "smoke")]
-mod smoke_hooks;
 mod sockets;
 
 pub use door::{LocalTerminalDoor, LocalTerminalDoorDeps};

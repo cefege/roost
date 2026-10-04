@@ -91,8 +91,7 @@ subscription and still lost its value, because the value itself was released und
 `a_dock_kept_in_a_hook_holds_the_slot` mounts a component that claims from `use_hook` and stays mounted, then
 asserts `published_geometry().active`; `a_dock_that_unmounts_releases_the_slot` and
 `a_dock_that_leaves_and_comes_back_keeps_its_hold` keep the fix from being "never release". The three fail
-together against the by-value release. Browser:
-`smoke/terminal/workbench-shell-compact.spec.ts`, `"notification dock rides above the compact composer"`.
+together against the by-value release.
 
 ### The mobile chat input is still mounted with the drawer open
 
@@ -125,9 +124,7 @@ taken through a memo whose value does not change, so the subscription exists and
 **Guard** — `crates/roost-web/tests/pane_drawer_mount.rs` mounts the real `CellTerminal` over a real
 `Pump`/`ClientCore` and asserts the pane's dock is gone with the drawer open.
 `crates/roost-web/tests/composer_slot_claim.rs` —
-`the_drawer_covers_the_portaled_dock_and_not_the_pane_dock` pins the placement predicate natively. Browser:
-`smoke/terminal/composer-mobile-input.spec.ts`, `"mobile composer keeps an unsent draft per session, across
-panes and reloads"`.
+`the_drawer_covers_the_portaled_dock_and_not_the_pane_dock` pins the placement predicate natively.
 
 ---
 
@@ -175,10 +172,7 @@ will replace them, and a failure keeps its own reader-facing copy plus a Retry t
 fetch. Denial replacements that a test pins by accessible name (here `browse-worker-unavailable`)
 stay byte-identical and take the content region's place, never the page's.
 
-**Guard** — `smoke/terminal/browse-picker.spec.ts` "folder picker keeps its chrome and names every
-failure" (close/up/home/filter/New folder all visible the whole time, an invalid name reported
-inline with `toHaveCount(0)` on the toast locator) and `smoke/terminal/worker-route-guards.spec.ts`,
-which still pins the `Loading machine…` caption and the unavailable block's accessible name.
+**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
 
 ### A flex column with no width bound grows to min-content and clips every row
 
@@ -197,9 +191,7 @@ intrinsically-wide children shrink (`min-inline-size: 0` on the field wrapper AN
 `.roost-text-field__control`). Then wrapping happens, and every label can stay visible at every
 width.
 
-**Guard** — `smoke/terminal/browse-picker.spec.ts` "folder picker fits a phone": the `New folder`
-control must be `toBeInViewport({ ratio: 1 })` and the machine label visible in an iPhone 15
-context.
+**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
 
 ### An inline-size container query pins every flex item to its minimum width
 
@@ -219,10 +211,7 @@ var(--workbench-tab-width-max)` beside `min-inline-size` / `max-inline-size`). T
 then comes from the width property, the scroller's max-content resolves to n×max, and items land
 uniformly at `clamp(min, rail / n, max)`.
 
-**Guard** — `smoke/terminal/workbench-shell-tab-strip.ts` `expectConnectedWorkbenchTabStrip`:
-`widthsAboveFloor`, `fillerYieldsToTabs` and `widthsUniform` over six real sessions at 1024×768 (a
-collapsed rail parks all six on the 68px floor and hands the leftover ~180px to the filler), with
-`expectWorkbenchTabStripAtFloor` pinning the packed state.
+**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
 
 ### A sticky control inside a scroller is painted over by the content it must clear
 
@@ -246,10 +235,6 @@ the question the chevron exists for — whether a tab is out of view.
 **Guard** — `crates/roost-web/src/components/deck/deck_dom.rs`: `clips_rail` tests
 `six_tabs_at_the_floor_are_clipped_exactly_where_the_row_leaves_the_rail` (the 800px packed strip)
 and `six_tabs_that_fit_are_not_clipped_on_a_rail_whose_scroll_extent_overruns` (the 1024px strip).
-`smoke/terminal/workbench-shell-tab-strip.ts`: `newTabFollowsRail`, `newTabClearOfRail`, and
-`newTabIntersectsTabAt{Start,End}` at both scroll extremes, asserted in the fit helper and again in
-`expectWorkbenchTabStripAtFloor`; `smoke/terminal/workbench-shell.spec.ts` mounts and unmounts the
-chevron across those two widths.
 
 ---
 
@@ -265,8 +250,7 @@ chevron across those two widths.
 and is shown or hidden by `visibility: visible↔hidden`. The deck host stays mounted for every MainPane screen so
 a `/file` or `/search` visit never tears it down.
 
-**Guard** — `smoke/terminal/terminal-render-deck-overlay.spec.ts` —
-`"a /file and /search round-trip keeps the deck warm"`.
+**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
 
 ### Torn seam between retained history and the live stream
 
@@ -293,8 +277,7 @@ mount state is not part of the continuity proof.
 `crates/roost-coord/tests/terminal_screen_hub.rs` —
 `a_stale_stream_is_ignored_and_a_broken_delta_run_latches_one_repair` and
 `the_old_baseline_stays_served_until_a_replacement_assembles_completely`;
-`crates/roost-client-core/tests/terminal_full_before_delta.rs` (the browser replica);
-`smoke/terminal/terminal-multiview.spec.ts`.
+`crates/roost-client-core/tests/terminal_full_before_delta.rs` (the browser replica).
 
 ### Inferred scrolled-off rows freeze a stale repaint generation into history
 
@@ -342,9 +325,7 @@ held rows, so a fixed footer cannot receive an older status generation.
 `a_partial_region_scroll_retains_the_fixed_panel_and_worker_history`,
 `a_batched_partial_region_scroll_retains_the_fixed_panel_and_latest_status`;
 `crates/roost-web-terminal/tests/render_history_checkpoint.rs` —
-`a_checkpoint_leaves_the_transitioned_rows_unpainted_for_authoritative_backfill`;
-`smoke/terminal/terminal-render-main-repaint.spec.ts` —
-`"a backgrounded inline TUI repaint never freezes a stale generation into history"`.
+`a_checkpoint_leaves_the_transitioned_rows_unpainted_for_authoritative_backfill`.
 
 ### Transient chrome resizes the PTY and an inline TUI duplicates rows into history
 
@@ -374,10 +355,7 @@ under the drawer) and handles the soft keyboard only by translation —
 `--term-chat-dock-rest-offset` excludes `--kb-offset`. Only a real pane/window
 resize (or the explicit `keyboardResize` preference) may resize the PTY.
 
-**Guard** — `smoke/terminal/composer-desktop-send.spec.ts` —
-`"desktop composer submits Enter and grows above a stable terminal grid"`;
-`smoke/terminal/composer-mobile.spec.ts` —
-`"the soft keyboard and drawer never resize the compact terminal grid"`.
+**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
 
 ### A fast in-place row rewrite duplicates rows into history
 
@@ -394,9 +372,7 @@ DECSTBM; VPR remains screen-clamped; RI clears pending wrap. Prove every core
 change with an xterm-oracle vector under `protocol/conformance/terminal-core/`.
 
 **Guard** — `crates/roost-term/tests/terminal_core_vectors.rs` — `every_terminal_core_vector_matches`
-(`deferred-wrap.json`, `cursor-margins-clamp.json`);
-`smoke/terminal/terminal-render-main-repaint.spec.ts` —
-`"a fast in-place status rewrite never duplicates rows into history"`.
+(`deferred-wrap.json`, `cursor-margins-clamp.json`).
 
 ### Alt-screen wallpaper of stale text after a worker restart
 
@@ -467,10 +443,7 @@ sized in `svh`). For a gesture the terminal application owns, `touch-action`
 flips to `none` on the pane display (`CellTerminal.tsx`, keyed on
 `mouseGesturesForwarded`) so the browser never starts a pan to begin with.
 
-**Guard** — `smoke/terminal/workbench-shell-compact.spec.ts` (document has no scroll
-range; root and terminal display compute `overscroll-behavior-y: none`) and
-`smoke/terminal/composer-mobile-keyboard.spec.ts` (`touch-action` flips to `none`
-while forwarding, back to `pan-y` when it is toggled off).
+**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
 
 ### A list refuses to scroll while the cursor sits on a row's clipped label
 
@@ -500,10 +473,7 @@ cover their whole area with a hit target (`.df-row__primary` in the folders
 list) never showed the defect, which is why it surfaced only in the agents
 list.
 
-**Guard** — `smoke/terminal/workbench-shell.spec.ts`
-`"desktop sidebar keeps Folders and Agents independently navigable"`: it wheels
-at each panel's centre, which lands on an agent row's headline, and fails with
-`scrollTop` stuck at 0 without the opt-in.
+**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
 
 ### Scrollback mangles or drifts with no user action
 
@@ -526,8 +496,7 @@ replay is reserved for genuine process adoption when no in-memory core exists.
 **Guard** — `crates/roost-coord/tests/terminal_view_geometry.rs` —
 `a_viewers_departure_recomputes_the_effective_geometry`;
 `crates/roost-worker/tests/terminal_stream_state.rs` —
-`shrink_and_grow_resize_the_same_core_at_the_keeper_boundary`;
-`smoke/terminal/terminal-multiview.spec.ts`.
+`shrink_and_grow_resize_the_same_core_at_the_keeper_boundary`.
 
 ### A session stays clipped to a viewer that is no longer looking
 
@@ -568,8 +537,7 @@ aggregation primitive this entry is about);
 `a_parked_viewer_stops_constraining_only_once_its_grace_lapses`;
 `crates/roost-coord/tests/diag_snapshot_session_state.rs` —
 `reports_every_viewer_input_and_the_minimum_over_the_constraining_ones`;
-`crates/roost-coord/tests/workers_send.rs` — `a_respawn_uses_the_effective_geometry_of_its_viewers`;
-`smoke/terminal/terminal-multiview-geometry.spec.ts`.
+`crates/roost-coord/tests/workers_send.rs` — `a_respawn_uses_the_effective_geometry_of_its_viewers`.
 
 ### Attach/reveal cost proportional to scrollback depth
 
@@ -637,10 +605,7 @@ texture only while it lies ENTIRELY below a proven retention floor (`setHistoryF
 them would read as a load that never ends — but a floor proven for an interior gap must not suppress head rows
 that are still pageable.
 
-**Guard** — `smoke/terminal/terminal-history-readahead.spec.ts` (real stack: the first wheel step crosses
-unpainted history and costs exactly the chain depth the pager's own constants predict, and every step inside a
-pre-paid count DERIVED from the measured row height and pane size is painted at zero demand RPCs);
-`crates/roost-client-core/tests/history_backfill.rs` — the page never collapses to the sliver the window exposed,
+**Guard** — `crates/roost-client-core/tests/history_backfill.rs` — the page never collapses to the sliver the window exposed,
 whatever the interval's shape (`a_steady_scroll_up_page_ends_at_the_painted_edge_and_extends_a_page_older`,
 `a_page_never_spans_the_painted_base_the_readers_own_side_of_it_wins`);
 `crates/roost-web-terminal/tests/backfill_demand_waves.rs` —
@@ -750,7 +715,6 @@ bottom-clamp settle and the scroll-idle band settle own that case.
 
 **Guard** — `crates/roost-web-terminal/tests/render_geometry.rs` —
 `a_wheel_parked_reader_resumes_when_a_box_grow_leaves_no_scroll_range` and its siblings;
-`smoke/terminal/terminal-render-box-grow-resume.spec.ts` (real wheel park + viewport grow must repaint);
 `crates/roost-web-terminal/tests/render_scroll_settle.rs` —
 `a_wheel_park_clamped_to_the_bottom_settles_without_a_second_scroll_event`;
 `crates/roost-web-terminal/tests/render_append_holds.rs` —
@@ -789,10 +753,7 @@ presentation snapshot keeps its exact meaning; `follows_bottom` is the band valu
 `a_park_beyond_the_follow_band_survives_the_settle` and
 `a_find_park_inside_the_follow_band_keeps_its_anchor_through_the_settle` as the refusal controls;
 `crates/roost-web-terminal/tests/render_append_holds.rs` —
-`a_hold_release_resumes_a_bottom_following_wheel_park_that_kept_its_range`;
-`smoke/terminal/terminal-follow-band.spec.ts` —
-`"a follow-band reader keeps streaming, self-resumes, and still parks past the band"` (real trusted wheel:
-an in-band flick self-resumes, a 1200px gesture still parks and still swallows output).
+`a_hold_release_resumes_a_bottom_following_wheel_park_that_kept_its_range`.
 
 ### A wheel park created after the gesture's last scroll event never resumes
 
@@ -828,8 +789,7 @@ clamped case, so an in-band frame never routes a clamped follower through the 18
 writes at frame arrival),
 `a_stream_of_frames_over_a_band_rest_keeps_exactly_one_settle_window`, with
 `a_park_beyond_the_follow_band_recruits_no_settle_window` and
-`a_park_on_the_exact_clamp_resumes_on_the_frame_with_no_settle_window` as the boundary controls;
-`smoke/terminal/terminal-follow-band.spec.ts` for the real-flow band behaviour.
+`a_park_on_the_exact_clamp_resumes_on_the_frame_with_no_settle_window` as the boundary controls.
 
 ### A find park swallows the scroll that returns the pane to the bottom
 
@@ -1004,9 +964,7 @@ painted immutable history or the reader's global anchor.
 
 **Guard** — `crates/roost-client-core/tests/terminal_full_before_delta.rs`;
 `crates/roost-web-terminal/tests/render_history_repair.rs` —
-`a_live_viewport_only_full_preserves_painted_history_and_inserts_only_the_missing_tail_gap`;
-`smoke/terminal/terminal-multiview.spec.ts`;
-`smoke/terminal/terminal-render-resume.spec.ts`.
+`a_live_viewport_only_full_preserves_painted_history_and_inserts_only_the_missing_tail_gap`.
 
 ### Reveal lands in history instead of the present
 
@@ -1028,9 +986,7 @@ all MainPane screens plus an always-mounted deck host (visibility flip) so `/fil
 deck down. This was the 6th attempt at this class: the prior five "passed" because nothing asserted what the
 reader SEES at first paint, so the smoke now samples the READER'S POSITION during reveal.
 
-**Guard** — `smoke/terminal/` — `"deck switch to a stale deep-history pane lands at the live bottom instantly"`,
-`"a pane revealed after the window shrank is still at the bottom"`,
-`"a /file round-trip keeps the deck warm and costs no snapshot"`.
+**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
 
 ### Reveal waits on history before the live bottom is readable
 
@@ -1059,9 +1015,7 @@ park there rather than rejecting the page or re-requesting impossible rows.
 Paused Sync recovery resumes the mounted loop in place (no reload), and durable
 replay yields periodically so live cells preempt it.
 
-**Guard** — `smoke/terminal/` — `"deep-history attach/reveal paints the live tail until history is requested"`,
-`"long hidden deep-history resume paints the current viewport before history"`;
-`crates/roost-web-terminal/tests/render_append_frames.rs` —
+**Guard** — `crates/roost-web-terminal/tests/render_append_frames.rs` —
 `a_viewport_only_full_reserves_depth_and_explicit_pages_fill_the_seam`.
 
 ### The painted grid never converges until a reload
@@ -1129,8 +1083,7 @@ Diagnose `wire_received` → browser `replica` → `handler_canonical` →
 `shrink_and_grow_resize_the_same_core_at_the_keeper_boundary`;
 `crates/roost-coord/tests/terminal_view_geometry.rs`;
 `crates/roost-coord/tests/terminal_screen_hub.rs` and `terminal_screen_hub_lifecycle.rs`;
-`crates/roost-client-core/tests/terminal_full_before_delta.rs`;
-`smoke/terminal/terminal-multiview.spec.ts`.
+`crates/roost-client-core/tests/terminal_full_before_delta.rs`.
 
 ### A busy session restarts its own baseline forever while chunks assemble
 
@@ -1225,10 +1178,7 @@ first-byte deadline and repair ladder exist to catch. This one SENT the baseline
 refused it — so the ladder is not merely slow, it is never entered, and a watchdog that only watched for
 silence would have passed this bug. Different cause, different fix, different guard; do not merge them.
 
-**Guard** — `smoke/terminal/terminal-delivery.spec.ts`, `"cold document holds the access gate until an
-existing terminal paints"` (paired-page `coldSmokePage`), which is the only place a genuinely COLD attach to
-an already-streaming session is exercised. Rust:
-`crates/roost-coord/tests/terminal_view_owner_screen.rs` —
+**Guard** — `crates/roost-coord/tests/terminal_view_owner_screen.rs` —
 `an_attach_that_seeds_sends_the_view_state_before_the_baseline` records the sink's calls in order and asserts
 `["state", "seed"]` for a socket seeded from a resident replica.
 
@@ -1411,11 +1361,9 @@ and the multiplicity are what tell them apart. It is also not the "a composer su
 when its restore never runs" entry: that is a hold that outlives its reason and must lapse, while this is a
 hold doing its job and a borrow scoped too wide around it.
 
-**Guard** — **browser only; a native guard is not possible here.** `PaneSelection` needs a real
+**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed. `PaneSelection` needs a real
 `web_sys::Document` to hold a real `Selection`, so nothing about this re-entrancy can be constructed off a
-browser target, and any test claiming otherwise would be testing a mock. Browser:
-`smoke/terminal/terminal-frame-repair-selection.spec.ts`, which drives a held selection and asserts the panel
-paints the repaired frame rather than erroring.
+browser target, and any test claiming otherwise would be testing a mock.
 
 ### A trapped resize capture suppresses a channel's emission for good
 
@@ -1505,8 +1453,7 @@ request, and converts the silence into the ordinary rejected-snapshot retry; eve
 `crates/roost-worker/tests/terminal_view_owner.rs` —
 `a_trapped_core_re_proves_itself_on_the_desire_the_trap_triggers` (the desire COUNT is what proves it is
 not a loop) with `a_trap_the_keeper_cannot_re_prove_stays_fail_closed_and_desires_nothing_more`;
-`crates/roost-client-core/src/sync/hydration.rs` — `a_call_past_its_deadline_expires_once`;
-`smoke/terminal/terminal-view-reap.spec.ts` — the real-flow reaped-then-newcomer path.
+`crates/roost-client-core/src/sync/hydration.rs` — `a_call_past_its_deadline_expires_once`.
 
 ### A pane keeps a fallback font's cell advance and clips its own right edge
 
@@ -1535,9 +1482,7 @@ through those events alone, and a failed download still means re-measuring whate
 The renderer's own `fonts.ready` hook repairs history placeholders and bottom placement — it is a
 different responsibility, not a substitute for invalidating the lifecycle's cell cache.
 
-**Guard** — `smoke/terminal/terminal-mobile-font-width.spec.ts` proves it end to end — a real shell, a test-only
-`size-adjust: 125%` face released while the SPA is hidden, then a DOM-Range check that the last
-column's glyph is inside the mobile clip across both orientations.
+**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
 
 ---
 
@@ -1594,8 +1539,7 @@ Terminal-scoped chords use ⌘+key (macOS, never a PTY byte) or Ctrl+SHIFT+key (
 `⌘F / Ctrl+⇧F` for exactly this reason, resolved centrally in `crates/roost-web/src/platform/browser_platform.rs`. Before
 adding one, check it is not a readline/TUI binding.
 
-**Guard** — `smoke/terminal/` — `"terminal replay and Ctrl keys stay owned by the PTY"` asserts `^B^F^K`
-round-trips.
+**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
 
 ### A global key router claims bare ↑/↓/⏎ on routes that have no cursor
 
@@ -1616,8 +1560,7 @@ until they are gone: arrows are the DOCUMENT'S native scroll, and keydown `preve
 a capture-phase router must prove it will act before it cancels.
 
 **Guard** — `crates/roost-web/tests/keyboard_shortcuts.rs` — `arrows_stay_native_scroll_when_no_cursor_rows_exist`
-and `enter_stays_a_focused_buttons_activation_until_a_row_is_highlighted`;
-`smoke/terminal/tv-dpad.spec.ts` asserts the `/pair` ArrowDown arrives with `defaultPrevented === false`.
+and `enter_stays_a_focused_buttons_activation_until_a_row_is_highlighted`.
 
 ### The first D-pad press does nothing because `<body>` counts as the origin
 
@@ -1633,9 +1576,7 @@ over it — every other route keeps the dead first press.
 `active === document.body` as no origin and lands on the topmost-leftmost control, as its doc comment always
 intended.
 
-**Guard** — `smoke/terminal/tv-dpad.spec.ts` `"unpaired TV shows only the pairing gate and requests approval by
-D-pad @tv"` presses ↓ from a fresh load until focus reaches `onboarding-pair-start-btn`, then ⏎ creates the
-request with `defaultPrevented === false`.
+**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
 
 ### A terminal domain reset is treated as the input fence
 
@@ -1674,10 +1615,7 @@ the worker's input write path (`crates/roost-worker/src/terminal_input/`) rechec
 admission immediately before `beginInput`. A stale epoch returns `terminal input route changed`; it never writes
 the PTY.
 
-**Guard** — `crates/roost-worker/tests/terminal_input_write.rs` — `live_authority_is_rechecked_after_the_lane_is_granted`;
-real stack
-`smoke/terminal/terminal-peer-failover.spec.ts` —
-`"a delayed old Sync input is fenced after peer promotion and cannot reach the PTY"`.
+**Guard** — `crates/roost-worker/tests/terminal_input_write.rs` — `live_authority_is_rechecked_after_the_lane_is_granted`.
 
 ### The pane reads Coordinator and every keystroke is refused as "terminal input route changed"
 
@@ -1704,9 +1642,7 @@ lane with no direct route claims Sync back and waits in that claim's hold instea
 (`handle_input::reclaim_lost_route`).
 
 **Guard** — `crates/roost-client-core/tests/terminal_input_route_loss.rs` (all three failed before the
-fix); real stack `smoke/terminal/terminal-peer.spec.ts` — `"a Sync redial after a peer fallback claims the
-input route back before the next keystroke"` and `"a reloaded tab that cannot peer claims its input route
-back from the document before it"`.
+fix).
 
 ### node-datachannel `sendMessageBinary(false)` is accepted buffered delivery
 
@@ -1743,9 +1679,7 @@ platform reality": a throwing sink corrupts the observation of a path that works
 never reaches its own handler at all, so no observer of the failure can see the real reason.
 
 **Guard** — `crates/roost-web/src/voice/handshake/tests.rs` asserts that a rejected handshake settles the race
-with the refusal's own cause rather than the deadline's; browser:
-`smoke/terminal/voice-mic-failure.spec.ts`, which refuses the microphone and asserts the reported reason is the
-refusal and not the timeout.
+with the refusal's own cause rather than the deadline's.
 
 ---
 
@@ -1760,8 +1694,7 @@ refusal and not the timeout.
 **Right** — the worker's kill path synchronously acks with a `closed` control message
 (`crates/roost-worker/src/browser_commands/session_lifecycle.rs`); the browser waits for that ack before tearing down.
 
-**Guard** — `smoke/terminal/` — `"browser smoke flow creates and cleans its resources"` (drives pane close end
-to end).
+**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
 
 ### A `u32::MAX` pid is `kill(-1)`, and one test call SIGINTs the whole user session
 
@@ -1870,8 +1803,7 @@ exists; an unprovable resize boundary fails closed.
 
 **Guard** — `crates/roost-worker/tests/terminal_stream_state.rs` —
 `shrink_and_grow_resize_the_same_core_at_the_keeper_boundary`;
-`crates/roost-coord/tests/terminal_view_geometry.rs`;
-`smoke/terminal/terminal-multiview.spec.ts`.
+`crates/roost-coord/tests/terminal_view_geometry.rs`.
 
 ### Quoting a systemd path directive because quoting is "safer"
 
@@ -2167,7 +2099,7 @@ install — a compiled install serves its embedded build regardless.
 
 **Right** — keep every file in the keeper bundle closure at its existing path and import specifier, then check `buildKeeperImplementationDigest()` after any move. Changing the digest algorithm would reject the implementation identity already embedded in every live keeper.
 
-**Guard** — `smoke/upgrade/upgrade-continuity.spec.ts` "an existing install survives the working tree with its keeper and PTYs intact".
+**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
 
 ---
 
@@ -2213,8 +2145,7 @@ finishes separately through one-shot grant redemption or pairing before this
 pipeline proceeds; an unknown key remains in onboarding and is not silently
 enrolled or retried as a transport failure.
 
-**Guard** — `smoke/terminal/` — `"browser smoke flow creates and cleans its resources"` on a FRESH context;
-`crates/roost-client-core/src/sync/hydration.rs` — `the_probe_runs_once_per_dial_after_the_subscribed_wait`.
+**Guard** — `crates/roost-client-core/src/sync/hydration.rs` — `the_probe_runs_once_per_dial_after_the_subscribed_wait`.
 
 ---
 
@@ -2354,9 +2285,7 @@ must stay, verify its tail against the browser name before trusting it.
 
 **Guard** — `crates/roost-web/src/components/layout/sidebar_resizer.rs` —
 `the_second_press_resets_to_the_default_and_retires_the_drag` pins the two-press → reset decision and the
-retirement of the in-flight drag, which is the behaviour the dead attribute stood for; the wiring itself is
-`smoke/terminal/workbench-shell.spec.ts` "desktop workbench keeps measured geometry, status truth, and
-navigation" (`aria-valuenow` back to `SIDEBAR_WIDTH_DEFAULT` after the second press). The smell to grep for is
+retirement of the in-flight drag, which is the behaviour the dead attribute stood for. The smell to grep for is
 any `on…` attribute whose rsx spelling is not the browser event name — `grep -oE 'on[a-z]+' … | sort -u`
 against the `dioxus-html` table.
 
@@ -2386,7 +2315,7 @@ refused, and one recording spends exactly one settle (`begin_recording`/`current
 which is the pair of properties the old run token and the duplicated finalise both broke;
 `crates/roost-web/tests/voice_draft_settle.rs` — three consecutive recordings settle to exactly what the first
 two committed, the finalize deadline cannot settle twice, and an unmounted composer leaves the draft it
-started from; `smoke/terminal/voice-recording.spec.ts` `"a second recording works exactly like the first"`.
+started from.
 
 ### An unproven hypothesis is persisted and comes back as ordinary text
 
@@ -2457,9 +2386,7 @@ subtracts a `220px` twin of its own `bottom`, so a raised offset without a match
 run off the TOP of the frame. Subtract the block overscan twice: once for the raised bottom, once to keep the
 surface's own top edge clear.
 
-**Guard** — `smoke/terminal/tv-dpad.spec.ts` reads the tokens off the computed root and asserts both portaled
-surfaces sit inside the safe rect on the right, bottom AND top edges; removing the `tv.css` override fails it at
-`16px` against the `48px` inline overscan.
+**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
 
 ### A `Closure` handed to the DOM as a raw function reference is freed while it can still be called
 
@@ -2492,10 +2419,9 @@ and has nothing to do with the DOM's view of ownership; it is ordinary Rust life
 only express by making the callee outlive the caller. The "a defaulted injectable host function loses its
 receiver" entry in this section is a receiver that arrived too late; this is a callee that leaves too early.
 
-**Guard** — **none native, and that is a real limit rather than an omission.** A freed wasm-bindgen thunk is a
+**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed. A freed wasm-bindgen thunk is a
 JavaScript exception inside the browser; `cargo test` compiles the same ownership chain on a target with no DOM
-and cannot observe it, so the only evidence is the live run. Browser:
-`smoke/terminal/workbench-shell-compact.spec.ts`, `"notification dock rides above the compact composer"`. The
+and cannot observe it, so the only evidence is the live run. The
 ordering discipline itself is reviewable rather than testable: any `Closure::wrap` whose result is not bound to
 a named owner is the smell to grep for.
 
@@ -2523,8 +2449,7 @@ node survives re-renders for the same reason, and two sites rely on that (`--ter
 
 **Guard** — `crates/roost-web/tests/deck_geometry.rs`
 `every_slot_placement_declares_the_same_properties_so_no_state_outlives_itself` (the parked, plain and spotlit
-placements declare one property set). Browser: `smoke/terminal/terminal-render-deck.spec.ts`
-`"deck reveal preserves painted history and lands at the live bottom instantly"`.
+placements declare one property set).
 
 ### The wasm bundle is served uncompressed
 
@@ -2587,11 +2512,7 @@ migration that replaced it. An unknown name must still fail closed.
 
 **Right** — additive commits behind a flag; the smoke flow must still pass after each.
 
-**Guard** — `smoke/terminal/terminal-delivery.spec.ts` `"browser smoke flow creates and cleans its
-resources"` re-runs the whole flow on every CI run (`runFlow`: workspace create → terminal open → PTY
-marker round-trip → pane close → cascade-delete), plus the deck-persistence cases in
-`smoke/terminal/terminal-render-deck.spec.ts`. Gap: nothing asserts that a *named* earlier fix
-survived a rewrite — only that the flow and the deck hold.
+**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
 
 ### An anonymous 401 from the internet writes a row nothing ages out
 
@@ -2662,9 +2583,7 @@ its replica genuinely cannot serve the socket AND it was already on that stream 
 stream arrives with its own baseline from `applyTerminalStreamState`, so requesting one there
 re-creates the double.
 
-**Guard** — `smoke/terminal/perf.spec.ts:302` "delayed worker-link split recovery" pins
-`after.fullFrames === before.fullFrames + 1` across a transport resume, and
-`crates/roost-coord/tests/terminal_view_owner_screen.rs` —
+**Guard** — `crates/roost-coord/tests/terminal_view_owner_screen.rs` —
 `a_lease_heartbeat_on_an_attached_view_pushes_no_second_baseline`,
 `a_socket_attaching_to_a_held_stream_is_seeded_from_the_replica`,
 `a_new_stream_id_asks_the_owner_for_no_source_full`.
@@ -2686,10 +2605,7 @@ relay, which sends `DTerminalSnapshotRequest`. Whenever a coordinator-owned path
 owner mode, audit what ELSE that path was the only caller of; membership was the intended
 bypass, repair was collateral.
 
-**Guard** — `smoke/terminal/terminal-stream-reliability.spec.ts:87` "worker upstream delta loss
-obtains a source full on the same browser socket" plus the reveal/deck specs
-(`terminal-render-reveal*.spec.ts`, `terminal-render-deck-overlay.spec.ts`); for the Rust coordinator,
-`crates/roost-coord/tests/terminal_view_owner_screen.rs` —
+**Guard** — `crates/roost-coord/tests/terminal_view_owner_screen.rs` —
 `a_lost_baseline_is_repaired_by_the_owning_worker_once`.
 
 ---
@@ -2721,9 +2637,7 @@ what counts as a contradiction; raise the grace instead.
 **Guard** — `crates/roost-client-core/tests/predictive_echo_ack.rs` —
 `an_echo_frame_for_an_earlier_keystroke_never_contradicts_a_later_one`, `a_reset_re_arms_the_confidence_gate`,
 `an_echo_that_beats_the_write_ack_still_unlocks_the_burst` and
-`a_match_that_reproduces_the_cells_own_text_proves_nothing`, plus
-the real-flow `smoke/terminal/terminal-predictive-echo.spec.ts` "fast typing never paints a
-prediction the PTY contradicts".
+`a_match_that_reproduces_the_cells_own_text_proves_nothing`.
 
 ---
 
@@ -2749,9 +2663,7 @@ visibility) do. `ReconcileBlockReason` has no `predicted_cursor` member — a pr
 a block.
 
 **Guard** — `crates/roost-web-terminal/tests/echo_overlay.rs` —
-`a_leading_predicted_caret_does_not_freeze_reconciliation` and the real-flow `smoke/terminal/terminal-predictive-echo.spec.ts`
-"sustained fast typing never wipes its own predictions" (asserts a `resetCount` delta of 0 across a
-1.6 s burst).
+`a_leading_predicted_caret_does_not_freeze_reconciliation`.
 
 ### A terminal proof fails with "strict mode violation: resolved to 2 elements"
 
@@ -2774,10 +2686,7 @@ order first.
 with `[data-testid="terminal-loading-status"][data-session-id="<sid>"]`. A global
 `toHaveCount(0)` is only valid in a single-pane spec.
 
-**Guard** — `smoke/terminal/terminal-switch-perf.spec.ts` "the deck mounts a bounded number of
-panes" (scoped `targetSlot` locator plus the session-scoped `querySelector` in its repair round)
-and `smoke/terminal/terminal-delivery.spec.ts`, which still pins the single-pane stage/percent
-series.
+**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
 
 ---
 
@@ -2798,10 +2707,7 @@ then removes the worker record. Sessions and workspaces remain as offline histor
 
 **Guard** — `crates/roost-client-core/tests/direct_carrier_retirement.rs` "retiring a worker asks
 the host to close its carriers" and "a retirement leaves another worker's carrier alone";
-`crates/roost-web/src/platform/carriers/route.rs` `a_worker_retirement_takes_every_connection_it_held`;
-and `smoke/terminal/terminal-peer-failover.spec.ts` "worker deletion retires direct authority before
-a held authenticated input reaches the PTY", which stays the peer-tier oracle until the WebRTC
-carrier exists in Rust.
+and `crates/roost-web/src/platform/carriers/route.rs` `a_worker_retirement_takes_every_connection_it_held`.
 
 ---
 
@@ -2821,9 +2727,7 @@ connection's epoch. Negotiation rejection likewise invalidates only the exact gr
 the failed request.
 
 **Guard** — `crates/roost-client-core/tests/terminal_peer_admission.rs` —
-`retries_a_transient_initial_grant_failure_at_the_bounded_retry_deadline` plus `smoke/terminal/terminal-peer-failover.spec.ts` "worker restart
-retires the old peer epoch while its keeper PTY survives" and "active direct grant expiry closes
-the peer during coordinator loss and a renewed route stays usable".
+`retries_a_transient_initial_grant_failure_at_the_bounded_retry_deadline`.
 
 ### Coordinator-started worker deploys exit 7 from a detached release worktree
 
@@ -3025,10 +2929,6 @@ compatibility surface.
 decodes the reply the way the CONSUMER does rather than reading the worker's own
 keys back: a seeded subdirectory must arrive as a directory, a seeded file must
 not, and the two snake_case fields the coordinator also reads must be unmoved.
-`smoke/terminal/browse-picker.spec.ts` (both cases) and
-`smoke/terminal/terminal-delivery.spec.ts` —
-`"new-terminal server switch resets browse path before listing and spawning"`
-are the browser-side guards.
 
 ### Only the FIRST agent status for a session ever reaches a hydrating client
 
@@ -3059,8 +2959,6 @@ as new as what it replaces.
 `a_retained_status_older_than_the_buffered_one_does_not_supersede_it` is the case that was
 silently dropped, plus supersedes-at-equal-revision, never-supersedes-another-session, and
 never-supersedes-a-non-status-frame.
-`smoke/terminal/agent-status.spec.ts` — the second `report(...)` moving `data-level` to `blocked`
-— and `smoke/terminal/toast-target.spec.ts`, whose blocked toast is downstream of the same frame.
 
 ### Every terminal stays on the Sync route and `route.active` reads `null`
 
@@ -3113,16 +3011,10 @@ line removed), "a page served by the worker never allocates a peer", "a page els
 one peer for the worker", "closing the view stops the asking and the machine is forgotten",
 "a retired worker makes its machine ask nothing further", "a refused mint arms the retry the
 election is waiting on"; plus
-`crates/roost-web/src/smoke/stream_route_lane.rs` for the projection, and
 `crates/roost-web/tests/peer_carrier_attempts.rs` for the host half's own fences
 (a `Ready` that does not match the grant is refused; a lane fragment round trip;
 a frame from a retired attempt reaching nothing while the other worker's carrier
-survives; a promotion token that cannot be reused across attempts), and
-`smoke/terminal/terminal-peer.spec.ts` "loopback wins before a WebRTC peer is allocated and
-keeps Sync metadata live" as the real-flow oracle for the loopback fast path, and
-`smoke/terminal/terminal-peer.spec.ts` "host-candidate WebRTC multiplexes each
-worker and preserves crossed browser geometry" as the real-flow oracle for the
-election the host half makes possible.
+survives; a promotion token that cannot be reused across attempts).
 
 
 ### An unpaired browser's page sits on "Checking access…" and the pairing panel never renders
@@ -3162,10 +3054,7 @@ reaches the pairing panel on the same path instead of spinning on a probe it can
 production router: "an unresolvable credential on a device method is answered with the device
 marker" (the failing-before is `left: None, right: Some("device")`, which is byte for byte the
 recorded response), "a worker-only requirement carries no device marker", and "a paired
-browser's probe is answered and names no auth layer". The real-flow oracle is
-`smoke/terminal/pair-gate.spec.ts` "unpaired browser sees only the pairing gate at every size"
-and `smoke/terminal/tv-dpad.spec.ts` "unpaired TV shows only the pairing gate and requests
-approval by D-pad".
+browser's probe is answered and names no auth layer".
  
 ---
 
@@ -3195,11 +3084,7 @@ bounded by `DOOR_PROBE_TIMEOUT_MS` and fail-closed: the coordinator's 404 on
 `/api/local-bootstrap` is the ordinary "a coordinator served me" answer, and the page then keeps
 its own origin.
 
-**Guard** — `smoke/terminal/terminal-peer.spec.ts:62` "loopback wins before a WebRTC peer is
-allocated and keeps Sync metadata live" is the only oracle that pins it, because it is the only
-spec whose page is served by a WORKER origin rather than the coordinator's; its `stack` fixture
-(`page.waitForFunction(workerFp => !!window.__smoke?.state().workers[workerFp])`) is the thing that
-times out without the fix. The decision rule itself is pinned natively by
+**Guard** — the decision rule is pinned natively by
 `crates/roost-client-core/tests/local_discovery.rs`; there is no native test of the host wiring,
 because the wiring is `window.location` and `localStorage`.
 
@@ -3264,9 +3149,7 @@ only the sessions it holds a credential for.
 `got []` without the fix — the request is the effect now, not a publish),
 `a_carrier_asks_for_ids_only_for_the_sessions_its_grant_admits` (the control: a grant is
 scope-bound, so an over-broad staging that named every session is caught too), and
-`publishing_a_candidate_does_not_elect_it` (the fence is intact — staging is not electing). The
-real-flow oracle is `smoke/terminal/terminal-peer.spec.ts:62` "loopback wins before a WebRTC peer
-is allocated and keeps Sync metadata live".
+`publishing_a_candidate_does_not_elect_it` (the fence is intact — staging is not electing).
 
 **This is NOT the entry on the unimplemented WebRTC negotiation.** Loopback needs no offer, no
 answer and no peer: it dials the worker's own door and authenticates with a grant. This cycle is
@@ -3324,9 +3207,7 @@ document has. The core refuses whatever comes back that is not a v4 UUID, becaus
 HOST's id, and staging releases nothing on Sync), `a_minted_id_the_worker_would_refuse_abandons_the_attempt`
 (a v1 is never published), `a_mint_that_collides_with_a_live_view_abandons_the_attempt` (two panes
 may not end up on one handle), and `a_stale_or_repeated_mint_is_ignored` (a slow answer cannot
-attach itself to a newer attempt, and a pane that has an id does not get a second). The real-flow
-oracle is `smoke/terminal/terminal-peer.spec.ts:62` "loopback wins before a WebRTC peer is allocated
-and keeps Sync metadata live".
+attach itself to a newer attempt, and a pane that has an id does not get a second).
 
 **This is NOT the entry on the unimplemented WebRTC negotiation**, and it is not the entry on the
 missing candidate staging. Those are two earlier links in the same chain and each has its own
@@ -3399,9 +3280,7 @@ end to end, including that a full arriving BEFORE the answer elects nothing),
 `a_view_state_for_an_unpublished_id_changes_nothing` (the answer is correlated by the candidate's
 own wire id, not the pane's), `the_same_pane_addresses_its_worker_by_the_minted_id_after_the_promotion`
 (the pane's identity never changes; the wire id follows it), and
-`a_frame_on_another_generation_does_not_elect`. The real-flow oracle is
-`smoke/terminal/terminal-peer.spec.ts:62` "loopback wins before a WebRTC peer is allocated and
-keeps Sync metadata live".
+`a_frame_on_another_generation_does_not_elect`.
 
 **This is NOT the entry on the unimplemented WebRTC negotiation.** That one is above the transport
 (browser ⇄ coordinator ⇄ worker offer/answer); this one is below it, in what the CLIENT does with
@@ -3425,8 +3304,7 @@ CHILD id (`command-palette-input`, `task-editor`), never by the surface's own na
 **Guard** — `crates/roost-web/tests/palette_overlay_lifecycle.rs`: `an_open_palette_is_exactly_one_node`
 (one node, not two) and `closing_the_palette_removes_the_dialog_that_answered_to_its_test_id` (a
 removal MUTATION for that element, not a rule that hides it — a node left in the tree is still in the
-accessibility tree and still holds the focus-trap sentinels). The real-flow oracle is
-`smoke/terminal/gamepad-nav.spec.ts:156` and `smoke/terminal/workbench-shell.spec.ts:178`.
+accessibility tree and still holds the focus-trap sentinels).
 
 ---
 
@@ -3449,9 +3327,7 @@ feature, not a half-working one.
 
 **Guard** — `crates/roost-web/tests/queue_task_dialog_mount.rs`: `the_queue_task_row_opens_the_editor_on_the_page`
 (dispatching the palette's own intent puts ONE `task-editor` node and its working-directory field on
-the page) and `closing_the_editor_takes_it_off_the_page`. The real-flow oracle is
-`smoke/terminal/command-palette.spec.ts:81`, which presses the row by keyboard and reads the
-prefill back.
+the page) and `closing_the_editor_takes_it_off_the_page`.
 
 ---
 
@@ -3475,8 +3351,7 @@ stageCurrentConnection). A loopback route is never traded for a peer.
 
 **Guard** — `crates/roost-client-core/tests/direct_carrier_staging.rs`:
 `a_pane_opening_for_an_admitted_session_stages_it_on_the_live_carrier` (failed before the fix) and
-`a_second_pane_of_an_elected_session_does_not_stage_it_again`. The real-flow oracle is
-`smoke/terminal/terminal-peer-perf.spec.ts:7` (chromium-serial).
+`a_second_pane_of_an_elected_session_does_not_stage_it_again`.
 
 ---
 
@@ -3500,9 +3375,7 @@ also attempts from its `onmounted`, and Home/End that still beat the focus to th
 the request (`machine_trigger_key_action` in `sidebar_new_terminal.rs`) instead of being dropped.
 
 **Guard** — `crates/roost-web/tests/sidebar_logic.rs`:
-`home_and_end_that_beat_the_menu_focus_to_the_trigger_still_pick_their_edge`. The real-flow oracle
-is `smoke/terminal/terminal-delivery.spec.ts:130` (chromium-desktop); before the fix a 30-round
-ArrowDown-then-End loop on a release pin missed 5 times.
+`home_and_end_that_beat_the_menu_focus_to_the_trigger_still_pick_their_edge`.
 
 ---
 
@@ -3527,8 +3400,7 @@ the next task, as `pump/socket.rs` (Sync) and `pump/carrier_dial.rs` (loopback) 
 v2 `terminal-peer-connection.ts` handled each `onmessage`. The tick keeps the deadlines and probes.
 
 **Guard** — `crates/roost-web/src/platform/peer/events.rs`:
-`the_host_is_rung_after_the_event_it_must_drain_is_queued`. The real-flow oracle is
-`smoke/terminal/terminal-peer.spec.ts:97` (firefox-peer).
+`the_host_is_rung_after_the_event_it_must_drain_is_queued`.
 
 ---
 

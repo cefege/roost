@@ -486,7 +486,7 @@ To update a source-installed coordinator and its registered fleet from a clean
 Roost checkout, run:
 
 ```sh
-bun apps/roost-cli/src/main.ts push
+roost push
 ```
 
 `roost push` is one journaled transaction across the local POSIX coordinator
@@ -526,7 +526,7 @@ compatible for one release, or the deferred machine must be updated before the
 shape change ships.
 
 One-host POSIX deployment remains a separate source operation:
-`bun apps/roost-cli/src/main.ts deploy <host>` stages the exact pushed commit
+`roost deploy <host>` stages the exact pushed commit
 over SSH. Source deployments intentionally refuse to run from the standalone
 release binary because it does not contain a Git checkout.
 
@@ -712,27 +712,18 @@ Use one release commit and one fleet transaction:
 1. Qualify the four public host targets—macOS arm64/x64 and Linux arm64/x64—
    from the same source commit. Each published binary must match its GitHub
    Release SHA-256 sidecar.
-2. Run the hermetic real-flow tier on that commit:
-   `bun run test:terminal` (real coordinator, worker, keeper, PTY, and browser
-   through `smoke/terminal/stack.ts`). That tier is the gate; a live canary
-   only observes a deployment.
-3. From the clean pushed checkout, run
-   `bun apps/roost-cli/src/main.ts push`. Every reachable macOS/Linux worker
+2. From the clean pushed checkout, run
+   `roost push`. Every reachable macOS/Linux worker
    converges as one transaction: exhaustive staging/proof and rollback of the
    participants before the durable decision, finish-only recovery after it. A
    machine that was offline is named as deferred and catches up on its next
    attach; for a release you care about, confirm it reaches the new SHA in
    `roost status` before declaring the rollout done.
-4. Run the live API canary against the installed origin:
-   ```sh
-   ROOST_COORD_URL="https://roost.example.com" \
-     bun test smoke/api_smoke.test.ts
-   ```
-5. Restart the coordinator and local worker. Require a new coordinator boot
+3. Restart the coordinator and local worker. Require a new coordinator boot
    timestamp, all workers online on the expected build, and the pre-restart PTY
    to paint a new marker. Reject new uncaught errors, sequence gaps, queue
    overflows, stale keepers, or failed backup/readiness events.
-6. Re-prove the front door: an unauthenticated `MiscHealth` POST through the
+4. Re-prove the front door: an unauthenticated `MiscHealth` POST through the
    public origin reaches the coordinator, and `/api/db-export` from off-host
    answers 403 or the front door's 404.
 

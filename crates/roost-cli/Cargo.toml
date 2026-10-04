@@ -53,11 +53,6 @@ tokio = { workspace = true, features = [
 ] }
 tracing.workspace = true
 
-[features]
-# Builds the worker's disposable peer fault controls into `roost worker`; see
-# roost-worker's feature of the same name. Never enabled for a release.
-smoke = ["roost-worker/smoke"]
-
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
 

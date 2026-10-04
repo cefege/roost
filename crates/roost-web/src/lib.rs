@@ -33,8 +33,6 @@ pub mod router_state;
 pub mod routes;
 pub mod session_actions;
 pub mod session_naming;
-#[cfg(feature = "smoke")]
-pub mod smoke;
 pub mod syntax_lite;
 pub mod terminal_file_link;
 pub mod terminal_href;
@@ -82,16 +80,9 @@ pub fn install_tracing() {
     // default and was dropped: the browser emitted no carrier, door or sync
     // line at all, which is what made a page-side stop unnameable.
     //
-    // A smoke build is the diagnostic build — the same feature that installs
-    // the `__smoke` backdoor, and one a release build does not enable — so it
-    // gets the permissive default. A release build keeps `warn`, because there
-    // the only reader is an operator reading a console. `RUST_LOG` overrides
-    // both, which is how a developer narrows this back down.
-    let default = if cfg!(feature = "smoke") {
-        "info"
-    } else {
-        "warn"
-    };
+    // The default is `warn`, because the only reader is an operator reading a
+    // console. `RUST_LOG` overrides it, which is how a developer widens it.
+    let default = "warn";
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(default));
     // `without_time`: the default timer reads `SystemTime::now()`, which panics
@@ -135,9 +126,7 @@ pub fn App() -> Element {
     let pump = use_hook(|| pump::start_pump(Rc::new(RefCell::new(build_core())), revision));
     use_context_provider(|| pump.core());
     use_context_provider(|| pump.clone());
-    let _panes = use_context_provider(components::terminal::pane_registry::PaneRegistry::default);
-    #[cfg(all(feature = "smoke", target_arch = "wasm32"))]
-    use_hook(|| smoke::install_smoke_backdoor(&pump, &_panes));
+    use_context_provider(components::terminal::pane_registry::PaneRegistry::default);
     components::layout::window_size::WindowSize::provide();
     motion::resize_drag::ResizeDrag::provide();
     keyboard_shortcuts::ShortcutOverlays::provide();

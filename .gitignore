@@ -1,14 +1,10 @@
-node_modules/
 dist/
-crates/roost-web/dist-smoke/
-.turbo/
 *.log
 .DS_Store
 .env
 .env.*
 !.env.example
 coordinator_v2.db*
-bun.lockb.bak
 target/
 # Per-agent isolated build dirs, so parallel agents never contend on the
 # shared cargo lock. Build output, never source.
@@ -32,10 +28,3 @@ STATE.md
 .cache/
 mockups/
 
-/playwright-report/
-/test-results/
-# Scratch incident-evidence dumps (multi-GB Playwright traces).
-/terminal-reader-fix-evidence/
-# The parity runner's pinned oracle artifacts (smoke/parity/pin.ts); rebuilt by
-# `bun smoke/parity/run.ts build`, never source.
-/.smoke-pin/

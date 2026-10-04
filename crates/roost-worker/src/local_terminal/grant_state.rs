@@ -24,55 +24,6 @@ pub(super) struct StoredGrant {
     pub(super) install: u64,
 }
 
-/// The clock every expiry decision reads: monotonic time, plus how far a smoke
-/// harness has advanced it (v2 `TerminalPeerTestFaultState.now()`).
-#[derive(Debug, Default)]
-pub(super) struct GrantClock {
-    #[cfg(feature = "smoke")]
-    offset_ms: std::sync::atomic::AtomicU64,
-}
-
-impl GrantClock {
-    pub(super) fn now(&self) -> Instant {
-        let now = Instant::now();
-        #[cfg(feature = "smoke")]
-        let now = now
-            .checked_add(std::time::Duration::from_millis(
-                self.offset_ms.load(std::sync::atomic::Ordering::SeqCst),
-            ))
-            .unwrap_or(now);
-        now
-    }
-
-    /// v2 `advanceGrantClock`'s bookkeeping; the error is the harness's reply.
-    /// The offset stays a JavaScript safe integer, and far enough below the
-    /// platform's `Instant` limit that the longest TTL still fits on top.
-    #[cfg(feature = "smoke")]
-    pub(super) fn advance(&self, milliseconds: u64) -> Result<(), &'static str> {
-        const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
-        if milliseconds == 0 || milliseconds > MAX_SAFE_INTEGER {
-            return Err("grant clock advance must be a positive safe integer");
-        }
-        let fits = |total: u64| {
-            total <= MAX_SAFE_INTEGER
-                && Instant::now()
-                    .checked_add(std::time::Duration::from_millis(
-                        total + u64::from(MAX_TTL_MS),
-                    ))
-                    .is_some()
-        };
-        let ordering = std::sync::atomic::Ordering::SeqCst;
-        self.offset_ms
-            .fetch_update(ordering, ordering, |offset| {
-                offset
-                    .checked_add(milliseconds)
-                    .filter(|total| fits(*total))
-            })
-            .map(|_| ())
-            .map_err(|_| "grant clock advance exceeds the supported range")
-    }
-}
-
 #[derive(Default)]
 pub(super) struct GrantState {
     pub(super) grants: HashMap<String, StoredGrant>,

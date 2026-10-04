@@ -178,16 +178,8 @@ impl LocalTerminalSockets {
             &allows,
         )
         .await;
-        #[cfg(feature = "smoke")]
-        let released = self
-            .peer_history_released(session, &request.session_id)
+        self.deliver_scrollback(session, request, response, &mut read)
             .await;
-        #[cfg(not(feature = "smoke"))]
-        let released = true;
-        if released {
-            self.deliver_scrollback(session, request, response, &mut read)
-                .await;
-        }
         drop(read.reservation.take());
         let mut state = self.controls.lock();
         if read.loopback_reserved {

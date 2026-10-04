@@ -56,63 +56,12 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: test
         run: cargo test --workspace
-      # `cargo test --workspace` never enables roost-web's `smoke` feature, so
-      # every `#![cfg(feature = "smoke")]` test file compiles to nothing and
-      # the smoke suite never runs. It was missing here while ci.yml had it,
-      # and `crates/roost-cli/tests/release_asset_names.rs` is what caught it:
-      # a release verified against a narrower gate than the merge gate.
-      - name: web smoke suite
-        run: cargo test -p roost-web --features smoke
       - name: repo invariants
         run: cargo xtask lint
       - name: vendored terminal core
         run: cargo test --manifest-path third_party/alacritty_terminal/Cargo.toml
       - name: wasm32 build
         run: cargo build -p roost-client-core -p roost-protocol -p roost-web -p roost-web-terminal --target wasm32-unknown-unknown
-
-  # The all-Rust oracle against binaries and a dx bundle built from the tag, through
-  # the same runner and pin a local gate uses (CLAUDE.md `### Commands`). The pin
-  # builds `roost` with roost-cli's `smoke` feature and the page with roost-web's,
-  # because the fault-injection specs drive controls a production build refuses;
-  # the `build` and `web` jobs below publish the plain builds of the same tag.
-  smoke:
-    name: release binaries against the terminal oracle
-    runs-on: ubuntu-latest
-    needs: verify
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag || github.ref_name }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: rust-gates
-          add-job-id-key: false
-      # After the cache restore, so a cached ~/.cargo/bin/dx makes the install a no-op.
-      # The version is the `dioxus` library pin in Cargo.toml; dx and the library
-      # it bundles must match.
-      - name: wasm target and dx
-        run: |
-          rustup target add wasm32-unknown-unknown
-          cargo install dioxus-cli --version 0.7.10 --locked
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-      - run: bun install --frozen-lockfile
-      # Without the browsers every spec fails at launch and the oracle proves nothing.
-      - name: playwright install
-        run: bunx playwright install --with-deps chromium firefox
-      - name: build and pin roost, roost-keeper and the dx bundle
-        run: bun smoke/parity/run.ts build
-      - name: terminal oracle, main and serial passes
-        run: bun smoke/parity/run.ts suite --stack rust --pass both --label release
-      - name: terminal artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-smoke-artifacts
-          path: |
-            playwright-report/
-            test-results/
 
   build:
     name: ${{ matrix.roost_asset }}
@@ -251,7 +200,6 @@ jobs:
         run: |
           rustup target add wasm32-unknown-unknown
           cargo install dioxus-cli --version 0.7.10 --locked
-      # The invocation smoke/parity/pin.ts uses, without the `smoke` feature.
       # dx never prunes old hashed files from public/, hence the rm. `--profile
       # release` is rejected by cargo under dx, so the wasm builds under
       # `wasm-release`.
@@ -260,13 +208,11 @@ jobs:
           rm -rf target/dx/roost-web/release/web/public
           dx build --release --profile wasm-release -p roost-web --platform web
           test -f target/dx/roost-web/release/web/public/index.html
-      - name: the bundle must carry no smoke backdoor
+      - name: the bundle must carry no test backdoor
         run: |
           set -euo pipefail
-          # `window.__smoke` is only compiled in with roost-web's `smoke`
-          # feature, so a bundle containing the name was built by the wrong
-          # command. This is a hard failure: a production page with a test
-          # backdoor in it is a page anyone can drive.
+          # `window.__smoke` was the deleted Playwright oracle's backdoor; a
+          # production page carrying it is a page anyone can drive.
           if grep -rl '__smoke' target/dx/roost-web/release/web/public; then
             echo "::error::the web bundle contains __smoke; this is not a production bundle"
             exit 1
@@ -282,7 +228,7 @@ jobs:
   publish:
     name: publish
     runs-on: ubuntu-latest
-    needs: [smoke, build, web]
+    needs: [verify, build, web]
     steps:
       - uses: actions/download-artifact@v4
         with:

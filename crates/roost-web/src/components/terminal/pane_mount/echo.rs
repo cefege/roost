@@ -1,8 +1,7 @@
 //! The pane's predictive echo: the `PredictiveEchoHost` painting guesses into
 //! the renderer's live grid, fed each keystroke's admission, each settled
 //! outcome from the core's per-view feed, and each painted frame; wiped when a
-//! batch's fate is refused or uncertain and by the DOM-stall repair. A smoke
-//! build also installs the host's state as `window.__roostPredictDebug`. Ports
+//! batch's fate is refused or uncertain and by the DOM-stall repair. Ports
 //! the predictor wiring of `apps/web/src/components/terminal/cell-terminal-renderer.ts`
 //! and `cell-terminal-input.ts`.
 
@@ -22,9 +21,6 @@ use crate::platform::browser::perf_counters::with_perf_counters;
 pub(in crate::components::terminal) struct PaneEcho {
     host: PredictiveEchoHost,
     mode: PredictMode,
-    /// Uninstalls itself on drop, which is the pane's detach.
-    #[cfg(all(feature = "smoke", target_arch = "wasm32"))]
-    _debug_hook: Option<crate::smoke::predict_debug::PredictDebugHook>,
 }
 
 fn predict_mode(shared: &PaneShared) -> Option<PredictMode> {
@@ -47,32 +43,13 @@ pub(super) fn attach(shared: &PaneShared) {
     });
     match host {
         Ok(host) => {
-            *shared.echo.borrow_mut() = Some(PaneEcho {
-                host,
-                mode,
-                #[cfg(all(feature = "smoke", target_arch = "wasm32"))]
-                _debug_hook: install_debug_hook(shared),
-            });
+            *shared.echo.borrow_mut() = Some(PaneEcho { host, mode });
         }
         Err(error) => {
             tracing::warn!(target: "echo", session_id = %shared.session_id, ?error,
                 "predictive echo failed to attach");
         }
     }
-}
-
-/// The last mounted pane's echo state answers the global, read through a weak
-/// handle so a reader the page kept never holds the pane alive.
-#[cfg(all(feature = "smoke", target_arch = "wasm32"))]
-fn install_debug_hook(
-    shared: &PaneShared,
-) -> Option<crate::smoke::predict_debug::PredictDebugHook> {
-    let pane = shared.weak_self();
-    crate::smoke::predict_debug::PredictDebugHook::install(move || {
-        let pane = pane.upgrade()?;
-        let echo = pane.echo.try_borrow().ok()?;
-        echo.as_ref()?.host.debug()
-    })
 }
 
 /// Dispose the host and forget the view's outcomes.

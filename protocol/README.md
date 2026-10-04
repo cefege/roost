@@ -8,8 +8,7 @@
 
 | Path | Owns |
 | --- | --- |
-| `protocol/proto/roost/v1/` | Language-neutral protobuf sources. Package `roost.v1`; regenerate TypeScript bindings with `bun run --filter='@roost/protocol' proto:gen`. |
-| `packages/protocol/src/` | Browser-safe generated bindings, wire schemas, event fold, terminal-cell model, direct-peer framing, and portable contract policy. Import `@roost/protocol/<subpath>`; there is no barrel. |
+| `protocol/proto/roost/v1/` | Language-neutral protobuf sources. Package `roost.v1`; `crates/roost-proto/build.rs` compiles them into the Rust bindings on every build. |
 | `protocol/spec/` | Normative state machines, limits, errors, and implementation anchors for each client-facing surface. |
 | `protocol/conformance/` | Language-neutral vectors consumed by the final conformance runner. |
 

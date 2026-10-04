@@ -158,31 +158,24 @@ unimplemented = "deny"
 [patch.crates-io]
 alacritty_terminal = { path = "third_party/alacritty_terminal" }
 
-# The native binaries: `roost` and `roost-keeper` run the terminal core, the
-# worker's frame encoder and the coordinator, where speed is the axis that
-# matters. The wasm bundle is built with `wasm-release` below.
+# The native binaries. Optimised, but without whole-program LTO and with
+# parallel codegen: under `lto = true` + `codegen-units = 1` any one-crate
+# change re-optimised the whole `roost` binary at link time (measured: a
+# touched roost-worker cost 386 s), and every deploy and oracle pin paid it.
+# The wasm bundle is built with `wasm-release` below.
 [profile.release]
-lto = true
-codegen-units = 1
+lto = false
+codegen-units = 16
 strip = true
 opt-level = 3
 
-# The wasm bundle: download size is the cheaper axis there, and
-# `dx build --release --profile wasm-release` is how it is built.
+# The wasm bundle: download size is the cheaper axis there, so it keeps
+# whole-program LTO. `dx build --release --profile wasm-release` builds it.
 [profile.wasm-release]
 inherits = "release"
 opt-level = "s"
-
-# The oracle's per-fix build, `smoke/parity/run.ts build --fast`: release
-# optimisation without whole-program LTO and with parallel codegen. Under
-# `release` any one-crate change re-optimises the whole `roost` binary at link
-# time (measured: a touched roost-worker cost 386 s); here it re-links. Shipped
-# artifacts, integrator merges and the parity gate stay on `release`, and the
-# runner's `suite` refuses a pin built with this profile.
-[profile.smoke]
-inherits = "release"
-lto = false
-codegen-units = 16
+lto = true
+codegen-units = 1
 
 # A full debug profile produced 58 GB of artifacts for 14 crates, which filled
 # the disk mid-gate. Line tables keep panic backtraces naming a file and a line

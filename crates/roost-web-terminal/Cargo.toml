@@ -10,11 +10,6 @@ description = "The imperative web-sys terminal renderer plus its input, IME, mou
 [lints]
 workspace = true
 
-[features]
-# The Playwright oracle's renderer faults (the DOM hold), forwarded from
-# roost-web's `smoke`; a release bundle compiles none of them.
-smoke = []
-
 [dependencies]
 js-sys = { workspace = true }
 roost-client-core = { workspace = true }

@@ -14,8 +14,6 @@ pub mod floating_mount;
 pub mod frame_feed;
 pub mod offline_watch;
 pub mod pane_echo_feedback;
-#[cfg(feature = "smoke")]
-pub mod pane_faults;
 pub mod pane_handle;
 pub mod pane_input;
 #[cfg(target_arch = "wasm32")]

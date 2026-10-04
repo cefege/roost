@@ -202,7 +202,7 @@ mod tests {
         }
         assert!(is_scanned("crates/roost-web/assets/styles/sidebar.css"));
         assert!(
-            !is_scanned("crates/roost-web/tests/smoke_scans.rs"),
+            !is_scanned("crates/roost-web/tests/shell_metrics.rs"),
             "a test file is out of scope, as v2 skips *.test.ts"
         );
         assert!(is_scanned(

@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "The Dioxus 0.7 web application: routes, components, and static assets. Mounts a roost-web-terminal renderer through a session-keyed registry; the smoke feature installs window.__smoke for the Playwright oracle."
+description = "The Dioxus 0.7 web application: routes, components, and static assets. Mounts a roost-web-terminal renderer through a session-keyed registry."
 
 [lints]
 workspace = true
@@ -15,10 +15,6 @@ workspace = true
 # bootstrap, because Dioxus mounts the virtual dom from `main` and the panic
 # hook has to be installed before the first component renders.
 crate-type = ["cdylib", "rlib"]
-
-[features]
-# The Playwright oracle's backdoor. Installed by the U-3 slice and by nothing
-smoke = ["roost-web-terminal/smoke"]
 
 [dependencies]
 roost-client-core = { workspace = true }
@@ -31,8 +27,7 @@ wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
 # NOT optional: the settings panes persist product state in the coordinator's own
 # saved form (the `roost.coords` address list, an MCP relay's `config_json`), so
-# the derives and the codec are product code. Gating either behind `smoke` made
-# every non-smoke build fail to compile, which is the inverse of the gate's job.
+# the derives and the codec are product code.
 serde = { workspace = true }
 serde_json = { workspace = true }
 
@@ -40,7 +35,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 # `web` because the whole crate is a browser app; `router` because the route
-# table in `src/routes.rs` is the URL contract the Playwright specs drive.
+# table in `src/routes.rs` is the URL contract.
 [dependencies.dioxus]
 workspace = true
 features = ["web", "router"]

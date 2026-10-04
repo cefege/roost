@@ -36,9 +36,6 @@ impl<E: RenderElement> CellGridRenderer<E> {
     /// Repaint every viewport row whose hash changed, adding or removing row
     /// elements until the list is exactly the grid's height.
     pub(crate) fn render_viewport_repair(&mut self) -> DomResult<()> {
-        if self.dom_frozen() {
-            return Ok(());
-        }
         let Some(frame) = self.frame.clone() else {
             return Ok(());
         };
@@ -74,9 +71,6 @@ impl<E: RenderElement> CellGridRenderer<E> {
     /// Patch only the rows a delta changed, after discarding the rows a proven
     /// viewport shift rotated away.
     pub(crate) fn render_delta(&mut self, dirty_rows: &[CellRow], scrolled: u32) -> DomResult<()> {
-        if self.dom_frozen() {
-            return Ok(());
-        }
         let Some(frame) = self.frame.clone() else {
             return Ok(());
         };

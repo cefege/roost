@@ -18,12 +18,8 @@ use super::grant_scope::{
     PeerGrantAuthorization, capability_matches, sha256_hex,
 };
 use super::grant_state::{
-    GrantClock, GrantState, StoredGrant, current_locked, remove_locked, sweep_locked,
-    validated_session_ids,
+    GrantState, StoredGrant, current_locked, remove_locked, sweep_locked, validated_session_ids,
 };
-
-#[cfg(feature = "smoke")]
-mod test_seams;
 
 /// A subscriber. Called with no store lock held, possibly from inside another
 /// owner's lock (a lazy expiry during a predicate), so it only fences and
@@ -35,8 +31,6 @@ struct GrantShared {
     worker_epoch: String,
     runtime: Handle,
     state: Mutex<GrantState>,
-    /// The clock every expiry decision reads.
-    clock: GrantClock,
 }
 
 /// v2 `LocalTerminalGrantStore`. Cheap to clone; clones share one registry.
@@ -63,7 +57,6 @@ impl LocalTerminalGrantStore {
             worker_epoch: worker_epoch.into(),
             runtime,
             state: Mutex::default(),
-            clock: GrantClock::default(),
         };
         Self {
             shared: Arc::new(shared),
@@ -106,7 +99,7 @@ impl LocalTerminalGrantStore {
     /// keeper boundary rather than retaining an old allow-list.
     pub fn current(&self, grant_id: &str) -> Option<Arc<LocalTerminalGrant>> {
         let mut changes = Vec::new();
-        let now = self.shared.clock.now();
+        let now = Instant::now();
         let current = current_locked(&mut self.lock(), grant_id, now, &mut changes);
         self.notify(&changes);
         current
@@ -123,7 +116,7 @@ impl LocalTerminalGrantStore {
             match current_locked(
                 &mut state,
                 credential.grant_id,
-                self.shared.clock.now(),
+                Instant::now(),
                 &mut changes,
             ) {
                 None if state
@@ -175,7 +168,7 @@ impl LocalTerminalGrantStore {
                     PeerGrantAuthorization::Expired
                 }
                 None => PeerGrantAuthorization::GrantUnavailable,
-                Some(stored) if stored.public.expires_at <= self.shared.clock.now() => {
+                Some(stored) if stored.public.expires_at <= Instant::now() => {
                     remove_locked(
                         &mut state,
                         grant_id,
@@ -282,7 +275,7 @@ impl LocalTerminalGrantStore {
             return Err("local terminal grant store is disposed".to_owned());
         }
         let session_ids = validated_session_ids(frame, &self.shared.worker_epoch)?;
-        sweep_locked(&mut state, self.shared.clock.now(), changes);
+        sweep_locked(&mut state, Instant::now(), changes);
         let prior = state
             .grants
             .get(&frame.grant_id)
@@ -297,7 +290,7 @@ impl LocalTerminalGrantStore {
             device_fingerprint: frame.device_fingerprint.clone(),
             tab_id: frame.tab_id.clone(),
             worker_epoch: frame.worker_epoch.clone(),
-            expires_at: self.shared.clock.now() + ttl,
+            expires_at: Instant::now() + ttl,
         });
         if let Some(timer) = state.expiry_timers.remove(&frame.grant_id) {
             timer.abort();

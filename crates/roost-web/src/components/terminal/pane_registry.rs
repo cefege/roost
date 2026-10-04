@@ -60,8 +60,6 @@ struct RegistryState {
     next_mount_id: u64,
     panes: BTreeMap<String, MountedPane>,
     counters: BTreeMap<String, PaneCounters>,
-    #[cfg(feature = "smoke")]
-    faults: super::pane_faults::PaneFaults,
 }
 
 struct MountedPane {
@@ -269,18 +267,6 @@ impl PaneRegistry {
             .panes
             .get(session_id)
             .map(|pane| Rc::clone(&pane.surface))
-    }
-
-    /// Run `edit` over the smoke fault arms.
-    #[cfg(feature = "smoke")]
-    pub(super) fn with_faults<T>(
-        &self,
-        edit: impl FnOnce(&mut super::pane_faults::PaneFaults, bool) -> T,
-        session_id: &str,
-    ) -> T {
-        let mut state = self.inner.borrow_mut();
-        let mounted = state.panes.contains_key(session_id);
-        edit(&mut state.faults, mounted)
     }
 }
 

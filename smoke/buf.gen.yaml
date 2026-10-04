@@ -1,9 +1,0 @@
-version: v2
-inputs:
-  - directory: ../protocol/proto
-plugins:
-  - local: protoc-gen-es
-    out: gen
-    opt:
-      - target=ts
-      - import_extension=.ts
