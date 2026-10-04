@@ -232,7 +232,7 @@ export interface SmokeApi {
   /** Sync WebSocket dial count. Unchanged across a refocus = the socket was
    *  kept (no JWT sign + TLS handshake + since= backfill ahead of the reveal). */
   syncWsGeneration(): number;
-  /** Navigate through the live Solid router, rather than synthetic popstate. */
+  /** Navigate through the page's live router, rather than synthetic popstate. */
   navigate(href: string): void;
   /** Kill a session via the standard mutation. */
   kill(sessionId: string): Promise<{ accepted: boolean }>;

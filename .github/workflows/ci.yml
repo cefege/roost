@@ -1,8 +1,7 @@
 name: ci
 
-# v3 branch. The Rust gates and the TypeScript gates both run while the TS tree
-# is still here; the `upgrade` and `wterm-wasm` tiers and release.yml return in
-# Phase 7, once `smoke/` drives the Rust binaries instead of the TS ones.
+# v3 branch: the Rust workspace gates, then the Playwright terminal oracle in
+# `smoke/` driving the pinned Rust binaries and dx bundle.
 on:
   push:
     branches: [main, v2, v3]
@@ -62,43 +61,30 @@ jobs:
       - name: wasm32 build
         run: cargo build -p roost-client-core -p roost-protocol -p roost-web -p roost-web-terminal --target wasm32-unknown-unknown
 
-  invariants:
-    name: typescript invariants (pre-deletion)
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-      - run: bun install --frozen-lockfile
-      - name: typecheck
-        run: bun x tsgo -p tsconfig.base.json --noEmit
-      - name: lint (roost invariants — blocking)
-        run: bun run lint
-      - name: knip (dead-code report, report-only)
-        run: bunx knip || true
-      - name: unit
-        run: bun run test:unit
-
   terminal:
-    name: terminal (mixed stack oracle)
+    name: terminal (all-Rust oracle)
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
-    # 30, not 20: this tier absorbed the retired humanchrome skills' coverage
-    # (render-stress on both screens, multi-viewer resize-hammer), and ubuntu
-    # was cancelled mid-run at the 20-minute cap.
-    timeout-minutes: 30
-    needs: invariants
+    # The job builds and pins release `roost`, `roost-keeper` and the dx bundle
+    # before the main and serial passes run, so it carries a release build on
+    # top of the oracle's own wall time.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-gates
+          add-job-id-key: false
+      # After the cache restore, so a cached ~/.cargo/bin/dx makes the install a no-op.
+      # The version is the `dioxus` library pin in Cargo.toml; dx and the library
+      # it bundles must match.
+      - name: wasm target and dx
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo install dioxus-cli --version 0.7.10 --locked
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
@@ -113,56 +99,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: terminal-playwright-artifacts-${{ matrix.os }}
-          path: |
-            playwright-report/
-            test-results/
-
-  windows-2022:
-    name: windows server 2022 deterministic gates
-    # OFF by default, same gate as the v2 release workflow's Windows jobs.
-    # These are still the TypeScript product's gates; they are re-derived when
-    # the Rust worker and keeper have Windows coverage, which is not in scope
-    # for v3 (Linux + macOS ship; Windows stays paused as on main).
-    # Set repository variable ROOST_WINDOWS_GATE=on to turn the tier back on.
-    if: vars.ROOST_WINDOWS_GATE == 'on'
-    runs-on: windows-2022
-    timeout-minutes: 60
-    needs: invariants
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-      - uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-      - run: bun install --frozen-lockfile
-      - name: Windows invariants
-        run: |
-          bun x tsgo -p tsconfig.base.json --noEmit
-          bun test --isolate packages/ apps/coord/tests/ apps/web/tests/ apps/roost-cli/tests/ smoke/bun_smoke.test.ts
-      - name: Windows PowerShell 5.1 bootstrap compatibility
-        shell: powershell
-        run: .\scripts\windows\verify-powershell51-bootstrap.ps1
-      - name: Native keeper and ConPTY
-        run: >-
-          bun test
-          apps/worker/tests/keeper-history-resume.test.ts
-          apps/worker/tests/keeper-input-stress.test.ts
-          apps/worker/tests/keeper-child-reap.test.ts
-          apps/worker/tests/host/listening-ports.test.ts
-      - name: Install and update invariants
-        run: bun test --isolate apps/roost-cli/tests/
-      - name: Install Playwright Chromium artifact
-        run: bunx playwright install chromium
-      - name: Terminal on Chromium
-        run: bun run test:terminal
-      - name: Windows Chromium, Edge, terminal and package artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-2022-artifacts
-          if-no-files-found: warn
           path: |
             playwright-report/
             test-results/

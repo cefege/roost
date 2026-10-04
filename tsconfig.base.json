@@ -10,15 +10,10 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve",
-    "jsxImportSource": "solid-js",
     "lib": ["ESNext", "DOM"],
     "types": ["bun"]
   },
   "include": [
-    "apps/**/*.ts",
-    "apps/**/*.tsx",
-    "packages/**/*.ts",
     "smoke/**/*.ts"
   ],
   "exclude": [

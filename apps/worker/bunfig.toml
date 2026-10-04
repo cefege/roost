@@ -1,4 +1,0 @@
-[test]
-# Mirrors the repo-root bunfig: bun reads bunfig.toml from the CWD only, and
-# worker tests are run from this directory (`bun test` / `bun run test`).
-timeout = 10000

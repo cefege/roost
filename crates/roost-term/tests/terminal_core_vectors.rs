@@ -8,7 +8,7 @@
 //!   implementation with nothing in common with this one. Passing says the Rust
 //!   core agrees with an independent terminal.
 //! - `oracle: "patch"` — the expected state is written by hand from
-//!   `scripts/wterm-0.5.0-roost.patch`, and the vector names the hunk. These
+//!   `protocol/conformance/wterm-0.5.0-roost.patch`, and the vector names the hunk. These
 //!   are behaviours the v2 Zig core was patched to have and xterm does not
 //!   share; an xterm-derived vector would record the wrong answer, and the
 //!   generator prints the difference so it stays visible.

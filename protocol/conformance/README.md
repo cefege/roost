@@ -85,7 +85,7 @@ different things:
   independent terminal, which is a claim no test that asserts "whatever the core
   does" can make.
 - **`patch`** — `expected` is written by hand from
-  `scripts/wterm-0.5.0-roost.patch` and the vector names the hunk in `patch`.
+  `protocol/conformance/wterm-0.5.0-roost.patch` and the vector names the hunk in `patch`.
   These are behaviours the v2 Zig core was patched to have and xterm does not
   share, so an xterm-derived vector would record the wrong answer. Where xterm
   happens to agree, the generator prints that; where it does not, it prints the

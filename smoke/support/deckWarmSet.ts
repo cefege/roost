@@ -1,6 +1,6 @@
-// Bounded warm-pane policy for the deck (wired in TerminalDeck.tsx). Pure — no
-// Solid, no JSX — so the cap and its recency order are unit-tested and a
-// Playwright spec can import DECK_WARM_LIMIT as the single definition.
+// Bounded warm-pane policy for the deck, the same policy as roost-client-core's
+// `deck::warm_set`. Pure, so a Playwright spec can import DECK_WARM_LIMIT
+// instead of restating the cap it tests.
 //
 // Why a cap: a parked pane keeps its renderer and scrollback DOM, so switching
 // back to it is a visibility flip instead of a remount plus a worker snapshot.

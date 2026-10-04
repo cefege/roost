@@ -1,7 +1,7 @@
 // The one entry point for building and running the terminal oracle against the Rust stack:
-// `build` pins the artifacts, `spec` and `suite` drive Playwright against the pin (or the
-// TypeScript default), and `verdict` buckets a Rust run against a Bun run. The modules beside
-// it own each step; CLAUDE.md `### Commands` names the loop this serves.
+// `build` pins the artifacts, `spec` and `suite` drive Playwright against the pin, and `verdict`
+// buckets a Rust run against a recorded Bun baseline. The modules beside it own each step;
+// CLAUDE.md `### Commands` names the loop this serves.
 
 import { parseArgs } from "node:util";
 import { ParityRefusal, buildAndPinArtifacts, formatPinManifest } from "./pin.ts";
@@ -11,7 +11,7 @@ import { compareRuns, summarizeRun, type ParityPass } from "./verdict.ts";
 const USAGE = `usage: bun smoke/parity/run.ts <command>
   build [--no-web] [--plain] [--fast]
   spec <path[:line]>... [--project <name>]... [--repeat <n>] [--trace] [--allow-stale]
-  suite --stack rust|bun [--pass main|serial|both] [--label <text>] [--allow-stale]
+  suite [--stack rust] [--pass main|serial|both] [--label <text>] [--allow-stale]
   verdict <rust.run.json> [<bun.run.json> [--md <out.md>]]`;
 
 function dispatchCommand(argv: string[]): number {
@@ -73,8 +73,8 @@ function dispatchCommand(argv: string[]): number {
 					"allow-stale": { type: "boolean" },
 				},
 			});
-			const stack = values.stack;
-			if (stack !== "rust" && stack !== "bun") throw new ParityRefusal(USAGE);
+			// `--stack rust` is accepted so recorded command lines keep working; it is the only stack.
+			if (values.stack !== undefined && values.stack !== "rust") throw new ParityRefusal(USAGE);
 			const passes: ParityPass[] | null = values.pass === "both"
 				? ["main", "serial"]
 				: values.pass === "main" || values.pass === "serial" ? [values.pass] : null;
@@ -82,7 +82,7 @@ function dispatchCommand(argv: string[]): number {
 			if (values.label !== undefined && !/^[\w.-]+$/.test(values.label)) {
 				throw new ParityRefusal(`--label names a file; use letters, digits, '.', '_' or '-', not ${values.label}`);
 			}
-			return runSuite({ stack, passes, label: values.label, allowStale: values["allow-stale"] === true });
+			return runSuite({ passes, label: values.label, allowStale: values["allow-stale"] === true });
 		}
 		case "verdict": {
 			const { values, positionals } = parseArgs({

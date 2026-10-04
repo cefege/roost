@@ -1,9 +1,10 @@
 // Pure page geometry for demand-paged terminal history: the absolute rows one
 // RPC wave asks for, given a missing interval, the window the reader exposed,
 // the retention floor the worker proved and the painted head base the DOM can
-// splice on either side of. scrollbackBackfill.ts owns the renderer lookups,
-// the fencing and the splice; nothing here reads DOM, module state or the
-// wire, so a bound is reproducible from its arguments alone.
+// splice on either side of. The page's pager is roost-client-core's
+// `terminal::history_backfill`, whose sizes these constants equal; nothing here
+// reads DOM, module state or the wire, so a bound is reproducible from its
+// arguments alone.
 
 /** A missing half-open absolute row interval. */
 interface CellHistoryRange {
