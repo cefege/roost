@@ -102,6 +102,20 @@ fn an_unstamped_live_event_abandons_a_v2_recovery() {
     assert_eq!(replay.admit_live(&live(6)), LiveVerdict::Emit);
 }
 
+// A browser that last synced against another coordinator (the v2 install this
+// one replaced) resumes with a cursor beyond this log's end. Left there, every
+// live event below that cursor read as a duplicate and the socket went quiet:
+// the page showed "Coordinator unreachable" while the link was open.
+#[test]
+fn a_cursor_ahead_of_the_log_does_not_swallow_later_live_events() {
+    let log_end = 40;
+    let mut replay = SessionReplay::new(500_000, true);
+    replay.rewind_to_log_end(log_end);
+    let _ = replay.abort();
+    assert_eq!(replay.admit_live(&live(log_end + 1)), LiveVerdict::Emit);
+    assert_eq!(replay.admit_live(&live(log_end)), LiveVerdict::Duplicate);
+}
+
 // sync-feed.ts:146-162: the hold is bounded at 512 distinct events and 4 MiB;
 // the event that overflows it abandons the recovery and goes out live.
 #[test]

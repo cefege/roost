@@ -141,6 +141,10 @@ async fn recover_through_cutoff(link: &SyncLink, pool: &SqlitePool, since: u64) 
         Err(error) => return fail_recovery(link, since, &error),
     };
     if cutoff < since {
+        link.deliver_with(|state| {
+            state.replay.rewind_to_log_end(cutoff);
+            None
+        });
         return stop_recovery(link, "cursor_ahead_of_log");
     }
     let mut cursor = since;

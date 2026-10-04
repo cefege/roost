@@ -159,6 +159,15 @@ impl SessionReplay {
         held.into_values().map(|(message, _)| message).collect()
     }
 
+    /// The client's cursor names events this log never wrote — it was issued
+    /// by another coordinator, such as the install this one replaced. Left at
+    /// that cursor, the cutoff would drop every live event below it as a
+    /// duplicate and the socket would go quiet for good, so it falls back to
+    /// the end of this log.
+    pub fn rewind_to_log_end(&mut self, log_end: u64) {
+        self.cutoff = self.cutoff.min(log_end);
+    }
+
     /// The v2 recovery reached `cutoff`: hand back the held events above it,
     /// in id order, remembering each as the boundary so a repeat of it is
     /// dropped (`sync-feed.ts:334-345`).
