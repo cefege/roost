@@ -16,9 +16,9 @@
 //! `roost_keeper`'s server, on `roost_worker`'s pool and shell spec — nothing
 //! here is specific to one of them.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use roost_keeper::capability::KeeperCapability;
 use roost_keeper::client::KeeperEndpoint;
@@ -171,11 +171,16 @@ pub struct KeeperFixture {
 
 impl KeeperFixture {
     pub fn start() -> Self {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|since| since.as_nanos())
-            .unwrap_or_default();
-        let root = std::env::temp_dir().join(format!("roost-keeper-pool-{unique}"));
+        // The pid and an ordinal, not the clock: tests in one binary start
+        // fixtures on parallel threads, and macOS's realtime clock ticks in
+        // microseconds, so two fixtures read the same "nanos" and the second
+        // finds the first's capability file and bound socket in its root.
+        static NEXT: AtomicU32 = AtomicU32::new(0);
+        let ordinal = NEXT.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "roost-keeper-pool-{}-{ordinal}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&root).expect("the fixture can make its own directory");
         let socket = root.join("keeper.sock");
         let capability = KeeperCapability::load_or_create(&root.join("mux-keeper.cap"))

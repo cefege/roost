@@ -81,8 +81,13 @@ fn a_resolved_spec_sets_the_terminal_and_locale_variables_explicitly() {
 
     assert_eq!(spec.env_value("TERM"), Some("xterm-256color"));
     assert_eq!(spec.env_value("COLORTERM"), Some("truecolor"));
-    assert_eq!(spec.env_value("LANG"), Some("C.UTF-8"));
-    assert_eq!(spec.env_value("LC_ALL"), Some("C.UTF-8"));
+    // The default is per-platform, and the service's `C` above is neither.
+    let locale = match platform() {
+        HostPlatform::MacOs => "en_US.UTF-8",
+        _ => "C.UTF-8",
+    };
+    assert_eq!(spec.env_value("LANG"), Some(locale));
+    assert_eq!(spec.env_value("LC_ALL"), Some(locale));
     assert_eq!(spec.platform, platform());
     assert_eq!(spec.version, roost_worker::shell_spec::SHELL_SPEC_VERSION);
 }

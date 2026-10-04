@@ -239,13 +239,28 @@ fn rejects_absent_case_only_runtime_aliases_on_darwin_and_windows_only() {
         );
         assert!(entries(home.root()).is_empty());
     }
-    // Linux names are case-sensitive: `.PI` and `.pi` are two directories.
+    // Linux names are case-sensitive: `.PI` and `.pi` are two directories. That
+    // half is a claim about the filesystem as much as the platform rule: on a
+    // case-folding one (APFS's default, so a stock macOS `/tmp`) the two paths
+    // are one directory whatever platform the install is told it runs on.
     let home = Scratch::new("integrations-case-distinct");
+    if !names_are_case_sensitive(home.root()) {
+        return;
+    }
     let report = install_agent_integrations(&env, home.root(), LINUX).unwrap();
     assert_eq!(
         installed_ids(&report),
         ["omp-status", "omp-reference", "pi-status"]
     );
+}
+
+/// Whether `directory`'s filesystem tells `probe` from `PROBE`.
+fn names_are_case_sensitive(directory: &Path) -> bool {
+    let probe = directory.join("case-probe");
+    fs::write(&probe, "").unwrap();
+    let folded = fs::symlink_metadata(directory.join("CASE-PROBE")).is_ok();
+    fs::remove_file(&probe).unwrap();
+    !folded
 }
 
 fn assert_single_failure(

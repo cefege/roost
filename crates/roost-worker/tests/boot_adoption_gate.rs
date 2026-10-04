@@ -93,11 +93,19 @@ async fn restarted_stack(pool: Arc<KeeperPool>, root: &std::path::Path) -> Sessi
 
 /// Whether a process this pid names is still running.
 ///
-/// `/proc`, and not a signal: a signal proves nothing about a zombie, and the
-/// distinction between "the keeper reaped it" and "the worker killed it" is the
-/// whole assertion.
+/// `ps`, because it is the process-table reader Linux and macOS share (macOS
+/// has no `/proc`), and its state column is what tells a zombie apart: a
+/// signal or a `/proc` entry both still answer for a child that was killed and
+/// not yet reaped, and whether the PTY's child was killed is the whole
+/// assertion.
 fn running(pid: u32) -> bool {
-    PathBuf::from(format!("/proc/{pid}")).exists()
+    let listing = std::process::Command::new("ps")
+        .args(["-o", "stat=", "-p", &pid.to_string()])
+        .output()
+        .expect("ps runs on every host v3 supports");
+    let state = String::from_utf8_lossy(&listing.stdout);
+    let state = state.trim();
+    listing.status.success() && !state.is_empty() && !state.starts_with('Z')
 }
 
 /// v2 `resume`: a restarted worker adopts the survivor from the keeper's
