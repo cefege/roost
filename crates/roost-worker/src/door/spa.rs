@@ -49,35 +49,44 @@ impl SpaMount {
             return text(StatusCode::NOT_FOUND, "not found");
         };
         let head_only = method == Method::HEAD;
-        let (file, is_index, precompressed) = match spa_path::resolve(root, path, accept_encoding) {
-            SpaTarget::Asset { file, encoding } => (file, false, encoding == ContentEncoding::Gzip),
-            SpaTarget::IndexFallback { file } => (file, true, false),
+        let (file, is_index, encoding) = match spa_path::resolve(root, path, accept_encoding) {
+            SpaTarget::Asset { file, encoding } => (file, false, encoding),
+            SpaTarget::IndexFallback { file } => (file, true, ContentEncoding::Identity),
             SpaTarget::NotFound => return text(StatusCode::NOT_FOUND, "not found"),
         };
         // The headers describe the asset the URL NAMES: the cache rule keys on
-        // its `assets/` and `fonts/` prefixes, and a `.gz` sibling is transport.
+        // its `assets/` and `fonts/` prefixes, and a `.br`/`.gz` sibling is
+        // transport.
         let mut named = file
             .strip_prefix(root)
             .unwrap_or(file.as_path())
             .to_string_lossy()
             .into_owned();
-        if precompressed && let Some(raw_length) = named.strip_suffix(".gz").map(str::len) {
+        if let Some(raw_length) = encoding
+            .sibling_suffix()
+            .and_then(|suffix| named.strip_suffix(suffix))
+            .map(str::len)
+        {
             named.truncate(raw_length);
         }
         let compressible = spa_path::is_compressible(Path::new(&named));
-        let compress = precompressed || (compressible && spa_path::accepts_gzip(accept_encoding));
-        let body = match self
-            .load(&file, compress && !precompressed, head_only)
-            .await
-        {
+        // A precompressed sibling is sent as its bytes; only an identity file
+        // is gzipped here.
+        let compress = encoding == ContentEncoding::Identity
+            && compressible
+            && spa_path::accepts_gzip(accept_encoding);
+        let body = match self.load(&file, compress, head_only).await {
             Ok(body) => body,
             Err(reason) => {
                 tracing::warn!(path = %file.display(), %reason, "the local door could not read a resolved page file");
                 return text(StatusCode::NOT_FOUND, "not found");
             }
         };
+        let content_encoding = encoding
+            .header_value()
+            .or_else(|| compress.then_some("gzip"));
         let cache = cache_control(&named, is_index);
-        page(&named, cache, compressible, compress, body)
+        page(&named, cache, compressible, content_encoding, body)
     }
 
     /// The bytes to send: `None` for a HEAD, the memoized gzip body when this
@@ -129,11 +138,12 @@ fn cache_control(named: &str, is_index: bool) -> &'static str {
     }
 }
 
+/// `content_encoding` is the coding the body already carries, if any.
 fn page(
     named: &str,
     cache: &'static str,
     compressible: bool,
-    compress: bool,
+    content_encoding: Option<&'static str>,
     body: Option<Bytes>,
 ) -> Response {
     let mut headers = HeaderMap::new();
@@ -147,8 +157,8 @@ fn page(
     if compressible {
         headers.insert(header::VARY, HeaderValue::from_static("accept-encoding"));
     }
-    if compress {
-        headers.insert(header::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
+    if let Some(coding) = content_encoding {
+        headers.insert(header::CONTENT_ENCODING, HeaderValue::from_static(coding));
     }
     let mut response = (StatusCode::OK, headers).into_response();
     *response.body_mut() = Body::from(body.unwrap_or_default());

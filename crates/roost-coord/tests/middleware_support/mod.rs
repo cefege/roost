@@ -43,6 +43,11 @@ use roost_coord::rpc::service::CoordinatorServiceImpl;
 use roost_coord::services::CoordServices;
 use roost_host::{CoordConfig, CoordConfigInput};
 
+mod dist;
+
+use dist::write_dist;
+pub use dist::{BARE_WASM_PATH, WASM_BROTLI, WASM_GZIP, WASM_PATH, WASM_RAW};
+
 /// The worker's own loopback SPA, the one browser origin every coordinator
 /// admits without being told about it.
 pub const WORKER_LOCAL_UI_ORIGIN: &str = roost_host::DEFAULT_WORKER_LOCAL_UI_ORIGIN;
@@ -128,26 +133,6 @@ pub fn served_csp(config: &CoordConfig) -> String {
         .to_str()
         .expect("a visible ASCII policy")
         .to_owned()
-}
-
-/// A minimal but complete web build under `root`: the shell, one hashed
-/// bundle, and a stable-named icon, because those three are the three answers
-/// the front door has to keep distinct.
-fn write_dist(root: &Path) -> PathBuf {
-    let dist = root.join("dist");
-    std::fs::create_dir_all(dist.join("assets")).expect("the build's directory");
-    std::fs::write(
-        dist.join("index.html"),
-        b"<!doctype html><title>roost</title>",
-    )
-    .expect("the build's shell");
-    std::fs::write(
-        dist.join("assets/app.a1b2c3.js"),
-        b"export const shell = 1;",
-    )
-    .expect("the build's bundle");
-    std::fs::write(dist.join("favicon.ico"), b"icon").expect("the build's icon");
-    dist
 }
 
 /// A coordinator serving the real router on a real port.

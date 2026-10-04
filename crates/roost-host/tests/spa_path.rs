@@ -15,8 +15,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use roost_host::spa_path::{
-    ContentEncoding, SpaTarget, accepts_gzip, cache_control_for, content_type_for, is_compressible,
-    resolve, resolve_disk_spa_root,
+    ContentEncoding, SpaTarget, accepts_brotli, accepts_gzip, cache_control_for, content_type_for,
+    is_compressible, resolve, resolve_disk_spa_root,
 };
 
 /// A fresh tree with one build in it. The build sits in a `dist/` subdirectory
@@ -180,6 +180,41 @@ fn a_client_that_refuses_gzip_never_gets_a_compressed_body() {
     assert!(accepts_gzip("gzip"));
     assert!(accepts_gzip("*"));
     assert!(!accepts_gzip("*;q=0"));
+    remove(&root);
+}
+
+#[test]
+fn the_wasm_prefers_its_brotli_sibling_then_gzip_then_itself() {
+    let root = build_root();
+    fs::write(root.join("assets/app_bg.d4e5.wasm"), b"\0asm").expect("a wasm");
+    fs::write(root.join("assets/app_bg.d4e5.wasm.br"), b"br").expect("a .br sibling");
+    fs::write(root.join("assets/app_bg.d4e5.wasm.gz"), b"\x1f\x8b").expect("a .gz sibling");
+    let wasm = "/assets/app_bg.d4e5.wasm";
+
+    assert!(is_compressible(Path::new("app_bg.d4e5.wasm")));
+    assert_eq!(
+        resolve(&root, wasm, "gzip, br"),
+        SpaTarget::Asset {
+            file: root.join("assets/app_bg.d4e5.wasm.br"),
+            encoding: ContentEncoding::Brotli,
+        }
+    );
+    assert_eq!(
+        resolve(&root, wasm, "gzip, br;q=0"),
+        SpaTarget::Asset {
+            file: root.join("assets/app_bg.d4e5.wasm.gz"),
+            encoding: ContentEncoding::Gzip,
+        }
+    );
+    assert_eq!(
+        resolve(&root, wasm, ""),
+        SpaTarget::Asset {
+            file: root.join("assets/app_bg.d4e5.wasm"),
+            encoding: ContentEncoding::Identity,
+        }
+    );
+    assert!(accepts_brotli("*"));
+    assert!(!accepts_brotli("br;q=0, *"));
     remove(&root);
 }
 

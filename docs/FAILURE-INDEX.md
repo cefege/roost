@@ -1878,7 +1878,7 @@ worth stating so nobody "fixes" them: `status/service_probe.rs` signals `child.i
 
 ### A worker throttled by its own cgroup looks healthy
 
-**Symptom** — "a worker shows offline/down in the SPA while `systemctl --user status roost-worker` says active (running) and the host has GBs free / worker log silent for minutes then `link_stale_no_downstream` + `listChannels timed out` + `heartbeat beat failed [unavailable] HTTP 502` / coord `worker-ws close`→`open` gap of ~361s"
+**Symptom** — "a worker shows offline/down in the SPA while `systemctl --user status roost-worker` says active (running) and the host has GBs free / worker log silent for minutes then `link_stale_no_downstream` + `listChannels timed out` + `heartbeat beat failed [unavailable] HTTP 502` / coord `worker-ws close`→`open` gap of ~361s / v3: `the coordinator link has gone silent; forcing it closed` with `silent_ms` far past the stale threshold + `stray_reap_list_failed … did not answer a spawn within 5s` + `cgroup_memory_high_exceeded`, keeper in `D` at `mem_cgroup_handle_over_high`"
 
 **Wrong** — chase the 502 into the front-door proxy, restart the worker, or read the SPA's host metrics and conclude
 the box is healthy — `apps/worker/src/host/host-sample-linux.ts` reads host-wide `/proc/meminfo`, so a unit strangled
@@ -1889,8 +1889,12 @@ turns one fat session into a fleet-wide session wipe). Measured on a live host: 
 in `D (disk sleep)`, 6 PTY sessions = 2.9 GB in the SAME cgroup, `SwapFree 172 kB` so reclaim had nowhere to go.
 
 **Right** — **three layers, all required.** (1) `MemoryHigh` must scale with the host:
-`apps/worker/scripts/install.sh` (`default_worker_mem_high`) is 60% of MemTotal, floor 3G, absolute (systemd only
-takes % from v240); `TasksMax=4096`, not 512. The live value can sit in a hand-written
+`apps/worker/scripts/install.sh` (`default_worker_mem_high`) and `crates/roost-cli/src/services/memory_limits.rs`
+(`ResourceLimits::worker`) are 60% of MemTotal, floor 3G, **no cap**, absolute (systemd only takes % from v240);
+`TasksMax=4096`, not 512. A cap is the same defect as a flat value: v3 shipped a 3G cap, and on a 62 GiB host with no
+swap two agent sessions plus a release build froze the keeper in `mem_cgroup_handle_over_high` and starved the
+coordinator link (`Stale { silent: 1040s }`, `did not answer a spawn within 5s`) while v2's 37G unit served the same
+box. The live value can sit in a hand-written
 `~/.config/systemd/user/roost-worker.service.d/limits.conf` drop-in that OUTRANKS the deployed unit body — check
 the drop-in before editing the unit. (2) A dial that never fires `ws.onopen` is NOT an auth rejection: coord
 answers a bad JWT with an HTTP 401 upgrade, indistinguishable from a timeout or a proxy 502 in Bun's client
@@ -1900,7 +1904,9 @@ on `hasOpened`; the log is `reconnect_backoff_escalated`, never `auth_rejection_
 `sampleCgroupPressure` + `apps/worker/src/transport/heartbeat.ts` (`logCgroupPressure`) emit
 `cgroup_memory_high_exceeded`/`_cleared` so the next occurrence is one grep, not a guess.
 
-**Guard** — `apps/worker/tests/transport/coord-link-backoff-cap.test.ts`.
+**Guard** — `apps/worker/tests/transport/coord-link-backoff-cap.test.ts`; Rust: `memory_limits.rs` unit tests
+(`the_worker_soft_ceiling_*`), `crates/roost-worker/tests/backoff_policy.rs`,
+`crates/roost-worker/tests/worker_reconnect_ladder.rs`, `crates/roost-worker/tests/cgroup_throttle_health.rs`.
 
 ### A worker reconnects but respawns every terminal
 
@@ -2658,6 +2664,25 @@ node survives re-renders for the same reason, and two sites rely on that (`--ter
 `every_slot_placement_declares_the_same_properties_so_no_state_outlives_itself` (the parked, plain and spotlit
 placements declare one property set). Browser: `smoke/terminal/terminal-render-deck.spec.ts`
 `"deck reveal preserves painted history and lands at the live bottom instantly"`.
+
+### The wasm bundle is served uncompressed
+
+**Symptom** — a cold load that spends seconds on one request: `content-length: 59…` (≈5.9 MB) and no
+`content-encoding` on `assets/roost-web_bg-*.wasm`, while the `.js` beside it is gzipped.
+
+**Wrong** — the compressible-extension set ported from v2, whose bundle was JavaScript only, so `wasm` was never
+in it; and a front door that looked only for `.gz` siblings while dx writes `.br` ones. Equally wrong: run a
+`.gz` sibling through the runtime compressor, which answers a body that decodes into the sibling.
+
+**Right** — **`wasm` is compressible and a precompressed sibling is served first, `.br` before `.gz`, read
+verbatim** (`crates/roost-host/src/spa_path.rs` `asset`, consumed by `crates/roost-coord/src/http/spa.rs` and
+`crates/roost-worker/src/door/spa.rs`). Runtime gzip applies only to an identity file; nothing compresses
+brotli at runtime.
+
+**Guard** — `crates/roost-coord/tests/middleware_spa.rs`
+`the_wasm_goes_out_as_its_brotli_sibling_then_its_gzip_sibling_verbatim` and
+`a_wasm_without_siblings_is_gzipped_on_the_wire`; `crates/roost-worker/tests/local_door_spa.rs`
+`the_wasm_goes_out_as_its_precompressed_sibling_verbatim`.
 
 ---
 

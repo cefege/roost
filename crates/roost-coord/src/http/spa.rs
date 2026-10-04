@@ -124,21 +124,25 @@ async fn serve(
     accept_encoding: &str,
     head_only: bool,
 ) -> Response {
-    let (file, sibling) = match target {
-        SpaTarget::Asset { file, encoding } => (file, encoding == ContentEncoding::Gzip),
-        SpaTarget::IndexFallback { file } => (file, false),
+    let (file, encoding) = match target {
+        SpaTarget::Asset { file, encoding } => (file, encoding),
+        SpaTarget::IndexFallback { file } => (file, ContentEncoding::Identity),
         SpaTarget::NotFound => return not_found(),
     };
     // Every header below describes the asset the URL NAMES, relative to the
     // build. Two things depend on that and neither survives a bare file name:
     // the cache rule keys on the `assets/` and `fonts/` PREFIXES, and a
-    // precompressed sibling is a transport detail whose `.gz` suffix would
-    // otherwise turn `app.js` into an octet-stream nobody can execute.
+    // precompressed sibling is a transport detail whose `.br`/`.gz` suffix
+    // would otherwise turn `app.js` into an octet-stream nobody can execute.
     let relative = file.strip_prefix(root).unwrap_or(file.as_path());
-    let named = without_gzip_suffix(&relative.to_string_lossy(), sibling);
+    let named = without_encoding_suffix(&relative.to_string_lossy(), encoding);
     let cache = spa_path::cache_control_for(&named);
     let compressible = spa_path::is_compressible(Path::new(&named));
-    let compress = sibling || (compressible && spa_path::accepts_gzip(accept_encoding));
+    // A precompressed sibling is sent as its bytes; compressing it again would
+    // answer a body the client decodes into the compressed file.
+    let compress = encoding == ContentEncoding::Identity
+        && compressible
+        && spa_path::accepts_gzip(accept_encoding);
     let body = match load(&file, compress, mount, head_only).await {
         Ok(body) => body,
         Err(reason) => {
@@ -146,24 +150,35 @@ async fn serve(
             return not_found();
         }
     };
-    response(&named, cache, compressible, compress, body, head_only)
+    let content_encoding = encoding
+        .header_value()
+        .or_else(|| compress.then_some("gzip"));
+    response(
+        &named,
+        cache,
+        compressible,
+        content_encoding,
+        body,
+        head_only,
+    )
 }
 
-/// The name the URL named, with the transport's `.gz` suffix taken off.
-fn without_gzip_suffix(relative: &str, sibling: bool) -> String {
-    match relative.strip_suffix(".gz") {
-        Some(raw) if sibling => raw.to_owned(),
-        _ => relative.to_owned(),
-    }
+/// The name the URL named, with the transport's `.br`/`.gz` suffix taken off.
+fn without_encoding_suffix(relative: &str, encoding: ContentEncoding) -> String {
+    encoding
+        .sibling_suffix()
+        .and_then(|suffix| relative.strip_suffix(suffix))
+        .unwrap_or(relative)
+        .to_owned()
 }
 
-/// The bytes to send, compressed when the client admits it.
+/// The bytes to send, gzipped here when `compress` says so.
 ///
-/// The compression decision is composed here rather than left to the resolver
-/// because only this side can act on it: the resolver reports a precompressed
-/// sibling when one exists, and a caller holding a compressor makes one
-/// otherwise. A build that ships no `.gz` files still gets gzip on the wire,
-/// which is what the fixed extension set in `spa_path` exists for.
+/// The compression decision is composed by the caller rather than left to the
+/// resolver because only this side can act on it: the resolver reports a
+/// precompressed sibling when one exists, and a caller holding a compressor
+/// makes gzip otherwise. A build that ships no `.gz` files still gets gzip on
+/// the wire, which is what the fixed extension set in `spa_path` exists for.
 async fn load(
     file: &Path,
     compress: bool,
@@ -204,11 +219,12 @@ async fn compressed(file: &Path, mount: &SpaMount) -> std::io::Result<Bytes> {
 }
 
 /// The response for a file already read, with v2's four header rules.
+/// `content_encoding` is the coding the body already carries, if any.
 fn response(
     named: &str,
     cache: &'static str,
     compressible: bool,
-    compress: bool,
+    content_encoding: Option<&'static str>,
     body: Option<Bytes>,
     head_only: bool,
 ) -> Response {
@@ -225,8 +241,8 @@ fn response(
     if compressible {
         headers.insert(header::VARY, HeaderValue::from_static("accept-encoding"));
     }
-    if compress {
-        headers.insert(header::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
+    if let Some(coding) = content_encoding {
+        headers.insert(header::CONTENT_ENCODING, HeaderValue::from_static(coding));
     }
     if let Some(bytes) = body.as_ref() {
         set(

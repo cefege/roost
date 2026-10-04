@@ -14,7 +14,9 @@
 #[path = "middleware_support/mod.rs"]
 mod middleware_support;
 
-use middleware_support::{FixtureConfig, ListenerFixture};
+use middleware_support::{
+    BARE_WASM_PATH, FixtureConfig, ListenerFixture, WASM_BROTLI, WASM_GZIP, WASM_PATH, WASM_RAW,
+};
 
 async fn serving_dist() -> ListenerFixture {
     ListenerFixture::start(
@@ -122,6 +124,53 @@ async fn a_client_that_admits_gzip_gets_one_and_one_that_does_not_does_not() {
     // would hand it to the client above.
     let vary = identity.header("vary").unwrap_or_default();
     assert!(vary.contains("accept-encoding"), "vary: {vary}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_wasm_goes_out_as_its_brotli_sibling_then_its_gzip_sibling_verbatim() {
+    let fixture = serving_dist().await;
+
+    let brotli = fixture.request("GET", WASM_PATH, &[("accept-encoding", "gzip, br")]);
+    assert_eq!(brotli.status, 200);
+    assert_eq!(brotli.header("content-encoding"), Some("br"));
+    assert_eq!(brotli.header("content-type"), Some("application/wasm"));
+    assert_eq!(
+        brotli.raw_body, WASM_BROTLI,
+        "the .br sibling, byte for byte"
+    );
+    let vary = brotli.header("vary").unwrap_or_default();
+    assert!(vary.contains("accept-encoding"), "vary: {vary}");
+
+    // A precompressed sibling compressed again decodes into the sibling, not
+    // the module: the body must be the `.gz` file itself.
+    let gzip = fixture.request("GET", WASM_PATH, &[("accept-encoding", "gzip, br;q=0")]);
+    assert_eq!(gzip.header("content-encoding"), Some("gzip"));
+    assert_eq!(gzip.header("content-type"), Some("application/wasm"));
+    assert_eq!(gzip.raw_body, WASM_GZIP, "the .gz sibling, byte for byte");
+
+    let identity = fixture.request("GET", WASM_PATH, &[]);
+    assert_eq!(identity.header("content-encoding"), None);
+    assert_eq!(identity.raw_body, WASM_RAW);
+    let vary = identity.header("vary").unwrap_or_default();
+    assert!(vary.contains("accept-encoding"), "vary: {vary}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_wasm_without_siblings_is_gzipped_on_the_wire() {
+    let fixture = serving_dist().await;
+    let response = fixture.request("GET", BARE_WASM_PATH, &[("accept-encoding", "gzip, br")]);
+    assert_eq!(response.status, 200);
+    assert_eq!(response.header("content-encoding"), Some("gzip"));
+    assert_eq!(response.header("content-type"), Some("application/wasm"));
+    assert_eq!(&response.raw_body[..2], &[0x1f, 0x8b]);
+    let mut decoded = Vec::new();
+    tokio::io::AsyncReadExt::read_to_end(
+        &mut async_compression::tokio::bufread::GzipDecoder::new(response.raw_body.as_slice()),
+        &mut decoded,
+    )
+    .await
+    .expect("a gzip member");
+    assert_eq!(decoded, WASM_RAW);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

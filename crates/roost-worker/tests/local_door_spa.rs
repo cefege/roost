@@ -98,6 +98,48 @@ async fn a_bundle_is_served_immutable_and_a_missing_one_is_not_the_shell() {
     assert_eq!(stale.status, 404);
 }
 
+/// The wasm goes out as dx's `.br` sibling first and its `.gz` sibling when
+/// brotli is refused, each verbatim: compressing a sibling again would hand the
+/// browser the sibling instead of the module.
+#[tokio::test]
+async fn the_wasm_goes_out_as_its_precompressed_sibling_verbatim() {
+    let dist = build();
+    std::fs::write(dist.path("assets/app_bg-1234.wasm"), b"\0asm raw module").unwrap();
+    std::fs::write(dist.path("assets/app_bg-1234.wasm.br"), b"brotli sibling").unwrap();
+    std::fs::write(
+        dist.path("assets/app_bg-1234.wasm.gz"),
+        b"\x1f\x8b gzip sibling",
+    )
+    .unwrap();
+    let door = start_door(DoorOptions {
+        web_dist: Some(dist.root()),
+        ..DoorOptions::default()
+    })
+    .await;
+
+    let brotli = request(
+        &door,
+        "GET",
+        "/assets/app_bg-1234.wasm",
+        &[("accept-encoding", "gzip, br")],
+    )
+    .await;
+    let gzip = request(
+        &door,
+        "GET",
+        "/assets/app_bg-1234.wasm",
+        &[("accept-encoding", "gzip")],
+    )
+    .await;
+
+    assert_eq!(brotli.header("content-encoding"), Some("br"));
+    assert_eq!(brotli.header("content-type"), Some("application/wasm"));
+    assert_eq!(brotli.body, b"brotli sibling");
+    assert_eq!(gzip.header("content-encoding"), Some("gzip"));
+    assert_eq!(gzip.body, b"\x1f\x8b gzip sibling");
+    assert_eq!(gzip.header("vary"), Some("accept-encoding"));
+}
+
 /// With no build the door still answers its bootstrap, and every page is a
 /// 404 rather than an empty page that looks like a broken bundle.
 #[tokio::test]

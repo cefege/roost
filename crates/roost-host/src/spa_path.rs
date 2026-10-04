@@ -5,9 +5,10 @@
 //! The single entry point is [`resolve`]:
 //! `(dist_root, request_path, accept_encoding) -> SpaTarget`, where
 //! `SpaTarget` is `Asset { file, encoding } | IndexFallback { file } |
-//! NotFound`. `file` is the path to READ. `encoding` is `Gzip` only when a
-//! real precompressed sibling was found; a caller that can compress itself
-//! composes that from [`is_compressible`] and [`accepts_gzip`].
+//! NotFound`. `file` is the path to READ. `encoding` is `Brotli` or `Gzip`
+//! only when a real precompressed sibling was found, brotli first; a caller
+//! that can compress itself composes gzip from [`is_compressible`] and
+//! [`accepts_gzip`].
 //!
 //! Ported from `packages/host/src/spa.ts` over contract §6.2. The rules it
 //! keeps, and why each exists:
@@ -35,6 +36,34 @@ pub enum ContentEncoding {
     Identity,
     /// A gzip body. The `file` path names the `.gz` sibling, never the raw one.
     Gzip,
+    /// A brotli body. The `file` path names the `.br` sibling, never the raw
+    /// one. Only a build writes these; no server compresses brotli itself.
+    Brotli,
+}
+
+impl ContentEncoding {
+    /// The `Content-Encoding` header value for bytes in this coding, `None`
+    /// for identity.
+    #[must_use]
+    pub fn header_value(self) -> Option<&'static str> {
+        match self {
+            Self::Identity => None,
+            Self::Gzip => Some("gzip"),
+            Self::Brotli => Some("br"),
+        }
+    }
+
+    /// The suffix a precompressed sibling in this coding carries, `.gz` or
+    /// `.br`; `None` for identity. Callers strip it to recover the name the
+    /// URL named.
+    #[must_use]
+    pub fn sibling_suffix(self) -> Option<&'static str> {
+        match self {
+            Self::Identity => None,
+            Self::Gzip => Some(".gz"),
+            Self::Brotli => Some(".br"),
+        }
+    }
 }
 
 /// What a request path resolves to inside one build.
@@ -109,7 +138,9 @@ pub fn content_type_for(path: &Path) -> &'static str {
     }
 }
 
-/// Whether a build may compress this path, the fixed extension set.
+/// Whether a build may compress this path, the fixed extension set. `wasm`
+/// is in it because the bundle's wasm is the largest file a cold load fetches
+/// and compresses to under a third of its size.
 #[must_use]
 pub fn is_compressible(path: &Path) -> bool {
     let extension = path
@@ -126,6 +157,7 @@ pub fn is_compressible(path: &Path) -> bool {
             | Some("map")
             | Some("txt")
             | Some("webmanifest")
+            | Some("wasm")
     )
 }
 
@@ -137,6 +169,18 @@ pub fn is_compressible(path: &Path) -> bool {
 /// which is what a client sending a *list* means by refusing.
 #[must_use]
 pub fn accepts_gzip(accept_encoding: &str) -> bool {
+    accepts(accept_encoding, "gzip")
+}
+
+/// Whether an `Accept-Encoding` value admits brotli, by the same rules as
+/// [`accepts_gzip`]: the first `br` item decides and `br;q=0` refuses.
+#[must_use]
+pub fn accepts_brotli(accept_encoding: &str) -> bool {
+    accepts(accept_encoding, "br")
+}
+
+/// The one `Accept-Encoding` reading both codings share.
+fn accepts(accept_encoding: &str, wanted: &str) -> bool {
     let mut wildcard = false;
     for item in accept_encoding.split(',') {
         let mut parts = item.split(';');
@@ -151,7 +195,7 @@ pub fn accepts_gzip(accept_encoding: &str) -> bool {
                 accepted = weight.trim().parse::<f64>().is_ok_and(|q| q > 0.0);
             }
         }
-        if coding == "gzip" {
+        if coding == wanted {
             return accepted;
         }
         if coding == "*" {
@@ -234,22 +278,34 @@ fn contained_file(root: &Path, relative: &str) -> Option<PathBuf> {
 }
 
 /// The asset answer for a file already proven to be inside the root, preferring
-/// a precompressed sibling when the client admits one.
+/// a precompressed sibling when the client admits one: brotli first, because
+/// it is the smaller body, then gzip.
 fn asset(root: &Path, file: PathBuf, accept_encoding: &str) -> SpaTarget {
-    if is_compressible(&file) && accepts_gzip(accept_encoding) {
-        let sibling = file.with_extension(match file.extension() {
-            Some(extension) => format!("{}.gz", extension.to_string_lossy()),
-            None => String::from("gz"),
-        });
-        if sibling.starts_with(root) && sibling.is_file() {
-            return SpaTarget::Asset {
-                file: sibling,
-                encoding: ContentEncoding::Gzip,
-            };
+    if is_compressible(&file) {
+        let admitted = [
+            (ContentEncoding::Brotli, accepts_brotli(accept_encoding)),
+            (ContentEncoding::Gzip, accepts_gzip(accept_encoding)),
+        ];
+        for (encoding, accepted) in admitted {
+            if accepted && let Some(sibling) = sibling(root, &file, encoding) {
+                return SpaTarget::Asset {
+                    file: sibling,
+                    encoding,
+                };
+            }
         }
     }
     SpaTarget::Asset {
         file,
         encoding: ContentEncoding::Identity,
     }
+}
+
+/// The precompressed sibling of `file` in `encoding`, when it is a file inside
+/// `root`.
+fn sibling(root: &Path, file: &Path, encoding: ContentEncoding) -> Option<PathBuf> {
+    let mut name = file.as_os_str().to_owned();
+    name.push(encoding.sibling_suffix()?);
+    let sibling = PathBuf::from(name);
+    (sibling.starts_with(root) && sibling.is_file()).then_some(sibling)
 }
