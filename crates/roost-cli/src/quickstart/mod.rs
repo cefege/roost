@@ -25,6 +25,7 @@
 
 pub mod add_machine;
 pub mod endpoint;
+pub mod enrolled_worker;
 pub mod grant;
 pub mod install;
 pub mod join;
@@ -199,20 +200,27 @@ async fn install_everything(
                  this machine cannot record an enrollment grant",
             )
         })?;
-    let grant = mint_host_grant(
-        &database,
-        GrantKind::Worker,
-        LOCAL_WORKER_GRANT_LABEL,
-        wall_clock::now_ms(),
-    )
-    .await?;
+    let grant = if enrolled_worker::worker_already_enrolled(env, platform, &database).await? {
+        eprintln!(">> this machine's worker is already enrolled; no enrollment grant minted");
+        None
+    } else {
+        Some(
+            mint_host_grant(
+                &database,
+                GrantKind::Worker,
+                LOCAL_WORKER_GRANT_LABEL,
+                wall_clock::now_ms(),
+            )
+            .await?,
+        )
+    };
 
     let worker_spec = local_worker_spec(
         env,
         platform,
         &bin_dir,
         &endpoint,
-        &grant,
+        grant.as_ref(),
         web_dir.as_deref(),
     )?;
     prepare_service_directories(&worker_spec)?;

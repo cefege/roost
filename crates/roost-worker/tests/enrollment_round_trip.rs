@@ -19,7 +19,7 @@ use enrollment_support::Fixture;
 use roost_host::{HostPlatform, MapEnv, supported_host_platform};
 use roost_worker::host::install::BOOTSTRAP_TOKEN_ENV;
 use roost_worker::runtime::boot::{ENV_WORKER_KEY_PATH, WorkerBoot};
-use roost_worker::runtime::bootstrap_redeem::{Redemption, enroll};
+use roost_worker::runtime::bootstrap_redeem::{EnrollmentError, Redemption, enroll};
 
 /// The token the coordinator issues and the worker is handed.
 const TOKEN: &str = "roost-boot-token-for-this-test-only";
@@ -175,6 +175,111 @@ async fn a_token_the_same_key_already_spent_is_redeemed_again() {
     }
 
     std::fs::remove_dir_all(&root).expect("the scratch root is removable");
+}
+
+/// A service definition that still carries a token the coordinator no longer
+/// honours — spent, expired, or left behind by a reinstall — must not keep an
+/// enrolled worker from starting. The key is what the registration rests on,
+/// so it registers, and the stale token is erased from the definition.
+#[tokio::test]
+async fn an_enrolled_key_boots_when_its_token_is_refused() {
+    let fixture = Fixture::start(&[TOKEN]).await;
+    let root = scratch_dir("stale-token");
+    let coordinator = format!("http://{}", fixture.address);
+    let first = env_for(&root, &coordinator, Some(TOKEN));
+    let boot = WorkerBoot::resolve(&first, platform()).expect("a resolvable configuration");
+    let client = fixture.client();
+    let credential =
+        roost_worker::runtime::credential::WorkerKeyCredential::new(boot.worker_key_path.clone());
+    enroll(
+        &client,
+        &credential,
+        &first,
+        platform(),
+        &boot.worker_key_path,
+    )
+    .await
+    .expect("the first activation enrolls");
+
+    let definition = root.join("worker.definition");
+    std::fs::write(&definition, definition_carrying(STALE_TOKEN)).expect("written");
+    let mut restarted = env_for(&root, &coordinator, Some(STALE_TOKEN));
+    restarted.set(definition_override(), definition.to_str().unwrap());
+    let enrollment = enroll(
+        &client,
+        &credential,
+        &restarted,
+        platform(),
+        &boot.worker_key_path,
+    )
+    .await
+    .expect("an enrolled key boots past a refused token");
+
+    assert_eq!(enrollment.redemption, Redemption::AlreadyEnrolled);
+    assert!(enrollment.registered, "the existing registration was used");
+    let updated = std::fs::read_to_string(&definition).expect("still there");
+    assert!(
+        !updated.contains(STALE_TOKEN),
+        "the refused token is still in the definition the next start reads: {updated}"
+    );
+
+    std::fs::remove_dir_all(&root).expect("the scratch root is removable");
+}
+
+/// The fallback is for a key the coordinator already knows. A key it has never
+/// seen still stops the boot, under the redemption's own refusal.
+#[tokio::test]
+async fn a_refused_token_on_an_unknown_key_still_stops_the_boot() {
+    let fixture = Fixture::start(&[TOKEN]).await;
+    let root = scratch_dir("unknown-key");
+    let coordinator = format!("http://{}", fixture.address);
+    let env = env_for(&root, &coordinator, Some(STALE_TOKEN));
+    let boot = WorkerBoot::resolve(&env, platform()).expect("a resolvable configuration");
+    let credential =
+        roost_worker::runtime::credential::WorkerKeyCredential::new(boot.worker_key_path.clone());
+
+    let refusal = enroll(
+        &fixture.client(),
+        &credential,
+        &env,
+        platform(),
+        &boot.worker_key_path,
+    )
+    .await
+    .expect_err("a key with no registration has nothing to fall back on");
+    assert!(
+        matches!(refusal, EnrollmentError::RedemptionRefused { .. }),
+        "the boot reported {refusal:?} instead of the redemption's refusal"
+    );
+
+    std::fs::remove_dir_all(&root).expect("the scratch root is removable");
+}
+
+/// A token the fixture coordinator never issued, so it refuses it.
+const STALE_TOKEN: &str = "roost-boot-token-nobody-issued";
+
+/// The `roost_host` override that points the worker's service definition at a
+/// scratch file instead of the host's own location.
+fn definition_override() -> &'static str {
+    match platform() {
+        HostPlatform::MacOs => "ROOST_WORKER_PLIST",
+        _ => "ROOST_WORKER_UNIT",
+    }
+}
+
+/// A service definition, in this platform's shape, that carries `token`.
+fn definition_carrying(token: &str) -> String {
+    match platform() {
+        HostPlatform::MacOs => format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\">\n<dict>\n  \
+             <key>EnvironmentVariables</key>\n  <dict>\n    \
+             <key>{BOOTSTRAP_TOKEN_ENV}</key>\n    <string>{token}</string>\n  </dict>\n\
+             </dict>\n</plist>\n"
+        ),
+        _ => format!(
+            "[Service]\nEnvironment=\"{BOOTSTRAP_TOKEN_ENV}={token}\"\nExecStart=/opt/roost/bin/roost worker\n"
+        ),
+    }
 }
 
 fn platform() -> HostPlatform {

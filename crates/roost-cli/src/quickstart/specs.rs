@@ -41,19 +41,23 @@ pub fn coordinator_spec(
         .map_err(Into::into)
 }
 
-/// The worker this machine runs, with its one-shot grant armed through the
-/// services group's own arming seam and nowhere else.
+/// The worker this machine runs, with its one-shot grant — when it still needs
+/// one — armed through the services group's own arming seam and nowhere else.
+/// `None` is an already-enrolled worker: its key is its authority, and a token
+/// in its definition would only be re-offered after it expired.
 pub fn local_worker_spec(
     env: &roost_host::ProcessEnv,
     platform: HostPlatform,
     bin_dir: &Path,
     endpoint: &QuickstartEndpoint,
-    grant: &grant::OneShotGrant,
+    grant: Option<&grant::OneShotGrant>,
     web_dir: Option<&Path>,
 ) -> Result<ServiceSpec, CommandFailure> {
     let mut decided = endpoint.coordinator_settings();
     decided.insert(ENV_COORDINATOR_URL.to_string(), endpoint.loopback_origin());
-    decided.insert(ENV_BOOTSTRAP_TOKEN.to_string(), grant.expose().to_string());
+    if let Some(grant) = grant {
+        decided.insert(ENV_BOOTSTRAP_TOKEN.to_string(), grant.expose().to_string());
+    }
     let install_env = crate::deploy::apply_release::install_environment(env, &decided);
     let program = bin_dir.join(crate::deploy::apply_release::ROOST_PROGRAM);
     let mut resolved = ServiceSpec::resolve(ServiceRole::Worker, &install_env, platform, &program)?;

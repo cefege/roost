@@ -19,7 +19,7 @@ use roost_proto::{AuthRedeemWorkerRequest, CoordinatorServiceClient};
 use roost_protocol::wire::WorkerFp;
 
 use self::label::{named, resolve_worker_label};
-use self::register::register;
+use self::register::{enroll_with_existing_registration, register};
 use crate::host::install::{BOOTSTRAP_TOKEN_ENV, scrub_service_definition_env};
 use crate::host::jwt::read_existing_worker_key;
 use crate::runtime::credential::CredentialSource;
@@ -68,8 +68,8 @@ pub enum EnrollmentError {
     RegistrationRefused { reason: String },
 }
 
-/// What became of the one-shot token. Three answers, not two: the arm that
-/// says "it failed" is the one the boot policy actually turns on.
+/// What became of the one-shot token. The arm that says "it failed" is the one
+/// the boot policy actually turns on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Redemption {
     /// The environment carried no token, so this machine enrolled on an earlier
@@ -77,6 +77,10 @@ pub enum Redemption {
     NotOffered,
     /// The coordinator spent it and bound it to this machine's public key.
     Redeemed,
+    /// The coordinator refused the token, but this key's existing registration
+    /// was accepted: the token was a stale leftover of an earlier enrollment,
+    /// and it has been erased from the service definition.
+    AlreadyEnrolled,
     /// The coordinator did not answer before the deadline. The call never
     /// reached it, so the token is unspent and the next activation offers it
     /// again.
@@ -104,9 +108,10 @@ pub struct Enrollment {
 /// The two calls are not peers. `AuthRedeemWorker` is public and is what
 /// creates the row; `WorkersRegister` needs a worker credential and refuses a
 /// fingerprint the redemption never wrote. So a redemption the coordinator
-/// REFUSED is an error here, not a line to log and carry on past: the token is
-/// still unspent, the machine still has no authority, and the only thing that
-/// would change is how loudly the log says so.
+/// REFUSED is an error here unless this key is already registered: a token a
+/// service definition re-offers after enrollment is stale, and the key is what
+/// the machine's authority rests on. A key with no registration still stops
+/// the boot, because the machine has no authority to go on with.
 ///
 /// A call that never reached the coordinator is the other case, and it is
 /// tolerated — v2 tolerated EVERY redemption failure under one
@@ -154,7 +159,15 @@ where
         "enroll: read the key this machine redeems with"
     );
 
-    let redemption = redeem(client, env, platform, &machine).await?;
+    let redemption = match redeem(client, env, platform, &machine).await {
+        Err(refusal @ EnrollmentError::RedemptionRefused { .. }) => {
+            return enroll_with_existing_registration(
+                client, credential, env, platform, machine, refusal,
+            )
+            .await;
+        }
+        other => other?,
+    };
     let registered = register(client, credential, &machine).await?;
     tracing::info!(
         fingerprint = %machine.fingerprint,

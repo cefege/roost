@@ -270,7 +270,8 @@ pub fn print_plan(plan: &QuickstartPlan, platform: HostPlatform) {
     print_rotation(plan);
     eprintln!(
         "The worker definition above carries the placeholder grant {}; a real run mints a \
-         one-shot grant in its place and never prints it.",
+         one-shot grant in its place only when this machine's worker is not yet enrolled, \
+         and never prints it.",
         crate::quickstart::grant::PLACEHOLDER_BEARER
     );
 }
