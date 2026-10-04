@@ -2,8 +2,7 @@
 //! which names exist, which answer with a Promise, and the typed call each JS
 //! argument list parses into. Native; `smoke::backdoor` binds one JS function per
 //! name and hands the parsed call to `smoke::dispatch`. The member list is
-//! `SmokeApi` in `apps/web/src/smoke/smokeTypes.ts:118-287`, assembled by
-//! `apps/web/src/smoke/smoke.ts:50-117`.
+//! `SmokeApi` in `smoke/contract/smokeTypes.ts`.
 
 use serde_json::Value;
 

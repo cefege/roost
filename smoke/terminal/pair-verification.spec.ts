@@ -9,8 +9,8 @@ import {
   PAIRING_CEREMONY_VERSION,
   generatePairRequestId,
   generatePairRequesterToken,
-} from "@roost/protocol/pairing";
-import { createUnauthenticatedCoordClient } from "../../apps/worker/src/transport/coord-client.ts";
+} from "../support/pairing.ts";
+import { createUnauthenticatedCoordClient } from "../support/coord-client.ts";
 import { expect, test } from "./fixtures.ts";
 import {
   REQUESTER_RECORD_KEY,

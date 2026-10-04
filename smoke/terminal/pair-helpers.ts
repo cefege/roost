@@ -4,8 +4,8 @@
 // from tab storage so no spec depends on the request ID being visible.
 
 import type { Browser, BrowserContext, Page } from "@playwright/test";
-import { createUnauthenticatedCoordClient } from "../../apps/worker/src/transport/coord-client.ts";
-import { PAIRING_CEREMONY_VERSION } from "@roost/protocol/pairing";
+import { createUnauthenticatedCoordClient } from "../support/coord-client.ts";
+import { PAIRING_CEREMONY_VERSION } from "../support/pairing.ts";
 import { expect } from "./fixtures.ts";
 
 export const REQUESTER_RECORD_KEY = "roost.pairingCeremony.v1";

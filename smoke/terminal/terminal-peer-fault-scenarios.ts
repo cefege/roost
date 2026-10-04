@@ -91,7 +91,7 @@ export async function verifyPeerBlackholeFallback(browser: Browser, testInfo: Te
     const anchor = await waitForHistoryAnchor(page.page, sessionId, historyPrefix);
 
     const peerFaults = stack.peerFaults;
-    if (!peerFaults) throw new Error("source peer fault controls were unavailable");
+    if (!peerFaults) throw new Error("peer fault controls were unavailable");
     await peerFaults.setPeerPacketBlackhole(fixtureWorker.label, true);
     await waitForStableCellFrames(page.page, sessionId);
     const beforeFulls = await page.page.evaluate((id) => window.__smoke.cellFullFrameCount(id), sessionId);
@@ -132,7 +132,7 @@ export async function verifyDroppedPeerResultIsAmbiguous(browser: Browser, testI
     const sessionId = await createPeerFixtureSession(page.page, fixtureWorker);
     await waitForDirectRoute(page.page, sessionId);
     const peerFaults = stack.peerFaults;
-    if (!peerFaults) throw new Error("source peer fault controls were unavailable");
+    if (!peerFaults) throw new Error("peer fault controls were unavailable");
 
     const ackMarker = await armPeerFixtureKey(page.page, sessionId, crypto.randomUUID());
     await page.page.evaluate(() => window.__smoke.resetTerminalInputCapture());
@@ -168,7 +168,7 @@ export async function verifyPeerToSyncInputFence(browser: Browser, testInfo: Tes
     const sessionId = await createPeerFixtureSession(page.page, fixtureWorker);
     await waitForDirectRoute(page.page, sessionId);
     const peerFaults = stack.peerFaults;
-    if (!peerFaults) throw new Error("source peer fault controls were unavailable");
+    if (!peerFaults) throw new Error("peer fault controls were unavailable");
 
     const oldAckMarker = await armPeerFixtureKey(page.page, sessionId, crypto.randomUUID());
     const heldInput = peerFaults.holdNextDirectInput(sessionId);
@@ -205,7 +205,7 @@ export async function verifySyncRedialAfterPeerFallbackKeepsInput(browser: Brows
     const sessionId = await createPeerFixtureSession(page.page, fixtureWorker);
     await waitForDirectRoute(page.page, sessionId);
     const peerFaults = stack.peerFaults;
-    if (!peerFaults) throw new Error("source peer fault controls were unavailable");
+    if (!peerFaults) throw new Error("peer fault controls were unavailable");
 
     await peerFaults.setPeerPacketBlackhole(fixtureWorker.label, true);
     await waitForSyncRoute(page.page, sessionId);
@@ -234,7 +234,7 @@ export async function verifyDirectGrantExpiry(browser: Browser, testInfo: TestIn
     const sessionId = await createPeerFixtureSession(page.page, fixtureWorker);
     const beforeExpiry = await waitForDirectRoute(page.page, sessionId);
     const peerFaults = stack.peerFaults;
-    if (!peerFaults) throw new Error("source peer fault controls were unavailable");
+    if (!peerFaults) throw new Error("peer fault controls were unavailable");
 
     await stack.stopCoordinator();
     await peerFaults.advanceGrantClock(fixtureWorker.label, 12 * 60 * 60 * 1_000 + 1);
@@ -263,7 +263,7 @@ export async function verifyDroppedRetirementExpires(browser: Browser, testInfo:
     const sessionId = await createPeerFixtureSession(page.page, fixtureWorker);
     await waitForDirectRoute(page.page, sessionId);
     const peerFaults = stack.peerFaults;
-    if (!peerFaults) throw new Error("source peer fault controls were unavailable");
+    if (!peerFaults) throw new Error("peer fault controls were unavailable");
 
     const oldAckMarker = await armPeerFixtureKey(page.page, sessionId, crypto.randomUUID());
     const heldInput = peerFaults.holdNextDirectInput(sessionId);

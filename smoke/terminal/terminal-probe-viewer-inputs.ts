@@ -5,8 +5,8 @@
 // (which owns the shared record/integer guards) because that file is at its
 // line cap.
 
-import { minimumTerminalGeometry, type TerminalGeometry } from "@roost/protocol/viewport";
-import type { TerminalStreamProbe } from "../../apps/web/src/smoke/smoke.ts";
+import { minimumTerminalGeometry, type TerminalGeometry } from "../support/viewport.ts";
+import type { TerminalStreamProbe } from "../contract/smokeTypes.ts";
 import { nonNegativeInteger, unknownRecord } from "./terminal-probe-helpers.ts";
 
 export interface CoordinatorTerminalViewerInput {

@@ -205,7 +205,7 @@ test("worker deletion retires direct authority before a held authenticated input
     const sessionId = await createPeerFixtureSession(page.page, fixtureWorker);
     await waitForDirectRoute(page.page, sessionId);
     const peerFaults = stack.peerFaults;
-    if (!peerFaults) throw new Error("source peer fault controls were unavailable");
+    if (!peerFaults) throw new Error("peer fault controls were unavailable");
 
     const nonce = crypto.randomUUID();
     const ackMarker = await armPeerFixtureKey(page.page, sessionId, nonce);
@@ -241,7 +241,7 @@ test("device revocation closes the direct peer before a held input can mutate it
     const sessionId = await createPeerFixtureSession(page.page, fixtureWorker);
     await waitForDirectRoute(page.page, sessionId);
     const peerFaults = stack.peerFaults;
-    if (!peerFaults) throw new Error("source peer fault controls were unavailable");
+    if (!peerFaults) throw new Error("peer fault controls were unavailable");
     const browserFingerprint = await browserDeviceFingerprint(page.page, stack);
 
     const nonce = crypto.randomUUID();

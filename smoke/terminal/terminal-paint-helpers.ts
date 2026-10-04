@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 import type {
   PaintedCursorProof,
   PaintedMarkerProof,
-} from "../../apps/web/src/smoke/smokeHarness.ts";
+} from "../contract/smokeHarness.ts";
 import type {
   RecoverySmokeApi,
   PaintAttempt,

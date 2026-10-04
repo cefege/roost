@@ -1,22 +1,20 @@
-// Drives the compiled CLI contract through the hermetic coordinator, worker, and real PTY.
+// Drives the `roost api` CLI contract through the hermetic coordinator, worker, and real PTY.
 // The stack client creates and observes the shell; the CLI must discover and write to it.
 // No browser echo or mocked RPC can satisfy this exact-byte terminal bridge proof.
 
-import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
-import { devNull, tmpdir } from "node:os";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { loadWorkerKey, mintJwt } from "../support/worker-key.ts";
 import { expect, test } from "./fixtures.ts";
-
-const bunExecutable = process.env.ROOST_TEST_BUN ?? Bun.which("bun") ?? (() => {
-  throw new Error("terminal CLI smoke requires Bun");
-})();
+import { resolveSmokeStackExecutables } from "./stack-executables.ts";
 
 async function runCli(
   args: string[],
   environment: Record<string, string>,
   stdin?: Uint8Array,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const cli = Bun.spawn([bunExecutable, `--env-file=${devNull}`, "apps/roost-cli/src/main.ts", "api", ...args], {
+  const cli = Bun.spawn([resolveSmokeStackExecutables().coordExecutable, "api", ...args], {
     cwd: join(import.meta.dir, "..", ".."),
     env: environment,
     stdin: "pipe",
@@ -35,17 +33,18 @@ async function runCli(
 
 test("CLI sessions JSON discovers a PTY and stdin input paints its marker", async ({ stack }) => {
   const cliHome = await mkdtemp(join(tmpdir(), "roost-cli-bridge-"));
-  const cliKeyPath = join(cliHome, ".roost", "cli-key");
   let sessionId: string | undefined;
   try {
-    await mkdir(join(cliHome, ".roost"), { recursive: true, mode: 0o700 });
-    await copyFile(stack.apiKeyPath, cliKeyPath);
+    // `roost api` presents ROOST_CLI_TOKEN as its bearer and dials
+    // ROOST_COORD_URL; the token is a JWT signed by the key the stack already
+    // authorized, and the empty HOME keeps the operator's own install out of it.
     const environment = {
       ...Object.fromEntries(
         Object.entries(process.env).filter(([key, value]) => value !== undefined && !key.startsWith("ROOST_")),
       ),
       HOME: cliHome,
       ROOST_COORD_URL: stack.baseUrl,
+      ROOST_CLI_TOKEN: await mintJwt(await loadWorkerKey(stack.apiKeyPath), "roost-coordinator"),
     } as Record<string, string>;
     sessionId = (await stack.client.sessionsSpawn({
       workerFp: stack.workerFp,

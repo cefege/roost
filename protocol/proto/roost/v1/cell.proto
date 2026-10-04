@@ -1,6 +1,6 @@
 // Cell-grid wire (R11, cell-grid model). Worker ships PRE-RENDERED styled cells;
-// SPA paints + never reflows. Mirrors @roost/protocol/cell types 1:1; adapters
-// in src/cell/cell-proto.ts. Imported by worker_transport (worker→coord
+// SPA paints + never reflows. Mirrors roost-protocol's `cell::types` 1:1;
+// adapters in `cell::proto`. Imported by worker_transport (worker→coord
 // WCellGrid) and sync (coord→SPA FirehoseFrame.cell_grid).
 
 syntax = "proto3";
@@ -67,7 +67,7 @@ message PbCellGridFrame {
   bool bracketed_paste = 16;   // DECSET 2004 (bracketed paste); SPA wraps pastes when set
   // Lag-lens (roostDiag): down-leg wall-clock stamps (ms) ridden back to the
   // browser on the frame so it reconstructs the whole down-leg with no
-  // cross-process correlation token. 0 = unset. See apps/web/src/lib/diag.ts.
+  // cross-process correlation token. 0 = unset.
   uint64 pty_out_ms = 17;      // worker: PTY-out chunk arrival (lastByteAt)
   uint64 worker_emit_ms = 18;  // worker: cell-frame send
   uint64 coord_recv_ms = 19;   // coord: byte-hub publishCellGrid
@@ -79,7 +79,7 @@ message PbCellGridFrame {
   // press/release plus motion while a button is held. Raw wire-meaningful
   // integer, like PbCellSpan.fg/bg; the core folds modes 9 and 1003 to 0.
   // Advisory like cursor_keys_app: rides every frame, full or delta, and never
-  // forces a reframe. See apps/web/src/lib/terminalMouse.ts.
+  // forces a reframe. Read by roost-web-terminal's `mouse_forward`.
   uint32 mouse_tracking = 22;
   bool mouse_sgr = 23;         // DECSET 1006: SGR-1006 encoding; else legacy X10
   bool focus_events = 24;      // DECSET 1004: SPA emits CSI I / CSI O on real focus/blur

@@ -5,13 +5,13 @@
 
 import type { Browser, Page } from "@playwright/test";
 import { setTimeout as delay } from "node:timers/promises";
-import { DECK_WARM_LIMIT } from "../../apps/web/src/lib/deckWarmSet.ts";
+import { DECK_WARM_LIMIT } from "../support/deckWarmSet.ts";
 import { encodePtyFixtureCommand } from "./pty-fixture-protocol.ts";
 import { activateSlots } from "./terminal-scale-activation.ts";
 import type { TerminalTestStack } from "./stack.ts";
 import { waitForStableCellFrames } from "./terminal-helpers.ts";
-import type { TerminalGeometry } from "@roost/protocol/viewport";
-import type { TerminalStreamProbe } from "../../apps/web/src/smoke/smoke.ts";
+import type { TerminalGeometry } from "../support/viewport.ts";
+import type { TerminalStreamProbe } from "../contract/smokeTypes.ts";
 import { coordinatorTerminalViewState, readTerminalStreamProbe } from "./terminal-probe-helpers.ts";
 import {
   coordinatorConstrainedGeometry, coordinatorTerminalViewerInputs,

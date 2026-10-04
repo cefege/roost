@@ -14,7 +14,7 @@ export default defineConfig({
   // Every test already owns a fresh browser context, and every WORKER owns a
   // full hermetic stack (its own coord on an ephemeral port, worker, keeper,
   // and PTYs under an mkdtemp root — smoke/terminal/stack.ts). Nothing is
-  // shared but the read-only apps/web/dist bundle, so tests are independent
+  // shared but the read-only pinned page bundle, so tests are independent
   // both across files and inside a file: parallelize at test granularity, or a
   // themed spec's cases serialize behind one browser for minutes at a time.
   fullyParallel: true,

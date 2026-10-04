@@ -3,11 +3,11 @@
 // per-view geometry inputs, and ask the PTY child what winsize it actually
 // observes. terminal-multiview-geometry.spec.ts is the only caller; the probe
 // readers come from terminal-probe-viewer-inputs.ts and the SCD policy itself
-// from @roost/protocol/viewport, so no copy of it lives in a spec.
+// from smoke/support/viewport.ts, so no copy of it lives in a spec.
 
 import { setTimeout as delay } from "node:timers/promises";
 import type { Page } from "@playwright/test";
-import type { TerminalGeometry } from "@roost/protocol/viewport";
+import type { TerminalGeometry } from "../support/viewport.ts";
 import { expect } from "./fixtures.ts";
 import { encodePtyFixtureCommand, PTY_FIXTURE_READY } from "./pty-fixture-protocol.ts";
 import type { TerminalTestStack } from "./stack.ts";

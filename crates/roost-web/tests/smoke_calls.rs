@@ -1,7 +1,7 @@
 //! The `window.__smoke` member table and argument grammar the unmodified
 //! Playwright oracle calls, and the `state()` record its fixture waits on
-//! (`state().workers[fp]`). Pins `smoke::{call, state_snapshot}` (v2
-//! `apps/web/src/smoke/smokeTypes.ts:118-287`, `smokeRuntimeControls.ts:59-66`).
+//! (`state().workers[fp]`). Pins `smoke::{call, state_snapshot}` against
+//! `SmokeApi` in `smoke/contract/smokeTypes.ts`.
 #![cfg(feature = "smoke")]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

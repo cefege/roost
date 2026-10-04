@@ -1,4 +1,4 @@
-// Core wire message types — mirror of Zod schemas at packages/protocol/src/wire/*.ts.
+// Core wire message types — mirror of roost-protocol's `wire` types.
 // Used by RPCs in coordinator.proto and worker_transport.proto.
 // crpc2 expanded from crpc1's minimal Worker-only set.
 

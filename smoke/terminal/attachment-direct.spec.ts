@@ -102,7 +102,7 @@ test("matching loopback uploads bytes directly and previews the selected image l
     });
     const suffix = crypto.randomUUID().replaceAll("-", "").slice(0, 8);
     const filename = `direct-loopback-${suffix}.png`;
-    const bytes = readFileSync(new URL("../../apps/web/public/icon-32.png", import.meta.url));
+    const bytes = readFileSync(new URL("../../crates/roost-web/assets/icon-32.png", import.meta.url));
     await chooseAttachment(page, sessionId, { name: filename, mimeType: "image/png", buffer: bytes });
     await probeSeen.promise;
     const preview = page.getByTestId("transfer-preview");

@@ -43,7 +43,7 @@ export interface DirectInputHold {
   stop(): Promise<void>;
 }
 
-/** Start the stack-owned control endpoint before a source worker begins booting. */
+/** Start the stack-owned control endpoint before a worker begins booting. */
 export async function startDirectInputHold(root: string): Promise<DirectInputHold> {
   const socketPath = join(root, "terminal-direct-input-hold.sock");
   try { rmSync(socketPath); } catch { /* a fresh stack root normally has no prior socket */ }

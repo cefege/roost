@@ -1,19 +1,11 @@
 // Terminal stack worker support owns child launch, routability waits, and fixture compilation.
 // The stack lifecycle supplies isolated paths while this module keeps worker setup byte-identical.
-// One checkout parameter lets an upgrade run relaunch the same worker identity from a new release.
-// A smoke entrypoint may inject an in-process test seam; packaged binaries always run `worker`.
-
-import {
-	resolveSmokeStackExecutables,
-	workerRuntimeOverrides,
-	resolveSmokeWebDist,
-} from "./stack-executables.ts";
+// Every worker is `roost worker`; a `smoke`-featured build may also take the fault socket flags.
 
 import { execFileSync, spawn } from "node:child_process";
 import { openSync } from "node:fs";
 import { join } from "node:path";
-import type { AuthorizedApiClient } from "../../apps/roost-cli/src/api.ts";
-import { KEEPER_FORCE_LIVE_RETIRE_ENV } from "../../packages/platform/src/worker-service-env.ts";
+import type { AuthorizedApiClient } from "../support/coord-client.ts";
 import {
   REPOSITORY_ROOT,
   childEnvironment,
@@ -31,13 +23,12 @@ export type TerminalWorkerPeerPortRange = {
 };
 
 export interface TerminalWorkerRuntime {
-  /** Exact compiled `roost` binary. It receives the ordinary `worker` subcommand. */
-  workerExecutable?: string;
+  /** The `roost` binary. It receives the ordinary `worker` subcommand. */
+  workerExecutable: string;
   /** Arguments after `worker`: the fault socket flags a `smoke`-featured build accepts. */
   workerExecutableArgs?: readonly string[];
-  /** Smoke-only source entrypoint that calls the ordinary worker runtime with injected deps. */
-  sourceEntrypoint?: string;
-  sourceEntrypointArgs?: readonly string[];
+  /** The dx bundle the worker's local door serves. */
+  webDist: string;
 }
 
 export interface TerminalWorkerStartConfig {
@@ -56,44 +47,22 @@ export interface TerminalWorkerStartConfig {
   terminalPeerEnabled?: boolean;
   terminalPeerBindAddress?: string;
   terminalPeerPortRange?: TerminalWorkerPeerPortRange;
-  /** Build identity the worker reports; deploy admission compares it. */
+  /** Build identity the worker reports. */
   gitSha?: string;
-  /** Outlive the spawning process, the way an installed service would. */
-  detached?: boolean;
-  /** Authorize destroying live PTYs the target keeper cannot adopt. */
-  forceLiveKeeperRetire?: boolean;
 }
 
 export function createTerminalWorkerStarter(
-  bunExecutable: string,
   coordinatorUrl: string,
-  sourceRoot: string = REPOSITORY_ROOT,
-  runtime: TerminalWorkerRuntime = {},
+  runtime: TerminalWorkerRuntime,
 ): (config: TerminalWorkerStartConfig) => RunningService {
-  // An explicit runtime (a peer-fault entrypoint, a qualified packaged worker)
-  // is the caller's decision and wins; an empty one takes the environment's
-  // knob, which is the same rule the coordinator side follows.
-  const selected: TerminalWorkerRuntime = runtime.workerExecutable || runtime.sourceEntrypoint
-    ? runtime
-    : workerRuntimeOverrides(resolveSmokeStackExecutables());
-  if (selected.workerExecutable && selected.sourceEntrypoint) {
-    throw new Error("a packaged worker cannot use a source smoke entrypoint");
-  }
-  ensureSmokeStackBinary(selected.workerExecutable, sourceRoot);
-  const command = selected.workerExecutable ?? bunExecutable;
-  const args = selected.workerExecutable
-    ? ["worker", ...(selected.workerExecutableArgs ?? [])]
-    : [
-      selected.sourceEntrypoint ?? "apps/worker/src/main.ts",
-      ...(selected.sourceEntrypointArgs ?? []),
-    ];
+  ensureSmokeStackBinary(runtime.workerExecutable, REPOSITORY_ROOT);
+  const args = ["worker", ...(runtime.workerExecutableArgs ?? [])];
   return (config) => {
     const workerLog = openSync(config.logPath, "a");
     return {
       logPath: config.logPath,
-      child: spawn(command, args, {
-        cwd: sourceRoot,
-        detached: config.detached ?? false,
+      child: spawn(runtime.workerExecutable, args, {
+        cwd: REPOSITORY_ROOT,
         env: childEnvironment(config.home, config.tmpDir, {
           ROOST_COORDINATOR_URL: coordinatorUrl,
           // Only the first boot redeems the token; persisted data owns the
@@ -103,18 +72,10 @@ export function createTerminalWorkerStarter(
           ROOST_WORKER_DATA_DIR: config.dataDir,
           ROOST_WORKER_KEY_PATH: join(config.dataDir, "worker.key"),
           ROOST_KEEPER_QUIET: "1",
-          // The local door serves the SPA from this same key (worker
-          // `host/config.ts` reads it, `boot-local-terminal.ts` hands it to
-          // `createSpaResponder`). Without it the from-source run has neither a
-          // disk build nor embedded assets — `web-embed.generated.ts` is an
-          // empty stub outside a release build — so every page request answers
-          // 404 and a navigation to `/` comes back as an octet-stream download
-          // instead of the app. Same resolution the coordinator launcher uses,
-          // because whichever door serves the SPA serves the same build.
-          ROOST_WEB_DIST_PATH:
-            resolveSmokeWebDist() ?? join(REPOSITORY_ROOT, "apps/web/dist"),
+          // The local door serves the page from this key; whichever door serves
+          // the page serves the same build the coordinator does.
+          ROOST_WEB_DIST_PATH: runtime.webDist,
           ...(config.gitSha ? { GIT_SHA: config.gitSha, ROOST_GIT_SHA: config.gitSha } : {}),
-          ...(config.forceLiveKeeperRetire ? { [KEEPER_FORCE_LIVE_RETIRE_ENV]: "1" } : {}),
           ...(config.localUiBind ? { ROOST_WORKER_LOCAL_UI_BIND: config.localUiBind } : {}),
           ...(config.terminalPeerEnabled === undefined
             ? {}

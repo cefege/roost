@@ -8,8 +8,8 @@
 //   bun smoke/terminal/live-stack.ts                      # ordinary smoke profile
 //   bun smoke/terminal/live-stack.ts --local-first --pair # production local profile
 //
-// Requires apps/web/dist to be current AND smoke-enabled (the window.__smoke tier):
-// `VITE_ROOST_SMOKE=1 bun run --cwd apps/web build`.
+// Requires a current pin with a smoke-enabled page (the window.__smoke tier):
+// `bun smoke/parity/run.ts build`.
 //
 import { startTerminalTestStack } from "./stack.ts";
 

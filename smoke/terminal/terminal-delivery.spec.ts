@@ -3,8 +3,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fromBinary } from "@bufbuild/protobuf";
 import { test, expect } from "./fixtures.ts";
 import { join } from "node:path";
-import { FilesListDirRequestSchema } from "../../packages/protocol/src/gen/roost/v1/coordinator_pb.ts";
-import { encodeFolderPath } from "../../apps/web/src/lib/terminalHref.ts";
+import { FilesListDirRequestSchema } from "../gen/roost/v1/coordinator_pb.ts";
+import { encodeFolderPath } from "../support/terminalHref.ts";
 import type { RecoverySmokeApi, TerminalIdentityProbeWindow } from "./terminal-smoke-api.ts";
 import { spawnSmokeShell, navigateToSmokeSession } from "./terminal-helpers.ts";
 import {

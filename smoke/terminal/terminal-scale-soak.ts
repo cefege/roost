@@ -6,7 +6,7 @@
 
 import { chromium, type Browser, type Page } from "@playwright/test";
 import { setTimeout as delay } from "node:timers/promises";
-import { DECK_WARM_LIMIT } from "../../apps/web/src/lib/deckWarmSet.ts";
+import { DECK_WARM_LIMIT } from "../support/deckWarmSet.ts";
 import { encodePtyFixtureCommand } from "./pty-fixture-protocol.ts";
 import { startTerminalTestStack, type TerminalTestStack } from "./stack.ts";
 import { waitForStableCellFrames } from "./terminal-helpers.ts";

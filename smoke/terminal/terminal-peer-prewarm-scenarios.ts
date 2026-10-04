@@ -3,8 +3,7 @@
 // negotiation of its own. terminal-peer.spec.ts owns the Playwright test registration.
 
 import type { Browser, Page, TestInfo } from "@playwright/test";
-import { expect, test } from "./fixtures.ts";
-import { resolveSmokeWebDist } from "./stack-executables.ts";
+import { expect } from "./fixtures.ts";
 import { startTerminalTestStack, type TerminalTestStack } from "./stack.ts";
 import { attachStackLogs, type EnrolledPage } from "./terminal-local-fast-path-helpers.ts";
 import { openPeerSmokePage, sendTrustedPeerKey, waitForDirectRoute } from "./terminal-peer-helpers.ts";
@@ -66,7 +65,6 @@ export async function waitForPrewarmedPeer(page: Page, sessionId: string): Promi
  * or authenticating while the pane opens, and the route reports how long the pane waited.
  */
 export async function verifyPrewarmedPeerServesFirstPane(browser: Browser, testInfo: TestInfo): Promise<void> {
-  test.skip(resolveSmokeWebDist() === null, "direct peer pre-warm is the Rust web client's");
   const stack = await startTerminalTestStack(PREWARM_STACK_OPTIONS);
   let page: EnrolledPage | undefined;
   try {

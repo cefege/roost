@@ -1,9 +1,8 @@
 //! The argument readers behind `call::parse_call`: typed reads of the JSON
 //! argument list with the refusal each wrong type answers, and the structured
 //! options of `waitForPaintedCursor`, `beginTerminalTiming` and
-//! `runRenderStress`. Native. Ports the argument contracts of
-//! `apps/web/src/smoke/smokeTypes.ts:118-287` and
-//! `apps/web/src/smoke/smokeHarness.ts:326-333`.
+//! `runRenderStress`. Native. The argument contracts are `SmokeApi` in
+//! `smoke/contract/smokeTypes.ts`.
 
 use serde_json::{Map, Value};
 

@@ -1,17 +1,10 @@
-// Pure type surface of the smoke backdoor (window.__smoke), split out of
-// lib/smoke.ts so consumers (smokeHarness, terminal tiers) can depend on the
-// contract without importing the implementation module — smoke.ts imports
-// harness functions, so a type-only edge from harness→smoke was a latent
-// import cycle. Type-only module: erased at runtime.
+// The `window.__smoke` contract: every method and probe shape the Playwright
+// oracle calls on the page. The roost-web `smoke` module implements it (its
+// `//!` headers cite this file), so a change here is a change to what the
+// page must answer. Type-only; erased at runtime.
 
-import type {
-  ScrollbackHistoryFloor,
-  Session,
-  Worker,
-  Workspace,
-} from "@roost/protocol/wire";
-import type { RendererPaintPresentation } from "../renderer/cellRenderer.ts";
-import type { SpaPhaseTimeline } from "../browser/diag.ts";
+import type { ScrollbackHistoryFloor, Session, Worker, Workspace } from "./wire.ts";
+import type { SpaPhaseTimeline } from "./diag.ts";
 import type {
   PaintedCursorExpected,
   PaintedCursorProof,
@@ -19,9 +12,12 @@ import type {
   TerminalTimingKind,
   TerminalTimingResult,
 } from "./smokeHarness.ts";
-import type { SyncRedialStatus } from "../store/sync.ts";
-import type { TerminalBrowserStreamSnapshot } from "../renderer/terminalDiagSnapshot.ts";
-import type { TerminalPeerCandidateType } from "../store/terminal-stream-transport.ts";
+import type { SyncRedialStatus } from "./syncStatus.ts";
+import type {
+  RendererPaintPresentation,
+  TerminalBrowserStreamSnapshot,
+  TerminalPeerCandidateType,
+} from "./terminalDiagSnapshot.ts";
 
 export type { PaintedCursorProof } from "./smokeHarness.ts";
 

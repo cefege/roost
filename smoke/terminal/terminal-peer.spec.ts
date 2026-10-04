@@ -32,7 +32,6 @@ import { skipWithoutPeerFaultControls } from "./terminal-peer-fault-helpers.ts";
 import { verifySyncRedialAfterPeerFallbackKeepsInput } from "./terminal-peer-fault-scenarios.ts";
 import { installRtcUnavailable } from "./stack-browser-faults.ts";
 import { verifyPrewarmedPeerServesFirstPane, waitForPrewarmedPeer } from "./terminal-peer-prewarm-scenarios.ts";
-import { resolveSmokeWebDist } from "./stack-executables.ts";
 import {
   expectCompactTerminalTransportHeader,
   expectTerminalTransportIndicator,
@@ -278,12 +277,12 @@ test("invalid offers, unavailable grants, expired grants, and identity mismatche
     try {
       const fixtureWorker = await stack.startPtyFixtureWorker();
       const peerFaults = stack.peerFaults;
-      if (!peerFaults) throw new Error("source peer fault controls were unavailable");
+      if (!peerFaults) throw new Error("peer fault controls were unavailable");
       page = await openPeerSmokePage(browser, stack);
       const sessionId = await spawnPtyFixtureSession(page.page, fixtureWorker);
       // The setup document pre-warms the new session's worker; arming before its
       // offer lands would spend the fault there and leave the pane's peer clean.
-      if (resolveSmokeWebDist() !== null) await waitForPrewarmedPeer(page.page, sessionId);
+      await waitForPrewarmedPeer(page.page, sessionId);
       await peerFaults.armNextOfferFault(fixtureWorker.label, fault);
       await page.page.goto(`${new URL(page.page.url()).origin}/s/${sessionId}`, { waitUntil: "domcontentloaded" });
       await page.page.waitForFunction(() => window.__smoke !== undefined);

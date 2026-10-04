@@ -1,5 +1,5 @@
 // Public disposable peer fault controls composed by the terminal smoke stack.
-// Each method routes to a named source worker through the stack-only Unix socket.
+// Each method routes to a named worker through the stack-only Unix socket.
 // The direct input hold is separate because it waits at authenticated packet ingress.
 // No product client, coordinator RPC, or environment can import these controls.
 

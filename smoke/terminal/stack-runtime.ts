@@ -1,19 +1,15 @@
 // Terminal smoke stack support owns child environments, the coordinator launch,
 // test API-key authorization, and teardown. The stack lifecycle calls these
-// helpers while retaining ownership of spawned services, and an upgrade run
-// relaunches the coordinator from a second checkout through the same launcher.
+// helpers while retaining ownership of spawned services.
 // Keeping process cleanup and key authorization together prevents hermetic stacks leaking state.
 
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { openSync, readFileSync } from "node:fs";
+import { existsSync, openSync, readFileSync } from "node:fs";
 import { once } from "node:events";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
-import { resolveLocalEndpoint } from "../../packages/host/src/local-endpoint.ts";
-import { shutdownKeeperAuthenticated } from "../../apps/worker/src/keeper/keeper-probe.ts";
-import type { AuthorizedApiClient } from "../../apps/roost-cli/src/api.ts";
-import { resolveSmokeWebDist } from "./stack-executables.ts";
+import type { AuthorizedApiClient } from "../support/coord-client.ts";
 
 export const REPOSITORY_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -33,13 +29,11 @@ function childEnvironment(home: string, tmpDir: string, values: Record<string, s
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([key, value]) => value !== undefined && !key.startsWith("ROOST_")),
   );
-  // Every child gets its own temp namespace. apps/worker/src/shell-spec.ts
-  // materializes the POSIX bootstrap rc at a FIXED tmpdir() path
-  // (roost-bash-osc7/roost.bashrc, roost-zsh-noPROMPT_SP/.zshrc), once per
-  // process, with a truncating write: any two workers sharing a temp root race
-  // there, and a shell that sources the file mid-truncate silently loses its
-
-  // OSC7 cwd tracking. That is reachable both across concurrent stacks (one
+  // Every child gets its own temp namespace. The worker materializes the POSIX
+  // shell bootstrap rc at a FIXED path under its temp root, once per process,
+  // with a truncating write: any two workers sharing a temp root race there,
+  // and a shell that sources the file mid-truncate silently loses its OSC7 cwd
+  // tracking. That is reachable both across concurrent stacks (one
   // per Playwright worker) and inside one stack, whose primary and second
   // workers are separate processes. TMP/TEMP carry the same isolation on
   // Windows, where os.tmpdir() reads those instead of TMPDIR.
@@ -125,17 +119,17 @@ async function stopChild(service: RunningService | undefined): Promise<void> {
   }
 }
 
+/**
+ * Stop the keeper a worker spawned. The keeper outlives its worker by design
+ * and is not a child of this process, so it is found through the pid file the
+ * worker keeps beside `mux-keeper.sock` in its data directory, and liveness is
+ * polled with signal 0. `roost-keeper` exits on SIGTERM.
+ */
 async function stopKeeper(workerDataDir: string): Promise<void> {
-  await shutdownKeeperAuthenticated(resolveLocalEndpoint({
-    name: "mux-keeper",
-    dataDir: workerDataDir,
-  }));
-}
-
-/** Stop a worker a deploy left running: it is not a child of this process, so
- *  only its pid is available and liveness is polled with signal 0. */
-async function stopDeployedWorker(pid: number | undefined): Promise<void> {
-  if (pid === undefined) return;
+  const pidPath = join(workerDataDir, "mux-keeper.pid");
+  if (!existsSync(pidPath)) return;
+  const pid = Number.parseInt(readFileSync(pidPath, "utf8").trim(), 10);
+  if (!Number.isSafeInteger(pid) || pid <= 0) return;
   try {
     process.kill(pid, "SIGTERM");
   } catch {
@@ -201,41 +195,11 @@ export async function cleanInstallResources(
   }
 }
 
-/**
- * The process a coordinator child runs as, and the arguments it receives.
- *
- * A packaged `roost` binary gets the ordinary `coord` subcommand; the default
- * runs the checkout's entrypoint under bun. Those are the only two shapes, and
- * naming them in one place is what lets a run say which one it used instead of
- * implying it.
- */
-export interface CoordinatorLaunchPlan {
-  readonly command: string;
-  readonly args: readonly string[];
-}
-
-/**
- * The coordinator launch plan implied by an explicit binary.
- *
- * Absent the binary this is exactly the TypeScript launch the suite has always
- * used, down to the relative entrypoint resolved against the source root.
- */
-export function coordinatorLaunchPlan(config: {
-  bunExecutable: string;
-  coordExecutable?: string;
-}): CoordinatorLaunchPlan {
-  if (!config.coordExecutable) {
-    return { command: config.bunExecutable, args: ["apps/coord/src/main.ts"] };
-  }
-  return { command: config.coordExecutable, args: ["coord"] };
-}
-
 export interface CoordinatorServiceConfig {
-  bunExecutable: string;
-  /** The exact compiled `roost` binary; it receives the ordinary `coord` subcommand. */
-  coordExecutable?: string;
-  /** Checkout the coordinator process runs from; a release upgrade swaps it. */
-  sourceRoot: string;
+  /** The `roost` binary; it receives the ordinary `coord` subcommand. */
+  coordExecutable: string;
+  /** The dx bundle the coordinator serves. */
+  webDist: string;
   root: string;
   home: string;
   tmpDir: string;
@@ -260,25 +224,19 @@ export interface CoordinatorServiceConfig {
 
 export function startCoordinatorService(config: CoordinatorServiceConfig): RunningService {
   const coordLog = openSync(config.logPath, "a");
-  const plan = coordinatorLaunchPlan(config);
   return {
     logPath: config.logPath,
-    child: spawn(plan.command, [...plan.args], {
-      cwd: config.sourceRoot,
+    child: spawn(config.coordExecutable, ["coord"], {
+      cwd: REPOSITORY_ROOT,
       env: childEnvironment(config.home, config.tmpDir, {
         ROOST_COORDINATOR_BIND: config.bind,
-        // Bun auto-loads the checkout's .env after spawn, so the hermetic
-        // loopback auth semantics are pinned explicitly rather than inherited.
+        // The hermetic loopback auth semantics are pinned explicitly rather
+        // than inherited from whatever the caller's shell exported.
         ROOST_TRUST_PROXY: "0",
         ROOST_RELAXED_CSP: config.relaxedCsp === false ? "0" : "1",
         ROOST_COORDINATOR_DB: config.dbPath,
         ROOST_COORDINATOR_AUTHORIZED_KEYS: join(config.root, "authorized_keys.roost"),
-        // The SPA is the working tree's build by default: apps/web/dist is not
-        // committed, so a prior-release checkout has none to serve. A Rust SPA
-        // is a different directory with the same contract, so ROOST_SMOKE_WEB_DIST
-        // names it and is validated at resolution rather than here.
-        ROOST_WEB_DIST_PATH:
-          resolveSmokeWebDist() ?? join(REPOSITORY_ROOT, "apps/web/dist"),
+        ROOST_WEB_DIST_PATH: config.webDist,
         ROOST_GIT_SHA: config.gitSha,
         ...(config.webPublicUrl === undefined ? {} : { ROOST_WEB_PUBLIC_URL: config.webPublicUrl }),
         ...(config.coordinatorPublicUrl === undefined
@@ -305,7 +263,6 @@ export {
   childEnvironment,
   logTail,
   stopChild,
-  stopDeployedWorker,
   stopKeeper,
   waitFor,
 };

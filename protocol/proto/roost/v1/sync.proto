@@ -3,7 +3,7 @@
 // terminal cell grids and compact terminal-link metadata over one stream.
 //
 // Wire shape: FirehoseFrame oneof. Event-typed variants carry a JSON
-// payload (existing per-domain event shapes from @roost/protocol/wire).
+// payload (the per-domain event shapes of roost-protocol's `wire`).
 
 syntax = "proto3";
 package roost.v1;

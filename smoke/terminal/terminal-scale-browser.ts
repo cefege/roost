@@ -5,14 +5,14 @@
 
 import type { Browser, BrowserContext, Page } from "@playwright/test";
 import { setTimeout as delay } from "node:timers/promises";
-import type { LayoutDocumentV1 } from "@roost/protocol/layout-document";
-import { layoutDocumentToProto } from "@roost/protocol/layout-document-proto";
-import { UiApplyLayoutOutcome } from "@roost/protocol/proto/sync_pb";
-import type { SmokeApi } from "../../apps/web/src/smoke/smokeTypes.ts";
+import type { LayoutDocumentV1 } from "../support/layout-document.ts";
+import { layoutDocumentToProto } from "../support/layout-document-proto.ts";
+import { UiApplyLayoutOutcome } from "../gen/roost/v1/sync_pb.ts";
+import type { SmokeApi } from "../contract/smokeTypes.ts";
 import { enrollSmokeBrowser } from "./fixtures.ts";
 import type { TerminalTestStack, TerminalTestWorker } from "./stack.ts";
 import { assertFleetCapacity, type ScaleWorkerCapacity, workerFolder } from "./terminal-scale-preflight.ts";
-import type { PaintedMarkerProof } from "../../apps/web/src/smoke/smokeHarness.ts";
+import type { PaintedMarkerProof } from "../contract/smokeHarness.ts";
 export const SCALE_FIXTURE_READY = "ROOST_PTY_READY/1";
 export const SCALE_MARKER_TIMEOUT_MS = 45_000;
 export const SCALE_SPAWN_PACE_MS = 75;

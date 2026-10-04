@@ -6,7 +6,7 @@
 import { fromBinary } from "@bufbuild/protobuf";
 import {
   CoordWorkerDownSchema,
-} from "../../packages/protocol/src/gen/roost/v1/worker_transport_pb.ts";
+} from "../gen/roost/v1/worker_transport_pb.ts";
 
 const MAX_INPUT_BYTES = 64 * 1024;
 

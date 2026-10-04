@@ -3,11 +3,11 @@
 // are compared on, and the browser/worker readings that name which transport a
 // pane's frames actually travelled.
 // Called only by terminal-local-fast-path.spec.ts; depends on the tier's stack
-// module, window.__smoke, and the coordinator's own keeper-row reader.
+// module, window.__smoke, and the harness's coordinator-database probe.
 
 import type { Browser, BrowserContext, Page, TestInfo } from "@playwright/test";
-import { workerInventoryForUpdateAdmission } from "../../apps/roost-cli/src/status-report.ts";
-import type { KeeperRuntimeObservationV1 } from "../../packages/protocol/src/keeper-update.ts";
+import { coordinatorWorkerRows } from "../support/coord-db.ts";
+import type { KeeperRuntimeObservationV1 } from "../support/keeper-update.ts";
 import { installDisabledLoopbackProbe } from "./stack-browser-faults.ts";
 import { enrollSmokeBrowser } from "./fixtures.ts";
 import { encodePtyFixtureCommand } from "./pty-fixture-protocol.ts";
@@ -235,7 +235,7 @@ export interface KeeperRow {
  * caller comparing across a coordinator bounce must wait for a fresher row.
  */
 export function keeperRow(stack: TerminalTestStack, workerFp: string): KeeperRow {
-  const matches = workerInventoryForUpdateAdmission(stack.coordDbPath)
+  const matches = coordinatorWorkerRows(stack.coordDbPath)
     .filter((worker) => worker.fingerprint === workerFp);
   if (matches.length !== 1) {
     throw new Error(`coordinator database holds ${matches.length} rows for worker ${workerFp}`);

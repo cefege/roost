@@ -2,8 +2,8 @@
 // The terminal stack supplies isolated paths and captures each started child for teardown.
 // It reuses the ordinary worker starter so fixture workers retain the real auth and keeper lifecycle.
 
-import type { AuthorizedApiClient } from "../../apps/roost-cli/src/api.ts";
-import type { CoordWorkerUp } from "../../packages/protocol/src/gen/roost/v1/worker_transport_pb.ts";
+import type { CoordWorkerUp } from "../gen/roost/v1/worker_transport_pb.ts";
+import type { AuthorizedApiClient } from "../support/coord-client.ts";
 import { startDelayedWorkerLink, type DelayedWorkerLink } from "./delayed-worker-link.ts";
 import {
   createTerminalWorkerStarter,
@@ -37,10 +37,8 @@ export type PtyFixtureWorkerStartOptions = {
 };
 
 export interface FixtureWorkerLaunchOptions {
-  bunExecutable: string;
   coordinatorUrl: string;
-  sourceRoot: string;
-  runtime?: TerminalWorkerRuntime;
+  runtime: TerminalWorkerRuntime;
   compileFixture(): void;
   fixtureExecutable: string;
   client: AuthorizedApiClient;
@@ -69,12 +67,7 @@ export async function startFixtureWorker(
       workerFrameFilter: options.workerFrameFilter,
     });
   options.onLinkStarted(link);
-  const startWorker = createTerminalWorkerStarter(
-    options.bunExecutable,
-    link?.url ?? options.coordinatorUrl,
-    options.sourceRoot,
-    options.runtime,
-  );
+  const startWorker = createTerminalWorkerStarter(link?.url ?? options.coordinatorUrl, options.runtime);
   const bootstrapToken = (
     await options.client.authMintBootstrap({ kind: "worker", label: options.paths.label })
   ).token;

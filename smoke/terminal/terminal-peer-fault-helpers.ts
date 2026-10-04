@@ -100,13 +100,13 @@ export async function waitForPeerRouteLoss(page: Page, sessionId: string): Promi
 /**
  * Skip a peer fault case when this run cannot drive the fault controls.
  *
- * The controls inject INTO the worker under test, so a packaged worker that
- * exposes no fault surface cannot be put into the states these cases prove.
- * That leaves the Rust worker's peer-fault behaviour unqualified on a packaged
- * run, which is a real gap in coverage and is exactly why the skip NAMES the
- * binary that caused it: a run report saying "the peer fault cases are skipped
- * against target/release/roost" says something a reader can act on, and a
- * dozen failures all reading "requires a source worker" does not.
+ * The controls inject INTO the worker under test, so a worker built without
+ * the `smoke` feature exposes no fault surface and cannot be put into the
+ * states these cases prove. That leaves the worker's peer-fault behaviour
+ * unqualified on such a run, which is a real gap in coverage and is exactly
+ * why the skip NAMES the binary that caused it: a run report saying "the peer
+ * fault cases are skipped against target/release/roost" says something a
+ * reader can act on, and a dozen identical refusals do not.
  */
 export function skipWithoutPeerFaultControls(): void {
   const reason = peerFaultControlsUnavailable(resolveSmokeStackExecutables().workerExecutable);

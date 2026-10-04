@@ -76,7 +76,7 @@ export async function verifyGrantShrinkFencesInputAndHistory(browser: Browser, t
     await navigateToSmokeSession(page.page, removedSessionId);
     await waitForDirectRoute(page.page, removedSessionId);
     const peerFaults = stack.peerFaults;
-    if (!peerFaults) throw new Error("source peer fault controls were unavailable");
+    if (!peerFaults) throw new Error("peer fault controls were unavailable");
 
     const historyPrefix = `SCOPE-HISTORY-${crypto.randomUUID().replaceAll("-", "")}-`;
     await inputSmokeTerminal(page.page, removedSessionId, encodePtyFixtureCommand({
@@ -140,7 +140,7 @@ export async function verifyPeerInputBudgetFlood(browser: Browser, testInfo: Tes
     const sessionId = await createPeerFixtureSession(page.page, fixtureWorker);
     await waitForDirectRoute(page.page, sessionId);
     const peerFaults = stack.peerFaults;
-    if (!peerFaults) throw new Error("source peer fault controls were unavailable");
+    if (!peerFaults) throw new Error("peer fault controls were unavailable");
 
     await inputSmokeTerminal(page.page, sessionId, encodePtyFixtureCommand({ op: "ECHO_INPUT" }));
     await waitForPainted(page.page, sessionId, "ECHO_INPUT_ARMED");

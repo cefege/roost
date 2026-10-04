@@ -1,21 +1,17 @@
 // The terminal smoke stack starts an isolated coordinator, workers, keepers, and API key.
 // Playwright fixtures call this lifecycle and receive lazy worker factories plus cleanup.
 // Every child gets isolated state and temp roots while the returned stop closes all resources.
-// Split coordinator and worker release checkouts let the upgrade tier run this
-// stack as an existing install a prior release created and a new one takes over.
 
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildAuthorizedApiClient, type AuthorizedApiClient } from "../../apps/roost-cli/src/api.ts";
-import { loadWorkerKey } from "../../apps/worker/src/host/jwt.ts";
+import { createCoordClient, type AuthorizedApiClient } from "../support/coord-client.ts";
+import { loadWorkerKey, mintJwt } from "../support/worker-key.ts";
 import {
-  REPOSITORY_ROOT,
   authorizeTerminalTestApiKey,
   cleanInstallResources,
   logTail,
   stopChild,
-  stopDeployedWorker,
   stopKeeper,
   type RunningService,
 } from "./stack-runtime.ts";
@@ -41,7 +37,6 @@ import {
 } from "./stack-peer-fault-control.ts";
 import { createTerminalPeerFaults } from "./stack-peer-faults.ts";
 import type {
-  TerminalReleaseCheckout,
   TerminalTestStack,
   TerminalTestStackOptions,
   TerminalTestWorker,
@@ -49,7 +44,6 @@ import type {
 export type {
   TerminalPeerFaults,
   TerminalPeerSmokeOptions,
-  TerminalReleaseCheckout,
   TerminalTestStack,
   TerminalTestStackOptions,
   TerminalTestWorker,
@@ -63,9 +57,16 @@ const WORKER_LABEL = "roost-terminal-test";
 const SECOND_WORKER_LABEL = "roost-terminal-test-second";
 const PTY_FIXTURE_WORKER_LABEL = "roost-terminal-test-pty-fixture";
 const SECOND_PTY_FIXTURE_WORKER_LABEL = "roost-terminal-test-pty-fixture-second";
+/** Build identity every child reports; nothing in this suite compares it. */
+const STACK_GIT_SHA = "dev";
 export async function startTerminalTestStack(
   options: TerminalTestStackOptions = {},
 ): Promise<TerminalTestStack> {
+  // Resolved before anything is created or spawned, so a missing pin fails
+  // fast; printed because a spec failure is only attributable when the run
+  // says which binaries and which page it drove.
+  const executables = resolveSmokeStackExecutables();
+  console.log(smokeStackDescription(executables));
   // AF_UNIX sun_path caps at 104 bytes on macOS, and os.tmpdir() there is
   // /var/folders/<xx>/<hash>/T (~50 chars, ~58 once realpath adds /private) —
   // long enough that the worker's <home>/.roost/agent-report.sock overflowed the
@@ -78,7 +79,7 @@ export async function startTerminalTestStack(
     : join(root, "home");
   const secondHome = join(root, "second-home");
   const coordLogPath = join(root, "coord.log");
-  const coordDbPath = options.coordDbPath ?? join(root, "coord.db");
+  const coordDbPath = join(root, "coord.db");
   const workerLogPath = join(root, "worker.log");
   const secondWorkerLogPath = join(root, "second-worker.log");
   const ptyFixtureHome = join(root, "pty-fixture-home");
@@ -93,20 +94,8 @@ export async function startTerminalTestStack(
   );
   const workerDataDir = join(root, "worker-data");
   const secondWorkerDataDir = join(root, "second-worker-data");
-  const workerServiceSpecPath = join(root, "worker-service.json");
   const bunExecutable = process.env.ROOST_TEST_BUN ?? "bun";
-  const coordRelease: TerminalReleaseCheckout = {
-    sourceRoot: options.coordRelease?.sourceRoot ?? REPOSITORY_ROOT,
-    gitSha: options.coordRelease?.gitSha ?? "dev",
-  };
-  const workerRelease: TerminalReleaseCheckout = {
-    sourceRoot: options.workerRelease?.sourceRoot ?? coordRelease.sourceRoot,
-    gitSha: options.workerRelease?.gitSha ?? coordRelease.gitSha,
-  };
   const terminalPeer = options.terminalPeer;
-  let workerRuntime: TerminalWorkerRuntime = options.workerExecutable
-    ? { workerExecutable: options.workerExecutable }
-    : {};
   mkdirSync(home, { recursive: true });
   mkdirSync(secondHome, { recursive: true });
   mkdirSync(ptyFixtureHome, { recursive: true });
@@ -121,7 +110,6 @@ export async function startTerminalTestStack(
   for (const dir of Object.values(childTmpDirs)) mkdirSync(dir, { recursive: true });
   let coordinator: CoordinatorControl | undefined;
   let worker: RunningService | undefined;
-  let deployedWorkerPid: number | undefined;
   let secondWorker: RunningService | undefined;
   let secondWorkerStart: Promise<TerminalTestWorker> | undefined;
   let ptyFixtureWorker: RunningService | undefined;
@@ -157,7 +145,6 @@ export async function startTerminalTestStack(
       await stopKeeper(ptyFixtureDataDir).catch((error) => errors.push(`stop PTY fixture keeper: ${String(error)}`));
       await stopKeeper(secondWorkerDataDir).catch((error) => errors.push(`stop second keeper: ${String(error)}`));
       await stopChild(worker).catch((error) => errors.push(`stop worker: ${String(error)}`));
-      await stopDeployedWorker(deployedWorkerPid).catch((error) => errors.push(`stop deployed worker: ${String(error)}`));
       await stopKeeper(workerDataDir).catch((error) => errors.push(`stop keeper: ${String(error)}`));
       await localUi.closeAll().catch((error) => errors.push(`release local UI ports: ${String(error)}`));
       await (coordinator?.stop() ?? Promise.resolve()).catch((error) => errors.push(`stop coordinator: ${String(error)}`));
@@ -166,10 +153,10 @@ export async function startTerminalTestStack(
     if (errors.length > 0) throw new Error(`terminal stack cleanup failed:\n${errors.join("\n")}`);
   };
 
-  // Printed before anything is spawned: a spec that failed against a packaged
-  // binary and one that failed against the TypeScript source are different
-  // bugs, and this line is the only record of which ran.
-  console.log(smokeStackDescription(resolveSmokeStackExecutables()));
+  let workerRuntime: TerminalWorkerRuntime = {
+    workerExecutable: executables.workerExecutable,
+    webDist: executables.webDist,
+  };
 
   try {
     if (terminalPeer?.enableFaults) {
@@ -177,24 +164,18 @@ export async function startTerminalTestStack(
       // cannot run this tier says so as a skip, with every other stack log
       // still attached, instead of aborting mid-start and leaving a failure
       // whose only evidence is that refusal.
-      const faultWorkerExecutable =
-        options.workerExecutable ?? resolveSmokeStackExecutables().workerExecutable;
-      const faultsUnavailable = peerFaultControlsUnavailable(faultWorkerExecutable);
+      const faultsUnavailable = peerFaultControlsUnavailable(executables.workerExecutable);
       if (faultsUnavailable !== null) throw new Error(faultsUnavailable);
       peerFaultControl = await startStackPeerFaultControl(root);
       directInputHold = await startDirectInputHold(root);
-      const faultArgs = [
-        `--direct-input-hold-socket=${directInputHold.socketPath}`,
-        `--terminal-peer-fault-socket=${peerFaultControl.socketPath}`,
-      ];
-      // A packaged worker reaching here was built with the `smoke` feature,
-      // whose `roost worker` takes the same two flags the source entrypoint does.
-      workerRuntime = faultWorkerExecutable
-        ? { workerExecutable: faultWorkerExecutable, workerExecutableArgs: faultArgs }
-        : {
-          sourceEntrypoint: join(REPOSITORY_ROOT, "smoke", "terminal", "stack-direct-input-worker.ts"),
-          sourceEntrypointArgs: faultArgs,
-        };
+      // A `smoke`-featured `roost worker` connects to both sockets at boot.
+      workerRuntime = {
+        ...workerRuntime,
+        workerExecutableArgs: [
+          `--direct-input-hold-socket=${directInputHold.socketPath}`,
+          `--terminal-peer-fault-socket=${peerFaultControl.socketPath}`,
+        ],
+      };
     }
     // Every local UI port is reserved before the coordinator launches: product
     // code pre-allowlists only the 4104 default, so the coordinator has to be
@@ -208,15 +189,14 @@ export async function startTerminalTestStack(
       : undefined;
     await coordinatorLocalUi?.release();
     coordinator = await startCoordinatorControl({
-      bunExecutable,
-      coordExecutable: options.coordExecutable,
-      sourceRoot: coordRelease.sourceRoot,
+      coordExecutable: executables.coordExecutable,
+      webDist: executables.webDist,
       root,
       home,
       tmpDir: childTmpDirs.coord,
       dbPath: coordDbPath,
       logPath: coordLogPath,
-      gitSha: coordRelease.gitSha,
+      gitSha: STACK_GIT_SHA,
       initialBind: coordinatorLocalUi?.bind,
       relaxedCsp: options.localFirst ? false : undefined,
       webPublicUrl: options.localFirst ? "" : undefined,
@@ -231,24 +211,13 @@ export async function startTerminalTestStack(
     const apiKeyPath = join(root, "api.key");
     const apiKey = await loadWorkerKey(apiKeyPath);
     authorizeTerminalTestApiKey(bunExecutable, coordDbPath, apiKey.fingerprint, apiKey.pubKey);
-    client = await buildAuthorizedApiClient({
-      coordinatorUrl: baseUrl,
-      keyPath: apiKeyPath,
-      label: "roost-terminal-test-api",
-    });
-    const startWorker = createTerminalWorkerStarter(
-      bunExecutable,
-      baseUrl,
-      workerRelease.sourceRoot,
-      workerRuntime,
-    );
+    client = createCoordClient({ baseUrl, getJwt: () => mintJwt(apiKey, "roost-coordinator") });
+    const startWorker = createTerminalWorkerStarter(baseUrl, workerRuntime);
     const compilePtyFixture = createPtyFixtureCompiler(bunExecutable, ptyFixtureExecutable);
     const fixtureLaunch = {
-      bunExecutable,
       coordinatorUrl: baseUrl,
       runtime: workerRuntime,
       compileFixture: compilePtyFixture,
-      sourceRoot: workerRelease.sourceRoot,
       fixtureExecutable: ptyFixtureExecutable,
       client: client!,
       terminalPeerEnabled: terminalPeer?.workerEnabled ?? false,
@@ -257,7 +226,7 @@ export async function startTerminalTestStack(
     };
 
     const bootstrapToken = (await client.authMintBootstrap({ kind: "worker", label: WORKER_LABEL })).token;
-    const workerServiceSpec: TerminalWorkerStartConfig = {
+    const primaryWorkerConfig: TerminalWorkerStartConfig = {
       label: WORKER_LABEL,
       home,
       logPath: workerLogPath,
@@ -268,13 +237,10 @@ export async function startTerminalTestStack(
       terminalPeerEnabled: terminalPeer?.workerEnabled,
       terminalPeerBindAddress: terminalPeer?.workerBindAddress,
       terminalPeerPortRange: terminalPeer?.workerPortRange,
-      gitSha: workerRelease.gitSha,
+      gitSha: STACK_GIT_SHA,
     };
-    // A deploy runs out of process and must relaunch this exact identity, so the
-    // launch spec is persisted instead of restated at the second call site.
-    writeFileSync(workerServiceSpecPath, `${JSON.stringify(workerServiceSpec, null, 2)}\n`, { mode: 0o600 });
     await workerLocalUi.release();
-    worker = startWorker(workerServiceSpec);
+    worker = startWorker(primaryWorkerConfig);
     const workerFp = await waitForTerminalWorkerRoutable(client, WORKER_LABEL, workerLogPath);
     workerLocalUi.record(workerFp);
 
@@ -295,7 +261,7 @@ export async function startTerminalTestStack(
           terminalPeerEnabled: terminalPeer?.workerEnabled,
           terminalPeerBindAddress: terminalPeer?.workerBindAddress,
           terminalPeerPortRange: terminalPeer?.workerPortRange,
-          gitSha: workerRelease.gitSha,
+          gitSha: STACK_GIT_SHA,
         });
         const workerFp = await waitForTerminalWorkerRoutable(
           client!,
@@ -339,7 +305,7 @@ export async function startTerminalTestStack(
     // worker, and agent sessions never touch it anyway.
     const restartWorker = async () => {
       await stopChild(worker);
-      worker = startWorker(workerServiceSpec);
+      worker = startWorker(primaryWorkerConfig);
       await waitForTerminalWorkerRoutable(client!, WORKER_LABEL, workerLogPath);
     };
     const { stop: stopCoordinator, start: startCoordinator } = coordinator;
@@ -369,10 +335,6 @@ export async function startTerminalTestStack(
       localUiUrl: localUi.url,
       coordDbPath,
       apiKeyPath,
-      workerServiceSpecPath,
-      workerPid: () => worker?.child.pid,
-      adoptDeployedWorker: (pid) => { deployedWorkerPid = pid; },
-      workerRelease,
       stop,
     };
   } catch (error) {

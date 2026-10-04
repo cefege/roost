@@ -70,7 +70,7 @@ export interface StackPeerFaultControl {
   stop(): Promise<void>;
 }
 
-/** Start before source workers boot; each requested command waits for its named wrapper. */
+/** Start before workers boot; each requested command waits for its named worker. */
 export async function startStackPeerFaultControl(root: string): Promise<StackPeerFaultControl> {
   const socketPath = join(root, "terminal-peer-fault-control.sock");
   try { rmSync(socketPath); } catch { /* a fresh stack root has no old control socket */ }

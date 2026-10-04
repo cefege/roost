@@ -12,7 +12,7 @@ import {
   LayoutDocumentV1Schema as LayoutDocumentV1ProtoSchema,
   type LayoutDocumentNode as ProtoLayoutDocumentNode,
   type LayoutDocumentV1 as ProtoLayoutDocumentV1,
-} from "./gen/roost/v1/sync_pb.ts";
+} from "../gen/roost/v1/sync_pb.ts";
 import {
   LAYOUT_DOCUMENT_MAX_BINDINGS,
   LAYOUT_DOCUMENT_MAX_DEPTH,

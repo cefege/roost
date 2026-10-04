@@ -200,7 +200,7 @@ test.describe(() => {
     expect(result).toMatchObject({ verdict: "PASS", fails: [] });
     // No post-loop range assertion: rows the shrink pushed into scrollback stay
     // there when the deck grows back — the canonical renderer letterboxes instead
-    // of reflowing history (apps/web/README.md), so a returning min would assert
+    // of reflowing history, so a returning min would assert
     // a behaviour Roost deliberately does not have.
   });
 });

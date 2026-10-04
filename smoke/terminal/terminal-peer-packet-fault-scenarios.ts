@@ -64,7 +64,7 @@ export async function verifyMalformedPeerPacketIsolation(browser: Browser, testI
       const affectedSessionId = await createPeerFixtureSession(page.page, affectedWorker);
       await waitForDirectRoute(page.page, affectedSessionId);
       const peerFaults = stack.peerFaults;
-      if (!peerFaults) throw new Error("source peer fault controls were unavailable");
+      if (!peerFaults) throw new Error("peer fault controls were unavailable");
 
       await peerFaults.injectMalformedDirectPacket(affectedWorker.label, kind);
       await waitForSyncRoute(page.page, affectedSessionId);
@@ -90,7 +90,7 @@ export async function verifyPausedHistoryDoesNotStarveControl(browser: Browser, 
     const sessionId = await createPeerFixtureSession(page.page, fixtureWorker);
     await waitForDirectRoute(page.page, sessionId);
     const peerFaults = stack.peerFaults;
-    if (!peerFaults) throw new Error("source peer fault controls were unavailable");
+    if (!peerFaults) throw new Error("peer fault controls were unavailable");
 
     const prefix = `PAUSED-HISTORY-${crypto.randomUUID().replaceAll("-", "")}-`;
     await inputSmokeTerminal(page.page, sessionId, encodePtyFixtureCommand({

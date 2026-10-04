@@ -1,43 +1,39 @@
-// Which executables the terminal smoke suite drives, resolved from the
-// environment, validated, and REPORTED.
+// Which Rust artifacts the terminal smoke suite drives, resolved from the
+// environment or the parity pin, validated, and REPORTED.
 //
-// The suite is the same 140 specs either way; what changes is the stack under
-// them. The default is the TypeScript stack, so an unparameterised run is
-// exactly the run that always worked, and a mixed-stack run is opt-in and
-// self-identifying: `smokeStackDescription()` says which coordinator and which
-// worker this run exercises, and that line is printed before the stack starts.
+// Unset knobs mean the pin `bun smoke/parity/run.ts build` writes under
+// `.smoke-pin/`; a knob points one side somewhere else. `smokeStackDescription()`
+// names the coordinator, worker and page a run exercised, printed before the
+// stack starts, because that line is the only record of which build ran.
 //
 // A knob that points at something missing must fail HERE, loudly, rather than
 // as a hundred confusing spec failures. That is the whole reason this module
-// exists instead of two `process.env` reads inline.
+// exists instead of three `process.env` reads inline.
 
 import { accessSync, constants, existsSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
+import { PIN_DIRECTORY } from "../parity/pin.ts";
 
-/** The worker binary the suite drives. Unset means the TypeScript worker. */
+/** The `roost` binary whose `worker` subcommand the suite drives. */
 export const SMOKE_WORKER_EXECUTABLE_ENV = "ROOST_SMOKE_WORKER_EXECUTABLE";
-/** The coordinator binary the suite drives. Unset means the TypeScript one. */
+/** The `roost` binary whose `coord` subcommand the suite drives. */
 export const SMOKE_COORD_EXECUTABLE_ENV = "ROOST_SMOKE_COORD_EXECUTABLE";
-/** The SPA build the coordinator serves. Unset means apps/web/dist. */
+/** The dx bundle the coordinator and the worker's local door serve. */
 export const SMOKE_WEB_DIST_ENV = "ROOST_SMOKE_WEB_DIST";
 
+/** The refusal when a knob is unset and the pin it defaults to does not exist. */
+export const NO_PINNED_RUST_BUILD = "smoke stack: no pinned Rust build — run `bun smoke/parity/run.ts build`";
+
 export interface SmokeStackExecutables {
-	/** The worker binary, or `null` for the TypeScript worker. */
-	workerExecutable: string | null;
-	/** The coordinator binary, or `null` for the TypeScript coordinator. */
-	coordExecutable: string | null;
-	/**
-	 * The SPA build the coordinator serves, or `null` for the working tree's
-	 * `apps/web/dist`. A Rust SPA is a different directory with the same
-	 * contract, so it is a knob rather than a stack-executables field.
-	 */
-	webDist: string | null;
+	workerExecutable: string;
+	coordExecutable: string;
+	/** A built SPA directory holding `index.html`. */
+	webDist: string;
 }
 
 /**
  * Why a knob was refused. A message rather than a bare throw, because the
- * person who typed it is usually mid-way through a port and wants to know which
- * half is wrong.
+ * person who typed it wants to know which of the three is wrong.
  */
 export class SmokeStackConfigurationError extends Error {
 	constructor(variable: string, path: string, reason: string) {
@@ -47,31 +43,29 @@ export class SmokeStackConfigurationError extends Error {
 }
 
 /**
- * Resolve a knob to an absolute path, or `null` when it is unset.
+ * The path a knob names, resolved against `cwd`, or the pinned artifact when
+ * the knob is unset.
  *
  * An empty or whitespace value counts as unset. `ROOST_SMOKE_WORKER_EXECUTABLE=`
  * is almost always a shell variable that expanded to nothing, and treating that
- * as "use the default" is right; treating it as "run ``" is not.
+ * as "use the pin" is right; treating it as "run ``" is not.
  */
-function resolveOptional(
-	variable: string,
-	raw: string | undefined,
-	cwd: string,
-): string | null {
+function knobOrPin(raw: string | undefined, cwd: string, pinned: string): string {
 	const value = raw?.trim();
-	if (!value) return null;
-	return isAbsolute(value) ? value : resolve(cwd, value);
+	if (value) return isAbsolute(value) ? value : resolve(cwd, value);
+	if (!existsSync(pinned)) throw new Error(NO_PINNED_RUST_BUILD);
+	return pinned;
 }
 
 /**
- * Refuse a knob that cannot be launched, at the point it is read.
+ * Refuse an executable that cannot be launched, at the point it is read.
  *
  * Checked for existence and for the executable bit. The executable bit is the
  * one that matters on Unix: a path that exists and is a directory, or a file
  * without `+x`, produces an EACCES deep inside a service starter where the
  * message names the service rather than the variable.
  */
-function validate(variable: string, path: string): string {
+function validateExecutable(variable: string, path: string): string {
 	let stats;
 	try {
 		stats = statSync(path);
@@ -90,14 +84,14 @@ function validate(variable: string, path: string): string {
 }
 
 /**
- * Refuse a knob that cannot be served, at the point it is read.
+ * Refuse a page directory that cannot be served, at the point it is read.
  *
  * A directory with no `index.html` is the failure worth naming: a `dx build`
  * that emitted assets but no entry point, or a path that outlived its build.
  * The coordinator launched against one answers 404s that read as a product
  * bug for the next hour instead of as a bad knob.
  */
-function validateDirectory(variable: string, path: string): string {
+function validateWebDirectory(variable: string, path: string): string {
 	let stats;
 	try {
 		stats = statSync(path);
@@ -116,90 +110,34 @@ function validateDirectory(variable: string, path: string): string {
 /**
  * Resolve and validate every knob.
  *
- * `env` and `cwd` are parameters so this is testable without mutating the
- * process environment, which is the only way to test the failure paths.
+ * `env`, `cwd` and `pinDirectory` are parameters so this is testable without
+ * mutating the process environment or the repository's own pin.
  */
 export function resolveSmokeStackExecutables(
 	env: NodeJS.ProcessEnv = process.env,
 	cwd: string = process.cwd(),
+	pinDirectory: string = PIN_DIRECTORY,
 ): SmokeStackExecutables {
-	const worker = resolveOptional(SMOKE_WORKER_EXECUTABLE_ENV, env[SMOKE_WORKER_EXECUTABLE_ENV], cwd);
-	const coord = resolveOptional(SMOKE_COORD_EXECUTABLE_ENV, env[SMOKE_COORD_EXECUTABLE_ENV], cwd);
-	const web = resolveSmokeWebDist(env, cwd);
+	const pinnedRoost = join(pinDirectory, "roost");
 	return {
-		workerExecutable: worker ? validate(SMOKE_WORKER_EXECUTABLE_ENV, worker) : null,
-		coordExecutable: coord ? validate(SMOKE_COORD_EXECUTABLE_ENV, coord) : null,
-		webDist: web,
+		workerExecutable: validateExecutable(
+			SMOKE_WORKER_EXECUTABLE_ENV,
+			knobOrPin(env[SMOKE_WORKER_EXECUTABLE_ENV], cwd, pinnedRoost),
+		),
+		coordExecutable: validateExecutable(
+			SMOKE_COORD_EXECUTABLE_ENV,
+			knobOrPin(env[SMOKE_COORD_EXECUTABLE_ENV], cwd, pinnedRoost),
+		),
+		webDist: validateWebDirectory(
+			SMOKE_WEB_DIST_ENV,
+			knobOrPin(env[SMOKE_WEB_DIST_ENV], cwd, join(pinDirectory, "web")),
+		),
 	};
 }
 
-/**
- * The SPA directory a coordinator launch should serve.
- *
- * `null` means "the working tree's apps/web/dist", which is the value the
- * suite has always used and which callers spell themselves because the
- * repository root is their concern, not this module's.
- */
-export function resolveSmokeWebDist(
-	env: NodeJS.ProcessEnv = process.env,
-	cwd: string = process.cwd(),
-): string | null {
-	const raw = resolveOptional(SMOKE_WEB_DIST_ENV, env[SMOKE_WEB_DIST_ENV], cwd);
-	return raw ? validateDirectory(SMOKE_WEB_DIST_ENV, raw) : null;
-}
-
-/** Whether this run drives a RUST binary on either side. */
-export function isMixedStack(stack: SmokeStackExecutables): boolean {
-	return stack.workerExecutable !== null || stack.coordExecutable !== null;
-}
-
-/**
- * A one-line description of the stack, printed before the stack starts.
- *
- * This is what makes a mixed-stack run legible in CI output: a failing spec
- * that ran against a Rust coordinator and a Rust worker is a different bug
- * from one that ran against the TypeScript pair, and the log line is the only
- * place that distinction is recorded. The SPA is named by DIRECTORY rather
- * than as "rust"/"typescript" because the knob is a path, and a wrong path
- * that reads as "rust" is a worse report than no report.
- */
+/** A one-line description of the stack, printed before the stack starts. */
 export function smokeStackDescription(stack: SmokeStackExecutables): string {
-	const worker = stack.workerExecutable ? `rust(${stack.workerExecutable})` : "typescript";
-	const coord = stack.coordExecutable ? `rust(${stack.coordExecutable})` : "typescript";
-	const web = stack.webDist ?? "apps/web/dist";
-	return `smoke stack: coordinator=${coord} worker=${worker} web=${web}`;
-}
-
-/**
- * The coordinator launch overrides implied by the environment.
- *
- * A packaged binary REPLACES the TypeScript entrypoint and receives the
- * ordinary `coord` subcommand, the same rule the worker side follows. An
- * empty object for the default keeps the caller's spread a no-op rather than
- * a branch.
- */
-export function coordinatorRuntimeOverrides(stack: SmokeStackExecutables): {
-	coordExecutable?: string;
-} {
-	if (!stack.coordExecutable) return {};
-	return { coordExecutable: stack.coordExecutable };
-}
-
-/**
- * The worker runtime overrides implied by the environment.
- *
- * A packaged binary REPLACES the TypeScript entrypoint, and the two may not be
- * combined — `createTerminalWorkerStarter` already refuses that pairing, and
- * repeating the rule here keeps the reason next to the decision. Returning an
- * empty object for the default keeps the caller's spread a no-op rather than a
- * branch.
- */
-export function workerRuntimeOverrides(stack: SmokeStackExecutables): {
-	workerExecutable?: string;
-	sourceEntrypoint?: undefined;
-} {
-	if (!stack.workerExecutable) return {};
-	return { workerExecutable: stack.workerExecutable, sourceEntrypoint: undefined };
+	return `smoke stack: coordinator=${stack.coordExecutable} worker=${stack.workerExecutable} web=${stack.webDist}`;
 }
 
 /**
@@ -214,13 +152,11 @@ const WORKER_FAULT_CONTROLS_ENV = "ROOST_SMOKE_WORKER_FAULT_CONTROLS";
  *
  * The fault tier injects faults INTO the worker under test — a held
  * authenticated input, a blackholed packet lane, a paused history response —
- * through two disposable Unix sockets the worker connects to at boot. A source
- * worker opens them when launched from
- * `smoke/terminal/stack-direct-input-worker.ts`; a packaged worker opens them
- * only when its build has the `smoke` feature, which the runner announces with
- * `ROOST_SMOKE_WORKER_FAULT_CONTROLS=1`. A production `roost worker` takes no
- * fault argument and installs no such hook, so the thirteen fault commands
- * have nowhere to land.
+ * through two disposable Unix sockets the worker connects to at boot. A
+ * `roost worker` opens them only when its build has the `smoke` feature, which
+ * the runner announces with `ROOST_SMOKE_WORKER_FAULT_CONTROLS=1`. A production
+ * `roost worker` takes no fault argument and installs no such hook, so the
+ * thirteen fault commands have nowhere to land.
  *
  * That is a gap in what this run QUALIFIES, and the honest form of a gap is a
  * named skip rather than a refusal. A stack that aborts instead turns "this
@@ -229,11 +165,11 @@ const WORKER_FAULT_CONTROLS_ENV = "ROOST_SMOKE_WORKER_FAULT_CONTROLS";
  * and a broken worker when neither was ever started.
  */
 export function peerFaultControlsUnavailable(
-	workerExecutable: string | null,
+	workerExecutable: string,
 	platform: NodeJS.Platform = process.platform,
 ): string | null {
-	if (workerExecutable !== null && process.env[WORKER_FAULT_CONTROLS_ENV] !== "1") {
-		return `terminal peer fault controls require a source worker; this run drives the packaged worker at ${workerExecutable}`;
+	if (process.env[WORKER_FAULT_CONTROLS_ENV] !== "1") {
+		return `terminal peer fault controls require a worker built with the smoke feature; this run drives ${workerExecutable}`;
 	}
 	if (platform === "win32") {
 		return "terminal peer fault controls are unavailable on Windows";

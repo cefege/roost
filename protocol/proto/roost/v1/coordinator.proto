@@ -1246,7 +1246,7 @@ message TerminalCaptureRequest {
   string session_id = 2;
   string capture_id = 3;
   string browser_evidence_json = 4;
-  // Closed literal set; see @roost/protocol/terminal-capture.
+  // Closed literal set; see roost-protocol's `terminal_capture`.
   string reason = 5;
   string recording_id = 6;
 }

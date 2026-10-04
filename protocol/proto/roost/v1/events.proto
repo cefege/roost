@@ -1,5 +1,5 @@
 // Typed protobuf representation of the append-only SessionEvent contract.
-// Adapters live in packages/protocol/src/wire/event-proto.ts.
+// Adapters live in roost-protocol's `wire::event_proto`.
 
 syntax = "proto3";
 package roost.v1;

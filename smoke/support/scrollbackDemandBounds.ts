@@ -5,7 +5,19 @@
 // the fencing and the splice; nothing here reads DOM, module state or the
 // wire, so a bound is reproducible from its arguments alone.
 
-import type { CellHistoryRange, CellHistoryScrollTarget } from "./cellHistoryRanges.ts";
+/** A missing half-open absolute row interval. */
+interface CellHistoryRange {
+  readonly start: number;
+  readonly end: number;
+}
+
+/** A missing interval the reader's scroll position exposes: `start`/`end` are
+ *  the whole interval, `focusRow`/`visibleEnd` bound the part inside the
+ *  window a pager asked about. */
+interface CellHistoryScrollTarget extends CellHistoryRange {
+  readonly focusRow: number;
+  readonly visibleEnd: number;
+}
 
 /** Rows one wave fetches — one worker `SB_BLOCK`. */
 export const BACKFILL_FETCH_ROWS = 250;

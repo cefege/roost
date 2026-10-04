@@ -253,9 +253,3 @@ describe("R4.-1 #6 Bun.serve native fetch", () => {
     }
   });
 });
-
-// crpc6 retired tRPC; the Connect-RPC round-trip is covered end-to-end
-// by apps/coord/tests/coord-e2e.test.ts which boots createCoord with an
-// in-memory SQLite and hits Connect endpoints directly. No equivalent
-// primitive-level test is needed here — Connect is just HTTP/2 + proto,
-// both of which Bun handles natively.

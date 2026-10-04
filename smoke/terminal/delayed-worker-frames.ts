@@ -9,7 +9,7 @@ import { fromBinary } from "@bufbuild/protobuf";
 import {
   CoordWorkerUpSchema,
   type CoordWorkerUp,
-} from "../../packages/protocol/src/gen/roost/v1/worker_transport_pb.ts";
+} from "../gen/roost/v1/worker_transport_pb.ts";
 import type {
   DelayedInputHoldCapture,
   DelayedInputHoldMatch,

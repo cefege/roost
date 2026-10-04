@@ -4,8 +4,8 @@
 // Every success path requires an actual visible marker, not only diagnostic convergence.
 
 import { expect, test } from "./fixtures.ts";
-import type { CoordWorkerUp } from "../../packages/protocol/src/gen/roost/v1/worker_transport_pb.ts";
-import type { TerminalStreamProbe } from "../../apps/web/src/smoke/smoke.ts";
+import type { CoordWorkerUp } from "../gen/roost/v1/worker_transport_pb.ts";
+import type { TerminalStreamProbe } from "../contract/smokeTypes.ts";
 import type { RecoverySmokeApi, TerminalIdentityProbeWindow } from "./terminal-smoke-api.ts";
 import {
   inputSmokeTerminal,

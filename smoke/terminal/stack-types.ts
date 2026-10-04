@@ -3,7 +3,7 @@
 // stable options without reaching into child environments or mutable launch state.
 // Direct packet fault control stays a disposable harness-only dependency.
 
-import type { AuthorizedApiClient } from "../../apps/roost-cli/src/api.ts";
+import type { AuthorizedApiClient } from "../support/coord-client.ts";
 import type { DelayedWorkerLink } from "./delayed-worker-link.ts";
 import type { PtyFixtureWorkerStartOptions } from "./stack-fixture-worker.ts";
 import type { HeldDirectInput } from "./stack-direct-input-hold.ts";
@@ -18,13 +18,6 @@ export type TerminalTestWorker = {
   logPath: string;
 };
 
-export type TerminalReleaseCheckout = {
-  /** Checkout the process runs from. */
-  sourceRoot: string;
-  /** Build identity it reports; deploy admission and convergence compare it. */
-  gitSha: string;
-};
-
 export type TerminalPeerSmokeOptions = {
   /** Explicit coordinator enablement; omitted keeps non-peer smoke on Sync/loopback. */
   readonly coordinatorEnabled?: boolean;
@@ -32,7 +25,7 @@ export type TerminalPeerSmokeOptions = {
   readonly coordinatorStunUrls?: readonly string[];
   /** Explicit worker native-peer enablement; omitted keeps non-peer smoke isolated. */
   readonly workerEnabled?: boolean;
-  /** Install source-worker-only peer fault callbacks; unavailable for packaged workers. */
+  /** Wire the worker's peer fault sockets; needs a `smoke`-featured worker build. */
   readonly enableFaults?: boolean;
   readonly workerBindAddress?: string;
   readonly workerPortRange?: TerminalWorkerPeerPortRange;
@@ -47,20 +40,8 @@ export type TerminalTestStackOptions = {
   // unauthenticated. Coord/worker state stays isolated either way (their paths
   // are ROOST_* env overrides, not HOME-derived).
   useRealHome?: boolean;
-  // Releases the coordinator and the workers run from. Both default to this
-  // checkout; the upgrade tier points them at different ones, because a real
-  // upgrade moves the coordinator first and the workers afterwards.
-  coordRelease?: Partial<TerminalReleaseCheckout>;
-  workerRelease?: Partial<TerminalReleaseCheckout>;
-  // Coordinator database to boot over. Default is a fresh one under the test
-  // root; an upgrade run supplies one a prior release already migrated.
-  coordDbPath?: string;
   /** Bind the coordinator to a reserved local HTTP origin with production CSP. */
   localFirst?: boolean;
-  /** Exact compiled `roost` binary used for worker processes instead of source Bun. */
-  workerExecutable?: string;
-  /** Exact compiled `roost` binary used for the coordinator instead of source Bun. */
-  coordExecutable?: string;
   terminalPeer?: TerminalPeerSmokeOptions;
 };
 
@@ -115,24 +96,16 @@ export type TerminalTestStack = {
   /** Stop or relaunch only the coordinator child; worker, keeper and PTYs stay live. */
   stopCoordinator(): Promise<void>;
   startCoordinator(): Promise<void>;
-  /** Source-worker-only peer fault controls; null for ordinary and packaged stacks. */
+  /** Peer fault controls; null unless the stack was started with `enableFaults`. */
   peerFaults: TerminalPeerFaults | null;
   /** Worker-served local UI origin for a fingerprint this stack started. */
   localUiUrl(workerFp: string): string;
   // Bounce the primary worker process, keeping coord and the persisted worker
   // identity. Resolves once the same fingerprint is routable again.
   restartWorker(): Promise<void>;
-  /** Coordinator database the CLI reads for deploy admission. */
+  /** Coordinator database, for specs that probe rows the RPC surface does not expose. */
   coordDbPath: string;
-  /** Key the harness authorized, so a deploy can call the same coordinator. */
+  /** Key the harness authorized, so another client can sign as the same device. */
   apiKeyPath: string;
-  /** Persisted primary-worker launch spec, for a deploy running out of process. */
-  workerServiceSpecPath: string;
-  /** Process id of the running primary worker. */
-  workerPid(): number | undefined;
-  /** Take teardown ownership of a worker a deploy left running. */
-  adoptDeployedWorker(pid: number): void;
-  /** Release the primary worker runs, so a deploy can name what it replaces. */
-  workerRelease: TerminalReleaseCheckout;
   stop(): Promise<void>;
 };

@@ -148,13 +148,16 @@
       "name": "smoke",
       "dependencies": {
         "@bufbuild/protobuf": "2.12.0",
-        "@roost/platform": "workspace:*",
-        "@roost/protocol": "workspace:*",
-        "@wterm/dom": "0.5.0",
+        "@connectrpc/connect": "^2.1.2",
+        "@connectrpc/connect-node": "^2.1.2",
         "fast-check": "^3.23.0",
         "kysely": "^0.29.2",
         "kysely-bun-sqlite": "^0.4.0",
         "zod": "^3.23.8",
+      },
+      "devDependencies": {
+        "@bufbuild/buf": "^1.70.0",
+        "@bufbuild/protoc-gen-es": "^2.12.0",
       },
     },
   },
@@ -548,8 +551,6 @@
     "@typescript/vfs": ["@typescript/vfs@1.6.4", "", { "dependencies": { "debug": "^4.4.3" }, "peerDependencies": { "typescript": "*" } }, "sha512-PJFXFS4ZJKiJ9Qiuix6Dz/OwEIqHD7Dme1UwZhTK11vR+5dqW2ACbdndWQexBzCx+CPuMe5WBYQWCsFyGlQLlQ=="],
 
     "@wterm/core": ["@wterm/core@0.5.0", "", {}, "sha512-2bodU1AK0GmDghJ/GpkQ1v2YHC6j8CI4utXFI6NBPDJ3sU5lvzRYBAEm9fUVOCN2Gjs6fug/+6XRDtWre9lYMA=="],
-
-    "@wterm/dom": ["@wterm/dom@0.5.0", "", { "dependencies": { "@wterm/core": "0.5.0" } }, "sha512-vMIaca+p6uytiIL86Dxu7lFsx2eiOmg4JnL/rCnwdapAoPuVEVV24SyecdaoQXSaQg8HoAx4misKT73goYRWHQ=="],
 
     "@xterm/headless": ["@xterm/headless@6.0.0", "", {}, "sha512-5Yj1QINYCyzrZtf8OFIHi47iQtI+0qYFPHmouEfG8dHNxbZ9Tb9YGSuLcsEwj9Z+OL75GJqPyJbyoFer80a2Hw=="],
 
