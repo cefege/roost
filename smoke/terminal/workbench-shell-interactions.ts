@@ -221,26 +221,22 @@ async function spawnWorkingAgents(
   page: Page,
   stack: TerminalTestStack,
   secondWorker: TerminalTestWorker,
+  agentFolderRoot: string,
 ): Promise<{ primarySessionId: string; agentSessionIds: readonly string[] }> {
   const primarySessionId = (await spawnSmokeShell(page, stack.workerFp)).session_id;
   const agentSessionIds: string[] = [];
-  const temporaryRoot = await mkdtemp(join(tmpdir(), "roost-sidebar-smoke-"));
-  try {
-    const folders = Array.from(
-      { length: AGENT_SESSION_COUNT },
-      (_value, index) => join(temporaryRoot, String(index)),
+  const folders = Array.from(
+    { length: AGENT_SESSION_COUNT },
+    (_value, index) => join(agentFolderRoot, String(index)),
+  );
+  await Promise.all(folders.map((folder) => mkdir(folder, { recursive: true })));
+  for (const [index, folder] of folders.entries()) {
+    const workerFp = index % 2 === 0 ? secondWorker.workerFp : stack.workerFp;
+    const shell = await page.evaluate(
+      ({ fp, cwd }) => window.__smoke.spawnShell(fp, cwd),
+      { fp: workerFp, cwd: folder },
     );
-    await Promise.all(folders.map((folder) => mkdir(folder, { recursive: true })));
-    for (const [index, folder] of folders.entries()) {
-      const workerFp = index % 2 === 0 ? secondWorker.workerFp : stack.workerFp;
-      const shell = await page.evaluate(
-        ({ fp, cwd }) => window.__smoke.spawnShell(fp, cwd),
-        { fp: workerFp, cwd: folder },
-      );
-      agentSessionIds.push(shell.session_id);
-    }
-  } finally {
-    await rm(temporaryRoot, { recursive: true, force: true });
+    agentSessionIds.push(shell.session_id);
   }
   await navigateToSmokeSession(page, primarySessionId);
   for (const [index, sessionId] of agentSessionIds.entries()) {
@@ -277,10 +273,27 @@ function expectNoLegacyChatControls(page: Page): Promise<void> {
   ]).then(() => undefined);
 }
 
+// The agents run with their cwd inside these folders for the whole exercise;
+// removing them as soon as the shells were spawned raced the agent fixture's
+// start and it found its cwd gone.
 export async function exerciseSidebarAgents(
   page: Page,
   stack: TerminalTestStack,
   secondWorker: TerminalTestWorker,
+): Promise<void> {
+  const agentFolderRoot = await mkdtemp(join(tmpdir(), "roost-sidebar-smoke-"));
+  try {
+    await exerciseSidebarAgentsIn(page, stack, secondWorker, agentFolderRoot);
+  } finally {
+    await rm(agentFolderRoot, { recursive: true, force: true });
+  }
+}
+
+async function exerciseSidebarAgentsIn(
+  page: Page,
+  stack: TerminalTestStack,
+  secondWorker: TerminalTestWorker,
+  agentFolderRoot: string,
 ): Promise<void> {
   await page.setViewportSize(WIDE_VIEWPORT);
   const selector = page.getByRole("group", { name: "Sidebar view" });
@@ -295,7 +308,12 @@ export async function exerciseSidebarAgents(
   await expect(page.getByTestId("sidebar-agents")).toContainText("No active agents");
   await expectSidebarView(page, "agents");
 
-  const { primarySessionId, agentSessionIds } = await spawnWorkingAgents(page, stack, secondWorker);
+  const { primarySessionId, agentSessionIds } = await spawnWorkingAgents(
+    page,
+    stack,
+    secondWorker,
+    agentFolderRoot,
+  );
   const activeAgentFilter = "agent-filter-0";
   const activeAgentSessionId = agentSessionIds[0];
   if (!activeAgentSessionId) throw new Error("agent fixture did not create an agent session");
