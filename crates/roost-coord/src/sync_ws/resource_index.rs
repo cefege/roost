@@ -19,6 +19,7 @@ use std::collections::BTreeSet;
 use roost_protocol::wire::WorkerFp;
 
 use crate::db::CoordDb;
+use crate::sync_ws::driver::SyncLink;
 
 /// What one socket may observe, as of now.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -50,6 +51,41 @@ impl SyncResourceIndex {
     #[must_use]
     pub fn is_install_wide(&self) -> bool {
         self.owner_worker_fp.is_none()
+    }
+
+    /// Fold in a later load of the same scope. Union only: removals reach the
+    /// socket through the live feed, which is the authority for everything
+    /// after it subscribed.
+    pub fn absorb(&mut self, later: SyncResourceIndex) {
+        self.session_ids.extend(later.session_ids);
+        self.worker_fps.extend(later.worker_fps);
+        self.workspace_ids.extend(later.workspace_ids);
+    }
+}
+
+/// Re-read a socket's scope once its live feed is subscribed.
+///
+/// The first load runs before the feed listens, so a session opened in that
+/// gap is in neither: the feed never saw its `opened`, and the load predates
+/// its row. Input for it would be refused as out of scope for the socket's
+/// whole life. A second load after subscribing closes the gap, because
+/// anything later reaches the feed.
+pub(in crate::sync_ws) async fn refresh_scope_after_subscribe(
+    link: &SyncLink,
+    db: &CoordDb,
+    owner_worker_fp: Option<&str>,
+) {
+    match load_sync_resource_index(db, owner_worker_fp).await {
+        Ok(later) => {
+            let mut state = link.lock();
+            if let Some(owned) = state.owned_session_ids.as_mut() {
+                owned.extend(later.session_ids.iter().cloned());
+            }
+            state.index.absorb(later);
+        }
+        Err(error) => {
+            tracing::warn!(event = "sync-ws", action = "scope_refresh_failed", error = %error);
+        }
     }
 }
 
@@ -129,4 +165,30 @@ async fn ids(
         None => query,
     };
     query.fetch_all(db.pool()).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SyncResourceIndex;
+
+    fn index_of(sessions: &[&str], workspaces: &[&str]) -> SyncResourceIndex {
+        SyncResourceIndex {
+            session_ids: sessions.iter().map(|id| (*id).to_owned()).collect(),
+            workspace_ids: workspaces.iter().map(|id| (*id).to_owned()).collect(),
+            ..SyncResourceIndex::default()
+        }
+    }
+
+    /// A session opened while the socket was loading reaches the scope through
+    /// the second load, and a resource only the first load saw is kept: a
+    /// removal is the live feed's to make.
+    #[test]
+    fn absorb_adds_what_the_later_load_saw_and_removes_nothing() {
+        let mut first = index_of(&["kept", "shared"], &["w1"]);
+        first.absorb(index_of(&["shared", "opened-meanwhile"], &["w2"]));
+        assert_eq!(
+            first,
+            index_of(&["kept", "opened-meanwhile", "shared"], &["w1", "w2"])
+        );
+    }
 }

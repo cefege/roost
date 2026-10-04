@@ -29,7 +29,7 @@ use crate::sync_ws::driver::{Delivery, LinkClose, LinkState, Outbox, SyncLink, n
 use crate::sync_ws::feed::sync_state::mint_socket_id;
 use crate::sync_ws::feed::ui::{UiViewer, ui_state_seed_frames};
 use crate::sync_ws::live_feed::LiveFeed;
-use crate::sync_ws::resource_index::load_sync_resource_index;
+use crate::sync_ws::resource_index::{load_sync_resource_index, refresh_scope_after_subscribe};
 use crate::sync_ws::seed::open_v1_delivery;
 use crate::sync_ws::session::SyncV2Session;
 use crate::sync_ws::session_replay::SessionReplay;
@@ -201,6 +201,7 @@ pub(in crate::sync_ws) async fn open_socket(
         // (`sync-feed.ts:204-205`).
         feed.set_audit_subscribed(&link, &services.buses, true);
     }
+    refresh_scope_after_subscribe(&link, &services.db, scope.owner_worker_fp.as_deref()).await;
     let opened = OpenedSocket {
         link,
         feed,
