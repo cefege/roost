@@ -1,5 +1,5 @@
-//! The signalling lane's half of a terminal route diagnostic: the five fields a
-//! negotiated peer produces, and the two the lane owns outright.
+//! The signalling lane's half of a terminal route diagnostic: the fields a
+//! negotiated peer produces, and the ones the lane owns outright.
 //!
 //! Owned by `smoke`, read by `super::stream_diagnostics`. It is a PROJECTION and
 //! nothing else: every value here comes out of
@@ -28,25 +28,27 @@ pub struct LaneFields {
     pub failure_detail: Value,
 }
 
-/// The five telemetry fields of a route entry, keyed by the name the diagnostic
+/// The telemetry fields of a route entry, keyed by the name the diagnostic
 /// publishes.
 ///
 /// `is_peer` is the gate, and it is passed rather than inferred because the
 /// caller already knows the route's transport and re-deciding it here would be a
 /// second place that could answer "is this a peer route" differently. Off a peer
-/// route every value is the documented absence: `null` for the four
-/// measurements and `"none"` for the candidate, because a loopback carrier has
-/// no ICE candidate and a Sync route has no carrier at all.
+/// route every value is the documented absence: `null` for the measurements and
+/// `"none"` for the candidate, because a loopback carrier has no ICE candidate
+/// and a Sync route has no carrier at all. `time_to_direct_ms` is the machine's
+/// own measurement of the wait that ended in this peer's election.
 pub fn telemetry_fields(
     lane: &CarrierLane,
     worker_fp: &str,
     is_peer: bool,
     now_ms: u64,
 ) -> Vec<(String, Value)> {
-    let telemetry = if is_peer {
-        lane.snapshot(worker_fp).telemetry
+    let (telemetry, time_to_direct_ms) = if is_peer {
+        let snapshot = lane.snapshot(worker_fp);
+        (snapshot.telemetry, snapshot.time_to_direct_ms)
     } else {
-        PeerTelemetry::default()
+        (PeerTelemetry::default(), None)
     };
     let probe_age_ms = telemetry
         .last_probe_at_ms
@@ -64,6 +66,7 @@ pub fn telemetry_fields(
             telemetry.worker_control_rtt_ms.into(),
         ),
         ("buffered_bytes".to_owned(), telemetry.buffered_bytes.into()),
+        ("time_to_direct_ms".to_owned(), time_to_direct_ms.into()),
     ]
 }
 
@@ -132,7 +135,7 @@ mod tests {
     fn a_non_peer_route_reports_the_documented_absence() {
         let mut lane = CarrierLane::new();
         let mut out = Vec::new();
-        lane.demand("session-a", "worker-a", "view-1", true, &mut out);
+        lane.demand("session-a", "worker-a", "view-1", true, 0, &mut out);
         lane.local_door_answered("worker-a", "worker-a", &mut out);
         let fields = fields_of(&lane, false);
         assert_eq!(fields["peer_id"], Value::Null);
@@ -147,7 +150,7 @@ mod tests {
     fn a_peer_route_reports_the_measured_telemetry() {
         let mut lane = CarrierLane::new();
         let mut out = Vec::new();
-        lane.demand("session-a", "worker-a", "view-1", true, &mut out);
+        lane.demand("session-a", "worker-a", "view-1", true, 0, &mut out);
         lane.local_door_answered("worker-a", "", &mut out);
         lane.record_telemetry(
             "worker-a",
@@ -188,7 +191,7 @@ mod tests {
         let mut lane = CarrierLane::new();
         let mut out = Vec::new();
         lane.set_environment(true, 4);
-        lane.demand("session-a", "worker-a", "view-1", true, &mut out);
+        lane.demand("session-a", "worker-a", "view-1", true, 0, &mut out);
         let fields = lane_fields(&lane, "worker-a");
         // `idle`, not `awaiting_grant`: the machine is waiting on the LOOPBACK
         // probe, and the probe gate is asked before the grant gate. Reporting
@@ -209,7 +212,7 @@ mod tests {
         let mut lane = CarrierLane::new();
         let mut out = Vec::new();
         lane.set_environment(true, 0);
-        lane.demand("session-a", "worker-a", "view-1", true, &mut out);
+        lane.demand("session-a", "worker-a", "view-1", true, 0, &mut out);
         lane.local_door_answered("worker-a", "", &mut out);
         lane.grant_minted(grant(), &mut out);
         assert_eq!(

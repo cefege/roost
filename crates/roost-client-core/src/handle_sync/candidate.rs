@@ -281,6 +281,7 @@ pub(super) fn commit_promotion(
     session_id: &str,
     mut promoted: TerminalSession,
     token: &TerminalToken,
+    now_ms: u64,
     out: &mut Vec<Effect>,
 ) {
     // Read BEFORE the replica is replaced: these are the identities the previous
@@ -320,6 +321,7 @@ pub(super) fn commit_promotion(
             SignallingInput::PromotionCommitted {
                 session_id: session_id.to_owned(),
                 token: token.clone(),
+                now_ms,
             },
             out,
         );

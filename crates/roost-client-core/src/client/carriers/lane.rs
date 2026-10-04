@@ -85,13 +85,15 @@ impl CarrierLane {
         self.environment.peers_allocated = peers_allocated;
     }
 
-    /// A view started or stopped wanting a session on this worker.
+    /// A view started or stopped wanting a session on this worker, at the
+    /// host's `now_ms`.
     pub fn demand(
         &mut self,
         session_id: &str,
         worker_fp: &str,
         view_id: &str,
         active: bool,
+        now_ms: u64,
         out: &mut Vec<Effect>,
     ) {
         self.observe(
@@ -100,6 +102,7 @@ impl CarrierLane {
                 session_id: session_id.to_owned(),
                 view_id: view_id.to_owned(),
                 active,
+                now_ms,
             },
             out,
         );
@@ -311,7 +314,7 @@ mod tests {
     fn demand_asks_for_a_grant_and_opens_nothing() {
         let mut lane = CarrierLane::new();
         let mut out = Vec::new();
-        lane.demand("session-a", "worker-a", "view-1", true, &mut out);
+        lane.demand("session-a", "worker-a", "view-1", true, 0, &mut out);
         assert_eq!(
             out.first(),
             Some(&Effect::RequestDirectGrant {
@@ -340,7 +343,7 @@ mod tests {
         let mut lane = CarrierLane::new();
         let mut out = Vec::new();
         lane.set_environment(true, 0);
-        lane.demand("session-a", "worker-a", "view-1", true, &mut out);
+        lane.demand("session-a", "worker-a", "view-1", true, 0, &mut out);
         out.clear();
         lane.local_door_answered("worker-a", "worker-a", &mut out);
         assert!(

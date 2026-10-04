@@ -62,7 +62,7 @@ pub(super) fn advance_promotion(
                     abandon_promotion(store, session_id, reason, now_ms, out);
                     return;
                 }
-                commit_candidate(store, session_id, attempt_id, candidate, out);
+                commit_candidate(store, session_id, attempt_id, candidate, now_ms, out);
                 return;
             }
             store
@@ -148,7 +148,7 @@ pub(crate) fn settle_route_result(
                         abandon_promotion(store, session_id, reason, now_ms, out);
                         return;
                     }
-                    commit_candidate(store, session_id, attempt_id, &claim.token, out);
+                    commit_candidate(store, session_id, attempt_id, &claim.token, now_ms, out);
                     release_held_onto(store, session_id, &claim.token, now_ms, out);
                 }
                 None => release_held_onto(store, session_id, &claim.token, now_ms, out),
@@ -221,11 +221,12 @@ fn commit_candidate(
     session_id: &str,
     attempt_id: u64,
     candidate: &TerminalToken,
+    now_ms: u64,
     out: &mut Vec<Effect>,
 ) {
     match store.routes.promote(session_id, attempt_id, candidate) {
         Ok(promoted) => {
-            super::candidate::commit_promotion(store, session_id, promoted, candidate, out);
+            super::candidate::commit_promotion(store, session_id, promoted, candidate, now_ms, out);
         }
         Err(refusal) => tracing::debug!(
             target: "route",

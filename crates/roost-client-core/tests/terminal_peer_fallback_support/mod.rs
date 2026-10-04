@@ -82,6 +82,7 @@ pub fn demand() -> SignallingInput {
         session_id: SESSION.to_string(),
         view_id: "view-a".to_string(),
         active: true,
+        now_ms: NOW,
     }
 }
 

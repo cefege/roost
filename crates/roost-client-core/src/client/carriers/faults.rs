@@ -263,10 +263,11 @@ impl Signalling {
 
     /// Close the open attempt, if there is one, naming the reason it went.
     fn close_open_attempt(&mut self, reason: &str) -> Vec<CarrierEffect> {
-        // The measurement belongs to the attempt, so it goes when the attempt
+        // The measurements belong to the attempt, so they go when the attempt
         // does: a dead peer's round trip left on a route that has fallen back
         // to Sync reads as a live one.
         self.telemetry = PeerTelemetry::default();
+        self.time_to_direct_ms = None;
         self.attempt.take().map_or_else(Vec::new, |attempt| {
             vec![CarrierEffect::CloseAttempt {
                 attempt_id: attempt.attempt_id,
@@ -351,6 +352,9 @@ impl Signalling {
     pub(crate) fn expire_grant(&mut self) -> Vec<CarrierEffect> {
         let detail = "direct grant reached its deadline";
         let fault = CarrierFault::GrantExpired;
+        if self.attempt.is_some() {
+            self.fell_back(fault);
+        }
         let mut out = self.close_open_attempt(detail);
         let now_ms = self.now_ms;
         out.extend(self.grant.step(GrantInput::Revoked { fault, now_ms }));

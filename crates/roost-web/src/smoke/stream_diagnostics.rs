@@ -238,12 +238,12 @@ fn sync_json(store: &Store) -> Value {
 /// for the worker PROCESS, which a restart changes and which is therefore the
 /// field a reader compares across a restart.
 ///
-/// A peer's five telemetry fields come from `super::stream_route_lane`, which
-/// reads its heartbeat. A loopback or Sync route has no ICE candidate and no
-/// carrier round trip of its own, so `candidate_type` stays `"none"` and only
-/// the worker control probe answered on that exact connection
-/// (`Store::transport_probes`) fills `probe_age_ms` and
-/// `worker_control_rtt_ms`.
+/// A peer's telemetry fields, and the time its views waited for it, come from
+/// `super::stream_route_lane`, which reads its heartbeat. A loopback or Sync
+/// route has no ICE candidate and no carrier round trip of its own, so
+/// `candidate_type` stays `"none"` and only the worker control probe answered
+/// on that exact connection (`Store::transport_probes`) fills `probe_age_ms`
+/// and `worker_control_rtt_ms`.
 fn route_entry(
     store: &Store,
     transport: TerminalTransport,
@@ -261,6 +261,7 @@ fn route_entry(
         "rtt_ms": null,
         "worker_control_rtt_ms": null,
         "buffered_bytes": null,
+        "time_to_direct_ms": null,
     });
     let is_peer = token.is_some_and(|token| token.transport == TerminalTransport::Peer);
     // The entry is built by `json!` from a literal, so it is an object; the

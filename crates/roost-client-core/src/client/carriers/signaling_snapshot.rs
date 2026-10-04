@@ -141,6 +141,7 @@ impl PeerSignalling for Signalling {
                 .clone()
                 .or_else(|| self.grant.last_detail().map(str::to_string)),
             telemetry: self.telemetry.clone(),
+            time_to_direct_ms: self.time_to_direct_ms,
         }
     }
 
@@ -182,6 +183,11 @@ pub struct SignallingSnapshot {
     /// What the transport measured about the live peer. A default on a machine
     /// with no peer, which is a value and not a placeholder.
     pub telemetry: PeerTelemetry,
+    /// How long this worker's views waited before the peer now serving them
+    /// was elected. The MACHINE's measurement, not the transport's, which is
+    /// why it is not a `PeerTelemetry` field: the host replaces that record
+    /// whole on every heartbeat.
+    pub time_to_direct_ms: Option<u64>,
 }
 
 impl SignallingSnapshot {
@@ -200,6 +206,7 @@ impl SignallingSnapshot {
             sync_generation: 0,
             last_failure_detail: None,
             telemetry: PeerTelemetry::default(),
+            time_to_direct_ms: None,
         }
     }
 }

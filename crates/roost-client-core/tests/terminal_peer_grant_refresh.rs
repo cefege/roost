@@ -15,7 +15,7 @@ use std::collections::BTreeSet;
 use roost_client_core::Effect;
 use roost_client_core::client::carriers::{CarrierEffect, PeerAnswer, SignallingInput};
 use terminal_peer_support::{
-    EPOCH, FIRST_PEER_ID, demand, elsewhere, faults, grant_minted, machine, ready, usable_sdp,
+    EPOCH, FIRST_PEER_ID, NOW, demand, elsewhere, faults, grant_minted, machine, ready, usable_sdp,
 };
 
 const FIRST: &str = "session-first";
@@ -47,6 +47,7 @@ fn released(session: &str) -> SignallingInput {
         session_id: session.to_string(),
         view_id: format!("view-{session}"),
         active: false,
+        now_ms: NOW,
     }
 }
 

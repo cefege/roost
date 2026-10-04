@@ -87,7 +87,7 @@ pub fn handle_view_opened(
     // Sync for the whole life of the document with nothing wrong to find.
     store
         .direct
-        .demand(session_id, worker_fp, view_id, true, out);
+        .demand(session_id, worker_fp, view_id, true, now_ms, out);
     // A pane that appeared while a candidate was staging invalidates that
     // attempt's snapshot of this session: the candidate is preparing a view set
     // that is no longer the set this document wants.
@@ -151,7 +151,7 @@ pub fn handle_view_hidden(
         .set_view_demand(&worker_fp, session_id, view_id, false);
     store
         .direct
-        .demand(session_id, &worker_fp, view_id, false, out);
+        .demand(session_id, &worker_fp, view_id, false, now_ms, out);
     store.note_change();
     let revision = store
         .terminal(session_id)
@@ -189,7 +189,7 @@ pub fn handle_view_closed(
         .set_view_demand(&worker_fp, session_id, view_id, false);
     store
         .direct
-        .demand(session_id, &worker_fp, view_id, false, out);
+        .demand(session_id, &worker_fp, view_id, false, now_ms, out);
     cancel_staged_candidate_and_restart(store, session_id, now_ms, out);
     if let (Some(wire_view_id), Some(revision)) = (wire_view_id, revision) {
         send_intent_for_wire(

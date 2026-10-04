@@ -42,6 +42,13 @@ pub struct Signalling {
     /// to ends, so a reader never sees a dead peer's round trip on a route
     /// that has fallen back to Sync.
     pub(crate) telemetry: PeerTelemetry,
+    /// When this worker's views last began waiting for a direct route; `None`
+    /// while none waits. The wait and its measurement are
+    /// `super::signaling_demand`'s.
+    pub(crate) direct_wait_started_ms: Option<u64>,
+    /// How long the views waited before the peer now serving them was
+    /// elected. Cleared with the attempt, for `telemetry`'s reason.
+    pub(crate) time_to_direct_ms: Option<u64>,
     pub(crate) attempt_started_ms: u64,
     /// The authenticated peer held for this worker. Always a PEER: a loopback
     /// carrier is the loopback slice's own connection.
@@ -70,6 +77,8 @@ impl Signalling {
             now_ms,
             next_attempt_id: 0,
             telemetry: PeerTelemetry::default(),
+            direct_wait_started_ms: None,
+            time_to_direct_ms: None,
             retired: false,
         }
     }
@@ -93,8 +102,11 @@ impl Signalling {
         match input {
             SignallingInput::WorkerRetired => out.extend(self.retire()),
             SignallingInput::Demand {
-                session_id, active, ..
-            } => out.extend(self.demand(session_id, active)),
+                session_id,
+                active,
+                now_ms,
+                ..
+            } => out.extend(self.demand(session_id, active, now_ms)),
             SignallingInput::Grant(grant) => out.extend(self.grant_step(grant)),
             SignallingInput::LocalDoorAnswered { worker_fp } => {
                 self.loopback.answered(&worker_fp);
@@ -127,11 +139,8 @@ impl Signalling {
             SignallingInput::ProbeMissed { attempt_id } => {
                 out.extend(self.fault(attempt_id, CarrierFault::IceFailed, "heartbeat missed"))
             }
-            SignallingInput::PromotionCommitted { token, .. } => {
-                if self.holds(&token) {
-                    self.faults.cleared();
-                    self.set_phase(PeerPhase::Active, None);
-                }
+            SignallingInput::PromotionCommitted { token, now_ms, .. } => {
+                self.promotion_committed(&token, now_ms)
             }
             SignallingInput::RetryDue { now_ms } => {
                 self.now_ms = now_ms;
@@ -146,7 +155,7 @@ impl Signalling {
     /// The attempt-may-start gate, in v2's order. The loopback question comes
     /// FIRST, before whether this document can do WebRTC at all: a page on the
     /// worker's own machine must not allocate a peer.
-    fn start(&mut self, now_ms: u64) -> Vec<CarrierEffect> {
+    pub(crate) fn start(&mut self, now_ms: u64) -> Vec<CarrierEffect> {
         if self.active_views == 0 || self.peer_held || self.retired || self.attempt.is_some() {
             return Vec::new();
         }
@@ -310,21 +319,6 @@ impl Signalling {
         vec![CarrierEffect::StageCarrier { attempt_id, ready }]
     }
 
-    /// A view started or stopped wanting this session here.
-    fn demand(&mut self, session_id: String, active: bool) -> Vec<CarrierEffect> {
-        if !active {
-            self.active_views = self.active_views.saturating_sub(1);
-            self.demand.remove(&session_id);
-            self.grant.step(GrantInput::DemandRemoved { session_id });
-            return Vec::new();
-        }
-        self.active_views += 1;
-        self.demand.insert(session_id.clone());
-        let mut out = self.grant.step(GrantInput::DemandAdded { session_id });
-        out.extend(self.start(self.now_ms));
-        out
-    }
-
     fn grant_step(&mut self, grant: GrantInput) -> Vec<CarrierEffect> {
         let mut out = match &grant {
             GrantInput::Minted(minted) => self.retire_outgrown_attempt(minted),
@@ -379,6 +373,7 @@ impl Signalling {
             attempt_id,
             reason: detail.to_string(),
         }];
+        self.fell_back(fault);
         self.attempt = None;
         self.peer_held = false;
         if self.phase == PeerPhase::Active {

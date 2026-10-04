@@ -11,7 +11,7 @@ use roost_client_core::Effect;
 use roost_client_core::client::carriers::{
     CarrierEffect, PeerPhase, PeerSignalling, ScriptedPeerSignalling, SignallingInput,
 };
-use terminal_peer_support::{SESSION, WORKER, machine};
+use terminal_peer_support::{NOW, SESSION, WORKER, machine};
 
 #[test]
 fn the_machine_is_reachable_through_its_named_trait() {
@@ -24,6 +24,7 @@ fn the_machine_is_reachable_through_its_named_trait() {
         session_id: SESSION.to_string(),
         view_id: "view-a".to_string(),
         active: true,
+        now_ms: NOW,
     });
     assert!(
         effects.iter().any(|effect| matches!(

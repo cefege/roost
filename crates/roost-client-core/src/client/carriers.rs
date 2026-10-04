@@ -14,6 +14,7 @@ pub mod lane;
 pub mod loopback;
 pub mod probe_state;
 pub mod signaling;
+mod signaling_demand;
 pub mod signaling_snapshot;
 pub mod transport_trait;
 pub mod wire;
@@ -217,6 +218,8 @@ pub enum SignallingInput {
         view_id: String,
         /// Whether it is active.
         active: bool,
+        /// The host's clock, which is when a direct-route wait starts.
+        now_ms: u64,
     },
     /// The grant changed, or a request for one resolved.
     Grant(GrantInput),
@@ -285,6 +288,8 @@ pub enum SignallingInput {
         session_id: String,
         /// The exact generation it committed on.
         token: TerminalToken,
+        /// The host's clock, which is when a direct-route wait ends.
+        now_ms: u64,
     },
     /// The host's clock reached the retry this machine asked for.
     RetryDue {
