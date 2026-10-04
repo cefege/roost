@@ -13,6 +13,9 @@
 //! when it moved. Components read that signal during render (`use_store`), which
 //! is the only way a Dioxus render learns the `RefCell` behind it changed.
 //! `Pump::write_store` is the same discipline for a write no event carries.
+//! Painted-frame movement has its own counter and signal
+//! ([`Pump::frames_revision`]), read only by the terminal painter, so a flood of
+//! frames does not re-render the chrome.
 
 mod attachment_door;
 mod boot;
@@ -29,6 +32,7 @@ mod socket;
 mod sweep;
 
 use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
 use std::rc::Rc;
 
 use dioxus::prelude::*;
@@ -53,11 +57,13 @@ pub struct Pump {
 struct PumpInner {
     core: Rc<RefCell<ClientCore>>,
     revision: Signal<u64>,
+    /// The store's `frames_revision`, mirrored for the terminal painter only.
+    frames: Signal<u64>,
     rpc: Rc<CoordRpc>,
     socket: RefCell<Option<LiveSocket>>,
     /// Set while `dispatch` runs, so a re-entrant call is queued, not nested.
     dispatching: Cell<bool>,
-    queued: RefCell<Vec<ClientEvent>>,
+    queued: RefCell<VecDeque<ClientEvent>>,
     /// The shell bridges that read this pump's clock.
     sweeps: SweepListeners,
     /// Browser callbacks that must live as long as the pump (timers,
@@ -121,6 +127,7 @@ impl Pump {
             inner: Rc::new(PumpInner {
                 core,
                 revision,
+                frames: Signal::new(0_u64),
                 rpc,
                 socket: RefCell::new(None),
                 carriers: RefCell::new(carriers::Carriers::default()),
@@ -129,7 +136,7 @@ impl Pump {
                 #[cfg(target_arch = "wasm32")]
                 peer_attempts: RefCell::new(crate::platform::carriers::PeerCarriers::new()),
                 dispatching: Cell::new(false),
-                queued: RefCell::new(Vec::new()),
+                queued: RefCell::new(VecDeque::new()),
                 #[cfg(target_arch = "wasm32")]
                 listeners: RefCell::new(Vec::new()),
                 find_intents: RefCell::new(FindIntentRegistry::new()),
@@ -175,32 +182,31 @@ impl Pump {
     /// synchronously) is queued and handled after it, in order, so the core
     /// is never borrowed twice and effects keep their sequence.
     pub fn dispatch(&self, event: ClientEvent) {
-        self.inner.queued.borrow_mut().push(event);
+        self.inner.queued.borrow_mut().push_back(event);
         if self.inner.dispatching.replace(true) {
             return;
         }
         let mut swept = false;
         loop {
-            let next = {
-                let mut queued = self.inner.queued.borrow_mut();
-                if queued.is_empty() {
-                    None
-                } else {
-                    Some(queued.remove(0))
-                }
-            };
+            let next = self.inner.queued.borrow_mut().pop_front();
             let Some(event) = next else { break };
             let kind = event.kind_name();
             swept |= matches!(event, ClientEvent::Sweep { .. });
             let (effects, before, after) = {
                 let mut core = self.inner.core.borrow_mut();
-                let before = core.store().revision();
+                let store = core.store();
+                let before = (store.revision(), store.frames_revision());
                 let effects = core.handle(event);
-                (effects, before, core.store().revision())
+                let store = core.store();
+                (effects, before, (store.revision(), store.frames_revision()))
             };
-            if after != before {
+            if after.0 != before.0 {
                 let mut revision = self.inner.revision;
-                revision.set(after);
+                revision.set(after.0);
+            }
+            if after.1 != before.1 {
+                let mut frames = self.inner.frames;
+                frames.set(after.1);
             }
             if !effects.is_empty() {
                 tracing::trace!(target: "pump", event = kind, effects = effects.len(), "handled");
@@ -290,6 +296,12 @@ impl Pump {
     /// The revision signal. Reading it during render subscribes the component.
     pub fn revision(&self) -> Signal<u64> {
         self.inner.revision
+    }
+
+    /// The painted-frame signal: moves when any replica's frame moved. Only the
+    /// terminal painter reads it; chrome reads [`Pump::revision`].
+    pub fn frames_revision(&self) -> Signal<u64> {
+        self.inner.frames
     }
 
     /// Run a host-side write against the store and repaint whatever subscribed.

@@ -120,8 +120,13 @@ pub fn CellTerminal(
         title_handle.set_title(&title)
     }));
     let sync_handle = handle.clone();
+    // The painter reads both signals: a frame moves only `frames`, and a view,
+    // route or baseline change moves `revision`. The memo above reads only
+    // `revision`, so a frame flood never re-renders this component.
+    let frames = pump.frames_revision();
     use_effect(move || {
         let _ = revision.read();
+        let _ = frames.read();
         sync_handle.sync_store();
     });
     let drop_handle = handle.clone();

@@ -13,10 +13,12 @@
 
 mod support;
 
-use roost_client_core::Admission;
+use roost_client_core::event::ClientEvent;
+use roost_client_core::{Admission, ClientCore, SyncFrame};
+use support::sync_reconnect::open_ready_link;
 use support::{
-    NEXT_EPOCH, OTHER_STREAM, SESSION, STREAM, bound_replica, delta, full, replica_with_baseline,
-    sync_token,
+    NEXT_EPOCH, OTHER_STREAM, SESSION, STREAM, bound_replica, client, delta, full,
+    replica_with_baseline, sync_token,
 };
 
 #[test]
@@ -290,4 +292,41 @@ fn a_delta_across_an_alt_screen_transition_is_the_shared_folds_refusal() {
         before.as_ref(),
         "a refused delta moved the grid"
     );
+}
+
+/// The full that makes a replica paintable is a chrome change (the pane's
+/// status reads `baseline_ready`) and a painted-frame change; a delta after it
+/// is only a painted-frame change, so the chrome does not re-render per frame.
+#[test]
+fn a_delta_moves_only_the_frames_revision_and_the_first_full_moves_both() {
+    let mut core = client();
+    let generation = open_ready_link(&mut core, "sock-1");
+    let token = core.store().sync_terminal_token().unwrap();
+    let replica = core.store_mut().terminal_mut(SESSION, "fp-1");
+    replica.bind_generation(&token);
+    replica.install_expected_stream(STREAM, 8, 4);
+    replica.open_view("view-1", 8, 4, 0);
+    let deliver = |core: &mut ClientCore, seq: u64, frame| {
+        core.handle(ClientEvent::SyncFrameReceived {
+            generation,
+            delivery_seq: seq,
+            frame: SyncFrame::CellGrid {
+                session_id: SESSION.to_owned(),
+                frame,
+            },
+        });
+        (core.store().revision(), core.store().frames_revision())
+    };
+    let start = (core.store().revision(), core.store().frames_revision());
+
+    let after_full = deliver(&mut core, 1, full(4));
+    assert!(after_full.0 > start.0, "the baseline became ready");
+    assert_eq!(after_full.1, start.1 + 1, "the full painted");
+
+    let after_delta = deliver(&mut core, 2, delta(1, 4, 0));
+    assert_eq!(
+        after_delta.0, after_full.0,
+        "a delta is not a chrome change"
+    );
+    assert_eq!(after_delta.1, after_full.1 + 1, "the delta painted");
 }

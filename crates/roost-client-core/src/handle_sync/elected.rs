@@ -12,6 +12,7 @@
 //! `docs/phase4-client-contract.md` §8.
 
 use crate::store::Store;
+use crate::store::frames_revision::PaintedMark;
 use crate::terminal::session::{Admission, TerminalSession};
 use crate::terminal::token::TerminalToken;
 
@@ -30,16 +31,14 @@ pub(super) fn fold_into_elected<F>(
 ) where
     F: FnOnce(&mut TerminalSession) -> Admission,
 {
-    let (painted_before, painted_after) = {
+    let (before, after) = {
         let Some(replica) = store.terminal_mut_if_present(session_id) else {
             return;
         };
         replica.bind_generation(token);
-        let before = replica.frame_revision();
+        let before = PaintedMark::of(replica);
         let _ = fold(replica);
-        (before, replica.frame_revision())
+        (before, PaintedMark::of(replica))
     };
-    if painted_after != painted_before {
-        store.note_change();
-    }
+    store.note_fold(before, after);
 }

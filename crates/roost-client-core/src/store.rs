@@ -13,6 +13,7 @@ pub mod browse_paths;
 pub mod browse_state;
 pub mod folder_activity;
 pub mod folder_name_validation;
+pub(crate) mod frames_revision;
 pub mod layout;
 pub mod mutations;
 pub mod navigation;
@@ -252,6 +253,9 @@ pub struct Store {
     /// and a host that repaints per control frame turns a busy socket into a
     /// busy main thread. `note_change` is the only thing that moves it.
     revision: u64,
+    /// Moves when a replica's painted frame moves; see `store::frames_revision`
+    /// for why it is a second counter.
+    frames_revision: u64,
 }
 
 impl Store {
@@ -259,6 +263,7 @@ impl Store {
     pub fn new(sync: SyncState, tab_id: impl Into<String>) -> Self {
         Self {
             revision: 0,
+            frames_revision: 0,
             sessions: SessionPlane::new(),
             sync,
             tab_id: tab_id.into(),
