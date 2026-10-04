@@ -4,5 +4,7 @@
 [toolchain]
 channel = "1.98.1"
 profile = "minimal"
-components = ["rustfmt", "clippy"]
+# llvm-tools: `dx build` strips the bundle with the toolchain's rust-objcopy,
+# which on macOS loads a libLLVM.dylib only this component installs.
+components = ["rustfmt", "clippy", "llvm-tools"]
 targets = ["wasm32-unknown-unknown"]
