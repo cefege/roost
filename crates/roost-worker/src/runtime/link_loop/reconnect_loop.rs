@@ -98,7 +98,7 @@ impl LinkLoop {
     /// whose possibly-lost retirements replay first on the next link. The durable mirror
     /// does not reset: a durable row that vanished on reconnect would be a hole
     /// in the coordinator's record of what happened.
-    fn detach_link(&mut self) {
+    pub(super) fn detach_link(&mut self) {
         let generation = self.uplink.advance();
         self.pump.on_disconnect();
         self.authorised = None;

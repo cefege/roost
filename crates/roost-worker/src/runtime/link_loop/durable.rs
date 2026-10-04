@@ -180,6 +180,27 @@ impl LinkLoop {
         self.pending_acks.push(client_seq);
     }
 
+    /// Drop the mirror's head once the pump accepted the coordinator's
+    /// acknowledgement of it.
+    ///
+    /// The mirror and the pump retire a row on the same answer and never on a
+    /// send: a reconnect re-releases an unacknowledged row, and a mirror that
+    /// had already let it go would hand the pump's sequence to the next row.
+    pub(in crate::runtime) fn release_acknowledged_mirror_head(&mut self, client_seq: u64) {
+        match self.durable.front() {
+            Some(head) if head.seq == Some(client_seq) => {
+                if let Some(released) = self.durable.pop_front() {
+                    self.durable_bytes = self.durable_bytes.saturating_sub(released.bytes.len());
+                }
+            }
+            head => tracing::error!(
+                client_seq,
+                head = ?head.and_then(|frame| frame.seq),
+                "the pump accepted an acknowledgement the durable mirror does not hold at its head"
+            ),
+        }
+    }
+
     /// Retire every row a coordinator acknowledgement authorised. Returns how
     /// many left the outbox.
     ///

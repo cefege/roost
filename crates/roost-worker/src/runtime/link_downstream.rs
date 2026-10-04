@@ -87,7 +87,10 @@ impl DownstreamLink for LinkLoop {
         let was_live = self.pump.barrier().allows_live_traffic();
         let action = match self.pump.on_event_ack(client_seq) {
             Action::IgnoredAck { .. } => self.pump.on_snapshot_ack(client_seq),
-            durable => durable,
+            durable => {
+                self.release_acknowledged_mirror_head(client_seq);
+                durable
+            }
         };
         self.note_durable_ack(client_seq);
         apply_to(self, action);

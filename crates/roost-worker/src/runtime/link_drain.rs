@@ -121,20 +121,11 @@ pub(super) async fn drain(loop_state: &mut LinkLoop, link: &mut Link) -> Option<
                     ));
                 };
                 let bytes = frame.bytes.clone();
-                // The mirror keeps its head until the socket accepts the frame,
-                // because `Link::send` consumes the buffer whether it succeeds or
-                // not. Popping first would drop a durable event the coordinator
-                // never received, with no sequence left to replay it under.
-                match link.send(bytes).await {
-                    Ok(()) => {
-                        let released = loop_state.durable.pop_front();
-                        loop_state.durable_bytes = loop_state
-                            .durable_bytes
-                            .saturating_sub(released.map_or(0, |frame| frame.bytes.len()));
-                        Ok(seq)
-                    }
-                    Err(error) => Err(error),
-                }
+                // The mirror keeps its head until the coordinator acknowledges
+                // the sequence (`link_downstream`), because a reconnect
+                // re-releases an unacknowledged row and the mirror must still
+                // hold it to write it again under its own sequence.
+                link.send(bytes).await.map(|()| seq)
             }
             NextWrite::Snapshot { bytes } => link.send(bytes).await.map(|()| 0),
             NextWrite::Queued(frame) => link.send(frame.bytes).await.map(|()| 0),

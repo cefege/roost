@@ -8,6 +8,8 @@
 
 use super::*;
 
+mod resend;
+
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 
