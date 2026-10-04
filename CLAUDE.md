@@ -341,14 +341,33 @@ Before a release tag:
 # by manifest path.
 cargo test --manifest-path third_party/alacritty_terminal/Cargo.toml
 cargo build -p roost-client-core -p roost-protocol -p roost-web -p roost-web-terminal --target wasm32-unknown-unknown
+cargo xtask fleet build --version <tag>
 ```
 
 CI (`.github/workflows/ci.yml`) runs the `rust` job on ubuntu-latest AND
 macos-latest. `.github/workflows/release.yml` publishes a `v3.*` tag: it
-re-runs the `rust` job's commands and builds four triples, linking the Linux
-pair through zig against glibc 2.28, so a binary starts on every distribution
-the fleet runs. v3 ships Linux and macOS. No gate needs a deployed
-coordinator, a tailnet, or a human driving a browser.
+re-runs the `rust` job's commands and builds four triples, whose assets
+`install.sh` and `join.sh` fetch for a machine outside the fleet below. No gate
+needs a deployed coordinator, a tailnet, or a human driving a browser.
+
+### Release to the fleet
+
+Our own machines take a release from this checkout, not from GitHub Actions.
+The host list, install order and service names are `xtask/fleet.json`.
+
+```
+cargo xtask fleet build --version <tag>     # clean tree only; artifacts in target/fleet/<tag>/
+cargo xtask fleet install --version <tag> [--host <name>]…
+```
+
+`fleet build` builds the Linux pair here through `cargo zigbuild` against
+glibc 2.28 (one binary for every Linux host), the macOS pair on the warm
+`~/roost-build` of the Mac named in `fleet.json` (rsync, then an incremental
+cargo build), and the web bundle through `dx`, stamping the tag and HEAD's sha
+into both binaries. `fleet install` copies the tag into each host's
+`versions/<tag>/`, repoints the systemd units or the LaunchAgent at it,
+restarts them coordinator first, and fails a host whose keeper pid changed.
+Needs zig 0.16.0 and `cargo-zigbuild` 0.23.4 on this machine.
 
 ---
 

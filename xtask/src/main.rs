@@ -1,10 +1,11 @@
-//! `cargo xtask` — the repository gate runner, and the only place a Roost
-//! developer runs a check that is not `cargo build` or `cargo test`.
-//! Blocking in CI; see CLAUDE.md "Verification" for the full command list.
+//! `cargo xtask` — the repository gate runner and the fleet release tool, and
+//! the only place a Roost developer runs a check that is not `cargo build` or
+//! `cargo nextest`. Blocking in CI; see CLAUDE.md `### Commands`.
 
 mod crate_dag;
 mod design_raw;
 mod file_size;
+mod fleet;
 mod fmt;
 mod lint_table;
 mod ratchet;
@@ -37,6 +38,12 @@ enum Command {
     /// vendored terminal core — see `fmt` for why that is not a matter of
     /// taste.
     Fmt,
+    /// Build a tagged release and install it on the machines in
+    /// xtask/fleet.json.
+    Fleet {
+        #[command(subcommand)]
+        command: fleet::FleetCommand,
+    },
 }
 
 #[derive(Args)]
@@ -67,6 +74,7 @@ fn main() -> ExitCode {
     match Xtask::parse().command {
         Command::Lint(arguments) => lint(&arguments),
         Command::Fmt => fmt(),
+        Command::Fleet { command } => fleet::run(&command),
     }
 }
 

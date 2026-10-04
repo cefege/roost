@@ -1,0 +1,10 @@
+{
+  "mac_build_host": "m5",
+  "hosts": [
+    { "name": "ovh1", "ssh": "ovh1", "platform": "linux", "services": ["roost3-coord", "roost3-worker"] },
+    { "name": "desktop-pc", "ssh": null, "platform": "linux", "services": ["roost3-worker"] },
+    { "name": "m5", "ssh": "m5", "platform": "macos", "services": ["com.roost.worker-v3"] },
+    { "name": "m1-new", "ssh": "m1-new", "platform": "macos", "services": ["com.roost.worker-v3"] },
+    { "name": "m1-old", "ssh": "m1-old", "platform": "macos", "services": ["com.roost.worker-v3"] }
+  ]
+}
