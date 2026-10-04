@@ -49,6 +49,12 @@ pub enum PeerEvent {
         /// Which attempt.
         attempt_id: u64,
     },
+    /// The browser gathered a server-reflexive candidate. The offer is then read
+    /// after a short settle rather than when every interface has given up.
+    ReflexiveCandidate {
+        /// Which attempt.
+        attempt_id: u64,
+    },
     /// One lane's data channel became writable.
     LaneOpen {
         /// Which attempt.
@@ -203,6 +209,7 @@ impl PeerEvent {
     pub fn attempt_id(&self) -> u64 {
         match self {
             Self::Gathered { attempt_id }
+            | Self::ReflexiveCandidate { attempt_id }
             | Self::LaneOpen { attempt_id, .. }
             | Self::LaneFailed { attempt_id, .. }
             | Self::Bytes { attempt_id, .. }

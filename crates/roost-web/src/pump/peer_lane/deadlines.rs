@@ -59,6 +59,24 @@ pub(super) fn read_deadlines(pump: &Pump, now_ms: u64) {
     retire_stalled_lanes(pump, now_ms);
 }
 
+/// The browser gathered a server-reflexive candidate: the gathering deadline
+/// shortens to the settle, and the tick reads the offer when it lapses.
+pub(super) fn reflexive_candidate(pump: &Pump, attempt_id: u64, now_ms: u64) {
+    let shortened = pump
+        .inner
+        .peer_attempts
+        .borrow_mut()
+        .attempt_mut(attempt_id)
+        .is_some_and(|carrier| carrier.life_mut().reflexive_candidate_arrived(now_ms));
+    if shortened {
+        tracing::info!(
+            target: "carriers",
+            attempt_id,
+            "a reflexive candidate arrived; the offer is read after the settle"
+        );
+    }
+}
+
 /// The whole table read once, so the carriers are not re-borrowed per deadline.
 fn lapsed(pump: &Pump, now_ms: u64) -> Vec<(u64, PeerDeadline)> {
     let held = pump.inner.peer_attempts.borrow();

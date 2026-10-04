@@ -89,6 +89,9 @@ fn drain_events(pump: &Pump, now_ms: u64) {
     for event in events {
         match event {
             PeerEvent::Gathered { attempt_id } => offer_ready(pump, attempt_id),
+            PeerEvent::ReflexiveCandidate { attempt_id } => {
+                deadlines::reflexive_candidate(pump, attempt_id, now_ms);
+            }
             PeerEvent::LaneOpen { attempt_id, lane } => lane_opened(pump, attempt_id, lane),
             PeerEvent::LaneFailed {
                 attempt_id,

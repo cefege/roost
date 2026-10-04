@@ -51,8 +51,9 @@ pub(super) struct BrowserPeer {
 ///
 /// A browser holds a raw reference to each one, so this list is what keeps a
 /// handler callable: dropping it is not a leak being fixed, it is the handler
-/// becoming a dangling call. Type-erased because the message handler takes the
-/// browser's event object and the other five do not, and a list is a list.
+/// becoming a dangling call. Type-erased because the message and candidate
+/// handlers take the browser's event object and the rest do not, and a list is
+/// a list.
 #[cfg(target_arch = "wasm32")]
 pub(super) type Handlers = Vec<Box<dyn std::any::Any>>;
 
@@ -252,7 +253,7 @@ pub(super) fn close(peer: &BrowserPeer) {
     let _ = call_method(&peer.connection, "close", &Array::new());
 }
 
-/// Install the connection's two ICE handlers.
+/// Install the connection's three ICE handlers.
 #[cfg(target_arch = "wasm32")]
 pub(super) fn install_connection_handlers(
     connection: &JsValue,
@@ -277,9 +278,30 @@ pub(super) fn install_connection_handlers(
             }
         }
     });
+    let candidate = Closure::<dyn FnMut(JsValue)>::new({
+        let sink = sink.clone();
+        move |event: JsValue| {
+            if is_reflexive_candidate(&event) {
+                sink.record(PeerEvent::ReflexiveCandidate { attempt_id });
+            }
+        }
+    });
     assign(connection, "onicegatheringstatechange", &gathering);
     assign(connection, "oniceconnectionstatechange", &ice);
-    vec![Box::new(gathering), Box::new(ice)]
+    assign(connection, "onicecandidate", &candidate);
+    vec![Box::new(gathering), Box::new(ice), Box::new(candidate)]
+}
+
+/// Whether an `icecandidate` event carries a server-reflexive candidate. The
+/// end-of-candidates event carries `null`, which is not one.
+#[cfg(target_arch = "wasm32")]
+fn is_reflexive_candidate(event: &JsValue) -> bool {
+    Reflect::get(event, &JsValue::from_str("candidate"))
+        .ok()
+        .filter(|candidate| !candidate.is_null() && !candidate.is_undefined())
+        .and_then(|candidate| Reflect::get(&candidate, &JsValue::from_str("type")).ok())
+        .and_then(|kind| kind.as_string())
+        .is_some_and(|kind| kind == "srflx")
 }
 
 /// Install a channel's open, close and error handlers.
