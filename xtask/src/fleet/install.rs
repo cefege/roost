@@ -9,7 +9,14 @@ use std::time::Instant;
 use super::manifest::{FleetHost, Platform};
 
 const STAGE_DIR: &str = ".roost-stage";
-const PID_FILE: &str = "mux-keeper.pid";
+/// How long every restarted service must keep one main pid. A worker that
+/// cannot admit its keeper exits after the 5 s identity deadline and systemd
+/// or launchd starts it again, so a shorter window passes a crash loop.
+const STABLE_SECONDS: u32 = 12;
+/// Prints the keeper pid, or `dead:<pid file contents>` when no such process
+/// runs; a pid file outlives a reboot. Expects `$ROOT`.
+const KEEPER_PID_LINE: &str = "PID=$(cat \"$ROOT/mux-keeper.pid\" 2>/dev/null || echo none)\n\
+if [ \"$PID\" != none ] && kill -0 \"$PID\" 2>/dev/null; then echo \"$PID\"; else echo \"dead:$PID\"; fi\n";
 const COORDINATOR_URL: &str = "https://mike.roosttt.com";
 
 /// A tag `fleet build` finished: its directory and the commit it was built at.
@@ -81,7 +88,9 @@ pub fn install_on(host: &FleetHost, release: &BuiltRelease) -> Result<(), String
         .run_script("read the keeper pid", &pid_script(host.platform))?
         .trim()
         .to_owned();
-    if keeper_after != keeper_before {
+    // A dead keeper reads as `dead:<pid file>`, so a stale pid file that did
+    // not change is still a failure: no process is holding the PTYs.
+    if keeper_after.starts_with("dead:") || keeper_after != keeper_before {
         return Err(format!(
             "keeper pid changed on {}: {keeper_before} -> {keeper_after}",
             host.name
@@ -108,7 +117,8 @@ fn place_script(platform: Platform, tag: &str) -> String {
     format!(
         "set -euo pipefail\n\
          STAGE=\"$HOME/{STAGE_DIR}/{tag}\"\n\
-         REL=\"{root}/versions/{tag}\"\n\
+         ROOT=\"{root}\"\n\
+         REL=\"$ROOT/versions/{tag}\"\n\
          mkdir -p \"$REL/bin\"\n\
          for binary in roost roost-keeper; do\n\
            cp \"$STAGE/bin/$binary\" \"$REL/bin/.$binary.new\"\n\
@@ -120,15 +130,12 @@ fn place_script(platform: Platform, tag: &str) -> String {
          {quarantine}\
          \"$REL/bin/roost\" --version\n\
          \"$REL/bin/roost\" version --build\n\
-         cat \"{root}/{PID_FILE}\" 2>/dev/null || echo none\n"
+         {KEEPER_PID_LINE}"
     )
 }
 
 fn pid_script(platform: Platform) -> String {
-    format!(
-        "cat \"{}/{PID_FILE}\" 2>/dev/null || echo none\n",
-        platform.data_root()
-    )
+    format!("ROOT=\"{}\"\n{KEEPER_PID_LINE}", platform.data_root())
 }
 
 /// Repoint each unit at the tag, drop a spent bootstrap token, and restart the
@@ -152,6 +159,15 @@ fn linux_restart_script(tag: &str, services: &[String]) -> String {
            done\n\
            systemctl --user is-active \"$svc\"\n\
          done\n\
+         FIRST=\"\"\n\
+         for svc in {units}; do FIRST=\"$FIRST $(systemctl --user show -p MainPID --value \"$svc\")\"; done\n\
+         sleep {STABLE_SECONDS}\n\
+         LAST=\"\"\n\
+         for svc in {units}; do LAST=\"$LAST $(systemctl --user show -p MainPID --value \"$svc\")\"; done\n\
+         if [ \"$FIRST\" != \"$LAST\" ] || echo \"$LAST\" | grep -qw 0; then\n\
+           echo \"services did not stay up: MainPID$FIRST ->$LAST\" >&2\n\
+           exit 1\n\
+         fi\n\
          if [ -L \"$HOME/.local/bin/roost\" ]; then\n\
            ln -sfn \"{root}/versions/{tag}/bin/roost\" \"$HOME/.local/bin/roost\"\n\
          fi\n"
@@ -189,6 +205,12 @@ fn macos_restart_script(tag: &str, services: &[String]) -> Result<String, String
            launchctl print \"$DOMAIN/{label}\" 2>/dev/null | grep -q 'state = running' && break\n\
            sleep 1\n\
          done\n\
-         launchctl print \"$DOMAIN/{label}\" | grep 'state = running'\n"
+         FIRST=$(launchctl print \"$DOMAIN/{label}\" | awk '$1 == \"pid\" {{ print $3; exit }}')\n\
+         sleep {STABLE_SECONDS}\n\
+         LAST=$(launchctl print \"$DOMAIN/{label}\" | awk '$1 == \"pid\" {{ print $3; exit }}')\n\
+         if [ -z \"$FIRST\" ] || [ \"$FIRST\" != \"$LAST\" ]; then\n\
+           echo \"{label} did not stay up: pid $FIRST -> $LAST\" >&2\n\
+           exit 1\n\
+         fi\n"
     ))
 }
