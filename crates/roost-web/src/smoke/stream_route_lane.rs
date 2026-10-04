@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use roost_client_core::client::carriers::{CarrierLane, GrantPhase, PeerPhase, PeerTelemetry};
 
-/// The lane's three answers about one worker, in the diagnostic's spelling.
+/// The lane's answers about one worker, in the diagnostic's spelling.
 ///
 /// Typed as `Value` because the diagnostic is assembled with `serde_json::json!`
 /// and a struct of `Option<&str>` would have to be unwrapped field by field at
@@ -26,6 +26,8 @@ pub struct LaneFields {
     pub fallback_reason: Value,
     /// The host's own last detail, never the value that failed to match.
     pub failure_detail: Value,
+    /// Whether pre-warm holds the worker's peer ready; `false` with no machine.
+    pub prewarmed: bool,
 }
 
 /// The telemetry fields of a route entry, keyed by the name the diagnostic
@@ -88,15 +90,17 @@ pub fn lane_fields(lane: &CarrierLane, worker_fp: &str) -> LaneFields {
             .fallback_reason
             .map_or(Value::Null, |reason| reason.as_str().into()),
         failure_detail: snapshot.last_failure_detail.into(),
+        prewarmed: snapshot.prewarmed,
     }
 }
 
-/// The three fields for a worker this lane holds no machine for.
+/// The fields for a worker this lane holds no machine for.
 fn absent() -> LaneFields {
     LaneFields {
         peer_phase: Value::Null,
         fallback_reason: Value::Null,
         failure_detail: Value::Null,
+        prewarmed: false,
     }
 }
 

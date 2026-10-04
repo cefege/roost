@@ -166,6 +166,10 @@ pub(crate) fn settle_hydration_result(
     };
     store.note_change();
     publish_domain(store, &ticket, token, now_ms, out);
+    // The session rows and the routable set are what the pre-warm selection reads.
+    if matches!(ticket.domain, SyncDomain::Terminal | SyncDomain::Workers) {
+        crate::handle_terminal::reconcile_prewarm(store, now_ms, out);
+    }
     true
 }
 

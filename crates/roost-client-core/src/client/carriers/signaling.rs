@@ -19,6 +19,7 @@ use crate::client::carriers::faults::{
 };
 use crate::client::carriers::grant::{GrantInput, GrantLifecycle, GrantSweep};
 use crate::client::carriers::loopback::LoopbackProbe;
+use crate::client::carriers::signaling_demand::DirectWait;
 use crate::client::carriers::signaling_snapshot::PeerTelemetry;
 use crate::client::carriers::{
     CarrierEffect, CarrierEnvironment, CarrierFault, PeerAnswer, PeerAttempt, PeerPhase,
@@ -32,6 +33,10 @@ pub struct Signalling {
     pub(crate) worker_fp: String,
     pub(crate) demand: BTreeSet<String>,
     pub(crate) active_views: u64,
+    /// The sessions pre-warm holds a grant and a peer ready for, with no view
+    /// asking yet. Empty while the worker is not pre-warmed; a non-empty set
+    /// opens `start`'s gate exactly as one view would.
+    pub(crate) prewarm_sessions: BTreeSet<String>,
     pub(crate) env: CarrierEnvironment,
     pub(crate) grant: GrantLifecycle,
     pub(crate) loopback: LoopbackProbe,
@@ -45,7 +50,7 @@ pub struct Signalling {
     /// When this worker's views last began waiting for a direct route; `None`
     /// while none waits. The wait and its measurement are
     /// `super::signaling_demand`'s.
-    pub(crate) direct_wait_started_ms: Option<u64>,
+    pub(crate) direct_wait: Option<DirectWait>,
     /// How long the views waited before the peer now serving them was
     /// elected. Cleared with the attempt, for `telemetry`'s reason.
     pub(crate) time_to_direct_ms: Option<u64>,
@@ -68,6 +73,7 @@ impl Signalling {
             worker_fp,
             demand: BTreeSet::new(),
             active_views: 0,
+            prewarm_sessions: BTreeSet::new(),
             env,
             faults: FaultState::default(),
             phase: PeerPhase::Idle,
@@ -77,20 +83,10 @@ impl Signalling {
             now_ms,
             next_attempt_id: 0,
             telemetry: PeerTelemetry::default(),
-            direct_wait_started_ms: None,
+            direct_wait: None,
             time_to_direct_ms: None,
             retired: false,
         }
-    }
-
-    /// The credential a host would spend to open this worker's carrier now.
-    ///
-    /// Deliberately NOT reachable from [`PeerAttempt`], which is traced and
-    /// `Debug`-printed on every transition: the secret belongs to the moment a
-    /// carrier authenticates, not to the description of an attempt that is
-    /// still being negotiated.
-    pub(crate) fn live_grant(&self, now_ms: u64) -> Option<&crate::client::carriers::DirectGrant> {
-        self.grant.live_grant(now_ms)
     }
 
     /// Fold one observation in, and return what the host should do about it.
@@ -107,6 +103,11 @@ impl Signalling {
                 now_ms,
                 ..
             } => out.extend(self.demand(session_id, active, now_ms)),
+            SignallingInput::Prewarm {
+                session_ids,
+                now_ms,
+            } => out.extend(self.prewarm(session_ids, now_ms)),
+            SignallingInput::PrewarmReleased { now_ms } => out.extend(self.release_prewarm(now_ms)),
             SignallingInput::Grant(grant) => out.extend(self.grant_step(grant)),
             SignallingInput::LocalDoorAnswered { worker_fp } => {
                 self.loopback.answered(&worker_fp);
@@ -156,7 +157,8 @@ impl Signalling {
     /// FIRST, before whether this document can do WebRTC at all: a page on the
     /// worker's own machine must not allocate a peer.
     pub(crate) fn start(&mut self, now_ms: u64) -> Vec<CarrierEffect> {
-        if self.active_views == 0 || self.peer_held || self.retired || self.attempt.is_some() {
+        let wanted = self.active_views > 0 || !self.prewarm_sessions.is_empty();
+        if !wanted || self.peer_held || self.retired || self.attempt.is_some() {
             return Vec::new();
         }
         if !self.loopback.permits_peer() {

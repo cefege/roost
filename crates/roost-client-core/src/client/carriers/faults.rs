@@ -262,7 +262,7 @@ impl Signalling {
     }
 
     /// Close the open attempt, if there is one, naming the reason it went.
-    fn close_open_attempt(&mut self, reason: &str) -> Vec<CarrierEffect> {
+    pub(crate) fn close_open_attempt(&mut self, reason: &str) -> Vec<CarrierEffect> {
         // The measurements belong to the attempt, so they go when the attempt
         // does: a dead peer's round trip left on a route that has fallen back
         // to Sync reads as a live one.

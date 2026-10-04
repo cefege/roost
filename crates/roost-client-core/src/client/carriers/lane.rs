@@ -20,6 +20,8 @@
 //! So the whole enum travels, and this file only unwraps the arm that is
 //! already a decision the core made.
 
+mod prewarm;
+
 use std::collections::BTreeMap;
 
 use crate::client::carriers::grant::DirectGrant;
@@ -275,7 +277,8 @@ impl CarrierLane {
         emit(effects, out);
     }
 
-    /// Forget the machines no view wants and no carrier is held for.
+    /// Forget the machines no view wants, no pre-warm holds, and no carrier is
+    /// held for.
     ///
     /// On the sweep rather than on the view close, because a close is also the
     /// moment a resize or a re-attach is arriving, and dropping the machine
@@ -283,8 +286,10 @@ impl CarrierLane {
     /// in cooldown, or holding a peer, is kept whatever the demand says.
     fn prune(&mut self) {
         self.machines.retain(|_, machine| {
-            let snapshot = machine.snapshot();
-            snapshot.active_views > 0 || snapshot.has_carrier || snapshot.phase != PeerPhase::Idle
+            machine.active_views > 0
+                || !machine.prewarm_sessions.is_empty()
+                || machine.peer_held
+                || machine.phase != PeerPhase::Idle
         });
     }
 }

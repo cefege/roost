@@ -3,9 +3,10 @@
 //! knows, and the telemetry both publish.
 //!
 //! Owned by `pump::peer_lane`, driven by the tick. The heartbeat runs while the
-//! worker's attempt is ACTIVE, some view wants it, and the page is visible —
-//! v2's `TerminalPeerOwner.heartbeat` guard — and its second consecutive miss is
-//! reported to the core as `ProbeMissed`, whose fault closes the attempt. Every
+//! page is visible and the worker's authenticated peer either serves a view
+//! from an ACTIVE attempt — v2's `TerminalPeerOwner.heartbeat` guard — or is
+//! held ready by pre-warm, and its second consecutive miss is reported to the
+//! core as `ProbeMissed`, whose fault closes the attempt. Every
 //! published value was measured: the round trip is a probe's, the candidate kind
 //! is the browser's report, and nothing here defaults a zero a reader could not
 //! tell from a real one.
@@ -38,8 +39,12 @@ pub(super) fn start_due_probes(pump: &Pump, now_ms: u64) {
             };
             let worker_fp = carrier.worker_fp().to_owned();
             let snapshot = lane.snapshot(&worker_fp);
-            let serving =
-                visible && snapshot.phase == PeerPhase::Active && snapshot.active_views > 0;
+            // A pre-warmed peer is probed with no view on it: a warm peer that
+            // died unnoticed is exactly the one the next pane is staged on.
+            let serving = visible
+                && snapshot.has_carrier
+                && (snapshot.prewarmed
+                    || (snapshot.phase == PeerPhase::Active && snapshot.active_views > 0));
             let Some(heartbeat) = carrier.heartbeat_mut() else {
                 continue;
             };

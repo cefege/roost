@@ -88,6 +88,16 @@ impl Signalling {
         &self.loopback
     }
 
+    /// The credential a host would spend to open this worker's carrier now.
+    ///
+    /// Deliberately NOT reachable from [`PeerAttempt`], which is traced and
+    /// `Debug`-printed on every transition: the secret belongs to the moment a
+    /// carrier authenticates, not to the description of an attempt that is
+    /// still being negotiated.
+    pub(crate) fn live_grant(&self, now_ms: u64) -> Option<&crate::client::carriers::DirectGrant> {
+        self.grant.live_grant(now_ms)
+    }
+
     /// The sessions a view currently wants here.
     pub fn demanded_sessions(&self) -> &BTreeSet<String> {
         &self.demand
@@ -126,6 +136,7 @@ impl PeerSignalling for Signalling {
             fallback_reason: self.faults.reason,
             active_views: self.active_views,
             demanded_sessions: self.demand.clone(),
+            prewarmed: !self.prewarm_sessions.is_empty(),
             has_carrier: self.peer_held,
             transport_held: self.peer_held.then_some(TerminalTransport::Peer),
             peers_allocated: self.env.peers_allocated,
@@ -167,6 +178,9 @@ pub struct SignallingSnapshot {
     pub active_views: u64,
     /// Which sessions they want.
     pub demanded_sessions: BTreeSet<String>,
+    /// Whether pre-warm wants this worker's peer held ready, with or without a
+    /// view also asking for it.
+    pub prewarmed: bool,
     /// Whether an authenticated carrier is held for this worker.
     pub has_carrier: bool,
     /// Which kind of carrier it is.
@@ -199,6 +213,7 @@ impl SignallingSnapshot {
             fallback_reason: None,
             active_views: 0,
             demanded_sessions: BTreeSet::new(),
+            prewarmed: false,
             has_carrier: false,
             transport_held: None,
             peers_allocated: 0,

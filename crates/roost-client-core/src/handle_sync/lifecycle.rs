@@ -177,13 +177,15 @@ pub(crate) fn sweep_sync(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) 
     }
 }
 
-/// The document's visibility changed.
+/// The document's visibility changed. A hidden document stops pre-warming, and
+/// one that shows again is pre-warmed afresh.
 pub(crate) fn on_visibility(store: &mut Store, visible: bool, now_ms: u64, out: &mut Vec<Effect>) {
     store.sync.redial.set_visible(visible);
     tracing::debug!(target: "sync", visible, "page visibility");
     if visible {
         on_wake(store, false, now_ms, out);
     }
+    crate::handle_terminal::reconcile_prewarm(store, now_ms, out);
 }
 
 /// A page-lifecycle wake: resume the redial now, and replace an open socket

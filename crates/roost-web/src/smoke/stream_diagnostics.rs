@@ -349,15 +349,23 @@ fn route_json(
     // The lane's two answers are reported whether or not a route is elected.
     // "No route, no attempt, and no reason" is the state that reads as healthy
     // in a snapshot and is not: it is what a machine with no credential, or one
-    // waiting out a fault's cooldown, both look like from the route fields.
+    // waiting out a fault's cooldown, both look like from the route fields. A
+    // session no pane has opened has no replica, and its worker's lane is still
+    // the one a pane would be served by — a pre-warmed peer reads here before
+    // anything views it.
+    let lane_worker = worker_fp.or_else(|| {
+        roost_client_core::store::selectors::session_by_id(store, session_id)
+            .map(|session| session.worker_fp.as_str())
+    });
     let signalling =
-        super::stream_route_lane::lane_fields(&store.direct, worker_fp.unwrap_or_default());
+        super::stream_route_lane::lane_fields(&store.direct, lane_worker.unwrap_or_default());
     json!({
         "active": active,
         "candidate": candidate,
         "peer_phase": signalling.peer_phase,
         "fallback_reason": signalling.fallback_reason,
         "failure_detail": signalling.failure_detail,
+        "prewarmed": signalling.prewarmed,
         "input_phase": lane.map(|lane| input_phase(lane.phase)),
         "pending_input_count": store.input.outstanding(session_id).len(),
     })

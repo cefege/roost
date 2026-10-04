@@ -6,8 +6,11 @@
 //! and it is deliberately not a second gate. The registry, session-metadata and
 //! control folds live in the sibling `fold_*` files; this match only routes.
 
+use roost_protocol::wire::WorkerPresenceEvent;
+
 use crate::effect::Effect;
 use crate::store::Store;
+use crate::store::frames_revision::PaintedMark;
 use crate::sync::{SyncDomain, SyncFrame};
 use crate::terminal::smoke_faults::FaultedFrameKind;
 use crate::terminal::token::TerminalTransport;
@@ -119,10 +122,12 @@ pub(super) fn apply_frame(
             // can never name an event the store has not applied.
             store.sync.watermark.note(*event_id);
             store.note_change();
+            crate::handle_terminal::reconcile_prewarm(store, now_ms, out);
         }
         SyncFrame::SessionsSnapshot { sessions } => {
             store.sessions.apply_snapshot(sessions.clone());
             store.note_change();
+            crate::handle_terminal::reconcile_prewarm(store, now_ms, out);
         }
         SyncFrame::CellGrid {
             session_id,
@@ -148,15 +153,14 @@ pub(super) fn apply_frame(
                 return;
             };
             replica.bind_generation(&token);
-            let painted_before = replica.frame_revision();
+            let before = PaintedMark::of(replica);
             let _ = replica.admit_frame(cell, false, &token, now_ms);
-            // A host learns that a pane changed from the STORE revision and
-            // reads how far the replica moved from `frame_revision`, so the
-            // store revision has to move too — otherwise the notification that
-            // would tell it to look never arrives.
-            if replica.frame_revision() != painted_before {
-                store.note_change();
-            }
+            // A host learns that a pane changed from the store's frame counter
+            // and reads how far the replica moved from `frame_revision`, so the
+            // counter has to move too — otherwise the notification that would
+            // tell it to look never arrives.
+            let after = PaintedMark::of(replica);
+            store.note_fold(before, after);
         }
         SyncFrame::CellGridChunk { session_id, chunk } => {
             let Some(token) = store.sync.terminal_token() else {
@@ -181,11 +185,10 @@ pub(super) fn apply_frame(
                 return;
             };
             replica.bind_generation(&token);
-            let painted_before = replica.frame_revision();
+            let before = PaintedMark::of(replica);
             let _ = replica.admit_chunk(chunk, &token, now_ms);
-            if replica.frame_revision() != painted_before {
-                store.note_change();
-            }
+            let after = PaintedMark::of(replica);
+            store.note_fold(before, after);
         }
         SyncFrame::ViewState { .. } | SyncFrame::InputResult { .. } => {
             crate::handle_terminal::handle_correlated_result(store, frame, now_ms, out);
@@ -233,9 +236,16 @@ pub(super) fn apply_frame(
         SyncFrame::WorkspaceDelta { delta } => fold_workspace_delta(store, delta),
         SyncFrame::TaskDelta { delta } => fold_task_delta(store, delta),
         SyncFrame::McpMessage { message } => fold_mcp_message(store, message),
-        SyncFrame::WorkerPresence { event } => fold_worker_presence(store, event, out),
+        SyncFrame::WorkerPresence { event } => {
+            fold_worker_presence(store, event, out);
+            // A heartbeat moves no worker in or out of the pre-warm selection.
+            if !matches!(**event, WorkerPresenceEvent::Heartbeat { .. }) {
+                crate::handle_terminal::reconcile_prewarm(store, now_ms, out);
+            }
+        }
         SyncFrame::WorkerRoutable { fps, chunk } => {
             fold_worker_routable(store, generation, fps, chunk.as_ref(), out);
+            crate::handle_terminal::reconcile_prewarm(store, now_ms, out);
         }
         SyncFrame::PairRequestDelta { change } => {
             fold_pair_request(store, change, delivery_seq, now_ms);

@@ -221,6 +221,22 @@ pub enum SignallingInput {
         /// The host's clock, which is when a direct-route wait starts.
         now_ms: u64,
     },
+    /// Hold a granted peer ready on this worker for these sessions though no
+    /// view wants one yet; an empty set stops pre-warming and keeps whatever
+    /// peer it brought up.
+    Prewarm {
+        /// The sessions the grant is held for.
+        session_ids: BTreeSet<String>,
+        /// The host's clock.
+        now_ms: u64,
+    },
+    /// Pre-warm no longer selects this worker: stop pre-warming it, and close
+    /// its peer when no view wants it, which frees that peer's slot under the
+    /// document's cap.
+    PrewarmReleased {
+        /// The host's clock.
+        now_ms: u64,
+    },
     /// The grant changed, or a request for one resolved.
     Grant(GrantInput),
     /// The loopback probe learned which worker this page's own machine runs, or

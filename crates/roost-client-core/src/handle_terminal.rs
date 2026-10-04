@@ -6,14 +6,16 @@
 //! in `handle_input` — because input is the one path where getting it wrong writes
 //! to somebody's shell twice.
 //!
-//! Three rules live here, read for three different reasons: a pane attaching is
-//! in this file, an acknowledgement arriving is in `views`, and the attempt that
-//! moves a pane from one transport to another is in `staging`.
+//! Four rules live here, read for four different reasons: a pane attaching is
+//! in this file, an acknowledgement arriving is in `views`, the attempt that
+//! moves a pane from one transport to another is in `staging`, and which
+//! workers keep a peer ready before any pane asks is in `prewarm`.
 //!
 //! Ported from `apps/web/src/store/terminal-stream-view.ts` (leases) and
 //! `apps/web/src/store/terminal-stream-transport.ts` (carriers).
 
 mod carriers;
+mod prewarm;
 mod staging;
 mod views;
 
@@ -25,6 +27,7 @@ use crate::terminal::view::ViewIntent;
 pub use carriers::{
     handle_carrier_authenticated, handle_carrier_lost, handle_grant_minted, handle_worker_retired,
 };
+pub(crate) use prewarm::reconcile_prewarm;
 pub use staging::{
     MintedViewId, begin_sync_view_rotation, cancel_staged_candidate,
     cancel_staged_candidate_and_restart, handle_view_id_minted, sweep_candidate_deadlines,
@@ -94,6 +97,8 @@ pub fn handle_view_opened(
     cancel_staged_candidate_and_restart(store, session_id, now_ms, out);
     carriers::stage_opened_session(store, session_id, now_ms, out);
     publish_view(store, session_id, view_id, now_ms, out);
+    // A worker a view now holds counts against the pre-warm budget.
+    reconcile_prewarm(store, now_ms, out);
 }
 
 /// A pane changed size. The authority mints a NEW stream id for this, so the
@@ -161,6 +166,7 @@ pub fn handle_view_hidden(
     if let Some(revision) = revision {
         send_intent(store, session_id, view_id, ViewIntent::Park, revision, out);
     }
+    reconcile_prewarm(store, now_ms, out);
 }
 
 /// A pane closed, or its authorization was lost. The view goes at once, with no
@@ -201,6 +207,7 @@ pub fn handle_view_closed(
             out,
         );
     }
+    reconcile_prewarm(store, now_ms, out);
 }
 
 /// One coordinator search page: validate the window, then fence every match to

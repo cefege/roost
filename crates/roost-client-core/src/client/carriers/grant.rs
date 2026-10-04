@@ -51,15 +51,13 @@ pub enum GrantPhase {
 /// One thing that happened to a worker's grant.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GrantInput {
-    /// A view started wanting a session on this worker.
-    DemandAdded {
-        /// The session.
-        session_id: String,
-    },
-    /// A view stopped wanting a session on this worker.
-    DemandRemoved {
-        /// The session.
-        session_id: String,
+    /// The sessions the grant should name changed: the views' demand and any
+    /// pre-warm, as one set. A whole set rather than a session at a time,
+    /// because a mint names the whole set (`request`), and growing it one
+    /// session per step asks once per session and lets a narrower answer land.
+    DemandReplaced {
+        /// Every session the grant should name now.
+        session_ids: BTreeSet<String>,
     },
     /// The coordinator minted a credential and the worker acknowledged it.
     Minted(DirectGrant),
@@ -147,7 +145,7 @@ impl GrantLifecycle {
         self.phase
     }
 
-    /// The sessions a view currently wants on this worker.
+    /// The sessions the grant should name: the views' demand and any pre-warm.
     pub fn demanded_sessions(&self) -> &BTreeSet<String> {
         &self.demanded
     }
@@ -203,11 +201,7 @@ impl GrantLifecycle {
     /// Fold one grant event in, and return the requests it owes.
     pub fn step(&mut self, input: GrantInput) -> Vec<CarrierEffect> {
         match input {
-            GrantInput::DemandAdded { session_id } => self.demand_added(session_id),
-            GrantInput::DemandRemoved { session_id } => {
-                self.demanded.remove(&session_id);
-                Vec::new()
-            }
+            GrantInput::DemandReplaced { session_ids } => self.demand_replaced(session_ids),
             GrantInput::Minted(minted) => self.minted(minted),
             GrantInput::Refused { now_ms, reason } => {
                 if self.phase == GrantPhase::Retired {
@@ -256,16 +250,18 @@ impl GrantLifecycle {
         }
     }
 
-    /// A new session is outside the scope the last mint covered, so the grant
-    /// is asked for again rather than being quietly stretched.
-    fn demand_added(&mut self, session_id: String) -> Vec<CarrierEffect> {
+    /// The wanted set changed. One that GREW past the scope the last mint
+    /// covered is asked for again rather than being quietly stretched; one that
+    /// only shrank is not: a mint replaces the worker's whole scope, and the
+    /// worker closes every carrier on a grant that lost a session, so
+    /// narrowing on its own would cost live routes for nothing.
+    fn demand_replaced(&mut self, session_ids: BTreeSet<String>) -> Vec<CarrierEffect> {
         if self.phase == GrantPhase::Retired {
             return Vec::new();
         }
-        if !self.demanded.insert(session_id) {
-            return Vec::new();
-        }
-        if self.covers_demand() {
+        let grew = !session_ids.is_subset(&self.demanded);
+        self.demanded = session_ids;
+        if !grew || self.covers_demand() {
             return Vec::new();
         }
         if self.phase == GrantPhase::Unavailable || self.phase == GrantPhase::Expired {
