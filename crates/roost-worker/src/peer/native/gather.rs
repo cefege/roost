@@ -25,6 +25,14 @@ use super::{NativePeerConfig, NativePeerError, host_addresses};
 const DEFAULT_STUN_PORT: u16 = 3478;
 /// How often an unanswered Binding request is sent again before the deadline.
 const STUN_RESEND: Duration = Duration::from_millis(250);
+/// How long one socket's probe runs. Four sends with no reply means the server
+/// is unreachable from that address, and waiting out the full gathering
+/// deadline for it delays every answer on a host with such an address.
+const STUN_GIVE_UP: Duration = Duration::from_millis(1_000);
+/// How long the other sockets get once one reflexive candidate exists: one
+/// candidate a remote peer can reach is enough to connect, and a late sibling
+/// only adds a pair.
+const REFLEXIVE_SETTLE: Duration = Duration::from_millis(200);
 
 #[derive(Debug)]
 pub(super) struct Gathered {
@@ -61,12 +69,14 @@ pub(super) async fn gather(
         tracing::warn!(peer = %config.name, "no local address could be bound for a peer");
         return Err(NativePeerError::NoLocalAddress);
     }
+    let started = Instant::now();
     let reflexive = reflexive_candidates(&sockets, &config.stun_urls, deadline).await;
     candidates.extend(reflexive);
     tracing::debug!(
         peer = %config.name,
         sockets = sockets.len(),
         candidates = candidates.len(),
+        elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         "the peer gathered its candidates"
     );
     Ok(Gathered {
@@ -99,6 +109,7 @@ async fn reflexive_candidates(
         return Vec::new();
     }
     let servers = resolve_servers(stun_urls, deadline).await;
+    let probe_deadline = deadline.min(Instant::now() + STUN_GIVE_UP);
     let mut probes = JoinSet::new();
     for socket in sockets {
         let Ok(base) = socket.local_addr() else {
@@ -113,14 +124,32 @@ async fn reflexive_candidates(
             .filter_map(|server| new_transaction_id().ok().map(|id| (*server, id)))
             .collect();
         if !targets.is_empty() {
-            probes.spawn(probe_socket(Arc::clone(socket), base, targets, deadline));
+            probes.spawn(probe_socket(
+                Arc::clone(socket),
+                base,
+                targets,
+                probe_deadline,
+            ));
         }
     }
     let mut found: Vec<Candidate> = Vec::new();
-    while let Some(result) = probes.join_next().await {
-        for candidate in result.unwrap_or_default() {
-            if !found.iter().any(|known| known.addr() == candidate.addr()) {
-                found.push(candidate);
+    let mut settle: Option<Instant> = None;
+    loop {
+        match timeout_at(settle.unwrap_or(deadline), probes.join_next()).await {
+            Ok(Some(result)) => {
+                for candidate in result.unwrap_or_default() {
+                    if !found.iter().any(|known| known.addr() == candidate.addr()) {
+                        found.push(candidate);
+                    }
+                }
+                if !found.is_empty() && settle.is_none() {
+                    settle = Some(Instant::now() + REFLEXIVE_SETTLE);
+                }
+            }
+            Ok(None) => break,
+            Err(_) => {
+                probes.abort_all();
+                break;
             }
         }
     }
@@ -209,7 +238,45 @@ async fn probe_socket(
 
 #[cfg(test)]
 mod tests {
-    use super::stun_host_port;
+    use std::time::Duration;
+
+    use tokio::time::Instant;
+
+    use super::super::{NativePeerConfig, host_addresses};
+    use super::{gather, stun_host_port};
+
+    /// A STUN server that never answers costs one give-up window, not the
+    /// whole gathering deadline, and the host candidate is still offered.
+    /// Needs a non-loopback IPv4 address, because loopback is never probed.
+    #[tokio::test]
+    async fn an_unanswering_stun_server_costs_the_give_up_window_not_the_deadline() {
+        let Some(address) = host_addresses::host_addresses()
+            .await
+            .into_iter()
+            .find(|address| address.is_ipv4() && !address.is_loopback())
+        else {
+            return;
+        };
+        let config = NativePeerConfig {
+            name: "gather-test".to_owned(),
+            // Port 1 on this host: nothing listens, so no Binding reply comes.
+            stun_urls: vec!["stun:127.0.0.1:1".to_owned()],
+            bind_address: Some(address),
+            port_range: None,
+            max_message_size: 1,
+            channels: Vec::new(),
+        };
+        let started = Instant::now();
+        let gathered = gather(&config, started + Duration::from_secs(3))
+            .await
+            .unwrap();
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < Duration::from_millis(1_500),
+            "gathering took {elapsed:?}"
+        );
+        assert_eq!(gathered.candidates.len(), 1, "the host candidate alone");
+    }
 
     #[test]
     fn stun_urls_resolve_to_host_and_port() {
