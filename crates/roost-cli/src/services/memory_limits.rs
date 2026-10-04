@@ -19,12 +19,13 @@ const COORD_MAX_PERCENT: u64 = 70;
 const COORD_MAX_FLOOR: u64 = 512 * 1024 * 1024;
 const COORD_MAX_CAP: u64 = 2 * 1024 * 1024 * 1024;
 
-/// The share of host memory the worker's soft ceiling asks for. The worker
-/// starts further back than the coordinator because every session it holds
-/// lives under that one ceiling.
-const WORKER_HIGH_PERCENT: u64 = 55;
-const WORKER_HIGH_FLOOR: u64 = 768 * 1024 * 1024;
-const WORKER_HIGH_CAP: u64 = 3 * 1024 * 1024 * 1024;
+/// The share of host memory the worker's soft ceiling asks for, with a floor
+/// and no cap. Every PTY session — and every build or agent it runs — lives
+/// under this one ceiling, and crossing it throttles the keeper and the
+/// coordinator link along with the session that crossed it, so a constant
+/// sized for a laptop strangles the whole worker on a big host.
+const WORKER_HIGH_PERCENT: u64 = 60;
+const WORKER_HIGH_FLOOR: u64 = 3 * 1024 * 1024 * 1024;
 
 /// The ceilings baked into a unit, already formatted the way systemd spells
 /// them. `memory_max` is absent where a hard kill would take live work with it.
@@ -65,11 +66,8 @@ impl ResourceLimits {
     /// The worker's ceilings, deliberately without a hard memory cap.
     pub fn worker(host_total_bytes: u64) -> Self {
         Self {
-            memory_high: derive(
-                host_total_bytes,
-                WORKER_HIGH_PERCENT,
-                WORKER_HIGH_FLOOR,
-                WORKER_HIGH_CAP,
+            memory_high: format_memory(
+                (host_total_bytes * WORKER_HIGH_PERCENT / 100).max(WORKER_HIGH_FLOOR),
             ),
             memory_max: None,
             tasks_max: WORKER_TASKS_MAX.to_string(),
@@ -84,7 +82,7 @@ const COORDINATOR_TASKS_MAX: &str = "256";
 
 /// The worker's task ceiling, which has to cover every PTY's shell and its
 /// descendants, not one request.
-const WORKER_TASKS_MAX: &str = "1024";
+const WORKER_TASKS_MAX: &str = "4096";
 
 /// A percentage of the host total, clamped into `[floor, cap]` and rendered.
 /// A total of zero means detection failed, which keeps the cap rather than
@@ -177,6 +175,19 @@ mod tests {
             ResourceLimits::coordinator(8 * GIB).memory_max,
             Some("2G".to_string())
         );
+    }
+
+    #[test]
+    fn the_worker_soft_ceiling_scales_with_a_large_host_instead_of_stopping_at_a_constant() {
+        // 60% of 64 GiB. A capped value here is the ceiling that froze a
+        // 62 GiB host's keeper while its sessions ran a release build.
+        assert_eq!(ResourceLimits::worker(64 * GIB).memory_high, "39321M");
+    }
+
+    #[test]
+    fn the_worker_soft_ceiling_keeps_its_floor_on_a_small_or_unknown_host() {
+        assert_eq!(ResourceLimits::worker(4 * GIB).memory_high, "3G");
+        assert_eq!(ResourceLimits::worker(0).memory_high, "3G");
     }
 
     #[test]

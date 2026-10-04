@@ -2,8 +2,10 @@
 //! trail that says the throttle is happening at all.
 //!
 //! The first two layers are the systemd `MemoryHigh` that scales with the host
-//! and the reconnect ladder's `has_opened`; `tests/backoff_policy.rs` and
-//! `tests/worker_reconnect_ladder.rs` pin those. This file pins the third,
+//! and the reconnect ladder's `has_opened`; the unit tests in
+//! `roost-cli/src/services/memory_limits.rs` pin the first, and
+//! `tests/backoff_policy.rs` and `tests/worker_reconnect_ladder.rs` the
+//! second. This file pins the third,
 //! which is the only one that makes the next occurrence a grep instead of a
 //! guess: `/proc/meminfo` is host-wide, so a unit sitting above its own
 //! `memory.high` publishes "8.7 GB of 33.6 GB used" from inside a cgroup where
