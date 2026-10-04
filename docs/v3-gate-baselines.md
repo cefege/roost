@@ -2347,6 +2347,10 @@ where this host's installed worker logged 3,007–3,011 ms. The fleet "delayed w
 together-typing p50 (261–328 ms) sits above `33db0453`'s 218 ms; a serial pass on the same tree
 with those five commits reverted (`9b9817fe`, label `ab-revert`) measured 327 ms and the
 two-worker case 107/129 ms p50/p95 against 108/129 with them, so that drift is not theirs.
+Two serial passes on `33f0aef5` (the same runtime code, pin `bb4943f52b30`, labels `ab-head`
+and `ab-head2`, started at load < 4 with no rustc running) bracket that revert run:
+delayed-fleet together p50/p95 328/434 ms and 265/341 ms. Within run variance; the five
+commits stay.
 
 Retained-marker bounds are worth keeping in view because they are the
 history-corruption tripwire: a Rust renderer that drops the retained floor
