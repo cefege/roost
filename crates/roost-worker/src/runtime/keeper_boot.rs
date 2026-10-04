@@ -290,7 +290,11 @@ async fn start_fresh_keeper(
         .arg(&boot.keeper_capability_file)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::from(log));
+        .stderr(Stdio::from(log))
+        // Its own process group: launchd ends a job by signalling the job's
+        // whole process group, so a keeper left in the worker's group dies with
+        // every worker restart and takes each PTY with it.
+        .process_group(0);
     let mut child = command
         .spawn()
         .with_context(|| format!("could not start {}", boot.keeper_executable.display()))?;
