@@ -10,7 +10,7 @@ End state: every Rust gate green on `v3`; the Playwright oracle passes at the TS
 
 Chosen earlier by the user (unchanged):
 - **Staged cutover, Rust backend first.** Production switches to Rust coord + worker + CLI serving the v2 web bundle once Stage 3 passes; the Dioxus UI replaces the bundle after the Phase 5 gate; TS is deleted last.
-- **One-time import of v2 state** (`roost import-v2`, implemented). **Parallel hostname, then flip** (`mike-v3.roosttt.com`, kept as a permanent alias; a two-level name such as `v3.mike.roosttt.com` fails the TLS handshake, because Cloudflare's universal certificate covers `*.roosttt.com` only).
+- **One-time import of v2 state** (`roost import-v2`, implemented). **Parallel hostname, then flip** (`mike-v3.roosttt.com`, retired after the flip; a two-level name such as `v3.mike.roosttt.com` fails the TLS handshake, because Cloudflare's universal certificate covers `*.roosttt.com` only).
 
 Fixed by this plan (user-overridable, see Assumptions):
 - **Parity rule: v2 behaviour wins wherever port and v2 disagree** — including where v2 has a known imperfection. A deliberate improvement over v2 is out of scope for this plan. Applied below to the send-queue ignore.
@@ -194,7 +194,10 @@ painted `RC4MARKER-42` on ovh1 and `M5MARKER-42` on mike-m5-air; the user confir
 works without re-pairing. Step 8: v2's `roost-coord`/`roost-worker` are disabled on ovh1, its keeper (pid
 2325919) is alive. Step 9: `app_settings` holds the Deepgram key, agent settings and the VAPID keypair; the
 re-run `import-v2` had duplicated the global `push.vapid` row (identical value), and the duplicate was removed
-(backup `/tmp/coordinator_v3-before-dedupe.db`). `mike-v3.roosttt.com` now answers 403 `forbidden host`.
+(backup `/tmp/coordinator_v3-before-dedupe.db`). `mike-v3.roosttt.com` is retired: its ingress entry is gone from
+ovh1's `/etc/cloudflared/config.yml` (backup `config.yml.bak-*` beside it) and `roost-v3-bridge.{socket,service}`
+are disabled, so the name falls through to the tunnel's `http_status:404`; the DNS record and
+`conf.d/roost-v3-dashboard.caddy` remain and route nothing.
 
 ### Stage 5 — Web UI to full parity (Track U, `roost-v3-web`; runs beside Stages 2–4)
 
