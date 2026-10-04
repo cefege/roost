@@ -91,6 +91,18 @@ fn a_binary_behind_the_published_release_has_an_update() {
         needs_update("dev", "v3.1.0").expect("a source build compares against nothing"),
         "a source checkout is always behind: it is not a published artifact"
     );
+    assert!(
+        needs_update("v3.0.0-rc.3", "v3.0.0-rc.4").expect("both are release versions"),
+        "two candidates of one version are two releases"
+    );
+    assert!(
+        needs_update("v3.0.0-rc.4", "v3.0.0").expect("both are release versions"),
+        "the final release replaces its last candidate"
+    );
+    assert!(
+        !needs_update("v3.0.0-rc.4", "v3.0.0-rc.4+9f2c1ab").expect("both are release versions"),
+        "a rebuild of the same candidate is not an update"
+    );
 }
 
 /// A listing that named no release is a question this command could not answer,
@@ -106,9 +118,11 @@ fn something_that_is_not_a_release_version_is_refused_rather_than_compared() {
     assert!(canonical_release_version("latest").is_err());
     assert!(canonical_release_version("3.1").is_err());
     assert!(canonical_release_version("3.1.0.1").is_err());
-    assert!(
-        canonical_release_version("v3.1.0-rc.2+9f2c1ab").expect("a full tag is a release version")
-            == "3.1.0"
+    assert!(canonical_release_version("3.1.0-").is_err());
+    assert!(canonical_release_version("3.1.0-rc..2").is_err());
+    assert_eq!(
+        canonical_release_version("v3.1.0-rc.2+9f2c1ab").expect("a full tag is a release version"),
+        "3.1.0-rc.2"
     );
 }
 

@@ -195,21 +195,35 @@ fn resolve_recovery_first(service_dir: &std::path::Path) -> Result<(), CommandFa
 ///
 /// Build metadata is dropped rather than compared, because a rebuild of the
 /// same release carries a different `+sha` and comparing it would make a binary
-/// update itself forever against a release that has not changed.
+/// update itself forever against a release that has not changed. A pre-release
+/// (`-rc.4`) is kept: `v3.0.0-rc.3` and `v3.0.0-rc.4` are two releases, and
+/// dropping it made every candidate of one version "already the latest" to
+/// the first.
 pub fn canonical_release_version(version: &str) -> Result<String, CommandFailure> {
     let trimmed = version.trim().trim_start_matches(['v', 'V']);
-    let core = trimmed.split(['-', '+']).next().unwrap_or_default();
+    let without_build = trimmed.split('+').next().unwrap_or_default();
+    let (core, pre_release) = match without_build.split_once('-') {
+        Some((core, pre_release)) => (core, Some(pre_release)),
+        None => (without_build, None),
+    };
     let parts: Vec<&str> = core.split('.').collect();
+    let is_identifier =
+        |part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_alphanumeric());
     if parts.len() != 3
         || parts
             .iter()
             .any(|part| part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()))
+        || pre_release.is_some_and(|pre_release| !pre_release.split('.').all(is_identifier))
     {
         return Err(CommandFailure::generic(format!(
             "{version:?} is not a release version"
         )));
     }
-    Ok(parts.join("."))
+    let core = parts.join(".");
+    Ok(match pre_release {
+        Some(pre_release) => format!("{core}-{pre_release}"),
+        None => core,
+    })
 }
 
 /// Whether the running binary is behind the published release.
