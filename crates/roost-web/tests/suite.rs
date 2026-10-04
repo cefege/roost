@@ -14,6 +14,8 @@ mod agent_notification_scheduler;
 mod carrier_layer;
 #[path = "composer_slot_claim.rs"]
 mod composer_slot_claim;
+#[path = "connection_banner.rs"]
+mod connection_banner;
 #[path = "dead_route_safety_net.rs"]
 mod dead_route_safety_net;
 #[path = "deck_geometry.rs"]

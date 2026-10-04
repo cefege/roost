@@ -1,28 +1,22 @@
 //! The top banner that says the browser is offline or the coordinator is not
-//! answering, with the Reconnect action. Its two sources are the browser's own
-//! `navigator.onLine` and the client's live Sync link, read from the store
-//! rather than from a health poller this build does not run.
-//! Ports `apps/web/src/components/notifications/ConnectionBanner.tsx`, dropping
-//! its `window.__roostCoordHealth` polling because the Rust client publishes no
-//! such snapshot: the link generation IS the liveness signal, and a link that
-//! closed carries its own redial in the core.
+//! answering, with the Reconnect action. Its sources are the browser's own
+//! `navigator.onLine` and the client's live Sync link, judged by the core's
+//! `sync_link_answering` — the predicate the status bar reads too — so the
+//! banner keeps no clock of its own and clears as soon as the link answers.
+//! Ports `apps/web/src/components/notifications/ConnectionBanner.tsx`.
 
-use dioxus::prelude::Signal;
 use dioxus::prelude::*;
 use roost_client_core::store::terminal_transport::has_liveness_qualified_direct_terminal;
+use roost_client_core::sync::redial::sync_link_answering;
+use roost_client_core::{ClientEvent, TransportControl};
 
 use crate::components::md::{Button, ButtonSize, ButtonVariant, StatusDot, Surface, SurfaceRadius};
-use crate::components::terminal::dom::{now_ms, page_visible, sleep_ms};
+use crate::components::terminal::dom::{page_visible, sleep_ms};
 use crate::pump::{Pump, use_store};
 
-/// How often a tab re-reads its own liveness. The core redials on its own
-/// schedule; this only decides whether the banner is still true.
+/// How often a visible tab re-reads its own liveness. The core redials on its
+/// own schedule; this only decides whether the banner is still true.
 const EVALUATE_INTERVAL_MS: u64 = 2_000;
-
-/// A link that has been open this long without a frame is stale, not dead — the
-/// core redials a silent socket, and a banner that fires before it has would
-/// accuse a coordinator that is merely quiet.
-const STALE_AFTER_MS: u64 = 10_000;
 
 /// Why the banner is up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,20 +83,61 @@ impl BannerReason {
     }
 }
 
+/// One reading of the browser and the store, everything the verdict needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BannerInputs {
+    /// The coordinator rejected this browser's credential.
+    pub auth_revoked: bool,
+    /// `navigator.onLine`.
+    pub browser_online: bool,
+    /// `SyncState::idle_ms` on the core's clock: `None` with no open socket.
+    pub link_idle_ms: Option<u64>,
+    /// A direct terminal still holds a current liveness proof.
+    pub direct_live: bool,
+}
+
+/// The banner's verdict for one reading, or `None` when the client is healthy.
+///
+/// Stateless on purpose: a verdict computed only from the current reading
+/// cannot outlive the outage that produced it. Any timestamp the banner kept
+/// itself would go stale across an evaluation gap — a hidden tab, a suspended
+/// laptop — and hold the banner up over a live link.
+pub fn banner_verdict(inputs: BannerInputs) -> Option<BannerReason> {
+    if inputs.auth_revoked {
+        return Some(BannerReason::AuthRevoked);
+    }
+    if !inputs.browser_online {
+        return Some(BannerReason::Offline);
+    }
+    if sync_link_answering(inputs.link_idle_ms) {
+        return None;
+    }
+    Some(if inputs.direct_live {
+        BannerReason::CoordUnreachableDirectLive
+    } else {
+        BannerReason::CoordUnreachable
+    })
+}
+
 /// The banner, or nothing when the client is healthy.
 #[component]
 pub fn ConnectionBanner() -> Element {
     let pump = use_store();
     let mut reason = use_signal(|| None::<BannerReason>);
-    let quiet_since = use_signal(|| None::<u64>);
 
-    // One loop over one source of truth: the tab's own visibility and the
-    // store's link, re-read on a tick rather than from six separate listeners.
+    // A hidden tab is not evaluated: nobody can see the banner, and its last
+    // verdict is replaced on the first tick after it is shown again.
+    let watched = pump.clone();
     use_future(move || {
-        let pump = pump.clone();
+        let pump = watched.clone();
         async move {
             loop {
-                evaluate(&pump, reason, quiet_since);
+                if page_visible() {
+                    let verdict = read_verdict(&pump);
+                    if *reason.peek() != verdict {
+                        reason.set(verdict);
+                    }
+                }
                 sleep_ms(EVALUATE_INTERVAL_MS).await;
             }
         }
@@ -129,7 +164,10 @@ pub fn ConnectionBanner() -> Element {
                         variant: ButtonVariant::Secondary,
                         size: ButtonSize::Sm,
                         "data-testid": "connection-banner-reconnect",
-                        onclick: move |_| reason.set(None),
+                        onclick: move |_| {
+                            pump.dispatch(ClientEvent::SyncTransportControl(TransportControl::Reconnect));
+                            reason.set(None);
+                        },
                         "Reconnect"
                     }
                 }
@@ -138,53 +176,16 @@ pub fn ConnectionBanner() -> Element {
     }
 }
 
-/// Read the browser and the store once, and record why the banner is or is not
-/// up. A hidden tab is not evaluated at all: the core skips a backgrounded
-/// socket's bookkeeping, so a hidden tab's silence is not evidence of an outage.
-fn evaluate(
-    pump: &Pump,
-    mut reason: Signal<Option<BannerReason>>,
-    quiet_since: Signal<Option<u64>>,
-) -> bool {
-    if !page_visible() {
-        return false;
-    }
-    let observed = observe(pump, quiet_since);
-    reason.set(observed);
-    observed.is_some()
-}
-
-/// The banner's verdict from the two live sources, and the bookkeeping that
-/// turns an open-but-quiet link into a stale one exactly once.
-fn observe(pump: &Pump, mut quiet_since: Signal<Option<u64>>) -> Option<BannerReason> {
-    let now = now_ms();
-    let (revoked, linked, direct_live) = {
-        let core = pump.core();
-        let core = core.borrow();
-        let store = core.store();
-        (
-            store.sync.auth_revoked,
-            store.sync.link_generation().is_some(),
-            has_liveness_qualified_direct_terminal(store),
-        )
-    };
-    if revoked {
-        return Some(BannerReason::AuthRevoked);
-    }
-    if !crate::platform::network::browser_online() {
-        return Some(BannerReason::Offline);
-    }
-    let unreachable = if direct_live {
-        BannerReason::CoordUnreachableDirectLive
-    } else {
-        BannerReason::CoordUnreachable
-    };
-    if !linked {
-        quiet_since.set(None);
-        return Some(unreachable);
-    }
-    let since = quiet_since().unwrap_or(now);
-    let verdict = (now.saturating_sub(since) > STALE_AFTER_MS).then_some(unreachable);
-    quiet_since.set(Some(if verdict.is_some() { since } else { now }));
-    verdict
+/// Read the browser and the store once, on the core's clock: the link's last
+/// frame is stamped on that timeline, so any other clock makes `idle_ms` noise.
+fn read_verdict(pump: &Pump) -> Option<BannerReason> {
+    let core = pump.core();
+    let core = core.borrow();
+    let store = core.store();
+    banner_verdict(BannerInputs {
+        auth_revoked: store.sync.auth_revoked,
+        browser_online: crate::platform::network::browser_online(),
+        link_idle_ms: store.sync.idle_ms(core.clock().now_ms()),
+        direct_live: has_liveness_qualified_direct_terminal(store),
+    })
 }

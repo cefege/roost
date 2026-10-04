@@ -266,6 +266,14 @@ fn a_silent_link_stale_enough_reads_as_unreachable_while_the_tab_is_watching() {
 }
 
 #[test]
+fn a_link_quiet_between_keepalives_still_reads_as_synced() {
+    // An idle coordinator's only traffic is the 30 s Sync keepalive, and one
+    // can land late; a window that tight paints a healthy coordinator red.
+    let health = coordinator_health_from_link(Some(35_000), 100_000, false, true);
+    assert_eq!(coordinator_state(true, health), CoordinatorState::Synced);
+}
+
+#[test]
 fn the_same_silent_link_is_believed_while_the_tab_is_hidden() {
     let health =
         coordinator_health_from_link(Some(COORD_STALE_MS as u64 * 100), 10_000, false, false);

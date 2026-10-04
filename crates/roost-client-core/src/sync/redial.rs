@@ -73,6 +73,15 @@ pub fn should_close_stale_link_on_resume(liveness: SyncLinkLiveness, idle_ms: u6
     liveness == SyncLinkLiveness::Open && idle_ms > SYNC_REFOCUS_STALE_MS
 }
 
+/// Whether the coordinator is answering this tab: a socket is open and has
+/// heard from it inside the watchdog's stale bound. `idle_ms` is
+/// `SyncState::idle_ms`, `None` with no socket. Every surface that tells the
+/// operator "coordinator unreachable" reads this, so none can use a window
+/// tighter than the 30 s keepalive and call an idle coordinator down.
+pub fn sync_link_answering(idle_ms: Option<u64>) -> bool {
+    idle_ms.is_some_and(|idle| idle < SYNC_STALE_TIMEOUT_MS)
+}
+
 /// The redial loop's state. One per client, never reset by a credential change.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyncRedial {

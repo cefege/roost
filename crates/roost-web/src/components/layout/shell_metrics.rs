@@ -9,6 +9,8 @@
 //! rather than a rendering accident. `AppShell` composes the results; the CSS in
 //! `assets/styles/workbench-shell.css` is what draws them.
 
+use roost_client_core::sync::redial::SYNC_STALE_TIMEOUT_MS;
+
 /// Material 3's window size class, at the boundaries the whole SPA uses.
 ///
 /// Named for the layout decision, not the number: the desktop/compact split is
@@ -212,12 +214,13 @@ pub fn folder_basename(folder: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-/// How long without a successful coordinator round trip before the status bar
-/// calls the coordinator unreachable, while this tab is visible.
+/// How long without a frame on the Sync link before the status bar calls the
+/// coordinator unreachable, while this tab is visible.
 ///
-/// v2's window. A shorter one turns a busy coordinator red; a longer one leaves
-/// a dead one green.
-pub const COORD_STALE_MS: i64 = 10_000;
+/// The core's own stale bound, the one `sync_link_answering` and the connection
+/// banner read. An idle coordinator speaks only once per 30 s keepalive, so any
+/// window under that turns a healthy coordinator red between keepalives.
+pub const COORD_STALE_MS: i64 = SYNC_STALE_TIMEOUT_MS as i64;
 
 /// What the status bar says about the coordinator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -323,7 +326,7 @@ pub fn coordinator_state(identity_known: bool, health: CoordinatorHealth) -> Coo
     }
     let stale = health
         .last_success_ms
-        .is_some_and(|last| health.now_ms.saturating_sub(last) > COORD_STALE_MS);
+        .is_some_and(|last| health.now_ms.saturating_sub(last) >= COORD_STALE_MS);
     if stale || health.last_attempt_failed {
         return CoordinatorState::Unreachable;
     }
