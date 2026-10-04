@@ -5,24 +5,12 @@ diagnosed, and was fixed — the wrong pattern is recorded next to the right one
 scratch.
 It is grep-first, never read top-to-bottom: one `### ` heading per failure class, and the `**Symptom**` line
 carries the report's own words, so grep this file for what the user said before you touch code.
-`bun run lint` (`scripts/lint-roost.ts`) mechanically enforces the subset of entries whose `**Guard**` names a
-rule string; the rest are pinned by the named test, and a `**Guard**` of `none` means nothing stops a regression
-but this page.
+Each `**Guard**` names the test, smoke spec or `cargo xtask lint` check that pins the entry; a `**Guard**` of
+`none` means nothing stops a regression but this page.
 
 ---
 
-## Solid store and component lifecycle
-
-### Solid store write on a Record subtree silently no-ops
-
-**Symptom** — "store doesn't update / sidebar doesn't reflect delete"
-
-**Wrong** — `setStore("k", (prev) => newRecord)` on a Record subtree (silent no-op).
-
-**Right** — per-key writes: `setStore("k", id, value)` / `setStore("k", id, undefined)`.
-
-**Guard** — `scripts/lint-roost.ts` rule
-`"L11: Solid setStore(key, fn → newRecord) on a Record silently no-ops"`.
+## Store subscription and component lifecycle
 
 ### SPA projector hand-mirrors the shared event fold
 
@@ -34,40 +22,13 @@ but this page.
 **Right** — `foldEventIntoStore` DELEGATES to shared `foldEvent` over the affected map slice, then diffs per-key
 into the Solid store. No projector switch.
 
-**Guard** — `apps/web/tests/store.test.ts` — `"projection agreement — foldEventIntoStore === shared foldAll"`
-drives the REAL rootStore against `foldAll`. The fold itself is ported to
-`crates/roost-protocol/src/wire/event.rs` as the single `fold_event` /
+**Guard** — the fold is `crates/roost-protocol/src/wire/event.rs`'s single `fold_event` /
 `all`, and `crates/roost-protocol/tests/session_fold_properties.rs` pins both
-halves of the property the TypeScript property test checked —
+halves of the projection property —
 `folding_incrementally_is_the_same_projection_as_folding_in_one_pass` for
 determinism and incremental-equals-batch, and
 `a_mutating_event_never_touches_the_map_it_was_handed` for the caller-must-not-
 cache-a-stale-reference half.
-
-### Reading props inside onCleanup throws on a torn-down node
-
-**Symptom** — "Cannot read properties of null (reading 'X')" inside Solid cleanup
-
-**Wrong** — reading `props.foo.bar` inside `onCleanup(() => …)` (reactive getter mid-cleanNode).
-
-**Right** — capture `const stableX = props.foo.bar` at component body scope before `onCleanup`.
-
-**Guard** — `scripts/lint-roost.ts` rule `"L11: never read props.* inside an onCleanup callback"`.
-
-### A store proxy handed to a subscriber reads the POST-write value
-
-**Symptom** — "agent status paints correctly but NO notification ever fires / a subscriber sees `previous.state === next.state` for a real transition"
-
-**Wrong** — classify on the store value the projector read before writing, or "fix" the classifier to tolerate
-self-transitions.
-
-**Right** — snapshot any store value you hand to a subscriber. `setStore(path, obj)` over an existing object
-node MERGES INTO THAT NODE (Solid `updatePath` → `mergeStoreNode`), so a proxy captured before the write reads
-the POST-write value; `apps/web/src/store/agent-status.ts` publishes `{ ...current }`. Same trap for any
-before/after diff taken off a Solid store.
-
-**Guard** — `apps/web/tests/agent-status.test.ts` —
-`"publishes a previous snapshot detached from the store node"`; `smoke/terminal/agent-status.spec.ts`.
 
 ### A component that renders store state through `use_pump` never repaints
 
@@ -142,7 +103,7 @@ and the composer really is mounted underneath it — so a page snapshot looks co
 wrong. Any body-portaled surface with a drawer or overlay exclusion shows this at once.
 
 **Wrong** — re-check the mount predicate. `mounts_viewport_composer` is correct, and so is the port of v2's
-condition (`apps/web/src/components/terminal/CellTerminal.tsx:297-303`): `inLayout && focused && isCompact()
+condition (v2's `CellTerminal.tsx:297-303`): `inLayout && focused && isCompact()
 && !uiStore.sidebarOpen && surfaceVisible` is spelled the same in both trees. The defect is not the predicate,
 it is the value fed to it. In v2 the flag is read inside Solid's `<Show>`, so it re-evaluates when the drawer
 opens and the subtree tears down. `CellTerminal` reads `core.borrow().store().ui.sidebar_open` through
@@ -179,11 +140,11 @@ panes and reloads"`.
 **Wrong** — `background: var(--bg-app, #111)` with `--bg-app` undefined → falls back to `#111`.
 
 **Right** — every fallback must reference a defined token, OR the var must be declared in
-`apps/web/src/styles/theme-vars.css`.
+`crates/roost-web/assets/styles/theme-vars.css`.
 
-**Guard** — `scripts/lint-roost.ts` rules
-`"L11: var(--<name>) is not declared in theme-vars.css or sidebar.css"` and
-`"L11: hardcoded color fallback var(--x, #hex) — tokens are always defined; drop the fallback"`.
+**Guard** — `cargo xtask lint`'s design raw-value ratchet (`xtask/src/design_raw.rs`) fails a new
+`var(--x, #hex)` fallback, because the fallback is a raw hex. An undeclared token with no fallback has no
+guard: none — the v2 guard `scripts/lint-roost.ts` (undeclared-`var()` rule) left with the TypeScript tree.
 
 ### Selected state derived from children instead of the URL
 
@@ -193,8 +154,7 @@ panes and reloads"`.
 
 **Right** — `data-selected={useLocation().pathname.startsWith("/w/" + id) ? "focused" : ""}`.
 
-**Guard** — `scripts/lint-roost.ts` rule
-`"L11: sidebar data-selected must be URL-driven, never sessions().length"`.
+**Guard** — `crates/roost-web/tests/sidebar_logic.rs` — `a_row_is_selected_only_by_its_own_route`.
 
 ### A full-surface loading or error card reads as a failure, then "flips" to the real UI
 
@@ -204,7 +164,7 @@ the whole screen for over a second.
 
 **Wrong** — a route-level `<Show>` that swaps the ENTIRE page between states, with an
 `EmptyState icon="progress_activity"` as the loading arm. `progress_activity` has no spin rule in
-`apps/web/src/styles`, so the "loading" arm is a static icon-plus-text card structurally identical
+v2's styles, so the "loading" arm is a static icon-plus-text card structurally identical
 to the error arm beside it, and the wholesale swap to the loaded UI is the "flip". The same shape
 turns every listing failure into an empty result: a `.catch` that only nulls the data renders
 "Empty folder" for a directory that failed to read.
@@ -301,13 +261,12 @@ chevron across those two widths.
 
 **Wrong** — `<Show when={activeSession()}>{(s) => <CellTerminal .../>}</Show>` (remount per nav).
 
-**Right** — `<For each={openSessions()}>` deck in `apps/web/src/components/deck/TerminalDeck.tsx` +
-`visibility: visible↔hidden`. The deck host stays mounted for every MainPane screen so a `/file` or `/search`
-visit never tears it down.
+**Right** — every open session stays mounted in the deck (`crates/roost-web/src/components/deck/terminal_deck.rs`)
+and is shown or hidden by `visibility: visible↔hidden`. The deck host stays mounted for every MainPane screen so
+a `/file` or `/search` visit never tears it down.
 
-**Guard** — `scripts/lint-roost.ts` rule
-`"L11: CellTerminal must render inside <For> deck, never <Show> (remount on nav loses scrollback)"`;
-`smoke/terminal/` — `"a /file round-trip keeps the deck warm and costs no snapshot"`.
+**Guard** — `smoke/terminal/terminal-render-deck-overlay.spec.ts` —
+`"a /file and /search round-trip keeps the deck warm"`.
 
 ### Torn seam between retained history and the live stream
 
@@ -322,7 +281,7 @@ baseline disappeared.
 **Right** — three explicit replicas and full-before-delta sequencing. Worker
 frames carry UUID `stream_id`, opaque `gridEpoch`, monotonic `seq`, and exact
 `base_seq`. `TerminalScreenHub` accepts a delta only against its complete
-coordinator replica; `terminal-stream.ts` applies the same rule to its
+coordinator replica; the client core applies the same rule to its
 per-session browser replica. A gap latches one snapshot request. Chunked fulls
 install atomically only after every viewport row occurs exactly once. Renderer
 mount state is not part of the continuity proof.
@@ -330,12 +289,11 @@ mount state is not part of the continuity proof.
 **Guard** — `crates/roost-protocol/tests/cell_grid_chunk_planning.rs` —
 `a_forced_small_full_reassembles_to_the_original_frame` and
 `a_frame_over_one_mib_is_split_on_whole_row_boundaries`
-(was `packages/protocol/tests/cell-frame-chunks.test.ts`);
-`apps/coord/tests/terminal/screen/terminal-screen-hub.test.ts`, ported for the Rust coordinator as
+(the protocol-side chunk planner);
 `crates/roost-coord/tests/terminal_screen_hub.rs` —
 `a_stale_stream_is_ignored_and_a_broken_delta_run_latches_one_repair` and
 `the_old_baseline_stays_served_until_a_replacement_assembles_completely`;
-`apps/web/tests/terminalStream.test.ts`;
+`crates/roost-client-core/tests/terminal_full_before_delta.rs` (the browser replica);
 `smoke/terminal/terminal-multiview.spec.ts`.
 
 ### Inferred scrolled-off rows freeze a stale repaint generation into history
@@ -354,43 +312,37 @@ rewrite) before the grid scrolls gets whichever generation the browser happened
 to hold frozen into the next absolute index — one stale spinner glyph, one stale
 elapsed time, per checkpoint, and checkpoints are frequent for a chatty pane.
 Nothing ever contradicts the guess: canonical frames are normalized
-viewport-only (`normalizeCellGridFrame` in `packages/protocol/src/cell/diff-grid.ts`),
-so no authoritative history disagrees, and
-`splicePage` in `apps/web/src/renderer/scrollbackBackfill.ts` deliberately tolerates
+viewport-only (the protocol crate's cell-grid normalisation),
+so no authoritative history disagrees, and the renderer's page splice deliberately tolerates
 a refused re-insert, so demand backfill never repairs those rows either.
 
 **Right** — **painted history content is only ever the worker's own rows.** A
 canonical viewport-only checkpoint reserves
 `[previous.scrollbackTotal, frame.scrollbackTotal)` as an UNPAINTED gap
-(`_extendScrollbackGap` in `apps/web/src/renderer/cellRenderer.ts`, which already
+(the renderer's scrollback-gap reservation in `crates/roost-web-terminal`, which already
 holds that interval's exact pixel height) and lets the epoch-addressed,
 worker-authoritative `SessionsGetScrollbackCells` backfill fill it on demand;
 only a frame's own `scrollbackRows` / `scrollbackAppend` are ever painted.
 Non-contiguous painted history is a first-class state
-(`missingCellHistoryRanges` in `apps/web/src/client/terminal-stream/cellHistoryRanges.ts`), so a
+(the client core's missing-history-range set, `crates/roost-client-core/tests/backfill_history_ranges.rs`), so a
 reserved gap needs no inference to stand in for it. A matching history/head
 boundary identifies a content-PROVED shift candidate, but global viewport reuse
 is permitted only when `deltaViewportShift`
-(`packages/protocol/src/cell/diff-grid.ts`) receives the complete final viewport.
+(`crates/roost-protocol`'s viewport-shift diff) receives the complete final viewport.
 `applyDelta` and `foldCellDeltaBatch` then reuse that global shift; sparse
 deltas patch only their worker-authored final coordinates and retain omitted
 held rows, so a fixed footer cannot receive an older status generation.
 
-**Guard** — `packages/protocol/tests/cell-realcore.test.ts` —
-`"partial-region scroll with a footer repaint preserves untouched rows"`
-(waiting on the `roost-term` terminal-core vectors, Phase 2);
-`crates/roost-protocol/tests/cell_delta_batch.rs` —
+**Guard** — `crates/roost-protocol/tests/cell_delta_batch.rs` —
 `a_sparse_partial_region_batch_preserves_the_untouched_footer`;
 `crates/roost-protocol/tests/cell_delta_admission.rs` —
 `a_shift_is_only_reused_when_the_boundary_row_actually_matched`, and
-`a_link_difference_defeats_the_shift`
-(was `packages/protocol/tests/cell-delta-batch.test.ts` —
-`"preserves an untouched footer through a sparse partial-region batch"`);
-`apps/web/tests/renderer/cellRenderer.reconcile.dom.test.ts` —
-`"a partial-region scroll retains the fixed panel and worker history"`,
-`"a batched partial-region scroll retains the fixed panel and latest status"`;
-`apps/web/tests/renderer/cellRenderer.history.dom.test.ts` —
-`"a checkpoint leaves the transitioned rows unpainted for authoritative backfill"`;
+`a_link_difference_defeats_the_shift`;
+`crates/roost-web-terminal/tests/render_reconcile_diff.rs` —
+`a_partial_region_scroll_retains_the_fixed_panel_and_worker_history`,
+`a_batched_partial_region_scroll_retains_the_fixed_panel_and_latest_status`;
+`crates/roost-web-terminal/tests/render_history_checkpoint.rs` —
+`a_checkpoint_leaves_the_transitioned_rows_unpainted_for_authoritative_backfill`;
 `smoke/terminal/terminal-render-main-repaint.spec.ts` —
 `"a backgrounded inline TUI repaint never freezes a stale generation into history"`.
 
@@ -403,8 +355,8 @@ worse on mobile"; the duplicates ARE in the worker's own history
 shows `rows` stepping (46→44→42…) at a fixed `cols` while the user types.
 
 **Wrong** — hunt the renderer, the emitter, or history backfill without first
-checking core parity. `packages/wterm/tests/xterm-differential.test.ts` is the
-xterm.js row oracle for fast raw-mode streams; the real-stack smoke suite then
+checking core parity. `crates/roost-term/tests/terminal_core_vectors.rs` runs the
+xterm-oracle vectors in `protocol/conformance/terminal-core/`; the real-stack smoke suite then
 proves what the worker retained. In the height-step incident the rows are real:
 every PTY height change makes an inline TUI repaint, and a TUI that repaints IN
 PLACE (omp latches this for the life of the process after a height-only change
@@ -414,10 +366,9 @@ hysteresis on the published geometry — each surviving resize still duplicates.
 
 **Right** — **transient chrome never changes the terminal grid.** The desktop pane
 composer reserves only the pill's one-line resting height
-(`apps/web/src/components/terminal/TerminalComposePaneGeometry.ts`); a longer draft or a
+(`crates/roost-web/src/components/terminal_chrome/pane_geometry.rs`); a longer draft or a
 status overflows upward and `CellTerminal` translates the display instead of
-shrinking it. The compact shell (`editorStyle` in
-`apps/web/src/components/layout/AppShell.tsx`) reserves the composer's resting
+shrinking it. The compact shell (`crates/roost-web/src/components/layout/app_shell.rs`) reserves the composer's resting
 row on every terminal route whether or not the composer is mounted (it unmounts
 under the drawer) and handles the soft keyboard only by translation —
 `--term-chat-dock-rest-offset` excludes `--kb-offset`. Only a real pane/window
@@ -437,12 +388,13 @@ cells`".
 **Wrong** — fix the renderer or fold, which only paint worker-authored rows, or
 blame the application without first proving terminal-core parity.
 
-**Right** — the wterm core must match xterm deferred-wrap and margin semantics:
+**Right** — the terminal core must match xterm deferred-wrap and margin semantics:
 LF clears pending wrap at `cols - 1`; CUU/CUD (and therefore CPL/CNL) clamp to
 DECSTBM; VPR remains screen-clamped; RI clears pending wrap. Prove every core
-change with `diffAgainstXterm` in `packages/wterm/tests/xterm-differential.ts`.
+change with an xterm-oracle vector under `protocol/conformance/terminal-core/`.
 
-**Guard** — `packages/wterm/tests/xterm-differential.test.ts`;
+**Guard** — `crates/roost-term/tests/terminal_core_vectors.rs` — `every_terminal_core_vector_matches`
+(`deferred-wrap.json`, `cursor-margins-clamp.json`);
 `smoke/terminal/terminal-render-main-repaint.spec.ts` —
 `"a fast in-place status rewrite never duplicates rows into history"`.
 
@@ -454,12 +406,12 @@ change with `diffAgainstXterm` in `packages/wterm/tests/xterm-differential.ts`.
 that rebuilt core reads `core.usingAltScreen()` (false on an empty core) → the fresh snapshot reports
 main-screen → live alt redraws land in main-screen.
 
-**Right** — **prime the rebuilt core's alt state** in `resume()` (`apps/worker/src/session/session-resume.ts`) whenever
+**Right** — **prime the rebuilt core's alt state** on resume (`crates/roost-worker/src/session/resume_core.rs`) whenever
 the retained session state says it was using the alternate screen: `wtermCore.writeRaw(ALT_ENTER_SEQS[0])` after
 the core is created so `core.usingAltScreen()` matches the retained state. NOT a forced SIGWINCH (TUIs repaint
 alt but do not necessarily re-send `?1049h`).
 
-**Guard** — `apps/worker/tests/session/session-manager-altmode.test.ts`.
+**Guard** — none — the v2 guard `apps/worker/tests/session/session-manager-altmode.test.ts` left with the TypeScript tree.
 
 ### History gone after a worker restart because the keeper retained none
 
@@ -468,16 +420,18 @@ alt but do not necessarily re-send `?1049h`).
 **Wrong** — `resume()` rebuilds `scrollback:new Uint8Array(0), head_seq:0` because the keeper retained NO
 per-channel history → the SPA's persisted lastSeq goes stale-high → seq-epoch reset, history unrecoverable.
 
-**Right** — **the keeper retains a per-channel `outRing`+`headSeq`**
-(`apps/worker/src/keeper/keeper-frame-handler.ts`, advanced in the same callback that broadcasts so it matches
+**Right** — **the keeper retains a per-channel output ring and head sequence**
+(`crates/roost-keeper/src/output_ring.rs`, advanced in the same callback that broadcasts so it matches
 the worker count); `GetHistory`/`GetHistoryResp` are represented by the authenticated
 `KeeperContractV1` feature sets. Boot adopts a protocol-compatible survivor, but an
 incompatible survivor blocks replacement while coordinator sessions or keeper bindings
-remain live. `resume()` re-reads via the pool's history call
-(`apps/worker/src/keeper/keeper-pool-channels.ts`) and seeds
+remain live. Resume re-reads via the keeper pool's history call and seeds
 `scrollback`+`head_seq`; only a proven-empty incompatible keeper may be replaced.
 
-**Guard** — `apps/worker/tests/keeper-history-resume.test.ts`.
+**Guard** — `crates/roost-worker/tests/keeper_survivor_adoption.rs` —
+`a_restarted_worker_reattaches_at_the_history_boundary`;
+`crates/roost-worker/tests/boot_adoption_gate.rs` —
+`a_restarted_worker_adopts_its_survivor_from_the_keepers_history`.
 
 ### No scrollbar in the terminal — the container CSS, not the core
 
@@ -486,14 +440,13 @@ remain live. `resume()` re-reads via the pool's history call
 **Wrong** — switch to alternative terminal cores / upstream the core / patch the WASM "because
 getScrollbackCount returned 0 in my synthetic test".
 
-**Right** — **`.wterm { overflow-y: auto; overflow-x: hidden; }` in `apps/web/src/styles/sidebar.css`.** The
+**Right** — **`.wterm { overflow-y: auto; overflow-x: hidden; }` in `crates/roost-web/assets/styles/sidebar.css`.** The
 core DOES populate scrollback and the renderer DOES emit scrollback row DOM; the only thing missing was the
 container CSS that lets those rows be scrolled. A synthetic test reporting zero scrollback usually means the
 renderer hasn't painted yet (rAF does not fire in background tabs) — force a render before checking. DO NOT
 switch terminal cores; the bug is one CSS rule.
 
-**Guard** — `scripts/lint-roost.ts` rule
-`"L11: .wterm must keep overflow-y: auto (scrollback rows clip otherwise — do NOT switch cores)"`.
+**Guard** — none — the v2 guard `scripts/lint-roost.ts` (`.wterm` overflow rule) left with the TypeScript tree.
 
 ### The whole screen rubber-bands when a touch drag runs out of scroll
 
@@ -505,7 +458,7 @@ the app".
 per-component scroll locks. A deleted component-local handler was exactly that:
 once the browser has started a scroll, later `preventDefault()` is ignored.
 
-**Right** — **declare the policy once in `apps/web/index.html`'s base style:
+**Right** — **declare the policy once in `crates/roost-web/index.html`'s base style:
 `* { overscroll-behavior-y: none; }` plus `html, body { overflow: hidden; }`.**
 The first kills chaining and the local elastic edge for every scroller
 (`.wterm` included); the second denies the document a scroll range at all
@@ -514,9 +467,7 @@ sized in `svh`). For a gesture the terminal application owns, `touch-action`
 flips to `none` on the pane display (`CellTerminal.tsx`, keyed on
 `mouseGesturesForwarded`) so the browser never starts a pan to begin with.
 
-**Guard** — `scripts/lint-roost.ts` rule
-`"L11: index.html base style must keep * { overscroll-behavior-y: none } + html,body { overflow: hidden } (else mobile drags the page)"`,
-plus `smoke/terminal/workbench-shell-compact.spec.ts` (document has no scroll
+**Guard** — `smoke/terminal/workbench-shell-compact.spec.ts` (document has no scroll
 range; root and terminal display compute `overscroll-behavior-y: none`) and
 `smoke/terminal/composer-mobile-keyboard.spec.ts` (`touch-action` flips to `none`
 while forwarding, back to `pan-y` when it is toggled off).
@@ -530,8 +481,8 @@ list.
 
 **Wrong** — blame scroll latching, relax the gate that wheels at a panel's
 centre, or narrow `* { overscroll-behavior-y: none; }` in
-`apps/web/index.html` (the entry above owns that policy, and `lint-roost`'s L11
-rule pins it). Nothing about the scroller is broken: `scrollTop` writes still
+`crates/roost-web/index.html` (the entry above owns that policy, and its smoke
+specs pin it). Nothing about the scroller is broken: `scrollTop` writes still
 land, and the same wheel scrolls from a neighbouring pixel.
 
 **Right** — **a box that only clips text must not swallow the gesture.**
@@ -540,9 +491,9 @@ that container scroll chaining, and a wheel landing on the text is consumed by
 a container with no scroll range instead of reaching the list. Each text clip a
 pointer can land on inside a scroller opts chaining back in with
 `overscroll-behavior-y: auto` (`.md-list-row__headline` in
-`apps/web/src/components/Settings/md/tokens.css`;
+`crates/roost-web/assets/components/Settings/md/tokens.css`;
 `.workbench-sidebar-agents__group-name`, `__group-server` and
-`.agent-status-rollup` in `apps/web/src/styles/workbench-sidebar.css`). It has
+`.agent-status-rollup` in `crates/roost-web/assets/styles/workbench-sidebar.css`). It has
 no scroll range of its own, so chaining there can only reach the list, and the
 list's own `none` still stops the chain from reaching the document. Rows that
 cover their whole area with a hit target (`.df-row__primary` in the folders
@@ -572,10 +523,10 @@ returns, and later bytes parse at the new size. The resize forces a complete
 new-stream baseline but never reconstructs ordinary live state. Worker-history
 replay is reserved for genuine process adoption when no in-memory core exists.
 
-**Guard** — `apps/coord/tests/terminal/view/terminal-view-hub.test.ts`;
-`apps/coord/tests/terminal/view/terminal-view-registry-membership.test.ts`;
-`apps/worker/tests/terminal/terminal-stream-state.test.ts`;
-`packages/wterm/tests/wterm-resize-in-place.test.ts`;
+**Guard** — `crates/roost-coord/tests/terminal_view_geometry.rs` —
+`a_viewers_departure_recomputes_the_effective_geometry`;
+`crates/roost-worker/tests/terminal_stream_state.rs` —
+`shrink_and_grow_resize_the_same_core_at_the_keeper_boundary`;
 `smoke/terminal/terminal-multiview.spec.ts`.
 
 ### A session stays clipped to a viewer that is no longer looking
@@ -611,11 +562,13 @@ pinning this session?" is answerable without attaching a debugger.
 `the_minimum_is_taken_on_each_axis_independently` and
 `the_minimum_refuses_an_input_it_could_not_aggregate` (the single per-axis
 aggregation primitive this entry is about);
-`apps/coord/tests/terminal/view/terminal-view-registry-membership.test.ts`;
-`apps/coord/tests/diagnostics/diag-snapshot-session-viewers.test.ts`;
-`apps/coord/tests/workers/worker-respawn-geometry.test.ts`;
-`apps/web/tests/cellTerminalViewport.parkGrace.test.ts`;
-`apps/web/tests/wtermSizeEstimate.dom.test.ts`;
+`crates/roost-coord/tests/terminal_view_geometry.rs` —
+`an_expired_lease_stops_pinning_the_pty`, `a_solo_viewers_geometry_is_held_across_a_link_blip`;
+`crates/roost-worker/tests/terminal_view_owner.rs` —
+`a_parked_viewer_stops_constraining_only_once_its_grace_lapses`;
+`crates/roost-coord/tests/diag_snapshot_session_state.rs` —
+`reports_every_viewer_input_and_the_minimum_over_the_constraining_ones`;
+`crates/roost-coord/tests/workers_send.rs` — `a_respawn_uses_the_effective_geometry_of_its_viewers`;
 `smoke/terminal/terminal-multiview-geometry.spec.ts`.
 
 ### Attach/reveal cost proportional to scrollback depth
@@ -628,16 +581,17 @@ SPA before first paint; or "fix" it by racing/timeouting the history away (tradi
 forbidden).
 
 **Right** — **history is PULLED on demand and never shipped wholesale.**
-`apps/web/src/renderer/scrollbackBackfill.ts` pulls ranges in chunks via `SessionsGetScrollbackCells` (coord relay →
-worker `handleGetScrollbackCells` in `apps/worker/src/browser-commands/browser-command-terminal.ts`, serving
-`readScrollbackRangeCells` from `packages/protocol/src/cell/grid-to-cells.ts`) and `prependScrollback` in
-`apps/web/src/renderer/cellRenderer.ts` splices above the reader. At a literal bottom the renderer pins the new
+The renderer's backfill (`crates/roost-web-terminal/src/backfill.rs`) pulls ranges in chunks via `SessionsGetScrollbackCells` (coord relay →
+the worker's scrollback page reader in `crates/roost-worker/src/browser_commands/scrollback_page.rs`, serving
+rows from `crates/roost-worker/src/scrollback_read.rs`) and the renderer
+(`crates/roost-web-terminal/src/cell_renderer.rs`) splices above the reader. At a literal bottom the renderer pins the new
 bottom; otherwise it leaves `scrollTop` untouched. History ALWAYS arrives — only its timing is lazy. The
 intermediate form (a fixed 250-row tail in every full frame plus a `mergeFullFrame` tail merge) is RETIRED: full
 frames are now viewport-only, see the epoch-addressed entry below.
 
-**Guard** — `apps/worker/tests/scrollback-cells-backfill.test.ts`; `apps/web/tests/renderer/scrollbackBackfill.test.ts`;
-`apps/web/tests/` renderer DOM suite — `"CellGridRenderer DOM — viewport-only frames + backfill"`.
+**Guard** — `crates/roost-worker/tests/scrollback_page_window.rs` — `a_window_inside_the_grid_is_served_whole`;
+`crates/roost-web-terminal/tests/render_append_frames.rs` —
+`a_viewport_only_full_reserves_depth_and_explicit_pages_fill_the_seam`.
 
 ### A demand page is only issued once the rows are already blank
 
@@ -654,7 +608,7 @@ or by widening the page while leaving the trigger and the anchor alone — a big
 edge is still one sliver per screen.
 
 **Right** — **pre-pay the rows the reader is scrolling TOWARD, one wave at a time.** Three rules in
-`apps/web/src/renderer/scrollbackBackfill.ts`, and they only work together: (1) the trigger window is widened upward
+`crates/roost-web-terminal/src/backfill.rs`, and they only work together: (1) the trigger window is widened upward
 by `BACKFILL_AHEAD_ROWS`, so a demand is raised before the rows are visible — the bottom-most missing interval
 still wins, which is what keeps a visible gap ahead of a read-ahead gap; (2) a `scroll` page is anchored at the
 NEWEST missing row of that interval and extends `BACKFILL_FETCH_ROWS` (250 = one `SB_BLOCK`) OLDER, so one
@@ -672,11 +626,11 @@ wave owes — a page spanning the head spacer and the gap above it is refused by
 and a reader dragged to the top of history is exactly where that page shape arises.
 Same measurement after: ONE demand wave, then every step until the pre-paid lead is consumed crossing
 already-painted rows at zero RPCs, and the next one re-arming the pager exactly where the band predicts. The
-page geometry itself is pure and lives apart in `apps/web/src/client/terminal-stream/scrollbackDemandBounds.ts`; each new pager
+page geometry itself is pure and lives apart in `crates/roost-client-core/src/terminal/history_backfill.rs`; each new pager
 state (`scrollback.demand_coalesced`, `demand_rearmed`, `demand_retry_deferred`, `demand_retry_woke`) emits one
 `diag()` line, the deferred pair naming the state that used to leave a visible gap unpainted. Unpainted
 placeholders also stop reading as empty — `.cell-grid .cell-sb-gap` / `.cell-sb-spacer` in
-`apps/web/src/styles/sidebar.css` paint a row-pitch skeleton (paint-only; those elements' inline pixel heights
+`crates/roost-web/assets/styles/sidebar.css` paint a row-pitch skeleton (paint-only; those elements' inline pixel heights
 are what every scroll position is derived from, so never give them geometry). The head spacer drops that
 texture only while it lies ENTIRELY below a proven retention floor (`setHistoryFloor` →
 `data-history-floor`, re-derived in `_syncSpacer`): those rows are gone, not loading, and a pending sheet over
@@ -686,14 +640,16 @@ that are still pageable.
 **Guard** — `smoke/terminal/terminal-history-readahead.spec.ts` (real stack: the first wheel step crosses
 unpainted history and costs exactly the chain depth the pager's own constants predict, and every step inside a
 pre-paid count DERIVED from the measured row height and pane size is painted at zero demand RPCs);
-`apps/web/tests/renderer/scrollbackBackfill.bounds.test.ts` — the page never collapses to the sliver the window exposed,
-whatever the interval's shape; `apps/web/tests/renderer/scrollbackBackfill.test.ts` —
-`"a wheel step pre-pays the rows above the viewport and the next step is free"`,
-`"scrolls during a wave add no request, one coalesce line, and one demand after"`,
-`"a page that cannot splice retries bounded and stays armed for the reader"`,
-`"the reader's own rows paint when one page would span the painted base"`,
-`"a spent budget keeps re-deriving on the retry cadence, one wave per interval"`,
-`"suspend and dispose cancel the deferred re-arm"`.
+`crates/roost-client-core/tests/history_backfill.rs` — the page never collapses to the sliver the window exposed,
+whatever the interval's shape (`a_steady_scroll_up_page_ends_at_the_painted_edge_and_extends_a_page_older`,
+`a_page_never_spans_the_painted_base_the_readers_own_side_of_it_wins`);
+`crates/roost-web-terminal/tests/backfill_demand_waves.rs` —
+`a_wheel_step_pre_pays_the_rows_above_the_viewport_and_the_next_step_is_free`,
+`scrolls_during_a_wave_add_no_request_one_coalesce_line_and_one_demand_after`,
+`a_page_that_cannot_splice_retries_bounded_and_stays_armed_for_the_reader`,
+`the_readers_own_rows_paint_when_one_page_would_span_the_painted_base`,
+`a_spent_budget_keeps_re_deriving_on_the_retry_cadence_one_wave_per_interval`,
+`suspend_and_dispose_cancel_the_deferred_rearm`.
 
 ### Scroll position lurches — many writers of scrollTop
 
@@ -703,7 +659,7 @@ whatever the interval's shape; `apps/web/tests/renderer/scrollbackBackfill.test.
 classification, resize/reveal correction, or a jump-to-bottom control.
 
 **Right** — **one pre-mutation capture plus ONE conditional writer.** `CellGridRenderer`
-(`apps/web/src/renderer/cellRenderer.ts`) captures `_atBottomOrOwnedPlacement()` before a painted-height
+(`crates/roost-web-terminal/src/cell_renderer.rs`) captures `_atBottomOrOwnedPlacement()` before a painted-height
 mutation; only `_pinToBottom(shouldPin)` may assign `scrollTop`, and only when that captured value was
 true. The capture is the FOLLOW BAND (`followsScrollBottom`, two rows of slack — see the follow-band
 entry below), never a widened `atBottom()`: `atBottom()` itself stays exact and is what the clamp and
@@ -714,11 +670,13 @@ preserves the reader's row. Never restore intent state, add reveal correction, o
 control. This single-writer invariant is about POSITION and
 presumes the scroll SPACE is truthful — the spacer entry below is what makes it so.
 
-**Guard** — `apps/web/tests/` renderer DOM suite —
-`"a non-bottom backfill prepend performs no application scroll write"`,
-`"only the mutable tail is excluded from browser anchoring"`,
-`"unchanged and fully clamped pins leave no stale scroll ownership"`,
-`"a coalesced pin retargets once, then the next native scroll reads"`.
+**Guard** — `crates/roost-web-terminal/tests/render_reader_park.rs` —
+`a_non_bottom_history_page_performs_no_application_scroll_write`;
+`crates/roost-web-terminal/tests/render_held_window.rs` —
+`only_the_mutable_tail_is_excluded_from_browser_anchoring`;
+`crates/roost-web-terminal/tests/render_reader_live.rs` —
+`unchanged_and_fully_clamped_pins_leave_no_stale_scroll_ownership`,
+`a_coalesced_pin_retargets_once_then_the_next_native_scroll_reads`.
 
 ### A parked pane paints at a lying box size
 
@@ -732,7 +690,7 @@ DIFFERENT box size (the old fixed 800×600 park) so its scroll maximum moves und
 
 **Right** — **a pane that keeps painting off-screen must have TRUTHFUL geometry, not a corrected scroll
 position.** Three invariants, all measured live: (1) the deck parks a pane at its own leaf's rect
-(`parkSizeBySession` in `apps/web/src/components/deck/TerminalDeck.tsx`) so `clientHeight` is identical parked vs
+(`crates/roost-web/src/components/deck/terminal_deck_geometry.rs`) so `clientHeight` is identical parked vs
 revealed; (2) block placeholders are a BARE length, never `contain-intrinsic-size: auto <len>` — `auto` makes
 the browser reuse a block's LAST RENDERED size, so a block that grows while skipped understates `scrollHeight`
 until it materializes; (3) the OPEN tail block opts out of `content-visibility` until it seals — a skipped
@@ -741,11 +699,14 @@ tail leaves `scrollHeight` stale and the pre-mutation bottom check reads a botto
 blocks stay skipped, so deep-history layout stays O(blocks). Measured: a 250-row block remembered at 29 rows
 reported 487.11px instead of 4199.22px; revealing it grew `scrollHeight` by exactly that 3712px.
 
-**Guard** — `apps/web/tests/` renderer DOM suite —
-``"the placeholder is a bare length — never the self-correcting `auto` form"``,
-`"only the OPEN tail block opts out of content-visibility; sealing restores it"`,
-`"at-bottom reader follows a box grow onto the new bottom"`,
-`"a live old-bottom anchor follows a box shrink with exactly one pin"`.
+**Guard** — `crates/roost-web-terminal/tests/block_placeholder.rs` —
+`the_placeholder_is_a_bare_length_never_the_self_correcting_auto_form`;
+`crates/roost-web-terminal/tests/render_held_window.rs` —
+`only_the_open_tail_block_opts_out_of_content_visibility_and_sealing_restores_it`;
+`crates/roost-web-terminal/tests/render_geometry.rs` —
+`an_at_bottom_reader_follows_a_box_grow_onto_the_new_bottom`,
+`a_live_old_bottom_anchor_follows_a_box_shrink_with_exactly_one_pin`;
+`crates/roost-web/tests/deck_geometry.rs` — `a_parked_terminal_stays_laid_out_at_its_reveal_size`.
 
 ### A box grow under a parked reader removes the last scroll event
 
@@ -754,13 +715,13 @@ back to the bottom does not restart it / only a reload fixes it", with `at_botto
 `reconcile_block_reason=reader_pending_frame` while the canonical seq keeps climbing.
 
 **Wrong** — resume a parked reader from `ResizeObserver` only when `_readerReason === "native_scroll"`. Real
-wheel and touch gestures park as `"wheel"` / `"touch"` (`apps/web/src/renderer/terminalMouseForwarding.ts`), so that
+wheel and touch gestures park as `"wheel"` / `"touch"` (`crates/roost-web-terminal/src/mouse_forward.rs`), so that
 gate was dead for every real gesture. Equally wrong here: an `atBottom()` tolerance or any reveal/resize scroll
 correction — the geometry was measured INTEGRAL in 184 real layouts at four device-pixel ratios (the true clamp
 equals `scrollHeight - clientHeight` exactly), so the clamp predicate was never the defect (what a reader near
 the tail is ALLOWED to do is a separate policy — see the follow-band entry below). Equally wrong: gating the
 bottom-clamp settle on the `native_scroll` reason alone. The scroll handler records `native_scroll` for a real
-movement and `terminalMouseForwarding.ts` then UPGRADES that park to the gesture's own `wheel`/`touch` reason,
+movement and the mouse forwarder then UPGRADES that park to the gesture's own `wheel`/`touch` reason,
 so the settle armed for the next frame no longer matches its own park; if layout clamps that park onto the
 exact bottom, no further scroll event exists and nothing resumes it. Also wrong: letting a paint hold swallow
 the repair — `noteBoxResize` advances `_lastBoxH` before it returns, so the ResizeObserver cannot retry, and
@@ -769,7 +730,7 @@ pane's only resume while the later hold release refused too, because release res
 
 **Right** — **a park must be exitable by an event the pane can still deliver.** A parked reader freezes the
 DOM, so a grow past the frozen content leaves `scrollHeight === clientHeight`: the box can never fire another
-scroll event, `handleScroll()`'s bottom resume (`apps/web/src/renderer/cellRenderer.ts`) is unreachable, and
+scroll event, `handleScroll()`'s bottom resume (`crates/roost-web-terminal/src/cell_renderer.rs`) is unreachable, and
 `noteBoxResize()` is the only observer left — it also consumes `_lastBoxH` before every early return, so a
 refusal is permanent. `noteBoxResize()` therefore resumes when the reader sat at the old box's bottom AND the
 park is position-only (`isPositionOnlyReaderReason` — `native_scroll`/`wheel`/`touch`), and resumes ANY park,
@@ -787,14 +748,14 @@ return, and no further event follows), explicitly, so a `find` park is released 
 off-band park that still has range keeps its interval, because the exact-bottom scroll, the next frame's
 bottom-clamp settle and the scroll-idle band settle own that case.
 
-**Guard** — `apps/web/tests/renderer/cellRenderer.geometry.dom.test.ts` —
-`"a wheel-parked reader resumes when a box grow leaves no scroll range"` and its three siblings;
+**Guard** — `crates/roost-web-terminal/tests/render_geometry.rs` —
+`a_wheel_parked_reader_resumes_when_a_box_grow_leaves_no_scroll_range` and its siblings;
 `smoke/terminal/terminal-render-box-grow-resume.spec.ts` (real wheel park + viewport grow must repaint);
-`apps/web/tests/renderer/cellRenderer.nativeScrollSettle.dom.test.ts` —
-`"a wheel park clamped to the bottom settles without a second scroll event"`;
-`apps/web/tests/renderer/cellRenderer.append.dom.test.ts` —
-`"a hold release resumes a wheel park whose box lost its scroll range"`, with
-`"a hold release leaves a find park that can still reach its anchor"` as the refusal control.
+`crates/roost-web-terminal/tests/render_scroll_settle.rs` —
+`a_wheel_park_clamped_to_the_bottom_settles_without_a_second_scroll_event`;
+`crates/roost-web-terminal/tests/render_append_holds.rs` —
+`a_hold_release_resumes_a_wheel_park_whose_box_lost_its_scroll_range`, with
+`a_hold_release_leaves_a_find_park_that_can_still_reach_its_anchor` as the refusal control.
 
 ### The terminal stops streaming after the smallest scroll
 
@@ -809,26 +770,26 @@ live.
 
 **Right** — **a named follow band gates the POLICY decisions; the exact predicates stay exact.**
 `BOTTOM_FOLLOW_SLACK_ROWS` (2) and `followsScrollBottom` in
-`apps/web/src/renderer/cellRendererPresentation.ts` define one band around the clamp, and only four call sites
+`crates/roost-web-terminal/src/presentation.rs` define one band around the clamp, and only four call sites
 use it: `handleScroll()`'s park decision, the pin capture `_atBottomOrOwnedPlacement()`, the backfill
 demand gate (`scrollbackBackfill.onUserScroll`, a band follower must not start paging history), and the
 band settle. A reader inside the band is riding the tail, so the pane keeps painting and keeps pinning;
 one wheel notch (~100px) is outside it and still parks. A park that comes to REST inside the band resumes
 through `CellGridRenderer.settleFollowBand()`, armed `BOTTOM_FOLLOW_SETTLE_MS` (180ms) after the last
-scroll event by the pane's own scroll listener (`apps/web/src/components/terminal/cell-terminal-renderer.ts`) and
+scroll event by the pane's own scroll listener (`crates/roost-web/src/components/terminal/cell_terminal.rs`) and
 also by frame arrival (see the entry below), so the resume never runs mid-gesture. A hold release also
 resumes a band-following
 position-only park, because the hold swallowed the only scroll event that could. `at_bottom` in the
 presentation snapshot keeps its exact meaning; `follows_bottom` is the band value beside it.
 
-**Guard** — `apps/web/tests/renderer/cellRenderer.readerIntent.dom.test.ts` —
-`"a live reader inside the follow band keeps following the tail"`;
-`apps/web/tests/renderer/cellRenderer.nativeScrollSettle.dom.test.ts` —
-`"a wheel park resting inside the follow band resumes on the settle"`, with
-`"a park beyond the follow band survives the settle"` and
-`"a find park inside the follow band keeps its anchor through the settle"` as the refusal controls;
-`apps/web/tests/renderer/cellRenderer.append.dom.test.ts` —
-`"a hold release resumes a bottom-following wheel park that kept its range"`;
+**Guard** — `crates/roost-web-terminal/tests/render_reader_live.rs` —
+`a_live_reader_inside_the_follow_band_keeps_following_the_tail`;
+`crates/roost-web-terminal/tests/render_scroll_settle.rs` —
+`a_wheel_park_resting_inside_the_follow_band_resumes_on_the_settle`, with
+`a_park_beyond_the_follow_band_survives_the_settle` and
+`a_find_park_inside_the_follow_band_keeps_its_anchor_through_the_settle` as the refusal controls;
+`crates/roost-web-terminal/tests/render_append_holds.rs` —
+`a_hold_release_resumes_a_bottom_following_wheel_park_that_kept_its_range`;
 `smoke/terminal/terminal-follow-band.spec.ts` —
 `"a follow-band reader keeps streaming, self-resumes, and still parks past the band"` (real trusted wheel:
 an in-band flick self-resumes, a 1200px gesture still parks and still swallows output).
@@ -840,7 +801,7 @@ only thing that brings it back" — `reconcile_block_reason=reader_pending_frame
 `at_bottom` FALSE, `reader_reason` `wheel` or `touch`, and canonical climbing away from the DOM forever.
 
 **Wrong** — arming the band settle from the pane's scroll listener ALONE. `enterReadingForNativeScroll`
-(`apps/web/src/renderer/terminalMouseForwarding.ts`) parks from a capture-phase, non-passive wheel/touchmove
+(`crates/roost-web-terminal/src/mouse_forward.rs`) parks from a capture-phase, non-passive wheel/touchmove
 listener whose `canMove` gate excludes only the EXACT clamp, never the band — so a park can be created
 AFTER the gesture's last scroll event, and the listener that would have armed its settle has already run
 for the final time. The frame-arrival settle could not rescue it either: `_settleBottomPark()` demands
@@ -862,12 +823,12 @@ that re-arms — a busy PTY delivering a frame every few milliseconds would othe
 for as long as output continued. The rAF clamp settle keeps demanding `atBottom()` exactly and owns the
 clamped case, so an in-band frame never routes a clamped follower through the 180ms window.
 
-**Guard** — `apps/web/tests/renderer/cellRenderer.nativeScrollSettle.dom.test.ts` —
-`"a band rest parked with no scroll event recruits the settle on a frame"` (and asserts zero `scrollTop`
+**Guard** — `crates/roost-web-terminal/tests/render_scroll_settle.rs` —
+`a_band_rest_parked_with_no_scroll_event_recruits_the_settle_on_a_frame` (and asserts zero `scrollTop`
 writes at frame arrival),
-`"a stream of frames over a band rest keeps exactly one settle window"`, with
-`"a park beyond the follow band recruits no settle window"` and
-`"a park on the exact clamp resumes on the frame with no settle window"` as the boundary controls;
+`a_stream_of_frames_over_a_band_rest_keeps_exactly_one_settle_window`, with
+`a_park_beyond_the_follow_band_recruits_no_settle_window` and
+`a_park_on_the_exact_clamp_resumes_on_the_frame_with_no_settle_window` as the boundary controls;
 `smoke/terminal/terminal-follow-band.spec.ts` for the real-flow band behaviour.
 
 ### A find park swallows the scroll that returns the pane to the bottom
@@ -877,7 +838,7 @@ type"
 
 **Wrong** — treating EVERY scroll event as sacred to the find anchor: `handleScroll()` capturing the anchor and
 returning before the at-bottom resume whenever the reason is `find`. `closeFind()`
-(`apps/web/src/renderer/terminalFindController.ts`) only clears highlights and query state — it never resumes the
+(`crates/roost-web-terminal/src/find.rs`) only clears highlights and query state — it never resumes the
 reader — so before this change no gesture at any position could un-park the pane after a dismissal, and a box
 change with scroll range remaining refused it too. Equally wrong: resuming on any at-bottom event regardless
 of origin, which lets `scrollToScrollbackRow()`'s own write to a TAIL hit clamp onto the bottom and instantly
@@ -905,16 +866,16 @@ shrinks the maximum over consecutive frames (divider drag, mobile keyboard) ther
 once per frame; the position still moves, zero range removes the suppression outright, and the cost is bounded
 to one event of latency for an anchor park whose last gesture event coincided with the final shrink frame.
 
-**Guard** — `apps/web/tests/renderer/cellRenderer.findPark.dom.test.ts` —
-`"a user scroll to the exact bottom resumes a find park"`,
-`"a renderer-owned write that lands at the bottom keeps the find park"`,
-`"a find park survives a scroll that does not reach the bottom"`,
-`"a box-grow clamp onto the bottom keeps a find park"`,
-`"a clamp that leaves no scroll range resumes a find park"`, and
-`"a gesture after a clamp still resumes a find park"`, which pins the one-shot property — making the record
+**Guard** — `crates/roost-web-terminal/tests/render_find_park.rs` —
+`a_user_scroll_to_the_exact_bottom_resumes_a_find_park`,
+`a_renderer_owned_write_that_lands_at_the_bottom_keeps_the_find_park`,
+`a_find_park_survives_a_scroll_that_does_not_reach_the_bottom`,
+`a_box_grow_clamp_onto_the_bottom_keeps_a_find_park`,
+`a_clamp_that_leaves_no_scroll_range_resumes_a_find_park`, and
+`a_gesture_after_a_clamp_still_resumes_a_find_park`, which pins the one-shot property — making the record
 conditional on `clamped` turns it red;
-`apps/web/tests/renderer/cellRenderer.nativeScrollSettle.dom.test.ts` —
-`"a wheel park clamped onto the bottom by a box grow resumes"` for the position-only side.
+`crates/roost-web-terminal/tests/render_scroll_settle.rs` —
+`a_wheel_park_clamped_onto_the_bottom_by_a_box_grow_resumes` for the position-only side.
 
 ### A dismissed find bar leaves the pane parked on a dead find anchor
 
@@ -931,10 +892,9 @@ touches nothing else: no scroll write, no pin, no frame applied, position preser
 last. After dismissal the park is an ordinary scroll park, so an exact-bottom scroll, a zero-range grow, a hold
 release or the bottom-clamp settle all resume it, while an OPEN bar keeps anchor semantics.
 
-**Guard** — `apps/web/tests/renderer/cellRenderer.findPark.dom.test.ts` —
-`"closing the find bar ends the park without moving or painting"` and
-`"a dismissed find park follows a box grow its anchor would have refused"`, both driving the real
-`createTerminalFind` against a real renderer.
+**Guard** — `crates/roost-web-terminal/tests/render_find_park.rs` —
+`closing_the_find_bar_ends_the_park_without_moving_or_painting` and
+`a_dismissed_find_park_follows_a_box_grow_its_anchor_would_have_refused`.
 
 ### A paint hold armed on an edge outlives the listener that would clear it
 
@@ -945,7 +905,7 @@ bottom returning `{reconciled:false, anchorChanged:false}`.
 
 **Wrong** — arm `RENDERER_HOLD_SELECTION` edge-only from the document `selectionchange` listener and re-attach
 that listener without re-deriving the hold. The pane detaches its global listeners for the whole of a withdraw
-(`apps/web/src/components/terminal/cell-terminal-interactions.ts`), and a transient layout gap routes through
+(`crates/roost-web/src/components/terminal/cell_terminal.rs`), and a transient layout gap routes through
 `parkViewAfterLayoutGap()`, which deliberately does NOT `releasePaintHolds()` — so a selection dropped inside
 that window pins a hold no selection justifies. Equally wrong: dropping holds in the layout-gap park (it exists
 so jitter does not re-mint every other viewer's geometry, and it would discard a real reader's selection), or
@@ -962,15 +922,17 @@ eventual hold release pin the bottom (`pinOnResume`) as its `selection` reason i
 is a total paint kill: frames are accepted and swallowed, so no scroll can heal it.
 The link hold is level-derived the same way: every container pointer event carries the LIVE modifier state, so
 `mouseover`, `mouseenter`, `mousemove` and `mousedown` each re-derive `armed` in BOTH directions
-(`apps/web/src/renderer/terminal-links.ts`), and that predicate must be TOTAL — an event with no modifier
+(`crates/roost-web-terminal/src/links.rs`), and that predicate must be TOTAL — an event with no modifier
 fields must read as "not held", never `undefined`, or the hold ends up neither armed nor disarmed. Re-entering
 a pane with nothing held can no longer revive a hold from a dead edge.
 
-**Guard** — `apps/web/tests/cellTerminalVisibility.test.ts` —
-`"a selection dropped while the pane's listeners are detached stops holding paint"`,
-`"a selection still live when the listeners re-attach keeps paint held"`;
-`apps/web/tests/terminal-links.dom.test.ts` — the modifier-level cases, including
-re-entry with no modifier held.
+**Guard** — `crates/roost-web-terminal/tests/selection_guard.rs` —
+`a_selection_dropped_while_the_panes_listeners_are_detached_stops_holding_paint`,
+`a_selection_still_live_when_the_listeners_re_attach_keeps_paint_held`;
+`crates/roost-web-terminal/tests/terminal_links_gestures.rs` —
+`the_modifier_level_is_total_and_an_event_without_modifier_fields_is_not_held`;
+`crates/roost-web-terminal/tests/terminal_links_armed_hold.rs` —
+`re_entering_the_pane_without_the_modifier_cannot_revive_the_hold`.
 
 ### A reader hold declining the DOM deadline retires the pane's only repair
 
@@ -993,10 +955,7 @@ be cleared. Every other decline calls `clearDomReconciliationTarget()` first, so
 escalates, redials, pins, resumes, or otherwise touches the held reader's paint park. Both gates read one
 predicate (`domRepairStillWarranted`) so the admitting facts cannot drift apart.
 
-**Guard** — `apps/web/tests/cellTerminalPresentation.test.ts` —
-`"re-arms the DOM target after a reader hold declined the deadline"`, with
-`"preserves reader holds and pointer gestures through the DOM deadline"` as the refusal control proving a
-hold still blocks escalation.
+**Guard** — none — the v2 guard `apps/web/tests/cellTerminalPresentation.test.ts` left with the TypeScript tree.
 
 ### The painted scroll space describes only the shipped tail
 
@@ -1017,10 +976,12 @@ reflects the real total. Sibling placement is load-bearing: eviction takes `scro
 block, and `nearHistoryTop()` reads `scrollbackEl.offsetTop` — which now includes the spacer, so a reader who
 drags into reserved-but-unpainted space keeps the backfill drain pulling toward them.
 
-**Guard** — `apps/web/tests/` renderer DOM suite — `"the spacer reserves the unpainted history"`,
-`"a head page shrinks the spacer by exactly the rows it adds"`,
-`"an eviction grows the spacer by exactly the rows it drops"`,
-`"renderFull reserves the incoming spacer BEFORE wiping painted history"`.
+**Guard** — `crates/roost-web-terminal/tests/render_history.rs` —
+`the_spacer_reserves_the_unpainted_history`,
+`a_head_page_shrinks_the_spacer_by_exactly_the_rows_it_adds`,
+`an_eviction_grows_the_spacer_by_exactly_the_rows_it_drops`;
+`crates/roost-web-terminal/tests/render_geometry.rs` —
+`render_full_reserves_the_incoming_spacer_before_wiping_painted_history`.
 
 ### Reveal after dormancy loses unchanged cells
 
@@ -1041,8 +1002,9 @@ same scheduler lane as their state predecessor and cannot overtake it. A
 same-epoch/same-width repair updates the live tail without deleting already
 painted immutable history or the reader's global anchor.
 
-**Guard** — `apps/web/tests/terminalStream.test.ts`;
-`apps/web/tests/renderer/cellRenderer.reconcile.dom.test.ts`;
+**Guard** — `crates/roost-client-core/tests/terminal_full_before_delta.rs`;
+`crates/roost-web-terminal/tests/render_history_repair.rs` —
+`a_live_viewport_only_full_preserves_painted_history_and_inserts_only_the_missing_tail_gap`;
 `smoke/terminal/terminal-multiview.spec.ts`;
 `smoke/terminal/terminal-render-resume.spec.ts`.
 
@@ -1085,7 +1047,7 @@ scrollback rows, a base equal to the total, and an opaque `gridEpoch`.
 The renderer installs the current viewport and truthful spacer immediately.
 Only explicit scroll/find demand fetches disjoint
 `SessionsGetScrollbackCells` ranges carrying that epoch
-(`apps/coord/src/terminal/screen/handlers-sessions-scrollback.ts` relays it); the worker
+(`crates/roost-coord/src/terminal_screen/scrollback_relay.rs` relays it); the worker
 checks the epoch before and after each cooperative slice and returns an error
 rather than splice re-numbered rows. While the reader is off-bottom, every FULL
 frame — including an epoch change — is retained off-DOM as the latest pending
@@ -1099,8 +1061,8 @@ replay yields periodically so live cells preempt it.
 
 **Guard** — `smoke/terminal/` — `"deep-history attach/reveal paints the live tail until history is requested"`,
 `"long hidden deep-history resume paints the current viewport before history"`;
-`apps/web/tests/renderer/scrollbackBackfill.test.ts`; `apps/web/tests/` renderer DOM suite —
-`"viewport-only full reserves depth; explicit pages fill the seam"`.
+`crates/roost-web-terminal/tests/render_append_frames.rs` —
+`a_viewport_only_full_reserves_depth_and_explicit_pages_fill_the_seam`.
 
 ### The painted grid never converges until a reload
 
@@ -1116,7 +1078,7 @@ cells — each one leaves the canonical model ahead of the DOM with nothing that
 **Right** — **six layered contracts, each with one owner and a typed outcome.**
 
 - (a) Reader intent is explicit: `CellGridRenderer` holds `ReaderIntent` "live"/"reading" plus a composed
-  selection+link hold mask (`apps/web/src/renderer/cellRenderer.ts`); passive output and composer drafting never
+  selection+link hold mask (`crates/roost-web-terminal/src/cell_renderer.rs`); passive output and composer drafting never
   cancel a reader, one admitted local keystroke calls `prepareLiveInteraction()` (clear holds + adopt
   reader-pending frame + re-pin bottom as ONE transition), and park/`pagehide`/unmount ENDS the reading interval
   so a revealed pane presents the newest canonical frame.
@@ -1157,18 +1119,17 @@ cells — each one leaves the canonical model ahead of the DOM with nothing that
 
 Diagnose `wire_received` → browser `replica` → `handler_canonical` →
 `dom_reconciled` plus `reconcile_block_reason`
-(`apps/web/src/renderer/terminalDiagSnapshot.ts`), never a screenshot.
+(the smoke contract `smoke/contract/terminalDiagSnapshot.ts`), never a screenshot.
 
 **Guard** — `crates/roost-protocol/tests/cell_grid_chunks.rs` —
 `a_rejected_part_leaves_the_assembler_with_no_partial` and
 `a_replacement_snapshot_must_start_at_zero_inside_the_same_stream`
-(was `packages/protocol/tests/cell-frame-chunks.test.ts`);
-`apps/worker/tests/terminal/terminal-stream-state.test.ts`;
-`apps/coord/tests/terminal/view/terminal-view-hub.test.ts`;
-`apps/coord/tests/terminal/view/terminal-view-registry-membership.test.ts`;
-`apps/coord/tests/terminal/screen/terminal-screen-hub.test.ts` (Rust:
-`crates/roost-coord/tests/terminal_screen_hub.rs` and `terminal_screen_hub_lifecycle.rs`);
-`apps/web/tests/terminalStream.test.ts`;
+(the protocol-side chunk assembler);
+`crates/roost-worker/tests/terminal_stream_state.rs` —
+`shrink_and_grow_resize_the_same_core_at_the_keeper_boundary`;
+`crates/roost-coord/tests/terminal_view_geometry.rs`;
+`crates/roost-coord/tests/terminal_screen_hub.rs` and `terminal_screen_hub_lifecycle.rs`;
+`crates/roost-client-core/tests/terminal_full_before_delta.rs`;
 `smoke/terminal/terminal-multiview.spec.ts`.
 
 ### A busy session restarts its own baseline forever while chunks assemble
@@ -1182,17 +1143,14 @@ restarts the transfer on every delta: the worker builds another full, the next d
 again, and attach never completes.
 
 **Right** — park ordinary deltas in a per-session bounded hold (`TerminalAssemblyHold` in
-`apps/coord/src/terminal/screen/terminal-screen-hub-state.ts`: 512 frames / 4 MiB, mirroring the Sync v2
+`crates/roost-coord/src/terminal_screen/hub_state.rs`: 512 frames / 4 MiB, mirroring the Sync v2
 delta-tail caps) while chunks assemble. When the assembled full installs, replay only held deltas
 whose base_seq extends the new baseline — earlier ones are already contained in that full — through
 the ordinary delta fold. Overflow, any other interruption, invalidation, or a minted stream clears
 the hold and falls back to the single-resync latch; an ordinary FULL still supersedes the partial
 outright without a resync.
 
-**Guard** — `apps/coord/tests/terminal/screen/terminal-screen-hub-chunks.test.ts` —
-`"holds live deltas during chunk assembly and folds them like an uninterrupted run"`,
-`"falls back to the resync latch when the delta hold overflows"`; Rust:
-`crates/roost-coord/tests/terminal_screen_hub_hold.rs` —
+**Guard** — `crates/roost-coord/tests/terminal_screen_hub_hold.rs` —
 `deltas_held_during_assembly_fold_as_if_the_run_was_never_interrupted`,
 `a_hold_that_overflows_falls_back_to_the_single_resync_latch`.
 
@@ -1227,11 +1185,9 @@ timer owns the deadline) all cancel it. The transition emits
 `log.warn("terminal-screen", "baseline_timeout", …)`, so a silent worker is readable in `*.err.log` instead
 of being inferred from a blank pane.
 
-**Guard** — `apps/coord/tests/terminal/screen/terminal-screen-hub-snapshot.test.ts`, `describe("TerminalScreenHub baseline
-watchdog")` — escalation to a fresh stream across both ladder attempts; zero requests when the baseline
-lands in time; a re-mint replacing the superseded deadline while the stale callback stays inert; a chunked
-transfer in flight at the deadline left to the chunk stall timer. Rust:
-`crates/roost-coord/tests/terminal_screen_hub_snapshot.rs` —
+**Guard** — `crates/roost-coord/tests/terminal_screen_hub_snapshot.rs` — escalation to a fresh stream across
+both ladder attempts, zero requests when the baseline lands in time, a re-mint replacing the superseded
+deadline, a chunked transfer in flight at the deadline left to the chunk stall timer:
 `a_stream_whose_baseline_never_arrives_climbs_the_repair_ladder`,
 `a_baseline_that_lands_before_the_deadline_asks_for_nothing`,
 `a_reminted_stream_deadline_replaces_the_superseded_one`,
@@ -1295,10 +1251,7 @@ no-publication-target branch deliberately still cancels: `retargetSession` repub
 generation/ready flip and `cell-terminal-lifecycle` republishes on the visibility transition, so that class
 already has a guaranteed exit and a re-arm there would be a redundant poll.
 
-**Guard** — `apps/web/tests/terminalStreamLifecycle.test.ts` —
-`"retries an active view whose socket write never reached the transport"`,
-`"republishes a refused active view inside one coordinator lease window"`, with the hidden-page case as the
-refusal control.
+**Guard** — none — the v2 guard `apps/web/tests/terminalStreamLifecycle.test.ts` left with the TypeScript tree.
 
 ### The liveness watchdog deletes itself on the failure it exists to notice
 
@@ -1399,10 +1352,9 @@ existing `detached` determination rather than inventing a second notion of "brok
 `FRAME_ACTIVITY_WINDOW_MS` (500ms) is deliberately shorter than `DETACHED_GRACE_MS` (1000ms) so freshness
 cannot still be true at the edge that arms the re-claim and mask it.
 
-**Guard** — `apps/web/tests/browser/offlineWatch.test.ts` —
-`"a pane that painted, then lost its view, is re-claimed then accused"`, with
-`"a quiet pane with a healthy view is never re-claimed, however long"` as the false-positive control and
-`"a frame clears offline immediately even while the view reads detached"` for self-correction.
+**Guard** — `crates/roost-web/tests/terminal_pane_presentation.rs` —
+`a_detached_viewed_pane_re_claims_twice_before_it_is_offline`, with
+`a_quiet_but_deliverable_or_unviewed_pane_is_never_accused` as the false-positive control.
 
 ### A composer suspension holds paint forever when its restore never runs
 
@@ -1427,10 +1379,10 @@ focus at suspend time is still `document.activeElement` and still connected. Whe
 wait for and never holds paint at all, while `suspend()` still performs its range yield so no keystroke is
 swallowed.
 
-**Guard** — `apps/web/tests/cellTerminalVisibility.test.ts` —
-`"a suspension whose restore never runs stops holding paint once its range is gone"`, with the still-live
-suspension case as the refusal control that keeps the composer contract, and both pre-existing
-level-derived cases untouched.
+**Guard** — `crates/roost-web-terminal/tests/selection_guard.rs` —
+`a_suspension_whose_restore_never_runs_stops_holding_paint_once_its_range_is_gone`, with
+`a_suspension_whose_range_is_still_live_and_restorable_keeps_paint_held` as the refusal control that keeps
+the composer contract.
 
 ### A selection reveal re-enters wasm and the panel paints the error instead of the frame
 
@@ -1485,10 +1437,9 @@ another LIVE one, whose boundary is still unproven. Fail-closed is unchanged: `c
 emission, so a trapped core refuses to build frames for the generation it trapped, and the release and the
 invalid-core mint both log instead of passing silently.
 
-**Guard** — `apps/worker/tests/terminal/terminal-stream-core-trap.test.ts` —
-`"a trapped resize releases the emission gate it can never lift"`,
-`"a generation minted after a core trap inherits no dead capture"`, with
-`"a trapped core still refuses frames for the generation it trapped"` as the fail-closed control.
+**Guard** — `crates/roost-worker/tests/terminal_stream_core_trap.rs` —
+`a_trapped_resize_reports_a_reprovable_core_and_releases_its_gate`, with
+`a_generation_minted_after_a_trap_that_cannot_be_reproved_stays_closed` as the fail-closed control.
 
 ### A fail-closed stream verdict no new worker can clear
 
@@ -1511,9 +1462,8 @@ timer and no retry budget: `onWorkerConnected` → `workerReplacement` is the gu
 clearing logs the old and new generation, and every `terminal.stream_invariant_failure` /
 `terminal.stream_result_mismatch` diagnostic is retained.
 
-**Guard** — `apps/coord/tests/terminal/view/terminal-view-hub-worker.test.ts` — the worker-generation recovery case plus
-`"never redrives an invalid worker request from heartbeat or route events"`, which is the control proving a
-protocol violation did not become a retry loop.
+**Guard** — none — the v2 guard `apps/coord/tests/terminal/view/terminal-view-hub-worker.test.ts` left with the
+TypeScript tree.
 
 ### A terminal never repaints again after the device that opened it went away
 
@@ -1535,7 +1485,7 @@ false for the session's life — no publication target, no view command, no ACCE
 of any newer stream silently dropped against a stale `expectedStreamId`.
 
 **Right** — (a) an unprovable core is RE-PROVED in place from the keeper's ordered history whenever a
-stream desire reaches it (`apps/worker/src/session/session-core-reprove.ts`, spliced into the `!state.coreValid`
+stream desire reaches it (`crates/roost-worker/src/session/core_reprove.rs`, spliced into the invalid-core
 rung of `applyTerminalStreamNow`), so the resize lands and a fresh full baseline paints. The rebuilt window
 mints a NEW `gridEpochBase`, because re-derived history must make browsers renumber instead of merging into
 retained rows. A fresh trap spends exactly ONE re-proof attempt on itself — the trap is the attributable
@@ -1550,14 +1500,12 @@ attempt: the rebuild resets `sentFull` and the emitter state, and a second failu
 request, and converts the silence into the ordinary rejected-snapshot retry; every hydrator threads the
 `AbortSignal` into its RPC so the abandoned call is actually cancelled.
 
-**Guard** — `apps/worker/tests/terminal/terminal-stream-core-trap.test.ts` —
-`"a fail-closed core is re-proved from keeper history on the next stream desire"` with
-`"a core the keeper cannot re-prove stays fail-closed"` as the refusal control;
-`apps/worker/tests/terminal/view/terminal-view-owner.test.ts` —
-`"a trapped core re-proves itself on the desire the trap triggers"` (the desire COUNT is what proves it is
-not a loop) with `"a trap the keeper cannot re-prove stays fail-closed and desires nothing more"`;
-`apps/web/tests/sync-bootstrap-hydration.test.ts` —
-`"a hydration that never settles is cancelled and retried"`;
+**Guard** — `crates/roost-worker/tests/terminal_stream_core_trap.rs` —
+`a_fail_closed_core_is_reproved_from_keeper_history_on_the_next_desire`;
+`crates/roost-worker/tests/terminal_view_owner.rs` —
+`a_trapped_core_re_proves_itself_on_the_desire_the_trap_triggers` (the desire COUNT is what proves it is
+not a loop) with `a_trap_the_keeper_cannot_re_prove_stays_fail_closed_and_desires_nothing_more`;
+`crates/roost-client-core/src/sync/hydration.rs` — `a_call_past_its_deadline_expires_once`;
 `smoke/terminal/terminal-view-reap.spec.ts` — the real-flow reaped-then-newcomer path.
 
 ### A pane keeps a fallback font's cell advance and clips its own right edge
@@ -1577,7 +1525,7 @@ Also wrong: reaching for horizontal scrolling, automatic font shrinking, a secon
 calculator, or a snapshot retry — those hide an overclaim the pane never had the right to make.
 
 **Right** — `mountCellTerminalLifecycle`'s `onTerminalFontsSettled`
-(`apps/web/src/components/terminal/cell-terminal-lifecycle.ts`) returns only for `lifecycleDisposed ||
+(`crates/roost-web/src/components/terminal/pane_mount/browser.rs`) returns only for `lifecycleDisposed ||
 runtime.unmounted`; it zeroes the cached cell box and calls `renderer.invalidateRowHeight()`
 unconditionally, and gates ONLY `publishViewportNow()` on `shouldPublishActive()`. A background pane
 therefore claims nothing while its font settles and measures the loaded face on its next claim. The
@@ -1587,11 +1535,7 @@ through those events alone, and a failed download still means re-measuring whate
 The renderer's own `fonts.ready` hook repairs history placeholders and bottom placement — it is a
 different responsibility, not a substitute for invalidating the lifecycle's cell cache.
 
-**Guard** — `apps/web/tests/cellTerminalLifecycle.fonts.test.ts` composes the real viewport
-publisher with the real lifecycle: an inactive or pending pane publishes nothing while a wider face
-settles and then claims the loaded advance, a later `loadingdone` / `loadingerror` reclaims an active
-pane with no resize, and disposal claims nothing.
-`smoke/terminal/terminal-mobile-font-width.spec.ts` proves it end to end — a real shell, a test-only
+**Guard** — `smoke/terminal/terminal-mobile-font-width.spec.ts` proves it end to end — a real shell, a test-only
 `size-adjust: 125%` face released while the SPA is hidden, then a DOM-Range check that the last
 column's glyph is inside the mobile clip across both orientations.
 
@@ -1608,52 +1552,34 @@ column's glyph is inside the mobile clip across both orientations.
 
 **Right** — the input textarea is off-screen, so clicks land on row spans, not the textarea; without an explicit
 dance the focus listener never sees the event → the pane never reports focused → keystrokes go nowhere. The fix
-lives in `apps/web/src/renderer/terminalInputController.ts` (`forceFocus()`), and three pieces are load-bearing: (1)
+lives in the renderer's input controller (`crates/roost-web-terminal/src/input.rs`, `forceFocus()`), and three pieces are load-bearing: (1)
 `if (activeElement === textarea) textarea.blur()` BEFORE focusing — guarantees a fresh native focus event even
 when the textarea was pre-focused; (2) an explicit `dispatchEvent(new FocusEvent("focus", { bubbles: true }))`
 so pane styling is deterministic; (3) the container `mousedown` listener that calls `forceFocus` on every click.
 Never leave the dance's re-focus guard latched on the error path or focus reporting dies for that pane's
 lifetime.
 
-**Guard** — `apps/web/tests/renderer/terminalInputController.test.ts`.
-
-### Borrowed receive-buffer view passed to a PTY write
-
-**Symptom** — "backspace acts like space in terminal / paste burst drops chars / random byte substitution on PTY input"
-
-**Wrong** — passing `f.payload` (a subarray VIEW onto the keeper's streaming receive buffer, per
-`apps/worker/src/keeper/protocol.ts`) directly to `Bun.spawn`'s `proc.terminal.write(...)`. Bun's docs don't
-promise synchronous consumption of the BufferSource argument, so the receive buffer can roll before the queued
-write flushes. NOTE: the original "backspace = space" report was NOT this bug — it was `TERM=unknown` in the
-spawned env (next entry). The defensive copy stays regardless: it is correct safety against the view-aliasing
-class.
-
-**Right** — **`Buffer.from(f.payload)` copy at the keeper PtyIn write site**
-(`apps/worker/src/keeper/keeper-frame-handler.ts`). One copy per input frame, ~8 bytes typical, immeasurable on
-the hot path. The same rule applies to ANY future `Bun.spawn` terminal write callsite that receives a borrowed
-Buffer view.
-
-**Guard** — `apps/worker/tests/keeper-input-stress.test.ts`.
+**Guard** — `crates/roost-web-terminal/tests/input_controller.rs` —
+`preserves_the_blur_focus_dance_and_removes_pane_local_listeners`,
+`a_dance_whose_blur_fails_never_latches_the_focus_report_guard`.
 
 ### Bun.spawn does not inject TERM into the child env
 
 **Symptom** — "backspace echoes wrong / Cmd-Backspace nukes prompt row / htop or vim crash with `ncurses: cannot initialize terminal type ($TERM=unknown)` — but ONLY on deployed workers, never on the local-bootstrapped one"
 
-**Wrong** — assuming `Bun.spawn({terminal: {...}})` sets the child's `TERM`. It sets the PTY's internal `name`
-but does NOT inject `TERM` into the spawned child's env; `node-pty` did this automatically, which is why moving
-the keeper to Bun broke deployed workers but not the local one. The local worker inherited `TERM` from the
+**Wrong** — assuming the PTY spawn sets the child's `TERM`. Bun's `Bun.spawn({terminal: {...}})` set the PTY's
+internal `name` but did NOT inject `TERM` into the spawned child's env. The local worker inherited `TERM` from the
 terminal that ran its original bootstrap; remote workers bootstrapped over non-TTY SSH inherited nothing → the
 child shell sees `TERM=""`/`unknown` → zsh's ZLE cannot look up `cub1`/`el`/`ed` terminfo caps →
 backward-delete-char emits just `0x20` instead of `0x08 0x20 0x08`, kill-line wipes the prompt row, and ncurses
 TUIs refuse to start.
 
-**Right** — **explicit `TERM: "xterm-256color"` in the env passed to `Bun.spawn`** at the keeper spawn site
-(`apps/worker/src/keeper/keeper-frame-handler.ts`). Also set `LANG`/`LC_ALL` with `en_US.UTF-8` fallbacks so the
-same SSH-bootstrapped env doesn't surface a locale bug next. Generalizable rule: any new
-`Bun.spawn({terminal: {...}})` callsite MUST include `TERM` in env explicitly — Bun won't add it for you.
+**Right** — **an explicit `TERM` in the env of every PTY child**, set where the shell spec is resolved
+(`crates/roost-worker/src/host/shell_spec_resolver.rs`), together with `LANG`/`LC_ALL` fallbacks so the
+same SSH-bootstrapped env doesn't surface a locale bug next.
 
-**Guard** — `scripts/lint-roost.ts` rule
-`"L11: keeper Bun.spawn env must set TERM explicitly (deployed-only ncurses $TERM=unknown)"`.
+**Guard** — `crates/roost-worker/tests/shell_spec_resolution.rs` —
+`a_resolved_spec_sets_the_terminal_and_locale_variables_explicitly`.
 
 ### An app shortcut swallows a control byte
 
@@ -1665,7 +1591,7 @@ same SSH-bootstrapped env doesn't surface a locale bug next. Generalizable rule:
 claim a bare Ctrl+letter.** The terminal's own textarea handler is what `preventDefault`s a consumed control
 byte, and every document-level BUBBLE listener already respects that — capture-phase bypasses it entirely.
 Terminal-scoped chords use ⌘+key (macOS, never a PTY byte) or Ctrl+SHIFT+key (the gnome-terminal shape); find is
-`⌘F / Ctrl+⇧F` for exactly this reason, resolved centrally in `apps/web/src/browser/browserPlatform.ts`. Before
+`⌘F / Ctrl+⇧F` for exactly this reason, resolved centrally in `crates/roost-web/src/platform/browser_platform.rs`. Before
 adding one, check it is not a readline/TUI binding.
 
 **Guard** — `smoke/terminal/` — `"terminal replay and Ctrl keys stay owned by the PTY"` asserts `^B^F^K`
@@ -1682,15 +1608,15 @@ that cursor's id list is EMPTY, so the keys move nothing while still cancelling 
 "fixing" it per-route, or gating on the route path — the predicate is whether a cursor target exists, not where
 you are.
 
-**Right** — **claim a key only when there is something to move.** `apps/web/src/lib/keyboardShortcuts.ts`'s
+**Right** — **claim a key only when there is something to move.** `crates/roost-web/src/keyboard_shortcuts.rs`'s
 arrow/⏎ branch bails before `preventDefault()` on `!hasCursorTargets()` (arrows) and `cursorSessionId() === null`
-(⏎), both from `apps/web/src/lib/sidebarCursor.ts`. Two distinct defaults are at stake and both are invisible
+(⏎), both from `crates/roost-client-core/src/store/sidebar/cursor.rs`. Two distinct defaults are at stake and both are invisible
 until they are gone: arrows are the DOCUMENT'S native scroll, and keydown `preventDefault()` cancels a focused
 `<button>`'s click activation — so ⏎ on a real button dies silently with no console trace. Generalizable rule:
 a capture-phase router must prove it will act before it cancels.
 
-**Guard** — `apps/web/tests/keyboardShortcuts.test.ts` — `"↑/↓ stay the document's native scroll when no cursor
-rows exist"` and `"⏎ stays a focused button's activation when no cursor row is highlighted"`;
+**Guard** — `crates/roost-web/tests/keyboard_shortcuts.rs` — `arrows_stay_native_scroll_when_no_cursor_rows_exist`
+and `enter_stays_a_focused_buttons_activation_until_a_row_is_highlighted`;
 `smoke/terminal/tv-dpad.spec.ts` asserts the `/pair` ArrowDown arrives with `defaultPrevented === false`.
 
 ### The first D-pad press does nothing because `<body>` counts as the origin
@@ -1703,7 +1629,7 @@ After load or a route change focus sits on `<body>`, whose box contains every co
 "beyond" it in any direction and the search returns nothing. Also wrong: autofocusing a button per page to paper
 over it — every other route keeps the dead first press.
 
-**Right** — `<body>` is never an origin. `apps/web/src/lib/spatialNavigation.ts` `pickTarget` treats
+**Right** — `<body>` is never an origin. `crates/roost-web/src/input_nav/spatial.rs` `pick_target` treats
 `active === document.body` as no origin and lands on the topmost-leftmost control, as its doc comment always
 intended.
 
@@ -1722,9 +1648,9 @@ discards the coordinator's late result; and returning silently from coord's term
 `input` command is refused, which leaves the browser waiting out `INPUT_RESULT_TIMEOUT_MS`.
 
 **Right** — **the socket is the input fence.** Input results ride the CONTROL lane
-(`apps/coord/src/sync/sync-ws-v2-control.ts` stamps `domain = UNSPECIFIED, domainGeneration = 0`), which no
+(`crates/roost-coord/src/sync_ws/control_frames.rs` stamps `domain = UNSPECIFIED, domainGeneration = 0`), which no
 domain reset touches, so a started batch keeps its 10 s deadline and settles from the real result;
-`apps/web/src/store/transport/sync-outbound.ts` (`handleControl`) correlates on `(socketId, sessionId, inputSeq)` plus the
+the client core's terminal input router (`crates/roost-client-core/src/terminal/input/`) correlates on `(socketId, sessionId, inputSeq)` plus the
 generation coord echoes from the command, and `handleGeneration` only settles pendings when the SOCKET changed
 (an unsent batch under the closing generation is `rejected`, never ambiguous). `resetSequence()` runs only on a
 socket change, because a surviving pending must not share an `inputSeq` with a new batch. Coord's
@@ -1732,11 +1658,8 @@ socket change, because a surviving pending must not share an `inputSeq` with a n
 `domainGeneration` and the refusal reason — nothing reached a worker, so `rejected` is the truthful
 classification and the composer restores the draft instead of claiming possible loss.
 
-**Guard** — `apps/web/tests/syncOutbound.test.ts` — `"a terminal domain reset on a live socket keeps an
-in-flight batch and settles it from the late result"`; `apps/coord/tests/sync/sync-ws-v2-terminal-command-gate.test.ts`
-— `"an input command for a resubscribing terminal domain is rejected, not dropped"`;
-`apps/web/tests/client/input/terminalInputStatus.test.ts` — `"an unconfirmed batch with no written bytes never claims a
-partial send"`.
+**Guard** — `crates/roost-client-core/tests/terminal_input_route_loss.rs` —
+`a_terminal_domain_reset_on_the_live_socket_keeps_the_route_epoch`.
 
 ### Delayed old-route input crosses a direct-promotion fence
 
@@ -1747,12 +1670,12 @@ direct promotion".
 coordinator→worker `DInputRequest` already in flight can arrive after the browser has promoted a direct route.
 
 **Right** — the worker owns the fence: `TerminalInputRouteOwner` issues the actor/session route epoch, and
-`writeTerminalInput` in `apps/worker/src/session/session-terminal-control.ts` rechecks live route authority after keeper
+the worker's input write path (`crates/roost-worker/src/terminal_input/`) rechecks live route authority after keeper
 admission immediately before `beginInput`. A stale epoch returns `terminal input route changed`; it never writes
 the PTY.
 
-**Guard** — `apps/worker/tests/terminal/terminal-stream-input.test.ts` —
-`"rechecks a live route after keeper admission before writing PTY input"`; real stack
+**Guard** — `crates/roost-worker/tests/terminal_input_write.rs` — `live_authority_is_rechecked_after_the_lane_is_granted`;
+real stack
 `smoke/terminal/terminal-peer-failover.spec.ts` —
 `"a delayed old Sync input is fenced after peer promotion and cannot reach the PTY"`.
 
@@ -1797,8 +1720,8 @@ The native channel accepted it into its buffer, so retry duplicates protocol byt
 `backpressured` and waits for its low-water callback. Queue refusal happens before the native call; a native
 throw retires the peer.
 
-**Guard** — `apps/worker/tests/terminal/peer/terminal-peer-packet-port.test.ts` —
-`"commits a native false return once without retrying its accepted fragment"`.
+**Guard** — `crates/roost-worker/tests/terminal_peer_packet_port.rs` —
+`commits_a_native_false_return_once_without_retrying_its_accepted_fragment`.
 
 ### Every refused microphone reports "did not respond in time"
 
@@ -1835,7 +1758,7 @@ refusal and not the timeout.
 **Wrong** — send kill + immediately `conn.close()` (the browser close frame races the worker reading kill).
 
 **Right** — the worker's kill path synchronously acks with a `closed` control message
-(`apps/worker/src/session/session-lifecycle.ts`); the browser waits for that ack before tearing down.
+(`crates/roost-worker/src/browser_commands/session_lifecycle.rs`); the browser waits for that ack before tearing down.
 
 **Guard** — `smoke/terminal/` — `"browser smoke flow creates and cleans its resources"` (drives pane close end
 to end).
@@ -1870,9 +1793,9 @@ another binary and only a guard at the call site can prevent it. The one product
 `a_pid_kill_would_read_as_a_group_or_as_everyone_is_refused_before_anything_is_sent` (0, `u32::MAX` and
 `1 << 31` never reach the program) and `a_pid_that_no_longer_exists_is_refused_rather_than_reported_as_sent`
 (Linux-only; uses `pid_max` from `/proc`, which Linux never allocates — macOS has no `/proc` and would need a
-different nonexistent pid). The TS side already encoded the same invariant independently at
-`apps/worker/src/keeper/keeper-process-reap.ts`: its deliberate `process.kill(-leader, "SIGTERM")` group signal is
-guarded by `if (leader > 1)`, which structurally excludes `-1`. The other `kill` shell-outs are safe for a reason
+different nonexistent pid). The keeper encodes the same invariant independently in
+`crates/roost-keeper/src/process_reap.rs`: its deliberate group signal is
+guarded by `leader > 1`, which structurally excludes `-1`. The other `kill` shell-outs are safe for a reason
 worth stating so nobody "fixes" them: `status/service_probe.rs` signals `child.id()` of a probe it spawned, and
 `crates/roost-cli/tests/dev_fan_out.rs` signals `std::process::id()`.
 
@@ -1881,7 +1804,7 @@ worth stating so nobody "fixes" them: `status/service_probe.rs` signals `child.i
 **Symptom** — "a worker shows offline/down in the SPA while `systemctl --user status roost-worker` says active (running) and the host has GBs free / worker log silent for minutes then `link_stale_no_downstream` + `listChannels timed out` + `heartbeat beat failed [unavailable] HTTP 502` / coord `worker-ws close`→`open` gap of ~361s / v3: `the coordinator link has gone silent; forcing it closed` with `silent_ms` far past the stale threshold + `stray_reap_list_failed … did not answer a spawn within 5s` + `cgroup_memory_high_exceeded`, keeper in `D` at `mem_cgroup_handle_over_high`"
 
 **Wrong** — chase the 502 into the front-door proxy, restart the worker, or read the SPA's host metrics and conclude
-the box is healthy — `apps/worker/src/host/host-sample-linux.ts` reads host-wide `/proc/meminfo`, so a unit strangled
+the box is healthy — the host sampler reads host-wide `/proc/meminfo`, so a unit strangled
 by its own `MemoryHigh` publishes "8.7 GB of 33.6 GB used" while every allocation in its cgroup is throttled;
 equally wrong: adding `MemoryMax` (every PTY session shares this cgroup, so a hard cap plus `Restart=always`
 turns one fat session into a fleet-wide session wipe). Measured on a live host: cgroup
@@ -1889,22 +1812,22 @@ turns one fat session into a fleet-wide session wipe). Measured on a live host: 
 in `D (disk sleep)`, 6 PTY sessions = 2.9 GB in the SAME cgroup, `SwapFree 172 kB` so reclaim had nowhere to go.
 
 **Right** — **three layers, all required.** (1) `MemoryHigh` must scale with the host:
-`apps/worker/scripts/install.sh` (`default_worker_mem_high`) and `crates/roost-cli/src/services/memory_limits.rs`
-(`ResourceLimits::worker`) are 60% of MemTotal, floor 3G, **no cap**, absolute (systemd only takes % from v240);
+`crates/roost-cli/src/services/memory_limits.rs`
+(`ResourceLimits::worker`) is 60% of MemTotal, floor 3G, **no cap**, absolute (systemd only takes % from v240);
 `TasksMax=4096`, not 512. A cap is the same defect as a flat value: v3 shipped a 3G cap, and on a 62 GiB host with no
 swap two agent sessions plus a release build froze the keeper in `mem_cgroup_handle_over_high` and starved the
 coordinator link (`Stale { silent: 1040s }`, `did not answer a spawn within 5s`) while v2's 37G unit served the same
 box. The live value can sit in a hand-written
 `~/.config/systemd/user/roost-worker.service.d/limits.conf` drop-in that OUTRANKS the deployed unit body — check
 the drop-in before editing the unit. (2) A dial that never fires `ws.onopen` is NOT an auth rejection: coord
-answers a bad JWT with an HTTP 401 upgrade, indistinguishable from a timeout or a proxy 502 in Bun's client
-`WebSocket`, so throttle-induced dials used to arm the auth-reject backoff cap and turn a ~20s stall into ~6 min
-`apps/worker/src/transport/coord-link-constants.ts` (`backoffCapMs(streak, hasOpened)`) keys escalation
-on `hasOpened`; the log is `reconnect_backoff_escalated`, never `auth_rejection_escalated`. (3)
-`sampleCgroupPressure` + `apps/worker/src/transport/heartbeat.ts` (`logCgroupPressure`) emit
+answers a bad JWT with an HTTP 401 upgrade, indistinguishable from a timeout or a proxy 502 at the dialing
+client, so throttle-induced dials used to arm the auth-reject backoff cap and turn a ~20s stall into ~6 min.
+`crates/roost-worker/src/backoff.rs` keys escalation on whether the link ever opened; the log is
+`reconnect_backoff_escalated`, never `auth_rejection_escalated`. (3) The heartbeat metrics
+(`crates/roost-worker/src/runtime/heartbeat_metrics.rs`) emit
 `cgroup_memory_high_exceeded`/`_cleared` so the next occurrence is one grep, not a guess.
 
-**Guard** — `apps/worker/tests/transport/coord-link-backoff-cap.test.ts`; Rust: `memory_limits.rs` unit tests
+**Guard** — `memory_limits.rs` unit tests
 (`the_worker_soft_ceiling_*`), `crates/roost-worker/tests/backoff_policy.rs`,
 `crates/roost-worker/tests/worker_reconnect_ladder.rs`, `crates/roost-worker/tests/cgroup_throttle_health.rs`.
 
@@ -1923,8 +1846,8 @@ requests only `status=open`, and carries no browser sync-snapshot ID. Boot recon
 channel counter and adopt keeper survivors before the coordinator fallback runs; every other session RPC
 remains account-device-only.
 
-**Guard** — `apps/coord/tests/workers/worker-session-list-auth.test.ts`;
-`apps/worker/tests/boot/boot-reconcile-admission.test.ts`.
+**Guard** — none — the v2 guards `apps/coord/tests/workers/worker-session-list-auth.test.ts` and
+`apps/worker/tests/boot/boot-reconcile-admission.test.ts` left with the TypeScript tree.
 
 ### A live viewport change rebuilds the terminal core
 
@@ -1939,15 +1862,15 @@ re-instantiates WASM and reparses history on the worker's event loop.
 **Right** — the coordinator computes one SCD geometry and addresses it with a
 new stream ID. The keeper resize ACK is the ordered boundary between old-size
 and new-size PTY bytes. At that boundary the worker calls
-`wtermCore.resize(cols, rows)` on the existing core, resets only the cell
+the terminal core's resize on the existing core, resets only the cell
 emission baseline/epoch, and emits one viewport-only full. Primary and
 alternate grids, modes, links and representable scrollback stay in memory.
 Keeper-history replay is reserved for genuine worker adoption when no live core
 exists; an unprovable resize boundary fails closed.
 
-**Guard** — `packages/wterm/tests/wterm-resize-in-place.test.ts`;
-`apps/worker/tests/terminal/terminal-stream-state.test.ts`;
-`apps/coord/tests/terminal/view/terminal-view-registry-membership.test.ts`;
+**Guard** — `crates/roost-worker/tests/terminal_stream_state.rs` —
+`shrink_and_grow_resize_the_same_core_at_the_keeper_boundary`;
+`crates/roost-coord/tests/terminal_view_geometry.rs`;
 `smoke/terminal/terminal-multiview.spec.ts`.
 
 ### Quoting a systemd path directive because quoting is "safer"
@@ -1955,7 +1878,7 @@ exists; an unprovable resize boundary fails closed.
 **Symptom** — "`roost push` stages the release and then fails activation: `Unit roost-coord.service has a bad unit file setting` / `WorkingDirectory="/home/user/roost": path is not absolute`, the push rolls back, and the whole fleet stays pinned at the older commit while every Linux coordinator/worker deploy fails identically / or the unit starts clean and writes NO logs — `main.out.log` never grows and the journal carries `Failed to parse output specifier`"
 
 **Wrong** — treat systemd quoting as universal and pipe every dynamic value through
-`systemd_quote()` in `apps/coord/scripts/install.sh` / `apps/worker/scripts/install.sh`. It is tempting because
+`systemd_quote()` in the v2 shell installers. It is tempting because
 the launchd branch of the SAME function must XML-escape everything it interpolates into the plist, and because
 quoting is genuine systemd syntax where it applies: `ExecStart=` is a command line and `Environment=` is a
 key=value list, so both really do accept (and for a path with a space, really do need) double quotes. One
@@ -1967,14 +1890,13 @@ while a quoted `StandardOutput=`/`StandardError=` specifier is discarded SILENTL
 **Right** — **quoting is per-directive, not per-file.** `ExecStart=` and `Environment=` are parsed as quoted
 command lines; `WorkingDirectory=`, `StandardOutput=` and `StandardError=` take the RAW value — the quotes
 become part of the path, so `WorkingDirectory=` fails `path is not absolute` and the unit refuses to start, and
-the output specifier fails to parse and is dropped with no error and no log file. `systemd_path()` sits next to
-`systemd_quote()` in both installers: it rejects a value containing newline, CR or `"` (the characters that
-would let a value forge a directive line, which is the only thing the quoting bought), doubles `%` so the value
-can never be read as a systemd specifier, and emits it raw. `WorkingDirectory=`/`StandardOutput=`/`StandardError=`
-use `systemd_path`; `ExecStart=` keeps `systemd_quote`, and `systemd_env` keeps its own quoted
-`Environment="KEY=VALUE"` form (which is legal there). Second-order lesson:
+the output specifier fails to parse and is dropped with no error and no log file. The unit writer
+(`crates/roost-cli/src/services/systemd_syntax.rs`) rejects a value containing newline, CR or `"` (the characters
+that would let a value forge a directive line, which is the only thing the quoting bought), doubles `%` so the
+value can never be read as a systemd specifier, and emits a path directive raw; `ExecStart=` and `Environment=`
+keep their quoted forms (which are legal there). Second-order lesson:
 writing a unit file is not activating a service — activation must be proven by systemd actually STARTING the
-unit, which is exactly what caught this. `apps/roost-cli/src/push.ts` never saw a healthy coordinator at the
+unit, which is exactly what caught this. The push never saw a healthy coordinator at the
 expected SHA, took its `rollback-prior` branch and restored the previous release, so the fleet sat on an old
 commit instead of "succeeding" onto a dead one; a deploy path that trusted "the unit file was written" would
 have reported success against a coordinator that was never running.
@@ -2019,8 +1941,8 @@ address on it; the target registers under a name that already belongs to another
 is addressable under that name. Nothing warns: both values resolved, so the deploy looks complete.
 
 **Right** — the resolution order is per-key, from an explicit classification, not per-call. The identity keys
-live in one static table in `apps/roost-cli/src/deploy-plist-env.ts` (`DEPLOY_IDENTITY_ENV_FLAGS`, which also
-names the `roost deploy` flag that supplies each), and `_resolveDeployEnvValue` takes an explicit
+live in one static table (`crates/roost-cli/src/services/service_environment.rs`) that also names the deploy flag
+that supplies each, and resolution takes an explicit
 `target: "self" | "remote"` saying whose machine the ambient env describes. For `"remote"` an identity key
 resolves only from the invocation flag (`--label`, `--reachable-addr`) or the target's own installed plist /
 unit; for `"self"` the ambient env is the target's own and stays valid. Unresolvable is not an error by itself —
@@ -2029,9 +1951,9 @@ the worker derives its hostname and tailnet name, which is the documented fresh-
 key and nothing else resolved it, because that is exactly the ambiguity that mislabels a fleet. Fleet-wide keys
 (`ROOST_COORDINATOR_URL`, `ROOST_BOOTSTRAP_TOKEN`, diag flags) keep the ambient fallback.
 
-**Guard** — `apps/roost-cli/tests/deploy-identity-env.test.ts` — a fresh remote target with an ambient
-`ROOST_WORKER_LABEL` resolves to nothing and refuses with the flag named, while the flag value, the target's
-installed value, and a `self` deploy each still resolve.
+**Guard** — `crates/roost-cli/tests/deploy_remote_identity.rs` —
+`an_ambient_identity_export_refuses_and_names_the_flag`, `an_identity_key_never_resolves_from_the_deploying_shell`,
+`an_unresolvable_identity_with_nothing_exported_is_allowed`.
 
 ### Roost cannot upgrade the integration asset Roost installed
 
@@ -2064,10 +1986,10 @@ target is then planned through `capturePlanFailure`, which turns one target's re
 over every candidate, so a dropped target cannot relax it. Transactional failures (directory alias, commit-time
 change) still abort the whole pass with zero mutation — only per-target refusals are isolated.
 
-**Guard** — `apps/worker/tests/agents/agent-status-integration-ownership.test.ts` — an asset marked on line 106 is
-adopted, overwritten byte-for-byte and accepted by the commit guard, while a code-line mention, a near-miss
-token and an unmarked file stay refused; `apps/worker/tests/agents/agent-status-installer.test.ts` pins that a
-user-owned pi target and a symlinked omp target each fail alone while every other asset installs.
+**Guard** — `crates/roost-worker/tests/agent_status_integration_ownership.rs` —
+`adopts_and_overwrites_an_installed_asset_marked_below_the_file_head`,
+`the_marker_is_recognized_in_any_comment_line_and_nowhere_else`,
+`the_commit_guard_passes_a_target_marked_below_the_file_head`.
 
 ### A one-shot deploy flag stops at the installer process
 
@@ -2078,7 +2000,7 @@ to stop the service, kill the legacy keeper and delete the mux socket by hand �
 flag exists to avoid.
 
 **Wrong** — treat "the flag is in the composed install environment" as "the flag reached the worker". A POSIX
-deploy runs `<composed env> bash apps/worker/scripts/install.sh write-plist` over ssh, so every variable in
+deploy ran `<composed env> bash install.sh write-plist` (the v2 installer) over ssh, so every variable in
 that prefix is real — in the INSTALLER's process. `install.sh` then writes an explicit key set into
 `EnvironmentVariables` / `Environment=`, and a key absent from that set dies with the installer's shell: the
 worker launchd/systemd starts never sees it. Nothing warns, because both ends are individually correct — the
@@ -2088,24 +2010,23 @@ line `>> reused from existing plist on <host>: …` even proves the environment 
 booted on the non-force path and refused, which reads as "the flag was ignored" rather than "the flag was
 never installed".
 
-**Right** — **a value only reaches the service if the service DEFINITION carries it.** `install.sh` emits
-`ROOST_KEEPER_FORCE_LIVE_RETIRE` beside `ROOST_BOOTSTRAP_TOKEN` in both `write_plist` and `write_unit`, and
-never reads it back off an installed definition (unlike `ROOST_AGENT_CONVERSATION_RESTORE`, whose installed
-choice is deliberately preserved) — an invocation not given the flag simply omits the key. Writing a
-destructive authorization into a definition then creates the opposite hazard, a flag that re-authorizes
-discarding live PTYs on every later restart, so it is one-shot on BOTH sides: the activation that reads it
-spends it (`spendKeeperForceLiveRetireAuthorization` in `apps/worker/src/host/service-definition-env.ts`, the same
-keyed erasure the redeemed bootstrap token uses, called from `main.ts` before any keeper work), and the next
-deploy strips an installed value anyway (`workerInstallEnvironmentValues`). The force branch also names what it
-destroys BEFORE requesting the shutdown — `keeper_binding_channel_ids` / `spawning_channels`, `null` when the
-survivor could not enumerate them, which is why the authorization was needed at all.
+**Right** — **a value only reaches the service if the service DEFINITION carries it.** The definition writer
+emits `ROOST_KEEPER_FORCE_LIVE_RETIRE` (`crates/roost-platform/src/worker_service_env.rs`) only when the
+invocation armed it, and never reads it back off an installed definition — an invocation not given the flag
+simply omits the key. Writing a destructive authorization into a definition then creates the opposite hazard,
+a flag that re-authorizes discarding live PTYs on every later restart, so it is one-shot on BOTH sides: the
+activation that reads it spends it after admission and before any link work, and the next deploy strips an
+installed value anyway. The force branch also names what it destroys BEFORE requesting the shutdown — the
+keeper's binding channel ids and spawning channels, `null` when the survivor could not enumerate them, which is
+why the authorization was needed at all.
 
 **Guard** — `crates/roost-cli/tests/services_definition_text.rs` — "a one-shot grant is never carried into a
 definition" resolves a worker spec with both grants set and pins that neither reaches the rendered definition,
 while a caller that arms one through `ServiceSpec::with_setting` gets it, so the flag has to be installed
 deliberately for one deploy; `crates/roost-worker/tests/boot_keeper.rs` — an authorized boot logs the discarded
 bindings before the retirement, spends its own authorization, and the same survivor still yields
-`KEEPER_IDENTITY_UNPROVEN` without the flag.
+`KEEPER_IDENTITY_UNPROVEN` without the flag; `crates/roost-worker/tests/worker_retire_authorization.rs` —
+`a_force_live_retire_authorisation_is_spent_once_after_admission`.
 
 ### Repairing a dead worker demands that the dead worker be running
 
@@ -2125,8 +2046,7 @@ keeper is still holding PTYs. The remedy the refusal prints ("start the worker s
 unreachable for a host that is down, and impossible for the build that cannot report a keeper runtime at all.
 
 **Right** — **the registry supplies the refusal text; the target supplies the evidence that decides whether it
-stands.** `installedServiceRefusalAfterTargetEvidence`
-(`apps/roost-cli/src/keeper-admission-staging.ts`) runs ONE probe on the host and stages only on positive proof
+stands.** The deploy admission (`crates/roost-cli/src/deploy/admission.rs`) runs ONE probe on the host and stages only on positive proof
 of emptiness: the service definition is absent, or the service manager itself answered AND reports the worker
 not running AND no keeper process is parenting a channel process. Every unknown fails closed, because an
 unreachable service manager reads exactly like a stopped one in its own output: darwin corroborates a failing
@@ -2137,11 +2057,10 @@ FILE is deliberately not evidence: it outlives the keeper that created it, so it
 anything the process counts do not. Live PTYs keep every refusal they had — a running worker, or a keeper
 holding channels, still refuses — and a permitted install prints one line naming the evidence that allowed it.
 
-**Guard** — `apps/roost-cli/tests/keeper-admission-staging.test.ts` — runs the generated probe through a real
-shell against stub `launchctl`/`systemctl`/`pgrep` binaries: a stale row over a target running nothing stages,
-the same row over a running worker or over a keeper holding channels refuses, a prior macOS service that is
-merely not loaded stages, and an unreachable service manager or a missing `pgrep` refuses instead of reading as
-empty.
+**Guard** — `crates/roost-cli/tests/deploy_keeper_admission.rs` — `a_stale_row_over_a_target_running_nothing_stages`,
+`a_stale_row_over_a_running_worker_still_refuses`, `a_keeper_holding_channels_refuses_even_with_the_worker_stopped`,
+`an_unknown_never_stages`, `the_darwin_probe_distinguishes_an_unreachable_launchd`,
+`a_keeper_socket_file_decides_nothing`, `a_permitted_staging_says_what_allowed_it`.
 
 ### A rollback proof no release can satisfy wedges every later deploy
 
@@ -2166,10 +2085,8 @@ release AND the journal proves the store moved past it, recovery resolves to the
 `roll-forward-required` outcome: it prints why, keeps the staged release, and clears the journal so the
 next deploy runs. Un-started, un-migrated, and previous-schema journals still retain and retry.
 
-**Guard** — `apps/roost-cli/tests/deploy-roll-forward-recovery.test.ts`: "a retained macOS rollback whose
-prior release cannot run rolls forward", "only a started prior release with a migrated store is
-unrecoverable", "an ordinary prior-proof failure still keeps the macOS journal", "a schema-4 Linux journal
-parses and still rolls back", plus the two probe/checkpoint tests that pin the recorded version.
+**Guard** — none — the v2 guard `apps/roost-cli/tests/deploy-roll-forward-recovery.test.ts` left with the
+TypeScript tree.
 
 ### Settlement retires the prior release with a command only a worktree accepts
 
@@ -2185,8 +2102,8 @@ worker that is actually running the new code.
 otherwise remove the directory outright. The symlink refusal and the release-root confinement proof that
 already guard this path are what make the plain removal safe; keep both ahead of it.
 
-**Guard** — `apps/roost-cli/tests/deploy-local-release-retirement.test.ts`: "an rsync-staged prior release
-is retired even though it is no git worktree", plus the confinement and no-prior cases.
+**Guard** — `crates/roost-cli/tests/deploy_installed_release.rs` —
+`a_staged_prior_release_is_retired_without_being_a_worktree`, `retirement_is_confined_to_the_release_root`.
 
 ### A retired release's dist leaves every page a 404 while the API still answers
 
@@ -2195,26 +2112,25 @@ died after a deploy or a reboot".
 
 **Wrong** — trust the `ROOST_WEB_DIST_PATH` a deploy stamped into the installed service. It points INTO a
 release directory that a later settlement deletes
-(`apps/roost-cli/src/deploy-plist-env.ts:118-122` records why the value is never carried forward), and
-`createSpaResponder` then picks no source at all: `apps/coord/src/coord-factory.ts`'s SPA arm answers the
+(the v2 deploy environment writer recorded why the value is never carried forward), and
+the v2 coordinator's `createSpaResponder` then picked no source at all: its SPA arm answers the
 bare `not found` 404 for `/` and every deep link, which reads like an edge, DNS or certificate fault
 because the RPC surface on the same listener is untouched. Chasing the front door here costs the outage.
 
 **Right** — the SPA source is startup-visible state, not something to infer from a 404.
 `createSpaResponder` reports the build it chose (`source: "disk" | "embedded" | "none"`, derived from that one
-choice and never re-probed), `apps/coord/src/main.ts` logs `spa_source_missing` once when that is `"none"` and
+choice and never re-probed), the v2 coordinator logged `spa_source_missing` once when that was `"none"` and
 keeps serving — worker links and keeper state outlive a browser build that went away. `roost status` must not
 repeat the inference: the CLI cannot read a released install's embedded manifest, so it HEADs the
 coordinator's own root and reports that answer next to the stamped path. A source install points
-`ROOST_WEB_DIST_PATH` at `$REPO_ROOT/apps/web/dist`, which no settlement deletes; a released install
+`ROOST_WEB_DIST_PATH` at the source tree's own web dist, which no settlement deletes; a released install
 re-stamps it per deploy.
 These three make the state visible; what stops the commonest way INTO it is the next entry, "An installer
 inherits a sibling service's dist path from the shell that ran it".
 
-**Guard** — `apps/coord/tests/spa-source-startup.test.ts` "a retired web dist is reported once at startup,
-not only as a page 404", `packages/host/tests/spa.test.ts` "names the build it serves, so an empty pick is
-reportable instead of a bare 404", and `apps/roost-cli/tests/status-spa.test.ts`, including "a compiled
-install serving its embedded build is not called missing".
+**Guard** — `crates/roost-cli/tests/status_output_shape.rs` — `an_unprobed_spa_is_neither_a_pass_nor_a_failure`
+pins the `roost status` half; the startup-report half has none — the v2 guards
+`apps/coord/tests/spa-source-startup.test.ts` and `packages/host/tests/spa.test.ts` left with the TypeScript tree.
 
 ### An installer inherits a sibling service's dist path from the shell that ran it
 
@@ -2223,27 +2139,25 @@ install serving its embedded build is not called missing".
 UI dies the next time the OTHER service deploys and retires that release.
 
 **Wrong** — read `ROOST_WEB_DIST_PATH` straight out of the environment in `write_plist`/`write_unit`:
-`web_dist="${ROOST_WEB_DIST_PATH:-$REPO_ROOT/apps/web/dist}"`. The variable arrives from whatever ran the
+`web_dist="${ROOST_WEB_DIST_PATH:-<source tree>/web/dist}"`. The variable arrives from whatever ran the
 installer, and the programmatic callers pass the ambient environment through —
-`runInherit` in `apps/roost-cli/src/quickstart-runtime.ts:28-37` spawns with `{ ...process.env, ...env }`, and
+the v2 quickstart's `runInherit` spawned with `{ ...process.env, ...env }`, and
 the env it merges (`coordinatorEnvironmentForQuickstart`) names a bind, a public URL and
 `ROOST_SKIP_ENV_LOCAL`, nothing about the dist. So a dist exported for a DIFFERENT service silently lands in
 this service's definition. The CLI's carry-forward already strips the key
-(`apps/roost-cli/src/deploy-worker-environment.ts:26-39`) — the hole was the shell installers, which are also
+(the v2 worker-environment carry-forward) — the hole was the shell installers, which are also
 what `roost status` and GETTING_STARTED tell an operator to run by hand. Do not fix this by scrubbing the key
 at each caller: the installers are the single owner of what their own unit may name.
 
 **Right** — `resolve_web_dist()` in both installers honors an explicit value only when it resolves inside that
-install's own root, and otherwise warns on stderr and stamps `$REPO_ROOT/apps/web/dist`. Every legitimate
-caller satisfies it: `push-coordinator.ts:279-291` sets `ROOST_REPO_ROOT` to the release it staged, and the
-worker's remote activation runs `<release>/apps/worker/scripts/install.sh` with that release's own dist, so
-the script-derived root already contains it. The worker installer takes no `ROOST_REPO_ROOT` override at all
-(`apps/worker/scripts/install.sh:7`), which is why its root cannot be spoofed. The check never fails an
+install's own root, and otherwise warns on stderr and stamps the source tree's own dist. Every legitimate
+caller satisfies it: the coordinator push sets `ROOST_REPO_ROOT` to the release it staged, and the
+worker's remote activation runs the release's own installer with that release's own dist, so
+the script-derived root already contains it. The worker installer takes no `ROOST_REPO_ROOT` override at all,
+which is why its root cannot be spoofed. The check never fails an
 install — a compiled install serves its embedded build regardless.
 
-**Guard** — `apps/roost-cli/tests/coord-installer.test.ts` "a dist path from another service's release tree is
-refused, not stamped" (runs BOTH installers, on the Linux and Darwin writers) and "a dist inside this
-install's own root is stamped as given".
+**Guard** — none — the v2 guard `apps/roost-cli/tests/coord-installer.test.ts` left with the TypeScript tree.
 
 ### Moving a keeper-imported file makes every live keeper unadoptable
 
@@ -2259,25 +2173,6 @@ install's own root is stamped as given".
 
 ## Transport and connection lifecycle
 
-### Connect/gRPC bidi under Bun for the worker↔coord stream
-
-**Symptom** — "sessionsSpawn → [internal] internal error / spawn hangs forever / worker↔coord bidi flaps every ~10-30s / connect-node 'h2 is not supported' tight-loop"
-
-**Wrong** — Connect-bidi (`WorkerService.Attach` via connect-node) for the worker↔coord stream UNDER BUN: h2
-throws "[internal] h2 is not supported" (Bun's `node:http2` is incomplete) → tight reconnect loop; over h1.1
-`Bun.serve` buffers the long-lived request body so the worker's upstream replies never reach coord → every spawn
-hangs; AND `Bun.serve`'s default `maxRequestBodySize` (128 MB) caps the long-lived h1.1 attach body (TUI redraws
-fill it in ~10-30s) → flap. Re-registering the bidi service or flipping the link's `httpVersion` to "2"
-reintroduces all of it.
-
-**Right** — **raw Bun WebSocket** at `/ws/coord-worker/:fp?token=<jwt>` carrying the SAME proto frames as binary
-(`toBinary`/`fromBinary`) — coord `apps/coord/src/workers/worker-ws-handler.ts` (sharing `makeWorkerConn` + the
-`apps/worker/src/transport/coord-link.ts` (`dial()`). Auth is a query-param JWT
-(Bun's CLIENT `WebSocket` has no custom-header API). NEVER run a Connect/gRPC bidi through Bun.
-
-**Guard** — `apps/coord/tests/workers/worker-ws-transport.test.ts`; `scripts/lint-roost.ts` rule `"phase-24: `new
-WebSocket(` outside the canonical client/server links"`.
-
 ### Half-open WS survives a coord restart and never closes
 
 **Symptom** — "new terminal → [failed_precondition] worker … not connected / worker log silent (no stream_error) for hours / heartbeats fine, lsof shows ESTABLISHED to :4102"
@@ -2286,16 +2181,18 @@ WebSocket(` outside the canonical client/server links"`.
 a TLS-terminating front door keeps the worker-side TCP ESTABLISHED, so `ws.onerror`/`ws.onclose` NEVER fire and `ws.send`
 (including in-band JWT refresh) black-holes forever; the restarted coord's in-memory `connectWorkers` registry
 has no WS for the fingerprint → the hub socket lookup returns null →
-`apps/coord/src/sessions/handler-session-spawn.ts` throws failed_precondition on every spawn while heartbeats (a
+the coordinator's spawn handler throws failed_precondition on every spawn while heartbeats (a
 separate unary transport) keep the row looking alive.
 
-**Right** — **a stale-link watchdog on the worker side** in `apps/worker/src/transport/coord-link.ts`
-(`dial()`'s open/message handlers): coord pings every 30s (`apps/coord/src/workers/worker-conn.ts`); every
+**Right** — **a stale-link watchdog on the worker side** (`crates/roost-worker/src/runtime/link_loop.rs`,
+policy in `crates/roost-worker/src/backoff.rs`): coord pings on a fixed keepalive interval; every
 downstream frame stamps `lastDownstreamAtMs`; a per-dial interval (`STALE_CHECK_INTERVAL_MS` 15s) force-closes
 and re-dials after `STALE_LINK_TIMEOUT_MS` 90s (3 missed pings) of downstream silence → hello→snapshot replay
 heals the rest. Same half-open-behind-a-proxy class as the boot RPC timeout.
 
-**Guard** — `apps/worker/tests/transport/coord-link-stale-watchdog.test.ts`.
+**Guard** — `crates/roost-worker/tests/worker_reconnect_ladder.rs` —
+`silence_past_the_timeout_is_stale_and_a_frame_resets_it`; `crates/roost-worker/tests/backoff_policy.rs` —
+`a_silent_link_is_stale_rather_than_idle`, `the_stale_window_is_a_whole_number_of_keepalive_intervals`.
 
 ### Cold start loses the event published between snapshot and socket
 
@@ -2307,8 +2204,8 @@ boot to fix only the first-ever boot), or paper over it with a post-bootstrap `s
 **Right** — **the snapshot must be ordered AFTER the socket is subscribed.**
 Coordinator Sync runs no backfill from zero, so an event published between
 `sessionsList` resolving and the socket subscribing is lost outright — there is
-nothing to replay it from. `apps/web/src/store/sync-bootstrap.ts` awaits the
-subscribed barrier (`waitForSyncSubscribed` in `apps/web/src/store/sync.ts`,
+nothing to replay it from. The client core's hydration (`crates/roost-client-core/src/sync/hydration.rs`)
+awaits the subscribed barrier (the subscribed wait,
 which resolves only once the subscription establishes socket/domain
 generations, never at `WebSocket.onopen`) and takes its snapshot against that
 socket's id, so the window is CLOSED, not merely shrunk. Browser authorization
@@ -2317,7 +2214,7 @@ pipeline proceeds; an unknown key remains in onboarding and is not silently
 enrolled or retried as a transport failure.
 
 **Guard** — `smoke/terminal/` — `"browser smoke flow creates and cleans its resources"` on a FRESH context;
-`apps/web/tests/client/sync/sync-flow.test.ts` — `"repeated bootstrap retries retain one infinite-loop owner"`.
+`crates/roost-client-core/src/sync/hydration.rs` — `the_probe_runs_once_per_dial_after_the_subscribed_wait`.
 
 ---
 
@@ -2336,9 +2233,9 @@ already-authorized browser or direct on-host operator explicitly approves.
 Network position supplies reachability only. Quickstart preserves one-command initial
 use by opening a host-minted fragment grant after tenant initialization.
 
-**Guard** — `apps/coord/tests/device-revocation.test.ts` (a tailnet address
+**Guard** — none — the v2 guards `apps/coord/tests/device-revocation.test.ts` (a tailnet address
 without a grant remains unauthorized) and `apps/coord/tests/pair-bus-publish.test.ts`
-(a tailnet caller cannot self-approve).
+(a tailnet caller cannot self-approve) left with the TypeScript tree.
 
 ### audit_log caller_fp is NULL for every authed RPC
 
@@ -2348,14 +2245,14 @@ without a grant remains unauthorized) and `apps/coord/tests/pair-bus-publish.tes
 caller_fp on per-RPC contextValues which the outer wrapper can't see; bridging via AsyncLocalStorage works but
 the indirection rots on the next async-layer addition.
 
-**Right** — **writeAuditLog INSIDE the AuthInterceptor's try/finally** at
-`apps/coord/src/auth/auth-interceptor.ts`. The interceptor has the caller (just verified), the path
+**Right** — **write the audit row INSIDE the authenticating layer** (`crates/roost-coord/src/middleware/audit_layer.rs`).
+The layer has the caller (just verified), the path
 (`/${service}/${method}`), the trace id (header) and the status (200 on success; the mapped HTTP status on a
 ConnectError throw). `coord-factory.ts` only audits non-Connect paths (db-export, SPA, 404) where a null caller
 is structurally correct.
 
-**Guard** — `scripts/lint-roost.ts` rule
-`"L11: writeAuditLog must be CALLED inside the AuthInterceptor (else audit_log caller_fp=NULL)"`.
+**Guard** — none — the v2 guard `scripts/lint-roost.ts` (audit-inside-the-interceptor rule) left with the
+TypeScript tree.
 
 ### A mutation commits without publishing its bus delta
 
@@ -2365,12 +2262,11 @@ is structurally correct.
 never publish, and sync-stream backfill by event id doesn't recover it because in-memory bus deltas aren't in
 the events table.
 
-**Right** — **`publishTaskState(row)` at every UPDATE-returning point** in
-`apps/coord/src/sessions/handlers-tasks.ts`. Every mutation handler whose domain has a `*Bus` MUST follow
-`db.updateTable(...).executeTakeFirst/Throw()` with the matching `publish*State(row)` in its own
-`connect/handlers-<domain>.ts`. Bus message shapes live in `apps/coord/src/events/buses.ts`.
+**Right** — **publish the state at every UPDATE-returning point.** Every mutation handler whose domain has a bus
+MUST follow its committed update with the matching publish. Bus message shapes live in
+`crates/roost-coord/src/events/bus_messages.rs`.
 
-**Guard** — `apps/coord/tests/task-bus-publish.test.ts`.
+**Guard** — `crates/roost-coord/tests/sync_feed_bus_coverage.rs` — `every_bus_in_the_coordinator_has_a_producer`.
 
 ### Rate-limit buckets matched by path prefix
 
@@ -2380,28 +2276,13 @@ the events table.
 `if (req.method === 'GET') return null` bypass — but Connect-ES emits every unary RPC as POST, so the bypass
 never triggers.
 
-**Right** — **`RATE_LIMITED_ROUTES: ReadonlySet<string>` enumerating mutation paths only** at
-`apps/coord/src/middleware/rate-limit.ts`: auth (MintBootstrap/RedeemWorker/RedeemBrowser),
+**Right** — **an explicit set enumerating mutation paths only** in
+`crates/roost-coord/src/middleware/rate_limit.rs`: auth (MintBootstrap/RedeemWorker/RedeemBrowser),
 workspace create/update/delete/set-sessions, task enqueue/set-state/cancel, MCP mutations, and worker
 rename/delete/deploy-start. `*List`, identity and health probes are NOT in the set.
 
-**Guard** — `apps/coord/tests/coord-e2e.test.ts` —
-`"rate limit: 100 AuthRedeemBrowser POSTs from same IP → 101st returns 429"`.
-
-### JSON.parse inside a bus publish, after the commit
-
-**Symptom** — "RPC returns 500 but DB row IS persisted, SPA UI keeps showing prior state until manual refresh"
-
-**Wrong** — raw `JSON.parse(row.X)` inside a `bus.publish({...})` payload construction AFTER the surrounding
-mutation committed — a partial-write or hand-edited row throws SyntaxError, the RPC 500s, the bus subscriber
-never fires, and sync-stream backfill does not recover in-memory bus deltas.
-
-**Right** — **`safeJsonParse` from `@roost/protocol/json`** with a fallback matching the consumer schema (`{}` for
-non-nullable record fields, `null` for nullable ones). Request-time validation (reject upfront with a
-ConnectError) is the OTHER pattern — it applies BEFORE the DB write, not after.
-
-**Guard** — `scripts/lint-roost.ts` rule
-`"L11: raw JSON.parse() inside a *Bus.publish() payload — parse-after-commit 500s the RPC → split-brain; use safeJsonParse"`.
+**Guard** — `crates/roost-coord/tests/middleware_rate_limit.rs` — `an_unlimited_method_never_opens_a_bucket`,
+`a_client_spends_one_budget_across_its_connections`.
 
 ### A coordinator-global setting stored in a dashboard scope bricks self-hosted boot
 
@@ -2410,39 +2291,22 @@ scope" — the coordinator exits at startup on a database whose `push.vapid` key
 `dashboard_id`.
 
 **Wrong** — relax the guard, or hand-delete the offending row on the live database. Also wrong: the
-drift that causes it — writing `push.vapid` with a `dashboard_id`, when `apps/coord/src/push/vapid.ts`
+drift that causes it — writing `push.vapid` with a `dashboard_id`, when `crates/roost-coord/src/push/vapid.rs`
 reads and writes that keypair only at the explicit NULL scope, so a scoped copy is unreachable by
 every code path that exists.
 
-**Right** — the guard is correct (`apps/coord/src/auth/self-hosted-tenant.ts` owns it), so repair the data in a
-numbered migration: `apps/coord/migrations/0029_global_push_vapid_identity.sql` drops the unreachable
+**Right** — the guard is correct (the self-hosted tenancy guard owns it), so repair the data in a
+numbered migration that drops the unreachable
 scoped copies, and promotes the newest one to NULL scope when no global row exists rather than
 discarding the identity that signed the live push subscriptions. A coordinator-global setting belongs
 in the NULL scope; every dashboard-scoped key stays scoped.
 
-**Guard** — `apps/coord/tests/push/push-vapid-scope-migration.test.ts`: the live shape (a global row plus a
-scoped duplicate) fails admission before the migration and admits after it, promotion keeps the sole
-scoped identity, and a NULL-scoped ordinary key is still refused by the tenancy guard.
+**Guard** — `crates/roost-coord/tests/push_vapid_scope.rs` — `a_per_dashboard_vapid_row_is_neither_read_nor_written`,
+`the_identity_is_written_once_to_the_coordinator_global_row`.
 
 ---
 
 ## Browser platform reality
-
-### A defaulted injectable host function loses its receiver
-
-**Symptom** — "browser-only feature silently dead while its unit tests pass / `Illegal invocation` swallowed inside a bus subscriber"
-
-**Wrong** — keep injectable-timer fields as bare `setTimeout`/`clearTimeout`, and trust unit tests that run in
-Bun.
-
-**Right** — **wrap host functions when defaulting an injectable:
-`options.setTimer ?? ((cb, ms) => setTimeout(cb, ms))`** (`apps/web/src/lib/agentNotificationCore.ts`). Stored
-bare, `this.setTimer(...)` calls `window.setTimeout` with the instance as receiver → `Illegal invocation` in a
-browser, harmless in Bun. Publish loops catch subscriber throws, so the only visible symptom is "nothing
-happens" — a live browser pass is what catches it.
-
-**Guard** — `none` — Bun unit tests pass either way; only the live/Playwright browser pass exercises the
-receiver.
 
 ### lib.dom types are the spec surface, not the engine's
 
@@ -2453,14 +2317,14 @@ done. Equally wrong once it misbehaves: widen the type, cast to `any`, or relax 
 (`permissions-policy: camera=()` does NOT gate `<input capture>`) — the checker was never the problem.
 
 **Right** — **for any HTML attribute whose IDL reflection is not universal, set the ATTRIBUTE
-(`input.setAttribute("capture", …)`, `apps/web/src/lib/attachments.ts`) and assert `getAttribute` in a test.** A
+(`input.setAttribute("capture", …)`) and assert `getAttribute` in a test.** A
 green typecheck is not evidence that a DOM property exists at runtime, and a browser-only no-op has no stack
 trace, so unit tests that never touch a real engine stay green. The tripwire must assert the ABSENCE first
 (`expect("capture" in makeInput()).toBe(false)`) or a fake DOM that later grows the field silently retires it.
 Measured in the live tab: `"capture" in document.createElement("input")` → **false** on Chromium 150, so the
 property assignment became an expando and `getAttribute("capture")` stayed `null`.
 
-**Guard** — `apps/web/tests/attachmentsPicker.dom.test.ts`.
+**Guard** — none — the v2 guard `apps/web/tests/attachmentsPicker.dom.test.ts` left with the TypeScript tree.
 
 ### A Dioxus `on<event>` attribute whose rsx name is not the browser event name is dead code
 
@@ -2506,13 +2370,13 @@ nothing watching it; equally wrong: lengthen the mobile idle window so tap #2 re
 hides the cold re-open that re-rolls the WebKit dice.
 
 **Right** — **every await in the device-open path is bounded and a failed open disposes what it built.**
-`micTimeouts` (open/resume/module) in `apps/web/src/voice/audioPcmCapture.ts` wraps `getUserMedia`,
+`micTimeouts` (open/resume/module) in the voice capture (`crates/roost-web/src/voice/`) wraps `getUserMedia`,
 `AudioContext.resume()` and `audioWorklet.addModule()` — WebKit returns promises that NEVER settle while the OS
 audio session is mid-transition, and an unbounded await left the warming slot non-null for the page's lifetime
 (every LATER tap awaited the same dead promise) and the starting-captures count above zero forever (so
 `releaseMicIfIdle` never released the device). `openPipeline` builds into LOCALS and publishes the singleton in
 one step, so a stalled open that settles late cannot clobber the pipeline a later tap already built. Every async
-continuation in a recording carries a run token (`apps/web/src/voice/deepgramDictation.ts`, bumped in teardown),
+continuation in a recording carries a run token (`crates/roost-web/src/voice/state.rs`, bumped in teardown),
 because completing a send resets the end-intent to null and null ALSO means "a recording is live" — that is how
 a stopped recording's grant opened a socket onto the shared connection and killed the NEXT recording. Finalizing
 has a watchdog and stays tappable.
@@ -2522,9 +2386,7 @@ refused, and one recording spends exactly one settle (`begin_recording`/`current
 which is the pair of properties the old run token and the duplicated finalise both broke;
 `crates/roost-web/tests/voice_draft_settle.rs` — three consecutive recordings settle to exactly what the first
 two committed, the finalize deadline cannot settle twice, and an unmounted composer leaves the draft it
-started from; `smoke/terminal/voice-recording.spec.ts` `"a second recording works exactly like the first"`
-(was `apps/web/tests/voice/deepgramDictation.test.ts` and
-`apps/web/tests/voice/audioPcmCapture.test.ts`).
+started from; `smoke/terminal/voice-recording.spec.ts` `"a second recording works exactly like the first"`.
 
 ### An unproven hypothesis is persisted and comes back as ordinary text
 
@@ -2562,20 +2424,19 @@ thrown from a `diag()` call inside the send path.
 `diag("bytes.up_send", …)` back into `sendTerminalInput` and killed every keystroke; per-call-site
 stringification leaves every future call site armed with the same trap.
 
-**Right** — **observability can never propagate a failure into a product path.** `safeJsonStringify` in
-`packages/protocol/src/json.ts` (the repo's canonical JSON boundary, which already owned the parse direction) maps
-`bigint` to its exact decimal string at every depth — `Number()` is forbidden, it rounds past 2^53 — and
-returns the caller's fallback instead of throwing; `apps/web/src/browser/diag.ts` ships
-`{"kv_unserializable":true}` so the event still reaches the operator with the loss flagged. `emitEnabled()`
-and `signal()` in `packages/observability/src/diag.ts` wrap record construction (the `...kv` spread runs getters) AND
-sink dispatch in one guard per function that reports through `log.warn` with strings only, so a hostile value
-cannot re-throw on the reporting line. One guard at the facade covers every sink.
+**Right** — **observability can never propagate a failure into a product path.** The canonical JSON boundary
+(`crates/roost-protocol/src/json.rs`) maps `bigint`-sized integers to their exact decimal string at every
+depth — rounding through a float is forbidden, it loses precision past 2^53 — and returns the caller's
+fallback instead of throwing, so the event still reaches the operator with the loss flagged. The diag facade
+(`crates/roost-observability/src/diag.rs`) wraps record construction AND sink dispatch in one guard per
+function that reports with strings only, so a hostile value cannot re-throw on the reporting line. One guard
+at the facade covers every sink.
 
-**Guard** — `apps/web/tests/browser/diag.test.ts`;
+**Guard** — `crates/roost-protocol/src/json.rs` — `a_value_json_cannot_express_falls_back`;
 `crates/roost-observability/src/fields.rs` and
 `crates/roost-observability/src/diag.rs` — a value `serde_json` refuses is
 stored as a flagged string and a throwing sink is reported through the facade
-rather than raised (was `packages/protocol/tests/json.test.ts`).
+rather than raised.
 
 ### env(safe-area-inset-*) is 0px on a television, and a portal escapes the shell's padding
 
@@ -2585,12 +2446,12 @@ the TV"
 **Wrong** — rely on `env(safe-area-inset-*)` to keep chrome off a bezel-cropped edge. TV browsers report all
 four as `0px`, so the padding that protects an iPhone notch protects nothing here. Equally wrong: add the
 overscan gutter only to `.workbench-shell` — a `position: fixed` surface portaled to `<body>`
-(`TerminalNavButtons`, `apps/web/src/components/terminal/TerminalNavButtons.tsx`) is not inside that box and keeps its
+(`TerminalNavPad`, `crates/roost-web/src/components/terminal/terminal_nav_pad.rs`) is not inside that box and keeps its
 own viewport-relative offsets.
 
 **Right** — **explicit overscan tokens, applied to the shell AND to every portaled fixed surface.**
-`--tv-overscan-inline` / `--tv-overscan-block` are declared in `apps/web/src/styles/theme-vars.css` (~2.5% of a
-1080p frame) and applied under `[data-tv="true"]` in `apps/web/src/styles/tv.css`. When raising a fixed
+`--tv-overscan-inline` / `--tv-overscan-block` are declared in `crates/roost-web/assets/styles/theme-vars.css` (~2.5% of a
+1080p frame) and applied under `[data-tv="true"]` in `crates/roost-web/assets/styles/tv.css`. When raising a fixed
 surface's `bottom`, raise any `max-height` that subtracts a literal mirroring that offset — `.term-nav`
 subtracts a `220px` twin of its own `bottom`, so a raised offset without a matching subtraction lets the sheet
 run off the TOP of the frame. Subtract the block overscan twice: once for the raised bottom, once to keep the
@@ -2710,13 +2571,13 @@ history, or delete the row to make the check pass. Also wrong: deleting a shippe
 and reusing its slot number, which is what puts a database in this state.
 
 **Right** — a removed migration's row is TRUE: that database did apply it. List the name in
-`RETIRED_MIGRATIONS` (`apps/coord/src/db/migrate.ts`) and compare the surviving rows only, never by
+the declared retirement list (`crates/roost-coord/src/db.rs`) and compare the surviving rows only, never by
 position in the raw history — a reused slot number means the retired name can sort before the
 migration that replaced it. An unknown name must still fail closed.
 
-**Guard** — `apps/coord/tests/retired-migration-history.test.ts`: one case drives `runMigrations`
-over a database carrying the retired name plus the migration that reused its slot and requires the
-remaining chain to apply; the sibling case requires an unrecognized row to still throw.
+**Guard** — `crates/roost-coord/tests/migration_history.rs` —
+`a_declared_retirement_is_not_corruption_and_the_rest_of_the_chain_still_applies`, with
+`an_undeclared_history_row_is_still_refused` as the fail-closed control.
 
 ### Redesigns discard previous fixes
 
@@ -2730,17 +2591,17 @@ remaining chain to apply; the sibling case requires an unrecognized row to still
 resources"` re-runs the whole flow on every CI run (`runFlow`: workspace create → terminal open → PTY
 marker round-trip → pane close → cascade-delete), plus the deck-persistence cases in
 `smoke/terminal/terminal-render-deck.spec.ts`. Gap: nothing asserts that a *named* earlier fix
-survived a rewrite — only that the flow, the deck, and the `scripts/lint-roost.ts` sidebar rules hold.
+survived a rewrite — only that the flow and the deck hold.
 
 ### An anonymous 401 from the internet writes a row nothing ages out
 
 **Symptom** — `audit_log` grows without bound on a coordinator behind a front door, filled with
 `status=401` rows whose `caller_fp` is NULL; the sweep runs and deletes none of them.
 
-**Wrong** — delete `shouldPersistConnectAudit` (`apps/coord/src/middleware/security.ts`) because its
+**Wrong** — delete the anonymous-401 skip in the audit policy (`crates/roost-coord/src/middleware/audit_policy.rs`) because its
 body reduces to a constant once the listener it named is gone, or answer the growth by widening
-`AUDIT_SWEEP_METHODS`. Both read as simplification and both re-open the hole: the sweep in
-`apps/coord/src/db/audit-retention.ts` is an explicit allowlist (`SessionsInput` only) that must never
+`AUDIT_SWEEP_METHODS`. Both read as simplification and both re-open the hole: the retention sweep
+is an explicit allowlist (`SessionsInput` only) that must never
 age out auth rows, so an unauthenticated scanner's row is permanent.
 
 **Right** — keep the predicate and skip exactly the anonymous 401 that arrived through a trusted
@@ -2749,16 +2610,13 @@ no forensic value, while a 401 that names a device, any other status, and every 
 `direct` listener still persist. Telemetry counters and cooldown-coalesced signals cover the
 anomaly the rows would have shown.
 
-**Guard** — `apps/coord/tests/audit-policy.test.ts` `"skips only an anonymous 401 that arrived
-through a trusted proxy"` pins all four boundaries: anonymous 401 + `trusted-proxy` skipped;
-the same 401 with a device fingerprint persisted; an anonymous 403 persisted; an anonymous 401 on a
-`direct` listener persisted.
+**Guard** — `crates/roost-coord/tests/middleware_audit.rs` — `an_anonymous_refusal_is_kept_except_on_the_front_door`.
 
 ---
 
 ### An incident bundle reports a layer "unavailable" that actually sent its evidence
 
-**Symptom** — `bun scripts/replay-terminal-incident.ts <bundle>` prints `section browser:
+**Symptom** — the incident replay (`replay-terminal-incident <bundle>`) prints `section browser:
 unavailable` (or `section coordinator: unavailable`) with an `omitted worker.remote:<layer>.<field>`
 line, even though `terminal.capture_started` recorded that layer as armed. Attribution then reads
 `first_divergent_layer none` because three of the four layers are absent.
@@ -2780,12 +2638,11 @@ compile. The same rule is why `historyRangesFromBrowserEvidence` reads through
 `envelope.browser`: against the envelope it silently found no rows and fell back to the worker's
 own tail.
 
-**Guard** — `packages/protocol/tests/terminal-capture-envelope.test.ts` pins both halves: a flattened
-payload is refused at the envelope naming the missing layer member, and an envelope placed where a
-section belongs fails `validateTerminalIncidentBundle` at `browser.captured_at_ms`. Producer-side,
-`apps/worker/tests/terminal/terminal-capture-evidence.test.ts` and
-`apps/coord/tests/terminal/capture/terminal-capture-recorder.test.ts` assert a real capture lands non-null
-`bundle.browser` and `bundle.coordinator` sections with zero `remote:` omissions.
+**Guard** — `crates/roost-protocol/tests/terminal_capture_envelope.rs` pins both halves:
+`a_flattened_payload_is_refused_at_the_envelope_naming_the_layer` and
+`an_envelope_placed_where_a_section_belongs_fails_the_bundle_gate`. Producer-side,
+`crates/roost-worker/tests/capture_evidence.rs` — `both_nested_remote_payloads_land_as_their_own_bundle_sections`,
+`a_flattened_payload_with_no_nested_layer_member_is_refused_outright`.
 
 ### One viewer re-attaching costs every coordinator viewer a second baseline
 
@@ -2807,8 +2664,6 @@ re-creates the double.
 
 **Guard** — `smoke/terminal/perf.spec.ts:302` "delayed worker-link split recovery" pins
 `after.fullFrames === before.fullFrames + 1` across a transport resume, and
-`apps/coord/tests/terminal/view/terminal-view-owner-mode.test.ts` pins exactly one source-full request for a
-replica that cannot seed and zero for a new stream id; Rust:
 `crates/roost-coord/tests/terminal_view_owner_screen.rs` —
 `a_lease_heartbeat_on_an_attached_view_pushes_no_second_baseline`,
 `a_socket_attaching_to_a_held_stream_is_seeded_from_the_replica`,
@@ -2863,9 +2718,10 @@ Every reset — contradiction, expiry, alt-screen, paste — ends in `becomeTent
 anchored on a lagging cursor is never painted. Do not respond to a surviving flicker by widening
 what counts as a contradiction; raise the grace instead.
 
-**Guard** — `apps/web/tests/predictiveEchoAck.test.ts` "an echo frame for an earlier keystroke
-never contradicts a later one", "a reset re-arms the confidence gate", "an echo that beats the write
-ack still unlocks the burst" and "a match that reproduces the cell's own text proves nothing", plus
+**Guard** — `crates/roost-client-core/tests/predictive_echo_ack.rs` —
+`an_echo_frame_for_an_earlier_keystroke_never_contradicts_a_later_one`, `a_reset_re_arms_the_confidence_gate`,
+`an_echo_that_beats_the_write_ack_still_unlocks_the_burst` and
+`a_match_that_reproduces_the_cells_own_text_proves_nothing`, plus
 the real-flow `smoke/terminal/terminal-predictive-echo.spec.ts` "fast typing never paints a
 prediction the PTY contradicts".
 
@@ -2892,8 +2748,8 @@ conditions (reader-pending frame, holds, pending render, row/col count, alt-scre
 visibility) do. `ReconcileBlockReason` has no `predicted_cursor` member — a predicted caret is not
 a block.
 
-**Guard** — `apps/web/tests/renderer/cellRenderer.reconcile.dom.test.ts` "a leading predicted caret does not
-freeze reconciliation" and the real-flow `smoke/terminal/terminal-predictive-echo.spec.ts`
+**Guard** — `crates/roost-web-terminal/tests/echo_overlay.rs` —
+`a_leading_predicted_caret_does_not_freeze_reconciliation` and the real-flow `smoke/terminal/terminal-predictive-echo.spec.ts`
 "sustained fast typing never wipes its own predictions" (asserts a `resetCount` delta of 0 across a
 1.6 s burst).
 
@@ -2964,8 +2820,8 @@ the peer, and worker-epoch handling drops a grant only when that grant still nam
 connection's epoch. Negotiation rejection likewise invalidates only the exact grant that attempted
 the failed request.
 
-**Guard** — `apps/web/tests/terminalPeerOwner.test.ts` "retries a transient initial grant failure at
-the bounded retry deadline" plus `smoke/terminal/terminal-peer-failover.spec.ts` "worker restart
+**Guard** — `crates/roost-client-core/tests/terminal_peer_admission.rs` —
+`retries_a_transient_initial_grant_failure_at_the_bounded_retry_deadline` plus `smoke/terminal/terminal-peer-failover.spec.ts` "worker restart
 retires the old peer epoch while its keeper PTY survives" and "active direct grant expiry closes
 the peer during coordinator loss and a renewed route stays usable".
 
@@ -2985,8 +2841,10 @@ any later `git push` without a `roost push` would move the tip out from under it
 `WorkingDirectory`, that the service's `ROOST_GIT_SHA` is the expected build, and that the clean HEAD matches
 it. `roost push` already proved that SHA published before installing it.
 
-**Guard** — `apps/roost-cli/tests/deploy-coordinator-release.test.ts`: "a detached coordinator release at its
-installed SHA is admitted without any upstream", plus the wrong-checkout, wrong-build, and dirty-tree refusals.
+**Guard** — `crates/roost-cli/tests/deploy_coordinator_release.rs` —
+`a_detached_coordinator_release_at_its_installed_sha_is_admitted`, with
+`a_checkout_that_is_not_the_installed_release_is_refused`, `an_installed_build_that_is_not_the_required_one_is_refused`
+and `a_dirty_release_tree_is_refused` as the refusals.
 
 ### The coordinator refuses to boot on a definition quickstart just wrote
 
@@ -3028,7 +2886,7 @@ The cause was in a layer neither the failing test nor the fix lived in.
 When a user-reported symptom matches an entry above, fix at THAT layer first. If the entry describes a
 different fix pattern than the one the immediate code tempts you toward, the entry wins — it was written
 after the tempting fix already failed. Add a new entry only after a NEW root cause is confirmed AND a
-regression test (or a `scripts/lint-roost.ts` rule) exists for it; an entry without a guard is a promise
+regression test (or a `cargo xtask lint` check) exists for it; an entry without a guard is a promise
 the repo cannot keep.
 
 ### A guard that greps for a name accepts the producer as the consumer
@@ -3109,27 +2967,23 @@ means a mention.
 reds this way; `terminal-local-fast-path` and `terminal-peer :61` were the two observed. The
 coordinator's own page in the same test enrolls normally.
 
-**Wrong** — read it as the host. It reproduces identically with the Rust and the TypeScript
-coordinator, on every port, with a freshly built `apps/web/dist` present — and that symmetry is
+**Wrong** — read it as the host. It reproduced identically with the Rust and the TypeScript
+coordinator, on every port, with a freshly built web bundle present — and that symmetry is
 the tell. A real host fault does not survive a stack swap. Two leads filed it as "environment,
 outside this track" and moved on, which is how a one-line harness defect nearly became a
 permanent skip on two specs.
 
 **Right** — Chromium is reporting the truth: the door answered `404` with
 `content-type: application/octet-stream`, so a document navigation is a download. The worker reads
-its SPA from `ROOST_WEB_DIST_PATH` (`apps/worker/src/host/config.ts:100` into
-`boot-local-terminal.ts:127`'s `createSpaResponder`), and `packages/host/src/web-embed.generated.ts`
-is an **empty stub** outside a release build — its own comment says from-source runs serve from disk
-at `cfg.webDistPath`. `smoke/terminal/stack-runtime.ts` set the key for the coordinator child and
+its SPA from `ROOST_WEB_DIST_PATH`, and a from-source build has no embedded assets to fall back on.
+`smoke/terminal/stack-runtime.ts` set the key for the coordinator child and
 `stack-worker-runtime.ts` set it for nobody, so the door had neither a disk build nor embedded
-assets. **Both launchers now resolve it identically:**
-`resolveSmokeWebDist() ?? join(REPOSITORY_ROOT, "apps/web/dist")`, so `ROOST_SMOKE_WEB_DIST` reaches
-the worker too. Fixed on `v3` at `a84f4a12`; `origin/main` carries the same omission, which is why
-v2's local-door specs have been leaning on a checkout-local `.env` that a clean clone does not have.
+assets. **Both launchers now resolve it identically** from `ROOST_SMOKE_WEB_DIST` (default
+`.smoke-pin/web`), so the bundle reaches the worker too. Fixed on `v3` at `a84f4a12`.
 
 **Guard** — the specs themselves, and they are the guard because they fail loudly rather than
 skipping: `terminal-local-fast-path.spec.ts` (1 failed → 1 passed) and `terminal-peer.spec.ts`
-(4/5 → **5/5**) on chromium, TypeScript coordinator and worker, same tree. Do not add a second
+(4/5 → **5/5**) on chromium, same tree. Do not add a second
 assertion for this: the enrollment IS the check, and a new one would pass for the wrong reason.
 When one of these reds, read the response in the trace (`0-trace.network`, the snapshot for the
 navigation) before blaming the machine — the status and `content-type` name the layer that failed.
@@ -3150,9 +3004,8 @@ misspelled key does not error and does not skip: it produces the zero value. A
 is classified as a file, and a listing that is nothing but folders renders as
 an empty directory. The symptom points at the CONSUMER and the defect is in the
 PRODUCER's reply. `browser_commands/file_commands.rs` published
-`{"name": …, "is_dir": …, "mtime_ms": …}`; the contract spells it `isDir`
-(`apps/worker/src/file-rpcs.ts:112`), and the TypeScript coordinator reads
-only `isDir` with no fallback, so the flag was false for every entry.
+`{"name": …, "is_dir": …, "mtime_ms": …}`; the contract spells it `isDir`,
+and a coordinator that reads only `isDir` with no fallback saw the flag false for every entry.
 
 The fix is one typed struct whose field carries `#[serde(rename = "isDir")]`,
 so the emit and the sort read the same key and cannot drift again — a

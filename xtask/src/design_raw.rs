@@ -2,8 +2,7 @@
 //! an `rgb()`/`rgba()` literal, or a px font-size outside a token-definition
 //! file is how a new surface drifts away from the palette. The token files
 //! DECLARE those values, so they are exempt; everything else must reference
-//! them through `var(--…)`. Ported from scripts/lint-roost.ts, re-rooted on
-//! the Rust web crate.
+//! them through `var(--…)`.
 
 use crate::ratchet::{RatchetOutcome, RatchetSpec, count_matching_lines, run_ratchet};
 use crate::source_tree;
@@ -21,8 +20,7 @@ const MEMORY: &str = "CLAUDE.md — design system";
 /// stops looking is worse than a noisy one, so the match is on the part of the
 /// path a reorganisation does not move.
 ///
-/// Ported from v2's `RAW_VALUE_ALLOW` in `scripts/lint-roost.ts`, which is the
-/// authority for what a definition file is. `icon.css` is on this list because
+/// This list is the authority for what a definition file is. `icon.css` is on this list because
 /// it DECLARES the `.md-icon` font-size utility that `.md-icon--sm` / `--lg`
 /// reference — its px values are the declaration, not drift. `themes.rs` and
 /// `agents.rs` are here because raw hex is the SOURCE of the canonical palette
@@ -52,8 +50,7 @@ fn spec() -> RatchetSpec {
     }
 }
 
-/// Test files are out of scope, as v2's `rawCounts` skips `*.test.ts(x)`
-/// (`scripts/lint-roost.ts:233-240`): a fixture that feeds a computed colour
+/// Test files are out of scope: a fixture that feeds a computed colour
 /// to a parser is input, not a surface's styling.
 fn is_scanned(relative: &str) -> bool {
     let is_source = relative.ends_with(".rs") || relative.ends_with(".css");

@@ -1,5 +1,5 @@
 //! The count-based ratchet engine shared by the size cap and the design
-//! raw-value check. Ported from scripts/lint-ratchet.ts so a file already over
+//! raw-value check, so a file already over
 //! a limit keeps a recorded allowance, fails only when it grows past that
 //! allowance, and can never be re-baselined upward without an explicit flag.
 

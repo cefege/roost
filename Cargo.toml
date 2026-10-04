@@ -1,5 +1,5 @@
 # Roost v3 workspace. Every crate lives under crates/; xtask owns the repo
-# gates that replaced scripts/lint-boundaries.ts and scripts/lint-roost.ts.
+# gates (crate DAG, file-size cap, stdout rule, design raw-value ratchet).
 # Dependency direction is one way and is enforced by `cargo xtask lint`, not by
 # reviewer memory — see the allowlist in xtask/src/crate_dag.rs.
 

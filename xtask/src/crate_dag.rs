@@ -1,7 +1,6 @@
 //! The crate dependency DAG, read from `cargo metadata` rather than a
 //! hand-maintained list, so a workspace member that gains an edge fails the
-//! gate instead of relying on a reviewer noticing. Replaces
-//! scripts/lint-boundaries.ts (B1–B4) for the Rust tree.
+//! gate instead of relying on a reviewer noticing.
 //!
 //! The allowlist is the architecture: dependencies point one way, a future
 //! native front end depends only on roost-client-core (+ roost-protocol), and
@@ -117,8 +116,8 @@ const ALLOWED: &[(&str, &[&str])] = &[
         "roost-web-terminal",
         &["roost-client-core", "roost-protocol"],
     ),
-    // `roost-platform` mirrors v2's `apps/web/src/lib/nativePath.ts` ->
-    // `@roost/platform/native-path` edge: the browser's `WorkerPaths` delegates to it.
+    // `roost-web` depends on `roost-platform` for path handling: the browser's
+    // `WorkerPaths` delegates to its native-path module.
     (
         "roost-web",
         &[

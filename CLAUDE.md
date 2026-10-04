@@ -7,14 +7,11 @@ The per-crate file map lives in [`crates/README.md`](crates/README.md), not
 here — this file is operating rules only, so it cannot rot into a stale copy
 of the filesystem.
 
-**This is the `v3` branch: a complete Rust rewrite of Roost.** `main` holds
-v2 (Bun + TypeScript + SolidJS) and stays in production, receiving only small
-fixes. Both live in one repository, checked out at `~/repos/roost-v3` on `v3`.
-`main` has no checkout here: a `main` fix is committed through a temporary
-`git worktree add <dir> main`, removed once the commit lands. The v2
-TypeScript tree (`apps/`, `packages/`) is still present here while the port
-runs and is deleted in Phase 7, so a mixed stack is expected and the
-Playwright oracle in `smoke/` is deliberately stack-agnostic.
+**This is the `v3` branch: Roost in Rust, with a Dioxus web client.** `main`
+holds v2 (Bun + TypeScript + SolidJS); it is frozen and kept for reference only
+— no fix lands there and nothing merges from it. The v3 checkout is
+`~/repos/roost-v3` on `v3`. The only TypeScript left in this tree is the
+Playwright oracle in `smoke/`, which drives the Rust stack.
 
 ---
 
@@ -29,8 +26,8 @@ Landing cold, read in this order. Stop as soon as you have what you need.
    dependency DAG that `cargo xtask lint` enforces.
 3. **[`protocol/README.md`](protocol/README.md)** — the client contract index,
    endpoint manifest, and versioning. The `.proto` files and `protocol/spec/`
-   stay byte-exact through Phase 6 so any mix of Rust and TypeScript
-   components interoperates in tests.
+   are the contract the Rust crates and the smoke harness's generated
+   bindings (`smoke/gen/`) both build against.
 4. **[`GLOSSARY.md`](GLOSSARY.md)** — the vocabulary: cell-shipping, keeper,
    agent-status, session/channel/tab, scrollback.
 5. **[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md)** — grep it BEFORE
@@ -67,24 +64,10 @@ and crossing a repository boundary is a stop-and-ask.
 
 ---
 
-## Main → v3 sync policy
+## `main` is frozen v2
 
-v2 keeps shipping on `main` while this branch is ported, so fixes land in two
-places. After each fix lands on `main`:
-
-```sh
-git -C ~/repos/roost-v3 merge main
-```
-
-A **modify/delete conflict on a TypeScript file already deleted in v3** is not
-a merge to resolve by picking a side. Keep the deletion and port the behavior
-to the owning Rust crate in the same merge commit, then list every ported fix
-in that commit's body. A `main` fix that silently disappears with the deleted
-file is a regression in production's successor, and the body line is what makes
-it auditable.
-
-A conflict in `protocol/`, `docs/`, or `smoke/` resolves normally: those trees
-are shared, not forked.
+`main` is the frozen v2 tree, reference only: read it with `git show
+main:<path>`; never commit to it or merge it into `v3`.
 
 ---
 
@@ -97,8 +80,7 @@ xtask/                `cargo xtask lint` — the repo gates
 third_party/          vendored crates, only when a phase needs a patch
 protocol/             proto/, spec/, conformance/ — the wire contract
 crates/               the v3 product (see crates/README.md)
-smoke/                Playwright oracle, TypeScript, run by Bun
-apps/ packages/       the v2 TypeScript tree, deleted in Phase 7
+smoke/                Playwright oracle, TypeScript, run by Bun, drives the Rust stack
 ```
 
 Dependencies point one way and are pinned in
@@ -133,13 +115,12 @@ Non-negotiable for every change.
    question**; a weak reason is a bug in the list. See
    `docs/phase3-coord-contract.md` §12.11.
 
-   The v2 case to understand, and the reason a Rust exemption is the wrong
-   tool for it, is `apps/web/src/renderer/cellRenderer.ts` — one class
-   whose methods share private per-frame state, where that encapsulation is
-   what prevents the history-corruption class. Its Rust successor is one
-   `CellGridRenderer` struct split across sibling `impl` files, not an
-   exemption: inherent impls may span files in a module, and that is the
-   first thing to reach for.
+   The case to understand, and the reason an exemption is the wrong tool for
+   it, is `CellGridRenderer` in `roost-web-terminal` — one struct whose
+   methods share private per-frame state, where that encapsulation is what
+   prevents the history-corruption class. It is split across sibling `impl`
+   files, not exempted: inherent impls may span files in a module, and that is
+   the first thing to reach for.
 
 2. **`#![forbid(unsafe_code)]` in every crate root.** The exceptions are
    `roost-keeper`, which owns raw file descriptors and the controlling-TTY
@@ -259,34 +240,15 @@ going on in 30 seconds?"** If no, refactor before commit.
 
 ---
 
-## Porting rules
+## Dropped paths
 
-Every module ported from `apps/` or `packages/` into `crates/` follows these.
-
-1. **Mirror the domain folder.** a coordinator module named `sync` →
-   the `sync` module of the `roost-coord` crate, `apps/worker/src/keeper/` →
-   `crates/roost-keeper/src/`. Read the TypeScript module, its tests, and any
-   `docs/FAILURE-INDEX.md` entry naming it before writing Rust.
-2. **Port behaviour, not wording.** Behaviour tests only (`#[cfg(test)]` or
-   `crates/<x>/tests/<mirror>.rs`). Do not port a test that asserts on source
-   text, message wording, or an incidental default — re-pin the behavior
-   instead, and delete the TypeScript test when its module goes.
-3. **Rewrite each Guard the moment it is ported.** For every
-   `docs/FAILURE-INDEX.md` entry whose **Guard** names a TypeScript test or
-   lint, add the Rust guard and rewrite that entry's **Guard** line to the
-   Rust path in the same commit. An entry pointing at a test that no longer
-   exists is worse than no entry.
-4. **Delete the TypeScript module only when its Rust replacement passes that
-   phase's gate.** Until then the mixed stack has to build, and the Playwright
-   oracle has to run.
-5. **Name every dropped path in the commit body.** Only paths unreachable in
-   an all-v3 fleet are dropped. The list so far, all removed in their
-   respective phase commits: the Windows update broker
-   (`packages/host/src/windows/windows-update-broker.ts`), the legacy unimplemented `Sync`
-   server-streaming RPC, the legacy `/w/:workspaceId[/t/:channelId]` routes,
-   `client-seq.txt`, the keeper "Bun ABI" identity field, the Bun-specific
-   zlib workaround, and capability fallbacks for peers lacking a capability
-   every v3 peer advertises.
+**Name every dropped path in the commit body.** Only paths unreachable in an
+all-v3 fleet are dropped. The list so far: the Windows update broker, the
+legacy unimplemented `Sync` server-streaming RPC, the legacy
+`/w/:workspaceId[/t/:channelId]` routes, `client-seq.txt`, the keeper "Bun
+ABI" identity field, the Bun-specific zlib workaround, capability fallbacks
+for peers lacking a capability every v3 peer advertises, and the whole v2
+TypeScript product tree (`apps/`, `packages/`, the product `scripts/`).
 
 ---
 
@@ -350,10 +312,9 @@ both can be running on one machine during the port.
 
 ## Process
 
-Move TypeScript files with `bun scripts/move-modules.ts --manifest …`; update
-callers and path-bound docs in the same change. Rust modules move with an
-ordinary `git mv` plus, if the crate's edges change, an edit to
-`xtask/src/crate_dag.rs` in the same commit.
+Rust modules move with an ordinary `git mv` plus, if the crate's edges change,
+an edit to `xtask/src/crate_dag.rs` in the same commit; update callers and
+path-bound docs in the same change.
 
 ### Per-phase execution loop
 
@@ -368,23 +329,20 @@ A change to the producer→wire→consumer chain (worker emits a `SessionEvent` 
 terminal frame → coord routes it → client folds state or paints the grid) is
 done when the gates under `### Commands` are green, and not before. Test-hook
 coverage supplements, never replaces, `bun run test:terminal` — the real-flow
-tier, and the one that must keep working across every mixed-stack
-combination: each Playwright worker starts a real coordinator, worker, keeper
-and PTYs (`smoke/terminal/stack.ts`) and drives a real browser against a built
-web bundle. The stack it launches is chosen by environment, so the same
-specs are the oracle for a TS stack, a Rust worker, a Rust coordinator, and
-finally the all-Rust stack. Drive the Rust stack through the parity runner
-(`### Commands`); these knobs are what it sets, not something to export by
-hand:
+tier: each Playwright worker starts a real coordinator, worker, keeper and
+PTYs (`smoke/terminal/stack.ts`) and drives a real browser against a built
+web bundle, always the Rust stack. By default the harness runs the artifacts
+the parity runner pinned in `.smoke-pin/` and refuses to start when none are
+pinned; these knobs override that pin, and the parity runner sets them to the
+pin it checked against HEAD:
 
 ```sh
-ROOST_SMOKE_COORD_EXECUTABLE=<repo>/.smoke-pin/roost   # Rust coordinator
-ROOST_SMOKE_WORKER_EXECUTABLE=<repo>/.smoke-pin/roost  # Rust worker (`roost worker`)
-ROOST_SMOKE_WEB_DIST=<repo>/.smoke-pin/web             # Rust/Dioxus bundle
+ROOST_SMOKE_COORD_EXECUTABLE=<repo>/.smoke-pin/roost   # coordinator (`roost`)
+ROOST_SMOKE_WORKER_EXECUTABLE=<repo>/.smoke-pin/roost  # worker (`roost worker`)
+ROOST_SMOKE_WEB_DIST=<repo>/.smoke-pin/web             # Dioxus bundle
 ```
 
-Unset means "use the TypeScript implementation", which is what makes the
-mixed-stack runs meaningful. Coverage, by path and test name:
+Coverage, by path and test name:
 
 - `runFlow` — workspace create → terminal open → PTY marker round-trip → pane
   close → workspace cascade-delete — in `smoke/terminal/terminal-delivery.spec.ts`
@@ -398,27 +356,18 @@ mixed-stack runs meaningful. Coverage, by path and test name:
   owned by the PTY"`.
 
 The `window.__smoke` backdoor those specs drive ships out of production
-bundles. In TypeScript it is installed only when the bundle was built with
-`VITE_ROOST_SMOKE=1` and `localStorage.roostSmoke === "1"`; in Rust it is
-behind the `smoke` cargo feature of `roost-web`, which a release build does
-not enable. The production bundle must contain no `__smoke`.
+bundles: it is behind the `smoke` cargo feature of `roost-web`, which a release
+build does not enable. The production bundle must contain no `__smoke`.
 
-`bun run test:upgrade` is the other real-flow tier and the only gate that
-proves an EXISTING install survives a new release: it stages the previous
-release and the newest release tag as git worktrees, boots the working tree's
-coordinator over the database that release created, opens two PTYs, deploys
-through the product's own keeper-update admission
-(`smoke/upgrade/release-handoff.ts`), and fails if the keeper's pid or either
-channel count moved, if a marker stopped painting, or if the upgraded worker
-never reported the keeper runtime the next upgrade admits on.
-`test:terminal` proves a FRESH stack works and cannot see that class of defect
-at all. This tier is re-created for Rust→Rust releases in Phase 7; it is off
-on this branch until the first `v3.*` tag exists.
+There is no upgrade tier — nothing yet proves an EXISTING install survives a
+new release; `test:terminal` proves a FRESH stack works and cannot see that
+class of defect. It is re-created against the previous `v3.*` tag before
+`v3.0.0`.
 
 `smoke/terminal/live-stack.ts` is the hands-on escape hatch, never a gate. It
 holds the same working-tree stack open and prints `READY <url> worker=<fp>`;
-no tailnet. `bun run test:live-api` and a physical-phone pass watch production
-only — OPTIONAL, outside the definition of done, never a merge blocker.
+no tailnet. A physical-phone pass watches production only — OPTIONAL, outside
+the definition of done, never a merge blocker.
 
 ### Commands
 
@@ -452,33 +401,28 @@ a baseline and both describe the release artifacts:
 ```
 bun smoke/parity/run.ts build [--no-web] [--plain] [--fast]
 bun smoke/parity/run.ts spec <file[:line]>… [--project <p>] [--repeat N] [--trace]
-bun smoke/parity/run.ts suite --stack rust|bun [--pass main|serial|both] [--label <l>]
+bun smoke/parity/run.ts suite --stack rust [--pass main|serial|both] [--label <l>]
 bun smoke/parity/run.ts verdict <rust.run.json> [<bun.run.json>] [--md <out.md>]
 ```
 
-TypeScript gates, which keep running until Phase 7 deletes that tree:
+`verdict`'s optional second run is a recorded `gate-evidence/parity/bun-*.run.json`
+baseline, the parity reference from before the TypeScript tree was deleted.
+
+Root package scripts:
 
 ```
-bun run lint            # gate — scripts/lint-roost.ts, blocking in CI
-bun run test:unit       # gate — hermetic unit tier; runs test:worker first
-bun run test:worker     # gate — per-file isolated worker suite
-bun run test:terminal   # gate — real coord + worker + keeper + PTY + browser
-bun x tsgo -p tsconfig.base.json --noEmit   # gate — exactly what CI typechecks
-bun run test:live-api   # optional monitor — deployed coord (ROOST_COORD_URL)
+bun run typecheck       # gate — tsgo over smoke/**/*.ts
+bun run smoke           # gate — the harness's own bun unit tests
+bun run test:terminal   # gate — parity build, then the rust suite, both passes
 ```
 
-CI (`.github/workflows/ci.yml`) runs the Rust `rust` job and the
-TypeScript `invariants` job on ubuntu-latest AND macos-latest, then the
-`terminal` job as its own matrix job on both. The `upgrade` and `wterm-wasm`
-tiers are removed on this branch and return in Phase 7.
-`.github/workflows/release.yml` publishes a `v3.*` tag: it re-runs the `rust`
-job's commands, drives the terminal oracle with release binaries, and builds
-four triples, linking the Linux pair through zig against glibc 2.28, so a
-binary starts on every distribution the fleet runs. The
-`windows-2022` tier stays behind the `ROOST_WINDOWS_GATE` repository variable
-(off by default) — Windows is paused on `main` too, and v3 ships Linux and
-macOS. No gate needs a deployed coordinator, a tailnet, or a human driving a
-browser.
+CI (`.github/workflows/ci.yml`) runs the `rust` job and the `terminal` job on
+ubuntu-latest AND macos-latest. `.github/workflows/release.yml` publishes a
+`v3.*` tag: it re-runs the `rust` job's commands, drives the terminal oracle
+through the parity runner with release binaries and the Dioxus bundle, and
+builds four triples, linking the Linux pair through zig against glibc 2.28, so
+a binary starts on every distribution the fleet runs. v3 ships Linux and macOS.
+No gate needs a deployed coordinator, a tailnet, or a human driving a browser.
 
 ### Per-fix loop for oracle parity
 
@@ -497,10 +441,10 @@ browser.
 
 ## Failure index
 
-[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index: 140
+[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index: 133
 entries, one `###` heading each, with `**Symptom**` (the grep string),
-`**Wrong**`, `**Right**`, and `**Guard**` (the lint rule or test that pins
-it). It is the only actively maintained institutional memory in this repo and
+`**Wrong**`, `**Right**`, and `**Guard**` (the test, smoke spec or lint check
+that pins it). It is the only actively maintained institutional memory in this repo and
 it is grep-first by design — grep it BEFORE writing code that matches a
 symptom.
 
