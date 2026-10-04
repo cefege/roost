@@ -65,11 +65,11 @@ impl LabelSources for HostLabelSources {
 ///
 /// `ROOST_WORKER_LABEL` wins, then the machine's own name, then `HOSTNAME`.
 ///
-/// An empty value counts as unset at every step, the way
-/// [`WorkerBoot::resolve`] already reads an empty path, so an operator who
-/// exported `ROOST_WORKER_LABEL=` — which is what an unset shell variable
-/// writes into a systemd `Environment=` line — gets the machine's name rather
-/// than a blank row in the sidebar.
+/// Every value is trimmed, and one that is empty once trimmed counts as unset
+/// at every step, the way [`WorkerBoot::resolve`] already reads an empty path.
+/// So an operator who exported `ROOST_WORKER_LABEL=` — which is what an unset
+/// shell variable writes into a systemd `Environment=` line — gets the
+/// machine's name rather than a blank row in the sidebar.
 ///
 /// There is no fourth fallback. A host that can answer none of the three has
 /// no name to give, and registering it under the literal `"worker"` is the
@@ -85,15 +85,22 @@ pub(super) fn resolve_worker_label(
     if let Some(label) = named(env.get(ENV_WORKER_LABEL)) {
         return Ok(label);
     }
-    if let Some(name) = sources.host_name(platform).filter(|name| !name.is_empty()) {
+    if let Some(name) = named(sources.host_name(platform)) {
         return Ok(name);
     }
     named(env.get(HOSTNAME_ENV)).ok_or(EnrollmentError::NoLabel)
 }
 
 /// A value that is there and says something, or nothing.
+///
+/// Trimmed, because surrounding whitespace is never part of a value here:
+/// `/proc/sys/kernel/hostname` and `hostname(1)` both end their answer with a
+/// newline, and a name taken raw registered ovh1 as `"ovh1-8c32g\n"`, which
+/// broke the line of every readout that printed it.
 pub(super) fn named(value: Option<String>) -> Option<String> {
-    value.filter(|value| !value.is_empty())
+    value
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
 }
 
 #[cfg(test)]
@@ -169,6 +176,22 @@ mod tests {
     }
 
     #[test]
+    fn a_machine_name_is_registered_without_the_newline_its_source_ends_with() {
+        assert_eq!(
+            label_of(&MapEnv::new(), Some("ovh1-8c32g\n")),
+            Ok("ovh1-8c32g".to_string())
+        );
+        let padded = MapEnv::new().with(ENV_WORKER_LABEL, " studio-mac\n");
+        assert_eq!(label_of(&padded, None), Ok("studio-mac".to_string()));
+        let shell_named = MapEnv::new().with("HOSTNAME", "build-box");
+        assert_eq!(
+            label_of(&shell_named, Some("\n")),
+            Ok("build-box".to_string()),
+            "a host name that is only a newline is no name, not a blank label"
+        );
+    }
+
+    #[test]
     fn this_host_can_name_itself_and_windows_cannot() {
         let platform = roost_host::supported_host_platform().expect("a supported host");
         let name = HostLabelSources.host_name(platform).expect("a host name");
@@ -179,7 +202,8 @@ mod tests {
     #[test]
     fn an_empty_value_is_dropped_wherever_it_arrives() {
         assert_eq!(named(Some(String::new())), None);
+        assert_eq!(named(Some(" \n".to_string())), None);
         assert_eq!(named(None), None);
-        assert_eq!(named(Some("x".to_string())), Some("x".to_string()));
+        assert_eq!(named(Some(" x\n".to_string())), Some("x".to_string()));
     }
 }

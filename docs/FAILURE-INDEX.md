@@ -3862,3 +3862,20 @@ happens to be the working directory names some other build.
 
 **Guard** — `crates/roost-cli/tests/join_enrollment.rs`:
 `a_compiled_binary_enrols_as_its_own_commit_outside_any_checkout`.
+
+### A machine's name ends in a line break: `roost status` prints its "— last seen" on the next line
+
+**Symptom** — a machine installed by `roost quickstart`, which sets no `ROOST_WORKER_LABEL`, shows in
+`roost status` as `✓ ovh1-8c32g` with ` — last seen …` wrapped onto the following line. Its
+`workers.label` in the coordinator database is `"ovh1-8c32g\n"`. Machines added with `roost
+add-machine` never show it, because their join command names them.
+
+**Wrong** — taking the machine's own name raw. `/proc/sys/kernel/hostname` and `hostname(1)` both end
+their answer with a newline, and registration re-sends the label on every boot, so a rename through the
+API lasts only until the worker next restarts.
+
+**Right** — `bootstrap_redeem::label::named` trims every source (the operator's label, the machine's
+name, the shell's `HOSTNAME`), and a value that is empty once trimmed counts as unset.
+
+**Guard** — `crates/roost-worker/src/runtime/bootstrap_redeem/label.rs`:
+`a_machine_name_is_registered_without_the_newline_its_source_ends_with`.
