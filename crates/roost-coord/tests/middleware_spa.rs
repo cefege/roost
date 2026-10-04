@@ -14,9 +14,8 @@
 #[path = "middleware_support/mod.rs"]
 mod middleware_support;
 
-use middleware_support::{
-    BARE_WASM_PATH, FixtureConfig, ListenerFixture, WASM_BROTLI, WASM_GZIP, WASM_PATH, WASM_RAW,
-};
+use middleware_support::dist::{BARE_WASM_PATH, WASM_BROTLI, WASM_GZIP, WASM_PATH, WASM_RAW};
+use middleware_support::{FixtureConfig, ListenerFixture};
 
 async fn serving_dist() -> ListenerFixture {
     ListenerFixture::start(

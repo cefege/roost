@@ -1,22 +1,27 @@
-//! PROOF for the drain cadence: a program writing continuously must have its
-//! output reach the worker at least as often as the keeper's backstop tick,
-//! and never at the pace of a blocking read plus a sleep.
+//! PROOF for the drain cadence: output a program writes while the worker sends
+//! nothing must reach the worker within the keeper's backstop tick of being
+//! written, and never at the pace of a blocking read plus a sleep.
 //!
-//! WHY IT NEEDS A REAL DAEMON. The quantity under test is the interval between
-//! two `PtyOut` frames as a worker observes them, which is a property of the
-//! SERVER LOOP and not of any function a unit test can call. A fake keeper that
-//! answers on demand is paced by the test, so it agrees with whatever the test
-//! does. The shell here prints continuously and the client sends nothing after
-//! `Spawn`, so the frames are paced by the shell's writes and the server loop
-//! alone.
+//! WHY IT NEEDS A REAL DAEMON. The quantity under test is how long the SERVER
+//! LOOP holds output a channel's reader already has, which is not a property of
+//! any function a unit test can call. The client sends nothing after `Spawn`,
+//! so only PTY output and the tick can wake that loop.
 //!
-//! The bound is generous on purpose. Forty lines ten milliseconds apart is
-//! ~400 ms of writing; a loop that read for 100 ms and then slept its tick
-//! measured a ~120 ms cadence, so a 60 ms bound separates the two without
-//! being a benchmark of this machine.
+//! WHY LATENCY AND NOT THE GAP BETWEEN FRAMES. A frame gap is the slower of the
+//! loop's pace and the writer's, so a writer slower than the tick makes every
+//! gap its own interval whatever the loop does. A shell paced by `sleep 0.01`
+//! pays a fork and an exec per line, which a macOS CI runner stretches to
+//! ~60 ms: forty frames of one line each and a 59 ms median gap, from a loop
+//! that never once held a line back. So the test releases each line itself,
+//! through a FIFO the keeper never sees, and times it from release to arrival;
+//! the shell between the two runs only builtins.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use roost_keeper::client_connect::connect;
@@ -25,35 +30,49 @@ use roost_keeper::frames::ShellSpec;
 
 mod support;
 
-use support::daemon::{Keeper, TempDir};
+use support::daemon::{DEADLINE, Keeper, TempDir};
 
-/// Lines the shell prints, ten milliseconds apart.
-const LINES: u32 = 40;
+/// Lines the test releases to the shell.
+const LINES: usize = 40;
 
-/// How long a paced tick is allowed to take for the whole burst. Not 16 ms: the
-/// assertion is about how many DRAINS carried the lines, not about the writer.
-const BURST_BUDGET: Duration = Duration::from_millis(4_000);
+/// How often a line is released. Faster than the tick and out of step with it,
+/// so the loop always has output in flight and a tick-paced drain shows its
+/// average lateness rather than a lucky phase.
+const RELEASE_INTERVAL: Duration = Duration::from_millis(10);
 
-/// A coarse backstop on the WORST gap. Deliberately loose, because the median
-/// below is the assertion that discriminates and a tight worst-case bound only
-/// buys flakiness on rare long turns. Its job is to catch a loop that is not
-/// draining at the tick at all: with the loop's sleep restored, the worst gap
-/// measures ~120 ms.
-const MAX_GAP: Duration = Duration::from_millis(150);
+/// The percentile of release-to-arrival latency the bound below applies to.
+/// The fifth left over absorbs a loaded runner's scheduling rather than a
+/// drain's lateness.
+const ON_TICK_PERCENTILE: usize = 80;
 
-/// The MEDIAN silence the tick permits, which is the one that separates a turn
-/// that lands on the grid from one that alternates between it and twice it.
-/// Measured populations, real daemon: 20 ms median with the read's rounding
-/// charged to every pass, 16 ms with the grid chased.
-const MEDIAN_GAP: Duration = Duration::from_millis(18);
+/// The most the percentile line may take: the keeper's 16 ms `OUTPUT_TICK`
+/// plus a quarter tick for the turn's own work. Measured populations of that
+/// line, real daemon: ~1 ms for a loop forwarding on its reader's wake (4–10 ms
+/// with the whole stack pinned to one core behind four busy loops), 14–16 ms
+/// for a turn landing on the tick, 23–25 ms for one alternating between the
+/// tick and twice the tick, ~96 ms for a 100 ms read followed by the tick.
+const ON_TICK_BOUND: Duration = Duration::from_millis(20);
 
-/// A shell that prints `LINES` numbered lines, ten milliseconds apart.
-fn printing_shell() -> ShellSpec {
+/// A coarse backstop on the WORST line, for a stall the percentile cannot see:
+/// one line held far past any tick while the rest flow. Deliberately loose,
+/// because a loaded runner's rare long turn is not a defect.
+const MAX_LATENCY: Duration = Duration::from_millis(150);
+
+/// How long the receive wait blocks once every line is released.
+const ARRIVAL_POLL: Duration = Duration::from_millis(200);
+
+/// A shell that writes back every line it reads from `fifo`. `read` and
+/// `printf` are builtins of every `/bin/sh`, so nothing between a release and
+/// its write to the PTY forks.
+fn echoing_shell(fifo: &Path) -> ShellSpec {
     ShellSpec {
         program: "/bin/sh".to_owned(),
         args: vec![
             "-c".to_owned(),
-            format!("for i in $(seq 1 {LINES}); do printf 'L%03d\\n' $i; sleep 0.01; done"),
+            format!(
+                "while IFS= read -r line; do printf '%s\\n' \"$line\"; done < '{}'",
+                fifo.display()
+            ),
         ],
         env: Vec::new(),
         cwd: None,
@@ -63,82 +82,123 @@ fn printing_shell() -> ShellSpec {
 #[test]
 fn continuous_output_is_drained_at_the_tick_and_not_at_the_tick_plus_a_read() {
     let temp = TempDir::new("output-tick");
+    let fifo = temp.path().join("lines.fifo");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .expect("mkfifo runs");
+    assert!(made.success(), "mkfifo {} failed: {made}", fifo.display());
+
     let keeper = Keeper::start(&temp);
     let client = connect(&keeper.endpoint()).expect("a real daemon completes the handshake");
-
     client
-        .spawn(1, printing_shell(), 80, 24)
+        .spawn(1, echoing_shell(&fifo), 80, 24)
         .expect("the shell spawns");
+    let mut release = open_release_end(&fifo);
 
-    // Nothing but the shell's writes and the server loop paces these frames:
-    // the client sends nothing more.
-    let deadline = Instant::now() + BURST_BUDGET;
-    let mut lines = 0_u32;
-    let mut frames = 0_u32;
-    let mut worst_gap = Duration::ZERO;
-    let mut gaps: Vec<Duration> = Vec::new();
-    let mut previous = Instant::now();
+    let deadline = Instant::now() + DEADLINE;
+    let mut released: Vec<Instant> = Vec::with_capacity(LINES);
+    let mut arrived: Vec<Option<Instant>> = vec![None; LINES];
+    let mut pending: Vec<u8> = Vec::new();
+    let mut next_release = Instant::now();
 
-    while lines < LINES && Instant::now() < deadline {
-        let Some(frame) = client.next_event(Duration::from_millis(200)) else {
+    while arrived.iter().any(Option::is_none) && Instant::now() < deadline {
+        if released.len() < LINES && Instant::now() >= next_release {
+            let line = format!("L{:03}\n", released.len());
+            let at = Instant::now();
+            release
+                .write_all(line.as_bytes())
+                .expect("the shell holds the FIFO's read end");
+            released.push(at);
+            next_release = at + RELEASE_INTERVAL;
+        }
+        let wait = if released.len() < LINES {
+            next_release.saturating_duration_since(Instant::now())
+        } else {
+            ARRIVAL_POLL
+        };
+        let Some(frame) = client.next_event(wait) else {
             continue;
         };
-        if frame.frame_type != MuxFrameType::PtyOut {
+        let at = Instant::now();
+        if frame.frame_type != MuxFrameType::PtyOut || frame.channel_id != 1 {
             continue;
         }
-        frames += 1;
-        let now = Instant::now();
-        let gap = now.saturating_duration_since(previous);
-        worst_gap = worst_gap.max(gap);
-        gaps.push(gap);
-        previous = now;
-        lines += String::from_utf8_lossy(&frame.payload).lines().count() as u32;
+        pending.extend_from_slice(&frame.payload);
+        for index in take_line_indices(&mut pending) {
+            if let Some(slot) = arrived.get_mut(index) {
+                slot.get_or_insert(at);
+            }
+        }
     }
 
+    let missing = arrived.iter().filter(|slot| slot.is_none()).count();
     assert_eq!(
-        lines, LINES,
-        "the shell's {LINES} lines did not all arrive within {BURST_BUDGET:?} across \
-         {frames} frames; the drain is still too slow to keep a terminal live"
+        missing, 0,
+        "{missing} of the {LINES} released lines never reached the worker within {DEADLINE:?}"
     );
-    // THE SUSTAINED RATE, which is what a reader feels and what the oracle
-    // counts. The worst-case gap cannot see it: this loop is bimodal on this
-    // host, because a `SO_RCVTIMEO` read rounds 16 ms to 20, so a turn that
-    // re-anchors its deadline instead of chasing it alternates 16 ms and 32 ms
-    // — mean ~22 ms, ~45 chunk groups per second — and a 30 ms worst-case bound
-    // passes that happily. It is exactly the shape that cost the oracle 40% of
-    // its terminal frames while this test stayed green.
-    gaps.sort_unstable();
-    let median = gaps[gaps.len() / 2];
+    let mut latencies: Vec<Duration> = released
+        .iter()
+        .zip(&arrived)
+        .map(|(sent, landed)| {
+            landed
+                .expect("every line arrived")
+                .saturating_duration_since(*sent)
+        })
+        .collect();
+    latencies.sort_unstable();
+
+    let on_tick = latencies[latencies.len() * ON_TICK_PERCENTILE / 100];
     assert!(
-        median < MEDIAN_GAP,
-        "the median silence between PtyOut frames was {median:?} across {} frames, \
-         which is a turn alternating between the tick and twice the tick rather \
-         than one landing on it",
-        gaps.len()
+        on_tick < ON_TICK_BOUND,
+        "the {ON_TICK_PERCENTILE}th-percentile line took {on_tick:?} from its write to the \
+         worker, past {ON_TICK_BOUND:?}: the loop holds output for a turn that does not land \
+         on the tick (sorted: {latencies:?})"
     );
-    // A COARSE BACKSTOP, not the gate: it only has to catch a loop that is
-    // plainly not draining at the tick — the sleep this file used to carry
-    // measured ~120 ms. Pinning it tighter makes it flaky on rare long turns,
-    // which is why the median above carries the real assertion.
+    let worst = latencies[latencies.len() - 1];
     assert!(
-        worst_gap < MAX_GAP,
-        "the longest silence between two PtyOut frames was {worst_gap:?}, which is \
-         not a loop draining at the tick at all"
+        worst < MAX_LATENCY,
+        "the slowest line took {worst:?} from its write to the worker, held far past any \
+         tick (sorted: {latencies:?})"
     );
-    // AND THE SUSTAINED RATE, which is what a reader actually feels and what a
-    // worst-case gap cannot see. The loop is BIMODAL on this host: a
-    // `SO_RCVTIMEO` read rounds 16 ms to 20, so a turn that does not chase its
-    // deadline alternates 16 ms and 32 ms — mean ~22 ms, i.e. ~45 chunk groups
-    // per second, which a 30 ms worst-case bound passes happily and which cost
-    // the oracle 40% of its terminal frames. A median is the statistic that
-    // separates "on the tick" from "on and off the tick".
-    gaps.sort_unstable();
-    let median = gaps[gaps.len() / 2];
-    assert!(
-        median < MEDIAN_GAP,
-        "the median silence between PtyOut frames was {median:?} across {} frames, \
-         which is a turn that alternates between the tick and twice the tick \
-         rather than one that lands on it",
-        gaps.len()
-    );
+}
+
+/// Open the FIFO's write end once the shell holds its read end. Non-blocking,
+/// because a blocking open waits for a reader forever, and a shell that never
+/// started must fail this test rather than hang it.
+fn open_release_end(fifo: &Path) -> File {
+    let deadline = Instant::now() + DEADLINE;
+    loop {
+        match OpenOptions::new()
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(fifo)
+        {
+            Ok(file) => return file,
+            // ENXIO is a FIFO with no reader yet: the shell has not reached
+            // its redirection.
+            Err(err) if err.raw_os_error() == Some(libc::ENXIO) && Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(err) => panic!("the shell never opened {}: {err}", fifo.display()),
+        }
+    }
+}
+
+/// Take every complete line out of `pending` and return the release index each
+/// one names; a partial line stays for the next frame.
+fn take_line_indices(pending: &mut Vec<u8>) -> Vec<usize> {
+    let mut indices = Vec::new();
+    while let Some(end) = pending.iter().position(|&byte| byte == b'\n') {
+        let line: Vec<u8> = pending.drain(..=end).collect();
+        let text = String::from_utf8_lossy(&line);
+        if let Some(index) = text
+            .trim_end()
+            .strip_prefix('L')
+            .and_then(|digits| digits.parse().ok())
+        {
+            indices.push(index);
+        }
+    }
+    indices
 }

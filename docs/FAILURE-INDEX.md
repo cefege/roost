@@ -3879,3 +3879,28 @@ name, the shell's `HOSTNAME`), and a value that is empty once trimmed counts as 
 
 **Guard** — `crates/roost-worker/src/runtime/bootstrap_redeem/label.rs`:
 `a_machine_name_is_registered_without_the_newline_its_source_ends_with`.
+
+### A test's `tracing` capture is empty only when the suite runs in parallel
+
+**Symptom** — a test asserting on the `tracing` lines it captured fails with `left: 0` / `right: 1`, or sees
+three events instead of four, under CI or a full `cargo test`, and passes run alone: e.g.
+`agent_conversation_restore.rs:314` in `a_partly_delivered_resume_command_is_discarded_from_the_prompt` on
+`ubuntu-latest`. `taskset -c 0,1` on the test binary reproduces it in roughly two runs of five.
+
+**Wrong** — a per-test `tracing::subscriber::set_default` / `with_default` capture in a binary where a test
+WITHOUT a capture reaches the same callsite. `tracing` caches each callsite's interest for the whole process
+the first time any thread reaches it, and while one dispatcher is registered it asks the reaching thread's
+default: the uncaptured thread answers through `NoSubscriber`, the callsite is cached `never`, and the
+capture never sees it. A `rebuild_interest_cache()` after installing narrows the window but cannot close it,
+because the uncaptured thread can reach the callsite first after the rebuild.
+
+**Right** — every thread dispatches to one process-global router that files each event under the thread
+that emitted it (`crates/roost-worker/tests/agent_prompt_support/log_capture.rs`: `enabled` is
+unconditionally true, and the per-thread decision is made in `event`), or every test that can reach the
+captured callsites is itself captured or serialized against the capture (`roost-observability`'s
+`log::facade_callsites_exclusive`).
+
+**Guard** — `crates/roost-worker/tests/agent_conversation_restore.rs`:
+`a_partly_delivered_resume_command_is_discarded_from_the_prompt`, run beside
+`a_proven_rejection_releases_the_reference_claim_and_an_ambiguous_one_keeps_it`, which reaches the same
+`warn!` uncaptured.

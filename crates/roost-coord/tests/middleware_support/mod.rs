@@ -30,7 +30,7 @@
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -43,10 +43,9 @@ use roost_coord::rpc::service::CoordinatorServiceImpl;
 use roost_coord::services::CoordServices;
 use roost_host::{CoordConfig, CoordConfigInput};
 
-mod dist;
+pub mod dist;
 
 use dist::write_dist;
-pub use dist::{BARE_WASM_PATH, WASM_BROTLI, WASM_GZIP, WASM_PATH, WASM_RAW};
 
 /// The worker's own loopback SPA, the one browser origin every coordinator
 /// admits without being told about it.
