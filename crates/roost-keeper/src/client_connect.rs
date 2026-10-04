@@ -27,10 +27,29 @@ use crate::client_io::{Shared, read_frames};
 /// and then waits — neither is an error, and both look identical to a
 /// single attempt.
 pub fn connect(endpoint: &KeeperEndpoint) -> Result<KeeperClient, ClientError> {
+    connect_retrying(endpoint, true)
+}
+
+/// `connect` for an endpoint the caller has already proven published: a
+/// refused connection on an existing socket is a dead keeper's file, and
+/// retrying it only turns "nothing there" into a timeout nobody can act on.
+/// A keeper that accepts and then says nothing is still retried and still
+/// times out, exactly as under `connect`.
+pub fn connect_unless_refused(endpoint: &KeeperEndpoint) -> Result<KeeperClient, ClientError> {
+    connect_retrying(endpoint, false)
+}
+
+fn connect_retrying(
+    endpoint: &KeeperEndpoint,
+    retry_refused: bool,
+) -> Result<KeeperClient, ClientError> {
     let deadline = Instant::now() + CONNECT_RETRY_TIMEOUT;
     loop {
         let last = match connect_once(endpoint) {
             Ok(client) => return Ok(client),
+            Err(ClientError::NotListening(path)) if !retry_refused => {
+                return Err(ClientError::NotListening(path));
+            }
             Err(err) => err,
         };
         if Instant::now() >= deadline {

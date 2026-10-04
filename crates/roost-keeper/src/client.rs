@@ -35,7 +35,9 @@ pub const SPAWN_ACK_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// Establish a connection to a keeper, retrying until the deadline, and the
 /// wait policy that deadline is expressed in.
-pub use crate::client_connect::{CONNECT_RETRY_TIMEOUT, DEADLINE_TICK, HELLO_TIMEOUT, connect};
+pub use crate::client_connect::{
+    CONNECT_RETRY_TIMEOUT, DEADLINE_TICK, HELLO_TIMEOUT, connect, connect_unless_refused,
+};
 
 /// Where a keeper listens and the capability it demands: everything a dial
 /// needs. A socket path alone is not enough to reach a keeper, so no dial

@@ -3648,3 +3648,21 @@ routable.
 
 **Guard** — `crates/roost-coord/tests/worker_frame_dispatch.rs`:
 `folder_metadata_before_the_snapshot_is_acknowledged_and_never_written`.
+
+### After a reboot the worker refuses to boot in a restart loop until the keeper socket is deleted by hand
+
+**Symptom** — every `roost worker` start logs `the keeper endpoint held the connection and said nothing` and
+then `keeper endpoint is held by a process that did not prove keeper identity … (HelloTimedOut)`; systemd
+restarts it forever; `mux-keeper.sock` exists and `mux-keeper.pid` names a process that is not running.
+
+**Wrong** — retrying a refused connect until the identity deadline. `connect` retries every error, including
+the ECONNREFUSED a dead keeper's socket file returns, for 10 s; the probe's 5 s identity deadline fires first,
+so "nothing listening" reads as a busy keeper and admission refuses rather than starting a fresh one.
+
+**Right** — the probe dials with `roost_keeper::client::connect_unless_refused`, which returns `NotListening` on
+the first refused connect and retries everything else exactly as `connect` does; `keeper_probe::probe` maps
+`NotListening` to an empty probe, so `decide` starts fresh and `cleanup_endpoint` unlinks the stale file.
+
+**Guard** — `crates/roost-worker/tests/keeper_probe_endpoint.rs`:
+`a_published_socket_nothing_listens_on_is_an_empty_endpoint`, and
+`a_published_socket_that_accepts_and_says_nothing_times_out`, which pins that a silent keeper still times out.

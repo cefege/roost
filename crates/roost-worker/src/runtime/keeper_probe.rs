@@ -17,7 +17,8 @@
 
 use std::path::Path;
 
-use roost_keeper::client::{KeeperClient, KeeperEndpoint, connect as connect_keeper};
+use roost_keeper::client::{KeeperClient, KeeperEndpoint, connect_unless_refused};
+use roost_keeper::client_error::ClientError;
 use roost_keeper::payloads::{KEEPER_PROTOCOL_VERSION, KeeperFeature};
 
 use crate::boot_keeper::{self, ChannelBinding, ProbeResult};
@@ -25,19 +26,18 @@ use crate::runtime::keeper_boot::KeeperProbe;
 
 /// Probe the keeper endpoint, and keep the connection that proved it.
 ///
-/// The deadline is the identity deadline, not the connection retry: a keeper
-/// that accepts and then says nothing is a keeper serving another worker, and
-/// retrying past the deadline would turn "busy" into "not there".
+/// Three endpoint states, two decisions. Never published: nothing to adopt.
+/// Published but refusing connections: a dead keeper's socket file — a reboot
+/// leaves one — and the same decision. Published and accepting but silent: a
+/// keeper serving another worker, which is `TimedOut`. The deadline is the
+/// identity deadline, not the connection retry, because retrying a silent
+/// keeper past it would turn "busy" into "not there".
 pub async fn probe(
     endpoint: &KeeperEndpoint,
     target_digest: &str,
 ) -> (KeeperProbe, Option<KeeperClient>) {
     if !endpoint_is_published(&endpoint.socket).await {
-        // Nothing has published the endpoint, so nothing is listening on it.
-        // Decided from the filesystem rather than from a refused connect,
-        // because a refused connect cannot be told apart from a keeper that
-        // accepted and then went quiet — and those two are different decisions
-        // with different next steps for the operator.
+        // Never published, so nothing is listening and nothing needs dialling.
         return (KeeperProbe::Probed(empty_probe()), None);
     }
     let endpoint = endpoint.clone();
@@ -45,6 +45,13 @@ pub async fn probe(
     let attempt = tokio::task::spawn_blocking(move || probe_once(&endpoint, digest));
     match tokio::time::timeout(boot_keeper::IDENTITY_DEADLINE, attempt).await {
         Ok(Ok(Ok((probe, client)))) => (KeeperProbe::Probed(probe), Some(client)),
+        Ok(Ok(Err(ClientError::NotListening(path)))) => {
+            tracing::info!(
+                endpoint = %path.display(),
+                "the keeper endpoint is published but refuses connections: a dead keeper's socket"
+            );
+            (KeeperProbe::Probed(empty_probe()), None)
+        }
         Ok(Ok(Err(error))) => {
             tracing::warn!(%error, "the keeper endpoint answered nothing usable");
             (KeeperProbe::Probed(empty_probe()), None)
@@ -88,8 +95,8 @@ fn empty_probe() -> ProbeResult {
 fn probe_once(
     endpoint: &KeeperEndpoint,
     target_digest: String,
-) -> Result<(ProbeResult, KeeperClient), roost_keeper::client_error::ClientError> {
-    let client = connect_keeper(endpoint)?;
+) -> Result<(ProbeResult, KeeperClient), ClientError> {
+    let client = connect_unless_refused(endpoint)?;
     let features = client.hello()?;
     let response = client.hello_response();
     let listed = client.list_channels()?;

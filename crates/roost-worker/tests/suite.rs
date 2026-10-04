@@ -174,6 +174,8 @@ mod keeper_pool_channels;
 mod keeper_pool_spawn;
 #[path = "keeper_probe_digest.rs"]
 mod keeper_probe_digest;
+#[path = "keeper_probe_endpoint.rs"]
+mod keeper_probe_endpoint;
 #[path = "keeper_survivor_adoption.rs"]
 mod keeper_survivor_adoption;
 #[path = "keeper_update_action.rs"]
