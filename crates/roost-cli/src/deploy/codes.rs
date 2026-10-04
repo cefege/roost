@@ -31,7 +31,8 @@ pub const USAGE: u8 = 1;
 pub use crate::command_error::REJECTED_INVOCATION;
 
 /// The target has no runtime that can run the release: not a POSIX platform,
-/// or an architecture the release was not built for.
+/// an architecture the release was not built for, or a Linux account without
+/// linger, whose user manager stops the service at logout.
 pub const NO_REMOTE_RUNTIME: u8 = 3;
 
 /// The release this deploy would ship could not be built here.

@@ -101,8 +101,9 @@ reserved meaning for a failure uses 1.
 **Exit 0 vs exit 1 on the two health commands is the contract that matters
 most**, because both are used as gates:
 
-- `roost status` exits 0 when **both** local services are loaded, the
-  coordinator answers its identity RPC, and a **declared** front door answers. An
+- `roost status` exits 0 when **both** local services are loaded, linger is on
+  for the account (Linux), the coordinator answers its identity RPC, and a
+  **declared** front door answers. An
   **undeclared** front door is a valid same-origin install and never fails the
   gate. The fleet rows are deliberately **not** part of it: a sleeping laptop is
   deferred, not broken, and a gate that turned red every night would be ignored.
@@ -127,10 +128,11 @@ roost status [--endpoint ORIGIN]
 | `--endpoint ORIGIN` | Speak about this front door instead of the one the installed service definition declares. For a machine whose unit names a URL that has since moved. |
 
 Probes, in order: both service managers (`systemctl --user is-active
-<label>.service` / `launchctl print gui/<uid>/<label>`, 5 s deadline), the
-coordinator's own `AuthCoordIdentity` POST, the declared front door's, a `HEAD /`
-against the coordinator's own listener, and a read-only read of the coordinator
-database for the worker roster.
+<label>.service` / `launchctl print gui/<uid>/<label>`, 5 s deadline), linger on
+Linux (`id -un`, then `loginctl show-user <user> -p Linger --value`, read only),
+the coordinator's own `AuthCoordIdentity` POST, the declared front door's, a
+`HEAD /` against the coordinator's own listener, and a read-only read of the
+coordinator database for the worker roster.
 
 ### Output
 
@@ -140,6 +142,7 @@ Exactly this shape, with no trailing newline:
 roost status
   ✓ coordinator service (roost3-coord)
   ✓ worker service (roost3-worker)
+  ✓ linger on (mike)
   ✓ coord reachable (git b1d1836a)
   ✓ public url https://dash.example.test
   ✓ spa: served (/srv/roost/releases/current/web)
@@ -172,6 +175,8 @@ Variants an operator will meet:
 | Worker with no capacity report | `      terminal cores: capacity unavailable` |
 | Neither service loaded | `      → roost quickstart` / `      → roost deploy localhost` |
 | Coordinator unreachable | `      → check logs: roost logs coord` |
+| Linger off (Linux) | `  ✗ linger off (<user>) — services stop at logout; run: sudo loginctl enable-linger <user>`; fails the gate like a stopped service |
+| macOS | no `linger` line |
 
 **The three remedy lines were re-pointed at v3 commands.** v2 printed
 `bash apps/coord/scripts/install.sh install`, `bun apps/roost-cli/src/main.ts
@@ -482,6 +487,13 @@ The keeper question is asked early and acted on early because its answer decides
 whether the machine may be touched at all; the definition is replaced last
 because that is the only step that is hard to put back on its own.
 
+Probing a Linux target includes linger for the ssh account, before anything is
+built or staged: when it is off the deploy runs `loginctl enable-linger <user>`,
+then `sudo -n loginctl enable-linger <user>`, re-reads, and exits **3**
+(`NO_REMOTE_RUNTIME`) with `<host>: linger is off for <user>: Roost services
+stop when you log out. Run: sudo loginctl enable-linger <user>` if it is still
+off — a worker installed there would stop at that account's logout.
+
 `--force-live` authorizes the new worker to **destroy every PTY** held by a
 keeper it cannot adopt, for that deploy only, and prints a three-line warning
 before doing it. It is one-shot on both sides: the definition carries it only
@@ -755,7 +767,10 @@ never printed and never logged** — it is minted, used, and discarded.
 
 **Exit codes.** 0 on a completed install and on a completed dry run. 1 for a
 refusal: a front door that is not a usable HTTPS origin, an installed
-definition this build cannot parse, or a service that did not come up. 2 for a
+definition this build cannot parse, a service that did not come up, or a Linux
+account whose linger is off and could not be turned on (checked before the
+first write; the message is `linger is off for <user>: Roost services stop when
+you log out. Run: sudo loginctl enable-linger <user>`). 2 for a
 usage error. The deploy codes 5–9 are not raised here: this command calls the
 install path directly rather than over ssh, so the keeper-adoption fence does
 not apply.
@@ -807,6 +822,7 @@ the bundle and rotation lines above.
 | --- | --- |
 | installed and registered | 0 |
 | either required variable missing, or the door is not a usable origin | 1 |
+| Linux account whose linger is off and could not be turned on (same message as `roost quickstart`) | 1 |
 | a dirty tree, an unpushed commit, or a checkout that is not the release it claims to be | **7** (`IDENTITY_UNPROVED`) |
 
 7 and not 1 because the remedy is different: a wrapper that retries exit 1

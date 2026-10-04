@@ -34,6 +34,7 @@ use crate::deploy::manifest::{ApplyManifest, ApplyOutcome, ApplyReport};
 use crate::deploy::release;
 use crate::deploy::release_fetch;
 use crate::deploy::release_stage;
+use crate::deploy::remote_linger;
 use crate::deploy::ssh;
 use crate::deploy::txn_session::{self, RemoteTransaction};
 use crate::deploy::{DeployArgs, apply_release::staging_dir};
@@ -75,6 +76,9 @@ pub async fn run(args: &DeployArgs) -> Result<ExitCode, CommandFailure> {
     progress(format!(">> reachability check ssh {}", args.host));
     ssh::require_reachable(&args.host).await?;
     let platform = ssh::remote_platform(&args.host).await?;
+    // Before anything is built, staged or asked of the keeper: a target whose
+    // services stop at logout is refused while it is still untouched.
+    remote_linger::require_target_linger(&args.host, platform).await?;
     let arch = ssh::remote_arch(&args.host).await?;
     let home = ssh::remote_home(&args.host).await?;
 

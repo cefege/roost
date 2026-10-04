@@ -40,6 +40,7 @@ pub mod release;
 pub mod release_fetch;
 pub mod release_stage;
 pub mod remote_commands;
+pub mod remote_linger;
 pub mod retire;
 pub mod run;
 pub mod ssh;

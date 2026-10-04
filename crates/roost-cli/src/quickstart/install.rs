@@ -23,10 +23,10 @@
 //!    proves the service came up and rolls back if it did not.
 //!
 //! Steps this file offers the CALLER, and which the caller owes in that order
-//! because this module does not do them: install the release's programs, and
-//! create the directories the service needs. Both are separate functions here
-//! rather than folded into the deploy, so a caller can be seen doing them
-//! before anything it deploys names them.
+//! because this module does not do them: require linger, install the release's
+//! programs, and create the directories the service needs. All are separate
+//! functions here rather than folded into the deploy, so a caller can be seen
+//! doing them before anything it deploys names them.
 
 use std::path::{Path, PathBuf};
 
@@ -41,6 +41,7 @@ use crate::services::deploy_transaction::{DeployOutcome, deploy_service_definiti
 use crate::services::install::{
     InstallOutcome, ensure_service_directories, install_release_programs,
 };
+use crate::services::linger::{LingerCommands, LingerOutcome, LocalLingerCommands, require_linger};
 use crate::services::logrotate::{RotationOutcome, install_rotation};
 use crate::services::service_control::PlatformServiceManager;
 use crate::services::service_spec::{ServiceRole, ServiceSpec};
@@ -156,6 +157,29 @@ pub async fn deploy_local_definition(
         )
     })?;
     Ok(outcome)
+}
+
+/// Refuse to install on a Linux host whose user manager stops at logout,
+/// turning linger on first when this account may. Called before the first
+/// write, so a refusal leaves the machine exactly as it was.
+pub async fn require_local_linger(platform: HostPlatform) -> Result<(), CommandFailure> {
+    require_linger_with(platform, &mut LocalLingerCommands).await
+}
+
+/// [`require_local_linger`] against any runner, so the refusal the install
+/// paths raise is the one a test can drive.
+pub async fn require_linger_with<R: LingerCommands>(
+    platform: HostPlatform,
+    commands: &mut R,
+) -> Result<(), CommandFailure> {
+    match require_linger(platform, commands).await {
+        Ok(LingerOutcome::Enabled { user }) => {
+            eprintln!(">> enabled linger for {user}, so Roost services outlive logout");
+            Ok(())
+        }
+        Ok(LingerOutcome::AlreadyOn { .. } | LingerOutcome::NotApplicable) => Ok(()),
+        Err(error) => Err(CommandFailure::generic(error.to_string())),
+    }
 }
 
 /// Install the release's programs into `bin_dir`, and say what changed.

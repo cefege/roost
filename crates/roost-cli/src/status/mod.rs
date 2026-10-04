@@ -4,10 +4,10 @@
 //! status/render.rs prints. Called by the crate's dispatcher and by the
 //! output-shape tests, which run it against fixtures with no services running.
 //!
-//! Exit 0 when both services are loaded, the coordinator answers, and a
-//! DECLARED front door answers; exit 1 otherwise. An undeclared front door is a
-//! valid same-origin install and never fails the gate. The fleet rows are not
-//! part of the exit code — see status/render.rs.
+//! Exit 0 when both services are loaded, linger is on (Linux), the coordinator
+//! answers, and a DECLARED front door answers; exit 1 otherwise. An undeclared
+//! front door is a valid same-origin install and never fails the gate. The fleet
+//! rows are not part of the exit code — see status/render.rs.
 
 pub mod collect;
 pub mod http_probe;

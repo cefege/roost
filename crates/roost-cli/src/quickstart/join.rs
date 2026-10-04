@@ -24,7 +24,7 @@ use crate::command_error::CommandFailure;
 use crate::deploy::apply_release::{ROOST_PROGRAM, install_environment};
 use crate::quickstart::install::{
     LocalPrograms, deploy_local_definition, install_programs, prepare_service_directories,
-    report_change, report_rotation, service_dir,
+    report_change, report_rotation, require_local_linger, service_dir,
 };
 use crate::quickstart::join_identity::join_identity;
 use crate::quickstart::web_source::install_web_bundle;
@@ -166,6 +166,7 @@ pub async fn run(env: &dyn EnvSource) -> Result<ExitCode, CommandFailure> {
     let credentials = read_credentials(env)?;
     let build_sha = join_identity(env).await?;
     let locations = install_locations(env, &credentials, platform)?;
+    require_local_linger(platform).await?;
 
     let programs = LocalPrograms::of_this_process(env)?;
     install_programs(&programs, &locations.bin_dir)?;

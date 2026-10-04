@@ -13,7 +13,7 @@
 
 use roost_cli::status::render::{ServiceLabels, render_status_report, status_report_is_healthy};
 use roost_cli::status::report::{
-    CoordStatus, EndpointStatus, SpaStatus, StatusReport, WorkerStatus,
+    CoordStatus, EndpointStatus, LingerStatus, SpaStatus, StatusReport, WorkerStatus,
 };
 use roost_protocol::keeper_update::KeeperRuntimeObservationV1;
 use roost_protocol::wire::TerminalCoreCapacityReport;
@@ -31,12 +31,16 @@ const LABELS: ServiceLabels<'static> = ServiceLabels {
 const FRONT_DOOR: &str = "https://dash.example.test";
 const SERVED_DIST: &str = "/repo/apps/web/dist";
 
-/// The healthy install the golden is taken from: both services loaded, the
-/// coordinator answering, a front door that answers, a served SPA, no workers.
+/// The healthy install the golden is taken from: both services loaded, linger
+/// on, the coordinator answering, a front door that answers, a served SPA, no
+/// workers.
 fn healthy_install() -> StatusReport {
     StatusReport {
         coord_agent_loaded: true,
         worker_agent_loaded: true,
+        linger: Some(LingerStatus::On {
+            user: "mike".to_string(),
+        }),
         coord: CoordStatus {
             reachable: true,
             git_sha: None,
@@ -176,6 +180,7 @@ fn the_whole_readout_is_the_documented_text() {
 roost status
   ✓ coordinator service (roost3-coord)
   ✓ worker service (roost3-worker)
+  ✓ linger on (mike)
   ✓ coord reachable
   ✓ public url https://dash.example.test
   ✓ spa: served (/repo/apps/web/dist)
@@ -334,4 +339,34 @@ fn a_machine_with_neither_service_loaded_names_both_remedies() {
     assert!(text.contains("  ✗ worker service (roost3-worker)"));
     assert!(text.contains("      → roost deploy localhost"));
     assert!(!status_report_is_healthy(&report));
+}
+
+#[test]
+fn linger_off_names_the_command_and_fails_the_gate_like_a_stopped_service() {
+    let report = StatusReport {
+        linger: Some(LingerStatus::Off {
+            user: "mike".to_string(),
+        }),
+        ..healthy_install()
+    };
+    assert_eq!(
+        line_containing(&report, "linger"),
+        "  ✗ linger off (mike) — services stop at logout; run: sudo loginctl enable-linger mike"
+    );
+    assert!(!status_report_is_healthy(&report));
+    assert_eq!(
+        line_containing(&healthy_install(), "linger"),
+        "  ✓ linger on (mike)"
+    );
+    assert!(status_report_is_healthy(&healthy_install()));
+}
+
+#[test]
+fn a_host_with_no_linger_concept_prints_no_linger_line_and_passes_the_gate() {
+    let report = StatusReport {
+        linger: None,
+        ..healthy_install()
+    };
+    assert!(!render(&report).contains("linger"));
+    assert!(status_report_is_healthy(&report));
 }

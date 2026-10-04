@@ -79,10 +79,29 @@ pub struct SpaStatus {
     pub web_dist_present: bool,
 }
 
+/// Whether this host's user manager outlives the account's last logout. A
+/// Linux user unit without it stops at logout, so a host whose services are
+/// loaded now and gone tomorrow morning reads as unhealthy today.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LingerStatus {
+    On {
+        user: String,
+    },
+    Off {
+        user: String,
+    },
+    /// The account could not be named, so linger could not be asked about.
+    Unreadable {
+        detail: String,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct StatusReport {
     pub coord_agent_loaded: bool,
     pub worker_agent_loaded: bool,
+    /// `None` on a platform with no linger (macOS).
+    pub linger: Option<LingerStatus>,
     pub coord: CoordStatus,
     pub workers: Vec<WorkerStatus>,
     pub endpoint: EndpointStatus,

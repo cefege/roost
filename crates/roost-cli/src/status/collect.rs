@@ -1,6 +1,6 @@
 //! Assembling `roost status`'s report: the installed service definition, the
-//! two service-manager probes, the coordinator's own listener, the front door,
-//! and the worker roster. Called by status/mod.rs, which prints it. This is the
+//! two service-manager probes, linger, the coordinator's own listener, the front
+//! door, and the worker roster. Called by status/mod.rs, which prints it. This is the
 //! only module in the status group that touches the disk, a socket, or a
 //! subprocess; everything it produces goes to status/render.rs, which is pure,
 //! so the documented output can be asserted with nothing running.
@@ -21,10 +21,13 @@ use roost_host::{
     coord_service_path, normalize_https_origin, worker_service_label,
 };
 
+use crate::services::linger::{LocalLingerCommands, linger_state};
 use crate::services::web_bundle::WEB_INDEX;
 use crate::status::http_probe::HttpProbe;
 use crate::status::inventory::{self, InventoryError};
-use crate::status::report::{CoordStatus, EndpointStatus, SpaStatus, StatusReport, WorkerStatus};
+use crate::status::report::{
+    CoordStatus, EndpointStatus, LingerStatus, SpaStatus, StatusReport, WorkerStatus,
+};
 use crate::status::service_definition::{
     InstalledEnvironment, declared_value, parse_installed_environment,
 };
@@ -150,10 +153,21 @@ pub async fn collect(context: &StatusContext<'_>) -> Result<CollectedStatus, Col
         web_dist_path,
     };
 
+    let linger = linger_state(context.platform, &mut LocalLingerCommands)
+        .await
+        .map(|state| match state {
+            Ok(state) if state.enabled => LingerStatus::On { user: state.user },
+            Ok(state) => LingerStatus::Off { user: state.user },
+            Err(error) => LingerStatus::Unreadable {
+                detail: error.to_string(),
+            },
+        });
+
     Ok(CollectedStatus {
         report: StatusReport {
             coord_agent_loaded: service_probe::service_is_loaded(&coord_label, context.platform),
             worker_agent_loaded: service_probe::service_is_loaded(&worker_label, context.platform),
+            linger,
             coord: CoordStatus {
                 reachable: identity.reachable,
                 git_sha: identity.git_sha,

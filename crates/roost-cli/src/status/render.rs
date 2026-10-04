@@ -14,7 +14,7 @@
 
 use roost_protocol::fleet_update::{WorkerUpdateInputs, worker_update_label, worker_update_state};
 
-use crate::status::report::{SpaStatus, StatusReport, WorkerStatus};
+use crate::status::report::{LingerStatus, SpaStatus, StatusReport, WorkerStatus};
 
 /// The two service identities this host's install uses. They are parameters
 /// rather than module constants because `roost-host` resolves them from the
@@ -132,6 +132,9 @@ pub fn render_status_report(
     if !report.worker_agent_loaded {
         push("      → roost deploy localhost".to_string());
     }
+    if let Some(linger) = &report.linger {
+        push(linger_line(linger));
+    }
 
     let coord_sha = report
         .coord
@@ -224,9 +227,29 @@ pub fn render_status_report(
 /// whole readout on one would make `roost status` red on a healthy install
 /// every night. GETTING_STARTED.md says the same in prose — inspect the rows
 /// rather than treating the exit status as proof the fleet converged.
+///
+/// Linger off fails it like a stopped service does: the services are loaded
+/// now and stop at the account's next logout.
 pub fn status_report_is_healthy(report: &StatusReport) -> bool {
     report.coord_agent_loaded
         && report.worker_agent_loaded
+        && report
+            .linger
+            .as_ref()
+            .is_none_or(|linger| matches!(linger, LingerStatus::On { .. }))
         && report.coord.reachable
         && (report.endpoint.public_url.is_none() || report.endpoint.answers)
+}
+
+/// One line, remedy included, because the remedy is one command and a host
+/// without linger looks healthy right up until its account logs out.
+fn linger_line(linger: &LingerStatus) -> String {
+    match linger {
+        LingerStatus::On { user } => format!("  ✓ linger on ({user})"),
+        LingerStatus::Off { user } => format!(
+            "  ✗ linger off ({user}) — services stop at logout; run: sudo loginctl enable-linger \
+             {user}"
+        ),
+        LingerStatus::Unreadable { detail } => format!("  ✗ linger unknown — {detail}"),
+    }
 }

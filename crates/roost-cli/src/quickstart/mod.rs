@@ -46,7 +46,7 @@ use crate::quickstart::endpoint::QuickstartEndpoint;
 use crate::quickstart::grant::{GrantKind, mint_host_grant};
 use crate::quickstart::install::{
     LocalPrograms, deploy_local_definition, install_programs, prepare_service_directories,
-    report_change, report_rotation, service_dir,
+    report_change, report_rotation, require_local_linger, service_dir,
 };
 use crate::quickstart::specs::{coordinator_spec, local_worker_spec};
 use crate::quickstart::web_source::install_local_bundle;
@@ -164,6 +164,9 @@ async fn install_everything(
     endpoint: QuickstartEndpoint,
     web_dist: Option<&Path>,
 ) -> Result<ExitCode, CommandFailure> {
+    // Before the first write: a refusal here leaves the machine untouched
+    // instead of holding programs for services that would die at logout.
+    require_local_linger(platform).await?;
     let bin_dir = release_bin_dir(env, platform)?;
     eprintln!(">> installing this build into {}", bin_dir.display());
 

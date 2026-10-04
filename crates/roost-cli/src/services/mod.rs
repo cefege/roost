@@ -15,6 +15,7 @@ pub mod deploy_journal;
 pub mod deploy_transaction;
 pub mod install;
 pub mod launchd_plist;
+pub mod linger;
 pub mod logrotate;
 pub mod memory_limits;
 pub mod service_argv;
