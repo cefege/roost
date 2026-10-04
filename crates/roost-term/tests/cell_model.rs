@@ -306,6 +306,16 @@ fn a_delta_carries_only_the_rows_that_changed() {
         delta.viewport_rows.iter().any(|row| row.index == 1),
         "the row that changed is in the delta"
     );
+    // Rows 2..5 were never touched, so the delta encodes none of them.
+    assert!(
+        delta.viewport_rows.iter().all(|row| row.index <= 1),
+        "only damaged rows: {:?}",
+        delta
+            .viewport_rows
+            .iter()
+            .map(|row| row.index)
+            .collect::<Vec<_>>()
+    );
     // The cursor moved too, and a cursor move is a damage: a delta that omitted
     // the row the cursor left would leave a client painting a stale cursor.
     assert_eq!(delta.cursor_row, 1);

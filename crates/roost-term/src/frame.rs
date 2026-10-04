@@ -63,7 +63,7 @@ fn scalar_state(
     full: bool,
 ) -> CellGridFrame {
     let cursor = core.cursor();
-    let mut frame = CellGridFrame {
+    CellGridFrame {
         stream_id: stream_id.to_owned(),
         grid_epoch: grid_epoch.to_owned(),
         cols: u32::from(core.cols()),
@@ -85,14 +85,7 @@ fn scalar_state(
         sb_base: 0,
         base_seq,
         seq,
-    };
-    frame.viewport_rows = (0..core.rows())
-        .map(|row| CellRow {
-            index: u32::from(row),
-            spans: viewport_row_spans(core, row, core.cols()),
-        })
-        .collect();
-    frame
+    }
 }
 
 /// A full snapshot: the whole viewport, plus the newest `tail_rows` history
@@ -110,6 +103,13 @@ pub fn grid_to_cell_frame(
     sb_dropped: u64,
 ) -> CellGridFrame {
     let mut frame = scalar_state(core, seq, grid_epoch, stream_id, sb_dropped, 0, true);
+    let cols = core.cols();
+    frame.viewport_rows = (0..core.rows())
+        .map(|row| CellRow {
+            index: u32::from(row),
+            spans: viewport_row_spans(core, row, cols),
+        })
+        .collect();
     let mono_total = frame.scrollback_total;
     let sb_base = match tail_rows {
         None => sb_dropped,
