@@ -3757,3 +3757,22 @@ captured callsites is itself captured or serialized against the capture (`roost-
 `a_partly_delivered_resume_command_is_discarded_from_the_prompt`, run beside
 `a_proven_rejection_releases_the_reference_claim_and_an_ambiguous_one_keeps_it`, which reaches the same
 `warn!` uncaptured.
+
+### A restarted worker is linked and heartbeating but every pane on it reads "Machine offline"
+
+**Symptom** — `roost status` shows the worker `✓ … last seen 2s ago`, the browser counts it out of
+`N/5 workers` and labels its sessions "Machine offline — reopen to refresh"; the coordinator log has
+`worker link: hello` for it and no `a worker snapshot crossed its readiness barrier`; the worker's
+`session-event-outbox.sqlite` keeps `git`/`pr`/`ports` rows that never leave, and once 256 are queued it logs
+`a durable row waits: the link cannot take it yet` in a hot loop.
+
+**Wrong** — dropping pre-snapshot folder metadata with no ACK. The Rust worker journals `cwd`/`git`/`pr`/`ports`
+in the same outbox as lifecycle rows and replays it one unacknowledged row at a time before its snapshot, so
+the first metadata row emitted during boot holds the snapshot back forever and the generation never becomes
+routable.
+
+**Right** — the coordinator acknowledges and drops folder metadata that arrives before the snapshot barrier
+(`worker_link::dispatch::is_folder_metadata`); the next change re-sends it.
+
+**Guard** — `crates/roost-coord/tests/worker_frame_dispatch.rs`:
+`folder_metadata_before_the_snapshot_is_acknowledged_and_never_written`.

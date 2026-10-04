@@ -441,7 +441,7 @@ No gate needs a deployed coordinator, a tailnet, or a human driving a browser.
 
 ## Failure index
 
-[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index: 133
+[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index: 134
 entries, one `###` heading each, with `**Symptom**` (the grep string),
 `**Wrong**`, `**Right**`, and `**Guard**` (the test, smoke spec or lint check
 that pins it). It is the only actively maintained institutional memory in this repo and

@@ -184,6 +184,16 @@ rc.2's importer also could not create its data directory on a fresh host (fixed 
 8. **Disable v2 services, keep its keeper**: first write a handoff note into this plan file (stage, next step, last evidence) — the integrator's own shell runs in a v2 PTY. Tell the user to resume the omp session in a v3 terminal; stop until they confirm. Then `systemctl --user disable --now roost-coord roost-worker`. Do not kill the v2 keeper; until the user ends it, `roost deploy` to this host refuses (`crates/roost-cli/src/deploy/target_evidence.rs` counts any `mux-keeper.sock` process), so this host changes only via `roost quickstart` reruns.
 9. Verify the Deepgram key, agent settings and VAPID keypair arrived (`roost api` settings reads).
 
+**Handoff, 2026-10-04 (step 7 done, step 8 waiting on the user).** `mike.roosttt.com` is served by the v3
+coordinator on ovh1 (`roost status`: `coord reachable (git d329f164)`, `public url https://mike.roosttt.com`;
+the legacy bridge proxies `127.0.0.1:4113`, backup `/tmp/legacy-bridge.bak`). Fleet: ovh1 coordinator rc.5
+built on ovh1, ovh1 worker rc.4 with keeper 139369 and its 4 channels kept; mike-m5-air, m1-us and
+mike-m1-air-old on rc.5 built on m1-old, all routable (browser shows `4/5 workers`), worker URL repointed to
+`https://mike.roosttt.com`. desktop-pc's v3 worker is stopped and disabled. A freshly paired headless browser
+painted `RC4MARKER-42` on ovh1 and `M5MARKER-42` on mike-m5-air. `mike-v3.roosttt.com` now answers 403
+`forbidden host`. Next: the user moves their omp shell to a v3 terminal, confirms a paired browser works without
+re-pairing, then step 8.
+
 ### Stage 5 — Web UI to full parity (Track U, `roost-v3-web`; runs beside Stages 2–4)
 
 Rules every slice follows:
