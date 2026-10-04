@@ -20,7 +20,7 @@ use roost_proto::{
 };
 use tokio::task::JoinHandle;
 
-use crate::terminal_direct_support::{DEVICE_FP, TestWorker, settle_until};
+use super::terminal_direct_support::{DEVICE_FP, TestWorker, settle_until};
 
 pub const LOCAL_WORKER: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 pub const REMOTE_WORKER: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";

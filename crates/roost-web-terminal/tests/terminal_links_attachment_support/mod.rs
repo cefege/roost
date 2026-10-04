@@ -15,7 +15,7 @@ use roost_web_terminal::links::{
     TerminalLinks,
 };
 
-use crate::terminal_links_support::{FakeLinkHost, Node};
+use super::terminal_links_support::{FakeLinkHost, Node};
 
 pub type Links = TerminalLinks<FakeLinkHost>;
 

@@ -41,9 +41,10 @@ impl roost_worker::runtime::credential::CredentialSource for FixedCredential {
     }
 }
 
-/// A suffix no two fixtures in this binary can share, because the tests run in
-/// parallel and a `Drop` that removed a directory another test was still using
-/// looks exactly like a missing file.
+/// A suffix no two fixtures can share. The process id separates the processes
+/// nextest runs tests in; the sequence separates fixtures inside one process.
+/// A `Drop` that removed a directory another test was still using looks
+/// exactly like a missing file.
 static FIXTURE_SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 fn unique() -> u32 {
@@ -56,7 +57,11 @@ struct Scratch(std::path::PathBuf);
 
 impl Scratch {
     fn new(name: &str) -> Self {
-        let root = std::env::temp_dir().join(format!("roost-open-session-{name}-{}", unique()));
+        let root = std::env::temp_dir().join(format!(
+            "roost-open-session-{name}-{}-{}",
+            std::process::id(),
+            unique()
+        ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch root is creatable");
         Self(root)

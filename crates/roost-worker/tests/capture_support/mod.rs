@@ -23,7 +23,7 @@ use roost_worker::session::types::SessionRecord;
 use serde_json::{Value, json};
 use tokio::io::AsyncReadExt as _;
 
-use crate::terminal_stream_support::{COLS, Harness, ROWS, SESSION, STREAM_A};
+use super::terminal_stream_support::{COLS, Harness, ROWS, SESSION, STREAM_A};
 
 pub const RECORDING_ID: &str = "cccccccc-0000-4000-8000-00000000cccc";
 pub const RIVAL_RECORDING_ID: &str = "cccccccc-0000-4000-8000-00000000cc99";

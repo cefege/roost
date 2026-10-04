@@ -17,7 +17,7 @@ use roost_worker::peer::{
 };
 use roost_worker::uplink::{RequestBudget, Uplink};
 
-use crate::fake_native::{FakeNative, offer_sdp};
+use super::fake_native::{FakeNative, offer_sdp};
 
 pub const WORKER_EPOCH: &str = "11111111-1111-4111-8111-111111111111";
 pub const DEVICE: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

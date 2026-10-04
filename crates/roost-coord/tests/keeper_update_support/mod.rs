@@ -27,12 +27,12 @@ use roost_protocol::keeper_update::{KEEPER_EMPTY_BINDING_DIGEST, KEEPER_RUNTIME_
 use roost_protocol::wire::WorkerFp;
 use roost_protocol::wire::coord_worker::CoordWorkerDownstream;
 use serde_json::{Value, json};
-// `crate::` and not a bare name: this file is a CHILD module, and a `use`
+// `super::` and not a bare name: this file is a CHILD module, and a `use`
 // declaration's first segment resolves against what is in scope in the module
 // holding the declaration — which for a child is not its siblings. The same
 // import at the test crate's root compiles bare, and so does one inside a
 // function of a root-level module. The difference is the module this sits in.
-use crate::workers_support::{DEVICE_FP, WORKER_FP, WorkersFixture};
+use super::workers_support::{DEVICE_FP, WORKER_FP, WorkersFixture};
 
 /// A keeper epoch the shared contract accepts: a version-4 uuid.
 pub const EPOCH: &str = "0f9a5c1e-3b2d-4a7f-9c11-5d6e7f801122";

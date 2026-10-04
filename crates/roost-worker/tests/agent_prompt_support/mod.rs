@@ -32,7 +32,7 @@ use roost_worker::session::table::SessionTable;
 use roost_worker::uplink::OwnerFuture;
 use tokio::task::JoinHandle;
 
-use crate::session_support::{Harness, SESSION, channel, session_id};
+use super::session_support::{Harness, SESSION, channel, session_id};
 
 pub const CHANNEL: u16 = 1;
 pub const AGENT_PID: u32 = 4_242;

@@ -2845,7 +2845,7 @@ not a citation; a commit is.
 At `c02cb9dc` the test was red by design, asking only whether anything sets
 `defer_snapshot_reap: true`. It is now **green on both conjuncts** — the flag is
 set *and* a production reader of the returned ids exists — measured
-`cargo test -p roost-coord --test event_publication` **6 passed / 0 failed**,
+`cargo nextest run -p roost-coord event_publication::` **6 passed / 0 failed**,
 against **5 passed / 1 failed** on the same binary before the fix. The assertion
 was not edited; the two value tests beside it still assert only that the ids
 come back correctly, and passing them is still not evidence about this one.

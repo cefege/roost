@@ -12,8 +12,8 @@ use roost_proto::buffa::Message;
 use roost_protocol::terminal_peer::peer::TerminalPeerPacketLane;
 use roost_worker::local_terminal::{LocalTerminalSockets, PacketSendResult, TerminalPacketPort};
 
+use super::super::terminal_stream_support::held;
 use super::case;
-use crate::terminal_stream_support::held;
 
 /// A carrier that records every frame it was handed (v2 `StubSocket`).
 #[derive(Debug)]

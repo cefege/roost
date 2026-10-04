@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "The `roost` binary: coord, worker, deploy, status, doctor and the rest"
+autotests = false
 
 [lib]
 name = "roost_cli"
@@ -58,3 +59,7 @@ tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
 
 [lints]
 workspace = true
+
+[[test]]
+name = "suite"
+path = "tests/suite.rs"

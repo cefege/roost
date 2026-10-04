@@ -6,9 +6,14 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Path and shell conventions: the host platform vocabulary, a lexical POSIX/Windows path algebra, the POSIX shell quoter, and the worker service environment entry names. No I/O."
+autotests = false
 
 [lints]
 workspace = true
 
 [dependencies]
 thiserror = { workspace = true }
+
+[[test]]
+name = "suite"
+path = "tests/suite.rs"

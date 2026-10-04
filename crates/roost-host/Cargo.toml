@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 build = "build.rs"
 description = "ROOST_* configuration, service names, durable atomic writes, and service health probes for both long-lived services. Depends on roost-protocol, roost-platform and roost-observability, and on nothing above them."
+autotests = false
 
 [dependencies]
 base64.workspace = true
@@ -16,3 +17,7 @@ roost-protocol.workspace = true
 
 [lints]
 workspace = true
+
+[[test]]
+name = "suite"
+path = "tests/suite.rs"

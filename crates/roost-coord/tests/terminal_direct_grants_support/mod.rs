@@ -16,7 +16,7 @@ use roost_coord::terminal_direct::grant_state::{
 use roost_coord::terminal_screen::pending_rpcs::PendingRpcs;
 use roost_proto::DLocalTerminalGrant;
 
-use crate::terminal_direct_support::{
+use super::terminal_direct_support::{
     TestWorker, WORKER_A, WORKER_B, allow_all, grant_request, install_worker, settle_until,
 };
 

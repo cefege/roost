@@ -33,8 +33,13 @@ jobs:
         run: cargo xtask fmt
       - name: clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - name: test
-        run: cargo test --workspace
+        run: cargo nextest run --workspace
+      - name: doctests
+        run: cargo test --workspace --doc
       - name: repo invariants
         run: cargo xtask lint
       # The vendored terminal core is not a workspace member, so its own suite

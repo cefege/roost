@@ -5,12 +5,12 @@
 mod crate_dag;
 mod design_raw;
 mod file_size;
-mod fixture_allow;
 mod fmt;
 mod lint_table;
 mod ratchet;
 mod source_tree;
 mod stdout_rule;
+mod test_suite;
 mod unreached_module;
 mod violation;
 
@@ -30,7 +30,7 @@ struct Xtask {
 #[derive(Subcommand)]
 enum Command {
     /// Run every gate: the file-size cap, the crate dependency DAG, the
-    /// stdout rule, and the design raw-value ratchet.
+    /// stdout rule, the one-test-binary rule, and the design raw-value ratchet.
     Lint(LintArgs),
     /// The formatting gate. Separate from `lint` because it shells out to
     /// cargo, and separate because `cargo fmt --all` would reformat the
@@ -48,6 +48,9 @@ struct LintArgs {
     /// Re-snapshot xtask/design-raw-baseline.json under the same rule.
     #[arg(long)]
     update_design_baseline: bool,
+    /// Regenerate every crate's tests/suite.rs from its tests/*.rs listing.
+    #[arg(long)]
+    update_test_suites: bool,
 }
 
 /// `cargo fmt --check` over the crates this repository authors.
@@ -86,7 +89,7 @@ fn lint(arguments: &LintArgs) -> ExitCode {
         stdout_rule::run(),
         lint_table::run(),
         unreached_module::run(),
-        fixture_allow::run(),
+        test_suite::run(arguments.update_test_suites),
     ] {
         checked += outcome.checked;
         violations.extend(outcome.violations);

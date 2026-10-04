@@ -26,8 +26,13 @@ const CHILD_ENV: &str = "ROOST_V3_TEST_RETIRE_CHILD";
 /// The scratch root the child resolves its own boot configuration from.
 const ROOT_ENV: &str = "ROOST_V3_TEST_RETIRE_ROOT";
 
-/// The one test the child runs, named the way `libtest` names it.
-const CHILD_TEST: &str = "retire_support::child::runs_one_activation";
+/// The libtest name of [`runs_one_activation`] in whichever module path this
+/// copy was compiled under.
+fn child_test_name() -> String {
+    let module = module_path!();
+    let within_crate = module.split_once("::").map_or(module, |(_, rest)| rest);
+    format!("{within_crate}::runs_one_activation")
+}
 
 /// The two line kinds the child prints, so nothing else on its stdout is read.
 const REPORT_TAG: &str = "roost-retire-child";
@@ -69,7 +74,7 @@ pub fn serve_in_child(root: &Path, host: HostPlatform, definition: &Definition) 
     let mut command = Command::new(std::env::current_exe().expect("a running test has a binary"));
     command
         .arg("--exact")
-        .arg(CHILD_TEST)
+        .arg(child_test_name())
         .arg("--nocapture")
         .env(CHILD_ENV, "1")
         .env(ROOT_ENV, root)

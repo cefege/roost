@@ -24,7 +24,15 @@ use serde_json::{Value, json};
 /// Set only on the child; a harness run of the child test does nothing.
 const CHILD_ENDPOINT_ENV: &str = "ROOST_V3_TEST_REPORT_CHILD_ENDPOINT";
 const CHILD_BODY_ENV: &str = "ROOST_V3_TEST_REPORT_CHILD_BODY";
-const CHILD_TEST: &str = "reports_from_a_child_process";
+
+/// The libtest name of [`reports_from_a_child_process`] in whichever module
+/// path this file was compiled under.
+fn child_test_name() -> String {
+    let module = module_path!();
+    let within_crate = module.split_once("::").map_or(module, |(_, rest)| rest);
+    format!("{within_crate}::reports_from_a_child_process")
+}
+
 const ANSWER_TAG: &str = "roost-report-answer ";
 
 #[test]
@@ -60,7 +68,12 @@ async fn rejects_a_different_peer_process_reporting_for_the_live_agent() {
     );
 
     let child = tokio::process::Command::new(std::env::current_exe().expect("a test binary path"))
-        .args(["--exact", CHILD_TEST, "--nocapture", "--test-threads=1"])
+        .args([
+            "--exact",
+            &child_test_name(),
+            "--nocapture",
+            "--test-threads=1",
+        ])
         .env(CHILD_ENDPOINT_ENV, server.path())
         .env(CHILD_BODY_ENV, report_line(&environment, json!({})))
         .stdout(Stdio::piped())

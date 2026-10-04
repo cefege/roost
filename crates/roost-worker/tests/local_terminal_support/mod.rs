@@ -44,7 +44,7 @@ use roost_worker::terminal_view::{SessionViewPort, TerminalViewOwner, TerminalVi
 use roost_worker::uplink::{UplinkReceiver, channel};
 use sha2::{Digest, Sha256};
 
-use crate::terminal_stream_support::{COLS, Harness, ROWS, SESSION, held};
+use super::terminal_stream_support::{COLS, Harness, ROWS, SESSION, held};
 
 pub const DEVICE: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 pub const TAB: &str = "tab-local";

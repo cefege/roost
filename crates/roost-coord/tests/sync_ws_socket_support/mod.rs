@@ -35,8 +35,8 @@ mod canonical_bytes;
 
 use canonical_bytes::canonical_client_bytes;
 
-use crate::ws_client_support::{Dialed, WsClient, dial, next_frame, send_binary};
-use crate::ws_credential_support::{mint_coordinator_jwt, now_secs};
+use super::ws_client_support::{Dialed, WsClient, dial, next_frame, send_binary};
+use super::ws_credential_support::{mint_coordinator_jwt, now_secs};
 
 /// How long a test waits for a frame it expects.
 pub const EXPECT: Duration = Duration::from_secs(5);

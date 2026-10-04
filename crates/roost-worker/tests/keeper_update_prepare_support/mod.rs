@@ -26,7 +26,7 @@ use roost_worker::shell_spec::ShellSpec;
 use roost_worker::uplink::OwnerFuture;
 use tokio::sync::oneshot;
 
-use crate::session_support::{Harness, SESSION};
+use super::session_support::{Harness, SESSION};
 
 pub const CHANNEL: u16 = 7;
 pub const ACTIVE: [KeeperBinding; 1] = [KeeperBinding {
@@ -76,8 +76,8 @@ impl KeeperUpdateActions for Actions {
             Ok(KeeperUpdateActionResult {
                 outcome: "preserved",
                 keeper_pid: Some(4242),
-                keeper_epoch: Some(crate::keeper_update_support::KEEPER_EPOCH.to_owned()),
-                binding_digest: Some(crate::keeper_update_support::digest_of(&ACTIVE)),
+                keeper_epoch: Some(super::keeper_update_support::KEEPER_EPOCH.to_owned()),
+                binding_digest: Some(super::keeper_update_support::digest_of(&ACTIVE)),
             })
         })
     }
@@ -177,7 +177,7 @@ pub fn journaled(sessions: &[&str]) -> DKeeperUpdatePrepare {
     DKeeperUpdatePrepare {
         request_id: "keeper-update-prepare".to_owned(),
         journaled_update_json: Some(
-            serde_json::to_string(&crate::keeper_update_support::update(true, &ACTIVE)).unwrap(),
+            serde_json::to_string(&super::keeper_update_support::update(true, &ACTIVE)).unwrap(),
         ),
         direction: "target".to_owned(),
         maintenance: false,

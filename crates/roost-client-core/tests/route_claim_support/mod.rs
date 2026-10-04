@@ -7,7 +7,7 @@
 
 use roost_client_core::sync::inbound::InputRouteResult;
 
-use crate::direct_carrier_support::*;
+use super::direct_carrier_support::*;
 
 /// The epoch every accepted claim is answered with.
 pub const ROUTE_EPOCH: &str = "route-epoch-1";

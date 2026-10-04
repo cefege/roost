@@ -11,7 +11,7 @@ use roost_protocol::cell::{CellGridFrame, CellRow};
 use roost_web_terminal::RenderElement;
 use roost_web_terminal::presentation::{LiveInteractionResult, RendererEpochSeq};
 
-use crate::render_support::{
+use super::render_support::{
     FakeEl, FakeRenderer, PAD_TOP, ROW_PX, delta_frame, mount, numbered_rows, row, sb_el, sb_rows,
     seed_held_history_to,
 };

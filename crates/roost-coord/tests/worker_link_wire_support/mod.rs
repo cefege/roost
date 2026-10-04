@@ -24,8 +24,8 @@ use roost_protocol::wire::coord_worker::{CoordWorkerDownstream, CoordWorkerUpstr
 use sqlx::AssertSqlSafe;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::ws_client_support::{Dialed, WsClient, dial, next_frame, send_binary};
-use crate::ws_credential_support::{mint_coordinator_jwt, now_secs};
+use super::ws_client_support::{Dialed, WsClient, dial, next_frame, send_binary};
+use super::ws_credential_support::{mint_coordinator_jwt, now_secs};
 
 /// How long a test waits for a frame the coordinator is expected to send.
 pub const FRAME_BOUND: Duration = Duration::from_secs(5);

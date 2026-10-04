@@ -4,7 +4,7 @@
 //! instead of restating 55 fixtures.
 #![allow(dead_code)]
 
-use crate::fixtures::{FINGERPRINT, SESSION, STREAM, channel, hello, session};
+use super::fixtures::{FINGERPRINT, SESSION, STREAM, channel, hello, session};
 use roost_protocol::wire::control::ClientControlFrame;
 use roost_protocol::wire::coord_worker::{
     AgentStatusFrame, Binary, CoordWorkerDownstream, CoordWorkerUpstream, EventAck, InputResult,

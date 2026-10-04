@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "The coordinator service: SQLite state, auth, Connect RPC handlers, the Sync and worker WebSocket links, terminal hubs, and web push. Speaks the wire, never the terminal."
+autotests = false
 
 [dependencies]
 # The push slice sends through the Web Push protocol; the maintenance slice
@@ -67,3 +68,7 @@ tokio-tungstenite = { workspace = true, features = ["connect", "handshake"] }
 
 [lints]
 workspace = true
+
+[[test]]
+name = "suite"
+path = "tests/suite.rs"

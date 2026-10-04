@@ -12,8 +12,8 @@ use roost_proto::FirehoseFrame;
 use roost_protocol::wire::{SessionEvent, SessionId};
 use sqlx::AssertSqlSafe;
 
-use crate::sync_ws_socket_support::SyncFixture;
-use crate::ws_credential_support::{mint_coordinator_jwt, now_secs};
+use super::sync_ws_socket_support::SyncFixture;
+use super::ws_credential_support::{mint_coordinator_jwt, now_secs};
 
 /// Run one statement against the fixture's database.
 pub async fn exec(fixture: &SyncFixture, sql: &str) {

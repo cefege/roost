@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Pure wire and terminal contract logic shared by every Roost v3 component"
+autotests = false
 
 [lints]
 workspace = true
@@ -24,3 +25,7 @@ serde_json = { workspace = true }
 # release, lease lapse) as the coordinator and the worker both host it; the
 # facade compiles to wasm32 and emits nothing without a subscriber.
 tracing = { workspace = true }
+
+[[test]]
+name = "suite"
+path = "tests/suite.rs"

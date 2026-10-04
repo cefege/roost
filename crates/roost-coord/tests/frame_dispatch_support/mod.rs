@@ -41,7 +41,7 @@ use roost_protocol::wire::{
     ChannelId, Session, SessionEvent, SessionId, SessionKind, SessionStatus, WorkerFp,
 };
 
-use crate::workers_support::RecordingSocket;
+use super::workers_support::RecordingSocket;
 
 /// The worker every test drives: 64 hex characters, which is what the brand
 /// accepts and therefore what a redeemed token would have minted.

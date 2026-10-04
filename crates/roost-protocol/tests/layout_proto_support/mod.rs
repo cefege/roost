@@ -20,7 +20,7 @@ use roost_protocol::proto_adapters::layout_document_proto::{
 };
 use serde_json::{Value, json};
 
-use crate::support::{SESSION_A, SESSION_B, document, leaf, split};
+use super::support::{SESSION_A, SESSION_B, document, leaf, split};
 
 pub(crate) fn typed(value: Value) -> LayoutDocumentV1 {
     parse_layout_document_v1(&value).unwrap()
