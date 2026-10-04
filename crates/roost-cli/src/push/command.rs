@@ -53,6 +53,9 @@ use crate::wall_clock::now_ms;
 pub async fn push(_args: &PushArgs) -> Result<std::process::ExitCode, CommandFailure> {
     let env = ProcessEnv::new();
     let platform = roost_host::supported_host_platform()?;
+    // Before the first change: a coordinator whose services stop at logout is
+    // refused while it is untouched, the rule quickstart, join and deploy hold.
+    crate::quickstart::install::require_local_linger(platform).await?;
     let location = coordinator::locate(&env, platform)?;
     // A definition swap a previous run left in flight is resolved before this
     // one writes a journal of its own over the top of it. The coordinator's

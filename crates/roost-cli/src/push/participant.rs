@@ -58,6 +58,9 @@ pub async fn deploy_participant(
 ) -> Result<ParticipantOutcome, CommandFailure> {
     ssh::require_reachable(&args.host).await?;
     let platform = ssh::remote_platform(&args.host).await?;
+    // Before anything is built or staged there: a target whose services stop
+    // at logout is refused while it is still untouched.
+    crate::deploy::remote_linger::require_target_linger(&args.host, platform).await?;
     let arch = ssh::remote_arch(&args.host).await?;
     let home = ssh::remote_home(&args.host).await?;
 
