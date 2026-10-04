@@ -362,8 +362,9 @@ cargo xtask fleet install --version <tag> [--host <name>]…
 
 `fleet build` builds the Linux pair here through `cargo zigbuild` against
 glibc 2.28 (one binary for every Linux host), the macOS pair on the warm
-`~/roost-build` of the Mac named in `fleet.json` (rsync, then an incremental
-cargo build), and the web bundle through `dx`, stamping the tag and HEAD's sha
+`~/roost-build` of the Mac named in `fleet.json` (HEAD's `git archive`, only
+changed files copied, then an incremental cargo build), and the web bundle
+through `dx`, stamping the tag and HEAD's sha
 into both binaries. `fleet install` copies the tag into each host's
 `versions/<tag>/`, repoints the systemd units or the LaunchAgent at it,
 restarts them coordinator first, and fails a host whose keeper pid changed.

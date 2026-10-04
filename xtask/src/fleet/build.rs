@@ -16,6 +16,29 @@ const LINUX_TARGET: &str = "x86_64-unknown-linux-gnu";
 const BINARIES: [&str; 2] = ["roost", "roost-keeper"];
 const DX_PUBLIC: &str = "target/dx/roost-web/release/web/public";
 const MAC_BUILD_DIR: &str = "roost-build";
+const MAC_INCOMING_DIR: &str = "roost-build-incoming";
+/// Run on the Mac (bash 3.2, BSD tools): copy each changed file from the
+/// incoming tree over `~/roost-build`, delete the files HEAD no longer has
+/// (never under `target/`), then drop the incoming tree.
+const MAC_SYNC_SCRIPT: &str = r#"set -euo pipefail
+SRC="$HOME/roost-build-incoming"
+DST="$HOME/roost-build"
+mkdir -p "$DST"
+cd "$SRC"
+find . -type f | LC_ALL=C sort > /tmp/roost-build-incoming.list
+while IFS= read -r file; do
+  if ! cmp -s "$file" "$DST/$file"; then
+    mkdir -p "$DST/$(dirname "$file")"
+    cp "$file" "$DST/$file"
+  fi
+done < /tmp/roost-build-incoming.list
+cd "$DST"
+find . -path ./target -prune -o -type f -print | LC_ALL=C sort > /tmp/roost-build-existing.list
+LC_ALL=C comm -13 /tmp/roost-build-incoming.list /tmp/roost-build-existing.list | while IFS= read -r file; do
+  rm -f "$file"
+done
+rm -rf "$SRC"
+"#;
 
 pub fn build_release(tag: &str, mac_host: &str) -> Result<(), String> {
     let root = source_tree::repo_root();
@@ -93,21 +116,27 @@ pub fn build_release(tag: &str, mac_host: &str) -> Result<(), String> {
         .map_err(|error| format!("cannot write manifest.json: {error}"))
 }
 
-/// rsync the tracked tree to the Mac, build there, and fetch the pair back.
-/// `.gitignore` is the rsync filter, so the Mac's own `target/` is neither
-/// overwritten nor deleted.
+/// Ship HEAD's tracked tree to the Mac, build there, and fetch the pair back.
+/// The tree lands in a scratch directory and only files whose bytes changed
+/// are copied over `~/roost-build`, so unchanged sources keep their mtimes and
+/// cargo rebuilds only what the release touched; `target/` is never touched.
 fn spawn_mac_build(tag: &str, sha: &str, host: &str, out: &Path) -> Result<Child, String> {
     let artifacts = out.join(Platform::Macos.artifact_dir());
+    let sync_script = out.join("mac-sync.sh");
+    std::fs::write(&sync_script, MAC_SYNC_SCRIPT)
+        .map_err(|error| format!("{}: {error}", sync_script.display()))?;
     let fetch: Vec<String> = BINARIES
         .iter()
         .map(|binary| format!("'{host}:{MAC_BUILD_DIR}/target/release/{binary}'"))
         .collect();
     let script = format!(
         "set -euo pipefail\n\
-         rsync -a --delete --exclude /.git --filter=':- .gitignore' ./ '{host}:{MAC_BUILD_DIR}/'\n\
+         git archive --format=tar HEAD | ssh -o BatchMode=yes '{host}' 'rm -rf ~/{MAC_INCOMING_DIR} && mkdir -p ~/{MAC_INCOMING_DIR} && tar -xf - -C ~/{MAC_INCOMING_DIR}'\n\
+         ssh -o BatchMode=yes '{host}' bash -s < '{}'\n\
          ssh -o BatchMode=yes '{host}' 'cd ~/{MAC_BUILD_DIR} && ROOST_BUILD_SHA={sha} ROOST_BUILD_VERSION={tag} ~/.cargo/bin/cargo build --release -p roost-cli -p roost-keeper'\n\
          mkdir -p '{}'\n\
-         rsync -a {} '{}/'\n",
+         scp -q {} '{}/'\n",
+        sync_script.display(),
         artifacts.display(),
         fetch.join(" "),
         artifacts.display()

@@ -52,12 +52,11 @@ pub fn install_on(host: &FleetHost, release: &BuiltRelease) -> Result<(), String
     let started = Instant::now();
     let tag = &release.tag;
     let stage = format!("{STAGE_DIR}/{tag}");
-    host.run_script("stage", &format!("set -eu\nmkdir -p \"$HOME/{stage}\"\n"))?;
-    host.mirror_into_home(
+    host.unpack_into_home(
         &release.dir.join(host.platform.artifact_dir()),
         &format!("{stage}/bin"),
     )?;
-    host.mirror_into_home(&release.dir.join("web"), &format!("{stage}/web"))?;
+    host.unpack_into_home(&release.dir.join("web"), &format!("{stage}/web"))?;
 
     let placed = host.run_script("place the release", &place_script(host.platform, tag))?;
     let mut lines = placed.lines().map(str::trim);

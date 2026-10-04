@@ -83,26 +83,56 @@ impl FleetHost {
             .map_err(|error| format!("{}: {step}: {error}", self.name))
     }
 
-    /// Mirror the CONTENTS of local `source_dir` into `remote_dir`, a path
-    /// relative to the host's home whose parent already exists, with rsync,
-    /// which every fleet host has. The remote path carries no spaces, so it
-    /// survives rsync's remote shell on every rsync the fleet runs.
-    pub fn mirror_into_home(&self, source_dir: &Path, remote_dir: &str) -> Result<(), String> {
-        let destination = match &self.ssh {
-            Some(host) => format!("{host}:{remote_dir}/"),
+    /// Replace `remote_dir` (relative to the host's home) with the contents of
+    /// local `source_dir`, streamed as a tar archive: tar is on every host,
+    /// rsync is not (this machine has none).
+    pub fn unpack_into_home(&self, source_dir: &Path, remote_dir: &str) -> Result<(), String> {
+        let unpack = format!(
+            "set -eu; rm -rf \"$HOME/{remote_dir}\"; mkdir -p \"$HOME/{remote_dir}\"; \
+             tar -xf - -C \"$HOME/{remote_dir}\""
+        );
+        let mut pack = Command::new("tar")
+            .arg("-C")
+            .arg(source_dir)
+            .args(["-cf", "-", "."])
+            .stdout(Stdio::piped())
+            .spawn()
+            .map_err(|error| format!("{}: cannot start tar: {error}", self.name))?;
+        let archive = pack
+            .stdout
+            .take()
+            .ok_or_else(|| format!("{}: tar has no stdout", self.name))?;
+        // The remote command string is run by the login shell, so `unpack`
+        // stays POSIX: bash on Linux, zsh on macOS.
+        let mut receive = match &self.ssh {
+            Some(destination) => {
+                let mut ssh = Command::new("ssh");
+                ssh.args(["-o", "BatchMode=yes", destination, &unpack]);
+                ssh
+            }
             None => {
-                let home = std::env::var("HOME").map_err(|_| "HOME is unset".to_owned())?;
-                format!("{home}/{remote_dir}/")
+                let mut bash = Command::new("bash");
+                bash.args(["-c", &unpack]);
+                bash
             }
         };
-        let mut rsync = Command::new("rsync");
-        rsync
-            .args(["-a", "--delete"])
-            .arg(format!("{}/", source_dir.display()))
-            .arg(&destination);
-        run_with_stdin(&mut rsync, "")
-            .map(|_| ())
-            .map_err(|error| format!("{}: copy to {destination}: {error}", self.name))
+        let received = receive
+            .stdin(archive)
+            .output()
+            .map_err(|error| format!("{}: cannot start the unpack: {error}", self.name))?;
+        let packed = pack
+            .wait()
+            .map_err(|error| format!("{}: tar did not finish: {error}", self.name))?;
+        if packed.success() && received.status.success() {
+            return Ok(());
+        }
+        Err(format!(
+            "{}: copy {} to ~/{remote_dir} failed (tar {packed}, unpack {}): {}",
+            self.name,
+            source_dir.display(),
+            received.status,
+            String::from_utf8_lossy(&received.stderr)
+        ))
     }
 }
 
