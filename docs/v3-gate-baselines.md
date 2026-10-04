@@ -2155,6 +2155,8 @@ skipped.
 |2026-10-03 14:05|Rust, both|`roost-box exclusive bun smoke/parity/run.ts suite --stack rust --pass both --label final`|`pin 33db0453c998 roost=006570f5e19f keeper=3908338b45e0 web=roost-web-dxh304afda2ad10308f.js,roost-web_bg-dxhb02179b03d1ad6c4.wasm features=[smoke] web-features=[smoke] profile=release`|`test-results/parity/rust-final.run.json`, archived as `gate-evidence/parity/rust-33db0453.run.json`|main 142 / 0 / 3 (673 s); serial 15 / 0 / 3 (1356 s); verdict gap 0, both-red 0, rust-skip-only 0, both-skip 6, green 157|
 |2026-10-03 14:40|Rust, both|`roost-box exclusive bun smoke/parity/run.ts suite --stack rust --pass both --label final-2`|`pin 33db0453c998`, the same artifacts|`test-results/parity/rust-final-2.run.json`|main 141 / 1 / 3 (691 s) — `terminal-predictive-echo.spec.ts:51` chromium-desktop; serial 15 / 0 / 3 (1408 s); 0 test keepers alive right after|
 |2026-10-03 15:20|Rust, main|`roost-box exclusive bun smoke/parity/run.ts suite --stack rust --pass main --label final-3`|`pin 33db0453c998`, the same artifacts|`test-results/parity/rust-final-3.run.json`|main 142 / 0 / 3 (669 s); 0 test keepers alive right after|
+|2026-10-04 01:18|Rust, both, box shared with another session|`bun smoke/parity/run.ts suite --stack rust --pass both --label perf`|`pin ae70f26de8cd roost=bb4943f52b30 keeper=5e3b2750f547 web=roost-web-dxh12f0bfe5e0d5f462.js,roost-web_bg-dxhf6a2c05f74732362.wasm features=[smoke] web-features=[smoke] profile=release`|`test-results/parity/rust-perf.run.json`|main 148 / 0 / 3 (934 s); serial 15 / 0 / 3 (1404 s); verdict gap 0, both-red 0, rust-skip-only 0, both-skip 6 (the same six), green 163|
+|2026-10-04 03:01|Rust, serial, started at load 2.27 with no rustc running|`bun smoke/parity/run.ts suite --stack rust --pass serial --label perf-serial-quiet`|`pin ae70f26de8cd`, the same artifacts|`test-results/parity/rust-perf-serial-quiet.run.json`|serial 15 / 0 / 3 (1376 s)|
 
 **The landed tree's verdict** (`run.ts verdict rust-landed.run.json
 gate-evidence/parity/bun-d5bd76c7.run.json`, keyed by file, title and project):
@@ -2334,6 +2336,17 @@ their own budgets and a silent 2× drift is easy to miss in a pass count:
 | 20k flood | 306ms wall, 0 dropped phases, 19,970 retained, 259 DOM nodes, 32 cell rows |
 | bounded deck (16 spawned) | 9 mounted slots, reveal p50 47ms, p95 57ms |
 | peer perf (Sync vs loopback vs direct) | asserted by `terminal-peer-perf.spec.ts:7` |
+
+On `ae70f26d` (brotli wasm, early-exit ICE, frame-only revision, dirty-row deltas, opt-level 3
+native), quiet serial pass above: cold driver-to-paint 516 ms, 20k flood 121 ms wall with 0
+dropped phases, 19,970 retained, 250 DOM nodes, 32 cell rows, 0 long tasks; history scroll
+(main pass) median 91 ms, max 162 ms, 4 RPCs. The wasm goes out as 1,613,266 B of brotli
+against 5,969,523 B raw. With a real STUN server (`stun:stun.l.google.com:19302`, chromium)
+`time_to_direct_ms` was 741/799/781 and the worker's negotiating→established gap 241–249 ms,
+where this host's installed worker logged 3,007–3,011 ms. The fleet "delayed worker-link"
+together-typing p50 (261–328 ms) sits above `33db0453`'s 218 ms; a serial pass on the same tree
+with those five commits reverted (`9b9817fe`, label `ab-revert`) measured 327 ms and the
+two-worker case 107/129 ms p50/p95 against 108/129 with them, so that drift is not theirs.
 
 Retained-marker bounds are worth keeping in view because they are the
 history-corruption tripwire: a Rust renderer that drops the retained floor
