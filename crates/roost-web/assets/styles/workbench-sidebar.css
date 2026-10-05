@@ -44,7 +44,7 @@ aside[data-testid="sidebar-desktop"] {
 
 .workbench-sidebar-root {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   block-size: 100%;
   min-block-size: 0;
   overflow: hidden;
@@ -433,6 +433,28 @@ aside[data-testid="sidebar-desktop"] {
   color: var(--md-sys-color-on-secondary-container);
 }
 .workbench-sidebar-actionbar__machine-option-check { flex: 0 0 auto; }
+.workbench-sidebar-textsize {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--md-space-2);
+  min-inline-size: 0;
+  padding: var(--md-space-1) var(--md-space-3);
+  background: var(--workbench-sidebar);
+  border-block-start: var(--workbench-border-width) solid var(--workbench-sidebar-border);
+}
+.workbench-sidebar-textsize__label {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-mid);
+}
+.workbench-sidebar-textsize .roost-button { color: var(--text-mid); }
+.workbench-sidebar-textsize .roost-button:hover:not(:disabled) {
+  background: var(--workbench-sidebar-row-hover);
+  color: var(--text-hi);
+}
 /* The compact drawer is full-bleed, so a stretched filled action paints a
    screen-wide slab; size it to its label and keep it under the thumb. */
 aside[data-testid="sidebar-drawer"] .workbench-sidebar-actionbar { justify-content: flex-end; }

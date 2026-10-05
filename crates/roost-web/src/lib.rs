@@ -35,6 +35,7 @@ pub mod routes;
 pub mod session_actions;
 pub mod session_naming;
 pub mod syntax_lite;
+pub mod term_font_size;
 pub mod terminal_file_link;
 pub mod terminal_href;
 pub mod theme;
@@ -151,11 +152,9 @@ fn build_core() -> ClientCore {
     // the size has to be decided HERE: the core is built before the app root
     // exists, and the first pane measures against the store it hands over.
     let defaults = roost_client_core::store::prefs::PrefDefaults {
-        term_font_px: if crate::input_nav::device_tv_mode_active(&storage) {
-            roost_client_core::store::prefs::terminal_font::TERMINAL_FONT_TV_DEFAULT_PX
-        } else {
-            roost_client_core::store::prefs::terminal_font::TERMINAL_FONT_DEFAULT_PX
-        },
+        term_font_px: crate::term_font_size::device_default_term_font_px(
+            crate::input_nav::device_tv_mode_active(&storage),
+        ),
     };
     ClientCore::new(
         Rc::new(platform::BrowserClock::new()),

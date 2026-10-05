@@ -1,6 +1,6 @@
 //! The route-stable primary sidebar: the Folders/Agents selector, the shared
 //! debounced filter, both retained panels (only the selected one visible and
-//! interactive), and the pinned new-terminal bar. Ports
+//! interactive), the terminal text-size row and the pinned new-terminal bar. Ports
 //! `apps/web/src/components/sidebar/SidebarRoot.tsx`; `AppShell` mounts it once
 //! in the desktop aside or the compact drawer. State changes dispatch
 //! `ClientEvent::Sidebar`.
@@ -16,7 +16,8 @@ use super::sidebar_agents::SidebarAgents;
 use super::sidebar_new_terminal::SidebarNewTerminal;
 use super::sidebar_search::SidebarSearch;
 use crate::components::layout::window_size::use_is_compact;
-use crate::components::md::{Button, ButtonSize, ButtonVariant, IconButton};
+use crate::components::md::{Button, ButtonSize, ButtonVariant, IconButton, IconButtonSize};
+use crate::components::term_font_stepper::TermFontStepper;
 use crate::platform::browser_platform::{PlatformShortcut, platform_shortcut_label};
 use crate::pump::use_store;
 use crate::router_state::use_navigate;
@@ -166,6 +167,10 @@ pub fn SidebarRoot() -> Element {
                     "aria-hidden": (!agents_selected).then_some("true"),
                     SidebarAgents { query: debounced() }
                 }
+            }
+            div { class: "workbench-sidebar-textsize", "data-testid": "sidebar-text-size",
+                span { class: "workbench-sidebar-textsize__label md-label-m", "Text size" }
+                TermFontStepper { test_id: "sidebar-term-font", size: IconButtonSize::IconSm }
             }
             SidebarNewTerminal {}
         }

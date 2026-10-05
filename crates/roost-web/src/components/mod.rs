@@ -40,5 +40,6 @@ pub mod rename_dialog;
 pub mod settings;
 pub mod settings_navigation;
 pub mod sidebar;
+pub mod term_font_stepper;
 pub mod terminal;
 pub mod terminal_chrome;

@@ -149,7 +149,7 @@ pub fn GatedApp() -> Element {
         let font_px = core.borrow().store().prefs.term_font_px;
         let mut applied = use_signal(|| 0_u32);
         if *applied.peek() != font_px {
-            crate::keyboard_shortcuts_dom::apply_term_font_size(font_px);
+            crate::term_font_size::apply_term_font_size(font_px);
             applied.set(font_px);
         }
     }

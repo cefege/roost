@@ -1480,7 +1480,10 @@ same callback is registered on the FontFaceSet's `loadingdone` and `loadingerror
 `dispose()`), because `ready` answers one loading epoch: a face that starts loading later settles
 through those events alone, and a failed download still means re-measuring whatever face paints.
 The renderer's own `fonts.ready` hook repairs history placeholders and bottom placement — it is a
-different responsibility, not a substitute for invalidating the lifecycle's cell cache.
+different responsibility, not a substitute for invalidating the lifecycle's cell cache. A text-size
+change is the same invalidation with no font event at all: `term_font_size::apply_term_font_size`
+raises `TERM_FONT_SIZE_EVENT` on `window`, and the pane routes it to the same callback — without
+it a larger size keeps the old column count and paints past the clip until the next reload.
 
 **Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
 

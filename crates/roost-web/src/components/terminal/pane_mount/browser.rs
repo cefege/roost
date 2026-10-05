@@ -136,6 +136,13 @@ pub(super) fn attach(shared: &Rc<PaneShared>) {
         listen(shared, target, "resize", false, |shared, _| {
             schedule_viewport(shared)
         });
+        listen(
+            shared,
+            target,
+            crate::term_font_size::TERM_FONT_SIZE_EVENT,
+            false,
+            |shared, _| on_fonts_settled(shared),
+        );
         if let Some(document) = window.document() {
             for (kind, owner) in DOCUMENT_LIFECYCLE_EVENTS {
                 let target: EventTarget = match owner {
@@ -273,12 +280,12 @@ pub(super) fn schedule_viewport(shared: &PaneShared) {
     });
 }
 
-/// A settled face changes what one cell measures, so the cached box goes
-/// whether or not anyone is watching — a hidden pane that kept its fallback
-/// advance would paint its last column past the clipped content box for the
-/// rest of its life. The PUBLISH does not: a claim measured against a layout
-/// the reader cannot see is a PTY resize against geometry they never chose,
-/// and the pane re-claims the moment it is revealed.
+/// A settled face or a new text size changes what one cell measures, so the
+/// cached box goes whether or not anyone is watching — a hidden pane that kept
+/// its old advance would paint its last column past the clipped content box
+/// for the rest of its life. The PUBLISH does not: a claim measured against a
+/// layout the reader cannot see is a PTY resize against geometry they never
+/// chose, and the pane re-claims the moment it is revealed.
 fn on_fonts_settled(shared: &PaneShared) {
     shared.cell.set(None);
     shared.renderer.borrow_mut().invalidate_row_height();

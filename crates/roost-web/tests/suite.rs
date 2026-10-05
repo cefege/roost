@@ -104,6 +104,8 @@ mod sidebar_logic;
 mod spatial_navigation;
 #[path = "store_write_subscription.rs"]
 mod store_write_subscription;
+#[path = "term_font_size.rs"]
+mod term_font_size;
 #[path = "terminal_deck_model.rs"]
 mod terminal_deck_model;
 #[path = "terminal_dom_repair.rs"]

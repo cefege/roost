@@ -379,6 +379,21 @@ button.roost-chip:disabled {
   from { opacity: 1; transform: translateY(0); }
   to { opacity: 0; transform: translateY(calc(var(--md-space-1) * -1)); }
 }
+/* ─── Terminal text-size stepper ───────────────────────────────── */
+.term-font-stepper {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--md-space-1);
+}
+/* Tabular figures and a fixed floor keep the step buttons still while the
+   value walks between one and two digits. */
+.term-font-stepper__value {
+  justify-content: center;
+  min-inline-size: var(--md-space-9);
+  padding-inline: var(--md-space-1);
+  font-variant-numeric: tabular-nums;
+}
 /* ─── Coarse pointer targets ───────────────────────────────────── */
 @media (any-pointer: coarse) {
   .roost-button,

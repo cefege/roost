@@ -8,15 +8,12 @@
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
 use roost_client_core::store::prefs::PredictMode;
-use roost_client_core::store::prefs::terminal_font::{
-    TERM_FONT_MAX_PX, TERM_FONT_MIN_PX, TERMINAL_FONT_DEFAULT_PX,
-};
 use roost_client_core::store::shell_intent::ShellIntent;
 
-use crate::components::md::{
-    Button, ButtonVariant, Card, IconButton, Select, SelectOption, SwitchRow,
-};
+use crate::components::md::{Button, ButtonVariant, Card, Select, SelectOption, SwitchRow};
+use crate::components::term_font_stepper::TermFontStepper;
 use crate::pump::use_store;
+use crate::term_font_size::{reset_term_font, use_device_default_term_font_px};
 
 /// The four predictive-echo modes, in the reader's words.
 fn predict_options() -> Vec<SelectOption> {
@@ -37,12 +34,10 @@ pub fn TerminalPane() -> Element {
     let pump = use_store();
     let core = pump.core();
     let prefs = core.borrow().store().prefs;
-    let font_px = prefs.term_font_px;
+    let default_px = use_device_default_term_font_px();
     let keyboard_pump = pump.clone();
     let mouse_pump = pump.clone();
     let copy_pump = pump.clone();
-    let smaller_pump = pump.clone();
-    let larger_pump = pump.clone();
     let reset_pump = pump.clone();
     let predict_pump = pump.clone();
     rsx! {
@@ -82,35 +77,17 @@ pub fn TerminalPane() -> Element {
             Card { title: "Text size",
                 div { style: "display: flex; flex-direction: column; gap: var(--md-space-3);",
                     div { style: "display: flex; align-items: center; gap: var(--md-space-3);",
-                        IconButton {
-                            icon: "remove",
-                            label: "Smaller terminal text",
-                            "data-testid": "term-font-smaller",
-                            disabled: font_px <= TERM_FONT_MIN_PX,
-                            onclick: move |_| smaller_pump.dispatch(ClientEvent::Shell(ShellIntent::StepTermFont { delta: -1 })),
-                        }
-                        span { class: "md-body-m", "data-testid": "term-font-size",
-                            style: "min-width: var(--md-space-9); text-align: center; color: var(--md-sys-color-on-surface);",
-                            {format!("{font_px}px")}
-                        }
-                        IconButton {
-                            icon: "add",
-                            label: "Larger terminal text",
-                            "data-testid": "term-font-larger",
-                            disabled: font_px >= TERM_FONT_MAX_PX,
-                            onclick: move |_| larger_pump.dispatch(ClientEvent::Shell(ShellIntent::StepTermFont { delta: 1 })),
-                        }
+                        TermFontStepper { test_id: "term-font" }
                         Button {
                             variant: ButtonVariant::Ghost,
                             "data-testid": "term-font-reset",
-                            onclick: move |_| reset_pump.dispatch(ClientEvent::Shell(ShellIntent::ResetTermFont {
-                                default_px: TERMINAL_FONT_DEFAULT_PX,
-                            })),
+                            disabled: prefs.term_font_px == default_px,
+                            onclick: move |_| reset_term_font(&reset_pump, default_px),
                             "Reset"
                         }
                     }
                     p { class: "md-body-s", style: "color: var(--md-sys-color-on-surface-variant); margin: 0;",
-                        "The same change is reachable from the keyboard while a terminal is on screen. Changing the text size changes how many columns and rows fit, so every open terminal re-sizes its shell to match. This device only."
+                        "The same control sits at the foot of the sidebar, and the keyboard reaches it while a terminal is on screen. Tap the size to return to the default. Changing the text size changes how many columns and rows fit, so every open terminal re-sizes its shell to match. This device only."
                     }
                 }
             }

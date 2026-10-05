@@ -6,10 +6,6 @@
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
-use roost_client_core::store::prefs::terminal_font::{
-    TERMINAL_FONT_DEFAULT_PX, TERMINAL_FONT_TV_DEFAULT_PX,
-};
-use roost_client_core::store::shell_intent::ShellIntent;
 use roost_client_core::store::sidebar::SidebarIntent;
 use wasm_bindgen::JsCast as _;
 use wasm_bindgen::closure::Closure;
@@ -21,6 +17,7 @@ use crate::platform::browser_platform::{browser_platform, shortcut_key};
 use crate::pump::Pump;
 use crate::router_state::navigate_path;
 use crate::routes::settings_pane_href;
+use crate::term_font_size::{device_default_term_font_px, reset_term_font, step_term_font};
 
 /// The settings pane ⌘, opens.
 const SETTINGS_PANE: &str = "machines";
@@ -147,18 +144,9 @@ fn perform(
         }
         KeydownAction::TogglePalette => toggle(overlays.palette),
         KeydownAction::ToggleHelp => toggle(overlays.help),
-        KeydownAction::StepTermFont(delta) => {
-            pump.dispatch(ClientEvent::Shell(ShellIntent::StepTermFont { delta }))
-        }
+        KeydownAction::StepTermFont(direction) => step_term_font(pump, direction),
         KeydownAction::ResetTermFont => {
-            let default_px = if modality.tv_mode_active() {
-                TERMINAL_FONT_TV_DEFAULT_PX
-            } else {
-                TERMINAL_FONT_DEFAULT_PX
-            };
-            pump.dispatch(ClientEvent::Shell(ShellIntent::ResetTermFont {
-                default_px,
-            }));
+            reset_term_font(pump, device_default_term_font_px(modality.tv_mode_active()))
         }
         KeydownAction::OpenSettings => navigate_path(path, settings_pane_href(SETTINGS_PANE)),
         KeydownAction::ActivateCursor => {
@@ -177,19 +165,5 @@ fn perform(
         KeydownAction::MoveCursor(delta) => {
             pump.dispatch(ClientEvent::Sidebar(SidebarIntent::MoveCursor(delta)))
         }
-    }
-}
-
-/// Push the terminal font preference onto `<html>` (`--term-font-size`) so a
-/// pane's first measurement uses it; re-applied whenever it changes.
-pub fn apply_term_font_size(px: u32) {
-    if let Some(root) = web_sys::window()
-        .and_then(|window| window.document())
-        .and_then(|document| document.document_element())
-        .and_then(|root| root.dyn_into::<HtmlElement>().ok())
-    {
-        let _ = root
-            .style()
-            .set_property("--term-font-size", &format!("{px}px"));
     }
 }
