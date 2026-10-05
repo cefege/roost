@@ -175,7 +175,15 @@ fn publish_challenge(
         return false;
     };
     replica.begin_scoped_repair(owner, now_ms);
-    signal_stall(replica, StallAction::Resync, None);
+    // A pane that keeps answering with its proof alone is idle, not stuck: only
+    // the first challenge after output is a stall worth the always-on channel.
+    let streak = replica.liveness().proved_idle_streak();
+    if streak == 0 {
+        signal_stall(replica, StallAction::Resync, None);
+    } else {
+        tracing::debug!(target: "terminal", session_id = %replica.session_id, streak,
+            "an idle pane re-proves its lane");
+    }
     true
 }
 

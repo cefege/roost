@@ -27,6 +27,9 @@ pub const TERMINAL_VIEW_SWEEP_MS: u64 = 1_000;
 pub const TERMINAL_VIEW_PARK_GRACE_MS: u64 = 2_000;
 /// How long a foreground view waits before re-probing an idle session's liveness.
 pub const TERMINAL_FOREGROUND_IDLE_PROBE_MS: u64 = 5_000;
+/// The longest a pane that keeps proving its lane without new output goes
+/// between probes: the interval doubles from the idle probe up to this.
+pub const TERMINAL_FOREGROUND_IDLE_PROBE_MAX_MS: u64 = 30_000;
 /// How long a foreground probe may take before the answer is treated as no answer.
 pub const TERMINAL_FOREGROUND_PROBE_DEADLINE_MS: u64 = 3_000;
 /// Hard product cap for distinct terminal sessions viewed from one socket.

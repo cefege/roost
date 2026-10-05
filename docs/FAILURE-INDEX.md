@@ -1246,6 +1246,24 @@ challenge → proof → escalation ladder itself. The state machine is
 `crates/roost-client-core/src/terminal/liveness.rs` and the sweep that fires it is
 `crates/roost-client-core/src/handle_sweep/liveness.rs`.
 
+### A healthy idle pane is re-baselined every probe interval
+
+**Symptom** — `foreground terminal stall action=resync` every ~5 s for a visible pane nobody is typing
+in, `checkpoint_seq` +1 per line, and a full-grid resync arriving at the coordinator on the same beat,
+for as long as the pane stays open.
+
+**Wrong** — re-arming the quiet probe from the proof frame at the fixed `TERMINAL_FOREGROUND_IDLE_PROBE_MS`.
+The proof IS an accepted frame, so it anchors the next probe one interval later, and an idle pane proves
+its lane forever. v2 had the same loop and only rate-limited the warn.
+
+**Right** — `terminal::idle_probe::IdleProbe`: each challenge answered by its proof alone doubles the next
+interval (5 → 10 → 20 → 30 s, capped at `TERMINAL_FOREGROUND_IDLE_PROBE_MAX_MS`); any frame that is not a
+proof resets it to the base. `publish_challenge` warns only for the first challenge after output and logs
+the idle re-proofs at debug. A stuck pane still gets its first challenge at the base interval.
+
+**Guard** — `crates/roost-client-core/tests/terminal_liveness_idle_backoff.rs` —
+`an_idle_pane_that_keeps_proving_its_lane_is_probed_at_growing_intervals`.
+
 ### A baseline that never arrives leaves the pane expecting a stream with nothing behind it
 
 **Symptom** — "the second viewer joined and my pane went blank", or it kept the

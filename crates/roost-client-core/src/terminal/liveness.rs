@@ -34,6 +34,7 @@ use roost_protocol::viewport::{
     TERMINAL_FOREGROUND_IDLE_PROBE_MS, TERMINAL_FOREGROUND_PROBE_DEADLINE_MS,
 };
 
+use crate::terminal::idle_probe::IdleProbe;
 use crate::terminal::token::TerminalToken;
 
 /// Where one replica's liveness repair ladder stands.
@@ -126,6 +127,8 @@ pub struct ForegroundLiveness {
     /// last retirement. Distinct from the probe's deadline because a parked pane
     /// stops accepting frames without ever having been watched.
     last_accepted_at_ms: Option<u64>,
+    /// The armed probe's anchor and the idle backoff its interval follows.
+    idle_probe: IdleProbe,
 }
 
 impl ForegroundLiveness {
@@ -195,7 +198,7 @@ impl ForegroundLiveness {
     }
 
     /// Anchor the quiet probe at `anchor_ms` — the instant of the last frame this
-    /// replica accepted.
+    /// replica accepted — for the backed-off idle interval.
     ///
     /// Re-anchoring on every frame is what makes the probe a statement about
     /// SILENCE rather than about elapsed time: a pane printing steadily pushes
@@ -204,7 +207,8 @@ impl ForegroundLiveness {
     pub fn arm_quiet(&mut self, owner: &TerminalToken, anchor_ms: u64) {
         self.owner = Some(owner.clone());
         self.last_accepted_at_ms = Some(anchor_ms);
-        self.quiet_due_ms = Some(anchor_ms.saturating_add(TERMINAL_FOREGROUND_IDLE_PROBE_MS));
+        let interval = self.idle_probe.backed_off_interval_ms();
+        self.quiet_due_ms = Some(self.idle_probe.anchor(anchor_ms, interval));
     }
 
     /// Anchor the quiet probe at `now_ms`, but only with nothing armed.
@@ -215,8 +219,7 @@ impl ForegroundLiveness {
         if self.quiet_due_ms.is_some() {
             return;
         }
-        self.owner = Some(owner.clone());
-        self.quiet_due_ms = Some(now_ms.saturating_add(TERMINAL_FOREGROUND_IDLE_PROBE_MS));
+        self.rearm_quiet(owner, now_ms);
     }
 
     /// Clear the quiet probe, returning the instant it was anchored at.
@@ -227,11 +230,8 @@ impl ForegroundLiveness {
     /// anchor comes back rather than staying behind so the lateness a re-arm
     /// reports is measured against the last frame that actually painted.
     pub fn take_quiet(&mut self) -> Option<u64> {
-        let anchor = self
-            .quiet_due_ms
-            .map(|due| due.saturating_sub(TERMINAL_FOREGROUND_IDLE_PROBE_MS));
         self.quiet_due_ms = None;
-        anchor
+        self.idle_probe.take_anchor()
     }
 
     /// Re-arm the quiet probe from `now_ms`, replacing whatever was armed.
@@ -241,7 +241,10 @@ impl ForegroundLiveness {
     /// delay at all, once per sweep, for as long as the pane stayed stuck.
     pub fn rearm_quiet(&mut self, owner: &TerminalToken, now_ms: u64) {
         self.owner = Some(owner.clone());
-        self.quiet_due_ms = Some(now_ms.saturating_add(TERMINAL_FOREGROUND_IDLE_PROBE_MS));
+        let due = self
+            .idle_probe
+            .anchor(now_ms, TERMINAL_FOREGROUND_IDLE_PROBE_MS);
+        self.quiet_due_ms = Some(due);
     }
 
     /// Whether a challenge this generation issued is still outstanding. It is
@@ -299,10 +302,22 @@ impl ForegroundLiveness {
     }
 
     /// The frame proved the lane: the challenge is answered and the deadline it
-    /// owed is discharged.
+    /// owed is discharged, and the next probe of an idle pane waits longer.
     pub fn note_proved(&mut self) {
         self.clear_challenge();
+        self.idle_probe.note_proved();
         self.outcome = RepairOutcome::Proved;
+    }
+
+    /// A frame that proved nothing arrived: the pane is producing output, so
+    /// the next silence is probed at the base interval again.
+    pub fn note_output(&mut self) {
+        self.idle_probe.note_output();
+    }
+
+    /// Challenges answered in a row by their proof alone.
+    pub fn proved_idle_streak(&self) -> u32 {
+        self.idle_probe.proved_idle_streak()
     }
 
     /// Whether an arriving chunk part is one this challenge is waiting on.
@@ -358,6 +373,7 @@ impl ForegroundLiveness {
         self.quiet_due_ms = None;
         self.owner = None;
         self.last_accepted_at_ms = None;
+        self.idle_probe.reset();
         self.clear_challenge();
         self.repair_attempts = 0;
         self.outcome = outcome;

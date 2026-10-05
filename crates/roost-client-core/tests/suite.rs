@@ -194,6 +194,8 @@ mod terminal_full_before_delta;
 mod terminal_input_route_claim;
 #[path = "terminal_input_route_loss.rs"]
 mod terminal_input_route_loss;
+#[path = "terminal_liveness_idle_backoff.rs"]
+mod terminal_liveness_idle_backoff;
 #[path = "terminal_liveness_retirement.rs"]
 mod terminal_liveness_retirement;
 #[path = "terminal_nav_pad.rs"]

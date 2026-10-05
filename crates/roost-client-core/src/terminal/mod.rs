@@ -21,6 +21,7 @@ pub mod frame_counts;
 pub mod frame_fold;
 pub mod history;
 pub mod history_backfill;
+pub mod idle_probe;
 pub mod input;
 pub mod liveness;
 pub mod renderer_deliveries;

@@ -65,6 +65,10 @@ impl TerminalSession {
         };
         if self.liveness.proves(token, stream_id, seq) {
             self.liveness.note_proved();
+        } else if !self.liveness.has_pending_challenge(token) {
+            // A frame while a challenge is pending that does not prove it
+            // re-states the checkpoint; it is not output.
+            self.liveness.note_output();
         }
         self.arm_quiet_probe(token, now_ms);
     }
