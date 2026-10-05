@@ -64,6 +64,8 @@ fn a_once_mark_stands_while_retained_and_is_recorded_again_after_eviction() {
     let other = ring.mark_once(PhaseName::FirstCellReceive, "s2", &[], clock(3.0));
     assert_eq!(repeat, first);
     assert_ne!(other, first);
+    assert!(ring.has_mark(PhaseName::FirstCellReceive, "s1"));
+    assert!(!ring.has_mark(PhaseName::FirstCellApply, "s1"));
     assert_eq!(
         ring.timeline_json(clock(0.0), None)["marks"][0]["onceKey"],
         json!("s1")
@@ -71,6 +73,7 @@ fn a_once_mark_stands_while_retained_and_is_recorded_again_after_eviction() {
     for _ in 0..PHASE_MARK_CAPACITY {
         ring.mark(PhaseName::ViewportAccept, &[], clock(4.0));
     }
+    assert!(!ring.has_mark(PhaseName::FirstCellReceive, "s1"));
     let again = ring.mark_once(PhaseName::FirstCellReceive, "s1", &[], clock(5.0));
     assert_ne!(again, first, "an evicted once mark no longer suppresses");
 }

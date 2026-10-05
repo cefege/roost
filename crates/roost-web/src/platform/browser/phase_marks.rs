@@ -109,10 +109,7 @@ impl PhaseRing {
         detail: &[(&str, Value)],
         clock: PhaseClock,
     ) -> u64 {
-        if let Some(existing) = self
-            .retained()
-            .find(|mark| mark.name == name && mark.once_key.as_deref() == Some(once_key))
-        {
+        if let Some(existing) = self.find_mark(name, once_key) {
             return existing.index;
         }
         self.write(name, Some(once_key.to_owned()), detail, clock)
@@ -161,6 +158,16 @@ impl PhaseRing {
         index
     }
 
+    /// Whether a mark for `name` and `once_key` is still in the ring.
+    pub fn has_mark(&self, name: PhaseName, once_key: &str) -> bool {
+        self.find_mark(name, once_key).is_some()
+    }
+
+    fn find_mark(&self, name: PhaseName, once_key: &str) -> Option<&PhaseMark> {
+        self.retained()
+            .find(|mark| mark.name == name && mark.once_key.as_deref() == Some(once_key))
+    }
+
     /// The retained marks, oldest first.
     fn retained(&self) -> impl Iterator<Item = &PhaseMark> {
         let first = self.writes.saturating_sub(PHASE_MARK_CAPACITY as u64);
@@ -202,12 +209,22 @@ pub fn mark_phase(name: PhaseName, detail: &[(&str, Value)]) {
     });
 }
 
-/// Record the first `name` for `once_key` in this document's ring.
+/// Record the first `name` for `once_key` in this document's ring. A repeat
+/// returns before reading the document clock, which costs a navigation-entry
+/// lookup.
 pub fn mark_phase_once(name: PhaseName, once_key: &str, detail: &[(&str, Value)]) {
+    if phase_marked_once(name, once_key) {
+        return;
+    }
     let clock = document_clock();
     DOCUMENT_PHASES.with(|ring| {
         ring.borrow_mut().mark_once(name, once_key, detail, clock);
     });
+}
+
+/// Whether this document's ring still holds the `name` mark for `once_key`.
+pub fn phase_marked_once(name: PhaseName, once_key: &str) -> bool {
+    DOCUMENT_PHASES.with(|ring| ring.borrow().has_mark(name, once_key))
 }
 
 /// Record `name` for one session, the detail every per-pane mark carries.

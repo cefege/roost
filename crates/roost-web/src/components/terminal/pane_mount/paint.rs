@@ -24,7 +24,7 @@ use crate::components::terminal::pane_status::{
     LoadingGate, PaneViewStatus, loading_notice, view_handle_status,
 };
 use crate::platform::browser::perf_counters::with_perf_counters;
-use crate::platform::browser::phase_marks::{PhaseName, mark_phase_once};
+use crate::platform::browser::phase_marks::{PhaseName, mark_phase_once, phase_marked_once};
 
 /// What one store read found for this pane.
 pub(super) struct StoreRead {
@@ -179,6 +179,9 @@ fn paint_owed(shared: &PaneShared, now: u64) {
 fn mark_painted_frame(shared: &PaneShared, canonical: &CellGridFrame, full: bool) {
     let now = now_ms() as f64;
     with_perf_counters(|counters| counters.note_frame_painted(&shared.session_id, now));
+    if phase_marked_once(PhaseName::FirstCellApply, &shared.session_id) {
+        return;
+    }
     mark_phase_once(
         PhaseName::FirstCellApply,
         &shared.session_id,
