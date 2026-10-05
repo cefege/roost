@@ -50,6 +50,7 @@ pub mod link_loop;
 pub mod link_serve;
 pub mod link_wire;
 pub mod owners;
+pub mod reachable_addr;
 pub mod reconcile;
 mod reconcile_claim;
 pub mod reconcile_gate;

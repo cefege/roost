@@ -156,6 +156,8 @@ mod global_search_page_budget;
 mod heartbeat;
 #[path = "heartbeat_host_metrics.rs"]
 mod heartbeat_host_metrics;
+#[path = "heartbeat_reachable_addr.rs"]
+mod heartbeat_reachable_addr;
 #[path = "host_folder_facts.rs"]
 mod host_folder_facts;
 #[path = "host_identity_facts.rs"]

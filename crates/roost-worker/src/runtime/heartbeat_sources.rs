@@ -1,32 +1,25 @@
 //! The production heartbeat sources and RPC: the cached host metrics, the
 //! build's git sha, the keeper runtime proof over the pool's own connection,
-//! the live tailnet name (cached five minutes), and the `WorkersHeartbeat`
+//! the reachable address (`reachable_addr`), and the `WorkersHeartbeat`
 //! Connect call under a fresh worker credential. Ports v2
-//! `apps/worker/src/transport/heartbeat.ts` (`DEFAULT_HEARTBEAT_SOURCES`,
-//! `currentReachableAddr`) and the heartbeat half of `transport/coord-client.ts`.
+//! `apps/worker/src/transport/heartbeat.ts` (`DEFAULT_HEARTBEAT_SOURCES`) and
+//! the heartbeat half of `transport/coord-client.ts`.
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use connectrpc::client::{CallOptions, HttpClient};
-use roost_host::{EnvSource as _, ProcessEnv};
-use roost_observability::clock::EventClock;
 use roost_proto::{CoordinatorServiceClient, WorkersHeartbeatRequest};
 use roost_protocol::keeper_update::KeeperRuntimeObservationV1;
 use roost_protocol::wire::HostMetrics;
 
-use super::bootstrap_redeem::ENV_REACHABLE_ADDR;
 use super::bootstrap_redeem::boot_call::AUTHORIZATION;
 use super::credential::CredentialSource;
 use super::heartbeat::{HeartbeatRpc, HeartbeatSources};
 use super::heartbeat_metrics::HostMetricsCollector;
-use crate::host::tailnet::resolve_tailnet_dns_name;
+use super::reachable_addr::ReachableAddr;
 use crate::keeper_pool::KeeperPool;
 use crate::uplink::OwnerFuture;
-
-/// v2 `REACHABLE_ADDR_TTL_MS`: a resolved name is reused for five minutes, so
-/// the 30 s beat does not fork `tailscale status` every tick.
-pub const REACHABLE_ADDR_TTL_MS: i64 = 5 * 60_000;
 
 /// The sources a worker's heartbeat reads.
 pub struct WorkerHeartbeatSources {
@@ -49,18 +42,13 @@ impl WorkerHeartbeatSources {
     pub fn new(
         metrics: HostMetricsCollector,
         git_sha: Option<String>,
-        tailscale_candidates: Vec<String>,
+        reachable: ReachableAddr,
         pool: Arc<KeeperPool>,
-        clock: Arc<dyn EventClock>,
     ) -> Self {
         Self {
             metrics: Arc::new(Mutex::new(metrics)),
             git_sha,
-            reachable: Arc::new(Mutex::new(ReachableAddr {
-                candidates: tailscale_candidates,
-                clock,
-                cached: None,
-            })),
+            reachable: Arc::new(Mutex::new(reachable)),
             pool,
         }
     }
@@ -113,46 +101,6 @@ impl HeartbeatSources for WorkerHeartbeatSources {
             .ok()
             .flatten()
         })
-    }
-}
-
-/// v2 `currentReachableAddr`: the live tailnet MagicDNS name, else the
-/// `ROOST_REACHABLE_ADDR` fallback, cached only when something resolved.
-struct ReachableAddr {
-    candidates: Vec<String>,
-    clock: Arc<dyn EventClock>,
-    cached: Option<(String, i64)>,
-}
-
-impl ReachableAddr {
-    fn current(&mut self) -> Option<String> {
-        let now_ms = self.clock.now_epoch_ms();
-        if let Some((name, at_ms)) = &self.cached
-            && now_ms - at_ms < REACHABLE_ADDR_TTL_MS
-        {
-            return Some(name.clone());
-        }
-        let mut resolved = resolve_tailnet_dns_name(&self.candidates);
-        if resolved.is_empty() {
-            resolved = ProcessEnv::new()
-                .get(ENV_REACHABLE_ADDR)
-                .unwrap_or_default();
-        }
-        // A transient empty (tailscale not up yet) must not pin an empty value
-        // for five minutes, so only a real answer refreshes the cache.
-        if resolved.is_empty() {
-            tracing::debug!("no reachable address resolved for this beat");
-            return None;
-        }
-        if self
-            .cached
-            .as_ref()
-            .is_none_or(|(name, _)| *name != resolved)
-        {
-            tracing::info!(reachable_addr = %resolved, "the reachable address was resolved");
-        }
-        self.cached = Some((resolved.clone(), now_ms));
-        Some(resolved)
     }
 }
 

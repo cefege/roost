@@ -16,6 +16,7 @@ use super::credential::WorkerKeyCredential;
 use super::heartbeat::{CapacityReader, HeartbeatConfig, HeartbeatHandle, KeeperReconciliation};
 use super::heartbeat_metrics::HostMetricsCollector;
 use super::heartbeat_sources::{CoordinatorHeartbeatRpc, WorkerHeartbeatSources};
+use super::reachable_addr::ReachableAddr;
 use super::session_stack::SessionStack;
 use crate::host::identity::static_host_identity;
 use crate::host::tailnet::tailscale_binary_candidates;
@@ -84,9 +85,11 @@ impl HeartOwners {
         let sources = WorkerHeartbeatSources::new(
             HostMetricsCollector::for_host(self.platform, Arc::clone(&self.clock)),
             build_sha(&env),
-            tailscale_binary_candidates(self.platform, &env),
+            ReachableAddr::from_tailnet(
+                tailscale_binary_candidates(self.platform, &env),
+                Arc::clone(&self.clock),
+            ),
             Arc::clone(&self.pool),
-            Arc::clone(&self.clock),
         );
         let capacity = Arc::clone(self.manager.terminal_core_capacity());
         let read_capacity: CapacityReader = Arc::new(move || capacity.snapshot());
