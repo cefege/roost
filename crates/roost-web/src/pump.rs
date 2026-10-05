@@ -85,6 +85,9 @@ struct PumpInner {
     /// another's carrier.
     #[cfg(target_arch = "wasm32")]
     peer_attempts: RefCell<crate::platform::carriers::PeerCarriers>,
+    /// The page's one door discovery, shared by every dial that needs it.
+    #[cfg(target_arch = "wasm32")]
+    door_probe: RefCell<Option<carrier_dial::DoorProbe>>,
     /// The one-shot handoffs from fleet-wide search to a pane's own find, by
     /// session. The pump owns them because they outlive the surface that asked:
     /// a reader clicks a result, the search page unmounts, and the pane that
@@ -134,6 +137,8 @@ impl Pump {
                 peer: RefCell::new(crate::platform::peer::BrowserPeer::new()),
                 #[cfg(target_arch = "wasm32")]
                 peer_attempts: RefCell::new(crate::platform::carriers::PeerCarriers::new()),
+                #[cfg(target_arch = "wasm32")]
+                door_probe: RefCell::new(None),
                 dispatching: Cell::new(false),
                 queued: RefCell::new(VecDeque::new()),
                 #[cfg(target_arch = "wasm32")]

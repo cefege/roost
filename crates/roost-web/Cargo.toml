@@ -26,6 +26,7 @@ unicode-segmentation = { workspace = true }
 js-sys = { workspace = true }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
+futures-util = { workspace = true }
 # NOT optional: the settings panes persist product state in the coordinator's own
 # saved form (the `roost.coords` address list, an MCP relay's `config_json`), so
 # the derives and the codec are product code.

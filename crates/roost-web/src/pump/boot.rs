@@ -47,7 +47,15 @@ async fn boot(pump: Pump) {
         return;
     }
     #[cfg(target_arch = "wasm32")]
-    super::browser::install(&pump);
+    {
+        super::browser::install(&pump);
+        wasm_bindgen_futures::spawn_local({
+            let pump = pump.clone();
+            async move {
+                let _ = super::carrier_dial::resolve_door(&pump).await;
+            }
+        });
+    }
     pump.dispatch(ClientEvent::DialRequested);
 }
 

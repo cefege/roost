@@ -4757,6 +4757,7 @@ name = "roost-web"
 version = "3.0.0"
 dependencies = [
  "dioxus",
+ "futures-util",
  "js-sys",
  "roost-client-core",
  "roost-platform",

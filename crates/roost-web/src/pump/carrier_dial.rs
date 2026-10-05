@@ -35,20 +35,18 @@ use roost_client_core::ClientEvent;
 use roost_client_core::TerminalTransport;
 use roost_client_core::client::carriers::DirectInbound;
 use roost_client_core::client::local::LocalTerminalGrant;
-use roost_client_core::client::local::bootstrap::LocalBootstrap;
-use roost_client_core::client::local::discovery::{
-    BrowserEnvironment, DoorAdoption, DoorPlan, LocalWorkerDoor,
-};
 use roost_client_core::client::local::door::LoopbackReady;
 
 use super::Pump;
 use super::carriers::{Pending, report_mint_refusal};
 use crate::platform::carriers::dial::{self, DialFault, DialPlan};
 use crate::platform::carriers::{CarrierFault, LoopbackConnection};
-use crate::platform::door_probe;
 use crate::platform::loopback::{LoopbackMessage, open_loopback_socket};
 
+mod door_resolution;
 mod grant_refresh;
+
+pub(super) use door_resolution::{DoorProbe, resolve_door};
 
 /// Spend one minted grant on a loopback carrier, or say why it was not spent.
 ///
@@ -136,75 +134,6 @@ async fn open(pump: &Pump, grant: &LocalTerminalGrant, worker_fp: &str, sessions
         }
         Err(error) => report_mint_refusal(pump, worker_fp, sessions, &error.to_string()),
     }
-}
-
-/// The door this page can dial, running discovery at most once.
-///
-/// Memoization is the core's, not a flag here: `DoorDiscovery` refuses a second
-/// `start` precisely so a page that mints for two panes probes once, and a
-/// second memo in the host would be a second answer to "has this page asked".
-async fn resolve_door(pump: &Pump) -> Option<LocalWorkerDoor> {
-    if let Some(door) = pump.inner.carriers.borrow().door().cloned() {
-        return Some(door);
-    }
-    let page_origin = door_probe::page_origin();
-    let served_by_worker = served_by_this_page();
-    let operator_origin = door_probe::stored_operator_origin();
-    let plan = pump
-        .inner
-        .carriers
-        .borrow_mut()
-        .doors()
-        .start(&BrowserEnvironment {
-            page_origin: page_origin.clone(),
-            served_by_worker,
-            operator_origin,
-        });
-    match plan {
-        DoorPlan::Adopting(door) => Some(door),
-        DoorPlan::Probe { origin, url } => {
-            let answer = door_probe::fetch_bootstrap(&url).await;
-            let adoption = pump.inner.carriers.borrow_mut().doors().complete_probe(
-                &origin,
-                answer.status,
-                &answer.body,
-            );
-            match adoption {
-                DoorAdoption::Adopted(door) => Some(door),
-                DoorAdoption::Absent(absence) => {
-                    tracing::info!(
-                        target: "carriers",
-                        origin = %origin,
-                        reason = absence.reason(),
-                        "no worker door on this machine; the session stays on Sync"
-                    );
-                    None
-                }
-            }
-        }
-        DoorPlan::NotProbed(absence) => {
-            tracing::info!(
-                target: "carriers",
-                reason = absence.reason(),
-                "no worker door probe on this page; the session stays on Sync"
-            );
-            None
-        }
-        // `start` refuses a second call, and this page has just made its first
-        // with no door behind it, so the adoption arrived on a path that already
-        // recorded it. The table is the answer.
-        DoorPlan::AlreadyAttempted => pump.inner.carriers.borrow().door().cloned(),
-    }
-}
-
-/// The bootstrap this page's OWN origin serves, if it serves one.
-///
-/// Read before discovery decides, because that is the fact `DoorPlan::Adopting`
-/// turns on: a page a worker served never probes anything. The answer is the
-/// one `door_probe::prime_serving_bootstrap` recorded before `dioxus::launch`,
-/// so it is final before any grant can arrive and costs no second request.
-fn served_by_this_page() -> Option<LocalBootstrap> {
-    door_probe::primed_serving_bootstrap()
 }
 
 /// Drain on the next task, never inside the callback that queued the message.
