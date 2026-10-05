@@ -30,6 +30,13 @@
      AppShell reserves only the RESTING part; the keyboard translates content. */
   --term-chat-dock-rest-offset: calc(env(safe-area-inset-bottom, 0px) + var(--md-space-2));
   --term-chat-dock-offset: calc(var(--term-chat-dock-rest-offset) + max(var(--kb-offset, 0px), 0px));
+  /* The draft field grows a line per row up to whichever cap is SMALLER: this
+     many lines, or this share of the room it floats over — the pane's height
+     for a pane dock (published as --term-chat-pane-height by the pane
+     geometry), the viewport above the soft keyboard for the portaled dock.
+     Past the cap the field scrolls inside itself. */
+  --term-chat-field-max-lines: 8;
+  --term-chat-field-room-share: 0.4;
 }
 
 /* ── container: fixed bottom-right, safe-area aware ── */
@@ -405,8 +412,10 @@
 .term-chat__ghost {
   box-sizing: border-box;
   /* Centers the first line against the control row without asserting it in a
-     comment: (44 - 24) / 2 = 10px, and it follows the type ramp. */
-  padding: calc((var(--term-chat-control) - var(--md-body-l-line)) / 2) var(--md-space-3);
+     comment: (44 - 24) / 2 = 10px, and it follows the type ramp. Named so the
+     growth cap below counts the same padding the field is laid out with. */
+  --term-chat-field-pad-block: calc((var(--term-chat-control) - var(--md-body-l-line)) / 2);
+  padding: var(--term-chat-field-pad-block) var(--md-space-3);
   font-family: var(--md-font);
   /* Floors at the iOS zoom-on-focus threshold while still following the ramp:
      a ramp step below 16px would silently reintroduce zoom-on-focus. */
@@ -423,7 +432,16 @@
   position: relative;
   z-index: 1;
   min-height: var(--term-chat-control);
-  max-height: 160px;
+  max-height: min(
+    calc(
+      var(--md-body-l-line) * var(--term-chat-field-max-lines)
+      + 2 * var(--term-chat-field-pad-block)
+    ),
+    calc(
+      var(--term-chat-pane-height, calc(100dvh - max(var(--kb-offset, 0px), 0px)))
+      * var(--term-chat-field-room-share)
+    )
+  );
   overflow-y: auto;
 }
 /* While a hypothesis is unsettled the mirror paints every glyph, so the field
@@ -599,13 +617,11 @@
   }
 
   .term-chat__box[data-compact="true"] :is(.term-chat__input, .term-chat__ghost) {
-    padding: var(--md-space-2) var(--md-space-3);
+    --term-chat-field-pad-block: var(--md-space-2);
   }
 
   .term-chat__box[data-compact="true"] .term-chat__input {
     min-height: 40px;
-    max-height: min(192px, 30dvh);
-    overflow-y: auto;
   }
 
   .term-chat__box[data-compact="true"] .term-chat__attach {

@@ -88,6 +88,16 @@ impl PaneMeasurement {
             growth_px: self.overflow_above.max(0.0).round().max(0.0) as u32,
         }
     }
+
+    /// The dock's `data-size-constrained` value: present only while the dock
+    /// is constrained. The stylesheet keys on the attribute's PRESENCE, so an
+    /// unconstrained dock writing `"false"` would still be switched into its
+    /// scrolling mode — a box laid out downward from the dock's top edge and
+    /// clipped by it, with the pane cutting off the rest.
+    #[must_use]
+    pub fn constrained_attribute(&self) -> Option<&'static str> {
+        self.constrained().then_some("true")
+    }
 }
 
 /// The live DOM readings one update needs. Implemented against a mounted dock.
@@ -210,5 +220,29 @@ mod tests {
         };
         assert!(!measured.constrained());
         assert_eq!(measured.publish().growth_px, 72);
+    }
+
+    #[test]
+    fn an_unconstrained_dock_carries_no_constrained_attribute_at_all() {
+        // The stylesheet matches `[data-size-constrained]` by presence, so a
+        // written "false" would put a growing draft into the scrolling mode.
+        let grown = PaneMeasurement {
+            box_height: 52.0 + 7.0 * 24.0,
+            field_growth: 7.0 * 24.0,
+            overflow_above: 7.0 * 24.0,
+            content_height: 52.0 + 7.0 * 24.0,
+            ..resting()
+        };
+        assert_eq!(resting().constrained_attribute(), None);
+        assert_eq!(grown.constrained_attribute(), None);
+    }
+
+    #[test]
+    fn a_constrained_dock_carries_the_attribute() {
+        let measured = PaneMeasurement {
+            content_overflows: true,
+            ..resting()
+        };
+        assert_eq!(measured.constrained_attribute(), Some("true"));
     }
 }

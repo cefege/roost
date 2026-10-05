@@ -80,18 +80,6 @@ fn enter_submits(event: &KeyboardEvent) -> bool {
     !event.is_composing() && !deck_dom::is_touch_device()
 }
 
-/// The dock's inline style: its positioning, plus the growth the pane
-/// translates its display by.
-fn dock_style(placement: ComposerPlacement, growth_px: u32) -> String {
-    if growth_px == 0 {
-        return placement.position().to_owned();
-    }
-    format!(
-        "{} --term-chat-pane-growth: {growth_px}px;",
-        placement.position()
-    )
-}
-
 /// The composer for one session.
 #[component]
 pub fn TerminalComposer(
@@ -101,13 +89,9 @@ pub fn TerminalComposer(
     #[props(default)] placement: ComposerPlacement,
     #[props(default)] pending: bool,
     on_attach: EventHandler<Vec<ChosenFile>>,
-    /// How far this dock overflowed above its resting row, in pixels. The pane
-    /// translates its display by it so a growing draft never takes rows from
-    /// the grid. Zero for the portaled dock, which is not in the pane's flow.
-    #[props(default)]
-    growth_px: u32,
-    /// Where the dock's measured growth is reported. Only the pane placement
-    /// has a flow to push.
+    /// Where the dock's measured growth above its resting row is reported, in
+    /// pixels: the pane translates its display by it so a growing draft never
+    /// takes rows from the grid. Only the pane placement has a flow to push.
     #[props(default)]
     on_measured: EventHandler<u32>,
     /// The live terminal context dictation is biased with, from whoever owns the
@@ -149,7 +133,7 @@ pub fn TerminalComposer(
         }
         if let Some(field) = field.peek().as_ref() {
             dom::auto_grow(field);
-            dom::scroll_to_end(field);
+            dom::keep_caret_visible(field);
         }
     });
 
@@ -220,7 +204,7 @@ pub fn TerminalComposer(
                 release.set(false);
                 if let Some(field) = field.peek().as_ref() {
                     dom::auto_grow(field);
-                    dom::scroll_to_end(field);
+                    dom::keep_caret_visible(field);
                 }
             });
             tracing::debug!(
@@ -292,7 +276,7 @@ pub fn TerminalComposer(
             "data-placement": placement.as_str(),
             "data-active": if active { "true" } else { "false" },
             aria_hidden: (!active).then_some("true"),
-            style: dock_style(placement, growth_px),
+            style: placement.position(),
             onmounted: move |event: MountedEvent| {
                 if let Some(handle) = dock_handle.as_ref() {
                     handle.attach(event.data(), on_measured);

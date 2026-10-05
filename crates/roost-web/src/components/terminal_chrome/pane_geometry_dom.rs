@@ -45,6 +45,9 @@ struct GeometryState {
     /// The resting height last written, so the property is only set when it
     /// moved. A style write on every frame is a layout invalidation per frame.
     published_rest: Cell<Option<i64>>,
+    /// The pane height last written as `--term-chat-pane-height`, which the
+    /// stylesheet caps the field's growth against.
+    published_pane_height: Cell<Option<i64>>,
     /// The growth last handed upward, de-duplicated for the same reason.
     published_growth: Cell<Option<u32>>,
     on_growth: RefCell<Callback<u32>>,
@@ -112,6 +115,7 @@ impl PaneDockHandle {
                 observed_pane: RefCell::new(None),
                 resize: RefCell::new(None),
                 published_rest: Cell::new(None),
+                published_pane_height: Cell::new(None),
                 published_growth: Cell::new(None),
                 on_growth: RefCell::new(Callback::new(|_| {})),
             }),
@@ -138,6 +142,7 @@ impl PaneDockHandle {
         *self.state.dock.borrow_mut() = Some(dock.clone());
         *self.state.on_growth.borrow_mut() = on_growth;
         self.state.published_rest.set(None);
+        self.state.published_pane_height.set(None);
         self.state.published_growth.set(None);
 
         // The callback is stored beside the observers, because a `Closure` must
@@ -206,21 +211,33 @@ fn update_once(state: &GeometryState) {
         state.published_rest.set(Some(rest));
         let _ = set_custom_property(&dock, "--term-chat-pane-rest", &format!("{rest}px"));
     }
+    publish_pane_height(state, &dock);
 
-    let _ = dock.set_attribute(
-        "data-size-constrained",
-        if measurement.constrained() {
-            "true"
-        } else {
-            "false"
-        },
-    );
+    let _ = match measurement.constrained_attribute() {
+        Some(value) => dock.set_attribute("data-size-constrained", value),
+        None => dock.remove_attribute("data-size-constrained"),
+    };
 
     let growth = measurement.publish().growth_px;
     if state.published_growth.get() != Some(growth) {
         state.published_growth.set(Some(growth));
         state.on_growth.borrow().call(growth);
     }
+}
+
+/// Publish the pane's height on the dock, so the field's growth cap is a share
+/// of the pane it floats over rather than of the viewport. A pane not laid out
+/// yet publishes nothing and the stylesheet's viewport fallback holds.
+fn publish_pane_height(state: &GeometryState, dock: &web_sys::Element) {
+    let Some(pane) = dock.parent_element() else {
+        return;
+    };
+    let height = pane.get_bounding_client_rect().height().round() as i64;
+    if height <= 0 || state.published_pane_height.get() == Some(height) {
+        return;
+    }
+    state.published_pane_height.set(Some(height));
+    let _ = set_custom_property(dock, "--term-chat-pane-height", &format!("{height}px"));
 }
 
 /// Point the resize observer at whatever the box and the pane are now.

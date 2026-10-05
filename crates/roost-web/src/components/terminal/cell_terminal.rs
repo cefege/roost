@@ -163,17 +163,18 @@ pub fn CellTerminal(
     // A dock that grew above its resting row pushes the terminal UP rather
     // than shrinking it. Every PTY height change makes an inline agent TUI
     // repaint, and one repainting in place duplicates the rows the shrink
-    // pushed into history — so this is a transform and never a height.
+    // pushed into history — so this is a transform and never a height. Both
+    // branches declare `transform`: Dioxus keeps an inline property the new
+    // style string omits, so a shrink would leave the display lifted.
     let dock = use_hook(PaneDockHandle::new);
     let mut growth_px = use_signal(|| 0_u32);
-    let display_style = if growth_px() == 0 {
-        format!("flex: 1; min-width: 0; min-height: 0; touch-action: {touch_action};")
-    } else {
-        format!(
-            "flex: 1; min-width: 0; min-height: 0; touch-action: {touch_action}; \
-             transform: translateY(calc(var(--term-chat-pane-growth, 0px) * -1));"
-        )
+    let lift = match growth_px() {
+        0 => "none".to_owned(),
+        growth => format!("translateY(-{growth}px)"),
     };
+    let display_style = format!(
+        "flex: 1; min-width: 0; min-height: 0; touch-action: {touch_action}; transform: {lift};"
+    );
     let compact = use_is_compact();
     let drawer_open = view.drawer_open;
     let show_viewport_composer = mounts_viewport_composer(
@@ -316,7 +317,6 @@ pub fn CellTerminal(
                     handle: handle.clone(),
                     active: in_layout == Some(true) && surface_active,
                     placement: ComposerPlacement::Pane,
-                    growth_px: growth_px(),
                     on_attach: on_attach.clone(),
                     read_context: Some(crate::components::terminal::cell_terminal_dictation::dictation_context(panes.clone(), session_id.as_str())),
                     on_measured: move |measured: u32| growth_px.set(measured),

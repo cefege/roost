@@ -2451,6 +2451,29 @@ node survives re-renders for the same reason, and two sites rely on that (`--ter
 `every_slot_placement_declares_the_same_properties_so_no_state_outlives_itself` (the parked, plain and spotlit
 placements declare one property set).
 
+### A multi-line draft leaves the desktop pane: the composer is clipped and its first lines are hidden
+
+**Symptom** — "the chat box goes out of the frame with multiple rows / it gets deformed / you can't scroll
+inside it"; on a desktop pane the pill's bottom edge and controls sit below the pane's bottom edge, the field's
+first lines are cut off at the dock's top edge, and the dock (`.term-chat__dock[data-placement="pane"]`) computes
+`overflow: auto` while carrying `data-size-constrained="false"`.
+
+**Wrong** — writing the constrained flag as `"true"`/`"false"`. The stylesheet matches
+`[data-size-constrained]` by PRESENCE (v2 used `toggleAttribute`), so every dock was in the scrolling mode: the
+box laid out downward from the dock's one-row resting height, clipped by it and by the pane. Equally wrong:
+raising the field's cap or the dock's height to make the draft fit — that takes rows from the grid, and a PTY
+height change duplicates rows into history (the "Transient chrome resizes the PTY" entry).
+
+**Right** — the attribute exists only while the dock is constrained (`PaneMeasurement::constrained_attribute`,
+removed otherwise), so the box overflows UPWARD over the display, and `CellTerminal` translates the display by
+the measured growth in literal pixels — a custom property set on the dock never reached the display, its
+sibling. The field's growth is capped in CSS at the smaller of `--term-chat-field-max-lines` lines and
+`--term-chat-field-room-share` of the room it floats over (`--term-chat-pane-height`, published by the pane
+geometry, or the viewport above the soft keyboard), and scrolls inside itself past that.
+
+**Guard** — `crates/roost-web/src/components/terminal_chrome/pane_geometry.rs`
+`an_unconstrained_dock_carries_no_constrained_attribute_at_all` and `a_constrained_dock_carries_the_attribute`.
+
 ### The wasm bundle is served uncompressed
 
 **Symptom** — a cold load that spends seconds on one request: `content-length: 59…` (≈5.9 MB) and no

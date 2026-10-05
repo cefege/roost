@@ -33,60 +33,72 @@ pub fn blur(_element: &MountedData) {}
 /// and not a copy of the last height: with a previous pixel height in place the
 /// element reports that height back as `scrollHeight` and the field can only
 /// ever grow to where it already is. The cap stays in CSS.
+///
+/// The `auto` write collapses the field to one row for the length of the
+/// measurement, which clamps its scroll offset to zero; a capped field would
+/// then come back scrolled to its first line with the caret out of view. The
+/// offset is put back once the height is.
 #[cfg(target_arch = "wasm32")]
 pub fn auto_grow(field: &MountedData) {
-    use dioxus::web::WebEventExt as _;
-    use wasm_bindgen::JsCast as _;
-
-    let Some(element) = field.try_as_web_event() else {
+    let Some(area) = text_area(field) else {
         return;
     };
-    let Some(area) = element.dyn_ref::<web_sys::HtmlTextAreaElement>() else {
-        return;
-    };
+    let scrolled = area.scroll_top();
     let style = area.style();
     if style.set_property("height", "auto").is_err() {
         return;
     }
     let content = area.scroll_height();
     let _ = style.set_property("height", &format!("{content}px"));
+    area.set_scroll_top(scrolled);
 }
 
 /// Nothing to size outside a browser.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn auto_grow(_field: &MountedData) {}
 
-/// Keep a grown field's newest text visible, and the ghost mirror painted over
-/// it in step. A programmatic write — a restored draft, a dictated tail — does
-/// not scroll the element the way a keystroke does. The mirror is reached
-/// through the field's shared parent rather than carried separately, so the two
-/// boxes cannot come to be scrolled independently of each other.
+/// Keep a capped field's caret line in view, and the ghost mirror painted
+/// over it in step. A programmatic write — a restored draft, a dictated tail —
+/// leaves the caret at the end without scrolling the element the way a
+/// keystroke does, so a caret at the end pins the field to its last line. A
+/// caret anywhere else was put there by the reader, who scrolled to it, and
+/// that scroll is left alone: pinning it to the end would yank an edit in
+/// the middle of a long draft out of view. The mirror is reached through the
+/// field's shared parent rather than carried separately, so the two boxes
+/// cannot come to be scrolled independently of each other.
 #[cfg(target_arch = "wasm32")]
-pub fn scroll_to_end(field: &MountedData) {
-    use dioxus::web::WebEventExt as _;
-    use wasm_bindgen::JsCast as _;
-
-    let Some(element) = field.try_as_web_event() else {
+pub fn keep_caret_visible(field: &MountedData) {
+    let Some(area) = text_area(field) else {
         return;
     };
-    let Some(area) = element.dyn_ref::<web_sys::HtmlTextAreaElement>() else {
-        return;
-    };
-    let offset = area.scroll_height() as i32;
-    area.set_scroll_top(offset);
-    let mirror = element
+    let length = area.value().encode_utf16().count();
+    let caret = area.selection_end().ok().flatten().map(|end| end as usize);
+    if caret.is_none_or(|end| end >= length) {
+        area.set_scroll_top(area.scroll_height());
+    }
+    let offset = area.scroll_top();
+    let mirror = area
         .parent_element()
         .and_then(|parent| parent.query_selector(".term-chat__ghost").ok().flatten());
-    if let Some(mirror) = mirror {
-        if let Some(mirror) = mirror.dyn_ref::<web_sys::HtmlElement>() {
-            mirror.set_scroll_top(offset);
-        }
+    if let Some(mirror) = mirror
+        && let Some(mirror) = mirror.dyn_ref::<web_sys::HtmlElement>()
+    {
+        mirror.set_scroll_top(offset);
     }
 }
 
 /// Nothing to scroll outside a browser.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn scroll_to_end(_field: &MountedData) {}
+pub fn keep_caret_visible(_field: &MountedData) {}
+
+/// The textarea behind a mounted field, or `None` for any other element.
+#[cfg(target_arch = "wasm32")]
+fn text_area(field: &MountedData) -> Option<web_sys::HtmlTextAreaElement> {
+    use dioxus::web::WebEventExt as _;
+
+    let element: web_sys::Element = field.try_as_web_event()?;
+    element.dyn_into::<web_sys::HtmlTextAreaElement>().ok()
+}
 
 /// Open a file input, from inside the gesture that asked for it.
 ///
