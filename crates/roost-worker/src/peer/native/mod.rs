@@ -8,6 +8,7 @@
 mod driver;
 mod factory;
 mod gather;
+mod gather_cache;
 mod host_addresses;
 mod peer_handle;
 mod str0m_peer;

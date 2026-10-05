@@ -18,8 +18,9 @@ use tokio::net::UdpSocket;
 use tokio::task::JoinSet;
 use tokio::time::{Instant, timeout_at};
 
+use super::gather_cache::GatherCache;
 use super::stun::{TransactionId, binding_request, mapped_address, new_transaction_id};
-use super::{NativePeerConfig, NativePeerError, host_addresses};
+use super::{NativePeerConfig, NativePeerError};
 
 /// RFC 5389's default STUN port, for a `stun:host` URL without one.
 const DEFAULT_STUN_PORT: u16 = 3478;
@@ -40,13 +41,16 @@ pub(super) struct Gathered {
     pub(super) candidates: Vec<Candidate>,
 }
 
+/// `cache` answers the host-address walk and the STUN lookup for every peer
+/// the factory creates, so a burst of offers pays for each once.
 pub(super) async fn gather(
     config: &NativePeerConfig,
+    cache: &GatherCache,
     deadline: Instant,
 ) -> Result<Gathered, NativePeerError> {
     let addresses = match config.bind_address {
         Some(address) => vec![address],
-        None => host_addresses::host_addresses().await,
+        None => cache.host_addresses().await,
     };
     let mut sockets = Vec::with_capacity(addresses.len());
     let mut candidates = Vec::with_capacity(addresses.len());
@@ -70,7 +74,7 @@ pub(super) async fn gather(
         return Err(NativePeerError::NoLocalAddress);
     }
     let started = Instant::now();
-    let reflexive = reflexive_candidates(&sockets, &config.stun_urls, deadline).await;
+    let reflexive = reflexive_candidates(&sockets, &config.stun_urls, cache, deadline).await;
     candidates.extend(reflexive);
     tracing::debug!(
         peer = %config.name,
@@ -103,12 +107,13 @@ async fn bind_in_range(address: IpAddr, range: Option<(u16, u16)>) -> Option<Udp
 async fn reflexive_candidates(
     sockets: &[Arc<UdpSocket>],
     stun_urls: &[String],
+    cache: &GatherCache,
     deadline: Instant,
 ) -> Vec<Candidate> {
     if stun_urls.is_empty() {
         return Vec::new();
     }
-    let servers = resolve_servers(stun_urls, deadline).await;
+    let servers = cache.servers(stun_urls, deadline).await;
     let probe_deadline = deadline.min(Instant::now() + STUN_GIVE_UP);
     let mut probes = JoinSet::new();
     for socket in sockets {
@@ -157,7 +162,7 @@ async fn reflexive_candidates(
 }
 
 /// Every address a STUN URL's host resolves to before the deadline.
-async fn resolve_servers(stun_urls: &[String], deadline: Instant) -> Vec<SocketAddr> {
+pub(super) async fn resolve_servers(stun_urls: &[String], deadline: Instant) -> Vec<SocketAddr> {
     let mut servers = Vec::new();
     for url in stun_urls {
         let Some((host, port)) = stun_host_port(url) else {
@@ -242,6 +247,7 @@ mod tests {
 
     use tokio::time::Instant;
 
+    use super::super::gather_cache::GatherCache;
     use super::super::{NativePeerConfig, host_addresses};
     use super::{gather, stun_host_port};
 
@@ -267,9 +273,13 @@ mod tests {
             channels: Vec::new(),
         };
         let started = Instant::now();
-        let gathered = gather(&config, started + Duration::from_secs(3))
-            .await
-            .unwrap();
+        let gathered = gather(
+            &config,
+            &GatherCache::default(),
+            started + Duration::from_secs(3),
+        )
+        .await
+        .unwrap();
         let elapsed = started.elapsed();
         assert!(
             elapsed < Duration::from_millis(1_500),

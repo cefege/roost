@@ -12,6 +12,7 @@ use str0m::change::SdpOffer;
 use str0m::{Candidate, Rtc};
 
 use super::gather::gather;
+use super::gather_cache::GatherCache;
 use super::str0m_peer::{PeerIo, PeerShared};
 use super::{NativeFingerprint, NativePeer, NativePeerError, driver};
 use crate::uplink::OwnerFuture;
@@ -19,11 +20,16 @@ use crate::uplink::OwnerFuture;
 #[derive(Debug)]
 pub(super) struct Str0mPeer {
     shared: Arc<PeerShared>,
+    /// The factory's cache, shared by every peer it created.
+    gather_cache: Arc<GatherCache>,
 }
 
 impl Str0mPeer {
-    pub(super) fn new(shared: Arc<PeerShared>) -> Self {
-        Self { shared }
+    pub(super) fn new(shared: Arc<PeerShared>, gather_cache: Arc<GatherCache>) -> Self {
+        Self {
+            shared,
+            gather_cache,
+        }
     }
 }
 
@@ -38,6 +44,7 @@ impl NativePeer for Str0mPeer {
         gathering_deadline: Duration,
     ) -> OwnerFuture<Result<String, NativePeerError>> {
         let shared = Arc::clone(&self.shared);
+        let gather_cache = Arc::clone(&self.gather_cache);
         Box::pin(async move {
             let offer_received = std::time::Instant::now();
             let offer =
@@ -54,7 +61,7 @@ impl NativePeer for Str0mPeer {
             }
             let deadline = tokio::time::Instant::now() + gathering_deadline;
             let gather_started = std::time::Instant::now();
-            let gathered = gather(&shared.config, deadline).await?;
+            let gathered = gather(&shared.config, &gather_cache, deadline).await?;
             let gather_ms = elapsed_ms(gather_started);
             let answer = {
                 let mut io = shared.lock();
