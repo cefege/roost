@@ -220,6 +220,8 @@ mod terminal_peer_route_timing;
 mod terminal_peer_trait;
 #[path = "terminal_renderer_deliveries.rs"]
 mod terminal_renderer_deliveries;
+#[path = "terminal_repair_on_refusal.rs"]
+mod terminal_repair_on_refusal;
 #[path = "terminal_smoke_faults.rs"]
 mod terminal_smoke_faults;
 #[path = "terminal_transport_indicator.rs"]

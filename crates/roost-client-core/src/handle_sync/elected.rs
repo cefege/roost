@@ -11,6 +11,8 @@
 //! Contract: `protocol/spec/direct-terminal.md`; the reasons are in
 //! `docs/phase4-client-contract.md` §8.
 
+use crate::effect::Effect;
+use crate::handle_sweep::request_repair_if_due;
 use crate::store::Store;
 use crate::store::frames_revision::PaintedMark;
 use crate::terminal::session::{Admission, TerminalSession};
@@ -22,23 +24,29 @@ use crate::terminal::token::TerminalToken;
 /// — the same object the commit installed, fenced to the generation the frames
 /// arrive on. No promotion happens here and none is needed: the fences already
 /// ran, and a frame that arrives on a route the registry does not present is
-/// refused by the replica's own generation check.
+/// refused by the replica's own generation check. A refusal that latched a gap
+/// asks for its baseline in this dispatch; the sweep only retries it.
 pub(super) fn fold_into_elected<F>(
     store: &mut Store,
     session_id: &str,
     token: &TerminalToken,
+    now_ms: u64,
+    out: &mut Vec<Effect>,
     fold: F,
 ) where
     F: FnOnce(&mut TerminalSession) -> Admission,
 {
-    let (before, after) = {
+    let (before, admission, after) = {
         let Some(replica) = store.terminal_mut_if_present(session_id) else {
             return;
         };
         replica.bind_generation(token);
         let before = PaintedMark::of(replica);
-        let _ = fold(replica);
-        (before, PaintedMark::of(replica))
+        let admission = fold(replica);
+        (before, admission, PaintedMark::of(replica))
     };
     store.note_fold(before, after);
+    if matches!(admission, Admission::Refused { latched: true, .. }) {
+        request_repair_if_due(store, session_id, now_ms, out);
+    }
 }

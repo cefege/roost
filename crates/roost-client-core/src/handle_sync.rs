@@ -164,7 +164,7 @@ pub fn handle_direct_frame(
     match frame {
         SyncFrame::CellGrid { frame: cell, .. } => {
             if elected {
-                elected::fold_into_elected(store, &session_id, token, |replica| {
+                elected::fold_into_elected(store, &session_id, token, now_ms, out, |replica| {
                     replica.admit_frame(cell, false, token, now_ms)
                 });
             } else {
@@ -175,7 +175,7 @@ pub fn handle_direct_frame(
         }
         SyncFrame::CellGridChunk { chunk, .. } => {
             if elected {
-                elected::fold_into_elected(store, &session_id, token, |replica| {
+                elected::fold_into_elected(store, &session_id, token, now_ms, out, |replica| {
                     replica.admit_chunk(chunk, token, now_ms)
                 });
             } else {

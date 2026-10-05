@@ -18,8 +18,9 @@
 //!   one write;
 //! - the chunked-snapshot stall, at `roost_protocol`'s shared boundary, because a
 //!   partial that has not advanced will never complete;
-//! - the resync retry, once a heartbeat per generation, so one gap is one request
-//!   rather than a storm;
+//! - the resync RETRY, once a heartbeat per generation, so one gap is one
+//!   request rather than a storm — the first request goes out from the refusal
+//!   that latched it;
 //! - the candidate baseline deadline, so a staged direct attempt that never
 //!   answers releases the views it published;
 //! - the view heartbeat, so a pane that has gone quiet releases the session's

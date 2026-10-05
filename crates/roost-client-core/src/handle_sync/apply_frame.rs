@@ -12,6 +12,7 @@ use crate::effect::Effect;
 use crate::store::Store;
 use crate::store::frames_revision::PaintedMark;
 use crate::sync::{SyncDomain, SyncFrame};
+use crate::terminal::session::Admission;
 use crate::terminal::smoke_faults::FaultedFrameKind;
 use crate::terminal::token::TerminalTransport;
 
@@ -154,13 +155,16 @@ pub(super) fn apply_frame(
             };
             replica.bind_generation(&token);
             let before = PaintedMark::of(replica);
-            let _ = replica.admit_frame(cell, false, &token, now_ms);
+            let admission = replica.admit_frame(cell, false, &token, now_ms);
             // A host learns that a pane changed from the store's frame counter
             // and reads how far the replica moved from `frame_revision`, so the
             // counter has to move too — otherwise the notification that would
             // tell it to look never arrives.
             let after = PaintedMark::of(replica);
             store.note_fold(before, after);
+            if matches!(admission, Admission::Refused { latched: true, .. }) {
+                crate::handle_sweep::request_repair_if_due(store, session_id, now_ms, out);
+            }
         }
         SyncFrame::CellGridChunk { session_id, chunk } => {
             let Some(token) = store.sync.terminal_token() else {
@@ -186,9 +190,12 @@ pub(super) fn apply_frame(
             };
             replica.bind_generation(&token);
             let before = PaintedMark::of(replica);
-            let _ = replica.admit_chunk(chunk, &token, now_ms);
+            let admission = replica.admit_chunk(chunk, &token, now_ms);
             let after = PaintedMark::of(replica);
             store.note_fold(before, after);
+            if matches!(admission, Admission::Refused { latched: true, .. }) {
+                crate::handle_sweep::request_repair_if_due(store, session_id, now_ms, out);
+            }
         }
         SyncFrame::ViewState { .. } | SyncFrame::InputResult { .. } => {
             crate::handle_terminal::handle_correlated_result(store, frame, now_ms, out);

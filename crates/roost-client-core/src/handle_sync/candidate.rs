@@ -49,20 +49,30 @@ pub(super) fn fold_into_candidate<F>(
     let Some((attempt_id, attempt_token)) = fenced_attempt(store, session_id, token) else {
         return;
     };
-    let (painted_before, painted_after, baseline_ready) = {
+    let (painted_before, painted_after, baseline_ready, admission) = {
         let Some(replica) = store.routes.staged_replica_mut(session_id) else {
             return;
         };
         replica.bind_generation(token);
         let before = replica.frame_revision();
-        let _ = fold(replica);
-        (before, replica.frame_revision(), replica.baseline_ready())
+        let admission = fold(replica);
+        (
+            before,
+            replica.frame_revision(),
+            replica.baseline_ready(),
+            admission,
+        )
     };
     store
         .routes
         .mark_candidate_baseline(session_id, baseline_ready);
     if painted_after != painted_before {
         store.note_change();
+    }
+    // Before the baseline check: a candidate whose first delta is refused asks
+    // at once rather than at the next sweep.
+    if matches!(admission, Admission::Refused { latched: true, .. }) {
+        request_candidate_repair_if_due(store, session_id, now_ms, out);
     }
     if !baseline_ready || !every_view_acknowledged(store, session_id) {
         return;
