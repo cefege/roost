@@ -82,6 +82,8 @@ mod perf_counters;
 mod phase_marks;
 #[path = "pump_carrier_environment.rs"]
 mod pump_carrier_environment;
+#[path = "pump_frame_listeners.rs"]
+mod pump_frame_listeners;
 #[path = "queue_task_dialog_mount.rs"]
 mod queue_task_dialog_mount;
 #[path = "resize_drag.rs"]

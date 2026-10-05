@@ -122,17 +122,25 @@ pub fn CellTerminal(
         title_handle.set_title(&title)
     }));
     let sync_handle = handle.clone();
-    // The painter reads both signals: a frame moves only `frames`, and a view,
-    // route or baseline change moves `revision`. The memo above reads only
-    // `revision`, so a frame flood never re-renders this component.
-    let frames = pump.frames_revision();
+    // Frames reach the painter through the pump's frames listener, called
+    // directly from the dispatch that moved them; a view, route or baseline
+    // change moves `revision` and arrives through the effect. The memo above
+    // reads only `revision`, so a frame flood never re-renders this component.
+    let frame_token = use_hook({
+        let frame_handle = handle.clone();
+        let pump = pump.clone();
+        move || pump.on_frames(Rc::new(move |_| frame_handle.sync_store()))
+    });
     use_effect(move || {
         let _ = revision.read();
-        let _ = frames.read();
         sync_handle.sync_store();
     });
     let drop_handle = handle.clone();
-    use_drop(move || drop_handle.unmount());
+    let drop_pump = pump.clone();
+    use_drop(move || {
+        drop_pump.remove_frame_listener(frame_token);
+        drop_handle.unmount();
+    });
 
     let mount_handle = handle.clone();
     let mount_request = PaneMountRequest {

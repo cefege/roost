@@ -13,9 +13,9 @@
 //! when it moved. Components read that signal during render (`use_store`), which
 //! is the only way a Dioxus render learns the `RefCell` behind it changed.
 //! `Pump::write_store` is the same discipline for a write no event carries.
-//! Painted-frame movement has its own counter and signal
-//! ([`Pump::frames_revision`]), read only by the terminal painter, so a flood of
-//! frames does not re-render the chrome.
+//! Painted-frame movement has its own counter and reaches the terminal painter
+//! through a direct listener ([`Pump::on_frames`]), not a signal, so a flood of
+//! frames neither re-renders the chrome nor waits on a reactive effect.
 
 mod attachment_door;
 mod boot;
@@ -26,10 +26,10 @@ mod carrier_dial;
 mod carriers;
 mod direct_history;
 mod effects;
+mod listeners;
 #[cfg(target_arch = "wasm32")]
 mod peer_lane;
 mod socket;
-mod sweep;
 
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
@@ -42,11 +42,11 @@ use crate::platform::connect::CoordRpc;
 
 pub use boot::start_pump;
 pub use direct_history::DirectHistoryAnswer;
+use listeners::Listeners;
 use roost_web_terminal::find::intent::{
     FindIntentRegistry, FindIntentSink, TerminalFindIntentOptions,
 };
 use socket::LiveSocket;
-use sweep::SweepListeners;
 
 /// The pump, cheap to clone: every clone is the same pump.
 #[derive(Clone)]
@@ -57,15 +57,15 @@ pub struct Pump {
 struct PumpInner {
     core: Rc<RefCell<ClientCore>>,
     revision: Signal<u64>,
-    /// The store's `frames_revision`, mirrored for the terminal painter only.
-    frames: Signal<u64>,
     rpc: Rc<CoordRpc>,
     socket: RefCell<Option<LiveSocket>>,
     /// Set while `dispatch` runs, so a re-entrant call is queued, not nested.
     dispatching: Cell<bool>,
     queued: RefCell<VecDeque<ClientEvent>>,
     /// The shell bridges that read this pump's clock.
-    sweeps: SweepListeners,
+    sweeps: Listeners,
+    /// The terminal painters, called once per dispatch that moved a frame.
+    frames: Listeners,
     /// Browser callbacks that must live as long as the pump (timers,
     /// lifecycle listeners), held type-erased; only a browser installs them.
     #[cfg(target_arch = "wasm32")]
@@ -127,7 +127,6 @@ impl Pump {
             inner: Rc::new(PumpInner {
                 core,
                 revision,
-                frames: Signal::new(0_u64),
                 rpc,
                 socket: RefCell::new(None),
                 carriers: RefCell::new(carriers::Carriers::default()),
@@ -141,7 +140,8 @@ impl Pump {
                 listeners: RefCell::new(Vec::new()),
                 find_intents: RefCell::new(FindIntentRegistry::new()),
                 direct_history: RefCell::new(direct_history::DirectHistoryReads::default()),
-                sweeps: SweepListeners::new(),
+                sweeps: Listeners::new(),
+                frames: Listeners::new(),
             }),
         };
         pump.declare_carrier_environment();
@@ -187,6 +187,7 @@ impl Pump {
             return;
         }
         let mut swept = false;
+        let mut frames_moved = false;
         loop {
             let next = self.inner.queued.borrow_mut().pop_front();
             let Some(event) = next else { break };
@@ -204,10 +205,7 @@ impl Pump {
                 let mut revision = self.inner.revision;
                 revision.set(after.0);
             }
-            if after.1 != before.1 {
-                let mut frames = self.inner.frames;
-                frames.set(after.1);
-            }
+            frames_moved |= after.1 != before.1;
             if !effects.is_empty() {
                 tracing::trace!(target: "pump", event = kind, effects = effects.len(), "handled");
             }
@@ -216,36 +214,12 @@ impl Pump {
             }
         }
         self.inner.dispatching.set(false);
+        if frames_moved {
+            self.notify_frame_listeners();
+        }
         if swept {
             self.notify_sweep_listeners();
         }
-    }
-
-    /// Call every registered sweep listener with the core's own clock.
-    ///
-    /// AFTER the queue drains and `dispatching` is clear, so a listener may
-    /// dispatch, write the store and follow a route without re-entering the
-    /// core.
-    fn notify_sweep_listeners(&self) {
-        let now_ms = {
-            let core = self.inner.core.borrow();
-            roost_client_core::Clock::now_ms(core.clock())
-        };
-        self.inner.sweeps.notify(now_ms);
-    }
-
-    /// Run `listener` after every sweep this pump dispatches. The returned
-    /// token is what `remove_sweep_listener` takes.
-    ///
-    /// The listener receives the core's monotonic reading, never a wall clock:
-    /// every deadline the sweep evaluates was armed on that timeline.
-    pub fn on_sweep(&self, listener: Rc<dyn Fn(u64)>) -> u64 {
-        self.inner.sweeps.register(listener)
-    }
-
-    /// Stop calling the listener `token` names.
-    pub fn remove_sweep_listener(&self, token: u64) {
-        self.inner.sweeps.remove(token);
     }
 
     /// Whether a Sync command would reach the socket right now.
@@ -296,12 +270,6 @@ impl Pump {
     /// The revision signal. Reading it during render subscribes the component.
     pub fn revision(&self) -> Signal<u64> {
         self.inner.revision
-    }
-
-    /// The painted-frame signal: moves when any replica's frame moved. Only the
-    /// terminal painter reads it; chrome reads [`Pump::revision`].
-    pub fn frames_revision(&self) -> Signal<u64> {
-        self.inner.frames
     }
 
     /// Run a host-side write against the store and repaint whatever subscribed.
