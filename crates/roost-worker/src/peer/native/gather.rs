@@ -114,24 +114,30 @@ async fn reflexive_candidates(
         return Vec::new();
     }
     let servers = cache.servers(stun_urls, deadline).await;
+    let mut servers_with_egress = Vec::with_capacity(servers.len());
+    for server in servers {
+        servers_with_egress.push((server, cache.egress_address(server).await));
+    }
+    let probed: Vec<(&Arc<UdpSocket>, SocketAddr)> = sockets
+        .iter()
+        .filter_map(|socket| socket.local_addr().ok().map(|base| (socket, base)))
+        .filter(|(_, base)| !base.ip().is_loopback())
+        .collect();
+    let bases: Vec<IpAddr> = probed.iter().map(|(_, base)| base.ip()).collect();
     let probe_deadline = deadline.min(Instant::now() + STUN_GIVE_UP);
     let mut probes = JoinSet::new();
-    for socket in sockets {
-        let Ok(base) = socket.local_addr() else {
-            continue;
-        };
-        if base.ip().is_loopback() {
-            continue;
-        }
+    for ((socket, base), servers) in probed
+        .iter()
+        .zip(probe_targets(&bases, &servers_with_egress))
+    {
         let targets: Vec<(SocketAddr, TransactionId)> = servers
-            .iter()
-            .filter(|server| server.is_ipv4() == base.is_ipv4())
-            .filter_map(|server| new_transaction_id().ok().map(|id| (*server, id)))
+            .into_iter()
+            .filter_map(|server| new_transaction_id().ok().map(|id| (server, id)))
             .collect();
         if !targets.is_empty() {
             probes.spawn(probe_socket(
                 Arc::clone(socket),
-                base,
+                *base,
                 targets,
                 probe_deadline,
             ));
@@ -159,6 +165,32 @@ async fn reflexive_candidates(
         }
     }
     found
+}
+
+/// Which servers each host socket probes: only the ones its address is the
+/// egress for. A server whose egress is none of the sockets (an operator
+/// `bind_address`, or no route at all) is probed by every socket of its
+/// family, as before, so a wrong guess never costs a candidate. Probing from a
+/// socket that cannot reach the server only holds the gathering open.
+fn probe_targets(
+    bases: &[IpAddr],
+    servers: &[(SocketAddr, Option<IpAddr>)],
+) -> Vec<Vec<SocketAddr>> {
+    bases
+        .iter()
+        .map(|base| {
+            servers
+                .iter()
+                .filter(
+                    |(server, egress)| match egress.filter(|egress| bases.contains(egress)) {
+                        Some(egress) => egress == *base,
+                        None => server.is_ipv4() == base.is_ipv4(),
+                    },
+                )
+                .map(|(server, _)| *server)
+                .collect()
+        })
+        .collect()
 }
 
 /// Every address a STUN URL's host resolves to before the deadline.
@@ -243,13 +275,16 @@ async fn probe_socket(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::time::Duration;
 
     use tokio::time::Instant;
 
     use super::super::gather_cache::GatherCache;
     use super::super::{NativePeerConfig, host_addresses};
-    use super::{gather, stun_host_port};
+    use super::{gather, probe_targets, stun_host_port};
 
     /// A STUN server that never answers costs one give-up window, not the
     /// whole gathering deadline, and the host candidate is still offered.
@@ -286,6 +321,31 @@ mod tests {
             "gathering took {elapsed:?}"
         );
         assert_eq!(gathered.candidates.len(), 1, "the host candidate alone");
+    }
+
+    fn v4(last: u8) -> IpAddr {
+        IpAddr::V4(Ipv4Addr::new(10, 0, 0, last))
+    }
+
+    #[test]
+    fn only_the_egress_socket_probes_a_server() {
+        let tailnet = IpAddr::V4(Ipv4Addr::new(100, 66, 0, 2));
+        let server = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(162, 159, 207, 0)), 3478);
+        assert_eq!(
+            probe_targets(&[v4(5), tailnet], &[(server, Some(v4(5)))]),
+            vec![vec![server], Vec::new()]
+        );
+    }
+
+    #[test]
+    fn with_no_egress_match_every_socket_probes_its_family() {
+        let server = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(162, 159, 207, 0)), 3478);
+        let v6: IpAddr = "2001:db8::5".parse().unwrap();
+        let bases = [v4(5), v4(6), v6];
+        let everyone = vec![vec![server], vec![server], Vec::new()];
+        assert_eq!(probe_targets(&bases, &[(server, None)]), everyone);
+        let elsewhere = Some(IpAddr::V4(Ipv4Addr::new(192, 168, 9, 9)));
+        assert_eq!(probe_targets(&bases, &[(server, elsewhere)]), everyone);
     }
 
     #[test]
