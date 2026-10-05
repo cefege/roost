@@ -49,11 +49,14 @@ impl NativePeerFactory for Str0mPeerFactory {
         if self.cleaned.load(Ordering::Acquire) {
             return Err(NativePeerError::Unavailable);
         }
+        let certificate_started = Instant::now();
         let certificate = self
             .provider
             .dtls_provider
             .generate_certificate()
             .ok_or(NativePeerError::Unavailable)?;
+        let certificate_ms =
+            u64::try_from(certificate_started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let mut rtc = RtcConfig::new()
             .set_crypto_provider(Arc::clone(&self.provider))
             .set_dtls_cert(certificate)
@@ -72,7 +75,7 @@ impl NativePeerFactory for Str0mPeerFactory {
             })
             .collect();
         let (shared, events) = PeerShared::new(config, rtc, slots);
-        tracing::debug!(peer = %shared.config.name, "a native peer was created");
+        tracing::debug!(peer = %shared.config.name, certificate_ms, "a native peer was created");
         let peer: Arc<dyn NativePeer> = Arc::new(Str0mPeer::new(shared));
         Ok((peer, events))
     }

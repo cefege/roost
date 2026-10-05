@@ -27,6 +27,10 @@ impl Str0mPeer {
     }
 }
 
+fn elapsed_ms(since: std::time::Instant) -> u64 {
+    u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
 impl NativePeer for Str0mPeer {
     fn answer(
         &self,
@@ -35,6 +39,7 @@ impl NativePeer for Str0mPeer {
     ) -> OwnerFuture<Result<String, NativePeerError>> {
         let shared = Arc::clone(&self.shared);
         Box::pin(async move {
+            let offer_received = std::time::Instant::now();
             let offer =
                 SdpOffer::from_sdp_string(&offer_sdp).map_err(|_| NativePeerError::InvalidOffer)?;
             {
@@ -48,7 +53,9 @@ impl NativePeer for Str0mPeer {
                 io.answered = true;
             }
             let deadline = tokio::time::Instant::now() + gathering_deadline;
+            let gather_started = std::time::Instant::now();
             let gathered = gather(&shared.config, deadline).await?;
+            let gather_ms = elapsed_ms(gather_started);
             let answer = {
                 let mut io = shared.lock();
                 if io.closed {
@@ -64,7 +71,13 @@ impl NativePeer for Str0mPeer {
                     .to_sdp_string()
             };
             driver::spawn(Arc::clone(&shared), gathered.sockets);
-            tracing::debug!(peer = %shared.config.name, "a native peer answered its offer");
+            tracing::info!(
+                target: "peer",
+                peer = %shared.config.name,
+                gather_ms,
+                answer_ms = elapsed_ms(offer_received),
+                "the peer answered an offer"
+            );
             Ok(answer)
         })
     }
