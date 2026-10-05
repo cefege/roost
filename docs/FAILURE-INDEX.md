@@ -1639,13 +1639,17 @@ the next, and a lane that blocked had no path back to sending.
 **Right** — the epoch belongs to the CONNECTION (`TerminalToken::same_connection`, v2
 `terminalInputConnectionKey`): a domain reset keeps it and a claim answered after one still settles. A
 Sync close blocks every sending lane whose epoch it claimed (`InputRouter::block_routes_on_sync_socket`,
-v2 `retireTerminalInputRouteState`); a Sync batch the worker refuses as route-changed while no direct
-route serves the session blocks the lane too (`block_moved_sync_route`); and a keystroke into a blocked
-lane with no direct route claims Sync back and waits in that claim's hold instead of being refused
-(`handle_input::reclaim_lost_route`).
+v2 `retireTerminalInputRouteState`). A Sync batch the worker refuses as route-changed while no direct
+route serves the session is put back UNSENT and the lane blocked (`InputRouter::requeue_moved_sync_batch`):
+the worker emits that reason only before writing a byte, so re-sending it cannot double-write, and
+settling it would drop the first keystroke after every reload. The refusal itself claims Sync back
+(`handle_input::reclaim_lost_route` + `claim_due_fallbacks`), and the claim's acceptance releases the
+batch, under its own `input_seq`, ahead of anything typed after it. A keystroke into a blocked lane with
+no direct route claims Sync back the same way and waits in that claim's hold instead of being refused.
 
-**Guard** — `crates/roost-client-core/tests/terminal_input_route_loss.rs` (all three failed before the
-fix).
+**Guard** — `crates/roost-client-core/tests/terminal_input_route_loss.rs` —
+`a_batch_refused_as_route_changed_waits_for_the_claim_and_is_sent_again_first` and the two
+reconnect cases beside it.
 
 ### node-datachannel `sendMessageBinary(false)` is accepted buffered delivery
 

@@ -105,8 +105,12 @@ fn a_terminal_domain_reset_on_the_live_socket_keeps_the_route_epoch() {
     );
 }
 
+/// The worker refuses a batch as `terminal input route changed` only before it
+/// writes a byte, so the batch is held, not lost: the refusal itself claims Sync
+/// back, and the batch goes out under the claimed epoch ahead of anything typed
+/// after it.
 #[test]
-fn a_route_the_worker_gave_another_connection_is_claimed_back_on_the_next_keystroke() {
+fn a_batch_refused_as_route_changed_waits_for_the_claim_and_is_sent_again_first() {
     let mut core = core_with_a_pane();
     let _ = core.handle(ClientEvent::DirectGrantMinted { grant: grant() });
     let first = typed(&mut core, b"x");
@@ -116,34 +120,91 @@ fn a_route_the_worker_gave_another_connection_is_claimed_back_on_the_next_keystr
         "a lane that never claimed sends epoch-less"
     );
     let input_seq = core.store().input.outstanding(SESSION)[0].input_seq;
+    let refused = refuse(&mut core, input_seq, "terminal input route changed");
+
+    assert_eq!(
+        core.store().input.outstanding(SESSION)[0].input_seq,
+        input_seq,
+        "the refused batch is still outstanding, so no outcome reached the pane"
+    );
+    assert!(core.store().input.is_holding(SESSION));
+    let claims = sync_claims(&refused);
+    assert_eq!(
+        claims.len(),
+        1,
+        "the refusal claims Sync back without waiting for a keystroke or a sweep; got {refused:?}"
+    );
+
+    let held = typed(&mut core, b"y");
+    assert!(
+        sync_inputs(&held).is_empty(),
+        "a keystroke typed while the claim is out waits behind it; got {held:?}"
+    );
+    let (request_id, revision, _) = claims[0].clone();
+    let released = on_sync(&mut core, answer(&request_id, revision, true, ""));
+    assert_eq!(
+        sync_input_seqs(&released),
+        vec![
+            (input_seq, b"x".to_vec(), ROUTE_EPOCH.to_owned()),
+            (input_seq + 1, b"y".to_vec(), ROUTE_EPOCH.to_owned()),
+        ],
+        "the refused batch goes out first, under its own sequence and the claimed epoch"
+    );
+}
+
+#[test]
+fn a_refusal_for_another_reason_still_settles_as_rejected() {
+    let mut core = core_with_a_pane();
+    let _ = core.handle(ClientEvent::DirectGrantMinted { grant: grant() });
+    let _ = typed(&mut core, b"x");
+    let input_seq = core.store().input.outstanding(SESSION)[0].input_seq;
+    let refused = refuse(
+        &mut core,
+        input_seq,
+        "terminal transport did not accept input",
+    );
+
+    assert!(sync_claims(&refused).is_empty(), "got {refused:?}");
+    assert!(core.store().input.outstanding(SESSION).is_empty());
+    assert!(!core.store().input.is_holding(SESSION));
+    assert!(!core.store().input.is_blocked(SESSION));
+}
+
+/// The worker's refusal of `input_seq` on the live Sync socket.
+fn refuse(core: &mut ClientCore, input_seq: u64, reason: &str) -> Vec<Effect> {
     let generation = core
         .store()
         .sync_terminal_token()
         .unwrap()
         .domain_generation;
-    let _ = on_sync(
-        &mut core,
+    on_sync(
+        core,
         SyncFrame::InputResult {
             session_id: SESSION.to_owned(),
             input_seq,
             generation,
             outcome: InputOutcome::Rejected {
                 input_seq,
-                reason: "terminal input route changed".to_owned(),
+                reason: reason.to_owned(),
             },
         },
-    );
+    )
+}
 
-    let held = typed(&mut core, b"y");
-    assert!(
-        sync_inputs(&held).is_empty(),
-        "the worker holds the route elsewhere, so the next keystroke waits for a claim; got {held:?}"
-    );
-    let released = accept_sync_claim(&mut core, &held);
-    assert_eq!(
-        sync_inputs(&released),
-        vec![(b"y".to_vec(), ROUTE_EPOCH.to_owned())]
-    );
+/// Every `(input_seq, bytes, epoch)` written on Sync.
+fn sync_input_seqs(effects: &[Effect]) -> Vec<(u64, Vec<u8>, String)> {
+    effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::SendSync(SyncCommand::TerminalInput {
+                input_seq,
+                bytes,
+                input_route_epoch,
+                ..
+            }) => Some((*input_seq, bytes.clone(), input_route_epoch.clone())),
+            _ => None,
+        })
+        .collect()
 }
 
 /// The credential a reloaded document mints for its pane, naming the worker

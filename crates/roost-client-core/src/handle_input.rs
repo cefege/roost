@@ -4,7 +4,10 @@
 //! Split from `handle_terminal` because input is the one path where getting it
 //! wrong writes to somebody's shell twice. The rule is short enough to state and
 //! easy to break by accident: once a batch has been handed to a transport, its
-//! fate is whatever the transport says, and NOTHING here ever re-sends it.
+//! fate is whatever the transport says, and nothing here re-sends a batch the
+//! worker may have written. The one refusal the worker proves it never wrote
+//! (`terminal input route changed`, zero bytes) is put back unsent and waits
+//! for the Sync claim.
 //!
 //! The view a batch names is the PANE, and the id it puts on the wire is the one
 //! that pane's authority holds. After a promotion those differ, and a keystroke
@@ -16,7 +19,7 @@
 
 use crate::effect::{DirectCommand, Effect, SyncCommand};
 use crate::store::Store;
-use crate::terminal::input::{InputOutcome, PendingInput};
+use crate::terminal::input::{INPUT_ROUTE_CHANGED_REASON, InputOutcome, PendingInput};
 use crate::terminal::token::{TerminalToken, TerminalTransport};
 
 /// Keystrokes from a pane. The core decides the route; the host only writes.
@@ -184,6 +187,8 @@ pub fn handle_input_result(
     session_id: &str,
     input_seq: u64,
     outcome: &InputOutcome,
+    now_ms: u64,
+    out: &mut Vec<Effect>,
 ) {
     let carried_on_sync = store
         .input
@@ -192,6 +197,37 @@ pub fn handle_input_result(
         .find(|pending| pending.input_seq == input_seq)
         .and_then(|pending| pending.fence.as_ref())
         .is_some_and(|fence| fence.token.transport == TerminalTransport::Sync);
+    // A refusal of a Sync batch while no direct route serves the session means
+    // the worker gave the route to a connection this document no longer uses —
+    // or never did, as after a reload in the same tab — and it will refuse
+    // every epoch-less batch after it too. The worker refuses that way only
+    // before writing, so the batch waits for the Sync claim instead of being
+    // lost.
+    let moved = carried_on_sync
+        && store.routes.route(session_id).is_none()
+        && matches!(
+            outcome,
+            InputOutcome::Rejected { reason, .. } if reason == INPUT_ROUTE_CHANGED_REASON
+        );
+    if moved && store.input.requeue_moved_sync_batch(session_id, input_seq) {
+        store.note_change();
+        if store.input.is_holding(session_id) || reclaim_lost_route(store, session_id, now_ms) {
+            crate::handle_sync::claim_due_fallbacks(store, now_ms, out);
+            tracing::warn!(
+                target: "route",
+                session_id,
+                input_seq,
+                "another connection held this session's input route; the batch waits for the Sync claim"
+            );
+            return;
+        }
+        tracing::warn!(
+            target: "route",
+            session_id,
+            input_seq,
+            "another connection holds this session's input route and no worker is known to claim it from"
+        );
+    }
     if !store.input.settle(input_seq, outcome.clone()) {
         return;
     }
@@ -203,20 +239,6 @@ pub fn handle_input_result(
         status = outcome.status_name(),
         "terminal input settled"
     );
-    // A refusal of a Sync batch while no direct route serves the session means
-    // the worker gave the route to a connection this document no longer uses —
-    // or never did, as after a reload in the same tab — and it will refuse
-    // every epoch-less batch after it too.
-    if carried_on_sync
-        && store.routes.route(session_id).is_none()
-        && store.input.block_moved_sync_route(session_id, outcome)
-    {
-        tracing::warn!(
-            target: "route",
-            session_id,
-            "another connection holds this session's input route; it is claimed back on the next keystroke"
-        );
-    }
 }
 
 /// Settle a batch that was admitted but will never be sent.

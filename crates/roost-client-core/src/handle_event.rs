@@ -204,7 +204,14 @@ pub fn handle_event(
             input_seq,
             outcome,
             ..
-        } => crate::handle_input::handle_input_result(store, session_id, *input_seq, outcome),
+        } => crate::handle_input::handle_input_result(
+            store,
+            session_id,
+            *input_seq,
+            outcome,
+            host_now_ms,
+            out,
+        ),
 
         // ---- carriers ---------------------------------------------------------
         ClientEvent::CarrierReady(carrier) => {

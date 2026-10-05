@@ -2,12 +2,13 @@
 //! carried its acknowledged claim closed, or the worker refused a Sync batch
 //! because another connection holds the route. Either way every epoch-less or
 //! stale batch after it is refused as `terminal input route changed`, so the
-//! lane is BLOCKED, and the next keystroke claims Sync back
-//! (`handle_input::reclaim_lost_route`). Owned by `InputRouter`; driven by
-//! `handle_sync::lifecycle` and `handle_input`. Ports the route-retirement half
-//! of v2 `terminal-input-route-claim.ts` (`retireTerminalInputRouteState`).
+//! lane is BLOCKED and Sync claims the route back
+//! (`handle_input::reclaim_lost_route`); a refused batch waits for that claim.
+//! Owned by `InputRouter`; driven by `handle_sync::lifecycle` and
+//! `handle_input`. Ports the route-retirement half of v2
+//! `terminal-input-route-claim.ts` (`retireTerminalInputRouteState`).
 
-use crate::terminal::input::{INPUT_ROUTE_CHANGED_REASON, InputOutcome, InputPhase};
+use crate::terminal::input::InputPhase;
 use crate::terminal::token::TerminalTransport;
 
 use super::InputRouter;
@@ -39,15 +40,14 @@ impl InputRouter {
         blocked
     }
 
-    /// The worker refused `outcome`'s Sync batch because another connection
-    /// holds this session's input route. Blocks the lane unless its route is a
-    /// direct carrier's — then the refusal is a straggler from before the
-    /// promotion, which is the fence working. Returns whether it blocked.
-    pub fn block_moved_sync_route(&mut self, session_id: &str, outcome: &InputOutcome) -> bool {
-        let moved = matches!(
-            outcome,
-            InputOutcome::Rejected { reason, .. } if reason == INPUT_ROUTE_CHANGED_REASON
-        );
+    /// The worker refused `input_seq`'s Sync batch before writing it because
+    /// another connection holds the route. Put the batch back as UNSENT and
+    /// block the lane, in that order (`set_phase(Blocked)` refuses unsent
+    /// batches, and this one is still marked started while the lane blocks).
+    /// Refused when the lane's route is a direct carrier's — then the refusal
+    /// is a straggler from before the promotion, which is the fence working.
+    /// Returns whether it re-queued.
+    pub fn requeue_moved_sync_batch(&mut self, session_id: &str, input_seq: u64) -> bool {
         let Some(lane) = self.lanes.get(session_id) else {
             return false;
         };
@@ -55,10 +55,30 @@ impl InputRouter {
             .route_epoch_token
             .as_ref()
             .is_some_and(|token| token.transport != TerminalTransport::Sync);
-        if !moved || routed_direct || lane.phase != InputPhase::Sending {
+        let refused_on_sync = lane.pending.iter().any(|pending| {
+            pending.input_seq == input_seq
+                && pending.started
+                && pending
+                    .fence
+                    .as_ref()
+                    .is_some_and(|fence| fence.token.transport == TerminalTransport::Sync)
+        });
+        if routed_direct || !refused_on_sync || lane.phase == InputPhase::Closed {
             return false;
         }
-        self.forget_route(session_id);
+        if lane.phase == InputPhase::Sending {
+            self.forget_route(session_id);
+        }
+        let Some(pending) = self.lanes.get_mut(session_id).and_then(|lane| {
+            lane.pending
+                .iter_mut()
+                .find(|pending| pending.input_seq == input_seq)
+        }) else {
+            return false;
+        };
+        pending.started = false;
+        pending.fence = None;
+        pending.started_at_ms = 0;
         true
     }
 

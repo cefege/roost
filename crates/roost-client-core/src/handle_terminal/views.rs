@@ -131,7 +131,9 @@ pub fn handle_correlated_result(
             input_seq,
             outcome,
             ..
-        } => crate::handle_input::handle_input_result(store, session_id, *input_seq, outcome),
+        } => crate::handle_input::handle_input_result(
+            store, session_id, *input_seq, outcome, now_ms, out,
+        ),
         _ => {}
     }
 }
