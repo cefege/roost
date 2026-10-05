@@ -18,7 +18,7 @@ use tokio::net::UdpSocket;
 use tokio::task::JoinSet;
 use tokio::time::{Instant, timeout_at};
 
-use super::gather_cache::GatherCache;
+use super::gather_cache::{Egress, GatherCache};
 use super::stun::{TransactionId, binding_request, mapped_address, new_transaction_id};
 use super::{NativePeerConfig, NativePeerError};
 
@@ -116,7 +116,7 @@ async fn reflexive_candidates(
     let servers = cache.servers(stun_urls, deadline).await;
     let mut servers_with_egress = Vec::with_capacity(servers.len());
     for server in servers {
-        servers_with_egress.push((server, cache.egress_address(server).await));
+        servers_with_egress.push((server, cache.egress(server).await));
     }
     let probed: Vec<(&Arc<UdpSocket>, SocketAddr)> = sockets
         .iter()
@@ -168,25 +168,22 @@ async fn reflexive_candidates(
 }
 
 /// Which servers each host socket probes: only the ones its address is the
-/// egress for. A server whose egress is none of the sockets (an operator
-/// `bind_address`, or no route at all) is probed by every socket of its
-/// family, as before, so a wrong guess never costs a candidate. Probing from a
-/// socket that cannot reach the server only holds the gathering open.
-fn probe_targets(
-    bases: &[IpAddr],
-    servers: &[(SocketAddr, Option<IpAddr>)],
-) -> Vec<Vec<SocketAddr>> {
+/// egress for, and none the routing table has no route to. A server whose
+/// egress is none of the sockets (an operator `bind_address`) or could not be
+/// read is probed by every socket of its family, as before, so a wrong guess
+/// never costs a candidate. Probing from a socket that cannot reach the server
+/// only holds the gathering open for the settle.
+fn probe_targets(bases: &[IpAddr], servers: &[(SocketAddr, Egress)]) -> Vec<Vec<SocketAddr>> {
     bases
         .iter()
         .map(|base| {
             servers
                 .iter()
-                .filter(
-                    |(server, egress)| match egress.filter(|egress| bases.contains(egress)) {
-                        Some(egress) => egress == *base,
-                        None => server.is_ipv4() == base.is_ipv4(),
-                    },
-                )
+                .filter(|(server, egress)| match egress {
+                    Egress::Via(egress) if bases.contains(egress) => egress == base,
+                    Egress::Unreachable => false,
+                    Egress::Via(_) | Egress::Unknown => server.is_ipv4() == base.is_ipv4(),
+                })
                 .map(|(server, _)| *server)
                 .collect()
         })
@@ -282,7 +279,7 @@ mod tests {
 
     use tokio::time::Instant;
 
-    use super::super::gather_cache::GatherCache;
+    use super::super::gather_cache::{Egress, GatherCache};
     use super::super::{NativePeerConfig, host_addresses};
     use super::{gather, probe_targets, stun_host_port};
 
@@ -332,8 +329,20 @@ mod tests {
         let tailnet = IpAddr::V4(Ipv4Addr::new(100, 66, 0, 2));
         let server = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(162, 159, 207, 0)), 3478);
         assert_eq!(
-            probe_targets(&[v4(5), tailnet], &[(server, Some(v4(5)))]),
+            probe_targets(&[v4(5), tailnet], &[(server, Egress::Via(v4(5)))]),
             vec![vec![server], Vec::new()]
+        );
+    }
+
+    /// The shape that held every answer for the settle on a dual-stack server
+    /// list: the v6 address has no route, and a tailnet v6 socket probed it.
+    #[test]
+    fn a_server_with_no_route_is_probed_by_no_socket() {
+        let server = SocketAddr::new("2606:4700:49::".parse().unwrap(), 3478);
+        let tailnet_v6: IpAddr = "fd7a:115c:a1e0::7632:c019".parse().unwrap();
+        assert_eq!(
+            probe_targets(&[v4(5), tailnet_v6], &[(server, Egress::Unreachable)]),
+            vec![Vec::<SocketAddr>::new(), Vec::new()]
         );
     }
 
@@ -343,8 +352,11 @@ mod tests {
         let v6: IpAddr = "2001:db8::5".parse().unwrap();
         let bases = [v4(5), v4(6), v6];
         let everyone = vec![vec![server], vec![server], Vec::new()];
-        assert_eq!(probe_targets(&bases, &[(server, None)]), everyone);
-        let elsewhere = Some(IpAddr::V4(Ipv4Addr::new(192, 168, 9, 9)));
+        assert_eq!(
+            probe_targets(&bases, &[(server, Egress::Unknown)]),
+            everyone
+        );
+        let elsewhere = Egress::Via(IpAddr::V4(Ipv4Addr::new(192, 168, 9, 9)));
         assert_eq!(probe_targets(&bases, &[(server, elsewhere)]), everyone);
     }
 

@@ -6,6 +6,7 @@
 //! `gather::resolve_servers` for a miss.
 
 use std::collections::HashMap;
+use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -27,16 +28,26 @@ struct ResolvedServers {
     servers: Vec<SocketAddr>,
 }
 
+/// Where the routing table sends a STUN server's traffic from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Egress {
+    /// From this local address.
+    Via(IpAddr),
+    /// Nowhere: the kernel has no route, so no socket can reach the server.
+    Unreachable,
+    /// The lookup failed for another reason (a sandbox, a socket limit).
+    Unknown,
+}
+
 /// One cached answer per input. A lock is never held across an await: the
 /// cache is read, released, the miss computed, and the answer written back.
 #[derive(Debug, Default)]
 pub(super) struct GatherCache {
     addresses: Mutex<Option<(Instant, Vec<IpAddr>)>>,
     servers: Mutex<Option<(Instant, ResolvedServers)>>,
-    /// Per STUN server, the local address the routing table sends to it from,
-    /// or `None` with no route. A missing route is remembered too: it is
-    /// re-checked after the TTL, not on every offer.
-    egress: Mutex<HashMap<SocketAddr, (Instant, Option<IpAddr>)>>,
+    /// Per STUN server, where it is reached from. Every answer is cached,
+    /// a missing route too: it is re-checked after the TTL, not every offer.
+    egress: Mutex<HashMap<SocketAddr, (Instant, Egress)>>,
 }
 
 impl GatherCache {
@@ -60,10 +71,10 @@ impl GatherCache {
         .await
     }
 
-    /// The local address this host reaches `server` from, by asking the
-    /// routing table through a connected, never-written UDP socket.
-    pub(super) async fn egress_address(&self, server: SocketAddr) -> Option<IpAddr> {
-        self.egress_address_at(Instant::now(), server, || egress_toward(server))
+    /// Where this host reaches `server` from, by asking the routing table
+    /// through a connected, never-written UDP socket.
+    pub(super) async fn egress(&self, server: SocketAddr) -> Egress {
+        self.egress_at(Instant::now(), server, || egress_toward(server))
             .await
     }
 
@@ -111,15 +122,15 @@ impl GatherCache {
         servers
     }
 
-    async fn egress_address_at<Resolve, Resolving>(
+    async fn egress_at<Resolve, Resolving>(
         &self,
         now: Instant,
         server: SocketAddr,
         resolve: Resolve,
-    ) -> Option<IpAddr>
+    ) -> Egress
     where
         Resolve: FnOnce() -> Resolving,
-        Resolving: Future<Output = Option<IpAddr>>,
+        Resolving: Future<Output = Egress>,
     {
         let cached = self.egress.lock().ok().and_then(|held| {
             held.get(&server)
@@ -159,15 +170,30 @@ fn store<Value>(slot: &Mutex<Option<(Instant, Value)>>, now: Instant, value: Val
 }
 
 /// Connecting a UDP socket sends nothing; it only picks the route, and with it
-/// the source address the kernel would use.
-async fn egress_toward(server: SocketAddr) -> Option<IpAddr> {
+/// the source address the kernel would use. A refused connect names a missing
+/// route; any other failure says nothing about reachability.
+async fn egress_toward(server: SocketAddr) -> Egress {
     let unspecified: IpAddr = match server {
         SocketAddr::V4(_) => Ipv4Addr::UNSPECIFIED.into(),
         SocketAddr::V6(_) => Ipv6Addr::UNSPECIFIED.into(),
     };
-    let socket = UdpSocket::bind((unspecified, 0)).await.ok()?;
-    socket.connect(server).await.ok()?;
-    socket.local_addr().ok().map(|local| local.ip())
+    let Ok(socket) = UdpSocket::bind((unspecified, 0)).await else {
+        return Egress::Unknown;
+    };
+    match socket.connect(server).await {
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::NetworkUnreachable | ErrorKind::HostUnreachable
+            ) =>
+        {
+            Egress::Unreachable
+        }
+        Err(_) => Egress::Unknown,
+        Ok(()) => socket
+            .local_addr()
+            .map_or(Egress::Unknown, |local| Egress::Via(local.ip())),
+    }
 }
 
 #[cfg(test)]
@@ -178,7 +204,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::{Duration, Instant};
 
-    use super::{GATHER_CACHE_TTL, GatherCache};
+    use super::{Egress, GATHER_CACHE_TTL, GatherCache};
 
     fn address(last: u8) -> IpAddr {
         IpAddr::V4(Ipv4Addr::new(192, 0, 2, last))
@@ -268,7 +294,7 @@ mod tests {
     async fn an_egress_lookup_is_reused_inside_the_ttl_and_a_missing_route_is_remembered() {
         let cache = GatherCache::default();
         let calls = AtomicUsize::new(0);
-        let resolve = |answer: Option<IpAddr>| {
+        let resolve = |answer: Egress| {
             let calls = &calls;
             move || async move {
                 calls.fetch_add(1, Ordering::SeqCst);
@@ -278,34 +304,27 @@ mod tests {
         let routed = SocketAddr::new(address(9), 3478);
         let unrouted = SocketAddr::new(address(10), 3478);
         let start = Instant::now();
+        let via = |last: u8| Egress::Via(address(last));
 
-        let first = cache
-            .egress_address_at(start, routed, resolve(Some(address(1))))
-            .await;
+        let first = cache.egress_at(start, routed, resolve(via(1))).await;
         let inside = start + GATHER_CACHE_TTL - Duration::from_millis(1);
-        let second = cache
-            .egress_address_at(inside, routed, resolve(Some(address(2))))
-            .await;
-        assert_eq!((first, second), (Some(address(1)), Some(address(1))));
+        let second = cache.egress_at(inside, routed, resolve(via(2))).await;
+        assert_eq!((first, second), (via(1), via(1)));
         assert_eq!(calls.load(Ordering::SeqCst), 1);
 
         let missing = cache
-            .egress_address_at(start, unrouted, resolve(None))
+            .egress_at(start, unrouted, resolve(Egress::Unreachable))
             .await;
-        let again = cache
-            .egress_address_at(inside, unrouted, resolve(Some(address(3))))
-            .await;
-        assert_eq!((missing, again), (None, None), "no route is remembered");
+        let again = cache.egress_at(inside, unrouted, resolve(via(3))).await;
+        assert_eq!(
+            (missing, again),
+            (Egress::Unreachable, Egress::Unreachable),
+            "no route is remembered"
+        );
         assert_eq!(calls.load(Ordering::SeqCst), 2);
 
         let after = start + GATHER_CACHE_TTL;
-        let rechecked = cache
-            .egress_address_at(after, unrouted, resolve(Some(address(3))))
-            .await;
-        assert_eq!(
-            rechecked,
-            Some(address(3)),
-            "an expired answer is re-checked"
-        );
+        let rechecked = cache.egress_at(after, unrouted, resolve(via(3))).await;
+        assert_eq!(rechecked, via(3), "an expired answer is re-checked");
     }
 }
