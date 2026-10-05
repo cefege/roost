@@ -12,11 +12,13 @@ use roost_web_terminal::RendererEpochSeq;
 use roost_web_terminal::backfill::BackfillAction;
 use roost_web_terminal::cell_geometry::{measure_terminal_cell_box, terminal_geometry_for_element};
 use roost_web_terminal::terminal_presentation::preserves_foreground_reader_hold;
+use serde_json::json;
 
 use super::{PaneShared, PaneState, browser};
 use crate::components::terminal::dom_repair::DomRepairHost;
 use crate::components::terminal::pane_state::PaneFlags;
 use crate::components::terminal::viewport_publication::ViewportHost;
+use crate::platform::browser::phase_marks::{PhaseName, mark_phase};
 
 /// One deferred side effect.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,7 +86,17 @@ fn publish_view(shared: &PaneShared, cols: u32, rows: u32) {
             cols,
             rows,
         },
-        _ => open_event(shared, cols, rows),
+        _ => {
+            mark_phase(
+                PhaseName::ViewportEnqueue,
+                &[
+                    ("sessionId", json!(shared.session_id)),
+                    ("cols", json!(cols)),
+                    ("rows", json!(rows)),
+                ],
+            );
+            open_event(shared, cols, rows)
+        }
     };
     shared.pump.dispatch(event);
     let mut state = shared.state.borrow_mut();

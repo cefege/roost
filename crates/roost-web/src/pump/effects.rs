@@ -8,9 +8,11 @@
 
 use roost_client_core::client::agents::{AGENT_SEEN_STORAGE_KEY, AgentSeenLedger};
 use roost_client_core::sync::SYNC_WATERMARK_KEY;
-use roost_client_core::{ClientEvent, Effect};
+use roost_client_core::{ClientEvent, Effect, RpcCall, RpcResult};
+use serde_json::json;
 
 use super::{Pump, carriers, socket};
+use crate::platform::browser::phase_marks::{PhaseName, mark_phase};
 
 /// Perform one effect.
 pub(super) fn perform(pump: &Pump, effect: Effect) {
@@ -22,6 +24,13 @@ pub(super) fn perform(pump: &Pump, effect: Effect) {
             let pump = pump.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let result = pump.inner.rpc.call_core(&call).await;
+                if matches!(call, RpcCall::CoordIdentity { .. }) {
+                    let status = match result {
+                        RpcResult::Failed { .. } => "rejected",
+                        _ => "fulfilled",
+                    };
+                    mark_phase(PhaseName::IdentityComplete, &[("status", json!(status))]);
+                }
                 pump.dispatch(ClientEvent::RpcResultReceived(result));
             });
         }
