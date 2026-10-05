@@ -270,6 +270,26 @@
   box-sizing: border-box;
 }
 
+/* Jump-to-bottom: a zero-height anchor after the display, so the arrow floats
+   over the display's bottom edge without taking a row from the PTY. Centred,
+   because the bottom-right corner belongs to the fixed `.term-nav-toggle` on a
+   phone. */
+.term-jump-anchor {
+  position: relative;
+  flex: 0 0 0;
+  height: 0;
+  z-index: 2;
+}
+.term-jump-anchor .term-jump-to-live {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: var(--md-space-4);
+  margin-inline: auto;
+  border-radius: var(--md-shape-full);
+  box-shadow: var(--md-elev-2);
+}
+
 /* Find-in-scrollback matches. CellGridRenderer splits a matched run into its own
    span (renderRow in cellRow.ts) rather than positioning an overlay, so `.wterm`'s
    overflow / scrollbar-gutter rules stay untouched. The ACTIVE match uses the

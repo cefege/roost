@@ -1,6 +1,7 @@
 //! The display's scroll, box-resize and pointer-settle reactions: a user
-//! scroll parks or follows the reader and pages history, a box resize re-pins
-//! the reader, and a lifted pointer resumes a DOM repair a gesture deferred.
+//! scroll parks or follows the reader and pages history, the jump-to-bottom
+//! button resumes it, a box resize re-pins the reader, and a lifted pointer
+//! resumes a DOM repair a gesture deferred.
 //! Called from the pane's listeners in `browser`. Ports the scroll arms of
 //! `apps/web/src/components/terminal/cell-terminal-lifecycle.ts` and
 //! `cell-terminal-dom-repair.ts`.
@@ -50,6 +51,16 @@ pub(super) fn on_scroll(shared: &PaneShared) {
     };
     perform(shared, vec![PaneAction::Backfill(work)]);
     after_renderer_write(shared, now);
+}
+
+/// The jump-to-bottom button: end every reader hold and pin to the live tail,
+/// the same explicit resume a keystroke makes, without sending a byte.
+pub(super) fn jump_to_live(shared: &PaneShared) {
+    super::interactions::prepare_live_interaction(shared);
+    shared.state.borrow_mut().follow_settle_due_ms = None;
+    tracing::info!(target: "terminal", session_id = %shared.session_id,
+        "the reader jumped to the live tail");
+    after_renderer_write(shared, now_ms());
 }
 
 /// The display's box changed size.

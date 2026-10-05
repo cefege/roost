@@ -61,6 +61,9 @@ pub struct PaneUi {
     pub link_armed: Signal<bool>,
     /// The confirmed carrier's `data-terminal-transport` spelling.
     pub transport: Signal<Option<&'static str>>,
+    /// The reader is parked in history, away from the live tail: the
+    /// jump-to-bottom button shows.
+    pub scrolled_back: Signal<bool>,
 }
 
 impl PaneUi {
@@ -78,6 +81,7 @@ impl PaneUi {
             ctrl_armed: use_signal(|| false),
             link_armed: use_signal(|| false),
             transport: use_signal(|| None),
+            scrolled_back: use_signal(|| false),
         }
     }
 }

@@ -181,6 +181,11 @@ impl PaneHandle {
     pub fn toggle_find_regex(&self) {
         self.with_mount(|mount| mount.toggle_find_regex());
     }
+
+    /// Leave history and follow the live tail.
+    pub fn jump_to_live(&self) {
+        self.with_mount(|mount| mount.jump_to_live());
+    }
 }
 
 /// Natively there is no document, so no pane is ever mounted: the type is
@@ -237,6 +242,9 @@ impl PaneMount {
         match *self {}
     }
     fn toggle_find_regex(&self) {
+        match *self {}
+    }
+    fn jump_to_live(&self) {
         match *self {}
     }
 }

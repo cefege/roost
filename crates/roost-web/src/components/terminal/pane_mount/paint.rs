@@ -11,7 +11,7 @@ use roost_protocol::cell::CellGridFrame;
 use roost_web_terminal::terminal_presentation::{
     PresentationFrameMark, PresentationInputs, PresentationPane, TerminalPresentationState,
 };
-use roost_web_terminal::{BOTTOM_FOLLOW_SETTLE_MS, CellGridRenderer};
+use roost_web_terminal::{BOTTOM_FOLLOW_SETTLE_MS, CellGridRenderer, ReaderIntent};
 use serde_json::json;
 
 use super::actions::{DomRepairCtx, PaneAction, perform, with_state};
@@ -313,6 +313,13 @@ fn refresh_presentation_with(shared: &PaneShared, status: Option<PaneViewStatus>
         (presentation, offline_changed, gate)
     };
     set_if_changed(shared.ui.presentation, presentation);
+    // Inside the follow band the park resumes by itself, so the arrow shows
+    // only for a reader genuinely back in history.
+    let scrolled_back = {
+        let renderer = shared.renderer.borrow();
+        renderer.reader_intent() == ReaderIntent::Reading && !renderer.follows_bottom()
+    };
+    set_if_changed(shared.ui.scrolled_back, scrolled_back);
     if offline_changed {
         set_if_changed(shared.ui.offline, gate.offline);
     }

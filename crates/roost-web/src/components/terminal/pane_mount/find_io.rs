@@ -330,3 +330,37 @@ impl FindIntentSink for PaneFindSink {
 pub(super) fn dispose(shared: &PaneShared) {
     shared.state.borrow_mut().find.dispose();
 }
+
+/// The find bar's commands, as the component's handle reaches them. A sibling
+/// `impl` of the pane, kept beside the code it forwards to.
+impl super::PaneMount {
+    /// Show the find bar for this pane.
+    pub fn open_find(&self) {
+        open(&self.shared);
+    }
+
+    /// Hide the find bar and hand the keyboard back to the PTY.
+    pub fn close_find(&self) {
+        close(&self.shared);
+    }
+
+    /// Replace the find query, as a literal.
+    pub fn set_find_query(&self, query: &str) {
+        set_query(&self.shared, query, FindQueryOptions::default());
+    }
+
+    /// Move the active match, wrapping at both ends.
+    pub fn step_find(&self, delta: i64) {
+        step(&self.shared, delta);
+    }
+
+    /// Flip case sensitivity and re-search.
+    pub fn toggle_find_case(&self) {
+        toggle_case_sensitive(&self.shared);
+    }
+
+    /// Flip regex mode and re-search.
+    pub fn toggle_find_regex(&self) {
+        toggle_regex(&self.shared);
+    }
+}

@@ -19,6 +19,7 @@ use super::pane_registry::use_pane_registry;
 use super::pane_state::{PaneFlags, PaneUi};
 use super::terminal_drop_target::{TerminalDropOverlay, use_terminal_file_drop};
 use super::terminal_find_bar::TerminalFindBar;
+use super::terminal_jump_to_live::TerminalJumpToLive;
 use super::terminal_nav_pad::TerminalNavPad;
 use super::terminal_offline_notice::TerminalOfflineNotice;
 use super::terminal_paste_guard::TerminalPasteGuard;
@@ -310,6 +311,7 @@ pub fn CellTerminal(
                 style: "{display_style}",
                 onmounted: on_display_mounted,
             }
+            TerminalJumpToLive { visible: (ui.scrolled_back)(), handle: handle.clone(), lift: lift.clone() }
             if show_viewport_composer {
                 TerminalComposer {
                     session_id: session_id.clone(),

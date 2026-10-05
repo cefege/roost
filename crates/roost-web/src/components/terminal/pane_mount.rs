@@ -26,7 +26,6 @@ use roost_client_core::ClientEvent;
 use roost_web_terminal::CellGridRenderer;
 use roost_web_terminal::backfill::ScrollbackBackfill;
 use roost_web_terminal::cell_geometry::TerminalCellBox;
-use roost_web_terminal::find::hits::FindQueryOptions;
 use roost_web_terminal::terminal_presentation::TerminalPresentationController;
 use wasm_bindgen::JsCast as _;
 use web_sys::HtmlElement;
@@ -334,34 +333,9 @@ impl PaneMount {
         actions::publish_viewport_now(&self.shared);
     }
 
-    /// Show the find bar for this pane.
-    pub fn open_find(&self) {
-        find_io::open(&self.shared);
-    }
-
-    /// Hide the find bar and hand the keyboard back to the PTY.
-    pub fn close_find(&self) {
-        find_io::close(&self.shared);
-    }
-
-    /// Replace the find query, as a literal.
-    pub fn set_find_query(&self, query: &str) {
-        find_io::set_query(&self.shared, query, FindQueryOptions::default());
-    }
-
-    /// Move the active match, wrapping at both ends.
-    pub fn step_find(&self, delta: i64) {
-        find_io::step(&self.shared, delta);
-    }
-
-    /// Flip case sensitivity and re-search.
-    pub fn toggle_find_case(&self) {
-        find_io::toggle_case_sensitive(&self.shared);
-    }
-
-    /// Flip regex mode and re-search.
-    pub fn toggle_find_regex(&self) {
-        find_io::toggle_regex(&self.shared);
+    /// Leave history and follow the live tail: the jump-to-bottom button.
+    pub fn jump_to_live(&self) {
+        scroll::jump_to_live(&self.shared);
     }
 }
 

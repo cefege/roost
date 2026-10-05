@@ -26,6 +26,7 @@ pub mod startup_overlay_state;
 pub mod terminal_card;
 pub mod terminal_drop_target;
 pub mod terminal_find_bar;
+pub mod terminal_jump_to_live;
 pub mod terminal_nav_pad;
 pub mod terminal_offline_notice;
 pub mod terminal_paste_guard;
