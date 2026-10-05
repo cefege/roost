@@ -231,14 +231,18 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
                         close();
                     },
                 }
-                if let Some((x, y)) = menu_at() {
-                    SessionRowContextMenu {
-                        session_id: session_id.clone(),
-                        x,
-                        y,
-                        on_close: move |()| menu_at.set(None),
-                        on_delete: move |()| close_from_menu(),
-                    }
+            }
+            // A sibling of the row, not a child: the row's swipe `transform`
+            // makes it the containing block of a `position: fixed` menu, and
+            // `.df-row-swipe`'s `overflow: hidden` then clips the menu to one
+            // row's height.
+            if let Some((x, y)) = menu_at() {
+                SessionRowContextMenu {
+                    session_id: session_id.clone(),
+                    x,
+                    y,
+                    on_close: move |()| menu_at.set(None),
+                    on_delete: move |()| close_from_menu(),
                 }
             }
         }
