@@ -135,6 +135,7 @@ impl OutboundQueue {
                     let length = bytes.len();
                     let written = sink.send(Message::Binary(Bytes::from(bytes))).await;
                     self.state.queued.fetch_sub(length, Ordering::SeqCst);
+                    tracing::debug!(target: "terminal_latency", bytes = length, "door_frame_written");
                     written.is_ok()
                 }
                 Outbound::Ping => sink.send(Message::Ping(Bytes::new())).await.is_ok(),

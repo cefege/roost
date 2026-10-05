@@ -83,7 +83,15 @@ impl KeeperPool {
     fn route(&self, frame: MuxFrame) {
         match frame.frame_type {
             MuxFrameType::PtyOut => match self.output_binding_for(frame.channel_id) {
-                Some(output) => output.on_output(&frame.payload),
+                Some(output) => {
+                    tracing::debug!(
+                        target: "terminal_latency",
+                        channel_id = frame.channel_id,
+                        bytes = frame.payload.len(),
+                        "pty_out_routed"
+                    );
+                    output.on_output(&frame.payload);
+                }
                 // Bytes for a channel this worker does not drive: an adopted
                 // keeper's channel before adoption, or the tail after an exit.
                 None => tracing::debug!(
@@ -113,6 +121,11 @@ impl KeeperPool {
             // a request because the writer released the connection once the
             // batch was on the socket; its waiter was registered before that.
             MuxFrameType::PtyInAck | MuxFrameType::PtyInReject | MuxFrameType::PtyInAmbiguous => {
+                tracing::debug!(
+                    target: "terminal_latency",
+                    channel_id = frame.channel_id,
+                    "input_ack_routed"
+                );
                 self.pending_inputs.settle_frame(&frame);
             }
             other => tracing::debug!(

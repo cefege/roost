@@ -53,6 +53,13 @@ impl LocalTerminalSockets {
             session_id: command.session_id.clone(),
             input_route_epoch: command.input_route_epoch.clone(),
         };
+        tracing::debug!(
+            target: "terminal_latency",
+            session_id = %command.session_id,
+            input_seq = command.input_seq,
+            bytes = command.data.len(),
+            "door_input_received"
+        );
         let written = self.manager.write_terminal_input(
             &session_id,
             command.input_seq,
@@ -65,6 +72,12 @@ impl LocalTerminalSockets {
         self.runtime.spawn(async move {
             let result = written.await;
             if let Some(sockets) = sockets.upgrade() {
+                tracing::debug!(
+                    target: "terminal_latency",
+                    session_id = %command.session_id,
+                    input_seq = command.input_seq,
+                    "door_input_result_sent"
+                );
                 sockets.send_input_result(&session, &command, &result);
             }
             drop(reservation);

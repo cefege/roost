@@ -165,11 +165,28 @@ impl CellEmitter {
                 // Only a promoted echo may replace an armed cooldown with a
                 // fresh leading emit.
                 if !promote_input_echo || !cooling {
+                    tracing::debug!(
+                        target: "terminal_latency",
+                        channel_id = %channel_id,
+                        promote_input_echo,
+                        cooldown_ms_left = self
+                            .schedules
+                            .get(&channel_id)
+                            .and_then(|pending| pending.cooldown_until)
+                            .map(|due| due.saturating_duration_since(now).as_millis()),
+                        "emit_folded_into_cooldown"
+                    );
                     return;
                 }
                 self.cancel_cell_emission(channel_id);
             }
         }
+        tracing::debug!(
+            target: "terminal_latency",
+            channel_id = %channel_id,
+            promote_input_echo,
+            "emit_scheduled_leading"
+        );
         self.schedules.insert(
             channel_id,
             CellEmissionSchedule {
@@ -206,6 +223,7 @@ impl CellEmitter {
         if !self.may_rearm(channel_id, &schedule.stream_id) {
             return;
         }
+        tracing::debug!(target: "terminal_latency", channel_id = %channel_id, "cell_frame_emitted");
         self.emit_cell_frame_at(record, false, now_ms, now);
         // The next window is one after the deadline that just came due, not
         // one after the pass that ran it: a deadline derived from the pass's

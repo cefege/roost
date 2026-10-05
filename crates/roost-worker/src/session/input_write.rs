@@ -148,6 +148,7 @@ impl SessionManager {
         let clock = Arc::clone(&self.clock);
         Box::pin(async move {
             ticket.granted().await;
+            tracing::debug!(target: "terminal_latency", channel_id, "input_lane_granted");
             if let Some(refusal) = pre_write_refusal(
                 &sessions,
                 channel_id,
@@ -164,6 +165,7 @@ impl SessionManager {
             mark_input_sensitive(&sessions, &cells, &*clock, channel_id);
             let expected = bytes.len() as u32;
             let begun = begin_keeper_input(&keeper, channel_id, bytes).await;
+            tracing::debug!(target: "terminal_latency", channel_id, "input_keeper_written");
             // The ordering boundary is the request on the socket, not its answer.
             ticket.release();
             let command = match begun {
@@ -176,7 +178,14 @@ impl SessionManager {
                     refusal.as_str()
                 ));
             }
-            match command.result.await {
+            let settled = command.result.await;
+            tracing::debug!(
+                target: "terminal_latency",
+                channel_id,
+                acknowledged = matches!(settled, KeeperInputResult::Ack { .. }),
+                "input_keeper_settled"
+            );
+            match settled {
                 KeeperInputResult::Ack { written } if written == expected => {
                     WorkerInputResult::Accepted {
                         written_bytes: written,
