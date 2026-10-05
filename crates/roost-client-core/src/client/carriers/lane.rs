@@ -64,6 +64,7 @@ impl CarrierLane {
                 peers_allocated: 0,
                 peer_transport_available: false,
                 sync_generation: 0,
+                stun_urls: None,
             },
             last_attempt_id: 0,
         }
@@ -80,6 +81,12 @@ impl CarrierLane {
     pub fn set_environment(&mut self, peer_transport_available: bool, sync_generation: u64) {
         self.environment.peer_transport_available = peer_transport_available;
         self.environment.sync_generation = sync_generation;
+    }
+
+    /// The STUN servers the coordinator advertised at identity time, which
+    /// lets a machine open its transport while its grant is being minted.
+    pub fn set_stun_urls(&mut self, stun_urls: Option<Vec<String>>) {
+        self.environment.stun_urls = stun_urls;
     }
 
     /// How many WebRTC peers the host is holding, for the document-wide cap.
@@ -136,13 +143,18 @@ impl CarrierLane {
         );
     }
 
-    /// The coordinator minted a credential and the worker acknowledged it.
+    /// The coordinator minted a credential and the worker acknowledged it, at
+    /// the host's `now_ms` — the instant a held offer goes to the coordinator.
     pub fn grant_minted(
         &mut self,
         grant: crate::client::carriers::grant::DirectGrant,
+        now_ms: u64,
         out: &mut Vec<Effect>,
     ) {
         let worker_fp = grant.worker_fp.clone();
+        if let Some(machine) = self.machines.get_mut(&worker_fp) {
+            machine.advance_clock(now_ms);
+        }
         self.observe(
             &worker_fp,
             SignallingInput::Grant(crate::client::carriers::grant::GrantInput::Minted(grant)),

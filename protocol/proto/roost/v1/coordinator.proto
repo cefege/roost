@@ -530,6 +530,11 @@ message AuthCoordIdentityResponse {
   // default when this is false.
   bool saas_mode = 7;
   string instance_id = 8;
+  // The direct terminal carrier's static settings, advertised before any
+  // grant so a client can start gathering while its first grant is minted.
+  // STUN hostnames, not secrets; the list is empty when the carrier is off.
+  bool terminal_peer_enabled = 9;
+  repeated string terminal_peer_stun_urls = 10;
 }
 
 // The selected dashboard is resolved from the authenticated device and

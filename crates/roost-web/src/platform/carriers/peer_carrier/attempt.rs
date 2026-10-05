@@ -68,6 +68,12 @@ impl PeerCarrier {
         &self.attempt
     }
 
+    /// Take the machine's copy of the attempt once it adopted a grant, so the
+    /// grant check and the `Hello` read the tuple the offer was negotiated on.
+    pub fn adopt_attempt(&mut self, attempt: PeerAttempt) {
+        self.attempt = attempt;
+    }
+
     /// This attempt's clock, for the tick.
     pub fn life(&self) -> &PeerLife {
         &self.life

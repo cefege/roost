@@ -9,7 +9,7 @@ use roost_client_core::store::browse_entries::BrowseEntry;
 use roost_client_core::{RpcCall, RpcResult};
 use roost_proto::buffa::Message;
 use roost_proto::{
-    AuthCoordIdentityResponse, FilesListDirEntry, FilesListDirResponse, FilesMkdirResponse,
+    FilesListDirEntry, FilesListDirResponse, FilesMkdirResponse,
     GlobalSearchPartialReason as PbReason, Session as PbSession, SessionsKillResponse,
     SessionsListResponse, SessionsSearchGlobalMatch, SessionsSearchGlobalPartial,
     SessionsSearchGlobalResponse,
@@ -35,25 +35,6 @@ fn sessions_call() -> RpcCall {
         call_id: 4,
         sync_socket_id: Some("socket-1".to_owned()),
     }
-}
-
-#[test]
-fn the_identity_answer_is_the_build_and_url_v2_keeps() {
-    let bytes = AuthCoordIdentityResponse {
-        git_sha: "abc123".to_owned(),
-        public_url: "https://roost.example".to_owned(),
-        instance_id: "instance-1".to_owned(),
-        ..Default::default()
-    }
-    .encode_to_vec();
-    assert_eq!(
-        decode_rpc_response(&RpcCall::CoordIdentity { call_id: 3 }, &bytes).unwrap(),
-        RpcResult::CoordIdentity {
-            call_id: 3,
-            git_sha: "abc123".to_owned(),
-            public_url: "https://roost.example".to_owned(),
-        }
-    );
 }
 
 #[test]

@@ -14,23 +14,35 @@
 //! place that could refuse it.
 
 use roost_client_core::ClientEvent;
-use roost_client_core::client::carriers::PeerTransport;
-use roost_client_core::client::carriers::SignallingInput;
 use roost_client_core::client::carriers::grant_rpc::NegotiateLocalTerminalPeer;
+use roost_client_core::client::carriers::{PeerAttempt, PeerTransport, SignallingInput};
 
 use super::Pump;
 use super::open::refuse_attempt;
 
 /// Send the offer to the coordinator, and report the answer it sends back.
-pub(super) fn negotiate_offer(pump: &Pump, attempt_id: u64, offer_sdp: String) {
-    let Some(attempt) = pump.inner.peer.borrow().attempt_of(attempt_id) else {
+///
+/// The machine's attempt is authoritative: a peer opened ahead of its grant
+/// holds an attempt with no grant in both host records, and both take the
+/// adopted copy here, before the `Hello` and the grant check read them.
+pub(super) fn negotiate_offer(pump: &Pump, attempt: PeerAttempt, offer_sdp: String) {
+    let attempt_id = attempt.attempt_id;
+    if !pump.inner.peer.borrow_mut().adopt_attempt(&attempt) {
         tracing::warn!(
             target: "carriers",
             attempt_id,
             "the machine asked to negotiate an attempt this document does not hold"
         );
         return;
-    };
+    }
+    if let Some(carrier) = pump
+        .inner
+        .peer_attempts
+        .borrow_mut()
+        .attempt_mut(attempt_id)
+    {
+        carrier.adopt_attempt(attempt.clone());
+    }
     let worker_fp = attempt.worker_fp.clone();
     let request = NegotiateLocalTerminalPeer {
         worker_fp: attempt.worker_fp.clone(),

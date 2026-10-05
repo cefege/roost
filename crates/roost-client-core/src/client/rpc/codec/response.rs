@@ -39,6 +39,9 @@ pub fn decode_rpc_response(call: &RpcCall, body: &[u8]) -> Result<RpcResult, Rpc
                 call_id: *call_id,
                 git_sha: response.git_sha,
                 public_url: response.public_url,
+                terminal_peer_stun_urls: response
+                    .terminal_peer_enabled
+                    .then_some(response.terminal_peer_stun_urls),
             }
         }
         RpcCall::SessionsList { call_id, .. } => {

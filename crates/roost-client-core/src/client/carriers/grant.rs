@@ -32,11 +32,11 @@ pub enum GrantPhase {
     /// No credential, and none wanted.
     #[default]
     Absent,
-    /// A request is outstanding. A carrier MUST NOT authenticate on this, and
-    /// there is deliberately no path that opens a transport from it: the
-    /// request's return value is the whole answer.
+    /// A request is outstanding. A carrier MUST NOT authenticate on this: a
+    /// transport may gather while it is in flight, but no offer leaves until
+    /// the request's answer is `Granted`.
     Requested,
-    /// A live credential, and the only phase that opens a transport.
+    /// A live credential, and the only phase an offer is negotiated on.
     Granted,
     /// The request returned and the worker did not acknowledge, or a fault named
     /// the credential itself. A refusal, not a wait.

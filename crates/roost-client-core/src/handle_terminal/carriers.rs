@@ -49,7 +49,7 @@ pub fn handle_grant_minted(
     now_ms: u64,
     out: &mut Vec<Effect>,
 ) {
-    store.direct.grant_minted(grant.clone(), out);
+    store.direct.grant_minted(grant.clone(), now_ms, out);
     let widened =
         store
             .routes

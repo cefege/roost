@@ -30,7 +30,8 @@ pub enum RpcResult {
         error: CallError,
     },
     /// `AuthCoordIdentity` succeeded: the two fields v2 keeps as
-    /// `coord_identity` (`sync-bootstrap.ts:152-156`).
+    /// `coord_identity` (`sync-bootstrap.ts:152-156`), plus the direct
+    /// carrier's static STUN settings.
     CoordIdentity {
         /// Which call this answers.
         call_id: u64,
@@ -38,6 +39,9 @@ pub enum RpcResult {
         git_sha: String,
         /// The coordinator's public URL.
         public_url: String,
+        /// `Some(urls)` when the coordinator's direct carrier is enabled, so a
+        /// machine may gather before its grant lands; `None` when it is off.
+        terminal_peer_stun_urls: Option<Vec<String>>,
     },
     /// `SessionsList` succeeded.
     SessionsList {

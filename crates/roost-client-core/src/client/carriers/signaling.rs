@@ -15,9 +15,8 @@ use roost_protocol::terminal_peer::peer::{
 
 use crate::client::carriers::faults::{
     FaultState, answer_fault, classify_coordinator_refusal, classify_worker_reason, ready_fault,
-    sdp_is_usable,
 };
-use crate::client::carriers::grant::{GrantInput, GrantLifecycle, GrantSweep};
+use crate::client::carriers::grant::{GrantInput, GrantLifecycle, GrantPhase, GrantSweep};
 use crate::client::carriers::loopback::LoopbackProbe;
 use crate::client::carriers::signaling_demand::DirectWait;
 use crate::client::carriers::signaling_snapshot::PeerTelemetry;
@@ -25,7 +24,6 @@ use crate::client::carriers::{
     CarrierEffect, CarrierEnvironment, CarrierFault, PeerAnswer, PeerAttempt, PeerPhase,
     ReadyTuple, SignallingInput,
 };
-use crate::terminal::token::TerminalTransport;
 
 /// One worker's WebRTC attempt, and the election around it.
 #[derive(Debug)]
@@ -43,6 +41,9 @@ pub struct Signalling {
     pub(crate) faults: FaultState,
     pub(crate) phase: PeerPhase,
     pub(crate) attempt: Option<PeerAttempt>,
+    /// The offer SDP the transport read while no grant was live, sent the
+    /// moment `adopt_grant` copies a mint into the attempt.
+    pub(crate) held_offer: Option<String>,
     /// What the transport last measured. Cleared when the attempt it belongs
     /// to ends, so a reader never sees a dead peer's round trip on a route
     /// that has fallen back to Sync.
@@ -80,6 +81,7 @@ impl Signalling {
             faults: FaultState::default(),
             phase: PeerPhase::Idle,
             attempt: None,
+            held_offer: None,
             attempt_started_ms: 0,
             phase_entered_ms: [None; PeerPhase::COUNT],
             peer_held: false,
@@ -186,7 +188,14 @@ impl Signalling {
             self.set_phase(PeerPhase::Disabled, Some(fault.reason()));
             return self.report(fault, "this document cannot do WebRTC");
         }
-        if self.grant.live_grant(now_ms).is_none() {
+        // A transport may gather while the first mint is in flight, using the
+        // STUN servers the coordinator advertised; its offer is held until the
+        // grant lands. A grant retry (`Unavailable`, `Expired`) keeps waiting,
+        // so a refusal does not churn peers.
+        let grantless = self.grant.live_grant(now_ms).is_none();
+        if grantless
+            && (self.env.stun_urls.is_none() || self.grant.phase() != GrantPhase::Requested)
+        {
             // Parking here is not a stall: the grant lifecycle armed its own
             // retry the moment it last refused.
             self.park_keeping_terminal_reason(PeerPhase::AwaitingGrant);
@@ -202,63 +211,6 @@ impl Signalling {
             return self.report(fault, detail);
         }
         self.open_peer(now_ms)
-    }
-
-    /// Mint a peer attempt from the live grant and ask the host to open it.
-    fn open_peer(&mut self, now_ms: u64) -> Vec<CarrierEffect> {
-        let Some(grant) = self.grant.live_grant(now_ms).cloned() else {
-            self.park_keeping_terminal_reason(PeerPhase::AwaitingGrant);
-            return Vec::new();
-        };
-        if !grant.admits(TerminalTransport::Peer) {
-            let fault = CarrierFault::Disabled;
-            self.set_phase(PeerPhase::Disabled, Some(fault.reason()));
-            return self.report(fault, "this grant cannot open a peer carrier");
-        }
-        self.next_attempt_id += 1;
-        let attempt = PeerAttempt {
-            attempt_id: self.next_attempt_id,
-            worker_fp: self.worker_fp.clone(),
-            worker_epoch: grant.worker_epoch.clone(),
-            transport: TerminalTransport::Peer,
-            // Minted by the host as it opens the transport (`crypto.randomUUID`,
-            // v2 `createTerminalDirectRequestId`) and adopted from the offer: this
-            // crate holds no entropy, and the coordinator refuses a non-UUID.
-            peer_id: String::new(),
-            grant_id: grant.grant_id.clone(),
-            tab_id: grant.tab_id.clone(),
-            device_fingerprint: grant.device_fingerprint.clone(),
-            stun_urls: grant.stun_urls.clone(),
-            // The GRANT's scope, as v2 checks a `Ready` against
-            // `options.grant.sessionIds`: the worker proves the scope it was
-            // told to install, which is the mint's and not this page's demand.
-            session_ids: grant.session_ids.clone(),
-        };
-        self.attempt = Some(attempt.clone());
-        self.attempt_started_ms = now_ms;
-        self.set_phase(PeerPhase::Gathering, None);
-        vec![CarrierEffect::OpenTransport { attempt }]
-    }
-
-    /// The transport produced a local offer, under the peer id it minted.
-    fn offer(&mut self, attempt_id: u64, peer_id: String, offer_sdp: String) -> Vec<CarrierEffect> {
-        let Some(open) = self
-            .attempt
-            .as_mut()
-            .filter(|open| open.attempt_id == attempt_id)
-        else {
-            return Vec::new();
-        };
-        open.peer_id = peer_id;
-        if !sdp_is_usable(&offer_sdp) {
-            let detail = "terminal peer offer has no usable candidates";
-            return self.fault(attempt_id, CarrierFault::InvalidOffer, detail);
-        }
-        self.set_phase(PeerPhase::Negotiating, None);
-        vec![CarrierEffect::NegotiateOffer {
-            attempt_id,
-            offer_sdp,
-        }]
     }
 
     /// The coordinator answered. The tuple is checked before the SDP because
@@ -327,12 +279,16 @@ impl Signalling {
     fn grant_step(&mut self, grant: GrantInput) -> Vec<CarrierEffect> {
         let mut out = match &grant {
             GrantInput::Minted(minted) => self.retire_outgrown_attempt(minted),
+            GrantInput::Refused { .. } if self.holds_grantless_attempt() => {
+                self.close_open_attempt("grant refused")
+            }
             _ => Vec::new(),
         };
         let minted = matches!(&grant, GrantInput::Minted(_));
         out.extend(self.grant.step(grant));
         if minted {
             self.grant.refresh_at_ms = Some(self.now_ms);
+            out.extend(self.adopt_grant(self.now_ms));
         }
         out.extend(self.start(self.now_ms));
         out
@@ -352,7 +308,11 @@ impl Signalling {
         // The negotiation deadline covers gathering and the offer's round trip
         // through the coordinator. An authenticated peer is not negotiating, and
         // retiring it for a slow attempt would drop a live session.
-        let negotiating = matches!(self.phase, PeerPhase::Gathering | PeerPhase::Negotiating);
+        let negotiating = self.attempt.is_some()
+            && matches!(
+                self.phase,
+                PeerPhase::AwaitingGrant | PeerPhase::Gathering | PeerPhase::Negotiating
+            );
         let waited = now_ms.saturating_sub(self.attempt_started_ms);
         if negotiating
             && waited >= TERMINAL_PEER_NEGOTIATION_DEADLINE_MS
@@ -380,6 +340,7 @@ impl Signalling {
         }];
         self.fell_back(fault);
         self.attempt = None;
+        self.held_offer = None;
         self.peer_held = false;
         if self.phase == PeerPhase::Active {
             self.faults.hold_down_from_active(self.now_ms);

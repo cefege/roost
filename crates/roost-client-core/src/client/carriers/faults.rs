@@ -269,6 +269,7 @@ impl Signalling {
         self.telemetry = PeerTelemetry::default();
         self.time_to_direct_ms = None;
         self.phase_entered_ms = [None; PeerPhase::COUNT];
+        self.held_offer = None;
         self.attempt.take().map_or_else(Vec::new, |attempt| {
             vec![CarrierEffect::CloseAttempt {
                 attempt_id: attempt.attempt_id,
@@ -290,6 +291,11 @@ impl Signalling {
         let Some(open) = self.attempt.as_ref() else {
             return Vec::new();
         };
+        // A grantless attempt was opened FOR this mint and adopts it; faulting
+        // it as outgrown is the "terminal peer grant changed" loop.
+        if open.grant_id.is_empty() {
+            return Vec::new();
+        }
         let still_admitted = minted.admits(TerminalTransport::Peer)
             && minted.worker_epoch == open.worker_epoch
             && minted.session_ids.is_subset(&open.session_ids);

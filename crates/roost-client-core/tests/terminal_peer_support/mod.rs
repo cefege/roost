@@ -72,6 +72,7 @@ pub fn machine(peers_allocated: u32) -> Signalling {
             peers_allocated,
             peer_transport_available: true,
             sync_generation: SYNC_GENERATION,
+            stun_urls: None,
         },
         NOW,
     )
@@ -123,7 +124,7 @@ pub fn authenticating() -> (Signalling, u64) {
         })
         .as_slice()
     {
-        [CarrierEffect::NegotiateOffer { attempt_id, .. }] => *attempt_id,
+        [CarrierEffect::NegotiateOffer { attempt, .. }] => attempt.attempt_id,
         other => panic!("a page on another machine must negotiate a peer, got {other:?}"),
     };
     peer.step(SignallingInput::AnswerReceived {

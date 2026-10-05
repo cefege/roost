@@ -133,6 +133,16 @@ impl BrowserPeer {
         self.peers.get(attempt_id).map(|peer| peer.attempt.clone())
     }
 
+    /// Replace the attempt one open peer holds with the machine's adopted copy:
+    /// a peer opened ahead of its grant learns the grant's tuple here, before
+    /// its offer is negotiated. `false` when this document does not hold it.
+    pub fn adopt_attempt(&mut self, attempt: &PeerAttempt) -> bool {
+        self.peers
+            .get_mut(attempt.attempt_id)
+            .map(|peer| peer.attempt = attempt.clone())
+            .is_some()
+    }
+
     /// Whether this attempt is still held, which is what a browser callback's
     /// event asks before it is reported to the core.
     pub fn holds(&self, attempt_id: u64) -> bool {

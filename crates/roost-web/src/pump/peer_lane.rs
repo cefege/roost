@@ -69,10 +69,9 @@ pub(super) fn perform(pump: &Pump, action: CarrierEffect) {
     match action {
         CarrierEffect::Core(effect) => super::effects::perform(pump, effect),
         CarrierEffect::OpenTransport { attempt } => open::open_transport(pump, attempt),
-        CarrierEffect::NegotiateOffer {
-            attempt_id,
-            offer_sdp,
-        } => negotiate::negotiate_offer(pump, attempt_id, offer_sdp),
+        CarrierEffect::NegotiateOffer { attempt, offer_sdp } => {
+            negotiate::negotiate_offer(pump, attempt, offer_sdp)
+        }
         CarrierEffect::ApplyAnswer {
             attempt_id,
             answer_sdp,

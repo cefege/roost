@@ -15,6 +15,7 @@ pub mod loopback;
 pub mod probe_state;
 pub mod signaling;
 mod signaling_demand;
+mod signaling_open;
 pub mod signaling_snapshot;
 pub mod transport_trait;
 pub mod wire;
@@ -65,7 +66,7 @@ pub enum PeerPhase {
     /// Nothing in flight, and the probe has not released a peer.
     #[default]
     Idle,
-    /// Waiting on a coordinator grant.
+    /// Waiting on a grant, with or without a transport gathering for it.
     AwaitingGrant,
     /// The transport is open and ICE is gathering.
     Gathering,
@@ -97,6 +98,9 @@ pub struct CarrierEnvironment {
     /// The Sync generation this worker's sessions are fenced to, carried to the
     /// snapshot so "Sync metadata stayed live" is readable rather than assumed.
     pub sync_generation: u64,
+    /// STUN servers the coordinator advertised; `None` until it answered, which
+    /// keeps the attempt behind the grant. `Some(empty)` gathers host only.
+    pub stun_urls: Option<Vec<String>>,
 }
 
 /// One attempt at a direct carrier for one worker. An attempt is IDENTIFIED by
@@ -118,7 +122,7 @@ pub struct PeerAttempt {
     /// it opens the transport and reports it with the offer, so it is empty
     /// until `OfferReady`; nothing reads it before then.
     pub peer_id: String,
-    /// The grant this attempt authenticates with.
+    /// The grant this attempt authenticates with; empty until a mint is adopted.
     pub grant_id: String,
     /// The tab the grant names.
     pub tab_id: String,
@@ -340,8 +344,8 @@ pub enum CarrierEffect {
     /// Send this attempt's offer to the coordinator. The coordinator is the
     /// signalling authority, so an offer never goes to another peer.
     NegotiateOffer {
-        /// Which attempt.
-        attempt_id: u64,
+        /// The attempt, carrying the grant it adopted while it gathered.
+        attempt: PeerAttempt,
         /// The local offer.
         offer_sdp: String,
     },

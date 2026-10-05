@@ -1,5 +1,6 @@
-//! The device surface: the coordinator's own identity, the paired-device
-//! inventory, and a browser's revocation, rotation and logout.
+//! The device surface: the paired-device inventory, and a browser's
+//! revocation, rotation and logout. The coordinator's own identity is
+//! `rpc_identity`; its row in [`METHOD_HANDLERS`] points there.
 //!
 //! Ported from `apps/coord/src/auth/handlers-devices.ts`. Every mutation ends
 //! in a revocation, and every one of them invalidates the JWT key cache AFTER
@@ -14,7 +15,6 @@
 use std::collections::HashSet;
 
 use connectrpc::{ConnectError, ErrorCode, ServiceResult};
-use roost_host::{ProcessEnv, build_identity};
 use roost_proto as proto;
 
 use crate::auth::authorized_keys::fingerprint_of_raw_public_key;
@@ -39,7 +39,7 @@ use crate::rpc::service::{now_ms, ok_response};
 pub const METHOD_HANDLERS: &[(&str, &str)] = &[
     (
         "AuthCoordIdentity",
-        "auth::rpc_devices::handle_auth_coord_identity",
+        "auth::rpc_identity::handle_auth_coord_identity",
     ),
     ("AuthLogout", "auth::rpc_devices::handle_auth_logout"),
     ("DevicesList", "auth::rpc_devices::handle_devices_list"),
@@ -49,29 +49,6 @@ pub const METHOD_HANDLERS: &[(&str, &str)] = &[
         "auth::rpc_devices::handle_devices_rotate_current",
     ),
 ];
-
-/// `CoordinatorService.AuthCoordIdentity` -- what this coordinator is.
-///
-/// Public, and deliberately: a browser reads it before it holds any credential.
-/// The stamp is the binary's own, not a `git rev-parse` per request, so it
-/// cannot name a commit the running code is not. See `build_identity`.
-pub async fn handle_auth_coord_identity(
-    core: &CoordCore,
-    _caller: &Caller,
-    _request: proto::AuthCoordIdentityRequest,
-) -> ServiceResult<proto::AuthCoordIdentityResponse> {
-    let config = core.services.boot.require_config()?;
-    let public_url = config
-        .public_url
-        .clone()
-        .or_else(|| config.web_public_url.clone())
-        .unwrap_or_default();
-    ok_response(proto::AuthCoordIdentityResponse {
-        git_sha: build_identity(&ProcessEnv::new()).build_sha,
-        public_url,
-        ..Default::default()
-    })
-}
 
 /// `CoordinatorService.DevicesList` -- the paired browsers, newest first.
 ///

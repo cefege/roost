@@ -38,6 +38,8 @@ mod browse_machine_scope;
 mod browse_server_switch;
 #[path = "carrier_wire.rs"]
 mod carrier_wire;
+#[path = "carriers_grantless_open.rs"]
+mod carriers_grantless_open;
 #[path = "carriers_phase_timing.rs"]
 mod carriers_phase_timing;
 #[path = "carriers_prewarm.rs"]
@@ -126,6 +128,8 @@ mod predictive_echo_seed;
 mod prefs_persistence;
 #[path = "replica_frame_counts.rs"]
 mod replica_frame_counts;
+#[path = "rpc_codec_identity.rs"]
+mod rpc_codec_identity;
 #[path = "rpc_codec_requests.rs"]
 mod rpc_codec_requests;
 #[path = "rpc_codec_responses.rs"]

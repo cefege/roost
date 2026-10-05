@@ -83,7 +83,7 @@ fn warm_lane(sessions: &BTreeSet<String>) -> CarrierLane {
     lane.set_environment(true, 0);
     lane.set_prewarm(WORKER, sessions.clone(), 0, &mut out);
     lane.local_door_answered(WORKER, "", &mut out);
-    lane.grant_minted(grant(sessions), &mut out);
+    lane.grant_minted(grant(sessions), 0, &mut out);
     let attempt_id = opened_attempt(&out).expect("a live grant opens the pre-warmed peer");
     let inputs = [
         SignallingInput::OfferReady {
@@ -136,7 +136,7 @@ fn a_prewarm_with_no_view_mints_a_grant_for_its_sessions_and_opens_a_peer() {
 
     let mut out = Vec::new();
     lane.local_door_answered(WORKER, "", &mut out);
-    lane.grant_minted(grant(&sessions), &mut out);
+    lane.grant_minted(grant(&sessions), 0, &mut out);
     assert!(
         opened_attempt(&out).is_some(),
         "a live grant opens the peer with no view on the worker; got {out:?}"
@@ -169,7 +169,7 @@ fn a_view_session_is_never_the_one_left_out_of_a_full_grant() {
     // The view's own mint is still out; its answer is when the grown demand,
     // coalesced behind it, is asked for.
     let mut out = Vec::new();
-    lane.grant_minted(grant(&ids(&["viewed"])), &mut out);
+    lane.grant_minted(grant(&ids(&["viewed"])), 0, &mut out);
     let (_, named) = requested(&out).pop().expect("the grown demand is minted");
     assert_eq!(named.len(), TERMINAL_PEER_MAX_SESSIONS_PER_GRANT);
     assert!(named.contains(&"viewed".to_owned()));
@@ -186,7 +186,7 @@ fn a_cleared_prewarm_keeps_its_peer_and_stops_renewing_the_grant() {
         1,
         "a pre-warmed grant is renewed like a viewed one"
     );
-    lane.grant_minted(grant(&sessions), &mut Vec::new());
+    lane.grant_minted(grant(&sessions), 0, &mut Vec::new());
 
     let mut out = Vec::new();
     lane.clear_prewarm(WORKER, GRANT_RENEW_MS, &mut out);

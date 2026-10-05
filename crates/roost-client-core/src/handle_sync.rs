@@ -264,14 +264,21 @@ pub fn handle_rpc_result(
         RpcResult::CoordIdentity {
             git_sha,
             public_url,
+            terminal_peer_stun_urls,
             ..
         } => {
             store.coord_identity = Some(CoordIdentity {
                 git_sha: git_sha.clone(),
                 public_url: public_url.clone(),
             });
+            store.direct.set_stun_urls(terminal_peer_stun_urls.clone());
             store.note_change();
-            tracing::info!(target: "rpc", git_sha = %git_sha, "coordinator identity");
+            tracing::info!(
+                target: "rpc",
+                git_sha = %git_sha,
+                stun_urls = ?terminal_peer_stun_urls,
+                "coordinator identity"
+            );
         }
         RpcResult::SearchPage {
             call_id,

@@ -9,10 +9,12 @@
 //!
 //! IT IS PUBLIC, AND IT ANSWERS ALMOST NOTHING. No caller is resolved, because
 //! resolving one is what would make it non-public, and nothing here is
-//! per-caller: the two fields are this process's build and this deployment's
-//! own declared origin. The relocation, SaaS-mode and listener fields stay at
-//! their defaults, which is what v2 sends — they describe a managed deployment
-//! and a self-hosted install has none of them to report.
+//! per-caller: the fields are this process's build, this deployment's own
+//! declared origin, and the direct carrier's static STUN settings (hostnames,
+//! not secrets), which let a browser start gathering before its first grant.
+//! The relocation, SaaS-mode and listener fields stay at their defaults, which
+//! is what v2 sends — they describe a managed deployment and a self-hosted
+//! install has none of them to report.
 //!
 //! `public_url` FALLS BACK TO `web_public_url` AND THEN TO THE EMPTY STRING,
 //! because a client that asked and got a field it can read is better served
@@ -38,6 +40,12 @@ pub fn handle_auth_coord_identity(
             .clone()
             .or_else(|| config.web_public_url.clone())
             .unwrap_or_default(),
+        terminal_peer_enabled: config.terminal_peer_enabled,
+        terminal_peer_stun_urls: if config.terminal_peer_enabled {
+            config.terminal_peer_stun_urls.clone()
+        } else {
+            Vec::new()
+        },
         // A self-hosted install was never relocated, is not a managed
         // deployment, and is not a public listener. Left absent rather than
         // filled in, which is what v2 sends and what a client reads as "this

@@ -363,3 +363,27 @@ fn the_coordinator_answers_its_own_identity_without_a_credential() {
             .is_empty()
     );
 }
+
+#[test]
+fn the_identity_advertises_the_direct_carriers_stun_servers_only_while_it_is_enabled() {
+    let mut config = declared_origin(None, None);
+    config.terminal_peer_enabled = true;
+    config.terminal_peer_stun_urls = vec!["stun:stun.example:3478".to_owned()];
+    let enabled = handle_auth_coord_identity(&config, "sha")
+        .expect("a public answer")
+        .body;
+    assert!(enabled.terminal_peer_enabled);
+    assert_eq!(
+        enabled.terminal_peer_stun_urls,
+        vec!["stun:stun.example:3478"]
+    );
+
+    // A disabled carrier advertises nothing to gather against, so a browser
+    // keeps its attempt behind the grant the coordinator will not mint.
+    config.terminal_peer_enabled = false;
+    let disabled = handle_auth_coord_identity(&config, "sha")
+        .expect("a public answer")
+        .body;
+    assert!(!disabled.terminal_peer_enabled);
+    assert!(disabled.terminal_peer_stun_urls.is_empty());
+}

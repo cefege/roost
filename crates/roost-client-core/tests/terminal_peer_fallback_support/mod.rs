@@ -72,6 +72,7 @@ pub fn machine() -> Signalling {
             peers_allocated: 0,
             peer_transport_available: true,
             sync_generation: SYNC_GENERATION,
+            stun_urls: None,
         },
         NOW,
     )
@@ -125,7 +126,7 @@ pub fn peer_open() -> (Signalling, u64) {
         })
         .as_slice()
     {
-        [CarrierEffect::NegotiateOffer { attempt_id, .. }] => *attempt_id,
+        [CarrierEffect::NegotiateOffer { attempt, .. }] => attempt.attempt_id,
         other => panic!("a page on another machine must negotiate a peer, got {other:?}"),
     };
     (peer, attempt_id)
