@@ -217,14 +217,17 @@ impl Drop for LaneTicket {
     }
 }
 
-/// The live route an input command may use: the durable open session on a
-/// non-deleted worker, confirmed against the byte hub's route cache.
+/// The live route an input command may use: the byte hub's cached route when
+/// it holds one, else the durable open session on a non-deleted worker.
 ///
-/// The durable relationship is always proved first, so a guessed session id
-/// cannot create a cache entry. Once a worker has announced its exact live
-/// set, a session with no live route is offline: re-caching the durable
-/// breadcrumb then would resurrect a channel no keeper owns and write input
-/// into it.
+/// A cache hit skips the database because an entry only exists through
+/// `admit_durable_route` (a proven open row), `prime` (a worker's hello rows),
+/// a committed `opened`/`respawned`/`snapshot` event, and leaves through
+/// `evict_route` (a committed `closed` event), `retire_worker_routes` (a
+/// deleted worker) or the reconcile sweep of a worker's live set. A miss
+/// proves the durable relationship first, so a guessed session id cannot
+/// create an entry; once a worker has announced its exact live set, a session
+/// absent from it is offline and is not re-cached from the row.
 pub async fn resolve_session_route(
     db: &CoordDb,
     byte_hub: &ByteHub,
@@ -233,6 +236,9 @@ pub async fn resolve_session_route(
     let Ok(session) = SessionId::try_from(session_id) else {
         return Ok(None);
     };
+    if let Some(route) = byte_hub.cached_route(&session) {
+        return Ok(Some(route));
+    }
     let row: Option<(String, i64)> = sqlx::query_as(
         "SELECT session.worker_fp, session.channel FROM sessions AS session \
          INNER JOIN workers AS worker ON worker.fp = session.worker_fp \

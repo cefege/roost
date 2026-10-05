@@ -129,9 +129,13 @@ impl LiveEffects for TerminalLiveEffects {
                 self.byte_hub
                     .bind_durable_channel(worker_fp, *new_channel, session_id);
             }
-            // Every other variant names no channel: `Closed`, `Detached` and
-            // `Renamed` have no `ChannelId` to bind, and the durable `sessions`
-            // row is what the reconciler reads for their state.
+            // A closed session must stop resolving for input: the keystroke
+            // path trusts a cached route without re-reading the row.
+            SessionEvent::Closed { session_id, .. } => {
+                self.byte_hub.evict_session(session_id);
+            }
+            // `Detached` and `Renamed` name no channel, and the durable
+            // `sessions` row is what the reconciler reads for their state.
             _ => {}
         }
     }

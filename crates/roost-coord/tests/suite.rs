@@ -280,6 +280,8 @@ mod terminal_hop_deadline;
 mod terminal_input_audit;
 #[path = "terminal_input_control.rs"]
 mod terminal_input_control;
+#[path = "terminal_input_route_cache.rs"]
+mod terminal_input_route_cache;
 #[path = "terminal_input_route_fences.rs"]
 mod terminal_input_route_fences;
 #[path = "terminal_input_route_results.rs"]
