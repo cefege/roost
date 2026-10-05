@@ -12,6 +12,7 @@ use roost_protocol::terminal_peer::peer::TERMINAL_PEER_MAX_SESSIONS_PER_GRANT;
 use crate::client::carriers::faults::{CarrierFault, FaultFallback};
 use crate::client::carriers::grant::GrantInput;
 use crate::client::carriers::signaling::Signalling;
+use crate::client::carriers::signaling_snapshot::DirectPhaseTimings;
 use crate::client::carriers::{CarrierEffect, PeerPhase};
 use crate::terminal::token::TerminalToken;
 
@@ -131,11 +132,17 @@ impl Signalling {
         self.set_phase(PeerPhase::Active, None);
         let wait = self.direct_wait.take();
         self.time_to_direct_ms = wait.map(|wait| self.now_ms.saturating_sub(wait.started_ms));
+        let phases = self.direct_phase_timings();
         tracing::info!(
             target: "terminal",
             worker_fp = %self.worker_fp,
             transport = token.transport.as_str(),
             time_to_direct_ms = self.time_to_direct_ms,
+            gathering_ms = phases.gathering_ms,
+            negotiating_ms = phases.negotiating_ms,
+            authenticating_ms = phases.authenticating_ms,
+            candidate_ms = phases.candidate_ms,
+            active_ms = phases.active_ms,
             prewarmed = wait.is_some_and(|wait| wait.prewarmed),
             "direct route promoted"
         );
@@ -158,6 +165,7 @@ impl Signalling {
             });
         }
         self.time_to_direct_ms = None;
+        self.phase_entered_ms = [None; PeerPhase::COUNT];
         let fallback = match fault.fallback(self.loopback.has_staged_carrier()) {
             FaultFallback::Loopback => "loopback",
             FaultFallback::Sync => "sync",
@@ -193,5 +201,43 @@ impl Signalling {
     /// fire late, and a wait measured against one would read short.
     fn advance_clock(&mut self, now_ms: u64) {
         self.now_ms = self.now_ms.max(now_ms);
+    }
+}
+
+impl PeerPhase {
+    /// How many phases there are: the length of a per-phase table.
+    pub(crate) const COUNT: usize = 9;
+
+    /// This phase's slot in a per-phase table.
+    pub(crate) const fn index(self) -> usize {
+        match self {
+            Self::Idle => 0,
+            Self::AwaitingGrant => 1,
+            Self::Gathering => 2,
+            Self::Negotiating => 3,
+            Self::Authenticating => 4,
+            Self::Candidate => 5,
+            Self::Active => 6,
+            Self::Cooldown => 7,
+            Self::Disabled => 8,
+        }
+    }
+}
+
+impl Signalling {
+    /// How far into the open attempt each phase of the climb to direct was
+    /// first entered.
+    pub(crate) fn direct_phase_timings(&self) -> DirectPhaseTimings {
+        let since_start = |phase: PeerPhase| {
+            self.phase_entered_ms[phase.index()]
+                .map(|entered| entered.saturating_sub(self.attempt_started_ms))
+        };
+        DirectPhaseTimings {
+            gathering_ms: since_start(PeerPhase::Gathering),
+            negotiating_ms: since_start(PeerPhase::Negotiating),
+            authenticating_ms: since_start(PeerPhase::Authenticating),
+            candidate_ms: since_start(PeerPhase::Candidate),
+            active_ms: since_start(PeerPhase::Active),
+        }
     }
 }

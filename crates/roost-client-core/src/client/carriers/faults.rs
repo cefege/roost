@@ -268,6 +268,7 @@ impl Signalling {
         // to Sync reads as a live one.
         self.telemetry = PeerTelemetry::default();
         self.time_to_direct_ms = None;
+        self.phase_entered_ms = [None; PeerPhase::COUNT];
         self.attempt.take().map_or_else(Vec::new, |attempt| {
             vec![CarrierEffect::CloseAttempt {
                 attempt_id: attempt.attempt_id,
@@ -309,6 +310,9 @@ impl Signalling {
     pub(crate) fn set_phase(&mut self, phase: PeerPhase, reason: Option<FallbackReason>) {
         if self.phase == phase && self.faults.reason == reason {
             return;
+        }
+        if self.phase != phase {
+            self.phase_entered_ms[phase.index()] = Some(self.now_ms);
         }
         self.phase = phase;
         self.faults.reason = reason;

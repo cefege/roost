@@ -153,6 +153,7 @@ impl PeerSignalling for Signalling {
                 .or_else(|| self.grant.last_detail().map(str::to_string)),
             telemetry: self.telemetry.clone(),
             time_to_direct_ms: self.time_to_direct_ms,
+            direct_phase_ms: self.direct_phase_timings(),
         }
     }
 
@@ -202,6 +203,24 @@ pub struct SignallingSnapshot {
     /// why it is not a `PeerTelemetry` field: the host replaces that record
     /// whole on every heartbeat.
     pub time_to_direct_ms: Option<u64>,
+    /// How far into the open attempt each phase toward direct was entered.
+    pub direct_phase_ms: DirectPhaseTimings,
+}
+
+/// Milliseconds from an attempt's start to its first entry into each phase of
+/// the climb to a direct route; `None` for a phase it has not reached.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DirectPhaseTimings {
+    /// ICE gathering began.
+    pub gathering_ms: Option<u64>,
+    /// The offer went to the coordinator.
+    pub negotiating_ms: Option<u64>,
+    /// The answer was applied.
+    pub authenticating_ms: Option<u64>,
+    /// The carrier authenticated.
+    pub candidate_ms: Option<u64>,
+    /// The carrier was elected.
+    pub active_ms: Option<u64>,
 }
 
 impl SignallingSnapshot {
@@ -222,6 +241,7 @@ impl SignallingSnapshot {
             last_failure_detail: None,
             telemetry: PeerTelemetry::default(),
             time_to_direct_ms: None,
+            direct_phase_ms: DirectPhaseTimings::default(),
         }
     }
 }

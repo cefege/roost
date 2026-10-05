@@ -32,7 +32,9 @@ pub use lane::CarrierLane;
 pub use loopback::{LOOPBACK_GRACE_MS, LocalWorkerDoor, LoopbackAnswer, LoopbackProbe};
 pub use probe_state::{ProbeReading, TransportProbeState};
 pub use signaling::Signalling;
-pub use signaling_snapshot::{CandidateType, PeerTelemetry, SignallingSnapshot};
+pub use signaling_snapshot::{
+    CandidateType, DirectPhaseTimings, PeerTelemetry, SignallingSnapshot,
+};
 pub use transport_trait::{
     PeerLane, PeerSignalling, PeerTransport, ScriptedPeerSignalling, TransportError,
 };

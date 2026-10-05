@@ -55,6 +55,8 @@ pub struct Signalling {
     /// elected. Cleared with the attempt, for `telemetry`'s reason.
     pub(crate) time_to_direct_ms: Option<u64>,
     pub(crate) attempt_started_ms: u64,
+    /// When the open attempt first entered each phase, by `PeerPhase::index`.
+    pub(crate) phase_entered_ms: [Option<u64>; PeerPhase::COUNT],
     /// The authenticated peer held for this worker. Always a PEER: a loopback
     /// carrier is the loopback slice's own connection.
     pub(crate) peer_held: bool,
@@ -79,6 +81,7 @@ impl Signalling {
             phase: PeerPhase::Idle,
             attempt: None,
             attempt_started_ms: 0,
+            phase_entered_ms: [None; PeerPhase::COUNT],
             peer_held: false,
             now_ms,
             next_attempt_id: 0,

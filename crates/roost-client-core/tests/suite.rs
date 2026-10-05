@@ -38,6 +38,8 @@ mod browse_machine_scope;
 mod browse_server_switch;
 #[path = "carrier_wire.rs"]
 mod carrier_wire;
+#[path = "carriers_phase_timing.rs"]
+mod carriers_phase_timing;
 #[path = "carriers_prewarm.rs"]
 mod carriers_prewarm;
 #[path = "connect_interceptor.rs"]
