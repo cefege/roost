@@ -174,9 +174,12 @@ opt-level = 3
 
 # The wasm bundle: download size is the cheaper axis there, so it keeps
 # whole-program LTO. `dx build --release --profile wasm-release` builds it.
+# "z" over "s", measured with roost-bench (2 rounds each): raw wasm 5.76 MB
+# -> 4.81 MB, wasm-fetched -> main() p50 39.8 -> 33.7 ms, echo renderer CPU
+# and flood_plain p50 within 1%.
 [profile.wasm-release]
 inherits = "release"
-opt-level = "s"
+opt-level = "z"
 lto = true
 codegen-units = 1
 
