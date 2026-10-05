@@ -59,9 +59,11 @@ pub trait CellDelivery: Send + Sync {
     fn install_stream(&mut self, channel_id: ChannelId, stream_id: &str);
     /// A channel is gone; its delivery state and parked cursors go with it.
     fn forget_channel(&mut self, channel_id: ChannelId);
-    /// v2 `markInputSensitive`: the next echo chunk leads instead of waiting out
-    /// the coalesce window. A channel the table does not hold is ignored.
-    fn note_input_echo(&mut self, channel_id: ChannelId);
+    /// v2 `markInputSensitive`: a keystroke was written at `now_ms` (the
+    /// session clock the ingest path stamps), so output inside the echo window
+    /// leads instead of waiting out the coalesce window. A channel the table
+    /// does not hold is ignored.
+    fn note_input_echo(&mut self, channel_id: ChannelId, now_ms: i64);
     /// v2 `cancelCellEmission`: the channel's queued emission only.
     fn cancel_cell_emission(&mut self, channel_id: ChannelId);
     /// v2 `_releaseSyncOutputHold`: the core the hold is expressed in froze or

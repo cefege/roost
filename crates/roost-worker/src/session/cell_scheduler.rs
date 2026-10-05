@@ -13,9 +13,10 @@ use super::cell_gates::CellGate;
 use super::emit::{CELL_EMIT_COALESCE_MS, CellEmitter};
 use super::types::SessionRecord;
 
-/// The ceiling on queued input-echo promotions per channel (v2
-/// `MAX_PENDING_INPUT_ECHO_PROMOTIONS`).
-pub const MAX_PENDING_INPUT_ECHO_PROMOTIONS: u8 = 8;
+/// Every chunk that lands inside this window after a keystroke's write emits at
+/// once; a local shell echoes within a few ms, and an echo later than two
+/// coalesce windows is not distinguishable from unrelated output.
+pub const INPUT_ECHO_WINDOW_MS: i64 = 2 * CELL_EMIT_COALESCE_MS;
 
 /// The trailing coalesce window, as the cadence's clock spells it.
 pub const CELL_EMIT_COALESCE: Duration = Duration::from_millis(CELL_EMIT_COALESCE_MS as u64);
@@ -62,27 +63,25 @@ impl CellEmitter {
         channels
     }
 
-    /// v2 `markInputSensitive`: queue a keystroke whose echo should not wait out
-    /// the coalesce window, bounded per channel.
-    pub fn note_input_echo(&mut self, channel_id: ChannelId) {
-        let queued = self.input_echo.entry(channel_id).or_insert(0);
-        *queued = queued
-            .saturating_add(1)
-            .min(MAX_PENDING_INPUT_ECHO_PROMOTIONS);
+    /// v2 `markInputSensitive`: a keystroke was written at `now_ms`, so output
+    /// that lands within [`INPUT_ECHO_WINDOW_MS`] leads instead of waiting out
+    /// the coalesce window. A later keystroke re-arms the window.
+    pub fn note_input_echo(&mut self, channel_id: ChannelId, now_ms: i64) {
+        self.input_echo
+            .insert(channel_id, now_ms.saturating_add(INPUT_ECHO_WINDOW_MS));
     }
 
-    /// v2 `consumeInputEchoPromotion`: take ONE queued promotion, so each echo of
-    /// a fast burst re-leads instead of waiting out the cooldown.
-    pub fn consume_input_echo_promotion(&mut self, channel_id: ChannelId) -> bool {
-        match self.input_echo.get_mut(&channel_id) {
-            Some(queued) if *queued > 0 => {
-                *queued -= 1;
-                if *queued == 0 {
-                    self.input_echo.remove(&channel_id);
-                }
-                true
+    /// Whether a chunk ingested at `now_ms` falls inside the channel's echo
+    /// window. Not consumed: a spinner chunk that lands first must not take
+    /// the promotion from the echo that follows it. A lapsed window is dropped.
+    pub fn input_echo_armed(&mut self, channel_id: ChannelId, now_ms: i64) -> bool {
+        match self.input_echo.get(&channel_id) {
+            Some(&armed_until) if now_ms < armed_until => true,
+            Some(_) => {
+                self.input_echo.remove(&channel_id);
+                false
             }
-            _ => false,
+            None => false,
         }
     }
 

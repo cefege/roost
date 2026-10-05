@@ -8,6 +8,7 @@
 mod support;
 
 use roost_worker::session::cell_gates::CellGate;
+use roost_worker::session::cell_scheduler::INPUT_ECHO_WINDOW_MS;
 use roost_worker::session::cell_sink::COORD_CELL_SINK_ID;
 use support::{Harness, row_text};
 
@@ -150,34 +151,45 @@ fn schedules_normally_after_an_unclosed_synchronized_output_hold_trips() {
     assert!(row_text(&attempts[2], 2).contains("AFTER-CAP"));
 }
 
+/// A spinner chunk that lands between the keystroke and its echo must not take
+/// the promotion: every chunk inside the window leads, so the echo does too.
 #[test]
-fn a_second_keystroke_in_one_coalesce_window_keeps_its_echo_promotion() {
+fn every_chunk_inside_a_keystrokes_echo_window_skips_the_cooldown() {
     let mut harness = Harness::new(5);
     harness.enable_stream(1, 0);
-    harness.emitter.note_input_echo(harness.channel);
-    harness.emitter.note_input_echo(harness.channel);
+    harness
+        .emitter
+        .note_input_echo(harness.channel, Harness::wall(10));
 
-    harness.write(b"\x1b[2;1HE1", 10);
+    harness.write(b"\x1b[2;1HSPIN", 10);
     harness.run(10);
-    let after_first_echo = harness.coord.attempts().len();
+    let after_spinner = harness.coord.attempts().len();
     assert_eq!(
         harness.emitter.scheduled_emission(harness.channel),
         Some(true)
     );
 
-    harness.write(b"\x1b[3;1HE2", 12);
+    harness.write(b"\x1b[3;1HE1", 12);
     harness.run(12);
     let attempts = harness.coord.attempts();
     assert_eq!(
         attempts.len(),
-        after_first_echo + 1,
-        "the promoted echo waited out the cooldown"
+        after_spinner + 1,
+        "the echo behind a spinner chunk waited out the cooldown"
     );
-    assert!(row_text(attempts.last().unwrap(), 2).contains("E2"));
+    assert!(row_text(attempts.last().unwrap(), 2).contains("E1"));
+    assert!(
+        harness
+            .emitter
+            .input_echo_armed(harness.channel, Harness::wall(12)),
+        "the window was consumed by the chunks inside it"
+    );
+    let past = 10 + INPUT_ECHO_WINDOW_MS as u64;
     assert!(
         !harness
             .emitter
-            .consume_input_echo_promotion(harness.channel)
+            .input_echo_armed(harness.channel, Harness::wall(past)),
+        "the window outlived its bound"
     );
 }
 

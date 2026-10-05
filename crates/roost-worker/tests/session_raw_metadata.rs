@@ -6,7 +6,7 @@
 #[path = "session_emit_support/mod.rs"]
 mod support;
 
-use roost_worker::session::cell_scheduler::MAX_PENDING_INPUT_ECHO_PROMOTIONS;
+use roost_worker::session::cell_scheduler::INPUT_ECHO_WINDOW_MS;
 use roost_worker::session::emit::CellEmitter;
 use roost_worker::session::raw_metadata::{
     RAW_METADATA_AGGREGATE_CAP_BYTES, RAW_METADATA_CHANNEL_CAP_BYTES,
@@ -143,36 +143,37 @@ fn a_refused_frame_drops_its_channels_queue_and_a_gone_session_is_disposed() {
     assert_eq!(stage.channel_backlog(channel(39)), (0, 0));
 }
 
-/// An echo promotion is taken once and is bounded. Consuming membership instead
-/// of a count would promote only the first keystroke of a burst and make every
-/// later one wait out the coalesce window.
+/// The promotion is a window from the keystroke, held per channel: a channel
+/// nobody typed into is never armed, and a second keystroke re-arms the window
+/// from its own instant rather than stacking promotions.
 #[test]
-fn an_echo_promotion_is_taken_once_per_queued_keystroke_and_is_bounded() {
+fn an_echo_window_is_per_channel_and_a_later_keystroke_rearms_it() {
     let mut emitter = CellEmitter::new();
-    for _ in 0..MAX_PENDING_INPUT_ECHO_PROMOTIONS + 4 {
-        emitter.note_input_echo(channel(35));
-    }
-    let mut taken = 0;
-    while emitter.consume_input_echo_promotion(channel(35)) {
-        taken += 1;
-        assert!(taken <= MAX_PENDING_INPUT_ECHO_PROMOTIONS as usize);
-    }
-    assert_eq!(taken, MAX_PENDING_INPUT_ECHO_PROMOTIONS as usize);
+    emitter.note_input_echo(channel(35), 1_000);
+    assert!(emitter.input_echo_armed(channel(35), 1_000));
     assert!(
-        !emitter.consume_input_echo_promotion(channel(35)),
-        "a promotion was taken past the bound"
+        !emitter.input_echo_armed(channel(36), 1_000),
+        "a channel with no keystroke was armed"
     );
+    let closes = 1_000 + INPUT_ECHO_WINDOW_MS;
+    assert!(emitter.input_echo_armed(channel(35), closes - 1));
     assert!(
-        !emitter.consume_input_echo_promotion(channel(36)),
-        "a channel with no queued keystroke handed one out"
+        !emitter.input_echo_armed(channel(35), closes),
+        "the window outlived its bound"
+    );
+
+    emitter.note_input_echo(channel(35), 2_000);
+    assert!(
+        emitter.input_echo_armed(channel(35), 2_000 + INPUT_ECHO_WINDOW_MS - 1),
+        "a second keystroke did not re-arm the window"
     );
 }
 
-/// A promotion is taken by the chunk that carries its echo, not by the next
-/// keystroke: a queued promotion that is never consumed must not make every
-/// later chunk look promoted.
+/// Every chunk inside the window reports its promotion, and the first chunk
+/// past it does not: a spinner landing ahead of the echo cannot take it, and an
+/// armed window cannot make all later output look promoted.
 #[test]
-fn a_promotion_is_taken_by_the_chunk_that_carries_the_echo() {
+fn every_chunk_inside_the_echo_window_is_promoted_and_none_after_it() {
     let fixture = RecordFixture::new();
     let mut record = fixture.record(channel(37), 80, 24);
     let sink = RecordingSink::new("coord", Answer::Sent);
@@ -180,24 +181,25 @@ fn a_promotion_is_taken_by_the_chunk_that_carries_the_echo() {
     emitter.register_sink(sink.clone());
     emitter.install_stream(&mut record, &stream_id(37));
     emitter.emit_cell_frame(&mut record, true, 1_000);
-    emitter.note_input_echo(channel(37));
+    emitter.note_input_echo(channel(37), 1_000);
 
-    let first = emitter.ingest_pty_chunk(&mut record, b"k", 1_010);
+    for (end_seq, at_ms) in [(1, 1_001), (2, 1_010)] {
+        assert_eq!(
+            emitter.ingest_pty_chunk(&mut record, b"k", at_ms),
+            roost_worker::session::emit::IngestOutcome::Accepted {
+                end_seq,
+                input_echo: true
+            },
+            "a chunk inside the window at {at_ms} was not promoted"
+        );
+    }
+    let past = 1_000 + INPUT_ECHO_WINDOW_MS + 1;
     assert_eq!(
-        first,
+        emitter.ingest_pty_chunk(&mut record, b"l", past),
         roost_worker::session::emit::IngestOutcome::Accepted {
-            end_seq: 1,
-            input_echo: true
-        },
-        "the echo chunk did not consume its promotion"
-    );
-    let second = emitter.ingest_pty_chunk(&mut record, b"l", 1_020);
-    assert_eq!(
-        second,
-        roost_worker::session::emit::IngestOutcome::Accepted {
-            end_seq: 2,
+            end_seq: 3,
             input_echo: false
         },
-        "a second keystroke borrowed the first one's promotion"
+        "a chunk past the window borrowed the keystroke's promotion"
     );
 }

@@ -88,8 +88,9 @@ pub struct CellEmitter {
     pub(crate) metadata: TerminalMetadataStage,
     /// v2 `cellDirty`.
     pub(crate) dirty: HashSet<ChannelId>,
-    /// v2 `inputSensitiveChannels`.
-    pub(crate) input_echo: HashMap<ChannelId, u8>,
+    /// v2 `inputSensitiveChannels`, as the instant each channel's echo window
+    /// closes (`cell_scheduler::INPUT_ECHO_WINDOW_MS`).
+    pub(crate) input_echo: HashMap<ChannelId, i64>,
     /// v2 `cellGateSuppression`: attribution only.
     pub(crate) gates: HashMap<ChannelId, GateSuppression>,
     /// v2 `cellEmissionGates`: the resize hold.

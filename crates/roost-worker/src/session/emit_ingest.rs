@@ -44,7 +44,7 @@ impl CellEmitter {
         self.capture.retain_output(record, end_seq, chunk);
         answer_terminal_queries(record, chunk, &self.query_replies);
         self.observe_sync_output(channel_id, chunk);
-        let input_echo = self.consume_input_echo_promotion(channel_id);
+        let input_echo = self.input_echo_armed(channel_id, now_ms);
         if self.sinks.is_empty() && self.metadata.negotiated() {
             warn!(%channel_id, len = chunk.len(), "PTY output arrived with no cell sink registered");
         }
@@ -80,7 +80,7 @@ impl CellEmitter {
         self.capture.retain_output(record, end_seq, chunk);
         advance_captured_query_carry(record, chunk);
         self.observe_sync_output(channel_id, chunk);
-        let input_echo = self.consume_input_echo_promotion(channel_id);
+        let input_echo = self.input_echo_armed(channel_id, now_ms);
         self.route_chunk_to_cells(record, input_echo, true, now_ms, Instant::now());
         self.observe_upstream(channel_id, end_seq, chunk, now_ms);
         end_seq

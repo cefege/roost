@@ -195,7 +195,7 @@ impl CellDelivery for CountingCells {
             .expect("held")
             .push(channel_id.as_u32() as u16);
     }
-    fn note_input_echo(&mut self, channel_id: ChannelId) {
+    fn note_input_echo(&mut self, channel_id: ChannelId, _now_ms: i64) {
         self.note("note_input_echo", channel_id);
     }
     fn cancel_cell_emission(&mut self, channel_id: ChannelId) {

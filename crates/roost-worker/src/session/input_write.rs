@@ -17,6 +17,7 @@
 
 use std::sync::{Arc, Mutex};
 
+use roost_observability::clock::EventClock;
 use roost_protocol::wire::brand::SessionId;
 
 use super::binding::CellDelivery;
@@ -105,7 +106,7 @@ impl SessionManager {
     /// and the echo promotion is queued at the same point the acknowledged lane
     /// queues it.
     pub fn write_legacy_input(&self, channel_id: u16, bytes: &[u8]) {
-        if !mark_input_sensitive(&self.sessions, &self.cells, channel_id) {
+        if !mark_input_sensitive(&self.sessions, &self.cells, &*self.clock, channel_id) {
             tracing::debug!(
                 channel_id,
                 bytes = bytes.len(),
@@ -144,6 +145,7 @@ impl SessionManager {
         let sessions = Arc::clone(&self.sessions);
         let cells = Arc::clone(&self.cells);
         let keeper = Arc::clone(&self.keeper);
+        let clock = Arc::clone(&self.clock);
         Box::pin(async move {
             ticket.granted().await;
             if let Some(refusal) = pre_write_refusal(
@@ -159,7 +161,7 @@ impl SessionManager {
                 );
                 return rejected(refusal);
             }
-            mark_input_sensitive(&sessions, &cells, channel_id);
+            mark_input_sensitive(&sessions, &cells, &*clock, channel_id);
             let expected = bytes.len() as u32;
             let begun = begin_keeper_input(&keeper, channel_id, bytes).await;
             // The ordering boundary is the request on the socket, not its answer.
@@ -204,6 +206,7 @@ pub struct HeldInputLane {
     sessions: Arc<SessionTable>,
     cells: Arc<Mutex<dyn CellDelivery>>,
     keeper: Arc<dyn KeeperChannels>,
+    clock: Arc<dyn EventClock>,
 }
 
 impl std::fmt::Debug for HeldInputLane {
@@ -230,6 +233,7 @@ impl SessionManager {
                 sessions: Arc::clone(&self.sessions),
                 cells: Arc::clone(&self.cells),
                 keeper: Arc::clone(&self.keeper),
+                clock: Arc::clone(&self.clock),
             }),
             Admission::Refused(reason) => Err(reason),
         }
@@ -246,9 +250,9 @@ impl HeldInputLane {
         self.ticket.granted().await;
     }
 
-    /// Queue the input-echo promotion. `false` when the channel is gone.
+    /// Arm the input-echo window. `false` when the channel is gone.
     pub fn mark_input_sensitive(&self) -> bool {
-        mark_input_sensitive(&self.sessions, &self.cells, self.channel_id)
+        mark_input_sensitive(&self.sessions, &self.cells, &*self.clock, self.channel_id)
     }
 
     /// `None` when the blocking begin itself failed (v2 `beginInput` threw).
@@ -307,12 +311,14 @@ fn pre_write_refusal(
     None
 }
 
-/// Queue one input-echo promotion for a channel this worker holds (v2
-/// `markInputSensitive`). The record lock is released before the cells lock is
-/// taken, which is the order `respawn` holds them in. `false` when not held.
+/// Arm the input-echo window for a channel this worker holds (v2
+/// `markInputSensitive`), stamped on the session clock the ingest path reads.
+/// The record lock is released before the cells lock is taken, which is the
+/// order `respawn` holds them in. `false` when not held.
 fn mark_input_sensitive(
     sessions: &SessionTable,
     cells: &Arc<Mutex<dyn CellDelivery>>,
+    clock: &dyn EventClock,
     channel_id: u16,
 ) -> bool {
     let Some(branded) = sessions.with_channel_record(channel_id, |record| record.channel_id())
@@ -322,7 +328,7 @@ fn mark_input_sensitive(
     cells
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .note_input_echo(branded);
+        .note_input_echo(branded, clock.now_epoch_ms());
     true
 }
 

@@ -110,7 +110,7 @@ Rust paths are relative to `crates/roost-worker/src/` unless prefixed:
 | session-cell-scheduler.ts | PARTIAL | session/cell_scheduler.rs | No runtime timer drives emit |
 | session-cell-sinks.ts | PORTED | session/cell_sink.rs, runtime/link_loop/cell_sink.rs | – |
 | session-channel-creation-gate.ts | PARTIAL | session/control_lanes.rs (keeper_update_prepared write freeze) | No spawn lease that waits for in-flight creations |
-| session-constants.ts | TYPES | session/cell_scheduler.rs (MAX_PENDING_INPUT_ECHO_PROMOTIONS), session/stream_scan.rs (MODE_CARRY_MAX), session/raw_metadata.rs, session/binding.rs (RESUME_STAGE_CAP_BYTES) | – |
+| session-constants.ts | TYPES | session/cell_scheduler.rs (INPUT_ECHO_WINDOW_MS replaces MAX_PENDING_INPUT_ECHO_PROMOTIONS), session/stream_scan.rs (MODE_CARRY_MAX), session/raw_metadata.rs, session/binding.rs (RESUME_STAGE_CAP_BYTES) | – |
 | session-control-lanes.ts | PORTED | session/control_lanes.rs, session/keeper_admission.rs | – |
 | session-core-reprove.ts | NONE | – | Fail-closed core rebuild |
 | session-diag-snapshot.ts | PORTED | diag_snapshot.rs | – |

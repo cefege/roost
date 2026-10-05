@@ -88,14 +88,14 @@ impl CellDelivery for TableCellDelivery {
         self.with_emitter(|emitter| emitter.forget_channel(channel_id));
     }
 
-    fn note_input_echo(&mut self, channel_id: ChannelId) {
+    fn note_input_echo(&mut self, channel_id: ChannelId, now_ms: i64) {
         let held = Self::table_key(channel_id)
             .is_some_and(|raw| self.sessions.record_of_channel(raw).is_some());
         if !held {
             tracing::debug!(%channel_id, "an input echo was noted for a channel this worker does not hold");
             return;
         }
-        self.with_emitter(|emitter| emitter.note_input_echo(channel_id));
+        self.with_emitter(|emitter| emitter.note_input_echo(channel_id, now_ms));
     }
 
     fn cancel_cell_emission(&mut self, channel_id: ChannelId) {
