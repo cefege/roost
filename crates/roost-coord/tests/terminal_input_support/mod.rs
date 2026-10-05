@@ -152,6 +152,7 @@ pub fn batch(tab_id: &str, session_id: &str, input_seq: u64, data: &[u8]) -> Inp
         input_route_authority: None,
         audited: false,
         deadline: None,
+        stage_clock: None,
     }
 }
 

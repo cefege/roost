@@ -13,6 +13,7 @@ use roost_protocol::wire::coord_worker::{InputResult, TerminalInputStatus, Termi
 
 use crate::services::CoordServices;
 use crate::terminal_input::control_lane::{TerminalViewerIdentity, resolve_session_route};
+use crate::terminal_input::input_timings::{InputStage, InputStageClock};
 use crate::workers::hop_deadline::{HopDeadline, INPUT_CONTROL_TIMEOUT_MS};
 use crate::workers::terminal_request::TerminalWorkerRequest;
 
@@ -69,6 +70,8 @@ pub struct TerminalWriteControlCommand {
     /// The budget shared by the lane wait and the worker hop. Production
     /// starts it at entry; a test injects one.
     pub deadline: Option<HopDeadline>,
+    /// Stage marks for the settle log; `None` when nobody reads them.
+    pub stage_clock: Option<InputStageClock>,
 }
 
 /// What a worker result must prove for the write to count as accepted.
@@ -152,18 +155,21 @@ where
             Ok(lease) => lease,
             Err(error) => return reject(&error.to_string()),
         };
-        let route = match resolve_session_route(
-            &services.db,
-            &services.byte_hub,
-            &command.session_id,
-        )
-        .await
-        {
+        let mark = |stage: InputStage| {
+            if let Some(clock) = &command.stage_clock {
+                clock.mark(stage);
+            }
+        };
+        let resolved =
+            resolve_session_route(&services.db, &services.byte_hub, &command.session_id).await;
+        mark(InputStage::Routed);
+        let route = match resolved {
             Ok(Some(route)) => route,
             Ok(None) => return reject("unknown session"),
             Err(error) => return reject(&error.to_string()),
         };
         let request = send_to_worker(&route.worker_fp, deadline);
+        mark(InputStage::Sent);
         if !request.is_admitted() {
             return reject(if request.is_expired() {
                 "input budget expired before worker send"
@@ -174,7 +180,9 @@ where
         // Socket order is fixed at admission. The worker's keeper lane owns the
         // remaining FIFO while this write waits for its proof.
         ticket.release_lane();
-        match request.result().await {
+        let worker_result = request.result().await;
+        mark(InputStage::Settled);
+        match worker_result {
             Ok(result)
                 if result.session_id.as_str() != command.session_id
                     || result.input_seq != command.input_seq =>

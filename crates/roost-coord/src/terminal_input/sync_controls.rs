@@ -20,6 +20,7 @@ use crate::terminal_input::control_lane::TerminalViewerIdentity;
 use crate::terminal_input::input_control::{
     InputControlCommand, InputRouteAuthority, process_input_control,
 };
+use crate::terminal_input::input_timings::{InputStage, InputStageClock};
 use crate::terminal_input::route_contract::is_terminal_route_identifier;
 use crate::terminal_input::sync_route_controls::{accept_route_claim, accept_transport_probe};
 use crate::terminal_input::write_control::TerminalWriteStatus;
@@ -146,6 +147,7 @@ fn accept_sync_input(
         return;
     };
     let domain_generation = command.domain_generation;
+    let stage_clock = InputStageClock::start();
     let outcome = process_input_control(
         services,
         InputControlCommand {
@@ -165,13 +167,19 @@ fn accept_sync_input(
             socket_generation: Some(socket.socket_id.clone()),
             audited: true,
             deadline: None,
+            stage_clock: Some(stage_clock.clone()),
         },
     );
     let link = Arc::clone(link);
     tokio::spawn(async move {
         let result = outcome.await;
+        let route_ms = stage_clock.since_admission_ms(InputStage::Routed);
+        let sent_ms = stage_clock.since_admission_ms(InputStage::Sent);
+        let settled_ms = stage_clock.since_admission_ms(InputStage::Settled);
+        let audit_ms = stage_clock.between_ms(InputStage::Settled, InputStage::Audited);
         tracing::debug!(session_id = %result.session_id, input_seq = result.input_seq,
             status = result.status.as_str(), written_bytes = result.written_bytes,
+            route_ms, sent_ms, settled_ms, audit_ms,
             "sync terminal input settled");
         let frame = match result.status {
             TerminalWriteStatus::Accepted => input_accepted_frame(

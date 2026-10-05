@@ -265,6 +265,7 @@ fn prompt_write(
         input_seq: command.input_seq,
         socket_generation: None,
         deadline: Some(deadline),
+        stage_clock: None,
     };
     let message = AgentPromptSend {
         session_id: command.session_id.clone(),

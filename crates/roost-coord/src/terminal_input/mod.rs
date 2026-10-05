@@ -14,6 +14,7 @@ use crate::terminal_screen::pending_rpcs::PendingRpcs;
 pub mod control_lane;
 pub mod input_audit;
 pub mod input_control;
+pub mod input_timings;
 pub mod route_contract;
 pub mod route_lifecycle;
 pub mod route_results;

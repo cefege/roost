@@ -12,6 +12,7 @@ use roost_protocol::wire::{SessionId, WorkerFp};
 use crate::services::CoordServices;
 use crate::terminal_input::control_lane::TerminalViewerIdentity;
 use crate::terminal_input::input_audit::InputAuditEntry;
+use crate::terminal_input::input_timings::{InputStage, InputStageClock};
 use crate::terminal_input::write_control::{
     TerminalWriteAcceptance, TerminalWriteControlCommand, TerminalWriteControlResult,
     TerminalWriteStatus, bounded_reason, process_terminal_write_control, terminal_write_rejected,
@@ -56,6 +57,8 @@ pub struct InputControlCommand {
     pub audited: bool,
     /// The hop budget; production starts it at entry.
     pub deadline: Option<HopDeadline>,
+    /// Stage marks for the settle log; `None` when nobody reads them.
+    pub stage_clock: Option<InputStageClock>,
 }
 
 /// Route one input batch. Its lane place is taken before this returns, so a
@@ -66,6 +69,7 @@ pub fn process_input_control(
 ) -> impl Future<Output = TerminalWriteControlResult> + Send + 'static {
     let caller_fingerprint = command.identity.caller_fingerprint.clone();
     let audited = command.audited;
+    let stage_clock = command.stage_clock.clone();
     let admission = admit_input(services, command);
     let services = Arc::clone(services);
     async move {
@@ -81,12 +85,15 @@ pub fn process_input_control(
             status: outcome.status,
             written_bytes: outcome.written_bytes,
         };
-        match services
+        let persisted = services
             .terminal_input
             .audit()
             .persist(&services, entry)
-            .await
-        {
+            .await;
+        if let Some(clock) = &stage_clock {
+            clock.mark(InputStage::Audited);
+        }
+        match persisted {
             Ok(()) => outcome,
             Err(error) => audit_failed(outcome, &error),
         }
@@ -153,6 +160,7 @@ fn admit_input(
         input_seq: command.input_seq,
         socket_generation: command.socket_generation,
         deadline: command.deadline,
+        stage_clock: command.stage_clock,
     };
     let relay_services = Arc::clone(services);
     let send = move |worker_fp: &WorkerFp, deadline: HopDeadline| {

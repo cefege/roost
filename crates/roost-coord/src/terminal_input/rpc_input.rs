@@ -31,6 +31,7 @@ pub async fn handle_sessions_input(
         input_route_authority: None,
         audited: false,
         deadline: None,
+        stage_clock: None,
     };
     let result = process_input_control(services, command).await;
     tracing::debug!(session_id = %result.session_id, status = result.status.as_str(),
