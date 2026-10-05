@@ -302,6 +302,8 @@ mod session_resume_teardown;
 mod session_spawn;
 #[path = "session_vocabulary.rs"]
 mod session_vocabulary;
+#[path = "shell_spec_overlay.rs"]
+mod shell_spec_overlay;
 #[path = "shell_spec_resolution.rs"]
 mod shell_spec_resolution;
 #[path = "stray_reap.rs"]

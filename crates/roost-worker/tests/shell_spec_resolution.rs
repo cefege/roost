@@ -4,7 +4,8 @@
 //! downstream of it, so the security case here opens a REAL PTY through a REAL
 //! keeper and reads the environment out of the child: a strip that is missing,
 //! applied to the wrong copy of the spec, or case-sensitive all fail there and
-//! nowhere else.
+//! nowhere else. What the overlay and the worker's `ROOST_` namespace contribute
+//! is `shell_spec_overlay`'s.
 //!
 //! The rest is the resolution contract: a folder that is materialised, a shell
 //! that is resolved, terminal and locale variables that are set rather than
@@ -19,52 +20,21 @@ mod scratch;
 #[path = "keeper_pool_support/mod.rs"]
 mod keeper_pool_support;
 
+#[path = "shell_spec_support/mod.rs"]
+mod shell_spec_support;
+
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
 use keeper_pool_support::{KeeperFixture, channel, child_environment, opened, session};
-use roost_host::{HostPlatform, supported_host_platform};
+use roost_host::HostPlatform;
 use roost_worker::host::shell_bootstrap::ShellFlavour;
-use roost_worker::host::shell_spec_resolver::{HostShellSpecResolver, PTY_PATH_PREFIX};
+use roost_worker::host::shell_spec_resolver::PTY_PATH_PREFIX;
 use roost_worker::host::tool_path::tool_path;
 use roost_worker::session::sinks::ChannelBinding;
-use roost_worker::session::spawn::SessionEnvironmentOverlay;
-use roost_worker::shell_spec::KEEPER_CONTROL_ENV_PREFIX;
 use scratch::Scratch;
-
-fn platform() -> HostPlatform {
-    supported_host_platform().expect("this test only runs where v3 runs")
-}
-
-/// A resolver over a service-like environment, with `SHELL` naming `shell`.
-fn resolver(root: &Path, shell: &str) -> HostShellSpecResolver {
-    resolver_with(root, shell, BTreeMap::new(), platform(), platform())
-}
-
-fn resolver_with(
-    root: &Path,
-    shell: &str,
-    extra: BTreeMap<String, String>,
-    host: HostPlatform,
-    requested: HostPlatform,
-) -> HostShellSpecResolver {
-    let mut environment: BTreeMap<String, String> = BTreeMap::new();
-    environment.insert("SHELL".into(), shell.into());
-    environment.insert("HOME".into(), root.join("home").display().to_string());
-    environment.insert("TMPDIR".into(), root.join("tmp").display().to_string());
-    environment.insert("PATH".into(), "/usr/local/bin:/usr/bin:/bin".into());
-    // What a launchd or systemd unit actually hands a worker, and what a PTY
-    // must never inherit.
-    environment.insert("TERM".into(), "dumb".into());
-    environment.insert("LANG".into(), "C".into());
-    environment.insert(KEEPER_CONTROL_ENV_PREFIX.into(), "worker-control".into());
-    environment.insert("ROOST_KEEPER_ENDPOINT".into(), "/run/keeper.sock".into());
-    environment.insert("Roost_Keeper_Capability_Path".into(), "mixed-case".into());
-    environment.insert("roost_keeper_token".into(), "lower-case".into());
-    environment.extend(extra);
-    HostShellSpecResolver::new(environment, host, requested)
-}
+use shell_spec_support::{platform, resolver, resolver_with};
 
 /// The terminal and locale variables are SET, not inherited. A worker's own
 /// `TERM` is `dumb` under a service manager and its `LANG` is often `C`; both
@@ -327,66 +297,4 @@ fn a_keeper_control_credential_never_reaches_a_spawned_child() {
             .any(|(key, value)| key == "ROOST_KEEPER_ENDPOINT" && value == "/run/keeper.sock"),
         "the worker's own keeper endpoint reached the child"
     );
-}
-
-/// An overlay is a caller, not a trusted source: the agent report endpoint
-/// arrives that way, so the strip has to run over it too. A credential in an
-/// overlay is the same leak with one more hop in it.
-#[test]
-fn a_keeper_control_key_is_stripped_from_an_overlay_too() {
-    let scratch = Scratch::new("spec-overlay");
-    let resolver =
-        resolver(scratch.root(), "/bin/sh").with_overlay(Arc::new(FixedOverlay(Ok(vec![
-            (
-                "ROOST_AGENT_ENDPOINT".to_string(),
-                "/run/agent.sock".to_string(),
-            ),
-            (
-                "Roost_Keeper_Capability".to_string(),
-                "from-an-overlay".to_string(),
-            ),
-        ]))));
-    let folder = scratch.path("folder");
-
-    let spec = resolver
-        .resolve(folder.to_str().unwrap(), "session-overlay")
-        .expect("a /bin/sh on this host resolves");
-
-    assert_eq!(
-        spec.env_value("ROOST_AGENT_ENDPOINT"),
-        Some("/run/agent.sock")
-    );
-    assert!(
-        spec.env
-            .iter()
-            .all(|(key, _)| !roost_worker::shell_spec::is_keeper_control_key(key)),
-        "an overlay carried a keeper credential into the spec: {:?}",
-        spec.env
-    );
-}
-
-/// v2 `environment.ts`: a PTY must not carry an endpoint nobody serves, so an
-/// overlay that cannot name the endpoint refuses the launch contract outright.
-#[test]
-fn an_overlay_refusal_refuses_the_launch_contract() {
-    let scratch = Scratch::new("spec-overlay-refusal");
-    let reason = "ROOST_AGENT_ENDPOINT must be an absolute UDS path";
-    let resolver = resolver(scratch.root(), "/bin/sh")
-        .with_overlay(Arc::new(FixedOverlay(Err(reason.to_string()))));
-    let folder = scratch.path("folder");
-
-    let refusal = resolver
-        .resolve(folder.to_str().unwrap(), "session-refused")
-        .expect_err("a refused overlay refuses the spec");
-
-    assert_eq!(refusal, reason);
-}
-
-/// A per-session overlay that answers the same thing for every session.
-struct FixedOverlay(Result<Vec<(String, String)>, String>);
-
-impl SessionEnvironmentOverlay for FixedOverlay {
-    fn session_overlay(&self, _session_id: &str) -> Result<Vec<(String, String)>, String> {
-        self.0.clone()
-    }
 }

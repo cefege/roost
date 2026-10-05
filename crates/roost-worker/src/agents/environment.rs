@@ -30,6 +30,17 @@ pub const AGENT_SOCKET_PATH_ENV: &str = "ROOST_AGENT_SOCKET_PATH";
 pub const AGENT_ENDPOINT_KIND_ENV: &str = "ROOST_AGENT_ENDPOINT_KIND";
 pub const AGENT_CAPABILITY_ENV: &str = "ROOST_AGENT_CAPABILITY";
 
+/// Every variable a session's PTY carries for its integration, in the order
+/// [`AgentReportEnvironment::session_overlay`] emits them. A worker or dev stack
+/// started from inside a Roost shell ignores exactly these.
+pub const SESSION_OVERLAY_ENV_KEYS: [&str; 5] = [
+    AGENT_ENDPOINT_ENV,
+    AGENT_ENDPOINT_KIND_ENV,
+    AGENT_CAPABILITY_ENV,
+    SESSION_ID_ENV,
+    AGENT_SOCKET_PATH_ENV,
+];
+
 const SESSION_CAPABILITY_CONTEXT: &[u8] = b"roost-agent-report-session\0";
 const HMAC_BLOCK_BYTES: usize = 64;
 
@@ -116,19 +127,18 @@ impl AgentReportEnvironment {
     pub fn session_overlay(&self, session_id: &str) -> Result<Vec<(String, String)>, String> {
         let endpoint = self.endpoint().map_err(str::to_owned)?;
         let address = endpoint.address.display().to_string();
-        Ok(vec![
-            (AGENT_ENDPOINT_ENV.to_owned(), address.clone()),
-            (
-                AGENT_ENDPOINT_KIND_ENV.to_owned(),
-                LOCAL_ENDPOINT_KIND_UDS.to_owned(),
-            ),
-            (
-                AGENT_CAPABILITY_ENV.to_owned(),
-                self.capability_for_session(endpoint, session_id),
-            ),
-            (SESSION_ID_ENV.to_owned(), session_id.to_owned()),
-            (AGENT_SOCKET_PATH_ENV.to_owned(), address),
-        ])
+        Ok(SESSION_OVERLAY_ENV_KEYS
+            .iter()
+            .map(|&key| {
+                let value = match key {
+                    AGENT_ENDPOINT_KIND_ENV => LOCAL_ENDPOINT_KIND_UDS.to_owned(),
+                    AGENT_CAPABILITY_ENV => self.capability_for_session(endpoint, session_id),
+                    SESSION_ID_ENV => session_id.to_owned(),
+                    _ => address.clone(),
+                };
+                (key.to_owned(), value)
+            })
+            .collect())
     }
 
     /// Whether `received` is the capability this worker minted for `session_id`.

@@ -13,7 +13,7 @@ use std::os::unix::fs::PermissionsExt;
 use roost_host::MapEnv;
 use roost_worker::agents::environment::{
     AGENT_CAPABILITY_ENV, AGENT_ENDPOINT_ENV, AGENT_ENDPOINT_KIND_ENV, AGENT_SOCKET_PATH_ENV,
-    AgentReportEnvironment, AgentReportSite,
+    AgentReportEnvironment, AgentReportSite, SESSION_OVERLAY_ENV_KEYS,
 };
 use roost_worker::shell_spec::SESSION_ID_ENV;
 use scratch::Scratch;
@@ -55,6 +55,10 @@ fn exports_the_report_endpoint_under_the_documented_posix_socket_name() {
         endpoint,
         scratch.path("agent-report.sock").display().to_string()
     );
+    // A worker started inside a Roost shell ignores exactly this key set, so
+    // the overlay must emit no key outside it and miss none of it.
+    let keys: Vec<&str> = overlay.iter().map(|(key, _)| key.as_str()).collect();
+    assert_eq!(keys, SESSION_OVERLAY_ENV_KEYS);
 }
 
 /// A keeper-surviving agent keeps the capability its PTY was given, so the

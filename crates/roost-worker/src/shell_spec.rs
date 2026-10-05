@@ -44,6 +44,18 @@ pub fn is_keeper_control_key(key: &str) -> bool {
         .starts_with(KEEPER_CONTROL_ENV_PREFIX)
 }
 
+/// The namespace of every variable the worker reads for itself: its unit
+/// configuration, its bootstrap token, and the keeper credentials. None of it
+/// is a shell's; a PTY carries only the session overlay.
+pub const WORKER_PRIVATE_ENV_PREFIX: &str = "ROOST_";
+
+/// Whether a key belongs to the worker's own configuration and so may not be
+/// inherited from the worker's process environment into a PTY.
+pub fn is_worker_private_key(key: &str) -> bool {
+    key.to_ascii_uppercase()
+        .starts_with(WORKER_PRIVATE_ENV_PREFIX)
+}
+
 /// A fully resolved, serialisable shell launch contract.
 ///
 /// `argv` holds arguments only; `executable` is passed separately to the

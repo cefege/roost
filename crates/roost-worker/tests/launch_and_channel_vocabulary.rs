@@ -13,6 +13,7 @@ use roost_worker::keeper_pool::{PoolChannel, live_bindings};
 use roost_worker::session::sinks::ChannelBinding;
 use roost_worker::shell_spec::{
     KEEPER_CONTROL_ENV_PREFIX, SESSION_ID_ENV, ShellSpec, is_keeper_control_key,
+    is_worker_private_key,
 };
 
 /// Keeper control credentials are worker/keeper-only. A worker that leaks one
@@ -33,6 +34,25 @@ fn a_keeper_control_credential_is_recognised_whatever_its_case() {
     // refusing it would strip a user's own variable from their shell.
     for name in ["MY_ROOST_KEEPER_TOKEN", "ROOST_KEEPER", "ROOST_KEEPERX"] {
         assert!(!is_keeper_control_key(name), "{name} must reach the PTY");
+    }
+}
+
+/// The worker's own configuration — label, coordinator, bootstrap token, the
+/// agent-report override — is never a shell's. A shell that inherits it starts
+/// a worker that binds this worker's sockets and reports under its label.
+#[test]
+fn a_worker_private_variable_is_recognised_whatever_its_case() {
+    for name in [
+        format!("{KEEPER_CONTROL_ENV_PREFIX}CAPABILITY"),
+        "Roost_Keeper_Capability_Path".to_string(),
+        "ROOST_WORKER_LABEL".to_string(),
+        "roost_bootstrap_token".to_string(),
+        "Roost_Agent_Endpoint".to_string(),
+    ] {
+        assert!(is_worker_private_key(&name), "{name} must be refused a PTY");
+    }
+    for name in ["MY_ROOST_TOKEN", "ROOST", "ROOSTX", "XROOST_WORKER_LABEL"] {
+        assert!(!is_worker_private_key(name), "{name} must reach the PTY");
     }
 }
 

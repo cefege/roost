@@ -28,7 +28,9 @@ use roost_host::HostPlatform;
 use crate::host::shell_bootstrap::{self, ShellFlavour};
 pub use crate::host::tool_path::PTY_PATH_PREFIX;
 use crate::session::spawn::{SessionEnvironmentOverlay, ShellSpecResolver};
-use crate::shell_spec::{SESSION_ID_ENV, SHELL_SPEC_VERSION, ShellSpec, is_keeper_control_key};
+use crate::shell_spec::{
+    SESSION_ID_ENV, SHELL_SPEC_VERSION, ShellSpec, is_keeper_control_key, is_worker_private_key,
+};
 
 /// The terminal the SPA's renderer is written against.
 pub const PTY_TERM: &str = "xterm-256color";
@@ -232,15 +234,15 @@ impl HostShellSpecResolver {
         Ok(self.platform)
     }
 
-    /// The inherited environment, with every keeper control credential removed.
-    ///
-    /// The filter is [`is_keeper_control_key`] rather than a prefix test of its
-    /// own: a case-sensitive comparison waves `Roost_Keeper_Capability` straight
-    /// through, and this predicate is guarded by its own mutation experiment.
+    /// The inherited environment minus the whole `ROOST_` namespace: the
+    /// worker's label, coordinator, bootstrap token, data dirs and keeper
+    /// credentials, which let a shell start a worker that impersonates this one.
+    /// The overlay and [`SESSION_ID_ENV`], applied after, re-add the session's
+    /// keys. [`is_worker_private_key`] is case-insensitive, unlike a prefix test.
     fn base_environment(&self) -> BTreeMap<String, String> {
         self.environment
             .iter()
-            .filter(|(key, _)| !is_keeper_control_key(key))
+            .filter(|(key, _)| !is_worker_private_key(key))
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect()
     }

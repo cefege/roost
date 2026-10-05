@@ -2104,6 +2104,24 @@ install — a compiled install serves its embedded build regardless.
 
 **Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
 
+### A worker started inside a Roost shell binds the installed worker's agent-report socket
+
+**Symptom** — a scratch worker's `/proc/<pid>/environ` shows
+`ROOST_AGENT_ENDPOINT=~/.local/share/RoostWorkerV3/agent-report.sock` while its data dir is elsewhere; it
+reports under the installed worker's `ROOST_WORKER_LABEL` and rewrites the user's agent integrations.
+
+**Wrong** — strip only `ROOST_KEEPER_*` from a PTY's inherited environment. The worker's whole unit
+environment (label, coordinator URL, bootstrap token, data and log dirs) then reaches every shell, and a
+worker started there reads it as its own configuration.
+
+**Right** — `HostShellSpecResolver::base_environment` drops every key `is_worker_private_key` names (the
+whole `ROOST_` namespace, any case); the session overlay and `ROOST_SESSION_ID`, applied after the base,
+re-add exactly `SESSION_OVERLAY_ENV_KEYS`.
+
+**Guard** — `crates/roost-worker/tests/shell_spec_resolution.rs::the_workers_own_roost_variables_never_reach_a_pty`,
+`launch_and_channel_vocabulary.rs::a_worker_private_variable_is_recognised_whatever_its_case`,
+`agent_report_environment.rs::exports_the_report_endpoint_under_the_documented_posix_socket_name`.
+
 ---
 
 ## Transport and connection lifecycle
