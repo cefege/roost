@@ -22,6 +22,8 @@ fn main() {
     mark_phase(PhaseName::ModuleStart, &[]);
     #[cfg(target_arch = "wasm32")]
     roost_web::platform::browser::perf_counters::install_long_task_watch();
+    #[cfg(target_arch = "wasm32")]
+    roost_web::platform::browser::phase_marks::install_phase_timeline_member();
     // A wasm panic surfaces as `RuntimeError: unreachable` with no message; the
     // hook puts the message and location in the console, where the Playwright
     // oracle's page log and a user's bug report both read it.

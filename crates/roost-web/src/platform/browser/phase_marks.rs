@@ -2,7 +2,7 @@
 //! terminal phase marks, always on, so an ordinary cold navigation can be
 //! measured without enabling diagnostics first. Marked from the app entry,
 //! the pump's Sync delivery, the pane mount and the smoke paint proofs; read
-//! by the smoke `phaseTimeline` member. Ports `apps/web/src/browser/diag.ts`
+//! through `window.__roostPhaseTimeline()`. Ports `apps/web/src/browser/diag.ts`
 //! (`markPhase`, `markPhaseOnce`, `phaseTimeline`).
 
 use std::cell::RefCell;
@@ -219,6 +219,26 @@ pub fn mark_session_phase(name: PhaseName, session_id: &str) {
 pub fn phase_timeline() -> Value {
     let clock = document_clock();
     DOCUMENT_PHASES.with(|ring| ring.borrow().timeline_json(clock, driver_epoch_ms()))
+}
+
+/// Publish [`phase_timeline`] as `window.__roostPhaseTimeline()`, returning the
+/// timeline as JSON text, so a driver measuring a navigation reads the same
+/// ring the marks were written to. Installed once, at the wasm entry.
+#[cfg(target_arch = "wasm32")]
+pub fn install_phase_timeline_member() {
+    use wasm_bindgen::JsValue;
+    use wasm_bindgen::closure::Closure;
+
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let timeline =
+        Closure::<dyn Fn() -> JsValue>::new(|| JsValue::from_str(&phase_timeline().to_string()));
+    if js_sys::Reflect::set(&window, &"__roostPhaseTimeline".into(), timeline.as_ref()).is_err() {
+        tracing::warn!(target: "perf", "the browser refused the phase timeline member");
+    }
+    // The member lives as long as the document does.
+    timeline.forget();
 }
 
 #[cfg(target_arch = "wasm32")]

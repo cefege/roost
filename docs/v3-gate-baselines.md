@@ -2396,6 +2396,26 @@ the grant wait before `OpenTransport` (`time_to_direct_ms − active_ms`; `gathe
 definition), was 43/54/64 ms. The worker logged `gather_ms` (`elapsed_ms`) 24/27/26, `ready_ms`
 29/32/30 from the offer, `connected_ms` 14/11/12 and `channel_open_ms` 18/16/16 from the answer.
 
+On `4d6ae136` (the peer transport opens in the dispatch that requests the grant, on the STUN
+servers `AuthCoordIdentity` advertises; the door answer is reported at mint time; the offer is
+held until the grant lands), same host and harness, three reloads 8 s apart:
+`time_to_direct_ms` 241/168/168 with phases 0/143/212/227/241, 0/88/141/152/168 and
+0/92/143/155/168. The grant wait before `OpenTransport` (`time_to_direct_ms − active_ms`) is 0
+on all three (was 43/54/64). The transport opened 12 ms after the view and 49 ms before the
+mint returned (second reload: view 126, open 138, mint 187, first reflexive candidate 214, answer 266,
+all ms from the page's first console line), so no offer was held. Negotiating is now gated by
+the STUN round trip (≈ 75 ms to the first reflexive candidate), not by the mint, which is why the
+total moved by tens of ms rather than by the whole former wait. The worker logged `elapsed_ms`
+40/27/26, `ready_ms` 46/32/31 and `connected_ms` 13/12/12. Reload timeline, ms from
+navigation (`window.__roostPhaseTimeline()`): `module_start` 121/113/111, `sync_subscribed`
+203/159/157, `terminal_mount` 326/250/247, `first_cell_apply` 404/416/296. The protected
+surface renders only once the terminal snapshot publishes (`Gate::Checking` until
+`mark_protected_snapshot_published`), so `terminal_mount` follows the snapshot and a pane cannot
+mount from the visit memory earlier without changing that gate. `seq 1 20000` over the peer
+painted its last line with no overflow or refusal. `panic = "abort"` in `[profile.wasm-release]`
+changed the bundle from 5 767 218 to 5 768 393 bytes raw and 1 559 075 to 1 559 364 brotli
+(`wasm32-unknown-unknown` already aborts on panic), so the profile does not set it.
+
 Retained-marker bounds are worth keeping in view because they are the
 history-corruption tripwire: a Rust renderer that drops the retained floor
 will pass every functional spec and still lose scrollback.
