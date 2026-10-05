@@ -2372,6 +2372,19 @@ contentful paint was 140–144 ms, with the wasm served from the immutable cache
 its origin and one door probe per load; a tailnet-origin page makes none on its origin. The
 wasm goes out as 1,551,572 B of brotli against 5,744,197 B raw.
 
+On `88907942` (STUN probed only from each server's egress socket and never toward a server
+with no route, the offer read when the reflexive settle lapses, a drained promotion claimed on
+its settling result), same host and harness: `time_to_direct_ms` was 395/373/382 ms, with
+phases 0/58/58/308/326, 0/68/68/68/306 and 0/64/64/64/316. The worker logged `gather_ms`
+41/21/24 (was 224–241; the v6 STUN address has no route here and a tailnet v6 socket used to
+hold the settle), `ready_ms` 46/25/29 from the offer, `connected_ms` 12–13 and
+`channel_open_ms` 15–16 from the answer. Authenticating→candidate is now 0 on two of three;
+the remaining ~240 ms is candidate→active, which this pass did not touch. An idle visible pane
+was resynced at 10, 20, then every 30 s (was every 5 s), with no `foreground terminal stall`
+warn in 150 s. After a coordinator restart with the peer disabled and a reload, the 12
+keystrokes refused `terminal input route changed` (`written_bytes` 0) were all re-sent after
+the Sync claim and accepted, and the screen showed `echo MARK2` and `MARK2`.
+
 Retained-marker bounds are worth keeping in view because they are the
 history-corruption tripwire: a Rust renderer that drops the retained floor
 will pass every functional spec and still lose scrollback.
