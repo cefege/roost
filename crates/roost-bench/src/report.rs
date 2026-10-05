@@ -17,13 +17,15 @@ use crate::stack::StackId;
 use crate::stats::{Summary, summarize};
 
 /// Metric rows, in scenario order.
-const METRICS: [&str; 10] = [
+const METRICS: [&str; 12] = [
     "coord_listen_ms",
     "worker_routable_ms",
     "session_spawn_rpc_ms",
     "cold_nav_first_ms",
     "cold_nav_warm_ms",
     "echo_rtt_ms",
+    "echo_reply_ms",
+    "echo_paint_ms",
     "flood_plain_ms",
     "flood_styled_ms",
     "fanout_p1_ms",

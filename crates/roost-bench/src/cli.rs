@@ -53,4 +53,8 @@ pub struct RunArgs {
     /// Run even when HEAD or the v2 checkout moved since `prepare`.
     #[arg(long)]
     pub allow_stale: bool,
+    /// `ROOST_LOG_LEVEL` for every coordinator and worker (and so keeper);
+    /// unset leaves each stack at its default.
+    #[arg(long)]
+    pub child_log_level: Option<String>,
 }

@@ -3,6 +3,7 @@
 //! (`probe.js`) and the pairing ceremony that enrolls the browser's own key.
 
 mod page;
+mod socket_trace;
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -17,6 +18,7 @@ use crate::error::BenchError;
 use crate::stack::StackId;
 
 pub use page::BenchPage;
+pub use socket_trace::{TraceEvent, TraceKind};
 
 const PROBE_JS: &str = include_str!("probe.js");
 /// Long enough for the slowest awaited promise (a 120 s flood marker): a CDP

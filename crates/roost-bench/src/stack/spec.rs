@@ -27,7 +27,7 @@ impl ProcessSpec {
 /// The coordinator environment both stacks share: the same keys, the same
 /// values, so neither stack is measured under a different policy.
 pub fn shared_coord_env(layout: &RoundLayout) -> Vec<(String, String)> {
-    vec![
+    let mut env = vec![
         (
             "ROOST_COORDINATOR_BIND".into(),
             format!("127.0.0.1:{}", layout.coord_port),
@@ -41,12 +41,14 @@ pub fn shared_coord_env(layout: &RoundLayout) -> Vec<(String, String)> {
         ("ROOST_TERMINAL_PEER_ENABLED".into(), "0".into()),
         ("ROOST_RELAXED_CSP".into(), "1".into()),
         ("ROOST_TRUST_PROXY".into(), "0".into()),
-    ]
+    ];
+    push_log_level(layout, &mut env);
+    env
 }
 
 /// The worker environment both stacks share.
 pub fn shared_worker_env(layout: &RoundLayout, token: &str) -> Vec<(String, String)> {
-    vec![
+    let mut env = vec![
         ("ROOST_COORDINATOR_URL".into(), layout.coord_url()),
         ("ROOST_BOOTSTRAP_TOKEN".into(), token.to_string()),
         (
@@ -67,7 +69,15 @@ pub fn shared_worker_env(layout: &RoundLayout, token: &str) -> Vec<(String, Stri
         ),
         ("ROOST_TERMINAL_PEER_ENABLED".into(), "0".into()),
         ("SHELL".into(), "/bin/bash".into()),
-    ]
+    ];
+    push_log_level(layout, &mut env);
+    env
+}
+
+fn push_log_level(layout: &RoundLayout, env: &mut Vec<(String, String)>) {
+    if let Some(level) = &layout.child_log_level {
+        env.push(("ROOST_LOG_LEVEL".into(), level.clone()));
+    }
 }
 
 pub fn coord_spec(layout: &RoundLayout, prepared: &Prepared) -> ProcessSpec {

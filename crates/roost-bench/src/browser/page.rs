@@ -22,7 +22,7 @@ const POLL_PERIOD: Duration = Duration::from_millis(10);
 /// A tab with the probe installed.
 #[derive(Debug, Clone)]
 pub struct BenchPage {
-    page: Page,
+    pub(super) page: Page,
 }
 
 /// The key a single character produces, as CDP describes it.

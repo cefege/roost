@@ -66,6 +66,8 @@ pub struct RoundLayout {
     pub door_port: u16,
     /// The `ROOST_BENCH_RUN` value the sampler finds this round's processes by.
     pub marker: String,
+    /// `ROOST_LOG_LEVEL` for the coordinator and the worker, when set.
+    pub child_log_level: Option<String>,
 }
 
 impl RoundLayout {
@@ -97,6 +99,7 @@ impl RoundLayout {
             coord_port: ports::free_loopback_port()?,
             door_port: ports::free_loopback_port()?,
             marker: format!("{run_id}/{}/{round}", stack.as_str()),
+            child_log_level: None,
             root,
             home,
             worker_data,

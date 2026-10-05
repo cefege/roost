@@ -52,7 +52,8 @@ pub async fn run(args: &RunArgs) -> Result<WrittenReport, BenchError> {
     };
     for round in 1..=args.rounds {
         for &stack in &args.stacks {
-            let layout = RoundLayout::create(&run_dir, &run_id, stack, round)?;
+            let mut layout = RoundLayout::create(&run_dir, &run_id, stack, round)?;
+            layout.child_log_level.clone_from(&args.child_log_level);
             let record = run_round(layout, &prepared).await?;
             report.rounds.push(record);
             // Rewritten after every round, so an aborted run still leaves data.
