@@ -2116,9 +2116,11 @@ worker started there reads it as its own configuration.
 
 **Right** — `HostShellSpecResolver::base_environment` drops every key `is_worker_private_key` names (the
 whole `ROOST_` namespace, any case); the session overlay and `ROOST_SESSION_ID`, applied after the base,
-re-add exactly `SESSION_OVERLAY_ENV_KEYS`.
+re-add exactly `SESSION_OVERLAY_ENV_KEYS`. `roost worker` and `roost dev` ignore those five keys from an
+enclosing session (`worker_boot::resolve_from`, `DevServer::command`), and a dev worker skips the
+integration install (`ROOST_SKIP_AGENT_INTEGRATIONS=1`).
 
-**Guard** — `crates/roost-worker/tests/shell_spec_resolution.rs::the_workers_own_roost_variables_never_reach_a_pty`,
+**Guard** — `crates/roost-worker/tests/shell_spec_overlay.rs::the_workers_own_roost_variables_never_reach_a_pty`,
 `launch_and_channel_vocabulary.rs::a_worker_private_variable_is_recognised_whatever_its_case`,
 `agent_report_environment.rs::exports_the_report_endpoint_under_the_documented_posix_socket_name`.
 

@@ -16,6 +16,7 @@ use roost_cli::dev::DevBoot;
 use roost_cli::dev::plan::{self, DevServer};
 use roost_cli::dev::resolve_dev_boot;
 use roost_host::{DEFAULT_COORDINATOR_BIND, HostPlatform, MapEnv};
+use roost_worker::agents::environment::SESSION_OVERLAY_ENV_KEYS;
 
 /// The `roost` an operator would be running, as far as a plan is concerned.
 const ROOST: &str = "/usr/local/bin/roost";
@@ -144,4 +145,54 @@ fn resolving_a_dev_boot_exports_nothing_into_this_process() {
             .is_none_or(|value| value != boot.coordinator_bind),
         "the bind this process resolved was already in its own environment: {declared:?}"
     );
+}
+
+#[test]
+fn the_dev_worker_skips_agent_integrations_and_no_other_server_does() {
+    // A scratch stack that installed integrations would rewrite the loaders the
+    // installed worker owns, pointing every agent at the scratch worker.
+    let servers = plan_for(&dev_boot(&home()));
+    assert_eq!(
+        named(&servers, plan::WORKER).env,
+        vec![("ROOST_SKIP_AGENT_INTEGRATIONS".to_string(), "1".to_string())]
+    );
+    assert!(named(&servers, plan::COORDINATOR).env.is_empty());
+    assert!(named(&servers, plan::WEB).env.is_empty());
+}
+
+#[test]
+fn every_dev_child_forgets_the_enclosing_sessions_agent_variables() {
+    // `roost dev` run from a Roost shell inherits that session's report socket;
+    // a child that kept it would report into the installed worker.
+    let servers = plan_for(&dev_boot(&home()));
+    for server in &servers {
+        let command = server.command();
+        let envs: Vec<(String, Option<String>)> = command
+            .as_std()
+            .get_envs()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().into_owned(),
+                    value.map(|value| value.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        for key in SESSION_OVERLAY_ENV_KEYS {
+            assert!(
+                envs.contains(&(key.to_string(), None)),
+                "{} keeps {key}: {envs:?}",
+                server.name
+            );
+        }
+        let skip = (
+            "ROOST_SKIP_AGENT_INTEGRATIONS".to_string(),
+            Some("1".to_string()),
+        );
+        assert_eq!(
+            envs.contains(&skip),
+            server.name == plan::WORKER,
+            "{}: {envs:?}",
+            server.name
+        );
+    }
 }

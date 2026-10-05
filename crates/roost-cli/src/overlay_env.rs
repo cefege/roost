@@ -11,7 +11,7 @@
 //! target's real identity gone. Overlaying is how a flag reaches the loader
 //! without that happening.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use roost_host::EnvSource;
@@ -19,6 +19,7 @@ use roost_host::EnvSource;
 pub struct OverlayEnv<'a> {
     base: &'a dyn EnvSource,
     overrides: BTreeMap<String, String>,
+    removed: BTreeSet<String>,
 }
 
 /// Hand-written because the wrapped source is a trait object, and a derived
@@ -30,6 +31,7 @@ impl std::fmt::Debug for OverlayEnv<'_> {
         formatter
             .debug_struct("OverlayEnv")
             .field("overrides", &self.overrides)
+            .field("removed", &self.removed)
             .finish()
     }
 }
@@ -39,6 +41,7 @@ impl<'a> OverlayEnv<'a> {
         Self {
             base,
             overrides: BTreeMap::new(),
+            removed: BTreeSet::new(),
         }
     }
 
@@ -48,14 +51,27 @@ impl<'a> OverlayEnv<'a> {
     /// operator did not mean to touch.
     pub fn with(mut self, name: &str, value: Option<&str>) -> Self {
         if let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) {
+            self.removed.remove(name);
             self.overrides.insert(name.to_string(), value.to_string());
         }
+        self
+    }
+
+    /// One variable this invocation must not see from the base environment, as
+    /// if it were unset. A later [`with`](Self::with) of the same name declares
+    /// it again.
+    pub fn without(mut self, name: &str) -> Self {
+        self.overrides.remove(name);
+        self.removed.insert(name.to_string());
         self
     }
 }
 
 impl EnvSource for OverlayEnv<'_> {
     fn get(&self, key: &str) -> Option<String> {
+        if self.removed.contains(key) {
+            return None;
+        }
         self.overrides
             .get(key)
             .cloned()
@@ -111,5 +127,14 @@ mod tests {
             env.home_dir().unwrap(),
             std::path::PathBuf::from("/home/op")
         );
+    }
+
+    #[test]
+    fn a_removed_variable_reads_unset_until_it_is_declared_again() {
+        let base = MapEnv::new().with("ROOST_AGENT_ENDPOINT", "/other.sock");
+        let env = OverlayEnv::new(&base).without("ROOST_AGENT_ENDPOINT");
+        assert_eq!(env.get("ROOST_AGENT_ENDPOINT"), None);
+        let env = env.with("ROOST_AGENT_ENDPOINT", Some("/mine.sock"));
+        assert_eq!(env.get("ROOST_AGENT_ENDPOINT").unwrap(), "/mine.sock");
     }
 }

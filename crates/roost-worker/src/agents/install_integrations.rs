@@ -28,6 +28,10 @@ use super::integration_assets::{
 
 pub const PI_CODING_AGENT_DIR_ENV: &str = "PI_CODING_AGENT_DIR";
 pub const PI_CONFIG_DIR_ENV: &str = "PI_CONFIG_DIR";
+/// Set to exactly `1` to boot without touching this user's agent loaders: a
+/// `roost dev` worker sets it so a scratch stack never rewrites the
+/// integrations the installed worker owns.
+pub const ENV_SKIP_AGENT_INTEGRATIONS: &str = "ROOST_SKIP_AGENT_INTEGRATIONS";
 const DIRECTORY_COLLISION: &str =
     "refusing colliding OMP and Pi integration directories; configure distinct roots";
 
@@ -82,6 +86,14 @@ pub fn resolve_omp_extension_dir(env: &dyn EnvSource, home: &Path) -> PathBuf {
 /// refused install is a warning, as in v2, because agent status is an
 /// enrichment and the terminals it describes must still come up.
 pub async fn install_agent_integrations_at_boot(platform: HostPlatform) {
+    if ProcessEnv::new()
+        .get(ENV_SKIP_AGENT_INTEGRATIONS)
+        .as_deref()
+        == Some("1")
+    {
+        tracing::info!("boot: agent integrations skipped by {ENV_SKIP_AGENT_INTEGRATIONS}");
+        return;
+    }
     let outcome = tokio::task::spawn_blocking(move || {
         let env = ProcessEnv::new();
         let home = env

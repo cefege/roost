@@ -7,10 +7,9 @@
 //! leaves a coordinator holding its port, or a keeper holding its PTYs, is the
 //! defect this module exists to prevent.
 
-use std::process::Stdio;
 use std::time::{Duration, Instant};
 
-use tokio::process::{Child, Command};
+use tokio::process::Child;
 use tokio::signal::unix::{Signal, SignalKind, signal as unix_signal};
 
 use crate::command_error::CommandFailure;
@@ -156,17 +155,10 @@ impl DevStack {
     }
 
     fn spawn(&mut self, server: &DevServer) -> Result<(), CommandFailure> {
-        let child = Command::new(&server.program)
-            .args(&server.args)
-            .stdin(Stdio::inherit())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|error| {
-                let program = server.program.display();
-                CommandFailure::generic(format!("{}: {program}: {error}", server.name))
-            })?;
+        let child = server.command().spawn().map_err(|error| {
+            let program = server.program.display();
+            CommandFailure::generic(format!("{}: {program}: {error}", server.name))
+        })?;
         tracing::info!(
             server = server.name,
             pid = ?child.id(),
