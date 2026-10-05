@@ -13,6 +13,7 @@ use render_support::FakeEl;
 use roost_protocol::cell::{CellRow, CellSpan, DEFAULT_COLOR, row_columns};
 use roost_web_terminal::RenderElement;
 use roost_web_terminal::cell_row::dom::render_row;
+use roost_web_terminal::cell_row::style_cache::StyleCache;
 use roost_web_terminal::cell_row::{FindHit, row_hash, span_style};
 
 fn atom(text: &str, columns: u32) -> CellSpan {
@@ -41,7 +42,14 @@ fn row_of(spans: Vec<CellSpan>) -> CellRow {
 }
 
 fn paint(row: &CellRow, hits: Option<&[FindHit]>, active_col: Option<u32>) -> FakeEl {
-    render_row(row, &FakeEl::new("div"), hits, active_col).unwrap()
+    render_row(
+        row,
+        &FakeEl::new("div"),
+        hits,
+        active_col,
+        &mut StyleCache::default(),
+    )
+    .unwrap()
 }
 
 /// A pinned box counts its declared `ch` width; an unboxed narrow run counts

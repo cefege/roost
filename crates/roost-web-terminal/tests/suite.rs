@@ -14,6 +14,8 @@ mod backfill_gap_paging;
 mod block_placeholder;
 #[path = "cell_row_painting.rs"]
 mod cell_row_painting;
+#[path = "cell_row_style_cache.rs"]
+mod cell_row_style_cache;
 #[path = "echo_overlay.rs"]
 mod echo_overlay;
 #[path = "echo_painter.rs"]

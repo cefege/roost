@@ -13,6 +13,7 @@ use render_support::FakeEl;
 use roost_protocol::cell::{CellRow, CellSpan, DEFAULT_COLOR};
 use roost_web_terminal::RenderElement;
 use roost_web_terminal::cell_row::dom::render_row;
+use roost_web_terminal::cell_row::style_cache::StyleCache;
 use roost_web_terminal::cell_row::{
     FindHit, LINK_KEY_ATTR, ROW_COLUMNS_ATTR, ROW_HAS_LINKS_ATTR, TERMINAL_LINK_CLASS, row_hash,
 };
@@ -51,7 +52,14 @@ fn row(spans: Vec<CellSpan>) -> CellRow {
 }
 
 fn paint(spans: Vec<CellSpan>, hits: Option<&[FindHit]>) -> FakeEl {
-    render_row(&row(spans), &FakeEl::new("div"), hits, None).unwrap()
+    render_row(
+        &row(spans),
+        &FakeEl::new("div"),
+        hits,
+        None,
+        &mut StyleCache::default(),
+    )
+    .unwrap()
 }
 
 fn anchors_of(element: &FakeEl) -> Vec<FakeEl> {

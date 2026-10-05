@@ -5,10 +5,10 @@
 //! Ports `renderRow` and `_paintSpan` of `apps/web/src/renderer/cellRow.ts`.
 
 use crate::cell_renderer_dom::DomResult;
+use crate::cell_row::style_cache::StyleCache;
 use crate::cell_row::{
     FindHit, LINK_KEY_ATTR, ROW_COLUMNS_ATTR, ROW_HAS_LINKS_ATTR, SpanSlice, TERMINAL_LINK_CLASS,
-    TERMINAL_LINK_TARGET_ATTR, row_column_count, slice_text, span_decoration_style, span_slices,
-    span_style,
+    TERMINAL_LINK_TARGET_ATTR, row_column_count, slice_text, span_slices,
 };
 use crate::link_target::{TerminalLinkTarget, classify_terminal_link_target};
 use crate::render_element::RenderElement;
@@ -24,6 +24,7 @@ pub fn render_row<E: RenderElement>(
     factory: &E,
     hits: Option<&[FindHit]>,
     active_col: Option<u32>,
+    styles: &mut StyleCache,
 ) -> DomResult<E> {
     let element = factory.create_element("div")?;
     element.set_class_name("cell-row");
@@ -72,6 +73,7 @@ pub fn render_row<E: RenderElement>(
             if marked { hits } else { None },
             active_col,
             column,
+            styles,
         )?;
     }
     Ok(element)
@@ -95,13 +97,14 @@ fn paint_span<E: RenderElement>(
     hits: Option<&[FindHit]>,
     active_col: Option<u32>,
     column: u32,
+    styles: &mut StyleCache,
 ) -> DomResult<u32> {
-    let run_style = span_style(span);
-    let decoration = span_decoration_style(span);
+    let run_style = styles.run_style(span);
     let Some(hits) = hits else {
         append_slice(host, &run_style, None, &span.text)?;
         return Ok(column + span.columns);
     };
+    let decoration = styles.decoration_style(span);
     for slice in span_slices(span, column, hits, active_col) {
         // A highlighted piece hands colour to the `.cell-find-hit` class and
         // keeps only the run's DECORATION, because an inline colour would beat

@@ -15,7 +15,7 @@ mod reconcile;
 mod scroll_events;
 mod scrollback;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::fmt;
 
@@ -27,6 +27,7 @@ use crate::cell_renderer_dom::{
     measure_cell_row_height,
 };
 use crate::cell_row::FindHit;
+use crate::cell_row::style_cache::StyleCache;
 use crate::painted_history::PaintedHistory;
 use crate::presentation::{RendererIncidentObserver, RendererTerminalModeSnapshot};
 use crate::reader_intent::{ReaderAnchor, ReaderState};
@@ -41,6 +42,9 @@ use crate::render_element::RenderElement;
 /// scrollable at all, the second scopes every cell-grid rule.
 pub struct CellGridRenderer<E = web_sys::Element> {
     container: E,
+    /// Inline styles memoised across frames; a `RefCell` because history rows
+    /// paint through `&self`.
+    styles: RefCell<StyleCache>,
     spacer: E,
     scrollback: E,
     viewport: E,
@@ -162,6 +166,7 @@ impl<E: RenderElement> CellGridRenderer<E> {
         let last_box_height = container.client_height();
         Ok(Self {
             container: container.clone(),
+            styles: RefCell::new(StyleCache::default()),
             spacer: elements.spacer,
             scrollback: elements.scrollback,
             viewport: elements.viewport,

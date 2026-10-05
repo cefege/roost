@@ -47,12 +47,24 @@ impl<E: RenderElement> CellGridRenderer<E> {
                 if self.row_hashes[index] == hash {
                     continue;
                 }
-                let element = render_row(row, &self.container, hits, active_col)?;
+                let element = render_row(
+                    row,
+                    &self.container,
+                    hits,
+                    active_col,
+                    &mut self.styles.borrow_mut(),
+                )?;
                 self.row_elements[index].replace_with(&element);
                 self.row_elements[index] = element;
                 self.row_hashes[index] = hash;
             } else {
-                let element = render_row(row, &self.container, hits, active_col)?;
+                let element = render_row(
+                    row,
+                    &self.container,
+                    hits,
+                    active_col,
+                    &mut self.styles.borrow_mut(),
+                )?;
                 self.insert_viewport_row(&element);
                 self.row_elements.push(element);
                 self.row_hashes.push(hash);
@@ -93,7 +105,13 @@ impl<E: RenderElement> CellGridRenderer<E> {
             if self.row_hashes[index] == hash {
                 continue;
             }
-            let element = render_row(row, &self.container, hits, active_col)?;
+            let element = render_row(
+                row,
+                &self.container,
+                hits,
+                active_col,
+                &mut self.styles.borrow_mut(),
+            )?;
             self.row_elements[index].replace_with(&element);
             self.row_elements[index] = element;
             self.row_hashes[index] = hash;
@@ -103,7 +121,13 @@ impl<E: RenderElement> CellGridRenderer<E> {
             let row = &frame.viewport_rows[index];
             let (hits, active_col) = self.hits_for(viewport_base + index as u32);
             let hash = row_hash(row, hits, active_col);
-            let element = render_row(row, &self.container, hits, active_col)?;
+            let element = render_row(
+                row,
+                &self.container,
+                hits,
+                active_col,
+                &mut self.styles.borrow_mut(),
+            )?;
             self.insert_viewport_row(&element);
             self.row_elements.push(element);
             self.row_hashes.push(hash);
@@ -252,7 +276,13 @@ impl<E: RenderElement> CellGridRenderer<E> {
     /// backfill and the find overlay both address it by.
     pub(crate) fn render_scrollback_row(&self, row: &CellRow) -> DomResult<E> {
         let (hits, active_col) = self.hits_for(row.index);
-        let element = render_row(row, &self.container, hits, active_col)?;
+        let element = render_row(
+            row,
+            &self.container,
+            hits,
+            active_col,
+            &mut self.styles.borrow_mut(),
+        )?;
         element.set_attribute("data-row-index", &row.index.to_string());
         Ok(element)
     }

@@ -5,6 +5,7 @@
 //! Ports `apps/web/src/renderer/cellRow.ts`.
 
 pub mod dom;
+pub mod style_cache;
 
 use roost_protocol::cell::{
     CELL_BLINK, CELL_BOLD, CELL_DIM, CELL_INVISIBLE, CELL_ITALIC, CELL_REVERSE, CELL_STRIKE,
