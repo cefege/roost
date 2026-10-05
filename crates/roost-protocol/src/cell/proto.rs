@@ -15,11 +15,12 @@ use std::sync::Arc;
 
 use roost_proto::{PbCellGridFrame, PbCellRow, PbCellSpan};
 
+use crate::cell::frame_structure::assert_frame_structure;
 use crate::cell::types::{
     CellGridFrame, CellRow, CellSpan, as_mouse_tracking, assert_cell_row_spans,
 };
 use crate::error::{ProtocolError, ProtocolResult};
-use crate::viewport::{TerminalGeometry, assert_terminal_geometry, is_terminal_uuid};
+use crate::viewport::is_terminal_uuid;
 
 /// One internal span as the wire spells it.
 fn span_to_proto(span: &CellSpan) -> PbCellSpan {
@@ -56,10 +57,35 @@ pub fn cell_row_to_proto(row: &CellRow) -> PbCellRow {
 pub fn cell_row_from_proto_bounded(row: &PbCellRow, max_columns: u32) -> ProtocolResult<CellRow> {
     let mut spans = Vec::with_capacity(row.spans.len());
     for (position, span) in row.spans.iter().enumerate() {
-        spans.push(span_from_proto(span, position)?);
+        let strings = SpanStrings {
+            text: span.text.clone(),
+            link_uri: span.link_uri.clone(),
+            link_key: span.link_key.clone(),
+        };
+        spans.push(span_from_proto(span, position, strings)?);
     }
+    checked_row(row.index, spans, max_columns)
+}
+
+/// One wire row into the value model, MOVING its strings out of the message
+/// rather than copying them: for a caller that owns the decoded frame.
+fn cell_row_from_proto_owned(row: PbCellRow, max_columns: u32) -> ProtocolResult<CellRow> {
+    let index = row.index;
+    let mut spans = Vec::with_capacity(row.spans.len());
+    for (position, mut span) in row.spans.into_iter().enumerate() {
+        let strings = SpanStrings {
+            text: std::mem::take(&mut span.text),
+            link_uri: span.link_uri.take(),
+            link_key: span.link_key.take(),
+        };
+        spans.push(span_from_proto(&span, position, strings)?);
+    }
+    checked_row(index, spans, max_columns)
+}
+
+fn checked_row(index: u32, spans: Vec<CellSpan>, max_columns: u32) -> ProtocolResult<CellRow> {
     let value = CellRow {
-        index: row.index,
+        index,
         spans: Arc::from(spans),
     };
     assert_cell_row_spans(&value, max_columns)?;
@@ -126,30 +152,58 @@ pub fn cell_frame_to_proto(
     Ok(proto)
 }
 
-/// One wire frame into the value model: rows first (occupancy and link
-/// identity), then the sequence, then the structure. The result owns its rows
-/// and spans outright, so a later mutation of the decoded message cannot
-/// repaint a replica that already installed this frame.
+/// One wire frame into the value model: the sequence and the structure first,
+/// then every row (occupancy and link identity). The result owns its rows and
+/// spans outright, so a later mutation of the decoded message cannot repaint a
+/// replica that already installed this frame.
+///
+/// For a caller that only borrows the message — a frame dispatched by
+/// reference, or one the coordinator fans out afterwards. A caller that owns
+/// it uses [`proto_into_cell_frame`], which moves the strings instead.
 pub fn proto_to_cell_frame(frame: &PbCellGridFrame) -> ProtocolResult<CellGridFrame> {
-    let mut viewport_rows = Vec::with_capacity(frame.viewport_rows.len());
-    for row in &frame.viewport_rows {
-        viewport_rows.push(cell_row_from_proto_bounded(row, frame.cols)?);
-    }
-    let scrollback_rows = frame
-        .scrollback_rows
-        .iter()
-        .map(|row| cell_row_from_proto_bounded(row, 0))
-        .collect::<ProtocolResult<Vec<_>>>()?;
-    let scrollback_append = frame
-        .scrollback_append
-        .iter()
-        .map(|row| cell_row_from_proto_bounded(row, 0))
-        .collect::<ProtocolResult<Vec<_>>>()?;
     assert_frame_sequence(frame)?;
     assert_frame_structure(frame)?;
+    let decode_rows = |rows: &[PbCellRow], max_columns: u32| {
+        rows.iter()
+            .map(|row| cell_row_from_proto_bounded(row, max_columns))
+            .collect::<ProtocolResult<Vec<_>>>()
+    };
     Ok(CellGridFrame {
+        viewport_rows: decode_rows(&frame.viewport_rows, frame.cols)?,
+        scrollback_rows: decode_rows(&frame.scrollback_rows, 0)?,
+        scrollback_append: decode_rows(&frame.scrollback_append, 0)?,
         stream_id: frame.stream_id.clone(),
         grid_epoch: frame.grid_epoch.clone(),
+        ..frame_scalars(frame)
+    })
+}
+
+/// [`proto_to_cell_frame`] for a caller that owns the message: the same rules
+/// in the same order, with every string moved rather than copied.
+pub fn proto_into_cell_frame(frame: PbCellGridFrame) -> ProtocolResult<CellGridFrame> {
+    assert_frame_sequence(&frame)?;
+    assert_frame_structure(&frame)?;
+    let decode_rows = |rows: Vec<PbCellRow>, max_columns: u32| {
+        rows.into_iter()
+            .map(|row| cell_row_from_proto_owned(row, max_columns))
+            .collect::<ProtocolResult<Vec<_>>>()
+    };
+    let scalars = frame_scalars(&frame);
+    Ok(CellGridFrame {
+        viewport_rows: decode_rows(frame.viewport_rows, frame.cols)?,
+        scrollback_rows: decode_rows(frame.scrollback_rows, 0)?,
+        scrollback_append: decode_rows(frame.scrollback_append, 0)?,
+        stream_id: frame.stream_id,
+        grid_epoch: frame.grid_epoch,
+        ..scalars
+    })
+}
+
+/// Every field of a decoded frame that is not a row or an owned string.
+fn frame_scalars(frame: &PbCellGridFrame) -> CellGridFrame {
+    CellGridFrame {
+        stream_id: String::new(),
+        grid_epoch: String::new(),
         cols: frame.cols,
         rows: frame.rows,
         cursor_row: frame.cursor_row,
@@ -162,14 +216,14 @@ pub fn proto_to_cell_frame(frame: &PbCellGridFrame) -> ProtocolResult<CellGridFr
         mouse_sgr: frame.mouse_sgr,
         focus_events: frame.focus_events,
         full: frame.full,
-        viewport_rows,
-        scrollback_rows,
-        scrollback_append,
+        viewport_rows: Vec::new(),
+        scrollback_rows: Vec::new(),
+        scrollback_append: Vec::new(),
         scrollback_total: frame.scrollback_total,
         sb_base: frame.sb_base,
         base_seq: frame.base_seq,
         seq: frame.seq,
-    })
+    }
 }
 
 /// The stream and sequence identity every frame carries, whoever built it: a
@@ -229,105 +283,41 @@ fn assert_frame_sequence(frame: &PbCellGridFrame) -> ProtocolResult<()> {
     )
 }
 
-/// What a frame claims to contain must be what it contains: legal geometry, one
-/// row per viewport index, and — for a full — history that covers
-/// `[sb_base, scrollback_total)` exactly, in order.
-fn assert_frame_structure(frame: &PbCellGridFrame) -> ProtocolResult<()> {
-    let geometry = TerminalGeometry {
-        cols: frame.cols,
-        rows: frame.rows,
-    };
-    assert_terminal_geometry(&geometry).map_err(|error| error.within("cell_frame"))?;
-    let mut seen = std::collections::HashSet::new();
-    for row in &frame.viewport_rows {
-        if row.index >= frame.rows {
-            return Err(ProtocolError::new(
-                format!("cell_frame.viewport_rows[{}].index", row.index),
-                format!(
-                    "cell viewport row {} is outside 0..{}",
-                    row.index,
-                    frame.rows - 1
-                ),
-            ));
-        }
-        if !seen.insert(row.index) {
-            return Err(ProtocolError::new(
-                format!("cell_frame.viewport_rows[{}].index", row.index),
-                format!("cell viewport row {} occurs more than once", row.index),
-            ));
-        }
-    }
-    if !frame.full {
-        if !frame.scrollback_rows.is_empty() {
-            return Err(ProtocolError::new(
-                "cell_frame.scrollback_rows",
-                "cell delta cannot carry scrollback_rows",
-            ));
-        }
-        return Ok(());
-    }
-    if seen.len() != frame.rows as usize {
-        return Err(ProtocolError::new(
-            "cell_frame.viewport_rows",
-            format!(
-                "full cell frame has {} of {} required viewport rows",
-                seen.len(),
-                frame.rows
-            ),
-        ));
-    }
-    if !frame.scrollback_append.is_empty() {
-        return Err(ProtocolError::new(
-            "cell_frame.scrollback_append",
-            "full cell frame cannot carry scrollback_append",
-        ));
-    }
-    if frame.sb_base > frame.scrollback_total
-        || frame.scrollback_rows.len() as u64 != frame.scrollback_total - frame.sb_base
-    {
-        return Err(ProtocolError::new(
-            "cell_frame.scrollback_rows",
-            format!(
-                "full cell frame history does not cover [{}, {}) exactly",
-                frame.sb_base, frame.scrollback_total
-            ),
-        ));
-    }
-    for (offset, row) in frame.scrollback_rows.iter().enumerate() {
-        let expected = frame.sb_base + offset as u64;
-        if u64::from(row.index) != expected {
-            return Err(ProtocolError::new(
-                format!("cell_frame.scrollback_rows[{offset}].index"),
-                format!("full cell frame history row {expected} is missing or out of order"),
-            ));
-        }
-    }
-    Ok(())
+/// The strings a decoded span keeps, copied or moved out of the message by
+/// the caller depending on whether it owns it.
+struct SpanStrings {
+    text: String,
+    link_uri: Option<String>,
+    link_key: Option<String>,
 }
 
 /// One wire span into the value model. The palette and flag fields are `u16`
 /// here and `u32` on the wire, so an out-of-range value is refused rather than
 /// truncated into a colour that was never emitted.
-fn span_from_proto(span: &PbCellSpan, position: usize) -> ProtocolResult<CellSpan> {
-    let field = format!("cell_row.spans[{position}]");
+fn span_from_proto(
+    span: &PbCellSpan,
+    position: usize,
+    strings: SpanStrings,
+) -> ProtocolResult<CellSpan> {
     Ok(CellSpan {
-        text: span.text.clone(),
-        fg: narrow(&format!("{field}.fg"), span.fg)?,
-        bg: narrow(&format!("{field}.bg"), span.bg)?,
-        flags: narrow(&format!("{field}.flags"), span.flags)?,
+        text: strings.text,
+        fg: narrow_span_field(position, "fg", span.fg)?,
+        bg: narrow_span_field(position, "bg", span.bg)?,
+        flags: narrow_span_field(position, "flags", span.flags)?,
         fg_rgb: span.fg_rgb,
         bg_rgb: span.bg_rgb,
         columns: span.columns,
-        link_uri: span.link_uri.clone(),
-        link_key: span.link_key.clone(),
+        link_uri: strings.link_uri,
+        link_key: strings.link_key,
     })
 }
 
-/// A wire value the value model cannot hold, refused with its field path.
-fn narrow(field: &str, value: u32) -> ProtocolResult<u16> {
+/// A span's wire value the value model cannot hold, refused with its field
+/// path. The path is only built for a refusal: this runs per span per frame.
+fn narrow_span_field(position: usize, name: &str, value: u32) -> ProtocolResult<u16> {
     u16::try_from(value).map_err(|_| {
         ProtocolError::new(
-            field,
+            format!("cell_row.spans[{position}].{name}"),
             format!("{value} is outside the 16-bit palette and flag range"),
         )
     })

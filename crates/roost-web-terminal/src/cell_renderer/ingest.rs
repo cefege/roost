@@ -4,6 +4,8 @@
 //! and painted are two watermarks. Ports `apply`, `applyFullFrame`,
 //! `applyDeltaFrames` and `_canRetainPaintedHistory` of `apps/web/src/renderer/cellRenderer.ts`.
 
+use std::rc::Rc;
+
 use roost_protocol::cell::{CellGridFrame, clone_cell_grid_frame, fold_cell_delta_batch};
 
 use crate::cell_renderer::CellGridRenderer;
@@ -46,7 +48,7 @@ impl<E: RenderElement> CellGridRenderer<E> {
         let owned = clone_cell_grid_frame(incoming);
         let retains_history = self.can_retain_painted_history(&owned);
         if self.reader.intent() == ReaderIntent::Reading || self.reader_pending_frame.is_some() {
-            self.reader_pending_frame = Some(owned);
+            self.reader_pending_frame = Some(Rc::new(owned));
             self.reader_pending_frame_retains_history = retains_history;
             if self.reader.intent() == ReaderIntent::Live {
                 self.pending_render = true;
@@ -60,7 +62,7 @@ impl<E: RenderElement> CellGridRenderer<E> {
             }
             return true;
         }
-        self.frame = Some(owned);
+        self.frame = Some(Rc::new(owned));
         if self.reader.holding() {
             self.pending_render = true;
             return true;
@@ -80,7 +82,11 @@ impl<E: RenderElement> CellGridRenderer<E> {
             RendererIncidentPhase::PreApply,
             Some(RendererFrameMode::Delta),
         );
-        let Some(base) = self.reader_pending_frame.as_ref().or(self.frame.as_ref()) else {
+        let Some(base) = self
+            .reader_pending_frame
+            .as_deref()
+            .or(self.frame.as_deref())
+        else {
             return false;
         };
         if base.viewport_rows.len() != base.rows as usize
@@ -94,7 +100,7 @@ impl<E: RenderElement> CellGridRenderer<E> {
             return false;
         };
         if self.reader.intent() == ReaderIntent::Reading || self.reader_pending_frame.is_some() {
-            self.reader_pending_frame = Some(batch.frame);
+            self.reader_pending_frame = Some(Rc::new(batch.frame));
             if self.reader.intent() == ReaderIntent::Live {
                 self.pending_render = true;
             }
@@ -111,7 +117,7 @@ impl<E: RenderElement> CellGridRenderer<E> {
         let appended = batch.scrollback_append;
         let dirty = batch.dirty_rows;
         let viewport_shift = batch.viewport_shift;
-        self.frame = Some(batch.frame);
+        self.frame = Some(Rc::new(batch.frame));
         if self.reader.holding() {
             self.pending_render = true;
             return true;

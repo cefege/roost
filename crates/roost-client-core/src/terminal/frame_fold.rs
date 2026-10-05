@@ -8,11 +8,13 @@
 //! Ported from `apps/web/src/client/terminal-stream/terminal-stream-frame-fold.ts`,
 //! with the rules and their sources in `docs/phase4-client-contract.md` §6.
 
+use std::rc::Rc;
+
 use roost_proto::{PbCellGridChunk, PbCellGridFrame};
 use roost_protocol::cell::frame_chunks::encoded_cell_grid_frame_size;
 use roost_protocol::cell::{
     CELL_GRID_PART_MAX_BYTES, CellGridFrame, apply_delta, normalize_cell_grid_frame,
-    proto_to_cell_frame,
+    proto_into_cell_frame, proto_to_cell_frame,
 };
 
 /// The state a frame is folded against: what the replica expects, and what it
@@ -33,7 +35,9 @@ pub struct FoldTarget {
     /// The pane's effective row count.
     pub effective_rows: u32,
     /// The installed frame, or `None` when no complete full has been accepted.
-    pub canonical: Option<CellGridFrame>,
+    /// Shared with the painter by refcount; a delta folds into it in place
+    /// while nothing else holds it, and copies it first when something does.
+    pub canonical: Option<Rc<CellGridFrame>>,
     /// True once a complete full for the CURRENT stream is installed.
     pub baseline_ready: bool,
     /// True while a chunked baseline is partially assembled.
@@ -99,6 +103,13 @@ pub fn decode_wire_frame(
         return Err("terminal frame exceeded the encoded part ceiling".to_string());
     }
     proto_to_cell_frame(frame).map_err(|error| error.to_string())
+}
+
+/// Decode a chunked baseline the assembler handed over whole. Owned, so its
+/// strings move into the value model instead of being copied, and the part
+/// ceiling is not re-applied (see [`decode_wire_frame`]).
+pub fn decode_assembled_frame(frame: PbCellGridFrame) -> Result<CellGridFrame, String> {
+    proto_into_cell_frame(frame).map_err(|error| error.to_string())
 }
 
 /// Decode a chunk part, for the same admission the wire frame path applies.
@@ -204,13 +215,13 @@ fn fold_full(target: &mut FoldTarget, mut frame: CellGridFrame) -> FrameFoldOutc
             reason: FrameFoldFailure::InvalidFull,
         };
     }
-    if !full_follows_canonical(target.canonical.as_ref(), &frame) {
+    if !full_follows_canonical(target.canonical.as_deref(), &frame) {
         return FrameFoldOutcome::Invalid {
             reason: FrameFoldFailure::FullConflict,
         };
     }
     normalize_cell_grid_frame(&mut frame);
-    target.canonical = Some(frame);
+    target.canonical = Some(Rc::new(frame));
     target.baseline_ready = true;
     FrameFoldOutcome::Full
 }
@@ -221,11 +232,12 @@ fn fold_delta(target: &mut FoldTarget, delta: CellGridFrame) -> FrameFoldOutcome
     // does is a property of `apply_delta` validating before it mutates, and
     // `tests/terminal_epoch_fence.rs` pins it — a delta that breaks a fence must
     // not move the grid.
-    let Some(mut base) = target.canonical.take() else {
+    let Some(mut shared) = target.canonical.take() else {
         return FrameFoldOutcome::Invalid {
             reason: FrameFoldFailure::DeltaUnfollowed,
         };
     };
+    let base: &CellGridFrame = &shared;
     // v2's `null` expectation matches no stream, so neither may an absent one.
     let expected = target.expected_stream_id.as_deref();
     // Every entry is a row of the delta-fence table in the contract. Alt-screen
@@ -246,18 +258,21 @@ fn fold_delta(target: &mut FoldTarget, delta: CellGridFrame) -> FrameFoldOutcome
         delta.base_seq.checked_add(1) != Some(delta.seq),
     ];
     if refusals.iter().any(|refused| *refused) {
-        target.canonical = Some(base);
+        target.canonical = Some(shared);
         return FrameFoldOutcome::Invalid {
             reason: FrameFoldFailure::DeltaUnfollowed,
         };
     }
-    if apply_delta(&mut base, &delta).is_none() {
-        target.canonical = Some(base);
+    // Copy-on-write: a painter still holding the previous frame keeps it, and
+    // the fold gets its own copy only then.
+    let grid = Rc::make_mut(&mut shared);
+    if apply_delta(grid, &delta).is_none() {
+        target.canonical = Some(shared);
         return FrameFoldOutcome::Invalid {
             reason: FrameFoldFailure::DeltaFoldRejected,
         };
     }
-    normalize_cell_grid_frame(&mut base);
-    target.canonical = Some(base);
+    normalize_cell_grid_frame(grid);
+    target.canonical = Some(shared);
     FrameFoldOutcome::Delta { delta }
 }

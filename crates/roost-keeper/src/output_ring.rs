@@ -175,15 +175,17 @@ fn pump_pty_output(
     sender: SyncSender<OutputChunk>,
     signal: &OutputSignal,
 ) {
+    // One read buffer for the thread's life; each chunk is an exact-size copy,
+    // so the ring holds the bytes read rather than a 16 KiB block per chunk.
+    let mut buffer = vec![0u8; READ_CHUNK_BYTES];
     loop {
-        let mut buffer = vec![0u8; READ_CHUNK_BYTES];
         match reader.read(&mut buffer) {
             // Zero bytes on a pty means the child let go of the slave end.
             // Returning drops the sender, which is the EOF signal.
             Ok(0) => return,
             Ok(read) => {
-                buffer.truncate(read);
-                if sender.send(OutputChunk { bytes: buffer }).is_err() {
+                let bytes = buffer[..read].to_vec();
+                if sender.send(OutputChunk { bytes }).is_err() {
                     return;
                 }
                 signal.raise();

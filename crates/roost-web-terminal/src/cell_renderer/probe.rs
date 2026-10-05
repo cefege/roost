@@ -119,7 +119,10 @@ impl<E: RenderElement> CellGridRenderer<E> {
     /// Every renderer internal, as one read-only value. Callers never mutate
     /// what it returns; the painted history inside it is the live painted model.
     pub fn renderer_projection(&self) -> RendererProjection {
-        let canonical = self.canonical_frame().cloned();
+        let canonical = self
+            .reader_pending_frame
+            .clone()
+            .or_else(|| self.frame.clone());
         let cursor_connected =
             is_placed_in(&self.cursor, &self.viewport) && self.container.is_connected();
         RendererProjection {
@@ -166,7 +169,7 @@ impl<E: RenderElement> CellGridRenderer<E> {
 
     /// The tail of the applied frame's history as text, newest `max_rows` rows.
     pub fn scrollback_text(&self, max_rows: usize) -> String {
-        cell_scrollback_text(self.frame.as_ref(), max_rows)
+        cell_scrollback_text(self.frame.as_deref(), max_rows)
     }
 
     /// The find highlights currently painted, keyed by absolute history row.

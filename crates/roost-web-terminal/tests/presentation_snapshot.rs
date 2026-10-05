@@ -8,6 +8,7 @@
 //! history, and a snapshot that says `at_bottom` for a pane that is not there
 //! sends the diagnosis the wrong way.
 
+use std::rc::Rc;
 use std::sync::Arc;
 
 use roost_protocol::cell::{CellGridFrame, CellRow, CellSpan, MouseTracking};
@@ -67,8 +68,8 @@ fn frame(rows: u32, cols: u32, seq: u64) -> CellGridFrame {
 
 fn projection(reader_intent: ReaderIntent) -> RendererProjection {
     RendererProjection {
-        canonical: Some(frame(24, 80, 9)),
-        applied: Some(frame(24, 80, 8)),
+        canonical: Some(Rc::new(frame(24, 80, 9))),
+        applied: Some(Rc::new(frame(24, 80, 8))),
         canonical_watermark: RendererEpochSeq {
             grid_epoch: Some("epoch-1".to_string()),
             seq: Some(9),

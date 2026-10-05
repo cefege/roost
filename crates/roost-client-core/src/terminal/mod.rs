@@ -38,8 +38,8 @@ pub mod view;
 
 pub use admission::{Admission, ViewStateAdmission};
 pub use frame_fold::{
-    FoldTarget, FrameFoldFailure, FrameFoldOutcome, decode_wire_frame, fold,
-    full_follows_canonical, valid_full,
+    FoldTarget, FrameFoldFailure, FrameFoldOutcome, decode_assembled_frame, decode_wire_frame,
+    fold, full_follows_canonical, valid_full,
 };
 pub use history::{HistoryRange, HistoryScrollTarget};
 pub use input::{

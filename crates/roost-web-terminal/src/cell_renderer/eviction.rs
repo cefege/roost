@@ -54,7 +54,7 @@ impl<E: RenderElement> CellGridRenderer<E> {
             }
         }
         self.collapse_leading_gaps();
-        let Some(frame) = self.frame.as_mut() else {
+        let Some(frame) = self.frame.as_mut().map(std::rc::Rc::make_mut) else {
             return;
         };
         if frame.scrollback_rows.len() > MAX_HELD_SCROLLBACK_ROWS {

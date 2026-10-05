@@ -81,8 +81,7 @@ impl<E: RenderElement> CellGridRenderer<E> {
         self.viewport.clear_children();
         self.row_elements.clear();
         self.row_hashes.clear();
-        let history = frame.scrollback_rows.clone();
-        self.insert_authoritative_history(&history, follow_tail);
+        self.insert_authoritative_history(&frame.scrollback_rows, follow_tail);
         self.sync_spacer();
         self.render_viewport_repair()?;
         self.set_grid_width();
@@ -143,7 +142,9 @@ impl<E: RenderElement> CellGridRenderer<E> {
 
     /// The newest frame, which is the reader-pending one while a park holds it.
     pub(crate) fn canonical_frame(&self) -> Option<&CellGridFrame> {
-        self.reader_pending_frame.as_ref().or(self.frame.as_ref())
+        self.reader_pending_frame
+            .as_deref()
+            .or(self.frame.as_deref())
     }
 
     /// The canonical `(epoch, seq)` pair.

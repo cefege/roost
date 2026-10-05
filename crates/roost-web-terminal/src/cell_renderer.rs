@@ -18,6 +18,7 @@ mod scrollback;
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::fmt;
+use std::rc::Rc;
 
 use roost_protocol::cell::CellGridFrame;
 
@@ -50,10 +51,12 @@ pub struct CellGridRenderer<E = web_sys::Element> {
     viewport: E,
     cursor: E,
     ghosts: E,
-    frame: Option<CellGridFrame>,
+    /// Shared by refcount, so a render pass that holds it across `&mut self`
+    /// borrows a pointer rather than copying the grid.
+    frame: Option<Rc<CellGridFrame>>,
     /// The newest frame, held back while a reader is parked. It is the CANONICAL
     /// frame: the pane keeps advancing while the DOM is immutable.
-    reader_pending_frame: Option<CellGridFrame>,
+    reader_pending_frame: Option<Rc<CellGridFrame>>,
     /// Whether the pending frame is compatible with the painted history. A
     /// viewport-only checkpoint is not, and a backfill page addressed to the
     /// painted anchor must be refused while it waits.
@@ -243,7 +246,7 @@ impl<E: RenderElement> CellGridRenderer<E> {
 
     /// The frame the painted DOM was built from.
     pub fn current_frame(&self) -> Option<&CellGridFrame> {
-        self.frame.as_ref()
+        self.frame.as_deref()
     }
 
     /// Install the incident recorder. `None` is the production state: the

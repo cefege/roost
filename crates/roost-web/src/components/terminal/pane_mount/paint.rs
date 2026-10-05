@@ -5,6 +5,8 @@
 //! renderer subscriber of `apps/web/src/components/terminal/cell-terminal-renderer.ts`
 //! and the presentation glue of `cell-terminal-presentation.ts`.
 
+use std::rc::Rc;
+
 use roost_client_core::store::terminal_transport::session_terminal_transport_kind;
 use roost_client_core::store::terminal_transport::transport_attribute;
 use roost_protocol::cell::CellGridFrame;
@@ -112,22 +114,23 @@ fn paint_owed(shared: &PaneShared, now: u64) {
         }
     }
     let delta_base = shared.state.borrow().feed.delta_base();
+    // One borrow of the core per paint: the frame, its owed deltas, and the
+    // view's status are read together, so the status matches the frame.
     let read = {
         let core = shared.pump.core();
         let core = core.borrow();
-        core.store()
-            .terminal
-            .get(&shared.session_id)
-            .and_then(|replica| {
-                let canonical = replica.canonical()?.clone();
-                let deltas = delta_base
-                    .and_then(|base| replica.deltas_since(base))
-                    .filter(|deltas| !deltas.is_empty())
-                    .map(<[CellGridFrame]>::to_vec);
-                Some((replica.frame_revision(), canonical, deltas))
-            })
+        let store = core.store();
+        store.terminal.get(&shared.session_id).and_then(|replica| {
+            let canonical = Rc::clone(replica.canonical()?);
+            let deltas = delta_base
+                .and_then(|base| replica.deltas_since(base))
+                .filter(|deltas| !deltas.is_empty())
+                .map(<[CellGridFrame]>::to_vec);
+            let status = view_handle_status(store, &shared.session_id, &shared.view_id);
+            Some((replica.frame_revision(), canonical, deltas, status))
+        })
     };
-    let Some((revision, canonical, deltas)) = read else {
+    let Some((revision, canonical, deltas, status)) = read else {
         shared.state.borrow_mut().feed.skip();
         return;
     };
@@ -151,7 +154,6 @@ fn paint_owed(shared: &PaneShared, now: u64) {
     // The view's real status: without it the controller reads the pane as
     // unready, and an unready refresh forgets the activity this frame just
     // recorded, so the pane never reads `receiving`.
-    let status = read_store(shared).status;
     let work = {
         let mut state = shared.state.borrow_mut();
         state.cursor = Some((canonical.cursor_col, canonical.cursor_row));

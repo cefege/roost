@@ -343,10 +343,14 @@ impl<Q: TerminalPeerPacketQuota> TerminalPeerPacketAssembler<Q> {
         if !self.quota.reserve(total_bytes) {
             return Err(TerminalPeerPacketError::Quota);
         }
-        let bytes = allocate_logical(total_bytes, packet.payload);
-        // The reservation covers the copy, not the buffer handed back.
+        // One fragment, one exact-size copy; the reservation covers the copy.
+        let mut bytes = Vec::new();
+        let reserved = bytes.try_reserve_exact(total_bytes);
+        if reserved.is_ok() {
+            bytes.extend_from_slice(packet.payload);
+        }
         self.quota.release(total_bytes);
-        let bytes = bytes?;
+        reserved.map_err(|_| TerminalPeerPacketError::Allocation)?;
         self.last_completed_message_id = packet.header.message_id;
         Ok(bytes)
     }

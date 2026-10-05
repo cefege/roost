@@ -11,6 +11,7 @@ pub mod diff_grid;
 pub mod frame_chunk_assembler;
 pub mod frame_chunk_validation;
 pub mod frame_chunks;
+mod frame_structure;
 pub mod proto;
 pub mod types;
 
@@ -30,7 +31,7 @@ pub use frame_chunk_validation::{
 pub use frame_chunks::{chunk_cell_grid_frame, create_cell_grid_snapshot_source};
 pub use proto::{
     cell_frame_to_proto, cell_row_from_proto, cell_row_from_proto_bounded, cell_row_to_proto,
-    proto_to_cell_frame,
+    proto_into_cell_frame, proto_to_cell_frame,
 };
 pub use types::{
     CELL_BLINK, CELL_BOLD, CELL_DIM, CELL_INVISIBLE, CELL_ITALIC, CELL_REVERSE, CELL_STRIKE,

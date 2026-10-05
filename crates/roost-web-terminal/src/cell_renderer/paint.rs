@@ -202,14 +202,14 @@ impl<E: RenderElement> CellGridRenderer<E> {
     /// Publish the grid's column count so the CSS paints exactly `cols` wide.
     pub(crate) fn set_grid_width(&mut self) {
         self.painted_cols =
-            paint_cell_grid_width(&self.container, self.frame.as_ref(), self.painted_cols);
+            paint_cell_grid_width(&self.container, self.frame.as_deref(), self.painted_cols);
     }
 
     /// Toggle the alternate-screen class for the accepted frame.
     pub(crate) fn sync_alt_screen(&mut self) {
         self.painted_alt_screen = Some(sync_alternate_screen(
             &self.container,
-            self.frame.as_ref(),
+            self.frame.as_deref(),
             self.painted_alt_screen,
         ));
     }

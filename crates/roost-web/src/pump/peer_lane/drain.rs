@@ -64,9 +64,16 @@ pub(in crate::pump) fn install_tick(pump: &Pump) {
 }
 
 /// Drain on the next task, never inside the callback that recorded the event.
+/// One task per burst: events recorded before it runs ride the same drain.
 fn schedule_drain(pump: &Pump) {
+    if pump.inner.drain_scheduled.replace(true) {
+        return;
+    }
     let pump = pump.clone();
     wasm_bindgen_futures::spawn_local(async move {
+        // Cleared BEFORE the drain, so an event recorded while it runs
+        // schedules the next pass rather than waiting for the tick.
+        pump.inner.drain_scheduled.set(false);
         let now_ms = pump.inner.core.borrow().clock().now_ms();
         drain_events(&pump, now_ms);
         deadlines::retire_overflowed(&pump);

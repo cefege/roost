@@ -4,6 +4,8 @@
 //! what a native test asserts are the same values; the smoke API and the incident
 //! scanner read them. Ports `apps/web/src/renderer/cellRendererPresentation.ts`.
 
+use std::rc::Rc;
+
 use roost_protocol::cell::{CellGridFrame, CellRow, spans_text};
 
 use crate::block_placeholder::DEFAULT_CELL_ROW_PX;
@@ -94,10 +96,10 @@ pub struct RendererTerminalModeSnapshot {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RendererProjection {
     /// The newest frame the renderer has accepted, including one held back for
-    /// a parked reader.
-    pub canonical: Option<CellGridFrame>,
+    /// a parked reader. Shared with the renderer by refcount.
+    pub canonical: Option<Rc<CellGridFrame>>,
     /// The frame the painted DOM was built from.
-    pub applied: Option<CellGridFrame>,
+    pub applied: Option<Rc<CellGridFrame>>,
     /// How far canonical has advanced.
     pub canonical_watermark: RendererEpochSeq,
     /// How far the DOM has been reconciled.

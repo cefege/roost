@@ -11,9 +11,11 @@
 //! their sources are in `docs/phase4-client-contract.md` §6.
 
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use crate::terminal::frame_fold::{
-    FoldTarget, FrameFoldOutcome, decode_chunk_part, decode_wire_frame, fold,
+    FoldTarget, FrameFoldOutcome, decode_assembled_frame, decode_chunk_part, decode_wire_frame,
+    fold,
 };
 use crate::terminal::liveness::ForegroundLiveness;
 use crate::terminal::renderer_deliveries::RendererDeliveries;
@@ -75,8 +77,9 @@ impl TerminalSession {
         }
     }
 
-    /// The replica, for a host that renders it.
-    pub fn canonical(&self) -> Option<&CellGridFrame> {
+    /// The replica, for a host that renders it. Shared by refcount, so a host
+    /// that keeps it across a paint holds a snapshot rather than a copy.
+    pub fn canonical(&self) -> Option<&Rc<CellGridFrame>> {
         self.target.canonical.as_ref()
     }
 
@@ -302,7 +305,7 @@ impl TerminalSession {
             }
             Ok(CellGridChunkAssembly::Complete { frame, .. }) => {
                 self.target.canonical_chunk_in_flight = false;
-                match decode_wire_frame(&frame, true) {
+                match decode_assembled_frame(frame) {
                     Ok(decoded) => self.admit_decoded(decoded, token, now_ms),
                     Err(reason) => self.refuse_owned(reason, token, now_ms),
                 }
