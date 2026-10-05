@@ -150,6 +150,11 @@ pub async fn prime_serving_bootstrap() {
     if origin.is_empty() {
         return;
     }
+    if !roost_client_core::client::local::discovery::origin_is_loopback(&origin) {
+        PRIMED.with(|primed| *primed.borrow_mut() = None);
+        tracing::info!(target: "door", "page origin is not loopback; no worker door can have served it");
+        return;
+    }
     let answer = fetch_bootstrap(&format!("{origin}{LOCAL_BOOTSTRAP_PATH}")).await;
     let bootstrap = match read_serving_origin(answer.status, &answer.body) {
         BootstrapOutcome::Served(bootstrap) => Some(bootstrap),

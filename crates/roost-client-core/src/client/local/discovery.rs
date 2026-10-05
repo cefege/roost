@@ -233,3 +233,28 @@ pub fn candidate_origin(operator_origin: Option<&str>) -> String {
         .unwrap_or(DEFAULT_WORKER_LOCAL_UI_ORIGIN)
         .to_string()
 }
+
+/// The hosts a worker door admits (`roost-worker`'s door admission), so the
+/// only page origins a worker can have served.
+const LOOPBACK_HOSTS: [&str; 3] = ["127.0.0.1", "localhost", "[::1]"];
+
+/// Whether `origin` names a loopback host, the only place a worker door can
+/// serve a page. A page on any other origin was served by a coordinator, so
+/// asking it whether a worker served it is a round trip with a known answer.
+pub fn origin_is_loopback(origin: &str) -> bool {
+    let Some(authority) = origin.split_once("://").map(|(_, rest)| rest) else {
+        return false;
+    };
+    let authority = authority.split('/').next().unwrap_or_default();
+    let host = if authority.starts_with('[') {
+        authority
+            .find(']')
+            .and_then(|close| authority.get(..=close))
+            .unwrap_or(authority)
+    } else {
+        authority.split(':').next().unwrap_or_default()
+    };
+    LOOPBACK_HOSTS
+        .iter()
+        .any(|loopback| host.eq_ignore_ascii_case(loopback))
+}

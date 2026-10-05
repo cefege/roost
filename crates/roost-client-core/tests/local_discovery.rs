@@ -21,7 +21,7 @@ use roost_client_core::client::local::bootstrap::{
 };
 use roost_client_core::client::local::discovery::{
     BrowserEnvironment, DEFAULT_WORKER_LOCAL_UI_ORIGIN, DoorAbsence, DoorAdoption, DoorDiscovery,
-    DoorPlan, LOCAL_WORKER_ORIGIN_KEY, candidate_origin,
+    DoorPlan, LOCAL_WORKER_ORIGIN_KEY, candidate_origin, origin_is_loopback,
 };
 use roost_client_core::client::local::door::{
     DialRefusal, local_terminal_url, redial_ceiling_ms, redial_delay_ms,
@@ -385,4 +385,16 @@ fn a_claim_is_matched_on_the_connection_it_was_sent_on() {
         claims.expire(0).is_empty(),
         "a claim inside its deadline stays"
     );
+}
+
+/// Only a loopback origin can have been served by a worker door; every other
+/// page skips the serving-origin probe.
+#[test]
+fn only_a_loopback_page_origin_can_be_worker_served() {
+    assert!(origin_is_loopback("http://127.0.0.1:4114"));
+    assert!(origin_is_loopback("http://localhost"));
+    assert!(origin_is_loopback("http://[::1]:4114"));
+    assert!(!origin_is_loopback("https://mike.roosttt.com"));
+    assert!(!origin_is_loopback("http://127.0.0.1.evil.example"));
+    assert!(!origin_is_loopback(""));
 }
