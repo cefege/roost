@@ -1,6 +1,6 @@
 # `crates/` — the v3 crate map
 
-Thirteen crates plus a gate runner. One Git repository, one GitHub repo, one
+Fourteen crates plus a gate runner. One Git repository, one GitHub repo, one
 wire contract; the v2 TypeScript tree in `apps/` and `packages/` is still here
 while the port runs and is deleted in Phase 7.
 
@@ -23,6 +23,7 @@ registry, `Session` is the user-facing row, `Channel` is a PTY connection,
 | `roost-web-terminal` | The imperative `web-sys` terminal renderer and its input, IME, mouse, selection and link controllers. | — |
 | `roost-web` | The Dioxus 0.7 web application: routes, components, static assets. | — |
 | `roost-cli` | The `roost` binary: `coord`, `worker`, `deploy`, `status`, `doctor`, and the rest. | `roost` |
+| `roost-bench` | The v2-vs-v3 speed benchmark: boots each stack in isolation, drives one headless Chromium over CDP, samples `/proc` CPU/RSS, writes `target/bench/runs/<id>/report.md`. A developer tool, never shipped. | `roost-bench` |
 
 ## Dependency DAG
 
@@ -44,6 +45,7 @@ roost-client-core    → protocol, proto, observability
 roost-web-terminal   → client-core, protocol
 roost-web            → web-terminal, client-core, protocol
 roost-cli            → coord, worker, keeper, host, protocol, platform, observability
+roost-bench          → proto, observability
 ```
 
 `roost-client-core` is the seam every future front end links: it exposes no

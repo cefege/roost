@@ -141,6 +141,11 @@ const ALLOWED: &[(&str, &[&str])] = &[
             "roost-observability",
         ],
     ),
+    // The v2-vs-v3 benchmark harness: a developer tool, never shipped. It
+    // dials the coordinator through the generated Connect client and reuses
+    // the workspace tracing setup; it boots the products as child processes,
+    // never as libraries, so the same code measures the Bun stack too.
+    ("roost-bench", &["roost-proto", "roost-observability"]),
     // The gate runner itself: tooling, not product. It reads workspace
     // metadata rather than being depended upon.
     ("xtask", &[]),

@@ -92,6 +92,9 @@ ammonia = "4.2.0"
 # WHATWG URL parsing for terminal link targets: the web terminal classifies
 # untrusted OSC 8 and inferred targets exactly as the browser's `new URL()`.
 url = "2.5.8"
+# The benchmark harness's headless-browser driver: Chrome DevTools Protocol
+# over a websocket. Only `roost-bench`, a developer tool that never ships, uses it.
+chromiumoxide = { version = "0.9.1", default-features = false }
 
 # Crypto and encoding.
 ed25519-dalek = "3.0.0"

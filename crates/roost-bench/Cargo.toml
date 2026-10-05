@@ -1,0 +1,43 @@
+[package]
+name = "roost-bench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Boots the v2 (Bun) and v3 (Rust) stacks side by side and measures them through a real headless Chromium"
+publish = false
+
+[[bin]]
+name = "roost-bench"
+path = "src/main.rs"
+
+[dependencies]
+roost-observability.workspace = true
+roost-proto.workspace = true
+# `client` for the same reason roost-cli asks for it itself: the workspace pin
+# stays buildable for `wasm32-unknown-unknown`, and only native dialers opt in.
+connectrpc = { workspace = true, features = ["client"] }
+# The generated client is built from an `http::Uri`; axum is the workspace pin
+# that re-exports `http` (see crates/roost-cli/Cargo.toml).
+axum.workspace = true
+chromiumoxide.workspace = true
+
+anyhow.workspace = true
+base64.workspace = true
+clap.workspace = true
+ed25519-dalek.workspace = true
+futures.workspace = true
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+sqlx = { workspace = true, features = ["runtime-tokio", "sqlite"] }
+thiserror.workspace = true
+tokio = { workspace = true, features = [
+    "fs", "io-util", "macros", "net", "process", "rt", "rt-multi-thread", "sync", "time",
+] }
+tracing.workspace = true
+
+[lints]
+workspace = true
