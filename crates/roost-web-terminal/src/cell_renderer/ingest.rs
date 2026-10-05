@@ -6,7 +6,9 @@
 
 use std::rc::Rc;
 
-use roost_protocol::cell::{CellGridFrame, clone_cell_grid_frame, fold_cell_delta_batch};
+use roost_protocol::cell::{
+    CellDeltaBatch, CellGridFrame, CellRow, clone_cell_grid_frame, fold_cell_delta_batch,
+};
 
 use crate::cell_renderer::CellGridRenderer;
 use crate::presentation::{RendererFrameMode, RendererIncidentPhase};
@@ -99,8 +101,26 @@ impl<E: RenderElement> CellGridRenderer<E> {
         let Some(batch) = fold_cell_delta_batch(base, deltas) else {
             return false;
         };
-        if self.reader.intent() == ReaderIntent::Reading || self.reader_pending_frame.is_some() {
-            self.reader_pending_frame = Some(Rc::new(batch.frame));
+        let CellDeltaBatch {
+            mut frame,
+            dirty_rows,
+            scrollback_append,
+            viewport_shift,
+        } = batch;
+        let folded_from_pending = self.reader_pending_frame.is_some();
+        if self.reader.intent() == ReaderIntent::Reading || folded_from_pending {
+            let history = if folded_from_pending {
+                take_history(&mut self.reader_pending_frame)
+            } else {
+                // Entering a reading park: the painted frame stays put, so its
+                // history is copied once here rather than moved.
+                self.frame
+                    .as_ref()
+                    .map(|painted| painted.scrollback_rows.clone())
+                    .unwrap_or_default()
+            };
+            attach_history(history, &mut frame);
+            self.reader_pending_frame = Some(Rc::new(frame));
             if self.reader.intent() == ReaderIntent::Live {
                 self.pending_render = true;
             }
@@ -114,10 +134,8 @@ impl<E: RenderElement> CellGridRenderer<E> {
             return true;
         }
         let was_at_bottom = self.at_bottom_or_owned_placement();
-        let appended = batch.scrollback_append;
-        let dirty = batch.dirty_rows;
-        let viewport_shift = batch.viewport_shift;
-        self.frame = Some(Rc::new(batch.frame));
+        attach_history(take_history(&mut self.frame), &mut frame);
+        self.frame = Some(Rc::new(frame));
         if self.reader.holding() {
             self.pending_render = true;
             return true;
@@ -125,10 +143,10 @@ impl<E: RenderElement> CellGridRenderer<E> {
         if self.extend_scrollback_gap(self.frame_total()).is_err() {
             return false;
         }
-        if !appended.is_empty() && !self.insert_history_page(&appended, true) {
+        if !scrollback_append.is_empty() && !self.insert_history_page(&scrollback_append, true) {
             return self.render_full(was_at_bottom, was_at_bottom).is_ok();
         }
-        if self.render_delta(&dirty, viewport_shift).is_err() {
+        if self.render_delta(&dirty_rows, viewport_shift).is_err() {
             return false;
         }
         self.set_grid_width();
@@ -171,4 +189,21 @@ impl<E: RenderElement> CellGridRenderer<E> {
             observer.observe(phase, mode);
         }
     }
+}
+
+/// The base's history, moved out when this renderer held the only reference.
+/// Every other holder of the frame (a reconcile or probe projection) lets go
+/// before the next paint, so the copy is the exception.
+fn take_history(slot: &mut Option<Rc<CellGridFrame>>) -> Vec<CellRow> {
+    match slot.take().map(Rc::try_unwrap) {
+        Some(Ok(frame)) => frame.scrollback_rows,
+        Some(Err(shared)) => shared.scrollback_rows.clone(),
+        None => Vec::new(),
+    }
+}
+
+/// `history ++ the rows the batch appended`: the fold returns only the latter.
+fn attach_history(mut history: Vec<CellRow>, frame: &mut CellGridFrame) {
+    history.append(&mut frame.scrollback_rows);
+    frame.scrollback_rows = history;
 }

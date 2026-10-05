@@ -51,6 +51,25 @@ fn one_sparse_delta_lands_in_one_owned_successor() {
 }
 
 #[test]
+fn the_successor_carries_only_the_appended_history_and_the_base_keeps_its_own() {
+    let mut base = full_frame(&["a", "b"]);
+    base.scrollback_rows = vec![text_row(0, "h0"), text_row(1, "h1"), text_row(2, "h2")];
+    base.scrollback_total = 3;
+    let delta = next_delta(
+        &base,
+        vec![text_row(0, "b"), text_row(1, "c")],
+        vec![text_row(3, "a")],
+    );
+    let batch = folded(&base, std::slice::from_ref(&delta));
+
+    assert_eq!(row_text(&batch.frame.scrollback_rows), vec!["a"]);
+    assert_eq!(indices(&batch.frame.scrollback_rows), vec![3]);
+    assert_eq!(batch.frame.scrollback_rows, batch.scrollback_append);
+    assert_eq!(batch.frame.scrollback_total, 4);
+    assert_eq!(row_text(&base.scrollback_rows), vec!["h0", "h1", "h2"]);
+}
+
+#[test]
 fn a_clone_gives_independent_row_coordinates_over_shared_cells() {
     let base = full_frame(&["a", "b"]);
     let clone = clone_cell_grid_frame(&base);

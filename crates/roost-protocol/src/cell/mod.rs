@@ -17,7 +17,8 @@ pub mod types;
 
 pub use delta_batch::{CellDeltaBatch, fold_cell_delta_batch};
 pub use diff_grid::{
-    apply_delta, clone_cell_grid_frame, delta_viewport_shift, normalize_cell_grid_frame,
+    apply_delta, clone_cell_grid_frame, clone_cell_grid_frame_without_history,
+    delta_viewport_shift, normalize_cell_grid_frame,
 };
 pub use frame_chunk_assembler::{
     CellGridChunkAssembler, CellGridChunkAssembly, CellGridSnapshotProgress,

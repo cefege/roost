@@ -14,11 +14,38 @@ use crate::cell::types::{CellGridFrame, CellRow};
 /// copying only the outer arrays is not enough — the row objects themselves must
 /// be fresh.
 pub fn clone_cell_grid_frame(frame: &CellGridFrame) -> CellGridFrame {
-    let mut fresh = frame.clone();
-    fresh.viewport_rows = clone_rows(&frame.viewport_rows);
+    let mut fresh = clone_cell_grid_frame_without_history(frame);
     fresh.scrollback_rows = clone_rows(&frame.scrollback_rows);
-    fresh.scrollback_append = clone_rows(&frame.scrollback_append);
     fresh
+}
+
+/// `clone_cell_grid_frame` minus `scrollback_rows`, which comes back empty.
+/// For a fold that never reads the base's history: copying a renderer's held
+/// history on every paint is the cost this avoids.
+pub fn clone_cell_grid_frame_without_history(frame: &CellGridFrame) -> CellGridFrame {
+    CellGridFrame {
+        stream_id: frame.stream_id.clone(),
+        grid_epoch: frame.grid_epoch.clone(),
+        cols: frame.cols,
+        rows: frame.rows,
+        cursor_row: frame.cursor_row,
+        cursor_col: frame.cursor_col,
+        cursor_visible: frame.cursor_visible,
+        alt_screen: frame.alt_screen,
+        cursor_keys_app: frame.cursor_keys_app,
+        bracketed_paste: frame.bracketed_paste,
+        mouse_tracking: frame.mouse_tracking,
+        mouse_sgr: frame.mouse_sgr,
+        focus_events: frame.focus_events,
+        full: frame.full,
+        viewport_rows: clone_rows(&frame.viewport_rows),
+        scrollback_rows: Vec::new(),
+        scrollback_append: clone_rows(&frame.scrollback_append),
+        scrollback_total: frame.scrollback_total,
+        sb_base: frame.sb_base,
+        base_seq: frame.base_seq,
+        seq: frame.seq,
+    }
 }
 
 /// Convert a reconstructed frame into a viewport-only canonical checkpoint.

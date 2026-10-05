@@ -9,7 +9,91 @@
 
 mod render_support;
 
-use render_support::{delta_frame, mount, row, sb_el, sb_rows, seed_held_history};
+use render_support::{PAD_TOP, ROW_PX, delta_frame, mount, row, sb_el, sb_rows, seed_held_history};
+use roost_protocol::cell::{CellGridFrame, CellRow, spans_text};
+use roost_web_terminal::ReaderIntent;
+
+fn history_rows(count: u32) -> Vec<CellRow> {
+    (0..count)
+        .map(|index| row(index, &format!("h{index}")))
+        .collect()
+}
+
+fn held_history_text(frame: &CellGridFrame) -> Vec<String> {
+    frame
+        .scrollback_rows
+        .iter()
+        .map(|held| spans_text(&held.spans))
+        .collect()
+}
+
+/// Deltas `seq..` each pushing the next history row onto `total` held rows.
+fn appending_deltas(total: u32, seq: u64, count: u32) -> Vec<CellGridFrame> {
+    (0..count)
+        .map(|offset| {
+            let index = total + offset;
+            CellGridFrame {
+                scrollback_total: u64::from(index + 1),
+                ..delta_frame(
+                    80,
+                    1,
+                    vec![row(0, &format!("v{index}"))],
+                    vec![row(index, &format!("h{index}"))],
+                    seq + u64::from(offset),
+                )
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn live_deltas_keep_the_held_history_and_extend_it_in_order() {
+    let (_container, mut renderer) = mount();
+    assert!(seed_held_history(
+        &mut renderer,
+        80,
+        vec![row(0, "v")],
+        history_rows(10)
+    ));
+
+    for delta in appending_deltas(10, 3, 3) {
+        assert!(renderer.apply(&delta));
+    }
+
+    let expected: Vec<String> = (0..13).map(|index| format!("h{index}")).collect();
+    assert_eq!(
+        held_history_text(renderer.current_frame().unwrap()),
+        expected
+    );
+}
+
+#[test]
+fn deltas_folded_during_a_reading_park_keep_the_held_history() {
+    let (container, mut renderer) = mount();
+    assert!(seed_held_history(
+        &mut renderer,
+        80,
+        vec![row(0, "v")],
+        history_rows(400)
+    ));
+    container.set_scroll_top_raw(PAD_TOP + 50.0 * ROW_PX);
+    renderer.handle_scroll();
+    assert_eq!(renderer.reader_intent(), ReaderIntent::Reading);
+
+    for delta in appending_deltas(400, 3, 3) {
+        assert!(renderer.apply(&delta));
+    }
+    // The painted frame is untouched while the reader holds it.
+    assert_eq!(renderer.current_frame().unwrap().scrollback_rows.len(), 400);
+
+    renderer.prepare_live_interaction();
+    let expected: Vec<String> = (0..403).map(|index| format!("h{index}")).collect();
+    assert_eq!(renderer.reader_intent(), ReaderIntent::Live);
+    assert_eq!(
+        held_history_text(renderer.current_frame().unwrap()),
+        expected
+    );
+}
 
 #[test]
 fn a_delta_appends_scrollback_and_existing_rows_keep_their_identity() {

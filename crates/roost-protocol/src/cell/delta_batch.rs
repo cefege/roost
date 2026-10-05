@@ -6,13 +6,18 @@
 //! touches nothing: a batch that half-applied would paint a grid no frame ever
 //! described.
 
-use crate::cell::diff_grid::{apply_delta, clone_cell_grid_frame, delta_viewport_shift};
+use crate::cell::diff_grid::{
+    apply_delta, clone_cell_grid_frame_without_history, delta_viewport_shift,
+};
 use crate::cell::types::{CellGridFrame, CellRow};
 
 /// The result of folding a run of sparse deltas onto one starting frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CellDeltaBatch {
     /// Independently owned canonical successor after every input delta.
+    /// `frame.scrollback_rows` holds only the rows this batch appended (the
+    /// same rows as `scrollback_append`); the base's history is not copied,
+    /// so a caller that keeps history re-attaches it.
     pub frame: CellGridFrame,
     /// Rows to patch in the successor's final viewport coordinates.
     pub dirty_rows: Vec<CellRow>,
@@ -44,6 +49,7 @@ fn has_contiguous_scrollback_append(base: &CellGridFrame, delta: &CellGridFrame)
 ///
 /// Neither `base` nor any supplied delta is mutated: a chain that turns out to
 /// be invalid half way through leaves the caller's replicas exactly as they were.
+/// The fold never reads `base.scrollback_rows`, so it does not copy them.
 pub fn fold_cell_delta_batch(
     base: &CellGridFrame,
     deltas: &[CellGridFrame],
@@ -52,7 +58,7 @@ pub fn fold_cell_delta_batch(
         return None;
     }
 
-    let mut folded = clone_cell_grid_frame(base);
+    let mut folded = clone_cell_grid_frame_without_history(base);
     let mut dirty_marks = vec![0u8; folded.rows as usize];
     let mut scrollback_append: Vec<CellRow> = Vec::new();
     let mut viewport_shift = 0u32;
