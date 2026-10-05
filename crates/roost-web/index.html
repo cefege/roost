@@ -15,6 +15,12 @@
          its preload only shortens FOIT. -->
     <link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/JetBrainsMonoNerdFontMono-Regular.woff2" />
     <link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/MaterialSymbolsRounded.woff2" />
+    <!-- The loader fetches the wasm only once its module script has run;
+         preloading starts the download with the HTML. dx substitutes a
+         relative `{wasm_path}`, so it is rooted here: a session route is not
+         at `/`. `crossorigin` matches the loader's cors-mode fetch, so the
+         preload is reused, not doubled. -->
+    <link rel="preload" as="fetch" type="application/wasm" crossorigin href="/{wasm_path}" />
     <meta name="theme-color" content="#0d0d0d" />
     <title>{app_title}</title>
     <style>
