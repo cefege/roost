@@ -2353,6 +2353,25 @@ and `ab-head2`, started at load < 4 with no rustc running) bracket that revert r
 delayed-fleet together p50/p95 328/434 ms and 265/341 ms. Within run variance; the five
 commits stay.
 
+On `0b71c31b` (route cache before SQLite, outbox drained during appends, one flush per
+egress batch, one proto conversion per frame, direct frames listener, boot-time door probe,
+shared DTLS certificate and gathering cache, ETag/304), measured on a scratch stack on this
+host: debug native binaries, the wasm-release bundle, and headless chromium. Over Sync with
+the peer carrier disabled, 35 input batches each had `route_ms` 0 and `sent_ms` 0;
+`settled_ms` was p50 2 ms and max 3 ms, and `audit_ms` max 17 ms. The one durable append
+during a concurrent spawn took `append_ms` 3. Over the direct carrier on a loopback page whose
+door was unusable, `time_to_direct_ms` was 858/645/641 ms. The phase entries, as
+gathering/negotiating/authenticating/candidate/active ms from the attempt start, were
+0/241/491/741/758, 0/69/318/318/580 and 0/80/330/580/595. The worker logged
+`certificate_ms` 0 for every peer and `gather_ms` 224–241. Most of that is the 200 ms
+`REFLEXIVE_SETTLE` window, so the gathering cache does not shorten it. A 20k `seq` flood on
+the direct carrier took 267 ms from Enter to `20000` painted (polled every 20 ms; not the
+smoke harness's method), with no paint refusal and no long task. A reload's first
+contentful paint was 140–144 ms, with the wasm served from the immutable cache and
+`index.html` revalidated by ETag. A loopback page makes one `/api/local-bootstrap` request on
+its origin and one door probe per load; a tailnet-origin page makes none on its origin. The
+wasm goes out as 1,551,572 B of brotli against 5,744,197 B raw.
+
 Retained-marker bounds are worth keeping in view because they are the
 history-corruption tripwire: a Rust renderer that drops the retained floor
 will pass every functional spec and still lose scrollback.
