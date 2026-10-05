@@ -7,7 +7,7 @@
 
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use roost_protocol::terminal_peer::peer::{
     TERMINAL_PEER_DATA_CHANNELS, TERMINAL_PEER_ICE_GATHERING_DEADLINE_MS,
@@ -92,6 +92,17 @@ struct ConnectionState {
     fingerprint_verified: bool,
     closed: bool,
     closed_notified: bool,
+    /// When the answer went back, the zero the connect milestones count from.
+    answered_at: Option<Instant>,
+    connected_logged: bool,
+    channel_open_logged: bool,
+}
+
+/// The points of a peer's life after its answer that are logged once each.
+#[derive(Debug, Clone, Copy)]
+enum PeerMilestone {
+    Connected,
+    FirstChannelOpen,
 }
 
 /// One immutable offer/answer exchange.
@@ -268,9 +279,38 @@ impl TerminalPeerConnection {
     }
 
     fn finish_answer(&self, answer_sdp: String) {
-        let waiter = self.lock_state().answer_waiter.take();
+        let waiter = {
+            let mut state = self.lock_state();
+            state.answered_at = Some(Instant::now());
+            state.answer_waiter.take()
+        };
         if let Some(waiter) = waiter {
             let _ = waiter.send(Ok(answer_sdp));
+        }
+    }
+
+    /// One line per milestone per peer, timed from the answer: the browser's
+    /// promotion timing cannot see where its Authenticating step spends time.
+    fn note_milestone(&self, milestone: PeerMilestone) {
+        let elapsed_ms = {
+            let mut state = self.lock_state();
+            let logged = match milestone {
+                PeerMilestone::Connected => &mut state.connected_logged,
+                PeerMilestone::FirstChannelOpen => &mut state.channel_open_logged,
+            };
+            if std::mem::replace(logged, true) {
+                return;
+            }
+            state
+                .answered_at
+                .map(|at| u64::try_from(at.elapsed().as_millis()).unwrap_or(u64::MAX))
+        };
+        let socket = self.port.socket_id();
+        match milestone {
+            PeerMilestone::Connected => tracing::info!(target: "peer", socket = %socket,
+                connected_ms = elapsed_ms, "the peer connected"),
+            PeerMilestone::FirstChannelOpen => tracing::info!(target: "peer", socket = %socket,
+                channel_open_ms = elapsed_ms, "the peer opened its first channel"),
         }
     }
 
@@ -278,13 +318,17 @@ impl TerminalPeerConnection {
     /// events go to the port, after the fingerprint check a channel open needs.
     fn on_native_event(&self, event: NativePeerEvent) {
         match event {
-            NativePeerEvent::Connected => self.verify_remote_fingerprint(),
+            NativePeerEvent::Connected => {
+                self.note_milestone(PeerMilestone::Connected);
+                self.verify_remote_fingerprint();
+            }
             NativePeerEvent::Failed
             | NativePeerEvent::Closed
             | NativePeerEvent::UnsolicitedChannel => {
                 self.close(ConnectionFailure::IceFailed);
             }
             NativePeerEvent::ChannelOpen(_) => {
+                self.note_milestone(PeerMilestone::FirstChannelOpen);
                 self.verify_remote_fingerprint();
                 if !self.is_closed() {
                     self.port.on_channel_event(event);

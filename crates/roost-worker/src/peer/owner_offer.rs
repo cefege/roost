@@ -184,6 +184,7 @@ impl TerminalPeerOwner {
         admitted: &Admitted,
         connection_slot: &mut Option<Arc<TerminalPeerConnection>>,
     ) -> Result<WLocalTerminalPeerAnswer, TerminalPeerOfferFailure> {
+        let offer_received = Instant::now();
         let bootstrap = self.bootstrap().await;
         let pending = self.assert_current(admitted)?;
         let native = self.state().native.clone();
@@ -254,7 +255,12 @@ impl TerminalPeerOwner {
                 connection: Arc::clone(&connection),
             },
         );
-        tracing::info!(peers = state.active.len(), "terminal peer established");
+        let ready_ms = u64::try_from(offer_received.elapsed().as_millis()).unwrap_or(u64::MAX);
+        tracing::info!(
+            peers = state.active.len(),
+            ready_ms,
+            "terminal peer established"
+        );
         Ok(WLocalTerminalPeerAnswer {
             request_id: promoted.request.request_id,
             connection_generation: promoted.request.connection_generation,
