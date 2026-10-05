@@ -72,11 +72,12 @@ impl ResultLane {
         mut append: DispatchFuture<'_>,
         socket: &mut WebSocket,
     ) -> DispatchOutcome {
+        let started = std::time::Instant::now();
         let mut reading = !self.backlog.is_latched();
-        loop {
+        let outcome = loop {
             tokio::select! {
                 biased;
-                outcome = &mut append => return outcome,
+                outcome = &mut append => break outcome,
                 received = socket.recv(), if reading => {
                     reading = match received {
                         Some(Ok(Message::Close(_))) | Some(Err(_)) | None => self.discard_backlog(),
@@ -84,7 +85,11 @@ impl ResultLane {
                     };
                 }
             }
-        }
+        };
+        let append_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        tracing::debug!(target: "worker_link", worker_fp = %self.dispatcher.handle.worker_fp,
+            append_ms, "a durable append settled");
+        outcome
     }
 
     /// The oldest frame that waited behind an append; its bytes stay charged
