@@ -60,7 +60,8 @@ pub(super) fn read_deadlines(pump: &Pump, now_ms: u64) {
 }
 
 /// The browser gathered a server-reflexive candidate: the gathering deadline
-/// shortens to the settle, and the tick reads the offer when it lapses.
+/// shortens to the settle, and the offer is read the moment it lapses rather
+/// than on the next peer tick, which stays the backstop.
 pub(super) fn reflexive_candidate(pump: &Pump, attempt_id: u64, now_ms: u64) {
     let shortened = pump
         .inner
@@ -74,8 +75,38 @@ pub(super) fn reflexive_candidate(pump: &Pump, attempt_id: u64, now_ms: u64) {
             attempt_id,
             "a reflexive candidate arrived; the offer is read after the settle"
         );
+        read_after_settle(pump);
     }
 }
+
+/// One timer for the settle. `read_deadlines` is idempotent — `lapsed` names
+/// only due deadlines and the offer is read once per attempt — so the timer and
+/// the tick may both fire. One millisecond past the settle, because a timer can
+/// fire a fraction early against the core's integer clock.
+#[cfg(target_arch = "wasm32")]
+fn read_after_settle(pump: &Pump) {
+    use crate::platform::carriers::GATHERING_SETTLE_AFTER_REFLEXIVE_MS;
+    use wasm_bindgen::JsCast as _;
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let pump = pump.clone();
+    let read = wasm_bindgen::closure::Closure::once_into_js(move || {
+        let now_ms = pump.inner.core.borrow().clock().now_ms();
+        read_deadlines(&pump, now_ms);
+    });
+    let delay = i32::try_from(GATHERING_SETTLE_AFTER_REFLEXIVE_MS + 1).unwrap_or(i32::MAX);
+    if window
+        .set_timeout_with_callback_and_timeout_and_arguments_0(read.unchecked_ref(), delay)
+        .is_err()
+    {
+        tracing::debug!(target: "carriers", "the settle timer was refused; the tick reads the offer");
+    }
+}
+
+/// Natively there is no browser timer; the tick is the only reader.
+#[cfg(not(target_arch = "wasm32"))]
+fn read_after_settle(_pump: &Pump) {}
 
 /// The whole table read once, so the carriers are not re-borrowed per deadline.
 fn lapsed(pump: &Pump, now_ms: u64) -> Vec<(u64, PeerDeadline)> {

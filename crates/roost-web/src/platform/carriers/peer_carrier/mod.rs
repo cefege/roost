@@ -22,7 +22,7 @@ mod life;
 
 pub use attempt::{PeerCarrier, PeerCarriers};
 pub use heartbeat::{HeartbeatMiss, PeerHeartbeat};
-pub use life::{PeerDeadline, PeerLife};
+pub use life::{GATHERING_SETTLE_AFTER_REFLEXIVE_MS, PeerDeadline, PeerLife};
 
 use std::collections::BTreeMap;
 

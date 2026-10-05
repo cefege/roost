@@ -27,8 +27,8 @@ pub mod send;
 pub use dial::{DialFault, DialPlan};
 pub use loopback_carrier::{CarrierFault, LoopbackConnection};
 pub use peer_carrier::{
-    HeartbeatMiss, LaneFault, LaneMessage, PeerCarrier, PeerCarriers, PeerDeadline, PeerHeartbeat,
-    PeerLanes, watermarks,
+    GATHERING_SETTLE_AFTER_REFLEXIVE_MS, HeartbeatMiss, LaneFault, LaneMessage, PeerCarrier,
+    PeerCarriers, PeerDeadline, PeerHeartbeat, PeerLanes, watermarks,
 };
 pub use route::{CarrierTable, ConnectionKey};
 pub use send::delivery;
