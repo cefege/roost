@@ -24,6 +24,7 @@ pub mod input_nav;
 pub mod keyboard_shortcuts;
 #[cfg(target_arch = "wasm32")]
 pub mod keyboard_shortcuts_dom;
+pub mod machine_actions;
 pub mod motion;
 pub mod new_terminal_target;
 pub mod platform;

@@ -1,6 +1,7 @@
-//! A session row's right-click menu: Rename…, Duplicate terminal, Restart, and
-//! below a separator Close terminal (the row's own undoable close) and, while
-//! the machine is offline, Force remove. Ports
+//! A session row's right-click menu: Rename…, Duplicate terminal, Restart, the
+//! machine's OS hand-offs (Finder / Screen sharing, network share / Remote
+//! Desktop), and below a separator Close terminal (the row's own undoable
+//! close) and, while the machine is offline, Force remove. Ports
 //! `apps/web/src/components/sidebar/SessionRowContextMenu.tsx`; `SessionRow`
 //! opens it. Spawn and kill go through `client::rpc::calls::sessions`.
 
@@ -12,7 +13,9 @@ use roost_client_core::store::shell_dialogs::{RenameDialogRequest, RenameTarget}
 use roost_client_core::store::shell_intent::ShellIntent;
 
 use super::context_menu_frame::ContextMenuFrame;
+use super::machine_action_items::MachineActionItems;
 use crate::components::context_menu::{CtxMenuItem, CtxMenuSeparator};
+use crate::machine_actions::MachineMenuKind;
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
 use crate::session_naming::folder_headline;
@@ -50,7 +53,7 @@ pub fn SessionRowContextMenu(
 ) -> Element {
     let pump = use_store();
     let navigate = use_navigate();
-    let (rename_request, worker_offline) = {
+    let (rename_request, worker_offline, worker_fp) = {
         let core = pump.core();
         let core = core.borrow();
         let store = core.store();
@@ -75,7 +78,7 @@ pub fn SessionRowContextMenu(
                 session_id: session_id.clone(),
             },
         };
-        (request, offline)
+        (request, offline, session.worker_fp.to_string())
     };
     let call = {
         let pump = pump.clone();
@@ -112,6 +115,13 @@ pub fn SessionRowContextMenu(
                 testid: "session-ctx-restart-{session_id}",
                 onclick: move |_| restart(SessionMenuCall::Restart),
                 "Restart"
+            }
+            MachineActionItems {
+                worker_fp,
+                menu: MachineMenuKind::Session,
+                test_id_prefix: "session-ctx",
+                test_id_suffix: "-{session_id}",
+                on_close,
             }
             CtxMenuSeparator {}
             CtxMenuItem {

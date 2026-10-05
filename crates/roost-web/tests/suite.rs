@@ -38,6 +38,8 @@ mod file_route_round_trip;
 mod global_search_page;
 #[path = "keyboard_shortcuts.rs"]
 mod keyboard_shortcuts;
+#[path = "machine_actions.rs"]
+mod machine_actions;
 #[path = "md_dialog.rs"]
 mod md_dialog;
 #[path = "md_primitives.rs"]

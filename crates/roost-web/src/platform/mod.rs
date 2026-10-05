@@ -30,6 +30,7 @@ pub mod clock;
 pub mod connect;
 pub mod device_key;
 pub mod door_probe;
+pub mod file_save;
 pub mod fragment_credential;
 pub mod location;
 #[cfg(target_arch = "wasm32")]

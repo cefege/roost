@@ -1,6 +1,7 @@
 //! The folder row's right-click menu: "Rename…" names the folder's workspace
-//! (creating it, with the folder's sessions attached, on the first rename).
-//! Ports `apps/web/src/components/sidebar/FolderRowContextMenu.tsx`; `FolderRow`
+//! (creating it, with the folder's sessions attached, on the first rename),
+//! then the machine's OS hand-offs (Screen sharing / Remote Desktop). Ports
+//! `apps/web/src/components/sidebar/FolderRowContextMenu.tsx`; `FolderRow`
 //! opens it. The rename commits in `RenameDialogHost`.
 
 use dioxus::prelude::*;
@@ -10,7 +11,9 @@ use roost_client_core::store::shell_intent::ShellIntent;
 use roost_client_core::store::sidebar::folder_groups::workspace_for_folder;
 
 use super::context_menu_frame::ContextMenuFrame;
+use super::machine_action_items::MachineActionItems;
 use crate::components::context_menu::CtxMenuItem;
+use crate::machine_actions::MachineMenuKind;
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::use_store;
 
@@ -35,6 +38,7 @@ pub struct FolderMenuTarget {
 #[component]
 pub fn FolderRowContextMenu(target: FolderMenuTarget, on_close: EventHandler<()>) -> Element {
     let pump = use_store();
+    let machine_fp = target.worker_fp.clone();
     let rename = move |_| {
         let current_title = {
             let core = pump.core();
@@ -71,6 +75,12 @@ pub fn FolderRowContextMenu(target: FolderMenuTarget, on_close: EventHandler<()>
             test_id: "folder-context-menu",
             on_close,
             CtxMenuItem { testid: "folder-ctx-rename", onclick: rename, "Rename…" }
+            MachineActionItems {
+                worker_fp: machine_fp,
+                menu: MachineMenuKind::Folder,
+                test_id_prefix: "folder-ctx",
+                on_close,
+            }
         }
     }
 }

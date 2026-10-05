@@ -86,6 +86,20 @@ pub fn reload_document() {
     }
 }
 
+/// Hand a non-web URL (`vnc://`, `smb://`) to the operator's OS by assigning
+/// `location.href`; the document stays because the browser routes the scheme
+/// to its registered client. `window.open(_, "_self")` is NOT equivalent: it
+/// silently does nothing for a protocol handler, which made every v2 machine
+/// action look dead.
+#[cfg(target_arch = "wasm32")]
+pub fn hand_off_to_os(href: &str) -> bool {
+    let handed = web_sys::window().is_some_and(|window| window.location().set_href(href).is_ok());
+    if !handed {
+        tracing::warn!(target: "router", href, "the browser refused the OS hand-off");
+    }
+    handed
+}
+
 /// A native build has no address bar, so every path reads as the root.
 ///
 /// This is a stub and not a second grammar: `routes::Route` still parses
@@ -107,3 +121,9 @@ pub fn replace_location(_href: &str) {}
 /// A native build has no document to reload, and paints nothing to reload.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn reload_document() {}
+
+/// A native build has no OS client to hand a URL to.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn hand_off_to_os(_href: &str) -> bool {
+    false
+}
