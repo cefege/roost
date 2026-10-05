@@ -10,11 +10,12 @@
 //! axum's `WebSocket` is not a `Sink`, so the socket is never divided: the loop
 //! waits on the close request, the outbound queue, the next timer and the next
 //! message, and each dispatch is awaited before the loop's next read. A durable
-//! append lends the socket to `worker_link::result_lane` while it runs, so a
-//! typed completion is not stuck behind it and a terminal frame takes the
-//! announced-channel barrier's fast path; what else arrived meanwhile waits in
-//! that lane's ordered backlog, which this loop drains (`FrameOrigin::Backlog`,
-//! already announced) before reading again.
+//! append lends the socket and the outbound queue to `worker_link::result_lane`
+//! while it runs, so a typed completion is not stuck behind it, a terminal
+//! frame takes the announced-channel barrier's fast path, and a queued
+//! downstream frame (input, a resize) is still written; what else arrived
+//! meanwhile waits in that lane's ordered backlog, which this loop drains
+//! (`FrameOrigin::Backlog`, already announced) before reading again.
 //!
 //! `WorkerHandle::send` is a synchronous closure, so it ENQUEUES; the loop's
 //! outbound arm is what writes, as protobuf binary through the link's one codec.
@@ -22,13 +23,13 @@
 use std::sync::Arc;
 
 use axum::extract::ws::{CloseFrame, Message, WebSocket};
-use roost_protocol::proto_adapters::coord_worker_proto::encode_downstream;
 use roost_protocol::wire::coord_worker::CoordWorkerDownstream;
 use tokio::sync::{Notify, mpsc};
 use tokio::time::Instant;
 
 use crate::services::CoordServices;
 use crate::worker_link::conn_types::SocketClose;
+use crate::worker_link::downstream_write::{Ending, write_downstream};
 use crate::worker_link::handshake::read_hello;
 use crate::worker_link::link_session::{FrameOrigin, LinkSession, LinkStep, LinkTransport};
 use crate::worker_link::upgrade_admission::{UpgradeDecision, VerifiedWorkerCaller};
@@ -95,7 +96,12 @@ async fn run_link(
     let ending = loop {
         if let Some(queued) = session.result_lane().take_backlogged() {
             let step = session
-                .on_bytes(&queued.payload, FrameOrigin::Backlog, &mut socket)
+                .on_bytes(
+                    &queued.payload,
+                    FrameOrigin::Backlog,
+                    &mut socket,
+                    &mut outbox,
+                )
                 .await;
             session.result_lane().release_backlogged(&queued);
             if let LinkStep::Close(close) = step {
@@ -116,7 +122,7 @@ async fn run_link(
                 let Some(frame) = queued else {
                     break Ending::Close(SocketClose::Default);
                 };
-                if let Err(close) = write_frame(&mut socket, &frame, &session).await {
+                if let Err(close) = write_downstream(&mut socket, &frame, session.worker_fp()).await {
                     break close;
                 }
             }
@@ -136,7 +142,7 @@ async fn run_link(
                     let Some(bytes) = message_bytes(message) else {
                         continue;
                     };
-                    if let LinkStep::Close(close) = session.on_bytes(&bytes, FrameOrigin::Socket, &mut socket).await {
+                    if let LinkStep::Close(close) = session.on_bytes(&bytes, FrameOrigin::Socket, &mut socket, &mut outbox).await {
                         break Ending::Close(close);
                     }
                 }
@@ -147,40 +153,6 @@ async fn run_link(
     if let Ending::Close(close) = ending {
         close_socket(&mut socket, close).await;
     }
-}
-
-/// How the loop ended: by a close this side sends, or by the peer.
-enum Ending {
-    Close(SocketClose),
-    PeerClosed,
-}
-
-/// Write one queued frame as protobuf binary.
-///
-/// A frame that does not encode, or a write the socket refuses, ends the link
-/// with no code: v2's `sendProtocolFrame` closes on a thrown send so the worker
-/// reconnects and replays whatever was left unacknowledged.
-async fn write_frame(
-    socket: &mut WebSocket,
-    frame: &CoordWorkerDownstream,
-    session: &LinkSession,
-) -> Result<(), Ending> {
-    let bytes = match encode_downstream(frame) {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            tracing::warn!(worker_fp = %session.worker_fp(), what = frame.kind(), %error,
-                "worker link: send_failed; the frame did not encode");
-            return Err(Ending::Close(SocketClose::Default));
-        }
-    };
-    socket
-        .send(Message::Binary(bytes.into()))
-        .await
-        .map_err(|error| {
-            tracing::warn!(worker_fp = %session.worker_fp(), what = frame.kind(), %error,
-                "worker link: send_failed");
-            Ending::PeerClosed
-        })
 }
 
 /// Sleep until `wake`, or forever when nothing is scheduled.

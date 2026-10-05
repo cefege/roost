@@ -105,3 +105,41 @@ async fn an_input_result_overtakes_a_parked_append_and_an_rpc_reply_waits_behind
         .unwrap();
     assert_eq!(reply, json!({ "ordered": true }));
 }
+
+#[tokio::test]
+async fn a_queued_downstream_frame_reaches_the_worker_while_an_append_is_parked() {
+    let fixture = WireFixture::start("result-lane-outbox").await;
+    let (mut socket, _ack) = fixture.hello_link().await;
+    send_binary(&mut socket, snapshot(&fixture, 1)).await;
+    assert_eq!(
+        next_non_ping(&mut socket).await,
+        CoordWorkerDownstream::EventAck(EventAck { client_seq: 1 })
+    );
+    let handle = fixture
+        .services
+        .workers
+        .current(&fixture.fp())
+        .expect("a generation");
+
+    let held = fixture.services.db.pool().acquire().await.unwrap();
+    send_binary(&mut socket, snapshot(&fixture, 2)).await;
+    // Let the link read the snapshot and park on the held connection, so the
+    // frame below is queued while the append owns the read loop.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    handle.send(CoordWorkerDownstream::EventAck(EventAck { client_seq: 42 }));
+
+    let overtaken = tokio::time::timeout(Duration::from_secs(2), next_non_ping(&mut socket))
+        .await
+        .expect("the queued frame is written while the append is still parked");
+    assert_eq!(
+        overtaken,
+        CoordWorkerDownstream::EventAck(EventAck { client_seq: 42 })
+    );
+
+    drop(held);
+    assert_eq!(
+        next_non_ping(&mut socket).await,
+        CoordWorkerDownstream::EventAck(EventAck { client_seq: 2 }),
+        "the parked append still settles and acknowledges once released"
+    );
+}

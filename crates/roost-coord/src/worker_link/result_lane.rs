@@ -13,6 +13,7 @@ use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 use crate::worker_link::announced_lane::{AnnouncedLane, Announcement, is_terminal_frame};
 use crate::worker_link::conn_types::SocketClose;
 use crate::worker_link::dispatch::{DispatchFuture, DispatchOutcome, FrameDispatch, InboundFrame};
+use crate::worker_link::downstream_write::{DownstreamOutbox, write_downstream};
 use crate::worker_link::frame_dispatch::WorkerFrameDispatcher;
 use crate::worker_link::frame_queue::{FrameQueue, Queued, QueuedFrame};
 use crate::worker_link::retained_budget::RetainOutcome;
@@ -62,7 +63,9 @@ impl ResultLane {
         }
     }
 
-    /// Await one durable append while the socket keeps delivering.
+    /// Await one durable append while the socket keeps delivering and the
+    /// outbound queue keeps draining, so input bound for this worker never
+    /// waits out a database write.
     ///
     /// The append is never cancelled: an overflow or a peer that went away
     /// stops the reading, and the close waits for the append to settle, so a
@@ -71,6 +74,7 @@ impl ResultLane {
         &mut self,
         mut append: DispatchFuture<'_>,
         socket: &mut WebSocket,
+        outbox: &mut DownstreamOutbox,
     ) -> DispatchOutcome {
         let started = std::time::Instant::now();
         let mut reading = !self.backlog.is_latched();
@@ -78,6 +82,18 @@ impl ResultLane {
             tokio::select! {
                 biased;
                 outcome = &mut append => break outcome,
+                queued = outbox.recv(), if self.close.is_none() => {
+                    let written = match queued {
+                        Some(frame) => {
+                            write_downstream(socket, &frame, &self.dispatcher.handle.worker_fp).await.is_ok()
+                        }
+                        None => false,
+                    };
+                    if !written {
+                        self.close.get_or_insert(SocketClose::Default);
+                        reading = self.discard_backlog();
+                    }
+                }
                 received = socket.recv(), if reading => {
                     reading = match received {
                         Some(Ok(Message::Close(_))) | Some(Err(_)) | None => self.discard_backlog(),

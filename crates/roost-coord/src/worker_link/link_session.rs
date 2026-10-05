@@ -29,6 +29,7 @@ use crate::terminal_view::OwnerRegistration;
 use crate::worker_link::announced_lane::{Announcement, is_terminal_frame};
 use crate::worker_link::conn_types::SocketClose;
 use crate::worker_link::dispatch::{DispatchOutcome, FrameClass, FrameDispatch, InboundFrame};
+use crate::worker_link::downstream_write::DownstreamOutbox;
 use crate::worker_link::frame_dispatch::WorkerFrameDispatcher;
 use crate::worker_link::handshake::{acknowledged_capabilities, credential_refresh_accepted};
 use crate::worker_link::keepalive::{KeepaliveDue, PingSchedule};
@@ -209,12 +210,14 @@ impl LinkSession {
         LinkStep::Continue
     }
 
-    /// One data message's bytes; a durable append reads `socket` while it runs.
+    /// One data message's bytes; a durable append reads `socket` and drains
+    /// `outbox` onto it while it runs.
     pub(super) async fn on_bytes(
         &mut self,
         bytes: &[u8],
         origin: FrameOrigin,
         socket: &mut WebSocket,
+        outbox: &mut DownstreamOutbox,
     ) -> LinkStep {
         if let Some(close) = self.fenced_close() {
             return LinkStep::Close(close);
@@ -252,7 +255,10 @@ impl LinkSession {
                     LinkStep::Close(SocketClose::Default)
                 }
             }
-            LinkFrame::Dispatch(frame) => self.dispatch(*frame, bytes.len(), origin, socket).await,
+            LinkFrame::Dispatch(frame) => {
+                self.dispatch(*frame, bytes.len(), origin, socket, outbox)
+                    .await
+            }
         }
     }
 
@@ -266,6 +272,7 @@ impl LinkSession {
         encoded_bytes: usize,
         origin: FrameOrigin,
         socket: &mut WebSocket,
+        outbox: &mut DownstreamOutbox,
     ) -> LinkStep {
         let worker_fp = self.handle.worker_fp.clone();
         let outcome = if frame.class == FrameClass::Durable {
@@ -287,7 +294,7 @@ impl LinkSession {
                 }
             }
             let append = self.dispatcher.handle_durable(worker_fp.as_str(), frame);
-            let appended = self.result_lane.await_append(append, socket).await;
+            let appended = self.result_lane.await_append(append, socket, outbox).await;
             let outcome = self.result_lane.commit_announced(announcement, appended);
             if in_flight {
                 self.result_lane.release_in_flight(encoded_bytes);

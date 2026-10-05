@@ -30,6 +30,7 @@ pub mod connection;
 pub mod direct_results;
 pub mod dispatch;
 pub mod dispatcher_for;
+mod downstream_write;
 pub mod frame_dispatch;
 pub mod frame_queue;
 pub mod handshake;
