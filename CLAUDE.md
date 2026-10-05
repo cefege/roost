@@ -350,6 +350,30 @@ re-runs the `rust` job's commands and builds four triples, whose assets
 `install.sh` and `join.sh` fetch for a machine outside the fleet below. No gate
 needs a deployed coordinator, a tailnet, or a human driving a browser.
 
+### Build discipline
+
+**One cargo command at a time per machine.** Parallel cold builds on one box
+compete for CPU and RAM and finish later than the same builds run in series.
+An agent wraps every `cargo`/`dx` invocation as
+`flock /tmp/roost-cargo.lock cargo …`. While iterating it runs scoped commands
+(`cargo check -p <crate>`, `cargo nextest run -p <crate> <module>`) and runs
+the full gates once, at the end. Real parallelism means a different machine
+per agent.
+
+**Each worktree builds into its own `target/`.** Never point two worktrees at
+one `CARGO_TARGET_DIR`. Cargo identifies a path crate by its
+workspace-relative path and decides freshness by mtime, so a shared directory
+reuses artifacts built from another tree's sources, and gates then pass or
+fail on the wrong code. `cargo xtask` run from a worktree needs
+`ROOST_REPO_ROOT=<worktree>`.
+
+**Dependencies come from sccache.** Each fleet machine with a toolchain sets
+`[build] rustc-wrapper` in `~/.cargo/config.toml` to sccache, which keeps a
+local disk cache shared by every checkout. Third-party libraries and C objects
+hit across worktrees. Proc-macros, build scripts, crates that read `OUT_DIR`,
+and the incremental workspace crates recompile per worktree.
+`sccache --show-stats` shows the hit rate.
+
 ### Release to the fleet
 
 Our own machines take a release from this checkout, not from GitHub Actions.
