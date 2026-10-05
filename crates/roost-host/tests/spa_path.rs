@@ -222,10 +222,7 @@ fn the_wasm_prefers_its_brotli_sibling_then_gzip_then_itself() {
 fn a_name_the_bundle_reuses_never_becomes_immutable() {
     // The four cache cases from `spa.ts:117-148`, each with the deployment it
     // protects.
-    assert_eq!(
-        cache_control_for("index.html"),
-        "no-cache, no-store, must-revalidate"
-    );
+    assert_eq!(cache_control_for("index.html"), "no-cache");
     assert_eq!(
         cache_control_for("assets/app.a1b2c3.js"),
         "public, max-age=31536000, immutable"

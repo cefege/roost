@@ -93,9 +93,27 @@ pub async fn spa_layer(
         return not_found();
     };
     let accept_encoding = accept_encoding_of(request.headers());
+    let if_none_match = request
+        .headers()
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let head_only = request.method() == Method::HEAD;
     let target = spa_path::resolve(root, &path, &accept_encoding);
-    serve(&mount, root, target, &accept_encoding, head_only).await
+    let request = SpaRequest {
+        accept_encoding: &accept_encoding,
+        if_none_match: if_none_match.as_deref(),
+        head_only,
+    };
+    serve(&mount, root, target, request).await
+}
+
+/// What the request said about the answer it can use.
+#[derive(Clone, Copy)]
+struct SpaRequest<'a> {
+    accept_encoding: &'a str,
+    if_none_match: Option<&'a str>,
+    head_only: bool,
 }
 
 /// Whether a path belongs to a surface that is not the SPA: Connect, the API
@@ -121,9 +139,13 @@ async fn serve(
     mount: &SpaMount,
     root: &Path,
     target: SpaTarget,
-    accept_encoding: &str,
-    head_only: bool,
+    request: SpaRequest<'_>,
 ) -> Response {
+    let SpaRequest {
+        accept_encoding,
+        if_none_match,
+        head_only,
+    } = request;
     let (file, encoding) = match target {
         SpaTarget::Asset { file, encoding } => (file, encoding),
         SpaTarget::IndexFallback { file } => (file, ContentEncoding::Identity),
@@ -143,6 +165,15 @@ async fn serve(
     let compress = encoding == ContentEncoding::Identity
         && compressible
         && spa_path::accepts_gzip(accept_encoding);
+    // The validator names the file actually resolved, so a precompressed
+    // sibling and its identity file never share one.
+    let etag = FileState::of(&file).map(|state| state.etag());
+    if let Some(etag) = etag.as_deref()
+        && if_none_match.is_some_and(|tags| names_etag(tags, etag))
+    {
+        let headers = validator_headers(cache, compressible, etag);
+        return (StatusCode::NOT_MODIFIED, headers).into_response();
+    }
     let body = match load(&file, compress, mount, head_only).await {
         Ok(body) => body,
         Err(reason) => {
@@ -153,14 +184,38 @@ async fn serve(
     let content_encoding = encoding
         .header_value()
         .or_else(|| compress.then_some("gzip"));
-    response(
+    let mut response = response(
         &named,
         cache,
         compressible,
         content_encoding,
         body,
         head_only,
-    )
+    );
+    if let Some(etag) = etag.as_deref() {
+        set(response.headers_mut(), header::ETAG, etag);
+    }
+    response
+}
+
+/// Whether an `If-None-Match` list names `etag` (or is `*`).
+fn names_etag(if_none_match: &str, etag: &str) -> bool {
+    if_none_match
+        .split(',')
+        .map(str::trim)
+        .any(|candidate| candidate == etag || candidate == "*")
+}
+
+/// The headers a `304` repeats from the full answer: the cache rule, the
+/// validator and, for a compressible file, `vary`.
+fn validator_headers(cache: &str, compressible: bool, etag: &str) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    set(&mut headers, header::CACHE_CONTROL, cache);
+    set(&mut headers, header::ETAG, etag);
+    if compressible {
+        headers.insert(header::VARY, HeaderValue::from_static("accept-encoding"));
+    }
+    headers
 }
 
 /// The name the URL named, with the transport's `.br`/`.gz` suffix taken off.

@@ -88,8 +88,9 @@ pub enum SpaTarget {
 /// The `Cache-Control` value for a served path, relative to the build root.
 ///
 /// The four cases from `spa.ts:117-148` and the reason each exists: the shell
-/// must never be cached
-/// (a deploy that changes it is invisible to a returning browser), a
+/// is revalidated on every load (a deploy that changes it would otherwise be
+/// invisible to a returning browser; the pairing token rides in the URL
+/// fragment, which no cache stores), a
 /// content-hashed `assets/` name is immutable by construction, the four woff2
 /// faces are stable-named and large enough that `no-cache` revalidates all of
 /// them on every cold load, and every other stable name — icons, the
@@ -97,7 +98,7 @@ pub enum SpaTarget {
 #[must_use]
 pub fn cache_control_for(rel: &str) -> &'static str {
     if rel == INDEX_NAME {
-        "no-cache, no-store, must-revalidate"
+        "no-cache"
     } else if rel.starts_with("assets/") {
         "public, max-age=31536000, immutable"
     } else if rel.starts_with("fonts/") {

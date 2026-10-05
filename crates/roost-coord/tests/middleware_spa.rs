@@ -58,10 +58,7 @@ async fn a_deep_link_is_the_shell_and_a_bundle_is_the_bundle() {
     assert!(bundle.body.contains("export const shell"));
     // The three cache rules are three different deployments, and a client that
     // cannot tell them apart is how yesterday's shell survives a deploy.
-    assert_eq!(
-        fixture.get("/").header("cache-control"),
-        Some("no-cache, no-store, must-revalidate")
-    );
+    assert_eq!(fixture.get("/").header("cache-control"), Some("no-cache"));
     assert_eq!(
         bundle.header("cache-control"),
         Some("public, max-age=31536000, immutable")
@@ -152,6 +149,50 @@ async fn the_wasm_goes_out_as_its_brotli_sibling_then_its_gzip_sibling_verbatim(
     assert_eq!(identity.raw_body, WASM_RAW);
     let vary = identity.header("vary").unwrap_or_default();
     assert!(vary.contains("accept-encoding"), "vary: {vary}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_shell_revalidates_with_its_etag_and_a_match_is_a_304() {
+    let fixture = serving_dist().await;
+
+    let page = fixture.request("GET", "/", &[]);
+    assert_eq!(page.status, 200);
+    assert_eq!(page.header("cache-control"), Some("no-cache"));
+    let etag = page
+        .header("etag")
+        .expect("the shell carries a validator")
+        .to_owned();
+
+    let unchanged = fixture.request("GET", "/", &[("if-none-match", etag.as_str())]);
+    assert_eq!(unchanged.status, 304);
+    assert!(unchanged.raw_body.is_empty(), "a 304 has no body");
+    assert_eq!(unchanged.header("etag"), Some(etag.as_str()));
+    assert_eq!(unchanged.header("cache-control"), Some("no-cache"));
+
+    let listed = format!("W/\"other\", {etag}");
+    assert_eq!(
+        fixture
+            .request("GET", "/", &[("if-none-match", listed.as_str())])
+            .status,
+        304,
+        "a match anywhere in the list counts"
+    );
+    let stale = fixture.request("GET", "/", &[("if-none-match", "W/\"0-0\"")]);
+    assert_eq!(stale.status, 200);
+    assert!(stale.body.contains("<title>roost</title>"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_precompressed_sibling_and_its_identity_file_carry_different_etags() {
+    let fixture = serving_dist().await;
+    let brotli = fixture.request("GET", WASM_PATH, &[("accept-encoding", "br")]);
+    let identity = fixture.request("GET", WASM_PATH, &[]);
+    assert_eq!(brotli.header("content-encoding"), Some("br"));
+    let (Some(brotli_tag), Some(identity_tag)) = (brotli.header("etag"), identity.header("etag"))
+    else {
+        panic!("both answers carry a validator");
+    };
+    assert_ne!(brotli_tag, identity_tag);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

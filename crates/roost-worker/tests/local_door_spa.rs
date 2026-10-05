@@ -60,10 +60,7 @@ async fn a_deep_link_is_the_uncached_shell_and_a_write_is_refused() {
         page.header("content-type"),
         Some("text/html; charset=utf-8")
     );
-    assert_eq!(
-        page.header("cache-control"),
-        Some("no-cache, no-store, must-revalidate")
-    );
+    assert_eq!(page.header("cache-control"), Some("no-cache"));
     assert_eq!(zipped.header("content-encoding"), Some("gzip"));
     assert_eq!(gunzip(&zipped.body).await, SHELL);
     assert_eq!(posted.status, 405);

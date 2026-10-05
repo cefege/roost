@@ -1264,9 +1264,10 @@ never HTML, because content-hashed bundles must not fall back; anything else →
 under `assets/`, so they get `index.html`, as do `/t/:fp/*` and `/browse/:fp`.
 Path traversal and absolute paths are rejected (`:110-113`).
 
-Caching: `index.html` → `no-cache, no-store, must-revalidate`; `assets/` →
+Caching: `index.html` → `no-cache` (revalidated through `ETag`); `assets/` →
 `public, max-age=31536000, immutable`; `fonts/*` → `public, max-age=604800`;
-everything else stable → `no-cache`.
+everything else stable → `no-cache`. Every file answers with a weak `ETag`
+over its length and mtime, and a matching `If-None-Match` gets `304`.
 
 **THE MOUNT IS A MIDDLEWARE OUTSIDE THE ROUTER, NOT A `Router::fallback`.**
 This is a deliberate departure from the plan's wording ("the router fallback,

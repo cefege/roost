@@ -89,6 +89,17 @@ impl FileState {
             len: metadata.len(),
         })
     }
+
+    /// A weak validator over this file's length and modification time. A
+    /// precompressed sibling is its own file, so it carries its own tag.
+    #[must_use]
+    pub fn etag(&self) -> String {
+        let modified_ms = self
+            .modified
+            .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |since| since.as_millis());
+        format!("W/\"{:x}-{modified_ms:x}\"", self.len)
+    }
 }
 
 impl Entry {
