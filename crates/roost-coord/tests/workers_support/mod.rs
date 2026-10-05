@@ -232,6 +232,18 @@ impl WorkersFixture {
     pub fn registry(&self) -> &Arc<WorkerRegistry> {
         &self.core.services.workers
     }
+
+    /// Close the database and reopen the same file under a fresh core, which is
+    /// what a coordinator restart sees: only what was persisted survives.
+    pub async fn restart(&mut self) {
+        self.database.pool().close().await;
+        let database = roost_coord::db::open(&self.root.join("coord.db"))
+            .await
+            .expect("the database reopens");
+        self.services = Arc::new(CoordServices::new(database.clone()));
+        self.core = CoordCore::new(Arc::clone(&self.services));
+        self.database = database;
+    }
 }
 
 impl Drop for WorkersFixture {

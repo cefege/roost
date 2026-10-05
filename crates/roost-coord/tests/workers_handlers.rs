@@ -5,7 +5,8 @@
 // reached for a terminal type instead of a seam, this file would not compile,
 // and if it needed a live byte hub to answer, it would not run. The refusals are
 // in `workers_refusals.rs`; this file is about the rows, the presence and the
-// routable set the five methods produce.
+// routable set the five methods produce, and the reachable address the browser
+// builds `vnc://` / `smb://` / RDP hand-offs from.
 
 // `expect` and `unwrap` are denied outside `#[cfg(test)]`, and an integration
 // test is its own crate rather than a module of one, so the exemption has to be
@@ -290,5 +291,84 @@ async fn presence_carries_every_transition_and_routable_follows_the_socket() {
         rendered.last(),
         Some(&Vec::new()),
         "the delete republished the set without the machine"
+    );
+}
+
+// The reachable address must land on the roster the browser reads, survive a
+// beat that could not resolve one, a re-register on redial that does not
+// restate it, and a coordinator restart.
+const ADDRESS: &str = "mac-mini.tail1234.ts.net";
+
+async fn listed_address(fixture: &WorkersFixture) -> Option<String> {
+    let listed = handle_workers_list(
+        &fixture.core,
+        &device_caller(),
+        roost_proto::WorkersListRequest::default(),
+    )
+    .await
+    .expect("a worker list")
+    .body;
+    listed
+        .workers
+        .into_iter()
+        .find(|worker| worker.fp == WORKER_FP)
+        .expect("the worker is listed")
+        .reachable_addr
+}
+
+async fn beat(fixture: &WorkersFixture, reachable_addr: Option<&str>) {
+    handle_workers_heartbeat(
+        &fixture.core,
+        &worker_caller(WORKER_FP),
+        roost_proto::WorkersHeartbeatRequest {
+            os: Some("darwin".to_owned()),
+            reachable_addr: reachable_addr.map(str::to_owned),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("a heartbeat");
+}
+
+#[tokio::test]
+async fn a_beat_address_reaches_the_roster_and_survives_redial_and_restart() {
+    let mut fixture = WorkersFixture::new("reachable-addr").await;
+    fixture.enroll_worker(WORKER_FP, "mac-mini", 1_000).await;
+    let socket = std::sync::Arc::new(workers_support::RecordingSocket::new());
+    fixture.connect_worker(WORKER_FP, "generation-a", &socket);
+    assert_eq!(listed_address(&fixture).await, None, "nothing reported yet");
+
+    beat(&fixture, Some(ADDRESS)).await;
+    assert_eq!(listed_address(&fixture).await.as_deref(), Some(ADDRESS));
+
+    // A beat that could not resolve an address keeps the good one.
+    beat(&fixture, Some("")).await;
+    beat(&fixture, None).await;
+    assert_eq!(listed_address(&fixture).await.as_deref(), Some(ADDRESS));
+
+    // A redial re-registers; an absent claim keeps the stored value.
+    fixture.connect_worker(WORKER_FP, "generation-b", &socket);
+    handle_workers_register(
+        &fixture.core,
+        &worker_caller(WORKER_FP),
+        roost_proto::WorkersRegisterRequest::default(),
+    )
+    .await
+    .expect("a re-register");
+    assert_eq!(listed_address(&fixture).await.as_deref(), Some(ADDRESS));
+
+    fixture.restart().await;
+    assert_eq!(
+        listed_address(&fixture).await.as_deref(),
+        Some(ADDRESS),
+        "the address is persisted, not held in memory"
+    );
+
+    // A moved machine converges on its next beat after it redials.
+    fixture.connect_worker(WORKER_FP, "generation-c", &socket);
+    beat(&fixture, Some("mac-mini-2.tail1234.ts.net")).await;
+    assert_eq!(
+        listed_address(&fixture).await.as_deref(),
+        Some("mac-mini-2.tail1234.ts.net")
     );
 }
