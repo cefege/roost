@@ -24,6 +24,7 @@ pub mod pane_status;
 pub mod pane_surface;
 pub mod startup_overlay_state;
 pub mod terminal_card;
+pub mod terminal_drop_target;
 pub mod terminal_find_bar;
 pub mod terminal_nav_pad;
 pub mod terminal_offline_notice;

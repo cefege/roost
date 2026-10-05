@@ -1,9 +1,11 @@
 //! The chrome that belongs to a terminal pane rather than to the shell: the
-//! permanent composer, the file picker behind its attach action, the preview
-//! strip, and the capture-consent confirmation the pane's context menu raises.
+//! permanent composer, the file picker behind its attach action and the file
+//! drop that feeds the same upload, the preview strip, and the capture-consent
+//! confirmation the pane's context menu raises.
 //! Mounted from `CellTerminal` (or from the compact shell for the viewport
-//! placement) by whoever owns the pane; nothing here installs a document-wide
-//! listener, because the app root already owns trusted key routing.
+//! placement) by whoever owns the pane. The only document-wide listeners here
+//! are the drag listeners of `file_drop_dom`; trusted key routing stays with
+//! the app root.
 //! Ports `apps/web/src/components/terminal/TerminalComposeButton.tsx` and
 //! `apps/web/src/components/terminal/TerminalCaptureConsentDialog.tsx`.
 
@@ -16,6 +18,8 @@ pub mod composer_drafts;
 pub mod composer_gate;
 pub mod composer_geometry;
 pub mod dom;
+pub mod file_drop;
+pub mod file_drop_dom;
 pub mod pane_geometry;
 pub mod pane_geometry_dom;
 pub mod short_paths;

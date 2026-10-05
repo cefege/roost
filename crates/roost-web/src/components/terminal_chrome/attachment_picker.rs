@@ -61,11 +61,15 @@ pub fn AttachmentInput(
     }
 }
 
-/// Read a picker result into `ChosenFile`s, in the order the user picked them.
+/// Read a picker result or a drop into `ChosenFile`s, in the order the user
+/// picked them.
 ///
 /// The desktop contract attaches several files in one gesture and the worker
 /// stores them in that order, so the order is the payload and not an accident.
-fn spawn_read_chosen(files: Vec<web_sys::File>, on_chosen: EventHandler<Vec<ChosenFile>>) {
+pub(super) fn spawn_read_chosen(
+    files: Vec<web_sys::File>,
+    on_chosen: EventHandler<Vec<ChosenFile>>,
+) {
     // The read is off the render path: a picked file is read in full before it
     // can be chunked, and a component that awaited it would paint nothing until
     // the browser finished.

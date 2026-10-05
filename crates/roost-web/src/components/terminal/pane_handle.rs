@@ -132,6 +132,11 @@ impl PaneHandle {
         self.with_mount(|mount| mount.send_raw_text(text));
     }
 
+    /// Text pasted through the multiline paste guard.
+    pub fn paste_text(&self, text: &str) {
+        self.with_mount(|mount| mount.paste_text(text));
+    }
+
     /// Give the keyboard to the pane.
     pub fn force_focus(&self) {
         self.with_mount(|mount| mount.force_focus());
@@ -202,6 +207,9 @@ impl PaneMount {
         match *self {}
     }
     fn send_raw_text(&self, _text: &str) {
+        match *self {}
+    }
+    fn paste_text(&self, _text: &str) {
         match *self {}
     }
     fn force_focus(&self) {

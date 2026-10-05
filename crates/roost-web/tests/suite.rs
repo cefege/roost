@@ -108,6 +108,8 @@ mod store_write_subscription;
 mod terminal_deck_model;
 #[path = "terminal_dom_repair.rs"]
 mod terminal_dom_repair;
+#[path = "terminal_file_drop.rs"]
+mod terminal_file_drop;
 #[path = "terminal_file_link.rs"]
 mod terminal_file_link;
 #[path = "terminal_find_bar.rs"]

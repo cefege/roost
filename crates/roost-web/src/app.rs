@@ -187,8 +187,9 @@ pub fn GatedApp() -> Element {
 
 /// The document-wide input owners, installed once for the life of the root:
 /// the TV/pad modality on `<html>`, D-pad spatial navigation, the Gamepad poll
-/// and its shell, and the global keyboard router (v2 `main.tsx`
-/// `applyTvMode`/`applyPadMode` and `App`'s `onMount`).
+/// and its shell, the global keyboard router (v2 `main.tsx`
+/// `applyTvMode`/`applyPadMode` and `App`'s `onMount`), and the guard that
+/// keeps a file dropped on the page from opening in the tab.
 #[cfg(target_arch = "wasm32")]
 fn install_document_input(pump: crate::pump::Pump, path: Signal<String>) {
     use crate::input_nav::{apply_nav_modality, install_spatial_navigation, load_nav_modality};
@@ -231,6 +232,7 @@ fn install_document_input(pump: crate::pump::Pump, path: Signal<String>) {
                 modality,
             ),
             install_gamepad_router(pad_shell),
+            crate::components::terminal_chrome::file_drop_dom::install_page_drop_guard(),
         ))
     });
 }

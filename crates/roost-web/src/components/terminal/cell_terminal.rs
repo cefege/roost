@@ -17,6 +17,7 @@ use super::floating_mount::{ctrl_arm_takes_focus, mounts_nav_pad, mounts_viewpor
 use super::pane_handle::{PaneHandle, PaneMountRequest};
 use super::pane_registry::use_pane_registry;
 use super::pane_state::{PaneFlags, PaneUi};
+use super::terminal_drop_target::{TerminalDropOverlay, use_terminal_file_drop};
 use super::terminal_find_bar::TerminalFindBar;
 use super::terminal_nav_pad::TerminalNavPad;
 use super::terminal_offline_notice::TerminalOfflineNotice;
@@ -110,6 +111,7 @@ pub fn CellTerminal(
     };
     let latest_flags = use_hook(|| Rc::new(Cell::new(flags)));
     latest_flags.set(flags);
+    let drop_flags = Rc::clone(&latest_flags);
 
     let flags_handle = handle.clone();
     use_effect(use_reactive((&flags,), move |(flags,)| {
@@ -240,6 +242,8 @@ pub fn CellTerminal(
         });
         enqueue_attachments(&attach_pump, &context, chosen, sink);
     };
+    let drop_hover =
+        use_terminal_file_drop(&session_id, drop_flags, handle.clone(), on_attach.clone());
     let retry_handle = handle.clone();
     let paste_handle = handle.clone();
     let sibling_id = view.offline_sibling.clone();
@@ -347,6 +351,7 @@ pub fn CellTerminal(
                 }
             }
             TerminalStartupOverlay { notice: (ui.notice)() }
+            TerminalDropOverlay { active: drop_hover }
             if (ui.offline)() {
                 TerminalOfflineNotice {
                     on_retry: move |_| retry_handle.retry_view(),
