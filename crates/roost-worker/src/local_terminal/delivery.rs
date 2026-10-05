@@ -15,7 +15,6 @@ use roost_proto::{
 };
 use roost_protocol::cell::CellGridFrame;
 use roost_protocol::cell::frame_chunks::CellGridSnapshotPart;
-use roost_protocol::cell::proto::cell_frame_to_proto;
 use roost_protocol::terminal_peer::peer::TerminalPeerPacketLane;
 use roost_protocol::wire::brand::ChannelId;
 
@@ -23,6 +22,7 @@ use super::authority::PortSession;
 use super::port::{PacketSendResult, TerminalPacketPort};
 use super::sockets::LocalTerminalSockets;
 use crate::session::cell_sink::{CellSinkResult, FrameTimings};
+use crate::session::emit_frame::measured_at;
 use crate::session::input_write::WorkerInputResult;
 use crate::terminal_view::LocalViewTransport;
 
@@ -93,12 +93,6 @@ pub(super) fn local_terminal_cell_delivery(
     }
 }
 
-/// One clock, as the wire spells it: an unreadable (negative) reading is `0`,
-/// which a reader takes as "not measured".
-fn measured_at(clock_ms: i64) -> u64 {
-    u64::try_from(clock_ms).unwrap_or(0)
-}
-
 fn stamp(frame: &mut PbCellGridFrame, session_id: &str, timings: FrameTimings) {
     session_id.clone_into(&mut frame.session_id);
     frame.pty_out_ms = measured_at(timings.pty_out_ms);
@@ -150,20 +144,14 @@ impl LocalViewTransport for PortViewTransport {
     fn send_cell_frame(
         &self,
         channel_id: ChannelId,
-        frame: &CellGridFrame,
-        timings: FrameTimings,
+        _frame: &CellGridFrame,
+        wire: &PbCellGridFrame,
     ) -> CellSinkResult {
         let Some(session_id) = self.session_of(channel_id) else {
             return CellSinkResult::Sent;
         };
-        let mut proto = match cell_frame_to_proto(frame, &session_id) {
-            Ok(proto) => proto,
-            Err(error) => {
-                tracing::error!(socket_id = self.session.socket_id(), %error, "a local cell frame did not build");
-                return CellSinkResult::Dropped;
-            }
-        };
-        stamp(&mut proto, &session_id, timings);
+        let mut proto = wire.clone();
+        proto.session_id = session_id;
         self.send_cells(ServerFrame::from(proto))
     }
 

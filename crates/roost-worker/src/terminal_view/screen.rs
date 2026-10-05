@@ -8,7 +8,7 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 
-use roost_proto::{TerminalViewStateFrame, WTerminalViewState};
+use roost_proto::{PbCellGridFrame, TerminalViewStateFrame, WTerminalViewState};
 use roost_protocol::cell::CellGridFrame;
 use roost_protocol::cell::frame_chunks::CellGridSnapshotPart;
 use roost_protocol::wire::brand::{ChannelId, SessionId};
@@ -27,12 +27,13 @@ use super::session_port::ViewSessionPort;
 pub trait LocalViewTransport: Send + Sync + std::fmt::Debug {
     /// One view decision for this socket.
     fn send_view_state(&self, frame: TerminalViewStateFrame);
-    /// One cell frame of a session this socket watches.
+    /// One cell frame of a session this socket watches, with its one wire
+    /// conversion (session id empty; the transport names the session).
     fn send_cell_frame(
         &self,
         channel_id: ChannelId,
         frame: &CellGridFrame,
-        timings: FrameTimings,
+        wire: &PbCellGridFrame,
     ) -> CellSinkResult;
     /// One part of a parked full of a session this socket watches.
     fn send_snapshot_part(
@@ -268,12 +269,12 @@ impl CellSink for LocalCellSink {
         &self,
         channel_id: ChannelId,
         frame: &CellGridFrame,
-        timings: FrameTimings,
+        wire: &PbCellGridFrame,
     ) -> CellSinkResult {
         if !self.watches(channel_id) {
             return CellSinkResult::Sent;
         }
-        self.transport.send_cell_frame(channel_id, frame, timings)
+        self.transport.send_cell_frame(channel_id, frame, wire)
     }
 
     fn send_snapshot_part(

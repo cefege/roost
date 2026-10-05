@@ -81,7 +81,7 @@ impl CellSink for ScriptedSink {
         &self,
         _channel_id: ChannelId,
         frame: &CellGridFrame,
-        _timings: FrameTimings,
+        _wire: &roost_proto::PbCellGridFrame,
     ) -> CellSinkResult {
         let answer = if self.overflow.load(Ordering::SeqCst) {
             CellSinkResult::Overflow

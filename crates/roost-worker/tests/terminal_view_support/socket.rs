@@ -48,7 +48,7 @@ impl LocalViewTransport for RecordedSocket {
         &self,
         _channel_id: ChannelId,
         frame: &CellGridFrame,
-        _timings: FrameTimings,
+        _wire: &roost_proto::PbCellGridFrame,
     ) -> CellSinkResult {
         held(&self.order).push(format!("cell:{}", frame.stream_id));
         CellSinkResult::Sent

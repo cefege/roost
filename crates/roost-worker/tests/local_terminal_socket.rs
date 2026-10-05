@@ -181,6 +181,49 @@ async fn a_granted_socket_receives_cells_for_its_view() {
     );
 }
 
+/// One frame is converted once and fanned out: the local copy and the
+/// coordinator copy carry the same two clocks, and only the local copy names
+/// the session (the coordinator adopts its own for an empty id).
+#[tokio::test]
+async fn the_local_and_coordinator_copies_of_one_frame_share_its_clocks() {
+    let fixture = Fixture::new();
+    let stub = fixture.open();
+    fixture.send(&stub, hello(GRANT_ID, SECRET, TAB));
+    fixture.send(&stub, view(SESSION, 1));
+    settle().await;
+    fixture.harness.deliver(b"shared-marker");
+    settle().await;
+
+    let local: Vec<_> = stub
+        .frames()
+        .into_iter()
+        .filter_map(|frame| match frame {
+            ServerFrame::CellGrid(cells) => Some(*cells),
+            _ => None,
+        })
+        .collect();
+    let coord = held(&fixture.harness.sink.wires).clone();
+    let mut paired = 0;
+    for local_frame in &local {
+        let Some(coord_frame) = coord
+            .iter()
+            .find(|wire| wire.seq == local_frame.seq && wire.full == local_frame.full)
+        else {
+            continue;
+        };
+        paired += 1;
+        assert_eq!(local_frame.pty_out_ms, coord_frame.pty_out_ms);
+        assert_eq!(local_frame.worker_emit_ms, coord_frame.worker_emit_ms);
+        assert_ne!(local_frame.worker_emit_ms, 0, "the emit clock was stamped");
+        assert_eq!(local_frame.session_id, SESSION);
+        assert_eq!(coord_frame.session_id, "");
+    }
+    assert!(
+        paired > 0,
+        "one frame reached both sinks: {local:?} / {coord:?}"
+    );
+}
+
 #[tokio::test]
 async fn revoking_the_device_closes_its_socket() {
     let fixture = Fixture::new();

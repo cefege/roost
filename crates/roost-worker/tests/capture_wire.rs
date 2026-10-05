@@ -92,7 +92,7 @@ impl CellSink for DeltaDroppingSink {
         &self,
         _channel_id: ChannelId,
         frame: &CellGridFrame,
-        _timings: FrameTimings,
+        _wire: &roost_proto::PbCellGridFrame,
     ) -> CellSinkResult {
         if frame.full {
             CellSinkResult::Sent

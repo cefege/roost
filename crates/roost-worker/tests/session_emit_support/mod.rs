@@ -45,7 +45,7 @@ pub enum Answer {
 
 #[derive(Debug, Default)]
 struct SinkLog {
-    frames: Vec<(CellGridFrame, FrameTimings)>,
+    frames: Vec<(CellGridFrame, roost_proto::PbCellGridFrame)>,
     parts: Vec<CellGridSnapshotPart>,
     overflows: usize,
 }
@@ -86,7 +86,20 @@ impl RecordingSink {
             .unwrap()
             .frames
             .last()
-            .map(|(_, timings)| *timings)
+            .map(|(_, wire)| FrameTimings {
+                pty_out_ms: i64::try_from(wire.pty_out_ms).unwrap(),
+                worker_emit_ms: i64::try_from(wire.worker_emit_ms).unwrap(),
+            })
+    }
+
+    /// The wire conversion the LAST frame was handed with.
+    pub fn last_wire(&self) -> Option<roost_proto::PbCellGridFrame> {
+        self.log
+            .lock()
+            .unwrap()
+            .frames
+            .last()
+            .map(|(_, wire)| wire.clone())
     }
 
     /// The parked snapshot parts this sink was handed, in order.
@@ -117,7 +130,7 @@ impl CellSink for RecordingSink {
         &self,
         _channel_id: ChannelId,
         frame: &CellGridFrame,
-        timings: FrameTimings,
+        wire: &roost_proto::PbCellGridFrame,
     ) -> CellSinkResult {
         let mut log = self.log.lock().unwrap();
         if self.saturated(log.frames.len() + log.parts.len()) {
@@ -132,7 +145,7 @@ impl CellSink for RecordingSink {
                 Answer::Sent | Answer::SentThenOverflow(_) => {}
             }
         }
-        log.frames.push((frame.clone(), timings));
+        log.frames.push((frame.clone(), wire.clone()));
         CellSinkResult::Sent
     }
 

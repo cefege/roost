@@ -18,11 +18,12 @@
 
 use std::sync::Arc;
 
+use roost_proto::PbCellGridFrame;
 use roost_protocol::cell::frame_chunk_validation::assert_cell_grid_snapshot;
 use roost_protocol::cell::frame_chunks::{
     CellGridSnapshotPart, chunk_cell_grid_frame, encoded_cell_grid_frame_size,
 };
-use roost_protocol::cell::{CELL_GRID_PART_MAX_BYTES, CellGridFrame, cell_frame_to_proto};
+use roost_protocol::cell::{CELL_GRID_PART_MAX_BYTES, CellGridFrame};
 use roost_protocol::wire::brand::ChannelId;
 use roost_term::{CellEmitState, scrollback_origin};
 use tracing::warn;
@@ -41,10 +42,17 @@ use super::ids::{MintError, mint_uuid};
 /// full too large for one part reaches [`CellSink::send_snapshot_part`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParkedPart {
-    Whole(CellGridFrame),
+    Whole(WholeFull),
     /// Always the protocol's `Chunk` arm. It is kept in the enum the sink takes
     /// so a send borrows it instead of rebuilding it for every sink.
     Chunk(CellGridSnapshotPart),
+}
+
+/// A full that fits one part: the value model and its one wire conversion.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WholeFull {
+    pub frame: CellGridFrame,
+    pub wire: PbCellGridFrame,
 }
 
 /// One parked immutable full, drained part by part for one sink alone.
@@ -143,19 +151,17 @@ impl CellEmitter {
         &mut self,
         channel_id: ChannelId,
         frame: CellGridFrame,
+        wire: PbCellGridFrame,
         timings: FrameTimings,
     ) -> Result<(), SnapshotError> {
         let snapshot_id = mint_uuid()?;
-        // The canonical size IS a protobuf byte count, so the frame is
-        // materialised once here to be validated and measured. A full that fits
-        // one part is parked as the value model and the sink materialises it
-        // again for the wire: this crate may not depend on `roost-proto`, and a
-        // second value model to avoid the copy would be a worse trade.
-        let wire = cell_frame_to_proto(&frame, "")?;
+        // The canonical size IS a protobuf byte count, so the full is validated
+        // and measured on the wire conversion the emitter already made; a full
+        // that fits one part is parked with it, so no sink converts it again.
         assert_cell_grid_snapshot(&wire)?;
         let seq = frame.seq;
         let parts = if encoded_cell_grid_frame_size(&wire) <= CELL_GRID_PART_MAX_BYTES {
-            vec![ParkedPart::Whole(frame)]
+            vec![ParkedPart::Whole(WholeFull { frame, wire })]
         } else {
             chunk_cell_grid_frame(&wire, &snapshot_id)?
                 .into_iter()

@@ -26,7 +26,7 @@ use roost_worker::session::cell_sink::{CellSink, CellSinkResult, FrameTimings};
 
 fn frame() -> CellGridFrame {
     CellGridFrame {
-        stream_id: "stream-1".to_owned(),
+        stream_id: "00000000-0000-4000-8000-0000000000a1".to_owned(),
         grid_epoch: "epoch-1".to_owned(),
         cols: 80,
         rows: 2,
@@ -77,7 +77,11 @@ async fn a_refused_cell_sink_is_told_writable_once_and_only_after_the_link_is_li
         worker_emit_ms: 2,
     };
     assert_eq!(
-        sink.send_frame(channel(), &frame(), timings),
+        sink.send_frame(
+            channel(),
+            &frame(),
+            &roost_worker::session::emit_frame::frame_wire(&frame(), timings).unwrap()
+        ),
         CellSinkResult::Dropped
     );
 

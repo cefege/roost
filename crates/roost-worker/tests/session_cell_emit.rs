@@ -367,3 +367,28 @@ fn a_suspended_sink_is_handed_nothing_and_owes_a_full_on_resume() {
         "the resumed sink was handed a delta"
     );
 }
+
+/// One delta is converted to protobuf once and every sink is handed that
+/// conversion: the clocks agree, and the session id stays empty for the
+/// transport to fill in.
+#[test]
+fn every_sink_is_handed_the_same_wire_conversion_of_a_delta() {
+    let fixture = RecordFixture::new();
+    let mut record = fixture.record(channel(9), 80, 24);
+    let coord = RecordingSink::new("coord", Answer::Sent);
+    let local = RecordingSink::new(&local_cell_sink_id("9"), Answer::Sent);
+    let mut emitter = CellEmitter::new();
+    emitter.register_sink(coord.clone());
+    emitter.register_sink(local.clone());
+    emitter.install_stream(&mut record, &stream_id(9));
+    emitter.emit_cell_frame(&mut record, true, 1_000);
+    emitter.ingest_pty_chunk(&mut record, b"shared", 1_010);
+    emitter.emit_cell_frame(&mut record, false, 1_020);
+
+    let coord_wire = coord.last_wire().expect("the coordinator took the delta");
+    let local_wire = local.last_wire().expect("the local sink took the delta");
+    assert!(!coord_wire.full);
+    assert_eq!(coord_wire, local_wire);
+    assert_eq!(coord_wire.worker_emit_ms, 1_020);
+    assert_eq!(coord_wire.session_id, "");
+}

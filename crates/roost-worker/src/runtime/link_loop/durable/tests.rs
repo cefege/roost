@@ -29,6 +29,8 @@ use crate::runtime::link_loop::cell_sink::CoordinatorCellSink;
 use crate::runtime::link_loop::{Authorised, LinkLoop, WorkerIdentity};
 use crate::runtime::link_wire::ProtoLinkWire;
 use crate::session::cell_sink::{CellSink, CellSinkResult, FrameTimings};
+use crate::session::emit_frame::frame_wire;
+use roost_proto::PbCellGridFrame;
 
 const FINGERPRINT: &str = "000000000000000000000000000000000000000000000000000000000000f00d";
 const SESSION: &str = "00000000-0000-4000-8000-00000000beef";
@@ -176,6 +178,10 @@ fn timings() -> FrameTimings {
     }
 }
 
+fn full_wire() -> PbCellGridFrame {
+    frame_wire(&full_frame(), timings()).unwrap()
+}
+
 /// THE NAMED PROPERTY, at the level that enforces it.
 ///
 /// A cell frame for a session the coordinator has not been told about is a
@@ -216,7 +222,7 @@ async fn an_opened_event_is_offered_before_that_sessions_first_cells() {
         sink.send_frame(
             ChannelId::try_from(1_i64).unwrap(),
             &full_frame(),
-            timings()
+            &full_wire()
         ),
         CellSinkResult::Sent
     );
@@ -304,7 +310,7 @@ fn a_view_decision_queued_before_its_baseline_leaves_ahead_of_it() {
         sink.send_frame(
             ChannelId::try_from(1_i64).unwrap(),
             &full_frame(),
-            timings()
+            &full_wire()
         ),
         CellSinkResult::Sent
     );

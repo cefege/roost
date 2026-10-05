@@ -8,6 +8,7 @@
 use std::time::Instant;
 
 use roost_observability::clock::{EventClock, SystemClock};
+use roost_proto::PbCellGridFrame;
 use roost_protocol::cell::frame_chunks::encoded_cell_grid_frame_size;
 use roost_protocol::cell::{CELL_GRID_PART_MAX_BYTES, CellGridFrame, cell_frame_to_proto};
 use roost_protocol::terminal_capture::bundle::TerminalCoverageReason;
@@ -132,6 +133,7 @@ impl CellEmitter {
     ) -> FrameOutcome {
         let Built {
             frame,
+            wire,
             next_state,
             timings,
             escalated: _,
@@ -143,7 +145,7 @@ impl CellEmitter {
             self.clear_dirty(channel_id);
             self.clear_stream_delivery_dirty(channel_id);
             let evidence = self.capture.wants_emissions().then(|| frame.clone());
-            if let Err(reason) = self.install_baseline(channel_id, frame, timings) {
+            if let Err(reason) = self.install_baseline(channel_id, frame, wire, timings) {
                 // A core that produced something the wire refuses cannot be
                 // trusted either (v2 `installStreamBaseline` → coreValid=false).
                 warn!(%channel_id, %reason, "a full cell frame could not be installed as a baseline");
@@ -163,7 +165,7 @@ impl CellEmitter {
                 installed: true,
             };
         }
-        let fanout = self.sinks.send_frame_to_active(channel_id, &frame, timings);
+        let fanout = self.sinks.send_frame_to_active(channel_id, &frame, &wire);
         for sink_id in &fanout.overflowed {
             self.forget_sink_records(sink_id);
         }
@@ -235,13 +237,19 @@ impl CellEmitter {
         let (frame, state) = next_cell_frame(core, &record.cell_emit, full, Some(0))
             .map_err(|error| error.to_string())?;
         let timings = frame_timings(record.last_pty_out_ms, now_ms);
-        let wire = cell_frame_to_proto(&frame, record.session_id().as_str())
-            .map_err(|error| error.to_string())?;
-        if !wire.full && encoded_cell_grid_frame_size(&wire) > CELL_GRID_PART_MAX_BYTES {
+        let wire = frame_wire(&frame, timings).map_err(|error| error.to_string())?;
+        // Every receiver names the session, so the part cap is measured with
+        // the id it will carry: one tag byte, a length byte, the id.
+        let session_bytes =
+            u32::try_from(record.session_id().as_str().len() + 2).unwrap_or(u32::MAX);
+        let named_size = encoded_cell_grid_frame_size(&wire).saturating_add(session_bytes);
+        if !wire.full && named_size > CELL_GRID_PART_MAX_BYTES {
             let (frame, next_state) = next_cell_frame(core, &record.cell_emit, true, Some(0))
                 .map_err(|error| error.to_string())?;
+            let wire = frame_wire(&frame, timings).map_err(|error| error.to_string())?;
             return Ok(Built {
                 frame,
+                wire,
                 next_state,
                 timings,
                 escalated: true,
@@ -249,6 +257,7 @@ impl CellEmitter {
         }
         Ok(Built {
             frame,
+            wire,
             next_state: state,
             timings,
             escalated: false,
@@ -256,12 +265,41 @@ impl CellEmitter {
     }
 }
 
-/// One built frame, the state that produced it, and its two clocks.
+/// One built frame, its single wire conversion, the state that produced it,
+/// and its two clocks.
 struct Built {
     frame: CellGridFrame,
+    wire: PbCellGridFrame,
     next_state: roost_term::CellEmitState,
     timings: FrameTimings,
     escalated: bool,
+}
+
+/// The session id a worker stamps into a cell frame it builds.
+///
+/// Empty on purpose: the coordinator fills it in from its own channel-to-session
+/// map and explicitly adopts an empty one
+/// (`apps/coord/src/terminal/screen/byte-hub.ts:195`), while a NON-empty value
+/// that disagrees is refused. A local sink names the session itself.
+pub(crate) const NO_SESSION_ID: &str = "";
+
+/// One clock, as the wire spells it. A negative producer reading is a clock
+/// that could not be read, and `0` is what a reader takes as "not measured",
+/// so saturating is the truthful mapping.
+pub(crate) fn measured_at(clock_ms: i64) -> u64 {
+    u64::try_from(clock_ms).unwrap_or(0)
+}
+
+/// The frame's ONE protobuf conversion, carrying its two clocks; every sink
+/// clones this rather than walking the spans again.
+pub fn frame_wire(
+    frame: &CellGridFrame,
+    timings: FrameTimings,
+) -> roost_protocol::ProtocolResult<PbCellGridFrame> {
+    let mut wire = cell_frame_to_proto(frame, NO_SESSION_ID)?;
+    wire.pty_out_ms = measured_at(timings.pty_out_ms);
+    wire.worker_emit_ms = measured_at(timings.worker_emit_ms);
+    Ok(wire)
 }
 
 /// When the oldest unshipped PTY byte arrived, and when this frame was

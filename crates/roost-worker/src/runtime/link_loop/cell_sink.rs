@@ -10,10 +10,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use roost_proto::buffa::MessageField;
-use roost_proto::{WCellGrid, WCellGridChunk};
+use roost_proto::{PbCellGridFrame, WCellGrid, WCellGridChunk};
 use roost_protocol::cell::CellGridFrame;
 use roost_protocol::cell::frame_chunks::CellGridSnapshotPart;
-use roost_protocol::cell::proto::cell_frame_to_proto;
 use roost_protocol::wire::brand::ChannelId;
 use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 use tokio::sync::Notify;
@@ -21,23 +20,9 @@ use tokio::sync::Notify;
 use crate::outbox::{Lane, Outbox, PENDING_BYTES_CAP, PENDING_CAP};
 use crate::runtime::link_wire::LinkWire;
 use crate::session::cell_sink::{COORD_CELL_SINK_ID, CellSink, CellSinkResult, FrameTimings};
+use crate::session::emit_frame::measured_at;
 
 use super::LinkLoop;
-
-/// One clock, as the wire spells it. A negative producer reading is a clock
-/// that could not be read, and `0` is what the coordinator reads as "not
-/// measured", so saturating is the truthful mapping.
-fn measured_at(clock_ms: i64) -> u64 {
-    u64::try_from(clock_ms).unwrap_or(0)
-}
-
-/// The session id a worker stamps into a cell frame it builds.
-///
-/// Empty on purpose: the coordinator fills it in from its own channel-to-session
-/// map and explicitly adopts an empty one
-/// (`apps/coord/src/terminal/screen/byte-hub.ts:195`), while a NON-empty value
-/// that disagrees is refused.
-pub const NO_SESSION_ID: &str = "";
 
 /// The coordinator link, as a receiver of cell frames.
 ///
@@ -225,27 +210,14 @@ impl CellSink for CoordinatorCellSink {
     fn send_frame(
         &self,
         channel_id: ChannelId,
-        frame: &CellGridFrame,
-        timings: FrameTimings,
+        _frame: &CellGridFrame,
+        wire: &PbCellGridFrame,
     ) -> CellSinkResult {
         if !self.is_attached() {
             return self.refuse();
         }
-        let mut proto = match cell_frame_to_proto(frame, NO_SESSION_ID) {
-            Ok(proto) => proto,
-            Err(error) => {
-                tracing::error!(
-                    channel = %channel_id,
-                    reason = %error,
-                    "a cell frame did not build, so the stream owes a fresh baseline"
-                );
-                return self.refuse();
-            }
-        };
-        // The producer measured these; the coordinator reads them to attribute
-        // per-hop latency, and a zero reads as "this hop was free".
-        proto.pty_out_ms = measured_at(timings.pty_out_ms);
-        proto.worker_emit_ms = measured_at(timings.worker_emit_ms);
+        // The session id stays empty, so the coordinator adopts its own.
+        let proto = wire.clone();
         self.enqueue(
             channel_id,
             CoordWorkerUpstream::CellGrid(WCellGrid {
@@ -331,6 +303,7 @@ mod tests {
     use super::CoordinatorCellSink;
     use crate::runtime::link_wire::ProtoLinkWire;
     use crate::session::cell_sink::{CellSink, CellSinkResult, FrameTimings};
+    use crate::session::emit_frame::frame_wire;
 
     fn full_frame() -> CellGridFrame {
         CellGridFrame {
@@ -376,9 +349,11 @@ mod tests {
             pty_out_ms: 1,
             worker_emit_ms: 2,
         };
+        let frame = full_frame();
+        let wire = frame_wire(&frame, timings).unwrap();
 
         assert_eq!(
-            sink.send_frame(channel, &full_frame(), timings),
+            sink.send_frame(channel, &frame, &wire),
             CellSinkResult::Dropped
         );
         assert!(
@@ -388,7 +363,7 @@ mod tests {
 
         sink.set_attached(true);
         assert_eq!(
-            sink.send_frame(channel, &full_frame(), timings),
+            sink.send_frame(channel, &frame, &wire),
             CellSinkResult::Sent
         );
         assert!(

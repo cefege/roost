@@ -162,12 +162,11 @@ impl FakeSessions {
     fn ship_full(&self, stream_id: &str) {
         let sinks: Vec<Arc<dyn CellSink>> = held(&self.inner).sinks.values().cloned().collect();
         let channel = ChannelId::try_from(i64::from(CHANNEL)).unwrap();
-        let timings = FrameTimings {
-            pty_out_ms: 0,
-            worker_emit_ms: 0,
-        };
+        // The recorded socket reads only the value model, so the wire stays
+        // empty: this fixture's full is not a valid wire frame.
+        let wire = roost_proto::PbCellGridFrame::default();
         for sink in sinks {
-            sink.send_frame(channel, &full_frame(stream_id), timings);
+            sink.send_frame(channel, &full_frame(stream_id), &wire);
         }
     }
 }

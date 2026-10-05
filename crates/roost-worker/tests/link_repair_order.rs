@@ -59,6 +59,10 @@ const TIMINGS: FrameTimings = FrameTimings {
     worker_emit_ms: 2,
 };
 
+fn repair_wire() -> roost_proto::PbCellGridFrame {
+    roost_worker::session::emit_frame::frame_wire(&repair(), TIMINGS).unwrap()
+}
+
 /// v2's test `onWritable` (`link.sendCellGrid(7, repair)`), with the sink
 /// attached at hello-ack as the production cadence attaches it.
 #[derive(Debug)]
@@ -77,7 +81,7 @@ impl LinkLifecyclePort for RepairOnWritable {
     }
     fn on_detach(&self) {}
     fn on_writable(&self) {
-        let sent = self.sink.send_frame(channel(), &repair(), TIMINGS);
+        let sent = self.sink.send_frame(channel(), &repair(), &repair_wire());
         *self.repair_result.lock().unwrap() = Some(sent);
     }
     fn on_snapshot_ready(&self) {}
@@ -100,7 +104,7 @@ async fn a_pending_cell_repair_drains_before_a_queued_scrollback_reply() {
     // A cell lost before the link could carry it arms an authoritative repair,
     // and the scrollback handler's reply queues behind the barrier.
     assert_eq!(
-        sink.send_frame(channel(), &repair(), TIMINGS),
+        sink.send_frame(channel(), &repair(), &repair_wire()),
         CellSinkResult::Dropped
     );
     let reply = Up::RpcOk {

@@ -13,7 +13,6 @@ use roost_keeper::frames::ChannelBinding as KeeperChannel;
 use roost_keeper::payloads::TerminalState;
 use roost_observability::clock::SystemClock;
 use roost_protocol::cell::CellGridFrame;
-use roost_protocol::cell::frame_chunks::CellGridSnapshotPart;
 use roost_protocol::wire::brand::{ChannelId, SessionId, TraceId, WorkerFp};
 use roost_protocol::wire::event::SessionEvent;
 use roost_term::{AlacrittyCore, CellEmitState, TerminalCore};
@@ -21,7 +20,7 @@ use roost_worker::event_store::{DurableEventKind, Reservation, Store};
 use roost_worker::runtime::cell_delivery::TableCellDelivery;
 use roost_worker::runtime::channel_delivery::TableChannelDelivery;
 use roost_worker::session::binding::{CellDelivery, ChannelDelivery};
-use roost_worker::session::cell_sink::{CellSink, CellSinkResult, FrameTimings};
+use roost_worker::session::cell_sink::CellSink;
 use roost_worker::session::emit::CellEmitter;
 use roost_worker::session::keeper_channels::{
     InputNotWritten, KeeperChannels, KeeperFault, KeeperInputCommand, SurvivorHistory,
@@ -36,6 +35,9 @@ use roost_worker::session::terminal_state::{StreamIntent, WorkerStreamResult};
 use roost_worker::session::types::{SessionIdentity, SessionRecord};
 use roost_worker::shell_spec::{SHELL_SPEC_VERSION, ShellSpec};
 use roost_worker::terminal_core_capacity::{TerminalCoreCapacity, TerminalCoreCapacityOptions};
+
+mod recording_sink;
+pub use recording_sink::RecordingSink;
 
 pub const SESSION: &str = "11111111-2222-4333-8444-555555555555";
 pub const CHANNEL: u16 = 43;
@@ -135,42 +137,6 @@ impl KeeperChannels for ScriptedKeeper {
     }
     fn write_legacy_input(&self, _channel_id: u16, _bytes: &[u8]) -> Result<(), KeeperFault> {
         Ok(())
-    }
-}
-
-/// The coordinator sink, recording every full and delta it was offered.
-pub struct RecordingSink {
-    pub frames: Mutex<Vec<CellGridFrame>>,
-    pub parts: Mutex<Vec<CellGridSnapshotPart>>,
-    pub refuse_parts_after_first: Mutex<bool>,
-}
-
-impl CellSink for RecordingSink {
-    fn id(&self) -> &str {
-        "coord"
-    }
-    fn send_frame(
-        &self,
-        _channel_id: ChannelId,
-        frame: &CellGridFrame,
-        _timings: FrameTimings,
-    ) -> CellSinkResult {
-        held(&self.frames).push(frame.clone());
-        CellSinkResult::Sent
-    }
-    fn send_snapshot_part(
-        &self,
-        _channel_id: ChannelId,
-        part: &CellGridSnapshotPart,
-        _timings: FrameTimings,
-    ) -> CellSinkResult {
-        let refuse = *held(&self.refuse_parts_after_first) && !held(&self.parts).is_empty();
-        held(&self.parts).push(part.clone());
-        if refuse {
-            CellSinkResult::Dropped
-        } else {
-            CellSinkResult::Sent
-        }
     }
 }
 
@@ -288,11 +254,7 @@ impl Harness {
             Arc::new(FixedResolver),
             capacity,
         );
-        let sink = Arc::new(RecordingSink {
-            frames: Mutex::new(Vec::new()),
-            parts: Mutex::new(Vec::new()),
-            refuse_parts_after_first: Mutex::new(false),
-        });
+        let sink = Arc::new(RecordingSink::default());
         held(&emitter).register_sink(Arc::clone(&sink) as Arc<dyn CellSink>);
         let close = held(&events.0)
             .reserve_default(DurableEventKind::Closed)

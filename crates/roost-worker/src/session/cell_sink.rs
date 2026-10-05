@@ -21,6 +21,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use roost_proto::PbCellGridFrame;
 use roost_protocol::cell::CellGridFrame;
 use roost_protocol::cell::frame_chunks::CellGridSnapshotPart;
 use roost_protocol::wire::brand::ChannelId;
@@ -82,12 +83,14 @@ pub trait CellSink: Send + Sync {
     /// [`COORD_CELL_SINK_ID`] and [`local_cell_sink_id`].
     fn id(&self) -> &str;
 
-    /// One complete grid, or a delta, on this sink's transport.
+    /// One complete grid, or a delta, on this sink's transport. `wire` is the
+    /// frame's one protobuf conversion, carrying both clocks and an empty
+    /// session id; a sink clones it rather than converting `frame` again.
     fn send_frame(
         &self,
         channel_id: ChannelId,
         frame: &CellGridFrame,
-        timings: FrameTimings,
+        wire: &PbCellGridFrame,
     ) -> CellSinkResult;
 
     /// One part of a parked full. Only ever called for a frame too large to
@@ -286,14 +289,14 @@ impl CellSinkRegistry {
         &mut self,
         channel_id: ChannelId,
         frame: &CellGridFrame,
-        timings: FrameTimings,
+        wire: &PbCellGridFrame,
     ) -> CellDeltaFanout {
         let mut fanout = CellDeltaFanout::default();
         for sink in self.active_sinks() {
             if !self.is_active(sink.id()) {
                 continue;
             }
-            match sink.send_frame(channel_id, frame, timings) {
+            match sink.send_frame(channel_id, frame, wire) {
                 CellSinkResult::Sent => fanout.accepted += 1,
                 CellSinkResult::Dropped => fanout.dropped += 1,
                 CellSinkResult::Overflow => {
@@ -324,7 +327,7 @@ impl CellSinkRegistry {
         };
         let sink = entry.sink.clone();
         let answer = match part {
-            ParkedPart::Whole(frame) => sink.send_frame(channel_id, frame, timings),
+            ParkedPart::Whole(whole) => sink.send_frame(channel_id, &whole.frame, &whole.wire),
             ParkedPart::Chunk(chunk) => sink.send_snapshot_part(channel_id, chunk, timings),
         };
         if answer == CellSinkResult::Overflow {

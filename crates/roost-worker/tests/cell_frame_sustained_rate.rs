@@ -64,8 +64,12 @@ impl CellSink for TimedSink {
         &self,
         _channel_id: ChannelId,
         frame: &CellGridFrame,
-        timings: FrameTimings,
+        wire: &roost_proto::PbCellGridFrame,
     ) -> CellSinkResult {
+        let timings = FrameTimings {
+            pty_out_ms: i64::try_from(wire.pty_out_ms).unwrap(),
+            worker_emit_ms: i64::try_from(wire.worker_emit_ms).unwrap(),
+        };
         self.log.lock().unwrap().push((frame.clone(), timings));
         CellSinkResult::Sent
     }
