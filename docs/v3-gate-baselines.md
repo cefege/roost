@@ -2385,6 +2385,17 @@ warn in 150 s. After a coordinator restart with the peer disabled and a reload, 
 keystrokes refused `terminal input route changed` (`written_bytes` 0) were all re-sent after
 the Sync claim and accepted, and the screen showed `echo MARK2` and `MARK2`.
 
+On `2be381d8` (every transport observation stamps its own instant, the browser offer read at the
+first server-reflexive candidate, a refused frame asking for its baseline in the same dispatch),
+same host and harness: `time_to_direct_ms` was 164/177/195 ms, with phases 0/43/96/110/121,
+0/49/102/114/123 and 0/55/107/119/131. The stamps are now distinct and monotonic; the
+`88907942` equal triples were the machine's clock left at the last sweep, not real phases.
+Negotiating is one STUN round trip plus the offer read (was ≈ 250 ms with the 200 ms settle),
+and candidate→active is 9–12 ms (the ~240 ms there was the stale stamp). Demand→attempt start,
+the grant wait before `OpenTransport` (`time_to_direct_ms − active_ms`; `gathering_ms` is 0 by
+definition), was 43/54/64 ms. The worker logged `gather_ms` (`elapsed_ms`) 24/27/26, `ready_ms`
+29/32/30 from the offer, `connected_ms` 14/11/12 and `channel_open_ms` 18/16/16 from the answer.
+
 Retained-marker bounds are worth keeping in view because they are the
 history-corruption tripwire: a Rust renderer that drops the retained floor
 will pass every functional spec and still lose scrollback.
