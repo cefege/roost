@@ -34,9 +34,10 @@ pub fn start_pump(core: Rc<RefCell<ClientCore>>, revision: Signal<u64>) -> Pump 
 }
 
 async fn boot(pump: Pump) {
-    #[cfg(target_arch = "wasm32")]
-    claim_tab_id(&pump).await;
-    match WebDeviceKey::load_or_generate().await {
+    // Independent waits: the claim answers over a BroadcastChannel and the key
+    // comes out of IndexedDB, and neither reads the other.
+    let ((), key) = futures_util::join!(claim_tab_id(&pump), WebDeviceKey::load_or_generate());
+    match key {
         Ok(key) => pump.inner.rpc.install_key(Rc::new(key)),
         Err(reason) => {
             tracing::error!(target: "auth", %reason, "device key unavailable; calls go out unauthenticated");
@@ -72,6 +73,10 @@ async fn claim_tab_id(pump: &Pump) {
     pump.inner.rpc.present_tab_id(claim.id());
     pump.inner.listeners.borrow_mut().push(Box::new(claim));
 }
+
+/// No document, so no tab id to claim.
+#[cfg(not(target_arch = "wasm32"))]
+async fn claim_tab_id(_pump: &Pump) {}
 
 /// Spend a scrubbed `#pair=` token on this device's key before anything
 /// protected is asked for. `true` when it succeeded and the page is being
