@@ -199,7 +199,7 @@ impl Signalling {
     /// Move the machine's clock to the host's reading, never backwards: a
     /// deadline judged against an earlier instant than one already seen would
     /// fire late, and a wait measured against one would read short.
-    fn advance_clock(&mut self, now_ms: u64) {
+    pub(crate) fn advance_clock(&mut self, now_ms: u64) {
         self.now_ms = self.now_ms.max(now_ms);
     }
 }

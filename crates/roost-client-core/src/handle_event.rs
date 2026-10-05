@@ -253,7 +253,7 @@ pub fn handle_event(
         } => {
             store
                 .direct
-                .transport_observed(worker_fp, observation.clone(), out);
+                .transport_observed(worker_fp, observation.clone(), host_now_ms, out);
         }
 
         // ---- find paging ------------------------------------------------------

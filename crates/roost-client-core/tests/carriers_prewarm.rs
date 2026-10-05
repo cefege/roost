@@ -85,7 +85,7 @@ fn warm_lane(sessions: &BTreeSet<String>) -> CarrierLane {
     lane.local_door_answered(WORKER, "", &mut out);
     lane.grant_minted(grant(sessions), &mut out);
     let attempt_id = opened_attempt(&out).expect("a live grant opens the pre-warmed peer");
-    for input in [
+    let inputs = [
         SignallingInput::OfferReady {
             attempt_id,
             peer_id: PEER_ID.to_owned(),
@@ -110,8 +110,9 @@ fn warm_lane(sessions: &BTreeSet<String>) -> CarrierLane {
                 session_ids: sessions.clone(),
             },
         },
-    ] {
-        lane.transport_observed(WORKER, input, &mut Vec::new());
+    ];
+    for (input, now_ms) in inputs.into_iter().zip([30, 110, 130]) {
+        lane.transport_observed(WORKER, input, now_ms, &mut Vec::new());
     }
     assert_eq!(lane.phase(WORKER), PeerPhase::Candidate);
     lane
@@ -139,6 +140,21 @@ fn a_prewarm_with_no_view_mints_a_grant_for_its_sessions_and_opens_a_peer() {
     assert!(
         opened_attempt(&out).is_some(),
         "a live grant opens the peer with no view on the worker; got {out:?}"
+    );
+}
+
+#[test]
+fn an_observation_reported_through_the_lane_stamps_its_own_instant() {
+    let lane = warm_lane(&ids(&["session-a"]));
+    let phases = lane.snapshot(WORKER).direct_phase_ms;
+    assert_eq!(
+        (
+            phases.negotiating_ms,
+            phases.authenticating_ms,
+            phases.candidate_ms
+        ),
+        (Some(30), Some(110), Some(130)),
+        "the attempt opened at 0, so each stamp is the instant the lane was told"
     );
 }
 

@@ -168,13 +168,17 @@ impl CarrierLane {
         );
     }
 
-    /// What the transport reported about one attempt.
+    /// What the transport reported about one attempt, at the host's `now_ms`.
     pub fn transport_observed(
         &mut self,
         worker_fp: &str,
         input: SignallingInput,
+        now_ms: u64,
         out: &mut Vec<Effect>,
     ) {
+        if let Some(machine) = self.machines.get_mut(worker_fp) {
+            machine.advance_clock(now_ms);
+        }
         self.observe(worker_fp, input, out);
     }
 

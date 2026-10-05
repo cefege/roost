@@ -323,6 +323,7 @@ pub(super) fn commit_promotion(
                 token: token.clone(),
                 now_ms,
             },
+            now_ms,
             out,
         );
     }

@@ -209,6 +209,9 @@ pub struct SignallingSnapshot {
 
 /// Milliseconds from an attempt's start to its first entry into each phase of
 /// the climb to a direct route; `None` for a phase it has not reached.
+///
+/// Every transport observation advances the machine's clock first, so each
+/// stamp is the instant the host reported the transition, not the last sweep.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DirectPhaseTimings {
     /// ICE gathering began.
