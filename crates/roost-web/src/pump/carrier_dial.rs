@@ -35,9 +35,7 @@ use roost_client_core::ClientEvent;
 use roost_client_core::TerminalTransport;
 use roost_client_core::client::carriers::DirectInbound;
 use roost_client_core::client::local::LocalTerminalGrant;
-use roost_client_core::client::local::bootstrap::{
-    BootstrapOutcome, LOCAL_BOOTSTRAP_PATH, LocalBootstrap, read_serving_origin,
-};
+use roost_client_core::client::local::bootstrap::LocalBootstrap;
 use roost_client_core::client::local::discovery::{
     BrowserEnvironment, DoorAdoption, DoorPlan, LocalWorkerDoor,
 };
@@ -150,7 +148,7 @@ async fn resolve_door(pump: &Pump) -> Option<LocalWorkerDoor> {
         return Some(door);
     }
     let page_origin = door_probe::page_origin();
-    let served_by_worker = served_by_this_page(&page_origin).await;
+    let served_by_worker = served_by_this_page();
     let operator_origin = door_probe::stored_operator_origin();
     let plan = pump
         .inner
@@ -201,18 +199,12 @@ async fn resolve_door(pump: &Pump) -> Option<LocalWorkerDoor> {
 
 /// The bootstrap this page's OWN origin serves, if it serves one.
 ///
-/// Asked before discovery decides, because that is the fact `DoorPlan::Adopting`
-/// turns on: a page a worker served never probes anything, and a page the
-/// coordinator served has already spent the request that proves so.
-async fn served_by_this_page(page_origin: &str) -> Option<LocalBootstrap> {
-    if page_origin.is_empty() {
-        return None;
-    }
-    let answer = door_probe::fetch_bootstrap(&format!("{page_origin}{LOCAL_BOOTSTRAP_PATH}")).await;
-    match read_serving_origin(answer.status, &answer.body) {
-        BootstrapOutcome::Served(bootstrap) => Some(bootstrap),
-        BootstrapOutcome::NotWorkerServed(_) => None,
-    }
+/// Read before discovery decides, because that is the fact `DoorPlan::Adopting`
+/// turns on: a page a worker served never probes anything. The answer is the
+/// one `door_probe::prime_serving_bootstrap` recorded before `dioxus::launch`,
+/// so it is final before any grant can arrive and costs no second request.
+fn served_by_this_page() -> Option<LocalBootstrap> {
+    door_probe::primed_serving_bootstrap()
 }
 
 /// Drain on the next task, never inside the callback that queued the message.
