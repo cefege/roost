@@ -122,7 +122,7 @@ fn a_started_sync_batch_drains_before_the_route_is_claimed() {
         .sync_terminal_token()
         .unwrap()
         .socket_generation;
-    let _ = core.handle(ClientEvent::SyncFrameReceived {
+    let settled = core.handle(ClientEvent::SyncFrameReceived {
         generation,
         delivery_seq: 0,
         frame: SyncFrame::InputResult {
@@ -135,11 +135,10 @@ fn a_started_sync_batch_drains_before_the_route_is_claimed() {
             },
         },
     });
-    let swept = core.handle(ClientEvent::Sweep { now_ms: 1 });
     assert_eq!(
-        peer_claims(&swept).len(),
+        peer_claims(&settled).len(),
         1,
-        "once the old route drained the candidate claims; got {swept:?}"
+        "the result that drains the old route sends the claim, with no sweep between; got {settled:?}"
     );
 }
 

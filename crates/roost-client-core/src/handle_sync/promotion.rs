@@ -11,7 +11,9 @@
 
 mod deadlines;
 
-pub(crate) use self::deadlines::{claim_due_fallbacks, reject_sync_claims, sweep_route_claims};
+pub(crate) use self::deadlines::{
+    claim_due_fallbacks, reject_sync_claims, resume_held_promotion, sweep_route_claims,
+};
 
 use crate::effect::{DirectCommand, Effect, SyncCommand};
 use crate::handle_input::dispatch_batch;

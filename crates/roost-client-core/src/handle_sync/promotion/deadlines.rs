@@ -39,25 +39,45 @@ pub(crate) fn sweep_route_claims(store: &mut Store, now_ms: u64, out: &mut Vec<E
         let reason = "terminal input route claim was not confirmed";
         end_unanswered_claim(store, &claim, reason, now_ms, out);
     }
-    for (session_id, promotion) in store.input.held_promotions() {
-        let staged = store
-            .routes
-            .candidate(&session_id)
-            .is_some_and(|candidate| candidate.attempt_id == promotion.attempt_id);
-        if !staged {
-            abandon_promotion(store, &session_id, "candidate was cancelled", now_ms, out);
-        } else if !promotion.claim_sent {
-            advance_promotion(
-                store,
-                &session_id,
-                promotion.attempt_id,
-                &promotion.token,
-                now_ms,
-                out,
-            );
-        }
+    for (session_id, _) in store.input.held_promotions() {
+        resume_held_promotion(store, &session_id, now_ms, out);
     }
     claim_due_fallbacks(store, now_ms, out);
+}
+
+/// One held promotion, re-entered: claimed once its drain is over, abandoned
+/// when its candidate went. Run by the sweep, and at once by the input result
+/// that settles the old route's last batch, so the claim does not wait for the
+/// next sweep as well.
+pub(crate) fn resume_held_promotion(
+    store: &mut Store,
+    session_id: &str,
+    now_ms: u64,
+    out: &mut Vec<Effect>,
+) {
+    let Some(promotion) = store
+        .input
+        .claim_state(session_id)
+        .and_then(|claims| claims.promotion.clone())
+    else {
+        return;
+    };
+    let staged = store
+        .routes
+        .candidate(session_id)
+        .is_some_and(|candidate| candidate.attempt_id == promotion.attempt_id);
+    if !staged {
+        abandon_promotion(store, session_id, "candidate was cancelled", now_ms, out);
+    } else if !promotion.claim_sent {
+        advance_promotion(
+            store,
+            session_id,
+            promotion.attempt_id,
+            &promotion.token,
+            now_ms,
+            out,
+        );
+    }
 }
 
 /// Claim Sync back for every fallback due an attempt now. Run by the sweep, and
