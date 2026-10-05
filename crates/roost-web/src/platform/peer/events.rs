@@ -49,8 +49,10 @@ pub enum PeerEvent {
         /// Which attempt.
         attempt_id: u64,
     },
-    /// The browser gathered a server-reflexive candidate. The offer is then read
-    /// after a short settle rather than when every interface has given up.
+    /// The browser gathered a server-reflexive candidate: the offer is read now
+    /// rather than at the protocol's gathering bound. One candidate the worker
+    /// can reach is enough — the worker learns the browser's other addresses
+    /// from its connectivity checks.
     ReflexiveCandidate {
         /// Which attempt.
         attempt_id: u64,

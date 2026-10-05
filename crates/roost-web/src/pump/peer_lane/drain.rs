@@ -90,7 +90,12 @@ fn drain_events(pump: &Pump, now_ms: u64) {
         match event {
             PeerEvent::Gathered { attempt_id } => offer_ready(pump, attempt_id),
             PeerEvent::ReflexiveCandidate { attempt_id } => {
-                deadlines::reflexive_candidate(pump, attempt_id, now_ms);
+                tracing::info!(
+                    target: "carriers",
+                    attempt_id,
+                    "a reflexive candidate arrived; the offer is read now"
+                );
+                offer_ready(pump, attempt_id);
             }
             PeerEvent::LaneOpen { attempt_id, lane } => lane_opened(pump, attempt_id, lane),
             PeerEvent::LaneFailed {
