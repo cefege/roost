@@ -74,6 +74,22 @@
     rowCount() {
       return document.querySelectorAll(rowSelector).length;
     },
+    // Navigation and wasm resource timing, ms since navigation start.
+    bootTiming() {
+      const nav = performance.getEntriesByType("navigation")[0];
+      const wasm = performance
+        .getEntriesByType("resource")
+        .filter((entry) => entry.name.split("?")[0].endsWith(".wasm"));
+      const first = wasm[0];
+      return {
+        nav: nav ? { ttfb: nav.responseStart, dcl: nav.domContentLoadedEventEnd } : null,
+        wasm: {
+          start: first ? first.startTime : null,
+          end: first ? first.responseEnd : null,
+          fetches: wasm.length,
+        },
+      };
+    },
   };
   window.__bench = bench;
 
