@@ -18,6 +18,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::ws::{CloseFrame, Message, WebSocket};
+use futures_util::SinkExt as _;
 
 use crate::services::CoordServices;
 use crate::sync_ws::commands_layout::settle_layout_result;
@@ -105,12 +106,10 @@ async fn serve_until_closed(
                 state.ack_deadline_in_ms(now),
             )
         };
-        for encoded in frames {
-            if let Err(cause) = write_frame(socket, encoded).await {
-                let mut state = link.lock();
-                state.decide_close(LinkClose::BACKPRESSURE, cause, "write", now_ms());
-                return state.close;
-            }
+        if let Err(cause) = write_batch(socket, frames).await {
+            let mut state = link.lock();
+            state.decide_close(LinkClose::BACKPRESSURE, cause, "write", now_ms());
+            return state.close;
         }
         if close.is_some() {
             return close;
@@ -196,6 +195,29 @@ pub(in crate::sync_ws) async fn write_frame(
         Ok(Err(_)) => Err("frame_dropped"),
         Err(_) => Err("timeout"),
     }
+}
+
+/// Write one flush turn's frames in queue order with a single flush, under one
+/// write timeout; the failure causes are `write_frame`'s.
+pub(in crate::sync_ws) async fn write_batch(
+    socket: &mut WebSocket,
+    frames: Vec<Vec<u8>>,
+) -> Result<(), &'static str> {
+    if frames.is_empty() {
+        return Ok(());
+    }
+    let write = async {
+        for encoded in frames {
+            socket
+                .feed(Message::Binary(encoded.into()))
+                .await
+                .map_err(|_| "frame_dropped")?;
+        }
+        socket.flush().await.map_err(|_| "frame_dropped")
+    };
+    tokio::time::timeout(Duration::from_millis(SOCKET_WRITE_TIMEOUT_MS), write)
+        .await
+        .unwrap_or(Err("timeout"))
 }
 
 /// Send the close frame, bounded: a peer that stopped reading cannot hold the

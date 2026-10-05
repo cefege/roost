@@ -185,3 +185,49 @@ async fn a_late_subscriber_is_seeded_with_the_retained_title_of_open_sessions_on
         "the closed session's title was released"
     );
 }
+
+// One flush turn's frames go out with a single flush, and still arrive as
+// separate binary messages in the order they were queued.
+#[tokio::test]
+async fn a_flush_turn_of_three_frames_arrives_as_three_messages_in_queue_order() {
+    const SESSIONS: [&str; 3] = [
+        "2b7c9a52-3f4e-4d6a-9b1c-2e8f7a6d5c4b",
+        "3b7c9a52-3f4e-4d6a-9b1c-2e8f7a6d5c4b",
+        "4b7c9a52-3f4e-4d6a-9b1c-2e8f7a6d5c4b",
+    ];
+    let fixture = SyncFixture::start("batch-order").await;
+    insert_worker(&fixture, WORKER).await;
+    for session in SESSIONS {
+        insert_session(&fixture, session, WORKER).await;
+    }
+    let (mut socket, _, _) = terminal_socket(&fixture, 83, &SESSIONS).await;
+    assert!(
+        next_firehose(&mut socket, QUIET).await.is_none(),
+        "nothing is retained before the titles change"
+    );
+
+    let services = &fixture.services;
+    let queued = [
+        (SESSIONS[2], "third-first"),
+        (SESSIONS[0], "first-second"),
+        (SESSIONS[1], "second-third"),
+    ];
+    for (session, title) in queued {
+        services
+            .titles
+            .observe_title(&services.buses, session, title);
+    }
+
+    for (session, title) in queued {
+        let frame = next_firehose(&mut socket, EXPECT)
+            .await
+            .expect("one message per queued frame");
+        let Some(Frame::TerminalTitle(update)) = frame.frame else {
+            panic!("expected a title, got {:?}", frame.frame);
+        };
+        assert_eq!(
+            (update.session_id.as_str(), update.title.as_str()),
+            (session, title)
+        );
+    }
+}
