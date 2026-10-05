@@ -35,6 +35,7 @@ use roost_client_core::ClientEvent;
 use roost_client_core::TerminalTransport;
 use roost_client_core::client::carriers::DirectInbound;
 use roost_client_core::client::local::LocalTerminalGrant;
+use roost_client_core::client::local::discovery::LocalWorkerDoor;
 use roost_client_core::client::local::door::LoopbackReady;
 
 use super::Pump;
@@ -71,15 +72,17 @@ pub(super) fn dial(pump: &Pump, grant: LocalTerminalGrant) {
     });
 }
 
-/// Resolve the door, then open the socket on the grant.
-async fn open(pump: &Pump, grant: &LocalTerminalGrant, worker_fp: &str, sessions: &str) {
+/// Resolve the door and tell the machine which worker serves this page's own
+/// machine. Reported the moment discovery settles, not when a socket opens:
+/// `LoopbackProbe::permits_peer` refuses a peer until this arrives, so a
+/// document that discovers its own worker and never says so allocates a WebRTC
+/// peer beside a loopback carrier that was available all along. Empty is the
+/// honest value for "no worker serves this machine", and it is what releases a
+/// peer rather than what blocks one. The answer is the door's, not a grant's,
+/// so a mint request reports it too and a peer can gather while the mint is
+/// out.
+pub(super) async fn announce_door(pump: &Pump, worker_fp: &str) -> Option<LocalWorkerDoor> {
     let door = resolve_door(pump).await;
-    // The ANSWER, reported the moment discovery settles and not the socket:
-    // `LoopbackProbe::permits_peer` refuses a peer until this arrives, so a
-    // document that discovers its own worker and never says so allocates a
-    // WebRTC peer beside a loopback carrier that was available all along.
-    // Empty is the honest value for "no worker serves this machine", and it is
-    // what releases a peer rather than what blocks one.
     pump.dispatch(ClientEvent::LocalDoorAnswered {
         worker_fp: worker_fp.to_owned(),
         serving_worker_fp: door
@@ -87,6 +90,12 @@ async fn open(pump: &Pump, grant: &LocalTerminalGrant, worker_fp: &str, sessions
             .map(|door| door.worker_fingerprint.clone())
             .unwrap_or_default(),
     });
+    door
+}
+
+/// Resolve the door, then open the socket on the grant.
+async fn open(pump: &Pump, grant: &LocalTerminalGrant, worker_fp: &str, sessions: &str) {
+    let door = announce_door(pump, worker_fp).await;
     let (origin, url, hello, door_worker_fp) = match dial::plan(grant, door.as_ref()) {
         Ok(DialPlan { origin, url, hello }) => {
             let door_worker_fp = door.map(|door| door.worker_fingerprint).unwrap_or_default();

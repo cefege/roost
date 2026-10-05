@@ -110,7 +110,11 @@ pub(super) fn offer_ready(pump: &Pump, attempt_id: u64) {
     if !owed {
         return;
     }
-    match pump.inner.peer.borrow().local_offer(attempt_id) {
+    // Read into a local first: a `match` on the borrow would hold it across the
+    // dispatch, and the machine may answer in the same dispatch with an offer
+    // to negotiate, which writes the peer's adopted attempt.
+    let offer = pump.inner.peer.borrow().local_offer(attempt_id);
+    match offer {
         Ok(offer_sdp) => {
             pump.dispatch(ClientEvent::CarrierTransportObserved {
                 worker_fp,

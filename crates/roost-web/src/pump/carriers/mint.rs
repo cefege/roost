@@ -52,6 +52,14 @@ pub(in crate::pump) fn request_grant(pump: &Pump, session_ids: Vec<String>, work
     let reply_to = pump.clone();
     let worker = worker_fp.to_owned();
     let session = sessions;
+    // The door's answer does not wait for the mint: once the machine knows no
+    // loopback carrier serves this worker, it gathers a peer while the mint is
+    // out. Usually settled already, since `pump::boot` started the probe.
+    let announcing = pump.clone();
+    let announced_worker = worker.clone();
+    wasm_bindgen_futures::spawn_local(async move {
+        super::super::carrier_dial::announce_door(&announcing, &announced_worker).await;
+    });
     wasm_bindgen_futures::spawn_local(async move {
         let answer = match rpc.call(&MintLocalTerminalGrant { request }).await {
             Ok(answer) => answer,
