@@ -120,6 +120,8 @@ mod predictive_echo_epoch;
 mod predictive_echo_gate;
 #[path = "predictive_echo_reset.rs"]
 mod predictive_echo_reset;
+#[path = "predictive_echo_seed.rs"]
+mod predictive_echo_seed;
 #[path = "prefs_persistence.rs"]
 mod prefs_persistence;
 #[path = "replica_frame_counts.rs"]

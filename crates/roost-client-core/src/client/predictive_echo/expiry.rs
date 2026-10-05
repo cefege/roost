@@ -26,7 +26,7 @@ pub const GLITCH_MS: u64 = 250;
 const MAX_RTT_SAMPLE_MS: f64 = 5_000.0;
 
 /// The EWMA weight a new sample takes; the rest is history.
-const RTT_SAMPLE_WEIGHT: f64 = 0.125;
+pub const RTT_SAMPLE_WEIGHT: f64 = 0.125;
 
 /// What a fired expiry pass found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,6 +80,27 @@ fn remaining_ms(oldest_born_ms: u64, now_ms: u64, srtt_ms: f64) -> u64 {
         .saturating_add(expiry_window_ms(srtt_ms))
         .saturating_sub(now_ms)
         .max(1)
+}
+
+impl PredictiveEcho {
+    /// Install a round trip measured elsewhere on this pane's route — a control
+    /// probe — as the estimate, while no echo has measured one. A real sample
+    /// replaces nothing here; it blends against the seed as against any
+    /// estimate. The display gate is re-evaluated at once, so the seed decides
+    /// whether the next guess may paint.
+    pub fn seed_rtt(&mut self, rtt_ms: f64) {
+        if self.srtt_ms != 0.0 || rtt_ms <= 0.0 || rtt_ms > MAX_RTT_SAMPLE_MS {
+            return;
+        }
+        self.srtt_ms = rtt_ms;
+        self.arm_display();
+        tracing::debug!(target: "echo", rtt_ms, "predictive echo rtt seeded");
+    }
+
+    /// Whether the estimate holds a round trip, measured or seeded.
+    pub fn rtt_measured(&self) -> bool {
+        self.srtt_ms != 0.0
+    }
 }
 
 impl PredictiveEcho {

@@ -139,6 +139,19 @@ impl PredictiveEchoHost {
         self.change(|echo, _| echo.clear());
     }
 
+    /// Whether no echo round trip is measured yet, so a route's probe RTT may
+    /// seed the display gate.
+    pub fn wants_rtt_seed(&self) -> bool {
+        self.state
+            .try_borrow()
+            .is_ok_and(|state| !state.disposed && !state.echo.rtt_measured())
+    }
+
+    /// Adopt a route's measured round trip while no echo has measured one.
+    pub fn seed_rtt(&self, rtt_ms: f64) {
+        self.change(|echo, _| echo.seed_rtt(rtt_ms));
+    }
+
     /// The burst's internal state, for the smoke tier's reset accounting.
     pub fn debug(&self) -> Option<EchoDebug> {
         let mut state = self.state.try_borrow_mut().ok()?;

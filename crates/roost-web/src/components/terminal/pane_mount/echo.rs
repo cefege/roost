@@ -8,6 +8,7 @@
 use std::rc::Rc;
 
 use roost_client_core::store::prefs::PredictMode;
+use roost_client_core::store::terminal_transport::session_route_rtt_ms;
 use roost_protocol::cell::CellGridFrame;
 use roost_web_terminal::echo_overlay::PredictiveEchoHost;
 
@@ -69,16 +70,31 @@ pub(super) fn detach(shared: &PaneShared) {
 /// A batch was just dispatched from this view: answer its admission, then
 /// anything that already settled (a batch with no route settles at once).
 pub(super) fn after_dispatch(shared: &PaneShared, bytes: &[u8], predicts: bool) {
-    let admission = {
+    let (admission, route_rtt_ms) = {
         let core = shared.pump.core();
         let Ok(mut core) = core.try_borrow_mut() else {
             return;
         };
-        core.store_mut()
+        let wants_seed = shared
+            .echo
+            .borrow()
+            .as_ref()
+            .is_some_and(|echo| echo.host.wants_rtt_seed());
+        let route_rtt_ms = wants_seed
+            .then(|| session_route_rtt_ms(core.store(), &shared.session_id, &shared.worker_fp))
+            .flatten();
+        let admission = core
+            .store_mut()
             .input
             .outcome_feed
-            .take_admission(&shared.view_id)
+            .take_admission(&shared.view_id);
+        (admission, route_rtt_ms)
     };
+    if let Some(rtt_ms) = route_rtt_ms
+        && let Some(echo) = shared.echo.borrow().as_ref()
+    {
+        echo.host.seed_rtt(rtt_ms as f64);
+    }
     if let Some(feedback) = admission.and_then(|answer| admission_echo_feedback(&answer, predicts))
     {
         apply(shared, bytes, feedback);

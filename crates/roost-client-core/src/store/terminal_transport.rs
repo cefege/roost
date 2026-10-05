@@ -7,6 +7,7 @@
 //! `apps/web/src/store/local-transport-indicator.ts`.
 
 use crate::store::Store;
+use crate::store::sync_feeds::ProbeRoute;
 use crate::terminal::token::{TerminalToken, TerminalTransport};
 
 /// The header chip's content for one session.
@@ -142,4 +143,20 @@ fn peer_is_qualified(store: &Store, token: &TerminalToken) -> bool {
             .telemetry
             .liveness_qualified
     })
+}
+
+/// The round trip already measured on the carrier a session's input rides,
+/// which a pane's predictive echo may adopt before its first echo is timed: a
+/// peer's own probe on a direct route, the worker's control probe over Sync.
+/// A loopback route is never slow enough to show a guess, so it seeds nothing.
+pub fn session_route_rtt_ms(store: &Store, session_id: &str, worker_fp: &str) -> Option<u64> {
+    match session_terminal_transport_kind(store, session_id)? {
+        TerminalTransport::Loopback => None,
+        TerminalTransport::Peer => store.direct.snapshot(worker_fp).telemetry.rtt_ms,
+        TerminalTransport::Sync => store
+            .transport_probes
+            .get(worker_fp)
+            .filter(|probe| matches!(probe.route, ProbeRoute::Sync { .. }))
+            .map(|probe| probe.control_rtt_ms),
+    }
 }
