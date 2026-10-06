@@ -99,7 +99,7 @@ fn upgrade_script(coordinator: &KubeCoordinator, tag: &str, sha: &str) -> Result
            exit 1\n\
          fi\n\
          helm upgrade --install \"{release}\" \"{chart}\" -n \"{namespace}\" --reuse-values \
-           -f \"{values}\" --set image.tag=\"{image_tag}\" --wait --timeout 10m >&2\n\
+           -f \"{values}\" --set image.tag=\"{image_tag}\" --set replicas=1 --wait --timeout 10m >&2\n\
          kubectl -n \"{namespace}\" rollout status \"deploy/{release}\" --timeout=300s >&2\n\
          kubectl -n \"{namespace}\" exec \"deploy/{release}\" -- roost --version\n\
          kubectl -n \"{namespace}\" exec \"deploy/{release}\" -- roost version --build\n"
