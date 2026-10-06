@@ -51,10 +51,10 @@ async fn a_recovered_final_name_collision_is_refused_without_corrupting_the_mani
         .unwrap()
         .unwrap();
     let (paths, mut journal) = (created.paths, created.journal);
-    let destination = paths.session_dir.join("collision.bin");
+    let destination = paths.media_dir.join("collision.bin");
     std::fs::write(&paths.temp_path, expected).unwrap();
     std::fs::write(&destination, occupied).unwrap();
-    record_attachment_hash(&paths.session_dir, &digest(&occupied), "collision.bin");
+    record_attachment_hash(&paths.media_dir, &digest(&occupied), "collision.bin");
     journal.next_seq = 1;
     journal.bytes_written = 3;
     journal.last_chunk_final = true;
@@ -86,9 +86,10 @@ async fn the_status_of_a_detached_partial_upload_never_reads_its_bytes() {
         .await
         .unwrap();
     first.detach_direct_carrier("socket-a");
-    let temp = create_attachment_operation_paths(&base, SESSION, REQUEST)
-        .unwrap()
-        .temp_path;
+    let temp =
+        create_attachment_operation_paths(&base, SESSION, REQUEST, &base.session_dir(SESSION))
+            .unwrap()
+            .temp_path;
     std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o000)).unwrap();
 
     let status = owner(&base).status(SESSION, REQUEST);
@@ -109,9 +110,10 @@ async fn a_failed_directory_flush_withholds_the_final_receipt() {
         .await
         .unwrap();
     assert!(!first.committed);
-    let operation_dir = create_attachment_operation_paths(&base, SESSION, REQUEST)
-        .unwrap()
-        .operation_dir;
+    let operation_dir =
+        create_attachment_operation_paths(&base, SESSION, REQUEST, &base.session_dir(SESSION))
+            .unwrap()
+            .operation_dir;
     // Writable and searchable but not readable: every step of the commit works
     // except opening the directory to flush it.
     std::fs::set_permissions(&operation_dir, std::fs::Permissions::from_mode(0o300)).unwrap();
@@ -148,9 +150,10 @@ async fn the_journal_records_metadata_and_progress_never_chunk_bytes() {
         .outcome()
         .await
         .unwrap();
-    let journal_path = create_attachment_operation_paths(&base, SESSION, REQUEST)
-        .unwrap()
-        .journal_path;
+    let journal_path =
+        create_attachment_operation_paths(&base, SESSION, REQUEST, &base.session_dir(SESSION))
+            .unwrap()
+            .journal_path;
     let text = std::fs::read_to_string(journal_path).unwrap();
     assert!(text.len() < 2_048);
     let journal: serde_json::Value = serde_json::from_str(&text).unwrap();

@@ -1,13 +1,19 @@
-//! Where attachments live: the base every session's directory hangs from, one
-//! session's directory inside it, and the private names a session directory
-//! holds beside its files. Ports the path half of v2
-//! `apps/worker/src/attachments/attachment-reaper.ts` (`attachmentBaseDir`,
-//! `attachmentSessionDir`, `resolveSessionDirWithinBase`, the private names).
-//! Called by the file store, the operation journal, the reaper and the browser
-//! attachment commands.
+//! Where attachments live: the private base every session's directory hangs
+//! from, one session's directory inside it, the private names a directory
+//! holds beside its files, and the media directory a session's uploads land
+//! in — `<folder>/.roost/media` when its shell stands in a folder, else the
+//! private session directory. Ports the path half of v2
+//! `apps/worker/src/attachments/attachment-reaper.ts`. Called by the file
+//! store, the operation journal, the reaper and the browser attachment
+//! commands; the project half is `media_dirs`.
 
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
+
+use super::media_dirs::{
+    MediaDirRegistry, SessionFolders, prepare_project_media_dir, project_media_dir,
+};
 
 /// The dedup index (digest → filename) in each session directory. It survives
 /// the reaper and never appears in a listing.
@@ -21,18 +27,41 @@ pub const ATTACHMENT_OPERATION_DIR_NAME: &str = ".operations";
 pub const SHORTCUT_DIR_NAME: &str = ".shortcuts";
 
 /// The attachment base, resolved once: `<worker data dir>/attachments` (v2
-/// used `~/.roost/attachments`; see the crate README's deviations). Every
-/// session directory is derived from it, and nothing outside it is written.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// used `~/.roost/attachments`; see the crate README's deviations). Operation
+/// journals always live beneath it; uploaded files land in [`Self::media_dir`].
+#[derive(Clone)]
 pub struct AttachmentBase {
     root: PathBuf,
+    folders: Option<Arc<dyn SessionFolders>>,
+    registry: Arc<MediaDirRegistry>,
+}
+
+impl std::fmt::Debug for AttachmentBase {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AttachmentBase")
+            .field("root", &self.root)
+            .field("project_media", &self.folders.is_some())
+            .finish()
+    }
 }
 
 impl AttachmentBase {
+    /// A base whose uploads all land in private session directories.
     pub fn new(root: impl Into<PathBuf>) -> Self {
+        let root = resolve_lexically(&root.into());
         Self {
-            root: resolve_lexically(&root.into()),
+            registry: Arc::new(MediaDirRegistry::new(&root)),
+            root,
+            folders: None,
         }
+    }
+
+    /// Land each session's uploads in its shell's folder, under `.roost/media`.
+    #[must_use]
+    pub fn with_session_folders(mut self, folders: Arc<dyn SessionFolders>) -> Self {
+        self.folders = Some(folders);
+        self
     }
 
     pub fn root(&self) -> &Path {
@@ -51,6 +80,49 @@ impl AttachmentBase {
     pub fn resolve_session_dir(&self, session_id: &str) -> Option<PathBuf> {
         let dir = self.session_dir(session_id);
         dir.starts_with(&self.root).then_some(dir)
+    }
+
+    /// Where this session's uploads land now, without creating anything: the
+    /// project media directory of its shell's folder, else its private one.
+    pub fn media_dir(&self, session_id: &str) -> Option<PathBuf> {
+        self.resolve_session_dir(session_id)?;
+        self.project_media_dir(session_id)
+            .or_else(|| self.resolve_session_dir(session_id))
+    }
+
+    /// [`Self::media_dir`], created and registered for an upload about to
+    /// write into it. A project directory that cannot be prepared falls back
+    /// to the private one rather than failing the upload.
+    pub fn prepare_media_dir(&self, session_id: &str) -> Option<PathBuf> {
+        let private = self.resolve_session_dir(session_id)?;
+        let Some(dir) = self.project_media_dir(session_id) else {
+            return Some(private);
+        };
+        match prepare_project_media_dir(&dir).and_then(|()| self.registry.register(&dir)) {
+            Ok(()) => Some(dir),
+            Err(error) => {
+                tracing::warn!(
+                    session_id,
+                    dir = %dir.display(),
+                    %error,
+                    "the project media directory could not be prepared; the upload lands in the private session directory"
+                );
+                Some(private)
+            }
+        }
+    }
+
+    /// The project media directories the reaper bounds beside the base.
+    pub fn media_registry(&self) -> &MediaDirRegistry {
+        &self.registry
+    }
+
+    /// A folder inside the base is never a project: a shell standing in the
+    /// worker's own data must not grow a `.roost` there.
+    fn project_media_dir(&self, session_id: &str) -> Option<PathBuf> {
+        let folder = self.folders.as_ref()?.session_folder(session_id)?;
+        let usable = folder.is_absolute() && !folder.starts_with(&self.root) && folder.is_dir();
+        usable.then(|| project_media_dir(&normalize(&folder)))
     }
 }
 

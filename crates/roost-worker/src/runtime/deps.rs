@@ -19,7 +19,6 @@
 //! capability still compiles, and a browser still waits.
 //! Ports v2 `apps/worker/src/transport/coord-link-deps.ts`.
 
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use roost_host::HostPlatform;
@@ -48,8 +47,9 @@ pub struct WorkerCapabilities {
     /// owner and the `SessionLifecycle` capability, so it appears once here
     /// rather than as two arguments that could disagree.
     pub manager: Arc<SessionManager>,
-    /// The root every session's attachment directory hangs from.
-    pub attachment_root: PathBuf,
+    /// The attachment base the upload owner writes through, shared so the
+    /// browser commands resolve the same media directories.
+    pub attachments: AttachmentBase,
     /// The one terminal incident recorder the session data path feeds; the
     /// diagnostics command reaches it rather than a second one built here.
     pub capture: Arc<CaptureRecorder>,
@@ -82,7 +82,7 @@ impl WorkerCapabilities {
         let Self {
             sessions,
             manager,
-            attachment_root,
+            attachments,
             capture,
             platform,
             searches,
@@ -94,9 +94,7 @@ impl WorkerCapabilities {
             grid: Arc::new(SessionGrid::new(Arc::clone(&sessions))),
             search: Arc::new(GridScanner::new(Arc::clone(&sessions))),
             searches: Arc::clone(&searches),
-            attachments: Arc::new(SessionAttachments::new(AttachmentBase::new(
-                attachment_root,
-            ))),
+            attachments: Arc::new(SessionAttachments::new(attachments)),
             diagnostics: capture,
         }
     }

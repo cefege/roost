@@ -1,9 +1,9 @@
-//! A session's attachment directory as browser commands see it: what is in it,
+//! A session's media directory as browser commands see it: what is in it,
 //! removing one file from it, and whether bytes the browser is about to upload
 //! are already there. Ports v2
 //! `apps/worker/src/attachments/browser-command-attachments.ts`; the directory
 //! rules and the dedup manifest are `crate::attachments` (`store_paths`,
-//! `file_store`), the one owner every upload path shares.
+//! `media_dirs`, `file_store`), the one owner every upload path shares.
 
 use std::path::Path;
 use std::time::UNIX_EPOCH;
@@ -14,6 +14,7 @@ use serde_json::Value;
 
 use super::{Answered, Boxed, Command, Deps, Refusal, Reply};
 use crate::attachments::file_store::probe_attachment;
+use crate::attachments::media_dirs::MEDIA_GITIGNORE_NAME;
 use crate::attachments::store_paths::{AttachmentBase, MANIFEST_NAME, join_lexically};
 
 /// What an attachment command answers with.
@@ -101,7 +102,7 @@ impl AttachmentStore for SessionAttachments {
         let base = self.base.clone();
         Box::pin(async move {
             let dir = base
-                .resolve_session_dir(session_id.as_str())
+                .media_dir(session_id.as_str())
                 .ok_or_else(|| invalid_session("list-attachments"))?;
             tokio::task::spawn_blocking(move || list_session_dir(&dir))
                 .await
@@ -114,7 +115,7 @@ impl AttachmentStore for SessionAttachments {
         Box::pin(async move {
             check_leaf(&filename)?;
             let dir = base
-                .resolve_session_dir(session_id.as_str())
+                .media_dir(session_id.as_str())
                 .ok_or_else(|| invalid_session("delete-attachment"))?;
             let target = join_lexically(&dir, &filename);
             match tokio::fs::remove_file(&target).await {
@@ -151,9 +152,9 @@ impl AttachmentStore for SessionAttachments {
     }
 }
 
-/// Every regular file but the manifest, newest first. A session that never
-/// took an upload has no directory, and "no attachments" is the truthful
-/// answer; one unreadable entry never fails a listing.
+/// Every regular file but the manifest and the `.gitignore`, newest first. A
+/// session that never took an upload has no directory, and "no attachments"
+/// is the truthful answer; one unreadable entry never fails a listing.
 fn list_session_dir(dir: &Path) -> AttachmentOutcome {
     let mut entries = Vec::new();
     if dir.exists() {
@@ -162,7 +163,7 @@ fn list_session_dir(dir: &Path) -> AttachmentOutcome {
         })?;
         for entry in reader.filter_map(Result::ok) {
             let filename = entry.file_name().to_string_lossy().into_owned();
-            if filename == MANIFEST_NAME {
+            if filename == MANIFEST_NAME || filename == MEDIA_GITIGNORE_NAME {
                 continue;
             }
             let path = entry.path();

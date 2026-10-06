@@ -86,7 +86,7 @@ pub fn AttachmentsPane() -> Element {
             "data-testid": "attachments-pane",
             Card {
                 title: "Attachments",
-                supporting: "Files dropped into the PTY land in ~/.roost/attachments/<sid>/. They're swept after 24 hours.",
+                supporting: "Files dropped into a terminal land in .roost/media inside the session's folder (git-ignored). They're deleted after 7 days.",
                 div { class: "md-form-row",
                     Select {
                         label: "Session",

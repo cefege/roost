@@ -56,6 +56,8 @@ mod attachment_direct_socket;
 mod attachment_grants;
 #[path = "attachment_loopback_upload.rs"]
 mod attachment_loopback_upload;
+#[path = "attachment_media_dirs.rs"]
+mod attachment_media_dirs;
 #[path = "attachment_operation_owner.rs"]
 mod attachment_operation_owner;
 #[path = "attachment_operation_recovery.rs"]

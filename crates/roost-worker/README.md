@@ -28,15 +28,23 @@ below.
   recorded the intended digest. Guard:
   `tests/attachment_operation_owner.rs`
   `a_resumed_direct_upload_appends_after_the_bytes_it_already_holds`.
-- **Attachments live under `<worker data dir>/attachments`.** v2 used
-  `~/.roost/attachments` (`attachment-reaper.ts` `attachmentBaseDir`). Why:
-  the reaper deletes files older than 24 h and evicts past 1 GiB at boot and
-  hourly, and the dedup manifest is rewritten on every commit, so a v3 worker
-  on v2's path would run a second reaper and a second manifest writer over the
-  live v2 directory during the side-by-side run, and an in-process boot test
-  (`tests/retire_support`, `tests/local_terminal_pty.rs`) would sweep the
-  operator's attachments. Clients are always answered an absolute path, so the
-  base is not a wire contract (`attachments::store_paths::AttachmentBase`).
+- **Attachments land in the session's folder, `<cwd>/.roost/media`.** v2
+  wrote every upload to `~/.roost/attachments/<session>`. Why: an agent
+  started from that shell reads its project folder without a permission
+  prompt, and the path survives a resumed conversation. The folder is the
+  session's live `cwd` when the operation opens and is recorded in its journal,
+  so a shell that moves mid-upload does not move the file. The directory
+  carries a `.gitignore` of `*`; a symlinked `.roost` or `media`, a folder
+  inside the base, or a folder the worker cannot write falls back to the
+  private `<worker data dir>/attachments/<session>`, where journals always
+  live (v2 used `~/.roost/attachments`, and a v3 reaper there would sweep the
+  live v2 directory during the side-by-side run). Every project directory
+  written into is recorded in `attachments/media-dirs.json`, and the reaper
+  deletes files older than 7 days and evicts past 1 GiB across the private
+  base and those directories, at boot and hourly. Clients are always answered
+  an absolute path, so neither location is a wire contract
+  (`attachments::store_paths::AttachmentBase`, `attachments::media_dirs`).
+  Guard: `tests/attachment_media_dirs.rs`.
 
 ## Not ported: the Windows-only half of v2
 

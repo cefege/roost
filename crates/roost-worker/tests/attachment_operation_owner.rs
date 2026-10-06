@@ -194,7 +194,9 @@ async fn the_idle_sweep_fails_a_silent_relay_and_parks_a_silent_direct_upload() 
     clock.advance(std::time::Duration::from_millis(1));
     owner.sweep_idle();
 
-    let relay_paths = create_attachment_operation_paths(&base, SESSION, "relay").unwrap();
+    let relay_paths =
+        create_attachment_operation_paths(&base, SESSION, "relay", &base.session_dir(SESSION))
+            .unwrap();
     assert!(!relay_paths.temp_path.exists());
     let resumed = ChunkShape {
         seq: 1,

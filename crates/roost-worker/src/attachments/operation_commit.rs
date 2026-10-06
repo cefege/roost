@@ -38,16 +38,14 @@ impl AttachmentOperationOwner {
         mut operation: ActiveOperation,
     ) -> Step {
         drop(operation.file.take());
-        let destination = reserve_attachment_destination(
-            &operation.paths.session_dir,
-            &operation.journal.filename,
-        );
+        let destination =
+            reserve_attachment_destination(&operation.paths.media_dir, &operation.journal.filename);
         operation.journal.final_name = destination.file_name;
         operation.journal.content_sha256 = digest_hex(std::mem::take(&mut operation.hasher));
         let placed = persist_attachment_operation(&operation.paths, &operation.journal, false)
             .and_then(|()| {
                 place_attachment_destination(
-                    &operation.paths.session_dir,
+                    &operation.paths.media_dir,
                     &operation.paths.temp_path,
                     &operation.journal.final_name,
                     &operation.journal.content_sha256,
@@ -59,12 +57,11 @@ impl AttachmentOperationOwner {
         };
         let owner = Arc::clone(self);
         let key = operation.key.clone();
-        let session_dir = operation.paths.session_dir.clone();
-        let flush = tokio::spawn(async move {
-            owner
-                .finish_commit(key, placed.file_path, session_dir)
-                .await
-        });
+        let media_dir = operation.paths.media_dir.clone();
+        let flush =
+            tokio::spawn(
+                async move { owner.finish_commit(key, placed.file_path, media_dir).await },
+            );
         let commit: SharedCommit = async move {
             flush
                 .await
@@ -81,9 +78,9 @@ impl AttachmentOperationOwner {
         self: Arc<Self>,
         key: String,
         placed_path: PathBuf,
-        session_dir: PathBuf,
+        media_dir: PathBuf,
     ) -> AttachmentOperationResult {
-        let flushed = self.flush_commit(&key, &placed_path, &session_dir).await;
+        let flushed = self.flush_commit(&key, &placed_path, &media_dir).await;
         // Held through the failure path, so a status read cannot find the
         // journal on disk half-failed and try to recover it.
         let mut active = self.lock_active();
@@ -113,11 +110,11 @@ impl AttachmentOperationOwner {
         &self,
         key: &str,
         placed_path: &Path,
-        session_dir: &Path,
+        media_dir: &Path,
     ) -> io::Result<()> {
         tokio::try_join!(
             sync_attachment_file_async(placed_path),
-            sync_attachment_directory_async(session_dir),
+            sync_attachment_directory_async(media_dir),
         )?;
         let (journal_path, operation_dir) = {
             let mut active = self.lock_active();
@@ -127,11 +124,11 @@ impl AttachmentOperationOwner {
             let paths = &operation.paths;
             let journal = &mut operation.journal;
             record_attachment_hash(
-                &paths.session_dir,
+                &paths.media_dir,
                 &journal.content_sha256,
                 &journal.final_name,
             );
-            journal.abs_path = reply_path(&paths.session_dir, placed_path, journal.short_path);
+            journal.abs_path = reply_path(&paths.media_dir, placed_path, journal.short_path);
             journal.committed = true;
             persist_attachment_operation(paths, journal, false)?;
             (paths.journal_path.clone(), paths.operation_dir.clone())
@@ -152,7 +149,7 @@ pub(super) fn recover_finalization(
     journal: &mut AttachmentOperationJournal,
 ) -> bool {
     let committed = match commit_attachment_destination(
-        &paths.session_dir,
+        &paths.media_dir,
         &paths.temp_path,
         &journal.final_name,
         &journal.content_sha256,
@@ -171,7 +168,7 @@ pub(super) fn recover_finalization(
         fail_journal(paths, journal, AttachmentOperationError::WriteFailed);
         return false;
     }
-    journal.abs_path = reply_path(&paths.session_dir, &committed.file_path, journal.short_path);
+    journal.abs_path = reply_path(&paths.media_dir, &committed.file_path, journal.short_path);
     journal.committed = true;
     if let Err(error) = persist_attachment_operation(paths, journal, true) {
         tracing::warn!(request_id = %journal.request_id, %error, "a recovered attachment commit could not be journaled");
@@ -226,8 +223,8 @@ fn commit_failed(mut operation: ActiveOperation, error: &io::Error) -> Attachmen
     fail_operation(operation, AttachmentOperationError::WriteFailed)
 }
 
-fn reply_path(session_dir: &Path, file_path: &Path, short_path: bool) -> String {
-    attachment_reply_path(session_dir, file_path, short_path)
+fn reply_path(media_dir: &Path, file_path: &Path, short_path: bool) -> String {
+    attachment_reply_path(media_dir, file_path, short_path)
         .to_string_lossy()
         .into_owned()
 }

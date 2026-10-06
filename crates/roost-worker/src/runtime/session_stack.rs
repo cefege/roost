@@ -30,9 +30,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use roost_observability::clock::{EventClock, SystemClock};
-use roost_protocol::wire::brand::WorkerFp;
+use roost_protocol::wire::brand::{SessionId, WorkerFp};
 
 use crate::agents::environment::{AgentReportEnvironment, AgentReportSite};
+use crate::attachments::media_dirs::SessionFolders;
 use crate::attachments::store_paths::AttachmentBase;
 use crate::browser_commands::search::Searches;
 use crate::capture::{CaptureRecorder, CaptureRecorderDeps};
@@ -91,7 +92,8 @@ pub struct SessionStack {
     /// by the channel delivery; the agent detector installs the hook.
     pub terminal_changed: Arc<TerminalChangedHooks>,
     /// Where every session's attachments land: the browser attachment
-    /// commands and the upload owner and reaper read this one base.
+    /// commands and the upload owner and reaper read this one base, whose
+    /// session folders are this stack's table.
     pub attachments: AttachmentBase,
     /// The one terminal incident recorder (v2 `diag/terminal-capture.ts`): the
     /// emitter feeds its tap, `deps` hands it to the diagnostics command.
@@ -225,7 +227,8 @@ pub fn build(
         resolver_for_manager,
         core_capacity,
     );
-    let attachments = AttachmentBase::new(attachment_root(data_dir));
+    let attachments = AttachmentBase::new(attachment_root(data_dir))
+        .with_session_folders(Arc::clone(&table) as Arc<dyn SessionFolders>);
     let capture = CaptureRecorder::attach_to_emitter(
         CaptureRecorderDeps::for_process(&table, &manager, log_dir, process_epoch, &worker_fp_text),
         &emitter,
@@ -283,7 +286,7 @@ impl SessionStack {
         super::deps::WorkerCapabilities {
             sessions: Arc::clone(&self.table),
             manager: Arc::clone(&self.manager),
-            attachment_root: self.attachments.root().to_path_buf(),
+            attachments: self.attachments.clone(),
             capture: Arc::clone(&self.capture),
             platform,
             searches: Arc::clone(&self.searches),
@@ -300,4 +303,13 @@ impl SessionStack {
 /// attachments by clearing a directory whose name says it holds only text.
 pub fn attachment_root(data_dir: &std::path::Path) -> PathBuf {
     data_dir.join(ATTACHMENTS_DIR)
+}
+
+/// A session's uploads follow its shell: the live `cwd` OSC 7 keeps current,
+/// which is the folder an agent started from that shell treats as its project.
+impl SessionFolders for SessionTable {
+    fn session_folder(&self, session_id: &str) -> Option<PathBuf> {
+        let session_id = SessionId::try_from(session_id).ok()?;
+        self.with_record(&session_id, |record| PathBuf::from(&record.identity.cwd))
+    }
 }

@@ -1,7 +1,9 @@
 //! One upload's durable record: the descriptor it was opened with, the carrier
-//! that owns it, how far it got, and its one outcome. It lives beneath the
-//! session's attachment directory and is flushed before any direct receipt is
-//! sent, so a restarted worker still answers a lost acknowledgement. Ports v2
+//! that owns it, the media directory its file lands in, how far it got, and
+//! its one outcome. It lives beneath the session's private directory and is
+//! flushed before any direct receipt is sent, so a restarted worker still
+//! answers a lost acknowledgement; the temp lives in the media directory so
+//! the commit is a same-filesystem rename. Ports v2
 //! `apps/worker/src/attachments/attachment-operation-journal.ts`. Called by the
 //! operation owner and the upload facade.
 
@@ -16,6 +18,7 @@ use super::file_store::{
     create_private_dir, sync_attachment_directory, sync_attachment_directory_async,
     sync_attachment_file_async, write_private_file,
 };
+use super::media_dirs::is_project_media_dir;
 use super::store_paths::{ATTACHMENT_OPERATION_DIR_NAME, AttachmentBase, resolve_lexically};
 use super::{Carrier, OperationDescriptor};
 
@@ -28,6 +31,7 @@ const MAX_OPAQUE_ID_BYTES: usize = 128;
 const MAX_TEXT_BYTES: usize = 1_024;
 const MAX_CARRIER_ID_BYTES: usize = 128;
 const MAX_FINAL_NAME_BYTES: usize = 255;
+const MAX_MEDIA_DIR_BYTES: usize = 4_096;
 
 /// The journal file, field for field as v2 writes it — camelCase, because a
 /// worker upgraded mid-upload must read the journal its predecessor left.
@@ -38,6 +42,11 @@ pub struct AttachmentOperationJournal {
     pub request_id: String,
     pub session_id: String,
     pub filename: String,
+    /// Where the file lands, decided when the operation opened. Empty in a
+    /// journal written before media directories existed: the session's
+    /// private directory.
+    #[serde(default)]
+    pub media_dir: String,
     pub short_path: bool,
     /// Required on disk and nullable, as v2's schema is.
     #[serde(deserialize_with = "required_nullable")]
@@ -71,12 +80,15 @@ impl AttachmentOperationJournal {
     }
 }
 
-/// The four places one operation touches.
+/// The places one operation touches: its journal beneath the private session
+/// directory, its temp and final file beneath the media directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttachmentOperationPaths {
     pub session_dir: PathBuf,
     pub operation_dir: PathBuf,
     pub journal_path: PathBuf,
+    pub media_dir: PathBuf,
+    pub temp_dir: PathBuf,
     pub temp_path: PathBuf,
 }
 
@@ -106,17 +118,21 @@ pub fn create_attachment_operation_paths(
     base: &AttachmentBase,
     session_id: &str,
     request_id: &str,
+    media_dir: &Path,
 ) -> Option<AttachmentOperationPaths> {
     if !valid_opaque_id(request_id) {
         return None;
     }
     let session_dir = base.resolve_session_dir(session_id)?;
     let operation_dir = session_dir.join(ATTACHMENT_OPERATION_DIR_NAME);
+    let temp_dir = media_dir.join(ATTACHMENT_OPERATION_DIR_NAME);
     Some(AttachmentOperationPaths {
         journal_path: operation_dir.join(format!("{request_id}.json")),
-        temp_path: operation_dir.join(format!("{request_id}.part")),
+        temp_path: temp_dir.join(format!("{request_id}.part")),
         operation_dir,
         session_dir,
+        media_dir: media_dir.to_path_buf(),
+        temp_dir,
     })
 }
 
@@ -125,21 +141,32 @@ pub fn load_attachment_operation(
     session_id: &str,
     request_id: &str,
 ) -> AttachmentOperationLoad {
-    let Some(paths) = create_attachment_operation_paths(base, session_id, request_id) else {
+    let Some(session_dir) = base
+        .resolve_session_dir(session_id)
+        .filter(|_| valid_opaque_id(request_id))
+    else {
         return AttachmentOperationLoad::Missing;
     };
-    if !paths.journal_path.exists() {
+    let journal_path = session_dir
+        .join(ATTACHMENT_OPERATION_DIR_NAME)
+        .join(format!("{request_id}.json"));
+    if !journal_path.exists() {
         return AttachmentOperationLoad::Missing;
     }
-    let Some(journal) = fs::read_to_string(&paths.journal_path)
+    let Some(journal) = fs::read_to_string(&journal_path)
         .ok()
         .and_then(|text| parse_journal(&text))
     else {
         return AttachmentOperationLoad::Invalid;
     };
+    let Some(paths) = recorded_media_dir(&session_dir, &journal.media_dir).and_then(|media_dir| {
+        create_attachment_operation_paths(base, session_id, request_id, &media_dir)
+    }) else {
+        return AttachmentOperationLoad::Invalid;
+    };
     if journal.session_id != session_id
         || journal.request_id != request_id
-        || !valid_receipt_path(&paths.session_dir, &journal.abs_path)
+        || !valid_receipt_path(&paths.media_dir, &journal.abs_path)
     {
         return AttachmentOperationLoad::Invalid;
     }
@@ -149,24 +176,36 @@ pub fn load_attachment_operation(
     }
 }
 
-/// `Ok(None)` when the ids name no operation this store may hold.
+/// `Ok(None)` when the ids name no operation this store may hold. The media
+/// directory is chosen here, once: a shell that changes folder mid-upload
+/// does not move the operation.
 pub fn create_attachment_operation(
     base: &AttachmentBase,
     descriptor: &OperationDescriptor,
     carrier: Carrier,
     carrier_id: &str,
 ) -> io::Result<Option<CreatedOperation>> {
-    let Some(paths) =
-        create_attachment_operation_paths(base, &descriptor.session_id, &descriptor.request_id)
+    let Some(paths) = base
+        .prepare_media_dir(&descriptor.session_id)
+        .and_then(|media_dir| {
+            create_attachment_operation_paths(
+                base,
+                &descriptor.session_id,
+                &descriptor.request_id,
+                &media_dir,
+            )
+        })
     else {
         return Ok(None);
     };
     create_private_dir(&paths.operation_dir)?;
+    create_private_dir(&paths.temp_dir)?;
     let journal = AttachmentOperationJournal {
         version: JOURNAL_VERSION,
         request_id: descriptor.request_id.clone(),
         session_id: descriptor.session_id.clone(),
         filename: descriptor.filename.clone(),
+        media_dir: paths.media_dir.to_string_lossy().into_owned(),
         short_path: descriptor.short_path,
         total_bytes: descriptor.total_bytes,
         last_chunk_final: false,
@@ -184,6 +223,11 @@ pub fn create_attachment_operation(
     // Unsynced: relay progress is never durable, and a direct acknowledgement
     // flushes this journal before it is sent.
     persist_attachment_operation(&paths, &journal, false)?;
+    tracing::info!(
+        request_id = %journal.request_id,
+        media_dir = %paths.media_dir.display(),
+        "an attachment operation chose its media directory"
+    );
     Ok(Some(CreatedOperation { paths, journal }))
 }
 
@@ -210,21 +254,26 @@ pub fn persist_attachment_operation(
     Ok(())
 }
 
-/// Flush one accepted direct chunk — temp, journal and both directories —
-/// without blocking a runtime thread. None orders another, so they run
-/// together; every one lands before the acknowledgement.
+/// Flush one accepted direct chunk — temp, journal and every directory entry
+/// leading to them — without blocking a runtime thread. None orders another,
+/// so they run together; every one lands before the acknowledgement.
 pub async fn sync_attachment_operation_progress(
     base: &AttachmentBase,
     session_id: &str,
     request_id: &str,
 ) -> io::Result<()> {
-    let paths = create_attachment_operation_paths(base, session_id, request_id)
-        .ok_or_else(|| io::Error::other("attachment operation is unavailable"))?;
+    let AttachmentOperationLoad::Loaded { paths, .. } =
+        load_attachment_operation(base, session_id, request_id)
+    else {
+        return Err(io::Error::other("attachment operation is unavailable"));
+    };
     tokio::try_join!(
         sync_attachment_file_async(&paths.temp_path),
         sync_attachment_file_async(&paths.journal_path),
         sync_attachment_directory_async(&paths.operation_dir),
         sync_attachment_directory_async(&paths.session_dir),
+        sync_attachment_directory_async(&paths.temp_dir),
+        sync_attachment_directory_async(&paths.media_dir),
     )?;
     Ok(())
 }
@@ -253,8 +302,21 @@ fn parse_journal(text: &str) -> Option<AttachmentOperationJournal> {
         && !has_control(&journal.carrier_id)
         && valid_digest(&journal.last_chunk_sha256)
         && valid_final_name(&journal.final_name)
-        && valid_digest(&journal.content_sha256);
+        && valid_digest(&journal.content_sha256)
+        && journal.media_dir.len() <= MAX_MEDIA_DIR_BYTES
+        && !has_control(&journal.media_dir);
     valid.then_some(journal)
+}
+
+/// The media directory a journal recorded: its session's private directory,
+/// or a project media directory. Anything else is a journal this worker did
+/// not write, and its operation is invalid.
+fn recorded_media_dir(session_dir: &Path, recorded: &str) -> Option<PathBuf> {
+    if recorded.is_empty() {
+        return Some(session_dir.to_path_buf());
+    }
+    let dir = resolve_lexically(Path::new(recorded));
+    (dir == session_dir || is_project_media_dir(&dir)).then_some(dir)
 }
 
 /// An upload, grant, session, device or tab id: 1–128 bytes, never a path

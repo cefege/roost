@@ -1,9 +1,10 @@
 //! Bounds what attachments may cost a machine: once at boot and then hourly,
-//! files older than 24 h are deleted and the whole base is held under 1 GiB by
-//! evicting the oldest survivors. The dedup manifest is never swept; operation
-//! temps and shortcuts are. Ports the sweep of v2
-//! `apps/worker/src/attachments/attachment-reaper.ts`. Started by
-//! `runtime::owners`; a missing base is a quiet no-op.
+//! files older than 7 days are deleted and everything together — the private
+//! session directories and every registered project media directory — is
+//! held under 1 GiB by evicting the oldest survivors. Dedup manifests and
+//! media `.gitignore`s are never swept; operation temps and shortcuts are.
+//! Ports the sweep of v2 `apps/worker/src/attachments/attachment-reaper.ts`.
+//! Started by `runtime::owners`; a missing base is a quiet no-op.
 
 use std::fs;
 use std::io;
@@ -12,12 +13,14 @@ use std::time::{Duration, SystemTime};
 
 use tokio::task::JoinHandle;
 
+use super::media_dirs::{MEDIA_GITIGNORE_NAME, is_project_media_dir, is_real_media_dir};
 use super::store_paths::{
     ATTACHMENT_OPERATION_DIR_NAME, AttachmentBase, MANIFEST_NAME, SHORTCUT_DIR_NAME,
 };
 
-/// A file older than this is deleted.
-pub const ATTACHMENT_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+/// A file older than this is deleted. Long enough that an agent conversation
+/// resumed days later still finds the screenshots it was shown.
+pub const ATTACHMENT_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 /// The most every session's files together may hold.
 pub const ATTACHMENT_SIZE_CAP_BYTES: u64 = 1024 * 1024 * 1024;
@@ -70,33 +73,54 @@ pub fn start_attachment_reaper(base: AttachmentBase) -> JoinHandle<()> {
     })
 }
 
-/// One sweep of every session directory beneath the base, as of `now`.
+/// One sweep of every session directory beneath the base and every registered
+/// project media directory, as of `now`.
 pub fn sweep_attachments(base: &AttachmentBase, now: SystemTime) -> io::Result<SweepSummary> {
-    let root = base.root();
-    if !root.exists() {
-        return Ok(SweepSummary::default());
-    }
     let mut sweep = Sweep::default();
-    for session_dir in entries(root)? {
-        if !fs::metadata(&session_dir).is_ok_and(|metadata| metadata.is_dir()) {
-            continue;
-        }
-        let Ok(names) = entries(&session_dir) else {
-            continue;
-        };
-        for path in names {
-            match file_name(&path) {
-                Some(MANIFEST_NAME) => {}
-                Some(ATTACHMENT_OPERATION_DIR_NAME) => sweep_operations(&path, now, &mut sweep),
-                Some(SHORTCUT_DIR_NAME) => sweep_shortcuts(&path, now, &mut sweep),
-                _ => sweep_file(&path, now, &mut sweep, true),
+    let root = base.root();
+    if root.exists() {
+        for session_dir in entries(root)? {
+            if !fs::metadata(&session_dir).is_ok_and(|metadata| metadata.is_dir()) {
+                continue;
             }
+            sweep_media_dir(&session_dir, now, &mut sweep);
+            remove_if_empty(&session_dir);
         }
-        remove_if_empty(&session_dir);
+    }
+    let registry = base.media_registry();
+    for media_dir in registry.registered() {
+        if !is_project_media_dir(&media_dir) {
+            continue;
+        }
+        if !media_dir.exists() {
+            if let Err(error) = registry.forget(&media_dir) {
+                tracing::warn!(dir = %media_dir.display(), %error, "attachment reaper could not forget a vanished media directory");
+            }
+            continue;
+        }
+        if !is_real_media_dir(&media_dir) {
+            tracing::warn!(dir = %media_dir.display(), "attachment reaper skipped a media directory that is now a symlink");
+            continue;
+        }
+        sweep_media_dir(&media_dir, now, &mut sweep);
     }
     evict_oldest(&mut sweep);
     sweep.summary.retained_bytes = sweep.total;
     Ok(sweep.summary)
+}
+
+fn sweep_media_dir(dir: &Path, now: SystemTime, sweep: &mut Sweep) {
+    let Ok(names) = entries(dir) else {
+        return;
+    };
+    for path in names {
+        match file_name(&path) {
+            Some(MANIFEST_NAME | MEDIA_GITIGNORE_NAME) => {}
+            Some(ATTACHMENT_OPERATION_DIR_NAME) => sweep_operations(&path, now, sweep),
+            Some(SHORTCUT_DIR_NAME) => sweep_shortcuts(&path, now, sweep),
+            _ => sweep_file(&path, now, sweep, true),
+        }
+    }
 }
 
 /// Shortcuts count against the cap like any file, so the TTL and the 1 GiB

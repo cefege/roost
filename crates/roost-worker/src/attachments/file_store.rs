@@ -132,15 +132,16 @@ pub fn record_attachment_hash(dir: &Path, sha256: &str, file_name: &str) {
     save_manifest(dir, &manifest);
 }
 
-/// Whether this session already holds bytes with this digest, answered from
-/// the manifest: nothing a caller sends chooses which path is read.
+/// Whether this session's media directory already holds bytes with this
+/// digest, answered from the manifest: nothing a caller sends chooses which
+/// path is read.
 pub fn probe_attachment(
     base: &AttachmentBase,
     session_id: &str,
     sha256: &str,
     short_path: bool,
 ) -> AttachmentProbe {
-    let Some(dir) = base.resolve_session_dir(session_id) else {
+    let Some(dir) = base.media_dir(session_id) else {
         return AttachmentProbe::miss();
     };
     let manifest = load_manifest(&dir);

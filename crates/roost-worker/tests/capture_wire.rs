@@ -143,7 +143,9 @@ fn production_deps(harness: &CaptureHarness) -> roost_worker::browser_commands::
     WorkerCapabilities {
         sessions: Arc::clone(&harness.stream.table),
         manager: Arc::clone(&harness.stream.manager),
-        attachment_root: scratch("wire-attachments"),
+        attachments: roost_worker::attachments::store_paths::AttachmentBase::new(scratch(
+            "wire-attachments",
+        )),
         capture: Arc::clone(&harness.recorder),
         platform: roost_host::HostPlatform::Linux,
         searches: Arc::new(Mutex::new(Searches::default())),

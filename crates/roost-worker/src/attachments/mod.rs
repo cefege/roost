@@ -1,10 +1,10 @@
-//! The session attachment surface: where a browser's files land, the durable
+//! The session attachment surface: where a browser's files land (the
+//! session's project media directory or its private one), the durable
 //! operation that writes them, the reaper that bounds them, the grants, hello
 //! admission and lease a direct carrier runs under, and the loopback and peer
 //! carriers themselves (`direct_*`, `peer_*`). Ports v2
 //! `apps/worker/src/attachments/`. Composed once by `runtime::owners`; the
 //! coordinator link reaches it through [`link`].
-//! Ports v2 `apps/worker/src/attachments/attachment-operation-receipts.ts`.
 
 pub mod direct_chunks;
 pub mod direct_frames;
@@ -20,6 +20,7 @@ mod grant_listeners;
 pub mod grants;
 pub mod journal;
 pub mod link;
+pub mod media_dirs;
 pub mod naming;
 mod operation_commit;
 mod operation_open;
