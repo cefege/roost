@@ -1,28 +1,28 @@
 <!-- AUDIENCE: human -->
 <div align="center">
 
-<img src="apps/web/public/icon.svg" width="72" alt="Roost logo">
+<img src="crates/roost-web/assets/icon.svg" width="72" alt="Roost logo">
 
 # Roost
 
 **One control panel for your terminal fleet.**
 
-Roost is a self-hosted, Bun-powered terminal control plane. One macOS or Linux
+Roost is a self-hosted terminal control plane written in Rust. One macOS or Linux
 machine hosts the coordinator and works as a worker itself; add other macOS or
 Linux machines as workers. Control the whole fleet from a laptop, tablet, or
 phone.
 
-**v0.5.0 publishes macOS arm64/x64 and Linux arm64/x64 host binaries.**
-Windows host releases are paused, but a Windows device remains fully supported
-as a browser client alongside macOS, Linux, iPhone, Android, and tablets.
+**v3 publishes macOS arm64/x64 and Linux arm64/x64 host binaries.** Windows
+is not a supported host, but a Windows device is fully supported as a browser
+client alongside macOS, Linux, iPhone, Android, and tablets.
 
 _I built Roost for my own daily workflow: real infrastructure, not a demo._
 
 [![License](https://img.shields.io/badge/license-GPL--3.0--only-blue)](LICENSE)
 ![Servers](https://img.shields.io/badge/coordinator%20%2B%20workers-macOS%20%7C%20Linux-lightgrey)
 ![Clients](https://img.shields.io/badge/clients-any%20browser%20%C2%B7%20iOS%20%7C%20Android%20%7C%20desktop-lightgrey)
-![Runtime](https://img.shields.io/badge/runtime-Bun-14151a?logo=bun&logoColor=white)
-![UI](https://img.shields.io/badge/ui-SolidJS-2c4f7c?logo=solid&logoColor=white)
+![Language](https://img.shields.io/badge/language-Rust-14151a?logo=rust&logoColor=white)
+![UI](https://img.shields.io/badge/ui-Dioxus-2c4f7c)
 
 </div>
 
@@ -92,8 +92,8 @@ gestures. Add it to your home screen for a standalone PWA with its own icon.
 **Sessions that survive ordinary disconnects.** A keeper subprocess normally
 keeps each PTY alive across worker restarts and retains a bounded 1 MiB raw
 history window per channel for adoption. Open, close, and respawn events enter
-a crash-safe SQLite outbox, replay one at a time, and leave only after an exact
-coordinator ACK. Browsers consume authoritative cell snapshots and deltas;
+the worker's crash-safe SQLite store, replay in order, and leave only after an
+exact coordinator ACK. Browsers consume authoritative cell snapshots and deltas;
 sequence gaps trigger an in-place rebaseline or Sync redial rather than a
 silent splice or page reload. Retained history is bounded, not an unlimited
 lossless byte log.
@@ -110,51 +110,45 @@ on your phone or laptop that opens straight to that session. Nothing about
 status is stored: restart anything and it re-derives itself.
 
 **The terminal is the only interactive surface.** Every session owns a PTY.
-The worker feeds its output through the `@wterm/core` WASM terminal model and
-ships cell snapshots/deltas; the browser paints that authoritative grid. The
+The worker feeds its output through an Alacritty-based terminal core
+(`roost-term`) and ships cell snapshots/deltas; the browser paints that authoritative grid. The
 program itself remains an ordinary agent CLI, shell, REPL, editor, or TUI.
 
-**Yours, not a SaaS.** It runs on your hardware over your own network. Coordinator startup automatically owns one internal local tenant (`local@roost.invalid`, a `personal` organization, and its `default` dashboard); there is no tenant-bootstrap command or login account to provision. Browser auth is an EdDSA JWT minted with WebCrypto, and the private key lives in IndexedDB and is never sent to the coordinator. There are no shared bearer tokens and no telemetry. Revoke a device by deleting a row.
-
-The managed per-account container, authentication gateway, and
-dashboard-isolation implementation also pass the mandatory four-file
-qualification profile, but they are **not publicly launched** in v0.5.0. No
-production managed containers run, no managed image is published, and the
-shared dashboard route is not active. Accounts remain operator-created;
-production email signup and Google auth are off.
+**Yours, not a SaaS.** It runs on your hardware over your own network. Coordinator startup automatically owns one internal local tenant (`local@roost.invalid`, a `personal` organization, and its `default` dashboard); there is no tenant-bootstrap command or login account to provision. Browser auth is an EdDSA JWT signed with a device key that lives in IndexedDB and is never sent to the coordinator. There are no shared bearer tokens and no telemetry. Revoke a device by deleting a row.
 
 ## How it works
 
 ```text
-   Browser  (same host via loopback; elsewhere after HTTPS expansion)
+   Browser  (Dioxus/wasm; same host via loopback, elsewhere via HTTPS front door)
       │   unary Connect-RPC over loopback HTTP or front-door HTTPS
       │   protobuf Sync WebSocket: events, terminal cells, views, input
       ▼
- ┌─────────────────────────┐
- │ Coordinator  (Bun)      │   event log + transactional projection · auth
- │ one machine · loopback  │   dashboard-scoped Sync and terminal fan-out
- └───────────┬─────────────┘
+ ┌───────────────────────────┐
+ │ Coordinator (roost coord) │   event log + transactional projection · auth
+ │ SQLite or Postgres        │   dashboard-scoped Sync and terminal fan-out
+ └───────────┬───────────────┘
              │   protobuf WebSocket · worker dials outbound
       ┌──────┴───────────────┐
       ▼                      ▼
- Worker                   Worker        (Bun, one per macOS/Linux host)
-      │   keeper subprocess owns each PTY across worker restarts
+ Worker                   Worker        (roost worker, one per macOS/Linux host)
+      │   roost-keeper subprocess owns each PTY across worker restarts
 ```
 
 The coordinator atomically stores each accepted session event with its
 projection. On reconnect, a worker replays durable lifecycle rows, publishes
 one authoritative membership snapshot, then enters live delivery. A browser
 reconnect folds ordered event backfill and uses guarded current-state snapshots
-when cold start or recovery requires them. Workers remain outbound-only. For
-the full tour, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
-
+when cold start or recovery requires them. Workers remain outbound-only. The
+crate map is [`crates/README.md`](crates/README.md); the wire contract is
+[`protocol/README.md`](protocol/README.md); the system tour is
+[`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Network
 
 The coordinator always listens in plaintext on its installed loopback bind.
-Fresh macOS/Linux quickstart uses `http://127.0.0.1:4103` with
-`ROOST_TRUST_PROXY=0`, no public URL, and a local worker that dials the same
-loopback origin. No domain, proxy, VPN, or Tailscale configuration is needed.
+Fresh macOS/Linux quickstart uses `http://127.0.0.1:4113`, no public URL, and a
+local worker that dials the same loopback origin; the worker's local door is
+`127.0.0.1:4114`. No domain, proxy, VPN, or Tailscale configuration is needed.
 
 To add remote browser or worker access, an operator chooses an HTTPS address and
 runs `roost quickstart --coordinator-url https://roost.example.com` on the
@@ -166,7 +160,7 @@ front door to forward to the installed loopback bind and overwrite
 
 Roost does not configure TLS, DNS, certificates, Tailscale Serve, VPNs, SSH, or
 target reachability. A declared HTTPS origin is not proof that another machine
-can reach it. The front door must deny `/internal/*` and `/api/db-export`; see
+can reach it. The front door must deny `/api/db-export`; see
 [`GETTING_STARTED.md`](GETTING_STARTED.md) for the recipes and caller-address
 requirements.
 
@@ -196,9 +190,8 @@ fragment, or path beyond `/`:
 roost quickstart --coordinator-url "https://roost.example.com"
 ```
 
-Windows host releases are paused: Roost publishes no Windows coordinator,
-worker, installer, or update path. Windows remains supported as a browser
-client.
+Roost publishes no Windows coordinator, worker, installer, or update path.
+Windows is supported as a browser client.
 
 Quickstart sends its one-shot `#pair` fragment directly to the local browser
 opener and never prints or logs the secret. The fragment is absent from HTTP
@@ -233,44 +226,49 @@ Claude on the web and on your phone is a control plane too, but it drives Anthro
 
 Your desktop browser stays perfectly usable for claude.ai. Roost isn't a replacement for it; it's the piece the cloud can't be, which is native control of your own fleet from anywhere.
 
-## Roadmap
-
-- **Headless-server polish.** Linux workers already install as a
-  `systemd --user` unit with linger; setup for a box reached only over SSH
-  remains.
-- **Multi-user self-hosting.** v0.5.0 automatically provisions one local
-  tenant; broader self-hosted operator administration remains outside this
-  release.
-- **Public managed launch.** Per-account isolation is qualified, while image
-  publication, dashboard activation, and production signup remain off.
-
 ## Status
 
-The v0.5.0 release boundary is explicit:
+v3 ships as `v3.0.0-rc.N` pre-releases on GitHub:
 
-- **Hosts:** macOS arm64/x64 and Linux arm64/x64. Windows host support is
-  paused; Windows remains supported as a browser client.
+- **Hosts:** macOS arm64/x64 and Linux arm64/x64. Windows is a browser client
+  only.
 - **Networks:** local-first loopback access, with optional operator-managed
   HTTPS promotion for remote browsers and workers. Roost does not configure
   Tailscale or another network.
-- **Deployment:** self-hosted macOS/Linux is released and deployed. Managed
-  per-account isolation is qualified, not publicly launched; accounts are
-  operator-created and production signup, Google auth, image publication, and
-  dashboard activation remain off.
-- **Beta surfaces:** global search is unavailable; use sidebar filtering or
-  per-terminal find. Cross-worker file transfer is unavailable; use `rsync` or
-  `scp` in a terminal.
+- **Deployment:** host services (`roost3-coord`, `roost3-worker` under
+  `systemd --user` or launchd, data in `RoostCoordinatorV3` /
+  `RoostWorkerV3`), or the coordinator as the `ghcr.io/cefege/roost-coordinator`
+  container through the Helm chart in [`deploy/helm`](deploy/helm), on SQLite
+  or Postgres.
 
 ## Built with
 
-- **Web:** Solid + Vite, `@connectrpc/connect-web`, and a canvas cell-grid
-  renderer
-- **Coordinator:** Bun, Connect-RPC + protobuf, Kysely + `bun:sqlite`,
-  transactional event projection, EdDSA-JWT auth
-- **Workers:** Bun, native PTYs via `Bun.spawn`, `@wterm/core`, keeper
-  subprocesses
+- **Web:** Dioxus 0.7 compiled to wasm (`roost-web`), a `web-sys` canvas
+  cell-grid renderer (`roost-web-terminal`), and the UI-free client state
+  machine (`roost-client-core`)
+- **Coordinator:** Rust, axum, Connect-RPC (`connectrpc`) + protobuf, sqlx on
+  SQLite or Postgres, transactional event projection, EdDSA-JWT auth
+- **Workers:** Rust, `roost-keeper` PTY subprocesses, a vendored
+  `alacritty_terminal` core, `str0m` WebRTC
 - **Transport:** unary Connect-RPC plus a protobuf Sync WebSocket
   (browser↔coordinator), protobuf WebSocket (worker↔coordinator)
+
+## Development
+
+Toolchain is pinned in `rust-toolchain.toml`. Per-change gates:
+
+```sh
+cargo xtask fmt
+cargo clippy --workspace --all-targets -- -D warnings
+cargo nextest run --workspace
+cargo test --workspace --doc
+cargo xtask lint
+```
+
+Releases to our own fleet go through `cargo xtask fleet build --version <tag>`
+and `cargo xtask fleet install --version <tag>` (hosts in `xtask/fleet.json`);
+public `v3.*` tags are built by `.github/workflows/release.yml`. Operating
+rules are in [`CLAUDE.md`](CLAUDE.md).
 
 ## Built by
 

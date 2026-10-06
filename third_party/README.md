@@ -22,6 +22,15 @@ Rules for anything in this directory:
    family that covers it, so the patched behavior is pinned against something
    other than this repository's own implementation.
 
-Currently empty. The first entry is expected to be `alacritty_terminal`, if
-the terminal-core conformance vectors prove that its public API cannot report
-how many scrollback lines history rotation has discarded.
+## Contents
+
+- **`alacritty_terminal/`** — crates.io `alacritty_terminal` 0.26.0, the
+  terminal core behind `roost-term`. Wired through `[patch.crates-io]` in the
+  root `Cargo.toml`; outside the workspace (`exclude = ["third_party"]`), so
+  its suite runs by manifest path:
+  `cargo test --manifest-path third_party/alacritty_terminal/Cargo.toml`.
+  [`alacritty_terminal/ROOST-PATCHES.md`](alacritty_terminal/ROOST-PATCHES.md)
+  lists patches P1–P6: a count of history lines scrolled off the top, relative
+  cursor motion bounded by DECSTBM margins, a top-anchored alternate grid on
+  shrink, ED clearing the viewport in place, delete discarding rather than
+  reaching history, and LF clearing a pending wrap.

@@ -1,9 +1,6 @@
-//! The worker service: sessions, the keeper client, the durable outbox, the coordinator link, the local door, the WebRTC peer, and agent tracking. Never depends on roost-coord.
-//! Each module below is a DECLARATION OF OWNERSHIP: `session`, `door`, `peer`,
-//! `agents`, `attachments`, `capture`, `host` and `keeper_pool` name the
-//! concepts the worker's later waves fill, and each already holds the shared
-//! types its slices compile against. Nothing calls most of them yet, and a
-//! module with no caller is a module whose owner has not started.
+//! The worker service crate root: sessions, the keeper client, the durable outbox,
+//! the coordinator link, the local door, the WebRTC peer, and agent tracking.
+//! Called by `roost-cli` through `serve`/`WorkerBoot`; never depends on roost-coord.
 
 #![forbid(unsafe_code)]
 

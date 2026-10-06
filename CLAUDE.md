@@ -18,9 +18,9 @@ holds v2 (Bun + TypeScript + SolidJS); it is frozen and kept for reference only
 
 Landing cold, read in this order. Stop as soon as you have what you need.
 
-1. **[`ARCHITECTURE.md`](ARCHITECTURE.md)** — the system tour: the components,
-   the transport spine, session/event data flow, and the terminal-fidelity
-   model. (Written for v2 today; rewritten for v3 in Phase 7.)
+1. **[`ARCHITECTURE.md`](ARCHITECTURE.md)** — the v3 system tour: the
+   components, the transport spine, session/event data flow, and the
+   terminal-fidelity model.
 2. **[`crates/README.md`](crates/README.md)** — the crate map and the
    dependency DAG that `cargo xtask lint` enforces.
 3. **[`protocol/README.md`](protocol/README.md)** — the client contract index,
@@ -34,8 +34,7 @@ Landing cold, read in this order. Stop as soon as you have what you need.
 Also live, read when relevant:
 
 - **[`GETTING_STARTED.md`](GETTING_STARTED.md)** — install, run, deploy, and
-  the health commands in `## Health check` below. (v2 text; rewritten in
-  Phase 7.)
+  the health commands in `## Health check` below, for v3.
 - **[`FEATURES/README.md`](FEATURES/README.md)** — the feature inventory and
   open decision gates.
 - **[`docs/LENS.md`](docs/LENS.md)** — the generic operating doctrine

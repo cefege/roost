@@ -1,34 +1,9 @@
-//! The single `CoordinatorService` implementation's shared half: the type, the
-//! replies it can already give, and the honest answer for the rest.
-//!
-//! Owned by the coordinator's RPC layer. ALL 103 methods live in ONE
-//! `impl CoordinatorService` block in the sibling `service_impl.rs`, because Rust
-//! forbids splitting a trait implementation across blocks (E0119) even when the
-//! method names are disjoint. There is no per-domain `service_*.rs` and there
-//! cannot be one; a domain slice's methods are wired in by a single integration
-//! pass. Rust requires every method, so a missing delegation is a compile error
-//! -- not the silent 501 that a second `router.service()` call produced in v2
-//! (`apps/coord/src/rpc/router.ts:114-118`).
-//!
-//! v2's retired streaming surface is one file,
-//! `apps/coord/src/rpc/handlers-streaming.ts`, whose only method is that same
-//! `Sync` stub: [`sync_moved_stream`] is it, and the message is its own.
-//!
-//! WHY THE UNPORTED METHODS RETURN A NAMED `Unimplemented` RATHER THAN A STUB.
-//! 87 of v2's 103 methods are answered by per-domain handler modules this slice
-//! does not port. The reply names the owning domain from
-//! [`METHOD_ROUTES`](super::method_route::METHOD_ROUTES), so a log line reads
-//! `WorkersList: the workers domain is not ported in this slice` rather than a
-//! bare "not implemented" -- which would be indistinguishable from the sixteen
-//! methods v2 genuinely does not answer. `tests/method_route_coverage.rs` guards
-//! that the set of sixteen is exactly right.
-//!
-//! `MiscHealth` and `MiscDbExportUrl` ARE answered, because they are the two the
-//! transport layer in this crate depends on: the first is the readiness signal a
-//! load balancer and `roost status` both read, and the second is the only
-//! discoverable path to the export snapshot this crate's listener serves. The
-//! five worker methods and the three scrollback methods are answered by their
-//! domain handlers, and reach them through [`caller_of`].
+//! The shared half of the single `CoordinatorService` implementation: the type,
+//! caller resolution and auth checks, `MiscHealth`/`MiscDbExportUrl` replies, and
+//! the named `Unimplemented` errors. Called by the one impl in `service_impl.rs`
+//! (one block, E0119). 87 of 103 methods are implemented; the 16 marked
+//! `UnwiredInV2` in `method_route_rows.rs` answer `Unimplemented`, guarded by
+//! `tests/method_route_coverage.rs`. Depends on `coord_core` and `auth`.
 
 use connectrpc::{
     ConnectError, Encodable, ErrorCode, RequestContext, Response, ServiceResult, Spec,

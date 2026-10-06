@@ -3,7 +3,6 @@ dist/
 .DS_Store
 .env
 .env.*
-!.env.example
 coordinator_v2.db*
 target/
 # Per-agent isolated build dirs, so parallel agents never contend on the

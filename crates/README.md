@@ -1,8 +1,8 @@
 # `crates/` — the v3 crate map
 
-Fourteen crates plus a gate runner. One Git repository, one GitHub repo, one
-wire contract; the v2 TypeScript tree in `apps/` and `packages/` is still here
-while the port runs and is deleted in Phase 7.
+Fourteen crates plus a gate runner (`xtask/`). One Git repository, one wire
+contract; the vendored terminal core lives in `third_party/`, outside the
+workspace.
 
 Every crate is named for the concept it owns. `Worker` is a machine in the
 registry, `Session` is the user-facing row, `Channel` is a PTY connection,
@@ -18,7 +18,7 @@ registry, `Session` is the user-facing row, `Channel` is a PTY connection,
 | `roost-term` | The `TerminalCore` trait, its Alacritty implementation, and the grid→`CellGridFrame` emitter. | — |
 | `roost-keeper` | The keeper daemon: PTY ownership, per-channel byte rings, the framed keeper socket protocol. | `roost-keeper` |
 | `roost-worker` | Sessions, keeper client, durable outbox, coordinator link, local door, WebRTC peer, agent tracking. | — |
-| `roost-coord` | SQLite state, auth, Connect RPC handlers, Sync and worker WebSocket links, terminal hubs, web push. | — |
+| `roost-coord` | SQLite or Postgres state, auth, Connect RPC handlers, Sync and worker WebSocket links, terminal hubs, web push. | — |
 | `roost-client-core` | The UI-free client: Connect client, Sync state machine, store fold, terminal-stream replica and route election, input lanes, encoders, find paging. | — |
 | `roost-web-terminal` | The imperative `web-sys` terminal renderer and its input, IME, mouse, selection and link controllers. | — |
 | `roost-web` | The Dioxus 0.7 web application: routes, components, static assets. | — |
@@ -37,16 +37,19 @@ roost-observability  → ∅
 roost-platform       → ∅
 roost-protocol       → proto, observability
 roost-host           → protocol, platform, observability
-roost-term           → protocol, observability
-roost-keeper         → protocol, host, observability
-roost-worker         → term, keeper, host, protocol, platform, observability
-roost-coord          → host, protocol, platform, observability
+roost-term           → protocol, observability, alacritty_terminal (vendored)
+roost-keeper         → protocol, host, platform, observability
+roost-worker         → term, keeper, host, proto, protocol, platform, observability
+roost-coord          → host, proto, protocol, platform, observability
 roost-client-core    → protocol, proto, observability
 roost-web-terminal   → client-core, protocol
-roost-web            → web-terminal, client-core, protocol
-roost-cli            → coord, worker, keeper, host, protocol, platform, observability
+roost-web            → web-terminal, client-core, protocol, platform
+roost-cli            → coord, worker, keeper, client-core, host, proto, protocol, platform, observability
 roost-bench          → proto, observability
 ```
+
+Dev-dependency allowlist: `roost-client-core` → coord, worker, keeper (the
+in-process end-to-end test).
 
 `roost-client-core` is the seam every future front end links: it exposes no
 `web-sys` and no `tokio` I/O types in its public API, and reaches the host

@@ -192,7 +192,7 @@ roost.example.com {
 	@private path /internal/* /api/db-export
 	respond @private "not found" 404
 
-	reverse_proxy 127.0.0.1:4103 {
+	reverse_proxy 127.0.0.1:4113 {
 		header_up X-Forwarded-For {remote_host}
 	}
 }
@@ -206,7 +206,7 @@ sudo systemctl reload caddy
 Workers enrolled through this shared HTTPS door dial it, so
 `/ws/coord-worker/*` passes.
 
-Coordinator: `ROOST_COORDINATOR_BIND=127.0.0.1:4103` plaintext with
+Coordinator: `ROOST_COORDINATOR_BIND=127.0.0.1:4113` plaintext with
 `ROOST_TRUST_PROXY=1`, and `ROOST_WEB_PUBLIC_URL=https://roost.example.com`.
 
 ### Recipe 2 — Cloudflare tunnel
@@ -244,7 +244,7 @@ http://roost.example.com:8080 {
 	@private path /internal/* /api/db-export
 	respond @private "not found" 404
 
-	reverse_proxy 127.0.0.1:4103 {
+	reverse_proxy 127.0.0.1:4113 {
 		header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
 	}
 }
@@ -262,7 +262,7 @@ sudo cloudflared --config "$HOME/.cloudflared/config.yml" service install
 sudo systemctl enable --now cloudflared   # Linux; launchd starts it on install
 ```
 
-Coordinator: `ROOST_COORDINATOR_BIND=127.0.0.1:4103` plaintext with
+Coordinator: `ROOST_COORDINATOR_BIND=127.0.0.1:4113` plaintext with
 `ROOST_TRUST_PROXY=1`, and `ROOST_WEB_PUBLIC_URL=https://roost.example.com`.
 
 ### Recipe 2a — Cloudflare Access in front of the browser surfaces
@@ -300,7 +300,7 @@ strips them. Keep the existing `X-Forwarded-For` rewrite from
 `CF-Connecting-IP`:
 
 ```caddy
-reverse_proxy 127.0.0.1:4103 {
+reverse_proxy 127.0.0.1:4113 {
 	header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
 }
 ```
@@ -322,7 +322,7 @@ No domain, no public exposure, no certificate management: every device that
 browses Roost joins your tailnet.
 
 ```sh
-tailscale serve --bg --https=443 http://127.0.0.1:4103
+tailscale serve --bg --https=443 http://127.0.0.1:4113
 tailscale serve status
 ```
 
@@ -331,7 +331,7 @@ The public origin is the machine's MagicDNS name, e.g.
 matcher, so if you need the private paths denied, keep a local proxy in front of
 the coordinator as in recipe 1 and point Serve at that instead.
 
-Coordinator: `ROOST_COORDINATOR_BIND=127.0.0.1:4103` plaintext with
+Coordinator: `ROOST_COORDINATOR_BIND=127.0.0.1:4113` plaintext with
 `ROOST_TRUST_PROXY=1`, and
 `ROOST_WEB_PUBLIC_URL=https://roost-host.tailnet-name.ts.net`.
 
@@ -385,7 +385,7 @@ roost.example.com {
 	@private path /internal/* /api/db-export
 	respond @private "not found" 404
 
-	reverse_proxy 127.0.0.1:4103 {
+	reverse_proxy 127.0.0.1:4113 {
 		header_up X-Forwarded-For {remote_host}
 	}
 }
@@ -399,7 +399,7 @@ roost.example.com {
 	@private path /internal/* /api/db-export /ws/coord-worker/*
 	respond @private "not found" 404
 
-	reverse_proxy 127.0.0.1:4103 {
+	reverse_proxy 127.0.0.1:4113 {
 		header_up X-Forwarded-For {remote_host}
 	}
 }
@@ -419,7 +419,7 @@ http://roost.example.com:8080 {
 	@private path /internal/* /api/db-export
 	respond @private "not found" 404
 
-	reverse_proxy 127.0.0.1:4103 {
+	reverse_proxy 127.0.0.1:4113 {
 		header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
 	}
 }
@@ -435,7 +435,7 @@ http://roost.example.com:8080 {
 	@private path /internal/* /api/db-export /ws/coord-worker/*
 	respond @private "not found" 404
 
-	reverse_proxy 127.0.0.1:4103 {
+	reverse_proxy 127.0.0.1:4113 {
 		header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
 	}
 }
@@ -554,21 +554,53 @@ The opaque reference remains private recovery metadata until the OMP
 integration replaces or clears it; Roost still owns no agent conversation or
 transcript.
 
-## Update the fleet
+## Update
 
-To update a source-installed coordinator and its registered fleet from a clean
-Roost checkout, run:
+### A self-hosted install: `roost update`
+
+On each macOS or Linux machine installed from a release, run:
+
+```sh
+roost update
+```
+
+It takes no arguments. It first resolves any update a previous run left
+interrupted, then fetches the newest published v3 release for this
+platform, checks the binary against its `.sha256` sidecar before staging
+it beside the installed one, admits the running keeper against the new
+binary's keeper contract, and swaps the binary with a journaled atomic rename.
+It then unpacks that release's web bundle into the release directory both
+service definitions already point at. It prints `already the latest release`
+or `no published release to update to` when there is nothing to do, and a
+source build refuses to replace itself.
+
+The running services keep the old binary until they restart:
+
+```sh
+systemctl --user restart roost3-coord roost3-worker            # Linux
+launchctl kickstart -k gui/$(id -u)/com.roost.coordinator-v3    # macOS
+launchctl kickstart -k gui/$(id -u)/com.roost.worker-v3
+```
+
+A machine running only a worker restarts only `roost3-worker` /
+`com.roost.worker-v3`. The keeper keeps the PTYs across a worker restart. A
+containerized coordinator updates by image tag instead (`helm upgrade` with
+`--set image.tag=<tag>`; empty means the chart's `appVersion`).
+
+### Rolling a fleet from a source checkout: `roost push`
+
+To roll a source-installed coordinator and its registered fleet onto one
+commit from a clean Roost checkout, run:
 
 ```sh
 roost push
 ```
 
-`roost push` is one journaled transaction across the local POSIX coordinator
-and every registered macOS/Linux worker it can reach. It requires at least one
-registered worker, a clean complete Git commit, and proof that the commit is on
-the configured upstream (unless `--no-git` was explicitly chosen). A registered
-Windows worker blocks the rollout. `--targets` may name a subset; `--no-web`
-only retains an existing coordinator SPA.
+`roost push` takes no arguments. It is one journaled transaction across the
+local POSIX coordinator and every registered macOS/Linux worker it can reach.
+It requires at least one registered worker and a clean commit, which it proves
+and publishes before mutating anything. A subset of the fleet is
+`roost deploy <host>`, not a push flag.
 
 The command snapshots the live coordinator database, activates and proves the
 target coordinator in a held state, then stages and proves every **participant**
@@ -595,14 +627,14 @@ commit is structurally a deferral for as long as the fleet has moved on.
 The fleet is therefore NOT guaranteed to be one version between a push and a
 deferred machine's return. What that window costs is wire compatibility between
 a new coordinator and an old worker — the cell-frame and `SessionEvent` shapes
-in `packages/protocol/src/wire/` — so a change to those shapes must stay backward
+in `protocol/proto/roost/v1/` — so a change to those shapes must stay backward
 compatible for one release, or the deferred machine must be updated before the
 shape change ships.
 
-One-host POSIX deployment remains a separate source operation:
-`roost deploy <host>` stages the exact pushed commit
-over SSH. Source deployments intentionally refuse to run from the standalone
-release binary because it does not contain a Git checkout.
+One-host POSIX deployment is `roost deploy <host>`: it stages this checkout's
+pushed commit over SSH, or with `--release <tag>` that release's published
+binaries and web bundle. Building from source refuses to run from the
+standalone release binary because it does not contain a Git checkout.
 
 A remote target's own identity is never taken from the shell running the
 deploy. `ROOST_WORKER_LABEL` and `ROOST_REACHABLE_ADDR` come from the target's
@@ -611,6 +643,10 @@ installed service definition, or from `--label=<name>` /
 derives its own hostname and reachable address. Exporting either variable while
 deploying to a host that has no prior install refuses the deploy rather than
 registering that host under this machine's name.
+
+Our own fleet's maintainer flow is `cargo xtask fleet build --version <tag>`
+then `cargo xtask fleet install --version <tag>`, driven by
+`xtask/fleet.json`; see `CLAUDE.md` § Release to the fleet.
 
 ## Automatic terminal transport
 
@@ -631,15 +667,15 @@ or a replacement for coordinator control.
 ### Same-worker loopback
 
 Every worker serves the SPA on its own loopback door, default
-`ROOST_WORKER_LOCAL_UI_BIND=127.0.0.1:4104`. A browser on that machine can open
-`http://127.0.0.1:4104` and talk to that worker's PTYs directly. The door
+`ROOST_WORKER_LOCAL_UI_BIND=127.0.0.1:4114`. A browser on that machine can open
+`http://127.0.0.1:4114` and talk to that worker's PTYs directly. The door
 refuses any non-loopback bind, answers only loopback names
 (`127.0.0.1`, `localhost`, `[::1]`), refuses other `Host` values, and advertises
 only the coordinator URL and worker fingerprint at `/api/local-bootstrap`.
 `ROOST_WEB_DIST_PATH` overrides the SPA it serves for source runs.
 
 When a coordinator-served page has a worker on the browser machine, its first
-live terminal pane probes `http://127.0.0.1:4104` once. If the worker answers,
+live terminal pane probes `http://127.0.0.1:4114` once. If the worker answers,
 that worker's sessions prefer loopback and their pane tabs show the direct
 marker. Chromium can require a one-time local-network permission. Firefox and
 Safari block a plaintext-loopback request from an HTTPS page; those browsers
@@ -649,7 +685,7 @@ worker's coordinator URL, list it in the worker's
 `ROOST_WORKER_LOCAL_UI_ALLOWED_ORIGINS` (comma-separated).
 
 Changing the local door port changes the pre-allowlisted
-`http://127.0.0.1:4104` origin. Add the new origin to the coordinator's
+`http://127.0.0.1:4114` origin. Add the new origin to the coordinator's
 `ROOST_CORS_ALLOWED_ORIGINS` or its cross-origin RPCs and Sync socket are
 refused. A coordinator-served page does not learn a moved local port, so point
 its one-shot probe at it with
@@ -743,9 +779,9 @@ guess from configuration: `served` with the `ROOST_WEB_DIST_PATH` the installed
 service stamped, or `MISSING` when that listener answers no page — the state
 where RPCs and terminals keep working while every URL is a 404. The remedy
 names which cause applies (a stamped dist with no `index.html`, or one that
-exists but is unused). Which build the coordinator actually picked is its own
-startup line: `spa_source`, or `spa_source_missing` when it has neither a disk
-dist nor an embedded build.
+exists but is unused). Which dist the coordinator actually picked is its own
+startup line: `spa source: disk` with `web_dist_path`, or
+`spa source missing: every page request answers 404`.
 `roost doctor --since <window>` summarizes local logs from that window and
 reports anomalies such as uncaught errors, sequence gaps, queue overflows,
 degraded keepers, and failed backups/readiness.
@@ -776,29 +812,26 @@ automatic fleet-rollout rollback mechanism. Copy them to storage with an
 independent failure domain and own the restore procedure when host-loss
 recovery is required.
 
-Atomic rollout creates a separate temporary gzip snapshot, records its digest
-in the coordinator deploy journal, and verifies decompression and SQLite
-integrity before an automatic restore. Successful fleet finalization removes
-that transaction snapshot and journal.
+`roost push` copies the coordinator's SQLite database, write-ahead log and
+shared-memory file into `coordinator-rollback-<rollout id>/` in the
+coordinator's service directory before it touches anything, restores from that
+copy on rollback, and removes it once the transaction settles.
 
 ## Release rollout and canaries
 
-Use one release commit and one fleet transaction:
+Use one release tag and one fleet transaction:
 
 1. Qualify the four public host targets—macOS arm64/x64 and Linux arm64/x64—
    from the same source commit. Each published binary must match its GitHub
    Release SHA-256 sidecar.
-2. From the clean pushed checkout, run
-   `roost push`. Every reachable macOS/Linux worker
-   converges as one transaction: exhaustive staging/proof and rollback of the
-   participants before the durable decision, finish-only recovery after it. A
-   machine that was offline is named as deferred and catches up on its next
-   attach; for a release you care about, confirm it reaches the new SHA in
-   `roost status` before declaring the rollout done.
-3. Restart the coordinator and local worker. Require a new coordinator boot
-   timestamp, all workers online on the expected build, and the pre-restart PTY
-   to paint a new marker. Reject new uncaught errors, sequence gaps, queue
-   overflows, stale keepers, or failed backup/readiness events.
+2. Update every machine: `roost update` plus a service restart on each, or
+   `roost push` from the clean pushed checkout. A machine that was offline
+   during a push is named as deferred and catches up on its next attach; for a
+   release you care about, confirm it reaches the new SHA in `roost status`
+   before declaring the rollout done.
+3. Require a new coordinator boot, all workers online on the expected build,
+   and a pre-restart PTY to paint a new marker. Reject new anomalies in
+   `roost doctor --since 1h`.
 4. Re-prove the front door: an unauthenticated `MiscHealth` POST through the
    public origin reaches the coordinator, and `/api/db-export` from off-host
    answers 403 or the front door's 404.
@@ -806,6 +839,6 @@ Use one release commit and one fleet transaction:
 ## Logs
 
 ```sh
-roost logs coord     # coordinator logs
-roost logs worker    # worker logs
+roost logs coord             # coordinator stdout then stderr, last lines
+roost logs worker -n 500     # worker; -n/--tail sets the line count
 ```

@@ -1,38 +1,9 @@
-//! The ONE `CoordinatorService` implementation: all 103 methods in one `impl`.
-//!
-//! Owned by the coordinator's RPC layer. This is the single service literal, and
-//! it is ONE FILE because Rust does not allow one trait's impl to be split: two
-//! `impl CoordinatorService for CoordinatorServiceImpl` blocks are E0119
-//! `conflicting implementations` even when their method names are disjoint. That
-//! is a language rule, not a style choice, and it was verified rather than
-//! assumed.
-//!
-//! THE GUARANTEE IS STRONGER THAN THE ONE IT REPLACES. v2's hazard was a second
-//! `router.service()` call silently shadowing every method Connect had not
-//! registered (`apps/coord/src/rpc/router.ts:114-118`); here a method with no
-//! delegation is a compile error, and there is exactly one block to shadow.
-//!
-//! The v2 domain split survives as a comment banner per domain and as
-//! `method_route`'s `domain` column, which is what a per-domain handler needs to
-//! find its own methods. Splitting the block would buy file size and cost the
-//! guarantee, so the size goes to a recorded exception instead.
-//!
-//! Every signature is transcribed from the `service CoordinatorService` block in
-//! `protocol/proto/roost/v1/coordinator.proto`, which is also what
-//! `tests/method_route_coverage.rs` asserts the route table against.
-//!
-//! WIRED METHODS ARE NOT UNREACHABLE BEHIND A NAMED `Unimplemented`. Fifteen
-//! arms are wired: the five worker methods (`WorkersList`, `WorkersRegister`,
-//! `WorkersHeartbeat`, `WorkersRename`, `WorkersDelete`), the three scrollback
-//! methods (`SessionsGetScrollbackCells`, `SessionsSearchScrollback`,
-//! `SessionsCancelScrollbackSearch`), the four UI methods (`UiReportState`,
-//! `UiListStates`, `UiDispatch`, `UiApplyLayout`) and the three push methods
-//! (`PushGetConfig`, `PushSubscribe`, `PushUnsubscribe`). Each resolves its
-//! caller through [`caller_of`](super::service::caller_of) and hands the owned
-//! request to its domain handler, so wiring a method means naming its handler
-//! here, and the refusal a wired method still answers with -- no caller on the
-//! request -- stays a named `Unimplemented` rather than becoming an anonymous
-//! success.
+//! The ONE `CoordinatorService` implementation: all 103 methods in one `impl`,
+//! one file because two impl blocks of one trait are E0119. Signatures follow
+//! `protocol/proto/roost/v1/coordinator.proto`; each implemented arm resolves its
+//! caller through `service::caller_of` and delegates to its domain handler.
+//! `tests/method_route_arm_pairing.rs` pins each arm to its `method_route_rows.rs`
+//! status; the 16 `UnwiredInV2` methods answer a named `Unimplemented`.
 
 use std::future::Future;
 
