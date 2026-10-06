@@ -1,6 +1,7 @@
 //! The desktop activity rail: the five fixed destinations and which one the
 //! current path selects; clicking the ACTIVE Sessions item toggles the sidebar
-//! instead of navigating. Ported from
+//! instead of navigating. The bottom group also carries the vertical terminal
+//! text-size stepper above Settings and Help. Ported from
 //! `apps/web/src/components/layout/WorkbenchActivityBar.tsx`; mounted by
 //! `AppShell` on a desktop layout.
 //!
@@ -10,7 +11,8 @@
 use dioxus::prelude::*;
 
 use super::shell_metrics::{Destination, active_destination};
-use crate::components::md::Icon;
+use crate::components::md::{Icon, IconButtonSize};
+use crate::components::term_font_stepper::TermFontStepper;
 use crate::router_state::{use_location, use_navigate};
 
 /// The DOM id of the Sessions item, where focus goes before a collapse.
@@ -49,6 +51,12 @@ pub fn ActivityBar(on_toggle_sidebar: EventHandler<()>) -> Element {
                 }
             }
             div { class: "workbench-activity-bar__group workbench-activity-bar__group--bottom",
+                TermFontStepper {
+                    test_id: "rail-term-font",
+                    size: IconButtonSize::IconSm,
+                    vertical: true,
+                    class: "workbench-activity-bar__textsize",
+                }
                 for destination in bottom {
                     ActivityItem { destination, active, on_toggle_sidebar }
                 }

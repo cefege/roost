@@ -1,6 +1,7 @@
 //! `TermFontStepper`: smaller · size · larger for the terminal text size, where
-//! tapping the size returns it to this device's default. Mounted by the
-//! sidebar's text-size row and the Settings → Terminal pane; every press goes
+//! tapping the size returns it to this device's default. Mounted vertically in
+//! the desktop activity rail, in the compact drawer's text-size row and in the
+//! Settings → Terminal pane; every press goes
 //! through `crate::term_font_size`, and every mounted pane re-measures from the
 //! `--term-font-size` the app root applies.
 
@@ -24,6 +25,9 @@ pub struct TermFontStepperProps {
     pub size: IconButtonSize,
     /// An extra class on the group.
     pub class: Option<String>,
+    /// Stack larger · size · smaller top to bottom, for the narrow rail.
+    #[props(default)]
+    pub vertical: bool,
 }
 
 /// The stepper.
@@ -50,36 +54,71 @@ pub fn TermFontStepper(props: TermFontStepperProps) -> Element {
     };
     rsx! {
         div {
-            class: class_list(["term-font-stepper", props.class.as_deref().unwrap_or("")]),
+            class: class_list([
+                "term-font-stepper",
+                if props.vertical { "term-font-stepper--vertical" } else { "" },
+                props.class.as_deref().unwrap_or(""),
+            ]),
             role: "group",
             "aria-label": "Terminal text size",
-            IconButton {
-                icon: "text_decrease",
-                label: "Smaller terminal text",
-                size: props.size,
-                "data-testid": format!("{stem}-smaller"),
-                title: "Smaller terminal text",
-                disabled: !state.can_shrink,
-                onclick: move |_| step_term_font(&smaller_pump, -1),
-            }
-            Button {
-                class: "term-font-stepper__value",
-                variant: ButtonVariant::Ghost,
-                size: value_size,
-                "data-testid": format!("{stem}-size"),
-                title: reset_label.clone(),
-                "aria-label": reset_label,
-                onclick: move |_| reset_term_font(&reset_pump, default_px),
-                {format!("{px}px")}
-            }
-            IconButton {
-                icon: "text_increase",
-                label: "Larger terminal text",
-                size: props.size,
-                "data-testid": format!("{stem}-larger"),
-                title: "Larger terminal text",
-                disabled: !state.can_grow,
-                onclick: move |_| step_term_font(&larger_pump, 1),
+            if props.vertical {
+                IconButton {
+                    icon: "text_increase",
+                    label: "Larger terminal text",
+                    size: props.size,
+                    "data-testid": format!("{stem}-larger"),
+                    title: "Larger terminal text",
+                    disabled: !state.can_grow,
+                    onclick: move |_| step_term_font(&larger_pump, 1),
+                }
+                Button {
+                    class: "term-font-stepper__value",
+                    variant: ButtonVariant::Ghost,
+                    size: value_size,
+                    "data-testid": format!("{stem}-size"),
+                    title: reset_label.clone(),
+                    "aria-label": reset_label,
+                    onclick: move |_| reset_term_font(&reset_pump, default_px),
+                    {format!("{px}px")}
+                }
+                IconButton {
+                    icon: "text_decrease",
+                    label: "Smaller terminal text",
+                    size: props.size,
+                    "data-testid": format!("{stem}-smaller"),
+                    title: "Smaller terminal text",
+                    disabled: !state.can_shrink,
+                    onclick: move |_| step_term_font(&smaller_pump, -1),
+                }
+            } else {
+                IconButton {
+                    icon: "text_decrease",
+                    label: "Smaller terminal text",
+                    size: props.size,
+                    "data-testid": format!("{stem}-smaller"),
+                    title: "Smaller terminal text",
+                    disabled: !state.can_shrink,
+                    onclick: move |_| step_term_font(&smaller_pump, -1),
+                }
+                Button {
+                    class: "term-font-stepper__value",
+                    variant: ButtonVariant::Ghost,
+                    size: value_size,
+                    "data-testid": format!("{stem}-size"),
+                    title: reset_label.clone(),
+                    "aria-label": reset_label,
+                    onclick: move |_| reset_term_font(&reset_pump, default_px),
+                    {format!("{px}px")}
+                }
+                IconButton {
+                    icon: "text_increase",
+                    label: "Larger terminal text",
+                    size: props.size,
+                    "data-testid": format!("{stem}-larger"),
+                    title: "Larger terminal text",
+                    disabled: !state.can_grow,
+                    onclick: move |_| step_term_font(&larger_pump, 1),
+                }
             }
         }
     }

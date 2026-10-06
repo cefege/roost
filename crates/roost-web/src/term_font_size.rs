@@ -1,5 +1,5 @@
-//! The one dispatch path for the terminal text size: the sidebar stepper, the
-//! settings pane and the ⌘=/⌘-/⌘0 shortcuts all step and reset through here,
+//! The one dispatch path for the terminal text size: the rail and drawer
+//! steppers, the settings pane and the ⌘=/⌘-/⌘0 shortcuts all step and reset through here,
 //! so "one step" and "this device's default" mean one thing everywhere; and
 //! the one place the size reaches the page, which every mounted pane hears.
 //! The size, its bounds and its persistence are

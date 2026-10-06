@@ -1,6 +1,7 @@
 //! The route-stable primary sidebar: the Folders/Agents selector, the shared
 //! debounced filter, both retained panels (only the selected one visible and
-//! interactive), the terminal text-size row and the pinned new-terminal bar. Ports
+//! interactive), the compact-only terminal text-size row (desktop carries it in
+//! the activity rail; the drawer has no rail) and the pinned new-terminal bar. Ports
 //! `apps/web/src/components/sidebar/SidebarRoot.tsx`; `AppShell` mounts it once
 //! in the desktop aside or the compact drawer. State changes dispatch
 //! `ClientEvent::Sidebar`.
@@ -168,9 +169,11 @@ pub fn SidebarRoot() -> Element {
                     SidebarAgents { query: debounced() }
                 }
             }
-            div { class: "workbench-sidebar-textsize", "data-testid": "sidebar-text-size",
-                span { class: "workbench-sidebar-textsize__label md-label-m", "Text size" }
-                TermFontStepper { test_id: "sidebar-term-font", size: IconButtonSize::IconSm }
+            if compact {
+                div { class: "workbench-sidebar-textsize", "data-testid": "sidebar-text-size",
+                    span { class: "workbench-sidebar-textsize__label md-label-m", "Text size" }
+                    TermFontStepper { test_id: "sidebar-term-font", size: IconButtonSize::IconSm }
+                }
             }
             SidebarNewTerminal {}
         }

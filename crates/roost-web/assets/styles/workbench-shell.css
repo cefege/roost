@@ -85,6 +85,24 @@
   margin-top: auto;
 }
 
+.workbench-activity-bar__textsize {
+  align-self: center;
+  padding-block: var(--md-space-1);
+  border-block-end: var(--workbench-border-width) solid var(--workbench-border);
+}
+
+.workbench-activity-bar__textsize .roost-button { color: var(--text-lo); }
+
+.workbench-activity-bar__textsize .roost-button:hover:not(:disabled) {
+  background: var(--md-state-hover);
+  color: var(--text-hi);
+}
+
+.workbench-activity-bar__textsize .term-font-stepper__value {
+  min-inline-size: 0;
+  font-size: var(--md-label-s-size);
+}
+
 .workbench-activity-bar__item {
   align-items: center;
   color: var(--text-lo);

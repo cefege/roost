@@ -386,6 +386,7 @@ button.roost-chip:disabled {
   align-items: center;
   gap: var(--md-space-1);
 }
+.term-font-stepper--vertical { flex-direction: column; }
 /* Tabular figures and a fixed floor keep the step buttons still while the
    value walks between one and two digits. */
 .term-font-stepper__value {
