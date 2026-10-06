@@ -354,9 +354,14 @@ needs a deployed coordinator, a tailnet, or a human driving a browser.
 
 **One cargo command at a time per machine.** Parallel cold builds on one box
 compete for CPU and RAM and finish later than the same builds run in series.
-An agent wraps every `cargo`/`dx` invocation as
-`flock /tmp/roost-cargo.lock cargo …`. While iterating it runs scoped commands
-(`cargo check -p <crate>`, `cargo nextest run -p <crate> <module>`) and runs
+On desktop-pc, `~/.local/bin/cargo` enforces this itself — a machine-wide
+lock, CPUs 0–3, inside `rust-build.slice` — so plain `cargo …` is correct
+there and no `flock` wrapper is needed. On every other machine an agent wraps
+every `cargo`/`dx` invocation as `flock /tmp/roost-cargo.lock cargo …`.
+**Never `cargo clean` a workspace on desktop-pc**: a cold workspace rebuild is
+the load that preceded every host reset, and sccache plus the warm `target/`
+make it unnecessary. While iterating, run scoped commands
+(`cargo check -p <crate>`, `cargo nextest run -p <crate> <module>`) and run
 the full gates once, at the end. Real parallelism means a different machine
 per agent.
 

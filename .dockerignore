@@ -1,22 +1,11 @@
-.git
+# The image build context. `protocol/` (the build script compiles its .proto
+# files) and `third_party/` (a path dependency) must stay in it, and so must
+# every crate's tests/ directory: each manifest declares a `suite` test target,
+# and cargo refuses a workspace whose declared target file is missing.
+target/
+.git/
+**/node_modules
 .env
 .env.*
-!.env.example
 **/.env
 **/.env.*
-!**/.env.example
-node_modules
-**/node_modules
-dist
-**/dist
-coverage
-**/coverage
-test-results
-**/test-results
-playwright-report
-**/playwright-report
-**/tests
-**/__tests__
-**/__snapshots__
-**/*.test.*
-**/*.spec.*

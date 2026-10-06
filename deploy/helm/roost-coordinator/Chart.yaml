@@ -1,0 +1,12 @@
+apiVersion: v2
+name: roost-coordinator
+description: >-
+  The Roost coordinator, stateless against an external Postgres. One replica by
+  contract: live terminal fan-out state is in-process. Workers run on real hosts
+  and enroll with `roost add-machine`.
+type: application
+version: 0.1.0
+appVersion: "3.0.0"
+home: https://github.com/cefege/roost
+sources:
+  - https://github.com/cefege/roost

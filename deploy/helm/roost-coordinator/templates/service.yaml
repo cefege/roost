@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "roost.fullname" . }}
+  labels:
+    {{- include "roost.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "roost.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http

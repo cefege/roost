@@ -1,0 +1,40 @@
+{{- if .Values.ingress.enabled }}
+{{- $host := required "ingress.host is required when ingress.enabled" .Values.ingress.host }}
+{{- $annotations := dict }}
+{{- if eq .Values.ingress.className "nginx" }}
+{{- /* Worker and browser sockets live for hours; terminal file chunks reach 8 MiB. */}}
+{{- $_ := set $annotations "nginx.ingress.kubernetes.io/proxy-read-timeout" "3600" }}
+{{- $_ := set $annotations "nginx.ingress.kubernetes.io/proxy-send-timeout" "3600" }}
+{{- $_ := set $annotations "nginx.ingress.kubernetes.io/proxy-body-size" "16m" }}
+{{- end }}
+{{- $annotations = merge (deepCopy .Values.ingress.annotations) $annotations }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "roost.fullname" . }}
+  labels:
+    {{- include "roost.labels" . | nindent 4 }}
+  {{- with $annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "roost.fullname" . }}
+                port:
+                  name: http
+{{- end }}

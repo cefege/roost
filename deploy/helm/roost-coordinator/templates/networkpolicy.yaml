@@ -1,0 +1,21 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "roost.fullname" . }}
+  labels:
+    {{- include "roost.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "roost.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    # Only the front door reaches the coordinator; kubelet probes are not
+    # subject to NetworkPolicy.
+    - from:
+        - namespaceSelector:
+            {{- toYaml .Values.networkPolicy.fromNamespaceSelector | nindent 12 }}
+      ports:
+        - port: http
+{{- end }}

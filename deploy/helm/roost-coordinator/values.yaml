@@ -1,0 +1,61 @@
+image:
+  repository: ghcr.io/cefege/roost-coordinator
+  # Empty means the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+database:
+  # A postgres:// URL, stored in a Secret this chart creates. Set this OR
+  # existingSecret (a Secret with the key ROOST_COORDINATOR_DATABASE_URL), or
+  # enable the in-chart postgres below.
+  url: ""
+  existingSecret: ""
+
+# The HTTPS origin browsers and workers reach the coordinator at. Becomes
+# ROOST_WEB_PUBLIC_URL and the CORS allowlist; `roost add-browser` and
+# `roost add-machine` print URLs on it.
+publicUrl: ""
+
+# Believe X-Forwarded-For, but only from these networks (the ingress
+# controller's pods). The front door must OVERWRITE the header, never append.
+trustProxy: true
+trustedProxyCidrs:
+  - 10.0.0.0/8
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+
+# Extra non-secret ROOST_* settings, as name: value.
+env: {}
+
+service:
+  port: 4113
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: ""
+  tls: []
+  #  - secretName: roost-tls
+  #    hosts: [roost.example.com]
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: "2"
+    memory: 1Gi
+
+networkPolicy:
+  enabled: false
+  # Namespaces allowed to reach the coordinator (the ingress controller's).
+  fromNamespaceSelector: {}
+
+# A single-instance Postgres for evaluation only: one PVC, no backups, no
+# replication. Use a managed or operator-run Postgres in production.
+postgres:
+  enabled: false
+  image: postgres:17-alpine
+  storage: 10Gi
+  password: ""

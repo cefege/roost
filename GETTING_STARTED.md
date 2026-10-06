@@ -103,6 +103,55 @@ organization, and the `default` dashboard. Existing coherent single-tenant
 databases keep their IDs and names. There is no separate organization bootstrap
 command to run before quickstart or after an upgrade.
 
+## Run the coordinator in a container or on Kubernetes
+
+The coordinator also ships as an image, `ghcr.io/cefege/roost-coordinator`
+(`edge` tracks the `v3` branch; release tags carry their version). Workers are
+not containerized: they own real PTYs on real machines, and enroll against the
+containerized coordinator exactly as against an installed one.
+
+Set `ROOST_COORDINATOR_DATABASE_URL=postgres://user:password@host:5432/db`
+and the coordinator keeps no durable state on its own disk: it runs on a
+read-only root filesystem, can be rescheduled freely, and its backups are the
+Postgres operator's. Without that variable it uses its SQLite file under
+`/var/lib/roost`, which must then be a volume. Setting both it and
+`ROOST_COORDINATOR_DB` is refused. Run exactly one coordinator: live terminal
+fan-out is in-process. Container installs start on a fresh database; there is
+no SQLite-to-Postgres mover.
+
+On one machine, with Docker:
+
+```sh
+docker compose up -d --build          # Postgres + coordinator on 127.0.0.1:4113
+docker compose exec coordinator roost add-browser
+```
+
+`roost add-browser` prints a one-shot `…/#pair=…` URL; open it in a browser
+to pair. On Kubernetes, with the chart in `deploy/helm/roost-coordinator`:
+
+```sh
+helm install roost deploy/helm/roost-coordinator -n roost --create-namespace \
+  --set database.existingSecret=roost-db \
+  --set publicUrl=https://roost.example.com \
+  --set ingress.enabled=true --set ingress.className=nginx \
+  --set ingress.host=roost.example.com
+kubectl -n roost exec deploy/roost-roost-coordinator -- roost add-browser
+kubectl -n roost exec deploy/roost-roost-coordinator -- roost add-machine --platform linux
+```
+
+`roost-db` is a Secret with the key `ROOST_COORDINATOR_DATABASE_URL`; for a
+throwaway evaluation, `--set postgres.enabled=true --set postgres.password=…`
+runs a single in-chart Postgres instead. The pod is probed on `/readyz` (the
+database answers and the process is not draining) and `/healthz`; on `SIGTERM`
+it withdraws readiness and gives open connections 20 s before exiting.
+
+Behind a load balancer or ingress the front door reaches the coordinator over
+the network, not loopback, so declare the proxy networks:
+`ROOST_TRUST_PROXY=1` with `ROOST_TRUSTED_PROXY_CIDRS=10.0.0.0/8,…` (the
+chart's `trustedProxyCidrs`). `X-Forwarded-For` is then believed only from
+peers inside those networks; from any other peer it is ignored. The front door
+must still overwrite that header, never append to it.
+
 ## Three coordinator HTTP/TLS front-door recipes
 
 After running the promotion command on the coordinator, choose one of these
@@ -686,11 +735,13 @@ silently spliced.
 
 ## Backups and rollback scope
 
-The coordinator creates a verified SQLite snapshot before applying pending
-migrations to an existing database. It also backs up every 24 hours from
-process start, including an immediate startup backup when none exists or the
-newest is stale. It integrity-checks the standalone snapshot before
-compressing it and retains the 14 newest
+With a SQLite database, the coordinator creates a verified snapshot before
+applying pending migrations to an existing database. It also backs up every 24
+hours from process start, including an immediate startup backup when none
+exists or the newest is stale. With `ROOST_COORDINATOR_DATABASE_URL` it takes
+no backups and `/api/db-export` answers 404: the Postgres server's own backups
+are the recovery material. The SQLite coordinator integrity-checks the
+standalone snapshot before compressing it and retains the 14 newest
 `coord_v2.<timestamp>.db.gz` archives in the coordinator data directory's
 `backups/` folder.
 

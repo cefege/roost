@@ -1,0 +1,20 @@
+The Roost coordinator is starting as {{ include "roost.fullname" . }} (one replica).
+
+Pair the first browser — prints a one-shot URL on {{ .Values.publicUrl | default "the coordinator's own port" }}:
+
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "roost.fullname" . }} -- roost add-browser
+
+Enroll a machine (run the printed command on that machine; it dials ROOST_WEB_PUBLIC_URL):
+
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "roost.fullname" . }} -- roost add-machine --platform linux
+
+{{- if .Values.trustProxy }}
+
+X-Forwarded-For is believed only from {{ join ", " .Values.trustedProxyCidrs }}. The
+front door MUST overwrite that header with the real client address, never
+append to it: the first entry is taken as the caller.
+{{- end }}
+{{- if .Values.postgres.enabled }}
+
+The in-chart Postgres is for evaluation: one instance, no backups.
+{{- end }}

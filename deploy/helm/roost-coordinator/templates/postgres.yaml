@@ -1,0 +1,82 @@
+{{- if .Values.postgres.enabled }}
+{{- /* Evaluation only: one instance, one PVC, no backups. */}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "roost.postgresName" . }}
+  labels:
+    {{- include "roost.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: {{ required "postgres.password is required when postgres.enabled" .Values.postgres.password | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "roost.postgresName" . }}
+  labels:
+    {{- include "roost.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "roost.postgresName" . }}
+  labels:
+    {{- include "roost.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "roost.postgresName" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: postgres
+    spec:
+      securityContext:
+        fsGroup: 70
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image }}
+          env:
+            - name: POSTGRES_USER
+              value: roost
+            - name: POSTGRES_DB
+              value: roost
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "roost.postgresName" . }}
+                  key: POSTGRES_PASSWORD
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "roost", "-d", "roost"]
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: {{ .Values.postgres.storage }}
+{{- end }}
