@@ -213,23 +213,27 @@ pub fn revoke_preview(url: &str) {
     }
 }
 
-/// Read a `File` into memory, for the chunker the direct carrier feeds.
+/// Read `start..end` of a `File`, for the chunk a carrier is about to send.
+/// `None` when the browser refuses or answers short — a file that changed on
+/// disk after it was picked reads as `NotReadableError`, never as other bytes.
 ///
 /// `Blob.arrayBuffer()` resolves with the bytes themselves. A `FileReader`'s
 /// `load` callback resolves with its ProgressEvent, which is not a buffer.
 #[cfg(target_arch = "wasm32")]
-pub async fn read_bytes(file: &web_sys::File) -> Option<Vec<u8>> {
+pub async fn read_file_range(file: &web_sys::File, start: u64, end: u64) -> Option<Vec<u8>> {
     use wasm_bindgen_futures::JsFuture;
 
-    let buffer = JsFuture::from(file.array_buffer()).await.ok()?;
-    buffer
+    let slice = file.slice_with_f64_and_f64(start as f64, end as f64).ok()?;
+    let buffer = JsFuture::from(slice.array_buffer()).await.ok()?;
+    let bytes = buffer
         .dyn_into::<js_sys::ArrayBuffer>()
         .ok()
-        .map(|array| js_sys::Uint8Array::new(&array).to_vec())
+        .map(|array| js_sys::Uint8Array::new(&array).to_vec())?;
+    (bytes.len() as u64 == end.saturating_sub(start)).then_some(bytes)
 }
 
 /// No file outside a browser.
 #[cfg(not(target_arch = "wasm32"))]
-pub async fn read_bytes(_file: &web_sys::File) -> Option<Vec<u8>> {
+pub async fn read_file_range(_file: &web_sys::File, _start: u64, _end: u64) -> Option<Vec<u8>> {
     None
 }

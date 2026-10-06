@@ -20,7 +20,6 @@ use roost_client_core::client::attachments::direct::upload_attachment_direct;
 use roost_client_core::client::attachments::insertion::safe_attachment_insertion;
 
 use super::attachment_picker::ChosenFile;
-use super::short_paths::short_path_preference;
 use super::upload_card::{self, UploadPreview};
 use super::upload_host::{self, BrowserDirectEnvironment, DirectIdentity};
 use super::upload_id::{content_digest, mint_upload_id};
@@ -101,35 +100,6 @@ pub fn enqueue_attachments(
     drain_queue();
 }
 
-/// Upload one file's bytes, with no card and no insertion, and answer the path
-/// the worker committed them under.
-///
-/// No worker is named, so no direct route can match and the coordinator relay
-/// carries the bytes — the route v2's `uploadAttachment` takes for a session
-/// given only by id. It does not join the picker's queue: its caller awaits
-/// the path, and no typed insertion orders against it.
-pub async fn upload_attachment(
-    pump: &Pump,
-    session_id: &str,
-    file_name: String,
-    bytes: Vec<u8>,
-) -> Result<String, String> {
-    let upload_id =
-        mint_upload_id().ok_or_else(|| "this document cannot mint an upload id".to_owned())?;
-    let plan = UploadPlan::for_file(
-        session_id,
-        None,
-        upload_id,
-        file_name,
-        bytes.len() as u64,
-        short_path_preference(),
-    )
-    .map_err(|refusal| refusal.message().to_owned())?;
-    upload_host::relay_upload(pump, &plan, &bytes, |_| {})
-        .await
-        .map(|outcome| outcome.abs_path)
-}
-
 /// Run queued uploads until the queue is empty.
 fn drain_queue() {
     if RUNNING.get() {
@@ -188,11 +158,11 @@ async fn run_one(job: QueuedUpload) {
         upload_card::mark_hashing(store, &id);
     });
 
-    if plan.probe_first && probe_hit(&job, &plan).await {
+    if plan.probe_first
+        && let Some(path) = deduplicated_path(&job, &plan).await
+    {
         write_store(&pump, |store| upload_card::mark_deduplicated(store, &id));
-        if let Some(path) = deduplicated_path(&job, &plan).await {
-            insert_path(&job, &path);
-        }
+        insert_path(&job, &path);
         return;
     }
 
@@ -231,9 +201,16 @@ fn refuse(job: &QueuedUpload, upload_id: &str, refusal: PlanRefusal) {
     });
 }
 
-/// Hash, probe, and report whether the worker already holds these exact bytes.
-async fn probe_hit(job: &QueuedUpload, plan: &UploadPlan) -> bool {
-    let digest = match content_digest(&job.file.bytes).await {
+/// Hash the file and ask the worker whether it already holds these exact
+/// bytes, answering the path it holds them under. The plan only probes a file
+/// small enough to read whole; a failed read or hash uploads without a probe.
+async fn deduplicated_path(job: &QueuedUpload, plan: &UploadPlan) -> Option<String> {
+    let read = super::dom::read_file_range(&job.file.file, 0, plan.total_bytes).await;
+    let digest = match read {
+        Some(bytes) => content_digest(&bytes).await,
+        None => Err("the file could not be read".to_owned()),
+    };
+    let digest = match digest {
         Ok(digest) => digest,
         Err(reason) => {
             tracing::warn!(
@@ -242,29 +219,9 @@ async fn probe_hit(job: &QueuedUpload, plan: &UploadPlan) -> bool {
                 %reason,
                 "attachment content hash failed; uploading without a dedup probe"
             );
-            return false;
+            return None;
         }
     };
-    upload_host::probe_deduplicated(
-        &job.pump,
-        &plan.direct_request.session_id,
-        &digest,
-        plan.total_bytes,
-        &plan.file_name,
-        plan.direct_request.short_path,
-    )
-    .await
-    .is_some()
-}
-
-/// The path a dedup hit handed back, asked for a second time because the probe
-/// is a question about content and the card needs the path it settled on.
-///
-/// A probe that answers differently the second time is treated as a miss by
-/// the caller, because the only safe reading of "the worker holds these bytes"
-/// followed by "it does not" is that it did not.
-async fn deduplicated_path(job: &QueuedUpload, plan: &UploadPlan) -> Option<String> {
-    let digest = content_digest(&job.file.bytes).await.ok()?;
     upload_host::probe_deduplicated(
         &job.pump,
         &plan.direct_request.session_id,
@@ -289,7 +246,7 @@ async fn upload_on_a_carrier(job: &QueuedUpload, plan: &UploadPlan) -> UploadOut
         pump: &job.pump,
         identity: &job.identity,
         request: &plan.direct_request,
-        bytes: &job.file.bytes,
+        file: &job.file.file,
         on_progress: &on_progress,
     };
     let choice = CarrierChoice::from_attempt(
@@ -334,8 +291,7 @@ async fn relay(job: &QueuedUpload, plan: &UploadPlan) -> UploadOutcome {
             roost_client_core::store::transfers::TransferRoute::Coordinator,
         );
     });
-    let bytes = job.file.bytes.clone();
-    let result = upload_host::relay_upload(&pump, plan, &bytes, |settled| {
+    let result = upload_host::relay_upload(&pump, plan, &job.file.file, |settled| {
         write_store(&pump, |store| {
             upload_card::record_progress(store, &upload_id, settled);
         });

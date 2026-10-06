@@ -14,15 +14,17 @@ use crate::components::md::focus_scope::VISUALLY_HIDDEN_STYLE;
 use crate::components::md::form_field::scoped_element_id;
 use crate::components::md::{Surface, SurfaceRadius};
 
-/// One chosen file, read out of the browser before it is handed upward.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// One chosen file: its name, length and the browser's handle to it. The
+/// bytes are read a chunk at a time while the upload runs, so a large video is
+/// never held whole in the tab's memory.
+#[derive(Debug, Clone, PartialEq)]
 pub struct ChosenFile {
     /// The name the worker will store it under.
     pub name: String,
     /// Its byte length.
     pub size_bytes: u64,
-    /// Its bytes, read once so the chunker never re-reads a moving source.
-    pub bytes: Vec<u8>,
+    /// The browser's handle, read through `dom::read_file_range`.
+    pub file: web_sys::File,
     /// A local object URL for the transfer card's preview, when the browser
     /// could mint one. The card's owner releases it with
     /// [`crate::components::terminal_chrome::dom::revoke_preview`].
@@ -61,7 +63,7 @@ pub fn AttachmentInput(
     }
 }
 
-/// Read a picker result or a drop into `ChosenFile`s, in the order the user
+/// Turn a picker result or a drop into `ChosenFile`s, in the order the user
 /// picked them.
 ///
 /// The desktop contract attaches several files in one gesture and the worker
@@ -70,21 +72,16 @@ pub(super) fn spawn_read_chosen(
     files: Vec<web_sys::File>,
     on_chosen: EventHandler<Vec<ChosenFile>>,
 ) {
-    // The read is off the render path: a picked file is read in full before it
-    // can be chunked, and a component that awaited it would paint nothing until
-    // the browser finished.
+    // Off the render path, because minting a preview is asynchronous.
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_futures::spawn_local(async move {
         let mut chosen = Vec::with_capacity(files.len());
         for file in files {
-            let Some(bytes) = dom::read_bytes(&file).await else {
-                continue;
-            };
             chosen.push(ChosenFile {
                 name: dom::file_name(&file),
                 size_bytes: dom::file_size(&file),
-                bytes,
                 preview_url: dom::preview_url(&file).await,
+                file,
             });
         }
         if !chosen.is_empty() {

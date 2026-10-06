@@ -37,12 +37,12 @@ pub struct DirectIdentity {
 }
 
 /// What one upload's direct attempt runs against: the tab's reach, read at
-/// upload time as v2 reads it, and the bytes a carrier would send.
+/// upload time as v2 reads it, and the file a carrier reads its chunks from.
 pub struct BrowserDirectEnvironment<'upload> {
     pub pump: &'upload Pump,
     pub identity: &'upload DirectIdentity,
     pub request: &'upload AttachmentDirectUploadRequest,
-    pub bytes: &'upload [u8],
+    pub file: &'upload web_sys::File,
     pub on_progress: &'upload dyn Fn(u64),
 }
 
@@ -51,7 +51,6 @@ impl std::fmt::Debug for BrowserDirectEnvironment<'_> {
         formatter
             .debug_struct("BrowserDirectEnvironment")
             .field("request", self.request)
-            .field("bytes", &self.bytes.len())
             .finish_non_exhaustive()
     }
 }
@@ -159,7 +158,8 @@ impl BrowserDirectEnvironment<'_> {
         match send_attachment_file(
             carrier,
             &self.request.upload_id,
-            self.bytes,
+            self.file,
+            self.request.file_bytes,
             self.on_progress,
             coordinator_status,
         )
@@ -306,7 +306,8 @@ pub async fn send_relay_chunk(pump: &Pump, chunk: &RelayChunk) -> Result<String,
         .map_err(|error| error.to_string())
 }
 
-/// Run the whole-file upload over the coordinator relay, one chunk at a time.
+/// Run the whole-file upload over the coordinator relay, one chunk at a time,
+/// reading each chunk from the file just before it is sent.
 ///
 /// Always sends at least one chunk, so a zero-byte file still creates a file
 /// and still returns a path — a file with no chunks is a file that was never
@@ -314,21 +315,18 @@ pub async fn send_relay_chunk(pump: &Pump, chunk: &RelayChunk) -> Result<String,
 pub async fn relay_upload(
     pump: &Pump,
     plan: &UploadPlan,
-    bytes: &[u8],
+    file: &web_sys::File,
     mut on_progress: impl FnMut(u64),
 ) -> Result<AttachmentTransferResult, String> {
     let mut upload = RelayUpload::new(&plan.direct_request);
     while let Some(slice) = upload.next_slice() {
-        let start = slice.offset as usize;
-        let end = start + slice.bytes;
-        let data = bytes.get(start..end).ok_or_else(|| {
-            format!(
-                "file changed while uploading: wanted bytes {start}..{end} of {}",
-                bytes.len()
-            )
-        })?;
+        let start = slice.offset;
+        let end = start + slice.bytes as u64;
+        let data = super::dom::read_file_range(file, start, end)
+            .await
+            .ok_or_else(|| format!("the file could not be read at bytes {start}..{end}; it may have changed since it was picked"))?;
         let chunk = upload
-            .frame(data.to_vec())
+            .frame(data)
             .ok_or_else(|| "the upload finished before its last chunk was sent".to_owned())?;
         let abs_path = send_relay_chunk(pump, &chunk).await?;
         let settled = upload.settle(&abs_path);
