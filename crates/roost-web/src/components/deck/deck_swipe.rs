@@ -1,8 +1,9 @@
 //! The compact deck bar swipe: the commit-to-switch decision, the momentum
-//! settle timing, the end-of-list affordances, and the arm/track/end state
-//! machine the touch adapter drives. Read by `terminal_deck_swipe` (wasm) and
-//! `deck_swipe_style`; the card-dismiss pair is read by the terminal card grid.
-//! Pure; ports `apps/web/src/lib/deckSwipe.ts` and the transitions of
+//! settle timing, the end-of-list affordances, the arm/track/end state
+//! machine the touch adapter drives, and when the route has outlived a swipe.
+//! Read by `terminal_deck_swipe` (wasm) and `deck_swipe_style`; the
+//! card-dismiss pair is read by the terminal card grid. Pure; ports
+//! `apps/web/src/lib/deckSwipe.ts` and the transitions of
 //! `apps/web/src/components/deck/terminal-deck-swipe.ts`.
 
 /// A deliberate drag commits at 40% of the width.
@@ -111,6 +112,16 @@ pub enum SwipeCompletion {
     Cancelled,
 }
 
+impl SwipeCompletion {
+    /// Whether the settled swipe stays painted until the route shows the
+    /// neighbour. The select reaches the route a render or more after it
+    /// runs; dropping the swipe first paints the old card back at rest, and
+    /// the neighbour parked, for those renders.
+    pub fn waits_for_route(&self) -> bool {
+        matches!(self, Self::SelectNeighbor(_))
+    }
+}
+
 /// A release: the settling swipe, what follows it, and when.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SwipeRelease {
@@ -122,8 +133,27 @@ pub struct SwipeRelease {
     pub delay_ms: u64,
 }
 
+impl SwipeRelease {
+    /// When the deck drops the settled swipe whatever else happens, ms from
+    /// the release: as the completion runs, or for a slide that waits for its
+    /// route, after the landing grace. Every settle ends; none waits on a
+    /// `transitionend` that an interrupted or no-op transition never fires.
+    pub fn drop_deadline_ms(&self) -> u64 {
+        if self.completion.waits_for_route() {
+            self.delay_ms + LANDING_GRACE_MS
+        } else {
+            self.delay_ms
+        }
+    }
+}
+
 /// Extra wait past a settle so its transition has painted its last frame.
 pub const SETTLE_SLACK_MS: u64 = 20;
+
+/// How long a landed slide waits for the route before it lets go anyway, ms.
+/// A select whose route never moves (the neighbour closed mid-settle) would
+/// otherwise hold the settle, which refuses every new swipe, forever.
+pub const LANDING_GRACE_MS: u64 = 500;
 
 /// Commit only when released IN the armed direction AND either a real distance
 /// drag or a directional flick past a small travel floor; that floor and the
@@ -230,41 +260,69 @@ pub fn release_swipe(
     if swipe.phase != SwipePhase::Track {
         return None;
     }
-    let travelled = swipe.offset.abs();
+    if !should_commit_switch(delta_x, velocity, swipe.dir, width) {
+        return Some(spring_back(swipe, width));
+    }
     let mut settling = swipe.clone();
     settling.phase = SwipePhase::Settle;
-    if should_commit_switch(delta_x, velocity, swipe.dir, width) {
-        settling.settle_target = Some(SettleTarget::Commit);
-        if swipe.mode == SwipeMode::NewTerminal {
-            settling.settle_ms = Some(NEW_BLOOM_MS);
-            return Some(SwipeRelease {
-                settling,
-                completion: SwipeCompletion::NewTerminal,
-                delay_ms: NEW_BLOOM_MS + SETTLE_SLACK_MS,
-            });
-        }
-        let settle_ms = settle_duration_ms(width - travelled, width);
-        settling.offset = -swipe.dir.sign() * width;
-        settling.settle_ms = Some(settle_ms);
-        let completion = swipe
-            .neighbor_id
-            .clone()
-            .map_or(SwipeCompletion::Cancelled, SwipeCompletion::SelectNeighbor);
+    settling.settle_target = Some(SettleTarget::Commit);
+    if swipe.mode == SwipeMode::NewTerminal {
+        settling.settle_ms = Some(NEW_BLOOM_MS);
         return Some(SwipeRelease {
             settling,
-            completion,
-            delay_ms: settle_ms + SETTLE_SLACK_MS,
+            completion: SwipeCompletion::NewTerminal,
+            delay_ms: NEW_BLOOM_MS + SETTLE_SLACK_MS,
         });
     }
-    let settle_ms = settle_duration_ms(travelled, width);
+    let settle_ms = settle_duration_ms(width - swipe.offset.abs(), width);
+    settling.offset = -swipe.dir.sign() * width;
+    settling.settle_ms = Some(settle_ms);
+    let completion = swipe
+        .neighbor_id
+        .clone()
+        .map_or(SwipeCompletion::Cancelled, SwipeCompletion::SelectNeighbor);
+    Some(SwipeRelease {
+        settling,
+        completion,
+        delay_ms: settle_ms + SETTLE_SLACK_MS,
+    })
+}
+
+/// Spring a tracking swipe back without committing: a second finger, a
+/// cancelled touch, or a drag whose release never reached the deck.
+pub fn cancel_swipe(swipe: &Swipe, width: f64) -> Option<SwipeRelease> {
+    if swipe.phase != SwipePhase::Track {
+        return None;
+    }
+    Some(spring_back(swipe, width))
+}
+
+/// Whether the route has moved past a live swipe, so the deck drops it: a
+/// drag whose card is no longer the route's, or a slide that has landed, the
+/// route now showing the neighbour it settled onto.
+pub fn route_outlives_swipe(swipe: &Swipe, followed_session_id: &str) -> bool {
+    match swipe.phase {
+        SwipePhase::Track => swipe.current_id != followed_session_id,
+        SwipePhase::Settle => {
+            swipe.mode == SwipeMode::Slide
+                && swipe.settle_target == Some(SettleTarget::Commit)
+                && swipe.neighbor_id.as_deref() == Some(followed_session_id)
+        }
+    }
+}
+
+fn spring_back(swipe: &Swipe, width: f64) -> SwipeRelease {
+    let settle_ms = settle_duration_ms(swipe.offset, width);
+    let mut settling = swipe.clone();
+    settling.phase = SwipePhase::Settle;
     settling.settle_target = Some(SettleTarget::Cancel);
     settling.offset = 0.0;
     settling.settle_ms = Some(settle_ms);
-    Some(SwipeRelease {
+    SwipeRelease {
         settling,
         completion: SwipeCompletion::Cancelled,
         delay_ms: settle_ms + SETTLE_SLACK_MS,
-    })
+    }
 }
 
 /// The neighbour whose own bar rides in beside the current one: a real

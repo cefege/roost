@@ -162,15 +162,13 @@ fn the_slots_follow_the_finger_then_land_a_width_off() {
 
 #[test]
 fn only_the_swiped_slots_move_and_a_slide_tracks_without_transition() {
-    assert!(swipe_style_for(None, "cur", 400.0).is_empty());
-    assert!(swipe_style_for(Some(&track()), "other", 400.0).is_empty());
-    let current = InlineStyle::new()
-        .with("transform", "translateX(-200px)")
-        .with("transition", "none");
+    let rest = swipe_style_for(None, "cur", 400.0);
+    assert_eq!(rest.get("transform"), Some("none"));
+    assert_eq!(rest.get("transition"), Some("none"));
+    assert_eq!(swipe_style_for(Some(&track()), "other", 400.0), rest);
+    let current = rest.clone().with("transform", "translateX(-200px)");
     assert_eq!(swipe_style_for(Some(&track()), "cur", 400.0), current);
-    let neighbour = InlineStyle::new()
-        .with("transform", "translateX(200px)")
-        .with("transition", "none");
+    let neighbour = rest.clone().with("transform", "translateX(200px)");
     assert_eq!(swipe_style_for(Some(&track()), "nxt", 400.0), neighbour);
     let settling = Swipe {
         settle_ms: Some(250),
@@ -188,8 +186,9 @@ fn only_the_swiped_slots_move_and_a_slide_tracks_without_transition() {
         neighbor_id: None,
         ..track()
     };
-    assert!(
-        swipe_style_for(Some(&drawer), "cur", 400.0).is_empty(),
+    assert_eq!(
+        swipe_style_for(Some(&drawer), "cur", 400.0),
+        rest,
         "the drawer moves instead"
     );
 }
@@ -205,8 +204,9 @@ fn a_new_terminal_pull_peels_the_current_card() {
         swipe_style_for(Some(&pull(0.0)), "cur", 400.0).get("box-shadow"),
         Some("none")
     );
-    assert!(
-        swipe_style_for(Some(&pull(-200.0)), "nxt", 400.0).is_empty(),
+    assert_eq!(
+        swipe_style_for(Some(&pull(-200.0)), "nxt", 400.0),
+        swipe_style_for(None, "nxt", 400.0),
         "no neighbour slot"
     );
 }

@@ -2509,9 +2509,11 @@ a named owner is the smell to grep for.
 ### A Dioxus `style` string keeps every property the previous render set
 
 **Symptom** — "revealed terminal ignores the wheel / clicks / selection", "pane stays rounded or clipped after
-the spotlight closes", "a slot or bar stays translated off-screen after a swipe"; in a trace DOM snapshot the
-element's inline style carries a property its current state never sets (a revealed deck slot read
-`visibility: inherit; z-index: 2; pointer-events: none;`).
+the spotlight closes", "a slot or bar stays translated off-screen after a swipe", "on mobile the tab seems to
+disappear", "the phone tab bar is gone after a swipe", "the card stays shrunk after a swipe"; in a trace DOM
+snapshot the element's inline style carries a property its current state never sets (a revealed deck slot read
+`visibility: inherit; z-index: 2; pointer-events: none;`; with no swipe live, `mobile-strip-wrap` read
+`transform: translateX(-390px)` and a slot read `transform: translateX(-12px) scale(0.94)`).
 
 **Wrong** — computing a `style` string per state and letting each branch declare only what it needs, the way a
 Solid style OBJECT may: Solid removes keys the new object lacks, but Dioxus 0.7 does not. Its setter
@@ -2524,13 +2526,54 @@ could never scroll into history. An EMPTY string does not reset anything either:
 like `pointer-events: auto`, `overflow: visible`, `border-radius: 0`), built through one struct with a field per
 property so a branch cannot omit one (`crates/roost-web/src/components/deck/terminal_deck_geometry.rs`
 `SlotStyle`); or the attribute is REMOVED (`style: None`) when the state has no style at all
-(`crates/roost-web/src/components/deck/pane_tab.rs`). Inline style written imperatively onto a Dioxus-styled
-node survives re-renders for the same reason, and two sites rely on that (`--term-chat-pane-rest`,
-`--cell-cols`).
+(`crates/roost-web/src/components/deck/pane_tab.rs`). A LAYER merged over a placement obeys the same rule: the
+phone swipe layer (`crates/roost-web/src/components/deck/deck_swipe_style.rs` `swipe_style_for`) once went
+empty with no swipe, so a committed slide left the old slot and the bar wrapper a width off-screen and a swipe
+cleared mid-drag froze the card mid-peel. It now declares `transform`, `transform-origin`, `box-shadow` and
+`transition` in every state (`none` at rest), and every placement it composes over declares the peel's
+`border-radius` and `overflow` (`SlotStyle`, `mobile_bar_style`). Resetting the layer must not repaint a stale
+frame either: a committed slide stays painted until the route shows the neighbour (`route_outlives_swipe`,
+bounded by `LANDING_GRACE_MS`), or the old card flashes back at rest for the renders the select takes to reach
+the route. Inline style written imperatively onto a Dioxus-styled node survives re-renders for the same reason,
+and two sites rely on that (`--term-chat-pane-rest`, `--cell-cols`).
 
 **Guard** — `crates/roost-web/tests/deck_geometry.rs`
 `every_slot_placement_declares_the_same_properties_so_no_state_outlives_itself` (the parked, plain and spotlit
-placements declare one property set).
+placements declare one property set); `crates/roost-web/tests/deck_swipe_style.rs`
+`a_slot_declares_one_property_set_through_every_swipe_state` and
+`the_phone_bar_declares_one_property_set_through_every_swipe_state` (the COMPOSED style, placement plus swipe
+layer, across every swipe state); `crates/roost-web/tests/deck_swipe_settle.rs`
+`the_route_outlives_a_landed_slide_or_a_drag_it_moved_away_from`.
+
+### A phone swipe freezes mid-drag when its release never reaches the deck
+
+**Symptom** — "on mobile, when I'm scrolling to the very last tab and still scrolling to create a new tab, that
+smooth animation gets stuck in the middle if I don't pull all the way … the entire deck gets blocked … there's
+no way to revert"; the slot keeps a mid-swipe `transform` (a part peel, or a part slide with the neighbour
+beside it), the new-terminal peek stays up, and taps change nothing.
+
+**Wrong** — reading a drag's moves and its end only through capture listeners on the deck. A touch is
+dispatched to the element it started on for its whole life; the terminal renderer replaces a row element whose
+text changed (`roost-web-terminal` `cell_renderer/paint.rs` `replace_with`), and a touch whose target has left
+the document is dispatched to that detached node alone, with no propagation path through the deck, so the
+swipe stops following and never releases. Also wrong: resetting the touch tracker when a second finger lands
+without ending the armed swipe (the lift then reads as "nothing armed"), and treating `touchcancel` as a
+release that may commit.
+
+**Right** — `crates/roost-web/src/components/deck/deck_dom/web_listeners.rs` `deck_touches` also follows each
+touch on its own target (`follow_touch_target`), delivering a move or end only once the deck no longer contains
+that target; the follower is replaced at the next touchstart from the deck's own listener, never dropped from
+inside one of its closures. `deck_swipe_touch` ends an armed drag with `TouchStep::Cancelled` on a second
+finger, a `touchcancel`, or a new touch while the drag is still armed, and the deck springs it back
+(`deck_swipe::cancel_swipe`). Every settle ends on a bounded timer (`SwipeRelease::drop_deadline_ms`), never on a
+`transitionend` an interrupted or no-op transition does not fire.
+
+**Guard** — `crates/roost-web/tests/deck_swipe_touch.rs` `a_second_finger_during_an_armed_drag_cancels_it`,
+`a_cancelled_touch_cancels_the_drag_instead_of_releasing_it`,
+`a_new_touch_over_a_drag_that_never_released_cancels_it_and_tracks_anew`; `crates/roost-web/tests/deck_swipe_settle.rs`
+`a_short_pull_past_the_last_tab_springs_back_at_any_release_speed`,
+`a_cancelled_drag_springs_back_however_far_it_travelled`, `every_settle_has_a_bounded_drop_deadline`. The target
+follower is browser-only and has no Rust test: a native build has no DOM to detach a node from.
 
 ### A multi-line draft leaves the desktop pane: the composer is clipped and its first lines are hidden
 

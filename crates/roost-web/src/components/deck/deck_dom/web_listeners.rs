@@ -1,5 +1,6 @@
 //! The browser arm of `deck_dom`'s event listeners: a tab drag's window
-//! listeners, the deck's chord listener and its touch listeners. Owners
+//! listeners, the deck's chord listener and its touch listeners, plus the
+//! per-touch listeners on a target the terminal renderer may detach. Owners
 //! remove their listeners on drop; `remove` detaches early without dropping a
 //! closure that may be running.
 
@@ -15,6 +16,7 @@ use super::web::element;
 use crate::platform::browser_platform::{ShortcutKey, shortcut_key};
 
 type Listener = Closure<dyn FnMut(web_sys::Event)>;
+type TouchSink = Rc<RefCell<dyn FnMut(DeckTouch) -> bool>>;
 
 /// Listeners on one target, removed on `remove` or drop.
 pub struct Listeners {
@@ -121,24 +123,22 @@ impl Listeners {
     }
 
     /// The deck's touch listeners, capture phase; a move `on_touch` claims
-    /// is consumed so the terminal does not also scroll.
+    /// is consumed so the terminal does not also scroll. Each touch is also
+    /// followed on its own target: the terminal renderer replaces a row
+    /// element whose text changed, and a touch whose target has left the
+    /// document is dispatched to that detached node alone, so the deck would
+    /// see neither the drag's later moves nor its release.
     pub fn deck_touches(
         deck: &MountedData,
         on_touch: impl FnMut(DeckTouch) -> bool + 'static,
     ) -> Option<Self> {
-        let listeners = Self::on(element(deck)?.into());
-        let on_touch = Rc::new(RefCell::new(on_touch));
-        let now = || {
-            web_sys::window()
-                .and_then(|window| window.performance())
-                .map_or(0.0, |clock| clock.now())
-        };
-        let first = |event: &web_sys::TouchEvent| {
-            event
-                .touches()
-                .get(0)
-                .map(|touch| (f64::from(touch.client_x()), f64::from(touch.client_y())))
-        };
+        let deck_element = element(deck)?;
+        let deck_node: web_sys::Node = deck_element.clone().into();
+        let listeners = Self::on(deck_element.into());
+        let on_touch: TouchSink = Rc::new(RefCell::new(on_touch));
+        // Replaced at every touchstart, from the deck's own listener, so a
+        // follower is never dropped while one of its closures is running.
+        let follower: RefCell<Option<Listeners>> = RefCell::new(None);
         let start = Rc::clone(&on_touch);
         listeners.add(
             "touchstart",
@@ -148,12 +148,15 @@ impl Listeners {
                 let Some(touch) = event.dyn_ref::<web_sys::TouchEvent>() else {
                     return;
                 };
-                let (x, y) = first(touch).unwrap_or_default();
+                *follower.borrow_mut() = event
+                    .target()
+                    .and_then(|target| Self::follow_touch_target(target, &deck_node, &start));
+                let (x, y) = first_touch(touch).unwrap_or_default();
                 start.borrow_mut()(DeckTouch::Start {
                     x,
                     y,
                     touches: touch.touches().length(),
-                    at_ms: now(),
+                    at_ms: now_ms(),
                 });
             }),
         );
@@ -162,28 +165,78 @@ impl Listeners {
             "touchmove",
             true,
             false,
+            Closure::new(move |event: web_sys::Event| deliver_touch_move(&moving, &event)),
+        );
+        let ending = Rc::clone(&on_touch);
+        listeners.add(
+            "touchend",
+            true,
+            true,
+            Closure::new(move |_| {
+                ending.borrow_mut()(DeckTouch::End { at_ms: now_ms() });
+            }),
+        );
+        listeners.add(
+            "touchcancel",
+            true,
+            true,
+            Closure::new(move |_| {
+                on_touch.borrow_mut()(DeckTouch::Cancel);
+            }),
+        );
+        Some(listeners)
+    }
+
+    /// Listeners on one touch's target that deliver its moves and its end
+    /// only once the deck no longer contains it; while it does, the deck's
+    /// capture listeners already saw the event.
+    fn follow_touch_target(
+        target: web_sys::EventTarget,
+        deck: &web_sys::Node,
+        on_touch: &TouchSink,
+    ) -> Option<Self> {
+        let target_node = target.dyn_ref::<web_sys::Node>()?.clone();
+        let follower = Self::on(target);
+        let detached = {
+            let deck = deck.clone();
+            move || !deck.contains(Some(&target_node))
+        };
+        let moving = Rc::clone(on_touch);
+        let move_detached = detached.clone();
+        follower.add(
+            "touchmove",
+            false,
+            false,
             Closure::new(move |event: web_sys::Event| {
-                let Some((x, y)) = event.dyn_ref::<web_sys::TouchEvent>().and_then(first) else {
-                    return;
-                };
-                if moving.borrow_mut()(DeckTouch::Move { x, y, at_ms: now() }) {
-                    event.prevent_default();
-                    event.stop_propagation();
+                if move_detached() {
+                    deliver_touch_move(&moving, &event);
                 }
             }),
         );
-        for name in ["touchend", "touchcancel"] {
-            let ending = Rc::clone(&on_touch);
-            listeners.add(
-                name,
-                true,
-                true,
-                Closure::new(move |_| {
-                    ending.borrow_mut()(DeckTouch::End { at_ms: now() });
-                }),
-            );
-        }
-        Some(listeners)
+        let ending = Rc::clone(on_touch);
+        let end_detached = detached.clone();
+        follower.add(
+            "touchend",
+            false,
+            true,
+            Closure::new(move |_| {
+                if end_detached() {
+                    ending.borrow_mut()(DeckTouch::End { at_ms: now_ms() });
+                }
+            }),
+        );
+        let cancelling = Rc::clone(on_touch);
+        follower.add(
+            "touchcancel",
+            false,
+            true,
+            Closure::new(move |_| {
+                if detached() {
+                    cancelling.borrow_mut()(DeckTouch::Cancel);
+                }
+            }),
+        );
+        Some(follower)
     }
 }
 
@@ -199,5 +252,34 @@ impl std::fmt::Debug for Listeners {
             .debug_struct("Listeners")
             .field("attached", &self.attached.borrow().len())
             .finish()
+    }
+}
+
+fn now_ms() -> f64 {
+    web_sys::window()
+        .and_then(|window| window.performance())
+        .map_or(0.0, |clock| clock.now())
+}
+
+fn first_touch(event: &web_sys::TouchEvent) -> Option<(f64, f64)> {
+    event
+        .touches()
+        .get(0)
+        .map(|touch| (f64::from(touch.client_x()), f64::from(touch.client_y())))
+}
+
+/// A touch move for the swipe; one it claims is consumed so the terminal
+/// does not also scroll it.
+fn deliver_touch_move(on_touch: &TouchSink, event: &web_sys::Event) {
+    let Some((x, y)) = event.dyn_ref::<web_sys::TouchEvent>().and_then(first_touch) else {
+        return;
+    };
+    if on_touch.borrow_mut()(DeckTouch::Move {
+        x,
+        y,
+        at_ms: now_ms(),
+    }) {
+        event.prevent_default();
+        event.stop_propagation();
     }
 }

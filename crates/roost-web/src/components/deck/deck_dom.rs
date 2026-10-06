@@ -84,8 +84,10 @@ pub enum DeckTouch {
     },
     /// The first finger moved.
     Move { x: f64, y: f64, at_ms: f64 },
-    /// The gesture ended or was cancelled.
+    /// The finger lifted.
     End { at_ms: f64 },
+    /// The browser took the touch (a system gesture, a scroll it claimed).
+    Cancel,
 }
 
 /// The deck element, in context. Its transform makes it the containing block

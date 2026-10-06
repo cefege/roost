@@ -1,7 +1,8 @@
 //! Every style the compact deck paints from a live swipe: the slot slide, the
-//! new-terminal peel and FAB, and the peek surface behind them. Read by
-//! `terminal_deck` and `terminal_deck_swipe_overlay`. Pure; ports the
-//! presentation half of `apps/web/src/lib/deckSwipe.ts`.
+//! phone bar riding with its card, the new-terminal peel and FAB, and the peek
+//! surface behind them. Read by `terminal_deck`, `terminal_deck_chrome` and
+//! `terminal_deck_swipe_overlay`. Pure; ports the presentation half of
+//! `apps/web/src/lib/deckSwipe.ts`.
 
 use roost_client_core::store::layout::PaneRect;
 
@@ -9,6 +10,7 @@ use super::deck_swipe::{
     NEW_BLOOM_MS, SettleTarget, Swipe, SwipeMode, SwipePhase, new_fab_progress,
 };
 use super::inline_style::{InlineStyle, css_number, px};
+use super::terminal_deck_geometry::MOBILE_TERMINAL_STRIP_HEIGHT;
 
 /// The current card shrinks to this at the armed point.
 pub const PEEK_SCALE_MIN: f64 = 0.9;
@@ -63,15 +65,20 @@ pub fn swipe_offsets_px(swipe: &Swipe, width: f64) -> (f64, f64) {
     (swipe.offset, swipe.offset + sign * width)
 }
 
-/// The transform a slot composes over its geometry; empty for a slot the
-/// swipe does not involve.
+/// The swipe layer a slot or bar composes over its placement. Every state
+/// declares the same transform, origin, shadow and transition, at rest when
+/// the swipe does not involve the element: Dioxus 0.7 keeps each inline
+/// property a new `style` string omits, so a layer that went empty left the
+/// last swipe frame on the element. The peel's corner and clip are declared
+/// by every placement it composes over (`SlotStyle`, [`mobile_bar_style`]).
 pub fn swipe_style_for(swipe: Option<&Swipe>, session_id: &str, width: f64) -> InlineStyle {
+    let rest = swipe_layer_at_rest();
     let Some(swipe) = swipe else {
-        return InlineStyle::new();
+        return rest;
     };
     let is_current = session_id == swipe.current_id;
     if !is_current && swipe.neighbor_id.as_deref() != Some(session_id) {
-        return InlineStyle::new();
+        return rest;
     }
     let settle_ms = swipe.settle_ms.unwrap_or(200);
     let transition = if swipe.phase == SwipePhase::Settle {
@@ -82,16 +89,39 @@ pub fn swipe_style_for(swipe: Option<&Swipe>, session_id: &str, width: f64) -> I
     let (current, neighbor) = swipe_offsets_px(swipe, width);
     if is_current {
         return match swipe.mode {
-            SwipeMode::NewTerminal => new_terminal_peel(swipe, width, settle_ms),
-            SwipeMode::Workspace => InlineStyle::new(),
-            SwipeMode::Slide => InlineStyle::new()
+            SwipeMode::NewTerminal => rest.merged(&new_terminal_peel(swipe, width, settle_ms)),
+            SwipeMode::Workspace => rest,
+            SwipeMode::Slide => rest
                 .with("transform", format!("translateX({})", px(current)))
                 .with("transition", transition),
         };
     }
-    InlineStyle::new()
-        .with("transform", format!("translateX({})", px(neighbor)))
+    rest.with("transform", format!("translateX({})", px(neighbor)))
         .with("transition", transition)
+}
+
+/// A phone bar's wrapper: pinned above its terminal, riding the swipe with
+/// it. It states the corner and clip the peel writes, so a peeled bar does
+/// not stay rounded and clipped once the pull is gone.
+pub fn mobile_bar_style(swipe: Option<&Swipe>, session_id: &str, width: f64) -> InlineStyle {
+    InlineStyle::new()
+        .with("position", "absolute")
+        .with("left", "0")
+        .with("top", "0")
+        .with("width", "100%")
+        .with("height", px(MOBILE_TERMINAL_STRIP_HEIGHT))
+        .with("z-index", "3")
+        .with("border-radius", "0")
+        .with("overflow", "visible")
+        .merged(&swipe_style_for(swipe, session_id, width))
+}
+
+fn swipe_layer_at_rest() -> InlineStyle {
+    InlineStyle::new()
+        .with("transform", "none")
+        .with("transform-origin", "center center")
+        .with("box-shadow", "none")
+        .with("transition", "none")
 }
 
 fn new_terminal_peel(swipe: &Swipe, width: f64, settle_ms: u64) -> InlineStyle {

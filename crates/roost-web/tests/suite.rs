@@ -24,6 +24,10 @@ mod deck_geometry;
 mod deck_store_subscription;
 #[path = "deck_swipe.rs"]
 mod deck_swipe;
+#[path = "deck_swipe_settle.rs"]
+mod deck_swipe_settle;
+#[path = "deck_swipe_style.rs"]
+mod deck_swipe_style;
 #[path = "deck_swipe_touch.rs"]
 mod deck_swipe_touch;
 #[path = "deploy_dialog_state.rs"]

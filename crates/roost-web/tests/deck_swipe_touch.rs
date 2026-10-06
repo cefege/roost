@@ -1,7 +1,8 @@
 //! The compact deck's touch reading: the drawer's edge band and a second
 //! finger never start a tab swipe, a vertical lock leaves the gesture to the
-//! terminal for its whole life, and the release speed reads only the newest
-//! samples. Pins the listener half of
+//! terminal for its whole life, the release speed reads only the newest
+//! samples, and every touch that ends an armed drag without a release
+//! cancels it. Pins the listener half of
 //! `apps/web/src/components/deck/terminal-deck-swipe.ts`.
 
 use roost_web::components::deck::deck_dom::DeckTouch;
@@ -111,5 +112,67 @@ fn the_release_speed_reads_only_the_newest_samples() {
         tracker.step(DeckTouch::End { at_ms: 460.0 }, true),
         TouchStep::Ignored,
         "one release per drag"
+    );
+}
+
+/// An armed drag: down at x 300, then 80px toward the next tab.
+fn armed_drag() -> SwipeTouchTracker {
+    let mut tracker = SwipeTouchTracker::default();
+    tracker.step(start(300.0, 300.0, 1), true);
+    tracker.step(moved(260.0, 300.0, 10.0), true);
+    tracker.step(moved(220.0, 300.0, 20.0), true);
+    tracker
+}
+
+/// A second finger landing mid-drag reset the tracker, so the lift that
+/// followed read as "nothing armed" and the swipe froze at its last offset.
+#[test]
+fn a_second_finger_during_an_armed_drag_cancels_it() {
+    let mut tracker = armed_drag();
+    assert_eq!(
+        tracker.step(start(100.0, 400.0, 2), true),
+        TouchStep::Cancelled
+    );
+    assert_eq!(
+        tracker.step(moved(150.0, 300.0, 30.0), true),
+        TouchStep::Ignored,
+        "the pinch does not re-arm"
+    );
+    assert_eq!(
+        tracker.step(DeckTouch::End { at_ms: 40.0 }, true),
+        TouchStep::Ignored,
+        "one end per drag"
+    );
+}
+
+#[test]
+fn a_cancelled_touch_cancels_the_drag_instead_of_releasing_it() {
+    let mut tracker = armed_drag();
+    assert_eq!(tracker.step(DeckTouch::Cancel, true), TouchStep::Cancelled);
+    assert_eq!(
+        tracker.step(DeckTouch::End { at_ms: 40.0 }, true),
+        TouchStep::Ignored
+    );
+    let mut idle = SwipeTouchTracker::default();
+    assert_eq!(
+        idle.step(DeckTouch::Cancel, true),
+        TouchStep::Ignored,
+        "nothing armed, nothing to cancel"
+    );
+}
+
+/// A drag whose release went to a detached target leaves the tracker armed;
+/// the next touch cancels that drag and still starts its own.
+#[test]
+fn a_new_touch_over_a_drag_that_never_released_cancels_it_and_tracks_anew() {
+    let mut tracker = armed_drag();
+    assert_eq!(
+        tracker.step(start(200.0, 300.0, 1), true),
+        TouchStep::Cancelled
+    );
+    assert_eq!(
+        tracker.step(moved(170.0, 301.0, 50.0), true),
+        TouchStep::Armed { delta_x: -30.0 },
+        "the new touch is a swipe of its own"
     );
 }

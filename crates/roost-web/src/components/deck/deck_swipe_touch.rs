@@ -1,8 +1,9 @@
 //! The compact deck's touch reading: which touches start a tab swipe (one
 //! finger, clear of the drawer's edge band), the axis lock that leaves
-//! vertical travel to the terminal, and the release velocity over the last
-//! samples. Fed by `terminal_deck_swipe`'s listener; target-independent. Ports
-//! the listener half of `apps/web/src/components/deck/terminal-deck-swipe.ts`.
+//! vertical travel to the terminal, the release velocity over the last
+//! samples, and which touches end an armed drag without a release. Fed by
+//! `terminal_deck_swipe`'s listener; target-independent. Ports the listener
+//! half of `apps/web/src/components/deck/terminal-deck-swipe.ts`.
 
 use super::deck_dom::DeckTouch;
 use crate::motion::edge_swipe_drawer::{EDGE_PX, LockedAxis, lock_axis};
@@ -34,6 +35,10 @@ pub enum TouchStep {
         /// Release speed, px/ms.
         velocity: f64,
     },
+    /// An armed drag ended without a release: a second finger landed, the
+    /// browser cancelled the touch, or a new touch began while the drag was
+    /// still armed (its release never reached the deck). The swipe springs back.
+    Cancelled,
 }
 
 impl TouchStep {
@@ -65,21 +70,31 @@ impl SwipeTouchTracker {
                 touches,
                 at_ms,
             } => {
-                self.armed = false;
+                let interrupted = self.end_armed_drag();
                 self.axis = None;
-                self.tracking = false;
-                if !compact || touches != 1 || x <= EDGE_PX {
-                    return TouchStep::Ignored;
+                self.tracking = compact && touches == 1 && x > EDGE_PX;
+                if self.tracking {
+                    self.start = (x, y);
+                    self.last_x = x;
+                    self.samples = vec![(x, at_ms)];
                 }
-                self.start = (x, y);
-                self.last_x = x;
-                self.samples = vec![(x, at_ms)];
-                self.tracking = true;
-                TouchStep::Ignored
+                interrupted
             }
             DeckTouch::Move { x, y, at_ms } => self.track(x, y, at_ms),
             DeckTouch::End { at_ms } => self.release(at_ms),
+            DeckTouch::Cancel => {
+                self.tracking = false;
+                self.end_armed_drag()
+            }
         }
+    }
+
+    fn end_armed_drag(&mut self) -> TouchStep {
+        if !std::mem::take(&mut self.armed) {
+            return TouchStep::Ignored;
+        }
+        self.samples.clear();
+        TouchStep::Cancelled
     }
 
     fn track(&mut self, x: f64, y: f64, at_ms: f64) -> TouchStep {

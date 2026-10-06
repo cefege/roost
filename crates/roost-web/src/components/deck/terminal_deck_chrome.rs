@@ -10,12 +10,11 @@ use roost_client_core::store::layout::PaneView;
 
 use super::arrange_menu::ArrangeMenu;
 use super::deck_swipe::{Swipe, bar_neighbor_id};
-use super::deck_swipe_style::swipe_style_for;
-use super::inline_style::{InlineStyle, px};
+use super::deck_swipe_style::mobile_bar_style;
+use super::inline_style::px;
 use super::mobile_deck_bar::MobileDeckBar;
 use super::pane_divider::PaneDivider;
 use super::pane_strip::PaneStrip;
-use super::terminal_deck_geometry::MOBILE_TERMINAL_STRIP_HEIGHT;
 use super::terminal_deck_model::DeckFrame;
 use super::terminal_deck_operations::{DeckOperations, DropOverlay};
 use crate::motion::drop_zones::DropZone;
@@ -133,17 +132,7 @@ pub fn compact_chrome(
         return rsx! {};
     }
     let neighbor = bar_neighbor_id(swipe, true).map(str::to_owned);
-    let bar_style = |session_id: &str| {
-        InlineStyle::new()
-            .with("position", "absolute")
-            .with("left", "0")
-            .with("top", "0")
-            .with("width", "100%")
-            .with("height", px(MOBILE_TERMINAL_STRIP_HEIGHT))
-            .with("z-index", "3")
-            .merged(&swipe_style_for(swipe, session_id, width))
-            .css()
-    };
+    let bar_style = |session_id: &str| mobile_bar_style(swipe, session_id, width).css();
     rsx! {
         div { "data-testid": "mobile-strip-wrap", style: bar_style(active_session_id),
             {mobile_bar(frame, operations.clone(), active_session_id.to_owned())}
