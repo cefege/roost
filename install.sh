@@ -72,14 +72,56 @@ asset_name() {
   fi
 }
 
-# The newest published v3 tag, or nothing. Pre-releases count: the fleet runs
-# `v3.0.0-rc.N` until `v3.0.0` exists, and an install that cannot find an rc is
-# an install that cannot find a release.
-newest_v3_tag() {
+# Every published v3 tag, one per line, as `<sort key> <stable|prerelease> <tag>`.
+# The key orders by semver: each number zero-padded so text order is numeric
+# order, and a release with no pre-release part ends in `~`, which sorts after
+# every `-…` — so `3.0.0-rc.9 < 3.0.0-rc.10 < 3.0.0 < 3.0.1-rc.1`, the same order
+# `roost update` uses (`update::version`). The listing itself is ordered by
+# publish date, which is not version order.
+v3_tags_by_version() {
   curl -fsSL -H 'accept: application/vnd.github+json' "$RELEASE_API" 2>/dev/null \
     | grep -o '"tag_name": *"v3\.[^"]*"' \
-    | head -1 \
-    | sed 's/.*"tag_name": *"\(v3\.[^"]*\)".*/\1/'
+    | sed 's/.*"tag_name": *"\(v3\.[^"]*\)".*/\1/' \
+    | awk '
+      {
+        version = substr($0, 2); sub(/\+.*/, "", version)
+        pre = ""; dash = index(version, "-")
+        if (dash > 0) { pre = substr(version, dash + 1); version = substr(version, 1, dash - 1) }
+        if (split(version, core, ".") != 3) next
+        key = sprintf("%010d.%010d.%010d", core[1], core[2], core[3])
+        if (pre == "") { print key "~ stable " $0; next }
+        count = split(pre, ids, ".")
+        key = key "-"
+        for (i = 1; i <= count; i++) {
+          key = key (i > 1 ? "." : "") (ids[i] ~ /^[0-9]+$/ ? sprintf("%010d", ids[i]) : ids[i])
+        }
+        print key " prerelease " $0
+      }' \
+    | LC_ALL=C sort
+}
+
+# The tag to install. ROOST_RELEASE_CHANNEL=prerelease takes the highest v3 tag
+# of any kind; otherwise the highest stable one, and only while no stable v3
+# exists and no channel was named, the highest pre-release — saying so,
+# because a machine installed from a pre-release keeps updating on
+# pre-releases. The channel value is validated before this runs.
+install_tag() {
+  local listing stable
+  listing="$(v3_tags_by_version)"
+  [ -n "$listing" ] || return 0
+  if [ "${ROOST_RELEASE_CHANNEL:-}" = "prerelease" ]; then
+    printf '%s\n' "$listing" | tail -1 | cut -d' ' -f3
+    return 0
+  fi
+  stable="$(printf '%s\n' "$listing" | grep ' stable ' | tail -1 | cut -d' ' -f3)"
+  if [ -n "$stable" ]; then
+    printf '%s' "$stable"
+  elif [ -z "${ROOST_RELEASE_CHANNEL:-}" ]; then
+    say "no stable v3 release yet; installing the newest pre-release" >&2
+    printf '%s\n' "$listing" | tail -1 | cut -d' ' -f3
+  else
+    say "ROOST_RELEASE_CHANNEL=stable and no stable v3 release is published" >&2
+  fi
 }
 
 sha256_of() {
@@ -100,7 +142,7 @@ sha256_of() {
 # directory, so the staged pair is removed once they return.
 fetch_roost() {
   local tag asset keeper base tmp got want
-  tag="$(newest_v3_tag)"
+  tag="$(install_tag)"
   [ -n "$tag" ] || return 0
   asset="$(asset_name)"
   base="${RELEASE_DOWNLOADS}/${tag}"
@@ -195,6 +237,14 @@ install_roost() {
     *) die "Roost installs on macOS or Linux only (found $(uname -s))." \
             "Any other device reaches Roost from a browser and needs no install." \
             "Nothing was installed." ;;
+  esac
+
+  # The channel is checked here and not where the tag is chosen: that runs in
+  # a command substitution, where a refusal would exit only the subshell.
+  case "${ROOST_RELEASE_CHANNEL:-}" in
+    ""|stable|prerelease) ;;
+    *) die "ROOST_RELEASE_CHANNEL=${ROOST_RELEASE_CHANNEL} is not a channel; use stable or prerelease." \
+           "Nothing was installed." ;;
   esac
 
   # 1. Which job. The one-shot grant is what makes this a join; without it this

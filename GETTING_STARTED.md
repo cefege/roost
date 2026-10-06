@@ -18,8 +18,9 @@ curl -fsSL https://raw.githubusercontent.com/cefege/roost/v3/install.sh | bash
 
 That one command:
 
-1. Fetches the newest v3 release's `roost` and `roost-keeper` for this machine
-   and checks each against the SHA-256 digest published beside it. A v3 `roost`
+1. Fetches the newest stable v3 release's `roost` and `roost-keeper` for this
+   machine (the newest pre-release while no stable v3 exists, and says so) and
+   checks each against the SHA-256 digest published beside it. A v3 `roost`
    already in `~/.local/bin` or on `PATH` is used instead.
 2. Runs `roost quickstart`, which installs the coordinator and this machine's
    worker as user services (launchd on macOS, `systemd --user` on Linux),
@@ -565,14 +566,20 @@ roost update
 ```
 
 It takes no arguments. It first resolves any update a previous run left
-interrupted, then fetches the newest published v3 release for this
-platform, checks the binary against its `.sha256` sidecar before staging
+interrupted, then picks the highest published v3 release on this machine's
+channel, checks the binary against its `.sha256` sidecar before staging
 it beside the installed one, admits the running keeper against the new
 binary's keeper contract, and swaps the binary with a journaled atomic rename.
 It then unpacks that release's web bundle into the release directory both
 service definitions already point at. It prints `already the latest release`
 or `no published release to update to` when there is nothing to do, and a
 source build refuses to replace itself.
+
+**Channels.** A stable build updates only to stable releases; a pre-release
+build (`v3.x.y-rc.N`) also takes newer pre-releases. Only a strictly newer
+version is installed, so an update never moves a machine sideways or back.
+`ROOST_RELEASE_CHANNEL=stable` or `=prerelease` overrides the default, for
+both `roost update` and the install script.
 
 The running services keep the old binary until they restart:
 

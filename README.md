@@ -174,7 +174,9 @@ only a modern browser. One command installs everything on the first machine:
 curl -fsSL https://raw.githubusercontent.com/cefege/roost/v3/install.sh | bash
 ```
 
-It fetches the newest v3 release's `roost` and `roost-keeper`, checks each
+It fetches the newest stable v3 release's `roost` and `roost-keeper` (the newest
+pre-release while no stable v3 exists; `ROOST_RELEASE_CHANNEL=prerelease` opts
+into pre-releases), checks each
 against the SHA-256 digest published beside it, and runs `roost quickstart`,
 which installs the coordinator, this machine's worker and the web app as
 persistent user services and opens a paired browser at `http://127.0.0.1:4113`.

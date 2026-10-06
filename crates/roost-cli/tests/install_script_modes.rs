@@ -32,6 +32,7 @@ fn without_a_grant_the_fetched_release_runs_quickstart_with_the_arguments() {
         &Invocation {
             grant: false,
             args: &["--dry-run"],
+            channel: None,
         },
     );
 

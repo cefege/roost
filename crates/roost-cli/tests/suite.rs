@@ -54,6 +54,8 @@ mod import_v2_copy;
 mod import_v2_plan;
 #[path = "install_script.rs"]
 mod install_script;
+#[path = "install_script_channel.rs"]
+mod install_script_channel;
 #[path = "install_script_modes.rs"]
 mod install_script_modes;
 #[path = "join_enrollment.rs"]

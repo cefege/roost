@@ -29,6 +29,7 @@ use tracing::info;
 use crate::command_error::CommandFailure;
 pub use crate::update::assets::{WEB_ASSET_NAME, keeper_release_asset_name, release_asset_name};
 use crate::update::candidate::{self, CandidateError, VerifiedCandidate};
+use crate::update::version::{ReleaseChannel, ReleaseVersion};
 
 /// The GitHub repository every release is published from, named in both URLs
 /// below rather than concatenated into them: a `const` cannot be built from
@@ -54,8 +55,8 @@ pub const RELEASE_DOWNLOAD_ORIGIN: &str = "https://github.com/cefege/roost/relea
 /// TypeScript build, and a digest-verified download of it would replace a Rust
 /// `roost` with a Bun one that answers none of the commands this contract
 /// documents. Drafts are excluded because a draft has no assets anybody can
-/// fetch, and pre-releases are INCLUDED because the fleet runs `v3.0.0-rc.N`
-/// until `v3.0.0` exists.
+/// fetch; pre-releases are candidates only on the pre-release channel
+/// (`update::version::release_channel`).
 pub const INSTALLABLE_TAG_PREFIX: &str = "v3.";
 
 /// How long a checksum sidecar may take. It is a 65-byte file, so this is
@@ -92,28 +93,33 @@ impl ReleaseListing {
     }
 }
 
-/// The newest installable tag in a GitHub releases listing, or an empty tag
-/// when the listing holds none.
+/// The highest installable tag on `channel` in a GitHub releases listing, or
+/// an empty tag when the listing holds none.
 ///
-/// Pure over the response body, so the choice this command makes is decidable
-/// without a network. A v2 tag, a draft, and a body that is not a listing are
-/// all "nothing to install", and a listing whose newest entry is `v0.5.0` with
-/// `v3.0.0-rc.1` beneath it resolves to the rc — which is exactly what a
-/// newest-of-any-series rule gets wrong.
-pub fn newest_installable_tag(releases: &serde_json::Value) -> String {
+/// Highest by version, not first in the listing: the listing is ordered by
+/// publish date, so a candidate published after a final, or a re-cut older tag,
+/// would otherwise be "newest". Pure over the response body, so the choice is
+/// decidable without a network. A v2 tag, a draft, a tag that is not a
+/// version, and a body that is not a listing are all "nothing to install".
+pub fn newest_installable_tag(releases: &serde_json::Value, channel: ReleaseChannel) -> String {
     releases
         .as_array()
         .into_iter()
         .flatten()
         .filter(|entry| entry.get("draft").and_then(serde_json::Value::as_bool) != Some(true))
-        .find_map(|entry| {
+        .filter_map(|entry| {
             let tag = entry
                 .get("tag_name")
                 .and_then(serde_json::Value::as_str)?
                 .trim();
-            tag.starts_with(INSTALLABLE_TAG_PREFIX)
-                .then(|| tag.to_string())
+            if !tag.starts_with(INSTALLABLE_TAG_PREFIX) {
+                return None;
+            }
+            let version = ReleaseVersion::parse(tag).ok()?;
+            version.is_on(channel).then(|| (version, tag.to_string()))
         })
+        .max_by(|(left, _), (right, _)| left.cmp(right))
+        .map(|(_, tag)| tag)
         .unwrap_or_default()
 }
 
@@ -130,14 +136,17 @@ pub fn release_base_url(env: &dyn EnvSource, tag: &str) -> String {
         .unwrap_or_else(|| format!("{RELEASE_DOWNLOAD_ORIGIN}/{tag}"))
 }
 
-/// Ask GitHub which installable release is newest.
+/// Ask GitHub which installable release on `channel` is highest.
 ///
 /// No environment: the listing is GitHub's, and the one origin an operator may
 /// substitute is the one the ASSETS come from, which [`release_base_url`]
 /// resolves. A mirror that also republished the listing would be a second
 /// release index to keep in step with the first, for no origin this command
 /// cannot already be pointed at.
-pub async fn fetch_latest_release_tag(arch: &str) -> Result<ReleaseListing, CommandFailure> {
+pub async fn fetch_latest_release_tag(
+    arch: &str,
+    channel: ReleaseChannel,
+) -> Result<ReleaseListing, CommandFailure> {
     let client = reqwest::Client::builder()
         .timeout(LISTING_DEADLINE)
         .build()
@@ -156,7 +165,7 @@ pub async fn fetch_latest_release_tag(arch: &str) -> Result<ReleaseListing, Comm
     let Ok(value) = response.json::<serde_json::Value>().await else {
         return Ok(ReleaseListing::none());
     };
-    let tag = newest_installable_tag(&value);
+    let tag = newest_installable_tag(&value, channel);
     if tag.is_empty() {
         return Ok(ReleaseListing::none());
     }

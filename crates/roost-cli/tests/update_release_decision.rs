@@ -21,9 +21,10 @@ use roost_cli::update::release::{
     RELEASE_API_URL, RELEASE_BASE_URL_ENV, RELEASE_DOWNLOAD_ORIGIN, RELEASE_REPOSITORY,
     newest_installable_tag, release_asset_name, release_base_url,
 };
-use roost_cli::update::{
-    ALREADY_LATEST, NO_PUBLISHED_RELEASE, canonical_release_version, needs_update,
+use roost_cli::update::version::{
+    RELEASE_CHANNEL_ENV, ReleaseChannel, canonical_release_version, needs_update, release_channel,
 };
+use roost_cli::update::{ALREADY_LATEST, NO_PUBLISHED_RELEASE};
 use roost_host::{HostPlatform, MapEnv};
 use roost_protocol::fleet_update::{WorkerUpdateState, worker_update_label};
 use serde_json::json;
@@ -113,6 +114,88 @@ fn a_listing_that_named_no_release_is_never_an_update() {
     assert!(!needs_update("3.0.9", "").expect("an empty tag is decidable"));
 }
 
+/// Only a strictly newer release is an update. The listing is ordered by
+/// publish date, so a candidate published after its final, or a re-cut older
+/// tag, would otherwise move a machine backwards.
+#[test]
+fn an_older_release_is_never_an_update() {
+    for (current, listed) in [
+        ("3.0.0", "v3.0.0-rc.11"),
+        ("3.1.0", "v3.0.9"),
+        ("3.0.0-rc.10", "v3.0.0-rc.9"),
+        ("3.0.1-rc.1", "v3.0.0"),
+    ] {
+        assert!(
+            !needs_update(current, listed).expect("both are release versions"),
+            "{listed} is older than {current}, so it is not an update"
+        );
+    }
+    assert!(
+        needs_update("3.0.0-rc.9", "v3.0.0-rc.10").expect("both are release versions"),
+        "candidates order numerically, not as text: rc.10 is after rc.9"
+    );
+}
+
+/// A stable machine stays on stable releases, a candidate stays on candidates,
+/// and the variable overrides either. An unknown value is refused rather than
+/// silently treated as one of the two.
+#[test]
+fn the_channel_follows_the_running_binary_unless_the_operator_names_one() {
+    let unset = MapEnv::new();
+    assert_eq!(
+        release_channel(&unset, "3.0.0").unwrap(),
+        ReleaseChannel::Stable
+    );
+    assert_eq!(
+        release_channel(&unset, "3.0.0-rc.11").unwrap(),
+        ReleaseChannel::Prerelease
+    );
+    assert_eq!(
+        release_channel(&unset, "dev").unwrap(),
+        ReleaseChannel::Stable
+    );
+    let opted_in = MapEnv::new().with(RELEASE_CHANNEL_ENV, "prerelease");
+    assert_eq!(
+        release_channel(&opted_in, "3.0.0").unwrap(),
+        ReleaseChannel::Prerelease
+    );
+    let opted_out = MapEnv::new().with(RELEASE_CHANNEL_ENV, "stable");
+    assert_eq!(
+        release_channel(&opted_out, "3.0.0-rc.11").unwrap(),
+        ReleaseChannel::Stable
+    );
+    assert!(release_channel(&MapEnv::new().with(RELEASE_CHANNEL_ENV, "beta"), "3.0.0").is_err());
+}
+
+/// The stable channel never picks a candidate, and both channels pick the
+/// highest version rather than whatever was published last.
+#[test]
+fn the_listing_resolves_the_highest_version_on_the_channel() {
+    let listing = json!([
+        {"tag_name": "v3.0.1-rc.1"},
+        {"tag_name": "v3.0.0-rc.12"},
+        {"tag_name": "v3.0.0"},
+        {"tag_name": "v3.0.0-rc.11"},
+        {"tag_name": "v0.5.0"},
+    ]);
+    assert_eq!(
+        newest_installable_tag(&listing, ReleaseChannel::Stable),
+        "v3.0.0"
+    );
+    assert_eq!(
+        newest_installable_tag(&listing, ReleaseChannel::Prerelease),
+        "v3.0.1-rc.1"
+    );
+    assert_eq!(
+        newest_installable_tag(
+            &json!([{"tag_name": "v3.0.0-rc.9"}, {"tag_name": "v3.0.0-rc.10"}]),
+            ReleaseChannel::Stable
+        ),
+        "",
+        "with no stable release the stable channel has nothing to install"
+    );
+}
+
 #[test]
 fn something_that_is_not_a_release_version_is_refused_rather_than_compared() {
     assert!(canonical_release_version("latest").is_err());
@@ -161,27 +244,32 @@ fn only_a_v3_tag_is_installable() {
         {"tag_name": "v3.0.0-rc.0", "draft": false},
     ]);
     assert_eq!(
-        newest_installable_tag(&listing),
+        newest_installable_tag(&listing, ReleaseChannel::Prerelease),
         "v3.0.0-rc.1",
-        "a v2 tag above a v3 rc must not win: the rc is the newest INSTALLABLE release, and \
-         pre-releases count because the fleet runs them until v3.0.0"
+        "a v2 tag above a v3 rc must not win: the rc is the highest INSTALLABLE release"
     );
     assert_eq!(
-        newest_installable_tag(&json!([{"tag_name": "v0.5.0"}, {"tag_name": "v0.4.0"}])),
+        newest_installable_tag(
+            &json!([{"tag_name": "v0.5.0"}, {"tag_name": "v0.4.0"}]),
+            ReleaseChannel::Prerelease
+        ),
         "",
         "a listing with no v3 tag names nothing, which is the `no published release` answer \
          rather than a v2 download: {NO_PUBLISHED_RELEASE}"
     );
     assert_eq!(
-        newest_installable_tag(&json!([
-            {"tag_name": "v3.0.0-rc.2", "draft": true},
-            {"tag_name": "v3.0.0-rc.1", "draft": false},
-        ])),
+        newest_installable_tag(
+            &json!([
+                {"tag_name": "v3.0.0-rc.2", "draft": true},
+                {"tag_name": "v3.0.0-rc.1", "draft": false},
+            ]),
+            ReleaseChannel::Prerelease
+        ),
         "v3.0.0-rc.1",
         "a draft has no assets anybody can fetch, so the next published tag is the answer"
     );
     assert_eq!(
-        newest_installable_tag(&json!({"message": "Not Found"})),
+        newest_installable_tag(&json!({"message": "Not Found"}), ReleaseChannel::Prerelease),
         "",
         "a body that is not a listing names nothing"
     );

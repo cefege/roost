@@ -235,6 +235,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: [verify, build, web]
     steps:
+      # Only the tag's release notes are read from the tree, and they are read
+      # from the TAG, so the notes a release publishes are the ones gated with it.
+      # Checked out before the downloads: checkout empties the workspace.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          sparse-checkout: docs/release-notes
       - uses: actions/download-artifact@v4
         with:
           pattern: release-bin-*
@@ -271,28 +278,41 @@ jobs:
       - name: create the release
         env:
           GH_TOKEN: ${{ github.token }}
-          # This job never checks the repository out, so `gh` has no git remote
-          # to infer from and fails with "not a git repository" without this.
+          # Names the repository explicitly; the sparse checkout above is for the
+          # notes, not for `gh` to infer a remote from.
           GH_REPO: ${{ github.repository }}
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          # `--prerelease` keeps GitHub's `latest` OFF an rc, so a link that
-          # resolves "latest" never lands a candidate. It does NOT stop
-          # `roost update`: `update/release.rs:56-58` excludes drafts and
-          # deliberately INCLUDES pre-releases, because the fleet runs
-          # `v3.0.0-rc.N` until `v3.0.0` exists and a join that cannot find an
-          # rc is a join that cannot find a release.
+          # `--prerelease` keeps GitHub's `latest` OFF an rc. It does not hide
+          # the rc from v3's own install or update: both list releases and
+          # filter `v3.` tags, and a pre-release build or
+          # ROOST_RELEASE_CHANNEL=prerelease opts into rcs.
+          #
+          # `--latest=false` keeps GitHub's `latest` on v2's last release for
+          # a STABLE v3 too, because v2 reads nothing else. v2's `roost update`
+          # (v0.5.0 `apps/roost-cli/src/update.ts`) asks
+          # `/releases/latest` for a tag, treats any different version as an
+          # update, downloads `releases/latest/download/<asset>` under the same
+          # four names this workflow publishes, and renames it over its own
+          # executable with no compatibility check -- a v2 machine would become
+          # a v3 `roost` with no keeper, still started by v2's service units.
+          # v2's install-binary.sh and Windows join read `latest` as well. v3
+          # never reads `latest`, so this costs v3 nothing.
           #
           # `--verify-tag` refuses to create the tag it was handed. Without it a
           # mistyped `workflow_dispatch` input mints a new tag on the default
           # branch, and the release it publishes points at a commit nothing ever
           # gated -- the one outcome this pipeline exists to make impossible.
+          notes=(--generate-notes)
+          if [ -f "docs/release-notes/${TAG}.md" ]; then
+            notes=(--notes-file "docs/release-notes/${TAG}.md")
+          fi
           if [[ "$TAG" == *-rc* ]]; then
             gh release create "$TAG" dist/* --verify-tag --title "$TAG" \
-              --generate-notes --prerelease
+              "${notes[@]}" --prerelease
           else
             gh release create "$TAG" dist/* --verify-tag --title "$TAG" \
-              --generate-notes
+              "${notes[@]}" --latest=false
           fi
-          echo "published $TAG"
+          echo "published $TAG with ${notes[*]}"

@@ -237,8 +237,10 @@ all-v3 fleet are dropped. The list so far: the Windows update broker, the
 legacy unimplemented `Sync` server-streaming RPC, the legacy
 `/w/:workspaceId[/t/:channelId]` routes, `client-seq.txt`, the keeper "Bun
 ABI" identity field, the Bun-specific zlib workaround, capability fallbacks
-for peers lacking a capability every v3 peer advertises, and the whole v2
-TypeScript product tree (`apps/`, `packages/`, the product `scripts/`).
+for peers lacking a capability every v3 peer advertises, the whole v2
+TypeScript product tree (`apps/`, `packages/`, the product `scripts/`), and
+the v2 Homebrew formula (`Formula/`), which a tap reads from the default
+branch, not from `v3`; v3 installs through `install.sh`.
 
 ---
 

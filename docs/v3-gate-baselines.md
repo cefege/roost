@@ -1,17 +1,115 @@
 # v3 gate baselines
 
-Every phase gate in the Rust rewrite runs the same Playwright suite that
-already guards v2. A gate that only says "all tests pass" cannot tell a Rust
-regression from a suite that was already red, so each tier records what the
-**all-TypeScript** stack does on the same machine, and a later gate is read
-against that number.
+Every phase gate in the Rust rewrite ran the same Playwright suite that
+guarded v2. A gate that only says "all tests pass" cannot tell a Rust
+regression from a suite that was already red, so each tier recorded what the
+**all-TypeScript** stack did on the same machine, and a later gate was read
+against that number. That suite lived in the TypeScript tree, which `v3` has
+deleted; the Playwright figures below are the v2 reference, and the v3
+browser gate is the Rust-stack smoke in the next section.
 
 **The rule this file exists to enforce:** a spec "passes at this gate" only if
 it passes in the baseline below. A spec that skips in the baseline must skip
 for the same reason; a spec that is newly skipped is a gate failure dressed
 up as a non-event.
 
-## Baseline: the all-TS stack
+## v3 gate: the Rust stack end to end in a headless browser, 2026-10-06
+
+`v3` @ `42269185`, Linux x86_64 (desktop-pc), with the fleet's live
+`roost3-worker` and `roost-worker` running beside it and left untouched.
+Binaries: `target/debug/roost` and `target/debug/roost-keeper`, built from
+`cb3f8e0b` (the worker logs `"version":"cb3f8e0b…"`; the two commits between it
+and `v3.0.0-rc.11` touch only `roost-web` and the installer, neither of which
+these binaries serve). Web bundle: the production `v3.0.0-rc.11` bundle at
+`target/fleet/v3.0.0-rc.11/web` (`fleet build` refuses a bundle carrying
+`__smoke`), copied into the scratch tree. No harness exists for this:
+`roost-bench` boots an isolated v3 stack but pairs by seeding a key, and the
+Playwright suite went with the TypeScript tree. Run by hand.
+
+**Isolation.** Every process ran under `env -i` with the table below, so no
+inherited `ROOST_*` reached it. That matters on a fleet host: a shell inside a
+Roost session carries `ROOST_AGENT_ENDPOINT` and `ROOST_AGENT_SOCKET_PATH`
+pointing into the live `~/.local/share/RoostWorkerV3`. `HOME` under the scratch
+tree also hides the installed `~/.config/systemd/user/roost3-*.service`, which
+`add-machine`, `add-browser` and `roost worker` otherwise read before the
+shell. Ports 47213 (coordinator) and 47214 (worker door) were checked free with
+`ss -ltnu` first. The keeper socket, pid and capability files, the outbox, the
+key and the logs all land in `$SMOKE/worker`.
+
+```bash
+# $SMOKE/smoke-env.sh — run any command inside the scratch stack's environment.
+SMOKE=/tmp/roost-smoke REPO=$HOME/repos/roost-v3
+exec env -i PATH=/usr/local/bin:/usr/bin:/bin TERM=xterm-256color LANG=C.UTF-8 \
+  SHELL=/bin/bash USER="$USER" HOME="$SMOKE/home" TMPDIR="$SMOKE/tmp" \
+  XDG_DATA_HOME="$SMOKE/home/.local/share" XDG_STATE_HOME="$SMOKE/home/.local/state" \
+  XDG_CONFIG_HOME="$SMOKE/home/.config" XDG_CACHE_HOME="$SMOKE/home/.cache" \
+  XDG_RUNTIME_DIR="$SMOKE/run" \
+  ROOST_COORD_DATA_DIR="$SMOKE/coord" ROOST_COORD_LOG_DIR="$SMOKE/coord/logs" \
+  ROOST_COORDINATOR_LOG_DIR="$SMOKE/coord/logs" ROOST_COORDINATOR_BIND=127.0.0.1:47213 \
+  ROOST_COORDINATOR_DB="$SMOKE/coord/coord.db" \
+  ROOST_COORDINATOR_AUTHORIZED_KEYS="$SMOKE/coord/authorized_keys.roost" \
+  ROOST_WEB_DIST_PATH="$SMOKE/web" ROOST_CORS_ALLOWED_ORIGINS=http://127.0.0.1:47214 \
+  ROOST_COORDINATOR_URL=http://127.0.0.1:47213 ROOST_WORKER_LABEL=smoke-worker \
+  ROOST_WORKER_DATA_DIR="$SMOKE/worker" ROOST_WORKER_LOG_DIR="$SMOKE/worker/logs" \
+  ROOST_WORKER_KEY_PATH="$SMOKE/worker/worker.key" ROOST_WORKER_LOCAL_UI_BIND=127.0.0.1:47214 \
+  ROOST_KEEPER_EXECUTABLE="$REPO/target/debug/roost-keeper" \
+  ROOST_KEEPER_SOCKET="$SMOKE/worker/mux-keeper.sock" \
+  ROOST_KEEPER_PID_FILE="$SMOKE/worker/mux-keeper.pid" \
+  ROOST_SERVICE_DIR="$SMOKE/service" ROOST_VERSIONS_DIR="$SMOKE/versions" \
+  ROOST_SKIP_AGENT_INTEGRATIONS=1 ${SMOKE_EXTRA_ENV:-} "$@"
+```
+
+```bash
+cd $SMOKE && mkdir -p home tmp run coord/logs worker/logs service versions \
+  && chmod 700 run worker && cp -r $REPO/target/fleet/v3.0.0-rc.11/web web \
+  && : > coord/authorized_keys.roost
+./smoke-env.sh $REPO/target/debug/roost coord &                  # wait for :47213
+# add-machine refuses a loopback dial URL, so it is handed an .invalid one;
+# only the bearer is kept from the command it prints.
+SMOKE_EXTRA_ENV="ROOST_COORDINATOR_URL=https://roost-smoke.invalid" \
+  ./smoke-env.sh $REPO/target/debug/roost add-machine --platform linux > add-machine.out
+TOKEN=$(grep -oE 'roost_bt_[A-Za-z0-9_-]+' add-machine.out)
+SMOKE_EXTRA_ENV="ROOST_BOOTSTRAP_TOKEN=$TOKEN" ./smoke-env.sh \
+  $REPO/target/debug/roost worker --coordinator-url http://127.0.0.1:47213 &   # wait for :47214
+./smoke-env.sh $REPO/target/debug/roost add-browser > pair-url.txt  # http://127.0.0.1:47213/#pair=…
+```
+
+Then one headless Chromium (1280×800): open the pairing URL → click **New** →
+**Open terminal here** → click the pane, type `echo roost-smoke-$RANDOM` and
+Enter → reload. Teardown: SIGTERM the worker and the coordinator, then the
+keeper and its shell (the keeper outlives the worker by design), `rm -rf
+$SMOKE`, and re-check `ss -ltnup` and `systemctl --user is-active
+roost3-worker`.
+
+| Step | Observed |
+|---|---|
+| boot | coordinator migrated `0001_init`, served the SPA from disk, listened on 47213; worker redeemed the grant, registered, bound its door on 47214, keeper capability minted under `$SMOKE/worker` |
+| pair | the URL landed on the workbench with no prompt; sidebar footer `smoke-worker` with a green dot, status bar `Synced · 0 sessions · 1/1 workers` |
+| new terminal | the folder picker opened at the worker's `$HOME` (`/tmp/roost-smoke/home`); **Open terminal here** gave a `mike@desktop-pc:~$` prompt and a `home` row in the sidebar |
+| echo | `echo roost-smoke-5089` (a literal) echoed first; then `echo roost-smoke-$RANDOM` printed `roost-smoke-3019` on its own line under the prompt, so the shell, not the input path, produced it |
+| reload | both echoes and their output were back in the pane 537 ms after `reload()`; same session URL `/t/<worker-fp>/tmp/roost-smoke/home` |
+| carrier | **WebRTC** before and after the reload (`Terminal transport` chip: "Terminal cells and input use a direct WebRTC connection to the worker."); worker: `terminal peer established` `ready_ms` 47, then 28 after the reload |
+| teardown | every scratch process exited on SIGTERM; no process matched `roost-smoke`, nothing listened on 47213/47214; `roost3-worker` and `roost-worker` `active`; 4114 still held by the same live worker pid as before the run; the live keeper (on `RoostWorkerV3/mux-keeper.sock`) the same pid mid-run and after |
+
+**Loopback was not used, and why.** The SPA, served from the coordinator
+origin, probes the door at the protocol default
+`http://127.0.0.1:4114/api/local-bootstrap` (`DEFAULT_WORKER_LOCAL_UI_ORIGIN`),
+not at the scratch worker's 47214, so the probe failed (`net::ERR_FAILED`,
+twice: first load and reload) and the pane chose WebRTC. On a machine with a
+live worker that probe reaches the live door; the browser refuses a door
+whose worker fingerprint is not the grant's (`DialFault::ForeignDoor`), so
+the probe changes nothing, but a smoke that needs the Loopback carrier must
+serve its door on 4114 on a machine with no worker of its own.
+
+**Noise seen, not fixed.** The worker logged one `error` at boot, *"the keeper
+force-live retire authorization could NOT be spent"*, because an unmanaged
+worker has no service definition to edit; the matching `warn` names the same
+missing unit for the spent bootstrap token. The page logged one `WARN
+foreground terminal stall … action: resync` (`repair_attempts` 1) a few
+seconds after the terminal opened; the pane rendered correctly before and
+after it.
+
+## v2 reference: the all-TS Playwright baseline (not the v3 gate)
 
 `bun run test:terminal` on `main` (`96f4db25`), Linux x86_64, 8 cores, run
 while the four Rust tracks were compiling. One correctness pass at Playwright's

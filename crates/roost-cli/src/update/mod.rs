@@ -25,6 +25,7 @@ pub mod local_keeper;
 pub mod recovery;
 pub mod release;
 pub mod rollout;
+pub mod version;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -41,6 +42,7 @@ use crate::update::local_keeper::{decide_keeper_action, local_keeper, self_updat
 use crate::update::recovery::RecoveryOutcome;
 use crate::update::release::{host_arch, release_asset_name};
 use crate::update::rollout::{InstalledBinary, ReplaceOutcome, read_installed};
+use crate::update::version::{needs_update, release_channel};
 
 /// What this command prints when there is nothing to do. Its own table,
 /// deliberately separate from the fleet's five, and public so the executable
@@ -71,7 +73,8 @@ pub async fn run(_args: &UpdateArgs) -> Result<ExitCode, CommandFailure> {
     let service_dir = self_update_service_dir(&env, platform)?;
     resolve_recovery_first(&service_dir)?;
     let identity = roost_host::build_identity(&env);
-    let listing = release::fetch_latest_release_tag(host_arch(platform)).await?;
+    let channel = release_channel(&env, &identity.artifact_version)?;
+    let listing = release::fetch_latest_release_tag(host_arch(platform), channel).await?;
     if listing.tag.is_empty() {
         println!(">> {NO_PUBLISHED_RELEASE}");
         return Ok(ExitCode::SUCCESS);
@@ -88,6 +91,7 @@ pub async fn run(_args: &UpdateArgs) -> Result<ExitCode, CommandFailure> {
     info!(
         version = %identity.artifact_version,
         latest = %listing.tag,
+        channel = ?channel,
         asset,
         "roost update resolving the latest release",
     );
@@ -189,57 +193,6 @@ fn resolve_recovery_first(service_dir: &std::path::Path) -> Result<(), CommandFa
         | RecoveryOutcome::PreparedCleaned
         | RecoveryOutcome::InstalledCommitted => Ok(()),
     }
-}
-
-/// The release version a tag names, with any build metadata removed.
-///
-/// Build metadata is dropped rather than compared, because a rebuild of the
-/// same release carries a different `+sha` and comparing it would make a binary
-/// update itself forever against a release that has not changed. A pre-release
-/// (`-rc.4`) is kept: `v3.0.0-rc.3` and `v3.0.0-rc.4` are two releases, and
-/// dropping it made every candidate of one version "already the latest" to
-/// the first.
-pub fn canonical_release_version(version: &str) -> Result<String, CommandFailure> {
-    let trimmed = version.trim().trim_start_matches(['v', 'V']);
-    let without_build = trimmed.split('+').next().unwrap_or_default();
-    let (core, pre_release) = match without_build.split_once('-') {
-        Some((core, pre_release)) => (core, Some(pre_release)),
-        None => (without_build, None),
-    };
-    let parts: Vec<&str> = core.split('.').collect();
-    let is_identifier =
-        |part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_alphanumeric());
-    if parts.len() != 3
-        || parts
-            .iter()
-            .any(|part| part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()))
-        || pre_release.is_some_and(|pre_release| !pre_release.split('.').all(is_identifier))
-    {
-        return Err(CommandFailure::generic(format!(
-            "{version:?} is not a release version"
-        )));
-    }
-    let core = parts.join(".");
-    Ok(match pre_release {
-        Some(pre_release) => format!("{core}-{pre_release}"),
-        None => core,
-    })
-}
-
-/// Whether the running binary is behind the published release.
-///
-/// A source checkout is always behind: it is not a published artifact, and there
-/// is nothing to compare it against. An empty tag is never behind, because a
-/// listing that named no release is a question this command could not answer —
-/// not an answer that there is nothing to do.
-pub fn needs_update(current: &str, latest_tag: &str) -> Result<bool, CommandFailure> {
-    if latest_tag.is_empty() {
-        return Ok(false);
-    }
-    if current == roost_host::DEV_BUILD_STAMP {
-        return Ok(true);
-    }
-    Ok(canonical_release_version(current)? != canonical_release_version(latest_tag)?)
 }
 
 /// The binary this process is running from, resolved once.

@@ -65,6 +65,3 @@ Windows worker adds a module here rather than changing a message.
 | `apps/worker/src/util/path.ts` | the Windows path forms of `canonicalSessionCwd` | `session::spawn::canonical_session_cwd` and `session::stream_scan::parse_osc7_worker_path` are POSIX |
 | `apps/worker/src/terminal/terminal-stream-scan.ts` | the Windows OSC 7 cwd forms | `session::stream_scan` reads the POSIX forms |
 | `apps/worker/src/host/config.ts`, `host-identity.ts`, `service-definition-env.ts` | the Windows service DACL and service definition | `host::identity`, `host::install` and `runtime::boot` resolve the POSIX service |
-
-The v2 → Rust row-by-row status, including the modules that are ported
-partly, is `docs/v3-handoff/worker-v2-map.md`.

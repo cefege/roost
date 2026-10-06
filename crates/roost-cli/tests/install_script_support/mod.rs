@@ -82,34 +82,51 @@ impl Sandbox {
     /// beside it, so the fetch path runs for real without a network. Returns
     /// the release-list URL and the download origin.
     pub fn publish_fake_release(&self) -> (String, String) {
+        self.publish_fake_releases(&["v3.9.9"])
+    }
+
+    /// The same, for every tag in `tags`, listed in the order given.
+    pub fn publish_fake_releases(&self, tags: &[&str]) -> (String, String) {
         let release = self.root.join("release");
-        let assets = release.join("download/v3.9.9");
-        for name in [
-            "roost",
-            "roost-linux-x64",
-            "roost-linux-arm64",
-            "roost-darwin-x64",
-        ] {
-            write_fake_roost(&assets.join(name), true);
-            let keeper = assets.join(format!("roost-keeper{}", name.trim_start_matches("roost")));
-            std::fs::write(&keeper, b"#!/bin/sh\nexit 0\n").expect("the keeper stand-in");
-            for asset in [assets.join(name), keeper] {
-                let bytes = std::fs::read(&asset).expect("the asset is readable");
-                let digest = hex::encode(sha2::Sha256::digest(&bytes));
-                let file_name = asset.file_name().expect("a name").to_string_lossy();
-                std::fs::write(
-                    assets.join(format!("{file_name}.sha256")),
-                    format!("{digest}  {file_name}\n"),
-                )
-                .expect("the sidecar is written");
-            }
+        for tag in tags {
+            publish_fake_assets(&release.join("download").join(tag));
         }
         let list = release.join("releases.json");
-        std::fs::write(&list, br#"[{"tag_name": "v3.9.9"}]"#).expect("the release list");
+        let entries: Vec<serde_json::Value> = tags
+            .iter()
+            .map(|tag| serde_json::json!({ "tag_name": tag }))
+            .collect();
+        std::fs::write(&list, serde_json::Value::Array(entries).to_string())
+            .expect("the release list");
         (
             format!("file://{}", list.display()),
             format!("file://{}", release.join("download").display()),
         )
+    }
+}
+
+/// Every published asset name in one tag's directory, as v3 stand-ins with
+/// their digests beside them.
+fn publish_fake_assets(assets: &Path) {
+    for name in [
+        "roost",
+        "roost-linux-x64",
+        "roost-linux-arm64",
+        "roost-darwin-x64",
+    ] {
+        write_fake_roost(&assets.join(name), true);
+        let keeper = assets.join(format!("roost-keeper{}", name.trim_start_matches("roost")));
+        std::fs::write(&keeper, b"#!/bin/sh\nexit 0\n").expect("the keeper stand-in");
+        for asset in [assets.join(name), keeper] {
+            let bytes = std::fs::read(&asset).expect("the asset is readable");
+            let digest = hex::encode(sha2::Sha256::digest(&bytes));
+            let file_name = asset.file_name().expect("a name").to_string_lossy();
+            std::fs::write(
+                assets.join(format!("{file_name}.sha256")),
+                format!("{digest}  {file_name}\n"),
+            )
+            .expect("the sidecar is written");
+        }
     }
 }
 
@@ -119,17 +136,20 @@ impl Drop for Sandbox {
     }
 }
 
-/// What one run is handed: the grant, or none, and the arguments after
-/// `bash -s --`.
+/// What one run is handed: the grant, or none, the arguments after
+/// `bash -s --`, and the release channel.
 pub struct Invocation<'a> {
     pub grant: bool,
     pub args: &'a [&'a str],
+    /// `ROOST_RELEASE_CHANNEL`, or `None` to leave it unset.
+    pub channel: Option<&'a str>,
 }
 
 /// A pasted Add machine one-liner.
 pub const JOIN: Invocation<'static> = Invocation {
     grant: true,
     args: &[],
+    channel: None,
 };
 
 /// Run the script with the environment a pasted one-liner gives it, and return
@@ -155,6 +175,7 @@ pub fn run_script_against(
         .env_remove("ROOST_COORDINATOR_URL")
         .env_remove("ROOST_BOOTSTRAP_TOKEN")
         .env_remove("ROOST_BIN")
+        .env_remove("ROOST_RELEASE_CHANNEL")
         .env("HOME", sandbox.home())
         .env("PATH", sandbox.path(path_dir))
         .env("ROOST_TEST_JOIN_LOG", sandbox.log())
@@ -165,6 +186,9 @@ pub fn run_script_against(
         command
             .env("ROOST_COORDINATOR_URL", "https://coordinator.example")
             .env("ROOST_BOOTSTRAP_TOKEN", "roost_bt_test");
+    }
+    if let Some(channel) = invocation.channel {
+        command.env("ROOST_RELEASE_CHANNEL", channel);
     }
     let output = command.output().expect("bash runs the script");
     (
