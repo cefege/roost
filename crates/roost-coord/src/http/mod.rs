@@ -15,6 +15,8 @@
 //! (`apps/coord/src/bun-coordinator-listeners.ts:4-5`).
 
 pub mod bind;
+pub mod db_export;
+pub mod health;
 pub mod listener;
 pub mod spa;
 pub mod spa_cache;

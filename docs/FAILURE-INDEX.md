@@ -2298,6 +2298,24 @@ chunked at `IN_LIST_CHUNK` for id lists. Static statements spell `$n` by hand; n
 job runs the whole `roost-coord` suite against a real server with `ROOST_TEST_DATABASE_URL`, and
 `tests/migration_history/backend_parity.rs` crosses one `IN` chunk.
 
+### A cap or single-use check admits two racers on Postgres only
+
+**Symptom** — on the Postgres backend only, intermittently under load: "exactly one racer takes the last
+slot" fails with `left: 2, right: 1` (`push_subscription_cap`); two concurrent writes both pass a
+count-then-insert guard that SQLite never lets both through.
+
+**Wrong** — a Postgres connection pool larger than one. The guards are single statements (`INSERT …
+SELECT … WHERE (SELECT COUNT(*) …) < $n`) that are correct only because no other write interleaves; under
+READ COMMITTED two connections each see the old count. Also wrong: adding a lock at the one call site the
+test caught — every other cap and single-use check has the same shape.
+
+**Right** — `db::POSTGRES_POOL_SIZE = 1`: one connection, as on SQLite, so every statement is ordered as
+the code assumes. Raising it needs every count-then-write moved under `CoordDb::begin_write` first.
+
+**Guard** — `crates/roost-coord/tests/push_subscription_cap.rs`:
+`two_concurrent_subscribes_for_one_device_cannot_both_land_past_the_cap`, run against Postgres by the CI
+`postgres` job.
+
 ---
 
 ## Browser platform reality

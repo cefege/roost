@@ -15,12 +15,14 @@
 //! turned `direct` into `trusted-proxy` would hand every remote caller the
 //! address of the proxy.
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 
 use axum::extract::{Request, State};
 use axum::http::{Extensions, HeaderMap, HeaderValue};
 use axum::middleware::Next;
 use axum::response::Response;
+use ipnet::IpNet;
 use roost_protocol::wire::headers::{X_ROOST_ON_HOST, X_ROOST_REMOTE_ADDR};
 
 use crate::coord_core::ListenerTrust;
@@ -54,6 +56,38 @@ pub const fn listener_trust(trust_proxy: bool) -> ListenerTrust {
     } else {
         ListenerTrust::DirectLoopback
     }
+}
+
+/// Everything the origin layer is told at boot: the listener's trust profile,
+/// and which peers may speak for a caller through `X-Forwarded-For`.
+#[derive(Debug, Clone)]
+pub struct CallerTrust {
+    /// The boot-selected trust profile.
+    pub listener: ListenerTrust,
+    /// `ROOST_TRUSTED_PROXY_CIDRS`. Empty means the proxy is the loopback peer
+    /// the bind policy already pins every request to.
+    pub proxy_cidrs: Arc<[IpNet]>,
+}
+
+/// Whether `peer` is a proxy whose forwarded header is believed.
+///
+/// An empty list believes every peer: the bind policy refuses a non-loopback
+/// bind under a trusted proxy with no declared network, so the only peer that
+/// can reach the socket is the host's own front door. An IPv4-mapped IPv6 peer
+/// is matched as the IPv4 address it is.
+#[must_use]
+pub fn peer_is_proxy(cidrs: &[IpNet], peer: &str) -> bool {
+    if cidrs.is_empty() {
+        return true;
+    }
+    let Ok(address) = peer.parse::<IpAddr>() else {
+        return false;
+    };
+    let address = match address {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(IpAddr::V6(v6), IpAddr::V4),
+        v4 @ IpAddr::V4(_) => v4,
+    };
+    cidrs.iter().any(|cidr| cidr.contains(&address))
 }
 
 /// Who is calling, as far as the transport underneath the request proves.
@@ -100,16 +134,28 @@ impl CallerOrigin {
 /// browser on the coordinator's own host still fails this, which is the point --
 /// the front door is a different trust domain from the host it fronts.
 ///
+/// A forwarded header from a peer outside the declared proxy networks is
+/// IGNORED, not believed: anyone who can reach the socket can write one, so
+/// the caller is the socket peer, and never on the host.
+///
 /// A forwarded header that is present but blank asserts no address, so it
 /// supplies none -- but its PRESENCE still proves a proxy was traversed, which
 /// is a different question and is answered from the header's existence.
 #[must_use]
 pub fn resolve_caller_origin(
     trust: ListenerTrust,
+    peer_is_proxy: bool,
     socket_peer: Option<&str>,
     forwarded_for: Option<&str>,
 ) -> CallerOrigin {
     if !trust.asserts_locality() {
+        if !peer_is_proxy {
+            return CallerOrigin {
+                listener: trust,
+                client_ip: socket_peer.map_or_else(|| UNKNOWN_PEER.to_owned(), str::to_owned),
+                on_host: false,
+            };
+        }
         return CallerOrigin {
             listener: trust,
             client_ip: first_forwarded_address(forwarded_for)
@@ -192,13 +238,21 @@ fn stamp_wire_headers(headers: &mut HeaderMap, origin: &CallerOrigin) {
 /// read the extension this inserts, so a route cannot answer "is this local?"
 /// with a weaker rule than its neighbour.
 pub async fn caller_origin_layer(
-    State(trust): State<ListenerTrust>,
+    State(trust): State<CallerTrust>,
     mut request: Request,
     next: Next,
 ) -> Response {
     let peer = observed_peer(&request);
     let forwarded = forwarded_for(request.headers());
-    let origin = resolve_caller_origin(trust, peer.as_deref(), forwarded.as_deref());
+    let from_proxy = peer
+        .as_deref()
+        .is_some_and(|peer| peer_is_proxy(&trust.proxy_cidrs, peer));
+    let origin = resolve_caller_origin(
+        trust.listener,
+        from_proxy,
+        peer.as_deref(),
+        forwarded.as_deref(),
+    );
     stamp_wire_headers(request.headers_mut(), &origin);
     request.extensions_mut().insert(origin);
     next.run(request).await

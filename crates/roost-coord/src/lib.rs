@@ -37,6 +37,7 @@ pub mod search;
 pub mod serve;
 pub mod services;
 pub mod sessions;
+pub mod shutdown;
 pub mod sync_ws;
 pub mod terminal_capture;
 pub mod terminal_direct;

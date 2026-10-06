@@ -41,7 +41,12 @@ fn direct(client_ip: &str) -> CallerOrigin {
 
 /// A trusted proxy that asserted this caller as the first forwarded hop.
 fn forwarded(client_ip: &str) -> CallerOrigin {
-    resolve_caller_origin(ListenerTrust::Forwarded, Some("10.0.0.1"), Some(client_ip))
+    resolve_caller_origin(
+        ListenerTrust::Forwarded,
+        true,
+        Some("10.0.0.1"),
+        Some(client_ip),
+    )
 }
 
 /// The compatibility table is ORDERED, and the order is the contract: an Edge

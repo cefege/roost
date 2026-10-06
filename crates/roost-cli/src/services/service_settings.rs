@@ -17,8 +17,8 @@ use roost_host::coord_config_loader::{
     ENV_COORDINATOR_DATABASE_URL, ENV_COORDINATOR_DB, ENV_COORDINATOR_JWT_MAX_AGE_SECS,
     ENV_COORDINATOR_LOG_DIR, ENV_COORDINATOR_PUBLIC_URL, ENV_CORS_ALLOWED_ORIGINS,
     ENV_PUSH_ALLOWED_ORIGINS, ENV_RELAXED_CSP, ENV_TERMINAL_PEER_ENABLED,
-    ENV_TERMINAL_PEER_STUN_URLS, ENV_TRUST_PROXY, ENV_WEB_DIST_PATH, ENV_WEB_PUBLIC_URL,
-    load_coord_config,
+    ENV_TERMINAL_PEER_STUN_URLS, ENV_TRUST_PROXY, ENV_TRUSTED_PROXY_CIDRS, ENV_WEB_DIST_PATH,
+    ENV_WEB_PUBLIC_URL, load_coord_config,
 };
 use roost_host::paths::{COORD_DATA_DIR_ENV, WORKER_DATA_DIR_ENV, WORKER_LOG_DIR_ENV};
 use roost_host::{DatabaseLocation, EnvSource, HostPlatform, ProtocolResult, coord_data_dir};
@@ -123,6 +123,14 @@ fn coordinator_settings(
         if !values.is_empty() {
             settings.insert(name.to_string(), values.join(","));
         }
+    }
+    if !config.trusted_proxy_cidrs.is_empty() {
+        let cidrs: Vec<String> = config
+            .trusted_proxy_cidrs
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        settings.insert(ENV_TRUSTED_PROXY_CIDRS.to_string(), cidrs.join(","));
     }
     if let Some(budget) = config.terminal_memory_budget_bytes {
         settings.insert(

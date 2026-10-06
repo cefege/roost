@@ -13,9 +13,16 @@ use sqlx::any::AnyPoolOptions;
 
 use super::{BUSY_TIMEOUT, CoordDb, DbBackend, DbError};
 
-/// Connections a Postgres pool may open. Readers no longer queue behind one
-/// connection, and the server, not a file lock, arbitrates writers.
-pub const POSTGRES_POOL_SIZE: u32 = 8;
+/// Connections a Postgres pool may open: ONE, as on SQLite.
+///
+/// Every count-then-write in this crate — the push subscription cap, the
+/// pending pair-request cap, single-use grant redemption — is one statement
+/// that is correct only when no other write interleaves with it. SQLite's
+/// single connection gives that for free; under Postgres's READ COMMITTED a
+/// second connection lets two such statements both see room and both land.
+/// One connection restores the ordering for every statement at once, where
+/// per-statement locks would have to be found and kept, one call site at a time.
+pub const POSTGRES_POOL_SIZE: u32 = 1;
 
 /// The Postgres advisory-lock key [`CoordDb::begin_write`] serializes on: the
 /// coordinator port, so it reads as this product's in `pg_locks`.

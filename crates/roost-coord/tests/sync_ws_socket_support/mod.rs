@@ -105,6 +105,7 @@ impl SyncFixture {
             web_public_url: resolved.web_public_url.clone(),
             trust_proxy: resolved.trust_proxy,
             spa: Arc::new(SpaMount::from_dist_path(None)),
+            draining: Arc::default(),
         });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await

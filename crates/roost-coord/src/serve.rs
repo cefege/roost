@@ -46,6 +46,7 @@ use crate::push::dispatch::ActiveTerminalViewers;
 use crate::push::transport::WebPushTransport;
 use crate::rpc::service::CoordinatorServiceImpl;
 use crate::services::CoordServices;
+use crate::shutdown::{SHUTDOWN_DRAIN_TIMEOUT, ShutdownDrain, shutdown_signal};
 
 /// The resolved, validated configuration a coordinator daemon boots from.
 #[derive(Debug, Clone)]
@@ -172,6 +173,7 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
         web_public_url: boot.config.web_public_url.clone(),
         trust_proxy: boot.config.trust_proxy,
         spa,
+        draining: Arc::default(),
     });
 
     // Cloned: the maintenance schedulers below need the same services, and a
@@ -238,19 +240,22 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
             tracing::warn!(%error, "an accepted coordinator socket refused TCP_NODELAY");
         }
     });
+    let drain = ShutdownDrain::new(Arc::clone(&state.draining), SHUTDOWN_DRAIN_TIMEOUT);
     let served = axum::serve(
         listener,
         mounted
             .router
             .into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal())
-    .await;
+    .with_graceful_shutdown(drain.requested(shutdown_signal()));
+    let served = drain.bound(served.into_future()).await;
 
     drop(pair_shutdown);
     pair_retention.stop().await;
 
-    served.context("coordinator listener")
+    // A drain the bound cut short is a clean exit: the open sockets belong to
+    // workers and browsers that redial.
+    served.map_or(Ok(()), |outcome| outcome.context("coordinator listener"))
 }
 
 /// Boot steps 2-7 (contract §1.1): everything that must hold before a listener
@@ -337,34 +342,6 @@ pub fn terminal_seams(services: &CoordServices) -> CoordTerminal {
     // hub was consulted, and a `Debug` that printed the container's own name
     // for both fields said neither.
     CoordTerminal::new(services.byte_hub.clone(), services.views.clone())
-}
-
-/// The platform's termination signal, or a never-completing future elsewhere.
-///
-/// `SIGTERM` **and** `SIGINT` are both wired, because systemd sends the first and
-/// a terminal sends the second, and a coordinator that only handled one of them
-/// would need a `SIGKILL` to stop -- which is the one path that does not run the
-/// shutdown sequence.
-async fn shutdown_signal() {
-    let interrupt = async {
-        if let Ok(mut signal) =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
-        {
-            signal.recv().await;
-        }
-    };
-    let terminate = async {
-        if let Ok(mut signal) =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-        {
-            signal.recv().await;
-        }
-    };
-    tokio::select! {
-        () = interrupt => {},
-        () = terminate => {},
-    }
-    tracing::info!("coordinator shutdown");
 }
 
 /// Epoch milliseconds, saturating rather than wrapping.

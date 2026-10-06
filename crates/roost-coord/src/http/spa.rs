@@ -32,6 +32,7 @@ use roost_host::spa_path::{self, ContentEncoding, SpaTarget};
 use tokio::io::AsyncWriteExt as _;
 use tracing::warn;
 
+use crate::http::health::{HEALTHZ_PATH, READYZ_PATH};
 use crate::http::listener::CONNECT_PATH_PREFIX;
 use crate::http::spa_cache::{FileState, SpaCache};
 
@@ -117,11 +118,13 @@ struct SpaRequest<'a> {
 }
 
 /// Whether a path belongs to a surface that is not the SPA: Connect, the API
-/// namespace, or one of the two socket upgrades.
+/// namespace, one of the two socket upgrades, or an orchestrator probe.
 fn owns_another_surface(path: &str) -> bool {
     path.starts_with(CONNECT_PATH_PREFIX)
         || path.starts_with(API_PREFIX)
         || path.starts_with(WS_PREFIX)
+        || path == HEALTHZ_PATH
+        || path == READYZ_PATH
 }
 
 /// The `Accept-Encoding` header, or the empty string. Absent is not `*`: a

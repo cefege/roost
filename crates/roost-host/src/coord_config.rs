@@ -62,6 +62,9 @@ pub struct CoordConfig {
     pub relaxed_csp: bool,
     /// Whether to believe `X-Forwarded-For`.
     pub trust_proxy: bool,
+    /// The proxies whose `X-Forwarded-For` is believed. Empty means the one
+    /// proxy is on this host, which is why the bind must then be loopback.
+    pub trusted_proxy_cidrs: Vec<ipnet::IpNet>,
     /// The Cloudflare Access team that fronts this coordinator.
     pub cf_access_team_domain: Option<String>,
     /// The Cloudflare Access application audience tag.
@@ -99,6 +102,7 @@ pub struct CoordConfigInput {
     pub push_allowed_origins: Option<Vec<String>>,
     pub relaxed_csp: Option<bool>,
     pub trust_proxy: Option<bool>,
+    pub trusted_proxy_cidrs: Option<Vec<ipnet::IpNet>>,
     pub cf_access_team_domain: Option<String>,
     pub cf_access_aud: Option<String>,
     pub web_public_url: Option<String>,
@@ -158,6 +162,7 @@ impl CoordConfig {
             push_allowed_origins: input.push_allowed_origins.unwrap_or_default(),
             relaxed_csp: input.relaxed_csp.unwrap_or(false),
             trust_proxy: input.trust_proxy.unwrap_or(false),
+            trusted_proxy_cidrs: input.trusted_proxy_cidrs.unwrap_or_default(),
             cf_access_team_domain,
             cf_access_aud,
             web_public_url: input.web_public_url,

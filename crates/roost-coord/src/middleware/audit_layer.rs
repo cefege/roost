@@ -41,6 +41,7 @@ use axum::middleware::Next;
 use axum::response::Response;
 
 use crate::coord_core::CoordCore;
+use crate::http::health::{HEALTHZ_PATH, READYZ_PATH};
 use crate::http::listener::{CONNECT_PATH_PREFIX, DB_EXPORT_PATH};
 use crate::middleware::audit::{AuditRecord, record_request};
 use crate::middleware::audit_policy::{NonConnectSurface, should_persist_non_connect_audit};
@@ -102,6 +103,8 @@ fn surface_of(method: &str, path: &str, spa_available: bool) -> Option<NonConnec
     if path.starts_with(CONNECT_PATH_PREFIX)
         || path.starts_with(WORKER_WS_PATH_PREFIX)
         || path == SYNC_WS_PATH
+        || path == HEALTHZ_PATH
+        || path == READYZ_PATH
     {
         return None;
     }

@@ -62,6 +62,11 @@ pub const ENV_RELAXED_CSP: &str = "ROOST_RELAXED_CSP";
 /// Set to exactly `1` to believe `X-Forwarded-For`.
 pub const ENV_TRUST_PROXY: &str = "ROOST_TRUST_PROXY";
 
+/// A comma-separated list of CIDRs whose `X-Forwarded-For` is believed, for a
+/// front door that reaches the coordinator over a network (a load balancer, a
+/// Kubernetes ingress). Requires `ROOST_TRUST_PROXY=1`.
+pub const ENV_TRUSTED_PROXY_CIDRS: &str = "ROOST_TRUSTED_PROXY_CIDRS";
+
 /// The Cloudflare Access team that fronts this coordinator.
 pub const ENV_CF_ACCESS_TEAM_DOMAIN: &str = "ROOST_CF_ACCESS_TEAM_DOMAIN";
 
@@ -129,6 +134,7 @@ pub fn load_coord_config(
         push_allowed_origins: Some(origin_list(env, ENV_PUSH_ALLOWED_ORIGINS)),
         relaxed_csp: Some(is_enabled(env, ENV_RELAXED_CSP)),
         trust_proxy: Some(is_enabled(env, ENV_TRUST_PROXY)),
+        trusted_proxy_cidrs: Some(proxy_cidrs(env)?),
         cf_access_team_domain: declared_or_absent(env, ENV_CF_ACCESS_TEAM_DOMAIN),
         cf_access_aud: declared_or_absent(env, ENV_CF_ACCESS_AUD),
         web_public_url: normalize_https_origin(
@@ -182,12 +188,42 @@ fn coordinator_database(
     Ok(DatabaseLocation::Postgres(url))
 }
 
+/// `ROOST_TRUSTED_PROXY_CIDRS`, each entry a CIDR. Blank entries are skipped;
+/// a malformed one is refused by name rather than dropped, because a dropped
+/// entry is a proxy whose callers all collapse onto its address.
+fn proxy_cidrs(env: &dyn EnvSource) -> ProtocolResult<Vec<ipnet::IpNet>> {
+    let Some(declared) = declared_or_absent(env, ENV_TRUSTED_PROXY_CIDRS) else {
+        return Ok(Vec::new());
+    };
+    declared
+        .split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| {
+            entry.parse::<ipnet::IpNet>().map_err(|_| {
+                ProtocolError::new(
+                    ENV_TRUSTED_PROXY_CIDRS,
+                    format!("`{entry}` is not a CIDR such as 10.0.0.0/8"),
+                )
+            })
+        })
+        .collect()
+}
+
 /// The policies that depend on more than one field.
 fn apply_listener_policy(config: &CoordConfig) -> ProtocolResult<()> {
     // Trusting `X-Forwarded-For` makes the caller's origin
     // attacker-controlled unless every request arrives through the operator's
-    // front door, so the socket has to stay on loopback.
-    if config.trust_proxy {
+    // front door. With no declared proxy network that door is on this host, so
+    // the socket has to stay on loopback; with one, the coordinator believes the
+    // header only from those peers and may bind where they can reach it.
+    if !config.trusted_proxy_cidrs.is_empty() && !config.trust_proxy {
+        return Err(ProtocolError::new(
+            ENV_TRUSTED_PROXY_CIDRS,
+            format!("requires {ENV_TRUST_PROXY}=1"),
+        ));
+    }
+    if config.trust_proxy && config.trusted_proxy_cidrs.is_empty() {
         require_loopback_bind(&config.bind)?;
     }
     for origin in &config.cors_allowed_origins {

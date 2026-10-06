@@ -141,6 +141,10 @@ pub struct ListenerFixture {
     address: SocketAddr,
     root: PathBuf,
     server: tokio::task::JoinHandle<()>,
+    /// The flag shutdown raises, so a test can drain the listener.
+    pub draining: Arc<std::sync::atomic::AtomicBool>,
+    /// The process state the router serves, for the rows a test reads.
+    pub services: Arc<CoordServices>,
 }
 
 impl ListenerFixture {
@@ -201,7 +205,10 @@ impl ListenerFixture {
             web_public_url: resolved.web_public_url.clone(),
             trust_proxy: resolved.trust_proxy,
             spa: Arc::new(SpaMount::from_dist_path(dist.as_deref())),
+            draining: Arc::default(),
         });
+        let draining = Arc::clone(&state.draining);
+        let services = Arc::clone(&state.services);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -224,6 +231,8 @@ impl ListenerFixture {
             address,
             root,
             server,
+            draining,
+            services,
         }
     }
 

@@ -101,6 +101,9 @@ ed25519-dalek = "3.0.0"
 base64 = "0.23.1"
 sha2 = "0.11.0"
 hex = "0.4.3"
+# The proxy CIDRs a coordinator behind a load balancer believes
+# `X-Forwarded-For` from: parsed once in roost-host, matched in roost-coord.
+ipnet = "2.12.2"
 # Cloudflare Access front-door assertions are RS256 JWTs, and the coordinator
 # is the only place in the workspace that verifies one. `sha2` is the digest the
 # RSA signature is computed over; nothing else is needed, so the rest of the

@@ -91,6 +91,7 @@ impl WireFixture {
             web_public_url: None,
             trust_proxy: false,
             spa: Arc::new(SpaMount::from_dist_path(None)),
+            draining: Arc::default(),
         });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await

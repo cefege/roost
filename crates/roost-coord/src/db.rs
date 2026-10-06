@@ -19,11 +19,12 @@
 //! left to import — which is why `roost import-v2` refuses to run while one is
 //! running.
 //!
-//! SQLITE IS ONE CONNECTION, NOT A POOL. v2 opens a single `bun:sqlite` handle
-//! and Kysely reads and writes through it (`apps/coord/src/db/connection.ts:26-49`);
-//! concurrency comes from WAL plus a busy timeout plus the in-process write gate.
-//! Modelling a reader/writer pool there would be a behavioural change, not an
-//! optimisation. Postgres arbitrates its own writers, so it gets a real pool.
+//! ONE CONNECTION, NOT A POOL, ON EITHER BACKEND. v2 opens a single
+//! `bun:sqlite` handle and Kysely reads and writes through it
+//! (`apps/coord/src/db/connection.ts:26-49`); concurrency comes from WAL plus a
+//! busy timeout plus the in-process write gate. Modelling a reader/writer pool
+//! would be a behavioural change, not an optimisation — and on Postgres it is
+//! a correctness change: see [`POSTGRES_POOL_SIZE`].
 //!
 //! `synchronous = NORMAL` IS DELIBERATE AND MUST NOT BE "FIXED" TO FULL. The
 //! comment that settles it (`connection.ts:26-33`): "WAL + synchronous=NORMAL is
@@ -305,7 +306,7 @@ fn pending_migrations(migrator: &sqlx::migrate::Migrator, applied: &HashSet<i64>
 }
 
 impl CoordDb {
-    /// The pool: one connection on SQLite, [`POSTGRES_POOL_SIZE`] on Postgres.
+    /// The pool: one connection on either backend (see [`POSTGRES_POOL_SIZE`]).
     #[must_use]
     pub fn pool(&self) -> &sqlx::AnyPool {
         &self.pool

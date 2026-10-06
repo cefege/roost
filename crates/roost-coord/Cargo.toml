@@ -28,6 +28,7 @@ connectrpc = { workspace = true, features = ["server", "axum"] }
 ed25519-dalek.workspace = true
 futures-util.workspace = true
 hex.workspace = true
+ipnet.workspace = true
 roost-host.workspace = true
 roost-observability.workspace = true
 roost-platform.workspace = true

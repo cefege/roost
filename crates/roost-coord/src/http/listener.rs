@@ -66,21 +66,17 @@
 use std::sync::Arc;
 
 use axum::Router;
-use axum::extract::{Request, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 
 use crate::coord_core::CoordCore;
+use crate::http::db_export::db_export;
+use crate::http::health::{HEALTHZ_PATH, READYZ_PATH};
 use crate::http::spa::{self, SpaMount};
 use crate::http::upgrade::{sync_upgrade, worker_upgrade};
-use crate::maintenance::export_snapshot::{
-    EXPORT_DOWNLOAD_NAME, ExportSnapshot, prepare_export_snapshot, schedule_reclaim,
-};
 use crate::middleware::admission_layer::{AdmissionLayer, admission_gate};
 use crate::middleware::audit_layer::{AuditMount, audit_layer};
-use crate::middleware::caller_origin::{
-    ON_HOST_ONLY, caller_origin_layer, from_extensions, listener_trust,
-};
+use crate::middleware::caller_origin::{CallerTrust, caller_origin_layer, listener_trust};
 use crate::middleware::rate_limit_layer::rate_limit_layer;
 use crate::middleware::security::{security_layer, security_options_for_config};
 use crate::rpc::auth_gate::AuthGate;
@@ -132,6 +128,9 @@ pub struct ListenerState {
     /// `None` when the configured path holds no `index.html`, and every page
     /// request then 404s, which is what the boot log has already said why.
     pub spa: Arc<SpaMount>,
+    /// Raised once, on shutdown, so `/readyz` turns traffic away while open
+    /// connections drain.
+    pub draining: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// The router, plus the one thing about it that only the bind knows.
@@ -208,6 +207,10 @@ pub fn build_router(state: Arc<ListenerState>) -> MountedListener {
     let audit = AuditMount::new(Arc::clone(&core), state.spa.root().is_some());
     let spa = Arc::clone(&state.spa);
     let services = Arc::clone(&state.services);
+    let caller_trust = CallerTrust {
+        listener: trust,
+        proxy_cidrs: state.service.config.trusted_proxy_cidrs.clone().into(),
+    };
 
     // Reverse order, outermost first; see the module header. Each layer is
     // added to the router, so the LAST one added is the first one a request
@@ -217,6 +220,7 @@ pub fn build_router(state: Arc<ListenerState>) -> MountedListener {
         .route("/ws/coord-worker/{fingerprint}", get(worker_upgrade))
         .route(DB_EXPORT_PATH, get(db_export).head(db_export))
         .route(RETIRED_SYNC_PATH, axum::routing::post(retired_sync))
+        .merge(crate::http::health::health_routes())
         .fallback_service(connect)
         // The SPA is the fallback for the paths nothing above claims, and it is
         // mounted as a layer rather than a route so the two upgrade routes and
@@ -235,7 +239,7 @@ pub fn build_router(state: Arc<ListenerState>) -> MountedListener {
             security_layer,
         ))
         .layer(axum::middleware::from_fn_with_state(
-            trust,
+            caller_trust,
             caller_origin_layer,
         ))
         .layer(axum::middleware::from_fn_with_state(
@@ -255,115 +259,6 @@ async fn retired_sync() -> Response {
             "text/plain; charset=utf-8",
         )],
         SYNC_MOVED_BODY,
-    )
-        .into_response()
-}
-
-/// The on-host database export.
-async fn db_export(State(state): State<Arc<ListenerState>>, request: Request) -> Response {
-    // The on-host gate is the whole authorization for this route: no rate limit
-    // and no second token. `MiscDbExportUrl`, which is how a caller discovers
-    // this path, requires a device principal AND on-host, so a caller that is
-    // not on this host is refused here rather than answered.
-    match from_extensions(request.extensions()) {
-        Some(origin) if origin.on_host => {}
-        Some(origin) => {
-            tracing::warn!(
-                client_ip = %origin.client_ip,
-                listener = ?origin.listener,
-                "db-export refused for a caller that did not arrive on this host"
-            );
-            return on_host_refusal();
-        }
-        None => {
-            // Every request that reached a handler passed the caller-origin
-            // layer, so an absent profile is a wiring fault. It fails closed:
-            // this route's answer is a whole database.
-            tracing::error!(
-                "db-export has no resolved caller origin: the caller-origin layer is not mounted"
-            );
-            return on_host_refusal();
-        }
-    }
-    // Only a SQLite file the coordinator owns can be exported; a Postgres
-    // database answers 404 exactly as a missing file does.
-    if !state
-        .services
-        .db
-        .sqlite_path()
-        .is_some_and(std::path::Path::exists)
-    {
-        return (axum::http::StatusCode::NOT_FOUND, "").into_response();
-    }
-    let snapshot = match prepare_export_snapshot(&state.services.db).await {
-        Ok(snapshot) => snapshot,
-        Err(reason) => {
-            // The copy is what failed; the caller asked for a database and is
-            // getting none. 500 rather than 503: nothing here is a retryable
-            // outage, and a browser that retries a broken disk fills it faster.
-            tracing::error!(%reason, "db-export: the snapshot could not be taken");
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                [(axum::http::header::CONTENT_TYPE, "application/json")],
-                r#"{"error":"the export snapshot could not be taken"}"#,
-            )
-                .into_response();
-        }
-    };
-    schedule_reclaim(snapshot.path.clone());
-    match stream_database(&snapshot).await {
-        Ok(response) => response,
-        Err(reason) => {
-            tracing::error!(%reason, "db-export: the snapshot could not be opened for streaming");
-            (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                [(axum::http::header::CONTENT_TYPE, "application/json")],
-                r#"{"error":"the export snapshot could not be read"}"#,
-            )
-                .into_response()
-        }
-    }
-}
-
-/// Stream the copy from disk, never through memory: a coordinator database is
-/// measured in hundreds of megabytes, and reading one into the heap to send it
-/// is how an export becomes the outage it was taken to diagnose.
-async fn stream_database(snapshot: &ExportSnapshot) -> std::io::Result<Response> {
-    let file = tokio::fs::File::open(&snapshot.path).await?;
-    let mut headers = axum::http::HeaderMap::new();
-    insert(
-        &mut headers,
-        axum::http::header::CONTENT_TYPE,
-        "application/x-sqlite3",
-    );
-    insert(
-        &mut headers,
-        axum::http::header::CONTENT_LENGTH,
-        &snapshot.size.to_string(),
-    );
-    insert(
-        &mut headers,
-        axum::http::header::CONTENT_DISPOSITION,
-        &format!("attachment; filename=\"{EXPORT_DOWNLOAD_NAME}\""),
-    );
-    let body = axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(file));
-    Ok((axum::http::StatusCode::OK, headers, body).into_response())
-}
-
-/// A header whose value could not be a header value is left out, not faked: an
-/// export with a wrong `content-length` is worse than one without.
-fn insert(headers: &mut axum::http::HeaderMap, name: axum::http::HeaderName, value: &str) {
-    if let Ok(value) = axum::http::HeaderValue::from_str(value) {
-        headers.insert(name, value);
-    }
-}
-
-/// The refusal the export route gives a caller that is not on this host.
-fn on_host_refusal() -> Response {
-    (
-        axum::http::StatusCode::FORBIDDEN,
-        [(axum::http::header::CONTENT_TYPE, "application/json")],
-        format!(r#"{{"error":"{ON_HOST_ONLY}"}}"#),
     )
         .into_response()
 }
@@ -389,6 +284,8 @@ pub fn mounted_paths() -> Vec<&'static str> {
         "/ws/coord-worker/{fingerprint}",
         DB_EXPORT_PATH,
         RETIRED_SYNC_PATH,
+        HEALTHZ_PATH,
+        READYZ_PATH,
     ]
 }
 

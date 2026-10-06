@@ -16,10 +16,10 @@ use super::rows::{self, LiveSelector};
 use super::status::{ApprovalStatusFacts, StoredStatus, TerminalRequest};
 use super::{PairingError, PairingRefusal, sqlx_error};
 use crate::auth::cf_access::CloudflareAccessIdentity;
-use crate::coord_core::{Caller, CoordCore, ListenerTrust};
+use crate::coord_core::{Caller, CoordCore};
 use crate::db::CoordDb;
 use crate::events::bus_messages::PairRequestDelta;
-use crate::middleware::caller_origin::{CallerOrigin, resolve_caller_origin};
+use crate::middleware::caller_origin::{CallerOrigin, from_extensions};
 use crate::write_gate::SharedLease;
 
 /// What a caller is told when the exclusive keeper-update drain holds the gate.
@@ -45,37 +45,14 @@ pub(crate) fn lease(core: &CoordCore) -> Result<SharedLease, ConnectError> {
 
 /// The caller's origin for this request, as the origin layer resolved it.
 ///
-/// DELEGATES to `middleware::caller_origin::resolve_caller_origin`. That
-/// resolver owns the rule that matters: under a trusted proxy, the mere PRESENCE
-/// of `X-Forwarded-For` proves a proxy was traversed, which disqualifies the
-/// request from on-host authority even when the address behind it is loopback.
+/// READ, never re-derived: the layer is the single owner of the rule that
+/// under a trusted proxy the mere PRESENCE of `X-Forwarded-For` disqualifies a
+/// request from on-host authority, and of which peers' headers are believed at
+/// all. A context the layer never saw is an unknown caller — never on the host.
 pub(crate) fn caller_origin_of(context: &RequestContext) -> CallerOrigin {
-    resolve_caller_origin(
-        observed_trust(context),
-        context
-            .peer_addr()
-            .map(|address| address.to_string())
-            .as_deref(),
-        context
-            .headers()
-            .get("x-forwarded-for")
-            .and_then(|value| value.to_str().ok()),
-    )
-}
-
-/// The trust profile the listener under this request claims.
-///
-/// Read from the header the listener sets, never sniffed: a caller that could
-/// choose its own trust profile could choose to be trusted.
-fn observed_trust(context: &RequestContext) -> ListenerTrust {
-    match context
-        .headers()
-        .get("x-roost-listener-trust")
-        .and_then(|value| value.to_str().ok())
-    {
-        Some("trusted-proxy") => ListenerTrust::Forwarded,
-        _ => ListenerTrust::DirectLoopback,
-    }
+    from_extensions(context.extensions())
+        .cloned()
+        .unwrap_or_else(CallerOrigin::unknown)
 }
 
 /// Whether this caller may act as an approver, and which fingerprint to record.

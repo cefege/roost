@@ -1293,13 +1293,18 @@ so the two front doors cannot drift.
 
 ### 6.3 Health, metrics, and TLS
 
-**There is no `/health` HTTP route and no `/metrics` route.** Health is (a) the
-**public** Connect RPC `MiscHealth` → `{ok, boot_ms, uptime_ms, git_sha}`
-(`rpc/handlers-system.ts:104-111`) and (b) `serveServiceHealth`, a
-capability-gated UDS / named pipe started **only on `win32`**; darwin and linux
-skip it and any other platform throws `unsupported coordinator platform`
-(`main.ts:207-227`). Metrics are the **device-authenticated** Connect RPC
-`MiscMetrics` (`handlers-system.ts:121-134`).
+**Two orchestrator probes, no `/metrics` route.** `GET /healthz` answers `200
+ok` while the process serves; `GET /readyz` answers `200 ready` only while a
+`SELECT 1` returns within 2 s and shutdown has not begun (`503 database
+unavailable` / `503 draining` otherwise). Neither is audited, rate limited, or
+answered by the SPA (`crates/roost-coord/src/http/health.rs`). Application
+health is still the **public** Connect RPC `MiscHealth` → `{ok, boot_ms,
+uptime_ms, git_sha}` (`rpc/handlers-system.ts:104-111`); v2's
+`serveServiceHealth` UDS was `win32`-only and has no v3 counterpart. Metrics are
+the **device-authenticated** Connect RPC `MiscMetrics`
+(`handlers-system.ts:121-134`). On `SIGTERM`/`SIGINT` the listener stops
+accepting, readiness is withdrawn, and open connections get at most 20 s
+(`shutdown::SHUTDOWN_DRAIN_TIMEOUT`) before the process exits with them open.
 
 **TLS is never used by the coordinator.** Header: *"The coordinator serves
 plaintext on its loopback bind; the operator's front door owns TLS."*
@@ -1311,9 +1316,13 @@ public origins must be HTTPS (`packages/host/src/config.ts:28-40`).
 (`packages/host/src/coord-config-schema.ts:13`); v3 uses **`127.0.0.1:4113`**
 (`crates/roost-host/src/coord_config.rs:15`, `DEFAULT_COORDINATOR_BIND`) so a v2
 and a v3 coordinator can run side by side on one machine. Under
-`ROOST_TRUST_PROXY=1` the bind must match `^127\.0\.0\.1:[1-9]\d{0,4}$`, because
-trusting `X-Forwarded-For` on a non-loopback socket makes the caller origin
-attacker-controlled (`packages/host/src/config.ts:83-91`).
+`ROOST_TRUST_PROXY=1` with no `ROOST_TRUSTED_PROXY_CIDRS`, the bind must match
+`^127\.0\.0\.1:[1-9]\d{0,4}$`, because trusting `X-Forwarded-For` on a
+non-loopback socket makes the caller origin attacker-controlled
+(`packages/host/src/config.ts:83-91`). Declaring proxy networks there (a load
+balancer or ingress subnet) lifts the bind rule: the header is then believed
+only from a peer inside one of them, and from any other peer it is ignored and
+the socket peer is the caller (`middleware/caller_origin.rs`).
 
 ### 6.4 The startup janitor
 
