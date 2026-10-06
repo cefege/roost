@@ -84,7 +84,10 @@ impl EngineHosts {
         }
     }
 
-    pub fn stop(&mut self) {
+    /// Stop every engine with the intent to insert. Takes `&self` because an
+    /// engine with nothing left to wait for settles inside this call, and that
+    /// settle re-enters the hosts to clear the engines' text.
+    pub fn stop(&self) {
         if let Some(deepgram) = &self.deepgram {
             deepgram.stop();
         }
@@ -93,7 +96,7 @@ impl EngineHosts {
         }
     }
 
-    pub fn abort(&mut self) {
+    pub fn abort(&self) {
         if let Some(deepgram) = &self.deepgram {
             deepgram.abort();
         }
@@ -102,7 +105,7 @@ impl EngineHosts {
         }
     }
 
-    pub fn reset(&mut self) {
+    pub fn reset(&self) {
         if let Some(deepgram) = &self.deepgram {
             deepgram.reset();
         }
@@ -127,11 +130,11 @@ impl EngineHosts {
 
     pub fn start(&mut self) {}
 
-    pub fn stop(&mut self) {}
+    pub fn stop(&self) {}
 
-    pub fn abort(&mut self) {}
+    pub fn abort(&self) {}
 
-    pub fn reset(&mut self) {}
+    pub fn reset(&self) {}
 }
 
 /// Read the coordinator's stored configuration once per mount.

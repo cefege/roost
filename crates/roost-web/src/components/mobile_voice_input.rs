@@ -19,6 +19,7 @@ use super::mobile_voice_dom::{
     EngineHosts, bool_attr, choose_engine, is_secure_context, keep_keyboard, mic_icon, mic_label,
     read_config,
 };
+use super::mobile_voice_send::{FinalizeSendDoor, use_finalize_send_door};
 use super::mobile_voice_shell::use_voice_shell_controls;
 use super::mobile_voice_watchdog::{arm_watchdog, clear_watchdog};
 use crate::pump::{Pump, use_store};
@@ -38,14 +39,20 @@ pub fn MobileVoiceInput(
     /// Whether this composer is the one that may record.
     #[props(default)]
     active: bool,
-    /// The composer is recording, or on its way to.
-    on_active_change: EventHandler<bool>,
+    /// Where the recording is, after every step it takes.
+    on_state_change: EventHandler<VoiceState>,
     /// Final words to insert.
     on_transcript: EventHandler<String>,
     /// The interim update to paint, or `None` to stop painting.
     on_live_transcript: EventHandler<Option<LiveTranscript>>,
     /// The operator threw the recording away.
     on_discard: EventHandler<()>,
+    /// Submit the draft: Send was pressed while this finalized, and it landed.
+    #[props(default)]
+    on_submit: EventHandler<()>,
+    /// The owning composer's door for a Send pressed while this finalizes.
+    #[props(default)]
+    send_door: Option<FinalizeSendDoor>,
     /// The live terminal context the recognizer is biased with, asked once per
     /// socket open.
     #[props(default)]
@@ -90,13 +97,15 @@ pub fn MobileVoiceInput(
             pump: pump.clone(),
             session_id: session_id.clone(),
             token,
-            on_active_change,
+            on_state_change,
             on_transcript,
             on_live_transcript,
             on_discard,
+            on_submit,
             read_context,
         })
     });
+    use_finalize_send_door(send_door, &context);
 
     // A pane switch commits what was settled and drops the hypothesis.
     {
@@ -197,10 +206,11 @@ pub(super) struct ComposerContext {
     pump: Pump,
     session_id: String,
     token: u64,
-    on_active_change: EventHandler<bool>,
+    on_state_change: EventHandler<VoiceState>,
     on_transcript: EventHandler<String>,
     on_live_transcript: EventHandler<Option<LiveTranscript>>,
     on_discard: EventHandler<()>,
+    on_submit: EventHandler<()>,
     read_context: Option<ContextReader>,
 }
 
@@ -230,7 +240,7 @@ impl ComposerContext {
     }
 
     /// Run one event through the machine and perform what it returns.
-    fn apply(self: &Rc<Self>, event: VoiceEvent) {
+    pub(super) fn apply(self: &Rc<Self>, event: VoiceEvent) {
         let effects = self.machine.borrow_mut().write().apply(event);
         self.perform(&effects);
     }
@@ -289,11 +299,19 @@ impl ComposerContext {
                     with_slot(|slot: &mut VoiceSlot| slot.release(self.token));
                 }
                 VoiceEffect::StartEngine => self.start_engine(),
-                VoiceEffect::StopAndSend => self.hosts.borrow_mut().stop(),
-                VoiceEffect::AbortEngine => self.hosts.borrow_mut().abort(),
-                VoiceEffect::ClearEngineText => self.hosts.borrow_mut().reset(),
-                VoiceEffect::ArmFinalizeWatchdog => self.arm_watchdog(),
-                VoiceEffect::ClearFinalizeWatchdog => self.clear_watchdog(),
+                // Shared: a stop that settles at once clears text through these.
+                VoiceEffect::StopAndSend => self.hosts.borrow().stop(),
+                VoiceEffect::AbortEngine => self.hosts.borrow().abort(),
+                VoiceEffect::ClearEngineText => self.hosts.borrow().reset(),
+                VoiceEffect::ArmFinalizeWatchdog => {
+                    let weak = Rc::downgrade(self);
+                    arm_watchdog(move || {
+                        if let Some(context) = weak.upgrade() {
+                            context.apply(VoiceEvent::WatchdogExpired);
+                        }
+                    });
+                }
+                VoiceEffect::ClearFinalizeWatchdog => clear_watchdog(),
                 VoiceEffect::Commit(text) => {
                     self.on_transcript.call(text.clone());
                     self.on_live_transcript.call(None);
@@ -302,13 +320,13 @@ impl ComposerContext {
                     self.on_discard.call(());
                     self.on_live_transcript.call(None);
                 }
+                VoiceEffect::SubmitDraft => self.on_submit.call(()),
                 // The engine's own caption is written where the engine reports
                 // it; a refusal from the machine carries no text of its own.
                 VoiceEffect::ShowError(_) | VoiceEffect::ClearError => {}
             }
         }
-        self.on_active_change
-            .call(self.machine().state().is_dictating());
+        self.on_state_change.call(self.machine().state());
     }
 
     /// Start the engine, with a sink that reaches this composer weakly: the
@@ -375,13 +393,5 @@ impl ComposerContext {
     #[allow(clippy::unused_self)]
     fn start_engine(&self) {
         let _ = ((self.language)(), &self.pump, &self.read_context);
-    }
-
-    fn arm_watchdog(&self) {
-        arm_watchdog();
-    }
-
-    fn clear_watchdog(&self) {
-        clear_watchdog();
     }
 }

@@ -203,3 +203,93 @@ fn dictating_is_true_for_every_non_idle_state() {
     assert!(VoiceState::Listening.is_dictating());
     assert!(VoiceState::Finalizing.is_dictating());
 }
+
+/// A recording the operator has stopped, with `words` settled.
+fn finalizing(words: &str) -> VoiceMachine {
+    let mut machine = listening();
+    machine.apply_transcript(words, "");
+    let _ = machine.apply(start());
+    machine
+}
+
+#[test]
+fn a_stop_arms_the_watchdog_before_it_stops_the_engine() {
+    // An engine with nothing left on the wire settles inside the stop; a
+    // watchdog armed after that would outlive the recording it watches.
+    let mut machine = listening();
+    assert_eq!(
+        machine.apply(start()),
+        vec![VoiceEffect::ArmFinalizeWatchdog, VoiceEffect::StopAndSend]
+    );
+}
+
+#[test]
+fn a_send_pressed_while_finalizing_submits_once_the_words_land() {
+    let mut machine = finalizing("hello there");
+    assert!(machine.apply(VoiceEvent::SendPressed).is_empty());
+    assert_eq!(machine.state(), VoiceState::Finalizing);
+    let effects = machine.apply(VoiceEvent::Settled);
+    // The submission follows the commit: it sends the words it waited for.
+    assert_eq!(
+        effects[effects.len() - 2..],
+        [
+            VoiceEffect::Commit("hello there".to_owned()),
+            VoiceEffect::SubmitDraft,
+        ]
+    );
+    // A late second settle (the deadline) is for a recording that has ended.
+    assert!(machine.apply(VoiceEvent::Settled).is_empty());
+}
+
+#[test]
+fn a_queued_send_with_nothing_heard_restores_the_draft_and_submits_it() {
+    let mut machine = finalizing("");
+    let _ = machine.apply(VoiceEvent::SendPressed);
+    let effects = machine.apply(VoiceEvent::Settled);
+    assert_eq!(
+        effects[effects.len() - 2..],
+        [VoiceEffect::DiscardRecording, VoiceEffect::SubmitDraft]
+    );
+}
+
+#[test]
+fn the_watchdog_and_a_hurried_tap_honour_a_queued_send() {
+    for finish in [VoiceEvent::WatchdogExpired, start()] {
+        let mut machine = finalizing("hello there");
+        let _ = machine.apply(VoiceEvent::SendPressed);
+        let effects = machine.apply(finish);
+        assert_eq!(effects.last(), Some(&VoiceEffect::SubmitDraft));
+    }
+}
+
+#[test]
+fn a_send_pressed_outside_finalizing_queues_nothing() {
+    let mut idle = VoiceMachine::default();
+    assert!(idle.apply(VoiceEvent::SendPressed).is_empty());
+    let mut machine = listening();
+    machine.apply_transcript("hello there", "");
+    let _ = machine.apply(VoiceEvent::SendPressed);
+    let _ = machine.apply(start());
+    let effects = machine.apply(VoiceEvent::Settled);
+    assert!(!effects.contains(&VoiceEffect::SubmitDraft));
+}
+
+#[test]
+fn an_ending_nobody_asked_to_send_drops_the_queued_send() {
+    for ending in [
+        VoiceEvent::Deactivated,
+        VoiceEvent::Discard,
+        VoiceEvent::Failed,
+    ] {
+        let mut machine = finalizing("hello there");
+        let _ = machine.apply(VoiceEvent::SendPressed);
+        let effects = machine.apply(ending.clone());
+        assert!(!effects.contains(&VoiceEffect::SubmitDraft), "{ending:?}");
+        // Nor does the press carry over into the next recording.
+        let _ = machine.apply(start());
+        let _ = machine.apply(VoiceEvent::Live);
+        let _ = machine.apply(start());
+        let effects = machine.apply(VoiceEvent::Settled);
+        assert!(!effects.contains(&VoiceEffect::SubmitDraft), "{ending:?}");
+    }
+}

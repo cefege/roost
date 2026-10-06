@@ -30,6 +30,7 @@ pub mod main_pane;
 pub mod md;
 pub mod mobile_voice_dom;
 pub mod mobile_voice_input;
+pub mod mobile_voice_send;
 pub mod mobile_voice_shell;
 pub mod mobile_voice_watchdog;
 pub mod not_served;

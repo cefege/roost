@@ -40,8 +40,8 @@ impl VoiceState {
     }
 
     /// Whether a recording is open, across every non-idle state. The composer's
-    /// send button and Enter key are inert while this is true, and the pad
-    /// router's dictation lamp reads it.
+    /// placeholder and the pad router's dictation lamp read it; what Send does
+    /// is `super::send_gate`'s decision.
     #[must_use]
     pub fn is_dictating(&self) -> bool {
         !matches!(self, Self::Idle)
@@ -85,9 +85,9 @@ impl RunFence {
 
     /// Claim the one settle a recording gets.
     ///
-    /// A finalize answer and the deadline that waits for it both ask to settle,
-    /// and a second settle reports the same words again — which the composer
-    /// would append to the draft a second time.
+    /// A stopped stream's summary, its close, and the deadline that waits for
+    /// them all ask to settle, and a second settle reports the same words again
+    /// — which the composer would append to the draft a second time.
     pub fn claim_settle(&mut self) -> bool {
         if self.ended {
             return false;
@@ -122,6 +122,8 @@ pub enum VoiceEvent {
     WatchdogExpired,
     /// The discard control was pressed.
     Discard,
+    /// The composer's Send was pressed.
+    SendPressed,
 }
 
 /// One instruction to the component, in the order v2 ran it.
@@ -151,6 +153,9 @@ pub enum VoiceEffect {
     Commit(String),
     /// Return the composer to its pre-recording text and go idle.
     DiscardRecording,
+    /// Submit the composer's draft: Send was pressed while this recording
+    /// finalized, and the delivery just performed is what it waited for.
+    SubmitDraft,
 }
 
 impl VoiceEffect {
@@ -173,6 +178,8 @@ pub struct VoiceMachine {
     settled: String,
     hypothesis: String,
     error: Option<&'static str>,
+    /// Send was pressed while finalizing; the ending submits the draft.
+    send_queued: bool,
 }
 
 impl VoiceMachine {
@@ -242,6 +249,7 @@ impl VoiceMachine {
             VoiceEvent::Deactivated => self.force_finish(false),
             VoiceEvent::WatchdogExpired => self.force_finish(true),
             VoiceEvent::Discard => self.discard(),
+            VoiceEvent::SendPressed => self.queue_send(),
         }
     }
 
@@ -272,7 +280,9 @@ impl VoiceMachine {
             VoiceState::Starting => Vec::new(),
             VoiceState::Listening => {
                 self.state = VoiceState::Finalizing;
-                vec![VoiceEffect::StopAndSend, VoiceEffect::ArmFinalizeWatchdog]
+                // Armed first: an engine with nothing left to wait for settles
+                // inside the stop, and that settle is what disarms it.
+                vec![VoiceEffect::ArmFinalizeWatchdog, VoiceEffect::StopAndSend]
             }
             VoiceState::Finalizing => self.force_finish(true),
         }
@@ -297,12 +307,14 @@ impl VoiceMachine {
             return Vec::new();
         }
         let insert = self.transcript(true);
+        let submit = self.send_queued;
         let mut effects = vec![
             VoiceEffect::ClearFinalizeWatchdog,
             VoiceEffect::ClearEngineText,
         ];
         self.reset(&mut effects);
         effects.push(VoiceEffect::deliver(insert));
+        effects.extend(submit.then_some(VoiceEffect::SubmitDraft));
         effects
     }
 
@@ -326,16 +338,31 @@ impl VoiceMachine {
         effects
     }
 
-    fn force_finish(&mut self, keep_hypothesis: bool) -> Vec<VoiceEffect> {
+    /// End a recording the engine did not settle. An ending the operator asked
+    /// for — a second tap, or the watchdog finishing their stop — keeps the
+    /// hypothesis they were reading and honours a Send they pressed. A composer
+    /// that stopped being the active one keeps only settled words and sends
+    /// nothing: nobody is reading the terminal it would type into.
+    fn force_finish(&mut self, asked: bool) -> Vec<VoiceEffect> {
         if self.state == VoiceState::Idle {
             return Vec::new();
         }
         // Taken before the reset: the words are what this effect commits.
-        let insert = self.transcript(keep_hypothesis);
+        let insert = self.transcript(asked);
+        let submit = self.send_queued && asked;
         let mut effects = vec![VoiceEffect::ClearFinalizeWatchdog, VoiceEffect::AbortEngine];
         self.reset(&mut effects);
         effects.push(VoiceEffect::deliver(insert));
+        effects.extend(submit.then_some(VoiceEffect::SubmitDraft));
         effects
+    }
+
+    /// A Send pressed while finalizing waits for the engine's answer to the
+    /// stop, which may still revise the hypothesis and add words. Anywhere else
+    /// the composer acts on the press itself.
+    fn queue_send(&mut self) -> Vec<VoiceEffect> {
+        self.send_queued |= self.state == VoiceState::Finalizing;
+        Vec::new()
     }
 
     /// Back to idle: the state moves first, so an effect that re-enters the
@@ -344,6 +371,7 @@ impl VoiceMachine {
         self.state = VoiceState::Idle;
         self.settled.clear();
         self.hypothesis.clear();
+        self.send_queued = false;
         effects.push(VoiceEffect::ReleaseVoice);
     }
 }

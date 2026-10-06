@@ -43,7 +43,7 @@ use roost_web::platform::connect::CoordRpc;
 use roost_web::pump::Pump;
 use roost_web::voice::ownership::with_slot;
 use roost_web::voice::shell_controls;
-use roost_web::voice::state::LiveTranscript;
+use roost_web::voice::state::{LiveTranscript, VoiceState};
 
 /// The session whose composer the mic belongs to.
 const SESSION_ID: &str = "00000000-0000-4000-8000-00000000000b";
@@ -51,7 +51,7 @@ const SESSION_ID: &str = "00000000-0000-4000-8000-00000000000b";
 thread_local! {
     /// Whether the composer is mounted, read by the root and written by the test.
     static MOUNTED: RefCell<Option<Signal<bool>>> = const { RefCell::new(None) };
-    /// Every `active` the mic reported to its owner, in order.
+    /// Whether the mic was dictating, at every state it reported to its owner.
     static TOLD_ACTIVE: RefCell<Vec<bool>> = const { RefCell::new(Vec::new()) };
 }
 
@@ -68,15 +68,15 @@ fn mic_root() -> Element {
     });
     let mounted = use_signal(|| true);
     MOUNTED.with(|slot| *slot.borrow_mut() = Some(mounted));
-    let told = EventHandler::new(|active: bool| {
-        TOLD_ACTIVE.with(|seen| seen.borrow_mut().push(active));
+    let told = EventHandler::new(|state: VoiceState| {
+        TOLD_ACTIVE.with(|seen| seen.borrow_mut().push(state.is_dictating()));
     });
     rsx! {
         if mounted() {
             MobileVoiceInput {
                 owner_id: SESSION_ID.to_owned(),
                 active: true,
-                on_active_change: told,
+                on_state_change: told,
                 on_transcript: EventHandler::new(|_words: String| {}),
                 on_live_transcript: EventHandler::new(|_update: Option<LiveTranscript>| {}),
                 on_discard: EventHandler::new(|_thrown_away: ()| {}),

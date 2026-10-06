@@ -2,10 +2,10 @@
 //!
 //! THE REGRESSION. Dictation does not own a field of its own: it paints onto a
 //! draft an operator is also typing in, and every word it produces goes through
-//! three different endings — a finalize answer, the deadline that waits for one,
-//! and a composer that simply went away mid-recording. Each has to move the
-//! draft exactly once, and each arrives on its own schedule: a stopped stream
-//! answers its finalize on the wire AND leaves a timer running in case that
+//! three different endings — the stream's answer to a stop, the deadline that
+//! waits for one, and a composer that simply went away mid-recording. Each has
+//! to move the draft exactly once, and each arrives on its own schedule: a
+//! stopped stream answers on the wire AND leaves a timer running in case that
 //! answer never comes. A page that answers both commits the same sentence
 //! twice; a page that lets a timer from a finished recording answer for the next
 //! one ends a recording the operator is still speaking into.

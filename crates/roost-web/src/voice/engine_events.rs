@@ -21,9 +21,9 @@ use super::handshake::captions;
 /// frame would only produce a second, worse caption for the same failure.
 ///
 /// The fence is the run, because a socket outlives the tap that opened it: a
-/// finalize answer that lands after the next recording has started is a word
-/// from the PREVIOUS conversation, and without this it is appended to a draft
-/// the operator is still typing into.
+/// stopped stream's last result that lands after the next recording has started
+/// is a word from the PREVIOUS conversation, and without this it is appended to
+/// a draft the operator is still typing into.
 pub(super) fn bind_socket(socket: &WebSocket, engine: &Rc<Deepgram>, run: u64) {
     let weak = engine.owner.borrow().clone();
     let on_open = Closure::wrap(Box::new(move || {
@@ -133,7 +133,10 @@ impl Deepgram {
             if !engine.admits(run) {
                 return;
             }
-            if engine.session.borrow().failed {
+            // Stopped, discarded or failed: an ended recording has no device
+            // left to wait for, and refusing it now would caption a recording
+            // the operator already finished.
+            if engine.session.borrow().end_intent.is_some() {
                 return;
             }
             if super::audio_capture::open_pending() {
@@ -159,7 +162,9 @@ impl Deepgram {
             if !engine.admits(run) {
                 return;
             }
-            if engine.session.borrow().failed {
+            // An ended recording's silence is the stop, and rebuilding the
+            // graph for it would reattach the device to nothing.
+            if engine.session.borrow().end_intent.is_some() {
                 return;
             }
             if super::audio_capture::open_pending() {

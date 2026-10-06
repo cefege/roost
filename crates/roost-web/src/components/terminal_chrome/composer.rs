@@ -25,6 +25,7 @@ use super::dom;
 use super::pane_geometry_dom::PaneDockHandle;
 use crate::components::deck::deck_dom;
 use crate::voice::keyterms::ContextReader;
+use crate::voice::send_gate::SendGate;
 
 use crate::components::layout::portal::Portal;
 use crate::components::layout::window_size::use_is_compact;
@@ -214,10 +215,22 @@ pub fn TerminalComposer(
             );
         }
     };
-    let submit = {
+    // While a stopped recording waits for its last words the press is queued
+    // with the mic, which submits through `submit_queued` once they land.
+    let mut press_send = {
+        let dictation = dictation.clone();
         let mut send = send.clone();
-        move |_event: MouseEvent| send()
+        move || match dictation.send_gate() {
+            SendGate::Submit => send(),
+            SendGate::AfterFinalize => dictation.send_after_finalize(),
+            SendGate::Withheld => {}
+        }
     };
+    let submit = {
+        let mut press_send = press_send.clone();
+        move |_event: MouseEvent| press_send()
+    };
+    let submit_queued = move |()| send();
     // A control in the pill must not steal focus from an already-focused field:
     // if Escape or an outside interaction blurred it, the click must not
     // reopen the soft keyboard.
@@ -238,16 +251,16 @@ pub fn TerminalComposer(
     let mic_active = dictation.clone();
     let dictation_for_mic_control = mic_active.clone();
     let on_key_down = move |event: KeyboardEvent| {
-        // Dictation owns the field while it records: an Enter then would send a
-        // half-heard sentence, and the soft keyboard's newline is what the key
-        // was for.
+        // A live recording owns the field: an Enter then would send a
+        // half-heard sentence, so it stays the newline the key is for. A
+        // stopped one takes it as Send, as the button does.
         if event.key() == Key::Enter
             && !event.modifiers().contains(Modifiers::SHIFT)
-            && !dictation_for_keys.blocks_send()
+            && dictation_for_keys.send_gate().offers_send()
             && enter_submits(&event)
         {
             event.prevent_default();
-            send();
+            press_send();
             return;
         }
         // Escape only drops the field's focus, so the terminal's own shortcuts
@@ -337,9 +350,10 @@ pub fn TerminalComposer(
                         active: active && !pending,
                         read_context: Some(read_context.clone()),
                         binding: SharedBinding(dictation_for_mic_control.clone()),
+                        on_submit: submit_queued,
                     }
                 }
-                if !dictation_for_send.blocks_send() {
+                if dictation_for_send.send_gate().offers_send() {
                 IconButton {
                     icon: "send",
                     label: "Send to terminal",

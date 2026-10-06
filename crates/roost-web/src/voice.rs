@@ -6,14 +6,15 @@
 //! transcription, so every piece here is either a pure decision or a host.
 //!
 //! The split follows what each piece can be tested against. `engine`, `state`,
-//! `ownership`, `handshake`, `keyterms`, `keyterm_stopwords`, `pcm` and
-//! `transcript` are pure: they decide the engine name in `data-engine`, the value
-//! in `data-state`, who owns the microphone, the handshake URL and every error
-//! caption, the vocabulary that rides it, the linear16 bytes and how a
-//! provisional transcript is painted — all without a microphone, a coordinator
-//! or a browser. `capabilities`, `audio_capture`, `deepgram_engine`, `grant` and
-//! `web_speech` are the hosts that ask the browser for those facts, open the
-//! sockets, and perform the capture.
+//! `send_gate`, `ownership`, `handshake`, `keyterms`, `keyterm_stopwords`, `pcm`
+//! and `transcript` are pure: they decide the engine name in `data-engine`, the
+//! value in `data-state`, what Send does mid-recording, who owns the
+//! microphone, the handshake URL and every error caption, the vocabulary that
+//! rides it, the linear16 bytes and how a provisional transcript is painted —
+//! all without a microphone, a coordinator or a browser. `capabilities`,
+//! `audio_capture`, `deepgram_engine`, `grant` and `web_speech` are the hosts
+//! that ask the browser for those facts, open the sockets, and perform the
+//! capture.
 
 pub mod engine;
 pub mod handshake;
@@ -25,6 +26,7 @@ pub mod keyterms;
 pub mod lexicon_store;
 pub mod ownership;
 pub mod pcm;
+pub mod send_gate;
 pub mod shell_controls;
 pub mod state;
 pub mod transcript;

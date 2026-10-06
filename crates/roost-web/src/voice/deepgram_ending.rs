@@ -1,5 +1,5 @@
-//! How one recording ENDS: an operator's stop, a finalize that arrives or does
-//! not, a socket that closed, and a failure that must be reported once.
+//! How one recording ENDS: an operator's stop, a close the service answers or
+//! does not, a socket that closed, and a failure that must be reported once.
 //!
 //! Split out of `super::deepgram_engine` because ending is the one part of the
 //! protocol with a decision to get wrong rather than a call to make: every
@@ -16,6 +16,10 @@ use super::deepgram_engine::{Deepgram, FINALIZE_WAIT_MS, RECONNECT_DELAY_MS};
 use super::engine_events::{EngineEvent, after};
 use super::handshake::{CloseIntent, close_message, is_expected_close};
 
+/// Ask the service to finish the stream: it answers the audio it still holds,
+/// sends a `Metadata` summary, and closes.
+const CLOSE_STREAM: &str = "{\"type\":\"CloseStream\"}";
+
 impl Deepgram {
     /// Stop with the intent to insert what was heard.
     pub fn stop(&self) {
@@ -27,19 +31,56 @@ impl Deepgram {
         self.end(CloseIntent::Cancel);
     }
 
+    /// End the recording: the device stops now, and the stream is asked to
+    /// finish (`Send`) or is hung up on (`Cancel`).
+    ///
+    /// The device stops at the press because a word spoken after Stop is not
+    /// this recording's, and a discarded one must not keep streaming. A stop
+    /// is `CloseStream` rather than `Finalize`: Deepgram answers a `Finalize`
+    /// only while it still holds unanswered audio, and without words when its
+    /// own endpointing has already finalized the last phrase — exactly the stop
+    /// after a sentence the operator can already read — so nothing would settle
+    /// before the deadline. A `CloseStream` is answered every time: the last
+    /// results, the summary `fold` settles on, then the close `closed` settles on.
     fn end(&self, intent: CloseIntent) {
         let socket = {
             let mut session = self.session();
+            // One ending per recording, except that a stop still waiting for
+            // its words may be abandoned.
+            let ended = match session.end_intent {
+                None => false,
+                Some(CloseIntent::Send) => intent != CloseIntent::Cancel,
+                Some(_) => true,
+            };
+            if ended {
+                return;
+            }
             session.end_intent = Some(intent);
             session.socket.clone()
         };
-        let Some(socket) = socket else {
-            return;
-        };
-        if socket.ready_state() != WebSocket::OPEN {
+        super::audio_capture::stop_capture();
+        self.stop_keepalive();
+        let open = socket
+            .as_ref()
+            .is_some_and(|socket| socket.ready_state() == WebSocket::OPEN);
+        tracing::debug!(target: "voice", ?intent, socket_open = open, "voice.recording_ended");
+        if intent != CloseIntent::Send {
+            self.session().socket = None;
+            if let Some(socket) = socket {
+                if open {
+                    let _ = socket.send_with_str(CLOSE_STREAM);
+                }
+                let _ = socket.close();
+            }
             return;
         }
-        let _ = socket.send_with_str("{\"type\":\"Finalize\"}");
+        let Some(socket) = socket.filter(|_| open) else {
+            // Between a dropped socket and its reconnect nothing can answer, so
+            // what has settled is everything this recording will have.
+            self.settle();
+            return;
+        };
+        let _ = socket.send_with_str(CLOSE_STREAM);
         let run = self.current_run();
         let weak = self.weak();
         after(FINALIZE_WAIT_MS, move || {
@@ -54,11 +95,11 @@ impl Deepgram {
     /// The recording is over: the words are settled, whatever the socket did.
     ///
     /// Once, and only for an operator who asked to keep what was heard. A
-    /// stopped stream answers its finalize on the wire AND leaves a deadline
-    /// running in case that answer never comes, and the second of the two to
-    /// arrive would report the same words a second time — which the composer
-    /// appends to the draft a second time. A cancelled or failed recording is
-    /// not settled at all: its words are not the draft's.
+    /// stopped stream answers its close with a summary AND a close, and leaves
+    /// a deadline running in case neither comes; whichever arrives second
+    /// would report the same words a second time — which the composer appends
+    /// to the draft a second time. A cancelled or failed recording is not
+    /// settled at all: its words are not the draft's.
     pub(super) fn settle(&self) {
         let socket = {
             let mut session = self.session();
@@ -77,11 +118,9 @@ impl Deepgram {
         if heard_nothing && settled.is_empty() {
             tracing::warn!(target = "voice", "voice.dictation_empty");
         }
-        // What a finished recording leaves behind: a keepalive that would keep
-        // a dead stream open, and a socket nothing will read again.
-        self.stop_keepalive();
+        // `end` already stopped the device and the keepalive and asked the
+        // service to close; what is left is our end of a socket nothing reads.
         if let Some(socket) = socket {
-            let _ = socket.send_with_str("{\"type\":\"CloseStream\"}");
             let _ = socket.close();
         }
         (self.sink)(EngineEvent::Transcript {
@@ -89,7 +128,6 @@ impl Deepgram {
             hypothesis: String::new(),
         });
         (self.sink)(EngineEvent::Settled);
-        super::audio_capture::stop_capture();
     }
 
     /// Report a failure, ending the recording ONCE.

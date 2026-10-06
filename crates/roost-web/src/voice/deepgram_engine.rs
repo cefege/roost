@@ -230,24 +230,23 @@ impl Deepgram {
     }
 
     async fn open_socket(self: Rc<Self>, run: u64) {
-        let token = match (self.grant)().await {
+        let grant = (self.grant)().await;
+        // A key that arrives after its recording ended opens nothing: the
+        // socket it installed would replace the one the NEXT recording opened,
+        // and every frame it carried would be read as this engine's. A stop or
+        // a discard while the key was in flight ended this recording too.
+        if !self.admits(run) || self.session.borrow().end_intent.is_some() {
+            tracing::debug!(target: "voice", stage = "grant", "voice.connect_dropped");
+            return;
+        }
+        let token = match grant {
             Ok(token) => token,
             Err(error) => {
-                if !self.admits(run) {
-                    return;
-                }
                 tracing::warn!(target: "voice", stage = "grant", detail = %error, "voice.ws_failed");
                 self.fail(captions::SERVICE_UNAVAILABLE);
                 return;
             }
         };
-        // A key that arrives after its recording ended opens nothing: the
-        // socket it installed would replace the one the NEXT recording opened,
-        // and every frame it carried would be read as this engine's.
-        if !self.admits(run) {
-            tracing::debug!(target = "voice", stage = "grant", "voice.connect_dropped");
-            return;
-        }
         if token.is_empty() {
             self.fail(captions::SERVICE_UNAVAILABLE);
             return;
@@ -292,6 +291,7 @@ impl Deepgram {
         }
         match frame {
             Frame::Ignored => {}
+            Frame::StreamEnded => self.settle(),
             Frame::Rejected(detail) => {
                 tracing::warn!(target = "voice", stage = "msg", detail, "voice.ws_failed");
                 self.fail(&credential_rejected(&detail));
@@ -299,7 +299,6 @@ impl Deepgram {
             Frame::Transcript {
                 transcript,
                 is_final,
-                from_finalize,
             } => {
                 {
                     let mut session = self.session();
@@ -311,16 +310,11 @@ impl Deepgram {
                         session.interim = transcript;
                     }
                 }
-                {
-                    let session = self.session.borrow();
-                    (self.sink)(EngineEvent::Transcript {
-                        settled: session.settled(),
-                        hypothesis: session.interim.clone(),
-                    });
-                }
-                if from_finalize {
-                    self.settle();
-                }
+                let session = self.session.borrow();
+                (self.sink)(EngineEvent::Transcript {
+                    settled: session.settled(),
+                    hypothesis: session.interim.clone(),
+                });
             }
         }
     }

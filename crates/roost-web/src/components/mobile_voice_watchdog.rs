@@ -20,12 +20,18 @@ thread_local! {
     static WATCHDOG: RefCell<Option<i32>> = const { RefCell::new(None) };
 }
 
-/// Wait this long for a final result before finishing the recording anyway.
-pub fn arm_watchdog() {
+/// Wait this long for a final result, then run `on_expiry`, which finishes the
+/// recording anyway.
+pub fn arm_watchdog(on_expiry: impl FnOnce() + 'static) {
     clear_watchdog();
     #[cfg(target_arch = "wasm32")]
     if let Some(window) = web_sys::window() {
-        let expiry = wasm_bindgen::closure::Closure::once(|| {});
+        let expiry = wasm_bindgen::closure::Closure::once(move || {
+            // Forgotten before the finish runs, so the finish's own cancel
+            // does not clear a timer that has already fired.
+            WATCHDOG.with(|watchdog| *watchdog.borrow_mut() = None);
+            on_expiry();
+        });
         if let Ok(id) = window.set_timeout_with_callback_and_timeout_and_arguments_0(
             expiry.as_ref().unchecked_ref(),
             FINALIZE_WATCHDOG_MS,
@@ -34,6 +40,8 @@ pub fn arm_watchdog() {
             WATCHDOG.with(|watchdog| *watchdog.borrow_mut() = Some(id));
         }
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    drop(on_expiry);
 }
 
 /// Cancel the finalize watchdog.

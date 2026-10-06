@@ -9,7 +9,9 @@ use std::cell::RefCell;
 
 use dioxus::prelude::*;
 
-use crate::voice::state::LiveTranscript;
+use crate::components::mobile_voice_send::FinalizeSendDoor;
+use crate::voice::send_gate::SendGate;
+use crate::voice::state::{LiveTranscript, VoiceState};
 use crate::voice::transcript::{PaintedDraft, glued, paint};
 
 /// The composer's side of one recording.
@@ -20,7 +22,9 @@ pub(super) struct DictationBinding {
     draft: RefCell<Signal<String>>,
     dictation_base: RefCell<Signal<Option<String>>>,
     provisional_from: RefCell<Signal<Option<usize>>>,
-    dictating: RefCell<Signal<bool>>,
+    voice_state: RefCell<Signal<VoiceState>>,
+    /// Where a Send pressed while the recording finalizes reaches the mic.
+    send_door: FinalizeSendDoor,
 }
 
 /// Wire the composer's draft to the mic.
@@ -29,7 +33,8 @@ pub(super) fn use_dictation(draft: Signal<String>) -> DictationBinding {
         draft: RefCell::new(draft),
         dictation_base: RefCell::new(use_signal(|| Option::<String>::None)),
         provisional_from: RefCell::new(use_signal(|| Option::<usize>::None)),
-        dictating: RefCell::new(use_signal(|| false)),
+        voice_state: RefCell::new(use_signal(VoiceState::default)),
+        send_door: use_hook(FinalizeSendDoor::default),
     }
 }
 
@@ -75,9 +80,9 @@ impl DictationBinding {
         }
     }
 
-    /// The composer is recording, or on its way to.
-    pub(super) fn set_active(&self, dictating: bool) {
-        self.dictating.borrow_mut().set(dictating);
+    /// Where the mic's recording is, as it last reported.
+    pub(super) fn set_voice_state(&self, state: VoiceState) {
+        self.voice_state.borrow_mut().set(state);
     }
 
     /// A keystroke ends the provisional paint: what the operator typed is now the
@@ -89,17 +94,22 @@ impl DictationBinding {
 
     /// The placeholder: a recording owns the field, and says so.
     pub(super) fn placeholder(&self) -> &'static str {
-        if *self.dictating.borrow().read() {
+        if self.voice_state.borrow().read().is_dictating() {
             "Listening…"
         } else {
             "Type terminal input…"
         }
     }
 
-    /// Enter does not submit while a recording owns the field: a send would put
-    /// half a sentence in the terminal.
-    pub(super) fn blocks_send(&self) -> bool {
-        *self.dictating.borrow().read()
+    /// What a Send press does while the mic is where it is.
+    pub(super) fn send_gate(&self) -> SendGate {
+        SendGate::for_state(*self.voice_state.borrow().read())
+    }
+
+    /// Queue a Send with the mic, which submits the draft once the stopped
+    /// recording's last words are in it.
+    pub(super) fn send_after_finalize(&self) {
+        self.send_door.press();
     }
 
     /// The ghost mirror's split of the current field text.
@@ -149,7 +159,8 @@ impl Clone for DictationBinding {
             draft: self.draft.clone(),
             dictation_base: self.dictation_base.clone(),
             provisional_from: self.provisional_from.clone(),
-            dictating: self.dictating.clone(),
+            voice_state: self.voice_state.clone(),
+            send_door: self.send_door.clone(),
         }
     }
 }
@@ -209,7 +220,11 @@ pub fn VoiceControl(
     #[props(default)] active: bool,
     #[props(default)] read_context: Option<crate::voice::keyterms::ContextReader>,
     binding: SharedBinding,
+    /// The draft is ready to submit: Send was pressed while the recording
+    /// finalized, and its words are in the draft now.
+    on_submit: EventHandler<()>,
 ) -> Element {
+    let send_door = binding.0.send_door.clone();
     let commit_binding = binding.0.clone();
     let live_binding = binding.0.clone();
     let discard_binding = binding.0.clone();
@@ -217,10 +232,12 @@ pub fn VoiceControl(
         crate::components::mobile_voice_input::MobileVoiceInput {
             owner_id,
             active,
-            on_active_change: move |dictating_now| binding.0.set_active(dictating_now),
+            on_state_change: move |state: VoiceState| binding.0.set_voice_state(state),
             on_transcript: move |text: String| commit_binding.commit(text),
             on_live_transcript: move |update: Option<LiveTranscript>| live_binding.show(update),
             on_discard: move |()| discard_binding.discard(()),
+            on_submit: move |()| on_submit.call(()),
+            send_door: Some(send_door),
             read_context,
         }
     }

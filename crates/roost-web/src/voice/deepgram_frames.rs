@@ -2,9 +2,9 @@
 //!
 //! Split out of `super::deepgram_engine` because the wire format is where a
 //! transcription path most easily goes quietly wrong: a frame that parses as
-//! JSON but carries no alternatives, a rejection whose detail field moved, a
-//! finalize result that looks like any other final. All of it is decided here,
-//! over the parsed message, where a test can pin it.
+//! JSON but carries no alternatives, a rejection whose detail field moved, the
+//! summary that is a closed stream's last word. All of it is decided here, over
+//! the parsed message, where a test can pin it.
 //! Ports the `ws.onmessage` half of `apps/web/src/voice/deepgramDictation.ts`.
 
 use serde_json::Value;
@@ -12,8 +12,8 @@ use serde_json::Value;
 /// What one inbound frame means.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Frame {
-    /// Not a frame this recording acts on: a metadata message, or a result with
-    /// nothing in it.
+    /// Not a frame this recording acts on: a speech or utterance event, or a
+    /// result with nothing in it.
     Ignored,
     /// Words: finalized ones, and the hypothesis that may replace them.
     Transcript {
@@ -21,9 +21,10 @@ pub enum Frame {
         transcript: String,
         /// Whether the engine will not revise these words.
         is_final: bool,
-        /// Whether this is the result that closes a stopped stream.
-        from_finalize: bool,
     },
+    /// The summary a stream sends after its last result, as the service closes
+    /// it: every word for the audio it was sent has been delivered.
+    StreamEnded,
     /// The service refused the session. The detail is what the operator is told.
     Rejected(String),
 }
@@ -58,6 +59,9 @@ pub fn read_message(message: &Value) -> Frame {
             .unwrap_or("unknown");
         return Frame::Rejected(detail.to_owned());
     }
+    if kind == "Metadata" {
+        return Frame::StreamEnded;
+    }
     if kind != "Results" {
         return Frame::Ignored;
     }
@@ -80,10 +84,6 @@ pub fn read_message(message: &Value) -> Frame {
             .get("is_final")
             .and_then(Value::as_bool)
             .unwrap_or(false),
-        from_finalize: message
-            .get("from_finalize")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
     }
 }
 
@@ -102,23 +102,30 @@ mod tests {
             Frame::Transcript {
                 transcript: "PCM ready".to_owned(),
                 is_final: false,
-                from_finalize: false,
             }
         );
     }
 
     #[test]
-    fn a_final_result_that_closes_a_stopped_stream_says_so() {
+    fn a_final_result_says_so() {
         let frame = read(
-            r#"{"type":"Results","is_final":true,"from_finalize":true,"channel":{"alternatives":[{"transcript":"hello from the mic"}]}}"#,
+            r#"{"type":"Results","is_final":true,"channel":{"alternatives":[{"transcript":"hello from the mic"}]}}"#,
         );
         assert_eq!(
             frame,
             Frame::Transcript {
                 transcript: "hello from the mic".to_owned(),
                 is_final: true,
-                from_finalize: true,
             }
+        );
+    }
+
+    #[test]
+    fn the_summary_after_a_close_stream_ends_the_stream() {
+        // The one answer a `CloseStream` always gets, after its last result.
+        assert_eq!(
+            read(r#"{"type":"Metadata","request_id":"abc","duration":2.5}"#),
+            Frame::StreamEnded
         );
     }
 
@@ -153,11 +160,8 @@ mod tests {
     }
 
     #[test]
-    fn a_metadata_or_a_broken_payload_is_not_a_failure() {
-        assert_eq!(
-            read(r#"{"type":"Metadata","request_id":"abc"}"#),
-            Frame::Ignored
-        );
+    fn a_broken_payload_is_not_a_failure() {
+        assert_eq!(read(r#"{"type":"SpeechStarted"}"#), Frame::Ignored);
         assert_eq!(read("not json"), Frame::Ignored);
         assert_eq!(read(""), Frame::Ignored);
     }
