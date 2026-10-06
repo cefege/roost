@@ -53,6 +53,16 @@ impl BuiltRelease {
             dir,
         })
     }
+
+    /// The release tag.
+    pub fn tag(&self) -> &str {
+        &self.tag
+    }
+
+    /// The commit the release was built at.
+    pub fn sha(&self) -> &str {
+        &self.sha
+    }
 }
 
 pub fn install_on(host: &FleetHost, release: &BuiltRelease) -> Result<(), String> {

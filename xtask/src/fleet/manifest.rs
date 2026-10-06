@@ -14,8 +14,11 @@ use serde::Deserialize;
 pub struct Fleet {
     /// The ssh name of the Mac whose warm `~/roost-build` builds the macOS pair.
     pub mac_build_host: String,
-    /// Install order; the coordinator host comes first.
+    /// Install order; a host running a coordinator service comes first.
     pub hosts: Vec<FleetHost>,
+    /// A coordinator that runs on Kubernetes, upgraded before every host.
+    #[serde(default)]
+    pub coordinator: Option<super::coordinator::KubeCoordinator>,
 }
 
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]

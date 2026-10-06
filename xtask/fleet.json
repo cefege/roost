@@ -1,7 +1,16 @@
 {
   "mac_build_host": "m5",
+  "coordinator": {
+    "name": "k3s-coordinator",
+    "kubeconfig": "/etc/rancher/k3s/k3s.yaml",
+    "namespace": "roost",
+    "release": "roost-coordinator",
+    "chart": "deploy/helm/roost-coordinator",
+    "values": "deploy/helm/fleet-desktop-pc.values.yaml",
+    "image": "ghcr.io/cefege/roost-coordinator"
+  },
   "hosts": [
-    { "name": "ovh1", "ssh": "ovh1", "platform": "linux", "services": ["roost3-coord", "roost3-worker"] },
+    { "name": "ovh1", "ssh": "ovh1", "platform": "linux", "services": ["roost3-worker"] },
     { "name": "desktop-pc", "ssh": null, "platform": "linux", "services": ["roost3-worker"] },
     { "name": "m5", "ssh": "m5", "platform": "macos", "services": ["com.roost.worker-v3"] },
     { "name": "m1-new", "ssh": "m1-new", "platform": "macos", "services": ["com.roost.worker-v3"] },

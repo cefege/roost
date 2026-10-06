@@ -394,10 +394,17 @@ glibc 2.28 (one binary for every Linux host), the macOS pair on the warm
 `~/roost-build` of the Mac named in `fleet.json` (HEAD's `git archive`, only
 changed files copied, then an incremental cargo build), and the web bundle
 through `dx`, stamping the tag and HEAD's sha
-into both binaries. `fleet install` copies the tag into each host's
-`versions/<tag>/`, repoints the systemd units or the LaunchAgent at it,
-restarts them coordinator first, and fails a host whose keeper pid changed.
-Needs zig 0.16.0 and `cargo-zigbuild` 0.23.4 on this machine.
+into both binaries. `fleet install` first upgrades the coordinator, which runs
+on desktop-pc's k3s against an in-chart Postgres (`fleet.json` `coordinator`,
+values in `deploy/helm/fleet-desktop-pc.values.yaml`): it refuses until
+`.github/workflows/container.yml` has published the tag's image to ghcr, so
+push the tag first, then `helm upgrade`s and checks the pod reports the tag and
+sha. It then copies the tag into each host's `versions/<tag>/`, repoints the
+systemd units or the LaunchAgent at it, restarts them, and fails a host whose
+keeper pid changed. The public door is unchanged: `mike.roosttt.com` reaches
+ovh1's edge Caddy, whose `roost-saas-legacy-bridge` forwards over the tailnet
+to the coordinator's NodePort (30413). Needs zig 0.16.0, `cargo-zigbuild`
+0.23.4, `helm` and `kubectl` on this machine.
 
 ---
 

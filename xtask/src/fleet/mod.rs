@@ -1,10 +1,12 @@
 //! `cargo xtask fleet build|install` — the release path for our own machines.
 //! `build` produces every artifact of one tag under `target/fleet/<tag>/` (Linux
 //! through zig on this machine, macOS on a warm Mac, the web bundle through
-//! dx); `install` puts that tag on each host in `xtask/fleet.json` and restarts
-//! its services, refusing a host whose keeper did not survive the restart.
+//! dx); `install` upgrades the Kubernetes coordinator to the tag's image, then
+//! puts the tag on each host in `xtask/fleet.json` and restarts its services,
+//! refusing a host whose keeper did not survive the restart.
 
 mod build;
+mod coordinator;
 mod install;
 mod manifest;
 
@@ -76,19 +78,29 @@ fn build_command(arguments: &BuildArgs) -> Result<(), String> {
 fn install_command(arguments: &InstallArgs) -> Result<(), String> {
     check_tag(&arguments.version)?;
     let fleet = manifest::Fleet::load(&fleet_file())?;
-    if let Some(unknown) = arguments
-        .hosts
-        .iter()
-        .find(|name| !fleet.hosts.iter().any(|host| &host.name == *name))
-    {
+    let selected =
+        |name: &str| arguments.hosts.is_empty() || arguments.hosts.iter().any(|host| host == name);
+    let coordinator_name = fleet
+        .coordinator
+        .as_ref()
+        .map(|coordinator| coordinator.name.as_str());
+    if let Some(unknown) = arguments.hosts.iter().find(|name| {
+        !fleet.hosts.iter().any(|host| &host.name == *name)
+            && Some(name.as_str()) != coordinator_name
+    }) {
         return Err(format!("{unknown} is not a host in xtask/fleet.json"));
     }
     let release = install::BuiltRelease::load(&arguments.version)?;
     let started = Instant::now();
-    for host in &fleet.hosts {
-        if arguments.hosts.is_empty() || arguments.hosts.contains(&host.name) {
-            install::install_on(host, &release)?;
-        }
+    if let Some(coordinator) = fleet
+        .coordinator
+        .as_ref()
+        .filter(|coordinator| selected(&coordinator.name))
+    {
+        coordinator::install_coordinator(coordinator, &release)?;
+    }
+    for host in fleet.hosts.iter().filter(|host| selected(&host.name)) {
+        install::install_on(host, &release)?;
     }
     println!(
         "xtask fleet: {} installed in {}s",
