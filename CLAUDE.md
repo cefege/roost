@@ -294,6 +294,25 @@ Coord down → workers redial and browsers lose state and terminal fan-out, but
 keeper subprocesses preserve the PTYs until the coordinator returns. Worker
 down → that machine's PTYs are unavailable; other machines keep working.
 
+**Our fleet's coordinator is not a host service.** It runs on desktop-pc's k3s
+(namespace `roost`, Deployment `roost-coordinator`, StatefulSet
+`roost-coordinator-postgres`), so on every fleet host `roost status` reports the
+coordinator service and listener as absent; that is expected. Check it with:
+
+```
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+kubectl -n roost get pods                         # coordinator, postgres, backups
+curl -s https://mike.roosttt.com/readyz           # 200 = database answers
+kubectl -n roost logs deploy/roost-coordinator --since=1h   # the JSON log
+kubectl -n roost exec deploy/roost-coordinator -- roost doctor --since 24h
+```
+
+Roll back to ovh1's SQLite coordinator (it stopped at the cutover, its file
+intact): remove `/etc/systemd/system/roost-saas-legacy-bridge.service.d/desktop-pc.conf`
+on ovh1, restart that unit, `systemctl --user start roost3-coord`, and repoint
+ovh1's worker at `http://127.0.0.1:4113`. Rows written on k3s since do not
+carry back.
+
 **v3 runs beside v2, not on top of it.** v3 uses the data directories
 `RoostCoordinatorV3` and `RoostWorkerV3`, binds the coordinator to
 `127.0.0.1:4113`, and serves the worker's local door on `127.0.0.1:4114`, so
